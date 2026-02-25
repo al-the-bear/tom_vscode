@@ -1,0 +1,11 @@
+meta:
+  id: minimal
+  title: Minimal Flow
+  graph-version: 1
+
+nodes:
+  a:
+    type: process
+    label: Step A
+
+edges: []

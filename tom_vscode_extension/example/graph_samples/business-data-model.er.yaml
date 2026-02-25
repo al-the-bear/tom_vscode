@@ -1,0 +1,262 @@
+# yaml-language-server: $schema=../../../yaml_graph_core/graph-types/er-diagram/v1/er-diagram.schema.json
+# Business Data Model - E-Commerce Domain
+# Entity-Relationship diagram for core business entities
+meta:
+  id: business-data-model
+  title: E-Commerce Business Model
+  graph-version: 1
+  description: Core domain entities for an e-commerce platform
+
+entities:
+  Customer:
+    type: entity
+    description: Registered customer account
+    attributes:
+      - name: customer_id
+        type: UUID
+        key: PK
+      - name: email
+        type: string
+        key: UK
+        nullable: false
+      - name: full_name
+        type: string
+        nullable: false
+      - name: phone
+        type: string
+      - name: created_at
+        type: timestamp
+        nullable: false
+      - name: status
+        type: string
+        nullable: false
+      - name: loyalty_tier
+        type: string
+    relationships:
+      - to: Address
+        type: one-to-many
+        label: has
+      - to: Order
+        type: one-to-many
+        label: places
+
+  Address:
+    type: entity
+    description: Customer shipping/billing addresses
+    attributes:
+      - name: address_id
+        type: UUID
+        key: PK
+      - name: customer_id
+        type: UUID
+        key: FK
+        nullable: false
+      - name: address_type
+        type: string
+        nullable: false
+      - name: street_line_1
+        type: string
+        nullable: false
+      - name: street_line_2
+        type: string
+      - name: city
+        type: string
+        nullable: false
+      - name: state
+        type: string
+      - name: postal_code
+        type: string
+        nullable: false
+      - name: country
+        type: string
+        nullable: false
+      - name: is_default
+        type: boolean
+        nullable: false
+
+  Product:
+    type: entity
+    description: Sellable product catalog item
+    attributes:
+      - name: product_id
+        type: UUID
+        key: PK
+      - name: sku
+        type: string
+        key: UK
+        nullable: false
+      - name: name
+        type: string
+        nullable: false
+      - name: description
+        type: text
+      - name: category_id
+        type: UUID
+        key: FK
+      - name: brand_id
+        type: UUID
+        key: FK
+      - name: base_price
+        type: decimal
+        nullable: false
+      - name: status
+        type: string
+        nullable: false
+      - name: created_at
+        type: timestamp
+        nullable: false
+    relationships:
+      - to: OrderItem
+        type: one-to-many
+        label: ordered as
+      - to: Category
+        type: many-to-one
+        label: categorized in
+      - to: Brand
+        type: many-to-one
+        label: manufactured by
+
+  Category:
+    type: entity
+    description: Product category hierarchy
+    attributes:
+      - name: category_id
+        type: UUID
+        key: PK
+      - name: parent_id
+        type: UUID
+        key: FK
+      - name: name
+        type: string
+        nullable: false
+      - name: slug
+        type: string
+        key: UK
+        nullable: false
+      - name: level
+        type: integer
+        nullable: false
+    relationships:
+      - to: Category
+        type: many-to-one
+        label: child of
+
+  Brand:
+    type: entity
+    description: Product brand/manufacturer
+    attributes:
+      - name: brand_id
+        type: UUID
+        key: PK
+      - name: name
+        type: string
+        nullable: false
+      - name: logo_url
+        type: string
+      - name: website
+        type: string
+
+  Order:
+    type: entity
+    description: Customer purchase order
+    attributes:
+      - name: order_id
+        type: UUID
+        key: PK
+      - name: order_number
+        type: string
+        key: UK
+        nullable: false
+      - name: customer_id
+        type: UUID
+        key: FK
+        nullable: false
+      - name: shipping_address_id
+        type: UUID
+        key: FK
+        nullable: false
+      - name: billing_address_id
+        type: UUID
+        key: FK
+        nullable: false
+      - name: status
+        type: string
+        nullable: false
+      - name: subtotal
+        type: decimal
+        nullable: false
+      - name: tax_amount
+        type: decimal
+        nullable: false
+      - name: shipping_cost
+        type: decimal
+        nullable: false
+      - name: total
+        type: decimal
+        nullable: false
+      - name: placed_at
+        type: timestamp
+        nullable: false
+    relationships:
+      - to: OrderItem
+        type: one-to-many
+        label: contains
+      - to: Payment
+        type: one-to-many
+        label: paid by
+      - to: Address
+        type: many-to-one
+        label: ships to
+
+  OrderItem:
+    type: entity
+    description: Line item within an order
+    attributes:
+      - name: order_item_id
+        type: UUID
+        key: PK
+      - name: order_id
+        type: UUID
+        key: FK
+        nullable: false
+      - name: product_id
+        type: UUID
+        key: FK
+        nullable: false
+      - name: quantity
+        type: integer
+        nullable: false
+      - name: unit_price
+        type: decimal
+        nullable: false
+      - name: line_total
+        type: decimal
+        nullable: false
+
+  Payment:
+    type: entity
+    description: Payment transaction for an order
+    attributes:
+      - name: payment_id
+        type: UUID
+        key: PK
+      - name: order_id
+        type: UUID
+        key: FK
+        nullable: false
+      - name: method
+        type: string
+        nullable: false
+      - name: status
+        type: string
+        nullable: false
+      - name: amount
+        type: decimal
+        nullable: false
+      - name: currency
+        type: string
+        nullable: false
+      - name: transaction_id
+        type: string
+      - name: processed_at
+        type: timestamp

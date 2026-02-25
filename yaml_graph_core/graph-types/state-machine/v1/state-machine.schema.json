@@ -1,0 +1,82 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "state-machine.schema.json",
+    "title": "State Machine",
+    "description": "YAML schema for state machine / lifecycle diagrams with co-located transitions",
+    "type": "object",
+    "required": ["meta", "states"],
+    "properties": {
+        "meta": {
+            "type": "object",
+            "required": ["id", "title", "graph-version"],
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]*$"
+                },
+                "title": { "type": "string" },
+                "graph-version": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Mapping format version (must match a v{n}/ subfolder)"
+                },
+                "domain": {
+                    "type": "string",
+                    "description": "Domain extension ID (e.g., order-lifecycle/v1)"
+                },
+                "description": { "type": "string" }
+            }
+        },
+        "states": {
+            "type": "object",
+            "additionalProperties": {
+                "$ref": "#/$defs/state"
+            },
+            "minProperties": 1
+        }
+    },
+    "$defs": {
+        "state": {
+            "type": "object",
+            "required": ["label"],
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "description": "Semantic state type — constrained by domain schema"
+                },
+                "subtype": {
+                    "type": "string",
+                    "description": "Specialization within type"
+                },
+                "label": { "type": "string" },
+                "transitions": {
+                    "type": "array",
+                    "items": { "$ref": "#/$defs/transition" },
+                    "description": "Outgoing transitions from this state"
+                },
+                "entry-action": { "type": "string" },
+                "exit-action": { "type": "string" },
+                "metadata": {
+                    "type": "object",
+                    "description": "Domain-specific key-value data"
+                },
+                "description": { "type": "string" }
+            },
+            "unevaluatedProperties": false
+        },
+        "transition": {
+            "type": "object",
+            "required": ["to", "event"],
+            "properties": {
+                "to": { "type": "string" },
+                "event": { "type": "string" },
+                "guard": { "type": "string" },
+                "action": { "type": "string" },
+                "metadata": {
+                    "type": "object",
+                    "description": "Transition-specific metadata"
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,228 @@
+# yaml-language-server: $schema=../../../yaml_graph_core/graph-types/flowchart/v1/flowchart.schema.json
+# AI Agent Orchestration Flow
+# Models an autonomous AI agent processing a user request
+meta:
+  id: ai-agent-flow
+  title: AI Agent Request Processing
+  graph-version: 1
+  direction: TD
+  description: Multi-step AI agent workflow with tool use, RAG, and response generation
+
+nodes:
+  user-input:
+    shape: stadium
+    type: input
+    label: User Request
+    metadata:
+      source: chat-interface
+      status: implemented
+    connections:
+      - to: intent-classifier
+        label: Raw Input
+
+  intent-classifier:
+    shape: diamond
+    type: reasoning
+    subtype: classification
+    label: Classify Intent
+    metadata:
+      model: gpt-4o-mini
+      categories:
+        - question
+        - task
+        - clarification
+      status: implemented
+    connections:
+      - to: context-retrieval
+        label: Question
+      - to: task-planner
+        label: Task
+      - to: clarify
+        label: Unclear
+
+  clarify:
+    shape: parallelogram
+    type: output
+    subtype: clarification
+    label: Ask for Clarification
+    metadata:
+      max-rounds: 3
+      status: implemented
+    connections:
+      - to: user-input
+        label: User Response
+        style: dotted
+
+  context-retrieval:
+    shape: cylinder
+    type: retrieval
+    subtype: vector-search
+    label: RAG Context
+    metadata:
+      index: embeddings-v2
+      top_k: 5
+      status: implemented
+    connections:
+      - to: response-gen
+        label: Context Found
+      - to: web-search
+        label: No Context
+        style: dotted
+
+  web-search:
+    shape: hexagon
+    type: tool
+    subtype: search
+    label: Web Search
+    metadata:
+      provider: tavily
+      max-results: 10
+      status: planned
+    connections:
+      - to: response-gen
+        label: Results
+
+  task-planner:
+    shape: rectangle
+    type: reasoning
+    subtype: planning
+    label: Task Planning
+    metadata:
+      model: gpt-4o
+      max-steps: 10
+      status: implemented
+    connections:
+      - to: tool-router
+        label: Plan Created
+
+  tool-router:
+    shape: diamond
+    type: routing
+    label: Select Tool
+    metadata:
+      available-tools:
+        - code-execution
+        - file-operations
+        - api-calls
+        - database-query
+      status: implemented
+    connections:
+      - to: code-exec
+        label: Code
+      - to: file-ops
+        label: Files
+      - to: api-call
+        label: API
+      - to: db-query
+        label: Database
+
+  code-exec:
+    shape: subroutine
+    type: tool
+    subtype: code-execution
+    label: Execute Code
+    metadata:
+      runtime: d4rt
+      timeout: 30s
+      status: implemented
+    connections:
+      - to: result-validator
+        label: Output
+
+  file-ops:
+    shape: subroutine
+    type: tool
+    subtype: filesystem
+    label: File Operations
+    metadata:
+      allowed-ops:
+        - read
+        - write
+        - list
+      sandbox: true
+      status: implemented
+    connections:
+      - to: result-validator
+        label: Output
+
+  api-call:
+    shape: subroutine
+    type: tool
+    subtype: http
+    label: API Call
+    metadata:
+      methods:
+        - GET
+        - POST
+      timeout: 10s
+      status: planned
+    connections:
+      - to: result-validator
+        label: Response
+
+  db-query:
+    shape: cylinder
+    type: tool
+    subtype: database
+    label: Database Query
+    metadata:
+      read-only: true
+      status: planned
+    connections:
+      - to: result-validator
+        label: Results
+
+  result-validator:
+    shape: diamond
+    type: reasoning
+    subtype: validation
+    label: Validate Result
+    metadata:
+      retry-limit: 3
+      status: implemented
+    connections:
+      - to: task-planner
+        label: Retry
+        style: dotted
+      - to: response-gen
+        label: Valid
+
+  response-gen:
+    shape: rectangle
+    type: generation
+    subtype: response
+    label: Generate Response
+    metadata:
+      model: gpt-4o
+      temperature: 0.7
+      status: implemented
+    connections:
+      - to: safety-check
+        label: Draft Response
+
+  safety-check:
+    shape: diamond
+    type: filter
+    subtype: safety
+    label: Safety Check
+    metadata:
+      checks:
+        - harmful-content
+        - pii-leakage
+        - bias-detection
+      status: implemented
+    connections:
+      - to: output
+        label: Safe
+      - to: response-gen
+        label: Unsafe
+        style: dotted
+
+  output:
+    shape: stadium
+    type: output
+    subtype: response
+    label: Send Response
+    metadata:
+      format: markdown
+      status: implemented

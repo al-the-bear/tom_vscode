@@ -1,0 +1,22 @@
+# Top-level comment about the diagram
+meta:
+  id: commented-flow
+  title: Flow With Comments  # inline comment on title
+  graph-version: 1
+  version: 1
+
+# Node definitions
+nodes:
+  # The starting point
+  start:
+    type: start
+    label: Begin  # start label
+  # A processing step
+  process:
+    type: process
+    label: Do Work
+
+edges:
+  # First connection
+  - from: start
+    to: process

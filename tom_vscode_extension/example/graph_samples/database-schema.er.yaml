@@ -1,0 +1,296 @@
+# yaml-language-server: $schema=../../../yaml_graph_core/graph-types/er-diagram/v1/er-diagram.schema.json
+# Database Schema - User Authorization Management
+# Physical database design for UAM system
+meta:
+  id: database-schema
+  title: UAM Database Schema
+  graph-version: 1
+  description: Physical database schema for User Authorization Management with RBAC
+
+entities:
+  users:
+    type: entity
+    description: User account records
+    attributes:
+      - name: id
+        type: BIGSERIAL
+        key: PK
+      - name: uuid
+        type: UUID
+        key: UK
+        nullable: false
+      - name: email
+        type: varchar
+        key: UK
+        nullable: false
+      - name: password_hash
+        type: varchar
+        nullable: false
+      - name: display_name
+        type: varchar
+      - name: avatar_url
+        type: TEXT
+      - name: status
+        type: varchar
+        nullable: false
+      - name: email_verified_at
+        type: TIMESTAMPTZ
+      - name: last_login_at
+        type: TIMESTAMPTZ
+      - name: created_at
+        type: TIMESTAMPTZ
+        nullable: false
+      - name: updated_at
+        type: TIMESTAMPTZ
+        nullable: false
+
+  organizations:
+    type: entity
+    description: Tenant organizations
+    attributes:
+      - name: id
+        type: BIGSERIAL
+        key: PK
+      - name: uuid
+        type: UUID
+        key: UK
+        nullable: false
+      - name: name
+        type: varchar
+        nullable: false
+      - name: slug
+        type: varchar
+        key: UK
+        nullable: false
+      - name: owner_user_id
+        type: BIGINT
+        key: FK
+        nullable: false
+      - name: settings
+        type: JSONB
+      - name: created_at
+        type: TIMESTAMPTZ
+        nullable: false
+    relationships:
+      - to: users
+        type: many-to-one
+        label: owned by
+
+  organization_members:
+    type: entity
+    description: User membership in organizations (junction table)
+    attributes:
+      - name: id
+        type: BIGSERIAL
+        key: PK
+      - name: organization_id
+        type: BIGINT
+        key: FK
+        nullable: false
+      - name: user_id
+        type: BIGINT
+        key: FK
+        nullable: false
+      - name: joined_at
+        type: TIMESTAMPTZ
+        nullable: false
+      - name: invited_by_user_id
+        type: BIGINT
+        key: FK
+    relationships:
+      - to: organizations
+        type: many-to-one
+        label: belongs to
+      - to: users
+        type: many-to-one
+        label: member is
+
+  roles:
+    type: entity
+    description: Role definitions (system and custom)
+    attributes:
+      - name: id
+        type: BIGSERIAL
+        key: PK
+      - name: uuid
+        type: UUID
+        key: UK
+        nullable: false
+      - name: organization_id
+        type: BIGINT
+        key: FK
+      - name: name
+        type: varchar
+        nullable: false
+      - name: description
+        type: TEXT
+      - name: is_system
+        type: BOOLEAN
+        nullable: false
+      - name: hierarchy_level
+        type: INTEGER
+        nullable: false
+      - name: created_at
+        type: TIMESTAMPTZ
+        nullable: false
+    relationships:
+      - to: organizations
+        type: many-to-one
+        label: scoped to
+
+  permissions:
+    type: entity
+    description: Permission definitions
+    attributes:
+      - name: id
+        type: BIGSERIAL
+        key: PK
+      - name: code
+        type: varchar
+        key: UK
+        nullable: false
+      - name: name
+        type: varchar
+        nullable: false
+      - name: description
+        type: TEXT
+      - name: resource_type
+        type: varchar
+        nullable: false
+      - name: action
+        type: varchar
+        nullable: false
+
+  role_permissions:
+    type: entity
+    description: Role-to-permission assignments (junction table)
+    attributes:
+      - name: id
+        type: BIGSERIAL
+        key: PK
+      - name: role_id
+        type: BIGINT
+        key: FK
+        nullable: false
+      - name: permission_id
+        type: BIGINT
+        key: FK
+        nullable: false
+      - name: conditions
+        type: JSONB
+      - name: granted_at
+        type: TIMESTAMPTZ
+        nullable: false
+    relationships:
+      - to: roles
+        type: many-to-one
+        label: grants to
+      - to: permissions
+        type: many-to-one
+        label: grants
+
+  user_roles:
+    type: entity
+    description: User-to-role assignments within organizations
+    attributes:
+      - name: id
+        type: BIGSERIAL
+        key: PK
+      - name: user_id
+        type: BIGINT
+        key: FK
+        nullable: false
+      - name: role_id
+        type: BIGINT
+        key: FK
+        nullable: false
+      - name: organization_id
+        type: BIGINT
+        key: FK
+      - name: granted_by_user_id
+        type: BIGINT
+        key: FK
+      - name: granted_at
+        type: TIMESTAMPTZ
+        nullable: false
+      - name: expires_at
+        type: TIMESTAMPTZ
+    relationships:
+      - to: users
+        type: many-to-one
+        label: assigned to
+      - to: roles
+        type: many-to-one
+        label: assigns
+      - to: organizations
+        type: many-to-one
+        label: within
+
+  sessions:
+    type: entity
+    description: Active user sessions
+    attributes:
+      - name: id
+        type: BIGSERIAL
+        key: PK
+      - name: session_token
+        type: varchar
+        key: UK
+        nullable: false
+      - name: user_id
+        type: BIGINT
+        key: FK
+        nullable: false
+      - name: device_info
+        type: JSONB
+      - name: ip_address
+        type: INET
+      - name: created_at
+        type: TIMESTAMPTZ
+        nullable: false
+      - name: expires_at
+        type: TIMESTAMPTZ
+        nullable: false
+      - name: last_activity_at
+        type: TIMESTAMPTZ
+    relationships:
+      - to: users
+        type: many-to-one
+        label: belongs to
+
+  audit_logs:
+    type: entity
+    description: Security audit trail
+    attributes:
+      - name: id
+        type: BIGSERIAL
+        key: PK
+      - name: user_id
+        type: BIGINT
+        key: FK
+      - name: organization_id
+        type: BIGINT
+        key: FK
+      - name: action
+        type: varchar
+        nullable: false
+      - name: resource_type
+        type: varchar
+      - name: resource_id
+        type: varchar
+      - name: details
+        type: JSONB
+      - name: ip_address
+        type: INET
+      - name: user_agent
+        type: TEXT
+      - name: created_at
+        type: TIMESTAMPTZ
+        nullable: false
+    relationships:
+      - to: users
+        type: many-to-one
+        label: performed by
+      - to: organizations
+        type: many-to-one
+        label: within

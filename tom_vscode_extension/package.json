@@ -1,0 +1,2402 @@
+{
+    "name": "dartscript-vscode",
+    "displayName": "DartScript",
+    "description": "AI-powered build and documentation automation for Tom workspace with Copilot integration",
+    "version": "0.1.0",
+    "publisher": "tom",
+    "engines": {
+        "vscode": "^1.96.0"
+    },
+    "categories": [
+        "Other"
+    ],
+    "activationEvents": [
+        "onStartupFinished"
+    ],
+    "main": "./out/extension.js",
+    "contributes": {
+        "chatVariables": [
+            {
+                "id": "dartscript.quest",
+                "name": "quest",
+                "description": "Current active quest ID"
+            },
+            {
+                "id": "dartscript.role",
+                "name": "role",
+                "description": "Current AI role / persona"
+            },
+            {
+                "id": "dartscript.activeProjects",
+                "name": "activeProjects",
+                "description": "Currently active project IDs"
+            },
+            {
+                "id": "dartscript.todo",
+                "name": "todo",
+                "description": "Current todo summary from the active quest"
+            },
+            {
+                "id": "dartscript.workspaceName",
+                "name": "workspaceName",
+                "description": "Current workspace name"
+            }
+        ],
+        "viewsContainers": {
+            "panel": [
+                {
+                    "id": "dartscript-t2-panel",
+                    "title": "@CHAT",
+                    "icon": "$(layout)"
+                },
+                {
+                    "id": "dartscript-t3-panel",
+                    "title": "@WS",
+                    "icon": "$(beaker)"
+                }
+            ]
+        },
+        "submenus": [
+            {
+                "id": "dartscript.sendToChatSubmenu",
+                "label": "DartScript: Send to Chat..."
+            },
+            {
+                "id": "dartscript.sendToLocalLlmSubmenu",
+                "label": "DartScript: Send to local LLM..."
+            }
+        ],
+        "commands": [
+            {
+                "command": "dartscript.executeFile",
+                "title": "DS: Execute File",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.executeScript",
+                "title": "DS: Execute as Script",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.sendToChat",
+                "title": "DS: Send to Copilot Chat",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.sendToChatAdvanced",
+                "title": "DS: Send to Copilot Chat (Template)...",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.reloadSendToChatConfig",
+                "title": "DS: Reload Chat Config",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.sendToChatTrailReminder",
+                "title": "Send with Trail Reminder",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.sendToChatStandard",
+                "title": "DS: Send to Copilot Chat (Standard)",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.sendToChatTodoExecution",
+                "title": "TODO Execution",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.sendToChatCodeReview",
+                "title": "Code Review",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.sendToChatExplain",
+                "title": "Explain Code",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.sendToChatAddToTodo",
+                "title": "Add to Todo",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.sendToChatFixMarkdown",
+                "title": "Fix Markdown here",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.showChatAnswerValues",
+                "title": "DS: Show chat answer values",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.clearChatAnswerValues",
+                "title": "DS: Clear chat answer values",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.restartBridge",
+                "title": "DS: Restart Bridge",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.switchBridgeProfile",
+                "title": "DS: Switch Dartscript Bridge Profile...",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.reloadWindow",
+                "title": "DS: Reload Window",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.runTests",
+                "title": "DS: Run Tests",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.startCliServer",
+                "title": "DS: Start Tom CLI Integration Server",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.startCliServerCustomPort",
+                "title": "DS: Start Tom CLI Integration Server (Custom Port)",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.stopCliServer",
+                "title": "DS: Stop Tom CLI Integration Server",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.startProcessMonitor",
+                "title": "DS: Start Tom Process Monitor",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.toggleBridgeDebugLogging",
+                "title": "DS: Toggle Bridge Debug Logging",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.printConfiguration",
+                "title": "DartScript: Print Configuration",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.showHelp",
+                "title": "DS: Show Extension Help",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.showApiInfo",
+                "title": "DartScript: Show VS Code API Info",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.startTomAIChat",
+                "title": "Tom AI: Start Chat",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.sendToTomAIChat",
+                "title": "Tom AI: Send Chat Prompt",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.interruptTomAIChat",
+                "title": "Tom AI: Interrupt Chat",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.expandPrompt",
+                "title": "DS: Expand Prompt (Ollama)",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.switchLocalModel",
+                "title": "DS: Change local Ollama model...",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.sendToLocalLlm",
+                "title": "DS: Send to local LLM",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.sendToLocalLlmAdvanced",
+                "title": "DS: Send to local LLM (Template)...",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.sendToLocalLlmStandard",
+                "title": "DS: Send to local LLM (Standard)",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.sendToLocalLlm.expand",
+                "title": "Expand Prompt",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.sendToLocalLlm.rewrite",
+                "title": "Rewrite",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.sendToLocalLlm.detailed",
+                "title": "Detailed Expansion",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.sendToLocalLlm.annotated",
+                "title": "Annotated Expansion",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.startBotConversation",
+                "title": "DS: Start Local-Copilot Conversation",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.stopBotConversation",
+                "title": "DS: Stop Local-Copilot Conversation",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.haltBotConversation",
+                "title": "DS: Halt Local-Copilot Conversation",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.continueBotConversation",
+                "title": "DS: Continue Local-Copilot Conversation",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.addToBotConversation",
+                "title": "DS: Add to Local-Copilot Conversation",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.chordMenu.conversation",
+                "title": "DS: Conversation Shortcuts...",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.chordMenu.llm",
+                "title": "DS: Local LLM Shortcuts...",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.chordMenu.chat",
+                "title": "DS: Send to Chat Shortcuts...",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.chordMenu.tomAiChat",
+                "title": "DS: Tom AI Chat Shortcuts...",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.chordMenu.execute",
+                "title": "DS: Execute Shortcuts...",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.chordMenu.favorites",
+                "title": "DS: Favorites...",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.showQuickReference",
+                "title": "DS: Show Quick Reference",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.defineCommandline",
+                "title": "DS: Add Commandline",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.deleteCommandline",
+                "title": "DS: Delete Commandline",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.executeCommandline",
+                "title": "DS: Execute Commandline",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.openConfig",
+                "title": "DS: Open Config File",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.telegramTest",
+                "title": "DS: Telegram Test Connection",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.telegramToggle",
+                "title": "DS: Telegram Start/Stop Polling",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.telegramConfigure",
+                "title": "DS: Configure Telegram...",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.toggleTrail",
+                "title": "DS: Toggle AI Trail Logging",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.showStatusPage",
+                "title": "DS: Extension Status Page",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.openExtensionSettings",
+                "title": "DS: Open Extension Settings",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.combined.maximizeExplorer",
+                "title": "DS: Maximize Explorer",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.combined.maximizeEditor",
+                "title": "DS: Maximize Editor",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.combined.maximizeChat",
+                "title": "DS: Maximize Chat",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.combined.maximizeToggle",
+                "title": "DS: Maximize Toggle",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.stateMachine.vsWindowStateFlow",
+                "title": "DS: Window Panel State Flow",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.resetMultiCommandState",
+                "title": "DS: Reset All State Machine States",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.focusTomAI",
+                "title": "DS: Focus Tom AI Panel",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.combined.showSideNotes",
+                "title": "DS: Show Side Notes",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.openChatVariablesEditor",
+                "title": "DS: Open Chat Variables Editor",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.openQueueEditor",
+                "title": "DS: Open Prompt Queue Editor",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.openTimedRequestsEditor",
+                "title": "DS: Open Timed Requests Editor",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.openContextSettingsEditor",
+                "title": "DS: Open Context & Settings Editor",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.openGlobalTemplateEditor",
+                "title": "DS: Open Prompt Template Editor",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.openReusablePromptEditor",
+                "title": "DS: Open Reusable Prompt Editor",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.openTrailViewer",
+                "title": "DS: Open Prompt Trail Viewer",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.openTrailViewerFolder",
+                "title": "DS: Open Trail Viewer (Select Folder)",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.openInExternalApp",
+                "title": "DS: Open in External Application",
+                "category": "DartScript"
+            },
+            {
+                "command": "dartscript.openInMdViewer",
+                "title": "DS: Open in MD Viewer",
+                "category": "DartScript"
+            }
+        ],
+        "views": {
+            "dartscript-t2-panel": [
+                {
+                    "type": "webview",
+                    "id": "dartscript.chatPanel",
+                    "name": "@CHAT",
+                    "icon": "$(layout)"
+                }
+            ],
+            "dartscript-t3-panel": [
+                {
+                    "type": "webview",
+                    "id": "dartscript.wsPanel",
+                    "name": "@WS",
+                    "icon": "$(beaker)"
+                }
+            ],
+            "explorer": [
+                {
+                    "type": "webview",
+                    "id": "dartscript.tomNotepad",
+                    "name": "VS CODE NOTES",
+                    "icon": "$(note)"
+                },
+                {
+                    "type": "webview",
+                    "id": "dartscript.questNotesView",
+                    "name": "QUEST NOTES",
+                    "icon": "$(book)",
+                    "when": "dartscript.hasWorkspaceFile"
+                },
+                {
+                    "type": "webview",
+                    "id": "dartscript.questTodosView",
+                    "name": "QUEST TODOS",
+                    "icon": "$(checklist)"
+                },
+                {
+                    "type": "webview",
+                    "id": "dartscript.sessionTodosView",
+                    "name": "SESSION TODOS",
+                    "icon": "$(clock)"
+                },
+                {
+                    "type": "webview",
+                    "id": "dartscript.todoLogView",
+                    "name": "TODO LOG",
+                    "icon": "$(history)"
+                },
+                {
+                    "type": "webview",
+                    "id": "dartscript.workspaceNotepad",
+                    "name": "WORKSPACE NOTES",
+                    "icon": "$(file-text)"
+                },
+                {
+                    "type": "webview",
+                    "id": "dartscript.workspaceTodosView",
+                    "name": "WORKSPACE TODOS",
+                    "icon": "$(tasklist)"
+                }
+            ]
+        },
+        "customEditors": [
+            {
+                "viewType": "yamlGraph.editor",
+                "displayName": "YAML Graph Editor",
+                "selector": [
+                    {
+                        "filenamePattern": "*.flow.yaml"
+                    },
+                    {
+                        "filenamePattern": "*.state.yaml"
+                    },
+                    {
+                        "filenamePattern": "*.er.yaml"
+                    }
+                ],
+                "priority": "default"
+            },
+            {
+                "viewType": "questTodo.editor",
+                "displayName": "Quest TODO Editor",
+                "selector": [
+                    {
+                        "filenamePattern": "*.todo.yaml"
+                    }
+                ],
+                "priority": "option"
+            },
+            {
+                "viewType": "trailViewer.editor",
+                "displayName": "Trail Viewer",
+                "selector": [
+                    {
+                        "filenamePattern": "*.prompts.md"
+                    },
+                    {
+                        "filenamePattern": "*.answers.md"
+                    }
+                ],
+                "priority": "default"
+            }
+        ],
+        "yamlValidation": [
+            {
+                "fileMatch": "*.flow.yaml",
+                "url": "./node_modules/yaml-graph-core/graph-types/flowchart/v1/flowchart.schema.json"
+            },
+            {
+                "fileMatch": "*.state.yaml",
+                "url": "./node_modules/yaml-graph-core/graph-types/state-machine/v1/state-machine.schema.json"
+            },
+            {
+                "fileMatch": "*.er.yaml",
+                "url": "./node_modules/yaml-graph-core/graph-types/er-diagram/v1/er-diagram.schema.json"
+            },
+            {
+                "fileMatch": "*.prompt-panel.yaml",
+                "url": "../../../.tom/json-schema/panels/prompt.schema.json"
+            }
+        ],
+        "keybindings": [
+            {
+                "command": "-workbench.action.terminal.openNativeConsole",
+                "key": "ctrl+shift+c"
+            },
+            {
+                "command": "-workbench.view.extensions",
+                "key": "ctrl+shift+x"
+            },
+            {
+                "command": "dartscript.chordMenu.conversation",
+                "key": "ctrl+shift+c",
+                "when": "!dartscript.chordMenuOpen"
+            },
+            {
+                "command": "dartscript.chordMenu.llm",
+                "key": "ctrl+shift+l",
+                "when": "!dartscript.chordMenuOpen"
+            },
+            {
+                "command": "dartscript.chordMenu.chat",
+                "key": "ctrl+shift+a",
+                "when": "!dartscript.chordMenuOpen"
+            },
+            {
+                "command": "dartscript.chordMenu.tomAiChat",
+                "key": "ctrl+shift+t",
+                "when": "!dartscript.chordMenuOpen"
+            },
+            {
+                "command": "dartscript.chordMenu.execute",
+                "key": "ctrl+shift+e",
+                "when": "!dartscript.chordMenuOpen"
+            },
+            {
+                "command": "dartscript.chordMenu.favorites",
+                "key": "ctrl+shift+x",
+                "when": "!dartscript.chordMenuOpen"
+            },
+            {
+                "command": "dartscript.combined.maximizeToggle",
+                "key": "ctrl+shift+[IntlBackslash]"
+            },
+            {
+                "command": "dartscript.combined.maximizeExplorer",
+                "key": "ctrl+shift+2"
+            },
+            {
+                "command": "dartscript.combined.maximizeEditor",
+                "key": "ctrl+shift+3"
+            },
+            {
+                "command": "dartscript.combined.maximizeChat",
+                "key": "ctrl+shift+4"
+            },
+            {
+                "command": "dartscript.focusTomAI",
+                "key": "ctrl+shift+0"
+            },
+            {
+                "command": "dartscript.stateMachine.vsWindowStateFlow",
+                "key": "ctrl+shift+y"
+            },
+            {
+                "command": "dartscript.showStatusPage",
+                "key": "ctrl+shift+8"
+            },
+            {
+                "command": "dartscript.wsPanel.focus",
+                "key": "ctrl+shift+9"
+            },
+            {
+                "command": "-workbench.action.newWindow",
+                "key": "ctrl+shift+n"
+            },
+            {
+                "command": "dartscript.combined.showSideNotes",
+                "key": "ctrl+shift+n"
+            }
+        ],
+        "menus": {
+            "explorer/context": [
+                {
+                    "command": "dartscript.executeFile",
+                    "when": "resourceExtname == .dart",
+                    "group": "dartscript@1"
+                },
+                {
+                    "command": "dartscript.executeScript",
+                    "when": "resourceExtname == .dart",
+                    "group": "dartscript@3"
+                },
+                {
+                    "command": "dartscript.openInMdViewer",
+                    "when": "resourceExtname == .md",
+                    "group": "dartscript@5"
+                }
+            ],
+            "editor/context": [
+                {
+                    "submenu": "dartscript.sendToChatSubmenu",
+                    "group": "copilot@0"
+                },
+                {
+                    "command": "dartscript.sendToChatStandard",
+                    "group": "copilot@1"
+                },
+                {
+                    "command": "dartscript.sendToChatAdvanced",
+                    "group": "copilot@2"
+                },
+                {
+                    "command": "dartscript.sendToChat",
+                    "when": "editorHasSelection",
+                    "group": "copilot@3"
+                },
+                {
+                    "submenu": "dartscript.sendToLocalLlmSubmenu",
+                    "group": "localLlm@0"
+                },
+                {
+                    "command": "dartscript.sendToLocalLlmStandard",
+                    "group": "localLlm@1"
+                },
+                {
+                    "command": "dartscript.sendToLocalLlmAdvanced",
+                    "group": "localLlm@2"
+                },
+                {
+                    "command": "dartscript.sendToLocalLlm",
+                    "when": "editorHasSelection",
+                    "group": "localLlm@3"
+                },
+                {
+                    "command": "dartscript.executeScript",
+                    "when": "resourceExtname == .dart",
+                    "group": "dartscript@2"
+                },
+                {
+                    "command": "dartscript.startTomAIChat",
+                    "when": "resourceExtname == .chat.md",
+                    "group": "dartscript@4"
+                },
+                {
+                    "command": "dartscript.sendToTomAIChat",
+                    "when": "resourceExtname == .chat.md",
+                    "group": "dartscript@5"
+                },
+                {
+                    "command": "dartscript.openInMdViewer",
+                    "when": "resourceLangId == markdown",
+                    "group": "dartscript@10"
+                }
+            ],
+            "dartscript.sendToChatSubmenu": [
+                {
+                    "command": "dartscript.sendToChatTrailReminder",
+                    "group": "standard@1"
+                },
+                {
+                    "command": "dartscript.sendToChatTodoExecution",
+                    "group": "standard@2"
+                },
+                {
+                    "command": "dartscript.sendToChatCodeReview",
+                    "group": "standard@3"
+                },
+                {
+                    "command": "dartscript.sendToChatExplain",
+                    "group": "standard@4"
+                },
+                {
+                    "command": "dartscript.sendToChatAddToTodo",
+                    "group": "standard@5"
+                },
+                {
+                    "command": "dartscript.sendToChatFixMarkdown",
+                    "group": "standard@6"
+                }
+            ],
+            "dartscript.sendToLocalLlmSubmenu": [
+                {
+                    "command": "dartscript.sendToLocalLlm.expand",
+                    "group": "profiles@1"
+                },
+                {
+                    "command": "dartscript.sendToLocalLlm.rewrite",
+                    "group": "profiles@2"
+                },
+                {
+                    "command": "dartscript.sendToLocalLlm.detailed",
+                    "group": "profiles@3"
+                },
+                {
+                    "command": "dartscript.sendToLocalLlm.annotated",
+                    "group": "profiles@4"
+                }
+            ]
+        },
+        "languageModelTools": [
+            {
+                "name": "tom_createFile",
+                "tags": [
+                    "files",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Create File",
+                "userDescription": "Create a new file with content",
+                "modelDescription": "Create a new file with the specified content. Creates parent directories if needed.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "filePath": {
+                            "type": "string",
+                            "description": "The path to the file to create. Can be absolute or relative to workspace root."
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "The content to write to the file."
+                        }
+                    },
+                    "required": [
+                        "filePath",
+                        "content"
+                    ]
+                },
+                "toolReferenceName": "tom_createFile"
+            },
+            {
+                "name": "tom_readFile",
+                "tags": [
+                    "files",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Read File",
+                "userDescription": "Read file contents",
+                "modelDescription": "Read the contents of a file. Optionally specify line range.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "filePath": {
+                            "type": "string",
+                            "description": "The path to the file to read."
+                        },
+                        "startLine": {
+                            "type": "number",
+                            "description": "Optional 1-based start line number."
+                        },
+                        "endLine": {
+                            "type": "number",
+                            "description": "Optional 1-based end line number."
+                        }
+                    },
+                    "required": [
+                        "filePath"
+                    ]
+                },
+                "toolReferenceName": "tom_readFile"
+            },
+            {
+                "name": "tom_editFile",
+                "tags": [
+                    "files",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Edit File",
+                "userDescription": "Edit file with find/replace",
+                "modelDescription": "Edit a file by replacing oldText with newText. The oldText must match exactly.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "filePath": {
+                            "type": "string",
+                            "description": "The path to the file to edit."
+                        },
+                        "oldText": {
+                            "type": "string",
+                            "description": "The exact text to find and replace."
+                        },
+                        "newText": {
+                            "type": "string",
+                            "description": "The text to replace oldText with."
+                        }
+                    },
+                    "required": [
+                        "filePath",
+                        "oldText",
+                        "newText"
+                    ]
+                },
+                "toolReferenceName": "tom_editFile"
+            },
+            {
+                "name": "tom_multiEditFile",
+                "tags": [
+                    "files",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Multi Edit File",
+                "userDescription": "Apply multiple file edits",
+                "modelDescription": "Apply multiple find/replace edits across one or more files.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "edits": {
+                            "type": "array",
+                            "description": "Array of edit operations to apply.",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "filePath": {
+                                        "type": "string"
+                                    },
+                                    "oldText": {
+                                        "type": "string"
+                                    },
+                                    "newText": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "filePath",
+                                    "oldText",
+                                    "newText"
+                                ]
+                            }
+                        }
+                    },
+                    "required": [
+                        "edits"
+                    ]
+                },
+                "toolReferenceName": "tom_multiEditFile"
+            },
+            {
+                "name": "tom_listDirectory",
+                "tags": [
+                    "files",
+                    "tom-ai-chat"
+                ],
+                "displayName": "List Directory",
+                "userDescription": "List directory contents",
+                "modelDescription": "List the contents of a directory. Directories have a trailing slash.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "dirPath": {
+                            "type": "string",
+                            "description": "The path to the directory to list."
+                        }
+                    },
+                    "required": [
+                        "dirPath"
+                    ]
+                },
+                "toolReferenceName": "tom_listDirectory"
+            },
+            {
+                "name": "tom_findFiles",
+                "tags": [
+                    "files",
+                    "search",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Find Files",
+                "userDescription": "Find files by pattern",
+                "modelDescription": "Find files matching a glob pattern in the workspace.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "pattern": {
+                            "type": "string",
+                            "description": "Glob pattern to match files, e.g. '**/*.ts' or 'src/**/*.dart'"
+                        },
+                        "maxResults": {
+                            "type": "number",
+                            "description": "Maximum number of results to return. Default 100."
+                        }
+                    },
+                    "required": [
+                        "pattern"
+                    ]
+                },
+                "toolReferenceName": "tom_findFiles"
+            },
+            {
+                "name": "tom_findTextInFiles",
+                "tags": [
+                    "files",
+                    "search",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Find Text in Files",
+                "userDescription": "Search text in files",
+                "modelDescription": "Search for text in files using grep. Returns matching lines with file paths and line numbers.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "searchText": {
+                            "type": "string",
+                            "description": "The text or regex pattern to search for."
+                        },
+                        "filePattern": {
+                            "type": "string",
+                            "description": "Optional glob pattern to filter files, e.g. '*.dart'"
+                        },
+                        "isRegex": {
+                            "type": "boolean",
+                            "description": "Whether searchText is a regex pattern. Default false."
+                        },
+                        "maxResults": {
+                            "type": "number",
+                            "description": "Maximum number of matching lines to return. Default 50."
+                        }
+                    },
+                    "required": [
+                        "searchText"
+                    ]
+                },
+                "toolReferenceName": "tom_findTextInFiles"
+            },
+            {
+                "name": "tom_runCommand",
+                "tags": [
+                    "terminal",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Run Command",
+                "userDescription": "Run shell command",
+                "modelDescription": "Run a shell command and return the output.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "command": {
+                            "type": "string",
+                            "description": "The shell command to run."
+                        },
+                        "cwd": {
+                            "type": "string",
+                            "description": "Optional working directory for the command."
+                        }
+                    },
+                    "required": [
+                        "command"
+                    ]
+                },
+                "toolReferenceName": "tom_runCommand"
+            },
+            {
+                "name": "tom_runVscodeCommand",
+                "tags": [
+                    "vscode",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Run VS Code Command",
+                "userDescription": "Run VS Code command",
+                "modelDescription": "Execute a VS Code command by ID.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "command": {
+                            "type": "string",
+                            "description": "The VS Code command ID to execute."
+                        },
+                        "args": {
+                            "type": "array",
+                            "description": "Optional arguments to pass to the command.",
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "required": [
+                        "command"
+                    ]
+                },
+                "toolReferenceName": "tom_runVscodeCommand"
+            },
+            {
+                "name": "tom_getErrors",
+                "tags": [
+                    "diagnostics",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Get Errors",
+                "userDescription": "Get VS Code diagnostics",
+                "modelDescription": "Get errors and warnings from VS Code diagnostics.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "filePath": {
+                            "type": "string",
+                            "description": "Optional file path to get errors for. If not specified, returns all errors."
+                        }
+                    }
+                },
+                "toolReferenceName": "tom_getErrors"
+            },
+            {
+                "name": "tom_fetchWebpage",
+                "tags": [
+                    "web",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Fetch Webpage",
+                "userDescription": "Fetch webpage content",
+                "modelDescription": "Fetch the content of a URL.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "description": "The URL to fetch."
+                        }
+                    },
+                    "required": [
+                        "url"
+                    ]
+                },
+                "toolReferenceName": "tom_fetchWebpage"
+            },
+            {
+                "name": "tom_readGuideline",
+                "tags": [
+                    "guidelines",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Read Guideline",
+                "userDescription": "Read workspace coding guidelines",
+                "modelDescription": "Read workspace Copilot guidelines from _copilot_guidelines/ folder. Without a fileName, returns the list of available files and the content of index.md (the main guideline index). Key guidelines: coding_guidelines.md (code structure, naming), documentation_guidelines.md (docs format), tests.md (test creation), project_structure.md (project patterns), bug_fixing.md (debugging workflow). Use this tool to understand workspace conventions before making changes.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "fileName": {
+                            "type": "string",
+                            "description": "Optional specific guideline file to read (e.g., 'coding_guidelines.md' or 'coding_guidelines'). If not specified, returns index.md with list of available files."
+                        }
+                    }
+                },
+                "toolReferenceName": "tom_readGuideline"
+            },
+            {
+                "name": "tom_webSearch",
+                "tags": [
+                    "web",
+                    "search",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Web Search",
+                "userDescription": "Search the web with DuckDuckGo",
+                "modelDescription": "Search the web using DuckDuckGo. Returns titles, URLs, and snippets of the top results. Use this to research topics, find documentation, or discover solutions.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "The search query."
+                        },
+                        "maxResults": {
+                            "type": "number",
+                            "description": "Maximum number of results to return. Default 8."
+                        }
+                    },
+                    "required": [
+                        "query"
+                    ]
+                },
+                "toolReferenceName": "tom_webSearch"
+            },
+            {
+                "name": "tom_manageTodo",
+                "tags": [
+                    "todo",
+                    "task-management",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Manage Scratch Todo List",
+                "userDescription": "Manage temporary scratch todos (not quest todos)",
+                "modelDescription": "Optional: Manage a temporary scratch todo list for this prompt run. This is NOT the quest todo system. Operations: 'list' (view todos), 'add' (create with title/description), 'update' (change status/title/description by id), 'remove' (delete by id), 'clear' (remove all). Status values: not-started, in-progress, completed. Use when you have 3+ distinct steps to track.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "operation"
+                    ],
+                    "properties": {
+                        "operation": {
+                            "type": "string",
+                            "enum": [
+                                "list",
+                                "add",
+                                "update",
+                                "remove",
+                                "clear"
+                            ],
+                            "description": "The operation to perform: list (view todos), add (create new), update (modify existing), remove (delete), clear (remove all)."
+                        },
+                        "id": {
+                            "type": "number",
+                            "description": "Todo ID. Required for 'update' and 'remove' operations."
+                        },
+                        "title": {
+                            "type": "string",
+                            "description": "Short headline for the todo (3-7 words). Required for 'add', optional for 'update'."
+                        },
+                        "description": {
+                            "type": "string",
+                            "description": "Detailed description of the task. Optional for 'add' and 'update'."
+                        },
+                        "status": {
+                            "type": "string",
+                            "enum": [
+                                "not-started",
+                                "in-progress",
+                                "completed"
+                            ],
+                            "description": "Todo status. Used with 'update' operation."
+                        },
+                        "filterStatus": {
+                            "type": "string",
+                            "enum": [
+                                "not-started",
+                                "in-progress",
+                                "completed"
+                            ],
+                            "description": "Filter by status when using 'list' operation."
+                        }
+                    }
+                },
+                "toolReferenceName": "manageScratchTodos"
+            },
+            {
+                "name": "dartscript_notifyUser",
+                "tags": [
+                    "notification",
+                    "telegram",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Notify User",
+                "userDescription": "Send notification to user",
+                "modelDescription": "Send a notification to the user via Telegram (if configured) or VS Code notification. Use when you need attention, complete a long task, or encounter a blocking issue.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "message"
+                    ],
+                    "properties": {
+                        "message": {
+                            "type": "string",
+                            "description": "The notification text."
+                        },
+                        "urgency": {
+                            "type": "string",
+                            "enum": [
+                                "info",
+                                "warning",
+                                "error"
+                            ],
+                            "description": "Notification urgency level. Default: info."
+                        },
+                        "title": {
+                            "type": "string",
+                            "description": "Optional short title / subject line."
+                        }
+                    }
+                },
+                "toolReferenceName": "dartscript_notifyUser"
+            },
+            {
+                "name": "dartscript_getWorkspaceInfo",
+                "tags": [
+                    "workspace",
+                    "context",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Get Workspace Info",
+                "userDescription": "Get workspace info",
+                "modelDescription": "Detect which workspace is open, current quest, role, and active projects. No parameters required.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                },
+                "toolReferenceName": "dartscript_getWorkspaceInfo"
+            },
+            {
+                "name": "dartscript_listTodos",
+                "tags": [
+                    "todo",
+                    "quest",
+                    "tom-ai-chat"
+                ],
+                "displayName": "List All Quest Todos",
+                "userDescription": "List quest todos (quest YAML)",
+                "modelDescription": "List todos from a quest, optionally filtered by status, file, or tags.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "questId"
+                    ],
+                    "properties": {
+                        "questId": {
+                            "type": "string",
+                            "description": "The quest ID (e.g. \"vscode_extension\")."
+                        },
+                        "status": {
+                            "type": "string",
+                            "enum": [
+                                "not-started",
+                                "in-progress",
+                                "blocked",
+                                "completed",
+                                "cancelled"
+                            ],
+                            "description": "Filter by status."
+                        },
+                        "file": {
+                            "type": "string",
+                            "description": "Specific todo file name, or \"all\" to aggregate."
+                        },
+                        "tags": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "description": "Filter by tags."
+                        }
+                    }
+                },
+                "toolReferenceName": "listAllQuestTodos"
+            },
+            {
+                "name": "dartscript_getAllTodos",
+                "tags": [
+                    "todo",
+                    "quest",
+                    "tom-ai-chat"
+                ],
+                "displayName": "List All Quest + Session Todos",
+                "userDescription": "List combined quest and session todos",
+                "modelDescription": "Get ALL todos from ALL sources in a single call: quest YAML files + window session. This is the preferred tool when you need a complete picture of all pending work.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "questId"
+                    ],
+                    "properties": {
+                        "questId": {
+                            "type": "string",
+                            "description": "The quest ID."
+                        }
+                    }
+                },
+                "toolReferenceName": "listAllQuestAndSessionTodos"
+            },
+            {
+                "name": "dartscript_getTodo",
+                "tags": [
+                    "todo",
+                    "quest",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Get Quest Todo",
+                "userDescription": "Get one quest todo by ID",
+                "modelDescription": "Get a single todo by ID from a quest.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "questId",
+                        "todoId"
+                    ],
+                    "properties": {
+                        "questId": {
+                            "type": "string",
+                            "description": "The quest ID."
+                        },
+                        "todoId": {
+                            "type": "string",
+                            "description": "The todo ID."
+                        }
+                    }
+                },
+                "toolReferenceName": "getQuestTodoById"
+            },
+            {
+                "name": "dartscript_createTodo",
+                "tags": [
+                    "todo",
+                    "quest",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Create Quest Todo",
+                "userDescription": "Create a quest todo",
+                "modelDescription": "Create a new todo item in a quest YAML file. YAML formatting is preserved.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "questId",
+                        "todo"
+                    ],
+                    "properties": {
+                        "questId": {
+                            "type": "string",
+                            "description": "The quest ID."
+                        },
+                        "file": {
+                            "type": "string",
+                            "description": "Target YAML file name within the quest folder. Defaults to persistent file."
+                        },
+                        "todo": {
+                            "type": "object",
+                            "required": [
+                                "id",
+                                "description",
+                                "status"
+                            ],
+                            "properties": {
+                                "id": {
+                                    "type": "string",
+                                    "description": "Unique todo ID (lowercase, starts with letter)."
+                                },
+                                "description": {
+                                    "type": "string",
+                                    "description": "What needs to be done."
+                                },
+                                "status": {
+                                    "type": "string",
+                                    "enum": [
+                                        "not-started",
+                                        "in-progress",
+                                        "blocked",
+                                        "completed",
+                                        "cancelled"
+                                    ]
+                                },
+                                "title": {
+                                    "type": "string",
+                                    "description": "Short title."
+                                },
+                                "priority": {
+                                    "type": "string",
+                                    "enum": [
+                                        "low",
+                                        "medium",
+                                        "high",
+                                        "critical"
+                                    ]
+                                },
+                                "tags": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                },
+                                "notes": {
+                                    "type": "string"
+                                },
+                                "dependencies": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "toolReferenceName": "createQuestTodo"
+            },
+            {
+                "name": "dartscript_updateTodo",
+                "tags": [
+                    "todo",
+                    "quest",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Update Quest Todo",
+                "userDescription": "Update a quest todo by ID",
+                "modelDescription": "Update fields of an existing quest todo. YAML formatting is preserved.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "questId",
+                        "todoId",
+                        "updates"
+                    ],
+                    "properties": {
+                        "questId": {
+                            "type": "string",
+                            "description": "The quest ID."
+                        },
+                        "todoId": {
+                            "type": "string",
+                            "description": "The todo ID to update."
+                        },
+                        "updates": {
+                            "type": "object",
+                            "properties": {
+                                "title": {
+                                    "type": "string"
+                                },
+                                "description": {
+                                    "type": "string"
+                                },
+                                "status": {
+                                    "type": "string",
+                                    "enum": [
+                                        "not-started",
+                                        "in-progress",
+                                        "blocked",
+                                        "completed",
+                                        "cancelled"
+                                    ]
+                                },
+                                "priority": {
+                                    "type": "string",
+                                    "enum": [
+                                        "low",
+                                        "medium",
+                                        "high",
+                                        "critical"
+                                    ]
+                                },
+                                "tags": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                },
+                                "notes": {
+                                    "type": "string"
+                                },
+                                "completed_date": {
+                                    "type": "string"
+                                },
+                                "completed_by": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                },
+                "toolReferenceName": "updateQuestTodo"
+            },
+            {
+                "name": "dartscript_moveTodo",
+                "tags": [
+                    "todo",
+                    "quest",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Move Quest Todo",
+                "userDescription": "Move a quest todo between quest files",
+                "modelDescription": "Move a todo from one YAML file to another within a quest folder.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "questId",
+                        "todoId",
+                        "targetFile"
+                    ],
+                    "properties": {
+                        "questId": {
+                            "type": "string",
+                            "description": "The quest ID."
+                        },
+                        "todoId": {
+                            "type": "string",
+                            "description": "The todo ID to move."
+                        },
+                        "targetFile": {
+                            "type": "string",
+                            "description": "Target YAML file name (e.g. \"todos.vscode_extension.yaml\")."
+                        }
+                    }
+                },
+                "toolReferenceName": "moveQuestTodo"
+            },
+            {
+                "name": "dartscript_windowTodo_add",
+                "tags": [
+                    "todo",
+                    "session",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Add Session Todo",
+                "userDescription": "Add a session reminder todo",
+                "modelDescription": "Add a self-reminder todo for this prompt session. Use to avoid forgetting postponed tasks, deferred decisions, or follow-up items.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "title"
+                    ],
+                    "properties": {
+                        "title": {
+                            "type": "string",
+                            "description": "Short description of the reminder."
+                        },
+                        "details": {
+                            "type": "string",
+                            "description": "Extended context or notes."
+                        },
+                        "priority": {
+                            "type": "string",
+                            "enum": [
+                                "low",
+                                "medium",
+                                "high"
+                            ],
+                            "description": "Priority. Default: medium."
+                        },
+                        "tags": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "description": "Categorization tags."
+                        }
+                    }
+                },
+                "toolReferenceName": "addSessionTodo"
+            },
+            {
+                "name": "dartscript_windowTodo_list",
+                "tags": [
+                    "todo",
+                    "session",
+                    "tom-ai-chat"
+                ],
+                "displayName": "List Session Todos",
+                "userDescription": "List session todos",
+                "modelDescription": "List prompt session todos, optionally filtered by status or tags.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "status": {
+                            "type": "string",
+                            "enum": [
+                                "pending",
+                                "done",
+                                "all"
+                            ],
+                            "description": "Filter. Default: all."
+                        },
+                        "tags": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "description": "Filter by tags."
+                        }
+                    }
+                },
+                "toolReferenceName": "listSessionTodos"
+            },
+            {
+                "name": "dartscript_windowTodo_getAll",
+                "tags": [
+                    "todo",
+                    "session",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Get All Session Todos",
+                "userDescription": "Get all session todos",
+                "modelDescription": "Get ALL prompt session todos in a single call with counts. No filtering.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                },
+                "toolReferenceName": "getAllSessionTodos"
+            },
+            {
+                "name": "dartscript_windowTodo_update",
+                "tags": [
+                    "todo",
+                    "session",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Update Session Todo",
+                "userDescription": "Update session todo",
+                "modelDescription": "Update a prompt session todo (mark done, change title/priority).",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "id"
+                    ],
+                    "properties": {
+                        "id": {
+                            "type": "string",
+                            "description": "The session todo ID (e.g. \"wt-1\")."
+                        },
+                        "status": {
+                            "type": "string",
+                            "enum": [
+                                "pending",
+                                "done"
+                            ],
+                            "description": "New status."
+                        },
+                        "title": {
+                            "type": "string",
+                            "description": "Updated title."
+                        },
+                        "details": {
+                            "type": "string",
+                            "description": "Updated details."
+                        },
+                        "priority": {
+                            "type": "string",
+                            "enum": [
+                                "low",
+                                "medium",
+                                "high"
+                            ],
+                            "description": "Updated priority."
+                        }
+                    }
+                },
+                "toolReferenceName": "updateSessionTodo"
+            },
+            {
+                "name": "dartscript_windowTodo_delete",
+                "tags": [
+                    "todo",
+                    "session",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Delete Session Todo",
+                "userDescription": "Delete session todo",
+                "modelDescription": "Delete a prompt session todo.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "id"
+                    ],
+                    "properties": {
+                        "id": {
+                            "type": "string",
+                            "description": "The session todo ID to delete."
+                        }
+                    }
+                },
+                "toolReferenceName": "deleteSessionTodo"
+            },
+            {
+                "name": "tom_readLocalGuideline",
+                "tags": [
+                    "guidelines",
+                    "local-llm"
+                ],
+                "displayName": "Read Local Guideline",
+                "userDescription": "Read local LLM guidelines",
+                "modelDescription": "Read local LLM guidelines from _copilot_local/ folder. Without a fileName, returns the list of available files and the content of index.md. Use this tool to understand workspace conventions before making changes.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "fileName": {
+                            "type": "string",
+                            "description": "Optional specific guideline file to read."
+                        }
+                    }
+                },
+                "toolReferenceName": "tom_readLocalGuideline"
+            },
+            {
+                "name": "addToPromptQueue",
+                "tags": [
+                    "queue",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Add To Prompt Queue",
+                "userDescription": "Add prompt to queue",
+                "modelDescription": "Add a prompt to the prompt queue, optionally with template, answer wrapper, and follow-up prompts.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "text"
+                    ],
+                    "properties": {
+                        "text": { "type": "string" },
+                        "template": { "type": "string" },
+                        "answerWrapper": { "type": "boolean" },
+                        "position": { "type": "number" },
+                        "deferSend": { "type": "boolean" }
+                    }
+                },
+                "toolReferenceName": "addToPromptQueue"
+            },
+            {
+                "name": "addFollowUpPrompt",
+                "tags": [
+                    "queue",
+                    "follow-up",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Add Follow-Up Prompt",
+                "userDescription": "Add follow-up to queue item",
+                "modelDescription": "Add a follow-up prompt to an existing queue item.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "text"
+                    ],
+                    "properties": {
+                        "queueItemId": { "type": "string" },
+                        "requestId": { "type": "string" },
+                        "text": { "type": "string" },
+                        "template": { "type": "string" }
+                    }
+                },
+                "toolReferenceName": "addFollowUpPrompt"
+            },
+            {
+                "name": "sendQueuedPrompt",
+                "tags": [
+                    "queue",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Send Queued Prompt",
+                "userDescription": "Send queued prompt",
+                "modelDescription": "Send one staged/pending prompt from the queue.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "queueItemId": { "type": "string" },
+                        "requestId": { "type": "string" }
+                    }
+                },
+                "toolReferenceName": "sendQueuedPrompt"
+            },
+            {
+                "name": "addTimedRequest",
+                "tags": [
+                    "timed",
+                    "queue",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Add Timed Request",
+                "userDescription": "Add timed request",
+                "modelDescription": "Add a timed request entry in interval mode.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "text"
+                    ],
+                    "properties": {
+                        "text": { "type": "string" },
+                        "template": { "type": "string" },
+                        "answerWrapper": { "type": "boolean" },
+                        "enabled": { "type": "boolean" },
+                        "intervalMinutes": { "type": "number" }
+                    }
+                },
+                "toolReferenceName": "addTimedRequest"
+            },
+            {
+                "name": "tom_queue_list",
+                "tags": [
+                    "queue",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Queue List",
+                "userDescription": "List queue items",
+                "modelDescription": "List prompt queue items with status, IDs, reminder metadata, and follow-up counts.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "includeSent": { "type": "boolean" }
+                    }
+                },
+                "toolReferenceName": "tom_queue_list"
+            },
+            {
+                "name": "tom_queue_update_item",
+                "tags": [
+                    "queue",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Queue Update Item",
+                "userDescription": "Update queue item",
+                "modelDescription": "Update editable queue item fields including text/template/wrapper and reminder settings.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "queueItemId"
+                    ],
+                    "properties": {
+                        "queueItemId": { "type": "string" },
+                        "text": { "type": "string" },
+                        "template": { "type": "string" },
+                        "answerWrapper": { "type": "boolean" },
+                        "reminderEnabled": { "type": "boolean" },
+                        "reminderTemplateId": { "type": "string" },
+                        "reminderTimeoutMinutes": { "type": "number" },
+                        "reminderRepeat": { "type": "boolean" }
+                    }
+                },
+                "toolReferenceName": "tom_queue_update_item"
+            },
+            {
+                "name": "tom_queue_set_status",
+                "tags": [
+                    "queue",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Queue Set Status",
+                "userDescription": "Set queue item status",
+                "modelDescription": "Set queue item status to staged or pending.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "queueItemId",
+                        "status"
+                    ],
+                    "properties": {
+                        "queueItemId": { "type": "string" },
+                        "status": { "type": "string", "enum": ["staged", "pending"] }
+                    }
+                },
+                "toolReferenceName": "tom_queue_set_status"
+            },
+            {
+                "name": "tom_queue_send_now",
+                "tags": [
+                    "queue",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Queue Send Now",
+                "userDescription": "Send queue item now",
+                "modelDescription": "Send one staged/pending queue item immediately.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "queueItemId"
+                    ],
+                    "properties": {
+                        "queueItemId": { "type": "string" }
+                    }
+                },
+                "toolReferenceName": "tom_queue_send_now"
+            },
+            {
+                "name": "tom_queue_remove_item",
+                "tags": [
+                    "queue",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Queue Remove Item",
+                "userDescription": "Remove queue item",
+                "modelDescription": "Remove a queue item by ID.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "queueItemId"
+                    ],
+                    "properties": {
+                        "queueItemId": { "type": "string" }
+                    }
+                },
+                "toolReferenceName": "tom_queue_remove_item"
+            },
+            {
+                "name": "tom_queue_update_followup",
+                "tags": [
+                    "queue",
+                    "follow-up",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Queue Update Follow-Up",
+                "userDescription": "Update follow-up",
+                "modelDescription": "Update follow-up fields for a queue item.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "queueItemId",
+                        "followUpId"
+                    ],
+                    "properties": {
+                        "queueItemId": { "type": "string" },
+                        "followUpId": { "type": "string" },
+                        "text": { "type": "string" },
+                        "template": { "type": "string" },
+                        "reminderEnabled": { "type": "boolean" },
+                        "reminderTemplateId": { "type": "string" },
+                        "reminderTimeoutMinutes": { "type": "number" },
+                        "reminderRepeat": { "type": "boolean" }
+                    }
+                },
+                "toolReferenceName": "tom_queue_update_followup"
+            },
+            {
+                "name": "tom_queue_remove_followup",
+                "tags": [
+                    "queue",
+                    "follow-up",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Queue Remove Follow-Up",
+                "userDescription": "Remove follow-up",
+                "modelDescription": "Remove a follow-up prompt from a queue item.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "queueItemId",
+                        "followUpId"
+                    ],
+                    "properties": {
+                        "queueItemId": { "type": "string" },
+                        "followUpId": { "type": "string" }
+                    }
+                },
+                "toolReferenceName": "tom_queue_remove_followup"
+            },
+            {
+                "name": "tom_timed_list",
+                "tags": [
+                    "timed",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Timed List",
+                "userDescription": "List timed entries",
+                "modelDescription": "List timed request entries with schedule and reminder metadata.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "includeCompleted": { "type": "boolean" }
+                    }
+                },
+                "toolReferenceName": "tom_timed_list"
+            },
+            {
+                "name": "tom_timed_update_entry",
+                "tags": [
+                    "timed",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Timed Update Entry",
+                "userDescription": "Update timed entry",
+                "modelDescription": "Update timed entry fields (text/template/schedule/reminder/enabled).",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "entryId",
+                        "patch"
+                    ],
+                    "properties": {
+                        "entryId": { "type": "string" },
+                        "patch": { "type": "object" }
+                    }
+                },
+                "toolReferenceName": "tom_timed_update_entry"
+            },
+            {
+                "name": "tom_timed_remove_entry",
+                "tags": [
+                    "timed",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Timed Remove Entry",
+                "userDescription": "Remove timed entry",
+                "modelDescription": "Remove a timed request entry by ID.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "entryId"
+                    ],
+                    "properties": {
+                        "entryId": { "type": "string" }
+                    }
+                },
+                "toolReferenceName": "tom_timed_remove_entry"
+            },
+            {
+                "name": "tom_timed_set_engine_state",
+                "tags": [
+                    "timed",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Timed Set Engine State",
+                "userDescription": "Set timed engine active state",
+                "modelDescription": "Enable or disable the global timed request engine.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "activated"
+                    ],
+                    "properties": {
+                        "activated": { "type": "boolean" }
+                    }
+                },
+                "toolReferenceName": "tom_timed_set_engine_state"
+            },
+            {
+                "name": "tom_prompt_template_manage",
+                "tags": [
+                    "templates",
+                    "queue",
+                    "timed",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Prompt Template Manage",
+                "userDescription": "Manage prompt templates",
+                "modelDescription": "List/create/update/delete prompt templates used by queue and timed requests.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "operation"
+                    ],
+                    "properties": {
+                        "operation": { "type": "string", "enum": ["list", "create", "update", "delete"] },
+                        "name": { "type": "string" },
+                        "newName": { "type": "string" },
+                        "template": { "type": "string" },
+                        "showInMenu": { "type": "boolean" }
+                    }
+                },
+                "toolReferenceName": "tom_prompt_template_manage"
+            },
+            {
+                "name": "tom_reminder_template_manage",
+                "tags": [
+                    "templates",
+                    "reminder",
+                    "queue",
+                    "timed",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Reminder Template Manage",
+                "userDescription": "Manage reminder templates",
+                "modelDescription": "List/create/update/delete reminder templates used by queue and timed reminders.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "operation"
+                    ],
+                    "properties": {
+                        "operation": { "type": "string", "enum": ["list", "create", "update", "delete"] },
+                        "id": { "type": "string" },
+                        "name": { "type": "string" },
+                        "prompt": { "type": "string" },
+                        "isDefault": { "type": "boolean" }
+                    }
+                },
+                "toolReferenceName": "tom_reminder_template_manage"
+            },
+            {
+                "name": "tom_askBigBrother",
+                "tags": [
+                    "ai",
+                    "llm",
+                    "escalation",
+                    "local-llm"
+                ],
+                "displayName": "Ask Big Brother",
+                "userDescription": "Query VS Code language models (escalation)",
+                "modelDescription": "Query VS Code language models (GitHub Copilot, Claude, GPT-4, etc.) from your local LLM. Operations: 'list' for available models, 'query' to send a prompt. This is your escalation path for complex questions requiring broader knowledge.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "operation"
+                    ],
+                    "properties": {
+                        "operation": {
+                            "type": "string",
+                            "enum": [
+                                "list",
+                                "query"
+                            ],
+                            "description": "'list' to see available models, 'query' to ask a model."
+                        },
+                        "modelId": {
+                            "type": "string",
+                            "description": "Model ID, family, or name to query. If omitted, uses configured default."
+                        },
+                        "prompt": {
+                            "type": "string",
+                            "description": "The question or prompt to send to the model. Required for 'query' operation."
+                        },
+                        "enableTools": {
+                            "type": "boolean",
+                            "description": "Enable VS Code tools for the model. Default: from config."
+                        },
+                        "maxIterations": {
+                            "type": "number",
+                            "description": "Maximum tool iterations when enableTools=true. Default: from config."
+                        }
+                    }
+                },
+                "toolReferenceName": "tom_askBigBrother"
+            },
+            {
+                "name": "tom_askCopilot",
+                "tags": [
+                    "ai",
+                    "copilot",
+                    "escalation",
+                    "local-llm"
+                ],
+                "displayName": "Ask Copilot",
+                "userDescription": "Send question to Copilot chat",
+                "modelDescription": "Send a question to GitHub Copilot via the chat window and wait for a response via answer file. Useful for questions benefiting from Copilot's full context of open files and workspace.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "prompt"
+                    ],
+                    "properties": {
+                        "prompt": {
+                            "type": "string",
+                            "description": "Your question for Copilot."
+                        },
+                        "waitForAnswer": {
+                            "type": "boolean",
+                            "description": "Whether to wait for answer file. Default: true."
+                        },
+                        "timeoutMs": {
+                            "type": "number",
+                            "description": "Max time to wait for answer in milliseconds. Default: from config."
+                        }
+                    }
+                },
+                "toolReferenceName": "tom_askCopilot"
+            }
+        ],
+        "configuration": {
+            "title": "DartScript",
+            "properties": {
+                "dartscript.contextApproach": {
+                    "type": "string",
+                    "default": "accumulation",
+                    "enum": [
+                        "accumulation",
+                        "persistent"
+                    ],
+                    "description": "Context persistence approach for AI operations"
+                },
+                "dartscript.maxContextSize": {
+                    "type": "number",
+                    "default": 50000,
+                    "description": "Maximum context size in tokens"
+                },
+                "dartscript.autoRunOnSave": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Automatically run scripts on save"
+                },
+                "dartscript.copilotModel": {
+                    "type": "string",
+                    "default": "gpt-4o",
+                    "enum": [
+                        "gpt-4o",
+                        "gpt-4",
+                        "gpt-3.5-turbo"
+                    ],
+                    "description": "Preferred Copilot model"
+                },
+                "dartscript.configPath": {
+                    "type": "string",
+                    "default": "~/.tom/vscode/tom_vscode_extension.json",
+                    "description": "Path to the extension configuration file (supports ~ for home directory and ${workspaceFolder})"
+                },
+                "dartscript.sendToChat.showNotifications": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Show notifications when sending text to Copilot Chat"
+                },
+                "dartscript.sendToChat.chatAnswerFolder": {
+                    "type": "string",
+                    "default": "_ai/chat_replies",
+                    "description": "Folder path for chat answer files (relative to workspace root)"
+                },
+                "dartscript.tomAiChat.modelId": {
+                    "type": "string",
+                    "default": "gpt-5.2",
+                    "description": "Model ID for Tom AI chat"
+                },
+                "dartscript.tomAiChat.tokenModelId": {
+                    "type": "string",
+                    "default": "gpt-4o",
+                    "description": "Model ID used for token count estimates"
+                },
+                "dartscript.tomAiChat.responsesTokenLimit": {
+                    "type": "number",
+                    "default": 50000,
+                    "description": "Token limit for <chat-id>.responses.md"
+                },
+                "dartscript.tomAiChat.responseSummaryTokenLimit": {
+                    "type": "number",
+                    "default": 8000,
+                    "description": "Token limit for <chat-id>.response-summary.md"
+                },
+                "dartscript.tomAiChat.preProcessingModelId": {
+                    "type": "string",
+                    "default": "gpt-5-mini",
+                    "description": "Model ID for pre-processing step (cheap model to gather context before main processing)"
+                },
+                "dartscript.tomAiChat.enablePromptOptimization": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Enable pre-processing step with cheap model to gather context before main processing"
+                },
+                "dartscript.ollama.url": {
+                    "type": "string",
+                    "default": "http://localhost:11434",
+                    "description": "Ollama server URL (fallback; prefer promptExpander section in send_to_chat.json)"
+                },
+                "dartscript.ollama.model": {
+                    "type": "string",
+                    "default": "qwen3:8b",
+                    "description": "Ollama model name (fallback; prefer promptExpander section in send_to_chat.json)"
+                },
+                "dartscript.notes.workspaceTodoFile": {
+                    "type": "string",
+                    "default": "workspace.todo.yaml",
+                    "description": "Workspace-relative path to the workspace todo YAML file used by WORKSPACE TODOS views"
+                },
+                "dartscript.notes.questNotesFilePattern": {
+                    "type": "string",
+                    "default": "_ai/quests/${quest}/quest-notes.${quest}.md",
+                    "description": "Pattern for quest notes file path. Supports ${quest} and ${workspaceFolder}."
+                },
+                "dartscript.notes.questTodoFilePattern": {
+                    "type": "string",
+                    "default": "todos.${quest}.todo.yaml",
+                    "description": "Pattern for quest todo filename used by QUEST TODOS view. Supports ${quest}."
+                },
+                "dartscript.guidelines.projectExcludeGlobs": {
+                    "type": "array",
+                    "default": [
+                        "tom/zom_*/**"
+                    ],
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Glob patterns excluded when building the non-recursive Project list in the Guidelines panel."
+                },
+                "dartscript.projectDetection.excludeGlobs": {
+                    "type": "array",
+                    "default": [
+                        "tom/zom_*/**"
+                    ],
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Glob patterns excluded from full-workspace project detection scans."
+                }
+            }
+        }
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -p ./ && mkdir -p out/config && cp src/config/*.json out/config/",
+        "watch": "tsc -watch -p ./",
+        "pretest": "npm run compile",
+        "lint": "eslint src --ext ts"
+    },
+    "devDependencies": {
+        "@types/node": "^18.x",
+        "@types/vscode": "1.96.0",
+        "@typescript-eslint/eslint-plugin": "^6.0.0",
+        "@typescript-eslint/parser": "^6.0.0",
+        "eslint": "^8.0.0",
+        "typescript": "^5.3.0"
+    },
+    "dependencies": {
+        "@vscode/codicons": "^0.0.44",
+        "ajv": "^8.18.0",
+        "marked": "^14.1.2",
+        "mermaid": "^11.4.1",
+        "telegramify-markdown": "^1.3.2",
+        "yaml": "^2.8.2",
+        "yaml-graph-core": "file:../yaml_graph_core",
+        "yaml-graph-vscode": "file:../yaml_graph_vscode"
+    }
+}

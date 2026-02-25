@@ -1,0 +1,20 @@
+# Shared analysis options for the tom_module_vscode workspace
+# Individual projects should include this file with:
+#   include: ../analysis_options.yaml
+
+analyzer:
+  exclude:
+    - "**/*_generated.dart"
+    - "**/*_bridges.dart"
+    - "**/*.reflection.dart"
+    - "**/test/**/fixtures/**"
+    - "**/*.b.dart"  # Generated bridge files
+
+linter:
+  rules:
+    unawaited_futures: true
+    discarded_futures: true
+    # Disable file_names - we use numbered prefixes for ordering (e.g., 01_example.dart)
+    file_names: false
+    # Disable dangling_library_doc_comments - generated bridge files may have doc comments at top
+    dangling_library_doc_comments: false

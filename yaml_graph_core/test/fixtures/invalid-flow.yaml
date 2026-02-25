@@ -1,0 +1,13 @@
+# Invalid flowchart — missing required fields, wrong types
+meta:
+  id: 123
+  # missing title (required)
+  # missing graph-version (required)
+
+nodes:
+  badNode:
+    type: invalid-type
+    # missing label (required)
+
+# edges is a string instead of array
+edges: "not-an-array"

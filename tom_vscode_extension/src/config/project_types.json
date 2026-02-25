@@ -1,0 +1,115 @@
+{
+  "projectAnalysis": {
+    "projectDetectors": [
+      {
+        "name": "tom_workspace",
+        "detection": {
+          "hasFile": ["tom_workspace.yaml", "tom.code-workspace"],
+          "hasFolder": ["_ai", "_copilot_guidelines", ".tom_metadata"]
+        },
+        "attributes": {
+          "types": "tom,workspace,tom_workspace",
+          "flags": "hasAiFolder,hasGuidelines,hasMetadata"
+        }
+      },
+      {
+        "name": "tom_project",
+        "detection": {
+          "hasFile": ["tom_project.yaml"]
+        },
+        "attributes": {
+          "types": "tom,project,tom_project",
+          "flags": "hasTomProjectConfig"
+        }
+      },
+      {
+        "name": "dart_package",
+        "detection": {
+          "hasFile": ["pubspec.yaml"],
+          "hasFolder": ["lib/src"],
+          "contains": [
+            { "file": "pubspec.yaml", "contains": "^version:\\s*[0-9]+\\.[0-9]+\\.[0-9]+", "flags": "m" },
+            { "file": "pubspec.yaml", "containsNot": "^sdk:\\s*flutter", "flags": "mi" }
+          ]
+        },
+        "attributes": {
+          "types": "dart,dart_package",
+          "flags": "hasPubspec,hasVersion"
+        }
+      },
+      {
+        "name": "dart_private_package",
+        "detection": {
+          "hasFile": ["pubspec.yaml"],
+          "contains": [
+            { "file": "pubspec.yaml", "contains": "publish_to:\\s*none", "flags": "i" }
+          ]
+        },
+        "attributes": {
+          "types": "dart,dart_package,private_package",
+          "flags": "noPublishing"
+        }
+      },
+      {
+        "name": "flutter_app",
+        "detection": {
+          "hasFile": ["pubspec.yaml"],
+          "hasFolder": ["lib"],
+          "contains": [
+            { "file": "pubspec.yaml", "contains": "sdk:\\s*flutter", "flags": "i" }
+          ]
+        },
+        "attributes": {
+          "types": "dart,flutter,flutter_app",
+          "flags": "hasFlutterSdk"
+        }
+      },
+      {
+        "name": "vscode_extension",
+        "detection": {
+          "hasFile": ["package.json"],
+          "hasFolder": ["src"],
+          "contains": [
+            { "file": "package.json", "contains": "\\\"engines\\\"\\s*:\\s*\\{[^}]*\\\"vscode\\\"", "flags": "i" }
+          ]
+        },
+        "attributes": {
+          "types": "node,vscode,vscode_extension",
+          "flags": "hasPackageJson,hasVsCodeEngine"
+        }
+      },
+      {
+        "name": "node_project",
+        "detection": {
+          "hasFile": ["package.json"]
+        },
+        "attributes": {
+          "types": "node,node_project",
+          "flags": "hasPackageJson"
+        }
+      },
+      {
+        "name": "docker_project",
+        "detection": {
+          "hasFile": ["Dockerfile"]
+        },
+        "attributes": {
+          "types": "docker,deployable",
+          "flags": "hasDocker"
+        }
+      },
+      {
+        "name": "zom_test_project",
+        "detection": {
+          "contains": [
+            { "file": "pubspec.yaml", "contains": "^name:\\s*zom_", "flags": "mi" }
+          ]
+        },
+        "attributes": {
+          "types": "test,zom_test_project",
+          "flags": "testOnly"
+        }
+      }
+    ]
+  }
+}

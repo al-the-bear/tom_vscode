@@ -1,0 +1,47 @@
+# Tom Build Configuration for tom_vscode_bridge
+
+versioner:
+  variable-prefix: vscodeBridge
+  output: lib/src/version.versioner.dart
+
+d4rtgen:
+  name: tom_vscode_bridge
+  helpersImport: package:tom_d4rt/tom_d4rt.dart
+  generateBarrel: true
+  barrelPath: lib/d4rt_bridges.dart
+  generateDartscript: true
+  dartscriptPath: lib/dartscript.dart
+  generateTestRunner: true
+  testRunnerPath: bin/d4rtrun.b.dart
+  registrationClass: TomVscodeBridgeBridges
+  modules:
+    - name: all
+      barrelFiles:
+        - lib/tom_vscode_bridge.dart
+      barrelImport: tom_vscode_bridge.dart
+      outputPath: lib/src/d4rt_bridges/tom_vscode_bridge_bridges.dart
+      excludePatterns: []
+      excludeClasses: []
+
+compiler:
+  compiles:
+    # macOS ARM64 - compile for self + all Linux targets
+    - commandline:
+        - mkdir -p $TOM_BINARY_PATH/${target-platform-vs}
+        - dart compile exe ${file} --target-os=${target-os} -o $TOM_BINARY_PATH/${target-platform-vs}/${file.name}
+      files: bin/tom_bs.dart
+      targets: [darwin-arm64, linux-x64, linux-arm64, linux-armhf]
+      platforms: [darwin-arm64]
+
+    # Other platforms - compile for self only
+    - commandline:
+        - mkdir -p $TOM_BINARY_PATH/${target-platform-vs}
+        - dart compile exe ${file} -o $TOM_BINARY_PATH/${target-platform-vs}/${file.name}
+      files: bin/tom_bs.dart
+      platforms: [darwin-x64, linux-*, win32-*]
+
+  postcompile:
+    # Make binaries executable on Unix-like systems
+    - commandline:
+        - chmod -R +x $TOM_BINARY_PATH/${current-platform-vs}/
+      platforms: [macos, linux]

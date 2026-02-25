@@ -1,0 +1,68 @@
+meta:
+  id: build-pipeline
+  title: Build Pipeline
+  graph-version: 1
+  direction: TD
+  description: CI/CD build pipeline
+
+nodes:
+  start:
+    type: start
+    label: Start
+    metadata:
+      status: implemented
+    connections:
+      - to: checkout
+        label: Begin
+
+  checkout:
+    type: process
+    label: Checkout Code
+    metadata:
+      status: implemented
+      owner: devops
+    description: Clone repository and checkout branch
+    connections:
+      - to: build
+        label: Code Ready
+
+  build:
+    type: process
+    label: Build Project
+    metadata:
+      status: implemented
+      owner: devops
+    connections:
+      - to: test
+        label: Build Complete
+
+  test:
+    type: decision
+    label: Run Tests?
+    metadata:
+      status: implemented
+    connections:
+      - to: deploy
+        label: Tests Pass
+        style: thick
+      - to: done
+        label: Tests Fail
+        style: dotted
+
+  deploy:
+    type: subprocess
+    label: Deploy to Staging
+    metadata:
+      status: planned
+      tags:
+        - deployment
+        - staging
+    connections:
+      - to: done
+        label: Deployed
+
+  done:
+    type: end
+    label: Done
+    metadata:
+      status: implemented

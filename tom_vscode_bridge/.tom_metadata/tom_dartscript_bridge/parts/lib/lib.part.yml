@@ -1,0 +1,6 @@
+# Part: Lib
+name: lib
+displayName: Lib
+sources: [bridge_server.dart, script_api.dart, tom_dartscript_bridge.dart]
+modules:
+  - vscode_api

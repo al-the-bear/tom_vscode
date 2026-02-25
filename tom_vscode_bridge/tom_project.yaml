@@ -1,0 +1,4 @@
+project_id: VSB
+name: bridge
+description: >-
+  VS Code Dart bridge.

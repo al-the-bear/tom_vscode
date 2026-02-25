@@ -1,0 +1,12 @@
+# CI Pipeline domain metadata
+domain-id: ci-pipeline/v1
+base-graph-type: flowchart
+
+# Default shapes for CI pipeline node types
+default-shapes:
+  trigger: hexagon
+  build: rectangle
+  test: parallelogram
+  deploy: subroutine
+  approval: diamond
+  notification: asymmetric

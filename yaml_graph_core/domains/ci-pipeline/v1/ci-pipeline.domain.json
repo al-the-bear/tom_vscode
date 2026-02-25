@@ -1,0 +1,52 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "ci-pipeline/v1",
+    "title": "CI Pipeline Domain",
+    "description": "Domain extension for CI/CD pipeline flowcharts",
+    "$defs": {
+        "node": {
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "enum": ["trigger", "build", "test", "deploy", "approval", "notification"]
+                },
+                "subtype": {
+                    "type": "string",
+                    "description": "Specialization within type"
+                },
+                "metadata": {
+                    "type": "object",
+                    "properties": {
+                        "environment": {
+                            "type": "string",
+                            "enum": ["dev", "staging", "production"]
+                        },
+                        "timeout-minutes": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "retry-count": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 5
+                        },
+                        "status": {
+                            "type": "string",
+                            "enum": ["planned", "active", "deprecated"]
+                        }
+                    }
+                }
+            },
+            "if": {
+                "properties": { "type": { "const": "trigger" } }
+            },
+            "then": {
+                "properties": {
+                    "subtype": {
+                        "enum": ["push", "pull-request", "schedule", "manual"]
+                    }
+                }
+            }
+        }
+    }
+}

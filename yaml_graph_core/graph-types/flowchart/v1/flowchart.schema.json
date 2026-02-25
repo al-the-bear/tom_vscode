@@ -1,0 +1,117 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "flowchart.schema.json",
+    "title": "Flow Diagram",
+    "description": "YAML schema for flowchart/process-flow diagrams with shape/type/subtype hierarchy",
+    "type": "object",
+    "required": ["meta", "nodes"],
+    "properties": {
+        "meta": {
+            "type": "object",
+            "required": ["id", "title", "graph-version"],
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]*$",
+                    "description": "Unique diagram identifier"
+                },
+                "title": { "type": "string" },
+                "graph-version": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Mapping format version (must match a v{n}/ subfolder)"
+                },
+                "domain": {
+                    "type": "string",
+                    "description": "Domain extension ID (e.g., ci-pipeline/v1)"
+                },
+                "direction": {
+                    "type": "string",
+                    "enum": ["TD", "LR", "BT", "RL"],
+                    "default": "TD"
+                },
+                "description": { "type": "string" }
+            }
+        },
+        "nodes": {
+            "type": "object",
+            "additionalProperties": {
+                "$ref": "#/$defs/node"
+            },
+            "minProperties": 1
+        },
+        "edges": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/edge" },
+            "minItems": 0,
+            "description": "Legacy top-level edges (prefer co-located connections)"
+        }
+    },
+    "$defs": {
+        "node": {
+            "type": "object",
+            "required": ["type", "label"],
+            "properties": {
+                "shape": {
+                    "type": "string",
+                    "enum": ["rectangle", "diamond", "stadium", "subroutine",
+                             "circle", "hexagon", "parallelogram", "trapezoid",
+                             "cylinder", "asymmetric", "double-circle"],
+                    "description": "Mermaid visual shape (uses default-shape if omitted)"
+                },
+                "type": {
+                    "type": "string",
+                    "description": "Semantic type — constrained by domain schema"
+                },
+                "subtype": {
+                    "type": "string",
+                    "description": "Specialization within type — constrained by domain schema"
+                },
+                "label": { "type": "string" },
+                "metadata": {
+                    "type": "object",
+                    "description": "Domain-specific key-value data, validated per type+subtype"
+                },
+                "connections": {
+                    "type": "array",
+                    "items": { "$ref": "#/$defs/connection" },
+                    "description": "Outgoing connections (co-located with node)"
+                },
+                "description": { "type": "string" }
+            },
+            "unevaluatedProperties": false
+        },
+        "connection": {
+            "type": "object",
+            "required": ["to"],
+            "properties": {
+                "to": { "type": "string" },
+                "label": { "type": "string" },
+                "style": {
+                    "type": "string",
+                    "enum": ["default", "dotted", "thick"],
+                    "default": "default"
+                },
+                "metadata": {
+                    "type": "object",
+                    "description": "Connection-specific metadata"
+                }
+            }
+        },
+        "edge": {
+            "type": "object",
+            "required": ["from", "to"],
+            "properties": {
+                "from": { "type": "string" },
+                "to": { "type": "string" },
+                "label": { "type": "string" },
+                "style": {
+                    "type": "string",
+                    "enum": ["default", "dotted", "thick"],
+                    "default": "default"
+                }
+            },
+            "description": "Legacy edge format — prefer co-located connections"
+        }
+    }
+}

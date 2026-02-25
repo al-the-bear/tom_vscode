@@ -1,0 +1,46 @@
+# Source files (compiled to out/)
+src/**
+**/*.ts
+!**/*.d.ts
+
+# Build config
+tsconfig.json
+.vscode/**
+
+# Development files
+_copilot_guidelines/**
+doc/**
+.npmrc
+
+# Test files
+**/*.test.js
+
+# Nested dev dependencies from yaml-graph packages
+node_modules/yaml-graph-core/node_modules/**
+node_modules/yaml-graph-core/src/**
+node_modules/yaml-graph-core/test/**
+node_modules/yaml-graph-core/tsconfig.json
+node_modules/yaml-graph-core/vitest.config.ts
+node_modules/yaml-graph-vscode/node_modules/**
+node_modules/yaml-graph-vscode/src/**
+node_modules/yaml-graph-vscode/test/**
+node_modules/yaml-graph-vscode/tsconfig.json
+node_modules/yaml-graph-vscode/vitest.config.ts
+node_modules/tom-vscode-shared/node_modules/**
+node_modules/tom-vscode-shared/src/**
+node_modules/tom-vscode-shared/tsconfig.json
+
+# Exclude mermaid from node_modules (loaded from lib/ instead)
+node_modules/mermaid/**
+node_modules/d3*/**
+node_modules/cytoscape*/**
+node_modules/dagre*/**
+node_modules/roughjs/**
+node_modules/katex/**
+node_modules/dompurify/**
+node_modules/khroma/**
+node_modules/marked/**
+node_modules/lodash-es/**
+node_modules/langium/**
+node_modules/@mermaid-js/**
+node_modules/@iconify/**

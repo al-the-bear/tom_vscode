@@ -1,0 +1,191 @@
+# yaml-language-server: $schema=../../../yaml_graph_core/graph-types/flowchart/v1/flowchart.schema.json
+# CI/CD Pipeline Workflow
+# Uses shape/type/subtype hierarchy with domain: ci-pipeline/v1
+meta:
+  id: ci-workflow
+  title: CI/CD Pipeline
+  graph-version: 1
+  domain: ci-pipeline/v1
+  direction: TD
+  description: Continuous integration and deployment workflow for a Dart package
+
+nodes:
+  push:
+    type: trigger
+    subtype: github-event
+    label: Push to Main
+    metadata:
+      event: push
+      branch: main
+    connections:
+      - to: checkout
+        label: Trigger
+
+  checkout:
+    type: build
+    subtype: git-clone
+    label: Checkout Code
+    metadata:
+      status: implemented
+    connections:
+      - to: deps
+        label: Code Ready
+
+  deps:
+    type: build
+    subtype: dependency
+    label: Install Dependencies
+    metadata:
+      command: dart pub get
+      status: implemented
+    connections:
+      - to: analyze
+        label: Dependencies Installed
+
+  analyze:
+    type: test
+    subtype: lint
+    label: Static Analysis
+    metadata:
+      command: dart analyze
+      status: implemented
+    connections:
+      - to: format
+        label: Analysis Passed
+
+  format:
+    type: test
+    subtype: lint
+    label: Format Check
+    metadata:
+      command: dart format --set-exit-if-changed .
+      status: implemented
+    connections:
+      - to: test
+        label: Format OK
+
+  test:
+    type: test
+    subtype: unit
+    label: Run Tests
+    metadata:
+      command: dart test
+      status: implemented
+    connections:
+      - to: coverage
+        label: Tests Passed
+      - to: notify-fail
+        label: Tests Failed
+        style: dotted
+
+  coverage:
+    type: test
+    subtype: coverage
+    label: Coverage Report
+    metadata:
+      threshold: 80%
+      status: planned
+    connections:
+      - to: build
+        label: Coverage OK
+
+  build:
+    type: build
+    subtype: compile
+    label: Build Artifacts
+    metadata:
+      outputs:
+        - lib/
+        - bin/
+      status: implemented
+    connections:
+      - to: approval
+        label: Build Complete
+
+  approval:
+    type: approval
+    subtype: manual
+    label: Review & Approve
+    metadata:
+      reviewers:
+        - lead-dev
+        - qa-team
+      status: planned
+    connections:
+      - to: deploy-staging
+        label: Approved
+      - to: notify-rejected
+        label: Rejected
+        style: dotted
+
+  deploy-staging:
+    type: deploy
+    subtype: staging
+    label: Deploy to Staging
+    metadata:
+      environment: staging
+      status: planned
+    connections:
+      - to: smoke-test
+        label: Deployed
+
+  smoke-test:
+    type: test
+    subtype: integration
+    label: Smoke Tests
+    metadata:
+      timeout: 5m
+      status: planned
+    connections:
+      - to: deploy-prod
+        label: Smoke OK
+      - to: rollback
+        label: Smoke Failed
+        style: dotted
+
+  deploy-prod:
+    type: deploy
+    subtype: production
+    label: Deploy to Production
+    metadata:
+      environment: production
+      requires-approval: true
+      status: planned
+    connections:
+      - to: notify-success
+        label: Deployed
+
+  notify-success:
+    type: notification
+    subtype: slack
+    label: Notify Success
+    metadata:
+      channel: "#releases"
+      status: planned
+
+  notify-fail:
+    type: notification
+    subtype: slack
+    label: Notify Failure
+    metadata:
+      channel: "#ci-alerts"
+      status: implemented
+
+  notify-rejected:
+    type: notification
+    subtype: email
+    label: Notify Rejection
+    metadata:
+      recipients: submitter
+      status: planned
+
+  rollback:
+    type: deploy
+    subtype: rollback
+    label: Rollback
+    metadata:
+      strategy: previous-version
+      status: planned
+    connections:
+      - to: notify-fail
+        label: Rolled Back

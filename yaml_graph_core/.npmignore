@@ -1,0 +1,6 @@
+# Exclude source and test files from npm pack
+src/
+test/
+tsconfig.json
+vitest.config.ts
+node_modules/

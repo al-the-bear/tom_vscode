@@ -1,0 +1,55 @@
+# Sample ER diagram for testing
+meta:
+  id: user-management
+  title: User Management DB
+  graph-version: 1
+  description: Entity-relationship diagram for user management
+
+entities:
+  User:
+    type: entity
+    attributes:
+      - name: id
+        type: int
+        key: PK
+      - name: email
+        type: string
+        key: UK
+        nullable: false
+      - name: name
+        type: string
+      - name: role_id
+        type: int
+        key: FK
+    relationships:
+      - to: Role
+        type: many-to-one
+        label: has
+      - to: Permission
+        type: many-to-many
+        label: assigned
+
+  Role:
+    type: entity
+    attributes:
+      - name: id
+        type: int
+        key: PK
+      - name: name
+        type: string
+        nullable: false
+    relationships:
+      - to: Permission
+        type: one-to-many
+        label: grants
+
+  Permission:
+    type: entity
+    attributes:
+      - name: id
+        type: int
+        key: PK
+      - name: action
+        type: string
+      - name: resource
+        type: string

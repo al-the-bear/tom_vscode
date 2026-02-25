@@ -1,0 +1,105 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "er-diagram.schema.json",
+    "title": "ER Diagram",
+    "description": "YAML schema for entity-relationship diagrams with co-located relationships",
+    "type": "object",
+    "required": ["meta", "entities"],
+    "properties": {
+        "meta": {
+            "type": "object",
+            "required": ["id", "title", "graph-version"],
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]*$"
+                },
+                "title": { "type": "string" },
+                "graph-version": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Mapping format version (must match a v{n}/ subfolder)"
+                },
+                "domain": {
+                    "type": "string",
+                    "description": "Domain extension ID (e.g., ecommerce-db/v1)"
+                },
+                "description": { "type": "string" }
+            }
+        },
+        "entities": {
+            "type": "object",
+            "additionalProperties": {
+                "$ref": "#/$defs/entity"
+            },
+            "minProperties": 1
+        }
+    },
+    "$defs": {
+        "entity": {
+            "type": "object",
+            "required": ["attributes"],
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "description": "Semantic entity type — constrained by domain schema"
+                },
+                "subtype": {
+                    "type": "string",
+                    "description": "Specialization within type"
+                },
+                "attributes": {
+                    "type": "array",
+                    "items": { "$ref": "#/$defs/attribute" },
+                    "minItems": 1
+                },
+                "relationships": {
+                    "type": "array",
+                    "items": { "$ref": "#/$defs/relationship" },
+                    "description": "Outgoing relationships from this entity"
+                },
+                "metadata": {
+                    "type": "object",
+                    "description": "Domain-specific key-value data"
+                },
+                "description": { "type": "string" }
+            },
+            "unevaluatedProperties": false
+        },
+        "attribute": {
+            "type": "object",
+            "required": ["name", "type"],
+            "properties": {
+                "name": { "type": "string" },
+                "type": { "type": "string" },
+                "key": {
+                    "type": "string",
+                    "enum": ["PK", "FK", "UK"]
+                },
+                "nullable": { "type": "boolean", "default": true },
+                "description": { "type": "string" }
+            }
+        },
+        "relationship": {
+            "type": "object",
+            "required": ["to", "type"],
+            "properties": {
+                "to": { "type": "string" },
+                "type": {
+                    "type": "string",
+                    "enum": [
+                        "one-to-one",
+                        "one-to-many",
+                        "many-to-one",
+                        "many-to-many"
+                    ]
+                },
+                "label": { "type": "string" },
+                "metadata": {
+                    "type": "object",
+                    "description": "Relationship-specific metadata"
+                }
+            }
+        }
+    }
+}

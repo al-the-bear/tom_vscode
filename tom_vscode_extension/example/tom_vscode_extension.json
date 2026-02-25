@@ -1,0 +1,646 @@
+{
+  "default": "Trail Reminder",
+  "userName": "${username}",
+  "dartscriptBridge": {
+    "current": "production",
+    "profiles": {
+      "development": {
+        "label": "Development",
+        "command": "dart",
+        "args": [
+          "run",
+          "bin/tom_bs.dart"
+        ],
+        "cwd": "${workspaceFolder}/xternal/tom_module_vscode/tom_vscode_bridge",
+        "runPubGet": true
+      },
+      "production": {
+        "label": "Production",
+        "command": "tom_bs",
+        "args": [],
+        "cwd": "${workspaceFolder}",
+        "runPubGet": false
+      }
+    }
+  },
+  "localLlmTools": {
+    "askCopilot": {
+      "enabled": true,
+      "answerFileTimeout": 120000,
+      "pollInterval": 2000,
+      "answerFolder": "_ai/chat_replies",
+      "promptPrefix": "",
+      "promptSuffix": "\n\nAfter completing this request, please write your response to the answer file at \"${answerFolder}/${sessionId}_${machineId}_answer.json\" in JSON format with a \"response\" key. If there are structured data values to return, include them under a \"responseValues\" key."
+    },
+    "askBigBrother": {
+      "enabled": true,
+      "defaultModel": "gpt-4o",
+      "temperature": 0.7,
+      "maxIterations": 5,
+      "enableToolsByDefault": false,
+      "maxToolResultChars": 10000,
+      "responseTimeout": 120000,
+      "summarizationEnabled": true,
+      "summarizationModel": "gpt-4o-mini",
+      "maxResponseChars": 20000,
+      "modelRecommendations": "**Model recommendations:**\n- claude-3.5-sonnet / claude-3-opus: Complex reasoning, detailed code review\n- gpt-4o: General purpose, good speed/quality balance\n- o1 / o3: Deep reasoning, math, logic problems\n- gpt-4o-mini: Quick answers for simple questions"
+    }
+  },
+  "promptExpander": {
+    "ollamaUrl": "http://localhost:11434",
+    "model": "qwen3:8b",
+    "temperature": 0.4,
+    "stripThinkingTags": true,
+    "expansionProfile": "expand",
+    "resultTemplate": "${response}",
+    "trailMaximumTokens": 8000,
+    "trailSummarizationPrompt": "Summarize the following conversation history concisely, preserving key context, decisions made, and important details needed to continue the conversation:\n\n${history}\n\nProvide a brief summary (2-3 paragraphs max).",
+    "trailSummarizationTemperature": 0.3,
+    "removePromptTemplateFromTrail": true,
+    "toolsEnabled": true,
+    "models": {
+      "qwen3-8b": {
+        "ollamaUrl": "http://localhost:11434",
+        "model": "qwen3:8b",
+        "temperature": 0.4,
+        "stripThinkingTags": true,
+        "description": "Qwen 3 8B \u2014 fast reasoning model with thinking tags",
+        "isDefault": true,
+        "keepAlive": "5m"
+      }
+    },
+    "profiles": {
+      "direct": {
+        "label": "Send to LLM",
+        "systemPrompt": "## General guidelines\n\n${instructions}\n\nYou are a helpful AI assistant working on the Tom Framework workspace \u2014 a Dart/Flutter monorepo. Answer the user's question or complete their task directly. Be concise and actionable. Use the available tools to read files, search code, or gather context when needed.",
+        "resultTemplate": "${response}",
+        "temperature": 0.4,
+        "modelConfig": null,
+        "isDefault": true,
+        "toolsEnabled": true
+      },
+      "expand": {
+        "label": "Expand Prompt",
+        "systemPrompt": "## General guidelines\n\n${instructions}\n\nYou are a prompt expansion assistant. Your job is to take a short, terse user prompt and expand it into a detailed, well-structured prompt that will produce better results from an AI coding assistant (GitHub Copilot).\n\nRules:\n- Keep the original intent exactly \u2014 do not add tasks the user did not ask for.\n- Add structure: break vague requests into clear, numbered steps if appropriate.\n- Add specificity: if the user mentions a file, technology, or pattern, reference it explicitly.\n- Add quality cues: remind the assistant to handle edge cases, follow conventions, write tests if applicable.\n- Keep it concise \u2014 expand, don't bloat. A good expansion is 2-5x the original length, not 20x.\n- Output ONLY the expanded prompt text. No explanations, no markdown fences, no preamble.\n- Do NOT wrap your output in thinking tags or chain-of-thought. Output the final prompt directly.\n- Preserve any special syntax the user wrote (e.g., !prompt, $prompt, file paths, code snippets).\n- Write in the same language/tone as the original prompt.",
+        "resultTemplate": null,
+        "temperature": null,
+        "modelConfig": null,
+        "isDefault": false,
+        "toolsEnabled": true
+      },
+      "rewrite": {
+        "label": "Rewrite for Clarity",
+        "systemPrompt": "## General guidelines\n\n${instructions}\n\nYou are a technical writing assistant. Rewrite the following prompt to be clearer, more precise, and better structured \u2014 without changing the intent or adding new requirements.\n\nRules:\n- Fix grammar, awkward phrasing, and ambiguity.\n- Improve structure with numbered steps or bullet points where helpful.\n- Keep the same scope \u2014 do not add or remove tasks.\n- Output ONLY the rewritten prompt. No explanations or preamble.",
+        "resultTemplate": null,
+        "temperature": 0.3,
+        "modelConfig": null,
+        "toolsEnabled": true
+      },
+      "detailed": {
+        "label": "Expand with Context",
+        "systemPrompt": "## General guidelines\n\n${instructions}\n\nYou are a prompt expansion assistant working on a coding project.\n\nContext:\n- File: ${filename}\n- Language: ${languageId}\n- Workspace: ${workspaceName}\n\nExpand the following terse prompt into a detailed, well-structured prompt for an AI coding assistant. Include relevant context from the file and language information above.\n\nRules:\n- Keep the original intent exactly.\n- Add structure: break into clear, numbered steps.\n- Reference the specific file, language, and project context.\n- Add quality cues: edge cases, conventions, tests.\n- Keep it concise \u2014 2-5x the original length.\n- Output ONLY the expanded prompt. No explanations.\n- Preserve any special syntax (!prompt, $prompt, file paths, code snippets).",
+        "resultTemplate": null,
+        "temperature": 0.4,
+        "modelConfig": null,
+        "toolsEnabled": true
+      },
+      "annotated": {
+        "label": "Expand with Original",
+        "systemPrompt": null,
+        "resultTemplate": "<!-- Original prompt:\n${original}\n-->\n\n${response}",
+        "temperature": null,
+        "modelConfig": null,
+        "toolsEnabled": true
+      },
+      "My Testtemplate": {
+        "label": "Test Template",
+        "systemPrompt": null,
+        "toolsEnabled": true
+      }
+    }
+  },
+  "botConversation": {
+    "maxTurns": 10,
+    "temperature": 0.5,
+    "historyMode": "trim_and_summary",
+    "trailMaximumTokens": 8000,
+    "trailSummarizationPrompt": "Summarize the following conversation history concisely, preserving key context, decisions made, and important details needed to continue the conversation:\n\n${history}\n\nProvide a brief summary (2-3 paragraphs max).",
+    "trailSummarizationTemperature": 0.3,
+    "removePromptTemplateFromTrail": true,
+    "pauseBetweenTurns": false,
+    "modelConfig": null,
+    "answerFolder": "_ai/bot_conversations",
+    "logFolder": "_ai/bot_conversations/logs",
+    "toolsEnabled": true,
+    "profiles": {
+      "research": {
+        "label": "Research & Gather Information",
+        "description": "Orchestrate Copilot to research a topic across the codebase and compile findings",
+        "goal": "Research the given topic thoroughly using the codebase as context",
+        "maxTurns": 8,
+        "initialPromptTemplate": "You are orchestrating a research conversation with GitHub Copilot.\n\nGoal: ${goal}\nDescription: ${description}\n\nGenerate an initial prompt for Copilot that:\n1. Clearly states what information is needed\n2. Asks Copilot to search the codebase for relevant code and documentation\n3. Requests structured output with findings organized by relevance\n\nOutput ONLY the prompt text for Copilot. No explanations.",
+        "followUpTemplate": "You are continuing a research conversation with GitHub Copilot.\n\nGoal: ${goal}\nTurn: ${turn}/${maxTurns}\n\nPrevious exchanges:\n${history}\n\nBased on what Copilot has found so far, generate a follow-up prompt that:\n1. Acknowledges useful findings\n2. Asks for deeper investigation of promising leads\n3. Identifies gaps in the research that need filling\n4. If the research goal is sufficiently answered, include [GOAL_REACHED] in your response\n\nOutput ONLY the prompt text for Copilot."
+      },
+      "implement": {
+        "label": "Guided Implementation",
+        "description": "Guide Copilot step-by-step through implementing a feature",
+        "goal": "Implement the described feature following project conventions",
+        "maxTurns": 12,
+        "initialPromptTemplate": "You are orchestrating an implementation conversation with GitHub Copilot.\n\nGoal: ${goal}\nDescription: ${description}\n\nGenerate an initial prompt for Copilot that:\n1. Describes the feature to implement\n2. Asks Copilot to first outline the implementation plan\n3. Requests identification of files to modify and create\n4. Asks for confirmation before proceeding\n\nOutput ONLY the prompt text for Copilot.",
+        "followUpTemplate": "You are guiding Copilot through a step-by-step implementation.\n\nGoal: ${goal}\nTurn: ${turn}/${maxTurns}\n\nPrevious exchanges:\n${history}\n\nGenerate the next prompt for Copilot that:\n1. Reviews what was done in the last step\n2. Identifies the next logical implementation step\n3. Provides clear, specific instructions for what to do next\n4. If the implementation is complete, include [GOAL_REACHED] in your response\n\nOutput ONLY the prompt text for Copilot."
+      },
+      "debug": {
+        "label": "Debug Investigation",
+        "description": "Direct Copilot to investigate and fix a bug systematically",
+        "goal": "Find the root cause and fix the described bug",
+        "maxTurns": 10,
+        "temperature": 0.3,
+        "initialPromptTemplate": "You are orchestrating a debugging session with GitHub Copilot.\n\nGoal: ${goal}\nDescription: ${description}\n\nGenerate an initial prompt for Copilot that:\n1. Describes the bug symptoms clearly\n2. Asks Copilot to trace the code path involved\n3. Requests identification of potential root causes\n4. Asks for reproduction steps if applicable\n\nOutput ONLY the prompt text for Copilot.",
+        "followUpTemplate": "You are guiding a systematic debugging session with Copilot.\n\nGoal: ${goal}\nTurn: ${turn}/${maxTurns}\n\nPrevious exchanges:\n${history}\n\nGenerate the next debugging prompt that:\n1. Narrows down the root cause based on findings so far\n2. Suggests specific code to examine or test\n3. If the bug is identified, asks for a fix with tests\n4. If the bug is fixed and verified, include [GOAL_REACHED] in your response\n\nOutput ONLY the prompt text for Copilot."
+      }
+    },
+    "conversationMode": "ollama-copilot",
+    "selfTalk": {
+      "personA": {
+        "systemPrompt": "You are Person A \u2014 a creative engineer who proposes solutions, architectures, and approaches. Be bold and inventive. Present your ideas clearly and build on Person B's feedback.",
+        "modelConfig": null,
+        "temperature": 0.7
+      },
+      "personB": {
+        "systemPrompt": "You are Person B \u2014 a critical analyst who evaluates proposals, finds edge cases, and suggests improvements. Challenge assumptions constructively and synthesize ideas into actionable plans.",
+        "modelConfig": null,
+        "temperature": 0.4
+      }
+    },
+    "telegram": {
+      "enabled": false,
+      "botTokenEnv": "TELEGRAM_ALTHEBEAR_BOT_TOKEN",
+      "allowedUserIds": [
+        279417862
+      ],
+      "defaultChatId": 279417862,
+      "notifyOnTurn": true,
+      "notifyOnStart": true,
+      "notifyOnEnd": true,
+      "includeResponseText": false,
+      "maxResponseChars": 500,
+      "pollIntervalMs": 3000
+    }
+  },
+  "templates": {
+    "Trail Reminder": {
+      "template": "Quest: ${chat.quest}\n\nREMINDER: First create trail userprompt file with timestamp ${datetime}.\n\nData requested by the user will be marked in square brackets with the prefix data[attribute/path] to be inserted in the answer document.\n\nHere is my request:\n${originalPrompt}\n\nWrite the answer to data requested in the prompt to \"${chatAnswerFolder}/${windowId}_${machineId}_answer.json\" in JSON format, overwrite if it exists, write empty file if no data was requested. If there are structured data values, include them under a \"responseValues\" key.\n\nREMINDER: After completing, create answer.md and diff.patch trail files, then commit all changes.",
+      "showInMenu": true
+    },
+    "TODO Execution": {
+      "template": "Quest: ${chat.quest}\n\nREMINDER: First create trail userprompt file with timestamp ${datetime}.\n\nData requested by the user will be marked in square brackets with the prefix data[attribute/path] to be inserted in the answer document.\n\nExecute the following TODO:\n${originalPrompt}\n\nWrite the answer to data requested in the prompt to \"${chatAnswerFolder}/${windowId}_${machineId}_answer.json\" in JSON format, overwrite if it exists, write empty file if no data was requested. If there are structured data values, include them under a \"responseValues\" key.\n\nREMINDER: After completing, create answer.md and diff.patch trail files, then commit all changes.",
+      "showInMenu": true
+    },
+    "Code Review": {
+      "template": "Quest: ${chat.quest}\n\nPlease review this code for quality, bugs, and improvements:\n${originalPrompt}\n\nFocus on:\n- Code quality and best practices\n- Potential bugs or edge cases\n- Security vulnerabilities\n- Performance issues\n- Suggestions for improvement",
+      "showInMenu": true
+    },
+    "Explain Code": {
+      "template": "Quest: ${chat.quest}\n\nPlease explain the following code in detail:\n${originalPrompt}\n\nInclude:\n- What it does\n- Key algorithms or patterns\n- Potential issues or improvements",
+      "showInMenu": true
+    },
+    "Add to Todo": {
+      "template": "Quest: ${chat.quest}\n\nBased on the following content, extract and organize TODO items:\n${originalPrompt}\n\nFor each TODO:\n- Create a clear, actionable task description\n- Identify dependencies if any\n- Suggest priority (high/medium/low)\n- Add to copilot_todos if quest context is active",
+      "showInMenu": true
+    },
+    "Review for Bugs": {
+      "template": "Quest: ${chat.quest}\n\nReview this code for bugs and security issues:\n${originalPrompt}\n\nFocus on:\n- Security vulnerabilities\n- Edge cases\n- Error handling\n- Performance issues"
+    },
+    "Add Unit Tests": {
+      "template": "Quest: ${chat.quest}\n\nGenerate comprehensive unit tests for:\n${originalPrompt}\n\nRequirements:\n- High coverage\n- Test edge cases\n- Test error conditions\n- Use appropriate testing framework"
+    },
+    "Add Documentation": {
+      "template": "Quest: ${chat.quest}\n\nAdd complete documentation for:\n${originalPrompt}\n\nInclude:\n- API documentation\n- Usage examples\n- Parameter descriptions\n- Return value descriptions"
+    },
+    "Refactor": {
+      "template": "Quest: ${chat.quest}\n\nRefactor this code for better quality. Refer to the global factoring guidelines for details:\n${originalPrompt}\n\nFocus on:\n- Readability\n- Maintainability\n- Performance\n- Best practices"
+    },
+    "Fix Markdown here": {
+      "template": "Review the following markdown document for formatting, syntax, and style issues:\n${originalPrompt}\n\nFix all markdown problems INSIDE the current document (which is a chat attachment/context already) without adding, removing, or changing actual content. Fix only the markdown of the section that was sent to you if it was only a fragment.\n\nProblems to fix:\n- Syntax errors\n- Formatting inconsistencies\n- Missing line breaks\n- Improper heading levels\n- Broken links or references\n- List formatting issues\n- Code block formatting\n- Escape special characters where necessary",
+      "showInMenu": true
+    },
+    "Test2": {
+      "template": "Prefix\n${originalPrompt}\nSuffix",
+      "showInMenu": true
+    },
+    "__answer_file__": {
+      "template": "Data requested by the user will be marked in square brackets with the prefix data[attribute/path] to be inserted in the answer document in the \"responseValues\" tag.\n${originalPrompt}\n---\nIMPORTANT: When you have completed your response, write your answer to the file:\n${chatAnswerFolder}/${windowId}_${machineId}_answer.json\n\nThe file must be valid JSON with this structure:\n{\n  \"requestId\": \"${requestId}\",\n  \"generatedMarkdown\": \"<your response as a JSON-escaped string>\",\n  \"comments\": \"<optional comments>\",\n  \"references\": [\"<optional array of file paths that are relevant context for the response>\"],\n  \"requestedAttachments\": [\"<optional array of file paths the user explicitly requested>\"],\n  \"responseValues\" : { \"name\" : \"value\", ... }\n}\n\nField descriptions:\n- generatedMarkdown: Your main response text (required)\n- comments: Any additional notes or metadata (optional)\n- references: Files you referenced while forming your response (optional, include workspace-relative paths)\n- requestedAttachments: Files the user explicitly asked you to provide/attach (optional, include workspace-relative paths)\n- responseValues: Key-value pairs for data that should be available in subsequent prompts via ${chat.<key>} (optional)\n\nRequest ID: ${requestId}\n",
+      "showInMenu": true
+    }
+  },
+  "commandlinePostActions": [
+    {
+      "commandId": "workbench.action.reloadWindow",
+      "label": "Reload Window",
+      "description": "Reload the VS Code window"
+    },
+    {
+      "commandId": "workbench.action.terminal.focus",
+      "label": "Focus Terminal",
+      "description": "Focus the integrated terminal"
+    },
+    {
+      "commandId": "workbench.action.files.revert",
+      "label": "Revert Active File",
+      "description": "Revert the active editor file from disk"
+    },
+    {
+      "commandId": "git.refresh",
+      "label": "Git: Refresh",
+      "description": "Refresh the Git source control view"
+    },
+    {
+      "commandId": "workbench.action.tasks.runTask",
+      "label": "Run Task...",
+      "description": "Run a VS Code task"
+    },
+    {
+      "commandId": "workbench.action.debug.start",
+      "label": "Start Debugging",
+      "description": "Start a debug session"
+    },
+    {
+      "commandId": "dartscript.openConfig",
+      "label": "Open Config File",
+      "description": "Open send_to_chat.json"
+    }
+  ],
+  "commandlines": [
+    {
+      "command": "git status",
+      "description": "",
+      "cwd": "/Users/alexiskyaw/Desktop/Code/tom2"
+    },
+    {
+      "command": "./reinstall_for_testing.sh",
+      "description": "Reinstall + reload window",
+      "cwd": "/Users/alexiskyaw/Desktop/Code/tom2/xternal/tom_module_vscode/tom_vscode_extension",
+      "postActions": [
+        "workbench.action.reloadWindow"
+      ]
+    },
+    {
+      "command": "vscode.env.openExternal(vscode.Uri.file(os.homedir() + '/.tom'))",
+      "description": "Open ~/.tom in Finder",
+      "cwdMode": "none"
+    }
+  ],
+  "combinedCommands": {
+    "maximizeToggle": {
+      "label": "Maximize Toggle",
+      "commands": [
+        "workbench.action.toggleFullScreen"
+      ]
+    },
+    "maximizeExplorer": {
+      "label": "Toggle Explorer Sidebar",
+      "commands": [
+        "workbench.action.toggleSidebarVisibility"
+      ]
+    },
+    "maximizeEditor": {
+      "label": "Toggle Editor + Bottom Panel",
+      "commands": [
+        "workbench.action.togglePanel"
+      ]
+    },
+    "maximizeChat": {
+      "label": "Toggle Chat Sidebar",
+      "commands": [
+        "workbench.action.toggleAuxiliaryBar"
+      ]
+    },
+    "showSideNotes": {
+      "label": "Show Side Notes",
+      "commands": [
+        "dartscript.tomNotepad.focus",
+        "dartscript.workspaceNotepad.focus"
+      ]
+    }
+  },
+  "favorites": [
+    {
+      "key": "?",
+      "label": "Quick Reference",
+      "commandId": "dartscript.showQuickReference"
+    },
+    {
+      "key": "0",
+      "label": "Reload Window",
+      "commandId": "workbench.action.reloadWindow"
+    },
+    {
+      "key": "1",
+      "label": "Open Workspace Settings (JSON)",
+      "commandId": "workbench.action.openWorkspaceSettingsFile"
+    },
+    {
+      "key": "2",
+      "label": "Open User Settings (JSON)",
+      "commandId": "workbench.action.openSettingsJson"
+    },
+    {
+      "key": "3",
+      "label": "Open Keyboard Shortcuts (JSON)",
+      "commandId": "workbench.action.openGlobalKeybindingsFile"
+    },
+    {
+      "key": "4",
+      "label": "Show Chat Answer Values",
+      "commandId": "dartscript.showChatAnswerValues"
+    },
+    {
+      "key": "5",
+      "label": "Clear Chat Answer Values",
+      "commandId": "dartscript.clearChatAnswerValues"
+    },
+    {
+      "key": "6",
+      "label": "Restart Bridge",
+      "commandId": "dartscript.restartBridge"
+    },
+    {
+      "key": "7",
+      "label": "Switch Bridge Profile",
+      "commandId": "dartscript.switchBridgeProfile"
+    },
+    {
+      "key": "8",
+      "label": "Toggle Bridge Debug Logging",
+      "commandId": "dartscript.toggleBridgeDebugLogging"
+    },
+    {
+      "key": "9",
+      "label": "Start Tom CLI Integration Server",
+      "commandId": "dartscript.startCliServer"
+    },
+    {
+      "key": "a",
+      "label": "Start Tom CLI Server (Custom Port)",
+      "commandId": "dartscript.startCliServerCustomPort"
+    },
+    {
+      "key": "b",
+      "label": "Stop Tom CLI Integration Server",
+      "commandId": "dartscript.stopCliServer"
+    },
+    {
+      "key": "c",
+      "label": "Start Tom Process Monitor",
+      "commandId": "dartscript.startProcessMonitor"
+    },
+    {
+      "key": "d",
+      "label": "Show VS Code API Info",
+      "commandId": "dartscript.showApiInfo"
+    },
+    {
+      "key": "e",
+      "label": "Telegram Test Connection",
+      "commandId": "dartscript.telegramTest"
+    },
+    {
+      "key": "f",
+      "label": "Telegram Start/Stop Polling",
+      "commandId": "dartscript.telegramToggle"
+    },
+    {
+      "key": "g",
+      "label": "Configure Telegram",
+      "commandId": "dartscript.telegramConfigure"
+    },
+    {
+      "key": "h",
+      "label": "Toggle AI Trail Logging",
+      "commandId": "dartscript.toggleTrail"
+    },
+    {
+      "key": "i",
+      "label": "Extension Status Page",
+      "commandId": "dartscript.showStatusPage"
+    },
+    {
+      "key": "j",
+      "label": "Open Extension Settings",
+      "commandId": "dartscript.openExtensionSettings"
+    },
+    {
+      "key": "p",
+      "label": "Open Markdown Preview",
+      "commandId": "markdown-preview-enhanced.openPreview"
+    },
+    {
+      "key": "x",
+      "label": "Toggle Explorer + Chat Sidebar",
+      "commandIds": [
+        "workbench.action.toggleSidebarVisibility",
+        "workbench.action.toggleAuxiliaryBar"
+      ]
+    },
+    {
+      "key": "y",
+      "label": "VS Window State Flow",
+      "commandId": "dartscript.stateMachine.vsWindowStateFlow"
+    }
+  ],
+  "tomAiChat": {
+    "templates": {
+      "debug": {
+        "label": "Debug",
+        "description": "Debug an issue",
+        "contextInstructions": "Focus on finding root cause and fixing the issue."
+      }
+    }
+  },
+  "stateMachineCommands": {
+    "vsWindowStateFlow": {
+      "label": "Markdown Preview Toggle",
+      "initActions": {
+        "commands": [],
+        "endState": "noPreview",
+        "executeStateAction": false
+      },
+      "resetActions": {
+        "commands": []
+      },
+      "stateActions": [
+        {
+          "startState": "noPreview",
+          "commands": [
+            "markdown.showPreviewToSide"
+          ],
+          "endState": "hasPreview"
+        },
+        {
+          "startState": "hasPreview",
+          "commands": [
+            "workbench.action.editorLayoutSingle",
+            "{ const tabs = vscode.window.tabGroups.all.flatMap(g => g.tabs); for (const t of tabs) { if (t.label.startsWith(\"Preview \") && t.label.endsWith(\".md\")) await vscode.window.tabGroups.close(t); } }"
+          ],
+          "endState": "noPreview"
+        }
+      ]
+    },
+    "vsWindowStateFlowBackup": {
+      "label": "VS Window State Flow",
+      "initActions": {
+        "commands": [
+          "workbench.view.explorer",
+          "workbench.action.focusPanel",
+          "workbench.action.focusAuxiliaryBar"
+        ],
+        "endState": "default",
+        "executeStateAction": false
+      },
+      "resetActions": {
+        "commands": [
+          "workbench.view.explorer",
+          "workbench.action.focusPanel",
+          "workbench.action.focusAuxiliaryBar"
+        ]
+      },
+      "stateActions": [
+        {
+          "startState": "default",
+          "commands": [
+            "workbench.action.toggleSidebarVisibility"
+          ],
+          "endState": "noExplorer"
+        },
+        {
+          "startState": "noExplorer",
+          "commands": [
+            "workbench.action.togglePanel"
+          ],
+          "endState": "noExplorerAndBottomPanel"
+        },
+        {
+          "startState": "noExplorerAndBottomPanel",
+          "commands": [
+            "workbench.action.toggleAuxiliaryBar"
+          ],
+          "endState": "noPanels"
+        },
+        {
+          "startState": "noPanels",
+          "commands": [
+            "workbench.action.toggleSidebarVisibility"
+          ],
+          "endState": "noSidePanelAndNoBottomPanel"
+        },
+        {
+          "startState": "noSidePanelAndNoBottomPanel",
+          "commands": [
+            "workbench.action.togglePanel"
+          ],
+          "endState": "noSidePanel"
+        },
+        {
+          "startState": "noSidePanel",
+          "commands": [
+            "workbench.action.toggleAuxiliaryBar"
+          ],
+          "endState": "default"
+        }
+      ]
+    }
+  },
+  "trail": {
+    "enabled": true,
+    "paths": {
+      "local": "_ai/local/trail",
+      "conversation": "_ai/conversation/trail",
+      "tomai": "_ai/tomai/trail",
+      "copilot": "_ai/copilot/trail"
+    }
+  },
+  "issuePanels": {
+    "common": {
+      "columnLabels": {
+        "statusDot": "",
+        "id": "ID",
+        "title": "Title",
+        "repository": "Repository",
+        "repositoryOwner": "Owner",
+        "status": "Status",
+        "author": "Author",
+        "commentCount": "# of Comments",
+        "creationTimestamp": "Created",
+        "updateTimestamp": "Updated",
+        "labels": "Labels"
+      },
+      "growthPriority": ["title", "author", "repository", "status", "repositoryOwner"]
+    },
+    "issueKit": {
+      "provider": "github",
+      "scanWorkspace": true,
+      "allReposOption": true,
+      "excludeRepos": ["open-runtime/native_semaphores"],
+      "additionalRepos": ["Global Issues:al-the-bear/tom_issues_test","Personal Todos:al-the-bear/al_the_bear"],
+      "statuses": [
+        "open[green]",
+        "in_triage[yellow]",
+        "assigned[red]",
+        "closed[grey]"
+      ],
+      "defaultColumns": "author,commentCount,creationTimestamp,updateTimestamp",
+      "availableColumns": [
+        "statusDot{dot}[20,20]*",
+        "id{grey}[32,32]*",
+        "title{normal}[150,400]*",
+        "repository{grey}[80,150]",
+        "repositoryOwner{grey}[80,150]",
+        "status{grey}[60,120]",
+        "author{grey}[60,150]",
+        "commentCount{grey}[20,20]",
+        "creationTimestamp{grey}[80,80]",
+        "updateTimestamp{grey}[80,80]"
+      ],
+      "labels": [
+        "quicklabel=Flaky",
+        "quicklabel=Regression",
+        "quicklabel=Blocked"
+      ]
+    },
+    "testkit": {
+      "provider": "github",
+      "scanWorkspace": false,
+      "allReposOption": false,
+      "excludeRepos": [],
+      "additionalRepos": ["al-the-bear/tom_tests_test"],
+      "statuses": [
+        "open[green]",
+        "accepted[yellow]",
+        "prepared[orange]",
+        "done[blue]",
+        "closed[grey]"
+      ],
+      "defaultColumns": "author,commentCount,creationTimestamp,updateTimestamp",
+      "availableColumns": [
+        "statusDot{dot}[20,20]*",
+        "id{grey}[32,32]*",
+        "title{normal}[150,400]*",
+        "repository{grey}[80,150]",
+        "repositoryOwner{grey}[80,150]",
+        "status{grey}[60,120]",
+        "author{grey}[60,150]",
+        "commentCount{grey}[20,20]",
+        "creationTimestamp{grey}[100,100]",
+        "updateTimestamp{grey}[100,100]"
+      ],
+      "labels": [
+        "quicklabel=Flaky",
+        "quicklabel=Regression",
+        "quicklabel=Blocked",
+        "slowlabel=Crawl",
+        "slowlabel=Walk",
+        "slowlabel=Run"
+      ]
+    }
+  }
+}

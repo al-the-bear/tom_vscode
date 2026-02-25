@@ -1,0 +1,61 @@
+# Sample flowchart for testing
+meta:
+  id: build-pipeline
+  title: Build Pipeline
+  graph-version: 1
+  direction: TD
+  description: A sample build pipeline for testing
+
+# The nodes of the flowchart
+nodes:
+  start:
+    type: start
+    label: Begin
+    connections:
+      - to: checkout
+
+  checkout:
+    type: process
+    label: Checkout Code
+    metadata:
+      status: implemented
+      owner: ci-team
+      tags:
+        - git
+        - scm
+    connections:
+      - to: build
+
+  build:
+    type: process
+    label: Build Project
+    metadata:
+      status: implemented
+    connections:
+      - to: test
+
+  test:
+    type: decision
+    label: Tests Pass?
+    metadata:
+      status: planned
+    connections:
+      - to: deploy
+        label: "yes"
+      - to: checkout
+        label: "no"
+        style: dotted
+
+  deploy:
+    type: subprocess
+    label: Deploy to Staging
+    description: Deploy using docker containers
+    metadata:
+      status: planned
+    connections:
+      - to: done
+        style: thick
+
+  done:
+    type: end
+    label: Finished

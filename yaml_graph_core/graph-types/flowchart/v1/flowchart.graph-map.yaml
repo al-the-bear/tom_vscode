@@ -1,0 +1,61 @@
+map:
+  id: flowchart
+  version: 1
+  mermaid-type: flowchart
+  direction-field: meta.direction
+  default-direction: TD
+
+node-shapes:
+  source-path: nodes
+  id-field: _key
+  label-field: label
+  # shape-field reads the visual shape directly
+  shape-field: shape
+  # Fallback shapes for semantic types when shape is omitted (backwards compat)
+  default-shapes:
+    start: stadium
+    end: stadium
+    process: rectangle
+    decision: diamond
+    subprocess: subroutine
+  # Templates keyed by Mermaid shape values
+  shapes:
+    stadium: '(["{label}"])'
+    rectangle: '["{label}"]'
+    diamond: '{"{label}"}'
+    subroutine: '[["{label}"]]'
+    circle: '(("{label}"))'
+    hexagon: '{{"{label}"}}'
+    parallelogram: '[/"{label}"/]'
+    trapezoid: '[/"{label}"\\]'
+    cylinder: '[("{label}")]'
+    asymmetric: '>"{label}"]'
+    double-circle: '((("{label}")))'
+
+edge-links:
+  # Co-located connections within nodes (nodes.*.connections pattern)
+  source-path: nodes.*.connections
+  from-field: from
+  to-field: to
+  label-field: label
+  from-implicit: _parent_key
+  link-styles:
+    default: "-->"
+    dotted: "-.->"
+    thick: "==>"
+
+style-rules:
+  field: metadata.status
+  rules:
+    implemented:
+      fill: "#d4edda"
+      stroke: "#28a745"
+      color: "#155724"
+    planned:
+      fill: "#fff3cd"
+      stroke: "#ffc107"
+      color: "#856404"
+    deprecated:
+      fill: "#f8d7da"
+      stroke: "#dc3545"
+      color: "#721c24"

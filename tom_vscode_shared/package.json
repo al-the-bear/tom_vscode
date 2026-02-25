@@ -1,0 +1,18 @@
+{
+    "name": "tom-vscode-shared",
+    "version": "0.1.0",
+    "description": "Shared components for TOM VS Code extensions",
+    "main": "./out/index.js",
+    "types": "./out/index.d.ts",
+    "scripts": {
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./"
+    },
+    "dependencies": {
+        "yaml": "^2.8.2"
+    },
+    "devDependencies": {
+        "@types/node": "^18.x",
+        "typescript": "^5.3.0"
+    }
+}

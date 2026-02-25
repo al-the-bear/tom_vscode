@@ -1,0 +1,9 @@
+# This file has no meta.graph-version — should trigger an error
+meta:
+  id: no-version
+  title: No Version
+
+nodes:
+  a:
+    type: process
+    label: Node A

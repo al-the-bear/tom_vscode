@@ -1,0 +1,77 @@
+{
+    "name": "tom-vscode-workflow",
+    "displayName": "TOM Tracker",
+    "description": "TODO tracking and project management panels for Tom workspace",
+    "version": "0.1.0",
+    "publisher": "tom",
+    "engines": {
+        "vscode": "^1.96.0"
+    },
+    "categories": [
+        "Other"
+    ],
+    "activationEvents": [
+        "onStartupFinished"
+    ],
+    "main": "./out/extension.js",
+    "contributes": {
+        "commands": [
+            {
+                "command": "tomTracker.showLog",
+                "title": "TOM Tracker: Show Log"
+            },
+            {
+                "command": "tomTracker.showDebugLog",
+                "title": "TOM Tracker: Show Debug Log"
+            },
+            {
+                "command": "tomTracker.showTodoMindmap",
+                "title": "TOM Tracker: Show TODO Mindmap"
+            }
+        ],
+        "viewsContainers": {
+            "panel": [
+                {
+                    "id": "tomTracker-todo-panel",
+                    "title": "@TODO",
+                    "icon": "$(checklist)"
+                }
+            ]
+        },
+        "views": {
+            "tomTracker-todo-panel": [
+                {
+                    "type": "webview",
+                    "id": "tomTracker.todoPanel",
+                    "name": "@TODO",
+                    "icon": "$(checklist)"
+                }
+            ]
+        }
+    },
+    "extensionDependencies": [
+        "tom.dartscript-vscode"
+    ],
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./",
+        "pretest": "npm run compile",
+        "lint": "eslint src --ext ts"
+    },
+    "devDependencies": {
+        "@types/node": "^18.x",
+        "@types/vscode": "1.96.0",
+        "@typescript-eslint/eslint-plugin": "^6.0.0",
+        "@typescript-eslint/parser": "^6.0.0",
+        "eslint": "^8.0.0",
+        "typescript": "^5.3.0"
+    },
+    "dependencies": {
+        "@vscode/codicons": "^0.0.44",
+        "tom-vscode-shared": "file:../tom_vscode_shared",
+        "yaml": "^2.8.2",
+        "yaml-graph-core": "file:../yaml_graph_core",
+        "yaml-graph-vscode": "file:../yaml_graph_vscode"
+    }
+}

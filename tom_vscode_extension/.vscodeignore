@@ -1,0 +1,31 @@
+# Source files (compiled to out/)
+src/**
+**/*.ts
+!**/*.d.ts
+
+# Build config
+tsconfig.json
+.vscode/**
+
+# Development files
+_copilot_guidelines/**
+doc/**
+!doc/quick_reference.md
+!doc/workspace_setup.md
+example/**
+.npmrc
+
+# Test files
+**/*.test.js
+
+# Nested dev dependencies from yaml-graph packages
+node_modules/yaml-graph-core/node_modules/**
+node_modules/yaml-graph-core/src/**
+node_modules/yaml-graph-core/test/**
+node_modules/yaml-graph-core/tsconfig.json
+node_modules/yaml-graph-core/vitest.config.ts
+node_modules/yaml-graph-vscode/node_modules/**
+node_modules/yaml-graph-vscode/src/**
+node_modules/yaml-graph-vscode/test/**
+node_modules/yaml-graph-vscode/tsconfig.json
+node_modules/yaml-graph-vscode/vitest.config.ts

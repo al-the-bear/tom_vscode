@@ -1,0 +1,51 @@
+# Sample state machine for testing
+meta:
+  id: order-lifecycle
+  title: Order Lifecycle
+  graph-version: 1
+  description: Order state machine
+
+states:
+  init:
+    type: initial
+    label: Start
+    transitions:
+      - to: pending
+        event: submit
+
+  pending:
+    type: state
+    label: Pending Review
+    entry-action: notifyReviewers()
+    transitions:
+      - to: approved
+        event: approve
+        guard: "isValid"
+      - to: rejected
+        event: reject
+        action: sendRejectionEmail()
+
+  approved:
+    type: state
+    label: Approved
+    entry-action: startProcessing()
+    exit-action: cleanup()
+    transitions:
+      - to: shipped
+        event: ship
+
+  rejected:
+    type: state
+    label: Rejected
+
+  shipped:
+    type: state
+    label: Shipped
+    description: Order has been dispatched
+    transitions:
+      - to: completed
+        event: deliver
+
+  completed:
+    type: final
+    label: Completed

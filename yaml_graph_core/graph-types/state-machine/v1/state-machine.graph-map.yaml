@@ -1,0 +1,28 @@
+map:
+  id: state-machine
+  version: 1
+  mermaid-type: stateDiagram-v2
+
+node-shapes:
+  source-path: states
+  id-field: _key
+  label-field: label
+  shape-field: type
+  default-shapes:
+    initial: state
+    state: state
+    final: state
+  shapes:
+    state: ""
+  initial-connector: "[*] --> {first}"
+  final-connector: "{last} --> [*]"
+
+edge-links:
+  # Co-located transitions within states
+  source-path: states.*.transitions
+  from-field: from
+  to-field: to
+  label-field: event
+  from-implicit: _parent_key
+  link-styles:
+    default: "-->"

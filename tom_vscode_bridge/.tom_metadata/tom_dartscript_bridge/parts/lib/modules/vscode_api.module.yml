@@ -1,0 +1,4 @@
+# Module: Vscode Api
+name: vscode_api
+displayName: Vscode Api
+sources: [d4rt_bridge.dart, d4rt_helpers.dart, vscode.dart, vscode_chat.dart, vscode_commands.dart, vscode_extensions.dart, vscode_lm.dart, vscode_types.dart, vscode_window.dart, vscode_workspace.dart]

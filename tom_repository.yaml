@@ -1,0 +1,8 @@
+# Tom Repository Configuration
+# This file identifies the repository for git traversal commands
+
+repository_id: VSC
+name: vscode
+description: >-
+  VS Code extension and Dart bridge for DartScript integration.
+github: al-the-bear/tom_module_vscode

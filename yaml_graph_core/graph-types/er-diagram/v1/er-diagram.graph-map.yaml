@@ -1,0 +1,24 @@
+map:
+  id: er-diagram
+  version: 1
+  mermaid-type: erDiagram
+
+node-shapes:
+  source-path: entities
+  id-field: _key
+  label-field: _key
+  shape-field: type
+  default-shapes:
+    entity: entity
+  shapes:
+    entity: ""
+
+edge-links:
+  # Co-located relationships within entities
+  source-path: entities.*.relationships
+  from-field: from
+  to-field: to
+  label-field: label
+  from-implicit: _parent_key
+  link-styles:
+    default: "-->"

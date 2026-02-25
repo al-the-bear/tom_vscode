@@ -1,0 +1,158 @@
+# yaml-language-server: $schema=../../../yaml_graph_core/graph-types/state-machine/v1/state-machine.schema.json
+# Issue Tracking Lifecycle State Machine
+# Models the tom_issues workflow from discovery to resolution
+# Based on issue_tracking.md from tom_issue_kit
+meta:
+  id: issue-lifecycle
+  title: Issue Tracking Lifecycle
+  graph-version: 1
+  description: State machine for issue tracking from discovery through verified resolution
+
+states:
+  new:
+    type: state
+    label: NEW
+    entry-action: createGitHubIssue
+    description: Issue discovered and recorded in tom_issues
+    metadata:
+      category: intake
+      public: true
+    transitions:
+      - to: analyzed
+        event: analyze
+        action: updateIssueWithAnalysis
+      - to: assigned
+        event: assignDirect
+        guard: projectAlreadyKnown
+        action: createTestEntry
+      - to: duplicate
+        event: markDuplicate
+        action: linkToExisting
+      - to: wontfix
+        event: markWontfix
+        action: documentDecision
+
+  analyzed:
+    type: state
+    label: ANALYZED
+    entry-action: recordRootCause
+    description: Root cause identified or narrowed down
+    metadata:
+      category: triage
+    transitions:
+      - to: assigned
+        event: assign
+        action: createTestEntry
+
+  assigned:
+    type: state
+    label: ASSIGNED
+    entry-action: createTestStub
+    description: Ownership clear — belongs to a specific project. Stub test ID generated.
+    metadata:
+      category: triage
+      has_owner: true
+    transitions:
+      - to: testing
+        event: testCreated
+        guard: hasFullTestId
+        action: promoteTestStub
+      - to: blocked
+        event: block
+        action: recordBlockingReason
+
+  testing:
+    type: state
+    label: TESTING
+    entry-action: notifyDeveloper
+    description: Full reproduction test exists (stub promoted to full test ID)
+    metadata:
+      category: development
+      has_test: true
+    transitions:
+      - to: verifying
+        event: testPasses
+        guard: allLinkedTestsPass
+        action: requestVerification
+      - to: blocked
+        event: block
+        action: recordBlockingReason
+
+  verifying:
+    type: state
+    label: VERIFYING
+    entry-action: requestReview
+    description: Fix applied — reproduction test passes, awaiting confirmation
+    metadata:
+      category: review
+    transitions:
+      - to: resolved
+        event: confirm
+        guard: reporterConfirms
+        action: markResolved
+      - to: testing
+        event: reject
+        guard: verificationFails
+        action: reopenForFix
+
+  resolved:
+    type: state
+    label: RESOLVED
+    entry-action: notifyReporter
+    description: Original issue confirmed fixed by reporter or reviewer
+    metadata:
+      category: done
+    transitions:
+      - to: closed
+        event: close
+        action: archiveAndNotify
+      - to: new
+        event: regression
+        guard: linkedTestFails
+        action: reopenIssue
+
+  closed:
+    type: state
+    label: CLOSED
+    entry-action: archiveIssue
+    description: Issue archived after resolution
+    metadata:
+      category: archived
+    transitions:
+      - to: new
+        event: regression
+        guard: linkedTestFails
+        action: reopenIssue
+
+  blocked:
+    type: state
+    label: BLOCKED
+    entry-action: recordBlocker
+    description: Cannot proceed — waiting on external factor
+    metadata:
+      category: waiting
+    transitions:
+      - to: assigned
+        event: unblock
+        guard: wasInAssigned
+        action: resumeWork
+      - to: testing
+        event: unblock
+        guard: wasInTesting
+        action: resumeWork
+
+  duplicate:
+    type: state
+    label: DUPLICATE
+    entry-action: linkToOriginal
+    description: Same root cause as another issue — linked to original
+    metadata:
+      category: closed
+
+  wontfix:
+    type: state
+    label: WONTFIX
+    entry-action: documentReason
+    description: Intentional behavior or out of scope — documented and closed
+    metadata:
+      category: closed
