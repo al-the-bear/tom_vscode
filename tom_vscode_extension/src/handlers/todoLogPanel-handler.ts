@@ -139,6 +139,10 @@ export class TodoLogViewProvider implements vscode.WebviewViewProvider {
                 await this._openTrailFiles();
                 break;
             }
+            case 'openAnswerInTrailEditor': {
+                await this._openAnswerInTrailEditor(String(msg.session || ''), String(msg.requestId || ''));
+                break;
+            }
         }
     }
 
@@ -172,6 +176,40 @@ export class TodoLogViewProvider implements vscode.WebviewViewProvider {
 
         // Open with the custom trail editor
         const uri = vscode.Uri.file(promptsPath);
+        await vscode.commands.executeCommand('vscode.openWith', uri, 'trailViewer.editor');
+    }
+
+    /**
+     * Open the trail editor for the answers file and focus on a specific entry.
+     */
+    private async _openAnswerInTrailEditor(session: string, requestId: string): Promise<void> {
+        const trailFolder = getTrailFolder();
+        if (!trailFolder) {
+            vscode.window.showWarningMessage('No trail folder found');
+            return;
+        }
+
+        const trailSets = discoverTrailSets(trailFolder);
+        const set = trailSets.get(session);
+        const answersFile = set?.answers;
+        if (!answersFile) {
+            vscode.window.showWarningMessage('No answers file found for session: ' + session);
+            return;
+        }
+
+        const answersPath = path.join(trailFolder, answersFile);
+        if (!fs.existsSync(answersPath)) {
+            vscode.window.showWarningMessage('Answers file not found: ' + answersFile);
+            return;
+        }
+
+        // Store pending focus so the trail editor can auto-select this entry
+        this._context.workspaceState.update('trailEditor.pendingFocus', {
+            requestId,
+            session,
+        });
+
+        const uri = vscode.Uri.file(answersPath);
         await vscode.commands.executeCommand('vscode.openWith', uri, 'trailViewer.editor');
     }
 
@@ -266,7 +304,7 @@ export class TodoLogViewProvider implements vscode.WebviewViewProvider {
             + '    .entry-item {\n'
             + '      padding: 6px 12px;\n'
             + '      border-left: 3px solid transparent;\n'
-            + '      cursor: default;\n'
+            + '      cursor: pointer;\n'
             + '    }\n'
             + '    .entry-item:hover {\n'
             + '      background: var(--vscode-list-hoverBackground);\n'
@@ -377,13 +415,29 @@ export class TodoLogViewProvider implements vscode.WebviewViewProvider {
             + '            }\n'
             + '            linksHtml = \'<div class="entry-todo-links">\' + links + \'</div>\';\n'
             + '          }\n'
-            + '          html += \'<div class="entry-item" data-id="\' + e.id + \'">\'\n'
+            + '          html += \'<div class="entry-item" data-id="\' + e.id + \'" data-session="\' + escapeHtml(e.session) + \'">\'\n'
             + '            + \'<div class="entry-time">\' + escapeHtml(e.displayTime) + \'</div>\'\n'
             + '            + \'<div class="entry-session">\' + escapeHtml(e.session) + \'</div>\'\n'
             + '            + linksHtml\n'
             + '            + \'</div>\';\n'
             + '        }\n'
             + '        entryList.innerHTML = html;\n'
+            + '\n'
+            + '        // Wire up entry-item clicks (open trail editor at that answer)\n'
+            + '        var itemEls = entryList.querySelectorAll(\'.entry-item\');\n'
+            + '        for (var m = 0; m < itemEls.length; m++) {\n'
+            + '          itemEls[m].addEventListener(\'click\', (function(el) {\n'
+            + '            return function(ev) {\n'
+            + '              if (ev.target && ev.target.classList && ev.target.classList.contains(\'entry-todo-link\')) return;\n'
+            + '              if (ev.target && ev.target.closest && ev.target.closest(\'.entry-todo-link\')) return;\n'
+            + '              var id = el.getAttribute(\'data-id\') || \'\';\n'
+            + '              var session = el.getAttribute(\'data-session\') || \'\';\n'
+            + '              if (id && session) {\n'
+            + '                vscode.postMessage({ type: \'openAnswerInTrailEditor\', session: session, requestId: id });\n'
+            + '              }\n'
+            + '            };\n'
+            + '          })(itemEls[m]));\n'
+            + '        }\n'
             + '\n'
             + '        // Wire up TODO link clicks\n'
             + '        var linkEls = entryList.querySelectorAll(\'.entry-todo-link\');\n'

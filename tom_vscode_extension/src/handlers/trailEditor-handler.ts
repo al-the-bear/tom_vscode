@@ -103,6 +103,20 @@ class TrailEditorProvider implements vscode.CustomTextEditorProvider {
             entries,
         );
 
+        // Check for pending focus (e.g. from TODO-LOG click)
+        const pendingFocus = this.context.workspaceState.get<{ requestId: string; session: string }>('trailEditor.pendingFocus');
+        if (pendingFocus && pendingFocus.requestId) {
+            // Clear immediately so it doesn't fire again
+            this.context.workspaceState.update('trailEditor.pendingFocus', undefined);
+            // Delay slightly to let the webview script initialise
+            setTimeout(() => {
+                webviewPanel.webview.postMessage({
+                    type: 'focusEntry',
+                    requestId: pendingFocus.requestId,
+                });
+            }, 300);
+        }
+
         // Handle messages from the webview
         webviewPanel.webview.onDidReceiveMessage(
             async (message) => {
@@ -973,6 +987,18 @@ body {
             renderEntryList();
             previewPanel.innerHTML = '<div class="empty-state">Select a prompt or answer to preview</div>';
             metaPanel.innerHTML = '<div class="meta-title">Metadata</div><div class="empty-state" style="height:auto;padding:12px 0;">No entry selected</div>';
+        } else if (msg.type === 'focusEntry') {
+            var targetId = msg.requestId || '';
+            if (targetId) {
+                for (var fi = 0; fi < allEntries.length; fi++) {
+                    if (allEntries[fi].requestId === targetId) {
+                        selectEntry(fi);
+                        var items = entryListEl.querySelectorAll('.entry-item');
+                        if (items[fi]) { items[fi].scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+                        break;
+                    }
+                }
+            }
         }
     });
     
