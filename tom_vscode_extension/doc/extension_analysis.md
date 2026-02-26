@@ -1153,3 +1153,199 @@ graph LR
 | Keybindings | 15 |
 | File patterns (read/write) | 30+ |
 | Handler files | 59 |
+
+---
+
+## 18. Naming Inconsistencies Audit
+
+### 18.1 Command Title Prefixes
+
+Commands in `contributes.commands` use **four different prefix conventions**:
+
+| Prefix | Count | Examples |
+|--------|-------|----------|
+| `DS:` | ~45 | `DS: Execute File`, `DS: Send to Copilot Chat`, `DS: Restart Bridge` |
+| `DartScript:` | 2 | `DartScript: Print Configuration`, `DartScript: Show VS Code API Info` |
+| `Tom AI:` | 3 | `Tom AI: Start Chat`, `Tom AI: Send Chat Prompt`, `Tom AI: Interrupt Chat` |
+| No prefix | 7 | `Send with Trail Reminder`, `TODO Execution`, `Code Review`, `Explain Code`, `Add to Todo`, `Fix Markdown here`, `Expand Prompt`, `Rewrite`, `Detailed Expansion`, `Annotated Expansion` |
+
+**Issues:**
+- `DS:` and `DartScript:` are two different prefixes for the same extension — should be unified
+- `Tom AI:` is a third brand used only for the Tom AI Chat subsystem
+- Several submenu commands (`Send with Trail Reminder`, `TODO Execution`, `Code Review`, etc.) have no prefix at all — inconsistent with the rest
+- The local LLM submenu items (`Expand Prompt`, `Rewrite`, `Detailed Expansion`, `Annotated Expansion`) also have no prefix
+
+### 18.2 Confusing / Similar Command Title Pairs
+
+| Command A | Command B | Confusion Risk |
+|-----------|-----------|----------------|
+| `DS: Send to Copilot Chat` | `DS: Send to Copilot Chat (Standard)` | Unclear difference |
+| `DS: Send to Copilot Chat (Template)...` | `DS: Send to Copilot Chat (Standard)` | "Template" vs "Standard" meaningless to users |
+| `DS: Send to local LLM` | `DS: Send to local LLM (Standard)` | Same confusion as above |
+| `DS: Send to local LLM (Template)...` | `DS: Send to local LLM (Standard)` | Same pattern |
+| `DS: Expand Prompt (Ollama)` | `DS: Send to local LLM` | Both send to local LLM — different naming |
+| `DS: Open Prompt Queue Editor` | `DS: Open Prompt Template Editor` | Both abbreviate differently |
+| `DS: Open Reusable Prompt Editor` | `DS: Open Prompt Template Editor` | Unclear distinction |
+| `DS: Start Tom CLI Integration Server` | `DS: Start Tom Process Monitor` | CLI Server vs Process Monitor — user won't know the difference |
+| `DS: Show Extension Help` | `DS: Show Quick Reference` | Help vs Quick Reference — redundant? |
+
+### 18.3 Titles That Don't Describe Functionality
+
+| Command ID | Title | Problem |
+|------------|-------|---------|
+| `dartscript.sendToChatTrailReminder` | `Send with Trail Reminder` | No prefix, vague — "send what? where?" |
+| `dartscript.sendToChatTodoExecution` | `TODO Execution` | No context that it sends to chat |
+| `dartscript.sendToChatCodeReview` | `Code Review` | No indication it sends to Copilot |
+| `dartscript.sendToChatExplain` | `Explain Code` | Same issue |
+| `dartscript.sendToChatAddToTodo` | `Add to Todo` | Sounds like it adds a todo, not sends to chat |
+| `dartscript.sendToChatFixMarkdown` | `Fix Markdown here` | Informal, inconsistent casing |
+| `dartscript.showChatAnswerValues` | `DS: Show chat answer values` | Lowercase "chat answer values" — inconsistent with other titles |
+| `dartscript.clearChatAnswerValues` | `DS: Clear chat answer values` | Same casing issue |
+| `dartscript.combined.showSideNotes` | `DS: Show Side Notes` | Unclear what "Side Notes" are |
+| `dartscript.focusTomAI` | `DS: Focus Tom AI Panel` | Tom AI vs DartScript branding clash |
+
+### 18.4 View/Panel Naming Inconsistencies
+
+| ID | Name | Issue |
+|----|------|-------|
+| `dartscript-t2-panel` | `@CHAT` | Cryptic `t2` ID; `@CHAT` uses `@` prefix |
+| `dartscript-t3-panel` | `@WS` | Cryptic `t3` ID; `@WS` uses `@` prefix |
+| `dartscript.chatPanel` | `@CHAT` | Redundant — same label as container |
+| `dartscript.wsPanel` | `@WS` | Redundant — same label as container |
+| `dartscript.tomNotepad` | `VS CODE NOTES` | ID says "notepad", name says "NOTES" — the `tom` prefix is also inconsistent with `dartscript` prefix |
+| `dartscript.questNotesView` | `QUEST NOTES` | Consistent |
+| `dartscript.questTodosView` | `QUEST TODOS` | Consistent |
+| `dartscript.sessionTodosView` | `SESSION TODOS` | Consistent |
+| `dartscript.todoLogView` | `TODO LOG` | Consistent |
+| `dartscript.workspaceNotepad` | `WORKSPACE NOTES` | ID says "notepad", name says "NOTES" |
+| `dartscript.workspaceTodosView` | `WORKSPACE TODOS` | Consistent |
+
+**View naming issues:**
+- `@CHAT` and `@WS` use `@` prefix but nothing else does — these are the bottom panel containers
+- `tomNotepad` and `workspaceNotepad` IDs use "notepad" but display names use "NOTES"
+- The `t2` / `t3` internal naming convention in panel container IDs is cryptic
+
+### 18.5 LM Tool Name Prefixes (languageModelTools)
+
+Tools use **five different naming conventions**:
+
+| Prefix/Convention | Count | Examples |
+|-------------------|-------|----------|
+| `tom_` (snake_case) | 22 | `tom_createFile`, `tom_readFile`, `tom_editFile`, `tom_queue_list`, `tom_timed_list`, `tom_askBigBrother`, `tom_askCopilot` |
+| `dartscript_` (snake_case) | 11 | `dartscript_notifyUser`, `dartscript_getWorkspaceInfo`, `dartscript_listTodos`, `dartscript_windowTodo_add` |
+| `camelCase` (no prefix) | 4 | `addToPromptQueue`, `addFollowUpPrompt`, `sendQueuedPrompt`, `addTimedRequest` |
+| `determineQuest` (no prefix, source only) | 1 | Not in package.json but registered in code |
+| `tom_` mixed casing | — | `tom_askBigBrother` uses camelCase after `tom_`, but `tom_queue_list` uses snake_case |
+
+**Specific issues:**
+- `tom_` tools use **mixed casing**: `tom_readFile` (camelCase) vs `tom_queue_list` (snake_case) vs `tom_askBigBrother` (camelCase)
+- `dartscript_` tools also mix: `dartscript_notifyUser` (camelCase) vs `dartscript_windowTodo_add` (mixed)
+- **4 tools have no prefix at all**: `addToPromptQueue`, `addFollowUpPrompt`, `sendQueuedPrompt`, `addTimedRequest`
+- `determineQuest` exists in source code ([chat-enhancement-tools.ts](src/tools/chat-enhancement-tools.ts#L183)) but not in package.json `languageModelTools`
+
+### 18.6 Tool `name` vs `toolReferenceName` Mismatches
+
+Some tools have matching name/reference, others diverge wildly:
+
+| `name` | `toolReferenceName` | Consistent? |
+|---------|---------------------|-------------|
+| `tom_createFile` | `tom_createFile` | Yes |
+| `tom_readFile` | `tom_readFile` | Yes |
+| `tom_manageTodo` | `manageScratchTodos` | **No** — completely different name |
+| `dartscript_listTodos` | `listAllQuestTodos` | **No** — prefix dropped, name changed |
+| `dartscript_getAllTodos` | `listAllQuestAndSessionTodos` | **No** — prefix dropped, verbose |
+| `dartscript_getTodo` | `getQuestTodoById` | **No** — prefix dropped |
+| `dartscript_createTodo` | `createQuestTodo` | **No** — prefix dropped |
+| `dartscript_updateTodo` | `updateQuestTodo` | **No** — prefix dropped |
+| `dartscript_moveTodo` | `moveQuestTodo` | **No** — prefix dropped |
+| `dartscript_windowTodo_add` | `addSessionTodo` | **No** — completely different naming |
+| `dartscript_windowTodo_list` | `listSessionTodos` | **No** |
+| `dartscript_windowTodo_getAll` | `getAllSessionTodos` | **No** |
+| `dartscript_windowTodo_update` | `updateSessionTodo` | **No** |
+| `dartscript_windowTodo_delete` | `deleteSessionTodo` | **No** |
+| `dartscript_notifyUser` | `dartscript_notifyUser` | Yes |
+| `dartscript_getWorkspaceInfo` | `dartscript_getWorkspaceInfo` | Yes |
+| `addToPromptQueue` | `addToPromptQueue` | Yes (but no prefix) |
+| `tom_queue_list` | `tom_queue_list` | Yes |
+
+**Pattern:** `tom_` tools tend to keep consistent names. `dartscript_` tools almost always have divergent reference names.
+
+### 18.7 Hardcoded Directory Paths Bypassing workspacePaths.ts
+
+Despite `WsPaths` being the central registry, many files still have hardcoded fallback paths:
+
+| File | Hardcoded Path | Should Use |
+|------|----------------|------------|
+| [questTodoManager.ts](src/managers/questTodoManager.ts#L82) | `'_ai', 'quests', questId` | `WsPaths.ai('quests', questId)` only |
+| [questTodoManager.ts](src/managers/questTodoManager.ts#L129) | `'_ai', 'schemas', 'yaml'` | `WsPaths.ai('schemas')` |
+| [questTodoManager.ts](src/managers/questTodoManager.ts#L665) | `'_ai/'` string check | `WsPaths.aiFolder` |
+| [windowSessionTodoStore.ts](src/managers/windowSessionTodoStore.ts#L110) | `'_ai', 'quests'` fallback | Already uses WsPaths but duplicates fallback |
+| [panelYamlStore.ts](src/utils/panelYamlStore.ts#L47) | `'_ai', 'local'` | `WsPaths.ai('local')` only |
+| [variableResolver.ts](src/utils/variableResolver.ts#L219) | `'.tom', 'vscode'` | `WsPaths.home('vscodeConfig')` |
+| [variableResolver.ts](src/utils/variableResolver.ts#L245) | `'_ai/chat_replies'` | `WsPaths.aiRelative('chatReplies')` |
+| [variableResolver.ts](src/utils/variableResolver.ts#L255) | `'.tom', 'chat_replies'` | `WsPaths.home('chatReplies')` |
+| [executableResolver.ts](src/utils/executableResolver.ts#L235) | `'.tom', 'bin'` | Missing from WsPaths |
+| [extension.ts](src/extension.ts#L233) | `'.tom'` | `WsPaths.wsConfigFolder` |
+| [tool-executors.ts](src/tools/tool-executors.ts#L449) | `'_copilot_tomai'` | Should be in `WsPaths` |
+| [tool-executors.ts](src/tools/tool-executors.ts#L460) | `'_copilot_local'` | Should be in `WsPaths` |
+| [botConversation-handler.ts](src/handlers/botConversation-handler.ts#L664) | `'_ai', 'trail', 'ai_conversation'` | `WsPaths.ai(...)` |
+| [trailEditor-handler.ts](src/handlers/trailEditor-handler.ts#L242) | `'_ai', 'quests'` | `WsPaths.ai('quests')` |
+| [unifiedNotepad-handler.ts](src/handlers/unifiedNotepad-handler.ts) | Multiple `'_ai'` fallbacks | Remove redundant fallbacks |
+| [issuesPanel-handler.ts](src/handlers/issuesPanel-handler.ts) | `'_ai', 'attachments'` fallbacks | `WsPaths.ai('attachments')` only |
+| [trailViewer-handler.ts](src/handlers/trailViewer-handler.ts#L330) | `'_ai/trail'` | `WsPaths.aiRelative('trail')` |
+
+**Missing from WsPaths constants:**
+- `_copilot_tomai` folder (Copilot guideline folder)
+- `_copilot_local` folder (local LLM guideline folder)
+- `~/.tom/bin/` (binary directory)
+- `prompt` subfolder in AI_SUBPATHS
+- `trail` top-level subfolder (only `trailLocal`, `trailConversation`, etc. exist)
+
+### 18.8 Inconsistent Naming Patterns in Source Code
+
+#### "sendToChat" vs "sendToCopilot" vs "sendToLocalLlm"
+
+| Pattern | Usage | Files |
+|---------|-------|-------|
+| `sendToChat` | Primary pattern for Copilot Chat | `sendToChat-handler.ts`, `sendToChatAdvanced-handler.ts`, `sendToChatConfig.ts`, commands in package.json |
+| `sendToCopilot` | Not used in code (never appears) | — |
+| `sendToLocalLlm` | Pattern for local Ollama LLM | Commands in package.json, `expandPrompt-handler.ts` |
+
+The function is "send to Copilot Chat" but the code and config section name is `sendToChat` — the Copilot brand only appears in the command *title*, not the code.
+
+#### "botConversation" vs "conversation" vs "aiConversation"
+
+| Pattern | Where | Context |
+|---------|-------|---------|
+| `botConversation` | `botConversation-handler.ts`, config section `botConversation`, commands `startBotConversation`/`stopBotConversation`/etc. | Primary pattern — local+Copilot automated conversation loop |
+| `conversation` | Command titles: `DS: Start Local-Copilot Conversation`, `DS: Conversation Shortcuts...` | Display name — shorter form |
+| `aiConversation` | Not found in code | — |
+| `ai_conversation` | Trail folder path: `_ai/trail/ai_conversation` | Only in trail paths |
+
+The code uses `botConversation` internally but `Local-Copilot Conversation` in UX and `ai_conversation` in trail paths — three different names for the same subsystem.
+
+#### "promptExpander" vs "localLlm" vs "ollama"
+
+| Pattern | Where | Context |
+|---------|-------|---------|
+| `promptExpander` | Config section `promptExpander`, `PromptExpanderManager` class, status page | Original name — Ollama-backed prompt expansion |
+| `localLlm` | Commands `sendToLocalLlm*`, chord menu `chordMenu.llm`, menu groups `localLlm@0` | Newer generalized name |
+| `ollama` | VS Code settings `dartscript.ollama.url`, `dartscript.ollama.model`; command title `DS: Expand Prompt (Ollama)`, `DS: Change local Ollama model...` | Specific product name |
+
+Three different names for the same underlying system: the config calls it `promptExpander`, the commands call it `localLlm`, and individual settings/titles mention `ollama` explicitly.
+
+### 18.9 Extension Identity Crisis
+
+The extension has **multiple brand names** used in different places:
+
+| Brand | Where Used |
+|-------|------------|
+| `dartscript-vscode` | Package name in `package.json` |
+| `DartScript` | `displayName`, `category` for all commands, settings `configuration.title` |
+| `DS:` | Command title prefix (80% of commands) |
+| `DartScript:` | Command title prefix (2 commands) |
+| `Tom AI:` | Command title prefix (3 commands) |
+| `Tom` | Internal tool names (`tom_*`), config paths (`~/.tom/`) |
+| `@CHAT`, `@WS` | Panel names (no brand prefix) |
+
+**Summary:** The extension is called "DartScript" externally but half the internals use "Tom" naming. This reflects that "DartScript" was the original scripting focus, while "Tom" is the broader workspace platform name. The two brands collide in command titles, tool names, and panel labels.
