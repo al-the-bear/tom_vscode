@@ -42,6 +42,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getConfigPath } from './handler_shared';
 import { WsPaths } from '../utils/workspacePaths';
+import { FsUtils } from '../utils/fsUtils';
+import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 
 // Trail types
 export type TrailType = 'local' | 'conversation' | 'tomai' | 'copilot';
@@ -73,21 +75,31 @@ let trailConfig: {
  */
 export function loadTrailConfig(): void {
     try {
-        const configPath = getConfigPath();
-        if (!configPath || !fs.existsSync(configPath)) {
-            return;
+        let trail: Record<string, unknown> | undefined;
+        try {
+            trail = TomAiConfiguration.instance.getTrail() as Record<string, unknown>;
+        } catch {
+            const configPath = getConfigPath();
+            const raw = configPath ? FsUtils.safeReadJson<Record<string, unknown>>(configPath) : undefined;
+            trail = raw?.trail as Record<string, unknown> | undefined;
         }
-        
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-        const trail = config?.trail;
-        
+
         if (trail) {
-            trailConfig.enabled = trail.enabled === true;
-            if (trail.paths) {
-                if (trail.paths.local) { trailConfig.paths.local = trail.paths.local; }
-                if (trail.paths.conversation) { trailConfig.paths.conversation = trail.paths.conversation; }
-                if (trail.paths.tomai) { trailConfig.paths.tomai = trail.paths.tomai; }
-                if (trail.paths.copilot) { trailConfig.paths.copilot = trail.paths.copilot; }
+            const rawSection = ((trail.raw ?? trail) as Record<string, unknown>);
+            const paths = (rawSection.paths ?? {}) as Record<string, unknown>;
+
+            trailConfig.enabled = rawSection.enabled === true;
+            if (paths) {
+                if (typeof paths.local === 'string') { trailConfig.paths.local = paths.local; }
+                if (typeof paths.localLlm === 'string') { trailConfig.paths.local = paths.localLlm; }
+
+                if (typeof paths.conversation === 'string') { trailConfig.paths.conversation = paths.conversation; }
+                else if (typeof paths.lmApi === 'string') { trailConfig.paths.conversation = paths.lmApi; }
+
+                if (typeof paths.tomai === 'string') { trailConfig.paths.tomai = paths.tomai; }
+                else if (typeof paths.lmApi === 'string') { trailConfig.paths.tomai = paths.lmApi; }
+
+                if (typeof paths.copilot === 'string') { trailConfig.paths.copilot = paths.copilot; }
             }
         }
     } catch (e) {
@@ -111,8 +123,13 @@ function getTrailFolder(type: TrailType): string | null {
     if (!workspaceFolder) {
         return null;
     }
-    
-    return path.join(workspaceFolder.uri.fsPath, trailConfig.paths[type]);
+
+    const configured = trailConfig.paths[type];
+    if (path.isAbsolute(configured)) {
+        return configured;
+    }
+
+    return path.join(workspaceFolder.uri.fsPath, configured);
 }
 
 /**
@@ -151,7 +168,7 @@ export function clearTrail(type: TrailType): void {
     }
     
     try {
-        if (fs.existsSync(folder)) {
+        if (FsUtils.fileExists(folder)) {
             // Remove all files in the folder
             const files = fs.readdirSync(folder);
             for (const file of files) {
@@ -162,7 +179,7 @@ export function clearTrail(type: TrailType): void {
             }
         } else {
             // Create the folder
-            fs.mkdirSync(folder, { recursive: true });
+            FsUtils.ensureDir(folder);
         }
         
         // Reset sequence counter
@@ -194,9 +211,7 @@ export function writeTrailFile(
     
     try {
         // Ensure folder exists
-        if (!fs.existsSync(folder)) {
-            fs.mkdirSync(folder, { recursive: true });
-        }
+        FsUtils.ensureDir(folder);
         
         const timestamp = getTimestamp();
         const seq = getNextSequence(type);
@@ -377,32 +392,21 @@ export async function openTrailFolder(type: TrailType): Promise<void> {
 export async function toggleTrail(): Promise<boolean> {
     loadTrailConfig();
     const newState = !trailConfig.enabled;
-    
+
     try {
-        const configPath = getConfigPath();
-        if (!configPath) {
-            vscode.window.showErrorMessage('No workspace folder open');
-            return trailConfig.enabled;
+        let trail = TomAiConfiguration.instance.getTrail() as Record<string, unknown>;
+        const raw = ((trail.raw ?? trail) as Record<string, unknown>);
+        raw.enabled = newState;
+        if (trail.raw !== undefined) {
+            trail.raw = raw;
+        } else {
+            trail = raw;
         }
-        
-        // Read existing config or create new one
-        let config: Record<string, any> = {};
-        if (fs.existsSync(configPath)) {
-            config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-        }
-        
-        // Update trail section
-        if (!config.trail) {
-            config.trail = {};
-        }
-        config.trail.enabled = newState;
-        
-        // Write back
-        fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
-        
+        await TomAiConfiguration.instance.saveTrail(trail);
+
         // Update in-memory state
         trailConfig.enabled = newState;
-        
+
         vscode.window.showInformationMessage(`AI Trail logging ${newState ? 'enabled' : 'disabled'}`);
         return newState;
     } catch (e) {

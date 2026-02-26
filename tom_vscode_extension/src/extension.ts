@@ -82,6 +82,8 @@ import { registerTrailCustomEditor } from './handlers/trailEditor-handler';
 import { registerTodoLogView } from './handlers/todoLogPanel-handler';
 import { registerMinimalModePanels } from './handlers/minimalMode-handler';
 import { initializeDebugLogger, installConsoleDebugRouting, debugLog } from './utils/debugLogger';
+import { TomAiConfiguration } from './utils/tomAiConfiguration';
+import { TrailService } from './services/trailService';
 
 // Tom AI Chat tools
 import { registerTomAiChatTools } from './tools/tomAiChat-tools';
@@ -252,6 +254,11 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     bridgeLog('DartScript extension is now active!');
+
+    stepStart = performance.now();
+    TomAiConfiguration.init(context);
+    TrailService.init(context);
+    timeStep('tomAiConfiguration + trailService', stepStart);
 
     // Initialize bridge client
     stepStart = performance.now();

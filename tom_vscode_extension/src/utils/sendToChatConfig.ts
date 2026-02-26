@@ -14,6 +14,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import { WsPaths } from './workspacePaths';
+import { TomAiConfiguration } from './tomAiConfiguration';
 
 // ============================================================================
 // Configuration Interface
@@ -283,9 +284,15 @@ function expandHomePath(p: string): string {
  * Resolution order:
  *   1. Workspace `.tom/tom_vscode_extension.json` (if it exists)
  *   2. Explicit `dartscript.configPath` setting (with ~ expansion)
- *   3. Home fallback `~/.tom/vscode/tom_vscode_extension.json`
+ *   3. Workspace `.tom/tom_vscode_extension.json` default target
  */
 function getConfigPathSimple(): string | undefined {
+    try {
+        return TomAiConfiguration.instance.configPath;
+    } catch {
+        // Continue with local fallback logic during early startup.
+    }
+
     // 1. Check workspace .tom/ first
     const wsConfigPath = WsPaths.wsConfig(WsPaths.configFileName);
     if (wsConfigPath && fs.existsSync(wsConfigPath)) {
@@ -300,8 +307,8 @@ function getConfigPathSimple(): string | undefined {
         return expandHomePath(configSetting);
     }
 
-    // 3. Home fallback
-    return WsPaths.home('vscodeConfig');
+    // 3. Workspace default target
+    return wsConfigPath;
 }
 
 // ============================================================================

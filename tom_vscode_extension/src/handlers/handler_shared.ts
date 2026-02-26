@@ -40,6 +40,7 @@ import {
     getCopilotChatAnswerFolderAbsolute,
 } from '../utils/sendToChatConfig';
 import { debugException, debugLog } from '../utils/debugLogger';
+import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 
 // Re-export config types and functions from sendToChatConfig
 export {
@@ -159,9 +160,15 @@ export function getWorkspaceRoot(): string | undefined {
  * Resolution order:
  *   1. Workspace `.tom/tom_vscode_extension.json` (if it exists)
  *   2. Explicit `dartscript.configPath` setting (with variable resolution)
- *   3. Home fallback `~/.tom/vscode/tom_vscode_extension.json`
+ *   3. Workspace `.tom/tom_vscode_extension.json` default target
  */
 export function getConfigPath(): string | undefined {
+    try {
+        return TomAiConfiguration.instance.configPath;
+    } catch {
+        // Fall back to legacy logic if configuration singleton is not initialized yet
+    }
+
     // 1. Check workspace .tom/ first
     const wsConfigPath = WsPaths.wsConfig(WsPaths.configFileName);
     if (wsConfigPath && fs.existsSync(wsConfigPath)) {
@@ -176,8 +183,8 @@ export function getConfigPath(): string | undefined {
         return resolvePathVariables(configSetting) ?? configSetting;
     }
 
-    // 3. Home fallback
-    return WsPaths.home('vscodeConfig');
+    // 3. Workspace default path (no home-level fallback)
+    return wsConfigPath;
 }
 
 /**

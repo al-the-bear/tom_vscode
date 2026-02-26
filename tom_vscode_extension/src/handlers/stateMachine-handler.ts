@@ -33,6 +33,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { getConfigPath } from './handler_shared';
+import { FsUtils } from '../utils/fsUtils';
 
 // ============================================================================
 // Types
@@ -83,11 +84,11 @@ const validatedCommands = new Set<string>();
  */
 function loadStateMachineCommands(): StateMachineCommandsMap {
     const configPath = getConfigPath();
-    if (!configPath || !fs.existsSync(configPath)) {
+    if (!configPath || !FsUtils.fileExists(configPath)) {
         return {};
     }
     try {
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        const config = FsUtils.safeReadJson<Record<string, unknown>>(configPath);
         const section = config?.stateMachineCommands;
         if (!section || typeof section !== 'object') {
             return {};

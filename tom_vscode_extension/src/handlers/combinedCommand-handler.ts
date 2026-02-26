@@ -30,6 +30,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { getConfigPath } from './handler_shared';
+import { FsUtils } from '../utils/fsUtils';
 
 // ============================================================================
 // Types
@@ -57,11 +58,11 @@ type CombinedCommandsMap = Record<string, CombinedCommandConfig>;
  */
 function loadCombinedCommands(): CombinedCommandsMap {
     const configPath = getConfigPath();
-    if (!configPath || !fs.existsSync(configPath)) {
+    if (!configPath || !FsUtils.fileExists(configPath)) {
         return {};
     }
     try {
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        const config = FsUtils.safeReadJson<Record<string, unknown>>(configPath);
         const section = config?.combinedCommands;
         if (!section || typeof section !== 'object') {
             return {};

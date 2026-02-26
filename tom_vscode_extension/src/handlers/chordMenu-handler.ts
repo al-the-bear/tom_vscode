@@ -21,6 +21,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { getConfigPath } from './handler_shared';
+import { FsUtils } from '../utils/fsUtils';
 
 // ============================================================================
 // Types
@@ -161,9 +162,9 @@ const CHORD_GROUPS: Record<string, ChordGroup> = {
  */
 function loadFavorites(): ChordMenuItem[] {
     const configPath = getConfigPath();
-    if (!configPath || !fs.existsSync(configPath)) { return []; }
+    if (!configPath || !FsUtils.fileExists(configPath)) { return []; }
     try {
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        const config = FsUtils.safeReadJson<Record<string, unknown>>(configPath);
         const favs = config?.favorites;
         if (!Array.isArray(favs)) { return []; }
         return favs

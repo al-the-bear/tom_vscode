@@ -25,7 +25,17 @@ import * as os from 'os';
  * Top-level workspace folder that holds AI / automation artefacts.
  * Currently `_ai`.  Change this single value to rename everywhere.
  */
-const AI_FOLDER = '_ai';
+const DEFAULT_AI_FOLDER = '_ai';
+
+function getAiFolderName(): string {
+    const configured = vscode.workspace.getConfiguration('tomAi').get<string>('aiFolder')
+        || vscode.workspace.getConfiguration('dartscript').get<string>('aiFolder');
+    if (!configured) {
+        return DEFAULT_AI_FOLDER;
+    }
+    const trimmed = configured.trim();
+    return trimmed.length > 0 ? trimmed : DEFAULT_AI_FOLDER;
+}
 
 /**
  * Workspace folder for copilot / AI guidelines documents.
@@ -104,7 +114,7 @@ const HOME_SUBPATHS: Record<string, string> = {
 export class WsPaths {
     // ── Raw folder names (for pattern matching, glob, display) ──────
     /** The AI folder name, e.g. `_ai` */
-    static get aiFolder(): string { return AI_FOLDER; }
+    static get aiFolder(): string { return getAiFolderName(); }
     /** The guidelines folder name, e.g. `_copilot_guidelines` */
     static get guidelinesFolder(): string { return GUIDELINES_FOLDER; }
     /** The Tom metadata folder name, e.g. `.tom_metadata` */
@@ -150,9 +160,10 @@ export class WsPaths {
         const ws = this.wsRoot;
         if (!ws) return undefined;
         const sub = AI_SUBPATHS[key];
-        if (sub) return path.join(ws, AI_FOLDER, sub, ...extra);
+        const aiFolder = this.aiFolder;
+        if (sub) return path.join(ws, aiFolder, sub, ...extra);
         // Fallback: treat key itself as a sub-path
-        return path.join(ws, AI_FOLDER, key, ...extra);
+        return path.join(ws, aiFolder, key, ...extra);
     }
 
     /**
@@ -163,8 +174,9 @@ export class WsPaths {
      * @returns Relative path like `_ai/quests`
      */
     static aiRelative(key: string): string {
+        const aiFolder = this.aiFolder;
         const sub = AI_SUBPATHS[key];
-        return sub ? `${AI_FOLDER}/${sub}` : `${AI_FOLDER}/${key}`;
+        return sub ? `${aiFolder}/${sub}` : `${aiFolder}/${key}`;
     }
 
     /**
@@ -172,7 +184,7 @@ export class WsPaths {
      */
     static get aiRoot(): string | undefined {
         const ws = this.wsRoot;
-        return ws ? path.join(ws, AI_FOLDER) : undefined;
+        return ws ? path.join(ws, this.aiFolder) : undefined;
     }
 
     /**
@@ -229,7 +241,7 @@ export class WsPaths {
 
     /** Glob pattern for all quest todo YAML files. */
     static get questTodoGlob(): string {
-        return `${AI_FOLDER}/quests/**/*.todo.yaml`;
+        return `${this.aiFolder}/quests/**/*.todo.yaml`;
     }
 
     /** Glob pattern for all guidelines markdown files (global). */
@@ -245,23 +257,24 @@ export class WsPaths {
      */
     static getResolverVariables(): Record<string, string> {
         const ws = this.wsRoot || '';
+        const aiFolder = this.aiFolder;
         return {
-            aiFolder:            AI_FOLDER,
+            aiFolder:            aiFolder,
             guidelinesFolder:    GUIDELINES_FOLDER,
             metadataFolder:      TOM_METADATA_FOLDER,
             githubFolder:        GITHUB_FOLDER,
             homeTomFolder:       HOME_TOM_FOLDER,
             // Absolute paths
-            aiPath:              ws ? path.join(ws, AI_FOLDER) : '',
+            aiPath:              ws ? path.join(ws, aiFolder) : '',
             guidelinesPath:      ws ? path.join(ws, GUIDELINES_FOLDER) : '',
             metadataPath:        ws ? path.join(ws, TOM_METADATA_FOLDER) : '',
-            questsPath:          ws ? path.join(ws, AI_FOLDER, 'quests') : '',
-            rolesPath:           ws ? path.join(ws, AI_FOLDER, 'roles') : '',
+            questsPath:          ws ? path.join(ws, aiFolder, 'quests') : '',
+            rolesPath:           ws ? path.join(ws, aiFolder, 'roles') : '',
             wsConfigPath:        ws ? path.join(ws, WORKSPACE_CONFIG_FOLDER) : '',
             wsConfigFolder:      WORKSPACE_CONFIG_FOLDER,
             // Copilot answer file folder (workspace-relative and absolute)
-            copilotAnswerFolder: `${AI_FOLDER}/${AI_SUBPATHS['answersCopilot']}`,
-            copilotAnswerPath:   ws ? path.join(ws, AI_FOLDER, AI_SUBPATHS['answersCopilot']) : '',
+            copilotAnswerFolder: `${aiFolder}/${AI_SUBPATHS['answersCopilot']}`,
+            copilotAnswerPath:   ws ? path.join(ws, aiFolder, AI_SUBPATHS['answersCopilot']) : '',
         };
     }
 }
