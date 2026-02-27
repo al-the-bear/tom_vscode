@@ -735,32 +735,32 @@
                 "key": "ctrl+shift+x"
             },
             {
-                "command": "dartscript.chordMenu.conversation",
+                "command": "tomAi.chordMenu.aiConversation",
                 "key": "ctrl+shift+c",
                 "when": "!dartscript.chordMenuOpen"
             },
             {
-                "command": "dartscript.chordMenu.llm",
+                "command": "tomAi.chordMenu.localLlm",
                 "key": "ctrl+shift+l",
                 "when": "!dartscript.chordMenuOpen"
             },
             {
-                "command": "dartscript.chordMenu.chat",
+                "command": "tomAi.chordMenu.copilot",
                 "key": "ctrl+shift+a",
                 "when": "!dartscript.chordMenuOpen"
             },
             {
-                "command": "dartscript.chordMenu.tomAiChat",
+                "command": "tomAi.chordMenu.tomAiChat",
                 "key": "ctrl+shift+t",
                 "when": "!dartscript.chordMenuOpen"
             },
             {
-                "command": "dartscript.chordMenu.execute",
+                "command": "tomAi.chordMenu.execute",
                 "key": "ctrl+shift+e",
                 "when": "!dartscript.chordMenuOpen"
             },
             {
-                "command": "dartscript.chordMenu.favorites",
+                "command": "tomAi.chordMenu.favorites",
                 "key": "ctrl+shift+x",
                 "when": "!dartscript.chordMenuOpen"
             },
@@ -789,7 +789,7 @@
                 "key": "ctrl+shift+y"
             },
             {
-                "command": "dartscript.showStatusPage",
+                "command": "tomAi.statusPage",
                 "key": "ctrl+shift+8"
             },
             {
@@ -808,17 +808,17 @@
         "menus": {
             "explorer/context": [
                 {
-                    "command": "dartscript.executeFile",
+                    "command": "tomAi.executeFile",
                     "when": "resourceExtname == .dart",
                     "group": "dartscript@1"
                 },
                 {
-                    "command": "dartscript.executeScript",
+                    "command": "tomAi.executeScript",
                     "when": "resourceExtname == .dart",
                     "group": "dartscript@3"
                 },
                 {
-                    "command": "dartscript.openInMdViewer",
+                    "command": "tomAi.openInMdViewer",
                     "when": "resourceExtname == .md",
                     "group": "dartscript@5"
                 }
@@ -829,15 +829,15 @@
                     "group": "copilot@0"
                 },
                 {
-                    "command": "dartscript.sendToChatStandard",
+                    "command": "tomAi.sendToCopilot.standard",
                     "group": "copilot@1"
                 },
                 {
-                    "command": "dartscript.sendToChatAdvanced",
+                    "command": "tomAi.sendToCopilot.template",
                     "group": "copilot@2"
                 },
                 {
-                    "command": "dartscript.sendToChat",
+                    "command": "tomAi.sendToCopilot",
                     "when": "editorHasSelection",
                     "group": "copilot@3"
                 },
@@ -846,62 +846,62 @@
                     "group": "localLlm@0"
                 },
                 {
-                    "command": "dartscript.sendToLocalLlmStandard",
+                    "command": "tomAi.sendToLocalLlm.standard",
                     "group": "localLlm@1"
                 },
                 {
-                    "command": "dartscript.sendToLocalLlmAdvanced",
+                    "command": "tomAi.sendToLocalLlm.template",
                     "group": "localLlm@2"
                 },
                 {
-                    "command": "dartscript.sendToLocalLlm",
+                    "command": "tomAi.sendToLocalLlm.default",
                     "when": "editorHasSelection",
                     "group": "localLlm@3"
                 },
                 {
-                    "command": "dartscript.executeScript",
+                    "command": "tomAi.executeScript",
                     "when": "resourceExtname == .dart",
                     "group": "dartscript@2"
                 },
                 {
-                    "command": "dartscript.startTomAIChat",
+                    "command": "tomAi.tomAiChat.start",
                     "when": "resourceExtname == .chat.md",
                     "group": "dartscript@4"
                 },
                 {
-                    "command": "dartscript.sendToTomAIChat",
+                    "command": "tomAi.tomAiChat.send",
                     "when": "resourceExtname == .chat.md",
                     "group": "dartscript@5"
                 },
                 {
-                    "command": "dartscript.openInMdViewer",
+                    "command": "tomAi.openInMdViewer",
                     "when": "resourceLangId == markdown",
                     "group": "dartscript@10"
                 }
             ],
             "dartscript.sendToChatSubmenu": [
                 {
-                    "command": "dartscript.sendToChatTrailReminder",
+                    "command": "tomAi.sendToCopilot.trailReminder",
                     "group": "standard@1"
                 },
                 {
-                    "command": "dartscript.sendToChatTodoExecution",
+                    "command": "tomAi.sendToCopilot.todoExecution",
                     "group": "standard@2"
                 },
                 {
-                    "command": "dartscript.sendToChatCodeReview",
+                    "command": "tomAi.sendToCopilot.codeReview",
                     "group": "standard@3"
                 },
                 {
-                    "command": "dartscript.sendToChatExplain",
+                    "command": "tomAi.sendToCopilot.explain",
                     "group": "standard@4"
                 },
                 {
-                    "command": "dartscript.sendToChatAddToTodo",
+                    "command": "tomAi.sendToCopilot.addToTodo",
                     "group": "standard@5"
                 },
                 {
-                    "command": "dartscript.sendToChatFixMarkdown",
+                    "command": "tomAi.sendToCopilot.fixMarkdown",
                     "group": "standard@6"
                 }
             ],

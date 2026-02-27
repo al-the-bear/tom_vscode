@@ -31,6 +31,7 @@ This section tracks actual implementation progress against the plan.
     - Added best-effort cleanup of current window chatvariable file on dispose
     - Removed obsolete `dartscript.openInExternalApp` command wiring from activation and `package.json` contributes.commands
     - Added first-class `tomAi.*` command contributions in `package.json` (palette-visible aliases), while keeping legacy command entries for compatibility during transition
+    - Migrated high-use `keybindings` and `menus` command references in `package.json` from `dartscript.*` to alias-backed `tomAi.*` IDs (chord menu, status page, explorer/editor context actions, and copilot submenu actions)
 
 ### Verified
 
@@ -39,7 +40,7 @@ This section tracks actual implementation progress against the plan.
 
 ### Not yet implemented (or only planned)
 
-- **Phase 3 Rename & Rebrand:** still incomplete — full `package.json` contributes migration for views/menus/keybindings/settings and handler/view ID renames still pending
+- **Phase 3 Rename & Rebrand:** still incomplete — `package.json` migration for view IDs/submenu IDs/settings and remaining command/menu/keybinding references is still pending; handler/view ID renames also pending
 - **Remaining Phase 4 migration items:** full config key migration and trail path back-compat migration still pending
 - **Phase 5 parity/polish:** panel parity items, unified prompt pipeline rollout, dead-code/tool dedup cleanup
 - **Phase 6 documentation/testing completion:** full regression sweep and docs refresh
