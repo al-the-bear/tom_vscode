@@ -42,18 +42,18 @@ import { WsPaths } from '../utils/workspacePaths';
 
 // View IDs
 const VIEW_IDS = {
-    guidelines: 'dartscript.guidelinesNotepad',
-    notes: 'dartscript.notesNotepad',
-    localLlm: 'dartscript.localLlmNotepad',
-    conversation: 'dartscript.conversationNotepad',
-    copilot: 'dartscript.copilotNotepad',
-    tomAiChat: 'dartscript.tomAiChatNotepad',
-    tomNotepad: 'dartscript.tomNotepad',
-    workspaceNotepad: 'dartscript.workspaceNotepad',
-    workspaceTodos: 'dartscript.workspaceTodosView',
-    questNotes: 'dartscript.questNotesView',
-    questTodos: 'dartscript.questTodosView',
-    sessionTodos: 'dartscript.sessionTodosView'
+    guidelines: 'tomAi.guidelinesNotepad',
+    notes: 'tomAi.notesNotepad',
+    localLlm: 'tomAi.localLlmNotepad',
+    conversation: 'tomAi.conversationNotepad',
+    copilot: 'tomAi.copilotNotepad',
+    tomAiChat: 'tomAi.tomAiChatNotepad',
+    tomNotepad: 'tomAi.tomNotepad',
+    workspaceNotepad: 'tomAi.workspaceNotepad',
+    workspaceTodos: 'tomAi.workspaceTodosView',
+    questNotes: 'tomAi.questNotesView',
+    questTodos: 'tomAi.questTodosView',
+    sessionTodos: 'tomAi.sessionTodosView'
 };
 
 // Storage keys for drafts
@@ -3414,7 +3414,7 @@ export function registerDsNotesViews(context: vscode.ExtensionContext): void {
         }),
         vscode.commands.registerCommand('dartscript.focusTomAI', async () => {
             // Focus the unified TOM AI panel
-            await vscode.commands.executeCommand('dartscript.chatPanel.focus');
+            await vscode.commands.executeCommand('tomAi.chatPanel.focus');
         })
     );
 }

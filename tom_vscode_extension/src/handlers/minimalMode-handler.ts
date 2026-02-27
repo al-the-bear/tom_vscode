@@ -13,15 +13,15 @@ import * as path from 'path';
 
 // All webview view IDs declared in package.json that need a provider in minimal mode
 const MINIMAL_VIEW_IDS = [
-    'dartscript.chatPanel',
-    'dartscript.wsPanel',
-    'dartscript.tomNotepad',
-    'dartscript.questNotesView',
-    'dartscript.questTodosView',
-    'dartscript.sessionTodosView',
-    'dartscript.todoLogView',
-    'dartscript.workspaceNotepad',
-    'dartscript.workspaceTodosView',
+    'tomAi.chatPanel',
+    'tomAi.wsPanel',
+    'tomAi.tomNotepad',
+    'tomAi.questNotesView',
+    'tomAi.questTodosView',
+    'tomAi.sessionTodosView',
+    'tomAi.todoLogView',
+    'tomAi.workspaceNotepad',
+    'tomAi.workspaceTodosView',
 ];
 
 class MinimalModeViewProvider implements vscode.WebviewViewProvider {

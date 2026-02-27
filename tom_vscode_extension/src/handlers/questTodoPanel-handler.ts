@@ -136,7 +136,7 @@ export async function selectTodoInBottomPanel(todoId: string, file?: string, que
 
     // Focus the T3 panel first — this reveals it and triggers resolveWebviewView
     try {
-        await vscode.commands.executeCommand('dartscript.wsPanel.focus');
+        await vscode.commands.executeCommand('tomAi.wsPanel.focus');
     } catch {
         return false;
     }

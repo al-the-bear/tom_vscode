@@ -9,8 +9,8 @@
 
 import * as vscode from 'vscode';
 
-const DARTSCRIPT_NOTEPAD_VIEW_ID = 'dartscript.notepad';
-const TOM_NOTEPAD_VIEW_ID = 'dartscript.tomNotepad';
+const DARTSCRIPT_NOTEPAD_VIEW_ID = 'tomAi.notepad';
+const TOM_NOTEPAD_VIEW_ID = 'tomAi.tomNotepad';
 const DARTSCRIPT_STORAGE_KEY = 'dartscript.notepad.content';
 const TOM_STORAGE_KEY = 'dartscript.tomNotepad.content';
 

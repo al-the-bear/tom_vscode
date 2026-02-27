@@ -39,7 +39,7 @@ import { scanWorkspaceProjectsByDetectors } from '../utils/projectDetector.js';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview.js';
 import { openInExternalApplication } from './handler_shared.js';
 
-const VIEW_ID = 'dartscript.wsPanel';
+const VIEW_ID = 'tomAi.wsPanel';
 
 export class T3PanelHandler implements vscode.WebviewViewProvider {
     public static readonly viewType = VIEW_ID;
@@ -191,7 +191,7 @@ export class T3PanelHandler implements vscode.WebviewViewProvider {
                     vscode.window.showInformationMessage('T3: Export Logs clicked');
                     break;
                 case 'openWorkspaceTodoExplorer':
-                    await vscode.commands.executeCommand('dartscript.workspaceTodosView.focus');
+                    await vscode.commands.executeCommand('tomAi.workspaceTodosView.focus');
                     break;
                 case 'openGuidelinesFolder': {
                     const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;

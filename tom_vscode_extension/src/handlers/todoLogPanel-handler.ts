@@ -25,7 +25,7 @@ import { getTrailFolder, getTrailFilePrefix } from './unifiedNotepad-handler.js'
 // View IDs
 // ============================================================================
 
-const TODO_LOG_VIEW_ID = 'dartscript.todoLogView';
+const TODO_LOG_VIEW_ID = 'tomAi.todoLogView';
 
 // ============================================================================
 // Provider

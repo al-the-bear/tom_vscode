@@ -45,12 +45,12 @@
         "viewsContainers": {
             "panel": [
                 {
-                    "id": "dartscript-t2-panel",
+                    "id": "tomAi-t2-panel",
                     "title": "@CHAT",
                     "icon": "$(layout)"
                 },
                 {
-                    "id": "dartscript-t3-panel",
+                    "id": "tomAi-t3-panel",
                     "title": "@WS",
                     "icon": "$(beaker)"
                 }
@@ -812,18 +812,18 @@
             }
         ],
         "views": {
-            "dartscript-t2-panel": [
+            "tomAi-t2-panel": [
                 {
                     "type": "webview",
-                    "id": "dartscript.chatPanel",
+                    "id": "tomAi.chatPanel",
                     "name": "@CHAT",
                     "icon": "$(layout)"
                 }
             ],
-            "dartscript-t3-panel": [
+            "tomAi-t3-panel": [
                 {
                     "type": "webview",
-                    "id": "dartscript.wsPanel",
+                    "id": "tomAi.wsPanel",
                     "name": "@WS",
                     "icon": "$(beaker)"
                 }
@@ -831,44 +831,44 @@
             "explorer": [
                 {
                     "type": "webview",
-                    "id": "dartscript.tomNotepad",
+                    "id": "tomAi.tomNotepad",
                     "name": "VS CODE NOTES",
                     "icon": "$(note)"
                 },
                 {
                     "type": "webview",
-                    "id": "dartscript.questNotesView",
+                    "id": "tomAi.questNotesView",
                     "name": "QUEST NOTES",
                     "icon": "$(book)",
                     "when": "dartscript.hasWorkspaceFile"
                 },
                 {
                     "type": "webview",
-                    "id": "dartscript.questTodosView",
+                    "id": "tomAi.questTodosView",
                     "name": "QUEST TODOS",
                     "icon": "$(checklist)"
                 },
                 {
                     "type": "webview",
-                    "id": "dartscript.sessionTodosView",
+                    "id": "tomAi.sessionTodosView",
                     "name": "SESSION TODOS",
                     "icon": "$(clock)"
                 },
                 {
                     "type": "webview",
-                    "id": "dartscript.todoLogView",
+                    "id": "tomAi.todoLogView",
                     "name": "TODO LOG",
                     "icon": "$(history)"
                 },
                 {
                     "type": "webview",
-                    "id": "dartscript.workspaceNotepad",
+                    "id": "tomAi.workspaceNotepad",
                     "name": "WORKSPACE NOTES",
                     "icon": "$(file-text)"
                 },
                 {
                     "type": "webview",
-                    "id": "dartscript.workspaceTodosView",
+                    "id": "tomAi.workspaceTodosView",
                     "name": "WORKSPACE TODOS",
                     "icon": "$(tasklist)"
                 }

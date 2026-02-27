@@ -501,7 +501,7 @@ function writeToTrailViewer(session: string, type: 'userprompt' | 'answer', cont
     }
 }
 
-const VIEW_ID = 'dartscript.chatPanel';
+const VIEW_ID = 'tomAi.chatPanel';
 
 interface Section {
     id: string;

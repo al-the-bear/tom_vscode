@@ -37,6 +37,8 @@ This section tracks actual implementation progress against the plan.
     - Added alias coverage + manifest migration for remaining high-use keybinding commands (`combined.maximize*`, `focusTomAI`, `stateMachine.vsWindowStateFlow`, `wsPanel.focus`, `combined.showSideNotes`)
     - Added compatibility-first settings migration: introduced `tomAi.*` configuration contributions mirroring existing `dartscript.*` keys and switched core readers to prefer `tomAi` with `dartscript` fallback (`configPath`, send-to-chat answer folder, and notes path settings)
     - Expanded `tomAi.*` command contribution coverage for remaining alias-backed operational commands (bridge/debug, reload/tests, CLI server custom port/process monitor, commandline/telegram/trail/config/help utilities, quick reference, reset state)
+    - Migrated contributed panel/view IDs in `package.json` from `dartscript*` to `tomAi*` (`viewsContainers.panel`, panel webviews, explorer webviews), and aligned handler provider IDs/usages to `tomAi.*`
+    - Added compatibility shims for legacy view-focus command IDs (`dartscript.*.focus` → `tomAi.*.focus`) to preserve existing integrations during the transition
 
 ### Verified
 
@@ -45,7 +47,7 @@ This section tracks actual implementation progress against the plan.
 
 ### Not yet implemented (or only planned)
 
-- **Phase 3 Rename & Rebrand:** still incomplete — `package.json` migration for view IDs and residual command/menu references is still pending; handler/view ID renames also pending
+- **Phase 3 Rename & Rebrand:** still incomplete — residual command/menu references and non-view legacy identifiers are still pending
 - **Remaining Phase 4 migration items:** full config key migration and trail path back-compat migration still pending
 - **Phase 5 parity/polish:** panel parity items, unified prompt pipeline rollout, dead-code/tool dedup cleanup
 - **Phase 6 documentation/testing completion:** full regression sweep and docs refresh

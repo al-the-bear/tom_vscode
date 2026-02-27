@@ -920,8 +920,17 @@ function registerCommandAliases(context: vscode.ExtensionContext): void {
         'tomAi.combined.maximizeChat': 'dartscript.combined.maximizeChat',
         'tomAi.focusTomAi': 'dartscript.focusTomAI',
         'tomAi.stateMachine.vsWindowStateFlow': 'dartscript.stateMachine.vsWindowStateFlow',
-        'tomAi.wsPanel.focus': 'dartscript.wsPanel.focus',
         'tomAi.combined.showSideNotes': 'dartscript.combined.showSideNotes',
+
+        'dartscript.chatPanel.focus': 'tomAi.chatPanel.focus',
+        'dartscript.wsPanel.focus': 'tomAi.wsPanel.focus',
+        'dartscript.tomNotepad.focus': 'tomAi.tomNotepad.focus',
+        'dartscript.workspaceNotepad.focus': 'tomAi.workspaceNotepad.focus',
+        'dartscript.workspaceTodosView.focus': 'tomAi.workspaceTodosView.focus',
+        'dartscript.questNotesView.focus': 'tomAi.questNotesView.focus',
+        'dartscript.questTodosView.focus': 'tomAi.questTodosView.focus',
+        'dartscript.sessionTodosView.focus': 'tomAi.sessionTodosView.focus',
+        'dartscript.todoLogView.focus': 'tomAi.todoLogView.focus',
 
         'tomAi.editor.chatVariables': 'dartscript.openChatVariablesEditor',
         'tomAi.editor.promptQueue': 'dartscript.openQueueEditor',
