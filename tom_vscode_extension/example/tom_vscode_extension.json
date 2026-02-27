@@ -1,7 +1,7 @@
 {
   "default": "Trail Reminder",
   "userName": "${username}",
-  "dartscriptBridge": {
+  "tomAiBridge": {
     "current": "production",
     "profiles": {
       "development": {
@@ -265,7 +265,7 @@
       "description": "Start a debug session"
     },
     {
-      "commandId": "dartscript.openConfig",
+      "commandId": "tomAi.openConfig",
       "label": "Open Config File",
       "description": "Open send_to_chat.json"
     }
@@ -318,8 +318,8 @@
     "showSideNotes": {
       "label": "Show Side Notes",
       "commands": [
-        "dartscript.tomNotepad.focus",
-        "dartscript.workspaceNotepad.focus"
+        "tomAi.tomNotepad.focus",
+        "tomAi.workspaceNotepad.focus"
       ]
     }
   },
@@ -327,7 +327,7 @@
     {
       "key": "?",
       "label": "Quick Reference",
-      "commandId": "dartscript.showQuickReference"
+      "commandId": "tomAi.showQuickReference"
     },
     {
       "key": "0",
@@ -352,82 +352,82 @@
     {
       "key": "4",
       "label": "Show Chat Answer Values",
-      "commandId": "dartscript.showChatAnswerValues"
+      "commandId": "tomAi.showAnswerValues"
     },
     {
       "key": "5",
       "label": "Clear Chat Answer Values",
-      "commandId": "dartscript.clearChatAnswerValues"
+      "commandId": "tomAi.clearAnswerValues"
     },
     {
       "key": "6",
       "label": "Restart Bridge",
-      "commandId": "dartscript.restartBridge"
+      "commandId": "tomAi.bridge.restart"
     },
     {
       "key": "7",
       "label": "Switch Bridge Profile",
-      "commandId": "dartscript.switchBridgeProfile"
+      "commandId": "tomAi.bridge.switchProfile"
     },
     {
       "key": "8",
       "label": "Toggle Bridge Debug Logging",
-      "commandId": "dartscript.toggleBridgeDebugLogging"
+      "commandId": "tomAi.bridge.toggleDebug"
     },
     {
       "key": "9",
       "label": "Start Tom CLI Integration Server",
-      "commandId": "dartscript.startCliServer"
+      "commandId": "tomAi.cliServer.start"
     },
     {
       "key": "a",
       "label": "Start Tom CLI Server (Custom Port)",
-      "commandId": "dartscript.startCliServerCustomPort"
+      "commandId": "tomAi.cliServer.startCustomPort"
     },
     {
       "key": "b",
       "label": "Stop Tom CLI Integration Server",
-      "commandId": "dartscript.stopCliServer"
+      "commandId": "tomAi.cliServer.stop"
     },
     {
       "key": "c",
       "label": "Start Tom Process Monitor",
-      "commandId": "dartscript.startProcessMonitor"
+      "commandId": "tomAi.startProcessMonitor"
     },
     {
       "key": "d",
       "label": "Show VS Code API Info",
-      "commandId": "dartscript.showApiInfo"
+      "commandId": "tomAi.showApiInfo"
     },
     {
       "key": "e",
       "label": "Telegram Test Connection",
-      "commandId": "dartscript.telegramTest"
+      "commandId": "tomAi.telegram.testConnection"
     },
     {
       "key": "f",
       "label": "Telegram Start/Stop Polling",
-      "commandId": "dartscript.telegramToggle"
+      "commandId": "tomAi.telegram.toggle"
     },
     {
       "key": "g",
       "label": "Configure Telegram",
-      "commandId": "dartscript.telegramConfigure"
+      "commandId": "tomAi.telegram.configure"
     },
     {
       "key": "h",
       "label": "Toggle AI Trail Logging",
-      "commandId": "dartscript.toggleTrail"
+      "commandId": "tomAi.trail.toggle"
     },
     {
       "key": "i",
       "label": "Extension Status Page",
-      "commandId": "dartscript.showStatusPage"
+      "commandId": "tomAi.statusPage"
     },
     {
       "key": "j",
       "label": "Open Extension Settings",
-      "commandId": "dartscript.openExtensionSettings"
+      "commandId": "tomAi.openSettings"
     },
     {
       "key": "p",
@@ -445,7 +445,7 @@
     {
       "key": "y",
       "label": "VS Window State Flow",
-      "commandId": "dartscript.stateMachine.vsWindowStateFlow"
+      "commandId": "tomAi.stateMachine.vsWindowStateFlow"
     }
   ],
   "tomAiChat": {

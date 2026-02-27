@@ -1,6 +1,6 @@
 # Tom AI Extension — Refactoring Implementation Plan
 
-**Extension:** `tom-ai-extension` (renamed from `dartscript-vscode`)  
+**Extension:** `tom-ai-extension` (renamed from `tom-ai-extension`)  
 **Date:** 26 Feb 2026  
 **Last updated:** 27 Feb 2026 (status + implementation continuation)  
 **Companion docs:** `extension_analysis.md`, `extension_discrepancies.md`
@@ -23,23 +23,23 @@ This section tracks actual implementation progress against the plan.
     - Multiple handlers moved from inline `JSON.parse(fs.readFileSync(...))` to `FsUtils.safeReadJson(...)`
 - **Phase 4 item 4.5 completed early:** configurable AI folder support in `WsPaths` (`tomAi.aiFolder`, with legacy fallback)
 - **Phase 3 (rename/rebrand): partial compatibility-first rollout completed** in `22c6e9c`:
-    - Added `tomAi.*` command compatibility aliases mapping to legacy `dartscript.*` implementations
+    - Added `tomAi.*` command compatibility aliases mapping to legacy `tomAi.*` implementations
     - Migrated major internal `executeCommand(...)` callsites to `tomAi.*` IDs (status page, unified panel, queue/timed/context editors, etc.)
     - Updated extension identity metadata in `package.json`: `name`, `displayName`, `publisher`
 - **Additional continuation batch (current working tree / next commit):**
     - Migrated `ChatVariablesStore` persistence from workspaceState-only to per-window YAML file: `${ai}/chat_variables/<window-id>.chatvariable.yaml` (with migration fallback)
     - Added best-effort cleanup of current window chatvariable file on dispose
-    - Removed obsolete `dartscript.openInExternalApp` command wiring from activation and `package.json` contributes.commands
+    - Removed obsolete `tomAi.openInExternalApp` command wiring from activation and `package.json` contributes.commands
     - Added first-class `tomAi.*` command contributions in `package.json` (palette-visible aliases), while keeping legacy command entries for compatibility during transition
-    - Migrated high-use `keybindings` and `menus` command references in `package.json` from `dartscript.*` to alias-backed `tomAi.*` IDs (chord menu, status page, explorer/editor context actions, and copilot submenu actions)
+    - Migrated high-use `keybindings` and `menus` command references in `package.json` from `tomAi.*` to alias-backed `tomAi.*` IDs (chord menu, status page, explorer/editor context actions, and copilot submenu actions)
     - Added missing `tomAi.*` command aliases for Local LLM profile actions (`expand`/`rewrite`/`detailed`/`annotated`) to preserve compatibility during menu migration
-    - Migrated submenu IDs and submenu menu trees from `dartscript.*` to `tomAi.*`, and added missing `tomAi.*` command contributions for menu-visible command titles
+    - Migrated submenu IDs and submenu menu trees from `tomAi.*` to `tomAi.*`, and added missing `tomAi.*` command contributions for menu-visible command titles
     - Added alias coverage + manifest migration for remaining high-use keybinding commands (`combined.maximize*`, `focusTomAI`, `stateMachine.vsWindowStateFlow`, `wsPanel.focus`, `combined.showSideNotes`)
-    - Added compatibility-first settings migration: introduced `tomAi.*` configuration contributions mirroring existing `dartscript.*` keys and switched core readers to prefer `tomAi` with `dartscript` fallback (`configPath`, send-to-chat answer folder, and notes path settings)
+    - Added compatibility-first settings migration: introduced `tomAi.*` configuration contributions mirroring existing `tomAi.*` keys and switched core readers to prefer `tomAi` with `tomAi` fallback (`configPath`, send-to-chat answer folder, and notes path settings)
     - Expanded `tomAi.*` command contribution coverage for remaining alias-backed operational commands (bridge/debug, reload/tests, CLI server custom port/process monitor, commandline/telegram/trail/config/help utilities, quick reference, reset state)
     - Migrated contributed panel/view IDs in `package.json` from `dartscript*` to `tomAi*` (`viewsContainers.panel`, panel webviews, explorer webviews), and aligned handler provider IDs/usages to `tomAi.*`
-    - Added compatibility shims for legacy view-focus command IDs (`dartscript.*.focus` → `tomAi.*.focus`) to preserve existing integrations during the transition
-    - Migrated workspace-file context key usage to `tomAi.hasWorkspaceFile` in manifest visibility conditions and runtime context updates, while still setting `dartscript.hasWorkspaceFile` for compatibility
+    - Added compatibility shims for legacy view-focus command IDs (`tomAi.*.focus` → `tomAi.*.focus`) to preserve existing integrations during the transition
+    - Migrated workspace-file context key usage to `tomAi.hasWorkspaceFile` in manifest visibility conditions and runtime context updates, while still setting `tomAi.hasWorkspaceFile` for compatibility
 
 ### Verified
 
@@ -48,7 +48,7 @@ This section tracks actual implementation progress against the plan.
 
 ### Closeout status
 
-- **Phase 3 Rename & Rebrand:** completed for canonical external surfaces (`tomAi.*`) with legacy `dartscript.*` compatibility aliases intentionally retained.
+- **Phase 3 Rename & Rebrand:** completed for canonical external surfaces (`tomAi.*`) with legacy `tomAi.*` compatibility aliases intentionally retained.
 - **Phase 4 migration:** completed for active configuration and path readers using `tomAi`-first with legacy fallback behavior.
 - **Phase 5 parity/polish:** completed for current release scope.
 - **Phase 6 documentation/testing completion:** completed for current release scope (docs refreshed + compile/analyze validation).
@@ -88,29 +88,29 @@ This section tracks actual implementation progress against the plan.
 
 | Property | Current | After |
 |----------|---------|-------|
-| Extension ID (`name`) | `dartscript-vscode` | `tom-ai-extension` |
-| Display name | `DartScript` | `@Tom` |
+| Extension ID (`name`) | `tom-ai-extension` | `tom-ai-extension` |
+| Display name | `@Tom` | `@Tom` |
 | Publisher | `tom` | `Peter Nicolai Alexis Kyaw` |
 | Description | "AI-powered build and documentation..." | "AI-powered workspace automation with Copilot, Local LLM, and AI Chat integration" |
-| View container label (@CHAT) | `DartScript` | `@Tom` |
-| Chat participant ID | `@dartscript` | `@tom` |
-| Chat variable prefix | `dartscript.*` | `tomAi.*` |
+| View container label (@CHAT) | `@Tom` | `@Tom` |
+| Chat participant ID | `@tom` | `@tom` |
+| Chat variable prefix | `tomAi.*` | `tomAi.*` |
 | Status bar prefix | `DS` | `@T` |
-| Context menu submenu labels | `DartScript: Send to Chat...` / `DartScript: Send to local LLM...` | (prefix-less, unchanged — these are context menu items) |
+| Context menu submenu labels | `@T: Send to Chat...` / `@T: Send to local LLM...` | (prefix-less, unchanged — these are context menu items) |
 
 ### 1.2 Command Prefix Convention
 
 - **`@T:`** — All commands visible in the Command Palette
 - **No prefix** — Context menu sub-menu entries (Send with Trail Reminder, Code Review, etc.) — these stay prefix-less
-- **`DS:` / `DartScript:` / `Tom AI:`** — eliminated entirely
+- **`@T:` / `@T:` / `Tom AI:`** — eliminated entirely
 
 ### 1.3 Config Namespace
 
 | Property | Current | After |
 |----------|---------|-------|
-| VS Code settings prefix | `dartscript.*` | `tomAi.*` |
-| WorkspaceState key prefix | `dartscript.dsNotes.*` | `tomAi.*` |
-| Chat variable prefix | `dartscript.*` | `tomAi.*` |
+| VS Code settings prefix | `tomAi.*` | `tomAi.*` |
+| WorkspaceState key prefix | `tomAi.dsNotes.*` | `tomAi.*` |
+| Chat variable prefix | `tomAi.*` | `tomAi.*` |
 
 ### 1.4 Internal Subsystem Canonical Names
 
@@ -133,160 +133,160 @@ These canonical names will be used consistently across config keys, file names, 
 
 | # | Current ID | Current Title | New ID | New Title |
 |---|-----------|---------------|--------|-----------|
-| 1 | `dartscript.sendToChat` | DS: Send to Copilot Chat | `tomAi.sendToCopilot` | @T: Send to Copilot |
-| 2 | `dartscript.sendToChatAdvanced` | DS: Send to Copilot Chat (Template)... | `tomAi.sendToCopilot.template` | @T: Send to Copilot (Pick Template) |
-| 3 | `dartscript.sendToChatStandard` | DS: Send to Copilot Chat (Standard) | `tomAi.sendToCopilot.standard` | @T: Send to Copilot (Default Template) |
-| 4 | `dartscript.reloadSendToChatConfig` | DS: Reload Chat Config | `tomAi.reloadConfig` | @T: Reload Configuration |
-| 5 | `dartscript.showChatAnswerValues` | DS: Show chat answer values | `tomAi.showAnswerValues` | @T: Show Chat Answer Values |
-| 6 | `dartscript.clearChatAnswerValues` | DS: Clear chat answer values | `tomAi.clearAnswerValues` | @T: Clear Chat Answer Values |
+| 1 | `tomAi.sendToCopilot` | DS: Send to Copilot Chat | `tomAi.sendToCopilot` | @T: Send to Copilot |
+| 2 | `tomAi.sendToCopilot.template` | DS: Send to Copilot Chat (Template)... | `tomAi.sendToCopilot.template` | @T: Send to Copilot (Pick Template) |
+| 3 | `tomAi.sendToCopilot.standard` | DS: Send to Copilot Chat (Standard) | `tomAi.sendToCopilot.standard` | @T: Send to Copilot (Default Template) |
+| 4 | `tomAi.reloadConfig` | DS: Reload Chat Config | `tomAi.reloadConfig` | @T: Reload Configuration |
+| 5 | `tomAi.showAnswerValues` | DS: Show chat answer values | `tomAi.showAnswerValues` | @T: Show Chat Answer Values |
+| 6 | `tomAi.clearAnswerValues` | DS: Clear chat answer values | `tomAi.clearAnswerValues` | @T: Clear Chat Answer Values |
 
 #### Context Menu Items (prefix-less)
 
 | # | Current ID | Current Title | New ID | New Title |
 |---|-----------|---------------|--------|-----------|
-| 7 | `dartscript.sendToChatTrailReminder` | Send with Trail Reminder | `tomAi.sendToCopilot.trailReminder` | Send with Trail Reminder |
-| 8 | `dartscript.sendToChatTodoExecution` | TODO Execution | `tomAi.sendToCopilot.todoExecution` | TODO Execution |
-| 9 | `dartscript.sendToChatCodeReview` | Code Review | `tomAi.sendToCopilot.codeReview` | Code Review |
-| 10 | `dartscript.sendToChatExplain` | Explain Code | `tomAi.sendToCopilot.explain` | Explain Code |
-| 11 | `dartscript.sendToChatAddToTodo` | Add to Todo | `tomAi.sendToCopilot.addToTodo` | Add to Todo |
-| 12 | `dartscript.sendToChatFixMarkdown` | Fix Markdown here | `tomAi.sendToCopilot.fixMarkdown` | Fix Markdown here |
+| 7 | `tomAi.sendToCopilot.trailReminder` | Send with Trail Reminder | `tomAi.sendToCopilot.trailReminder` | Send with Trail Reminder |
+| 8 | `tomAi.sendToCopilot.todoExecution` | TODO Execution | `tomAi.sendToCopilot.todoExecution` | TODO Execution |
+| 9 | `tomAi.sendToCopilot.codeReview` | Code Review | `tomAi.sendToCopilot.codeReview` | Code Review |
+| 10 | `tomAi.sendToCopilot.explain` | Explain Code | `tomAi.sendToCopilot.explain` | Explain Code |
+| 11 | `tomAi.sendToCopilot.addToTodo` | Add to Todo | `tomAi.sendToCopilot.addToTodo` | Add to Todo |
+| 12 | `tomAi.sendToCopilot.fixMarkdown` | Fix Markdown here | `tomAi.sendToCopilot.fixMarkdown` | Fix Markdown here |
 
 #### Local LLM Commands
 
 | # | Current ID | Current Title | New ID | New Title |
 |---|-----------|---------------|--------|-----------|
-| 13 | `dartscript.expandPrompt` | DS: Expand Prompt (Ollama) | `tomAi.sendToLocalLlm` | @T: Send to Local LLM |
-| 14 | `dartscript.switchLocalModel` | DS: Change local Ollama model... | `tomAi.localLlm.switchModel` | @T: Change Local LLM Model... |
-| 15 | `dartscript.sendToLocalLlm` | DS: Send to local LLM | `tomAi.sendToLocalLlm.default` | @T: Send to Local LLM (Default) |
-| 16 | `dartscript.sendToLocalLlmAdvanced` | DS: Send to local LLM (Template)... | `tomAi.sendToLocalLlm.template` | @T: Send to Local LLM (Pick Template) |
-| 17 | `dartscript.sendToLocalLlmStandard` | DS: Send to local LLM (Standard) | `tomAi.sendToLocalLlm.standard` | @T: Send to Local LLM (Default Template) |
+| 13 | `tomAi.sendToLocalLlm` | DS: Expand Prompt (Ollama) | `tomAi.sendToLocalLlm` | @T: Send to Local LLM |
+| 14 | `tomAi.localLlm.switchModel` | DS: Change local Ollama model... | `tomAi.localLlm.switchModel` | @T: Change Local LLM Model... |
+| 15 | `tomAi.sendToLocalLlm.default` | DS: Send to local LLM | `tomAi.sendToLocalLlm.default` | @T: Send to Local LLM (Default) |
+| 16 | `tomAi.sendToLocalLlm.template` | DS: Send to local LLM (Template)... | `tomAi.sendToLocalLlm.template` | @T: Send to Local LLM (Pick Template) |
+| 17 | `tomAi.sendToLocalLlm.standard` | DS: Send to local LLM (Standard) | `tomAi.sendToLocalLlm.standard` | @T: Send to Local LLM (Default Template) |
 
 #### Context Menu Items — Local LLM (prefix-less)
 
 | # | Current ID | Current Title | New ID | New Title |
 |---|-----------|---------------|--------|-----------|
-| 18 | `dartscript.sendToLocalLlm.expand` | Expand Prompt | `tomAi.sendToLocalLlm.expand` | Expand Prompt |
-| 19 | `dartscript.sendToLocalLlm.rewrite` | Rewrite | `tomAi.sendToLocalLlm.rewrite` | Rewrite |
-| 20 | `dartscript.sendToLocalLlm.detailed` | Detailed Expansion | `tomAi.sendToLocalLlm.detailed` | Detailed Expansion |
-| 21 | `dartscript.sendToLocalLlm.annotated` | Annotated Expansion | `tomAi.sendToLocalLlm.annotated` | Annotated Expansion |
+| 18 | `tomAi.sendToLocalLlm.expand` | Expand Prompt | `tomAi.sendToLocalLlm.expand` | Expand Prompt |
+| 19 | `tomAi.sendToLocalLlm.rewrite` | Rewrite | `tomAi.sendToLocalLlm.rewrite` | Rewrite |
+| 20 | `tomAi.sendToLocalLlm.detailed` | Detailed Expansion | `tomAi.sendToLocalLlm.detailed` | Detailed Expansion |
+| 21 | `tomAi.sendToLocalLlm.annotated` | Annotated Expansion | `tomAi.sendToLocalLlm.annotated` | Annotated Expansion |
 
 #### AI Conversation Commands
 
 | # | Current ID | Current Title | New ID | New Title |
 |---|-----------|---------------|--------|-----------|
-| 22 | `dartscript.startBotConversation` | DS: Start Local-Copilot Conversation | `tomAi.aiConversation.start` | @T: Start AI Conversation |
-| 23 | `dartscript.stopBotConversation` | DS: Stop Local-Copilot Conversation | `tomAi.aiConversation.stop` | @T: Stop AI Conversation |
-| 24 | `dartscript.haltBotConversation` | DS: Halt Local-Copilot Conversation | `tomAi.aiConversation.halt` | @T: Halt AI Conversation |
-| 25 | `dartscript.continueBotConversation` | DS: Continue Local-Copilot Conversation | `tomAi.aiConversation.continue` | @T: Continue AI Conversation |
-| 26 | `dartscript.addToBotConversation` | DS: Add to Local-Copilot Conversation | `tomAi.aiConversation.add` | @T: Add to AI Conversation |
+| 22 | `tomAi.aiConversation.start` | DS: Start Local-Copilot Conversation | `tomAi.aiConversation.start` | @T: Start AI Conversation |
+| 23 | `tomAi.aiConversation.stop` | DS: Stop Local-Copilot Conversation | `tomAi.aiConversation.stop` | @T: Stop AI Conversation |
+| 24 | `tomAi.aiConversation.halt` | DS: Halt Local-Copilot Conversation | `tomAi.aiConversation.halt` | @T: Halt AI Conversation |
+| 25 | `tomAi.aiConversation.continue` | DS: Continue Local-Copilot Conversation | `tomAi.aiConversation.continue` | @T: Continue AI Conversation |
+| 26 | `tomAi.aiConversation.add` | DS: Add to Local-Copilot Conversation | `tomAi.aiConversation.add` | @T: Add to AI Conversation |
 
 #### Tom AI Chat Commands
 
 | # | Current ID | Current Title | New ID | New Title |
 |---|-----------|---------------|--------|-----------|
-| 27 | `dartscript.startTomAIChat` | Tom AI: Start Chat | `tomAi.tomAiChat.start` | @T: Start Tom AI Chat |
-| 28 | `dartscript.sendToTomAIChat` | Tom AI: Send Chat Prompt | `tomAi.tomAiChat.send` | @T: Send Tom AI Chat Prompt |
-| 29 | `dartscript.interruptTomAIChat` | Tom AI: Interrupt Chat | `tomAi.tomAiChat.interrupt` | @T: Interrupt Tom AI Chat |
+| 27 | `tomAi.tomAiChat.start` | Tom AI: Start Chat | `tomAi.tomAiChat.start` | @T: Start Tom AI Chat |
+| 28 | `tomAi.tomAiChat.send` | Tom AI: Send Chat Prompt | `tomAi.tomAiChat.send` | @T: Send Tom AI Chat Prompt |
+| 29 | `tomAi.tomAiChat.interrupt` | Tom AI: Interrupt Chat | `tomAi.tomAiChat.interrupt` | @T: Interrupt Tom AI Chat |
 
 #### Bridge & Infrastructure Commands
 
 | # | Current ID | Current Title | New ID | New Title |
 |---|-----------|---------------|--------|-----------|
-| 30 | `dartscript.executeFile` | DS: Execute File | `tomAi.executeFile` | @T: Execute File |
-| 31 | `dartscript.executeScript` | DS: Execute as Script | `tomAi.executeScript` | @T: Execute as Script |
-| 32 | `dartscript.restartBridge` | DS: Restart Bridge | `tomAi.bridge.restart` | @T: Restart Bridge |
-| 33 | `dartscript.switchBridgeProfile` | DS: Switch Dartscript Bridge Profile... | `tomAi.bridge.switchProfile` | @T: Switch Bridge Profile... |
-| 34 | `dartscript.toggleBridgeDebugLogging` | DS: Toggle Bridge Debug Logging | `tomAi.bridge.toggleDebug` | @T: Toggle Bridge Debug Logging |
-| 35 | `dartscript.reloadWindow` | DS: Reload Window | `tomAi.reloadWindow` | @T: Reload Window |
-| 36 | `dartscript.runTests` | DS: Run Tests | `tomAi.runTests` | @T: Run Tests |
+| 30 | `tomAi.executeFile` | DS: Execute File | `tomAi.executeFile` | @T: Execute File |
+| 31 | `tomAi.executeScript` | DS: Execute as Script | `tomAi.executeScript` | @T: Execute as Script |
+| 32 | `tomAi.bridge.restart` | DS: Restart Bridge | `tomAi.bridge.restart` | @T: Restart Bridge |
+| 33 | `tomAi.bridge.switchProfile` | DS: Switch Tom AI Bridge Profile... | `tomAi.bridge.switchProfile` | @T: Switch Bridge Profile... |
+| 34 | `tomAi.bridge.toggleDebug` | DS: Toggle Bridge Debug Logging | `tomAi.bridge.toggleDebug` | @T: Toggle Bridge Debug Logging |
+| 35 | `tomAi.reloadWindow` | DS: Reload Window | `tomAi.reloadWindow` | @T: Reload Window |
+| 36 | `tomAi.runTests` | DS: Run Tests | `tomAi.runTests` | @T: Run Tests |
 
 #### CLI Server Commands
 
 | # | Current ID | Current Title | New ID | New Title |
 |---|-----------|---------------|--------|-----------|
-| 37 | `dartscript.startCliServer` | DS: Start Tom CLI Integration Server | `tomAi.cliServer.start` | @T: Start Tom CLI Integration Server |
-| 38 | `dartscript.startCliServerCustomPort` | DS: Start Tom CLI Integration Server (Custom Port) | `tomAi.cliServer.startCustomPort` | @T: Start CLI Server (Custom Port) |
-| 39 | `dartscript.stopCliServer` | DS: Stop Tom CLI Integration Server | `tomAi.cliServer.stop` | @T: Stop Tom CLI Integration Server |
-| 40 | `dartscript.startProcessMonitor` | DS: Start Tom Process Monitor | `tomAi.startProcessMonitor` | @T: Start Process Monitor |
+| 37 | `tomAi.cliServer.start` | DS: Start Tom CLI Integration Server | `tomAi.cliServer.start` | @T: Start Tom CLI Integration Server |
+| 38 | `tomAi.cliServer.startCustomPort` | DS: Start Tom CLI Integration Server (Custom Port) | `tomAi.cliServer.startCustomPort` | @T: Start CLI Server (Custom Port) |
+| 39 | `tomAi.cliServer.stop` | DS: Stop Tom CLI Integration Server | `tomAi.cliServer.stop` | @T: Stop Tom CLI Integration Server |
+| 40 | `tomAi.startProcessMonitor` | DS: Start Tom Process Monitor | `tomAi.startProcessMonitor` | @T: Start Process Monitor |
 
 #### Chord Menu Commands
 
 | # | Current ID | Current Title | New ID | New Title |
 |---|-----------|---------------|--------|-----------|
-| 41 | `dartscript.chordMenu.conversation` | DS: Conversation Shortcuts... | `tomAi.chordMenu.aiConversation` | @T: AI Conversation Shortcuts... |
-| 42 | `dartscript.chordMenu.llm` | DS: Local LLM Shortcuts... | `tomAi.chordMenu.localLlm` | @T: Local LLM Shortcuts... |
-| 43 | `dartscript.chordMenu.chat` | DS: Send to Chat Shortcuts... | `tomAi.chordMenu.copilot` | @T: Copilot Shortcuts... |
-| 44 | `dartscript.chordMenu.tomAiChat` | DS: Tom AI Chat Shortcuts... | `tomAi.chordMenu.tomAiChat` | @T: Tom AI Chat Shortcuts... |
-| 45 | `dartscript.chordMenu.execute` | DS: Execute Shortcuts... | `tomAi.chordMenu.execute` | @T: Execute Shortcuts... |
-| 46 | `dartscript.chordMenu.favorites` | DS: Favorites... | `tomAi.chordMenu.favorites` | @T: Favorites... |
+| 41 | `tomAi.chordMenu.aiConversation` | DS: Conversation Shortcuts... | `tomAi.chordMenu.aiConversation` | @T: AI Conversation Shortcuts... |
+| 42 | `tomAi.chordMenu.localLlm` | DS: Local LLM Shortcuts... | `tomAi.chordMenu.localLlm` | @T: Local LLM Shortcuts... |
+| 43 | `tomAi.chordMenu.copilot` | DS: Send to Chat Shortcuts... | `tomAi.chordMenu.copilot` | @T: Copilot Shortcuts... |
+| 44 | `tomAi.chordMenu.tomAiChat` | DS: Tom AI Chat Shortcuts... | `tomAi.chordMenu.tomAiChat` | @T: Tom AI Chat Shortcuts... |
+| 45 | `tomAi.chordMenu.execute` | DS: Execute Shortcuts... | `tomAi.chordMenu.execute` | @T: Execute Shortcuts... |
+| 46 | `tomAi.chordMenu.favorites` | DS: Favorites... | `tomAi.chordMenu.favorites` | @T: Favorites... |
 
 #### Layout & UI Commands
 
 | # | Current ID | Current Title | New ID | New Title |
 |---|-----------|---------------|--------|-----------|
-| 47 | `dartscript.combined.maximizeExplorer` | DS: Maximize Explorer | `tomAi.layout.maximizeExplorer` | @T: Maximize Explorer |
-| 48 | `dartscript.combined.maximizeEditor` | DS: Maximize Editor | `tomAi.layout.maximizeEditor` | @T: Maximize Editor |
-| 49 | `dartscript.combined.maximizeChat` | DS: Maximize Chat | `tomAi.layout.maximizeChat` | @T: Maximize @CHAT |
-| 50 | `dartscript.combined.maximizeToggle` | DS: Maximize Toggle | `tomAi.layout.maximizeToggle` | @T: Maximize Toggle |
-| 51 | `dartscript.stateMachine.vsWindowStateFlow` | DS: Window Panel State Flow | `tomAi.layout.windowStateFlow` | @T: Window Panel State Flow |
-| 52 | `dartscript.resetMultiCommandState` | DS: Reset All State Machine States | `tomAi.layout.resetStateMachines` | @T: Reset All State Machine States |
-| 53 | `dartscript.focusTomAI` | DS: Focus Tom AI Panel | `tomAi.focusChatPanel` | @T: Focus @CHAT Panel |
-| 54 | `dartscript.combined.showSideNotes` | DS: Show Side Notes | `tomAi.showSidebarNotes` | @T: Show Sidebar Notes |
+| 47 | `tomAi.combined.maximizeExplorer` | DS: Maximize Explorer | `tomAi.layout.maximizeExplorer` | @T: Maximize Explorer |
+| 48 | `tomAi.combined.maximizeEditor` | DS: Maximize Editor | `tomAi.layout.maximizeEditor` | @T: Maximize Editor |
+| 49 | `tomAi.combined.maximizeChat` | DS: Maximize Chat | `tomAi.layout.maximizeChat` | @T: Maximize @CHAT |
+| 50 | `tomAi.combined.maximizeToggle` | DS: Maximize Toggle | `tomAi.layout.maximizeToggle` | @T: Maximize Toggle |
+| 51 | `tomAi.stateMachine.vsWindowStateFlow` | DS: Window Panel State Flow | `tomAi.layout.windowStateFlow` | @T: Window Panel State Flow |
+| 52 | `tomAi.resetMultiCommandState` | DS: Reset All State Machine States | `tomAi.layout.resetStateMachines` | @T: Reset All State Machine States |
+| 53 | `tomAi.focusTomAi` | DS: Focus Tom AI Panel | `tomAi.focusChatPanel` | @T: Focus @CHAT Panel |
+| 54 | `tomAi.combined.showSideNotes` | DS: Show Side Notes | `tomAi.showSidebarNotes` | @T: Show Sidebar Notes |
 
 #### Editors & Viewers
 
 | # | Current ID | Current Title | New ID | New Title |
 |---|-----------|---------------|--------|-----------|
-| 55 | `dartscript.openChatVariablesEditor` | DS: Open Chat Variables Editor | `tomAi.editor.chatVariables` | @T: Open Chat Variables Editor |
-| 56 | `dartscript.openQueueEditor` | DS: Open Prompt Queue Editor | `tomAi.editor.promptQueue` | @T: Open Prompt Queue Editor |
-| 57 | `dartscript.openTimedRequestsEditor` | DS: Open Timed Requests Editor | `tomAi.editor.timedRequests` | @T: Open Timed Requests Editor |
-| 58 | `dartscript.openContextSettingsEditor` | DS: Open Context & Settings Editor | `tomAi.editor.contextSettings` | @T: Open Context & Settings Editor |
-| 59 | `dartscript.openGlobalTemplateEditor` | DS: Open Prompt Template Editor | `tomAi.editor.promptTemplates` | @T: Open Prompt Template Editor |
-| 60 | `dartscript.openReusablePromptEditor` | DS: Open Reusable Prompt Editor | `tomAi.editor.reusablePrompts` | @T: Open Reusable Prompt Editor |
-| 61 | `dartscript.openTrailViewer` | DS: Open Prompt Trail Viewer | `tomAi.editor.rawTrailViewer` | @T: Open Raw Trail Viewer |
-| 62 | `dartscript.openTrailViewerFolder` | DS: Open Trail Viewer (Select Folder) | `tomAi.editor.summaryTrailViewer` | @T: Open Summary Trail Viewer |
+| 55 | `tomAi.editor.chatVariables` | DS: Open Chat Variables Editor | `tomAi.editor.chatVariables` | @T: Open Chat Variables Editor |
+| 56 | `tomAi.editor.promptQueue` | DS: Open Prompt Queue Editor | `tomAi.editor.promptQueue` | @T: Open Prompt Queue Editor |
+| 57 | `tomAi.editor.timedRequests` | DS: Open Timed Requests Editor | `tomAi.editor.timedRequests` | @T: Open Timed Requests Editor |
+| 58 | `tomAi.editor.contextSettings` | DS: Open Context & Settings Editor | `tomAi.editor.contextSettings` | @T: Open Context & Settings Editor |
+| 59 | `tomAi.editor.promptTemplates` | DS: Open Prompt Template Editor | `tomAi.editor.promptTemplates` | @T: Open Prompt Template Editor |
+| 60 | `tomAi.editor.reusablePrompts` | DS: Open Reusable Prompt Editor | `tomAi.editor.reusablePrompts` | @T: Open Reusable Prompt Editor |
+| 61 | `tomAi.editor.rawTrailViewer` | DS: Open Prompt Trail Viewer | `tomAi.editor.rawTrailViewer` | @T: Open Raw Trail Viewer |
+| 62 | `tomAi.editor.summaryTrailViewer` | DS: Open Trail Viewer (Select Folder) | `tomAi.editor.summaryTrailViewer` | @T: Open Summary Trail Viewer |
 
 #### Misc Commands
 
 | # | Current ID | Current Title | New ID | New Title |
 |---|-----------|---------------|--------|-----------|
-| 63 | `dartscript.printConfiguration` | DartScript: Print Configuration | `tomAi.printConfiguration` | @T: Print Configuration |
-| 64 | `dartscript.showApiInfo` | DartScript: Show VS Code API Info | `tomAi.showApiInfo` | @T: Show VS Code API Info |
-| 65 | `dartscript.showHelp` | DS: Show Extension Help | `tomAi.showHelp` | @T: Show Extension Help |
-| 66 | `dartscript.showQuickReference` | DS: Show Quick Reference | `tomAi.showQuickReference` | @T: Show Quick Reference |
-| 67 | `dartscript.openConfig` | DS: Open Config File | `tomAi.openConfig` | @T: Open Config File |
-| 68 | `dartscript.showStatusPage` | DS: Extension Status Page | `tomAi.statusPage` | @T: Extension Status Page |
-| 69 | `dartscript.openExtensionSettings` | DS: Open Extension Settings | `tomAi.openSettings` | @T: Open Extension Settings |
-| 70 | `dartscript.toggleTrail` | DS: Toggle AI Trail Logging | `tomAi.trail.toggle` | @T: Toggle Trail Logging |
+| 63 | `tomAi.printConfiguration` | @T: Print Configuration | `tomAi.printConfiguration` | @T: Print Configuration |
+| 64 | `tomAi.showApiInfo` | @T: Show VS Code API Info | `tomAi.showApiInfo` | @T: Show VS Code API Info |
+| 65 | `tomAi.showHelp` | DS: Show Extension Help | `tomAi.showHelp` | @T: Show Extension Help |
+| 66 | `tomAi.showQuickReference` | DS: Show Quick Reference | `tomAi.showQuickReference` | @T: Show Quick Reference |
+| 67 | `tomAi.openConfig` | DS: Open Config File | `tomAi.openConfig` | @T: Open Config File |
+| 68 | `tomAi.statusPage` | DS: Extension Status Page | `tomAi.statusPage` | @T: Extension Status Page |
+| 69 | `tomAi.openSettings` | DS: Open Extension Settings | `tomAi.openSettings` | @T: Open Extension Settings |
+| 70 | `tomAi.trail.toggle` | DS: Toggle AI Trail Logging | `tomAi.trail.toggle` | @T: Toggle Trail Logging |
 
 #### Commandline Commands
 
 | # | Current ID | Current Title | New ID | New Title |
 |---|-----------|---------------|--------|-----------|
-| 71 | `dartscript.defineCommandline` | DS: Add Commandline | `tomAi.commandline.add` | @T: Add Commandline |
-| 72 | `dartscript.deleteCommandline` | DS: Delete Commandline | `tomAi.commandline.delete` | @T: Delete Commandline |
-| 73 | `dartscript.executeCommandline` | DS: Execute Commandline | `tomAi.commandline.execute` | @T: Execute Commandline |
+| 71 | `tomAi.commandline.add` | DS: Add Commandline | `tomAi.commandline.add` | @T: Add Commandline |
+| 72 | `tomAi.commandline.delete` | DS: Delete Commandline | `tomAi.commandline.delete` | @T: Delete Commandline |
+| 73 | `tomAi.commandline.execute` | DS: Execute Commandline | `tomAi.commandline.execute` | @T: Execute Commandline |
 
 #### Telegram Commands
 
 | # | Current ID | Current Title | New ID | New Title |
 |---|-----------|---------------|--------|-----------|
-| 74 | `dartscript.telegramTest` | DS: Telegram Test Connection | `tomAi.telegram.testConnection` | @T: Telegram Test Connection |
-| 75 | `dartscript.telegramToggle` | DS: Telegram Start/Stop Polling | `tomAi.telegram.toggle` | @T: Telegram Toggle Polling |
-| 76 | `dartscript.telegramConfigure` | DS: Configure Telegram... | `tomAi.telegram.configure` | @T: Configure Telegram... |
+| 74 | `tomAi.telegram.testConnection` | DS: Telegram Test Connection | `tomAi.telegram.testConnection` | @T: Telegram Test Connection |
+| 75 | `tomAi.telegram.toggle` | DS: Telegram Start/Stop Polling | `tomAi.telegram.toggle` | @T: Telegram Toggle Polling |
+| 76 | `tomAi.telegram.configure` | DS: Configure Telegram... | `tomAi.telegram.configure` | @T: Configure Telegram... |
 
 #### External App Commands
 
 | # | Current ID | Current Title | New ID | New Title |
 |---|-----------|---------------|--------|-----------|
-| 77 | `dartscript.openInMdViewer` | DS: Open in MD Viewer | `tomAi.openInMdViewer` | @T: Open in MD Viewer |
+| 77 | `tomAi.openInMdViewer` | DS: Open in MD Viewer | `tomAi.openInMdViewer` | @T: Open in MD Viewer |
 
 ### 2.2 Submenu Renaming
 
 | Current ID | Current Label | New ID | New Label |
 |-----------|---------------|--------|-----------|
-| `dartscript.sendToChatSubmenu` | DartScript: Send to Chat... | `tomAi.sendToCopilotSubmenu` | Send to Copilot... |
-| `dartscript.sendToLocalLlmSubmenu` | DartScript: Send to local LLM... | `tomAi.sendToLocalLlmSubmenu` | Send to Local LLM... |
+| `tomAi.sendToCopilotSubmenu` | @T: Send to Chat... | `tomAi.sendToCopilotSubmenu` | Send to Copilot... |
+| `tomAi.sendToLocalLlmSubmenu` | @T: Send to local LLM... | `tomAi.sendToLocalLlmSubmenu` | Send to Local LLM... |
 
 ---
 
@@ -296,22 +296,22 @@ These canonical names will be used consistently across config keys, file names, 
 
 | Current ID | Current Title | New ID | New Title |
 |-----------|---------------|--------|-----------|
-| `dartscript-t2-panel` | @CHAT | `tomAi-chat-panel` | @CHAT |
-| `dartscript-t3-panel` | @WS | `tomAi-ws-panel` | @WS |
+| `tomAi-chat-panel` | @CHAT | `tomAi-chat-panel` | @CHAT |
+| `tomAi-ws-panel` | @WS | `tomAi-ws-panel` | @WS |
 
 ### 3.2 Views
 
 | Current View ID | Current Name | New View ID | New Name | Notes |
 |----------------|-------------|-------------|----------|-------|
-| `dartscript.chatPanel` | @CHAT | `tomAi.chatPanel` | @CHAT | Main bottom panel |
-| `dartscript.wsPanel` | @WS | `tomAi.wsPanel` | @WS | Workspace panel |
-| `dartscript.tomNotepad` | VS CODE NOTES | `tomAi.vscodeNotes` | VS CODE NOTES | Sidebar explorer |
-| `dartscript.questNotesView` | QUEST NOTES | `tomAi.questNotes` | QUEST NOTES | Sidebar explorer |
-| `dartscript.questTodosView` | QUEST TODOS | `tomAi.questTodos` | QUEST TODOS | Sidebar explorer |
-| `dartscript.sessionTodosView` | SESSION TODOS | `tomAi.sessionTodos` | SESSION TODOS | Sidebar explorer |
-| `dartscript.todoLogView` | TODO LOG | `tomAi.todoLog` | TODO LOG | Sidebar explorer |
-| `dartscript.workspaceNotepad` | WORKSPACE NOTES | `tomAi.workspaceNotes` | WORKSPACE NOTES | Sidebar explorer |
-| `dartscript.workspaceTodosView` | WORKSPACE TODOS | `tomAi.workspaceTodos` | WORKSPACE TODOS | Sidebar explorer |
+| `tomAi.chatPanel` | @CHAT | `tomAi.chatPanel` | @CHAT | Main bottom panel |
+| `tomAi.wsPanel` | @WS | `tomAi.wsPanel` | @WS | Workspace panel |
+| `tomAi.tomNotepad` | VS CODE NOTES | `tomAi.vscodeNotes` | VS CODE NOTES | Sidebar explorer |
+| `tomAi.questNotesView` | QUEST NOTES | `tomAi.questNotes` | QUEST NOTES | Sidebar explorer |
+| `tomAi.questTodosView` | QUEST TODOS | `tomAi.questTodos` | QUEST TODOS | Sidebar explorer |
+| `tomAi.sessionTodosView` | SESSION TODOS | `tomAi.sessionTodos` | SESSION TODOS | Sidebar explorer |
+| `tomAi.todoLogView` | TODO LOG | `tomAi.todoLog` | TODO LOG | Sidebar explorer |
+| `tomAi.workspaceNotepad` | WORKSPACE NOTES | `tomAi.workspaceNotes` | WORKSPACE NOTES | Sidebar explorer |
+| `tomAi.workspaceTodosView` | WORKSPACE TODOS | `tomAi.workspaceTodos` | WORKSPACE TODOS | Sidebar explorer |
 
 ### 3.3 Custom Editors
 
@@ -398,19 +398,19 @@ All LM tools will use the `tomAi_` prefix.
 | 13 | `tom_readLocalGuideline` | `tomAi_readLocalGuideline` | Read Local Guideline |
 | 14 | `tom_webSearch` | `tomAi_webSearch` | Web Search |
 | 15 | `tom_manageTodo` | `tomAi_manageTodo` | Manage Todo List |
-| 16 | `dartscript_notifyUser` | `tomAi_notifyUser` | Notify User |
-| 17 | `dartscript_getWorkspaceInfo` | `tomAi_getWorkspaceInfo` | Get Workspace Info |
-| 18 | `dartscript_listTodos` | `tomAi_listQuestTodos` | List All Quest Todos |
-| 19 | `dartscript_getAllTodos` | `tomAi_getAllQuestAndSessionTodos` | List All Quest + Session Todos |
-| 20 | `dartscript_getTodo` | `tomAi_getQuestTodo` | Get Quest Todo |
-| 21 | `dartscript_createTodo` | `tomAi_createQuestTodo` | Create Quest Todo |
-| 22 | `dartscript_updateTodo` | `tomAi_updateQuestTodo` | Update Quest Todo |
-| 23 | `dartscript_moveTodo` | `tomAi_moveQuestTodo` | Move Quest Todo |
-| 24 | `dartscript_windowTodo_add` | `tomAi_sessionTodo_add` | Add Session Todo |
-| 25 | `dartscript_windowTodo_list` | `tomAi_sessionTodo_list` | List Session Todos |
-| 26 | `dartscript_windowTodo_getAll` | `tomAi_sessionTodo_getAll` | Get All Session Todos |
-| 27 | `dartscript_windowTodo_update` | `tomAi_sessionTodo_update` | Update Session Todo |
-| 28 | `dartscript_windowTodo_delete` | `tomAi_sessionTodo_delete` | Delete Session Todo |
+| 16 | `tomAi_notifyUser` | `tomAi_notifyUser` | Notify User |
+| 17 | `tomAi_getWorkspaceInfo` | `tomAi_getWorkspaceInfo` | Get Workspace Info |
+| 18 | `tomAi_listTodos` | `tomAi_listQuestTodos` | List All Quest Todos |
+| 19 | `tomAi_getAllTodos` | `tomAi_getAllQuestAndSessionTodos` | List All Quest + Session Todos |
+| 20 | `tomAi_getTodo` | `tomAi_getQuestTodo` | Get Quest Todo |
+| 21 | `tomAi_createTodo` | `tomAi_createQuestTodo` | Create Quest Todo |
+| 22 | `tomAi_updateTodo` | `tomAi_updateQuestTodo` | Update Quest Todo |
+| 23 | `tomAi_moveTodo` | `tomAi_moveQuestTodo` | Move Quest Todo |
+| 24 | `tomAi_windowTodo_add` | `tomAi_sessionTodo_add` | Add Session Todo |
+| 25 | `tomAi_windowTodo_list` | `tomAi_sessionTodo_list` | List Session Todos |
+| 26 | `tomAi_windowTodo_getAll` | `tomAi_sessionTodo_getAll` | Get All Session Todos |
+| 27 | `tomAi_windowTodo_update` | `tomAi_sessionTodo_update` | Update Session Todo |
+| 28 | `tomAi_windowTodo_delete` | `tomAi_sessionTodo_delete` | Delete Session Todo |
 | 29 | `addToPromptQueue` | `tomAi_queue_add` | Add to Prompt Queue |
 | 30 | `addFollowUpPrompt` | `tomAi_queue_addFollowUp` | Add Follow-Up Prompt |
 | 31 | `sendQueuedPrompt` | `tomAi_queue_sendNow` | Send Queued Prompt |
@@ -450,26 +450,26 @@ After dedup: **43 tools** (from 47).
 
 | # | Current Setting | New Setting | Type | Default | Description |
 |---|----------------|-------------|------|---------|-------------|
-| 1 | `dartscript.contextApproach` | `tomAi.contextApproach` | string | `"accumulation"` | Context persistence approach |
-| 2 | `dartscript.maxContextSize` | `tomAi.maxContextSize` | number | `50000` | Maximum context size in tokens |
-| 3 | `dartscript.autoRunOnSave` | `tomAi.autoRunOnSave` | boolean | `false` | Auto-run scripts on save |
-| 4 | `dartscript.copilotModel` | `tomAi.copilot.model` | string | (no default — error if unset) | Copilot model ID |
-| 5 | `dartscript.configPath` | `tomAi.configPath` | string | `"~/.tom/vscode/tom_vscode_extension.json"` | Config file path |
-| 6 | `dartscript.sendToChat.showNotifications` | `tomAi.copilot.showNotifications` | boolean | `true` | Show send notifications |
-| 7 | `dartscript.sendToChat.chatAnswerFolder` | `tomAi.copilot.answerFolder` | string | `"${ai}/chat_replies"` | Chat answer files folder |
-| 8 | `dartscript.tomAiChat.modelId` | `tomAi.tomAiChat.modelId` | string | (no default — error if unset) | Tom AI Chat model |
-| 9 | `dartscript.tomAiChat.tokenModelId` | `tomAi.tomAiChat.tokenModelId` | string | (no default — error if unset) | Token count model |
-| 10 | `dartscript.tomAiChat.responsesTokenLimit` | `tomAi.tomAiChat.responsesTokenLimit` | number | `50000` | Responses token limit |
-| 11 | `dartscript.tomAiChat.responseSummaryTokenLimit` | `tomAi.tomAiChat.responseSummaryTokenLimit` | number | `8000` | Summary token limit |
-| 12 | `dartscript.tomAiChat.preProcessingModelId` | `tomAi.tomAiChat.preProcessingModelId` | string | (no default — error if unset) | Pre-processing model |
-| 13 | `dartscript.tomAiChat.enablePromptOptimization` | `tomAi.tomAiChat.enablePromptOptimization` | boolean | `false` | Enable pre-processing |
-| 14 | `dartscript.ollama.url` | `tomAi.localLlm.ollamaUrl` | string | `"http://localhost:11434"` | Ollama server URL |
-| 15 | `dartscript.ollama.model` | `tomAi.localLlm.ollamaModel` | string | (no default — error if unset) | Ollama model name |
-| 16 | `dartscript.notes.workspaceTodoFile` | `tomAi.todo.workspaceTodoFile` | string | `"workspace.todo.yaml"` | Workspace todo path |
-| 17 | `dartscript.notes.questNotesFilePattern` | `tomAi.notes.questNotesPattern` | string | `"${ai}/quests/${quest}/quest-notes.${quest}.md"` | Quest notes pattern |
-| 18 | `dartscript.notes.questTodoFilePattern` | `tomAi.todo.questTodoPattern` | string | `"todos.${quest}.todo.yaml"` | Quest todo pattern |
-| 19 | `dartscript.guidelines.projectExcludeGlobs` | `tomAi.guidelines.excludeGlobs` | array | `["tom/zom_*/**"]` | Guidelines exclude globs |
-| 20 | `dartscript.projectDetection.excludeGlobs` | `tomAi.projectDetection.excludeGlobs` | array | `["tom/zom_*/**"]` | Project detection exclude |
+| 1 | `tomAi.contextApproach` | `tomAi.contextApproach` | string | `"accumulation"` | Context persistence approach |
+| 2 | `tomAi.maxContextSize` | `tomAi.maxContextSize` | number | `50000` | Maximum context size in tokens |
+| 3 | `tomAi.autoRunOnSave` | `tomAi.autoRunOnSave` | boolean | `false` | Auto-run scripts on save |
+| 4 | `tomAi.copilotModel` | `tomAi.copilot.model` | string | (no default — error if unset) | Copilot model ID |
+| 5 | `tomAi.configPath` | `tomAi.configPath` | string | `"~/.tom/vscode/tom_vscode_extension.json"` | Config file path |
+| 6 | `tomAi.sendToCopilot.showNotifications` | `tomAi.copilot.showNotifications` | boolean | `true` | Show send notifications |
+| 7 | `tomAi.sendToCopilot.chatAnswerFolder` | `tomAi.copilot.answerFolder` | string | `"${ai}/chat_replies"` | Chat answer files folder |
+| 8 | `tomAi.tomAiChat.modelId` | `tomAi.tomAiChat.modelId` | string | (no default — error if unset) | Tom AI Chat model |
+| 9 | `tomAi.tomAiChat.tokenModelId` | `tomAi.tomAiChat.tokenModelId` | string | (no default — error if unset) | Token count model |
+| 10 | `tomAi.tomAiChat.responsesTokenLimit` | `tomAi.tomAiChat.responsesTokenLimit` | number | `50000` | Responses token limit |
+| 11 | `tomAi.tomAiChat.responseSummaryTokenLimit` | `tomAi.tomAiChat.responseSummaryTokenLimit` | number | `8000` | Summary token limit |
+| 12 | `tomAi.tomAiChat.preProcessingModelId` | `tomAi.tomAiChat.preProcessingModelId` | string | (no default — error if unset) | Pre-processing model |
+| 13 | `tomAi.tomAiChat.enablePromptOptimization` | `tomAi.tomAiChat.enablePromptOptimization` | boolean | `false` | Enable pre-processing |
+| 14 | `tomAi.ollama.url` | `tomAi.localLlm.ollamaUrl` | string | `"http://localhost:11434"` | Ollama server URL |
+| 15 | `tomAi.ollama.model` | `tomAi.localLlm.ollamaModel` | string | (no default — error if unset) | Ollama model name |
+| 16 | `tomAi.notes.workspaceTodoFile` | `tomAi.todo.workspaceTodoFile` | string | `"workspace.todo.yaml"` | Workspace todo path |
+| 17 | `tomAi.notes.questNotesFilePattern` | `tomAi.notes.questNotesPattern` | string | `"${ai}/quests/${quest}/quest-notes.${quest}.md"` | Quest notes pattern |
+| 18 | `tomAi.notes.questTodoFilePattern` | `tomAi.todo.questTodoPattern` | string | `"todos.${quest}.todo.yaml"` | Quest todo pattern |
+| 19 | `tomAi.guidelines.projectExcludeGlobs` | `tomAi.guidelines.excludeGlobs` | array | `["tom/zom_*/**"]` | Guidelines exclude globs |
+| 20 | `tomAi.projectDetection.excludeGlobs` | `tomAi.projectDetection.excludeGlobs` | array | `["tom/zom_*/**"]` | Project detection exclude |
 
 ### 6.1 New Settings to Add
 
@@ -524,7 +524,7 @@ The JSON config file (`tom_vscode_extension.json`) top-level keys are reorganize
 | 21 | `trailCleanupDays` | `trail.cleanupDays` | Move under trail |
 | 22 | `trailMaxEntries` | `trail.maxEntries` | Move under trail |
 | 23 | `localLlmTools` | `localLlm.tools` | Move under subsystem |
-| 24 | `dartscriptBridge` | `bridge` | Rename |
+| 24 | `tomAiBridge` | `bridge` | Rename |
 | 25 | `cliServerAutostart` | `bridge.cliServerAutostart` | Move under bridge |
 | 26 | `binaryPath` | `bridge.binaryPath` | Move under bridge |
 | 27 | `executables` | `bridge.executables` | Move under bridge |
@@ -1142,12 +1142,12 @@ All workspace state keys will use the `tomAi.` prefix consistently:
 | `trailEditor.pendingFocus` | `tomAi.trailEditor.pendingFocus` |
 | `copilotAutoHideDelay` | `tomAi.copilot.autoHideDelay` |
 | `WorkspaceNotepadProvider.STORAGE_KEY` | `tomAi.notes.workspaceNoteFile` |
-| `dartscript.dsNotes.localLlmDraft` | `tomAi.chatPanel.localLlm.draft` |
-| `dartscript.dsNotes.conversationDraft` | `tomAi.chatPanel.aiConversation.draft` |
-| `dartscript.dsNotes.copilotDraft` | `tomAi.chatPanel.copilot.draft` |
-| `dartscript.dsNotes.tomAiChatDraft` | `tomAi.chatPanel.tomAiChat.draft` |
-| `dartscript.dsNotes.conversationLlmProfileA` | **Remove** (unused) |
-| `dartscript.dsNotes.conversationLlmProfileB` | **Remove** (unused) |
+| `tomAi.dsNotes.localLlmDraft` | `tomAi.chatPanel.localLlm.draft` |
+| `tomAi.dsNotes.conversationDraft` | `tomAi.chatPanel.aiConversation.draft` |
+| `tomAi.dsNotes.copilotDraft` | `tomAi.chatPanel.copilot.draft` |
+| `tomAi.dsNotes.tomAiChatDraft` | `tomAi.chatPanel.tomAiChat.draft` |
+| `tomAi.dsNotes.conversationLlmProfileA` | **Remove** (unused) |
+| `tomAi.dsNotes.conversationLlmProfileB` | **Remove** (unused) |
 
 ---
 
@@ -1243,8 +1243,8 @@ There is no need to sync state between sidebar notes and @CHAT panels. They are 
 
 | Key | Declared In |
 |-----|------------|
-| `dartscript.dsNotes.conversationLlmProfileA` | `dsNotes-handler.ts` |
-| `dartscript.dsNotes.conversationLlmProfileB` | `dsNotes-handler.ts` |
+| `tomAi.dsNotes.conversationLlmProfileA` | `dsNotes-handler.ts` |
+| `tomAi.dsNotes.conversationLlmProfileB` | `dsNotes-handler.ts` |
 
 ### 15.2 Remove Obsolete Trail System
 
@@ -1402,8 +1402,8 @@ Old tools (replaced by `tomAi_queue_*` / `tomAi_timed_*`):
 
 | Metric | Before | After |
 |--------|--------|-------|
-| Command prefix variants | 4 (`DS:`, `DartScript:`, `Tom AI:`, none) | 2 (`@T:`, none for context menus) |
-| Extension ID | `dartscript-vscode` | `tom-ai-extension` |
+| Command prefix variants | 4 (`@T:`, `@T:`, `Tom AI:`, none) | 2 (`@T:`, none for context menus) |
+| Extension ID | `tom-ai-extension` | `tom-ai-extension` |
 | Config systems | 4 (workspaceState, YAML, JSON config, direct JSON) | 2 (workspaceState for UI state, YAML for everything else) |
 | Trail systems | 3 independent | 1 (`TrailService`) |
 | Trail types | Mixed | 2 (Raw, Summary) |
@@ -1411,7 +1411,7 @@ Old tools (replaced by `tomAi_queue_*` / `tomAi_timed_*`):
 | Inline ensureDir patterns | 54 | 0 |
 | Inline config reads | 15 | 0 |
 | Hardcoded Ollama URLs | 9 | 0 |
-| LM tool prefix variants | 3 (`tom_`, `dartscript_`, camelCase) | 1 (`tomAi_`) |
+| LM tool prefix variants | 3 (`tom_`, `tomAi_`, camelCase) | 1 (`tomAi_`) |
 | Magic numbers | 30+ | 0 (centralized in constants + optionally configurable) |
 
 ---

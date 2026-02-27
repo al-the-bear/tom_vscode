@@ -6,7 +6,7 @@ This is the canonical high-level overview of the current `tom_vscode_extension` 
 
 The extension is activated on startup and registers:
 
-- command suite (`tomAi.*`, with `dartscript.*` compatibility aliases),
+- command suite (`tomAi.*`, with `tomAi.*` compatibility aliases),
 - webview panels (`@CHAT`, `@WS`),
 - explorer note/todo views,
 - YAML graph custom editor,

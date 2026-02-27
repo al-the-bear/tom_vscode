@@ -85,7 +85,7 @@ The extension includes a built-in test runner (in `tests.ts`):
 
 ### Run Bridge Tests
 
-**Command**: `DartScript: Run Test Script on Bridge`
+**Command**: `@T: Run Test Script on Bridge`
 
 Runs all D4rt test scripts from `tom_vscode_bridge/test/` directory:
 
@@ -101,13 +101,13 @@ Runs all D4rt test scripts from `tom_vscode_bridge/test/` directory:
 ### From Command Palette
 
 1. Open Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`)
-2. Run `DartScript: Run Test Script on Bridge`
+2. Run `@T: Run Test Script on Bridge`
 3. View results in output channel and test_results/ folder
 
 ### From Context Menu
 
 1. Right-click on a `.dart` file in Explorer
-2. Select **Execute in DartScript** or **Execute as Script**
+2. Select **Execute in D4rt** or **Execute as Script**
 
 ### From TypeScript Code
 

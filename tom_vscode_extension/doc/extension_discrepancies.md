@@ -1,8 +1,8 @@
 # @Tom VS Code Extension — Discrepancies & Improvement Opportunities
 
-> **Note:** This document is a pre-migration snapshot. Command and setting IDs referenced here use the legacy `dartscript.*` namespace. See `refactoring_plan.md` for the canonical `tomAi.*` mappings.
+> **Note:** This document is a pre-migration snapshot. Command and setting IDs referenced here use the legacy `tomAi.*` namespace. See `refactoring_plan.md` for the canonical `tomAi.*` mappings.
 
-**Extension:** `tom-ai-extension` (formerly `dartscript-vscode`) v0.1.0  
+**Extension:** `tom-ai-extension` (formerly `tom-ai-extension`) v0.1.0  
 **Companion doc:** `extension_analysis.md`  
 **Date:** 26 Feb 2026
 
@@ -29,14 +29,14 @@ Four different prefixes appear across 74 commands:
 
 | Prefix | Count | Examples |
 |--------|-------|----------|
-| `DS:` | 57 | `DS: Execute File`, `DS: Restart Bridge` |
-| `DartScript:` | 2 | `DartScript: Print Configuration`, `DartScript: Show VS Code API Info` |
+| `@T:` | 57 | `DS: Execute File`, `DS: Restart Bridge` |
+| `@T:` | 2 | `@T: Print Configuration`, `@T: Show VS Code API Info` |
 | `Tom AI:` | 3 | `Tom AI: Start Chat`, `Tom AI: Send Chat Prompt`, `Tom AI: Interrupt Chat` |
 | *(none)* | 12 | `Send with Trail Reminder`, `TODO Execution`, `Code Review`, `Expand Prompt`, `Rewrite` |
 
-**Issue:** No single brand identity. "DS:", "DartScript:", and "Tom AI:" fragment the command palette. The 12 prefix-less commands appear generic and are hard to distinguish from other extensions.
+**Issue:** No single brand identity. "DS:", "@T:", and "Tom AI:" fragment the command palette. The 12 prefix-less commands appear generic and are hard to distinguish from other extensions.
 
-**Recommendation:** Adopt a single prefix (e.g., `Tom:` or `DS:`) for all commands.
+**Recommendation:** Adopt a single prefix (e.g., `Tom:` or `@T:`) for all commands.
 
 ### 1.2 Extension Identity Crisis
 
@@ -44,18 +44,18 @@ The extension uses multiple brand names interchangeably:
 
 | Context | Name Used |
 |---------|-----------|
-| Extension ID | `dartscript-vscode` |
-| Display name | `DartScript` (package.json) |
-| Command prefix (majority) | `DS:` |
-| Command prefix (2 commands) | `DartScript:` |
+| Extension ID | `tom-ai-extension` |
+| Display name | `@Tom` (package.json) |
+| Command prefix (majority) | `@T:` |
+| Command prefix (2 commands) | `@T:` |
 | Command prefix (3 commands) | `Tom AI:` |
-| View container label | `DartScript` |
-| Config namespace | `dartscript.*` |
-| Chat participant | `@dartscript` |
+| View container label | `@Tom` |
+| Config namespace | `tomAi.*` |
+| Chat participant | `@tom` |
 | Subsystem panels | `@CHAT`, `@WS` |
 | Tool name prefix (17 tools) | `tom_*` |
-| Tool name prefix (14 tools) | `dartscript_*` |
-| Chat variable prefix | `dartscript.*` |
+| Tool name prefix (14 tools) | `tomAi_*` |
+| Chat variable prefix | `tomAi.*` |
 | Status bar | `DS` |
 
 ### 1.3 Persistence Mechanism Inconsistency
@@ -76,23 +76,23 @@ Seven managers use four different persistence mechanisms:
 
 ### 1.4 WorkspaceState Key Naming Inconsistency
 
-Most keys use the `dartscript.dsNotes.*` prefix, but some don't:
+Most keys use the `tomAi.dsNotes.*` prefix, but some don't:
 
 | Key | Expected Pattern | Issue |
 |-----|-----------------|-------|
-| `llmSelectedConfig` | `dartscript.dsNotes.localLlmConfig` | Missing prefix entirely |
-| `conversationAiSetup` | `dartscript.dsNotes.conversationAiSetup` | Missing prefix entirely |
-| `qt.panelState` | `dartscript.questTodo.panelState` | Wrong/short prefix |
-| `qt.pendingSelect` | `dartscript.questTodo.pendingSelect` | Wrong/short prefix |
-| `trailEditor.pendingFocus` | `dartscript.trailEditor.pendingFocus` | Missing namespace |
-| `copilotAutoHideDelay` | `dartscript.copilot.autoHideDelay` | Missing prefix entirely |
-| `WorkspaceNotepadProvider.STORAGE_KEY` | `dartscript.dsNotes.workspaceNotepadFile` | Class name as key |
+| `llmSelectedConfig` | `tomAi.dsNotes.localLlmConfig` | Missing prefix entirely |
+| `conversationAiSetup` | `tomAi.dsNotes.conversationAiSetup` | Missing prefix entirely |
+| `qt.panelState` | `tomAi.questTodo.panelState` | Wrong/short prefix |
+| `qt.pendingSelect` | `tomAi.questTodo.pendingSelect` | Wrong/short prefix |
+| `trailEditor.pendingFocus` | `tomAi.trailEditor.pendingFocus` | Missing namespace |
+| `copilotAutoHideDelay` | `tomAi.copilot.autoHideDelay` | Missing prefix entirely |
+| `WorkspaceNotepadProvider.STORAGE_KEY` | `tomAi.dsNotes.workspaceNotepadFile` | Class name as key |
 
 In contrast, these follow the convention correctly:
-- `dartscript.dsNotes.localLlmDraft`
-- `dartscript.dsNotes.conversationDraft`
-- `dartscript.dsNotes.copilotDraft`
-- `dartscript.dsNotes.tomAiChatDraft`
+- `tomAi.dsNotes.localLlmDraft`
+- `tomAi.dsNotes.conversationDraft`
+- `tomAi.dsNotes.copilotDraft`
+- `tomAi.dsNotes.tomAiChatDraft`
 
 ### 1.5 Unused Storage Keys
 
@@ -100,8 +100,8 @@ Declared in `STORAGE_KEYS` but never actually read or written:
 
 | Key | Declared In |
 |-----|------------|
-| `dartscript.dsNotes.conversationLlmProfileA` | `dsNotes-handler.ts` |
-| `dartscript.dsNotes.conversationLlmProfileB` | `dsNotes-handler.ts` |
+| `tomAi.dsNotes.conversationLlmProfileA` | `dsNotes-handler.ts` |
+| `tomAi.dsNotes.conversationLlmProfileB` | `dsNotes-handler.ts` |
 
 ### 1.6 Trail Logging — Three Separate Systems
 
@@ -281,7 +281,7 @@ Every webview panel registers its own `onDidReceiveMessage` handler with custom 
 | `expandPrompt-handler.ts` | 2 | API calls |
 | `dsNotes-handler.ts` | 1 | Status check |
 
-The VS Code setting `dartscript.ollama.url` exists but these inline references don't all use it.
+The VS Code setting `tomAi.ollama.url` exists but these inline references don't all use it.
 
 ### 3.2 Model Name Defaults — Scattered
 
@@ -312,7 +312,7 @@ Some paths appear in both `WsPaths` and inline in handler code:
 | Location | Setting | Default |
 |----------|---------|---------|
 | JSON config | `copilotChatAnswerFolder` | (varies) |
-| VS Code setting | `dartscript.sendToChat.chatAnswerFolder` | `_ai/chat_replies` |
+| VS Code setting | `tomAi.sendToCopilot.chatAnswerFolder` | `_ai/chat_replies` |
 
 Both are checked, with the JSON config taking precedence. This creates confusion about which one is the "real" setting.
 
@@ -366,9 +366,9 @@ Used inline in code but not registered in the central path registry:
 
 | Value | File | Purpose | Should Be |
 |-------|------|---------|-----------|
-| `30000` ms | `vscode-bridge.ts` | Bridge request timeout | Config: `dartscriptBridge.requestTimeout` |
-| `5000` ms | `vscode-bridge.ts` | Bridge restart delay | Config: `dartscriptBridge.restartDelay` |
-| `10` | `vscode-bridge.ts` | Max restart attempts | Config: `dartscriptBridge.maxRestarts` |
+| `30000` ms | `vscode-bridge.ts` | Bridge request timeout | Config: `tomAiBridge.requestTimeout` |
+| `5000` ms | `vscode-bridge.ts` | Bridge restart delay | Config: `tomAiBridge.restartDelay` |
+| `10` | `vscode-bridge.ts` | Max restart attempts | Config: `tomAiBridge.maxRestarts` |
 | `30000` ms | `timerEngine.ts` | Timer tick interval | Config: `timedRequests.tickInterval` |
 | `30000` ms | `reminderSystem.ts` | Reminder check interval | Config: `reminderConfig.checkInterval` |
 | `600000` ms | `reminderSystem.ts` | Default reminder timeout | Config: `reminderConfig.defaultTimeout` |
@@ -376,7 +376,7 @@ Used inline in code but not registered in the central path registry:
 | `86400000` ms | `trailLogger-handler.ts` | Trail cleanup cutoff (1 day) | Config: `trail.cleanupIntervalMs` |
 | `50` | `trailLogger-handler.ts` | Max trail files per folder | Config: `trail.maxFilesPerFolder` |
 | `100` | `trailViewer-handler.ts` | Max exchanges to display | Config: `trail.maxViewerExchanges` |
-| `2000` ms | `extension.ts` | Bridge auto-start delay | Config: `dartscriptBridge.autoStartDelay` |
+| `2000` ms | `extension.ts` | Bridge auto-start delay | Config: `tomAiBridge.autoStartDelay` |
 | `1000` ms | `extension.ts` | CLI server auto-start delay | Config: `cliServer.autoStartDelay` |
 | `2000` ms | `extension.ts` | Telegram auto-start delay | Config: `telegram.autoStartDelay` |
 
@@ -401,24 +401,24 @@ These globs are scattered across code and could be centralized:
 
 | Command ID | Current Title | Issue |
 |------------|---------------|-------|
-| `dartscript.sendToChatAddToTodo` | "Add to Todo" | Actually sends a pre-configured prompt to Copilot Chat — doesn't add anything to a todo list |
-| `dartscript.sendToChatFixMarkdown` | "Fix Markdown here" | Sends to Copilot Chat with a template — doesn't fix markdown in-place |
-| `dartscript.sendToChatCodeReview` | "Code Review" | Too generic — actually sends to Copilot Chat with a code review template |
-| `dartscript.sendToChatExplain` | "Explain Code" | Too generic — actually sends to Copilot Chat with an explanation template |
-| `dartscript.sendToChatTodoExecution` | "TODO Execution" | Sends to Copilot Chat — doesn't execute todos |
-| `dartscript.focusTomAI` | "DS: Focus Tom AI Panel" | Actually focuses the @CHAT panel, not specifically "Tom AI" |
-| `dartscript.combined.showSideNotes` | "DS: Show Side Notes" | Unclear what "Side Notes" are — these are the Explorer sidebar note views |
-| `dartscript.expandPrompt` | "DS: Expand Prompt (Ollama)" | "Expand" is misleading for users unfamiliar — this sends the prompt to a local LLM |
+| `tomAi.sendToCopilot.addToTodo` | "Add to Todo" | Actually sends a pre-configured prompt to Copilot Chat — doesn't add anything to a todo list |
+| `tomAi.sendToCopilot.fixMarkdown` | "Fix Markdown here" | Sends to Copilot Chat with a template — doesn't fix markdown in-place |
+| `tomAi.sendToCopilot.codeReview` | "Code Review" | Too generic — actually sends to Copilot Chat with a code review template |
+| `tomAi.sendToCopilot.explain` | "Explain Code" | Too generic — actually sends to Copilot Chat with an explanation template |
+| `tomAi.sendToCopilot.todoExecution` | "TODO Execution" | Sends to Copilot Chat — doesn't execute todos |
+| `tomAi.focusTomAi` | "DS: Focus Tom AI Panel" | Actually focuses the @CHAT panel, not specifically "Tom AI" |
+| `tomAi.combined.showSideNotes` | "DS: Show Side Notes" | Unclear what "Side Notes" are — these are the Explorer sidebar note views |
+| `tomAi.sendToLocalLlm` | "DS: Expand Prompt (Ollama)" | "Expand" is misleading for users unfamiliar — this sends the prompt to a local LLM |
 
 ### 5.2 View Names vs. View IDs
 
 | View ID | Display Name | Mismatch |
 |---------|-------------|----------|
-| `dartscript.tomNotepad` | "VS CODE NOTES" | ID says "tom", display says "VS CODE" |
-| `dartscript.chatPanel` | "@CHAT" | ID says "chatPanel", display says "@CHAT" |
-| `dartscript.wsPanel` | "@WS" | ID says "wsPanel", display says "@WS" |
-| `dartscript.localLlmNotepad` | "Local LLM" | "Notepad" in ID, but not a notepad — it's a chat interface |
-| `dartscript.conversationNotepad` | "AI Conversation" | "Notepad" in ID, but purpose is conversation management |
+| `tomAi.tomNotepad` | "VS CODE NOTES" | ID says "tom", display says "VS CODE" |
+| `tomAi.chatPanel` | "@CHAT" | ID says "chatPanel", display says "@CHAT" |
+| `tomAi.wsPanel` | "@WS" | ID says "wsPanel", display says "@WS" |
+| `tomAi.localLlmNotepad` | "Local LLM" | "Notepad" in ID, but not a notepad — it's a chat interface |
+| `tomAi.conversationNotepad` | "AI Conversation" | "Notepad" in ID, but purpose is conversation management |
 
 ### 5.3 Handler File Names vs. Purpose
 
@@ -449,8 +449,8 @@ These globs are scattered across code and could be centralized:
 
 | Tool A | Tool B | Confusion |
 |--------|--------|-----------|
-| `dartscript_listTodos` | `dartscript_getAllTodos` | "list" vs "getAll" — both return todo lists (difference: `getAllTodos` includes session todos) |
-| `dartscript_windowTodo_list` | `dartscript_windowTodo_getAll` | Same issue within session todos |
+| `tomAi_listTodos` | `tomAi_getAllTodos` | "list" vs "getAll" — both return todo lists (difference: `getAllTodos` includes session todos) |
+| `tomAi_windowTodo_list` | `tomAi_windowTodo_getAll` | Same issue within session todos |
 | `addToPromptQueue` | `tom_queue_update_item` | One uses camelCase, the other uses `tom_` prefix for the same subsystem |
 | `addFollowUpPrompt` | `tom_queue_update_followup` | Same inconsistency |
 | `addTimedRequest` | `tom_timed_update_entry` | Same inconsistency |
@@ -461,7 +461,7 @@ These globs are scattered across code and could be centralized:
 | Prefix | Count | Examples |
 |--------|-------|----------|
 | `tom_` | 17 | `tom_readFile`, `tom_createFile`, `tom_queue_list` |
-| `dartscript_` | 14 | `dartscript_notifyUser`, `dartscript_listTodos` |
+| `tomAi_` | 14 | `tomAi_notifyUser`, `tomAi_listTodos` |
 | *(camelCase, no prefix)* | 4 | `addToPromptQueue`, `addFollowUpPrompt`, `sendQueuedPrompt`, `addTimedRequest` |
 
 The 4 prefix-less tools (`addToPromptQueue`, `addFollowUpPrompt`, `sendQueuedPrompt`, `addTimedRequest`) were apparently the original queue/timed tools, later supplemented with the `tom_queue_*` / `tom_timed_*` family without removing the originals.
@@ -527,10 +527,10 @@ The 4 prefix-less tools (`addToPromptQueue`, `addFollowUpPrompt`, `sendQueuedPro
 
 | Panel | Unified Storage | Sidebar Storage | Synced? |
 |-------|----------------|-----------------|---------|
-| Local LLM | `panelYamlStore('localLlm')` | `workspaceState: dartscript.dsNotes.localLlmDraft` | **No** |
-| AI Conversation | `panelYamlStore('conversation')` | `workspaceState: dartscript.dsNotes.conversationDraft` | **No** |
-| Copilot | `panelYamlStore('copilot')` | `workspaceState: dartscript.dsNotes.copilotDraft` | **No** |
-| Tom AI Chat | `panelYamlStore('tomAiChat')` | `workspaceState: dartscript.dsNotes.tomAiChatDraft` | **No** |
+| Local LLM | `panelYamlStore('localLlm')` | `workspaceState: tomAi.dsNotes.localLlmDraft` | **No** |
+| AI Conversation | `panelYamlStore('conversation')` | `workspaceState: tomAi.dsNotes.conversationDraft` | **No** |
+| Copilot | `panelYamlStore('copilot')` | `workspaceState: tomAi.dsNotes.copilotDraft` | **No** |
+| Tom AI Chat | `panelYamlStore('tomAiChat')` | `workspaceState: tomAi.dsNotes.tomAiChatDraft` | **No** |
 
 Users who type a draft in the sidebar and then switch to the bottom panel (or vice versa) will not see their draft. This is a confusing user experience.
 
@@ -572,7 +572,7 @@ All four subsystems have chord menus, but the naming doesn't align:
 **Extract:** A single `ConfigReader` utility class that:
 - Resolves the config path once (caching the resolution)
 - Provides typed accessor methods: `getSection<T>(key: string): T | undefined`
-- Has a `reload()` method for `dartscript.reloadSendToChatConfig`
+- Has a `reload()` method for `tomAi.reloadConfig`
 - Handles error reporting consistently
 - Replaces both `getConfigPath()` and `getConfigPathSimple()`
 
@@ -712,7 +712,7 @@ export const FILE_EXT_TRAIL_ANSWER = '.answer.json';
         "defaultTemplate": "..."    // Currently: missing
     },
     "trail": {...},
-    "bridge": {...},                // Currently: dartscriptBridge
+    "bridge": {...},                // Currently: tomAiBridge
     // ... rest
 }
 ```
@@ -737,8 +737,8 @@ Since both the sidebar and unified panel exist, their state should be synced:
 | `DS: Send to local LLM` | `Tom: Send to Local LLM` | Consistent prefix |
 | `DS: Expand Prompt (Ollama)` | `Tom: Expand with Local LLM` | Remove "Ollama" branding |
 | `DS: Start Local-Copilot Conversation` | `Tom: Start AI Conversation` | Match panel name |
-| `DartScript: Print Configuration` | `Tom: Print Configuration` | Consistent prefix |
-| `DartScript: Show VS Code API Info` | `Tom: Show VS Code API Info` | Consistent prefix |
+| `@T: Print Configuration` | `Tom: Print Configuration` | Consistent prefix |
+| `@T: Show VS Code API Info` | `Tom: Show VS Code API Info` | Consistent prefix |
 | `Tom AI: Start Chat` | `Tom: Start Tom AI Chat` | Consistent prefix |
 | All prefix-less commands | Add `Tom:` prefix | Consistency |
 
@@ -763,7 +763,7 @@ Since both the sidebar and unified panel exist, their state should be synced:
 | H3 | Feature asymmetry across @CHAT panels (queue/timed only Copilot) | Inconsistent UX | 7.1 |
 | H4 | WorkspaceState key naming inconsistency | Risk of key collision, confusing debugging | 1.4 |
 | H5 | Copilot templates at wrong config path (top-level) | Config structure inconsistency | 1.8 |
-| H6 | Mixed command prefixes (`DS:`, `DartScript:`, `Tom AI:`, none) | Fragmented command palette experience | 1.1 |
+| H6 | Mixed command prefixes (`@T:`, `@T:`, `Tom AI:`, none) | Fragmented command palette experience | 1.1 |
 
 ### Medium (Should address when touching related code)
 
@@ -775,7 +775,7 @@ Since both the sidebar and unified panel exist, their state should be synced:
 | M4 | 8 paths missing from `WsPaths` | Hardcoded magic strings | 4.2 |
 | M5 | 30+ magic numbers | Not configurable, scattered | 4.3 |
 | M6 | Misleading command names | User confusion | 5.1 |
-| M7 | Tool name prefix inconsistency (`tom_` vs `dartscript_` vs camelCase) | Confusing tool discovery | 6.3 |
+| M7 | Tool name prefix inconsistency (`tom_` vs `tomAi_` vs camelCase) | Confusing tool discovery | 6.3 |
 | M8 | 9 hardcoded Ollama URL occurrences | Bug risk if URL changes | 3.1 |
 | M9 | Subsystem name aliases (3 names per subsystem) | Hard to trace UI → code → config | 1.9 |
 
