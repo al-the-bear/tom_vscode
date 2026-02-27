@@ -606,8 +606,28 @@
                 "category": "@Tom"
             },
             {
+                "command": "tomAi.bridge.toggleDebug",
+                "title": "@T: Toggle Bridge Debug Logging",
+                "category": "@Tom"
+            },
+            {
+                "command": "tomAi.reloadWindow",
+                "title": "@T: Reload Window",
+                "category": "@Tom"
+            },
+            {
+                "command": "tomAi.runTests",
+                "title": "@T: Run Tests",
+                "category": "@Tom"
+            },
+            {
                 "command": "tomAi.cliServer.start",
                 "title": "@T: Start Tom CLI Integration Server",
+                "category": "@Tom"
+            },
+            {
+                "command": "tomAi.cliServer.startCustomPort",
+                "title": "@T: Start Tom CLI Integration Server (Custom Port)",
                 "category": "@Tom"
             },
             {
@@ -616,8 +636,93 @@
                 "category": "@Tom"
             },
             {
+                "command": "tomAi.startProcessMonitor",
+                "title": "@T: Start Tom Process Monitor",
+                "category": "@Tom"
+            },
+            {
                 "command": "tomAi.statusPage",
                 "title": "@T: Extension Status Page",
+                "category": "@Tom"
+            },
+            {
+                "command": "tomAi.commandline.add",
+                "title": "@T: Add Commandline",
+                "category": "@Tom"
+            },
+            {
+                "command": "tomAi.commandline.delete",
+                "title": "@T: Delete Commandline",
+                "category": "@Tom"
+            },
+            {
+                "command": "tomAi.commandline.execute",
+                "title": "@T: Execute Commandline",
+                "category": "@Tom"
+            },
+            {
+                "command": "tomAi.telegram.testConnection",
+                "title": "@T: Telegram Test Connection",
+                "category": "@Tom"
+            },
+            {
+                "command": "tomAi.telegram.toggle",
+                "title": "@T: Toggle Telegram",
+                "category": "@Tom"
+            },
+            {
+                "command": "tomAi.telegram.configure",
+                "title": "@T: Configure Telegram",
+                "category": "@Tom"
+            },
+            {
+                "command": "tomAi.trail.toggle",
+                "title": "@T: Toggle Trail",
+                "category": "@Tom"
+            },
+            {
+                "command": "tomAi.openSettings",
+                "title": "@T: Open Extension Settings",
+                "category": "@Tom"
+            },
+            {
+                "command": "tomAi.openConfig",
+                "title": "@T: Open Config",
+                "category": "@Tom"
+            },
+            {
+                "command": "tomAi.printConfiguration",
+                "title": "@T: Print Configuration",
+                "category": "@Tom"
+            },
+            {
+                "command": "tomAi.showHelp",
+                "title": "@T: Show Extension Help",
+                "category": "@Tom"
+            },
+            {
+                "command": "tomAi.showApiInfo",
+                "title": "@T: Show VS Code API Info",
+                "category": "@Tom"
+            },
+            {
+                "command": "tomAi.showAnswerValues",
+                "title": "@T: Show Chat Answer Values",
+                "category": "@Tom"
+            },
+            {
+                "command": "tomAi.clearAnswerValues",
+                "title": "@T: Clear Chat Answer Values",
+                "category": "@Tom"
+            },
+            {
+                "command": "tomAi.showQuickReference",
+                "title": "@T: Show Quick Reference",
+                "category": "@Tom"
+            },
+            {
+                "command": "tomAi.resetMultiCommandState",
+                "title": "@T: Reset Multi-Command State",
                 "category": "@Tom"
             },
             {

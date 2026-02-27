@@ -904,6 +904,8 @@ function registerCommandAliases(context: vscode.ExtensionContext): void {
         'tomAi.printConfiguration': 'dartscript.printConfiguration',
         'tomAi.showHelp': 'dartscript.showHelp',
         'tomAi.showApiInfo': 'dartscript.showApiInfo',
+        'tomAi.showQuickReference': 'dartscript.showQuickReference',
+        'tomAi.resetMultiCommandState': 'dartscript.resetMultiCommandState',
 
         'tomAi.chordMenu.aiConversation': 'dartscript.chordMenu.conversation',
         'tomAi.chordMenu.localLlm': 'dartscript.chordMenu.llm',
