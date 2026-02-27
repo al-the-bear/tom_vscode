@@ -840,7 +840,7 @@
                     "id": "tomAi.questNotesView",
                     "name": "QUEST NOTES",
                     "icon": "$(book)",
-                    "when": "dartscript.hasWorkspaceFile"
+                    "when": "tomAi.hasWorkspaceFile"
                 },
                 {
                     "type": "webview",

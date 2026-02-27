@@ -39,6 +39,7 @@ This section tracks actual implementation progress against the plan.
     - Expanded `tomAi.*` command contribution coverage for remaining alias-backed operational commands (bridge/debug, reload/tests, CLI server custom port/process monitor, commandline/telegram/trail/config/help utilities, quick reference, reset state)
     - Migrated contributed panel/view IDs in `package.json` from `dartscript*` to `tomAi*` (`viewsContainers.panel`, panel webviews, explorer webviews), and aligned handler provider IDs/usages to `tomAi.*`
     - Added compatibility shims for legacy view-focus command IDs (`dartscript.*.focus` → `tomAi.*.focus`) to preserve existing integrations during the transition
+    - Migrated workspace-file context key usage to `tomAi.hasWorkspaceFile` in manifest visibility conditions and runtime context updates, while still setting `dartscript.hasWorkspaceFile` for compatibility
 
 ### Verified
 

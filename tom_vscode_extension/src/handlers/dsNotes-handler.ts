@@ -3357,7 +3357,9 @@ export function registerDsNotesViews(context: vscode.ExtensionContext): void {
     questNotesProvider = new QuestNotesProvider(context);
 
     const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    vscode.commands.executeCommand('setContext', 'dartscript.hasWorkspaceFile', !!vscode.workspace.workspaceFile);
+    const hasWorkspaceFile = !!vscode.workspace.workspaceFile;
+    vscode.commands.executeCommand('setContext', 'tomAi.hasWorkspaceFile', hasWorkspaceFile);
+    vscode.commands.executeCommand('setContext', 'dartscript.hasWorkspaceFile', hasWorkspaceFile);
     const workspaceTodoPath = wsRoot ? path.join(wsRoot, getWorkspaceTodoRelativePath()) : getWorkspaceTodoRelativePath();
 
     const workspaceQuestId = getQuestIdFromWorkspaceFile();
