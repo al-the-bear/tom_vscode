@@ -225,32 +225,47 @@ function _getQuestPromptScopes(): ScopeItem[] {
 
 function _getScanPromptScopes(): ScopeItem[] {
     const wsRoot = getWorkspaceRoot();
-    return _collectAncestorPromptDirs().map(promptDir => {
+    return _collectAllPromptDirs().map(promptDir => {
         const relative = wsRoot ? path.relative(wsRoot, promptDir) : promptDir;
         return { id: encodeURIComponent(promptDir), label: _truncatePath(relative), dir: promptDir };
     });
 }
 
-function _collectAncestorPromptDirs(): string[] {
+/**
+ * Walk the entire workspace tree (up to depth 6) and collect every
+ * `prompt/` directory. Unlike the former ancestor-walk approach this
+ * does not depend on the active text editor, so it works from webview
+ * panels and custom editors too.
+ */
+function _collectAllPromptDirs(): string[] {
     const wsRoot = getWorkspaceRoot();
-    const activeFile = vscode.window.activeTextEditor?.document?.uri.fsPath;
-    if (!wsRoot || !activeFile || !activeFile.startsWith(wsRoot)) return [];
+    if (!wsRoot) return [];
+    const maxDepth = 6;
+    const shouldSkip = (name: string) =>
+        name.startsWith('.') || ['node_modules', 'build', 'dist', 'out', '.dart_tool'].includes(name);
 
     const unique = new Set<string>();
     const result: string[] = [];
-    let current = path.dirname(activeFile);
-    while (current && current.startsWith(wsRoot)) {
-        const promptDir = path.join(current, 'prompt');
-        if (fs.existsSync(promptDir) && fs.statSync(promptDir).isDirectory()) {
-            const key = path.resolve(promptDir);
-            if (!unique.has(key)) { unique.add(key); result.push(promptDir); }
+
+    const walk = (dir: string, depth: number): void => {
+        if (depth > maxDepth) return;
+        let entries: fs.Dirent[] = [];
+        try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+
+        for (const entry of entries) {
+            if (!entry.isDirectory() || shouldSkip(entry.name)) continue;
+            const childDir = path.join(dir, entry.name);
+            if (entry.name === 'prompt') {
+                const key = path.resolve(childDir);
+                if (!unique.has(key)) { unique.add(key); result.push(childDir); }
+                // Don't recurse into prompt/ itself
+            } else {
+                walk(childDir, depth + 1);
+            }
         }
-        if (current === wsRoot) break;
-        const parent = path.dirname(current);
-        if (parent === current) break;
-        current = parent;
-    }
-    return result;
+    };
+    walk(wsRoot, 0);
+    return result.sort();
 }
 
 function _truncatePath(fullPath: string, maxLength = 60): string {
