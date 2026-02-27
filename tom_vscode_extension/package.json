@@ -2498,9 +2498,18 @@
             }
         ],
         "configuration": {
-            "title": "DartScript",
+            "title": "Tom AI",
             "properties": {
                 "dartscript.contextApproach": {
+                    "type": "string",
+                    "default": "accumulation",
+                    "enum": [
+                        "accumulation",
+                        "persistent"
+                    ],
+                    "description": "Context persistence approach for AI operations"
+                },
+                "tomAi.contextApproach": {
                     "type": "string",
                     "default": "accumulation",
                     "enum": [
@@ -2514,7 +2523,17 @@
                     "default": 50000,
                     "description": "Maximum context size in tokens"
                 },
+                "tomAi.maxContextSize": {
+                    "type": "number",
+                    "default": 50000,
+                    "description": "Maximum context size in tokens"
+                },
                 "dartscript.autoRunOnSave": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Automatically run scripts on save"
+                },
+                "tomAi.autoRunOnSave": {
                     "type": "boolean",
                     "default": false,
                     "description": "Automatically run scripts on save"
@@ -2529,7 +2548,22 @@
                     ],
                     "description": "Preferred Copilot model"
                 },
+                "tomAi.copilotModel": {
+                    "type": "string",
+                    "default": "gpt-4o",
+                    "enum": [
+                        "gpt-4o",
+                        "gpt-4",
+                        "gpt-3.5-turbo"
+                    ],
+                    "description": "Preferred Copilot model"
+                },
                 "dartscript.configPath": {
+                    "type": "string",
+                    "default": "~/.tom/vscode/tom_vscode_extension.json",
+                    "description": "Path to the extension configuration file (supports ~ for home directory and ${workspaceFolder})"
+                },
+                "tomAi.configPath": {
                     "type": "string",
                     "default": "~/.tom/vscode/tom_vscode_extension.json",
                     "description": "Path to the extension configuration file (supports ~ for home directory and ${workspaceFolder})"
@@ -2539,7 +2573,17 @@
                     "default": true,
                     "description": "Show notifications when sending text to Copilot Chat"
                 },
+                "tomAi.sendToChat.showNotifications": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Show notifications when sending text to Copilot Chat"
+                },
                 "dartscript.sendToChat.chatAnswerFolder": {
+                    "type": "string",
+                    "default": "_ai/chat_replies",
+                    "description": "Folder path for chat answer files (relative to workspace root)"
+                },
+                "tomAi.sendToChat.chatAnswerFolder": {
                     "type": "string",
                     "default": "_ai/chat_replies",
                     "description": "Folder path for chat answer files (relative to workspace root)"
@@ -2549,7 +2593,17 @@
                     "default": "gpt-5.2",
                     "description": "Model ID for Tom AI chat"
                 },
+                "tomAi.tomAiChat.modelId": {
+                    "type": "string",
+                    "default": "gpt-5.2",
+                    "description": "Model ID for Tom AI chat"
+                },
                 "dartscript.tomAiChat.tokenModelId": {
+                    "type": "string",
+                    "default": "gpt-4o",
+                    "description": "Model ID used for token count estimates"
+                },
+                "tomAi.tomAiChat.tokenModelId": {
                     "type": "string",
                     "default": "gpt-4o",
                     "description": "Model ID used for token count estimates"
@@ -2559,7 +2613,17 @@
                     "default": 50000,
                     "description": "Token limit for <chat-id>.responses.md"
                 },
+                "tomAi.tomAiChat.responsesTokenLimit": {
+                    "type": "number",
+                    "default": 50000,
+                    "description": "Token limit for <chat-id>.responses.md"
+                },
                 "dartscript.tomAiChat.responseSummaryTokenLimit": {
+                    "type": "number",
+                    "default": 8000,
+                    "description": "Token limit for <chat-id>.response-summary.md"
+                },
+                "tomAi.tomAiChat.responseSummaryTokenLimit": {
                     "type": "number",
                     "default": 8000,
                     "description": "Token limit for <chat-id>.response-summary.md"
@@ -2569,7 +2633,17 @@
                     "default": "gpt-5-mini",
                     "description": "Model ID for pre-processing step (cheap model to gather context before main processing)"
                 },
+                "tomAi.tomAiChat.preProcessingModelId": {
+                    "type": "string",
+                    "default": "gpt-5-mini",
+                    "description": "Model ID for pre-processing step (cheap model to gather context before main processing)"
+                },
                 "dartscript.tomAiChat.enablePromptOptimization": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Enable pre-processing step with cheap model to gather context before main processing"
+                },
+                "tomAi.tomAiChat.enablePromptOptimization": {
                     "type": "boolean",
                     "default": false,
                     "description": "Enable pre-processing step with cheap model to gather context before main processing"
@@ -2579,7 +2653,17 @@
                     "default": "http://localhost:11434",
                     "description": "Ollama server URL (fallback; prefer promptExpander section in send_to_chat.json)"
                 },
+                "tomAi.ollama.url": {
+                    "type": "string",
+                    "default": "http://localhost:11434",
+                    "description": "Ollama server URL (fallback; prefer promptExpander section in send_to_chat.json)"
+                },
                 "dartscript.ollama.model": {
+                    "type": "string",
+                    "default": "qwen3:8b",
+                    "description": "Ollama model name (fallback; prefer promptExpander section in send_to_chat.json)"
+                },
+                "tomAi.ollama.model": {
                     "type": "string",
                     "default": "qwen3:8b",
                     "description": "Ollama model name (fallback; prefer promptExpander section in send_to_chat.json)"
@@ -2589,12 +2673,27 @@
                     "default": "workspace.todo.yaml",
                     "description": "Workspace-relative path to the workspace todo YAML file used by WORKSPACE TODOS views"
                 },
+                "tomAi.notes.workspaceTodoFile": {
+                    "type": "string",
+                    "default": "workspace.todo.yaml",
+                    "description": "Workspace-relative path to the workspace todo YAML file used by WORKSPACE TODOS views"
+                },
                 "dartscript.notes.questNotesFilePattern": {
                     "type": "string",
                     "default": "_ai/quests/${quest}/quest-notes.${quest}.md",
                     "description": "Pattern for quest notes file path. Supports ${quest} and ${workspaceFolder}."
                 },
+                "tomAi.notes.questNotesFilePattern": {
+                    "type": "string",
+                    "default": "_ai/quests/${quest}/quest-notes.${quest}.md",
+                    "description": "Pattern for quest notes file path. Supports ${quest} and ${workspaceFolder}."
+                },
                 "dartscript.notes.questTodoFilePattern": {
+                    "type": "string",
+                    "default": "todos.${quest}.todo.yaml",
+                    "description": "Pattern for quest todo filename used by QUEST TODOS view. Supports ${quest}."
+                },
+                "tomAi.notes.questTodoFilePattern": {
                     "type": "string",
                     "default": "todos.${quest}.todo.yaml",
                     "description": "Pattern for quest todo filename used by QUEST TODOS view. Supports ${quest}."
@@ -2609,7 +2708,27 @@
                     },
                     "description": "Glob patterns excluded when building the non-recursive Project list in the Guidelines panel."
                 },
+                "tomAi.guidelines.projectExcludeGlobs": {
+                    "type": "array",
+                    "default": [
+                        "tom/zom_*/**"
+                    ],
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Glob patterns excluded when building the non-recursive Project list in the Guidelines panel."
+                },
                 "dartscript.projectDetection.excludeGlobs": {
+                    "type": "array",
+                    "default": [
+                        "tom/zom_*/**"
+                    ],
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Glob patterns excluded from full-workspace project detection scans."
+                },
+                "tomAi.projectDetection.excludeGlobs": {
                     "type": "array",
                     "default": [
                         "tom/zom_*/**"

@@ -74,8 +74,11 @@ export function formatDateTime(date: Date = new Date()): string {
  */
 export function getChatAnswerFolder(): string {
     const setting = vscode.workspace
-        .getConfiguration('dartscript.sendToChat')
-        .get<string>('chatAnswerFolder');
+        .getConfiguration('tomAi.sendToChat')
+        .get<string>('chatAnswerFolder')
+        || vscode.workspace
+            .getConfiguration('dartscript.sendToChat')
+            .get<string>('chatAnswerFolder');
     return setting || WsPaths.aiRelative('chatReplies');
 }
 

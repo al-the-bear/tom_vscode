@@ -581,15 +581,21 @@ const DEFAULT_QUEST_NOTES_PATTERN = '_ai/quests/${quest}/quest-notes.${quest}.md
 const DEFAULT_QUEST_TODO_FILE_PATTERN = 'todos.${quest}.todo.yaml';
 
 function getWorkspaceTodoRelativePath(): string {
-    return vscode.workspace.getConfiguration('dartscript').get<string>('notes.workspaceTodoFile') || DEFAULT_WORKSPACE_TODO_FILE;
+    return vscode.workspace.getConfiguration('tomAi').get<string>('notes.workspaceTodoFile')
+        || vscode.workspace.getConfiguration('dartscript').get<string>('notes.workspaceTodoFile')
+        || DEFAULT_WORKSPACE_TODO_FILE;
 }
 
 function getQuestNotesPattern(): string {
-    return vscode.workspace.getConfiguration('dartscript').get<string>('notes.questNotesFilePattern') || DEFAULT_QUEST_NOTES_PATTERN;
+    return vscode.workspace.getConfiguration('tomAi').get<string>('notes.questNotesFilePattern')
+        || vscode.workspace.getConfiguration('dartscript').get<string>('notes.questNotesFilePattern')
+        || DEFAULT_QUEST_NOTES_PATTERN;
 }
 
 function getQuestTodoFilePattern(): string {
-    return vscode.workspace.getConfiguration('dartscript').get<string>('notes.questTodoFilePattern') || DEFAULT_QUEST_TODO_FILE_PATTERN;
+    return vscode.workspace.getConfiguration('tomAi').get<string>('notes.questTodoFilePattern')
+        || vscode.workspace.getConfiguration('dartscript').get<string>('notes.questTodoFilePattern')
+        || DEFAULT_QUEST_TODO_FILE_PATTERN;
 }
 
 function resolveQuestTodoFileName(questId: string): string {
