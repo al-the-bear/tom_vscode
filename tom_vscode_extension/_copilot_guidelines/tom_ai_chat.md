@@ -2,9 +2,9 @@
 
 ## Command surface
 
-- `dartscript.startTomAIChat`
-- `dartscript.sendToTomAIChat`
-- `dartscript.interruptTomAIChat`
+- `tomAi.tomAiChat.start`
+- `tomAi.tomAiChat.send`
+- `tomAi.tomAiChat.interrupt`
 
 ## Tool registration
 

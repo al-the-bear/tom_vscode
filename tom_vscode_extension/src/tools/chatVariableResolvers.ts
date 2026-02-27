@@ -32,7 +32,7 @@ export function registerChatVariableResolvers(context: vscode.ExtensionContext):
 
     const resolvers: ResolverDef[] = [
         {
-            id: 'dartscript.quest',
+            id: 'tomAi.quest',
             name: 'quest',
             description: 'Current active quest ID',
             resolve: () => {
@@ -40,7 +40,7 @@ export function registerChatVariableResolvers(context: vscode.ExtensionContext):
             },
         },
         {
-            id: 'dartscript.role',
+            id: 'tomAi.role',
             name: 'role',
             description: 'Current AI role / persona',
             resolve: () => {
@@ -48,7 +48,7 @@ export function registerChatVariableResolvers(context: vscode.ExtensionContext):
             },
         },
         {
-            id: 'dartscript.activeProjects',
+            id: 'tomAi.activeProjects',
             name: 'activeProjects',
             description: 'Currently active project IDs',
             resolve: () => {
@@ -56,7 +56,7 @@ export function registerChatVariableResolvers(context: vscode.ExtensionContext):
             },
         },
         {
-            id: 'dartscript.todo',
+            id: 'tomAi.todo',
             name: 'todo',
             description: 'Current todo summary from the active quest',
             resolve: () => {
@@ -64,7 +64,7 @@ export function registerChatVariableResolvers(context: vscode.ExtensionContext):
             },
         },
         {
-            id: 'dartscript.workspaceName',
+            id: 'tomAi.workspaceName',
             name: 'workspaceName',
             description: 'Current workspace name',
             resolve: () => vscode.workspace.name ?? '',
@@ -73,20 +73,28 @@ export function registerChatVariableResolvers(context: vscode.ExtensionContext):
 
     for (const def of resolvers) {
         try {
-            const disposable = chatNs.registerChatVariableResolver(def.id, {
-                resolve: async (_name: string, _context: any, _token: vscode.CancellationToken) => {
-                    const value = def.resolve();
-                    if (!value) { return []; }
-                    return [
-                        {
-                            level: 1, // ChatVariableLevel.Full
-                            value,
-                            description: def.description,
-                        },
-                    ];
-                },
-            });
-            context.subscriptions.push(disposable);
+            const registerIds = [
+                def.id,
+                def.id.replace(/^tomAi\./, 'dartscript.'),
+            ];
+
+            for (const variableId of registerIds) {
+                const disposable = chatNs.registerChatVariableResolver(variableId, {
+                    resolve: async (_name: string, _context: any, _token: vscode.CancellationToken) => {
+                        const value = def.resolve();
+                        if (!value) { return []; }
+                        return [
+                            {
+                                level: 1, // ChatVariableLevel.Full
+                                value,
+                                description: def.description,
+                            },
+                        ];
+                    },
+                });
+                context.subscriptions.push(disposable);
+            }
+
             console.log(`[ChatVars] Registered #${def.name}`);
         } catch (err) {
             console.warn(`[ChatVars] Failed to register #${def.name}:`, err);

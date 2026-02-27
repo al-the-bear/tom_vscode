@@ -1,8 +1,10 @@
-# DartScript VS Code Extension — Architecture Analysis
+# @Tom VS Code Extension — Architecture Analysis
 
-**Extension:** `dartscript-vscode` v0.1.0  
+**Extension:** `tom-ai-extension` v0.1.0  
 **Entry Point:** `src/extension.ts`  
 **Config File:** `.tom/tom_vscode_extension.json`
+
+> Note: This document reflects the current canonical `tomAi.*` namespace. Legacy `dartscript.*` identifiers may still appear in source as compatibility aliases.
 
 ---
 
@@ -258,22 +260,22 @@ graph LR
 
 | View ID | Name | Used In | Purpose |
 |---------|------|---------|---------|
-| `dartscript.guidelinesNotepad` | Guidelines | @WS panel | Browse `_copilot_guidelines/` |
-| `dartscript.notesNotepad` | Documentation | @WS panel | Project documentation |
-| `dartscript.localLlmNotepad` | Local LLM | @CHAT panel | Ollama prompt interface |
-| `dartscript.conversationNotepad` | AI Conversation | @CHAT panel | Multi-turn conversation |
-| `dartscript.copilotNotepad` | Copilot | @CHAT panel | Copilot integration |
-| `dartscript.tomAiChatNotepad` | Tom AI Chat | @CHAT panel | Tom AI chat interface |
+| `tomAi.guidelinesNotepad` | Guidelines | @WS panel | Browse `_copilot_guidelines/` |
+| `tomAi.notesNotepad` | Documentation | @WS panel | Project documentation |
+| `tomAi.localLlmNotepad` | Local LLM | @CHAT panel | Ollama prompt interface |
+| `tomAi.conversationNotepad` | AI Conversation | @CHAT panel | Multi-turn conversation |
+| `tomAi.copilotNotepad` | Copilot | @CHAT panel | Copilot integration |
+| `tomAi.tomAiChatNotepad` | Tom AI Chat | @CHAT panel | Tom AI chat interface |
 
 ---
 
 ## 5. Bottom Panel Views
 
-### @CHAT Panel (`dartscript.chatPanel`)
+### @CHAT Panel (`tomAi.chatPanel`)
 
 ```mermaid
 graph TB
-    subgraph "@CHAT Panel - dartscript-t2-panel"
+    subgraph "@CHAT Panel - tomAi-chat-panel"
         direction TB
         T2["Unified Notepad<br/>unifiedNotepad-handler.ts<br/>4162 lines"]
         
@@ -289,7 +291,7 @@ graph TB
 ```
 
 **Handler:** `unifiedNotepad-handler.ts` (4162 lines)  
-**View ID:** `dartscript.chatPanel`  
+**View ID:** `tomAi.chatPanel`  
 **Key features:**
 - Accordion layout with collapsible sections
 - Each section has a text area + template picker + send button
@@ -298,11 +300,11 @@ graph TB
 - Manages answer file watching
 - Draft persistence via `workspaceState`
 
-### @WS Panel (`dartscript.wsPanel`)
+### @WS Panel (`tomAi.wsPanel`)
 
 ```mermaid
 graph TB
-    subgraph "@WS Panel - dartscript-t3-panel"
+    subgraph "@WS Panel - tomAi-ws-panel"
         direction TB
         T3["T3 Panel Handler<br/>t3Panel-handler.ts<br/>1094 lines"]
         
@@ -321,7 +323,7 @@ graph TB
 ```
 
 **Handler:** `t3Panel-handler.ts` (1094 lines)  
-**View ID:** `dartscript.wsPanel`  
+**View ID:** `tomAi.wsPanel`  
 **Key features:**
 - Composes embedded fragments from: `issuesPanel-handler`, `questTodoPanel-handler`, `statusPage-handler`
 - Guidelines browser for `_copilot_guidelines/`
@@ -861,30 +863,30 @@ flowchart TD
 | `aiConversationSetups` | AI conversation presets | dsNotes |
 | `llmConfigurations` | LLM configuration presets | dsNotes |
 
-### VS Code Settings (`dartscript.*`)
+### VS Code Settings (`tomAi.*`)
 
 | Setting | Type | Default | Purpose |
 |---------|------|---------|---------|
-| `dartscript.contextApproach` | enum | `"accumulation"` | Context persistence mode |
-| `dartscript.maxContextSize` | number | `50000` | Max context tokens |
-| `dartscript.autoRunOnSave` | boolean | `false` | Auto-run on save |
-| `dartscript.copilotModel` | enum | `"gpt-4o"` | Preferred Copilot model |
-| `dartscript.configPath` | string | `"~/.tom/vscode/tom_vscode_extension.json"` | Config file path |
-| `dartscript.sendToChat.showNotifications` | boolean | `true` | Chat send notifications |
-| `dartscript.sendToChat.chatAnswerFolder` | string | `"_ai/chat_replies"` | Chat answer folder |
-| `dartscript.tomAiChat.modelId` | string | `"gpt-5.2"` | Tom AI Chat model |
-| `dartscript.tomAiChat.tokenModelId` | string | `"gpt-4o"` | Token counting model |
-| `dartscript.tomAiChat.responsesTokenLimit` | number | `50000` | Response token limit |
-| `dartscript.tomAiChat.responseSummaryTokenLimit` | number | `8000` | Summary token limit |
-| `dartscript.tomAiChat.preProcessingModelId` | string | `"gpt-5-mini"` | Pre-processing model |
-| `dartscript.tomAiChat.enablePromptOptimization` | boolean | `false` | Enable pre-processing |
-| `dartscript.ollama.url` | string | `"http://localhost:11434"` | Ollama server URL |
-| `dartscript.ollama.model` | string | `"qwen3:8b"` | Ollama model name |
-| `dartscript.notes.workspaceTodoFile` | string | `"workspace.todo.yaml"` | Workspace todo file |
-| `dartscript.notes.questNotesFilePattern` | string | `"_ai/quests/${quest}/quest-notes.${quest}.md"` | Quest notes pattern |
-| `dartscript.notes.questTodoFilePattern` | string | `"todos.${quest}.todo.yaml"` | Quest todo pattern |
-| `dartscript.guidelines.projectExcludeGlobs` | array | `["tom/zom_*/**"]` | Guidelines exclude globs |
-| `dartscript.projectDetection.excludeGlobs` | array | `["tom/zom_*/**"]` | Project detection excludes |
+| `tomAi.contextApproach` | enum | `"accumulation"` | Context persistence mode |
+| `tomAi.maxContextSize` | number | `50000` | Max context tokens |
+| `tomAi.autoRunOnSave` | boolean | `false` | Auto-run on save |
+| `tomAi.copilotModel` | enum | `"gpt-4o"` | Preferred Copilot model |
+| `tomAi.configPath` | string | `"~/.tom/vscode/tom_vscode_extension.json"` | Config file path |
+| `tomAi.sendToChat.showNotifications` | boolean | `true` | Chat send notifications |
+| `tomAi.sendToChat.chatAnswerFolder` | string | `"_ai/chat_replies"` | Chat answer folder |
+| `tomAi.tomAiChat.modelId` | string | `"gpt-5.2"` | Tom AI Chat model |
+| `tomAi.tomAiChat.tokenModelId` | string | `"gpt-4o"` | Token counting model |
+| `tomAi.tomAiChat.responsesTokenLimit` | number | `50000` | Response token limit |
+| `tomAi.tomAiChat.responseSummaryTokenLimit` | number | `8000` | Summary token limit |
+| `tomAi.tomAiChat.preProcessingModelId` | string | `"gpt-5-mini"` | Pre-processing model |
+| `tomAi.tomAiChat.enablePromptOptimization` | boolean | `false` | Enable pre-processing |
+| `tomAi.ollama.url` | string | `"http://localhost:11434"` | Ollama server URL |
+| `tomAi.ollama.model` | string | `"qwen3:8b"` | Ollama model name |
+| `tomAi.notes.workspaceTodoFile` | string | `"workspace.todo.yaml"` | Workspace todo file |
+| `tomAi.notes.questNotesFilePattern` | string | `"_ai/quests/${quest}/quest-notes.${quest}.md"` | Quest notes pattern |
+| `tomAi.notes.questTodoFilePattern` | string | `"todos.${quest}.todo.yaml"` | Quest todo pattern |
+| `tomAi.guidelines.excludeGlobs` | array | `["tom/zom_*/**"]` | Guidelines exclude globs |
+| `tomAi.projectDetection.excludeGlobs` | array | `["tom/zom_*/**"]` | Project detection excludes |
 
 ### Workspace State Keys
 

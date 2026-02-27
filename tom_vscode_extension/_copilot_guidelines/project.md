@@ -41,4 +41,4 @@ Maintainer docs:
 ## Current naming conventions
 
 - Bottom panel titles: `@CHAT`, `@WS`.
-- Keep command IDs under `dartscript.*` namespace.
+- Use `tomAi.*` as the canonical command namespace; keep `dartscript.*` only as compatibility aliases when required.

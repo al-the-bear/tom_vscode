@@ -17,27 +17,27 @@
     "contributes": {
         "chatVariables": [
             {
-                "id": "dartscript.quest",
+                "id": "tomAi.quest",
                 "name": "quest",
                 "description": "Current active quest ID"
             },
             {
-                "id": "dartscript.role",
+                "id": "tomAi.role",
                 "name": "role",
                 "description": "Current AI role / persona"
             },
             {
-                "id": "dartscript.activeProjects",
+                "id": "tomAi.activeProjects",
                 "name": "activeProjects",
                 "description": "Currently active project IDs"
             },
             {
-                "id": "dartscript.todo",
+                "id": "tomAi.todo",
                 "name": "todo",
                 "description": "Current todo summary from the active quest"
             },
             {
-                "id": "dartscript.workspaceName",
+                "id": "tomAi.workspaceName",
                 "name": "workspaceName",
                 "description": "Current workspace name"
             }
@@ -945,32 +945,32 @@
             {
                 "command": "tomAi.chordMenu.aiConversation",
                 "key": "ctrl+shift+c",
-                "when": "!dartscript.chordMenuOpen"
+                "when": "!tomAi.chordMenuOpen"
             },
             {
                 "command": "tomAi.chordMenu.localLlm",
                 "key": "ctrl+shift+l",
-                "when": "!dartscript.chordMenuOpen"
+                "when": "!tomAi.chordMenuOpen"
             },
             {
                 "command": "tomAi.chordMenu.copilot",
                 "key": "ctrl+shift+a",
-                "when": "!dartscript.chordMenuOpen"
+                "when": "!tomAi.chordMenuOpen"
             },
             {
                 "command": "tomAi.chordMenu.tomAiChat",
                 "key": "ctrl+shift+t",
-                "when": "!dartscript.chordMenuOpen"
+                "when": "!tomAi.chordMenuOpen"
             },
             {
                 "command": "tomAi.chordMenu.execute",
                 "key": "ctrl+shift+e",
-                "when": "!dartscript.chordMenuOpen"
+                "when": "!tomAi.chordMenuOpen"
             },
             {
                 "command": "tomAi.chordMenu.favorites",
                 "key": "ctrl+shift+x",
-                "when": "!dartscript.chordMenuOpen"
+                "when": "!tomAi.chordMenuOpen"
             },
             {
                 "command": "tomAi.combined.maximizeToggle",

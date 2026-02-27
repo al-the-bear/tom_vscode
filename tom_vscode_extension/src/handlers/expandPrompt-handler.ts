@@ -333,9 +333,10 @@ export class PromptExpanderManager {
         const config: PromptExpanderConfig = { ...DEFAULTS, models: {}, profiles: {} };
 
         // VS Code settings fallback
-        const vs = vscode.workspace.getConfiguration('dartscript.ollama');
-        const vsUrl = vs.get<string>('url');
-        const vsModel = vs.get<string>('model');
+        const vsTomAi = vscode.workspace.getConfiguration('tomAi.ollama');
+        const vsLegacy = vscode.workspace.getConfiguration('dartscript.ollama');
+        const vsUrl = vsTomAi.get<string>('url') || vsLegacy.get<string>('url');
+        const vsModel = vsTomAi.get<string>('model') || vsLegacy.get<string>('model');
         if (vsUrl) { config.ollamaUrl = vsUrl; }
         if (vsModel) { config.model = vsModel; }
 

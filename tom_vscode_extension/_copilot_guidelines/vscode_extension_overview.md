@@ -6,7 +6,7 @@ This is the canonical high-level overview of the current `tom_vscode_extension` 
 
 The extension is activated on startup and registers:
 
-- command suite (`dartscript.*`),
+- command suite (`tomAi.*`, with `dartscript.*` compatibility aliases),
 - webview panels (`@CHAT`, `@WS`),
 - explorer note/todo views,
 - YAML graph custom editor,
@@ -23,7 +23,7 @@ The extension is activated on startup and registers:
 
 ## 3. Bottom panels (current)
 
-### `@CHAT` (`dartscript.chatPanel`)
+### `@CHAT` (`tomAi.chatPanel`)
 
 Primary AI working surface with sections:
 
@@ -42,7 +42,7 @@ Notable capabilities:
 - response value extraction,
 - quick todo actions.
 
-### `@WS` (`dartscript.wsPanel`)
+### `@WS` (`tomAi.wsPanel`)
 
 Workspace operations surface with sections:
 

@@ -2,7 +2,7 @@
 
 ## Command
 
-- `dartscript.showStatusPage`
+- `tomAi.statusPage`
 
 ## Purpose
 

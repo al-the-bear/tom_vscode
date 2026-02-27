@@ -2,10 +2,10 @@
 
 ## Panel focus and layout shortcuts
 
-- `Ctrl+Shift+0` → `dartscript.focusTomAI`
-- `Ctrl+Shift+9` → `dartscript.wsPanel.focus`
-- `Ctrl+Shift+8` → `dartscript.showStatusPage`
-- `Ctrl+Shift+\\` → `dartscript.combined.maximizeToggle`
+- `Ctrl+Shift+0` → `tomAi.focusChatPanel`
+- `Ctrl+Shift+9` → `tomAi.wsPanel.focus`
+- `Ctrl+Shift+8` → `tomAi.statusPage`
+- `Ctrl+Shift+\\` → `tomAi.layout.maximizeToggle`
 - `Ctrl+Shift+2/3/4` → maximize explorer/editor/chat
 
 ## Chord menu shortcuts

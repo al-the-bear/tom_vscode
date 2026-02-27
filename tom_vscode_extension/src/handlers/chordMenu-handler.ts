@@ -228,6 +228,7 @@ async function showChordMenu(groupId: string): Promise<void> {
     menuOpenTimestamp = Date.now();
     console.log(`[ChordMenu] === OPEN group '${groupId}' (${group.prefix}) at ${menuOpenTimestamp} ===`);
 
+    await vscode.commands.executeCommand('setContext', 'tomAi.chordMenuOpen', true);
     await vscode.commands.executeCommand('setContext', 'dartscript.chordMenuOpen', true);
     console.log(`[ChordMenu] setContext complete (+${Date.now() - menuOpenTimestamp}ms)`);
 
@@ -295,6 +296,7 @@ async function showChordMenu(groupId: string): Promise<void> {
         activeGroupId = null;
         activeQuickPick = null;
         menuOpenTimestamp = 0;
+        vscode.commands.executeCommand('setContext', 'tomAi.chordMenuOpen', false);
         vscode.commands.executeCommand('setContext', 'dartscript.chordMenuOpen', false);
         quickPick.dispose();
     });

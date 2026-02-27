@@ -8,11 +8,11 @@ The extension can delegate actions through bridge-backed commands for workspace/
 
 ## Key commands
 
-- `dartscript.restartBridge`
-- `dartscript.switchBridgeProfile`
-- `dartscript.startCliServer`
-- `dartscript.startCliServerCustomPort`
-- `dartscript.stopCliServer`
+- `tomAi.bridge.restart`
+- `tomAi.bridge.switchProfile`
+- `tomAi.cliServer.start`
+- `tomAi.cliServer.startCustomPort`
+- `tomAi.cliServer.stop`
 
 ## Scripting boundaries
 

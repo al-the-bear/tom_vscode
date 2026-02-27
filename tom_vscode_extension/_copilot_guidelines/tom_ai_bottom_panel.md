@@ -2,8 +2,8 @@
 
 ## View identity
 
-- container: `dartscript-t2-panel`
-- view: `dartscript.chatPanel`
+- container: `tomAi-chat-panel`
+- view: `tomAi.chatPanel`
 - display name: `@CHAT`
 
 ## Current sections

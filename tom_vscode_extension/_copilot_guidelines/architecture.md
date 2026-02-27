@@ -23,8 +23,8 @@ During activation, the extension:
 
 ## Panel architecture
 
-- Bottom panel `@CHAT` (`dartscript.chatPanel`) is the AI operations panel.
-- Bottom panel `@WS` (`dartscript.wsPanel`) is the workspace/ops panel.
+- Bottom panel `@CHAT` (`tomAi.chatPanel`) is the AI operations panel.
+- Bottom panel `@WS` (`tomAi.wsPanel`) is the workspace/ops panel.
 - Explorer views expose notes and todo sidebars.
 
 ## Data and state

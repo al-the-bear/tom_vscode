@@ -32,8 +32,11 @@ export function getWorkspaceName(): string {
 /** Get the storage folder path for panel YAML files. */
 export function getStorageFolder(): string | undefined {
     const configPath = vscode.workspace
-        .getConfiguration('dartscript')
-        .get<string>('panelStoragePath');
+        .getConfiguration('tomAi')
+        .get<string>('panelStoragePath')
+        || vscode.workspace
+            .getConfiguration('dartscript')
+            .get<string>('panelStoragePath');
 
     const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!wsRoot) return undefined;

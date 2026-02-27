@@ -2,11 +2,11 @@
 
 ## Commands
 
-- `dartscript.sendToLocalLlm`
-- `dartscript.sendToLocalLlmStandard`
-- `dartscript.sendToLocalLlmAdvanced`
-- `dartscript.switchLocalModel`
-- prompt-expansion shortcut commands under `dartscript.sendToLocalLlm.*`
+- `tomAi.sendToLocalLlm`
+- `tomAi.sendToLocalLlm.standard`
+- `tomAi.sendToLocalLlm.template`
+- `tomAi.localLlm.switchModel`
+- prompt-expansion shortcut commands under `tomAi.sendToLocalLlm.*`
 
 ## Runtime model
 

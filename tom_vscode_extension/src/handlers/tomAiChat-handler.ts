@@ -474,18 +474,41 @@ function formatToolInputForLog(input: unknown): string {
 }
 
 function getConfig() {
-    const config = vscode.workspace.getConfiguration('dartscript');
+    const configTomAi = vscode.workspace.getConfiguration('tomAi');
+    const configLegacy = vscode.workspace.getConfiguration('dartscript');
     return {
-        modelId: config.get<string>('tomAiChat.modelId') ?? config.get<string>('copilotModel') ?? 'gpt-5.2',
-        tokenModelId: config.get<string>('tomAiChat.tokenModelId') ?? 'gpt-4o',
-        preProcessingModelId: config.get<string>('tomAiChat.preProcessingModelId') ?? 'gpt-5-mini',
-        enablePromptOptimization: config.get<boolean>('tomAiChat.enablePromptOptimization') ?? false,
-        responsesTokenLimit: config.get<number>('tomAiChat.responsesTokenLimit') ?? 50000,
-        responseSummaryTokenLimit: config.get<number>('tomAiChat.responseSummaryTokenLimit') ?? 8000,
-        maxIterations: config.get<number>('tomAiChat.maxIterations') ?? 100,
-        maxContextChars: config.get<number>('tomAiChat.maxContextChars') ?? DEFAULT_MAX_CONTEXT_CHARS,
-        maxToolResultChars: config.get<number>('tomAiChat.maxToolResultChars') ?? DEFAULT_MAX_TOOL_RESULT_CHARS,
-        maxDraftChars: config.get<number>('tomAiChat.maxDraftChars') ?? DEFAULT_MAX_DRAFT_CHARS
+        modelId: configTomAi.get<string>('tomAiChat.modelId')
+            ?? configLegacy.get<string>('tomAiChat.modelId')
+            ?? configTomAi.get<string>('copilotModel')
+            ?? configLegacy.get<string>('copilotModel')
+            ?? 'gpt-5.2',
+        tokenModelId: configTomAi.get<string>('tomAiChat.tokenModelId')
+            ?? configLegacy.get<string>('tomAiChat.tokenModelId')
+            ?? 'gpt-4o',
+        preProcessingModelId: configTomAi.get<string>('tomAiChat.preProcessingModelId')
+            ?? configLegacy.get<string>('tomAiChat.preProcessingModelId')
+            ?? 'gpt-5-mini',
+        enablePromptOptimization: configTomAi.get<boolean>('tomAiChat.enablePromptOptimization')
+            ?? configLegacy.get<boolean>('tomAiChat.enablePromptOptimization')
+            ?? false,
+        responsesTokenLimit: configTomAi.get<number>('tomAiChat.responsesTokenLimit')
+            ?? configLegacy.get<number>('tomAiChat.responsesTokenLimit')
+            ?? 50000,
+        responseSummaryTokenLimit: configTomAi.get<number>('tomAiChat.responseSummaryTokenLimit')
+            ?? configLegacy.get<number>('tomAiChat.responseSummaryTokenLimit')
+            ?? 8000,
+        maxIterations: configTomAi.get<number>('tomAiChat.maxIterations')
+            ?? configLegacy.get<number>('tomAiChat.maxIterations')
+            ?? 100,
+        maxContextChars: configTomAi.get<number>('tomAiChat.maxContextChars')
+            ?? configLegacy.get<number>('tomAiChat.maxContextChars')
+            ?? DEFAULT_MAX_CONTEXT_CHARS,
+        maxToolResultChars: configTomAi.get<number>('tomAiChat.maxToolResultChars')
+            ?? configLegacy.get<number>('tomAiChat.maxToolResultChars')
+            ?? DEFAULT_MAX_TOOL_RESULT_CHARS,
+        maxDraftChars: configTomAi.get<number>('tomAiChat.maxDraftChars')
+            ?? configLegacy.get<number>('tomAiChat.maxDraftChars')
+            ?? DEFAULT_MAX_DRAFT_CHARS
     };
 }
 

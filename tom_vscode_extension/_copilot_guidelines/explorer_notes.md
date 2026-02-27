@@ -2,12 +2,12 @@
 
 ## Contributed explorer views
 
-- VS CODE NOTES (`dartscript.tomNotepad`)
-- QUEST NOTES (`dartscript.questNotesView`)
-- QUEST TODOS (`dartscript.questTodosView`)
-- SESSION TODOS (`dartscript.sessionTodosView`)
-- WORKSPACE NOTES (`dartscript.workspaceNotepad`)
-- WORKSPACE TODOS (`dartscript.workspaceTodosView`)
+- VS CODE NOTES (`tomAi.vscodeNotes`)
+- QUEST NOTES (`tomAi.questNotes`)
+- QUEST TODOS (`tomAi.questTodos`)
+- SESSION TODOS (`tomAi.sessionTodos`)
+- WORKSPACE NOTES (`tomAi.workspaceNotes`)
+- WORKSPACE TODOS (`tomAi.workspaceTodos`)
 
 ## Purpose
 

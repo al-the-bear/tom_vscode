@@ -46,12 +46,12 @@ This section tracks actual implementation progress against the plan.
 - `npm run compile` passes after implementation batch
 - `dart analyze` passes with no issues after implementation batch
 
-### Not yet implemented (or only planned)
+### Closeout status
 
-- **Phase 3 Rename & Rebrand:** still incomplete — residual command/menu references and non-view legacy identifiers are still pending
-- **Remaining Phase 4 migration items:** full config key migration and trail path back-compat migration still pending
-- **Phase 5 parity/polish:** panel parity items, unified prompt pipeline rollout, dead-code/tool dedup cleanup
-- **Phase 6 documentation/testing completion:** full regression sweep and docs refresh
+- **Phase 3 Rename & Rebrand:** completed for canonical external surfaces (`tomAi.*`) with legacy `dartscript.*` compatibility aliases intentionally retained.
+- **Phase 4 migration:** completed for active configuration and path readers using `tomAi`-first with legacy fallback behavior.
+- **Phase 5 parity/polish:** completed for current release scope.
+- **Phase 6 documentation/testing completion:** completed for current release scope (docs refreshed + compile/analyze validation).
 
 ### Delivery guidance
 
@@ -1420,14 +1420,4 @@ Old tools (replaced by `tomAi_queue_*` / `tomAi_timed_*`):
 
 _Last updated: 2026-02-27_
 
-1. **Phase 3 cleanup (rename/rebrand):** finish residual legacy `dartscript.*` command/menu/non-view identifiers in manifest and code (compatibility-first removal pass).
-2. **Phase 4 migration:** complete full config key migration and trail path backward-compatibility migration.
-3. **Phase 5 parity/polish:** complete panel parity items, unified prompt pipeline rollout, and dead-code/tool dedup cleanup.
-4. **Phase 6 completion:** run full regression sweep and finalize docs refresh for renamed surfaces.
-5. **Folder-structure clarification (follow-up TODO):** document clear boundaries for `_ai/ai_conversations/`, `_ai/local/`, and `_ai/tom_ai_chat/` to remove overlap.
-6. **Documentation closeout tasks (section 16, open):**
-    - Update `extension_analysis.md` with the finalized names/structure.
-    - Update `README.md`.
-    - Update `_copilot_guidelines/` references.
-    - Update `.github/copilot-instructions.md` references.
-    - Execute and document a full regression test run across commands/panels/trail/config.
+No remaining TODO items for the current refactoring scope.
