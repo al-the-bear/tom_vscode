@@ -58,14 +58,6 @@
         },
         "submenus": [
             {
-                "id": "dartscript.sendToChatSubmenu",
-                "label": "@Tom: Send to Chat..."
-            },
-            {
-                "id": "dartscript.sendToLocalLlmSubmenu",
-                "label": "@Tom: Send to Local LLM..."
-            },
-            {
                 "id": "tomAi.sendToCopilotSubmenu",
                 "label": "@Tom: Send to Copilot..."
             },
@@ -75,391 +67,6 @@
             }
         ],
         "commands": [
-            {
-                "command": "dartscript.executeFile",
-                "title": "DS: Execute File",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.executeScript",
-                "title": "DS: Execute as Script",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.sendToChat",
-                "title": "DS: Send to Copilot Chat",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.sendToChatAdvanced",
-                "title": "DS: Send to Copilot Chat (Template)...",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.reloadSendToChatConfig",
-                "title": "DS: Reload Chat Config",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.sendToChatTrailReminder",
-                "title": "Send with Trail Reminder",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.sendToChatStandard",
-                "title": "DS: Send to Copilot Chat (Standard)",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.sendToChatTodoExecution",
-                "title": "TODO Execution",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.sendToChatCodeReview",
-                "title": "Code Review",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.sendToChatExplain",
-                "title": "Explain Code",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.sendToChatAddToTodo",
-                "title": "Add to Todo",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.sendToChatFixMarkdown",
-                "title": "Fix Markdown here",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.showChatAnswerValues",
-                "title": "DS: Show chat answer values",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.clearChatAnswerValues",
-                "title": "DS: Clear chat answer values",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.restartBridge",
-                "title": "DS: Restart Bridge",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.switchBridgeProfile",
-                "title": "DS: Switch Dartscript Bridge Profile...",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.reloadWindow",
-                "title": "DS: Reload Window",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.runTests",
-                "title": "DS: Run Tests",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.startCliServer",
-                "title": "DS: Start Tom CLI Integration Server",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.startCliServerCustomPort",
-                "title": "DS: Start Tom CLI Integration Server (Custom Port)",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.stopCliServer",
-                "title": "DS: Stop Tom CLI Integration Server",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.startProcessMonitor",
-                "title": "DS: Start Tom Process Monitor",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.toggleBridgeDebugLogging",
-                "title": "DS: Toggle Bridge Debug Logging",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.printConfiguration",
-                "title": "DartScript: Print Configuration",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.showHelp",
-                "title": "DS: Show Extension Help",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.showApiInfo",
-                "title": "DartScript: Show VS Code API Info",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.startTomAIChat",
-                "title": "Tom AI: Start Chat",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.sendToTomAIChat",
-                "title": "Tom AI: Send Chat Prompt",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.interruptTomAIChat",
-                "title": "Tom AI: Interrupt Chat",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.expandPrompt",
-                "title": "DS: Expand Prompt (Ollama)",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.switchLocalModel",
-                "title": "DS: Change local Ollama model...",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.sendToLocalLlm",
-                "title": "DS: Send to local LLM",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.sendToLocalLlmAdvanced",
-                "title": "DS: Send to local LLM (Template)...",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.sendToLocalLlmStandard",
-                "title": "DS: Send to local LLM (Standard)",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.sendToLocalLlm.expand",
-                "title": "Expand Prompt",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.sendToLocalLlm.rewrite",
-                "title": "Rewrite",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.sendToLocalLlm.detailed",
-                "title": "Detailed Expansion",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.sendToLocalLlm.annotated",
-                "title": "Annotated Expansion",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.startBotConversation",
-                "title": "DS: Start Local-Copilot Conversation",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.stopBotConversation",
-                "title": "DS: Stop Local-Copilot Conversation",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.haltBotConversation",
-                "title": "DS: Halt Local-Copilot Conversation",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.continueBotConversation",
-                "title": "DS: Continue Local-Copilot Conversation",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.addToBotConversation",
-                "title": "DS: Add to Local-Copilot Conversation",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.chordMenu.conversation",
-                "title": "DS: Conversation Shortcuts...",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.chordMenu.llm",
-                "title": "DS: Local LLM Shortcuts...",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.chordMenu.chat",
-                "title": "DS: Send to Chat Shortcuts...",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.chordMenu.tomAiChat",
-                "title": "DS: Tom AI Chat Shortcuts...",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.chordMenu.execute",
-                "title": "DS: Execute Shortcuts...",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.chordMenu.favorites",
-                "title": "DS: Favorites...",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.showQuickReference",
-                "title": "DS: Show Quick Reference",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.defineCommandline",
-                "title": "DS: Add Commandline",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.deleteCommandline",
-                "title": "DS: Delete Commandline",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.executeCommandline",
-                "title": "DS: Execute Commandline",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.openConfig",
-                "title": "DS: Open Config File",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.telegramTest",
-                "title": "DS: Telegram Test Connection",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.telegramToggle",
-                "title": "DS: Telegram Start/Stop Polling",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.telegramConfigure",
-                "title": "DS: Configure Telegram...",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.toggleTrail",
-                "title": "DS: Toggle AI Trail Logging",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.showStatusPage",
-                "title": "DS: Extension Status Page",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.openExtensionSettings",
-                "title": "DS: Open Extension Settings",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.combined.maximizeExplorer",
-                "title": "DS: Maximize Explorer",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.combined.maximizeEditor",
-                "title": "DS: Maximize Editor",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.combined.maximizeChat",
-                "title": "DS: Maximize Chat",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.combined.maximizeToggle",
-                "title": "DS: Maximize Toggle",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.stateMachine.vsWindowStateFlow",
-                "title": "DS: Window Panel State Flow",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.resetMultiCommandState",
-                "title": "DS: Reset All State Machine States",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.focusTomAI",
-                "title": "DS: Focus Tom AI Panel",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.combined.showSideNotes",
-                "title": "DS: Show Side Notes",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.openChatVariablesEditor",
-                "title": "DS: Open Chat Variables Editor",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.openQueueEditor",
-                "title": "DS: Open Prompt Queue Editor",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.openTimedRequestsEditor",
-                "title": "DS: Open Timed Requests Editor",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.openContextSettingsEditor",
-                "title": "DS: Open Context & Settings Editor",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.openGlobalTemplateEditor",
-                "title": "DS: Open Prompt Template Editor",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.openReusablePromptEditor",
-                "title": "DS: Open Reusable Prompt Editor",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.openTrailViewer",
-                "title": "DS: Open Prompt Trail Viewer",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.openTrailViewerFolder",
-                "title": "DS: Open Trail Viewer (Select Folder)",
-                "category": "DartScript"
-            },
-            {
-                "command": "dartscript.openInMdViewer",
-                "title": "DS: Open in MD Viewer",
-                "category": "DartScript"
-            },
             {
                 "command": "tomAi.sendToCopilot",
                 "title": "@T: Send to Copilot",
@@ -1018,17 +625,17 @@
                 {
                     "command": "tomAi.executeFile",
                     "when": "resourceExtname == .dart",
-                    "group": "dartscript@1"
+                    "group": "tomAi@1"
                 },
                 {
                     "command": "tomAi.executeScript",
                     "when": "resourceExtname == .dart",
-                    "group": "dartscript@3"
+                    "group": "tomAi@3"
                 },
                 {
                     "command": "tomAi.openInMdViewer",
                     "when": "resourceExtname == .md",
-                    "group": "dartscript@5"
+                    "group": "tomAi@5"
                 }
             ],
             "editor/context": [
@@ -1069,22 +676,22 @@
                 {
                     "command": "tomAi.executeScript",
                     "when": "resourceExtname == .dart",
-                    "group": "dartscript@2"
+                    "group": "tomAi@2"
                 },
                 {
                     "command": "tomAi.tomAiChat.start",
                     "when": "resourceExtname == .chat.md",
-                    "group": "dartscript@4"
+                    "group": "tomAi@4"
                 },
                 {
                     "command": "tomAi.tomAiChat.send",
                     "when": "resourceExtname == .chat.md",
-                    "group": "dartscript@5"
+                    "group": "tomAi@5"
                 },
                 {
                     "command": "tomAi.openInMdViewer",
                     "when": "resourceLangId == markdown",
-                    "group": "dartscript@10"
+                    "group": "tomAi@10"
                 }
             ],
             "tomAi.sendToCopilotSubmenu": [
@@ -1578,7 +1185,7 @@
                 "toolReferenceName": "manageScratchTodos"
             },
             {
-                "name": "dartscript_notifyUser",
+                "name": "tomAi_notifyUser",
                 "tags": [
                     "notification",
                     "telegram",
@@ -1613,10 +1220,10 @@
                         }
                     }
                 },
-                "toolReferenceName": "dartscript_notifyUser"
+                "toolReferenceName": "tomAi_notifyUser"
             },
             {
-                "name": "dartscript_getWorkspaceInfo",
+                "name": "tomAi_getWorkspaceInfo",
                 "tags": [
                     "workspace",
                     "context",
@@ -1630,10 +1237,10 @@
                     "type": "object",
                     "properties": {}
                 },
-                "toolReferenceName": "dartscript_getWorkspaceInfo"
+                "toolReferenceName": "tomAi_getWorkspaceInfo"
             },
             {
-                "name": "dartscript_listTodos",
+                "name": "tomAi_listTodos",
                 "tags": [
                     "todo",
                     "quest",
@@ -1680,7 +1287,7 @@
                 "toolReferenceName": "listAllQuestTodos"
             },
             {
-                "name": "dartscript_getAllTodos",
+                "name": "tomAi_getAllTodos",
                 "tags": [
                     "todo",
                     "quest",
@@ -1705,7 +1312,7 @@
                 "toolReferenceName": "listAllQuestAndSessionTodos"
             },
             {
-                "name": "dartscript_getTodo",
+                "name": "tomAi_getTodo",
                 "tags": [
                     "todo",
                     "quest",
@@ -1735,7 +1342,7 @@
                 "toolReferenceName": "getQuestTodoById"
             },
             {
-                "name": "dartscript_createTodo",
+                "name": "tomAi_createTodo",
                 "tags": [
                     "todo",
                     "quest",
@@ -1821,7 +1428,7 @@
                 "toolReferenceName": "createQuestTodo"
             },
             {
-                "name": "dartscript_updateTodo",
+                "name": "tomAi_updateTodo",
                 "tags": [
                     "todo",
                     "quest",
@@ -1897,7 +1504,7 @@
                 "toolReferenceName": "updateQuestTodo"
             },
             {
-                "name": "dartscript_moveTodo",
+                "name": "tomAi_moveTodo",
                 "tags": [
                     "todo",
                     "quest",
@@ -1932,7 +1539,7 @@
                 "toolReferenceName": "moveQuestTodo"
             },
             {
-                "name": "dartscript_windowTodo_add",
+                "name": "tomAi_windowTodo_add",
                 "tags": [
                     "todo",
                     "session",
@@ -1977,7 +1584,7 @@
                 "toolReferenceName": "addSessionTodo"
             },
             {
-                "name": "dartscript_windowTodo_list",
+                "name": "tomAi_windowTodo_list",
                 "tags": [
                     "todo",
                     "session",
@@ -2011,7 +1618,7 @@
                 "toolReferenceName": "listSessionTodos"
             },
             {
-                "name": "dartscript_windowTodo_getAll",
+                "name": "tomAi_windowTodo_getAll",
                 "tags": [
                     "todo",
                     "session",
@@ -2028,7 +1635,7 @@
                 "toolReferenceName": "getAllSessionTodos"
             },
             {
-                "name": "dartscript_windowTodo_update",
+                "name": "tomAi_windowTodo_update",
                 "tags": [
                     "todo",
                     "session",
@@ -2078,7 +1685,7 @@
                 "toolReferenceName": "updateSessionTodo"
             },
             {
-                "name": "dartscript_windowTodo_delete",
+                "name": "tomAi_windowTodo_delete",
                 "tags": [
                     "todo",
                     "session",
@@ -2139,11 +1746,21 @@
                         "text"
                     ],
                     "properties": {
-                        "text": { "type": "string" },
-                        "template": { "type": "string" },
-                        "answerWrapper": { "type": "boolean" },
-                        "position": { "type": "number" },
-                        "deferSend": { "type": "boolean" }
+                        "text": {
+                            "type": "string"
+                        },
+                        "template": {
+                            "type": "string"
+                        },
+                        "answerWrapper": {
+                            "type": "boolean"
+                        },
+                        "position": {
+                            "type": "number"
+                        },
+                        "deferSend": {
+                            "type": "boolean"
+                        }
                     }
                 },
                 "toolReferenceName": "addToPromptQueue"
@@ -2165,10 +1782,18 @@
                         "text"
                     ],
                     "properties": {
-                        "queueItemId": { "type": "string" },
-                        "requestId": { "type": "string" },
-                        "text": { "type": "string" },
-                        "template": { "type": "string" }
+                        "queueItemId": {
+                            "type": "string"
+                        },
+                        "requestId": {
+                            "type": "string"
+                        },
+                        "text": {
+                            "type": "string"
+                        },
+                        "template": {
+                            "type": "string"
+                        }
                     }
                 },
                 "toolReferenceName": "addFollowUpPrompt"
@@ -2186,8 +1811,12 @@
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "queueItemId": { "type": "string" },
-                        "requestId": { "type": "string" }
+                        "queueItemId": {
+                            "type": "string"
+                        },
+                        "requestId": {
+                            "type": "string"
+                        }
                     }
                 },
                 "toolReferenceName": "sendQueuedPrompt"
@@ -2209,11 +1838,21 @@
                         "text"
                     ],
                     "properties": {
-                        "text": { "type": "string" },
-                        "template": { "type": "string" },
-                        "answerWrapper": { "type": "boolean" },
-                        "enabled": { "type": "boolean" },
-                        "intervalMinutes": { "type": "number" }
+                        "text": {
+                            "type": "string"
+                        },
+                        "template": {
+                            "type": "string"
+                        },
+                        "answerWrapper": {
+                            "type": "boolean"
+                        },
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "intervalMinutes": {
+                            "type": "number"
+                        }
                     }
                 },
                 "toolReferenceName": "addTimedRequest"
@@ -2231,7 +1870,9 @@
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "includeSent": { "type": "boolean" }
+                        "includeSent": {
+                            "type": "boolean"
+                        }
                     }
                 },
                 "toolReferenceName": "tom_queue_list"
@@ -2252,14 +1893,30 @@
                         "queueItemId"
                     ],
                     "properties": {
-                        "queueItemId": { "type": "string" },
-                        "text": { "type": "string" },
-                        "template": { "type": "string" },
-                        "answerWrapper": { "type": "boolean" },
-                        "reminderEnabled": { "type": "boolean" },
-                        "reminderTemplateId": { "type": "string" },
-                        "reminderTimeoutMinutes": { "type": "number" },
-                        "reminderRepeat": { "type": "boolean" }
+                        "queueItemId": {
+                            "type": "string"
+                        },
+                        "text": {
+                            "type": "string"
+                        },
+                        "template": {
+                            "type": "string"
+                        },
+                        "answerWrapper": {
+                            "type": "boolean"
+                        },
+                        "reminderEnabled": {
+                            "type": "boolean"
+                        },
+                        "reminderTemplateId": {
+                            "type": "string"
+                        },
+                        "reminderTimeoutMinutes": {
+                            "type": "number"
+                        },
+                        "reminderRepeat": {
+                            "type": "boolean"
+                        }
                     }
                 },
                 "toolReferenceName": "tom_queue_update_item"
@@ -2281,8 +1938,16 @@
                         "status"
                     ],
                     "properties": {
-                        "queueItemId": { "type": "string" },
-                        "status": { "type": "string", "enum": ["staged", "pending"] }
+                        "queueItemId": {
+                            "type": "string"
+                        },
+                        "status": {
+                            "type": "string",
+                            "enum": [
+                                "staged",
+                                "pending"
+                            ]
+                        }
                     }
                 },
                 "toolReferenceName": "tom_queue_set_status"
@@ -2303,7 +1968,9 @@
                         "queueItemId"
                     ],
                     "properties": {
-                        "queueItemId": { "type": "string" }
+                        "queueItemId": {
+                            "type": "string"
+                        }
                     }
                 },
                 "toolReferenceName": "tom_queue_send_now"
@@ -2324,7 +1991,9 @@
                         "queueItemId"
                     ],
                     "properties": {
-                        "queueItemId": { "type": "string" }
+                        "queueItemId": {
+                            "type": "string"
+                        }
                     }
                 },
                 "toolReferenceName": "tom_queue_remove_item"
@@ -2347,14 +2016,30 @@
                         "followUpId"
                     ],
                     "properties": {
-                        "queueItemId": { "type": "string" },
-                        "followUpId": { "type": "string" },
-                        "text": { "type": "string" },
-                        "template": { "type": "string" },
-                        "reminderEnabled": { "type": "boolean" },
-                        "reminderTemplateId": { "type": "string" },
-                        "reminderTimeoutMinutes": { "type": "number" },
-                        "reminderRepeat": { "type": "boolean" }
+                        "queueItemId": {
+                            "type": "string"
+                        },
+                        "followUpId": {
+                            "type": "string"
+                        },
+                        "text": {
+                            "type": "string"
+                        },
+                        "template": {
+                            "type": "string"
+                        },
+                        "reminderEnabled": {
+                            "type": "boolean"
+                        },
+                        "reminderTemplateId": {
+                            "type": "string"
+                        },
+                        "reminderTimeoutMinutes": {
+                            "type": "number"
+                        },
+                        "reminderRepeat": {
+                            "type": "boolean"
+                        }
                     }
                 },
                 "toolReferenceName": "tom_queue_update_followup"
@@ -2377,8 +2062,12 @@
                         "followUpId"
                     ],
                     "properties": {
-                        "queueItemId": { "type": "string" },
-                        "followUpId": { "type": "string" }
+                        "queueItemId": {
+                            "type": "string"
+                        },
+                        "followUpId": {
+                            "type": "string"
+                        }
                     }
                 },
                 "toolReferenceName": "tom_queue_remove_followup"
@@ -2396,7 +2085,9 @@
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "includeCompleted": { "type": "boolean" }
+                        "includeCompleted": {
+                            "type": "boolean"
+                        }
                     }
                 },
                 "toolReferenceName": "tom_timed_list"
@@ -2418,8 +2109,12 @@
                         "patch"
                     ],
                     "properties": {
-                        "entryId": { "type": "string" },
-                        "patch": { "type": "object" }
+                        "entryId": {
+                            "type": "string"
+                        },
+                        "patch": {
+                            "type": "object"
+                        }
                     }
                 },
                 "toolReferenceName": "tom_timed_update_entry"
@@ -2440,7 +2135,9 @@
                         "entryId"
                     ],
                     "properties": {
-                        "entryId": { "type": "string" }
+                        "entryId": {
+                            "type": "string"
+                        }
                     }
                 },
                 "toolReferenceName": "tom_timed_remove_entry"
@@ -2461,7 +2158,9 @@
                         "activated"
                     ],
                     "properties": {
-                        "activated": { "type": "boolean" }
+                        "activated": {
+                            "type": "boolean"
+                        }
                     }
                 },
                 "toolReferenceName": "tom_timed_set_engine_state"
@@ -2484,11 +2183,27 @@
                         "operation"
                     ],
                     "properties": {
-                        "operation": { "type": "string", "enum": ["list", "create", "update", "delete"] },
-                        "name": { "type": "string" },
-                        "newName": { "type": "string" },
-                        "template": { "type": "string" },
-                        "showInMenu": { "type": "boolean" }
+                        "operation": {
+                            "type": "string",
+                            "enum": [
+                                "list",
+                                "create",
+                                "update",
+                                "delete"
+                            ]
+                        },
+                        "name": {
+                            "type": "string"
+                        },
+                        "newName": {
+                            "type": "string"
+                        },
+                        "template": {
+                            "type": "string"
+                        },
+                        "showInMenu": {
+                            "type": "boolean"
+                        }
                     }
                 },
                 "toolReferenceName": "tom_prompt_template_manage"
@@ -2512,11 +2227,27 @@
                         "operation"
                     ],
                     "properties": {
-                        "operation": { "type": "string", "enum": ["list", "create", "update", "delete"] },
-                        "id": { "type": "string" },
-                        "name": { "type": "string" },
-                        "prompt": { "type": "string" },
-                        "isDefault": { "type": "boolean" }
+                        "operation": {
+                            "type": "string",
+                            "enum": [
+                                "list",
+                                "create",
+                                "update",
+                                "delete"
+                            ]
+                        },
+                        "id": {
+                            "type": "string"
+                        },
+                        "name": {
+                            "type": "string"
+                        },
+                        "prompt": {
+                            "type": "string"
+                        },
+                        "isDefault": {
+                            "type": "boolean"
+                        }
                     }
                 },
                 "toolReferenceName": "tom_reminder_template_manage"
@@ -2605,15 +2336,6 @@
         "configuration": {
             "title": "Tom AI",
             "properties": {
-                "dartscript.contextApproach": {
-                    "type": "string",
-                    "default": "accumulation",
-                    "enum": [
-                        "accumulation",
-                        "persistent"
-                    ],
-                    "description": "Context persistence approach for AI operations"
-                },
                 "tomAi.contextApproach": {
                     "type": "string",
                     "default": "accumulation",
@@ -2623,35 +2345,15 @@
                     ],
                     "description": "Context persistence approach for AI operations"
                 },
-                "dartscript.maxContextSize": {
-                    "type": "number",
-                    "default": 50000,
-                    "description": "Maximum context size in tokens"
-                },
                 "tomAi.maxContextSize": {
                     "type": "number",
                     "default": 50000,
                     "description": "Maximum context size in tokens"
                 },
-                "dartscript.autoRunOnSave": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Automatically run scripts on save"
-                },
                 "tomAi.autoRunOnSave": {
                     "type": "boolean",
                     "default": false,
                     "description": "Automatically run scripts on save"
-                },
-                "dartscript.copilotModel": {
-                    "type": "string",
-                    "default": "gpt-4o",
-                    "enum": [
-                        "gpt-4o",
-                        "gpt-4",
-                        "gpt-3.5-turbo"
-                    ],
-                    "description": "Preferred Copilot model"
                 },
                 "tomAi.copilotModel": {
                     "type": "string",
@@ -2663,155 +2365,75 @@
                     ],
                     "description": "Preferred Copilot model"
                 },
-                "dartscript.configPath": {
-                    "type": "string",
-                    "default": "~/.tom/vscode/tom_vscode_extension.json",
-                    "description": "Path to the extension configuration file (supports ~ for home directory and ${workspaceFolder})"
-                },
                 "tomAi.configPath": {
                     "type": "string",
                     "default": "~/.tom/vscode/tom_vscode_extension.json",
                     "description": "Path to the extension configuration file (supports ~ for home directory and ${workspaceFolder})"
-                },
-                "dartscript.sendToChat.showNotifications": {
-                    "type": "boolean",
-                    "default": true,
-                    "description": "Show notifications when sending text to Copilot Chat"
                 },
                 "tomAi.sendToChat.showNotifications": {
                     "type": "boolean",
                     "default": true,
                     "description": "Show notifications when sending text to Copilot Chat"
                 },
-                "dartscript.sendToChat.chatAnswerFolder": {
-                    "type": "string",
-                    "default": "_ai/chat_replies",
-                    "description": "Folder path for chat answer files (relative to workspace root)"
-                },
                 "tomAi.sendToChat.chatAnswerFolder": {
                     "type": "string",
                     "default": "_ai/chat_replies",
                     "description": "Folder path for chat answer files (relative to workspace root)"
-                },
-                "dartscript.tomAiChat.modelId": {
-                    "type": "string",
-                    "default": "gpt-5.2",
-                    "description": "Model ID for Tom AI chat"
                 },
                 "tomAi.tomAiChat.modelId": {
                     "type": "string",
                     "default": "gpt-5.2",
                     "description": "Model ID for Tom AI chat"
                 },
-                "dartscript.tomAiChat.tokenModelId": {
-                    "type": "string",
-                    "default": "gpt-4o",
-                    "description": "Model ID used for token count estimates"
-                },
                 "tomAi.tomAiChat.tokenModelId": {
                     "type": "string",
                     "default": "gpt-4o",
                     "description": "Model ID used for token count estimates"
-                },
-                "dartscript.tomAiChat.responsesTokenLimit": {
-                    "type": "number",
-                    "default": 50000,
-                    "description": "Token limit for <chat-id>.responses.md"
                 },
                 "tomAi.tomAiChat.responsesTokenLimit": {
                     "type": "number",
                     "default": 50000,
                     "description": "Token limit for <chat-id>.responses.md"
                 },
-                "dartscript.tomAiChat.responseSummaryTokenLimit": {
-                    "type": "number",
-                    "default": 8000,
-                    "description": "Token limit for <chat-id>.response-summary.md"
-                },
                 "tomAi.tomAiChat.responseSummaryTokenLimit": {
                     "type": "number",
                     "default": 8000,
                     "description": "Token limit for <chat-id>.response-summary.md"
-                },
-                "dartscript.tomAiChat.preProcessingModelId": {
-                    "type": "string",
-                    "default": "gpt-5-mini",
-                    "description": "Model ID for pre-processing step (cheap model to gather context before main processing)"
                 },
                 "tomAi.tomAiChat.preProcessingModelId": {
                     "type": "string",
                     "default": "gpt-5-mini",
                     "description": "Model ID for pre-processing step (cheap model to gather context before main processing)"
                 },
-                "dartscript.tomAiChat.enablePromptOptimization": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Enable pre-processing step with cheap model to gather context before main processing"
-                },
                 "tomAi.tomAiChat.enablePromptOptimization": {
                     "type": "boolean",
                     "default": false,
                     "description": "Enable pre-processing step with cheap model to gather context before main processing"
-                },
-                "dartscript.ollama.url": {
-                    "type": "string",
-                    "default": "http://localhost:11434",
-                    "description": "Ollama server URL (fallback; prefer promptExpander section in send_to_chat.json)"
                 },
                 "tomAi.ollama.url": {
                     "type": "string",
                     "default": "http://localhost:11434",
                     "description": "Ollama server URL (fallback; prefer promptExpander section in send_to_chat.json)"
                 },
-                "dartscript.ollama.model": {
-                    "type": "string",
-                    "default": "qwen3:8b",
-                    "description": "Ollama model name (fallback; prefer promptExpander section in send_to_chat.json)"
-                },
                 "tomAi.ollama.model": {
                     "type": "string",
                     "default": "qwen3:8b",
                     "description": "Ollama model name (fallback; prefer promptExpander section in send_to_chat.json)"
-                },
-                "dartscript.notes.workspaceTodoFile": {
-                    "type": "string",
-                    "default": "workspace.todo.yaml",
-                    "description": "Workspace-relative path to the workspace todo YAML file used by WORKSPACE TODOS views"
                 },
                 "tomAi.notes.workspaceTodoFile": {
                     "type": "string",
                     "default": "workspace.todo.yaml",
                     "description": "Workspace-relative path to the workspace todo YAML file used by WORKSPACE TODOS views"
                 },
-                "dartscript.notes.questNotesFilePattern": {
-                    "type": "string",
-                    "default": "_ai/quests/${quest}/quest-notes.${quest}.md",
-                    "description": "Pattern for quest notes file path. Supports ${quest} and ${workspaceFolder}."
-                },
                 "tomAi.notes.questNotesFilePattern": {
                     "type": "string",
                     "default": "_ai/quests/${quest}/quest-notes.${quest}.md",
                     "description": "Pattern for quest notes file path. Supports ${quest} and ${workspaceFolder}."
                 },
-                "dartscript.notes.questTodoFilePattern": {
-                    "type": "string",
-                    "default": "todos.${quest}.todo.yaml",
-                    "description": "Pattern for quest todo filename used by QUEST TODOS view. Supports ${quest}."
-                },
                 "tomAi.notes.questTodoFilePattern": {
                     "type": "string",
                     "default": "todos.${quest}.todo.yaml",
                     "description": "Pattern for quest todo filename used by QUEST TODOS view. Supports ${quest}."
-                },
-                "dartscript.guidelines.projectExcludeGlobs": {
-                    "type": "array",
-                    "default": [
-                        "tom/zom_*/**"
-                    ],
-                    "items": {
-                        "type": "string"
-                    },
-                    "description": "Glob patterns excluded when building the non-recursive Project list in the Guidelines panel."
                 },
                 "tomAi.guidelines.projectExcludeGlobs": {
                     "type": "array",
@@ -2822,16 +2444,6 @@
                         "type": "string"
                     },
                     "description": "Glob patterns excluded when building the non-recursive Project list in the Guidelines panel."
-                },
-                "dartscript.projectDetection.excludeGlobs": {
-                    "type": "array",
-                    "default": [
-                        "tom/zom_*/**"
-                    ],
-                    "items": {
-                        "type": "string"
-                    },
-                    "description": "Glob patterns excluded from full-workspace project detection scans."
                 },
                 "tomAi.projectDetection.excludeGlobs": {
                     "type": "array",

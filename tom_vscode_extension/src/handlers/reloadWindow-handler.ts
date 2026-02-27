@@ -1,5 +1,5 @@
 /**
- * Handler for dartscript.reloadWindowWithBridgeNotification command.
+ * Handler for tomAi.reloadWindowWithBridgeNotification command.
  * 
  * Reloads the VS Code window after notifying the bridge to save state
  * and stopping the bridge process to ensure clean shutdown.

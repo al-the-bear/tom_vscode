@@ -2,8 +2,8 @@
  * Telegram standalone command handlers.
  *
  * Provides two VS Code commands:
- *  - dartscript.telegramTest   — Send a test message to verify bot token & chat ID
- *  - dartscript.telegramToggle — Start/stop Telegram polling independent of bot conversations
+ *  - tomAi.telegram.testConnection   — Send a test message to verify bot token & chat ID
+ *  - tomAi.telegram.toggle — Start/stop Telegram polling independent of bot conversations
  *
  * Configuration is read from botConversation.telegram in tom_vscode_extension.json.
  */
@@ -104,7 +104,7 @@ export async function telegramTestHandler(): Promise<void> {
     const notifier = new TelegramNotifier(testChannel, testConfig);
 
     const timestamp = new Date().toLocaleString();
-    const testMsg = `🔔 *Telegram Test*\n\nConnection successful!\n_Sent from DartScript VS Code Extension_\n_${timestamp}_`;
+    const testMsg = `🔔 *Telegram Test*\n\nConnection successful!\n_Sent from Tom AI VS Code Extension_\n_${timestamp}_`;
 
     await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: 'Testing Telegram connection...' },

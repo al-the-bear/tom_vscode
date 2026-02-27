@@ -5,7 +5,7 @@
  * request entries.  Each entry has a prompt, schedule config
  * (interval or specific times), reminder overrides, and status.
  *
- * Opened via `dartscript.openTimedRequestsEditor` command.
+ * Opened via `tomAi.editor.timedRequests` command.
  */
 
 import * as vscode from 'vscode';
@@ -23,7 +23,7 @@ import { openGlobalTemplateEditor } from './globalTemplateEditor-handler';
 let _panel: vscode.WebviewPanel | undefined;
 let _timerListener: vscode.Disposable | undefined;
 let _ctx: vscode.ExtensionContext | undefined;
-const TIMED_COLLAPSED_STATE_KEY = 'dartscript.timedEditor.collapsedEntryIds';
+const TIMED_COLLAPSED_STATE_KEY = 'tomAi.timedEditor.collapsedEntryIds';
 let _collapsedEntryIds = new Set<string>();
 
 function loadCollapsedTimedState(ctx: vscode.ExtensionContext): void {
@@ -42,7 +42,7 @@ async function persistCollapsedTimedState(): Promise<void> {
 
 export function registerTimedRequestsEditorCommand(ctx: vscode.ExtensionContext): void {
     ctx.subscriptions.push(
-        vscode.commands.registerCommand('dartscript.openTimedRequestsEditor', () => openEditor(ctx))
+        vscode.commands.registerCommand('tomAi.editor.timedRequests', () => openEditor(ctx))
     );
 }
 
@@ -58,7 +58,7 @@ function openEditor(ctx: vscode.ExtensionContext): void {
     const codiconsUri = vscode.Uri.joinPath(ctx.extensionUri, 'node_modules', '@vscode', 'codicons', 'dist', 'codicon.css');
 
     _panel = vscode.window.createWebviewPanel(
-        'dartscript.timedRequestsEditor',
+        'tomAi.timedRequestsEditor',
         'Timed Requests',
         vscode.ViewColumn.One,
         {

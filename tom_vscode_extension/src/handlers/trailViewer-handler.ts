@@ -313,7 +313,7 @@ function extractTodoRefFromText(text: string): string | undefined {
 // Webview Panel
 // ============================================================================
 
-const VIEW_TYPE = 'dartscript.trailViewer';
+const VIEW_TYPE = 'tomAi.trailViewer';
 
 let currentPanel: vscode.WebviewPanel | undefined;
 
@@ -1190,10 +1190,10 @@ function getWebviewHtml(
 
 export function registerTrailViewerCommands(context: vscode.ExtensionContext): vscode.Disposable[] {
     return [
-        vscode.commands.registerCommand('dartscript.openTrailViewer', () => 
+        vscode.commands.registerCommand('tomAi.editor.rawTrailViewer', () => 
             openTrailViewer(context)
         ),
-        vscode.commands.registerCommand('dartscript.openTrailViewerFolder', async () => {
+        vscode.commands.registerCommand('tomAi.editor.summaryTrailViewer', async () => {
             // Allow user to select a trail folder
             const folder = await vscode.window.showOpenDialog({
                 canSelectFolders: true,

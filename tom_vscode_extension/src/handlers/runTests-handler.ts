@@ -1,5 +1,5 @@
 /**
- * Handler for dartscript.runTests command.
+ * Handler for tomAi.runTests command.
  * 
  * Runs all bridge tests from tom_vscode_bridge/test/ directory.
  */

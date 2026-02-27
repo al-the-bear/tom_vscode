@@ -14,10 +14,10 @@
  *     shell command finishes (e.g., reload window, open terminal, etc.)
  *
  * Commands:
- *   dartscript.defineCommandline  — define a new commandline
- *   dartscript.deleteCommandline  — delete an existing commandline
- *   dartscript.executeCommandline — execute an existing commandline
- *   dartscript.openConfig         — open the config file in the editor
+ *   tomAi.commandline.add  — define a new commandline
+ *   tomAi.commandline.delete  — delete an existing commandline
+ *   tomAi.commandline.execute — execute an existing commandline
+ *   tomAi.openConfig         — open the config file in the editor
  */
 
 import * as vscode from 'vscode';
@@ -127,7 +127,7 @@ const DEFAULT_POST_ACTIONS: PostActionDefinition[] = [
     { commandId: 'workbench.action.tasks.runTask', label: 'Run Task...', description: 'Run a VS Code task' },
     { commandId: 'workbench.action.debug.start', label: 'Start Debugging', description: 'Start a debug session' },
     { commandId: 'workbench.action.output.toggleOutput', label: 'Toggle Output Panel', description: 'Show/hide the output panel' },
-    { commandId: 'dartscript.openConfig', label: 'Open Config File', description: 'Open tom_vscode_extension.json' },
+    { commandId: 'tomAi.openConfig', label: 'Open Config File', description: 'Open tom_vscode_extension.json' },
 ];
 
 /**
@@ -149,7 +149,7 @@ function getPostActionDefinitions(): PostActionDefinition[] {
 // getWorkspaceRoot() and resolvePathVariables() imported from handler_shared
 
 function getExtensionRoot(): string | undefined {
-    const ext = vscode.extensions.getExtension('tom.dartscript-vscode');
+    const ext = vscode.extensions.getExtension('tom.tom-ai-vscode');
     return ext?.extensionPath;
 }
 
@@ -921,9 +921,9 @@ async function openConfig(): Promise<void> {
 
 export function registerCommandlineCommands(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
-        vscode.commands.registerCommand('dartscript.defineCommandline', defineCommandline),
-        vscode.commands.registerCommand('dartscript.deleteCommandline', deleteCommandline),
-        vscode.commands.registerCommand('dartscript.executeCommandline', executeCommandline),
-        vscode.commands.registerCommand('dartscript.openConfig', openConfig),
+        vscode.commands.registerCommand('tomAi.commandline.add', defineCommandline),
+        vscode.commands.registerCommand('tomAi.commandline.delete', deleteCommandline),
+        vscode.commands.registerCommand('tomAi.commandline.execute', executeCommandline),
+        vscode.commands.registerCommand('tomAi.openConfig', openConfig),
     );
 }

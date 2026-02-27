@@ -1,5 +1,5 @@
 /**
- * Handler for dartscript.executeFile command.
+ * Handler for tomAi.executeFile command.
  * 
  * Executes a Dart file using the executeFile method (loads file with execute() function).
  */
@@ -43,7 +43,7 @@ export async function executeInTomAiBuildHandler(
         await vscode.window.withProgress(
             {
                 location: vscode.ProgressLocation.Notification,
-                title: `Executing ${fileName} in DartScript`,
+                title: `Executing ${fileName} in D4rt`,
                 cancellable: false
             },
             async (progress) => {

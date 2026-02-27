@@ -29,7 +29,7 @@ const DEFAULT_AI_FOLDER = '_ai';
 
 function getAiFolderName(): string {
     const configured = vscode.workspace.getConfiguration('tomAi').get<string>('aiFolder')
-        || vscode.workspace.getConfiguration('dartscript').get<string>('aiFolder');
+        || vscode.workspace.getConfiguration('tomAi').get<string>('aiFolder');
     if (!configured) {
         return DEFAULT_AI_FOLDER;
     }

@@ -4,7 +4,7 @@
  * A webview panel (opened via command) that displays all current chat
  * variables in a two-column editable table plus a scrollable change log.
  *
- * Command: `dartscript.openChatVariablesEditor`
+ * Command: `tomAi.editor.chatVariables`
  */
 
 import * as vscode from 'vscode';
@@ -407,7 +407,7 @@ vscode.postMessage({ type: 'getState' });
 
 export function registerChatVariablesEditorCommand(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
-        vscode.commands.registerCommand('dartscript.openChatVariablesEditor', () => {
+        vscode.commands.registerCommand('tomAi.editor.chatVariables', () => {
             openChatVariablesEditor(context);
         }),
     );

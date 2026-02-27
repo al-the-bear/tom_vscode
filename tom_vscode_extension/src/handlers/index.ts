@@ -2,7 +2,7 @@
  * Command Handlers Index
  *
  * This module exports all command handlers for the VS Code extension.
- * Each handler is responsible for a specific dartscript.* command.
+ * Each handler is responsible for a specific tomAi.* command.
  */
 
 // Shared utilities

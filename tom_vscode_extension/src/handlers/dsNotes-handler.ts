@@ -58,19 +58,19 @@ const VIEW_IDS = {
 
 // Storage keys for drafts
 const STORAGE_KEYS = {
-    localLlmDraft: 'dartscript.dsNotes.localLlmDraft',
-    localLlmProfile: 'dartscript.dsNotes.localLlmProfile',
-    localLlmModel: 'dartscript.dsNotes.localLlmModel',
-    conversationDraft: 'dartscript.dsNotes.conversationDraft',
-    conversationProfile: 'dartscript.dsNotes.conversationProfile',
-    conversationLlmProfileA: 'dartscript.dsNotes.conversationLlmProfileA',
-    conversationLlmProfileB: 'dartscript.dsNotes.conversationLlmProfileB',
-    copilotDraft: 'dartscript.dsNotes.copilotDraft',
-    copilotTemplate: 'dartscript.dsNotes.copilotTemplate',
-    tomAiChatDraft: 'dartscript.dsNotes.tomAiChatDraft',
-    tomAiChatTemplate: 'dartscript.dsNotes.tomAiChatTemplate',
-    notes: 'dartscript.dsNotes.notes',
-    tomNotepad: 'dartscript.dsNotes.tomNotepad'
+    localLlmDraft: 'tomAi.dsNotes.localLlmDraft',
+    localLlmProfile: 'tomAi.dsNotes.localLlmProfile',
+    localLlmModel: 'tomAi.dsNotes.localLlmModel',
+    conversationDraft: 'tomAi.dsNotes.conversationDraft',
+    conversationProfile: 'tomAi.dsNotes.conversationProfile',
+    conversationLlmProfileA: 'tomAi.dsNotes.conversationLlmProfileA',
+    conversationLlmProfileB: 'tomAi.dsNotes.conversationLlmProfileB',
+    copilotDraft: 'tomAi.dsNotes.copilotDraft',
+    copilotTemplate: 'tomAi.dsNotes.copilotTemplate',
+    tomAiChatDraft: 'tomAi.dsNotes.tomAiChatDraft',
+    tomAiChatTemplate: 'tomAi.dsNotes.tomAiChatTemplate',
+    notes: 'tomAi.dsNotes.notes',
+    tomNotepad: 'tomAi.dsNotes.tomNotepad'
 };
 
 // ============================================================================
@@ -582,19 +582,19 @@ const DEFAULT_QUEST_TODO_FILE_PATTERN = 'todos.${quest}.todo.yaml';
 
 function getWorkspaceTodoRelativePath(): string {
     return vscode.workspace.getConfiguration('tomAi').get<string>('notes.workspaceTodoFile')
-        || vscode.workspace.getConfiguration('dartscript').get<string>('notes.workspaceTodoFile')
+        || vscode.workspace.getConfiguration('tomAi').get<string>('notes.workspaceTodoFile')
         || DEFAULT_WORKSPACE_TODO_FILE;
 }
 
 function getQuestNotesPattern(): string {
     return vscode.workspace.getConfiguration('tomAi').get<string>('notes.questNotesFilePattern')
-        || vscode.workspace.getConfiguration('dartscript').get<string>('notes.questNotesFilePattern')
+        || vscode.workspace.getConfiguration('tomAi').get<string>('notes.questNotesFilePattern')
         || DEFAULT_QUEST_NOTES_PATTERN;
 }
 
 function getQuestTodoFilePattern(): string {
     return vscode.workspace.getConfiguration('tomAi').get<string>('notes.questTodoFilePattern')
-        || vscode.workspace.getConfiguration('dartscript').get<string>('notes.questTodoFilePattern')
+        || vscode.workspace.getConfiguration('tomAi').get<string>('notes.questTodoFilePattern')
         || DEFAULT_QUEST_TODO_FILE_PATTERN;
 }
 
@@ -638,7 +638,7 @@ class TomNotepadProvider implements vscode.WebviewViewProvider {
 
     constructor(private readonly _context: vscode.ExtensionContext) {
         this._notesFilePath = GLOBAL_NOTES_PATH;
-        this._selectedTemplate = this._context.workspaceState.get<string>('dartscript.dsNotes.tomNotepadTemplate') || '__none__';
+        this._selectedTemplate = this._context.workspaceState.get<string>('tomAi.dsNotes.tomNotepadTemplate') || '__none__';
         this._ensureFileExists();
         this._loadTemplates();
         this._loadContent();
@@ -736,7 +736,7 @@ class TomNotepadProvider implements vscode.WebviewViewProvider {
                     break;
                 case 'selectTemplate':
                     this._selectedTemplate = msg.key || '__none__';
-                    await this._context.workspaceState.update('dartscript.dsNotes.tomNotepadTemplate', this._selectedTemplate);
+                    await this._context.workspaceState.update('tomAi.dsNotes.tomNotepadTemplate', this._selectedTemplate);
                     this._sendState();
                     break;
                 case 'previewMarkdown':
@@ -2213,7 +2213,7 @@ class NotesNotepadProvider implements vscode.WebviewViewProvider {
         this._initNotesFolder();
         this._loadNotes();
         // Remember active note ID
-        this._activeNoteId = this._context.workspaceState.get<string>('dartscript.dsNotes.activeNoteFile') || null;
+        this._activeNoteId = this._context.workspaceState.get<string>('tomAi.dsNotes.activeNoteFile') || null;
     }
 
     dispose(): void {
@@ -2318,7 +2318,7 @@ class NotesNotepadProvider implements vscode.WebviewViewProvider {
                     break;
                 case 'selectNote':
                     this._activeNoteId = msg.id;
-                    await this._context.workspaceState.update('dartscript.dsNotes.activeNoteFile', this._activeNoteId);
+                    await this._context.workspaceState.update('tomAi.dsNotes.activeNoteFile', this._activeNoteId);
                     this._sendState();
                     break;
                 case 'deleteNote':
@@ -2374,7 +2374,7 @@ class NotesNotepadProvider implements vscode.WebviewViewProvider {
             fs.writeFileSync(filePath, '', 'utf-8');
             this._loadNotes();
             this._activeNoteId = `${fileName}.md`;
-            await this._context.workspaceState.update('dartscript.dsNotes.activeNoteFile', this._activeNoteId);
+            await this._context.workspaceState.update('tomAi.dsNotes.activeNoteFile', this._activeNoteId);
             this._sendState();
         } catch (e) {
             vscode.window.showErrorMessage(`Failed to create note: ${e}`);
@@ -2397,7 +2397,7 @@ class NotesNotepadProvider implements vscode.WebviewViewProvider {
             this._loadNotes();
             if (this._activeNoteId === id) {
                 this._activeNoteId = this._notes.length > 0 ? this._notes[0].id : null;
-                await this._context.workspaceState.update('dartscript.dsNotes.activeNoteFile', this._activeNoteId);
+                await this._context.workspaceState.update('tomAi.dsNotes.activeNoteFile', this._activeNoteId);
             }
             this._sendState();
         } catch (e) {
@@ -2806,7 +2806,7 @@ class WorkspaceNotepadProvider implements vscode.WebviewViewProvider {
     private static readonly STORAGE_KEY = 'workspaceNotesPath';
 
     constructor(private readonly _context: vscode.ExtensionContext) {
-        this._selectedTemplate = this._context.workspaceState.get<string>('dartscript.dsNotes.workspaceNotepadTemplate') || '__none__';
+        this._selectedTemplate = this._context.workspaceState.get<string>('tomAi.dsNotes.workspaceNotepadTemplate') || '__none__';
         this._loadTemplates();
         this._initNotesFilePath();
     }
@@ -2957,7 +2957,7 @@ class WorkspaceNotepadProvider implements vscode.WebviewViewProvider {
                     break;
                 case 'selectTemplate':
                     this._selectedTemplate = msg.key || '__none__';
-                    await this._context.workspaceState.update('dartscript.dsNotes.workspaceNotepadTemplate', this._selectedTemplate);
+                    await this._context.workspaceState.update('tomAi.dsNotes.workspaceNotepadTemplate', this._selectedTemplate);
                     this._sendState();
                     break;
                 case 'previewMarkdown':
@@ -3191,7 +3191,7 @@ class QuestNotesProvider implements vscode.WebviewViewProvider {
     private _selectedTemplate = '__none__';
 
     constructor(private readonly _context: vscode.ExtensionContext) {
-        this._selectedTemplate = this._context.workspaceState.get<string>('dartscript.dsNotes.questNotesTemplate') || '__none__';
+        this._selectedTemplate = this._context.workspaceState.get<string>('tomAi.dsNotes.questNotesTemplate') || '__none__';
     }
 
     private _resolveQuestFile(): string | null {
@@ -3252,7 +3252,7 @@ class QuestNotesProvider implements vscode.WebviewViewProvider {
                     break;
                 case 'selectTemplate':
                     this._selectedTemplate = msg.key || '__none__';
-                    await this._context.workspaceState.update('dartscript.dsNotes.questNotesTemplate', this._selectedTemplate);
+                    await this._context.workspaceState.update('tomAi.dsNotes.questNotesTemplate', this._selectedTemplate);
                     this._sendState();
                     break;
                 case 'previewMarkdown':
@@ -3359,7 +3359,7 @@ export function registerDsNotesViews(context: vscode.ExtensionContext): void {
     const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const hasWorkspaceFile = !!vscode.workspace.workspaceFile;
     vscode.commands.executeCommand('setContext', 'tomAi.hasWorkspaceFile', hasWorkspaceFile);
-    vscode.commands.executeCommand('setContext', 'dartscript.hasWorkspaceFile', hasWorkspaceFile);
+    vscode.commands.executeCommand('setContext', 'tomAi.hasWorkspaceFile', hasWorkspaceFile);
     const workspaceTodoPath = wsRoot ? path.join(wsRoot, getWorkspaceTodoRelativePath()) : getWorkspaceTodoRelativePath();
 
     const workspaceQuestId = getQuestIdFromWorkspaceFile();
@@ -3414,7 +3414,7 @@ export function registerDsNotesViews(context: vscode.ExtensionContext): void {
         vscode.window.registerWebviewViewProvider(VIEW_IDS.sessionTodos, sessionTodosProvider, {
             webviewOptions: { retainContextWhenHidden: true },
         }),
-        vscode.commands.registerCommand('dartscript.focusTomAI', async () => {
+        vscode.commands.registerCommand('tomAi.focusTomAi', async () => {
             // Focus the unified TOM AI panel
             await vscode.commands.executeCommand('tomAi.chatPanel.focus');
         })

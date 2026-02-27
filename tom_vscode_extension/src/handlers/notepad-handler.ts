@@ -2,17 +2,17 @@
  * Notepad WebviewView Provider
  * 
  * Provides notepad/scratchpad views for VS Code.
- * - Dartscript Notepad: Explorer sidebar
+ * - Workspace Notepad: Explorer sidebar
  * - Tom Notepad: Bottom panel
  * Content is persisted across sessions using workspaceState.
  */
 
 import * as vscode from 'vscode';
 
-const DARTSCRIPT_NOTEPAD_VIEW_ID = 'tomAi.notepad';
+const WS_NOTEPAD_VIEW_ID = 'tomAi.notepad';
 const TOM_NOTEPAD_VIEW_ID = 'tomAi.tomNotepad';
-const DARTSCRIPT_STORAGE_KEY = 'dartscript.notepad.content';
-const TOM_STORAGE_KEY = 'dartscript.tomNotepad.content';
+const WS_NOTEPAD_STORAGE_KEY = 'tomAi.notepad.content';
+const TOM_STORAGE_KEY = 'tomAi.tomNotepad.content';
 
 /**
  * Generic WebviewView provider for notepads
@@ -303,17 +303,17 @@ class NotepadViewProvider implements vscode.WebviewViewProvider {
 }
 
 // Global provider instances
-let dartscriptNotepadProvider: NotepadViewProvider | undefined;
+let workspaceNotepadProvider: NotepadViewProvider | undefined;
 let tomNotepadProvider: NotepadViewProvider | undefined;
 
 /**
  * Register both notepad WebviewView providers
  */
 export function registerNotepadView(context: vscode.ExtensionContext): void {
-    // Dartscript Notepad (Explorer sidebar)
-    dartscriptNotepadProvider = new NotepadViewProvider(
+    // Workspace Notepad (Explorer sidebar)
+    workspaceNotepadProvider = new NotepadViewProvider(
         context,
-        DARTSCRIPT_STORAGE_KEY,
+        WS_NOTEPAD_STORAGE_KEY,
         'Quick notes, prompt drafts, scratch space...\\n\\nContent is auto-saved.'
     );
     
@@ -325,16 +325,16 @@ export function registerNotepadView(context: vscode.ExtensionContext): void {
     );
     
     context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(DARTSCRIPT_NOTEPAD_VIEW_ID, dartscriptNotepadProvider),
+        vscode.window.registerWebviewViewProvider(WS_NOTEPAD_VIEW_ID, workspaceNotepadProvider),
         vscode.window.registerWebviewViewProvider(TOM_NOTEPAD_VIEW_ID, tomNotepadProvider)
     );
 }
 
 /**
- * Get the Dartscript notepad provider instance
+ * Get the workspace notepad provider instance
  */
 export function getNotepadProvider(): NotepadViewProvider | undefined {
-    return dartscriptNotepadProvider;
+    return workspaceNotepadProvider;
 }
 
 /**

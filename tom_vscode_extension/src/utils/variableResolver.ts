@@ -216,7 +216,7 @@ function getConfigFilePath(): string {
         .getConfiguration('tomAi')
         .get<string>('configPath')
         || vscode.workspace
-            .getConfiguration('dartscript')
+            .getConfiguration('tomAi')
             .get<string>('configPath');
 
     let configPath = setting || path.join('~', '.tom', 'vscode', 'tom_vscode_extension.json');
@@ -246,7 +246,7 @@ function getChatAnswerFolder(): string {
         .getConfiguration('tomAi.sendToChat')
         .get<string>('chatAnswerFolder')
         || vscode.workspace
-            .getConfiguration('dartscript.sendToChat')
+            .getConfiguration('tomAi.sendToCopilot')
             .get<string>('chatAnswerFolder');
     return setting || '_ai/chat_replies';
 }

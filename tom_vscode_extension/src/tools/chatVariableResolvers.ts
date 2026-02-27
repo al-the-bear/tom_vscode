@@ -75,7 +75,6 @@ export function registerChatVariableResolvers(context: vscode.ExtensionContext):
         try {
             const registerIds = [
                 def.id,
-                def.id.replace(/^tomAi\./, 'dartscript.'),
             ];
 
             for (const variableId of registerIds) {

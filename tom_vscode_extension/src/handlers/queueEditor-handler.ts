@@ -5,7 +5,7 @@
  * prompts destined for Copilot Chat.  Each item is editable with
  * status, expanded preview, reordering, and per-item reminder config.
  *
- * Opened via `dartscript.openQueueEditor` command.
+ * Opened via `tomAi.editor.promptQueue` command.
  */
 
 import * as vscode from 'vscode';
@@ -22,7 +22,7 @@ import { openGlobalTemplateEditor } from './globalTemplateEditor-handler';
 let _panel: vscode.WebviewPanel | undefined;
 let _queueListener: vscode.Disposable | undefined;
 let _ctx: vscode.ExtensionContext | undefined;
-const QUEUE_COLLAPSED_STATE_KEY = 'dartscript.queueEditor.collapsedItemIds';
+const QUEUE_COLLAPSED_STATE_KEY = 'tomAi.queueEditor.collapsedItemIds';
 let _collapsedItemIds = new Set<string>();
 
 function loadCollapsedQueueState(ctx: vscode.ExtensionContext): void {
@@ -41,7 +41,7 @@ async function persistCollapsedQueueState(): Promise<void> {
 
 export function registerQueueEditorCommand(ctx: vscode.ExtensionContext): void {
     ctx.subscriptions.push(
-        vscode.commands.registerCommand('dartscript.openQueueEditor', () => openQueueEditor(ctx))
+        vscode.commands.registerCommand('tomAi.editor.promptQueue', () => openQueueEditor(ctx))
     );
 }
 
@@ -57,7 +57,7 @@ function openQueueEditor(ctx: vscode.ExtensionContext): void {
     const codiconsUri = vscode.Uri.joinPath(ctx.extensionUri, 'node_modules', '@vscode', 'codicons', 'dist', 'codicon.css');
 
     _panel = vscode.window.createWebviewPanel(
-        'dartscript.queueEditor',
+        'tomAi.queueEditor',
         'Prompt Queue',
         vscode.ViewColumn.One,
         {

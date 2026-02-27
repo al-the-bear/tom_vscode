@@ -317,7 +317,7 @@ export function createStateMachineCommandHandler(name: string): () => Promise<vo
  * Register all state machine command entries.
  * Call this from extension.ts during activation.
  *
- * Each registered command has the ID `dartscript.stateMachine.<name>`.
+ * Each registered command has the ID `tomAi.stateMachine.<name>`.
  * The names must match entries declared in package.json → contributes.commands.
  */
 export function registerStateMachineCommands(context: vscode.ExtensionContext): void {
@@ -328,7 +328,7 @@ export function registerStateMachineCommands(context: vscode.ExtensionContext): 
     
     for (const name of registeredNames) {
         const cmd = vscode.commands.registerCommand(
-            `dartscript.stateMachine.${name}`,
+            `tomAi.stateMachine.${name}`,
             createStateMachineCommandHandler(name),
         );
         context.subscriptions.push(cmd);
@@ -336,7 +336,7 @@ export function registerStateMachineCommands(context: vscode.ExtensionContext): 
     
     // Register the reset command
     const resetCmd = vscode.commands.registerCommand(
-        'dartscript.resetMultiCommandState',
+        'tomAi.resetMultiCommandState',
         resetAllStateMachineStates,
     );
     context.subscriptions.push(resetCmd);

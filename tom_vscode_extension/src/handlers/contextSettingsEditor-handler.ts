@@ -1,7 +1,7 @@
 /**
  * Context & Settings Editor — standalone webview panel.
  *
- * Opened via `dartscript.openContextSettingsEditor` command (or from the
+ * Opened via `tomAi.editor.contextSettings` command (or from the
  * copilot toolbar "Context & Settings" button).  Replaces the old in-webview
  * popup overlay, giving full editor-tab space.
  *
@@ -26,7 +26,7 @@ let _context: vscode.ExtensionContext | undefined;
 export function registerContextSettingsEditorCommand(ctx: vscode.ExtensionContext): void {
     _context = ctx;
     ctx.subscriptions.push(
-        vscode.commands.registerCommand('dartscript.openContextSettingsEditor', () => {
+        vscode.commands.registerCommand('tomAi.editor.contextSettings', () => {
             openContextSettingsEditor(ctx);
         }),
     );
@@ -45,7 +45,7 @@ export function openContextSettingsEditor(context: vscode.ExtensionContext): voi
     );
 
     _panel = vscode.window.createWebviewPanel(
-        'dartscript.contextSettingsEditor',
+        'tomAi.contextSettingsEditor',
         'Context & Settings',
         vscode.ViewColumn.Active,
         {

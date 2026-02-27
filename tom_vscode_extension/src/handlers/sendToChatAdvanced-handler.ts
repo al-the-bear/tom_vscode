@@ -242,7 +242,7 @@ export class SendToChatAdvancedManager {
         this.registeredCommands = [];
 
         // Register main command that shows QuickPick with templates
-        const mainCmd = vscode.commands.registerCommand('dartscript.sendToChatAdvanced', async () => {
+        const mainCmd = vscode.commands.registerCommand('tomAi.sendToCopilot.template', async () => {
             await this.showTemplateQuickPick();
         });
         this.registeredCommands.push(mainCmd);
@@ -262,7 +262,7 @@ export class SendToChatAdvancedManager {
      */
     private registerStaticMenuCommands(): void {
         // Register the Trail Reminder command (static, defined in package.json)
-        const trailReminderCmd = vscode.commands.registerCommand('dartscript.sendToChatTrailReminder', async () => {
+        const trailReminderCmd = vscode.commands.registerCommand('tomAi.sendToCopilot.trailReminder', async () => {
             const template = this.templates['Trail Reminder'];
             if (template) {
                 await this.sendToChat('Trail Reminder', template);
@@ -274,7 +274,7 @@ export class SendToChatAdvancedManager {
         this.context.subscriptions.push(trailReminderCmd);
 
         // Register the TODO Execution command (static, defined in package.json)
-        const todoExecutionCmd = vscode.commands.registerCommand('dartscript.sendToChatTodoExecution', async () => {
+        const todoExecutionCmd = vscode.commands.registerCommand('tomAi.sendToCopilot.todoExecution', async () => {
             const template = this.templates['TODO Execution'];
             if (template) {
                 await this.sendToChat('TODO Execution', template);
@@ -286,14 +286,14 @@ export class SendToChatAdvancedManager {
         this.context.subscriptions.push(todoExecutionCmd);
 
         // Register the Standard Template command (uses default from config, loaded dynamically)
-        const standardTemplateCmd = vscode.commands.registerCommand('dartscript.sendToChatStandard', async () => {
+        const standardTemplateCmd = vscode.commands.registerCommand('tomAi.sendToCopilot.standard', async () => {
             await this.sendWithDefaultTemplate();
         });
         this.registeredCommands.push(standardTemplateCmd);
         this.context.subscriptions.push(standardTemplateCmd);
 
         // Register submenu commands for Code Review, Explain, Add to Todo
-        const codeReviewCmd = vscode.commands.registerCommand('dartscript.sendToChatCodeReview', async () => {
+        const codeReviewCmd = vscode.commands.registerCommand('tomAi.sendToCopilot.codeReview', async () => {
             const template = this.templates['Code Review'];
             if (template) {
                 await this.sendToChat('Code Review', template);
@@ -304,7 +304,7 @@ export class SendToChatAdvancedManager {
         this.registeredCommands.push(codeReviewCmd);
         this.context.subscriptions.push(codeReviewCmd);
 
-        const explainCmd = vscode.commands.registerCommand('dartscript.sendToChatExplain', async () => {
+        const explainCmd = vscode.commands.registerCommand('tomAi.sendToCopilot.explain', async () => {
             const template = this.templates['Explain Code'];
             if (template) {
                 await this.sendToChat('Explain Code', template);
@@ -315,7 +315,7 @@ export class SendToChatAdvancedManager {
         this.registeredCommands.push(explainCmd);
         this.context.subscriptions.push(explainCmd);
 
-        const addToTodoCmd = vscode.commands.registerCommand('dartscript.sendToChatAddToTodo', async () => {
+        const addToTodoCmd = vscode.commands.registerCommand('tomAi.sendToCopilot.addToTodo', async () => {
             const template = this.templates['Add to Todo'];
             if (template) {
                 await this.sendToChat('Add to Todo', template);
@@ -327,7 +327,7 @@ export class SendToChatAdvancedManager {
         this.context.subscriptions.push(addToTodoCmd);
 
         // Register Fix Markdown here command
-        const fixMarkdownCmd = vscode.commands.registerCommand('dartscript.sendToChatFixMarkdown', async () => {
+        const fixMarkdownCmd = vscode.commands.registerCommand('tomAi.sendToCopilot.fixMarkdown', async () => {
             const template = this.templates['Fix Markdown here'];
             if (template) {
                 await this.sendToChat('Fix Markdown here', template);
@@ -339,7 +339,7 @@ export class SendToChatAdvancedManager {
         this.context.subscriptions.push(fixMarkdownCmd);
 
         // Register Show Chat Answer Values command (command palette only)
-        const showChatAnswerCmd = vscode.commands.registerCommand('dartscript.showChatAnswerValues', () => {
+        const showChatAnswerCmd = vscode.commands.registerCommand('tomAi.showAnswerValues', () => {
             if (this.outputChannel) {
                 this.outputChannel.show();
                 this.outputChannel.appendLine('=== Chat Answer Values ===');
@@ -358,7 +358,7 @@ export class SendToChatAdvancedManager {
         this.context.subscriptions.push(showChatAnswerCmd);
 
         // Register Clear Chat Answer Values command (command palette only)
-        const clearChatAnswerCmd = vscode.commands.registerCommand('dartscript.clearChatAnswerValues', () => {
+        const clearChatAnswerCmd = vscode.commands.registerCommand('tomAi.clearAnswerValues', () => {
             const keyCount = Object.keys(SendToChatAdvancedManager.chatAnswerData).length;
             SendToChatAdvancedManager.chatAnswerData = {};
             clearChatResponseValues();
@@ -437,8 +437,8 @@ export class SendToChatAdvancedManager {
     private updateMenuContributions(): void {
         // Set context with available templates for menu visibility
         const templateLabels = Object.keys(this.templates);
-        vscode.commands.executeCommand('setContext', 'dartscript.sendToChatTemplates', templateLabels);
-        vscode.commands.executeCommand('setContext', 'dartscript.hasSendToChatTemplates', templateLabels.length > 0);
+        vscode.commands.executeCommand('setContext', 'tomAi.sendToCopilotTemplates', templateLabels);
+        vscode.commands.executeCommand('setContext', 'tomAi.hasSendToCopilotTemplates', templateLabels.length > 0);
     }
 
     /**
@@ -538,12 +538,6 @@ export class SendToChatAdvancedManager {
             const str = typeof v === 'string' ? v : (v !== null && v !== undefined ? JSON.stringify(v) : '');
             values[`chat.${k}`] = str;
         }
-
-        // Also keep dartscript.* aliases for backward compatibility
-        values['dartscript.datetime'] = values['datetime'];
-        values['dartscript.windowId'] = values['windowId'];
-        values['dartscript.machineId'] = values['machineId'];
-        values['dartscript.chatAnswerFolder'] = values['chatAnswerFolder'];
 
         // Get the effective template string
         const tmpl = this.getEffectiveTemplate(template);

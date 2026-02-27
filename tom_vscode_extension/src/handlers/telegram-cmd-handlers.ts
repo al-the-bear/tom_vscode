@@ -408,7 +408,7 @@ async function bridgeHandler(cmd: ParsedTelegramCommand): Promise<TelegramComman
 
     switch (cmd.subcommand) {
         case 'restart':
-            await vscode.commands.executeCommand('dartscript.restartBridge');
+            await vscode.commands.executeCommand('tomAi.bridge.restart');
             return { text: '🔄 *Bridge restart* initiated.' };
 
         case 'stop': {
@@ -437,11 +437,11 @@ async function bridgeHandler(cmd: ParsedTelegramCommand): Promise<TelegramComman
             if (configPath && fs.existsSync(configPath)) {
                 try {
                     const raw = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-                    if (raw.dartscriptBridge?.profiles?.[profileKey]) {
-                        raw.dartscriptBridge.current = profileKey;
+                    if (raw.tomAiBridge?.profiles?.[profileKey]) {
+                        raw.tomAiBridge.current = profileKey;
                         fs.writeFileSync(configPath, JSON.stringify(raw, null, 2) + '\n', 'utf-8');
                         // Restart bridge with new profile
-                        await vscode.commands.executeCommand('dartscript.restartBridge');
+                        await vscode.commands.executeCommand('tomAi.bridge.restart');
                         return { text: `🔄 *Bridge mode switched to ${profileKey}* and restarting.` };
                     } else {
                         return { text: `❌ Profile '${profileKey}' not found in config.` };
@@ -469,15 +469,15 @@ async function cliIntegrationHandler(cmd: ParsedTelegramCommand): Promise<Telegr
             if (cmd.args.length > 0) {
                 // Custom port — delegates to startCliServerCustomPort which uses an input box.
                 // We can't easily pass the port, so just trigger the standard start.
-                await vscode.commands.executeCommand('dartscript.startCliServer');
+                await vscode.commands.executeCommand('tomAi.cliServer.start');
             } else {
-                await vscode.commands.executeCommand('dartscript.startCliServer');
+                await vscode.commands.executeCommand('tomAi.cliServer.start');
             }
             return { text: '▶️ *CLI Integration Server* start initiated.' };
         }
 
         case 'stop':
-            await vscode.commands.executeCommand('dartscript.stopCliServer');
+            await vscode.commands.executeCommand('tomAi.cliServer.stop');
             return { text: '⏹ *CLI Integration Server* stop initiated.' };
 
         default:

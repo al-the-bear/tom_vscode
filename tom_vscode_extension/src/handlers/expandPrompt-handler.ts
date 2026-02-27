@@ -334,7 +334,7 @@ export class PromptExpanderManager {
 
         // VS Code settings fallback
         const vsTomAi = vscode.workspace.getConfiguration('tomAi.ollama');
-        const vsLegacy = vscode.workspace.getConfiguration('dartscript.ollama');
+        const vsLegacy = vscode.workspace.getConfiguration('tomAi.ollama');
         const vsUrl = vsTomAi.get<string>('url') || vsLegacy.get<string>('url');
         const vsModel = vsTomAi.get<string>('model') || vsLegacy.get<string>('model');
         if (vsUrl) { config.ollamaUrl = vsUrl; }
@@ -1823,7 +1823,7 @@ export function getPromptExpanderManager(): PromptExpanderManager | undefined {
 }
 
 /**
- * Command handler for `dartscript.expandPrompt`.
+ * Command handler for `tomAi.sendToLocalLlm`.
  * Delegates to the global PromptExpanderManager.
  */
 export async function expandPromptHandler(): Promise<void> {
@@ -1844,7 +1844,7 @@ export async function expandPromptHandler(): Promise<void> {
 
 /**
  * Command handler for profile-specific context menu commands.
- * Used by `dartscript.sendToLocalLlm.<profileKey>`.
+ * Used by `tomAi.sendToLocalLlm.default.<profileKey>`.
  */
 export function createProfileHandler(profileKey: string): () => Promise<void> {
     return async () => {
@@ -1865,7 +1865,7 @@ export function createProfileHandler(profileKey: string): () => Promise<void> {
 }
 
 /**
- * Command handler for `dartscript.switchLocalModel`.
+ * Command handler for `tomAi.localLlm.switchModel`.
  * Shows available Ollama models and switches the default.
  */
 export async function switchModelHandler(): Promise<void> {

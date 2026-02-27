@@ -5,7 +5,7 @@
  * execute a sequence of VS Code commands read from `tom_vscode_extension.json`.
  *
  * Each combined command is registered once in package.json with a fixed
- * command ID (e.g. `dartscript.combined.maximizeExplorer`), but the actual
+ * command ID (e.g. `tomAi.combined.maximizeExplorer`), but the actual
  * VS Code commands it executes are read from the `combinedCommands` section
  * of the config file at runtime.  This means the behaviour can be changed
  * without reinstalling the extension.
@@ -138,7 +138,7 @@ export function createCombinedCommandHandler(
  * Register all combined command entries.
  * Call this from extension.ts during activation.
  *
- * Each registered command has the ID `dartscript.combined.<name>`.
+ * Each registered command has the ID `tomAi.combined.<name>`.
  * The names must match entries declared in package.json → contributes.commands.
  */
 export function registerCombinedCommands(
@@ -156,7 +156,7 @@ export function registerCombinedCommands(
 
     for (const name of registeredNames) {
         const cmd = vscode.commands.registerCommand(
-            `dartscript.combined.${name}`,
+            `tomAi.combined.${name}`,
             createCombinedCommandHandler(name),
         );
         context.subscriptions.push(cmd);

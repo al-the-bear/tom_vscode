@@ -74,7 +74,7 @@ export function openReusablePromptEditor(
     );
 
     _panel = vscode.window.createWebviewPanel(
-        'dartscript.reusablePromptEditor',
+        'tomAi.reusablePromptEditor',
         'Reusable Prompt Editor',
         vscode.ViewColumn.Active,
         {
@@ -106,7 +106,7 @@ export function openReusablePromptEditor(
 export function registerReusablePromptEditorCommand(ctx: vscode.ExtensionContext): void {
     _context = ctx;
     ctx.subscriptions.push(
-        vscode.commands.registerCommand('dartscript.openReusablePromptEditor', (args?: any) => {
+        vscode.commands.registerCommand('tomAi.editor.reusablePrompts', (args?: any) => {
             openReusablePromptEditor(ctx, {
                 scope: args?.scope,
                 subScopeId: args?.subScopeId,

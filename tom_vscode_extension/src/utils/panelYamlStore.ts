@@ -8,7 +8,7 @@
  * e.g. `tom_agent_container.queue.yaml`.
  *
  * Default storage folder: `_ai/local/` in the workspace root.
- * Configurable via `dartscript.panelStoragePath` setting.
+ * Configurable via `tomAi.panelStoragePath` setting.
  */
 
 import * as vscode from 'vscode';
@@ -35,7 +35,7 @@ export function getStorageFolder(): string | undefined {
         .getConfiguration('tomAi')
         .get<string>('panelStoragePath')
         || vscode.workspace
-            .getConfiguration('dartscript')
+            .getConfiguration('tomAi')
             .get<string>('panelStoragePath');
 
     const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;

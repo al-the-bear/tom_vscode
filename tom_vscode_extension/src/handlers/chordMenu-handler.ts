@@ -53,16 +53,16 @@ interface ChordGroup {
 // Quick Reference Helper
 // ============================================================================
 
-const QUICK_REFERENCE_COMMAND = 'dartscript.showQuickReference';
+const QUICK_REFERENCE_COMMAND = 'tomAi.showQuickReference';
 
 /**
  * Opens the quick_reference.md file from the extension's doc/ folder.
  */
 async function openQuickReference(): Promise<void> {
     // Find the extension by its ID
-    const ext = vscode.extensions.getExtension('tom.dartscript-vscode');
+    const ext = vscode.extensions.getExtension('tom.tom-ai-vscode');
     if (!ext) {
-        vscode.window.showErrorMessage('DartScript extension not found.');
+        vscode.window.showErrorMessage('Tom AI extension not found.');
         return;
     }
     const refPath = path.join(ext.extensionPath, 'doc', 'quick_reference.md');
@@ -96,11 +96,11 @@ const CHORD_GROUPS: Record<string, ChordGroup> = {
         title: 'Bot Conversation',
         prefix: 'Ctrl+Shift+C',
         items: [
-            { key: 'b', label: 'Start Conversation', commandId: 'dartscript.startBotConversation' },
-            { key: 's', label: 'Stop Conversation', commandId: 'dartscript.stopBotConversation' },
-            { key: 'h', label: 'Halt Conversation', commandId: 'dartscript.haltBotConversation' },
-            { key: 'c', label: 'Continue Conversation', commandId: 'dartscript.continueBotConversation' },
-            { key: 'a', label: 'Add Info to Conversation', commandId: 'dartscript.addToBotConversation' },
+            { key: 'b', label: 'Start Conversation', commandId: 'tomAi.aiConversation.start' },
+            { key: 's', label: 'Stop Conversation', commandId: 'tomAi.aiConversation.stop' },
+            { key: 'h', label: 'Halt Conversation', commandId: 'tomAi.aiConversation.halt' },
+            { key: 'c', label: 'Continue Conversation', commandId: 'tomAi.aiConversation.continue' },
+            { key: 'a', label: 'Add Info to Conversation', commandId: 'tomAi.aiConversation.add' },
             HELP_ITEM,
         ]
     },
@@ -108,10 +108,10 @@ const CHORD_GROUPS: Record<string, ChordGroup> = {
         title: 'Local LLM (Ollama)',
         prefix: 'Ctrl+Shift+L',
         items: [
-            { key: 'x', label: 'Expand Prompt', commandId: 'dartscript.expandPrompt' },
-            { key: 'c', label: 'Change Ollama Model', commandId: 'dartscript.switchLocalModel' },
-            { key: 's', label: 'Send to LLM (Standard)', commandId: 'dartscript.sendToLocalLlmStandard' },
-            { key: 't', label: 'Send to LLM (Template)', commandId: 'dartscript.sendToLocalLlmAdvanced' },
+            { key: 'x', label: 'Expand Prompt', commandId: 'tomAi.sendToLocalLlm' },
+            { key: 'c', label: 'Change Ollama Model', commandId: 'tomAi.localLlm.switchModel' },
+            { key: 's', label: 'Send to LLM (Standard)', commandId: 'tomAi.sendToLocalLlm.standard' },
+            { key: 't', label: 'Send to LLM (Template)', commandId: 'tomAi.sendToLocalLlm.template' },
             HELP_ITEM,
         ]
     },
@@ -119,10 +119,10 @@ const CHORD_GROUPS: Record<string, ChordGroup> = {
         title: 'Send to Copilot Chat',
         prefix: 'Ctrl+Shift+A',
         items: [
-            { key: 'c', label: 'Send to Chat', commandId: 'dartscript.sendToChat' },
-            { key: 's', label: 'Send to Chat (Standard)', commandId: 'dartscript.sendToChatStandard' },
-            { key: 't', label: 'Send to Chat (Template)', commandId: 'dartscript.sendToChatAdvanced' },
-            { key: 'r', label: 'Reload Chat Config', commandId: 'dartscript.reloadSendToChatConfig' },
+            { key: 'c', label: 'Send to Chat', commandId: 'tomAi.sendToCopilot' },
+            { key: 's', label: 'Send to Chat (Standard)', commandId: 'tomAi.sendToCopilot.standard' },
+            { key: 't', label: 'Send to Chat (Template)', commandId: 'tomAi.sendToCopilot.template' },
+            { key: 'r', label: 'Reload Chat Config', commandId: 'tomAi.reloadConfig' },
             HELP_ITEM,
         ]
     },
@@ -130,9 +130,9 @@ const CHORD_GROUPS: Record<string, ChordGroup> = {
         title: 'Tom AI Chat',
         prefix: 'Ctrl+Shift+T',
         items: [
-            { key: 'n', label: 'Start Chat', commandId: 'dartscript.startTomAIChat' },
-            { key: 's', label: 'Send Chat Prompt', commandId: 'dartscript.sendToTomAIChat' },
-            { key: 'i', label: 'Interrupt Chat', commandId: 'dartscript.interruptTomAIChat' },
+            { key: 'n', label: 'Start Chat', commandId: 'tomAi.tomAiChat.start' },
+            { key: 's', label: 'Send Chat Prompt', commandId: 'tomAi.tomAiChat.send' },
+            { key: 'i', label: 'Interrupt Chat', commandId: 'tomAi.tomAiChat.interrupt' },
             HELP_ITEM,
         ]
     },
@@ -140,10 +140,10 @@ const CHORD_GROUPS: Record<string, ChordGroup> = {
         title: 'Execute Commandline',
         prefix: 'Ctrl+Shift+E',
         items: [
-            { key: 'e', label: 'Execute Commandline', commandId: 'dartscript.executeCommandline' },
-            { key: 'a', label: 'Add Commandline', commandId: 'dartscript.defineCommandline' },
-            { key: 'd', label: 'Delete Commandline', commandId: 'dartscript.deleteCommandline' },
-            { key: 'o', label: 'Open Config File', commandId: 'dartscript.openConfig' },
+            { key: 'e', label: 'Execute Commandline', commandId: 'tomAi.commandline.execute' },
+            { key: 'a', label: 'Add Commandline', commandId: 'tomAi.commandline.add' },
+            { key: 'd', label: 'Delete Commandline', commandId: 'tomAi.commandline.delete' },
+            { key: 'o', label: 'Open Config File', commandId: 'tomAi.openConfig' },
             HELP_ITEM,
         ]
     }
@@ -210,7 +210,7 @@ let menuOpenTimestamp: number = 0;
 
 /**
  * Shows a QuickPick for a chord group. Auto-executes on single unique keypress.
- * Also sets the `dartscript.chordMenuOpen` context key so that Ctrl+Shift+<letter>
+ * Also sets the `tomAi.chordMenuOpen` context key so that Ctrl+Shift+<letter>
  * keybindings work while the menu is visible.
  */
 async function showChordMenu(groupId: string): Promise<void> {
@@ -229,7 +229,7 @@ async function showChordMenu(groupId: string): Promise<void> {
     console.log(`[ChordMenu] === OPEN group '${groupId}' (${group.prefix}) at ${menuOpenTimestamp} ===`);
 
     await vscode.commands.executeCommand('setContext', 'tomAi.chordMenuOpen', true);
-    await vscode.commands.executeCommand('setContext', 'dartscript.chordMenuOpen', true);
+    await vscode.commands.executeCommand('setContext', 'tomAi.chordMenuOpen', true);
     console.log(`[ChordMenu] setContext complete (+${Date.now() - menuOpenTimestamp}ms)`);
 
     // Build QuickPick items
@@ -297,7 +297,7 @@ async function showChordMenu(groupId: string): Promise<void> {
         activeQuickPick = null;
         menuOpenTimestamp = 0;
         vscode.commands.executeCommand('setContext', 'tomAi.chordMenuOpen', false);
-        vscode.commands.executeCommand('setContext', 'dartscript.chordMenuOpen', false);
+        vscode.commands.executeCommand('setContext', 'tomAi.chordMenuOpen', false);
         quickPick.dispose();
     });
 
@@ -357,12 +357,12 @@ export async function chordMenuFavoritesHandler(): Promise<void> {
  */
 export function registerChordMenuCommands(context: vscode.ExtensionContext): void {
     const cmds = [
-        vscode.commands.registerCommand('dartscript.chordMenu.conversation', chordMenuConversationHandler),
-        vscode.commands.registerCommand('dartscript.chordMenu.llm', chordMenuLlmHandler),
-        vscode.commands.registerCommand('dartscript.chordMenu.chat', chordMenuChatHandler),
-        vscode.commands.registerCommand('dartscript.chordMenu.tomAiChat', chordMenuTomAiChatHandler),
-        vscode.commands.registerCommand('dartscript.chordMenu.execute', chordMenuExecuteHandler),
-        vscode.commands.registerCommand('dartscript.chordMenu.favorites', chordMenuFavoritesHandler),
+        vscode.commands.registerCommand('tomAi.chordMenu.aiConversation', chordMenuConversationHandler),
+        vscode.commands.registerCommand('tomAi.chordMenu.localLlm', chordMenuLlmHandler),
+        vscode.commands.registerCommand('tomAi.chordMenu.copilot', chordMenuChatHandler),
+        vscode.commands.registerCommand('tomAi.chordMenu.tomAiChat', chordMenuTomAiChatHandler),
+        vscode.commands.registerCommand('tomAi.chordMenu.execute', chordMenuExecuteHandler),
+        vscode.commands.registerCommand('tomAi.chordMenu.favorites', chordMenuFavoritesHandler),
         vscode.commands.registerCommand(QUICK_REFERENCE_COMMAND, openQuickReference),
     ];
     context.subscriptions.push(...cmds);

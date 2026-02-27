@@ -1,8 +1,8 @@
 /**
- * Handler for dartscript.restartBridge command.
+ * Handler for tomAi.bridge.restart command.
  * 
  * Starts or restarts the Dart bridge server using the configured profile
- * from tom_vscode_extension.json → dartscriptBridge section.
+ * from tom_vscode_extension.json → tomAiBridge section.
  */
 
 import * as vscode from 'vscode';
@@ -59,7 +59,7 @@ export function loadBridgeConfig(): BridgeConfig | undefined {
     try {
         const raw = fs.readFileSync(configPath, 'utf-8');
         const parsed = JSON.parse(raw);
-        const sec = parsed?.dartscriptBridge;
+        const sec = parsed?.tomAiBridge;
         if (!sec || typeof sec !== 'object') { return undefined; }
 
         const profiles: Record<string, BridgeProfile> = {};
@@ -118,8 +118,8 @@ function saveBridgeCurrentProfile(profileKey: string): void {
     try {
         const raw = fs.readFileSync(configPath, 'utf-8');
         const parsed = JSON.parse(raw);
-        if (!parsed.dartscriptBridge) { return; }
-        parsed.dartscriptBridge.current = profileKey;
+        if (!parsed.tomAiBridge) { return; }
+        parsed.tomAiBridge.current = profileKey;
         fs.writeFileSync(configPath, JSON.stringify(parsed, null, 2) + '\n', 'utf-8');
     } catch {
         // Ignore write errors
@@ -224,7 +224,7 @@ export async function switchBridgeProfileHandler(
     const bridgeConfig = loadBridgeConfig();
     if (!bridgeConfig) {
         vscode.window.showWarningMessage(
-            'No dartscriptBridge profiles configured in tom_vscode_extension.json'
+            'No tomAiBridge profiles configured in tom_vscode_extension.json'
         );
         return;
     }
@@ -246,8 +246,8 @@ export async function switchBridgeProfileHandler(
     );
 
     const picked = await vscode.window.showQuickPick(items, {
-        placeHolder: 'Select a Dartscript Bridge profile',
-        title: 'Switch Dartscript Bridge Profile',
+        placeHolder: 'Select a Tom AI Bridge profile',
+        title: 'Switch Tom AI Bridge Profile',
     });
 
     if (!picked) { return; }

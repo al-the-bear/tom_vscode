@@ -26,7 +26,7 @@ export async function showMarkdownHtmlPreview(
     }
 
     markdownPreviewPanel = vscode.window.createWebviewPanel(
-        'dartscriptMarkdownHtmlPreview',
+        'tomAiMarkdownHtmlPreview',
         options.title,
         vscode.ViewColumn.Active,
         {

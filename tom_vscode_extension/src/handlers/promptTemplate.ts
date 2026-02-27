@@ -77,7 +77,7 @@ export function getChatAnswerFolder(): string {
         .getConfiguration('tomAi.sendToChat')
         .get<string>('chatAnswerFolder')
         || vscode.workspace
-            .getConfiguration('dartscript.sendToChat')
+            .getConfiguration('tomAi.sendToCopilot')
             .get<string>('chatAnswerFolder');
     return setting || WsPaths.aiRelative('chatReplies');
 }

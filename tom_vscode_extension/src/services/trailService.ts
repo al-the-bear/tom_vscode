@@ -206,7 +206,7 @@ export class TrailService {
     private resolvePathTokens(input: string, vars: Record<string, string>): string {
         const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
         const aiFolder = vscode.workspace.getConfiguration('tomAi').get<string>('aiFolder')
-            || vscode.workspace.getConfiguration('dartscript').get<string>('aiFolder')
+            || vscode.workspace.getConfiguration('tomAi').get<string>('aiFolder')
             || '_ai';
 
         const replaced = input

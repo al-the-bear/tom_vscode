@@ -103,8 +103,8 @@ export const AVAILABLE_LLM_TOOLS = [
     'tom_runCommand',
     'tom_runVscodeCommand',
     'tom_manageTodo',
-    'dartscript_notifyUser',
-    'dartscript_getWorkspaceInfo',
+    'tomAi_notifyUser',
+    'tomAi_getWorkspaceInfo',
 ];
 
 let statusPanel: vscode.WebviewPanel | undefined;
@@ -996,7 +996,7 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
             const isChecked = enabledTools.includes(tool);
             return `<label class="sp-tool-checkbox" title="${tool}">
                 <input type="checkbox" data-tool="${tool}" data-config="${configId}" ${isChecked ? 'checked' : ''}>
-                ${tool.replace('tom_', '').replace('dartscript_', '')}
+                ${tool.replace('tom_', '').replace('tomAi_', '')}
             </label>`;
         }).join('');
     
@@ -2457,7 +2457,7 @@ function renderLlmConfigurations() {
             var checked = enabledTools.indexOf(tool) >= 0 ? 'checked' : '';
             return '<label class="sp-tool-checkbox" title="' + tool + '">' +
                 '<input type="checkbox" data-tool="' + tool + '" data-config="' + id + '" ' + checked + '>' +
-                tool.replace('tom_', '').replace('dartscript_', '') +
+                tool.replace('tom_', '').replace('tomAi_', '') +
             '</label>';
         }).join('');
 

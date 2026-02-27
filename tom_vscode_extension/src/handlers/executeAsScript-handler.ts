@@ -1,5 +1,5 @@
 /**
- * Handler for dartscript.executeScript command.
+ * Handler for tomAi.executeScript command.
  * 
  * Executes a Dart file as an inline script using the executeScript method.
  * Supports executing either the full file or just the selected text.
@@ -65,7 +65,7 @@ export async function executeAsScriptHandler(
         await vscode.window.withProgress(
             {
                 location: vscode.ProgressLocation.Notification,
-                title: `Executing ${fileName} as script in DartScript`,
+                title: `Executing ${fileName} as script in D4rt`,
                 cancellable: false
             },
             async (progress) => {

@@ -1,5 +1,5 @@
 /**
- * Handler for dartscript.sendToChat command.
+ * Handler for tomAi.sendToCopilot command.
  * 
  * Sends selected text from the active editor to Copilot Chat.
  */

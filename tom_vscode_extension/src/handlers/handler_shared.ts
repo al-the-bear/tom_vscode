@@ -79,7 +79,7 @@ export function setBridgeClient(client: DartBridgeClient | null): void {
 // ============================================================================
 
 /**
- * Log a message to the DartScript output channel
+ * Log a message to the Tom AI output channel
  */
 export function bridgeLog(message: string, level: 'INFO' | 'ERROR' = 'INFO'): void {
     debugLog(message, level === 'ERROR' ? 'ERROR' : 'INFO', 'bridgeLog');
@@ -159,7 +159,7 @@ export function getWorkspaceRoot(): string | undefined {
  *
  * Resolution order:
  *   1. Workspace `.tom/tom_vscode_extension.json` (if it exists)
- *   2. Explicit `tomAi.configPath` / `dartscript.configPath` setting (with variable resolution)
+ *   2. Explicit `tomAi.configPath` / `tomAi.configPath` setting (with variable resolution)
  *   3. Workspace `.tom/tom_vscode_extension.json` default target
  */
 export function getConfigPath(): string | undefined {
@@ -180,7 +180,7 @@ export function getConfigPath(): string | undefined {
         .getConfiguration('tomAi')
         .get<string>('configPath')
         || vscode.workspace
-            .getConfiguration('dartscript')
+            .getConfiguration('tomAi')
             .get<string>('configPath');
     if (configSetting) {
         return resolvePathVariables(configSetting) ?? configSetting;
@@ -372,7 +372,7 @@ export async function ensureBridgeRunning(
 export async function getCopilotModel(): Promise<vscode.LanguageModelChat | undefined> {
     try {
         // Get configuration
-        const config = vscode.workspace.getConfiguration('dartscript');
+        const config = vscode.workspace.getConfiguration('tomAi');
         const preferredModel = config.get<string>('copilotModel', 'gpt-4o');
 
         // Try to get the preferred model
@@ -612,7 +612,7 @@ export async function openInExternalApplication(filePath: string): Promise<boole
 }
 
 /**
- * Resolve DartScript Bridge executable from profile configuration.
+ * Resolve Tom AI Bridge executable from profile configuration.
  * Supports executable references and direct command paths.
  * 
  * @param profileName The profile name to resolve
@@ -620,7 +620,7 @@ export async function openInExternalApplication(filePath: string): Promise<boole
  */
 export function resolveBridgeExecutable(profileName: string): string | undefined {
     const config = loadSendToChatConfig();
-    const profile = config?.dartscriptBridge?.profiles?.[profileName];
+    const profile = config?.tomAiBridge?.profiles?.[profileName];
     if (!profile) return undefined;
     
     // Prefer executable reference over direct command path
@@ -907,7 +907,7 @@ export async function showPreviewPanel(title: string, content: string, onSend?: 
     }
     
     previewPanel = vscode.window.createWebviewPanel(
-        'dartscriptPreview',
+        'tomAiPreview',
         `Preview: ${title}`,
         vscode.ViewColumn.Active,
         { enableScripts: true, retainContextWhenHidden: true }

@@ -1,5 +1,5 @@
 /**
- * DartScript VS Code Extension
+ * Tom AI VS Code Extension
  * 
  * Main extension entry point. This file handles activation, deactivation,
  * and command registration. All command implementations are in separate
@@ -117,9 +117,9 @@ function installGlobalInstrumentation(): void {
     try {
         const commandsAny = vscode.commands as unknown as {
             registerCommand: typeof vscode.commands.registerCommand;
-            __dartscriptInstrumented?: boolean;
+            __tomAiInstrumented?: boolean;
         };
-        if (!commandsAny.__dartscriptInstrumented) {
+        if (!commandsAny.__tomAiInstrumented) {
             const originalRegisterCommand = vscode.commands.registerCommand.bind(vscode.commands);
             commandsAny.registerCommand = ((command: string, callback: (...args: unknown[]) => unknown, thisArg?: unknown) => {
                 const wrappedCallback = async (...args: unknown[]) => {
@@ -132,14 +132,14 @@ function installGlobalInstrumentation(): void {
                 };
                 return originalRegisterCommand(command, wrappedCallback, thisArg);
             }) as typeof vscode.commands.registerCommand;
-            commandsAny.__dartscriptInstrumented = true;
+            commandsAny.__tomAiInstrumented = true;
         }
 
         const windowAny = vscode.window as unknown as {
             registerWebviewViewProvider: typeof vscode.window.registerWebviewViewProvider;
-            __dartscriptWebviewInstrumented?: boolean;
+            __tomAiWebviewInstrumented?: boolean;
         };
-        if (!windowAny.__dartscriptWebviewInstrumented) {
+        if (!windowAny.__tomAiWebviewInstrumented) {
             const originalRegisterWebviewProvider = vscode.window.registerWebviewViewProvider.bind(vscode.window);
             windowAny.registerWebviewViewProvider = ((viewId, provider, options) => {
                 const wrappedProvider: vscode.WebviewViewProvider = {
@@ -149,10 +149,10 @@ function installGlobalInstrumentation(): void {
                         try {
                             const webviewAny = webviewView.webview as unknown as {
                                 onDidReceiveMessage: typeof webviewView.webview.onDidReceiveMessage;
-                                __dartscriptMessageInstrumented?: boolean;
+                                __tomAiMessageInstrumented?: boolean;
                             };
 
-                            if (!webviewAny.__dartscriptMessageInstrumented) {
+                            if (!webviewAny.__tomAiMessageInstrumented) {
                                 const originalOnDidReceiveMessage = webviewView.webview.onDidReceiveMessage.bind(webviewView.webview);
                                 webviewAny.onDidReceiveMessage = ((listener, thisArgs, disposables) => {
                                     const wrappedListener = async (message: unknown) => {
@@ -169,7 +169,7 @@ function installGlobalInstrumentation(): void {
                                     };
                                     return originalOnDidReceiveMessage(wrappedListener, thisArgs, disposables);
                                 }) as typeof webviewView.webview.onDidReceiveMessage;
-                                webviewAny.__dartscriptMessageInstrumented = true;
+                                webviewAny.__tomAiMessageInstrumented = true;
                             }
 
                             provider.resolveWebviewView(webviewView, webviewViewResolveContext, token);
@@ -185,7 +185,7 @@ function installGlobalInstrumentation(): void {
                 };
                 return originalRegisterWebviewProvider(viewId, wrappedProvider, options);
             }) as typeof vscode.window.registerWebviewViewProvider;
-            windowAny.__dartscriptWebviewInstrumented = true;
+            windowAny.__tomAiWebviewInstrumented = true;
         }
 
         // NOTE: We intentionally do NOT install process-level unhandledRejection
@@ -249,11 +249,11 @@ export async function activate(context: vscode.ExtensionContext) {
         // infinite loading indicators
         registerMinimalModePanels(context);
 
-        bridgeLog(`DartScript minimal activation in ${totalMs}ms`);
+        bridgeLog(`Tom AI minimal activation in ${totalMs}ms`);
         return;
     }
 
-    bridgeLog('DartScript extension is now active!');
+    bridgeLog('Tom AI extension is now active!');
 
     stepStart = performance.now();
     TomAiConfiguration.init(context);
@@ -268,7 +268,6 @@ export async function activate(context: vscode.ExtensionContext) {
     // Register all commands
     stepStart = performance.now();
     registerCommands(context);
-    registerCommandAliases(context);
     timeStep('registerCommands', stepStart);
 
     // Register chord menu (which-key) commands
@@ -464,13 +463,13 @@ export async function activate(context: vscode.ExtensionContext) {
     const totalMs = Math.round((performance.now() - activateStart) * 100) / 100;
     const sortedTimings = [...timings].sort((a, b) => b.ms - a.ms);
     const timingLines = sortedTimings.map(t => `  ${t.step}: ${t.ms}ms`);
-    const timingSummary = `DartScript activate(): ${totalMs}ms total\n${timingLines.join('\n')}`;
+    const timingSummary = `Tom AI activate(): ${totalMs}ms total\n${timingLines.join('\n')}`;
     debugLog(timingSummary, 'INFO', 'extension.activate');
 
     // Show activation message with timing
-    vscode.window.showInformationMessage(`DartScript activated in ${totalMs}ms`);
+    vscode.window.showInformationMessage(`Tom AI activated in ${totalMs}ms`);
 
-    bridgeLog('DartScript extension is now active!');
+    bridgeLog('Tom AI extension is now active!');
 }
 
 /**
@@ -478,7 +477,7 @@ export async function activate(context: vscode.ExtensionContext) {
  * Note: This is called synchronously when VS Code is about to reload/close
  */
 export function deactivate() {
-    bridgeLog('DartScript extension deactivating - stopping bridge...');
+    bridgeLog('Tom AI extension deactivating - stopping bridge...');
     
     // Stop the bridge process to ensure clean shutdown
     const bridgeClient = getBridgeClient();
@@ -491,7 +490,7 @@ export function deactivate() {
         }
     }
     
-    bridgeLog('DartScript extension deactivated');
+    bridgeLog('Tom AI extension deactivated');
 }
 
 // ============================================================================
@@ -504,23 +503,23 @@ export function deactivate() {
 function registerCommands(context: vscode.ExtensionContext) {
     // Send to Chat command - sends selected text to Copilot Chat
     const sendToChatCmd = vscode.commands.registerCommand(
-        'dartscript.sendToChat',
+        'tomAi.sendToCopilot',
         async () => {
             await sendToChatHandler();
         }
     );
 
-    // Execute Dart file in DartScript (executeFile)
+    // Execute Dart file in D4rt (executeFile)
     const executeInTomAiBuildCmd = vscode.commands.registerCommand(
-        'dartscript.executeFile',
+        'tomAi.executeFile',
         async (uri?: vscode.Uri) => {
             await executeInTomAiBuildHandler(uri, context);
         }
     );
 
-    // Execute Dart file as script in DartScript (executeScript)
+    // Execute Dart file as script in D4rt (executeScript)
     const executeAsScriptInTomAiBuildCmd = vscode.commands.registerCommand(
-        'dartscript.executeScript',
+        'tomAi.executeScript',
         async (uri?: vscode.Uri) => {
             await executeAsScriptHandler(uri, context);
         }
@@ -528,7 +527,7 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     // Restart/Start Dart Bridge command
     const restartBridgeCmd = vscode.commands.registerCommand(
-        'dartscript.restartBridge',
+        'tomAi.bridge.restart',
         async () => {
             await restartBridgeHandler(context, true);
         }
@@ -536,7 +535,7 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     // Switch Bridge Profile command
     const switchBridgeProfileCmd = vscode.commands.registerCommand(
-        'dartscript.switchBridgeProfile',
+        'tomAi.bridge.switchProfile',
         async () => {
             await switchBridgeProfileHandler(context);
         }
@@ -544,7 +543,7 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     // Run Tests command - executes all tests from tom_vscode_bridge/test/
     const runTestsCmd = vscode.commands.registerCommand(
-        'dartscript.runTests',
+        'tomAi.runTests',
         async () => {
             return await runTestsHandler(context);
         }
@@ -552,7 +551,7 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     // Reload window with bridge notification command
     const reloadWithBridgeNotificationCmd = vscode.commands.registerCommand(
-        'dartscript.reloadWindow',
+        'tomAi.reloadWindow',
         async () => {
             await reloadWindowHandler();
         }
@@ -560,7 +559,7 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     // Reload Send to Chat config command
     const reloadSendToChatConfigCmd = vscode.commands.registerCommand(
-        'dartscript.reloadSendToChatConfig',
+        'tomAi.reloadConfig',
         async () => {
             if (sendToChatAdvancedManager) {
                 await sendToChatAdvancedManager.loadConfig();
@@ -571,21 +570,21 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     // CLI Integration Server commands
     const startCliServerCmd = vscode.commands.registerCommand(
-        'dartscript.startCliServer',
+        'tomAi.cliServer.start',
         async () => {
             await startCliServerHandler();
         }
     );
 
     const startCliServerCustomPortCmd = vscode.commands.registerCommand(
-        'dartscript.startCliServerCustomPort',
+        'tomAi.cliServer.startCustomPort',
         async () => {
             await startCliServerCustomPortHandler();
         }
     );
 
     const stopCliServerCmd = vscode.commands.registerCommand(
-        'dartscript.stopCliServer',
+        'tomAi.cliServer.stop',
         async () => {
             await stopCliServerHandler();
         }
@@ -593,7 +592,7 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     // Process Monitor command
     const startProcessMonitorCmd = vscode.commands.registerCommand(
-        'dartscript.startProcessMonitor',
+        'tomAi.startProcessMonitor',
         async () => {
             await startProcessMonitorHandler();
         }
@@ -601,7 +600,7 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     // Debug Logging toggle command
     const toggleDebugLoggingCmd = vscode.commands.registerCommand(
-        'dartscript.toggleBridgeDebugLogging',
+        'tomAi.bridge.toggleDebug',
         async () => {
             await toggleBridgeDebugLoggingHandler();
         }
@@ -609,7 +608,7 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     // Print Configuration command
     const printConfigurationCmd = vscode.commands.registerCommand(
-        'dartscript.printConfiguration',
+        'tomAi.printConfiguration',
         async () => {
             await printConfigurationHandler();
         }
@@ -617,7 +616,7 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     // Show Help command
     const showHelpCmd = vscode.commands.registerCommand(
-        'dartscript.showHelp',
+        'tomAi.showHelp',
         async () => {
             await showHelpHandler();
         }
@@ -625,7 +624,7 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     // Show API Info command
     const showApiInfoCmd = vscode.commands.registerCommand(
-        'dartscript.showApiInfo',
+        'tomAi.showApiInfo',
         async () => {
             await showApiInfoHandler();
         }
@@ -633,21 +632,21 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     // Tom AI Chat commands
     const startTomAiChatCmd = vscode.commands.registerCommand(
-        'dartscript.startTomAIChat',
+        'tomAi.tomAiChat.start',
         async () => {
             await startTomAiChatHandler();
         }
     );
 
     const sendToTomAiChatCmd = vscode.commands.registerCommand(
-        'dartscript.sendToTomAIChat',
+        'tomAi.tomAiChat.send',
         async () => {
             await sendToTomAiChatHandler();
         }
     );
 
     const interruptTomAiChatCmd = vscode.commands.registerCommand(
-        'dartscript.interruptTomAIChat',
+        'tomAi.tomAiChat.interrupt',
         () => {
             interruptTomAiChatHandler();
         }
@@ -655,7 +654,7 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     // Expand Prompt with local Ollama model
     const expandPromptCmd = vscode.commands.registerCommand(
-        'dartscript.expandPrompt',
+        'tomAi.sendToLocalLlm',
         async () => {
             await expandPromptHandler();
         }
@@ -663,7 +662,7 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     // Switch local Ollama model
     const switchLocalModelCmd = vscode.commands.registerCommand(
-        'dartscript.switchLocalModel',
+        'tomAi.localLlm.switchModel',
         async () => {
             await switchModelHandler();
         }
@@ -671,7 +670,7 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     // Start Bot Conversation
     const startBotConversationCmd = vscode.commands.registerCommand(
-        'dartscript.startBotConversation',
+        'tomAi.aiConversation.start',
         async () => {
             await startBotConversationHandler();
         }
@@ -679,7 +678,7 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     // Stop Bot Conversation
     const stopBotConversationCmd = vscode.commands.registerCommand(
-        'dartscript.stopBotConversation',
+        'tomAi.aiConversation.stop',
         async () => {
             await stopBotConversationHandler();
         }
@@ -687,7 +686,7 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     // Halt Bot Conversation
     const haltBotConversationCmd = vscode.commands.registerCommand(
-        'dartscript.haltBotConversation',
+        'tomAi.aiConversation.halt',
         async () => {
             await haltBotConversationHandler();
         }
@@ -695,7 +694,7 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     // Continue Bot Conversation
     const continueBotConversationCmd = vscode.commands.registerCommand(
-        'dartscript.continueBotConversation',
+        'tomAi.aiConversation.continue',
         async () => {
             await continueBotConversationHandler();
         }
@@ -703,7 +702,7 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     // Add to Bot Conversation
     const addToBotConversationCmd = vscode.commands.registerCommand(
-        'dartscript.addToBotConversation',
+        'tomAi.aiConversation.add',
         async () => {
             await addToBotConversationHandler();
         }
@@ -711,7 +710,7 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     // Telegram Test Connection
     const telegramTestCmd = vscode.commands.registerCommand(
-        'dartscript.telegramTest',
+        'tomAi.telegram.testConnection',
         async () => {
             await telegramTestHandler();
         }
@@ -719,7 +718,7 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     // Telegram Toggle Polling
     const telegramToggleCmd = vscode.commands.registerCommand(
-        'dartscript.telegramToggle',
+        'tomAi.telegram.toggle',
         async () => {
             await telegramToggleHandler();
         }
@@ -727,7 +726,7 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     // Telegram Configure
     const telegramConfigureCmd = vscode.commands.registerCommand(
-        'dartscript.telegramConfigure',
+        'tomAi.telegram.configure',
         async () => {
             await telegramConfigureHandler();
         }
@@ -735,7 +734,7 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     // Toggle AI Trail logging
     const toggleTrailCmd = vscode.commands.registerCommand(
-        'dartscript.toggleTrail',
+        'tomAi.trail.toggle',
         async () => {
             await toggleTrailHandler();
         }
@@ -743,7 +742,7 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     // Show Status Page
     const showStatusPageCmd = vscode.commands.registerCommand(
-        'dartscript.showStatusPage',
+        'tomAi.statusPage',
         async () => {
             await showStatusPageHandler();
         }
@@ -751,7 +750,7 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     // Open in MD Viewer - dedicated command for markdown files
     const openInMdViewerCmd = vscode.commands.registerCommand(
-        'dartscript.openInMdViewer',
+        'tomAi.openInMdViewer',
         async (uri?: vscode.Uri) => {
             const filePath = uri?.fsPath || vscode.window.activeTextEditor?.document.uri.fsPath;
             if (!filePath) {
@@ -789,7 +788,7 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     // Open Extension Settings File
     const openExtensionSettingsCmd = vscode.commands.registerCommand(
-        'dartscript.openExtensionSettings',
+        'tomAi.openSettings',
         async () => {
             const configPath = getConfigPath();
             if (configPath && fs.existsSync(configPath)) {
@@ -839,117 +838,6 @@ function registerCommands(context: vscode.ExtensionContext) {
     );
 }
 
-function registerCommandAliases(context: vscode.ExtensionContext): void {
-    const aliasMap: Record<string, string> = {
-        'tomAi.sendToCopilot': 'dartscript.sendToChat',
-        'tomAi.sendToCopilot.template': 'dartscript.sendToChatAdvanced',
-        'tomAi.sendToCopilot.standard': 'dartscript.sendToChatStandard',
-        'tomAi.reloadConfig': 'dartscript.reloadSendToChatConfig',
-        'tomAi.showAnswerValues': 'dartscript.showChatAnswerValues',
-        'tomAi.clearAnswerValues': 'dartscript.clearChatAnswerValues',
-
-        'tomAi.sendToCopilot.trailReminder': 'dartscript.sendToChatTrailReminder',
-        'tomAi.sendToCopilot.todoExecution': 'dartscript.sendToChatTodoExecution',
-        'tomAi.sendToCopilot.codeReview': 'dartscript.sendToChatCodeReview',
-        'tomAi.sendToCopilot.explain': 'dartscript.sendToChatExplain',
-        'tomAi.sendToCopilot.addToTodo': 'dartscript.sendToChatAddToTodo',
-        'tomAi.sendToCopilot.fixMarkdown': 'dartscript.sendToChatFixMarkdown',
-
-        'tomAi.sendToLocalLlm': 'dartscript.expandPrompt',
-        'tomAi.localLlm.switchModel': 'dartscript.switchLocalModel',
-        'tomAi.sendToLocalLlm.default': 'dartscript.sendToLocalLlm',
-        'tomAi.sendToLocalLlm.template': 'dartscript.sendToLocalLlmAdvanced',
-        'tomAi.sendToLocalLlm.standard': 'dartscript.sendToLocalLlmStandard',
-        'tomAi.sendToLocalLlm.expand': 'dartscript.sendToLocalLlm.expand',
-        'tomAi.sendToLocalLlm.rewrite': 'dartscript.sendToLocalLlm.rewrite',
-        'tomAi.sendToLocalLlm.detailed': 'dartscript.sendToLocalLlm.detailed',
-        'tomAi.sendToLocalLlm.annotated': 'dartscript.sendToLocalLlm.annotated',
-
-        'tomAi.aiConversation.start': 'dartscript.startBotConversation',
-        'tomAi.aiConversation.stop': 'dartscript.stopBotConversation',
-        'tomAi.aiConversation.halt': 'dartscript.haltBotConversation',
-        'tomAi.aiConversation.continue': 'dartscript.continueBotConversation',
-        'tomAi.aiConversation.add': 'dartscript.addToBotConversation',
-
-        'tomAi.tomAiChat.start': 'dartscript.startTomAIChat',
-        'tomAi.tomAiChat.send': 'dartscript.sendToTomAIChat',
-        'tomAi.tomAiChat.interrupt': 'dartscript.interruptTomAIChat',
-
-        'tomAi.executeFile': 'dartscript.executeFile',
-        'tomAi.executeScript': 'dartscript.executeScript',
-        'tomAi.bridge.restart': 'dartscript.restartBridge',
-        'tomAi.bridge.switchProfile': 'dartscript.switchBridgeProfile',
-        'tomAi.bridge.toggleDebug': 'dartscript.toggleBridgeDebugLogging',
-        'tomAi.reloadWindow': 'dartscript.reloadWindow',
-        'tomAi.runTests': 'dartscript.runTests',
-
-        'tomAi.cliServer.start': 'dartscript.startCliServer',
-        'tomAi.cliServer.startCustomPort': 'dartscript.startCliServerCustomPort',
-        'tomAi.cliServer.stop': 'dartscript.stopCliServer',
-        'tomAi.startProcessMonitor': 'dartscript.startProcessMonitor',
-
-        'tomAi.commandline.add': 'dartscript.defineCommandline',
-        'tomAi.commandline.delete': 'dartscript.deleteCommandline',
-        'tomAi.commandline.execute': 'dartscript.executeCommandline',
-
-        'tomAi.telegram.testConnection': 'dartscript.telegramTest',
-        'tomAi.telegram.toggle': 'dartscript.telegramToggle',
-        'tomAi.telegram.configure': 'dartscript.telegramConfigure',
-
-        'tomAi.trail.toggle': 'dartscript.toggleTrail',
-        'tomAi.statusPage': 'dartscript.showStatusPage',
-        'tomAi.openInMdViewer': 'dartscript.openInMdViewer',
-        'tomAi.openSettings': 'dartscript.openExtensionSettings',
-        'tomAi.openConfig': 'dartscript.openConfig',
-        'tomAi.printConfiguration': 'dartscript.printConfiguration',
-        'tomAi.showHelp': 'dartscript.showHelp',
-        'tomAi.showApiInfo': 'dartscript.showApiInfo',
-        'tomAi.showQuickReference': 'dartscript.showQuickReference',
-        'tomAi.resetMultiCommandState': 'dartscript.resetMultiCommandState',
-
-        'tomAi.chordMenu.aiConversation': 'dartscript.chordMenu.conversation',
-        'tomAi.chordMenu.localLlm': 'dartscript.chordMenu.llm',
-        'tomAi.chordMenu.copilot': 'dartscript.chordMenu.chat',
-        'tomAi.chordMenu.tomAiChat': 'dartscript.chordMenu.tomAiChat',
-        'tomAi.chordMenu.execute': 'dartscript.chordMenu.execute',
-        'tomAi.chordMenu.favorites': 'dartscript.chordMenu.favorites',
-
-        'tomAi.combined.maximizeToggle': 'dartscript.combined.maximizeToggle',
-        'tomAi.combined.maximizeExplorer': 'dartscript.combined.maximizeExplorer',
-        'tomAi.combined.maximizeEditor': 'dartscript.combined.maximizeEditor',
-        'tomAi.combined.maximizeChat': 'dartscript.combined.maximizeChat',
-        'tomAi.focusTomAi': 'dartscript.focusTomAI',
-        'tomAi.stateMachine.vsWindowStateFlow': 'dartscript.stateMachine.vsWindowStateFlow',
-        'tomAi.combined.showSideNotes': 'dartscript.combined.showSideNotes',
-
-        'dartscript.chatPanel.focus': 'tomAi.chatPanel.focus',
-        'dartscript.wsPanel.focus': 'tomAi.wsPanel.focus',
-        'dartscript.tomNotepad.focus': 'tomAi.tomNotepad.focus',
-        'dartscript.workspaceNotepad.focus': 'tomAi.workspaceNotepad.focus',
-        'dartscript.workspaceTodosView.focus': 'tomAi.workspaceTodosView.focus',
-        'dartscript.questNotesView.focus': 'tomAi.questNotesView.focus',
-        'dartscript.questTodosView.focus': 'tomAi.questTodosView.focus',
-        'dartscript.sessionTodosView.focus': 'tomAi.sessionTodosView.focus',
-        'dartscript.todoLogView.focus': 'tomAi.todoLogView.focus',
-
-        'tomAi.editor.chatVariables': 'dartscript.openChatVariablesEditor',
-        'tomAi.editor.promptQueue': 'dartscript.openQueueEditor',
-        'tomAi.editor.timedRequests': 'dartscript.openTimedRequestsEditor',
-        'tomAi.editor.contextSettings': 'dartscript.openContextSettingsEditor',
-        'tomAi.editor.promptTemplates': 'dartscript.openGlobalTemplateEditor',
-        'tomAi.editor.reusablePrompts': 'dartscript.openReusablePromptEditor',
-        'tomAi.editor.rawTrailViewer': 'dartscript.openTrailViewer',
-        'tomAi.editor.summaryTrailViewer': 'dartscript.openTrailViewerFolder',
-    };
-
-    for (const [newId, legacyId] of Object.entries(aliasMap)) {
-        const disposable = vscode.commands.registerCommand(newId, async (...args: unknown[]) => {
-            await vscode.commands.executeCommand(legacyId, ...args);
-        });
-        context.subscriptions.push(disposable);
-    }
-}
-
 // ============================================================================
 // Local LLM Context Menu Registration
 // ============================================================================
@@ -957,16 +845,16 @@ function registerCommandAliases(context: vscode.ExtensionContext): void {
 /**
  * Dynamically register context menu commands for each profile defined in
  * the Prompt Expander config. Also registers the three base commands:
- *  - dartscript.sendToLocalLlm          (shows profile picker)
- *  - dartscript.sendToLocalLlmStandard  (uses default profile)
- *  - dartscript.sendToLocalLlmAdvanced  (shows profile picker — alias)
+ *  - tomAi.sendToLocalLlm.default   (uses default profile, no picker)
+ *  - tomAi.sendToLocalLlm.standard  (uses default profile)
+ *  - tomAi.sendToLocalLlm.template  (shows profile picker)
  */
 function registerLocalLlmContextMenuCommands(context: vscode.ExtensionContext): void {
     if (!promptExpanderManager) { return; }
 
     // Base command — uses default profile (direct send, no picker)
     const sendToLocalLlm = vscode.commands.registerCommand(
-        'dartscript.sendToLocalLlm',
+        'tomAi.sendToLocalLlm.default',
         async () => {
             bridgeLog('sendToLocalLlm command invoked');
             try {
@@ -986,7 +874,7 @@ function registerLocalLlmContextMenuCommands(context: vscode.ExtensionContext): 
 
     // Standard — same as base (uses default profile without asking)
     const sendToLocalLlmStandard = vscode.commands.registerCommand(
-        'dartscript.sendToLocalLlmStandard',
+        'tomAi.sendToLocalLlm.standard',
         async () => {
             bridgeLog('sendToLocalLlmStandard command invoked');
             try {
@@ -1006,7 +894,7 @@ function registerLocalLlmContextMenuCommands(context: vscode.ExtensionContext): 
 
     // Advanced — shows profile picker (for expand/rewrite/detailed etc.)
     const sendToLocalLlmAdvanced = vscode.commands.registerCommand(
-        'dartscript.sendToLocalLlmAdvanced',
+        'tomAi.sendToLocalLlm.template',
         async () => {
             bridgeLog('sendToLocalLlmAdvanced command invoked');
             try {
@@ -1020,12 +908,12 @@ function registerLocalLlmContextMenuCommands(context: vscode.ExtensionContext): 
 
     context.subscriptions.push(sendToLocalLlm, sendToLocalLlmStandard, sendToLocalLlmAdvanced);
 
-    // Dynamic per-profile commands (dartscript.sendToLocalLlm.<profileKey>)
+    // Dynamic per-profile commands (tomAi.sendToLocalLlm.<profileKey>)
     try {
         const config = promptExpanderManager.loadConfig();
         for (const profileKey of Object.keys(config.profiles)) {
             const cmd = vscode.commands.registerCommand(
-                `dartscript.sendToLocalLlm.${profileKey}`,
+                `tomAi.sendToLocalLlm.${profileKey}`,
                 createProfileHandler(profileKey)
             );
             context.subscriptions.push(cmd);

@@ -82,7 +82,7 @@ export function openGlobalTemplateEditor(
     );
 
     _panel = vscode.window.createWebviewPanel(
-        'dartscript.globalTemplateEditor',
+        'tomAi.globalTemplateEditor',
         'Prompt Template Editor',
         vscode.ViewColumn.Active,
         {
@@ -115,7 +115,7 @@ export function openGlobalTemplateEditor(
 export function registerGlobalTemplateEditorCommand(ctx: vscode.ExtensionContext): void {
     _context = ctx;
     ctx.subscriptions.push(
-        vscode.commands.registerCommand('dartscript.openGlobalTemplateEditor', (args?: any) => {
+        vscode.commands.registerCommand('tomAi.editor.promptTemplates', (args?: any) => {
             openGlobalTemplateEditor(ctx, {
                 category: args?.category,
                 itemId: args?.itemId,

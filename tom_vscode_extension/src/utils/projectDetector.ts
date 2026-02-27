@@ -254,7 +254,7 @@ export interface DetectorScanOptions {
 
 function getConfiguredExcludeGlobs(): string[] {
     const configTomAi = vscode.workspace.getConfiguration('tomAi');
-    const configLegacy = vscode.workspace.getConfiguration('dartscript');
+    const configLegacy = vscode.workspace.getConfiguration('tomAi');
     const configured = configTomAi.get<string[]>('projectDetection.excludeGlobs')
         || configLegacy.get<string[]>('projectDetection.excludeGlobs')
         || configTomAi.get<string[]>('guidelines.projectExcludeGlobs')

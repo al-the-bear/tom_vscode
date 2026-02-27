@@ -475,7 +475,7 @@ function formatToolInputForLog(input: unknown): string {
 
 function getConfig() {
     const configTomAi = vscode.workspace.getConfiguration('tomAi');
-    const configLegacy = vscode.workspace.getConfiguration('dartscript');
+    const configLegacy = vscode.workspace.getConfiguration('tomAi');
     return {
         modelId: configTomAi.get<string>('tomAiChat.modelId')
             ?? configLegacy.get<string>('tomAiChat.modelId')

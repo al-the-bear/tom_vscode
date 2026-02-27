@@ -2,19 +2,19 @@
  * New LLM tool executors for the Chat Enhancements spec.
  *
  * Tools:
- *  - dartscript_notifyUser         §1.1
- *  - dartscript_getWorkspaceInfo   §1.2
- *  - dartscript_listTodos          §1.3
- *  - dartscript_getAllTodos         §1.3
- *  - dartscript_getTodo            §1.3
- *  - dartscript_createTodo         §1.3
- *  - dartscript_updateTodo         §1.3
- *  - dartscript_moveTodo           §1.3
- *  - dartscript_windowTodo_add     §1.4
- *  - dartscript_windowTodo_list    §1.4
- *  - dartscript_windowTodo_getAll  §1.4
- *  - dartscript_windowTodo_update  §1.4
- *  - dartscript_windowTodo_delete  §1.4
+ *  - tomAi_notifyUser         §1.1
+ *  - tomAi_getWorkspaceInfo   §1.2
+ *  - tomAi_listTodos          §1.3
+ *  - tomAi_getAllTodos         §1.3
+ *  - tomAi_getTodo            §1.3
+ *  - tomAi_createTodo         §1.3
+ *  - tomAi_updateTodo         §1.3
+ *  - tomAi_moveTodo           §1.3
+ *  - tomAi_windowTodo_add     §1.4
+ *  - tomAi_windowTodo_list    §1.4
+ *  - tomAi_windowTodo_getAll  §1.4
+ *  - tomAi_windowTodo_update  §1.4
+ *  - tomAi_windowTodo_delete  §1.4
  *
  * Each tool follows the SharedToolDefinition pattern from shared-tool-registry.ts.
  */
@@ -80,7 +80,7 @@ async function executeNotifyUser(input: NotifyUserInput): Promise<string> {
 }
 
 export const NOTIFY_USER_TOOL: SharedToolDefinition<NotifyUserInput> = {
-    name: 'dartscript_notifyUser',
+    name: 'tomAi_notifyUser',
     displayName: 'Notify User',
     description:
         'Send a notification to the user via Telegram (if configured) or VS Code notification. ' +
@@ -126,7 +126,7 @@ async function executeGetWorkspaceInfo(_input: GetWorkspaceInfoInput): Promise<s
 }
 
 export const GET_WORKSPACE_INFO_TOOL: SharedToolDefinition<GetWorkspaceInfoInput> = {
-    name: 'dartscript_getWorkspaceInfo',
+    name: 'tomAi_getWorkspaceInfo',
     displayName: 'Get Workspace Info',
     description:
         'Detect which workspace is open, current quest, role, and active projects. ' +
@@ -237,7 +237,7 @@ async function executeListTodos(input: ListTodosInput): Promise<string> {
 }
 
 export const LIST_TODOS_TOOL: SharedToolDefinition<ListTodosInput> = {
-    name: 'dartscript_listTodos',
+    name: 'tomAi_listTodos',
     displayName: 'List Quest Todos',
     description:
         'List todos from a quest, optionally filtered by status, file, or tags.',
@@ -292,7 +292,7 @@ async function executeGetAllTodos(input: GetAllTodosInput): Promise<string> {
 }
 
 export const GET_ALL_TODOS_TOOL: SharedToolDefinition<GetAllTodosInput> = {
-    name: 'dartscript_getAllTodos',
+    name: 'tomAi_getAllTodos',
     displayName: 'Get All Todos',
     description:
         'Get ALL todos from ALL sources in a single call: quest YAML files + window session. ' +
@@ -323,7 +323,7 @@ async function executeGetTodo(input: GetTodoInput): Promise<string> {
 }
 
 export const GET_TODO_TOOL: SharedToolDefinition<GetTodoInput> = {
-    name: 'dartscript_getTodo',
+    name: 'tomAi_getTodo',
     displayName: 'Get Todo',
     description: 'Get a single todo by ID from a quest.',
     tags: ['todo', 'quest', 'tom-ai-chat'],
@@ -375,7 +375,7 @@ async function executeCreateTodo(input: CreateTodoInput): Promise<string> {
 }
 
 export const CREATE_TODO_TOOL: SharedToolDefinition<CreateTodoInput> = {
-    name: 'dartscript_createTodo',
+    name: 'tomAi_createTodo',
     displayName: 'Create Quest Todo',
     description:
         'Create a new todo item in a quest YAML file. YAML formatting is preserved.',
@@ -439,7 +439,7 @@ async function executeUpdateTodo(input: UpdateTodoInput): Promise<string> {
 }
 
 export const UPDATE_TODO_TOOL: SharedToolDefinition<UpdateTodoInput> = {
-    name: 'dartscript_updateTodo',
+    name: 'tomAi_updateTodo',
     displayName: 'Update Quest Todo',
     description: 'Update fields of an existing quest todo. YAML formatting is preserved.',
     tags: ['todo', 'quest', 'tom-ai-chat'],
@@ -483,7 +483,7 @@ async function executeMoveTodo(input: MoveTodoInput): Promise<string> {
 }
 
 export const MOVE_TODO_TOOL: SharedToolDefinition<MoveTodoInput> = {
-    name: 'dartscript_moveTodo',
+    name: 'tomAi_moveTodo',
     displayName: 'Move Quest Todo',
     description: 'Move a todo from one YAML file to another within a quest folder.',
     tags: ['todo', 'quest', 'tom-ai-chat'],
@@ -530,7 +530,7 @@ async function executeWindowTodoAdd(input: WindowTodoAddInput): Promise<string> 
 }
 
 export const WINDOW_TODO_ADD_TOOL: SharedToolDefinition<WindowTodoAddInput> = {
-    name: 'dartscript_windowTodo_add',
+    name: 'tomAi_windowTodo_add',
     displayName: 'Add Window Todo',
     description:
         'Add a self-reminder todo for this window session. Use to avoid forgetting ' +
@@ -568,7 +568,7 @@ async function executeWindowTodoList(input: WindowTodoListInput): Promise<string
 }
 
 export const WINDOW_TODO_LIST_TOOL: SharedToolDefinition<WindowTodoListInput> = {
-    name: 'dartscript_windowTodo_list',
+    name: 'tomAi_windowTodo_list',
     displayName: 'List Window Todos',
     description: 'List window session todos, optionally filtered by status or tags.',
     tags: ['todo', 'session', 'tom-ai-chat'],
@@ -599,7 +599,7 @@ async function executeWindowTodoGetAll(_input: WindowTodoGetAllInput): Promise<s
 }
 
 export const WINDOW_TODO_GET_ALL_TOOL: SharedToolDefinition<WindowTodoGetAllInput> = {
-    name: 'dartscript_windowTodo_getAll',
+    name: 'tomAi_windowTodo_getAll',
     displayName: 'Get All Window Todos',
     description:
         'Get ALL window session todos in a single call with counts. No filtering.',
@@ -640,7 +640,7 @@ async function executeWindowTodoUpdate(input: WindowTodoUpdateInput): Promise<st
 }
 
 export const WINDOW_TODO_UPDATE_TOOL: SharedToolDefinition<WindowTodoUpdateInput> = {
-    name: 'dartscript_windowTodo_update',
+    name: 'tomAi_windowTodo_update',
     displayName: 'Update Window Todo',
     description: 'Update a window session todo (mark done, change title/priority).',
     tags: ['todo', 'session', 'tom-ai-chat'],
@@ -680,7 +680,7 @@ async function executeWindowTodoDelete(input: WindowTodoDeleteInput): Promise<st
 }
 
 export const WINDOW_TODO_DELETE_TOOL: SharedToolDefinition<WindowTodoDeleteInput> = {
-    name: 'dartscript_windowTodo_delete',
+    name: 'tomAi_windowTodo_delete',
     displayName: 'Delete Window Todo',
     description: 'Delete a window session todo.',
     tags: ['todo', 'session', 'tom-ai-chat'],
