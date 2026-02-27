@@ -7,7 +7,7 @@
  * to send follow-up prompts or declare the goal reached.
  *
  * Flow:
- *  1. User triggers "DS: Start Bot Conversation" → enters goal description
+ *  1. User triggers "@T: Start AI Conversation" → enters goal description
  *  2. Local model generates the first Copilot prompt
  *  3. Prompt is sent to Copilot via the VS Code Language Model API
  *  4. Copilot response is written to a JSON answer file (window-unique)

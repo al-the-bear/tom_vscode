@@ -3,7 +3,7 @@
  *
  * All tool logic lives in tool-executors.ts (SharedToolDefinitions).
  * This file wraps them for VS Code LM registration and re-exports
- * the TodoManager accessors for backward compatibility.
+ * the TodoManager accessors used by tomAiChat-handler.
  */
 
 import * as vscode from 'vscode';
