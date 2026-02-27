@@ -356,10 +356,10 @@ export async function handleStatusAction(action: string, message: any): Promise<
         }
         // CLI Server
         case 'startCliServer':
-            await vscode.commands.executeCommand('dartscript.startCliServer');
+            await vscode.commands.executeCommand('tomAi.cliServer.start');
             break;
         case 'stopCliServer':
-            await vscode.commands.executeCommand('dartscript.stopCliServer');
+            await vscode.commands.executeCommand('tomAi.cliServer.stop');
             break;
         case 'setCliAutostart': {
             const stcConfig = loadSendToChatConfig() || { templates: {}, promptExpander: { profiles: {} }, botConversation: { profiles: {} } } as any;
@@ -369,16 +369,16 @@ export async function handleStatusAction(action: string, message: any): Promise<
         }
         // Bridge
         case 'restartBridge':
-            await vscode.commands.executeCommand('dartscript.restartBridge');
+            await vscode.commands.executeCommand('tomAi.bridge.restart');
             break;
         case 'switchProfile':
-            await vscode.commands.executeCommand('dartscript.switchBridgeProfile', message.value);
+            await vscode.commands.executeCommand('tomAi.bridge.switchProfile', message.value);
             break;
         case 'switchToDevelopment':
-            await vscode.commands.executeCommand('dartscript.switchBridgeProfile', 'development');
+            await vscode.commands.executeCommand('tomAi.bridge.switchProfile', 'development');
             break;
         case 'switchToProduction':
-            await vscode.commands.executeCommand('dartscript.switchBridgeProfile', 'production');
+            await vscode.commands.executeCommand('tomAi.bridge.switchProfile', 'production');
             break;
         // Trail
         case 'setTrailOn':
@@ -397,28 +397,28 @@ export async function handleStatusAction(action: string, message: any): Promise<
         }
         // Editors
         case 'openFullStatusPage':
-            await vscode.commands.executeCommand('dartscript.showStatusPage');
+            await vscode.commands.executeCommand('tomAi.statusPage');
             break;
         case 'openGlobalTemplateEditor':
-            await vscode.commands.executeCommand('dartscript.openGlobalTemplateEditor');
+            await vscode.commands.executeCommand('tomAi.editor.promptTemplates');
             break;
         case 'openReusablePromptEditor':
-            await vscode.commands.executeCommand('dartscript.openReusablePromptEditor');
+            await vscode.commands.executeCommand('tomAi.editor.reusablePrompts');
             break;
         case 'openContextSettingsEditor':
-            await vscode.commands.executeCommand('dartscript.openContextSettingsEditor');
+            await vscode.commands.executeCommand('tomAi.editor.contextSettings');
             break;
         case 'openChatVariablesEditor':
-            await vscode.commands.executeCommand('dartscript.openChatVariablesEditor');
+            await vscode.commands.executeCommand('tomAi.editor.chatVariables');
             break;
         case 'openTrailViewer':
-            await vscode.commands.executeCommand('dartscript.openTrailViewer');
+            await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer');
             break;
         case 'openTimedRequestsEditor':
-            await vscode.commands.executeCommand('dartscript.openTimedRequestsEditor');
+            await vscode.commands.executeCommand('tomAi.editor.timedRequests');
             break;
         case 'openQueueEditor':
-            await vscode.commands.executeCommand('dartscript.openQueueEditor');
+            await vscode.commands.executeCommand('tomAi.editor.promptQueue');
             break;
         case 'openTrailFile': {
             let trailFolder = WsPaths.ai('trail') || '';
@@ -448,10 +448,10 @@ export async function handleStatusAction(action: string, message: any): Promise<
         // Telegram
         case 'startTelegram':
         case 'stopTelegram':
-            await vscode.commands.executeCommand('dartscript.telegramToggle');
+            await vscode.commands.executeCommand('tomAi.telegram.toggle');
             break;
         case 'testTelegram':
-            await vscode.commands.executeCommand('dartscript.telegramTest');
+            await vscode.commands.executeCommand('tomAi.telegram.testConnection');
             break;
         case 'setTelegramAutostart': {
             const stcConfig = loadSendToChatConfig() || { templates: {}, promptExpander: { profiles: {} }, botConversation: { profiles: {} } } as any;

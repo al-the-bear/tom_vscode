@@ -268,6 +268,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // Register all commands
     stepStart = performance.now();
     registerCommands(context);
+    registerCommandAliases(context);
     timeStep('registerCommands', stepStart);
 
     // Register chord menu (which-key) commands
@@ -877,6 +878,93 @@ function registerCommands(context: vscode.ExtensionContext) {
         openInMdViewerCmd,
         openExtensionSettingsCmd
     );
+}
+
+function registerCommandAliases(context: vscode.ExtensionContext): void {
+    const aliasMap: Record<string, string> = {
+        'tomAi.sendToCopilot': 'dartscript.sendToChat',
+        'tomAi.sendToCopilot.template': 'dartscript.sendToChatAdvanced',
+        'tomAi.sendToCopilot.standard': 'dartscript.sendToChatStandard',
+        'tomAi.reloadConfig': 'dartscript.reloadSendToChatConfig',
+        'tomAi.showAnswerValues': 'dartscript.showChatAnswerValues',
+        'tomAi.clearAnswerValues': 'dartscript.clearChatAnswerValues',
+
+        'tomAi.sendToCopilot.trailReminder': 'dartscript.sendToChatTrailReminder',
+        'tomAi.sendToCopilot.todoExecution': 'dartscript.sendToChatTodoExecution',
+        'tomAi.sendToCopilot.codeReview': 'dartscript.sendToChatCodeReview',
+        'tomAi.sendToCopilot.explain': 'dartscript.sendToChatExplain',
+        'tomAi.sendToCopilot.addToTodo': 'dartscript.sendToChatAddToTodo',
+        'tomAi.sendToCopilot.fixMarkdown': 'dartscript.sendToChatFixMarkdown',
+
+        'tomAi.sendToLocalLlm': 'dartscript.expandPrompt',
+        'tomAi.localLlm.switchModel': 'dartscript.switchLocalModel',
+        'tomAi.sendToLocalLlm.default': 'dartscript.sendToLocalLlm',
+        'tomAi.sendToLocalLlm.template': 'dartscript.sendToLocalLlmAdvanced',
+        'tomAi.sendToLocalLlm.standard': 'dartscript.sendToLocalLlmStandard',
+
+        'tomAi.aiConversation.start': 'dartscript.startBotConversation',
+        'tomAi.aiConversation.stop': 'dartscript.stopBotConversation',
+        'tomAi.aiConversation.halt': 'dartscript.haltBotConversation',
+        'tomAi.aiConversation.continue': 'dartscript.continueBotConversation',
+        'tomAi.aiConversation.add': 'dartscript.addToBotConversation',
+
+        'tomAi.tomAiChat.start': 'dartscript.startTomAIChat',
+        'tomAi.tomAiChat.send': 'dartscript.sendToTomAIChat',
+        'tomAi.tomAiChat.interrupt': 'dartscript.interruptTomAIChat',
+
+        'tomAi.executeFile': 'dartscript.executeFile',
+        'tomAi.executeScript': 'dartscript.executeScript',
+        'tomAi.bridge.restart': 'dartscript.restartBridge',
+        'tomAi.bridge.switchProfile': 'dartscript.switchBridgeProfile',
+        'tomAi.bridge.toggleDebug': 'dartscript.toggleBridgeDebugLogging',
+        'tomAi.reloadWindow': 'dartscript.reloadWindow',
+        'tomAi.runTests': 'dartscript.runTests',
+
+        'tomAi.cliServer.start': 'dartscript.startCliServer',
+        'tomAi.cliServer.startCustomPort': 'dartscript.startCliServerCustomPort',
+        'tomAi.cliServer.stop': 'dartscript.stopCliServer',
+        'tomAi.startProcessMonitor': 'dartscript.startProcessMonitor',
+
+        'tomAi.commandline.add': 'dartscript.defineCommandline',
+        'tomAi.commandline.delete': 'dartscript.deleteCommandline',
+        'tomAi.commandline.execute': 'dartscript.executeCommandline',
+
+        'tomAi.telegram.testConnection': 'dartscript.telegramTest',
+        'tomAi.telegram.toggle': 'dartscript.telegramToggle',
+        'tomAi.telegram.configure': 'dartscript.telegramConfigure',
+
+        'tomAi.trail.toggle': 'dartscript.toggleTrail',
+        'tomAi.statusPage': 'dartscript.showStatusPage',
+        'tomAi.openInMdViewer': 'dartscript.openInMdViewer',
+        'tomAi.openSettings': 'dartscript.openExtensionSettings',
+        'tomAi.openConfig': 'dartscript.openConfig',
+        'tomAi.printConfiguration': 'dartscript.printConfiguration',
+        'tomAi.showHelp': 'dartscript.showHelp',
+        'tomAi.showApiInfo': 'dartscript.showApiInfo',
+
+        'tomAi.chordMenu.aiConversation': 'dartscript.chordMenu.conversation',
+        'tomAi.chordMenu.localLlm': 'dartscript.chordMenu.llm',
+        'tomAi.chordMenu.copilot': 'dartscript.chordMenu.chat',
+        'tomAi.chordMenu.tomAiChat': 'dartscript.chordMenu.tomAiChat',
+        'tomAi.chordMenu.execute': 'dartscript.chordMenu.execute',
+        'tomAi.chordMenu.favorites': 'dartscript.chordMenu.favorites',
+
+        'tomAi.editor.chatVariables': 'dartscript.openChatVariablesEditor',
+        'tomAi.editor.promptQueue': 'dartscript.openQueueEditor',
+        'tomAi.editor.timedRequests': 'dartscript.openTimedRequestsEditor',
+        'tomAi.editor.contextSettings': 'dartscript.openContextSettingsEditor',
+        'tomAi.editor.promptTemplates': 'dartscript.openGlobalTemplateEditor',
+        'tomAi.editor.reusablePrompts': 'dartscript.openReusablePromptEditor',
+        'tomAi.editor.rawTrailViewer': 'dartscript.openTrailViewer',
+        'tomAi.editor.summaryTrailViewer': 'dartscript.openTrailViewerFolder',
+    };
+
+    for (const [newId, legacyId] of Object.entries(aliasMap)) {
+        const disposable = vscode.commands.registerCommand(newId, async (...args: unknown[]) => {
+            await vscode.commands.executeCommand(legacyId, ...args);
+        });
+        context.subscriptions.push(disposable);
+    }
 }
 
 // ============================================================================

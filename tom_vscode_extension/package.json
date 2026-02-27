@@ -1,9 +1,9 @@
 {
-    "name": "dartscript-vscode",
-    "displayName": "DartScript",
+    "name": "tom-ai-extension",
+    "displayName": "@Tom",
     "description": "AI-powered build and documentation automation for Tom workspace with Copilot integration",
     "version": "0.1.0",
-    "publisher": "tom",
+    "publisher": "Peter Nicolai Alexis Kyaw",
     "engines": {
         "vscode": "^1.96.0"
     },

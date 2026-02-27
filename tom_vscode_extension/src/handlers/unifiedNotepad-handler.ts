@@ -751,31 +751,31 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
                         await this._handleAddToQueue(message.text, message.template);
                         break;
                     case 'openQueueEditor':
-                        await vscode.commands.executeCommand('dartscript.openQueueEditor');
+                        await vscode.commands.executeCommand('tomAi.editor.promptQueue');
                         break;
                     case 'openContextSettingsEditor':
-                        await vscode.commands.executeCommand('dartscript.openContextSettingsEditor');
+                        await vscode.commands.executeCommand('tomAi.editor.contextSettings');
                         break;
                     case 'openChatVariablesEditor':
-                        await vscode.commands.executeCommand('dartscript.openChatVariablesEditor');
+                        await vscode.commands.executeCommand('tomAi.editor.chatVariables');
                         break;
                     case 'openTimedRequestsEditor':
-                        await vscode.commands.executeCommand('dartscript.openTimedRequestsEditor');
+                        await vscode.commands.executeCommand('tomAi.editor.timedRequests');
                         break;
                     case 'openTrailViewer':
-                        await vscode.commands.executeCommand('dartscript.openTrailViewer');
+                        await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer');
                         break;
                     case 'openTrailFiles':
                         await this._openTrailFiles();
                         break;
                     case 'openStatusPage':
-                        await vscode.commands.executeCommand('dartscript.showStatusPage');
+                        await vscode.commands.executeCommand('tomAi.statusPage');
                         break;
                     case 'openGlobalTemplateEditor':
-                        await vscode.commands.executeCommand('dartscript.openGlobalTemplateEditor');
+                        await vscode.commands.executeCommand('tomAi.editor.promptTemplates');
                         break;
                     case 'openReusablePromptEditor':
-                        await vscode.commands.executeCommand('dartscript.openReusablePromptEditor');
+                        await vscode.commands.executeCommand('tomAi.editor.reusablePrompts');
                         break;
                     case 'saveAsTimedRequest':
                         await this._saveAsTimedRequest(message.text, message.template);
@@ -1421,7 +1421,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
                 };
             }
 
-            await vscode.commands.executeCommand('dartscript.startBotConversation', params);
+            await vscode.commands.executeCommand('tomAi.aiConversation.start', params);
         } catch {
             vscode.window.showInformationMessage(`Start conversation (profile: ${profileKey || 'None'}): ${expanded.substring(0, 50)}...`);
         }

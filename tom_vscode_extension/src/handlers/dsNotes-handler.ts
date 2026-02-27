@@ -1736,7 +1736,7 @@ class ConversationNotepadProvider implements vscode.WebviewViewProvider {
                 };
             }
             
-            await vscode.commands.executeCommand('dartscript.startBotConversation', params);
+            await vscode.commands.executeCommand('tomAi.aiConversation.start', params);
         } catch {
             vscode.window.showInformationMessage(`Start conversation (profile: ${profileKey || 'None'}): ${goal.substring(0, 50)}...`);
         }

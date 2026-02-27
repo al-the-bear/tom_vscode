@@ -111,10 +111,10 @@ async function handleMessage(msg: any): Promise<void> {
             sendState();
             return;
         case 'openContextSettings':
-            await vscode.commands.executeCommand('dartscript.openContextSettingsEditor');
+            await vscode.commands.executeCommand('tomAi.editor.contextSettings');
             return;
         case 'openChatVariablesEditor':
-            await vscode.commands.executeCommand('dartscript.openChatVariablesEditor');
+            await vscode.commands.executeCommand('tomAi.editor.chatVariables');
             return;
         case 'showFile': {
             const { openPanelFile } = await import('../utils/panelYamlStore.js');

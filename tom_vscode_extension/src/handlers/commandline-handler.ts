@@ -325,7 +325,7 @@ async function defineCommandline(): Promise<void> {
     if (!execChoice) { console.log('[commandline-handler] defineCommandline: cancelled at exec picker'); return; }
 
     if (execChoice._action === 'addExec') {
-        await vscode.commands.executeCommand('dartscript.showStatusPage');
+        await vscode.commands.executeCommand('tomAi.statusPage');
         vscode.window.showInformationMessage('Add executables in the Status Page → Executables section, then try again.');
         return;
     }

@@ -107,7 +107,7 @@ async function _handleMessage(msg: any): Promise<void> {
             await _deleteReminderTemplate(msg.id);
             break;
         case 'openChatVariablesEditor':
-            await vscode.commands.executeCommand('dartscript.openChatVariablesEditor');
+            await vscode.commands.executeCommand('tomAi.editor.chatVariables');
             break;
         case 'close':
             _panel?.dispose();
