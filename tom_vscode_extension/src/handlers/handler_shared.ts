@@ -620,7 +620,7 @@ export async function openInExternalApplication(filePath: string): Promise<boole
  */
 export function resolveBridgeExecutable(profileName: string): string | undefined {
     const config = loadSendToChatConfig();
-    const profile = config?.tomAiBridge?.profiles?.[profileName];
+    const profile = config?.bridge?.profiles?.[profileName];
     if (!profile) return undefined;
     
     // Prefer executable reference over direct command path

@@ -2,7 +2,7 @@
  * Send to Chat Advanced - Configuration and dynamic menu management
  * 
  * Provides configurable prompt templates for sending text to Copilot Chat
- * with customizable prefixes and suffixes.
+ * using template strings.
  */
 
 import * as vscode from 'vscode';
@@ -19,19 +19,12 @@ import {
 /**
  * Configuration entry for a send-to-chat template.
  *
- * Preferred format: a single `template` string containing `${originalPrompt}`
+ * A single `template` string containing `${originalPrompt}`
  * where the user's content will be inserted.
- *
- * Legacy format: separate `prefix` and `suffix` strings that are concatenated
- * around the content (automatically converted to a template internally).
  */
 export interface SendToChatTemplate {
-    /** Single template with ${originalPrompt} placeholder (preferred). */
+    /** Single template with ${originalPrompt} placeholder. */
     template?: string;
-    /** @deprecated Use `template` with ${originalPrompt} instead. */
-    prefix?: string;
-    /** @deprecated Use `template` with ${originalPrompt} instead. */
-    suffix?: string;
     /** If true, this template gets its own static menu entry (requires extension reload) */
     showInMenu?: boolean;
 }
@@ -44,13 +37,6 @@ export interface SendToChatFullConfig {
     default?: string;
     /** Template definitions */
     templates: { [menuLabel: string]: SendToChatTemplate };
-}
-
-/**
- * Legacy configuration file structure (templates at root level)
- */
-export interface SendToChatLegacyConfig {
-    [menuLabel: string]: SendToChatTemplate;
 }
 
 /**
@@ -97,8 +83,7 @@ export class SendToChatAdvancedManager {
     }
 
     /**
-     * Load configuration from JSON file
-     * Supports both legacy format (templates at root) and new format (with default and templates)
+     * Load configuration from JSON file.
      */
     async loadConfig(): Promise<void> {
         const configPath = this.getConfigPath();
@@ -122,26 +107,22 @@ export class SendToChatAdvancedManager {
             const oldTemplates = JSON.stringify(this.templates);
             const oldDefault = this.defaultTemplateName;
             
-            // Check for new format (has 'templates' key) vs legacy format
-            if (parsed.templates && typeof parsed.templates === 'object') {
-                // New format with default and templates
-                if (!this.validateTemplates(parsed.templates)) {
-                    vscode.window.showErrorMessage('Invalid tom_vscode_extension.json format. Each template must have "prefix" and "suffix" strings.');
-                    this.templates = {};
-                    return;
-                }
-                this.templates = parsed.templates;
-                this.defaultTemplateName = typeof parsed.default === 'string' ? parsed.default : undefined;
-            } else {
-                // Legacy format - templates at root level
-                if (!this.validateTemplates(parsed)) {
-                    vscode.window.showErrorMessage('Invalid tom_vscode_extension.json format. Each entry must have "prefix" and "suffix" strings.');
-                    this.templates = {};
-                    return;
-                }
-                this.templates = parsed;
+            if (!parsed.templates || typeof parsed.templates !== 'object') {
+                vscode.window.showErrorMessage('Invalid tom_vscode_extension.json format. Expected root "templates" object.');
+                this.templates = {};
                 this.defaultTemplateName = undefined;
+                return;
             }
+
+            if (!this.validateTemplates(parsed.templates)) {
+                vscode.window.showErrorMessage('Invalid tom_vscode_extension.json format. Each template entry must define a string "template" field.');
+                this.templates = {};
+                this.defaultTemplateName = undefined;
+                return;
+            }
+
+            this.templates = parsed.templates;
+            this.defaultTemplateName = typeof parsed.default === 'string' ? parsed.default : undefined;
 
             // Only log and re-register if something actually changed
             const newTemplates = JSON.stringify(this.templates);
@@ -161,7 +142,6 @@ export class SendToChatAdvancedManager {
 
     /**
      * Validate templates structure.
-     * Accepts both new format (template) and legacy format (prefix/suffix).
      */
     private validateTemplates(templates: any): templates is { [key: string]: SendToChatTemplate } {
         if (typeof templates !== 'object' || templates === null) {
@@ -169,22 +149,13 @@ export class SendToChatAdvancedManager {
         }
 
         for (const key of Object.keys(templates)) {
-            // Skip non-template keys
-            if (key === 'default') {
-                continue;
-            }
-            
             const entry = templates[key];
             if (typeof entry !== 'object' || entry === null) {
                 return false;
             }
-            // Must have either 'template' or both 'prefix' and 'suffix'
-            const hasTemplate = typeof entry.template === 'string';
-            const hasLegacy = typeof entry.prefix === 'string' && typeof entry.suffix === 'string';
-            if (!hasTemplate && !hasLegacy) {
+            if (typeof entry.template !== 'string') {
                 return false;
             }
-            // showInMenu is optional boolean
             if (entry.showInMenu !== undefined && typeof entry.showInMenu !== 'boolean') {
                 return false;
             }
@@ -413,7 +384,7 @@ export class SendToChatAdvancedManager {
 
         const items: vscode.QuickPickItem[] = templateEntries.map(([label, template]) => {
             const tmpl = template as SendToChatTemplate;
-            const preview = (tmpl.template || tmpl.prefix || '').substring(0, 50).replace(/\n/g, ' ') + '...';
+            const preview = (tmpl.template || '').substring(0, 50).replace(/\n/g, ' ') + '...';
             return { label, description: preview };
         });
 
@@ -479,30 +450,6 @@ export class SendToChatAdvancedManager {
     }
 
     /**
-     * Normalise a SendToChatTemplate to its effective template string.
-     * If the template has a `template` field, use it directly.
-     * Otherwise, convert legacy prefix/suffix to a template with ${originalPrompt}.
-     */
-    private getEffectiveTemplate(template: SendToChatTemplate): string {
-        if (template.template) {
-            return template.template;
-        }
-        // Legacy prefix/suffix → single template
-        const prefix = template.prefix || '';
-        const suffix = template.suffix || '';
-        let result = '';
-        if (prefix) {
-            result += prefix;
-            if (!prefix.endsWith('\n')) { result += '\n'; }
-        }
-        result += '${originalPrompt}';
-        if (suffix) {
-            result += '\n' + suffix;
-        }
-        return result;
-    }
-
-    /**
      * Build the full prompt by merging the template with content and resolving
      * all placeholders (content-derived values + built-in values).
      */
@@ -540,7 +487,10 @@ export class SendToChatAdvancedManager {
         }
 
         // Get the effective template string
-        const tmpl = this.getEffectiveTemplate(template);
+        if (!template.template) {
+            throw new Error('Template entry is missing required "template" field.');
+        }
+        const tmpl = template.template;
 
         // Resolve placeholders recursively (up to 10 levels)
         return resolveTemplate(tmpl, values, 10);
@@ -779,23 +729,28 @@ export class SendToChatAdvancedManager {
             return;
         }
 
-        const defaultConfig: { [key: string]: SendToChatTemplate } = {};
+        const defaultTemplates: { [key: string]: SendToChatTemplate } = {};
         
         // Use bracket notation to avoid lint errors for property names with spaces
-        defaultConfig["Explain Code"] = {
+        defaultTemplates["Explain Code"] = {
             template: "Please explain the following code in detail:\n\n${originalPrompt}\n\nInclude:\n- What it does\n- Key algorithms or patterns\n- Potential issues or improvements"
         };
-        defaultConfig["Review for Bugs"] = {
+        defaultTemplates["Review for Bugs"] = {
             template: "Review this code for bugs and security issues:\n\n${originalPrompt}\n\nFocus on:\n- Security vulnerabilities\n- Edge cases\n- Error handling\n- Performance issues"
         };
-        defaultConfig["Add Unit Tests"] = {
+        defaultTemplates["Add Unit Tests"] = {
             template: "Generate comprehensive unit tests for:\n\n${originalPrompt}\n\nRequirements:\n- High coverage\n- Test edge cases\n- Test error conditions\n- Use appropriate testing framework"
         };
-        defaultConfig["Add Documentation"] = {
+        defaultTemplates["Add Documentation"] = {
             template: "Add complete documentation for:\n\n${originalPrompt}\n\nInclude:\n- API documentation\n- Usage examples\n- Parameter descriptions\n- Return value descriptions"
         };
-        defaultConfig["Refactor"] = {
+        defaultTemplates["Refactor"] = {
             template: "Refactor this code for better quality:\n\n${originalPrompt}\n\nFocus on:\n- Readability\n- Maintainability\n- Performance\n- Best practices"
+        };
+
+        const defaultConfig: SendToChatFullConfig = {
+            default: 'Explain Code',
+            templates: defaultTemplates,
         };
 
         try {

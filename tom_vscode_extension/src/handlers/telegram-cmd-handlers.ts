@@ -437,8 +437,8 @@ async function bridgeHandler(cmd: ParsedTelegramCommand): Promise<TelegramComman
             if (configPath && fs.existsSync(configPath)) {
                 try {
                     const raw = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-                    if (raw.tomAiBridge?.profiles?.[profileKey]) {
-                        raw.tomAiBridge.current = profileKey;
+                    if (raw.bridge?.profiles?.[profileKey]) {
+                        raw.bridge.current = profileKey;
                         fs.writeFileSync(configPath, JSON.stringify(raw, null, 2) + '\n', 'utf-8');
                         // Restart bridge with new profile
                         await vscode.commands.executeCommand('tomAi.bridge.restart');

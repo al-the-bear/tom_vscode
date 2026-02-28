@@ -113,7 +113,7 @@ export type LocalLlmHistoryMode = 'none' | 'full' | 'last' | 'summary' | 'trim_a
 
 /** Full localLlm section from tom_vscode_extension.json. */
 export interface PromptExpanderConfig {
-    /** Default model settings (backward compat, used when models section is absent). */
+    /** Default model settings for top-level localLlm configuration. */
     ollamaUrl: string;
     model: string;
     temperature: number;
@@ -332,11 +332,10 @@ export class LocalLlmManager {
     loadConfig(): PromptExpanderConfig {
         const config: PromptExpanderConfig = { ...DEFAULTS, models: {}, profiles: {} };
 
-        // VS Code settings fallback
+        // VS Code settings
         const vsTomAi = vscode.workspace.getConfiguration('tomAi.ollama');
-        const vsLegacy = vscode.workspace.getConfiguration('tomAi.ollama');
-        const vsUrl = vsTomAi.get<string>('url') || vsLegacy.get<string>('url');
-        const vsModel = vsTomAi.get<string>('model') || vsLegacy.get<string>('model');
+        const vsUrl = vsTomAi.get<string>('url');
+        const vsModel = vsTomAi.get<string>('model');
         if (vsUrl) { config.ollamaUrl = vsUrl; }
         if (vsModel) { config.model = vsModel; }
 
@@ -399,15 +398,6 @@ export class LocalLlmManager {
                             historyMode: typeof p.historyMode === 'string' ? p.historyMode as LocalLlmHistoryMode : undefined,
                         };
                     }
-                }
-            }
-
-            // Backward compat: old "defaultProfile" field
-            if (typeof sec.defaultProfile === 'string' && config.profiles[sec.defaultProfile]) {
-                // If no profile is marked isDefault, mark the old defaultProfile
-                const anyDefault = Object.values(config.profiles).some((p) => p.isDefault);
-                if (!anyDefault) {
-                    config.profiles[sec.defaultProfile].isDefault = true;
                 }
             }
 

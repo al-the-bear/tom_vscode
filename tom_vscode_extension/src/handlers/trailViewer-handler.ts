@@ -58,8 +58,8 @@ export interface ParsedTrailFile {
 }
 
 /**
- * Parse a trail filename into its components.
- * Supports both new and old formats.
+ * Parse a raw trail filename into its components.
+ * Supports canonical format only.
  */
 export function parseTrailFilename(filename: string): ParsedTrailFile | null {
     // New format: YYYYMMDD_HHMMSSmmm_prompt_<requestId>.userprompt.md
@@ -74,18 +74,6 @@ export function parseTrailFilename(filename: string): ParsedTrailFile | null {
             isJson: newFormatMatch[4] === 'answer.json',
         };
     }
-    
-    // Old format: YYYYMMDD_HHMMSS_session.userprompt.md or YYYYMMDD_HHMMSS_session.answer.md
-    const oldFormatMatch = filename.match(/^(\d{8}_\d{6})_([^.]+)\.(userprompt|answer)\.md$/);
-    if (oldFormatMatch) {
-        return {
-            timestamp: oldFormatMatch[1],
-            requestId: `${oldFormatMatch[1]}_${oldFormatMatch[2]}`,  // Use timestamp_session as ID
-            type: oldFormatMatch[3] as 'userprompt' | 'answer',
-            isJson: false,
-        };
-    }
-    
     return null;
 }
 

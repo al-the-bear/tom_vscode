@@ -277,16 +277,6 @@ export function discoverTrailSets(trailFolder: string): Map<string, TrailSet> {
             if (!sets.has(name)) { sets.set(name, {}); }
             sets.get(name)!.answers = f;
         }
-        // Also handle legacy _prompts.md / _answers.md files
-        else if (f.endsWith('_prompts.md')) {
-            name = f.replace(/_prompts\.md$/, '');
-            if (!sets.has(name)) { sets.set(name, {}); }
-            if (!sets.get(name)!.prompts) { sets.get(name)!.prompts = f; }
-        } else if (f.endsWith('_answers.md')) {
-            name = f.replace(/_answers\.md$/, '');
-            if (!sets.has(name)) { sets.set(name, {}); }
-            if (!sets.get(name)!.answers) { sets.get(name)!.answers = f; }
-        }
     }
     
     return sets;
@@ -301,8 +291,7 @@ function identifyCurrentSet(basename: string, sets: Map<string, TrailSet>): stri
     }
     // Fallback: extract name from filename
     const cleanName = basename
-        .replace(/\.(prompts|answers)\.md$/, '')
-        .replace(/_(prompts|answers)\.md$/, '');
+        .replace(/\.(prompts|answers)\.md$/, '');
     return cleanName || 'default';
 }
 

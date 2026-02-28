@@ -126,7 +126,8 @@ export interface SendToChatConfig {
     /**
      * Tom AI bridge configuration.
      */
-    tomAiBridge?: {
+    bridge?: {
+        current?: string;
         profiles: { [name: string]: {
             label: string;
             /** Executable name from `executables` config (preferred) */

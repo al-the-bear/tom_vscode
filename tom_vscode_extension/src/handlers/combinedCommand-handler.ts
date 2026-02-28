@@ -6,14 +6,15 @@
  *
  * Each combined command is registered once in package.json with a fixed
  * command ID (e.g. `tomAi.combined.maximizeExplorer`), but the actual
- * VS Code commands it executes are read from the `combinedCommands` section
+ * VS Code commands it executes are read from the `stateMachines` section
  * of the config file at runtime.  This means the behaviour can be changed
  * without reinstalling the extension.
  *
  * Config format in tom_vscode_extension.json:
  *
  * ```json
- * "combinedCommands": {
+ * "stateMachines": {
+ *   "commands": {
  *   "maximizeExplorer": {
  *     "label": "Maximize Explorer",
  *     "commands": [
@@ -22,6 +23,7 @@
  *       "workbench.action.focusSideBar"
  *     ]
  *   }
+ *  }
  * }
  * ```
  */
@@ -53,7 +55,7 @@ type CombinedCommandsMap = Record<string, CombinedCommandConfig>;
 // getConfigPath() is imported from handler_shared
 
 /**
- * Read the `combinedCommands` map from the config file.
+ * Read the `stateMachines.commands` map from the config file.
  * Returns an empty object when the file or section doesn't exist.
  */
 function loadCombinedCommands(): CombinedCommandsMap {
@@ -63,7 +65,7 @@ function loadCombinedCommands(): CombinedCommandsMap {
     }
     try {
         const config = FsUtils.safeReadJson<Record<string, unknown>>(configPath);
-        const section = config?.combinedCommands;
+        const section = (config?.stateMachines as Record<string, unknown> | undefined)?.commands;
         if (!section || typeof section !== 'object') {
             return {};
         }
@@ -100,7 +102,7 @@ async function executeCombinedCommand(name: string): Promise<void> {
     const entry = allCommands[name];
 
     if (!entry) {
-        const msg = `Combined command "${name}" is not configured in tom_vscode_extension.json → combinedCommands.`;
+        const msg = `Combined command "${name}" is not configured in tom_vscode_extension.json → stateMachines.commands.`;
         console.error(`[CombinedCommand] ${msg}`);
         vscode.window.showWarningMessage(msg);
         return;

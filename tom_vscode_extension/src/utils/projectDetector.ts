@@ -254,11 +254,7 @@ export interface DetectorScanOptions {
 
 function getConfiguredExcludeGlobs(): string[] {
     const configTomAi = vscode.workspace.getConfiguration('tomAi');
-    const configLegacy = vscode.workspace.getConfiguration('tomAi');
     const configured = configTomAi.get<string[]>('projectDetection.excludeGlobs')
-        || configLegacy.get<string[]>('projectDetection.excludeGlobs')
-        || configTomAi.get<string[]>('guidelines.projectExcludeGlobs')
-        || configLegacy.get<string[]>('guidelines.projectExcludeGlobs')
         || ['tom/zom_*/**'];
     if (!Array.isArray(configured) || configured.length === 0) {
         return ['tom/zom_*/**'];

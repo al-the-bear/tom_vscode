@@ -10,7 +10,8 @@
  * Config format in tom_vscode_extension.json:
  *
  * ```json
- * "stateMachineCommands": {
+ * "stateMachines": {
+ *   "commands": {
  *   "vsWindowStateFlow": {
  *     "label": "Window Panel State Flow",
  *     "initActions": {
@@ -26,6 +27,7 @@
  *       ...
  *     ]
  *   }
+ *  }
  * }
  * ```
  */
@@ -79,7 +81,7 @@ const validatedCommands = new Set<string>();
 // ============================================================================
 
 /**
- * Read the `stateMachineCommands` map from the config file.
+ * Read the `stateMachines.commands` map from the config file.
  * Returns an empty object when the file or section doesn't exist.
  */
 function loadStateMachineCommands(): StateMachineCommandsMap {
@@ -89,7 +91,7 @@ function loadStateMachineCommands(): StateMachineCommandsMap {
     }
     try {
         const config = FsUtils.safeReadJson<Record<string, unknown>>(configPath);
-        const section = config?.stateMachineCommands;
+        const section = (config?.stateMachines as Record<string, unknown> | undefined)?.commands;
         if (!section || typeof section !== 'object') {
             return {};
         }
@@ -220,7 +222,7 @@ async function executeStateMachineCommand(name: string): Promise<void> {
     const config = allCommands[name];
     
     if (!config) {
-        const msg = `State machine command "${name}" is not configured in tom_vscode_extension.json → stateMachineCommands.`;
+        const msg = `State machine command "${name}" is not configured in tom_vscode_extension.json → stateMachines.commands.`;
         console.error(`[StateMachine] ${msg}`);
         vscode.window.showWarningMessage(msg);
         return;

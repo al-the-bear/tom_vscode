@@ -2,7 +2,7 @@
  * Handler for tomAi.bridge.restart command.
  * 
  * Starts or restarts the Dart bridge server using the configured profile
- * from tom_vscode_extension.json → tomAiBridge section.
+ * from tom_vscode_extension.json → bridge section.
  */
 
 import * as vscode from 'vscode';
@@ -47,10 +47,8 @@ export interface BridgeConfig {
 
 /**
  * Load bridge configuration from tom_vscode_extension.json.
- * Returns undefined if no config section exists (falls back to legacy behaviour).
- * 
- * Supports both new `executable` reference (to executables config) and
- * legacy `command` direct path.
+ * Returns undefined if no bridge config section exists.
+ * Supports `executable` reference and explicit `command` in profile entries.
  */
 export function loadBridgeConfig(): BridgeConfig | undefined {
     const configPath = getConfigPath();
@@ -59,7 +57,7 @@ export function loadBridgeConfig(): BridgeConfig | undefined {
     try {
         const raw = fs.readFileSync(configPath, 'utf-8');
         const parsed = JSON.parse(raw);
-        const sec = parsed?.tomAiBridge;
+        const sec = parsed?.bridge;
         if (!sec || typeof sec !== 'object') { return undefined; }
 
         const profiles: Record<string, BridgeProfile> = {};
@@ -67,7 +65,7 @@ export function loadBridgeConfig(): BridgeConfig | undefined {
             for (const [key, val] of Object.entries(sec.profiles)) {
                 const p = val as any;
                 if (p && typeof p === 'object') {
-                    // Resolve command: prefer `executable` reference, fallback to direct `command`
+                    // Resolve command: prefer `executable` reference, then explicit `command`
                     let command: string | undefined;
                     
                     if (typeof p.executable === 'string') {
@@ -76,7 +74,6 @@ export function loadBridgeConfig(): BridgeConfig | undefined {
                     }
                     
                     if (!command && typeof p.command === 'string') {
-                        // Legacy: direct command path (expand ~ to home)
                         command = expandHomePath(p.command);
                     }
                     
@@ -118,8 +115,8 @@ function saveBridgeCurrentProfile(profileKey: string): void {
     try {
         const raw = fs.readFileSync(configPath, 'utf-8');
         const parsed = JSON.parse(raw);
-        if (!parsed.tomAiBridge) { return; }
-        parsed.tomAiBridge.current = profileKey;
+        if (!parsed.bridge) { return; }
+        parsed.bridge.current = profileKey;
         fs.writeFileSync(configPath, JSON.stringify(parsed, null, 2) + '\n', 'utf-8');
     } catch {
         // Ignore write errors
@@ -146,23 +143,25 @@ export async function restartBridgeHandler(
             return;
         }
 
-        // Load bridge config — fall back to legacy hardcoded path
+        // Load canonical bridge config
         const bridgeConfig = loadBridgeConfig();
+        if (!bridgeConfig) {
+            if (showMessages) {
+                vscode.window.showErrorMessage('Bridge configuration missing: expected "bridge" in tom_vscode_extension.json');
+            }
+            return;
+        }
+
         let bridgePath: string;
         let command: string | undefined;
         let args: string[] | undefined;
         let runPubGet = true;
 
-        if (bridgeConfig) {
-            const profile = bridgeConfig.profiles[bridgeConfig.current];
-            bridgePath = profile.cwd || workspaceRoot;
-            command = profile.command;
-            args = profile.args;
-            runPubGet = profile.runPubGet;
-        } else {
-            // Legacy: hardcoded development path
-            bridgePath = path.join(workspaceRoot, 'xternal', 'tom_module_vscode', 'tom_vscode_bridge');
-        }
+        const profile = bridgeConfig.profiles[bridgeConfig.current];
+        bridgePath = profile.cwd || workspaceRoot;
+        command = profile.command;
+        args = profile.args;
+        runPubGet = profile.runPubGet;
 
         if (!fs.existsSync(bridgePath)) {
             if (showMessages) {
@@ -182,9 +181,7 @@ export async function restartBridgeHandler(
         }
 
         if (showMessages) {
-            const label = bridgeConfig
-                ? bridgeConfig.profiles[bridgeConfig.current].label
-                : 'Development (legacy)';
+            const label = bridgeConfig.profiles[bridgeConfig.current].label;
             vscode.window.showInformationMessage(`Starting Dart bridge [${label}]...`);
         }
 
@@ -224,7 +221,7 @@ export async function switchBridgeProfileHandler(
     const bridgeConfig = loadBridgeConfig();
     if (!bridgeConfig) {
         vscode.window.showWarningMessage(
-            'No tomAiBridge profiles configured in tom_vscode_extension.json'
+            'No bridge profiles configured in tom_vscode_extension.json'
         );
         return;
     }

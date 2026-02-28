@@ -33,10 +33,7 @@ export function getWorkspaceName(): string {
 export function getStorageFolder(): string | undefined {
     const configPath = vscode.workspace
         .getConfiguration('tomAi')
-        .get<string>('panelStoragePath')
-        || vscode.workspace
-            .getConfiguration('tomAi')
-            .get<string>('panelStoragePath');
+        .get<string>('panelStoragePath');
 
     const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!wsRoot) return undefined;
@@ -68,13 +65,6 @@ export function getPromptPanelFilePath(section: string): string | undefined {
     if (!folder) return undefined;
     const name = getWorkspaceName();
     return path.join(folder, `${name}.${section}.prompt-panel.yaml`);
-}
-
-function getLegacyPromptPanelFilePath(section: string): string | undefined {
-    const folder = getStorageFolder();
-    if (!folder) return undefined;
-    const name = getWorkspaceName();
-    return path.join(folder, `${name}.${section}.prompt.yaml`);
 }
 
 // ============================================================================
@@ -153,10 +143,7 @@ export async function writePanelYaml(
 
 export async function readPromptPanelYaml<T = any>(section: string): Promise<T | undefined> {
     const filePath = getPromptPanelFilePath(section);
-    const legacyPath = getLegacyPromptPanelFilePath(section);
-    const pathToRead = filePath && fs.existsSync(filePath)
-        ? filePath
-        : (legacyPath && fs.existsSync(legacyPath) ? legacyPath : undefined);
+    const pathToRead = filePath && fs.existsSync(filePath) ? filePath : undefined;
     if (!pathToRead) return undefined;
     try {
         const yaml = await import('yaml');
