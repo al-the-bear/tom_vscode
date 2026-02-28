@@ -180,7 +180,7 @@
     {
       "key": "y",
       "label": "VS Window State Flow",
-      "commandId": "tomAi.stateMachine.vsWindowStateFlow"
+      "commandId": "tomAi.layout.windowStateFlow"
     }
   ],
   "trail": {

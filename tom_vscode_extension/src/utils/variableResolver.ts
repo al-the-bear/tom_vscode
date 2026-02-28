@@ -915,7 +915,7 @@ Custom variables persist across window reloads. Delete them via the Chat Variabl
 <br>
 <em>Chat Response Values (session-scoped):</em><br>
 <code>\${chat.KEY}</code> – Also resolves response values from the current session's answer files<br>
-These are populated from Copilot answer files, send-to-chat answer files, and escalation tool answers.<br>
+These are populated from Copilot answer files, send-to-chat answer files, and local-LLM bridge tool answers.<br>
 Session response values are <strong>not persisted</strong> across window reloads — they exist only for the current session.<br>
 Use <code>#key=description</code> notation in prompts to request specific response values from Copilot.<br>
 <br>

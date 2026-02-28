@@ -63,8 +63,6 @@ export interface QueuedPrompt {
 
 const MAX_SENT_HISTORY = 50;
 const MAX_TOTAL_ITEMS = 100;
-const REMINDER_TEMPLATES_KEY = 'reminderTemplates';
-const REMINDER_CONFIG_KEY = 'reminderConfig';
 const DEFAULT_REMINDER_TEMPLATE_ID = 'default';
 const DEFAULT_REMINDER_TEXT = 'Are you still there? The previous prompt has been waiting for {{timeoutMinutes}} minutes without a response. Please continue or let me know if there\'s an issue.';
 
@@ -225,12 +223,13 @@ export class PromptQueueManager {
             }
             const raw = fs.readFileSync(configPath, 'utf-8');
             const parsed = JSON.parse(raw);
-            const templatesRaw = Array.isArray(parsed?.[REMINDER_TEMPLATES_KEY]) ? parsed[REMINDER_TEMPLATES_KEY] : [];
+            const reminders = (parsed?.reminders && typeof parsed.reminders === 'object') ? parsed.reminders : {};
+            const templatesRaw = Array.isArray(reminders.templates) ? reminders.templates : [];
             const templates = templatesRaw
                 .filter((t: any) => typeof t?.id === 'string' && typeof t?.prompt === 'string')
                 .map((t: any) => ({ id: String(t.id), prompt: String(t.prompt) }));
-            const defaultTemplateId = typeof parsed?.[REMINDER_CONFIG_KEY]?.defaultTemplateId === 'string'
-                ? String(parsed[REMINDER_CONFIG_KEY].defaultTemplateId)
+            const defaultTemplateId = typeof reminders?.config?.defaultTemplateId === 'string'
+                ? String(reminders.config.defaultTemplateId)
                 : DEFAULT_REMINDER_TEMPLATE_ID;
             if (templates.length === 0) {
                 templates.push({ id: DEFAULT_REMINDER_TEMPLATE_ID, prompt: DEFAULT_REMINDER_TEXT });

@@ -203,6 +203,16 @@
                 "category": "@Tom"
             },
             {
+                "command": "tomAi.executeFile",
+                "title": "@T: Execute File",
+                "category": "@Tom"
+            },
+            {
+                "command": "tomAi.executeScript",
+                "title": "@T: Execute as Script",
+                "category": "@Tom"
+            },
+            {
                 "command": "tomAi.bridge.restart",
                 "title": "@T: Restart Bridge",
                 "category": "@Tom"
@@ -328,38 +338,38 @@
                 "category": "@Tom"
             },
             {
-                "command": "tomAi.resetMultiCommandState",
-                "title": "@T: Reset Multi-Command State",
+                "command": "tomAi.layout.resetStateMachines",
+                "title": "@T: Reset All State Machine States",
                 "category": "@Tom"
             },
             {
-                "command": "tomAi.combined.maximizeExplorer",
+                "command": "tomAi.layout.maximizeExplorer",
                 "title": "@T: Maximize Explorer",
                 "category": "@Tom"
             },
             {
-                "command": "tomAi.combined.maximizeEditor",
+                "command": "tomAi.layout.maximizeEditor",
                 "title": "@T: Maximize Editor",
                 "category": "@Tom"
             },
             {
-                "command": "tomAi.combined.maximizeChat",
-                "title": "@T: Maximize Chat",
+                "command": "tomAi.layout.maximizeChat",
+                "title": "@T: Maximize @CHAT",
                 "category": "@Tom"
             },
             {
-                "command": "tomAi.combined.maximizeToggle",
-                "title": "@T: Toggle Maximize",
+                "command": "tomAi.layout.maximizeToggle",
+                "title": "@T: Maximize Toggle",
                 "category": "@Tom"
             },
             {
-                "command": "tomAi.stateMachine.vsWindowStateFlow",
-                "title": "@T: Window State Flow",
+                "command": "tomAi.layout.windowStateFlow",
+                "title": "@T: Window Panel State Flow",
                 "category": "@Tom"
             },
             {
-                "command": "tomAi.focusTomAi",
-                "title": "@T: Focus Tom AI",
+                "command": "tomAi.focusChatPanel",
+                "title": "@T: Focus @CHAT Panel",
                 "category": "@Tom"
             },
             {
@@ -368,8 +378,8 @@
                 "category": "@Tom"
             },
             {
-                "command": "tomAi.combined.showSideNotes",
-                "title": "@T: Show Side Notes",
+                "command": "tomAi.showSidebarNotes",
+                "title": "@T: Show Sidebar Notes",
                 "category": "@Tom"
             },
             {
@@ -580,11 +590,11 @@
                 "when": "!tomAi.chordMenuOpen"
             },
             {
-                "command": "tomAi.combined.maximizeToggle",
+                "command": "tomAi.layout.maximizeToggle",
                 "key": "ctrl+shift+`"
             },
             {
-                "command": "tomAi.combined.maximizeToggle",
+                "command": "tomAi.layout.maximizeToggle",
                 "key": "ctrl+shift+1"
             },
             {
@@ -600,23 +610,23 @@
                 "key": "ctrl+shift+7"
             },
             {
-                "command": "tomAi.combined.maximizeExplorer",
+                "command": "tomAi.layout.maximizeExplorer",
                 "key": "ctrl+shift+2"
             },
             {
-                "command": "tomAi.combined.maximizeEditor",
+                "command": "tomAi.layout.maximizeEditor",
                 "key": "ctrl+shift+3"
             },
             {
-                "command": "tomAi.combined.maximizeChat",
+                "command": "tomAi.layout.maximizeChat",
                 "key": "ctrl+shift+4"
             },
             {
-                "command": "tomAi.focusTomAi",
+                "command": "tomAi.focusChatPanel",
                 "key": "ctrl+shift+0"
             },
             {
-                "command": "tomAi.stateMachine.vsWindowStateFlow",
+                "command": "tomAi.layout.windowStateFlow",
                 "key": "ctrl+shift+y"
             },
             {
@@ -632,7 +642,7 @@
                 "key": "ctrl+shift+n"
             },
             {
-                "command": "tomAi.combined.showSideNotes",
+                "command": "tomAi.showSidebarNotes",
                 "key": "ctrl+shift+n"
             }
         ],
@@ -690,9 +700,14 @@
                     "group": "localLlm@3"
                 },
                 {
-                    "command": "tomAi.executeScript",
-                    "when": "resourceExtname == .dart",
+                    "command": "tomAi.executeFile",
+                    "when": "editorLangId == dart",
                     "group": "tomAi@2"
+                },
+                {
+                    "command": "tomAi.executeScript",
+                    "when": "editorLangId == dart",
+                    "group": "tomAi@3"
                 },
                 {
                     "command": "tomAi.tomAiChat.start",

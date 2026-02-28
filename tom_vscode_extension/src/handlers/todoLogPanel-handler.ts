@@ -19,7 +19,7 @@ import {
     type TrailSet,
 } from './trailEditor-handler.js';
 import { gotoWorkspaceTodo } from './trailViewer-handler.js';
-import { getTrailFolder, getTrailFilePrefix } from './chatPanel-handler.js';
+import { getTrailFolder, getCopilotSummaryTrailPaths } from './chatPanel-handler.js';
 
 // ============================================================================
 // View IDs
@@ -154,28 +154,19 @@ export class TodoLogViewProvider implements vscode.WebviewViewProvider {
      * Open the trail custom editor (tomAi.trailViewer) for the current workspace's prompts trail file.
      */
     private async _openTrailFiles(): Promise<void> {
-        const trailFolder = getTrailFolder();
-        if (!trailFolder) {
+        const summaryPaths = getCopilotSummaryTrailPaths();
+        if (!summaryPaths) {
             vscode.window.showWarningMessage('No trail folder found');
             return;
         }
 
-        // Use shared trail file prefix (quest ID when quest workspace is open)
-        const prefix = getTrailFilePrefix();
-        const promptsPath = path.join(trailFolder, prefix + '.prompts.md');
-
-        // Ensure directory exists
-        if (!fs.existsSync(trailFolder)) {
-            fs.mkdirSync(trailFolder, { recursive: true });
-        }
-
-        // Create file if it doesn't exist
-        if (!fs.existsSync(promptsPath)) {
-            fs.writeFileSync(promptsPath, '# Copilot Prompts Trail\n\n', 'utf-8');
+        if (!fs.existsSync(summaryPaths.promptsPath)) {
+            vscode.window.showInformationMessage('No summary trail exists yet. Send a prompt first.');
+            return;
         }
 
         // Open with the custom trail editor
-        const uri = vscode.Uri.file(promptsPath);
+        const uri = vscode.Uri.file(summaryPaths.promptsPath);
         await vscode.commands.executeCommand('vscode.openWith', uri, 'tomAi.trailViewer');
     }
 
@@ -204,7 +195,7 @@ export class TodoLogViewProvider implements vscode.WebviewViewProvider {
         }
 
         // Store pending focus so the trail editor can auto-select this entry
-        this._context.workspaceState.update('trailEditor.pendingFocus', {
+        this._context.workspaceState.update('tomAi.trailEditor.pendingFocus', {
             requestId,
             session,
         });
@@ -223,10 +214,13 @@ export class TodoLogViewProvider implements vscode.WebviewViewProvider {
         if (!folder || !fs.existsSync(folder)) { return []; }
 
         const trailSets = discoverTrailSets(folder);
+        for (const set of trailSets.values()) {
+            set.directory = folder;
+        }
         const results: TodoLogEntry[] = [];
 
         for (const [setName, _set] of trailSets) {
-            const entries = loadTrailSet(folder, setName, trailSets);
+            const entries = loadTrailSet(setName, trailSets);
             for (const entry of entries) {
                 if (entry.type !== 'ANSWER') continue;
                 const todoRefs = extractTodoRefsFromVariables(entry.variables);

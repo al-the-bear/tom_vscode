@@ -1,9 +1,5 @@
 /**
- * Configuration manager for escalation tools (Ask Copilot, Ask Big Brother)
- * 
- * These tools allow a local LLM to escalate questions to more powerful models:
- * - Ask Copilot: Uses the Copilot Chat window with answer file communication
- * - Ask Big Brother: Uses the VS Code Language Model API directly
+ * Configuration manager for local-LLM delegated tools (Ask Copilot, Ask Big Brother)
  */
 
 import * as vscode from 'vscode';
@@ -13,48 +9,38 @@ import { getConfigPath } from '../handlers/handler_shared.js';
 import { WsPaths } from '../utils/workspacePaths';
 import { debugLog } from '../utils/debugLogger.js';
 
-// ============================================================================
-// Configuration Types
-// ============================================================================
-
 export interface AskCopilotConfig {
     enabled: boolean;
     descriptionTemplate: string;
-    answerFileTimeout: number;      // ms to wait for answer file
-    pollInterval: number;           // ms between answer file checks
-    answerFolder: string;           // folder for answer files
-    promptPrefix: string;           // prefix added to prompts
-    promptSuffix: string;           // suffix added to prompts (with answer file instructions)
-    promptTemplate: string;         // template name from global templates (empty = none)
+    answerFileTimeout: number;
+    pollInterval: number;
+    answerFolder: string;
+    promptPrefix: string;
+    promptSuffix: string;
+    promptTemplate: string;
 }
 
 export interface AskBigBrotherConfig {
     enabled: boolean;
     descriptionTemplate: string;
-    defaultModel: string;           // default model ID/family
+    defaultModel: string;
     temperature: number;
-    maxIterations: number;          // max tool invocation iterations
+    maxIterations: number;
     enableToolsByDefault: boolean;
-    maxToolResultChars: number;     // max chars per tool result
-    responseTimeout: number;        // ms timeout for response
-    // Summarization settings
+    maxToolResultChars: number;
+    responseTimeout: number;
     summarizationEnabled: boolean;
     summarizationModel: string;
     summarizationPromptTemplate: string;
-    maxResponseChars: number;       // summarize if response exceeds this
-    // Model recommendations (included in description)
+    maxResponseChars: number;
     modelRecommendations: string;
-    promptTemplate: string;         // template name from global templates (empty = none)
+    promptTemplate: string;
 }
 
-export interface EscalationToolsConfig {
+export interface LocalLlmToolsConfig {
     askCopilot: AskCopilotConfig;
     askBigBrother: AskBigBrotherConfig;
 }
-
-// ============================================================================
-// Default Configuration
-// ============================================================================
 
 const DEFAULT_ASK_COPILOT_CONFIG: AskCopilotConfig = {
     enabled: true,
@@ -84,7 +70,7 @@ const DEFAULT_ASK_COPILOT_CONFIG: AskCopilotConfig = {
 
 const DEFAULT_ASK_BIG_BROTHER_CONFIG: AskBigBrotherConfig = {
     enabled: true,
-    descriptionTemplate: `Query VS Code language models (GitHub Copilot, Claude, GPT-4, etc.) directly via the Language Model API. This is your "escalation path" for complex questions.
+    descriptionTemplate: `Query VS Code language models (GitHub Copilot, Claude, GPT-4, etc.) directly via the Language Model API. This is your fallback bridge for complex questions.
 
 **Operations:**
 - "list": Get available models with recommendations
@@ -119,50 +105,33 @@ Provide a clear, structured summary.`,
     maxResponseChars: 20000,
     modelRecommendations: `**Model recommendations:**
 - claude-3.5-sonnet / claude-3-opus: Complex reasoning, detailed code review
-- gpt-4o: General purpose, good speed/quality balance  
+- gpt-4o: General purpose, good speed/quality balance
 - o1 / o3: Deep reasoning, math, logic problems
 - gpt-4o-mini: Quick answers for simple questions`,
     promptTemplate: '',
 };
 
-// ============================================================================
-// Configuration Manager
-// ============================================================================
-
-let cachedConfig: EscalationToolsConfig | null = null;
+let cachedConfig: LocalLlmToolsConfig | null = null;
 let configPath: string | null = null;
 
-/**
- * Set the config path (called from extension activation)
- */
 export function setConfigPath(path: string): void {
     configPath = path;
     cachedConfig = null;
 }
 
-/**
- * Get configuration file path.
- * Delegates to the shared getConfigPath() from handler_shared.
- */
 function getConfigFilePath(): string | null {
     if (configPath) {
         return configPath;
     }
-    
-    // Return the resolved path even if the file does not exist yet
-    // (the caller will create it on save).
     return getConfigPath() || null;
 }
 
-/**
- * Load full configuration from file
- */
 function loadFullConfig(): any {
     const filePath = getConfigFilePath();
     if (!filePath || !fs.existsSync(filePath)) {
         return null;
     }
-    
+
     try {
         const content = fs.readFileSync(filePath, 'utf-8');
         return JSON.parse(content);
@@ -171,17 +140,14 @@ function loadFullConfig(): any {
     }
 }
 
-/**
- * Load escalation tools configuration
- */
-export function loadEscalationToolsConfig(): EscalationToolsConfig {
+export function loadLocalLlmToolsConfig(): LocalLlmToolsConfig {
     if (cachedConfig) {
         return cachedConfig;
     }
-    
+
     const fullConfig = loadFullConfig();
-    const toolsConfig = fullConfig?.localLlmTools || {};
-    
+    const toolsConfig = fullConfig?.localLlm?.tools || {};
+
     cachedConfig = {
         askCopilot: {
             ...DEFAULT_ASK_COPILOT_CONFIG,
@@ -192,32 +158,31 @@ export function loadEscalationToolsConfig(): EscalationToolsConfig {
             ...(toolsConfig.askBigBrother || {}),
         },
     };
-    
+
     return cachedConfig;
 }
 
-/**
- * Save escalation tools configuration
- */
-export function saveEscalationToolsConfig(config: EscalationToolsConfig): boolean {
+export function saveLocalLlmToolsConfig(config: LocalLlmToolsConfig): boolean {
     const filePath = getConfigFilePath();
     if (!filePath) {
         return false;
     }
-    
+
     try {
-        let fullConfig = loadFullConfig() || {};
-        fullConfig.localLlmTools = {
+        const fullConfig = loadFullConfig() || {};
+        if (!fullConfig.localLlm || typeof fullConfig.localLlm !== 'object') {
+            fullConfig.localLlm = {};
+        }
+        fullConfig.localLlm.tools = {
             askCopilot: config.askCopilot,
             askBigBrother: config.askBigBrother,
         };
-        
-        // Ensure directory exists before writing
+
         const dir = path.dirname(filePath);
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
         }
-        
+
         fs.writeFileSync(filePath, JSON.stringify(fullConfig, null, 2), 'utf-8');
         cachedConfig = config;
         return true;
@@ -226,20 +191,10 @@ export function saveEscalationToolsConfig(config: EscalationToolsConfig): boolea
     }
 }
 
-/**
- * Clear cached config (call when config file changes)
- */
-export function clearConfigCache(): void {
+export function clearLocalLlmToolsConfigCache(): void {
     cachedConfig = null;
 }
 
-// ============================================================================
-// Model List Generation
-// ============================================================================
-
-/**
- * Generate a formatted model list from available VS Code LM models
- */
 export async function generateModelList(): Promise<string> {
     try {
         const startMs = performance.now();
@@ -250,50 +205,40 @@ export async function generateModelList(): Promise<string> {
         if (models.length === 0) {
             return '**Available Models:** None (ensure GitHub Copilot or another provider is installed)';
         }
-        
+
         const lines: string[] = ['**Available Models:**'];
         for (const m of models) {
             lines.push(`- \`${m.id}\` (${m.name}) - ${m.vendor}/${m.family}, max ${m.maxInputTokens.toLocaleString()} tokens`);
         }
-        
+
         return lines.join('\n');
     } catch {
         return '**Available Models:** Unable to fetch (ensure language model provider is active)';
     }
 }
 
-/**
- * Build the Ask Big Brother tool description with dynamic model list
- */
 export async function buildAskBigBrotherDescription(): Promise<string> {
     let sub = performance.now();
-    const config = loadEscalationToolsConfig();
+    const config = loadLocalLlmToolsConfig();
     debugLog(`buildAskBigBrotherDescription.loadConfig: ${Math.round((performance.now() - sub) * 100) / 100}ms`, 'INFO', 'extension.activate');
 
     sub = performance.now();
     const modelList = await generateModelList();
     debugLog(`buildAskBigBrotherDescription.generateModelList: ${Math.round((performance.now() - sub) * 100) / 100}ms`, 'INFO', 'extension.activate');
-    
+
     sub = performance.now();
     let description = config.askBigBrother.descriptionTemplate;
     description = description.replace('${modelList}', modelList);
     description = description.replace('${modelRecommendations}', config.askBigBrother.modelRecommendations);
     debugLog(`buildAskBigBrotherDescription.templateReplace: ${Math.round((performance.now() - sub) * 100) / 100}ms`, 'INFO', 'extension.activate');
-    
+
     return description;
 }
 
-/**
- * Build the Ask Copilot tool description
- */
 export function buildAskCopilotDescription(): string {
-    const config = loadEscalationToolsConfig();
+    const config = loadLocalLlmToolsConfig();
     return config.askCopilot.descriptionTemplate;
 }
-
-// ============================================================================
-// Exports for status page
-// ============================================================================
 
 export function getDefaultAskCopilotConfig(): AskCopilotConfig {
     return { ...DEFAULT_ASK_COPILOT_CONFIG };

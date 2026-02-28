@@ -22,6 +22,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { WsPaths } from '../utils/workspacePaths';
+import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 import { openInExternalApplication } from './handler_shared';
 import { readWorkspaceTodos } from '../managers/questTodoManager.js';
 import { selectTodoInBottomPanel } from './questTodoPanel-handler.js';
@@ -322,9 +323,19 @@ function hasRawTrailFiles(folder: string): boolean {
     if (!fs.existsSync(folder)) {
         return false;
     }
+    let stat: fs.Stats;
+    try {
+        stat = fs.statSync(folder);
+    } catch {
+        return false;
+    }
+    if (!stat.isDirectory()) {
+        return false;
+    }
     const files = fs.readdirSync(folder);
     return files.some((name) => name.endsWith('.userprompt.md') || name.endsWith('.answer.md') || name.endsWith('.answer.json'));
 }
+
 
 function discoverRawTrailFolders(rootFolder: string): TrailViewerFolderOption[] {
     const options: TrailViewerFolderOption[] = [];
@@ -375,14 +386,58 @@ function buildViewerState(rootFolder: string): TrailViewerState {
     };
 }
 
+function isSummaryTrailFile(filePath: string): boolean {
+    const lower = filePath.toLowerCase();
+    return lower.endsWith('.prompts.md') || lower.endsWith('.answers.md');
+}
+
+function resolveTrailPathTokens(inputPath: string): string {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+    const aiFolder = vscode.workspace.getConfiguration('tomAi').get<string>('aiFolder') || '_ai';
+    const replaced = inputPath
+        .replace(/\$\{workspaceFolder\}/g, workspaceRoot)
+        .replace(/\$\{ai\}/g, path.join(workspaceRoot, aiFolder))
+        .replace(/\$\{home\}/g, os.homedir())
+        .replace(/\$\{username\}/g, process.env.USER ?? process.env.USERNAME ?? 'user');
+
+    if (path.isAbsolute(replaced)) {
+        return replaced;
+    }
+    return path.join(workspaceRoot, replaced);
+}
+
+function getConfiguredCopilotRawTrailFolder(): string | undefined {
+    const trail = TomAiConfiguration.instance.getTrail() as Record<string, unknown>;
+    const raw = (trail.raw ?? {}) as Record<string, unknown>;
+    const paths = (raw.paths ?? {}) as Record<string, unknown>;
+    const configured = paths.copilot;
+    if (typeof configured === 'string' && configured.trim().length > 0) {
+        return resolveTrailPathTokens(configured);
+    }
+    return WsPaths.ai('trail', 'copilot') ?? WsPaths.ai('trail');
+}
+
+function resolveRawTrailFolder(inputPath?: string): string | undefined {
+    if (!inputPath) {
+        return getConfiguredCopilotRawTrailFolder();
+    }
+
+    if (!fs.existsSync(inputPath)) {
+        return inputPath;
+    }
+
+    const stat = fs.statSync(inputPath);
+    return stat.isDirectory() ? inputPath : path.dirname(inputPath);
+}
+
 /**
  * Open or focus the Trail Viewer panel.
  */
 export async function openTrailViewer(
     context: vscode.ExtensionContext,
-    trailFolder?: string
+    trailFolderOrFile?: string
 ): Promise<void> {
-    const folder = trailFolder || WsPaths.ai('trail');
+    const folder = resolveRawTrailFolder(trailFolderOrFile);
     
     if (!folder || !fs.existsSync(folder)) {
         vscode.window.showWarningMessage(`Trail folder not found: ${folder || '_ai/trail'}`);
@@ -1322,20 +1377,38 @@ function getWebviewHtml(
 
 export function registerTrailViewerCommands(context: vscode.ExtensionContext): vscode.Disposable[] {
     return [
-        vscode.commands.registerCommand('tomAi.editor.rawTrailViewer', () => 
-            openTrailViewer(context)
+        vscode.commands.registerCommand('tomAi.editor.rawTrailViewer', async (uri?: vscode.Uri) => 
+            openTrailViewer(context, uri?.fsPath)
         ),
-        vscode.commands.registerCommand('tomAi.editor.summaryTrailViewer', async () => {
-            // Allow user to select a trail folder
-            const folder = await vscode.window.showOpenDialog({
+        vscode.commands.registerCommand('tomAi.editor.summaryTrailViewer', async (uri?: vscode.Uri) => {
+            if (uri?.fsPath) {
+                const invokedPath = uri.fsPath;
+                if (fs.existsSync(invokedPath) && fs.statSync(invokedPath).isFile() && isSummaryTrailFile(invokedPath)) {
+                    await vscode.commands.executeCommand('vscode.openWith', vscode.Uri.file(invokedPath), VIEW_TYPE);
+                    return;
+                }
+                await openTrailViewer(context, invokedPath);
+                return;
+            }
+
+            // Allow user to select either a summary trail file or a trail folder
+            const selected = await vscode.window.showOpenDialog({
                 canSelectFolders: true,
-                canSelectFiles: false,
+                canSelectFiles: true,
                 canSelectMany: false,
-                title: 'Select Trail Folder',
+                title: 'Select Trail File or Folder',
+                filters: {
+                    'Trail files': ['md', 'json'],
+                },
             });
             
-            if (folder && folder[0]) {
-                await openTrailViewer(context, folder[0].fsPath);
+            if (selected && selected[0]) {
+                const selectedPath = selected[0].fsPath;
+                if (fs.existsSync(selectedPath) && fs.statSync(selectedPath).isFile() && isSummaryTrailFile(selectedPath)) {
+                    await vscode.commands.executeCommand('vscode.openWith', vscode.Uri.file(selectedPath), VIEW_TYPE);
+                } else {
+                    await openTrailViewer(context, selectedPath);
+                }
             }
         }),
     ];

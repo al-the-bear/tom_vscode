@@ -3,7 +3,7 @@
  *
  * All tool logic lives in tool-executors.ts (SharedToolDefinitions).
  * This file wraps them for VS Code LM registration and re-exports
- * the TodoManager accessors used by tomAiChat-handler.
+ * the active chat todo session accessors used by tomAiChat-handler.
  */
 
 import * as vscode from 'vscode';
@@ -14,7 +14,7 @@ import {
     getActiveTodoManager,
 } from './tool-executors';
 
-// Re-export TodoManager accessors so existing importers still work.
+// Re-export active chat todo accessors so existing importers still work.
 export { setActiveTodoManager, getActiveTodoManager };
 
 // ============================================================================

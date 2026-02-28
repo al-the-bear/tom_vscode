@@ -34,7 +34,7 @@ import {
     logPrompt, logResponse, logToolRequest, logToolResult,
     logContinuationPrompt, isTrailEnabled, loadTrailConfig,
     type TrailType,
-} from './trailLogger-handler';
+} from '../services/trailLogging';
 
 // ============================================================================
 // Interfaces
@@ -58,7 +58,7 @@ export interface ModelConfig {
     keepAlive?: string;
 }
 
-/** An LLM configuration entity (root level). */
+/** An LLM configuration entity under `localLlm.configurations`. */
 export interface LlmConfiguration {
     /** Unique identifier. */
     id: string;
@@ -140,7 +140,7 @@ export interface PromptExpanderConfig {
     historyMode: LocalLlmHistoryMode;
     /** Maximum token count for history passed to local model. */
     maxHistoryTokens: number;
-    /** LLM configuration entities (root level). */
+    /** LLM configuration entities under `localLlm.configurations`. */
     configurations: LlmConfiguration[];
 }
 
@@ -401,10 +401,10 @@ export class LocalLlmManager {
                 }
             }
 
-            // LLM configurations (root-level array)
-            if (Array.isArray(parsed.configurations)) {
+            // LLM configurations (localLlm array)
+            if (Array.isArray(sec.configurations)) {
                 config.configurations = [];
-                for (const lc of parsed.configurations) {
+                for (const lc of sec.configurations) {
                     if (lc && typeof lc === 'object' && typeof lc.id === 'string') {
                         config.configurations.push({
                             id: lc.id,
@@ -459,7 +459,7 @@ export class LocalLlmManager {
         if (modelKey && config.models[modelKey]) {
             return { key: modelKey, mc: config.models[modelKey] };
         }
-        // Check configurations array (root-level entities)
+        // Check configurations array from localLlm section
         if (modelKey && config.configurations) {
             const llmConfig = config.configurations.find(c => c.id === modelKey);
             if (llmConfig) {

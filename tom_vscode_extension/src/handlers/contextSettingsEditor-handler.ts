@@ -260,7 +260,7 @@ async function _sendContextData(): Promise<void> {
         }
     } catch { /* */ }
 
-    const autoHideDelay = _context?.workspaceState.get('copilotAutoHideDelay', 0) ?? 0;
+    const autoHideDelay = _context?.workspaceState.get('tomAi.copilot.autoHideDelay', 0) ?? 0;
 
     _panel?.webview.postMessage({
         type: 'contextData',
@@ -294,7 +294,7 @@ async function _applyContext(msg: any): Promise<void> {
 
     // Auto-hide delay
     if (msg.autoHideDelay !== undefined && _context) {
-        _context.workspaceState.update('copilotAutoHideDelay', msg.autoHideDelay);
+        _context.workspaceState.update('tomAi.copilot.autoHideDelay', msg.autoHideDelay);
     }
 
     vscode.window.showInformationMessage('Context & Settings applied.');

@@ -17,7 +17,7 @@ import {
     sendQuestTodoRefresh,
 } from './questTodoPanel-handler.js';
 
-const QT_PENDING_SELECT_KEY = 'qt.pendingSelect';
+const QT_PENDING_SELECT_KEY = 'tomAi.questTodo.pendingSelect';
 
 /**
  * Register the custom editor for *.todo.yaml files.

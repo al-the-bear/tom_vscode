@@ -34,7 +34,7 @@ import {
 } from './promptTemplate';
 import {
     logPrompt, isTrailEnabled, loadTrailConfig,
-} from './trailLogger-handler';
+} from '../services/trailLogging';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
 import { WindowSessionTodoStore } from '../managers/windowSessionTodoStore';
 import { QuestTodoEmbeddedViewProvider, setQuestTodosProvider, setSessionTodosProvider } from './questTodoPanel-handler';
@@ -58,19 +58,17 @@ const VIEW_IDS = {
 
 // Storage keys for drafts
 const STORAGE_KEYS = {
-    localLlmDraft: 'tomAi.dsNotes.localLlmDraft',
-    localLlmProfile: 'tomAi.dsNotes.localLlmProfile',
-    localLlmModel: 'tomAi.dsNotes.localLlmModel',
-    conversationDraft: 'tomAi.dsNotes.conversationDraft',
-    conversationProfile: 'tomAi.dsNotes.conversationProfile',
-    conversationLlmProfileA: 'tomAi.dsNotes.conversationLlmProfileA',
-    conversationLlmProfileB: 'tomAi.dsNotes.conversationLlmProfileB',
-    copilotDraft: 'tomAi.dsNotes.copilotDraft',
-    copilotTemplate: 'tomAi.dsNotes.copilotTemplate',
-    tomAiChatDraft: 'tomAi.dsNotes.tomAiChatDraft',
-    tomAiChatTemplate: 'tomAi.dsNotes.tomAiChatTemplate',
-    notes: 'tomAi.dsNotes.notes',
-    tomNotepad: 'tomAi.dsNotes.tomNotepad'
+    localLlmDraft: 'tomAi.chatPanel.localLlm.draft',
+    localLlmProfile: 'tomAi.chatPanel.localLlm.profile',
+    localLlmModel: 'tomAi.chatPanel.localLlm.model',
+    conversationDraft: 'tomAi.chatPanel.aiConversation.draft',
+    conversationProfile: 'tomAi.chatPanel.aiConversation.profile',
+    copilotDraft: 'tomAi.chatPanel.copilot.draft',
+    copilotTemplate: 'tomAi.chatPanel.copilot.template',
+    tomAiChatDraft: 'tomAi.chatPanel.tomAiChat.draft',
+    tomAiChatTemplate: 'tomAi.chatPanel.tomAiChat.template',
+    notes: 'tomAi.notes.notes',
+    tomNotepad: 'tomAi.notes.tomNotepad'
 };
 
 // ============================================================================
@@ -638,7 +636,7 @@ class TomNotepadProvider implements vscode.WebviewViewProvider {
 
     constructor(private readonly _context: vscode.ExtensionContext) {
         this._notesFilePath = GLOBAL_NOTES_PATH;
-        this._selectedTemplate = this._context.workspaceState.get<string>('tomAi.dsNotes.tomNotepadTemplate') || '__none__';
+        this._selectedTemplate = this._context.workspaceState.get<string>('tomAi.notes.tomNotepadTemplate') || '__none__';
         this._ensureFileExists();
         this._loadTemplates();
         this._loadContent();
@@ -736,7 +734,7 @@ class TomNotepadProvider implements vscode.WebviewViewProvider {
                     break;
                 case 'selectTemplate':
                     this._selectedTemplate = msg.key || '__none__';
-                    await this._context.workspaceState.update('tomAi.dsNotes.tomNotepadTemplate', this._selectedTemplate);
+                    await this._context.workspaceState.update('tomAi.notes.tomNotepadTemplate', this._selectedTemplate);
                     this._sendState();
                     break;
                 case 'previewMarkdown':
@@ -1116,13 +1114,13 @@ class LocalLlmNotepadProvider implements vscode.WebviewViewProvider {
     private _loadDraft(): void {
         this._draft = this._context.workspaceState.get<string>(STORAGE_KEYS.localLlmDraft) || '';
         this._selectedProfile = this._context.workspaceState.get<string>(STORAGE_KEYS.localLlmProfile) || '';
-        this._selectedLlmConfig = this._context.workspaceState.get<string>('llmSelectedConfig') || '';
+        this._selectedLlmConfig = this._context.workspaceState.get<string>('tomAi.localLlm.selectedConfig') || '';
     }
 
     private async _saveDraft(): Promise<void> {
         await this._context.workspaceState.update(STORAGE_KEYS.localLlmDraft, this._draft);
         await this._context.workspaceState.update(STORAGE_KEYS.localLlmProfile, this._selectedProfile);
-        await this._context.workspaceState.update('llmSelectedConfig', this._selectedLlmConfig);
+        await this._context.workspaceState.update('tomAi.localLlm.selectedConfig', this._selectedLlmConfig);
     }
 
     private _loadLlmConfigs(): void {
@@ -1136,9 +1134,9 @@ class LocalLlmNotepadProvider implements vscode.WebviewViewProvider {
             ollamaUrl: config?.localLlm?.ollamaUrl || 'http://localhost:11434',
             model: config?.localLlm?.model || 'qwen3:8b'
         });
-        // Load configurations from root level of config
-        if (Array.isArray(config?.configurations)) {
-            for (const lc of config.configurations) {
+        // Load configurations from localLlm section
+        if (Array.isArray(config?.localLlm?.configurations)) {
+            for (const lc of config.localLlm.configurations) {
                 if (lc && typeof lc.id === 'string') {
                     this._llmConfigs.push({
                         id: lc.id,
@@ -1152,8 +1150,8 @@ class LocalLlmNotepadProvider implements vscode.WebviewViewProvider {
         }
         if (!this._selectedLlmConfig && this._llmConfigs.length > 0) {
             // Find config with isDefault or use first
-            const defaultConfig = Array.isArray(config?.configurations) 
-                ? config.configurations.find((c: any) => c.isDefault)?.id
+            const defaultConfig = Array.isArray(config?.localLlm?.configurations) 
+                ? config.localLlm.configurations.find((c: any) => c.isDefault)?.id
                 : undefined;
             this._selectedLlmConfig = defaultConfig || this._llmConfigs[0].id;
         }
@@ -1485,13 +1483,13 @@ class ConversationNotepadProvider implements vscode.WebviewViewProvider {
     private _loadDraft(): void {
         this._draft = this._context.workspaceState.get<string>(STORAGE_KEYS.conversationDraft) || '';
         this._selectedProfile = this._context.workspaceState.get<string>(STORAGE_KEYS.conversationProfile) || '';
-        this._selectedAiSetup = this._context.workspaceState.get<string>('conversationAiSetup') || '';
+        this._selectedAiSetup = this._context.workspaceState.get<string>('tomAi.aiConversation.selectedSetup') || '';
     }
 
     private async _saveDraft(): Promise<void> {
         await this._context.workspaceState.update(STORAGE_KEYS.conversationDraft, this._draft);
         await this._context.workspaceState.update(STORAGE_KEYS.conversationProfile, this._selectedProfile);
-        await this._context.workspaceState.update('conversationAiSetup', this._selectedAiSetup);
+        await this._context.workspaceState.update('tomAi.aiConversation.selectedSetup', this._selectedAiSetup);
     }
 
     private _loadAiSetups(): void {
@@ -1505,9 +1503,9 @@ class ConversationNotepadProvider implements vscode.WebviewViewProvider {
             llmConfigA: '__default__',
             llmConfigB: '__default__'
         });
-        // Load setups from root level of config
-        if (Array.isArray(config?.setups)) {
-            for (const setup of config.setups) {
+        // Load setups from aiConversation section
+        if (Array.isArray(config?.aiConversation?.setups)) {
+            for (const setup of config.aiConversation.setups) {
                 if (setup && typeof setup.id === 'string') {
                     this._aiSetups.push({
                         id: setup.id,
@@ -1527,8 +1525,8 @@ class ConversationNotepadProvider implements vscode.WebviewViewProvider {
         
         // Set default if not selected
         if (!this._selectedAiSetup && this._aiSetups.length > 0) {
-            const defaultSetup = Array.isArray(config?.setups)
-                ? config.setups.find((s: any) => s.isDefault)?.id
+            const defaultSetup = Array.isArray(config?.aiConversation?.setups)
+                ? config.aiConversation.setups.find((s: any) => s.isDefault)?.id
                 : undefined;
             this._selectedAiSetup = defaultSetup || this._aiSetups[0].id;
         }
@@ -2166,7 +2164,7 @@ class NotesNotepadProvider implements vscode.WebviewViewProvider {
         this._initNotesFolder();
         this._loadNotes();
         // Remember active note ID
-        this._activeNoteId = this._context.workspaceState.get<string>('tomAi.dsNotes.activeNoteFile') || null;
+        this._activeNoteId = this._context.workspaceState.get<string>('tomAi.notes.activeNoteFile') || null;
     }
 
     dispose(): void {
@@ -2271,7 +2269,7 @@ class NotesNotepadProvider implements vscode.WebviewViewProvider {
                     break;
                 case 'selectNote':
                     this._activeNoteId = msg.id;
-                    await this._context.workspaceState.update('tomAi.dsNotes.activeNoteFile', this._activeNoteId);
+                    await this._context.workspaceState.update('tomAi.notes.activeNoteFile', this._activeNoteId);
                     this._sendState();
                     break;
                 case 'deleteNote':
@@ -2327,7 +2325,7 @@ class NotesNotepadProvider implements vscode.WebviewViewProvider {
             fs.writeFileSync(filePath, '', 'utf-8');
             this._loadNotes();
             this._activeNoteId = `${fileName}.md`;
-            await this._context.workspaceState.update('tomAi.dsNotes.activeNoteFile', this._activeNoteId);
+            await this._context.workspaceState.update('tomAi.notes.activeNoteFile', this._activeNoteId);
             this._sendState();
         } catch (e) {
             vscode.window.showErrorMessage(`Failed to create note: ${e}`);
@@ -2350,7 +2348,7 @@ class NotesNotepadProvider implements vscode.WebviewViewProvider {
             this._loadNotes();
             if (this._activeNoteId === id) {
                 this._activeNoteId = this._notes.length > 0 ? this._notes[0].id : null;
-                await this._context.workspaceState.update('tomAi.dsNotes.activeNoteFile', this._activeNoteId);
+                await this._context.workspaceState.update('tomAi.notes.activeNoteFile', this._activeNoteId);
             }
             this._sendState();
         } catch (e) {
@@ -2756,10 +2754,10 @@ class WorkspaceNotepadProvider implements vscode.WebviewViewProvider {
     private _ignoreNextFileChange: boolean = false;
     private _lastSaveTime: number = 0;
 
-    private static readonly STORAGE_KEY = 'workspaceNotesPath';
+    private static readonly STORAGE_KEY = 'tomAi.notes.workspaceNoteFile';
 
     constructor(private readonly _context: vscode.ExtensionContext) {
-        this._selectedTemplate = this._context.workspaceState.get<string>('tomAi.dsNotes.workspaceNotepadTemplate') || '__none__';
+        this._selectedTemplate = this._context.workspaceState.get<string>('tomAi.notes.workspaceNotepadTemplate') || '__none__';
         this._loadTemplates();
         this._initNotesFilePath();
     }
@@ -2910,7 +2908,7 @@ class WorkspaceNotepadProvider implements vscode.WebviewViewProvider {
                     break;
                 case 'selectTemplate':
                     this._selectedTemplate = msg.key || '__none__';
-                    await this._context.workspaceState.update('tomAi.dsNotes.workspaceNotepadTemplate', this._selectedTemplate);
+                    await this._context.workspaceState.update('tomAi.notes.workspaceNotepadTemplate', this._selectedTemplate);
                     this._sendState();
                     break;
                 case 'previewMarkdown':
@@ -3144,7 +3142,7 @@ class QuestNotesProvider implements vscode.WebviewViewProvider {
     private _selectedTemplate = '__none__';
 
     constructor(private readonly _context: vscode.ExtensionContext) {
-        this._selectedTemplate = this._context.workspaceState.get<string>('tomAi.dsNotes.questNotesTemplate') || '__none__';
+        this._selectedTemplate = this._context.workspaceState.get<string>('tomAi.notes.questNotesTemplate') || '__none__';
     }
 
     private _resolveQuestFile(): string | null {
@@ -3205,7 +3203,7 @@ class QuestNotesProvider implements vscode.WebviewViewProvider {
                     break;
                 case 'selectTemplate':
                     this._selectedTemplate = msg.key || '__none__';
-                    await this._context.workspaceState.update('tomAi.dsNotes.questNotesTemplate', this._selectedTemplate);
+                    await this._context.workspaceState.update('tomAi.notes.questNotesTemplate', this._selectedTemplate);
                     this._sendState();
                     break;
                 case 'previewMarkdown':
@@ -3367,7 +3365,7 @@ export function registerDsNotesViews(context: vscode.ExtensionContext): void {
         vscode.window.registerWebviewViewProvider(VIEW_IDS.sessionTodos, sessionTodosProvider, {
             webviewOptions: { retainContextWhenHidden: true },
         }),
-        vscode.commands.registerCommand('tomAi.focusTomAi', async () => {
+        vscode.commands.registerCommand('tomAi.focusChatPanel', async () => {
             // Focus the unified TOM AI panel
             await vscode.commands.executeCommand('tomAi.chatPanel.focus');
         })

@@ -293,7 +293,7 @@ async function defineCommandline(): Promise<void> {
 
     // 0) Choose: pick executable, type manually, or add new executable
     const config0 = readConfig() || {};
-    const executables: ExecutablesConfig = config0.executables || {};
+    const executables: ExecutablesConfig = config0.bridge?.executables || {};
     const execNames = Object.keys(executables);
 
     type ExecAction = 'type' | 'exec' | 'addExec';
@@ -301,7 +301,7 @@ async function defineCommandline(): Promise<void> {
         { label: '$(edit) Type command manually…', _action: 'type' },
     ];
     if (execNames.length > 0) {
-        const ctx = buildConfigContext(config0.binaryPath, getWorkspaceRoot());
+        const ctx = buildConfigContext(config0.bridge?.binaryPath, getWorkspaceRoot());
         execItems.push({ label: '', kind: vscode.QuickPickItemKind.Separator, _action: 'type' });
         for (const name of execNames) {
             const resolved = resolveNamedExecutable(name, executables, ctx);
@@ -511,14 +511,14 @@ function expandPlaceholders(command: string): string | undefined {
 
     // Build context once for all config-level expansions
     const config = loadSendToChatConfig();
-    const ctx = buildConfigContext(config?.binaryPath, getWorkspaceRoot());
+    const ctx = buildConfigContext(config?.bridge?.binaryPath, getWorkspaceRoot());
 
     // Expand config-level placeholders (${binaryPath}, ${home}, etc.)
     expanded = expandConfigPlaceholders(expanded, ctx);
 
     // Expand ${executable.<name>} placeholders
     if (expanded.includes('${executable.')) {
-        expanded = expandExecutablePlaceholders(expanded, config?.executables, ctx);
+        expanded = expandExecutablePlaceholders(expanded, config?.bridge?.executables, ctx);
     }
 
     return resolvePathVariables(expanded);

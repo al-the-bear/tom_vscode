@@ -4,7 +4,7 @@ import * as path from 'path';
 
 const DEBUG_OUTPUT_CHANNEL_NAME = 'Tom Extension Debug Log';
 const DEBUG_LOG_TO_CONSOLE = false;
-const DEBUG_LOG_TO_FILE = false;
+const DEBUG_LOG_TO_FILE = true;
 const DEBUG_LOG_FILE_NAME = 'tom_extension_debug.log';
 
 type LogLevel = 'INFO' | 'WARN' | 'ERROR' | 'DEBUG';
@@ -156,4 +156,24 @@ export function installConsoleDebugRouting(): void {
 export function initializeDebugLogger(context: vscode.ExtensionContext): void {
     const channel = ensureDebugOutputChannel();
     context.subscriptions.push(channel);
+
+    if (DEBUG_LOG_TO_FILE) {
+        const filePath = getDebugFilePath();
+        if (filePath) {
+            try {
+                const dir = path.dirname(filePath);
+                if (!fs.existsSync(dir)) {
+                    fs.mkdirSync(dir, { recursive: true });
+                }
+                if (fs.existsSync(filePath)) {
+                    fs.unlinkSync(filePath);
+                }
+                const resetLine = `${new Date().toISOString()} INFO [debugLogger] Debug log reset on extension activation`;
+                fs.writeFileSync(filePath, `${resetLine}\n`, 'utf-8');
+                channel.appendLine(resetLine);
+            } catch {
+                // Ignore reset issues; logger continues with output channel.
+            }
+        }
+    }
 }

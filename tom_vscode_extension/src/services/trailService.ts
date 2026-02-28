@@ -17,6 +17,7 @@ export interface TrailMetadata {
 
 interface RawTrailConfig {
     enabled?: boolean;
+    maxEntries?: number;
     stripThinking?: boolean;
     paths?: {
         localLlm?: string;
@@ -52,12 +53,12 @@ export class TrailService {
         this.context = context;
     }
 
-    writeRawPrompt(subsystem: TrailSubsystem, prompt: string, windowId: string): void {
-        this.writeRaw(subsystem, 'prompt', prompt, windowId, 'md');
+    writeRawPrompt(subsystem: TrailSubsystem, prompt: string, windowId: string, requestId?: string): void {
+        this.writeRaw(subsystem, 'prompt', prompt, windowId, 'md', requestId);
     }
 
-    writeRawAnswer(subsystem: TrailSubsystem, answer: string, windowId: string): void {
-        this.writeRaw(subsystem, 'answer', answer, windowId, 'md');
+    writeRawAnswer(subsystem: TrailSubsystem, answer: string, windowId: string, requestId?: string): void {
+        this.writeRaw(subsystem, 'answer', answer, windowId, 'json', requestId);
     }
 
     writeRawToolRequest(subsystem: TrailSubsystem, request: object, windowId: string): void {
@@ -77,7 +78,18 @@ export class TrailService {
             return;
         }
         FsUtils.ensureDir(path.dirname(target));
-        this.appendWithSeparator(target, corePrompt);
+
+        const metadata = this.extractPromptMetadata(corePrompt);
+        const requestId = metadata.requestId || this.generateRequestId();
+        const sequence = this.parseSequenceFromFile(target) + 1;
+        const timestamp = new Date().toISOString();
+        const entry =
+            `=== PROMPT ${requestId} ${timestamp} ${sequence} ===\n\n` +
+            `${metadata.prompt}\n\n` +
+            `TEMPLATE: ${metadata.templateName || '(none)'}\n` +
+            `ANSWER-WRAPPER: ${metadata.answerWrapper || 'no'}\n\n`;
+        this.prependEntry(target, entry);
+        this.trimTrailFile(target, this.getMaxSummaryEntries());
     }
 
     writeSummaryAnswer(subsystem: TrailSubsystem, answer: string, metadata?: TrailMetadata, questId?: string): void {
@@ -88,11 +100,55 @@ export class TrailService {
         if (!target) {
             return;
         }
-        const payload = metadata && Object.keys(metadata).length > 0
-            ? `### metadata\n\`\`\`json\n${JSON.stringify(metadata, null, 2)}\n\`\`\`\n\n${answer}`
-            : answer;
         FsUtils.ensureDir(path.dirname(target));
-        this.appendWithSeparator(target, payload);
+
+        const requestId = typeof metadata?.requestId === 'string' && metadata.requestId.trim().length > 0
+            ? metadata.requestId.trim()
+            : this.generateRequestId();
+        const sequence = this.parseSequenceFromFile(target) + 1;
+        const timestamp = new Date().toISOString();
+
+        let payload = answer;
+        if (subsystem.type === 'copilot') {
+            const metadataBlock: string[] = [];
+
+            const comments = metadata && typeof metadata.comments === 'string' ? metadata.comments : undefined;
+            if (comments && comments.trim().length > 0) {
+                metadataBlock.push(`comments: ${comments.trim()}`);
+            }
+
+            const references = metadata?.references;
+            if (Array.isArray(references) && references.length > 0) {
+                metadataBlock.push(`references:\n${references.map((r) => ` - ${String(r)}`).join('\n')}`);
+            }
+
+            const attachments = metadata?.requestedAttachments;
+            if (Array.isArray(attachments) && attachments.length > 0) {
+                metadataBlock.push(`requestFileAttachments:\n${attachments.map((a) => ` - ${String(a)}`).join('\n')}`);
+            }
+
+            const responseValues = metadata?.responseValues;
+            if (responseValues && typeof responseValues === 'object') {
+                const pairs = Object.entries(responseValues as Record<string, unknown>)
+                    .filter(([k, v]) => k && v !== undefined && v !== null)
+                    .map(([k, v]) => ` - ${k} = ${String(v)}`);
+                if (pairs.length > 0) {
+                    metadataBlock.push(`variables:\n${pairs.join('\n')}`);
+                }
+            }
+
+            if (metadataBlock.length > 0) {
+                payload = `${answer}\n\n${metadataBlock.join('\n\n')}`;
+            }
+        } else if (metadata && Object.keys(metadata).length > 0) {
+            payload = `### metadata\n\`\`\`json\n${JSON.stringify(metadata, null, 2)}\n\`\`\`\n\n${answer}`;
+        }
+
+        const entry =
+            `=== ANSWER ${requestId} ${timestamp} ${sequence} ===\n\n` +
+            `${payload}\n\n`;
+        this.prependEntry(target, entry);
+        this.trimTrailFile(target, this.getMaxSummaryEntries());
     }
 
     isEnabled(): boolean {
@@ -115,7 +171,7 @@ export class TrailService {
         });
     }
 
-    private writeRaw(subsystem: TrailSubsystem, kind: string, content: string, windowId: string, ext: 'md' | 'json'): void {
+    private writeRaw(subsystem: TrailSubsystem, kind: string, content: string, windowId: string, ext: 'md' | 'json', requestId?: string): void {
         const raw = this.getRawConfig();
         if (raw.enabled !== true) {
             return;
@@ -129,18 +185,25 @@ export class TrailService {
             : content;
 
         const now = new Date();
-        const ts = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
-        const fileName = `${ts}_${kind}_${windowId}.${ext}`;
+        const ts = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}${String(now.getMilliseconds()).padStart(3, '0')}`;
+        const exchangeId = requestId && requestId.trim().length > 0 ? requestId : windowId;
+        const fileName = kind === 'prompt'
+            ? `${ts}_prompt_${exchangeId}.userprompt.md`
+            : kind === 'answer'
+                ? `${ts}_answer_${exchangeId}.answer.json`
+                : `${ts}_${kind}_${windowId}.${ext}`;
         const filePath = path.join(base, fileName);
         FsUtils.ensureDir(path.dirname(filePath));
         if (ext === 'json') {
-            const parsed = (() => {
-                try {
-                    return JSON.parse(safeContent);
-                } catch {
-                    return { content: safeContent };
-                }
-            })();
+            const parsed = kind === 'answer'
+                ? { requestId: exchangeId, generatedMarkdown: safeContent }
+                : (() => {
+                    try {
+                        return JSON.parse(safeContent);
+                    } catch {
+                        return { content: safeContent };
+                    }
+                })();
             FsUtils.safeWriteJson(filePath, parsed);
         } else {
             fs.writeFileSync(filePath, safeContent, 'utf-8');
@@ -152,6 +215,7 @@ export class TrailService {
         const raw = (trail.raw ?? trail) as RawTrailConfig;
         return {
             enabled: raw.enabled === true,
+            maxEntries: typeof raw.maxEntries === 'number' && raw.maxEntries > 0 ? raw.maxEntries : 1000,
             stripThinking: raw.stripThinking === true,
             paths: {
                 localLlm: raw.paths?.localLlm ?? '${ai}/trail/localllm',
@@ -224,12 +288,98 @@ export class TrailService {
         return path.join(workspaceRoot, replaced);
     }
 
-    private appendWithSeparator(filePath: string, content: string): void {
+    private prependEntry(filePath: string, entry: string): void {
         const previous = FsUtils.safeReadFile(filePath);
-        const next = previous && previous.trim().length > 0
-            ? `${previous.trimEnd()}\n\n---\n\n${content}\n`
-            : `${content}\n`;
-        fs.writeFileSync(filePath, next, 'utf-8');
+        fs.writeFileSync(filePath, entry + (previous || ''), 'utf-8');
+    }
+
+    private parseSequenceFromFile(filePath: string): number {
+        if (!fs.existsSync(filePath)) {
+            return 0;
+        }
+        try {
+            const content = fs.readFileSync(filePath, 'utf-8');
+            const firstLine = content.split('\n')[0] || '';
+            const match = firstLine.match(/===\s+(?:PROMPT|ANSWER)\s+\S+\s+\S+\s+(\d+)\s+===/);
+            return match ? parseInt(match[1], 10) : 0;
+        } catch {
+            return 0;
+        }
+    }
+
+    private trimTrailFile(filePath: string, maxEntries: number): void {
+        if (!fs.existsSync(filePath)) {
+            return;
+        }
+        try {
+            const content = fs.readFileSync(filePath, 'utf-8');
+            const firstLine = content.split('\n')[0] || '';
+            const match = firstLine.match(/===\s+(?:PROMPT|ANSWER)\s+\S+\s+\S+\s+(\d+)\s+===/);
+            const currentSeq = match ? parseInt(match[1], 10) : 0;
+            if (currentSeq <= maxEntries) {
+                return;
+            }
+            const lines = content.split('\n');
+            let lastEntryStart = -1;
+            for (let i = lines.length - 1; i >= 0; i--) {
+                if (/^===\s+(?:PROMPT|ANSWER)/.test(lines[i])) {
+                    lastEntryStart = i;
+                    break;
+                }
+            }
+            if (lastEntryStart > 0) {
+                const trimmed = lines.slice(0, lastEntryStart).join('\n').trimEnd() + '\n';
+                fs.writeFileSync(filePath, trimmed, 'utf-8');
+            }
+        } catch {
+            // ignore trim failures
+        }
+    }
+
+    private getMaxSummaryEntries(): number {
+        return this.getRawConfig().maxEntries ?? 1000;
+    }
+
+    private generateRequestId(): string {
+        const hex = () => Math.random().toString(16).substring(2, 10);
+        return `${hex()}_${hex()}`;
+    }
+
+    private extractPromptMetadata(corePrompt: string): { prompt: string; templateName: string; answerWrapper: string; requestId?: string } {
+        const lines = corePrompt.split('\n');
+        let templateName = '(none)';
+        let answerWrapper = 'no';
+        let requestId: string | undefined;
+        let promptEnd = lines.length;
+
+        for (let i = lines.length - 1; i >= 0; i--) {
+            const line = lines[i].trim();
+            if (line.startsWith('REQUEST-ID:')) {
+                requestId = line.substring('REQUEST-ID:'.length).trim();
+                promptEnd = i;
+                continue;
+            }
+            if (line.startsWith('ANSWER-WRAPPER:')) {
+                answerWrapper = line.substring('ANSWER-WRAPPER:'.length).trim() || 'no';
+                promptEnd = i;
+                continue;
+            }
+            if (line.startsWith('TEMPLATE:')) {
+                templateName = line.substring('TEMPLATE:'.length).trim() || '(none)';
+                promptEnd = i;
+                continue;
+            }
+            if (line.length === 0 && promptEnd !== lines.length) {
+                promptEnd = i;
+                continue;
+            }
+            if (promptEnd !== lines.length) {
+                break;
+            }
+        }
+
+        const prompt = lines.slice(0, promptEnd).join('\n').trimEnd();
+        return { prompt, templateName, answerWrapper, requestId };
     }
 
     private getSubsystemName(subsystem: TrailSubsystem): string {

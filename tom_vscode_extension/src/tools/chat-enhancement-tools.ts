@@ -736,7 +736,7 @@ async function executeAddToPromptQueue(input: AddToPromptQueueInput): Promise<st
 }
 
 export const ADD_TO_PROMPT_QUEUE_TOOL: SharedToolDefinition<AddToPromptQueueInput> = {
-    name: 'addToPromptQueue',
+    name: 'tomAi_queue_add',
     displayName: 'Add To Prompt Queue',
     description: 'Add a prompt to the prompt queue, optionally with template, answer wrapper, and follow-up prompts.',
     tags: ['queue', 'copilot', 'tom-ai-chat'],
@@ -798,13 +798,13 @@ async function executeSendQueuedPrompt(input: SendQueuedPromptInput): Promise<st
 }
 
 export const SEND_QUEUED_PROMPT_TOOL: SharedToolDefinition<SendQueuedPromptInput> = {
-    name: 'sendQueuedPrompt',
+    name: 'tomAi_queue_sendNow',
     displayName: 'Send Queued Prompt',
     description:
         'Explicitly send one staged prompt from the Prompt Queue. ' +
-        'Recommended workflow: (1) call addToPromptQueue with deferSend=true (default) to stage the initial prompt, ' +
-        '(2) call addFollowUpPrompt one or more times to append follow-ups, then (3) call sendQueuedPrompt to start execution. ' +
-        'After sendQueuedPrompt starts the item, the queue manager waits for the answer file, then automatically sends follow-up #1, waits again, sends follow-up #2, and so on until all follow-ups finish, finally marking the item as sent. ' +
+        'Recommended workflow: (1) call tomAi_queue_add with deferSend=true (default) to stage the initial prompt, ' +
+        '(2) call tomAi_queue_addFollowUp one or more times to append follow-ups, then (3) call tomAi_queue_sendNow to start execution. ' +
+        'After tomAi_queue_sendNow starts the item, the queue manager waits for the answer file, then automatically sends follow-up #1, waits again, sends follow-up #2, and so on until all follow-ups finish, finally marking the item as sent. ' +
         'All follow-up prompts are wrapped with the Answer Wrapper automatically. ' +
         'Target selection: pass queueItemId (preferred) for an exact item, or requestId when available; only pending items can be sent.',
     tags: ['queue', 'copilot', 'tom-ai-chat'],
@@ -860,7 +860,7 @@ async function executeAddFollowUpPrompt(input: AddFollowUpPromptInput): Promise<
 }
 
 export const ADD_FOLLOW_UP_PROMPT_TOOL: SharedToolDefinition<AddFollowUpPromptInput> = {
-    name: 'addFollowUpPrompt',
+    name: 'tomAi_queue_addFollowUp',
     displayName: 'Add Follow-Up Prompt',
     description: 'Add a follow-up prompt to an existing queue item (located by queue item ID or request ID).',
     tags: ['queue', 'follow-up', 'copilot', 'tom-ai-chat'],
@@ -912,7 +912,7 @@ async function executeAddTimedRequest(input: AddTimedRequestInput): Promise<stri
 }
 
 export const ADD_TIMED_REQUEST_TOOL: SharedToolDefinition<AddTimedRequestInput> = {
-    name: 'addTimedRequest',
+    name: 'tomAi_timed_add',
     displayName: 'Add Timed Request',
     description: 'Add a timed request entry (interval mode) to the timed requests list.',
     tags: ['timed', 'queue', 'copilot', 'tom-ai-chat'],
@@ -974,7 +974,7 @@ async function executeQueueList(input: QueueListInput): Promise<string> {
 }
 
 export const QUEUE_LIST_TOOL: SharedToolDefinition<QueueListInput> = {
-    name: 'tom_queue_list',
+    name: 'tomAi_queue_list',
     displayName: 'Queue List',
     description: 'List prompt queue items with status, IDs, reminder metadata, and follow-up counts.',
     tags: ['queue', 'copilot', 'tom-ai-chat'],
@@ -1048,7 +1048,7 @@ async function executeQueueUpdateItem(input: QueueUpdateItemInput): Promise<stri
 }
 
 export const QUEUE_UPDATE_ITEM_TOOL: SharedToolDefinition<QueueUpdateItemInput> = {
-    name: 'tom_queue_update_item',
+    name: 'tomAi_queue_updateItem',
     displayName: 'Queue Update Item',
     description: 'Update an editable queue item text/template/answer-wrapper/reminder settings.',
     tags: ['queue', 'copilot', 'tom-ai-chat'],
@@ -1090,7 +1090,7 @@ async function executeQueueSetStatus(input: QueueSetStatusInput): Promise<string
 }
 
 export const QUEUE_SET_STATUS_TOOL: SharedToolDefinition<QueueSetStatusInput> = {
-    name: 'tom_queue_set_status',
+    name: 'tomAi_queue_setStatus',
     displayName: 'Queue Set Status',
     description: 'Set queue item status to staged or pending.',
     tags: ['queue', 'copilot', 'tom-ai-chat'],
@@ -1123,7 +1123,7 @@ async function executeQueueSendNow(input: QueueSendNowInput): Promise<string> {
 }
 
 export const QUEUE_SEND_NOW_TOOL: SharedToolDefinition<QueueSendNowInput> = {
-    name: 'tom_queue_send_now',
+    name: 'tomAi_queue_sendNowById',
     displayName: 'Queue Send Now',
     description: 'Send a staged/pending queue item immediately.',
     tags: ['queue', 'copilot', 'tom-ai-chat'],
@@ -1154,7 +1154,7 @@ async function executeQueueRemoveItem(input: QueueRemoveItemInput): Promise<stri
 }
 
 export const QUEUE_REMOVE_ITEM_TOOL: SharedToolDefinition<QueueRemoveItemInput> = {
-    name: 'tom_queue_remove_item',
+    name: 'tomAi_queue_removeItem',
     displayName: 'Queue Remove Item',
     description: 'Remove a queue item by ID.',
     tags: ['queue', 'copilot', 'tom-ai-chat'],
@@ -1202,7 +1202,7 @@ async function executeQueueUpdateFollowUp(input: QueueUpdateFollowUpInput): Prom
 }
 
 export const QUEUE_UPDATE_FOLLOW_UP_TOOL: SharedToolDefinition<QueueUpdateFollowUpInput> = {
-    name: 'tom_queue_update_followup',
+    name: 'tomAi_queue_updateFollowUp',
     displayName: 'Queue Update Follow-Up',
     description: 'Update a follow-up prompt fields for an existing queue item.',
     tags: ['queue', 'follow-up', 'copilot', 'tom-ai-chat'],
@@ -1244,7 +1244,7 @@ async function executeQueueRemoveFollowUp(input: QueueRemoveFollowUpInput): Prom
 }
 
 export const QUEUE_REMOVE_FOLLOW_UP_TOOL: SharedToolDefinition<QueueRemoveFollowUpInput> = {
-    name: 'tom_queue_remove_followup',
+    name: 'tomAi_queue_removeFollowUp',
     displayName: 'Queue Remove Follow-Up',
     description: 'Remove a follow-up prompt from a queue item.',
     tags: ['queue', 'follow-up', 'copilot', 'tom-ai-chat'],
@@ -1295,7 +1295,7 @@ async function executeTimedList(input: TimedListInput): Promise<string> {
 }
 
 export const TIMED_LIST_TOOL: SharedToolDefinition<TimedListInput> = {
-    name: 'tom_timed_list',
+    name: 'tomAi_timed_list',
     displayName: 'Timed List',
     description: 'List timed request entries with schedule and reminder metadata.',
     tags: ['timed', 'copilot', 'tom-ai-chat'],
@@ -1342,7 +1342,7 @@ async function executeTimedUpdateEntry(input: TimedUpdateEntryInput): Promise<st
 }
 
 export const TIMED_UPDATE_ENTRY_TOOL: SharedToolDefinition<TimedUpdateEntryInput> = {
-    name: 'tom_timed_update_entry',
+    name: 'tomAi_timed_updateEntry',
     displayName: 'Timed Update Entry',
     description: 'Update a timed request entry fields (text/template/schedule/reminder/enabled).',
     tags: ['timed', 'copilot', 'tom-ai-chat'],
@@ -1396,7 +1396,7 @@ async function executeTimedRemoveEntry(input: TimedRemoveEntryInput): Promise<st
 }
 
 export const TIMED_REMOVE_ENTRY_TOOL: SharedToolDefinition<TimedRemoveEntryInput> = {
-    name: 'tom_timed_remove_entry',
+    name: 'tomAi_timed_removeEntry',
     displayName: 'Timed Remove Entry',
     description: 'Remove a timed request entry by ID.',
     tags: ['timed', 'copilot', 'tom-ai-chat'],
@@ -1427,7 +1427,7 @@ async function executeTimedSetEngineState(input: TimedSetEngineStateInput): Prom
 }
 
 export const TIMED_SET_ENGINE_STATE_TOOL: SharedToolDefinition<TimedSetEngineStateInput> = {
-    name: 'tom_timed_set_engine_state',
+    name: 'tomAi_timed_setEngineState',
     displayName: 'Timed Set Engine State',
     description: 'Enable or disable the global timed request engine.',
     tags: ['timed', 'copilot', 'tom-ai-chat'],
@@ -1512,7 +1512,7 @@ async function executePromptTemplateManage(input: PromptTemplateManageInput): Pr
 }
 
 export const PROMPT_TEMPLATE_MANAGE_TOOL: SharedToolDefinition<PromptTemplateManageInput> = {
-    name: 'tom_prompt_template_manage',
+    name: 'tomAi_templates_manage',
     displayName: 'Prompt Template Manage',
     description: 'List/create/update/delete prompt templates used by queue and timed requests.',
     tags: ['templates', 'queue', 'timed', 'copilot', 'tom-ai-chat'],
@@ -1586,7 +1586,7 @@ async function executeReminderTemplateManage(input: ReminderTemplateManageInput)
 }
 
 export const REMINDER_TEMPLATE_MANAGE_TOOL: SharedToolDefinition<ReminderTemplateManageInput> = {
-    name: 'tom_reminder_template_manage',
+    name: 'tomAi_reminders_manage',
     displayName: 'Reminder Template Manage',
     description: 'List/create/update/delete reminder templates used by queue and timed reminders.',
     tags: ['templates', 'reminder', 'queue', 'timed', 'copilot', 'tom-ai-chat'],
@@ -1633,7 +1633,6 @@ export const CHAT_ENHANCEMENT_TOOLS: SharedToolDefinition<any>[] = [
     QUEUE_LIST_TOOL,
     QUEUE_UPDATE_ITEM_TOOL,
     QUEUE_SET_STATUS_TOOL,
-    QUEUE_SEND_NOW_TOOL,
     QUEUE_REMOVE_ITEM_TOOL,
     QUEUE_UPDATE_FOLLOW_UP_TOOL,
     QUEUE_REMOVE_FOLLOW_UP_TOOL,

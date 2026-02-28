@@ -319,7 +319,7 @@ export function createStateMachineCommandHandler(name: string): () => Promise<vo
  * Register all state machine command entries.
  * Call this from extension.ts during activation.
  *
- * Each registered command has the ID `tomAi.stateMachine.<name>`.
+ * Each registered command has the ID `tomAi.layout.<name>`.
  * The names must match entries declared in package.json → contributes.commands.
  */
 export function registerStateMachineCommands(context: vscode.ExtensionContext): void {
@@ -330,7 +330,7 @@ export function registerStateMachineCommands(context: vscode.ExtensionContext): 
     
     for (const name of registeredNames) {
         const cmd = vscode.commands.registerCommand(
-            `tomAi.stateMachine.${name}`,
+            `tomAi.layout.${name}`,
             createStateMachineCommandHandler(name),
         );
         context.subscriptions.push(cmd);
@@ -338,7 +338,7 @@ export function registerStateMachineCommands(context: vscode.ExtensionContext): 
     
     // Register the reset command
     const resetCmd = vscode.commands.registerCommand(
-        'tomAi.resetMultiCommandState',
+        'tomAi.layout.resetStateMachines',
         resetAllStateMachineStates,
     );
     context.subscriptions.push(resetCmd);

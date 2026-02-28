@@ -2,12 +2,12 @@
 
 **Extension:** `tom-ai-extension` (renamed from `tom-ai-extension`)  
 **Date:** 26 Feb 2026  
-**Last updated:** 27 Feb 2026 (status + implementation continuation)  
+**Last updated:** 28 Feb 2026 (post-refactor audit sync + re-audit: no deviations)  
 **Companion docs:** `extension_analysis.md`, `extension_discrepancies.md`
 
 ---
 
-## Current Implementation Status (27 Feb 2026)
+## Current Implementation Status (28 Feb 2026)
 
 This section tracks actual implementation progress against the plan.
 
@@ -40,6 +40,10 @@ This section tracks actual implementation progress against the plan.
     - Migrated contributed panel/view IDs in `package.json` from `dartscript*` to `tomAi*` (`viewsContainers.panel`, panel webviews, explorer webviews), and aligned handler provider IDs/usages to `tomAi.*`
     - Added compatibility shims for legacy view-focus command IDs (`tomAi.*.focus` → `tomAi.*.focus`) to preserve existing integrations during the transition
     - Migrated workspace-file context key usage to `tomAi.hasWorkspaceFile` in manifest visibility conditions and runtime context updates, while still setting `tomAi.hasWorkspaceFile` for compatibility
+    - Removed legacy JSON todo manager path from Tom AI Chat (`todoManager.ts` deleted, chat tooling migrated to `ChatTodoSessionManager`)
+    - Removed legacy trail logger handler module (`trailLogger-handler.ts` deleted) and consolidated trail logging calls through `src/services/trailLogging.ts`
+    - Removed legacy escalation config module (`escalation-tools-config.ts` deleted) and switched config I/O to `local-llm-tools-config.ts`
+    - Migrated `tomAi.dsNotes.*` workspace keys to `tomAi.notes.*` in sidebar notes handlers
 
 ### Verified
 
@@ -52,6 +56,14 @@ This section tracks actual implementation progress against the plan.
 - **Phase 4 migration:** completed for active configuration and path readers using `tomAi`-first with legacy fallback behavior.
 - **Phase 5 parity/polish:** completed for current release scope.
 - **Phase 6 documentation/testing completion:** completed for current release scope (docs refreshed + compile/analyze validation).
+
+### Remaining gaps from latest audit (28 Feb 2026)
+
+- Legacy module removals are complete (`todoManager.ts`, `trailLogger-handler.ts`, `escalation-tools-config.ts` are gone and no longer imported).
+- `tomAi.dsNotes.*` workspace-state keys are no longer referenced in `src/**`.
+- Local-LLM naming cleanup is completed: active `escalation` terminology in symbols/comments/messages has been migrated to local-LLM bridge/localLlmTools naming in current source.
+- Verification rerun after cleanup: `npm run compile` and `dart analyze` both pass.
+- Re-audit pass (28 Feb 2026, later session) found no new deviations from this plan in `src/**`; open TODO status remains unchanged.
 
 ### Delivery guidance
 
@@ -750,6 +762,11 @@ Location: Quest folder (`${ai}/quests/<quest-id>/`)
 
 AI Conversation uses one of the above three subsystems and delegates trail writing accordingly (it already does this).
 
+Local LLM tool-triggered model invocations must follow the same summary trail rules:
+- If Local LLM triggers a Copilot model invocation (for example via `tomAi_askCopilot`), write summary entries to `*.copilot.prompts.md` and `*.copilot.answers.md` in the active quest folder.
+- If Local LLM triggers an LM API model invocation (for example via `tomAi_askBigBrother`), write summary entries to `*.lm-api-<model>.prompts.md` and `*.lm-api-<model>.answers.md` in the active quest folder.
+- These delegated invocations are not a separate trail type and must not create/restore a legacy `escalation` summary/raw trail namespace.
+
 ### 8.5 Raw Trail Configuration
 
 ```jsonc
@@ -1355,6 +1372,7 @@ Old tools (replaced by `tomAi_queue_*` / `tomAi_timed_*`):
 | 5.7 | Fix destructive `clearTrail()` — remove auto-clear, trail cleaned only by user | `sidebarNotes-handler.ts` |
 | 5.8 | Remove duplicate LM tools (§15.4) | `package.json` + tool registrations |
 | 5.9 | Remove dead code (§15) | Various files |
+| 5.10 | Ensure Local LLM-triggered delegated model invocations write summary trails in corresponding subsystem quest files (§8.4) | `localLlm-handler.ts` + delegated tool executors + `TrailService` |
 
 ### Phase 6: Documentation & Testing
 
@@ -1418,6 +1436,6 @@ Old tools (replaced by `tomAi_queue_*` / `tomAi_timed_*`):
 
 ## Open TODOs (Current)
 
-_Last updated: 2026-02-27_
+_Last updated: 2026-02-28_
 
 No remaining TODO items for the current refactoring scope.

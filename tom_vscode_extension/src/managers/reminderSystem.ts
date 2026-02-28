@@ -33,9 +33,6 @@ export interface ReminderConfig {
 // Singleton
 // ============================================================================
 
-const CONFIG_TEMPLATES_KEY = 'reminderTemplates';
-const CONFIG_REMINDER_KEY = 'reminderConfig';
-
 const DEFAULT_TEMPLATE: ReminderTemplate = {
     id: 'default',
     name: 'Are you alive?',
@@ -256,18 +253,19 @@ export class ReminderSystem {
             }
             const raw = fs.readFileSync(configPath, 'utf-8');
             const config = JSON.parse(raw);
+            const reminders = (config?.reminders && typeof config.reminders === 'object') ? config.reminders : {};
 
-            if (Array.isArray(config[CONFIG_TEMPLATES_KEY]) && config[CONFIG_TEMPLATES_KEY].length > 0) {
-                this._templates = config[CONFIG_TEMPLATES_KEY];
+            if (Array.isArray(reminders.templates) && reminders.templates.length > 0) {
+                this._templates = reminders.templates;
             } else {
                 this._templates = [{ ...DEFAULT_TEMPLATE }, { ...RETRY_TEMPLATE }];
             }
 
-            if (config[CONFIG_REMINDER_KEY] && typeof config[CONFIG_REMINDER_KEY] === 'object') {
+            if (reminders.config && typeof reminders.config === 'object') {
                 this._config = {
-                    enabled: config[CONFIG_REMINDER_KEY].enabled ?? true,
-                    defaultTemplateId: config[CONFIG_REMINDER_KEY].defaultTemplateId ?? 'default',
-                    defaultTimeoutMinutes: Math.max(1, config[CONFIG_REMINDER_KEY].defaultTimeoutMinutes ?? 5),
+                    enabled: reminders.config.enabled ?? true,
+                    defaultTemplateId: reminders.config.defaultTemplateId ?? 'default',
+                    defaultTimeoutMinutes: Math.max(1, reminders.config.defaultTimeoutMinutes ?? 5),
                 };
             }
         } catch {
@@ -283,8 +281,12 @@ export class ReminderSystem {
             if (fs.existsSync(configPath)) {
                 config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
             }
-            config[CONFIG_TEMPLATES_KEY] = this._templates;
-            config[CONFIG_REMINDER_KEY] = this._config;
+            const reminders = (config.reminders && typeof config.reminders === 'object')
+                ? (config.reminders as Record<string, unknown>)
+                : {};
+            reminders.templates = this._templates;
+            reminders.config = this._config;
+            config.reminders = reminders;
             fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
         } catch { /* ignore */ }
     }

@@ -9,7 +9,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getConfigPath, updateChatResponseValues, clearChatResponseValues } from './handler_shared';
-import { logCopilotAnswer, isTrailEnabled, loadTrailConfig } from './trailLogger-handler';
+import { logCopilotAnswer, isTrailEnabled, loadTrailConfig } from '../services/trailLogging';
 import {
     resolveTemplate,
     formatDateTime,

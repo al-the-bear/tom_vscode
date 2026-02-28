@@ -17,16 +17,18 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { resolvePathVariables } from '../handlers/handler_shared.js';
 import { SharedToolDefinition } from './shared-tool-registry';
-import { TodoManager, TodoOperationResult } from '../managers/todoManager';
+import { ChatTodoSessionManager, TodoOperationResult } from '../managers/chatTodoSessionManager';
 import {
-    loadEscalationToolsConfig,
+    loadLocalLlmToolsConfig,
     buildAskBigBrotherDescription,
     buildAskCopilotDescription,
     generateModelList,
-} from './escalation-tools-config';
+} from './local-llm-tools-config';
 import { updateChatResponseValues, loadSendToChatConfig, DEFAULT_ANSWER_FILE_TEMPLATE } from '../handlers/handler_shared';
 import { expandTemplate } from '../handlers/promptTemplate';
 import { debugLog } from '../utils/debugLogger.js';
+import { logPrompt, logResponse } from '../services/trailLogging';
+import { ChatVariablesStore } from '../managers/chatVariablesStore.js';
 
 const execAsync = promisify(exec);
 
@@ -82,7 +84,7 @@ async function executeReadFile(input: ReadFileInput): Promise<string> {
 }
 
 export const READ_FILE_TOOL: SharedToolDefinition<ReadFileInput> = {
-    name: 'tom_readFile',
+    name: 'tomAi_readFile',
     displayName: 'Read File',
     description: 'Read the contents of a file. Optionally specify line range.',
     tags: ['files', 'tom-ai-chat'],
@@ -116,7 +118,7 @@ async function executeListDirectory(input: ListDirectoryInput): Promise<string> 
 }
 
 export const LIST_DIRECTORY_TOOL: SharedToolDefinition<ListDirectoryInput> = {
-    name: 'tom_listDirectory',
+    name: 'tomAi_listDirectory',
     displayName: 'List Directory',
     description: 'List the contents of a directory. Directories have a trailing slash.',
     tags: ['files', 'tom-ai-chat'],
@@ -147,7 +149,7 @@ async function executeFindFiles(input: FindFilesInput): Promise<string> {
 }
 
 export const FIND_FILES_TOOL: SharedToolDefinition<FindFilesInput> = {
-    name: 'tom_findFiles',
+    name: 'tomAi_findFiles',
     displayName: 'Find Files',
     description: 'Find files matching a glob pattern in the workspace.',
     tags: ['files', 'search', 'tom-ai-chat'],
@@ -190,7 +192,7 @@ async function executeFindTextInFiles(input: FindTextInFilesInput): Promise<stri
 }
 
 export const FIND_TEXT_IN_FILES_TOOL: SharedToolDefinition<FindTextInFilesInput> = {
-    name: 'tom_findTextInFiles',
+    name: 'tomAi_findTextInFiles',
     displayName: 'Find Text in Files',
     description: 'Search for text in files using grep. Returns matching lines with file paths and line numbers.',
     tags: ['files', 'search', 'tom-ai-chat'],
@@ -225,7 +227,7 @@ async function executeFetchWebpage(input: FetchWebpageInput): Promise<string> {
 }
 
 export const FETCH_WEBPAGE_TOOL: SharedToolDefinition<FetchWebpageInput> = {
-    name: 'tom_fetchWebpage',
+    name: 'tomAi_fetchWebpage',
     displayName: 'Fetch Webpage',
     description: 'Fetch the content of a URL. Returns the raw HTML. Useful for reading documentation or web resources.',
     tags: ['web', 'tom-ai-chat'],
@@ -332,7 +334,7 @@ function parseDuckDuckGoLite(html: string, max: number): SearchResult[] {
 }
 
 export const WEB_SEARCH_TOOL: SharedToolDefinition<WebSearchInput> = {
-    name: 'tom_webSearch',
+    name: 'tomAi_webSearch',
     displayName: 'Web Search',
     description: 'Search the web using DuckDuckGo. Returns titles, URLs, and snippets of the top results. Use this to research topics, find documentation, or discover solutions.',
     tags: ['web', 'search', 'tom-ai-chat'],
@@ -373,7 +375,7 @@ async function executeGetErrors(input: GetErrorsInput): Promise<string> {
 }
 
 export const GET_ERRORS_TOOL: SharedToolDefinition<GetErrorsInput> = {
-    name: 'tom_getErrors',
+    name: 'tomAi_getErrors',
     displayName: 'Get Errors',
     description: 'Get errors and warnings from VS Code diagnostics.',
     tags: ['diagnostics', 'tom-ai-chat'],
@@ -439,7 +441,7 @@ const guidelineInputSchema = {
 };
 
 export const READ_GUIDELINE_TOOL: SharedToolDefinition<ReadGuidelineInput> = {
-    name: 'tom_readGuideline',
+    name: 'tomAi_readGuideline',
     displayName: 'Read Guideline',
     description:
         'Read workspace guidelines from _copilot_tomai/ folder. Without a fileName, returns the list of available files and the content of index.md (the main guideline index). Key guidelines: coding_guidelines.md (code structure, naming), documentation_guidelines.md (docs format), tests.md (test creation), project_structure.md (project patterns), bug_fixing.md (debugging workflow). Use this tool to understand workspace conventions before making changes.',
@@ -450,7 +452,7 @@ export const READ_GUIDELINE_TOOL: SharedToolDefinition<ReadGuidelineInput> = {
 };
 
 export const READ_LOCAL_GUIDELINE_TOOL: SharedToolDefinition<ReadGuidelineInput> = {
-    name: 'tom_readLocalGuideline',
+    name: 'tomAi_readLocalGuideline',
     displayName: 'Read Local Guideline',
     description:
         'Read local LLM guidelines from _copilot_local/ folder. Without a fileName, returns the list of available files and the content of index.md. Use this tool to understand workspace conventions before making changes.',
@@ -509,7 +511,7 @@ async function executeCreateFile(input: CreateFileInput): Promise<string> {
 }
 
 export const CREATE_FILE_TOOL: SharedToolDefinition<CreateFileInput> = {
-    name: 'tom_createFile',
+    name: 'tomAi_createFile',
     displayName: 'Create File',
     description: 'Create a new file with the specified content. Creates parent directories if needed.',
     tags: ['files', 'tom-ai-chat'],
@@ -539,7 +541,7 @@ async function executeEditFile(input: EditFileInput): Promise<string> {
 }
 
 export const EDIT_FILE_TOOL: SharedToolDefinition<EditFileInput> = {
-    name: 'tom_editFile',
+    name: 'tomAi_editFile',
     displayName: 'Edit File',
     description: 'Edit a file by replacing oldText with newText. The oldText must match exactly.',
     tags: ['files', 'tom-ai-chat'],
@@ -574,7 +576,7 @@ async function executeMultiEditFile(input: MultiEditFileInput): Promise<string> 
 }
 
 export const MULTI_EDIT_FILE_TOOL: SharedToolDefinition<MultiEditFileInput> = {
-    name: 'tom_multiEditFile',
+    name: 'tomAi_multiEditFile',
     displayName: 'Multi Edit File',
     description: 'Apply multiple find/replace edits across one or more files.',
     tags: ['files', 'tom-ai-chat'],
@@ -615,7 +617,7 @@ async function executeRunCommand(input: RunCommandInput): Promise<string> {
 }
 
 export const RUN_COMMAND_TOOL: SharedToolDefinition<RunCommandInput> = {
-    name: 'tom_runCommand',
+    name: 'tomAi_runCommand',
     displayName: 'Run Command',
     description: 'Run a shell command and return the output.',
     tags: ['terminal', 'tom-ai-chat'],
@@ -645,7 +647,7 @@ async function executeRunVscodeCommand(input: RunVscodeCommandInput): Promise<st
 }
 
 export const RUN_VSCODE_COMMAND_TOOL: SharedToolDefinition<RunVscodeCommandInput> = {
-    name: 'tom_runVscodeCommand',
+    name: 'tomAi_runVscodeCommand',
     displayName: 'Run VS Code Command',
     description: 'Execute a VS Code command by ID.',
     tags: ['vscode', 'tom-ai-chat'],
@@ -662,16 +664,16 @@ export const RUN_VSCODE_COMMAND_TOOL: SharedToolDefinition<RunVscodeCommandInput
 };
 
 // ============================================================================
-// Todo tool — needs special wiring for the active TodoManager
+// Todo tool — needs special wiring for the active chat todo session manager
 // ============================================================================
 
-let activeTodoManager: TodoManager | null = null;
+let activeTodoManager: ChatTodoSessionManager | null = null;
 
-export function setActiveTodoManager(manager: TodoManager | null): void {
+export function setActiveTodoManager(manager: ChatTodoSessionManager | null): void {
     activeTodoManager = manager;
 }
 
-export function getActiveTodoManager(): TodoManager | null {
+export function getActiveTodoManager(): ChatTodoSessionManager | null {
     return activeTodoManager;
 }
 
@@ -691,20 +693,20 @@ async function executeManageTodo(input: ManageTodoInput): Promise<string> {
     }
     let result: TodoOperationResult;
     switch (input.operation) {
-        case 'list': result = todoManager.list(input.filterStatus); break;
+        case 'list': result = await todoManager.list(input.filterStatus); break;
         case 'add':
             if (!input.title) { return 'Error: "title" is required for add operation.'; }
-            result = todoManager.add(input.title, input.description || '');
+            result = await todoManager.add(input.title, input.description || '');
             break;
         case 'update':
             if (input.id === undefined) { return 'Error: "id" is required for update operation.'; }
-            result = todoManager.update(input.id, { title: input.title, description: input.description, status: input.status });
+            result = await todoManager.update(input.id, { title: input.title, description: input.description, status: input.status });
             break;
         case 'remove':
             if (input.id === undefined) { return 'Error: "id" is required for remove operation.'; }
-            result = todoManager.remove(input.id);
+            result = await todoManager.remove(input.id);
             break;
-        case 'clear': result = todoManager.clear(); break;
+        case 'clear': result = await todoManager.clear(); break;
         default: return `Error: Unknown operation "${input.operation}". Use: list, add, update, remove, or clear.`;
     }
     const lines: string[] = [result.message, ''];
@@ -722,7 +724,7 @@ async function executeManageTodo(input: ManageTodoInput): Promise<string> {
 }
 
 export const MANAGE_TODO_TOOL: SharedToolDefinition<ManageTodoInput> = {
-    name: 'tom_manageTodo',
+    name: 'tomAi_manageTodo',
     displayName: 'Manage Todo List',
     description:
         "Optional: Manage a persistent todo list for complex multi-step tasks. Skip for simple tasks. Operations: 'list' (view todos), 'add' (create with title/description), 'update' (change status/title/description by id), 'remove' (delete by id), 'clear' (remove all). Status values: not-started, in-progress, completed. Use when you have 3+ distinct steps to track.",
@@ -770,7 +772,7 @@ let cachedModels: Array<{
  * Convert tool result to text (simplified version for Big Brother tool)
  */
 function toolResultToTextBigBrother(result: vscode.LanguageModelToolResult): string {
-    const config = loadEscalationToolsConfig();
+    const config = loadLocalLlmToolsConfig();
     const maxChars = config.askBigBrother.maxToolResultChars;
     
     const parts: string[] = [];
@@ -794,9 +796,9 @@ function toolResultToTextBigBrother(result: vscode.LanguageModelToolResult): str
 
 async function executeAskBigBrother(input: AskBigBrotherInput): Promise<string> {
     // Lazy-init: enrich tool description with model list on first use
-    await ensureEscalationToolsInitialized();
+    await ensureLocalLlmBridgeToolsInitialized();
 
-    const config = loadEscalationToolsConfig();
+    const config = loadLocalLlmToolsConfig();
     
     // Check if tool is enabled
     if (!config.askBigBrother.enabled) {
@@ -840,6 +842,21 @@ async function executeAskBigBrother(input: AskBigBrotherInput): Promise<string> 
             }
 
             const model = models[0];
+            const questId = (() => {
+                try {
+                    return ChatVariablesStore.instance.quest || undefined;
+                } catch {
+                    return undefined;
+                }
+            })();
+
+            logPrompt('tomai', model.id, input.prompt, undefined, {
+                questId,
+                model: model.id,
+                source: 'localLlmTool',
+                tool: 'tomAi_askBigBrother',
+                enableTools: input.enableTools,
+            });
             
             const tokenSource = new vscode.CancellationTokenSource();
             const enableTools = input.enableTools ?? config.askBigBrother.enableToolsByDefault;
@@ -916,6 +933,13 @@ async function executeAskBigBrother(input: AskBigBrotherInput): Promise<string> 
                 }
                 
                 const toolsNote = enableTools ? ' (with tools)' : '';
+                logResponse('tomai', model.id, finalResponse, true, {
+                    questId,
+                    model: model.id,
+                    source: 'localLlmTool',
+                    tool: 'tomAi_askBigBrother',
+                    enableTools,
+                });
                 return `**Response from ${model.name}${toolsNote}:**\n\n${finalResponse}`;
             } catch (error: unknown) {
                 clearTimeout(timeoutId);
@@ -935,7 +959,7 @@ async function executeAskBigBrother(input: AskBigBrotherInput): Promise<string> 
 /**
  * Summarize a long response using the configured summarization model
  */
-async function summarizeResponse(response: string, config: ReturnType<typeof loadEscalationToolsConfig>): Promise<string> {
+async function summarizeResponse(response: string, config: ReturnType<typeof loadLocalLlmToolsConfig>): Promise<string> {
     const summaryConfig = config.askBigBrother;
     
     let models = await vscode.lm.selectChatModels({ family: summaryConfig.summarizationModel });
@@ -966,9 +990,9 @@ async function summarizeResponse(response: string, config: ReturnType<typeof loa
 }
 
 export const ASK_BIG_BROTHER_TOOL: SharedToolDefinition<AskBigBrotherInput> = {
-    name: 'tom_askBigBrother',
+    name: 'tomAi_askBigBrother',
     displayName: 'Ask Big Brother',
-    description: `Query VS Code language models (GitHub Copilot, Claude, GPT-4, etc.) from your local LLM. This is your "escalation path" for complex questions.
+    description: `Query VS Code language models (GitHub Copilot, Claude, GPT-4, etc.) from your local LLM. This is your fallback bridge for complex questions.
 
 **Operations:**
 - "list": Get available models with recommendations
@@ -981,7 +1005,7 @@ Set enableTools=true to let the model use VS Code tools to gather information be
 - Complex reasoning, architecture decisions, code analysis
 - Questions requiring broader knowledge than your training
 - Verification of your answers on critical topics`,
-    tags: ['ai', 'llm', 'escalation', 'local-llm'],
+    tags: ['ai', 'llm', 'local-llm', 'local-llm-bridge'],
     readOnly: true,
     inputSchema: {
         type: 'object',
@@ -1024,7 +1048,14 @@ export interface AskCopilotInput {
 }
 
 async function executeAskCopilot(input: AskCopilotInput): Promise<string> {
-    const config = loadEscalationToolsConfig();
+    const config = loadLocalLlmToolsConfig();
+    const questId = (() => {
+        try {
+            return ChatVariablesStore.instance.quest || undefined;
+        } catch {
+            return undefined;
+        }
+    })();
     
     // Check if tool is enabled
     if (!config.askCopilot.enabled) {
@@ -1038,6 +1069,12 @@ async function executeAskCopilot(input: AskCopilotInput): Promise<string> {
     
     const waitForAnswer = input.waitForAnswer ?? true;
     const timeoutMs = input.timeoutMs ?? config.askCopilot.answerFileTimeout;
+
+    logPrompt('copilot', 'github_copilot', input.prompt, undefined, {
+        questId,
+        source: 'localLlmTool',
+        tool: 'tomAi_askCopilot',
+    });
     
     // Load send-to-chat config for templates
     const sendToChatConfig = loadSendToChatConfig();
@@ -1110,11 +1147,28 @@ async function executeAskCopilot(input: AskCopilotInput): Promise<string> {
                             updateChatResponseValues(parsed.responseValues);
                         }
                         if (parsed.response) {
+                            logResponse('copilot', 'github_copilot', String(parsed.response), true, {
+                                questId,
+                                source: 'localLlmTool',
+                                tool: 'tomAi_askCopilot',
+                                requestId: parsed.requestId,
+                            });
                             return `**Copilot Response:**\n\n${parsed.response}`;
                         }
+                        logResponse('copilot', 'github_copilot', JSON.stringify(parsed, null, 2), true, {
+                            questId,
+                            source: 'localLlmTool',
+                            tool: 'tomAi_askCopilot',
+                            requestId: parsed.requestId,
+                        });
                         return `**Copilot Response:**\n\n${JSON.stringify(parsed, null, 2)}`;
                     } catch {
                         // Plain text fallback
+                        logResponse('copilot', 'github_copilot', content, true, {
+                            questId,
+                            source: 'localLlmTool',
+                            tool: 'tomAi_askCopilot',
+                        });
                         return `**Copilot Response:**\n\n${content}`;
                     }
                 }
@@ -1128,7 +1182,7 @@ async function executeAskCopilot(input: AskCopilotInput): Promise<string> {
 }
 
 export const ASK_COPILOT_TOOL: SharedToolDefinition<AskCopilotInput> = {
-    name: 'tom_askCopilot',
+    name: 'tomAi_askCopilot',
     displayName: 'Ask Copilot',
     description: `Send a question to GitHub Copilot via the chat window and wait for a response via answer file.
 
@@ -1141,7 +1195,7 @@ export const ASK_COPILOT_TOOL: SharedToolDefinition<AskCopilotInput> = {
 - Questions that benefit from Copilot's full context (open files, workspace)
 - Tasks where Copilot can use its native tools (edit files, run commands)
 - Complex coding tasks requiring iterative refinement`,
-    tags: ['ai', 'copilot', 'escalation', 'local-llm'],
+    tags: ['ai', 'copilot', 'local-llm', 'local-llm-bridge'],
     readOnly: true,
     inputSchema: {
         type: 'object',
@@ -1165,14 +1219,14 @@ export const ASK_COPILOT_TOOL: SharedToolDefinition<AskCopilotInput> = {
 };
 
 // ============================================================================
-// Initialize escalation tool descriptions with dynamic model list
+// Initialize local-LLM bridge tool descriptions with dynamic model list
 // ============================================================================
 
 /**
  * Whether the Ask Big Brother tool description has been enriched
  * with the dynamic model list from selectChatModels().
  */
-let escalationToolsInitialized = false;
+let localLlmBridgeToolsInitialized = false;
 
 /**
  * Lazy-initialize the Ask Big Brother tool description with the
@@ -1182,19 +1236,19 @@ let escalationToolsInitialized = false;
  * during the activation rush due to event loop contention. By deferring
  * to first use, it runs when the event loop is idle (<1s).
  */
-async function ensureEscalationToolsInitialized(): Promise<void> {
-    if (escalationToolsInitialized) return;
-    escalationToolsInitialized = true;
+async function ensureLocalLlmBridgeToolsInitialized(): Promise<void> {
+    if (localLlmBridgeToolsInitialized) return;
+    localLlmBridgeToolsInitialized = true;
     try {
         const sub = performance.now();
         const bigBrotherDesc = await buildAskBigBrotherDescription();
         ASK_BIG_BROTHER_TOOL.description = bigBrotherDesc;
-        debugLog(`initEscalationTools.buildBigBrotherDesc (first-use): ${Math.round((performance.now() - sub) * 100) / 100}ms`, 'INFO', 'escalationTools');
+        debugLog(`initLocalLlmBridgeTools.buildBigBrotherDesc (first-use): ${Math.round((performance.now() - sub) * 100) / 100}ms`, 'INFO', 'localLlmTools');
 
         const copilotDesc = buildAskCopilotDescription();
         ASK_COPILOT_TOOL.description = copilotDesc;
     } catch (error) {
-        console.error('Error initializing escalation tools:', error);
+        console.error('Error initializing local-LLM bridge tools:', error);
     }
 }
 
@@ -1232,9 +1286,9 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
 
 /**
  * Read-only tools suitable for Ollama (local LLM).
- * Excludes tom_readGuideline (for VS Code LM only) — Ollama uses tom_readLocalGuideline instead.
+ * Excludes tomAi_readGuideline (for VS Code LM only) — Ollama uses tomAi_readLocalGuideline instead.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const READ_ONLY_TOOLS: SharedToolDefinition<any>[] = ALL_SHARED_TOOLS.filter(
-    t => t.readOnly && t.name !== 'tom_readGuideline',
+    t => t.readOnly && t.name !== 'tomAi_readGuideline',
 );

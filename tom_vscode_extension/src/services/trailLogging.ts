@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { TrailService, TrailMetadata, TrailSubsystem } from '../services/trailService';
+import { TrailService, TrailMetadata, TrailSubsystem } from './trailService';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 
 export type TrailType = 'local' | 'copilot' | 'conversation' | 'tomai';
@@ -102,7 +102,8 @@ export function logPrompt(
         : prompt;
 
     trailService.writeSummaryPrompt(subsystem, summaryPrompt, questId);
-    trailService.writeRawPrompt(subsystem, prompt, getWindowId());
+    const requestId = typeof metadata.requestId === 'string' ? metadata.requestId : undefined;
+    trailService.writeRawPrompt(subsystem, prompt, getWindowId(), requestId);
 }
 
 export function logResponse(
@@ -117,7 +118,8 @@ export function logResponse(
     const questId = getQuestId(metadata);
 
     trailService.writeSummaryAnswer(subsystem, response, metadata, questId);
-    trailService.writeRawAnswer(subsystem, response, getWindowId());
+    const requestId = typeof metadata.requestId === 'string' ? metadata.requestId : undefined;
+    trailService.writeRawAnswer(subsystem, response, getWindowId(), requestId);
 }
 
 export function logContinuationPrompt(

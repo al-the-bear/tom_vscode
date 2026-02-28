@@ -531,7 +531,7 @@ export const DEFAULT_ANSWER_FILE_TEMPLATE =
  */
 export function getConfigPlaceholderContext(): ConfigPlaceholderContext {
     const config = loadSendToChatConfig();
-    return buildConfigContext(config?.binaryPath, getWorkspaceRoot());
+    return buildConfigContext(config?.bridge?.binaryPath, getWorkspaceRoot());
 }
 
 /**
@@ -543,8 +543,8 @@ export function getConfigPlaceholderContext(): ConfigPlaceholderContext {
  */
 export function resolveExecutable(name: string): string | undefined {
     const config = loadSendToChatConfig();
-    const ctx = buildConfigContext(config?.binaryPath, getWorkspaceRoot());
-    return resolveNamedExecutable(name, config?.executables, ctx);
+    const ctx = buildConfigContext(config?.bridge?.binaryPath, getWorkspaceRoot());
+    return resolveNamedExecutable(name, config?.bridge?.executables, ctx);
 }
 
 /**
@@ -563,8 +563,8 @@ export function getExternalApplicationForFile(filePath: string): {
     const mapping = findExternalApplication(filePath, config?.externalApplications);
     if (!mapping) return undefined;
     
-    const ctx = buildConfigContext(config?.binaryPath, getWorkspaceRoot());
-    const executable = resolveApplicationExecutable(mapping, config?.executables, ctx);
+    const ctx = buildConfigContext(config?.bridge?.binaryPath, getWorkspaceRoot());
+    const executable = resolveApplicationExecutable(mapping, config?.bridge?.executables, ctx);
     return {
         executable,
         label: mapping.label,
@@ -590,8 +590,8 @@ export async function openInExternalApplication(filePath: string): Promise<boole
     debugLog(`[openExternalApp] Opening "${filePath}" with "${resolvedPath}"`, 'INFO', 'extension');
     
     try {
-        // Launch via VS Code terminal — this inherits the full shell environment
-        // (DISPLAY, XAUTHORITY, DBUS, etc.) and avoids Electron cwd conflicts.
+        // Launch via VS Code terminal — inherits the full shell environment
+        // (DISPLAY, XAUTHORITY, DBUS, etc.) needed by GUI apps like MarkText.
         const appName = app.label || path.basename(resolvedPath);
         const terminal = vscode.window.createTerminal({
             name: `Open in ${appName}`,
@@ -625,8 +625,8 @@ export function resolveBridgeExecutable(profileName: string): string | undefined
     
     // Prefer executable reference over direct command path
     if (profile.executable) {
-        const ctx = buildConfigContext(config?.binaryPath, getWorkspaceRoot());
-        return resolveNamedExecutable(profile.executable, config?.executables, ctx);
+        const ctx = buildConfigContext(config?.bridge?.binaryPath, getWorkspaceRoot());
+        return resolveNamedExecutable(profile.executable, config?.bridge?.executables, ctx);
     }
     
     // Direct command path
@@ -646,12 +646,12 @@ export function listConfiguredExecutables(): Array<{
     exists: boolean;
 }> {
     const config = loadSendToChatConfig();
-    const executables = config?.executables;
+    const executables = config?.bridge?.executables;
     if (!executables) return [];
     
     const result: Array<{ name: string; path: string | undefined; exists: boolean }> = [];
     
-    const ctx = buildConfigContext(config?.binaryPath, getWorkspaceRoot());
+    const ctx = buildConfigContext(config?.bridge?.binaryPath, getWorkspaceRoot());
     for (const [name, platformConfig] of Object.entries(executables)) {
         const resolved = resolveNamedExecutable(name, executables, ctx);
         result.push({
@@ -671,12 +671,35 @@ export function listConfiguredExecutables(): Array<{
  * They wrap the text using the template's ${originalPrompt} placeholder.
  */
 export function applyDefaultTemplate(text: string, panel: string): string {
-    if (panel !== 'copilot') return text;
-
     const config = loadSendToChatConfig();
-    const templateKey = config?.copilot?.defaultTemplate;
+    if (!config) return text;
+
+    let templateKey: string | undefined;
+    let templates: Record<string, { template?: string }> | undefined;
+
+    switch (panel) {
+        case 'copilot':
+            templateKey = config.copilot?.defaultTemplate;
+            templates = config.copilot?.templates;
+            break;
+        case 'localLlm':
+            templateKey = (config.localLlm as any)?.defaultTemplate;
+            templates = (config.localLlm as any)?.templates || config.copilot?.templates;
+            break;
+        case 'conversation':
+            templateKey = (config.aiConversation as any)?.defaultTemplate;
+            templates = (config.aiConversation as any)?.templates || config.copilot?.templates;
+            break;
+        case 'tomAiChat':
+            templateKey = config.tomAiChat?.defaultTemplate;
+            templates = (config.tomAiChat as any)?.templates || config.copilot?.templates;
+            break;
+        default:
+            return text;
+    }
+
     if (!templateKey) return text;
-    const tpl = config.copilot?.templates?.[templateKey];
+    const tpl = templates?.[templateKey];
     if (!tpl?.template) return text;
     return tpl.template.replace(/\$\{originalPrompt\}/g, text);
 }

@@ -129,7 +129,7 @@ function logCopilotPrompt(prompt: string, template: string): void {
     // Format the entry
     const timestamp = new Date().toISOString();
     const templateLabel = template || '(none)';
-    const entry = `## ${timestamp}\n\n**Template:** ${templateLabel}\n\n${prompt}\n\n---\n\n`;
+    const entry = `## ${timestamp}\n\n**Template:** ${templateLabel}\n\n${prompt}\n\n`;
     
     // Read existing file or create new
     let existingContent = '';
@@ -163,13 +163,13 @@ function logCopilotPrompt(prompt: string, template: string): void {
 /** Configurable max trail entries before cleanup (reads from config, default 1000) */
 function getMaxTrailEntries(): number {
     const config = loadSendToChatConfig();
-    return config?.trailMaxEntries ?? 1000;
+    return config?.trail?.maxEntries ?? 1000;
 }
 
 /** Configurable trail cleanup days (reads from config, default 2) */
 function getTrailCleanupDays(): number {
     const config = loadSendToChatConfig();
-    return config?.trailCleanupDays ?? 2;
+    return config?.trail?.cleanupDays ?? 2;
 }
 
 /** Track last cleanup date to only cleanup once per day */
@@ -234,6 +234,22 @@ export function getIndividualTrailFolder(): string {
 /** Get the trail file name prefix — quest ID from .code-workspace when a quest is active, 'default' otherwise */
 export function getTrailFilePrefix(): string {
     return detectQuestFromWorkspace() || 'default';
+}
+
+export function getCopilotSummaryTrailPaths(): { questId: string; folder: string; promptsPath: string; answersPath: string } | null {
+    const wsRoot = getWorkspaceRoot();
+    if (!wsRoot) {
+        return null;
+    }
+
+    const questId = detectQuestFromWorkspace() || 'incidents';
+    const folder = WsPaths.ai('quests', questId) || path.join(wsRoot, '_ai', 'quests', questId);
+    return {
+        questId,
+        folder,
+        promptsPath: path.join(folder, `${questId}.copilot.prompts.md`),
+        answersPath: path.join(folder, `${questId}.copilot.answers.md`),
+    };
 }
 
 /** Migrate old trail files from _prompts.md/_answers.md to .prompts.md/.answers.md */
@@ -341,30 +357,34 @@ function cleanupOldTrailFiles(trailFolder: string): void {
 function writePromptTrail(originalPrompt: string, templateName: string, isAnswerWrapper: boolean, expandedPrompt: string, overrideRequestId?: string): void {
     const trailService = TrailService.instance;
     const requestId = overrideRequestId || generateRequestId();
-    const questId = detectQuestFromWorkspace() || undefined;
-    const promptMeta = `TEMPLATE: ${templateName || '(none)'}\nANSWER-WRAPPER: ${isAnswerWrapper ? 'yes' : 'no'}\nREQUEST-ID: ${requestId}`;
-    const summaryPrompt = `${originalPrompt}\n\n${promptMeta}`;
 
-    void trailService.writeSummaryPrompt({ type: 'copilot' }, summaryPrompt, questId);
-    void trailService.writeRawPrompt({ type: 'copilot' }, expandedPrompt, getWindowId());
+    const summaryPrompt =
+        `${originalPrompt}\n\n` +
+        `TEMPLATE: ${templateName || '(none)'}\n` +
+        `ANSWER-WRAPPER: ${isAnswerWrapper ? 'yes' : 'no'}\n` +
+        `REQUEST-ID: ${requestId}`;
+    trailService.writeSummaryPrompt({ type: 'copilot' }, summaryPrompt, getCopilotSummaryTrailPaths()?.questId);
+
+    void trailService.writeRawPrompt({ type: 'copilot' }, expandedPrompt, getWindowId(), requestId);
 }
 
 /** Write to consolidated answer trail file */
 function writeAnswerTrail(answer: { requestId: string; generatedMarkdown: string; comments?: string; references?: string[]; requestedAttachments?: string[]; responseValues?: Record<string, string> }): void {
     const trailService = TrailService.instance;
-    const questId = detectQuestFromWorkspace() || undefined;
-    const summaryAnswer = [
+    trailService.writeSummaryAnswer(
+        { type: 'copilot' },
         answer.generatedMarkdown,
-        answer.comments ? `\ncomments:\n${answer.comments}` : '',
-        answer.references && answer.references.length > 0 ? `\nreferences:\n${answer.references.map(r => ` - ${r}`).join('\n')}` : '',
-        answer.requestedAttachments && answer.requestedAttachments.length > 0 ? `\nrequestFileAttachments:\n${answer.requestedAttachments.map(a => ` - ${a}`).join('\n')}` : '',
-        answer.responseValues && Object.keys(answer.responseValues).length > 0
-            ? `\nvariables:\n${Object.entries(answer.responseValues).map(([k, v]) => ` - ${k} = ${v}`).join('\n')}`
-            : ''
-    ].join('');
+        {
+            requestId: answer.requestId,
+            comments: answer.comments,
+            references: answer.references,
+            requestedAttachments: answer.requestedAttachments,
+            responseValues: answer.responseValues,
+        },
+        getCopilotSummaryTrailPaths()?.questId,
+    );
 
-    void trailService.writeSummaryAnswer({ type: 'copilot' }, summaryAnswer, { requestId: answer.requestId }, questId);
-    void trailService.writeRawAnswer({ type: 'copilot' }, answer.generatedMarkdown, getWindowId());
+    void trailService.writeRawAnswer({ type: 'copilot' }, answer.generatedMarkdown, getWindowId(), answer.requestId);
 }
 
 const VIEW_ID = 'tomAi.chatPanel';
@@ -389,7 +409,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
 
     constructor(context: vscode.ExtensionContext) {
         this._context = context;
-        this._autoHideDelay = context.workspaceState.get('copilotAutoHideDelay', 0);
+        this._autoHideDelay = context.workspaceState.get('tomAi.copilot.autoHideDelay', 0);
         this._keepContentAfterSend = context.workspaceState.get('copilotKeepContent', false);
         this._setupAnswerFileWatcher();
     }
@@ -574,7 +594,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
                     // Copilot answer file handlers
                     case 'setAutoHideDelay':
                         this._autoHideDelay = message.value;
-                        this._context.workspaceState.update('copilotAutoHideDelay', message.value);
+                        this._context.workspaceState.update('tomAi.copilot.autoHideDelay', message.value);
                         break;
                     case 'getAutoHideDelay':
                         this._view?.webview.postMessage({ type: 'autoHideDelay', value: this._autoHideDelay });
@@ -666,7 +686,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
     }
 
     private _getEffectiveLlmConfigurations(config: SendToChatConfig | null): Array<{ id: string; name: string }> {
-        const explicit = Array.isArray(config?.configurations) ? config!.configurations : [];
+        const explicit = Array.isArray(config?.localLlm?.configurations) ? config!.localLlm!.configurations : [];
         if (explicit.length > 0) {
             return explicit
                 .filter((c: any) => c && typeof c.id === 'string' && c.id.trim().length > 0)
@@ -676,7 +696,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
     }
 
     private _getEffectiveAiConversationSetups(config: SendToChatConfig | null): Array<{ id: string; name: string }> {
-        const explicit = Array.isArray(config?.setups) ? config!.setups : [];
+        const explicit = Array.isArray(config?.aiConversation?.setups) ? config!.aiConversation!.setups : [];
         if (explicit.length > 0) {
             return explicit
                 .filter((s: any) => s && typeof s.id === 'string' && s.id.trim().length > 0)
@@ -1251,7 +1271,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
             return;
         }
 
-        const setups = Array.isArray(config?.setups) ? config!.setups : [];
+        const setups = Array.isArray(config?.aiConversation?.setups) ? config!.aiConversation!.setups : [];
         const selectedSetup = setups.find((s: any) => s?.id === aiSetupId);
         if (!selectedSetup) {
             const msg = `Missing required AI conversation setup: ${aiSetupId || '(none selected)'}`;
@@ -1429,7 +1449,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
 
         if (llmConfigKey) {
             const config = loadSendToChatConfig();
-            const llmConfigs = Array.isArray(config?.configurations) ? config!.configurations : [];
+            const llmConfigs = Array.isArray(config?.localLlm?.configurations) ? config!.localLlm!.configurations : [];
             const selected = llmConfigs.find((c: any) => c?.id === llmConfigKey);
             if (selected?.logFolder && typeof selected.logFolder === 'string' && selected.logFolder.trim().length > 0) {
                 return path.join(workspaceFolder.uri.fsPath, selected.logFolder);
@@ -1551,7 +1571,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
         
         // Format the new entry
         const timestamp = new Date().toISOString();
-        const entry = `${marker}\n## Answer ${timestamp}\n\n${answer.generatedMarkdown}\n\n---\n\n`;
+        const entry = `${marker}\n## Answer ${timestamp}\n\n${answer.generatedMarkdown}\n\n`;
         
         // Prepend to file (after header if exists)
         let newContent: string;
@@ -1587,44 +1607,36 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
     }
 
     private async _openPromptsFile(): Promise<void> {
-        const trailFolder = getTrailFolder();
-        const trailPrefix = getTrailFilePrefix();
-        migrateTrailFiles(trailFolder, trailPrefix);
-        const promptsPath = path.join(trailFolder, `${trailPrefix}.prompts.md`);
-        
-        // Ensure directory exists
-        if (!fs.existsSync(trailFolder)) {
-            fs.mkdirSync(trailFolder, { recursive: true });
+        const summaryPaths = getCopilotSummaryTrailPaths();
+        if (!summaryPaths) {
+            vscode.window.showWarningMessage('No workspace folder found');
+            return;
         }
-        
-        // Create file if it doesn't exist
-        if (!fs.existsSync(promptsPath)) {
-            fs.writeFileSync(promptsPath, '# Copilot Prompts Trail\n\n', 'utf-8');
+
+        if (!fs.existsSync(summaryPaths.promptsPath)) {
+            vscode.window.showInformationMessage('No summary prompts trail exists yet. Send a prompt first.');
+            return;
         }
         
         // Open or focus the file
-        const doc = await vscode.workspace.openTextDocument(promptsPath);
+        const doc = await vscode.workspace.openTextDocument(summaryPaths.promptsPath);
         await vscode.window.showTextDocument(doc, { preview: false });
     }
 
     private async _openAnswersFile(): Promise<void> {
-        const trailFolder = getTrailFolder();
-        const trailPrefix = getTrailFilePrefix();
-        migrateTrailFiles(trailFolder, trailPrefix);
-        const answersPath = path.join(trailFolder, `${trailPrefix}.answers.md`);
-        
-        // Ensure directory exists
-        if (!fs.existsSync(trailFolder)) {
-            fs.mkdirSync(trailFolder, { recursive: true });
+        const summaryPaths = getCopilotSummaryTrailPaths();
+        if (!summaryPaths) {
+            vscode.window.showWarningMessage('No workspace folder found');
+            return;
         }
-        
-        // Create file if it doesn't exist
-        if (!fs.existsSync(answersPath)) {
-            fs.writeFileSync(answersPath, '# Copilot Answers Trail\n\n', 'utf-8');
+
+        if (!fs.existsSync(summaryPaths.answersPath)) {
+            vscode.window.showInformationMessage('No summary answers trail exists yet. Extract an answer first.');
+            return;
         }
         
         // Open or focus the file
-        const doc = await vscode.workspace.openTextDocument(answersPath);
+        const doc = await vscode.workspace.openTextDocument(summaryPaths.answersPath);
         await vscode.window.showTextDocument(doc, { preview: false });
     }
 
@@ -1632,23 +1644,19 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
      * Open the trail custom editor (tomAi.trailViewer) for the current workspace's prompts trail file.
      */
     private async _openTrailFiles(): Promise<void> {
-        const trailFolder = getTrailFolder();
-        const trailPrefix = getTrailFilePrefix();
-        migrateTrailFiles(trailFolder, trailPrefix);
-        const promptsPath = path.join(trailFolder, `${trailPrefix}.prompts.md`);
-
-        // Ensure directory exists
-        if (!fs.existsSync(trailFolder)) {
-            fs.mkdirSync(trailFolder, { recursive: true });
+        const summaryPaths = getCopilotSummaryTrailPaths();
+        if (!summaryPaths) {
+            vscode.window.showWarningMessage('No workspace folder found');
+            return;
         }
 
-        // Create file if it doesn't exist
-        if (!fs.existsSync(promptsPath)) {
-            fs.writeFileSync(promptsPath, '# Copilot Prompts Trail\n\n', 'utf-8');
+        if (!fs.existsSync(summaryPaths.promptsPath)) {
+            vscode.window.showInformationMessage('No summary trail exists yet. Send a prompt first.');
+            return;
         }
 
         // Open with the custom trail editor
-        const uri = vscode.Uri.file(promptsPath);
+        const uri = vscode.Uri.file(summaryPaths.promptsPath);
         await vscode.commands.executeCommand('vscode.openWith', uri, 'tomAi.trailViewer');
     }
 
@@ -2365,6 +2373,7 @@ var copilotHasAnswer = false;
 var copilotAnswerSlot = 0;
 var slotEnabledSections = ['localLlm', 'conversation', 'copilot', 'tomAiChat'];
 var sectionSlotState = {};
+var delegatedUiHandlersAttached = false;
 
 function ensureSlotState(sectionId) {
     if (!sectionSlotState[sectionId]) {
@@ -2737,9 +2746,32 @@ function updateResizeHandles() {
 }
 
 function attachEventListeners() {
-    document.querySelectorAll('[data-toggle]').forEach(function(el) { el.addEventListener('click', function() { toggleSection(el.dataset.toggle); }); });
-    document.querySelectorAll('[data-pin]').forEach(function(el) { el.addEventListener('click', function(e) { togglePin(el.dataset.pin, e); }); });
-    document.querySelectorAll('[data-action]').forEach(function(el) { el.addEventListener('click', function() { handleAction(el.dataset.action, el.dataset.id, el.dataset.slot); }); });
+    if (!delegatedUiHandlersAttached) {
+        document.addEventListener('click', function(event) {
+            var target = event.target;
+            if (!target || !target.closest) return;
+
+            var actionEl = target.closest('[data-action]');
+            if (actionEl) {
+                event.preventDefault();
+                handleAction(actionEl.dataset.action, actionEl.dataset.id, actionEl.dataset.slot);
+                return;
+            }
+
+            var pinEl = target.closest('[data-pin]');
+            if (pinEl) {
+                togglePin(pinEl.dataset.pin, event);
+                return;
+            }
+
+            var toggleEl = target.closest('[data-toggle]');
+            if (toggleEl) {
+                toggleSection(toggleEl.dataset.toggle);
+            }
+        });
+        delegatedUiHandlersAttached = true;
+    }
+
     slotEnabledSections.forEach(function(sectionId) {
         var ta = document.getElementById(sectionId + '-text');
         if (!ta) return;
@@ -2848,10 +2880,9 @@ function handleAction(action, id, slot) {
         case 'extractAnswer': vscode.postMessage({ type: 'extractAnswer' }); break;
         case 'openPromptsFile': vscode.postMessage({ type: 'openPromptsFile' }); break;
         case 'openAnswersFile': vscode.postMessage({ type: 'openAnswersFile' }); break;
-        case 'openContextPopup': vscode.postMessage({ type: 'openContextSettingsEditor' }); break;
+        case 'openContextPopup': openContextPopup(); break;
         case 'closeContextPopup': closeContextPopup(); break;
         case 'applyContext': applyContextPopup(); break;
-        case 'send': sendCopilotPrompt(); break;
         case 'addToQueue': addCopilotToQueue(); break;
         case 'openQueueEditor': vscode.postMessage({ type: 'openQueueEditor' }); break;
         case 'openTimedRequestsEditor': vscode.postMessage({ type: 'openTimedRequestsEditor' }); break;
@@ -2859,9 +2890,6 @@ function handleAction(action, id, slot) {
         case 'openTrailViewer': vscode.postMessage({ type: 'openTrailViewer' }); break;
         case 'saveAsTimedRequest': { var trText = document.getElementById('copilot-text'); trText = trText ? trText.value : ''; if (!trText.trim()) return; var trTpl = document.getElementById('copilot-template'); trTpl = trTpl ? trTpl.value : ''; vscode.postMessage({ type: 'saveAsTimedRequest', text: trText, template: trTpl }); break; }
         case 'openChatVariablesEditor': vscode.postMessage({ type: 'openChatVariablesEditor' }); break;
-        case 'addTemplate': vscode.postMessage({ type: 'addProfile', section: action.id }); break;
-        case 'editTemplate': { var tsel = document.getElementById(action.id + '-template'); if (tsel && tsel.value && tsel.value !== '__answer_file__') vscode.postMessage({ type: 'editProfile', section: action.id, name: tsel.value }); break; }
-        case 'deleteTemplate': { var dsel = document.getElementById(action.id + '-template'); if (dsel && dsel.value && dsel.value !== '__answer_file__') vscode.postMessage({ type: 'deleteProfile', section: action.id, name: dsel.value }); break; }
         case 'openStatusPage': vscode.postMessage({ type: 'openStatusPage' }); break;
         case 'openGlobalTemplateEditor': vscode.postMessage({ type: 'openGlobalTemplateEditor' }); break;
         case 'openReusablePromptEditor': vscode.postMessage({ type: 'openReusablePromptEditor' }); break;

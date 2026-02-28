@@ -7,7 +7,7 @@
  *
  * Categories:
  *   1. Copilot Templates       — config.copilot.templates
- *   2. Reminder Templates      — config.reminderTemplates
+ *   2. Reminder Templates      — config.reminders.templates
  *   3. Tom AI Chat Templates   — config.tomAiChat.templates
  *   4. AI Conversation Profiles— config.aiConversation.profiles
  *   5. Local LLM Profiles      — config.localLlm.profiles
@@ -135,7 +135,7 @@ function _getItemsForCategory(config: SendToChatConfig, category: TemplateCatego
                 .filter(k => k !== '__answer_file__')
                 .map(k => ({ id: k, label: k }));
         case 'reminder':
-            return ((config as any).reminderTemplates || [])
+            return ((config as any).reminders?.templates || [])
                 .map((t: any) => ({ id: t.id, label: t.name || t.id }));
         case 'tomAiChat':
             return Object.keys(config.tomAiChat?.templates || {})
@@ -176,7 +176,7 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
             break;
         }
         case 'reminder': {
-            const templates: any[] = (config as any).reminderTemplates || [];
+            const templates: any[] = (config as any).reminders?.templates || [];
             const tpl = templates.find((t: any) => t.id === itemId);
             if (!tpl) break;
             fields.push(
@@ -348,7 +348,8 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
             break;
         }
         case 'reminder': {
-            const templates: any[] = (config as any).reminderTemplates || [];
+            if (!(config as any).reminders) (config as any).reminders = {};
+            const templates: any[] = (config as any).reminders.templates || [];
             const idx = templates.findIndex((t: any) => t.id === itemId);
             if (idx >= 0) {
                 templates[idx] = {
@@ -481,9 +482,10 @@ async function _addItem(category: TemplateCategory): Promise<void> {
             config.copilot.templates[name] = { template: '${originalPrompt}', showInMenu: true };
             break;
         case 'reminder': {
-            const templates: any[] = (config as any).reminderTemplates || [];
+            if (!(config as any).reminders) (config as any).reminders = {};
+            const templates: any[] = (config as any).reminders.templates || [];
             templates.push({ id: name, name, prompt: '', isDefault: false });
-            (config as any).reminderTemplates = templates;
+            (config as any).reminders.templates = templates;
             break;
         }
         case 'tomAiChat':
@@ -550,8 +552,9 @@ async function _deleteItem(category: TemplateCategory, itemId: string): Promise<
             delete config.copilot?.templates?.[itemId];
             break;
         case 'reminder': {
-            const templates: any[] = (config as any).reminderTemplates || [];
-            (config as any).reminderTemplates = templates.filter((t: any) => t.id !== itemId);
+            const templates: any[] = (config as any).reminders?.templates || [];
+            if (!(config as any).reminders) (config as any).reminders = {};
+            (config as any).reminders.templates = templates.filter((t: any) => t.id !== itemId);
             break;
         }
         case 'tomAiChat':

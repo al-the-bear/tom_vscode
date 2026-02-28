@@ -17,15 +17,15 @@ import * as path from 'path';
 import { getBridgeClient, getConfigPath, loadSendToChatConfig, saveSendToChatConfig } from './handler_shared';
 import { getCliServerStatus } from './cliServer-handler';
 import { loadBridgeConfig, BridgeConfig } from './restartBridge-handler';
-import { isTrailEnabled, setTrailEnabled, loadTrailConfig, toggleTrail } from './trailLogger-handler';
+import { isTrailEnabled, setTrailEnabled, loadTrailConfig, toggleTrail } from '../services/trailLogging';
 import { isTelegramPollingActive } from './telegram-commands';
 import { 
-    loadEscalationToolsConfig, 
-    saveEscalationToolsConfig, 
-    clearConfigCache,
+    loadLocalLlmToolsConfig,
+    saveLocalLlmToolsConfig,
+    clearLocalLlmToolsConfigCache,
     AskCopilotConfig,
     AskBigBrotherConfig,
-} from '../tools/escalation-tools-config';
+} from '../tools/local-llm-tools-config';
 import { WsPaths } from '../utils/workspacePaths';
 import { validateStrictAiConfiguration, SendToChatConfig } from '../utils/sendToChatConfig';
 import type { TimerScheduleSlot } from '../managers/timerEngine';
@@ -87,22 +87,22 @@ export interface AiConversationSetup {
 
 /** Available tools for LLM configurations */
 export const AVAILABLE_LLM_TOOLS = [
-    'tom_readFile',
-    'tom_listDirectory',
-    'tom_findFiles',
-    'tom_findTextInFiles',
-    'tom_fetchWebpage',
-    'tom_webSearch',
-    'tom_getErrors',
-    'tom_readLocalGuideline',
-    'tom_askBigBrother',
-    'tom_askCopilot',
-    'tom_createFile',
-    'tom_editFile',
-    'tom_multiEditFile',
-    'tom_runCommand',
-    'tom_runVscodeCommand',
-    'tom_manageTodo',
+    'tomAi_readFile',
+    'tomAi_listDirectory',
+    'tomAi_findFiles',
+    'tomAi_findTextInFiles',
+    'tomAi_fetchWebpage',
+    'tomAi_webSearch',
+    'tomAi_getErrors',
+    'tomAi_readLocalGuideline',
+    'tomAi_askBigBrother',
+    'tomAi_askCopilot',
+    'tomAi_createFile',
+    'tomAi_editFile',
+    'tomAi_multiEditFile',
+    'tomAi_runCommand',
+    'tomAi_runVscodeCommand',
+    'tomAi_manageTodo',
     'tomAi_notifyUser',
     'tomAi_getWorkspaceInfo',
 ];
@@ -111,8 +111,10 @@ let statusPanel: vscode.WebviewPanel | undefined;
 
 function createEmptySendToChatConfig(): SendToChatConfig {
     return {
-        localLlm: { profiles: {} },
-        aiConversation: { profiles: {} },
+        localLlm: { profiles: {}, configurations: [] },
+        aiConversation: { profiles: {}, setups: [] },
+        trail: {},
+        bridge: { profiles: {} },
         copilot: { templates: {} },
     };
 }
@@ -220,12 +222,12 @@ async function updateTelegramSettings(settings: any): Promise<void> {
 }
 
 async function updateAskCopilotSettings(settings: any): Promise<void> {
-    // Save escalation tools config (askCopilot settings)
-    const escalationConfig = loadEscalationToolsConfig();
+    // Save local-LLM tools config (askCopilot settings)
+    const localLlmToolsConfig = loadLocalLlmToolsConfig();
     const { copilotAnswerFolder, ...askCopilotSettings } = settings;
-    escalationConfig.askCopilot = { ...escalationConfig.askCopilot, ...askCopilotSettings };
-    if (saveEscalationToolsConfig(escalationConfig)) {
-        clearConfigCache();
+    localLlmToolsConfig.askCopilot = { ...localLlmToolsConfig.askCopilot, ...askCopilotSettings };
+    if (saveLocalLlmToolsConfig(localLlmToolsConfig)) {
+        clearLocalLlmToolsConfigCache();
     }
     
     // Save copilot answer folder to tom_vscode_extension config
@@ -242,10 +244,10 @@ async function updateAskCopilotSettings(settings: any): Promise<void> {
 }
 
 async function updateAskBigBrotherSettings(settings: any): Promise<void> {
-    const config = loadEscalationToolsConfig();
+    const config = loadLocalLlmToolsConfig();
     config.askBigBrother = { ...config.askBigBrother, ...settings };
-    if (saveEscalationToolsConfig(config)) {
-        clearConfigCache();
+    if (saveLocalLlmToolsConfig(config)) {
+        clearLocalLlmToolsConfigCache();
         vscode.window.showInformationMessage('Ask Big Brother settings updated');
     }
 }
@@ -374,7 +376,8 @@ export async function handleStatusAction(action: string, message: any): Promise<
             break;
         case 'setCliAutostart': {
             const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
-            stcConfig.cliServerAutostart = !!message.enabled;
+            if (!stcConfig.bridge) { stcConfig.bridge = { profiles: {} }; }
+            stcConfig.bridge.cliServerAutostart = !!message.enabled;
             saveSendToChatConfig(stcConfig);
             break;
         }
@@ -400,8 +403,9 @@ export async function handleStatusAction(action: string, message: any): Promise<
             break;
         case 'updateTrailSettings': {
             const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
-            if (message.cleanupDays !== undefined) { stcConfig.trailCleanupDays = message.cleanupDays; }
-            if (message.maxEntries !== undefined) { stcConfig.trailMaxEntries = message.maxEntries; }
+            if (!stcConfig.trail) { stcConfig.trail = {}; }
+            if (message.cleanupDays !== undefined) { stcConfig.trail.cleanupDays = message.cleanupDays; }
+            if (message.maxEntries !== undefined) { stcConfig.trail.maxEntries = message.maxEntries; }
             saveSendToChatConfig(stcConfig);
             vscode.window.showInformationMessage('Trail settings updated');
             break;
@@ -432,26 +436,22 @@ export async function handleStatusAction(action: string, message: any): Promise<
             await vscode.commands.executeCommand('tomAi.editor.promptQueue');
             break;
         case 'openTrailFile': {
-            let trailFolder = WsPaths.ai('trail') || '';
-            // Use quest directory when a quest is active
+            let questId = 'incidents';
             try {
                 const { ChatVariablesStore } = require('../managers/chatVariablesStore.js');
                 const activeQuest = ChatVariablesStore.instance.quest;
-                if (activeQuest) {
-                    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-                    const questDir = WsPaths.ai('quests', activeQuest) || (wsRoot ? path.join(wsRoot, '_ai', 'quests', activeQuest) : '');
-                    if (questDir && fs.existsSync(questDir)) {
-                        trailFolder = questDir;
-                    }
+                if (typeof activeQuest === 'string' && activeQuest.trim().length > 0) {
+                    questId = activeQuest;
                 }
             } catch { /* */ }
-            if (trailFolder) {
-                const wsFile = vscode.workspace.workspaceFile;
-                const wsName = wsFile && wsFile.fsPath.endsWith('.code-workspace')
-                    ? path.basename(wsFile.fsPath).replace('.code-workspace', '') : 'default';
-                const promptsPath = path.join(trailFolder, `${wsName}.prompts.md`);
-                if (!fs.existsSync(trailFolder)) { fs.mkdirSync(trailFolder, { recursive: true }); }
-                if (!fs.existsSync(promptsPath)) { fs.writeFileSync(promptsPath, '# Copilot Prompts Trail\n\n', 'utf-8'); }
+            const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            const questFolder = WsPaths.ai('quests', questId) || (wsRoot ? path.join(wsRoot, '_ai', 'quests', questId) : '');
+            if (questFolder) {
+                const promptsPath = path.join(questFolder, `${questId}.copilot.prompts.md`);
+                if (!fs.existsSync(promptsPath)) {
+                    vscode.window.showInformationMessage('No summary trail exists yet. Send a prompt first.');
+                    break;
+                }
                 await vscode.commands.executeCommand('vscode.openWith', vscode.Uri.file(promptsPath), 'tomAi.trailViewer');
             }
             break;
@@ -466,7 +466,9 @@ export async function handleStatusAction(action: string, message: any): Promise<
             break;
         case 'setTelegramAutostart': {
             const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
-            stcConfig.telegramAutostart = !!message.enabled;
+            if (!stcConfig.aiConversation) { stcConfig.aiConversation = { profiles: {} }; }
+            if (!stcConfig.aiConversation.telegram) { stcConfig.aiConversation.telegram = {}; }
+            stcConfig.aiConversation.telegram.autostart = !!message.enabled;
             saveSendToChatConfig(stcConfig);
             break;
         }
@@ -498,8 +500,9 @@ export async function handleStatusAction(action: string, message: any): Promise<
         // Executables (includes binaryPath)
         case 'saveExecutables': {
             const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
-            stcConfig.executables = message.executables || {};
-            stcConfig.binaryPath = message.binaryPath || {};
+            if (!stcConfig.bridge) { stcConfig.bridge = { profiles: {} }; }
+            stcConfig.bridge.executables = message.executables || {};
+            stcConfig.bridge.binaryPath = message.binaryPath || {};
             saveSendToChatConfig(stcConfig);
             vscode.window.showInformationMessage('Executables configuration saved');
             break;
@@ -600,8 +603,8 @@ export async function handleStatusAction(action: string, message: any): Promise<
         // LLM Configuration management
         case 'saveLlmConfigurations': {
             const cfg = loadConfig() || {};
-            // Save as array at root level
-            cfg.configurations = (message.configurations || []).map((config: LlmConfiguration) => ({
+            cfg.localLlm = cfg.localLlm || {};
+            cfg.localLlm.configurations = (message.configurations || []).map((config: LlmConfiguration) => ({
                 id: config.id,
                 name: config.name,
                 ollamaUrl: config.ollamaUrl,
@@ -632,9 +635,9 @@ export async function handleStatusAction(action: string, message: any): Promise<
                 );
                 if (confirm === 'Delete') {
                     const cfg = loadConfig() || {};
-                    // Delete from array
-                    const arr = Array.isArray(cfg.configurations) ? cfg.configurations : [];
-                    cfg.configurations = arr.filter((c: any) => c.id !== configId);
+                    cfg.localLlm = cfg.localLlm || {};
+                    const arr = Array.isArray(cfg.localLlm.configurations) ? cfg.localLlm.configurations : [];
+                    cfg.localLlm.configurations = arr.filter((c: any) => c.id !== configId);
                     saveConfig(cfg);
                     vscode.window.showInformationMessage(`LLM Configuration "${configId}" deleted`);
                     await refreshStatusPage();
@@ -645,8 +648,8 @@ export async function handleStatusAction(action: string, message: any): Promise<
         // AI Conversation Setup management
         case 'saveAiConversationSetups': {
             const cfg = loadConfig() || {};
-            // Save as array at root level
-            cfg.setups = (message.setups || []).map((setup: AiConversationSetup) => ({
+            cfg.aiConversation = cfg.aiConversation || {};
+            cfg.aiConversation.setups = (message.setups || []).map((setup: AiConversationSetup) => ({
                 id: setup.id,
                 name: setup.name,
                 llmConfigA: setup.llmConfigA,
@@ -669,8 +672,9 @@ export async function handleStatusAction(action: string, message: any): Promise<
                 );
                 if (confirm === 'Delete') {
                     const cfg = loadConfig() || {};
-                    const arr = Array.isArray(cfg.setups) ? cfg.setups : [];
-                    cfg.setups = arr.filter((s: any) => s?.id !== setupId);
+                    cfg.aiConversation = cfg.aiConversation || {};
+                    const arr = Array.isArray(cfg.aiConversation.setups) ? cfg.aiConversation.setups : [];
+                    cfg.aiConversation.setups = arr.filter((s: any) => s?.id !== setupId);
                     saveConfig(cfg);
                     vscode.window.showInformationMessage(`AI Conversation Setup "${setupId}" deleted`);
                     await refreshStatusPage();
@@ -787,11 +791,11 @@ export async function gatherStatusData(): Promise<StatusData> {
     const aiConversation = config?.aiConversation || {};
     const telegram = aiConversation?.telegram || {};
 
-    const configurations = Array.isArray(config?.configurations)
-        ? config.configurations
+    const configurations = Array.isArray(config?.localLlm?.configurations)
+        ? config.localLlm.configurations
         : [];
-    const setups = Array.isArray(config?.setups)
-        ? config.setups
+    const setups = Array.isArray(config?.aiConversation?.setups)
+        ? config.aiConversation.setups
         : [];
     const primarySetup = setups[0] as any;
     const primaryLlm = configurations.find((l: any) => l?.id === primarySetup?.llmConfigA) as any;
@@ -820,7 +824,7 @@ export async function gatherStatusData(): Promise<StatusData> {
         cliServer: {
             running: cliStatus.running,
             port: cliStatus.port,
-            autostart: sendToChatConfig?.cliServerAutostart ?? false,
+            autostart: sendToChatConfig?.bridge?.cliServerAutostart ?? false,
         },
         bridge: {
             connected: bridgeClient !== null,
@@ -829,13 +833,13 @@ export async function gatherStatusData(): Promise<StatusData> {
         },
         trail: {
             enabled: isTrailEnabled(),
-            cleanupDays: sendToChatConfig?.trailCleanupDays ?? 2,
-            maxEntries: sendToChatConfig?.trailMaxEntries ?? 1000,
+            cleanupDays: sendToChatConfig?.trail?.cleanupDays ?? 2,
+            maxEntries: sendToChatConfig?.trail?.maxEntries ?? 1000,
         },
         telegram: {
             polling: isTelegramPollingActive(),
             enabled: telegram.enabled ?? false,
-            autostart: sendToChatConfig?.telegramAutostart ?? false,
+            autostart: sendToChatConfig?.aiConversation?.telegram?.autostart ?? false,
             botTokenEnv: telegram.botTokenEnv ?? 'TELEGRAM_BOT_TOKEN',
             defaultChatId: telegram.defaultChatId ?? 0,
             pollIntervalMs: telegram.pollIntervalMs ?? 3000,
@@ -890,12 +894,12 @@ export async function gatherStatusData(): Promise<StatusData> {
                 ])
             ),
         },
-        ...loadEscalationToolsConfig(),
+        ...loadLocalLlmToolsConfig(),
         copilotAnswerFolder: loadSendToChatConfig()?.copilot?.answerFolder ?? WsPaths.aiRelative('copilot'),
         templateNames: Object.keys(sendToChatConfig?.copilot?.templates || {}),
         schedule,
-        executables: sendToChatConfig?.executables || {},
-        binaryPath: sendToChatConfig?.binaryPath || {},
+        executables: sendToChatConfig?.bridge?.executables || {},
+        binaryPath: sendToChatConfig?.bridge?.binaryPath || {},
         commandlines: (config?.commandlines || []) as CommandlineEntry[],
         favorites: (config?.favorites || []) as FavoriteEntry[],
         configurations: configurations.map((v: any) => ({
@@ -2506,7 +2510,7 @@ function addLlmConfiguration() {
         logFolder: '',
         historyMode: 'trim_and_summary',
         keepAlive: '5m',
-        enabledTools: ['tom_readFile', 'tom_listDirectory', 'tom_findFiles', 'tom_findTextInFiles', 'tom_fetchWebpage', 'tom_webSearch', 'tom_getErrors', 'tom_readLocalGuideline', 'tom_askBigBrother', 'tom_askCopilot']
+        enabledTools: ['tomAi_readFile', 'tomAi_listDirectory', 'tomAi_findFiles', 'tomAi_findTextInFiles', 'tomAi_fetchWebpage', 'tomAi_webSearch', 'tomAi_getErrors', 'tomAi_readLocalGuideline', 'tomAi_askBigBrother', 'tomAi_askCopilot']
     };
     __llmConfigs.push(cfg);
     renderLlmConfigurations();

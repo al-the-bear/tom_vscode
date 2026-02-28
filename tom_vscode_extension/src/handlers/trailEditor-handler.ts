@@ -87,27 +87,25 @@ class TrailEditorProvider implements vscode.CustomTextEditorProvider {
         const openedFile = document.uri.fsPath;
         const trailFolder = path.dirname(openedFile);
         const basename = path.basename(openedFile);
+        debugLog(`[TrailEditor] resolveCustomTextEditor openedFile=${openedFile}`, 'INFO', 'trailEditor');
 
         // Discover all trail sets (quest name -> { prompts, answers })
-        const trailSets = discoverTrailSets(trailFolder);
+        const trailSets = ensureTrailSetForOpenedFile(discoverTrailSetsAcrossWorkspace(trailFolder), basename, trailFolder);
         const currentSet = identifyCurrentSet(basename, trailSets);
+        let activeSet = currentSet;
+        let activeTrailSets = trailSets;
+        debugLog(`[TrailEditor] discovered sets=${JSON.stringify(Object.fromEntries(trailSets))} currentSet=${currentSet}`, 'INFO', 'trailEditor');
 
         // Parse entries from the current set
-        const entries = loadTrailSet(trailFolder, currentSet, trailSets);
-
-        webviewPanel.webview.html = buildHtml(
-            webviewCodiconsUri.toString(),
-            webviewMarkedUri.toString(),
-            trailSets,
-            currentSet,
-            entries,
-        );
+        const entries = loadTrailSet(currentSet, trailSets);
+        const entriesBySet = buildEntriesBySet(trailSets);
+        debugLog(`[TrailEditor] initial entries count=${entries.length} for set=${currentSet}`, 'INFO', 'trailEditor');
 
         // Check for pending focus (e.g. from TODO-LOG click)
-        const pendingFocus = this.context.workspaceState.get<{ requestId: string; session: string }>('trailEditor.pendingFocus');
+        const pendingFocus = this.context.workspaceState.get<{ requestId: string; session: string }>('tomAi.trailEditor.pendingFocus');
         if (pendingFocus && pendingFocus.requestId) {
             // Clear immediately so it doesn't fire again
-            this.context.workspaceState.update('trailEditor.pendingFocus', undefined);
+            this.context.workspaceState.update('tomAi.trailEditor.pendingFocus', undefined);
             // Delay slightly to let the webview script initialise
             setTimeout(() => {
                 webviewPanel.webview.postMessage({
@@ -121,21 +119,38 @@ class TrailEditorProvider implements vscode.CustomTextEditorProvider {
         webviewPanel.webview.onDidReceiveMessage(
             async (message) => {
                 switch (message.type) {
+                    case 'clientReady': {
+                        debugLog(`[TrailEditor] clientReady quest=${String(message.quest || '')} entries=${String(message.entries ?? '')}`, 'INFO', 'trailEditor.client');
+                        break;
+                    }
+                    case 'clientError': {
+                        debugLog(`[TrailEditor] clientError where=${String(message.where || '')} error=${String(message.error || '')} stack=${String(message.stack || '')}`, 'ERROR', 'trailEditor.client');
+                        break;
+                    }
                     case 'switchQuest': {
-                        const newEntries = loadTrailSet(trailFolder, message.quest, trailSets);
+                        activeSet = message.quest || activeSet;
+                        debugLog(`[TrailEditor] switchQuest requested set=${String(message.quest || '')} resolved set=${activeSet}`, 'INFO', 'trailEditor');
+                        const setName = activeTrailSets.has(activeSet)
+                            ? activeSet
+                            : firstTrailSetName(activeTrailSets) ?? activeSet;
+                        activeSet = setName;
+                        const newEntries = loadTrailSet(activeSet, activeTrailSets);
+                        debugLog(`[TrailEditor] switchQuest loaded entries=${newEntries.length} activeSet=${activeSet}`, 'INFO', 'trailEditor');
                         webviewPanel.webview.postMessage({
                             type: 'updateEntries',
                             entries: newEntries,
-                            quest: message.quest,
+                            entriesBySet: buildEntriesBySet(activeTrailSets),
+                            quest: activeSet,
+                            trailSets: Object.fromEntries(activeTrailSets),
                         });
                         break;
                     }
                     case 'openInEditor': {
-                        const set = trailSets.get(message.quest || currentSet);
+                        const set = activeTrailSets.get(message.quest || currentSet);
                         if (set) {
                             const file = message.fileType === 'prompts' ? set.prompts : set.answers;
                             if (file) {
-                                const filePath = path.join(trailFolder, file);
+                                const filePath = path.join(set.directory || trailFolder, file);
                                 if (fs.existsSync(filePath)) {
                                     const uri = vscode.Uri.file(filePath);
                                     await vscode.commands.executeCommand('vscode.openWith', uri, 'default');
@@ -151,11 +166,11 @@ class TrailEditorProvider implements vscode.CustomTextEditorProvider {
                         break;
                     }
                     case 'openInMdViewer': {
-                        const set = trailSets.get(message.quest || currentSet);
+                        const set = activeTrailSets.get(message.quest || currentSet);
                         if (set) {
                             const file = message.fileType === 'prompts' ? set.prompts : set.answers;
                             if (file) {
-                                const filePath = path.join(trailFolder, file);
+                                const filePath = path.join(set.directory || trailFolder, file);
                                 try {
                                     const { openInExternalApplication } = await import('./handler_shared.js');
                                     await openInExternalApplication(filePath);
@@ -172,16 +187,31 @@ class TrailEditorProvider implements vscode.CustomTextEditorProvider {
             this.context.subscriptions,
         );
 
+        webviewPanel.webview.html = buildHtml(
+            webviewCodiconsUri.toString(),
+            webviewMarkedUri.toString(),
+            trailSets,
+            currentSet,
+            entries,
+            entriesBySet,
+        );
+
         // Watch trail folder for changes
         const watcher = fs.watch(trailFolder, (_eventType, filename) => {
             if (filename && (filename.endsWith('.prompts.md') || filename.endsWith('.answers.md'))) {
-                const updatedSets = discoverTrailSets(trailFolder);
-                const updatedEntries = loadTrailSet(trailFolder, currentSet, updatedSets);
+                debugLog(`[TrailEditor] fs.watch change filename=${filename}`, 'INFO', 'trailEditor');
+                activeTrailSets = ensureTrailSetForOpenedFile(discoverTrailSetsAcrossWorkspace(trailFolder), basename, trailFolder);
+                if (!activeTrailSets.has(activeSet)) {
+                    activeSet = firstTrailSetName(activeTrailSets) ?? activeSet;
+                }
+                const updatedEntries = loadTrailSet(activeSet, activeTrailSets);
+                debugLog(`[TrailEditor] watcher update sets=${JSON.stringify(Object.fromEntries(activeTrailSets))} activeSet=${activeSet} entries=${updatedEntries.length}`, 'INFO', 'trailEditor');
                 webviewPanel.webview.postMessage({
                     type: 'updateEntries',
                     entries: updatedEntries,
-                    quest: currentSet,
-                    trailSets: Object.fromEntries(updatedSets),
+                    entriesBySet: buildEntriesBySet(activeTrailSets),
+                    quest: activeSet,
+                    trailSets: Object.fromEntries(activeTrailSets),
                 });
             }
         });
@@ -199,6 +229,77 @@ class TrailEditorProvider implements vscode.CustomTextEditorProvider {
 export interface TrailSet {
     prompts?: string;  // filename
     answers?: string;  // filename
+    directory?: string; // absolute folder path containing the files
+}
+
+function ensureTrailSetForOpenedFile(sets: Map<string, TrailSet>, basename: string, openedFolder: string): Map<string, TrailSet> {
+    const inferredSet = basename.replace(/\.(prompts|answers)\.md$/, '').trim();
+    if (!inferredSet) {
+        return sets;
+    }
+
+    const existing = sets.get(inferredSet) ?? { directory: openedFolder };
+    if (basename.endsWith('.prompts.md')) {
+        existing.prompts = basename;
+    }
+    if (basename.endsWith('.answers.md')) {
+        existing.answers = basename;
+    }
+    if (!existing.directory) {
+        existing.directory = openedFolder;
+    }
+    sets.set(inferredSet, existing);
+    return sets;
+}
+
+function firstTrailSetName(sets: Map<string, TrailSet>): string | undefined {
+    for (const [name] of sets) {
+        return name;
+    }
+    return undefined;
+}
+
+function discoverTrailSetsAcrossWorkspace(openedFolder: string): Map<string, TrailSet> {
+    const merged = new Map<string, TrailSet>();
+    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
+    const mergeFromFolder = (folderPath: string): void => {
+        if (!folderPath || !fs.existsSync(folderPath)) {
+            return;
+        }
+        const localSets = discoverTrailSets(folderPath);
+        for (const [setName, set] of localSets) {
+            if (merged.has(setName)) {
+                continue;
+            }
+            merged.set(setName, {
+                prompts: set.prompts,
+                answers: set.answers,
+                directory: folderPath,
+            });
+        }
+    };
+
+    mergeFromFolder(openedFolder);
+
+    if (!wsRoot) {
+        return merged;
+    }
+
+    const questsRoot = path.join(wsRoot, '_ai', 'quests');
+    if (!fs.existsSync(questsRoot)) {
+        return merged;
+    }
+
+    const entries = fs.readdirSync(questsRoot, { withFileTypes: true });
+    for (const entry of entries) {
+        if (!entry.isDirectory()) {
+            continue;
+        }
+        mergeFromFolder(path.join(questsRoot, entry.name));
+    }
+
+    return merged;
 }
 
 // ---- Navigate to a workspace TODO by its ID ----
@@ -249,7 +350,7 @@ async function gotoWorkspaceTodo(ctx: vscode.ExtensionContext, todoId: string, _
             return;
         }
 
-        await ctx.workspaceState.update('qt.pendingSelect', {
+        await ctx.workspaceState.update('tomAi.questTodo.pendingSelect', {
             file: yamlRelPath,
             todoId: todoId,
         });
@@ -295,9 +396,12 @@ function identifyCurrentSet(basename: string, sets: Map<string, TrailSet>): stri
     return cleanName || 'default';
 }
 
-export function loadTrailSet(trailFolder: string, setName: string, sets: Map<string, TrailSet>): TrailEntry[] {
+export function loadTrailSet(setName: string, sets: Map<string, TrailSet>): TrailEntry[] {
     const set = sets.get(setName);
     if (!set) { return []; }
+
+    const trailFolder = set.directory;
+    if (!trailFolder) { return []; }
     
     const entries: TrailEntry[] = [];
     
@@ -327,12 +431,20 @@ export function loadTrailSet(trailFolder: string, setName: string, sets: Map<str
     return entries;
 }
 
+function buildEntriesBySet(sets: Map<string, TrailSet>): Record<string, TrailEntry[]> {
+    const out: Record<string, TrailEntry[]> = {};
+    for (const [setName] of sets) {
+        out[setName] = loadTrailSet(setName, sets);
+    }
+    return out;
+}
+
 /**
  * Parse a consolidated trail file (prompts or answers).
  * Format: === TYPE ID TIMESTAMP SEQ ===
  */
 function parseTrailFile(filePath: string, expectedType: 'PROMPT' | 'ANSWER'): TrailEntry[] {
-    const content = fs.readFileSync(filePath, 'utf-8');
+    const content = fs.readFileSync(filePath, 'utf-8').replace(/^\uFEFF/, '');
     const entries: TrailEntry[] = [];
     
     // Split by entry markers
@@ -361,8 +473,72 @@ function parseTrailFile(filePath: string, expectedType: 'PROMPT' | 'ANSWER'): Tr
         const entry = parseEntryBody(body, marker.type as 'PROMPT' | 'ANSWER', marker.requestId, marker.timestamp, marker.seq);
         entries.push(entry);
     }
+
+    if (entries.length === 0 && content.trim().length > 0) {
+        return parseFallbackSummaryContent(content, expectedType);
+    }
     
     return entries;
+}
+
+function parseFallbackSummaryContent(content: string, expectedType: 'PROMPT' | 'ANSWER'): TrailEntry[] {
+    const chunks = content
+        .split(/\n\s*---\s*\n/g)
+        .map((part) => part.trim())
+        .filter((part) => part.length > 0);
+
+    const out: TrailEntry[] = [];
+    for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        const marker = chunk.match(/requestId\"\s*:\s*\"([^\"]+)\"|REQUEST-ID:\s*([^\n\r]+)/i);
+        const requestId = (marker?.[1] || marker?.[2] || `fallback_${i + 1}`).trim();
+        const tsMatch = chunk.match(/\b(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\b/);
+        const timestamp = tsMatch?.[1] || new Date(0).toISOString();
+
+        const entry: TrailEntry = {
+            type: expectedType,
+            requestId,
+            timestamp,
+            rawTimestamp: timestamp,
+            sequence: chunks.length - i,
+            content: chunk,
+        };
+
+        if (expectedType === 'PROMPT') {
+            const templateMatch = chunk.match(/(?:^|\n)TEMPLATE:\s*(.+)/);
+            const wrapperMatch = chunk.match(/(?:^|\n)ANSWER-WRAPPER:\s*(.+)/);
+            if (templateMatch) {
+                entry.templateName = templateMatch[1].trim();
+            }
+            if (wrapperMatch) {
+                entry.answerWrapper = wrapperMatch[1].trim();
+            }
+            const metaStart = chunk.search(/(?:^|\n)(?:TEMPLATE:|ANSWER-WRAPPER:|REQUEST-ID:)/);
+            if (metaStart > 0) {
+                entry.content = chunk.substring(0, metaStart).trim();
+            }
+        } else {
+            const commentMatch = chunk.match(/(?:^|\n)comments:\s*(.+)/);
+            const variablesMatch = chunk.match(/(?:^|\n)variables:\n([\s\S]*?)(?=\n(?:references|requestFileAttachments):|$)/);
+            const referencesMatch = chunk.match(/(?:^|\n)references:\n([\s\S]*?)(?=\n(?:variables|requestFileAttachments):|$)/);
+            const attachmentsMatch = chunk.match(/(?:^|\n)requestFileAttachments:\n([\s\S]*?)(?=\n(?:variables|references):|$)/);
+            if (commentMatch) { entry.comments = commentMatch[1].trim(); }
+            if (variablesMatch) { entry.variables = variablesMatch[1].trim(); }
+            if (referencesMatch) {
+                entry.references = referencesMatch[1].split('\n').map((line) => line.replace(/^\s*-\s*/, '').trim()).filter(Boolean);
+            }
+            if (attachmentsMatch) {
+                entry.attachments = attachmentsMatch[1].split('\n').map((line) => line.replace(/^\s*-\s*/, '').trim()).filter(Boolean);
+            }
+            const metaStart = chunk.search(/(?:^|\n)(?:comments|variables|references|requestFileAttachments):/);
+            if (metaStart > 0) {
+                entry.content = chunk.substring(0, metaStart).trim();
+            }
+        }
+
+        out.push(entry);
+    }
+    return out;
 }
 
 function parseEntryBody(body: string, type: 'PROMPT' | 'ANSWER', requestId: string, timestamp: string, seq: number): TrailEntry {
@@ -427,10 +603,111 @@ function buildHtml(
     trailSets: Map<string, TrailSet>,
     currentSet: string,
     entries: TrailEntry[],
+    entriesBySet: Record<string, TrailEntry[]>,
 ): string {
-    const setsJson = JSON.stringify(Object.fromEntries(trailSets));
-    const entriesJson = JSON.stringify(entries);
-    const currentSetJson = JSON.stringify(currentSet);
+    const safeJson = (value: unknown): string => JSON.stringify(value)
+        .replace(/</g, '\\u003c')
+        .replace(/>/g, '\\u003e')
+        .replace(/&/g, '\\u0026')
+        .replace(/\u2028/g, '\\u2028')
+        .replace(/\u2029/g, '\\u2029');
+
+    const setsObject = Object.fromEntries(trailSets);
+    const setsJson = safeJson(setsObject);
+    const entriesJson = safeJson(entries);
+    const entriesBySetJson = safeJson(entriesBySet);
+    const currentSetJson = safeJson(currentSet);
+
+    const splitSetName = (setName: string): { quest: string; subsystem: string } => {
+        const idx = setName.lastIndexOf('.');
+        if (idx < 0) {
+            return { quest: setName, subsystem: 'unknown' };
+        }
+        return {
+            quest: setName.substring(0, idx) || setName,
+            subsystem: setName.substring(idx + 1) || 'unknown',
+        };
+    };
+
+    const setNames = Object.keys(setsObject).sort();
+    const selectedSet = setNames.includes(currentSet) ? currentSet : (setNames[0] ?? '');
+    const questSubsystemIndex = new Map<string, Array<{ subsystem: string; setName: string }>>();
+    for (const setName of setNames) {
+        const parsed = splitSetName(setName);
+        if (!questSubsystemIndex.has(parsed.quest)) {
+            questSubsystemIndex.set(parsed.quest, []);
+        }
+        questSubsystemIndex.get(parsed.quest)!.push({ subsystem: parsed.subsystem, setName });
+    }
+
+    const selectedParsed = selectedSet ? splitSetName(selectedSet) : { quest: 'unknown', subsystem: 'unknown' };
+    const selectedQuest = selectedParsed.quest;
+    const selectedSubsystems = (questSubsystemIndex.get(selectedQuest) ?? []).slice().sort((a, b) => a.subsystem.localeCompare(b.subsystem));
+
+    const escapeAttr = (value: string): string => value
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+    const initialQuestOptionsHtml = Array.from(questSubsystemIndex.keys())
+        .sort((a, b) => a.localeCompare(b))
+        .map((questName) => `<option value="${escapeAttr(questName)}"${questName === selectedQuest ? ' selected' : ''}>${escapeAttr(questName)}</option>`)
+        .join('');
+
+    const initialSubsystemOptionsHtml = selectedSubsystems
+        .map((sub) => `<option value="${escapeAttr(sub.setName)}"${sub.setName === selectedSet ? ' selected' : ''}>${escapeAttr(sub.subsystem)}</option>`)
+        .join('');
+
+    const escapeHtml = (value: string): string => value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+
+    const formatTimestamp = (ts: string): string => {
+        const d = new Date(ts);
+        if (Number.isNaN(d.getTime())) {
+            return ts;
+        }
+        const yy = String(d.getFullYear()).slice(2);
+        const mo = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        const hh = String(d.getHours()).padStart(2, '0');
+        const mm = String(d.getMinutes()).padStart(2, '0');
+        const ss = String(d.getSeconds()).padStart(2, '0');
+        return `${yy}${mo}${dd}-${hh}${mm}${ss}`;
+    };
+
+    const initialEntryListHtml = entries.map((entry, index) => {
+        const label = `${formatTimestamp(entry.timestamp)}-${entry.type}-${entry.requestId.substring(0, 8)}`;
+        const preview = (entry.content || '').substring(0, 100).replace(/\n/g, ' ');
+        const selectedCls = index === 0 ? ' selected' : '';
+        return `<div class="entry-item entry-type-${entry.type.toLowerCase()}${selectedCls}" data-index="${index}">`
+            + `<div class="entry-label">${escapeHtml(label)}</div>`
+            + `<div class="entry-preview">${escapeHtml(preview)}</div>`
+            + `</div>`;
+    }).join('');
+
+    const firstEntry = entries.length > 0 ? entries[0] : undefined;
+    const initialPreviewHtml = firstEntry
+        ? `<div class="markdown-body"><pre>${escapeHtml(firstEntry.content || '')}</pre></div>`
+        : '<div class="empty-state">Select a prompt or answer to preview</div>';
+
+    const initialMetaRows = firstEntry
+        ? [
+            `<div class="meta-title">${escapeHtml(firstEntry.type)} Metadata</div>`,
+            `<div class="meta-row"><div class="meta-key">Request ID</div><div class="meta-value">${escapeHtml(firstEntry.requestId)}</div></div>`,
+            `<div class="meta-row"><div class="meta-key">Timestamp</div><div class="meta-value">${escapeHtml(firstEntry.rawTimestamp)}</div></div>`,
+            `<div class="meta-row"><div class="meta-key">Sequence</div><div class="meta-value">${escapeHtml(String(firstEntry.sequence))}</div></div>`,
+            firstEntry.type === 'PROMPT'
+                ? `<div class="meta-row"><div class="meta-key">Template</div><div class="meta-value">${escapeHtml(firstEntry.templateName || '(none)')}</div></div>`
+                : '',
+            firstEntry.type === 'PROMPT'
+                ? `<div class="meta-row"><div class="meta-key">Answer Wrapper</div><div class="meta-value">${escapeHtml(firstEntry.answerWrapper || '(none)')}</div></div>`
+                : '',
+        ].join('')
+        : '<div class="meta-title">Metadata</div><div class="empty-state" style="height:auto; padding:12px 0;">No entry selected</div>';
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -628,9 +905,9 @@ body {
 <!-- Top bar -->
 <div class="top-bar">
     <label>Trail:</label>
-    <select id="quest-select"></select>
+    <select id="quest-select">${initialQuestOptionsHtml}</select>
     <label>Subsystem:</label>
-    <select id="subsystem-select"></select>
+    <select id="subsystem-select">${initialSubsystemOptionsHtml}</select>
     <span class="spacer"></span>
     <button class="icon-btn" id="btn-open-prompts" title="Open prompts file in editor"><span class="codicon codicon-file-text"></span></button>
     <button class="icon-btn" id="btn-open-answers" title="Open answers file in editor"><span class="codicon codicon-file-code"></span></button>
@@ -641,7 +918,7 @@ body {
 <div class="main">
     <!-- Left sidebar: entry list -->
     <div class="sidebar" id="sidebar">
-        <div class="entry-list" id="entry-list"></div>
+        <div class="entry-list" id="entry-list">${initialEntryListHtml}</div>
     </div>
 
     <!-- Vertical splitter -->
@@ -651,7 +928,7 @@ body {
     <div class="right-panels" id="right-panels">
         <!-- Content preview -->
         <div class="preview-panel" id="preview-panel">
-            <div class="empty-state">Select a prompt or answer to preview</div>
+            ${initialPreviewHtml}
         </div>
 
         <!-- Horizontal splitter -->
@@ -659,42 +936,88 @@ body {
 
         <!-- Metadata panel -->
         <div class="meta-panel" id="meta-panel">
-            <div class="meta-title">Metadata</div>
-            <div class="empty-state" style="height:auto; padding:12px 0;">No entry selected</div>
+            ${initialMetaRows}
         </div>
     </div>
 </div>
 
+<script id="trail-data-entries" type="application/json">${entriesJson}</script>
+<script id="trail-data-entries-by-set" type="application/json">${entriesBySetJson}</script>
+<script id="trail-data-sets" type="application/json">${setsJson}</script>
+<script id="trail-data-current-set" type="application/json">${currentSetJson}</script>
 <script src="${markedUri}"></script>
 <script>
 (function() {
-    const vscode = acquireVsCodeApi();
+    function readJsonData(scriptId, fallback) {
+        try {
+            var el = document.getElementById(scriptId);
+            if (!el) { return fallback; }
+            var raw = el.textContent || '';
+            if (!raw) { return fallback; }
+            return JSON.parse(raw);
+        } catch (_err) {
+            return fallback;
+        }
+    }
+
+    let vscode;
+    try {
+    vscode = (window.__trailVscodeApi) || acquireVsCodeApi();
+    window.__trailVscodeApi = vscode;
+    vscode.postMessage({ type: 'clientReady', quest: 'primary-script', entries: -1 });
     
-    let allEntries = ${entriesJson};
-    let currentQuest = ${currentSetJson};
-    let trailSets = ${setsJson};
+    let allEntries = readJsonData('trail-data-entries', []);
+    let entriesBySet = readJsonData('trail-data-entries-by-set', {});
+    let currentQuest = readJsonData('trail-data-current-set', 'unknown');
+    let trailSets = readJsonData('trail-data-sets', {});
     let selectedIndex = -1;
+    if (!entriesBySet || typeof entriesBySet !== 'object') {
+        entriesBySet = {};
+    }
+    if (!entriesBySet[currentQuest]) {
+        entriesBySet[currentQuest] = allEntries;
+    }
     
     // ---- Quest/subsystem dropdowns ----
     const questSelect = document.getElementById('quest-select');
     const subsystemSelect = document.getElementById('subsystem-select');
 
+    function normalizeSetName(setName, fallbackName) {
+        var value = (setName || '').trim();
+        if (value.length > 0) {
+            return value;
+        }
+        var fallback = (fallbackName || currentQuest || 'unknown').trim();
+        return fallback.length > 0 ? fallback : 'unknown';
+    }
+
     function splitSetName(setName) {
-        var idx = setName.indexOf('.');
+        var normalized = normalizeSetName(setName, 'unknown');
+        var idx = normalized.lastIndexOf('.');
         if (idx < 0) {
-            return { quest: setName, subsystem: 'default' };
+            return { quest: normalized, subsystem: 'unknown' };
         }
         return {
-            quest: setName.substring(0, idx),
-            subsystem: setName.substring(idx + 1) || 'default'
+            quest: normalized.substring(0, idx) || normalized,
+            subsystem: normalized.substring(idx + 1) || 'unknown'
         };
     }
 
+    function ensureTrailSets(sets, selectedSetName) {
+        if (sets && Object.keys(sets).length > 0) {
+            return sets;
+        }
+        var fallbackName = normalizeSetName(selectedSetName, currentQuest || 'unknown');
+        var fallback = {};
+        fallback[fallbackName] = {};
+        return fallback;
+    }
+
     function buildQuestSubsystemIndex(sets) {
-        var names = Object.keys(sets);
+        var names = Object.keys(sets || {});
         var idx = {};
         for (var i = 0; i < names.length; i++) {
-            var setName = names[i];
+            var setName = normalizeSetName(names[i], currentQuest || 'unknown');
             var parsed = splitSetName(setName);
             if (!idx[parsed.quest]) {
                 idx[parsed.quest] = [];
@@ -702,28 +1025,49 @@ body {
             idx[parsed.quest].push({ subsystem: parsed.subsystem, setName: setName });
         }
         var quests = Object.keys(idx);
+        function subsystemRank(name) {
+            if (name === 'unknown') return 0;
+            if (name === 'copilot') return 2;
+            return 1;
+        }
         for (var q = 0; q < quests.length; q++) {
-            idx[quests[q]].sort(function(a, b) { return a.subsystem.localeCompare(b.subsystem); });
+            idx[quests[q]].sort(function(a, b) {
+                var rankCmp = subsystemRank(a.subsystem) - subsystemRank(b.subsystem);
+                if (rankCmp !== 0) {
+                    return rankCmp;
+                }
+                return a.subsystem.localeCompare(b.subsystem);
+            });
         }
         return idx;
     }
 
     function resolveSelection(sets, selectedSetName) {
-        var names = Object.keys(sets).sort();
+        var names = Object.keys(sets || {}).map(function(n) { return normalizeSetName(n, selectedSetName || currentQuest || 'unknown'); }).sort();
         if (names.length === 0) {
             return { quest: '', subsystem: '', setName: '' };
         }
         var chosen = selectedSetName && sets[selectedSetName] ? selectedSetName : names[0];
+        chosen = normalizeSetName(chosen, names[0]);
         var parsed = splitSetName(chosen);
         return { quest: parsed.quest, subsystem: parsed.subsystem, setName: chosen };
     }
 
     function populateSelectors(sets, selectedSetName) {
+        sets = ensureTrailSets(sets, selectedSetName);
+        trailSets = sets;
         var selection = resolveSelection(sets, selectedSetName);
         var index = buildQuestSubsystemIndex(sets);
 
         questSelect.innerHTML = '';
         var questNames = Object.keys(index).sort();
+        if (questNames.length === 0) {
+            var parsedFallback = splitSetName(selection.setName || currentQuest || 'unknown');
+            var fallbackQuest = parsedFallback.quest || 'unknown';
+            var fallbackSubsystem = parsedFallback.subsystem || 'unknown';
+            index[fallbackQuest] = [{ subsystem: fallbackSubsystem, setName: normalizeSetName(selection.setName, fallbackQuest + '.' + fallbackSubsystem) }];
+            questNames = [fallbackQuest];
+        }
         for (var i = 0; i < questNames.length; i++) {
             var opt = document.createElement('option');
             opt.value = questNames[i];
@@ -733,7 +1077,11 @@ body {
         }
 
         subsystemSelect.innerHTML = '';
-        var subs = index[selection.quest] || [];
+        var selectedQuest = selection.quest || questNames[0] || 'unknown';
+        var subs = index[selectedQuest] || [];
+        if (subs.length === 0) {
+            subs = [{ subsystem: 'unknown', setName: normalizeSetName(selection.setName, selectedQuest + '.unknown') }];
+        }
         for (var s = 0; s < subs.length; s++) {
             var subOpt = document.createElement('option');
             subOpt.value = subs[s].setName;
@@ -742,16 +1090,39 @@ body {
             subsystemSelect.appendChild(subOpt);
         }
 
-        currentQuest = selection.setName;
+        currentQuest = normalizeSetName(selection.setName, subs[0].setName);
+        if (!subsystemSelect.value || subsystemSelect.value !== currentQuest) {
+            subsystemSelect.value = currentQuest;
+        }
     }
 
     populateSelectors(trailSets, currentQuest);
+
+    function applyCurrentSetEntries() {
+        allEntries = entriesBySet[currentQuest] || [];
+        renderEntryList();
+        if (allEntries.length > 0) {
+            selectEntry(0);
+        } else {
+            selectedIndex = -1;
+            previewPanel.innerHTML = '<div class="empty-state">Select a prompt or answer to preview</div>';
+            metaPanel.innerHTML = '<div class="meta-title">Metadata</div><div class="empty-state" style="height:auto;padding:12px 0;">No entry selected</div>';
+        }
+    }
 
     questSelect.addEventListener('change', function() {
         var index = buildQuestSubsystemIndex(trailSets);
         var subs = index[questSelect.value] || [];
         if (subs.length === 0) {
             return;
+        }
+
+        var preferredIdx = 0;
+        for (var si = 0; si < subs.length; si++) {
+            if (subs[si].subsystem === 'unknown') {
+                preferredIdx = si;
+                break;
+            }
         }
 
         subsystemSelect.innerHTML = '';
@@ -762,17 +1133,17 @@ body {
             subsystemSelect.appendChild(subOpt);
         }
 
-        currentQuest = subs[0].setName;
+        currentQuest = subs[preferredIdx].setName;
         subsystemSelect.value = currentQuest;
         selectedIndex = -1;
-        vscode.postMessage({ type: 'switchQuest', quest: currentQuest });
+        applyCurrentSetEntries();
     });
 
     subsystemSelect.addEventListener('change', function() {
         currentQuest = subsystemSelect.value;
         selectedIndex = -1;
-        vscode.postMessage({ type: 'switchQuest', quest: currentQuest });
-    }
+        applyCurrentSetEntries();
+    });
     
     // ---- Entry list ----
     var entryListEl = document.getElementById('entry-list');
@@ -1049,16 +1420,18 @@ body {
     window.addEventListener('message', function(event) {
         var msg = event.data;
         if (msg.type === 'updateEntries') {
-            allEntries = msg.entries || [];
+            if (msg.entriesBySet && typeof msg.entriesBySet === 'object') {
+                entriesBySet = msg.entriesBySet;
+            }
             if (msg.quest) { currentQuest = msg.quest; }
             if (msg.trailSets) {
                 trailSets = msg.trailSets;
-                populateSelectors(trailSets, currentQuest);
             }
-            selectedIndex = -1;
-            renderEntryList();
-            previewPanel.innerHTML = '<div class="empty-state">Select a prompt or answer to preview</div>';
-            metaPanel.innerHTML = '<div class="meta-title">Metadata</div><div class="empty-state" style="height:auto;padding:12px 0;">No entry selected</div>';
+            if (!entriesBySet[currentQuest]) {
+                entriesBySet[currentQuest] = msg.entries || [];
+            }
+            populateSelectors(trailSets, currentQuest);
+            applyCurrentSetEntries();
         } else if (msg.type === 'focusEntry') {
             var targetId = msg.requestId || '';
             if (targetId) {
@@ -1075,10 +1448,284 @@ body {
     });
     
     // ---- Initial render ----
+    window.__trailPrimaryActive = true;
     renderEntryList();
     if (allEntries.length > 0) {
         selectEntry(0);
     }
+    vscode.postMessage({ type: 'clientReady', quest: currentQuest, entries: allEntries.length });
+    } catch (error) {
+        try {
+            if (vscode && typeof vscode.postMessage === 'function') {
+                vscode.postMessage({
+                    type: 'clientError',
+                    where: 'trailEditor:init',
+                    error: (error && error.message) ? error.message : String(error),
+                    stack: (error && error.stack) ? error.stack : '',
+                });
+            }
+        } catch (_ignored) {
+            // no-op
+        }
+    }
+})();
+</script>
+<script>
+(function() {
+        function readJsonData(scriptId, fallback) {
+            try {
+                var el = document.getElementById(scriptId);
+                if (!el) { return fallback; }
+                var raw = el.textContent || '';
+                if (!raw) { return fallback; }
+                return JSON.parse(raw);
+            } catch (_err) {
+                return fallback;
+            }
+        }
+
+    if (window.__trailPrimaryActive) {
+        return;
+    }
+
+    if (window.__trailSwitchFallbackInit) {
+        return;
+    }
+    window.__trailSwitchFallbackInit = true;
+
+    var vscodeApi = null;
+    try {
+        if (window.__trailVscodeApi && typeof window.__trailVscodeApi.postMessage === 'function') {
+            vscodeApi = window.__trailVscodeApi;
+        } else if (typeof acquireVsCodeApi === 'function') {
+            vscodeApi = acquireVsCodeApi();
+            window.__trailVscodeApi = vscodeApi;
+        }
+        if (vscodeApi && typeof vscodeApi.postMessage === 'function') {
+            vscodeApi.postMessage({ type: 'clientReady', quest: 'fallback-script', entries: -1 });
+        }
+    } catch (_e) {
+        vscodeApi = null;
+    }
+
+    if (!vscodeApi || typeof vscodeApi.postMessage !== 'function') {
+        return;
+    }
+
+    var questSelect = document.getElementById('quest-select');
+    var subsystemSelect = document.getElementById('subsystem-select');
+    var entryListEl = document.getElementById('entry-list');
+    var previewPanel = document.getElementById('preview-panel');
+    var metaPanel = document.getElementById('meta-panel');
+    if (!questSelect || !subsystemSelect || !entryListEl || !previewPanel || !metaPanel) {
+        return;
+    }
+
+    var trailSets = readJsonData('trail-data-sets', {});
+    var currentSet = readJsonData('trail-data-current-set', 'unknown');
+    var allEntries = readJsonData('trail-data-entries', []);
+    var selectedIndex = -1;
+
+    function normalizeSetName(value) {
+        var v = (value || '').trim();
+        return v || 'unknown';
+    }
+
+    function splitSetName(setName) {
+        var normalized = normalizeSetName(setName);
+        var idx = normalized.lastIndexOf('.');
+        if (idx < 0) {
+            return { quest: normalized, subsystem: 'unknown' };
+        }
+        return {
+            quest: normalized.substring(0, idx) || normalized,
+            subsystem: normalized.substring(idx + 1) || 'unknown',
+        };
+    }
+
+    function listQuestNames() {
+        var names = Object.keys(trailSets || {});
+        var quests = {};
+        for (var i = 0; i < names.length; i++) {
+            quests[splitSetName(names[i]).quest] = true;
+        }
+        return Object.keys(quests).sort();
+    }
+
+    function getSetsForQuest(questName) {
+        var names = Object.keys(trailSets || {});
+        var out = [];
+        for (var i = 0; i < names.length; i++) {
+            var parsed = splitSetName(names[i]);
+            if (parsed.quest === questName) {
+                out.push({ setName: names[i], subsystem: parsed.subsystem });
+            }
+        }
+        out.sort(function(a, b) {
+            function rank(name) {
+                if (name === 'unknown') return 0;
+                if (name === 'copilot') return 2;
+                return 1;
+            }
+            var rankCmp = rank(a.subsystem) - rank(b.subsystem);
+            if (rankCmp !== 0) return rankCmp;
+            return a.subsystem.localeCompare(b.subsystem);
+        });
+        return out;
+    }
+
+    function populateQuestDropdown(selectedQuest) {
+        var quests = listQuestNames();
+        var preferred = selectedQuest;
+        if (!preferred || quests.indexOf(preferred) < 0) {
+            preferred = quests.length > 0 ? quests[0] : 'unknown';
+        }
+        questSelect.innerHTML = '';
+        for (var i = 0; i < quests.length; i++) {
+            var opt = document.createElement('option');
+            opt.value = quests[i];
+            opt.textContent = quests[i];
+            if (quests[i] === preferred) {
+                opt.selected = true;
+            }
+            questSelect.appendChild(opt);
+        }
+        return preferred;
+    }
+
+    function populateSubsystemDropdown(questName, preferredSetName) {
+        var subs = getSetsForQuest(questName);
+        subsystemSelect.innerHTML = '';
+        for (var i = 0; i < subs.length; i++) {
+            var opt = document.createElement('option');
+            opt.value = subs[i].setName;
+            opt.textContent = subs[i].subsystem;
+            subsystemSelect.appendChild(opt);
+        }
+        if (subs.length === 0) {
+            currentSet = 'unknown';
+            return currentSet;
+        }
+        var next = subs[0].setName;
+        if (preferredSetName) {
+            for (var j = 0; j < subs.length; j++) {
+                if (subs[j].setName === preferredSetName) {
+                    next = subs[j].setName;
+                    break;
+                }
+            }
+        }
+        subsystemSelect.value = next;
+        currentSet = next;
+        return next;
+    }
+
+    function escapeHtml(s) {
+        return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function formatTs(ts) {
+        var d = new Date(ts);
+        if (isNaN(d.getTime())) {
+            return String(ts || '');
+        }
+        var yy = String(d.getFullYear()).slice(2);
+        var mo = String(d.getMonth() + 1).padStart(2, '0');
+        var dd = String(d.getDate()).padStart(2, '0');
+        var hh = String(d.getHours()).padStart(2, '0');
+        var mm = String(d.getMinutes()).padStart(2, '0');
+        var ss = String(d.getSeconds()).padStart(2, '0');
+        return yy + mo + dd + '-' + hh + mm + ss;
+    }
+
+    function renderMeta(entry) {
+        var html = '<div class="meta-title">' + escapeHtml(entry.type) + ' Metadata</div>';
+        html += '<div class="meta-row"><div class="meta-key">Request ID</div><div class="meta-value">' + escapeHtml(entry.requestId) + '</div></div>';
+        html += '<div class="meta-row"><div class="meta-key">Timestamp</div><div class="meta-value">' + escapeHtml(entry.rawTimestamp) + '</div></div>';
+        html += '<div class="meta-row"><div class="meta-key">Sequence</div><div class="meta-value">' + escapeHtml(String(entry.sequence)) + '</div></div>';
+        if (entry.type === 'PROMPT') {
+            html += '<div class="meta-row"><div class="meta-key">Template</div><div class="meta-value">' + escapeHtml(entry.templateName || '(none)') + '</div></div>';
+            html += '<div class="meta-row"><div class="meta-key">Answer Wrapper</div><div class="meta-value">' + escapeHtml(entry.answerWrapper || '(none)') + '</div></div>';
+        }
+        metaPanel.innerHTML = html;
+    }
+
+    function selectEntry(idx) {
+        selectedIndex = idx;
+        var items = entryListEl.querySelectorAll('.entry-item');
+        for (var i = 0; i < items.length; i++) {
+            items[i].classList.toggle('selected', i === idx);
+        }
+        var entry = allEntries[idx];
+        if (!entry) {
+            return;
+        }
+        previewPanel.innerHTML = '<div class="markdown-body"><pre>' + escapeHtml(entry.content || '') + '</pre></div>';
+        renderMeta(entry);
+    }
+
+    function renderEntries() {
+        entryListEl.innerHTML = '';
+        for (var i = 0; i < allEntries.length; i++) {
+            var e = allEntries[i];
+            var div = document.createElement('div');
+            div.className = 'entry-item entry-type-' + String(e.type || '').toLowerCase();
+            var label = document.createElement('div');
+            label.className = 'entry-label';
+            label.textContent = formatTs(e.timestamp) + '-' + e.type + '-' + String(e.requestId || '').substring(0, 8);
+            var prev = document.createElement('div');
+            prev.className = 'entry-preview';
+            prev.textContent = String(e.content || '').substring(0, 100).replace(/\n/g, ' ');
+            div.appendChild(label);
+            div.appendChild(prev);
+            (function(index) {
+                div.addEventListener('click', function() {
+                    selectEntry(index);
+                });
+            })(i);
+            entryListEl.appendChild(div);
+        }
+        if (allEntries.length > 0) {
+            selectEntry(0);
+        } else {
+            previewPanel.innerHTML = '<div class="empty-state">No entries available for this quest/subsystem</div>';
+            metaPanel.innerHTML = '<div class="meta-title">Metadata</div><div class="empty-state" style="height:auto;padding:12px 0;">No entry selected</div>';
+        }
+    }
+
+    function switchToSet(setName) {
+        currentSet = normalizeSetName(setName);
+        vscodeApi.postMessage({ type: 'switchQuest', quest: currentSet });
+    }
+
+    questSelect.addEventListener('change', function() {
+        var setName = populateSubsystemDropdown(questSelect.value, null);
+        switchToSet(setName);
+    });
+
+    subsystemSelect.addEventListener('change', function() {
+        switchToSet(subsystemSelect.value);
+    });
+
+    window.addEventListener('message', function(event) {
+        var msg = event.data || {};
+        if (msg.type === 'updateEntries') {
+            if (msg.trailSets) {
+                trailSets = msg.trailSets;
+            }
+            allEntries = msg.entries || [];
+            currentSet = normalizeSetName(msg.quest || currentSet);
+            var parsed = splitSetName(currentSet);
+            var selectedQuest = populateQuestDropdown(parsed.quest);
+            populateSubsystemDropdown(selectedQuest, currentSet);
+            renderEntries();
+        }
+    });
+
+    var startParsed = splitSetName(currentSet);
+    var startQuest = populateQuestDropdown(startParsed.quest);
+    populateSubsystemDropdown(startQuest, currentSet);
+    renderEntries();
 })();
 </script>
 </body>

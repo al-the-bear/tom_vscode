@@ -19,7 +19,7 @@ import * as vscode from 'vscode';
  * TInput is the shape of the validated input (matches the JSON Schema).
  */
 export interface SharedToolDefinition<TInput = Record<string, unknown>> {
-    /** Unique tool identifier, e.g. 'tom_readFile'. */
+    /** Unique tool identifier, e.g. 'tomAi_readFile'. */
     name: string;
 
     /** Human-readable name shown in UI. */

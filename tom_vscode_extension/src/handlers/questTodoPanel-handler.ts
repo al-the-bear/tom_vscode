@@ -31,8 +31,8 @@ let _popoutPanel: vscode.WebviewPanel | undefined;
 const _webviewConfigs = new WeakMap<vscode.Webview, QuestTodoViewConfig>();
 
 /** Storage key for persisting Quest TODO panel state per workspace. */
-const QT_STATE_KEY = 'qt.panelState';
-const QT_PENDING_SELECT_KEY = 'qt.pendingSelect';
+const QT_STATE_KEY = 'tomAi.questTodo.panelState';
+const QT_PENDING_SELECT_KEY = 'tomAi.questTodo.pendingSelect';
 
 interface QtPanelState {
     questId?: string;
@@ -612,12 +612,10 @@ function qtNavPush(todoId) {
         });
     })();
     // Request username from config
-    vscode.postMessage({ type: 'qtGetUserName' });
-    vscode.postMessage({ type: 'qtGetTemplates' });
-    vscode.postMessage({ type: 'qtGetPendingSelect' });
     // Send config + request initial data
     vscode.postMessage({ type: 'qtInitConfig', config: qtViewConfig });
-    if (qtViewConfig.mode === 'session') {
+                vscode.window.showInformationMessage('No summary trail exists yet. Send a prompt first.');
+                return true;
         qtCurrentQuestId = '__session__';
         qtCurrentFile = 'all';
         vscode.postMessage({ type: 'qtGetTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
@@ -2949,24 +2947,20 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
         case 'qtOpenTrailFiles': {
             const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
             if (!wsRoot) return true;
-            // Use quest directory when a quest is active, fall back to _ai/trail
-            let trailFolder = WsPaths.ai('trail') || path.join(wsRoot, '_ai', 'trail');
+            let questId = 'incidents';
             try {
                 const activeQuest = ChatVariablesStore.instance.quest;
-                if (activeQuest) {
-                    const questDir = WsPaths.ai('quests', activeQuest) || path.join(wsRoot, '_ai', 'quests', activeQuest);
-                    if (fs.existsSync(questDir)) {
-                        trailFolder = questDir;
-                    }
+                if (typeof activeQuest === 'string' && activeQuest.trim().length > 0) {
+                    questId = activeQuest;
                 }
             } catch { /* */ }
-            if (!fs.existsSync(trailFolder)) {
-                fs.mkdirSync(trailFolder, { recursive: true });
+            const questFolder = WsPaths.ai('quests', questId) || path.join(wsRoot, '_ai', 'quests', questId);
+            if (!fs.existsSync(questFolder)) {
+                fs.mkdirSync(questFolder, { recursive: true });
             }
-            const workspaceName = path.basename(wsRoot).replace(/\s+/g, '_');
-            const promptsPath = path.join(trailFolder, `${workspaceName}.prompts.md`);
+            const promptsPath = path.join(questFolder, `${questId}.copilot.prompts.md`);
             if (!fs.existsSync(promptsPath)) {
-                fs.writeFileSync(promptsPath, '# Copilot Prompts Trail\n\n', 'utf-8');
+                fs.writeFileSync(promptsPath, '', 'utf-8');
             }
             const uri = vscode.Uri.file(promptsPath);
             await vscode.commands.executeCommand('vscode.openWith', uri, 'tomAi.trailViewer');

@@ -11,13 +11,13 @@ import {
     parseChatText,
     formatLogTimestamp
 } from './tomAiChat-utils';
-import { TodoManager, TodoOperationResult } from '../managers/todoManager';
+import { ChatTodoSessionManager, TodoOperationResult } from '../managers/chatTodoSessionManager';
 import { setActiveTodoManager } from '../tools/tomAiChat-tools';
 import { WsPaths } from '../utils/workspacePaths';
 import {
     logPrompt, logResponse, logToolRequest, logToolResult,
     isTrailEnabled, loadTrailConfig, writeTrailFile,
-} from './trailLogger-handler';
+} from '../services/trailLogging';
 
 const logChannel = vscode.window.createOutputChannel('Tom AI Chat Log');
 const toolLogChannel = vscode.window.createOutputChannel('Tom Tool Log');
@@ -49,11 +49,11 @@ export function interruptTomAiChatHandler(): void {
 
 // Pre-processing tools: limited set for cheap model to gather context
 const PRE_PROCESSING_ALLOWED_TOOLS = new Set<string>([
-    'tom_readFile',
-    'tom_listDirectory',
-    'tom_findFiles',
-    'tom_findTextInFiles',
-    'tom_readGuideline',
+    'tomAi_readFile',
+    'tomAi_listDirectory',
+    'tomAi_findFiles',
+    'tomAi_findTextInFiles',
+    'tomAi_readGuideline',
     'copilot_readFile',
     'copilot_listDirectory',
     'copilot_findFiles',
@@ -65,35 +65,34 @@ const PRE_PROCESSING_ALLOWED_TOOLS = new Set<string>([
 
 const TOM_AI_CHAT_ALLOWED_TOOLS = new Set<string>([
     // Tom AI Chat custom tools (work without chat participant token)
-    'tom_createFile',
-    'tom_readFile',
-    'tom_editFile',
-    'tom_multiEditFile',
-    'tom_listDirectory',
-    'tom_findFiles',
-    'tom_findTextInFiles',
-    'tom_runCommand',
-    'tom_runVscodeCommand',
-    'tom_getErrors',
-    'tom_fetchWebpage',
-    'tom_readGuideline',
-    'addToPromptQueue',
-    'addFollowUpPrompt',
-    'sendQueuedPrompt',
-    'addTimedRequest',
-    'tom_queue_list',
-    'tom_queue_update_item',
-    'tom_queue_set_status',
-    'tom_queue_send_now',
-    'tom_queue_remove_item',
-    'tom_queue_update_followup',
-    'tom_queue_remove_followup',
-    'tom_timed_list',
-    'tom_timed_update_entry',
-    'tom_timed_remove_entry',
-    'tom_timed_set_engine_state',
-    'tom_prompt_template_manage',
-    'tom_reminder_template_manage',
+    'tomAi_createFile',
+    'tomAi_readFile',
+    'tomAi_editFile',
+    'tomAi_multiEditFile',
+    'tomAi_listDirectory',
+    'tomAi_findFiles',
+    'tomAi_findTextInFiles',
+    'tomAi_runCommand',
+    'tomAi_runVscodeCommand',
+    'tomAi_getErrors',
+    'tomAi_fetchWebpage',
+    'tomAi_readGuideline',
+    'tomAi_queue_add',
+    'tomAi_queue_addFollowUp',
+    'tomAi_queue_sendNow',
+    'tomAi_timed_add',
+    'tomAi_queue_list',
+    'tomAi_queue_updateItem',
+    'tomAi_queue_setStatus',
+    'tomAi_queue_removeItem',
+    'tomAi_queue_updateFollowUp',
+    'tomAi_queue_removeFollowUp',
+    'tomAi_timed_list',
+    'tomAi_timed_updateEntry',
+    'tomAi_timed_removeEntry',
+    'tomAi_timed_setEngineState',
+    'tomAi_templates_manage',
+    'tomAi_reminders_manage',
 
     // Copilot read-only tools (work without chat participant token)
     'copilot_readFile',
@@ -124,8 +123,8 @@ const TOM_AI_CHAT_ALLOWED_TOOLS = new Set<string>([
     'create_and_run_task',
     'runTests',
     'runSubagent',
-    // Note: manage_todo_list removed - using tom_manageTodo instead
-    'tom_manageTodo',
+    // Note: manage_todo_list removed - using tomAi_manageTodo instead
+    'tomAi_manageTodo',
 
     // Dart/Flutter tools
     'dart_format',
@@ -715,7 +714,7 @@ export async function sendToTomAiChatHandler(): Promise<void> {
     if (!fs.existsSync(todoDir)) {
         fs.mkdirSync(todoDir, { recursive: true });
     }
-    const todoManager = new TodoManager(chatId, todoDir);
+    const todoManager = new ChatTodoSessionManager(chatId, todoDir);
     todoManager.setOperationCallback((result) => chatLog.logTodoOperation(result));
     setActiveTodoManager(todoManager);
 

@@ -46,6 +46,29 @@ export interface SendToChatConfig {
             isDefault?: boolean;
             keepAlive?: string;
         } };
+        tools?: {
+            askCopilot?: unknown;
+            askBigBrother?: unknown;
+        };
+        configurations?: Array<{
+            id: string;
+            name: string;
+            ollamaUrl?: string;
+            model?: string;
+            temperature?: number;
+            stripThinkingTags?: boolean;
+            trailMaximumTokens?: number;
+            removePromptTemplateFromTrail?: boolean;
+            trailSummarizationTemperature?: number;
+            trailSummarizationPrompt?: string;
+            answerFolder?: string;
+            logFolder?: string;
+            historyMode?: string;
+            enabledTools?: string[];
+            isDefault?: boolean;
+            keepAlive?: string;
+        }>;
+        defaultTemplate?: string;
     };
     aiConversation: {
         profiles: { [key: string]: {
@@ -57,6 +80,21 @@ export interface SendToChatConfig {
             followUpTemplate?: string | null;
             temperature?: number | null;
         } };
+        telegram?: {
+            autostart?: boolean;
+        };
+        setups?: Array<{
+            id: string;
+            name: string;
+            llmConfigA?: string;
+            llmConfigB?: string;
+            maxTurns?: number;
+            pauseBetweenTurns?: boolean;
+            historyMode?: string;
+            trailSummarizationLlmConfig?: string;
+            isDefault?: boolean;
+        }>;
+        defaultTemplate?: string;
     };
     tomAiChat?: {
         defaultTemplate?: string;
@@ -73,28 +111,12 @@ export interface SendToChatConfig {
         answerFolder?: string;
     };
 
-    /** Trail cleanup: days to keep individual trail files (default: 2) */
-    trailCleanupDays?: number;
-    /** Trail cleanup: max entries in consolidated trail files before trimming (default: 1000) */
-    trailMaxEntries?: number;
-
-    /**
-     * Platform-specific binary path directory.
-     * Used as ${binaryPath} in commandlines.
-     * Keys are platform identifiers (e.g., "darwin-arm64", "linux-x64", "darwin-*", "*").
-     * Values are directory paths (can use ~ for home directory).
-     * Fallback: $HOME/.tom/bin/<platform>/
-     */
-    binaryPath?: { [platform: string]: string };
-
-    /**
-     * Cross-platform executable configuration.
-     * Keys are executable names (e.g., "marktext", "tom_bs").
-     * Values are objects mapping platform keys to file paths.
-     * Platform keys: darwin-arm64, darwin-x64, linux-x64, windows-x64, darwin-*, linux-*, windows-*, *
-     * Paths can use ~ for home directory.
-     */
-    executables?: { [name: string]: { [platform: string]: string } };
+    trail?: {
+        /** Trail cleanup: days to keep individual trail files (default: 2) */
+        cleanupDays?: number;
+        /** Trail cleanup: max entries in consolidated trail files before trimming (default: 1000) */
+        maxEntries?: number;
+    };
 
     /**
      * External application mappings for file types.
@@ -118,6 +140,15 @@ export interface SendToChatConfig {
      */
     bridge?: {
         current?: string;
+        /**
+         * When true, the CLI integration server is automatically started
+         * after the Dart bridge connects during extension activation.
+         */
+        cliServerAutostart?: boolean;
+        /** Platform-specific binary path directory used as ${binaryPath}. */
+        binaryPath?: { [platform: string]: string };
+        /** Cross-platform executable configuration. */
+        executables?: { [name: string]: { [platform: string]: string } };
         profiles: { [name: string]: {
             label: string;
             /** Executable name from `executables` config (preferred) */
@@ -135,56 +166,6 @@ export interface SendToChatConfig {
      */
     userName?: string;
 
-    /**
-     * When true, the CLI integration server is automatically started
-     * after the Dart bridge connects during extension activation.
-     */
-    cliServerAutostart?: boolean;
-
-    /**
-     * When true, Telegram polling is automatically started
-     * after the Dart bridge connects during extension activation.
-     */
-    telegramAutostart?: boolean;
-
-    /**
-     * LLM configuration entities (root level).
-     * Each config defines a complete LLM setup with model settings and enabled tools.
-     */
-    configurations?: Array<{
-        id: string;
-        name: string;
-        ollamaUrl?: string;
-        model?: string;
-        temperature?: number;
-        stripThinkingTags?: boolean;
-        trailMaximumTokens?: number;
-        removePromptTemplateFromTrail?: boolean;
-        trailSummarizationTemperature?: number;
-        trailSummarizationPrompt?: string;
-        answerFolder?: string;
-        logFolder?: string;
-        historyMode?: string;
-        enabledTools?: string[];
-        isDefault?: boolean;
-        keepAlive?: string;
-    }>;
-
-    /**
-     * AI Conversation setup entities (root level).
-     * Each setup defines a conversation configuration with LLM config references.
-     */
-    setups?: Array<{
-        id: string;
-        name: string;
-        llmConfigA?: string;
-        llmConfigB?: string;
-        maxTurns?: number;
-        pauseBetweenTurns?: boolean;
-        historyMode?: string;
-        trailSummarizationLlmConfig?: string;
-        isDefault?: boolean;
-    }>;
 }
 
 export function validateStrictAiConfiguration(config: SendToChatConfig | null | undefined): string[] {
@@ -194,7 +175,7 @@ export function validateStrictAiConfiguration(config: SendToChatConfig | null | 
         return errors;
     }
 
-    const llmConfigs = Array.isArray(config.configurations) ? config.configurations : [];
+    const llmConfigs = Array.isArray(config.localLlm?.configurations) ? config.localLlm.configurations : [];
     if (llmConfigs.length === 0) {
         errors.push('Missing configurations: at least one LLM configuration is required.');
     }
@@ -220,7 +201,7 @@ export function validateStrictAiConfiguration(config: SendToChatConfig | null | 
         if (!(entry?.historyMode || '').trim()) { errors.push(`configurations.${id}.historyMode is required.`); }
     }
 
-    const setups = Array.isArray(config.setups) ? config.setups : [];
+    const setups = Array.isArray(config.aiConversation?.setups) ? config.aiConversation.setups : [];
     if (setups.length === 0) {
         errors.push('Missing setups: at least one AI conversation setup is required.');
     }

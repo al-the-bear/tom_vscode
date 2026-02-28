@@ -33,7 +33,7 @@ import { TelegramChannel } from './chat';
 import {
     logPrompt, logResponse, logCopilotAnswer,
     isTrailEnabled, loadTrailConfig,
-} from './trailLogger-handler';
+} from '../services/trailLogging';
 import { WsPaths } from '../utils/workspacePaths';
 
 // ============================================================================
@@ -569,7 +569,7 @@ export class AiConversationManager {
     private findLlmConfiguration(configId: string | null | undefined): any | undefined {
         if (!configId) { return undefined; }
         const cfg = loadSendToChatConfig();
-        const llmConfigs = Array.isArray(cfg?.configurations) ? cfg!.configurations : [];
+        const llmConfigs = Array.isArray(cfg?.localLlm?.configurations) ? cfg!.localLlm!.configurations : [];
         return llmConfigs.find((entry: any) => entry?.id === configId);
     }
 
@@ -612,7 +612,7 @@ export class AiConversationManager {
             throw new Error('Invalid AI configuration. Open Status Page for details.');
         }
 
-        const setups = Array.isArray(sendConfig?.setups) ? sendConfig!.setups : [];
+        const setups = Array.isArray(sendConfig?.aiConversation?.setups) ? sendConfig!.aiConversation!.setups : [];
         if (setups.length === 0) {
             throw new Error('No AI conversation setup found. Configure setups first.');
         }
@@ -948,32 +948,13 @@ export class AiConversationManager {
         fs.writeFileSync(logPath, lines.join('\n'), 'utf-8');
 
         const workspaceName = this.getWorkspaceName();
-        const promptsPath = path.join(logDir, `${workspaceName}.prompts.md`);
-        const answersPath = path.join(logDir, `${workspaceName}.answers.md`);
         const compactPath = path.join(logDir, `${workspaceName}.trail.md`);
-
-        const promptsLines: string[] = ['# AI Conversation Prompts Trail', ''];
-        const answersLines: string[] = ['# AI Conversation Answers Trail', ''];
         const compactLines: string[] = ['# AI Conversation Trail', '', 'Compact conversation history for AI Conversation panel.', ''];
 
         for (const ex of state.exchanges) {
             const ts = ex.timestamp.toISOString();
             const fileTs = this.toTrailTimestamp(ex.timestamp);
             const requestId = ex.copilotResponse.requestId || `${state.conversationId}_${ex.turn}`;
-
-            promptsLines.push(`## ${ts}`);
-            promptsLines.push('');
-            promptsLines.push(ex.promptToCopilot);
-            promptsLines.push('');
-            promptsLines.push('---');
-            promptsLines.push('');
-
-            answersLines.push(`## ${ts}`);
-            answersLines.push('');
-            answersLines.push(ex.copilotResponse.generatedMarkdown);
-            answersLines.push('');
-            answersLines.push('---');
-            answersLines.push('');
 
             compactLines.push(`## ${ts}`);
             compactLines.push('');
@@ -993,9 +974,6 @@ export class AiConversationManager {
             fs.writeFileSync(promptFile, ex.promptToCopilot, 'utf-8');
             fs.writeFileSync(answerFile, JSON.stringify(ex.copilotResponse, null, 2), 'utf-8');
         }
-
-        fs.writeFileSync(promptsPath, promptsLines.join('\n'), 'utf-8');
-        fs.writeFileSync(answersPath, answersLines.join('\n'), 'utf-8');
         fs.writeFileSync(compactPath, compactLines.join('\n'), 'utf-8');
     }
 
@@ -1049,7 +1027,7 @@ export class AiConversationManager {
             return;
         }
 
-        const setupList = Array.isArray(sendConfig?.setups) ? sendConfig!.setups : [];
+        const setupList = Array.isArray(sendConfig?.aiConversation?.setups) ? sendConfig!.aiConversation!.setups : [];
         if (setupList.length === 0) {
             const msg = 'No AI conversation setup found. Configure setups first.';
             bridgeLog(`[Bot Conversation] ${msg}`);

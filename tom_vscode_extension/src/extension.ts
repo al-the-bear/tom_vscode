@@ -123,6 +123,7 @@ function installGlobalInstrumentation(): void {
             const originalRegisterCommand = vscode.commands.registerCommand.bind(vscode.commands);
             commandsAny.registerCommand = ((command: string, callback: (...args: unknown[]) => unknown, thisArg?: unknown) => {
                 const wrappedCallback = async (...args: unknown[]) => {
+                    debugLog(`command triggered: ${command} args=${JSON.stringify(args, (_k, v) => typeof v === 'function' ? '[Function]' : v)}`, 'INFO', 'command.trigger');
                     try {
                         return await Promise.resolve(callback.apply(thisArg, args));
                     } catch (error) {
@@ -146,6 +147,7 @@ function installGlobalInstrumentation(): void {
                     ...provider,
                     resolveWebviewView(webviewView, webviewViewResolveContext, token) {
                         const resolveStart = performance.now();
+                        debugLog(`webview resolve triggered: ${viewId}`, 'INFO', 'webview.resolve');
                         try {
                             const webviewAny = webviewView.webview as unknown as {
                                 onDidReceiveMessage: typeof webviewView.webview.onDidReceiveMessage;
@@ -156,6 +158,7 @@ function installGlobalInstrumentation(): void {
                                 const originalOnDidReceiveMessage = webviewView.webview.onDidReceiveMessage.bind(webviewView.webview);
                                 webviewAny.onDidReceiveMessage = ((listener, thisArgs, disposables) => {
                                     const wrappedListener = async (message: unknown) => {
+                                        debugLog(`webview message: ${viewId} payload=${JSON.stringify(message, (_k, v) => typeof v === 'function' ? '[Function]' : v)}`, 'INFO', 'webview.message');
                                         try {
                                             return await Promise.resolve(listener.call(thisArgs, message));
                                         } catch (error) {
@@ -186,6 +189,63 @@ function installGlobalInstrumentation(): void {
                 return originalRegisterWebviewProvider(viewId, wrappedProvider, options);
             }) as typeof vscode.window.registerWebviewViewProvider;
             windowAny.__tomAiWebviewInstrumented = true;
+        }
+
+        const customEditorAny = vscode.window as unknown as {
+            registerCustomEditorProvider: typeof vscode.window.registerCustomEditorProvider;
+            __tomAiCustomEditorInstrumented?: boolean;
+        };
+        if (!customEditorAny.__tomAiCustomEditorInstrumented) {
+            const originalRegisterCustomEditor = vscode.window.registerCustomEditorProvider.bind(vscode.window);
+            customEditorAny.registerCustomEditorProvider = ((viewType, provider, options) => {
+                const wrappedProvider: vscode.CustomTextEditorProvider = {
+                    ...provider,
+                    async resolveCustomTextEditor(document, webviewPanel, token) {
+                        debugLog(`custom editor resolve triggered: ${viewType} file=${document.uri.fsPath}`, 'INFO', 'customEditor.resolve');
+                        try {
+                            const webviewAny = webviewPanel.webview as unknown as {
+                                onDidReceiveMessage: typeof webviewPanel.webview.onDidReceiveMessage;
+                                __tomAiCustomMessageInstrumented?: boolean;
+                            };
+
+                            if (viewType !== 'tomAi.trailViewer' && !webviewAny.__tomAiCustomMessageInstrumented) {
+                                const originalOnDidReceiveMessage = webviewPanel.webview.onDidReceiveMessage.bind(webviewPanel.webview);
+                                webviewAny.onDidReceiveMessage = ((listener, thisArgs, disposables) => {
+                                    const wrappedListener = async (message: unknown) => {
+                                        debugLog(`custom editor message: ${viewType} payload=${JSON.stringify(message, (_k, v) => typeof v === 'function' ? '[Function]' : v)}`, 'INFO', 'customEditor.message');
+                                        try {
+                                            return await Promise.resolve(listener.call(thisArgs, message));
+                                        } catch (error) {
+                                            reportException(`customEditor:${viewType}.onDidReceiveMessage`, error, {
+                                                messageType: typeof message === 'object' && message && 'type' in (message as Record<string, unknown>)
+                                                    ? (message as Record<string, unknown>).type
+                                                    : undefined,
+                                            });
+                                            throw error;
+                                        }
+                                    };
+                                    return originalOnDidReceiveMessage(wrappedListener, thisArgs, disposables);
+                                }) as typeof webviewPanel.webview.onDidReceiveMessage;
+                                webviewAny.__tomAiCustomMessageInstrumented = true;
+                            }
+
+                            const resolver = (provider as { resolveCustomTextEditor?: (document: vscode.TextDocument, webviewPanel: vscode.WebviewPanel, token: vscode.CancellationToken) => unknown }).resolveCustomTextEditor;
+                            if (typeof resolver !== 'function') {
+                                throw new Error(`Custom editor provider for ${viewType} has no resolveCustomTextEditor`);
+                            }
+                            await Promise.resolve(resolver.call(provider, document, webviewPanel, token));
+                            debugLog(`custom editor resolve completed: ${viewType} file=${document.uri.fsPath}`, 'INFO', 'customEditor.resolve');
+                        } catch (error) {
+                            reportException(`customEditor:${viewType}.resolveCustomTextEditor`, error, {
+                                filePath: document.uri.fsPath,
+                            });
+                            throw error;
+                        }
+                    },
+                };
+                return originalRegisterCustomEditor(viewType, wrappedProvider, options);
+            }) as typeof vscode.window.registerCustomEditorProvider;
+            customEditorAny.__tomAiCustomEditorInstrumented = true;
         }
 
         // NOTE: We intentionally do NOT install process-level unhandledRejection
@@ -376,7 +436,7 @@ export async function activate(context: vscode.ExtensionContext) {
     {
         const { loadSendToChatConfig } = await import('./utils/sendToChatConfig.js');
         const stcConfig = loadSendToChatConfig();
-        if (stcConfig?.cliServerAutostart) {
+        if (stcConfig?.bridge?.cliServerAutostart) {
             // Small delay to let bridge fully settle before starting CLI server
             setTimeout(async () => {
                 try {
@@ -387,7 +447,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 }
             }, 2000);
         }
-        if (stcConfig?.telegramAutostart) {
+        if (stcConfig?.aiConversation?.telegram?.autostart) {
             // Start Telegram polling after a short delay
             setTimeout(async () => {
                 try {
@@ -447,7 +507,7 @@ export async function activate(context: vscode.ExtensionContext) {
     stepStart = performance.now();
     initializeToolDescriptions();
     timeStep('tomAiChatTools.initToolDescriptions', stepStart);
-    // Escalation tools (Ask Big Brother, Ask Copilot) are lazy-initialized
+    // Local-LLM bridge tools (Ask Big Brother, Ask Copilot) are lazy-initialized
     // on first use — selectChatModels() takes 20–30s during activation rush
     // but <1s when the event loop is idle.
     stepStart = performance.now();
