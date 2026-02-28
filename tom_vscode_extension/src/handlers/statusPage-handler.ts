@@ -27,7 +27,7 @@ import {
     AskBigBrotherConfig,
 } from '../tools/escalation-tools-config';
 import { WsPaths } from '../utils/workspacePaths';
-import { validateStrictAiConfiguration } from '../utils/sendToChatConfig';
+import { validateStrictAiConfiguration, SendToChatConfig } from '../utils/sendToChatConfig';
 import type { TimerScheduleSlot } from '../managers/timerEngine';
 import type { CommandlineEntry } from './commandline-handler';
 
@@ -108,6 +108,14 @@ export const AVAILABLE_LLM_TOOLS = [
 ];
 
 let statusPanel: vscode.WebviewPanel | undefined;
+
+function createEmptySendToChatConfig(): SendToChatConfig {
+    return {
+        localLlm: { profiles: {} },
+        aiConversation: { profiles: {} },
+        copilot: { templates: {} },
+    };
+}
 
 // Config loading functions
 export function loadConfig(): any {
@@ -214,16 +222,19 @@ async function updateTelegramSettings(settings: any): Promise<void> {
 async function updateAskCopilotSettings(settings: any): Promise<void> {
     // Save escalation tools config (askCopilot settings)
     const escalationConfig = loadEscalationToolsConfig();
-    const { copilotAnswerPath, ...askCopilotSettings } = settings;
+    const { copilotAnswerFolder, ...askCopilotSettings } = settings;
     escalationConfig.askCopilot = { ...escalationConfig.askCopilot, ...askCopilotSettings };
     if (saveEscalationToolsConfig(escalationConfig)) {
         clearConfigCache();
     }
     
-    // Save copilotAnswerPath to tom_vscode_extension config
-    if (copilotAnswerPath !== undefined) {
-        const sendToChatConfig = loadSendToChatConfig() || { templates: {}, localLlm: { profiles: {} }, aiConversation: { profiles: {} } };
-        sendToChatConfig.copilotAnswerPath = copilotAnswerPath;
+    // Save copilot answer folder to tom_vscode_extension config
+    if (copilotAnswerFolder !== undefined) {
+        const sendToChatConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
+        if (!sendToChatConfig.copilot) {
+            sendToChatConfig.copilot = {};
+        }
+        sendToChatConfig.copilot.answerFolder = copilotAnswerFolder;
         saveSendToChatConfig(sendToChatConfig);
     }
     
@@ -362,7 +373,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
             await vscode.commands.executeCommand('tomAi.cliServer.stop');
             break;
         case 'setCliAutostart': {
-            const stcConfig = loadSendToChatConfig() || { templates: {}, localLlm: { profiles: {} }, aiConversation: { profiles: {} } } as any;
+            const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
             stcConfig.cliServerAutostart = !!message.enabled;
             saveSendToChatConfig(stcConfig);
             break;
@@ -388,7 +399,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
             await setTrailEnabled(false);
             break;
         case 'updateTrailSettings': {
-            const stcConfig = loadSendToChatConfig() || { templates: {}, localLlm: { profiles: {} }, aiConversation: { profiles: {} } };
+            const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
             if (message.cleanupDays !== undefined) { stcConfig.trailCleanupDays = message.cleanupDays; }
             if (message.maxEntries !== undefined) { stcConfig.trailMaxEntries = message.maxEntries; }
             saveSendToChatConfig(stcConfig);
@@ -454,7 +465,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
             await vscode.commands.executeCommand('tomAi.telegram.testConnection');
             break;
         case 'setTelegramAutostart': {
-            const stcConfig = loadSendToChatConfig() || { templates: {}, localLlm: { profiles: {} }, aiConversation: { profiles: {} } } as any;
+            const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
             stcConfig.telegramAutostart = !!message.enabled;
             saveSendToChatConfig(stcConfig);
             break;
@@ -486,7 +497,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
         }
         // Executables (includes binaryPath)
         case 'saveExecutables': {
-            const stcConfig = loadSendToChatConfig() || { templates: {}, localLlm: { profiles: {} }, aiConversation: { profiles: {} } } as any;
+            const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
             stcConfig.executables = message.executables || {};
             stcConfig.binaryPath = message.binaryPath || {};
             saveSendToChatConfig(stcConfig);
@@ -654,7 +665,6 @@ export async function handleStatusAction(action: string, message: any): Promise<
             if (setupId) {
                 const confirm = await vscode.window.showWarningMessage(
                     `Delete AI Conversation Setup "${setupId}"?`,
-                    { modal: true },
                     'Delete'
                 );
                 if (confirm === 'Delete') {
@@ -670,7 +680,6 @@ export async function handleStatusAction(action: string, message: any): Promise<
         }
     }
 }
-
 
 /**
  * Status data for the webview
@@ -736,7 +745,7 @@ export interface StatusData {
         profileDetails: { [name: string]: { modelConfig: string | null } };
     };
     askCopilot: AskCopilotConfig;
-    copilotAnswerPath: string;
+    copilotAnswerFolder: string;
     askBigBrother: AskBigBrotherConfig;
     templateNames: string[];
     schedule: TimerScheduleSlot[];
@@ -882,8 +891,8 @@ export async function gatherStatusData(): Promise<StatusData> {
             ),
         },
         ...loadEscalationToolsConfig(),
-        copilotAnswerPath: loadSendToChatConfig()?.copilotAnswerPath ?? WsPaths.aiRelative('copilot'),
-        templateNames: Object.keys(sendToChatConfig?.templates || {}),
+        copilotAnswerFolder: loadSendToChatConfig()?.copilot?.answerFolder ?? WsPaths.aiRelative('copilot'),
+        templateNames: Object.keys(sendToChatConfig?.copilot?.templates || {}),
         schedule,
         executables: sendToChatConfig?.executables || {},
         binaryPath: sendToChatConfig?.binaryPath || {},
@@ -1408,8 +1417,8 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
                 <input type="text" id="sp-ac-answerFolder" value="${status.askCopilot.answerFolder}">
             </div>
             <div class="sp-settings-row">
-                <label>Answer Path:</label>
-                <input type="text" id="sp-ac-copilotAnswerPath" value="${status.copilotAnswerPath}">
+                <label>Copilot Answer Folder:</label>
+                <input type="text" id="sp-ac-copilotAnswerFolder" value="${status.copilotAnswerFolder}">
             </div>
             <div class="sp-settings-row">
                 <label>Template:</label>
@@ -1743,7 +1752,7 @@ function attachStatusPanelListeners(skipEditorInit) {
                     answerFileTimeout: parseInt((document.getElementById('sp-ac-answerFileTimeout') || {}).value || '120000'),
                     pollInterval: parseInt((document.getElementById('sp-ac-pollInterval') || {}).value || '2000'),
                     answerFolder: (document.getElementById('sp-ac-answerFolder') || {}).value || '',
-                    copilotAnswerPath: (document.getElementById('sp-ac-copilotAnswerPath') || {}).value || '',
+                    copilotAnswerFolder: (document.getElementById('sp-ac-copilotAnswerFolder') || {}).value || '',
                     promptTemplate: (document.getElementById('sp-ac-promptTemplate') || {}).value || ''
                 };
             } else if (action === 'updateAskBigBrother') {

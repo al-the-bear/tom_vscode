@@ -93,7 +93,7 @@ function readAnswerFile(): { requestId: string; generatedMarkdown: string; comme
 function getCopilotAnswersMdPath(): string {
     const config = loadSendToChatConfig();
     const wsRoot = getWorkspaceRoot();
-    const basePath = config?.copilotAnswerPath || WsPaths.aiRelative('copilot');
+    const basePath = config?.copilot?.answerFolder || WsPaths.aiRelative('copilot');
     const fullBase = wsRoot ? path.join(wsRoot, basePath) : WsPaths.home('copilotAnswers');
     return path.join(fullBase, getWindowId(), 'copilot-answer.md');
 }
@@ -102,7 +102,7 @@ function getCopilotAnswersMdPath(): string {
 function getCopilotPromptsPath(): string {
     const config = loadSendToChatConfig();
     const wsRoot = getWorkspaceRoot();
-    const basePath = config?.copilotAnswerPath || WsPaths.aiRelative('copilot');
+    const basePath = config?.copilot?.answerFolder || WsPaths.aiRelative('copilot');
     const fullBase = wsRoot ? path.join(wsRoot, basePath) : WsPaths.home('copilotPrompts');
     return path.join(fullBase, getWindowId(), 'copilot-prompts.md');
 }
@@ -111,7 +111,7 @@ function getCopilotPromptsPath(): string {
 function getCopilotAnswersPath(): string {
     const config = loadSendToChatConfig();
     const wsRoot = getWorkspaceRoot();
-    const basePath = config?.copilotAnswerPath || WsPaths.aiRelative('copilot');
+    const basePath = config?.copilot?.answerFolder || WsPaths.aiRelative('copilot');
     const fullBase = wsRoot ? path.join(wsRoot, basePath) : WsPaths.home('copilotAnswers');
     return path.join(fullBase, getWindowId(), 'copilot-answers.md');
 }
@@ -585,9 +585,6 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
                     case 'showAnswerViewer':
                         await this._showAnswerViewer();
                         break;
-                    case 'showAnswerViewerLegacy':
-                        await this._showAnswerViewerLegacy();
-                        break;
                     case 'extractAnswer':
                         await this._extractAnswerToMd();
                         break;
@@ -695,11 +692,11 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
             localLlm: config?.localLlm?.profiles ? Object.keys(config.localLlm.profiles) : [],
             conversation: config?.aiConversation?.profiles ? Object.keys(config.aiConversation.profiles) : [],
             // Filter out __answer_file__ since it's hardcoded in the dropdown as "Answer Wrapper"
-            copilot: config?.templates ? Object.keys(config.templates).filter(k => k !== '__answer_file__') : [],
+            copilot: config?.copilot?.templates ? Object.keys(config.copilot.templates).filter(k => k !== '__answer_file__') : [],
             tomAiChat: config?.tomAiChat?.templates ? Object.keys(config.tomAiChat.templates) : [],
             configurations: this._getEffectiveLlmConfigurations(config),
             setups: this._getEffectiveAiConversationSetups(config),
-            defaultTemplates: config?.defaultTemplates || {},
+            defaultCopilotTemplate: config?.copilot?.defaultTemplate || '',
         });
     }
 
@@ -1334,7 +1331,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
         const defaultWrapped = applyDefaultTemplate(text, 'copilot');
         
         // Get answer file template
-        const answerFileTpl = config?.templates?.['__answer_file__'];
+        const answerFileTpl = config?.copilot?.templates?.['__answer_file__'];
         const answerFileTemplate = answerFileTpl?.template || DEFAULT_ANSWER_FILE_TEMPLATE;
         
         let expanded: string;
@@ -1352,7 +1349,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
             }
         } else {
             // Other template: first expand the template, then wrap with answer file
-            const templateObj = config?.templates?.[template];
+            const templateObj = config?.copilot?.templates?.[template];
             if (templateObj?.template) {
                 // Step 1: Expand selected template with user text as originalPrompt
                 const templateExpanded = await expandTemplate(templateObj.template, { values: { originalPrompt: defaultWrapped } });
@@ -1518,16 +1515,6 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
             markdown: answer.generatedMarkdown,
             meta,
         });
-    }
-
-    private async _showAnswerViewerLegacy(): Promise<void> {
-        const answer = readAnswerFile();
-        const references = (answer?.references || []).join(', ');
-        const legacyHeader = answer?.generatedMarkdown
-            ? `# Copilot Answer (Legacy Preview)\n\n**Slot:** ${this._currentAnswerSlot}\n\n**Request ID:** ${answer.requestId || 'N/A'}${references ? `\n\n**References:** ${references}` : ''}\n\n---\n\n`
-            : '# Copilot Answer (Legacy Preview)\n\nNo answer file found.';
-        const legacyBody = answer?.generatedMarkdown || '';
-        await showPreviewPanel('Copilot Answer (Legacy)', `${legacyHeader}${legacyBody}`);
     }
 
     private async _extractAnswerToMd(): Promise<void> {
@@ -1956,7 +1943,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
 
     private async _loadDrafts(): Promise<void> {
         try {
-            const { readPromptPanelYaml, readPanelYaml } = await import('../utils/panelYamlStore.js');
+            const { readPromptPanelYaml } = await import('../utils/panelYamlStore.js');
             const sections = ['localLlm', 'conversation', 'copilot', 'tomAiChat'];
             const loaded: Record<string, { text?: string; profile?: string; llmConfig?: string; aiSetup?: string; activeSlot?: number; slots?: Record<string, string> }> = {};
             for (const section of sections) {
@@ -1977,12 +1964,6 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
                 this._view?.webview.postMessage({ type: 'draftsLoaded', sections: loaded });
                 return;
             }
-
-            const legacy = await readPanelYaml<{ sections?: Record<string, { text?: string; profile?: string; activeSlot?: number; slots?: Record<string, string> }> }>('panels');
-            if (legacy?.sections) {
-                this._view?.webview.postMessage({ type: 'draftsLoaded', sections: legacy.sections });
-                return;
-            }
             // No data found — still signal so the webview unlocks draft saving
             this._view?.webview.postMessage({ type: 'draftsLoaded', sections: {} });
         } catch {
@@ -1993,14 +1974,13 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
 
     private async _showPanelsFile(): Promise<void> {
         try {
-            const { openPromptPanelFile, openPanelFile, getPromptPanelFilePath } = await import('../utils/panelYamlStore.js');
+            const { openPromptPanelFile, getPromptPanelFilePath } = await import('../utils/panelYamlStore.js');
             const section = 'copilot';
             const promptFile = getPromptPanelFilePath(section);
             if (promptFile && fs.existsSync(promptFile)) {
                 await openPromptPanelFile(section);
                 return;
             }
-            await openPanelFile('panels');
         } catch { /* not available */ }
     }
 
@@ -2061,7 +2041,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
             case 'copilot': {
                 title = 'Copilot';
                 // Get answer file template
-                const answerFileTpl = config?.templates?.['__answer_file__'];
+                const answerFileTpl = config?.copilot?.templates?.['__answer_file__'];
                 const answerFileTemplate = answerFileTpl?.template || DEFAULT_ANSWER_FILE_TEMPLATE;
                 
                 if (profileOrTemplate === '__answer_file__' || !profileOrTemplate || profileOrTemplate === '__none__') {
@@ -2072,7 +2052,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
                     // else: no template, previewContent stays as text (will be expanded below)
                 } else {
                     // Other template: first expand the template, then wrap with answer file
-                    const template = config?.templates?.[profileOrTemplate];
+                    const template = config?.copilot?.templates?.[profileOrTemplate];
                     if (template?.template) {
                         // Step 1: Expand selected template with user text as originalPrompt
                         const templateExpanded = await expandTemplate(template.template, { values: { originalPrompt: text } });
@@ -2183,8 +2163,8 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
         const config = loadSendToChatConfig();
         if (!config) { return; }
 
-        if (section === 'copilot' && config.templates?.[name]) {
-            delete config.templates[name];
+        if (section === 'copilot' && config.copilot?.templates?.[name]) {
+            delete config.copilot.templates[name];
         } else if (section === 'tomAiChat' && config.tomAiChat?.templates?.[name]) {
             delete config.tomAiChat.templates[name];
         } else { return; }
@@ -2374,7 +2354,7 @@ var state = { expanded: ['localLlm'], pinned: [] };
 var profiles = { localLlm: [], conversation: [], copilot: [], tomAiChat: [] };
 var configurations = [];
 var setups = [];
-var defaultTemplates = {};
+var defaultCopilotTemplate = '';
 var reusablePromptModel = { scopes: { project: [], quest: [], scan: [] }, files: { global: [], project: {}, quest: {}, scan: {} } };
 var pendingReusableCopySection = '';
 var reusablePreferredQuestId = '';
@@ -2627,7 +2607,6 @@ function getSectionContent(id) {
                 '<div class="toolbar answers-toolbar" id="copilot-answers-toolbar" style="display:none;">' +
                 '<span id="copilot-answer-indicator" class="answer-indicator">Answer Ready</span>' +
                 '<button class="icon-btn" data-action="showAnswerViewer" data-id="copilot" title="View Answer"><span class="codicon codicon-eye"></span></button>' +
-                '<button class="icon-btn" data-action="showAnswerViewerLegacy" data-id="copilot" title="View Answer (Legacy)"><span class="codicon codicon-file"></span></button>' +
                 '<button class="icon-btn" data-action="extractAnswer" data-id="copilot" title="Extract to Markdown"><span class="codicon codicon-file-symlink-file"></span></button>' +
                 '</div>' +
                 '<div id="copilot-context-overlay" class="context-overlay" style="display:none;">' +
@@ -2866,7 +2845,6 @@ function handleAction(action, id, slot) {
             break;
         }
         case 'showAnswerViewer': vscode.postMessage({ type: 'showAnswerViewer' }); break;
-        case 'showAnswerViewerLegacy': vscode.postMessage({ type: 'showAnswerViewerLegacy' }); break;
         case 'extractAnswer': vscode.postMessage({ type: 'extractAnswer' }); break;
         case 'openPromptsFile': vscode.postMessage({ type: 'openPromptsFile' }); break;
         case 'openAnswersFile': vscode.postMessage({ type: 'openAnswersFile' }); break;
@@ -3065,7 +3043,7 @@ window.addEventListener('message', function(e) {
         profiles = { localLlm: msg.localLlm || [], conversation: msg.conversation || [], copilot: msg.copilot || [], tomAiChat: msg.tomAiChat || [] };
         configurations = msg.configurations || [];
         setups = msg.setups || [];
-        defaultTemplates = msg.defaultTemplates || {};
+        defaultCopilotTemplate = msg.defaultCopilotTemplate || '';
         populateDropdowns();
         updateDefaultTemplateIndicator();
     } else if (msg.type === 'reusablePrompts') {
@@ -3194,8 +3172,8 @@ window.addEventListener('message', function(e) {
 
 function updateDefaultTemplateIndicator() {
     var tplInfo = document.getElementById('copilot-templateInfo');
-    if (tplInfo && defaultTemplates.copilot) {
-        tplInfo.textContent = 'Default template: ' + defaultTemplates.copilot;
+    if (tplInfo && defaultCopilotTemplate) {
+        tplInfo.textContent = 'Default template: ' + defaultCopilotTemplate;
         tplInfo.style.display = 'block';
     } else if (tplInfo) {
         tplInfo.style.display = 'none';

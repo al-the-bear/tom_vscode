@@ -499,8 +499,8 @@ Task:
     for (const item of defaults) {
         keyToTemplate.set(item.key, item.template);
     }
-    if (config?.templates) {
-        for (const [key, value] of Object.entries(config.templates)) {
+    if (config?.copilot?.templates) {
+        for (const [key, value] of Object.entries(config.copilot.templates)) {
             keyToTemplate.set(key, value.template || '${originalPrompt}');
         }
     }
@@ -1013,8 +1013,8 @@ class CopilotNotepadProvider implements vscode.WebviewViewProvider {
         if (confirm !== 'Delete') { return; }
 
         const config = loadSendToChatConfig();
-        if (config && config.templates[this._selectedTemplate]) {
-            delete config.templates[this._selectedTemplate];
+        if (config?.copilot?.templates?.[this._selectedTemplate]) {
+            delete config.copilot.templates[this._selectedTemplate];
             if (saveSendToChatConfig(config)) {
                 this._loadTemplates();
                 this._selectedTemplate = this._templates[0]?.key || '';

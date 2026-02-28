@@ -21,13 +21,6 @@ import { TomAiConfiguration } from './tomAiConfiguration';
 // ============================================================================
 
 export interface SendToChatConfig {
-    templates: { [key: string]: { template: string; showInMenu?: boolean } };
-    defaultTemplates?: {
-        copilot?: string;      // Template key from `templates` applied to every copilot send
-        localLlm?: string;     // Template key from `templates` applied to every local LLM send
-        tomAiChat?: string;    // Template key from `templates` applied to every Tom AI Chat send
-        conversation?: string; // Template key from `templates` applied to every conversation start
-    };
     localLlm: {
         profiles: { [key: string]: {
             label: string;
@@ -74,13 +67,10 @@ export interface SendToChatConfig {
             systemPromptOverride?: string | null;
         } };
     };
-    copilotAnswerPath?: string;  // Path for extracting Copilot answers, relative to workspace root
-    copilotChatAnswerFolder?: string;  // Folder for Copilot chat answer JSON files, relative to workspace root (default: _ai/answers/copilot)
-
-    /** Todo panel configuration */
-    todoPanel?: {
-        /** Default template preselected in the todo panel template dropdown */
+    copilot?: {
+        templates?: { [key: string]: { template: string; showInMenu?: boolean } };
         defaultTemplate?: string;
+        answerFolder?: string;
     };
 
     /** Trail cleanup: days to keep individual trail files (default: 2) */
@@ -303,10 +293,7 @@ function getConfigPathSimple(): string | undefined {
     // 2. Explicit setting
     const configSetting = vscode.workspace
         .getConfiguration('tomAi')
-        .get<string>('configPath')
-        || vscode.workspace
-            .getConfiguration('tomAi')
-            .get<string>('configPath');
+        .get<string>('configPath');
     if (configSetting) {
         return expandHomePath(configSetting);
     }
@@ -357,11 +344,11 @@ export function saveSendToChatConfig(config: SendToChatConfig): boolean {
 
 /**
  * Get the Copilot chat answer folder (workspace-relative path string).
- * Reads from config `copilotChatAnswerFolder`, defaults to `_ai/answers/copilot`.
+ * Reads from config `copilot.answerFolder`, defaults to `_ai/answers/copilot`.
  */
 export function getCopilotChatAnswerFolder(): string {
     const config = loadSendToChatConfig();
-    return config?.copilotChatAnswerFolder || WsPaths.aiRelative('answersCopilot');
+    return config?.copilot?.answerFolder || WsPaths.aiRelative('answersCopilot');
 }
 
 /**

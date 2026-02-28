@@ -272,9 +272,8 @@ export class WsPaths {
             rolesPath:           ws ? path.join(ws, aiFolder, 'roles') : '',
             wsConfigPath:        ws ? path.join(ws, WORKSPACE_CONFIG_FOLDER) : '',
             wsConfigFolder:      WORKSPACE_CONFIG_FOLDER,
-            // Copilot answer file folder (workspace-relative and absolute)
+            // Copilot answer file folder (workspace-relative)
             copilotAnswerFolder: `${aiFolder}/${AI_SUBPATHS['answersCopilot']}`,
-            copilotAnswerPath:   ws ? path.join(ws, aiFolder, AI_SUBPATHS['answersCopilot']) : '',
         };
     }
 }

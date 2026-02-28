@@ -665,17 +665,18 @@ export function listConfiguredExecutables(): Array<{
 }
 
 /**
- * Apply a panel's default template wrapping (if configured).
- * Default templates are defined in `config.defaultTemplates.<panel>`
- * and reference a key in `config.templates`.
+ * Apply the Copilot default template wrapping (if configured).
+ * Default template is defined in `config.copilot.defaultTemplate`
+ * and references a key in `config.copilot.templates`.
  * They wrap the text using the template's ${originalPrompt} placeholder.
  */
 export function applyDefaultTemplate(text: string, panel: string): string {
+    if (panel !== 'copilot') return text;
+
     const config = loadSendToChatConfig();
-    if (!config?.defaultTemplates) return text;
-    const templateKey = (config.defaultTemplates as Record<string, string | undefined>)[panel];
+    const templateKey = config?.copilot?.defaultTemplate;
     if (!templateKey) return text;
-    const tpl = config.templates?.[templateKey];
+    const tpl = config.copilot?.templates?.[templateKey];
     if (!tpl?.template) return text;
     return tpl.template.replace(/\$\{originalPrompt\}/g, text);
 }

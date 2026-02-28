@@ -6,7 +6,7 @@
  * left column with template list, right column with multi-field editor.
  *
  * Categories:
- *   1. Copilot Templates       — config.templates
+ *   1. Copilot Templates       — config.copilot.templates
  *   2. Reminder Templates      — config.reminderTemplates
  *   3. Tom AI Chat Templates   — config.tomAiChat.templates
  *   4. AI Conversation Profiles— config.aiConversation.profiles
@@ -131,7 +131,7 @@ export function registerGlobalTemplateEditorCommand(ctx: vscode.ExtensionContext
 function _getItemsForCategory(config: SendToChatConfig, category: TemplateCategory): TemplateItem[] {
     switch (category) {
         case 'copilot':
-            return Object.keys(config.templates || {})
+            return Object.keys(config.copilot?.templates || {})
                 .filter(k => k !== '__answer_file__')
                 .map(k => ({ id: k, label: k }));
         case 'reminder':
@@ -166,7 +166,7 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
 
     switch (category) {
         case 'copilot': {
-            const tpl = config.templates?.[itemId];
+            const tpl = config.copilot?.templates?.[itemId];
             if (!tpl) break;
             fields.push(
                 { name: 'name', label: 'Template Name', type: 'text', value: itemId },
@@ -337,9 +337,11 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
 
     switch (category) {
         case 'copilot': {
+            if (!config.copilot) config.copilot = {};
+            if (!config.copilot.templates) config.copilot.templates = {};
             const newName = values.name || itemId;
-            if (newName !== itemId) delete config.templates[itemId];
-            config.templates[newName] = {
+            if (newName !== itemId) delete config.copilot.templates[itemId];
+            config.copilot.templates[newName] = {
                 template: values.template || '${originalPrompt}',
                 showInMenu: values.showInMenu === 'true',
             };
@@ -474,7 +476,9 @@ async function _addItem(category: TemplateCategory): Promise<void> {
 
     switch (category) {
         case 'copilot':
-            config.templates[name] = { template: '${originalPrompt}', showInMenu: true };
+            if (!config.copilot) config.copilot = {};
+            if (!config.copilot.templates) config.copilot.templates = {};
+            config.copilot.templates[name] = { template: '${originalPrompt}', showInMenu: true };
             break;
         case 'reminder': {
             const templates: any[] = (config as any).reminderTemplates || [];
@@ -543,7 +547,7 @@ async function _deleteItem(category: TemplateCategory, itemId: string): Promise<
 
     switch (category) {
         case 'copilot':
-            delete config.templates[itemId];
+            delete config.copilot?.templates?.[itemId];
             break;
         case 'reminder': {
             const templates: any[] = (config as any).reminderTemplates || [];

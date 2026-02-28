@@ -322,14 +322,15 @@ async function deletePromptTemplate(currentName?: string): Promise<void> {
     vscode.window.showWarningMessage('Send-to-chat config is not available.');
     return;
   }
-  const templateNames = Object.keys(config.templates || {});
+  const templateNames = Object.keys(config.copilot?.templates || {});
   if (templateNames.length === 0) {
     vscode.window.showWarningMessage('No prompt templates available.');
     return;
   }
 
+  const templates = config.copilot?.templates;
   let name = currentName;
-  if (!name || !config.templates?.[name]) {
+  if (!name || !templates?.[name]) {
     const picked = await vscode.window.showQuickPick(templateNames, { placeHolder: 'Select template to delete' });
     if (!picked) {
       return;
@@ -350,7 +351,7 @@ async function deletePromptTemplate(currentName?: string): Promise<void> {
     return;
   }
 
-  delete config.templates?.[name];
+  delete templates?.[name];
   saveSendToChatConfig(config);
 }
 
@@ -388,8 +389,9 @@ function buildState(): Record<string, unknown> {
     let promptTemplates: string[] = [];
     try {
         const config = loadSendToChatConfig();
-        if (config?.templates) {
-            promptTemplates = Object.keys(config.templates).filter(k => config.templates[k].showInMenu !== false);
+      const templates = config?.copilot?.templates;
+      if (templates) {
+        promptTemplates = Object.keys(templates).filter(k => templates[k].showInMenu !== false);
         }
     } catch { /* */ }
 

@@ -3006,7 +3006,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
         }
         case 'qtGetTemplates': {
             const config = loadSendToChatConfig();
-            const configured = Object.keys(config?.templates || {})
+            const configured = Object.keys(config?.copilot?.templates || {})
                 .filter((key) => key !== '__answer_file__')
                 .sort();
             const templates = [
@@ -3014,9 +3014,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 ...configured.map((name) => ({ id: name, label: name })),
                 { id: '__answer_file__', label: 'Answer Wrapper' },
             ];
-            // Use todoPanel.defaultTemplate if set, otherwise fall back to defaultTemplates.copilot
-            const todoPanelDefault = config?.todoPanel?.defaultTemplate;
-            const defaultTemplate = String(todoPanelDefault || config?.defaultTemplates?.copilot || '__none__');
+            const defaultTemplate = String(config?.copilot?.defaultTemplate || '__none__');
             const selected = templates.some((t) => t.id === defaultTemplate) ? defaultTemplate : '__none__';
             post({ type: 'qtTemplates', templates, selected });
             return true;
@@ -3068,7 +3066,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             const wrappedText = applyDefaultTemplate(todoPrompt, 'copilot');
             const selectedTemplate = String(msg.template || '__none__');
             const config = loadSendToChatConfig();
-            const answerFileTemplate = config?.templates?.['__answer_file__']?.template || DEFAULT_ANSWER_FILE_TEMPLATE;
+            const answerFileTemplate = config?.copilot?.templates?.['__answer_file__']?.template || DEFAULT_ANSWER_FILE_TEMPLATE;
 
             let expanded: string;
             if (!selectedTemplate || selectedTemplate === '__none__') {
@@ -3076,7 +3074,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             } else if (selectedTemplate === '__answer_file__') {
                 expanded = await expandTemplate(answerFileTemplate, { values: { originalPrompt: wrappedText } });
             } else {
-                const selectedTemplateText = config?.templates?.[selectedTemplate]?.template;
+                const selectedTemplateText = config?.copilot?.templates?.[selectedTemplate]?.template;
                 if (selectedTemplateText) {
                     const templateExpanded = await expandTemplate(selectedTemplateText, { values: { originalPrompt: wrappedText } });
                     expanded = await expandTemplate(answerFileTemplate, { values: { originalPrompt: templateExpanded } });

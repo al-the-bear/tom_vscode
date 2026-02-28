@@ -77,7 +77,7 @@ export function resolveTemplateString(templateName: string): string | undefined 
     if (!templateName || templateName === '(None)') { return undefined; }
     try {
         const config = loadSendToChatConfig();
-        const tpl = config?.templates?.[templateName];
+        const tpl = config?.copilot?.templates?.[templateName];
         if (tpl?.template) { return tpl.template; }
     } catch { /* config not available */ }
     // Built-in default for __answer_file__ when not in config

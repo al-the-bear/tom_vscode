@@ -1455,22 +1455,26 @@ async function executePromptTemplateManage(input: PromptTemplateManageInput): Pr
     if (!config) {
         return 'Error: Send-to-chat config is not available.';
     }
-    if (!config.templates) {
-        config.templates = {};
+    if (!config.copilot) {
+        config.copilot = {};
     }
+    if (!config.copilot.templates) {
+        config.copilot.templates = {};
+    }
+    const templates = config.copilot.templates;
 
     if (input.operation === 'list') {
-        const templates = Object.entries(config.templates).map(([name, value]) => ({
+        const templateEntries = Object.entries(templates).map(([name, value]) => ({
             name,
             template: value.template,
             showInMenu: value.showInMenu !== false,
         }));
-        return JSON.stringify({ count: templates.length, templates }, null, 2);
+        return JSON.stringify({ count: templateEntries.length, templates: templateEntries }, null, 2);
     }
 
     if (input.operation === 'create') {
         if (!input.name) { return 'Error: name is required for create.'; }
-        config.templates[input.name] = {
+        templates[input.name] = {
             template: input.template || '${originalPrompt}',
             showInMenu: input.showInMenu !== false,
         };
@@ -1479,15 +1483,15 @@ async function executePromptTemplateManage(input: PromptTemplateManageInput): Pr
     }
 
     if (input.operation === 'update') {
-        if (!input.name || !config.templates[input.name]) {
+        if (!input.name || !templates[input.name]) {
             return 'Error: existing template name is required for update.';
         }
         const targetName = input.newName || input.name;
-        const old = config.templates[input.name];
+        const old = templates[input.name];
         if (targetName !== input.name) {
-            delete config.templates[input.name];
+            delete templates[input.name];
         }
-        config.templates[targetName] = {
+        templates[targetName] = {
             template: input.template !== undefined ? input.template : old.template,
             showInMenu: input.showInMenu !== undefined ? input.showInMenu : (old.showInMenu !== false),
         };
@@ -1496,10 +1500,10 @@ async function executePromptTemplateManage(input: PromptTemplateManageInput): Pr
     }
 
     if (input.operation === 'delete') {
-        if (!input.name || !config.templates[input.name]) {
+        if (!input.name || !templates[input.name]) {
             return 'Error: existing template name is required for delete.';
         }
-        delete config.templates[input.name];
+        delete templates[input.name];
         saveSendToChatConfig(config);
         return JSON.stringify({ success: true, operation: 'delete', name: input.name });
     }

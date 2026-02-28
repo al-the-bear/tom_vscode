@@ -267,7 +267,7 @@ function getAnswerFilePath(): string {
 
 /**
  * Compute the Copilot chat answer file path for the current window.
- * Uses the configurable copilotChatAnswerFolder (default: _ai/answers/copilot).
+ * Uses the configurable copilot.answerFolder (default: _ai/answers/copilot).
  */
 function getCopilotAnswerFile(): string {
     const folder = _getCopilotChatAnswerFolderAbsolute();
@@ -285,8 +285,8 @@ function _getCopilotChatAnswerFolder(): string {
         // Lazy import to break circular dependency
         const { loadSendToChatConfig } = require('../handlers/handler_shared');
         const config = loadSendToChatConfig();
-        if (config?.copilotChatAnswerFolder) {
-            return config.copilotChatAnswerFolder;
+        if (config?.copilot?.answerFolder) {
+            return config.copilot.answerFolder;
         }
     } catch { /* fallback */ }
     return WsPaths.aiRelative('answersCopilot');
@@ -372,7 +372,6 @@ export function buildVariableMap(options?: ResolveOptions): Record<string, strin
         'answer-file':    getAnswerFilePath(),
         chatAnswerFolder: answerFolder,
         copilotAnswerFolder: _getCopilotChatAnswerFolder(),
-        copilotAnswerPath: _getCopilotChatAnswerFolderAbsolute(),
         copilotAnswerFile: getCopilotAnswerFile(),
 
         // VS Code meta (Tier 7)
@@ -864,7 +863,6 @@ export const PLACEHOLDER_HELP = `<strong>Available Placeholders:</strong><br>
 <code>\${chatAnswerFolder}</code> – Answer folder path (sendToChat system)<br>
 <code>\${copilotAnswerFile}</code> – Copilot chat answer file path (absolute)<br>
 <code>\${copilotAnswerFolder}</code> – Copilot chat answer folder (workspace-relative)<br>
-<code>\${copilotAnswerPath}</code> – Copilot chat answer folder (absolute path)<br>
 <code>\${config.KEY}</code> – Any VS Code setting value<br>
 <br>
 <em>Workspace Folders:</em><br>

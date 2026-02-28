@@ -107,22 +107,22 @@ export class SendToChatAdvancedManager {
             const oldTemplates = JSON.stringify(this.templates);
             const oldDefault = this.defaultTemplateName;
             
-            if (!parsed.templates || typeof parsed.templates !== 'object') {
-                vscode.window.showErrorMessage('Invalid tom_vscode_extension.json format. Expected root "templates" object.');
+            if (!parsed.copilot?.templates || typeof parsed.copilot.templates !== 'object') {
+                vscode.window.showErrorMessage('Invalid tom_vscode_extension.json format. Expected "copilot.templates" object.');
                 this.templates = {};
                 this.defaultTemplateName = undefined;
                 return;
             }
 
-            if (!this.validateTemplates(parsed.templates)) {
+            if (!this.validateTemplates(parsed.copilot.templates)) {
                 vscode.window.showErrorMessage('Invalid tom_vscode_extension.json format. Each template entry must define a string "template" field.');
                 this.templates = {};
                 this.defaultTemplateName = undefined;
                 return;
             }
 
-            this.templates = parsed.templates;
-            this.defaultTemplateName = typeof parsed.default === 'string' ? parsed.default : undefined;
+            this.templates = parsed.copilot.templates;
+            this.defaultTemplateName = typeof parsed.copilot.defaultTemplate === 'string' ? parsed.copilot.defaultTemplate : undefined;
 
             // Only log and re-register if something actually changed
             const newTemplates = JSON.stringify(this.templates);
@@ -729,28 +729,30 @@ export class SendToChatAdvancedManager {
             return;
         }
 
-        const defaultTemplates: { [key: string]: SendToChatTemplate } = {};
+        const copilotTemplates: { [key: string]: SendToChatTemplate } = {};
         
         // Use bracket notation to avoid lint errors for property names with spaces
-        defaultTemplates["Explain Code"] = {
+        copilotTemplates["Explain Code"] = {
             template: "Please explain the following code in detail:\n\n${originalPrompt}\n\nInclude:\n- What it does\n- Key algorithms or patterns\n- Potential issues or improvements"
         };
-        defaultTemplates["Review for Bugs"] = {
+        copilotTemplates["Review for Bugs"] = {
             template: "Review this code for bugs and security issues:\n\n${originalPrompt}\n\nFocus on:\n- Security vulnerabilities\n- Edge cases\n- Error handling\n- Performance issues"
         };
-        defaultTemplates["Add Unit Tests"] = {
+        copilotTemplates["Add Unit Tests"] = {
             template: "Generate comprehensive unit tests for:\n\n${originalPrompt}\n\nRequirements:\n- High coverage\n- Test edge cases\n- Test error conditions\n- Use appropriate testing framework"
         };
-        defaultTemplates["Add Documentation"] = {
+        copilotTemplates["Add Documentation"] = {
             template: "Add complete documentation for:\n\n${originalPrompt}\n\nInclude:\n- API documentation\n- Usage examples\n- Parameter descriptions\n- Return value descriptions"
         };
-        defaultTemplates["Refactor"] = {
+        copilotTemplates["Refactor"] = {
             template: "Refactor this code for better quality:\n\n${originalPrompt}\n\nFocus on:\n- Readability\n- Maintainability\n- Performance\n- Best practices"
         };
 
-        const defaultConfig: SendToChatFullConfig = {
-            default: 'Explain Code',
-            templates: defaultTemplates,
+        const defaultConfig = {
+            copilot: {
+                defaultTemplate: 'Explain Code',
+                templates: copilotTemplates,
+            },
         };
 
         try {

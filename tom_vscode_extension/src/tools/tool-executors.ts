@@ -1042,16 +1042,17 @@ async function executeAskCopilot(input: AskCopilotInput): Promise<string> {
     // Load send-to-chat config for templates
     const sendToChatConfig = loadSendToChatConfig();
     const selectedTemplate = config.askCopilot.promptTemplate;
+    const copilotTemplates = sendToChatConfig?.copilot?.templates;
     
     // Get answer file template (always used)
-    const answerFileTpl = sendToChatConfig?.templates?.['__answer_file__'];
+    const answerFileTpl = copilotTemplates?.['__answer_file__'];
     const answerFileTemplate = answerFileTpl?.template || DEFAULT_ANSWER_FILE_TEMPLATE;
     
     let expanded: string;
     
     if (selectedTemplate && selectedTemplate !== '__answer_file__' && selectedTemplate !== '__none__') {
         // Has a selected template: expand template with prompt, then wrap with answer file
-        const templateObj = sendToChatConfig?.templates?.[selectedTemplate];
+        const templateObj = copilotTemplates?.[selectedTemplate];
         if (templateObj?.template) {
             const templateExpanded = await expandTemplate(templateObj.template, { values: { originalPrompt: input.prompt } });
             expanded = await expandTemplate(answerFileTemplate, { values: { originalPrompt: templateExpanded } });
