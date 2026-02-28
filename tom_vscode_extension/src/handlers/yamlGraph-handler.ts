@@ -134,7 +134,7 @@ export async function registerYamlGraphEditor(
         // 6. Register custom editor for YAML graph files
         context.subscriptions.push(
             vscode.window.registerCustomEditorProvider(
-                'yamlGraph.editor',
+                'tomAi.yamlGraphEditor',
                 debugProvider,
                 { webviewOptions: { retainContextWhenHidden: true } }
             )

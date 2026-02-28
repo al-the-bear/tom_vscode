@@ -141,11 +141,11 @@ async function updateLocalLlmSettings(settings: any): Promise<void> {
     const config = loadConfig();
     if (!config) { return; }
     
-    if (!config.promptExpander) {
-        config.promptExpander = {};
+    if (!config.localLlm) {
+        config.localLlm = {};
     }
     
-    Object.assign(config.promptExpander, {
+    Object.assign(config.localLlm, {
         ollamaUrl: settings.ollamaUrl,
         model: settings.model,
         temperature: settings.temperature,
@@ -166,11 +166,11 @@ async function updateAiConversationSettings(settings: any): Promise<void> {
     const config = loadConfig();
     if (!config) { return; }
     
-    if (!config.botConversation) {
-        config.botConversation = {};
+    if (!config.aiConversation) {
+        config.aiConversation = {};
     }
     
-    Object.assign(config.botConversation, {
+    Object.assign(config.aiConversation, {
         maxTurns: settings.maxTurns,
         temperature: settings.temperature,
         historyMode: settings.historyMode,
@@ -189,14 +189,14 @@ async function updateTelegramSettings(settings: any): Promise<void> {
     const config = loadConfig();
     if (!config) { return; }
     
-    if (!config.botConversation) {
-        config.botConversation = {};
+    if (!config.aiConversation) {
+        config.aiConversation = {};
     }
-    if (!config.botConversation.telegram) {
-        config.botConversation.telegram = {};
+    if (!config.aiConversation.telegram) {
+        config.aiConversation.telegram = {};
     }
     
-    Object.assign(config.botConversation.telegram, {
+    Object.assign(config.aiConversation.telegram, {
         enabled: settings.enabled,
         botTokenEnv: settings.botTokenEnv,
         defaultChatId: settings.defaultChatId,
@@ -222,7 +222,7 @@ async function updateAskCopilotSettings(settings: any): Promise<void> {
     
     // Save copilotAnswerPath to tom_vscode_extension config
     if (copilotAnswerPath !== undefined) {
-        const sendToChatConfig = loadSendToChatConfig() || { templates: {}, promptExpander: { profiles: {} }, botConversation: { profiles: {} } };
+        const sendToChatConfig = loadSendToChatConfig() || { templates: {}, localLlm: { profiles: {} }, aiConversation: { profiles: {} } };
         sendToChatConfig.copilotAnswerPath = copilotAnswerPath;
         saveSendToChatConfig(sendToChatConfig);
     }
@@ -304,19 +304,19 @@ async function editOrCreateModelConfig(modelKey: string, existing: any | null): 
     
     // Save the model config
     const cfg = loadConfig() || {};
-    if (!cfg.promptExpander) { cfg.promptExpander = {}; }
-    if (!cfg.promptExpander.models) { cfg.promptExpander.models = {}; }
+    if (!cfg.localLlm) { cfg.localLlm = {}; }
+    if (!cfg.localLlm.models) { cfg.localLlm.models = {}; }
     
     // If setting as default, clear isDefault from other models
     if (defaultChoice === 'Yes') {
-        for (const key of Object.keys(cfg.promptExpander.models)) {
-            if (cfg.promptExpander.models[key].isDefault) {
-                cfg.promptExpander.models[key].isDefault = false;
+        for (const key of Object.keys(cfg.localLlm.models)) {
+            if (cfg.localLlm.models[key].isDefault) {
+                cfg.localLlm.models[key].isDefault = false;
             }
         }
     }
     
-    cfg.promptExpander.models[modelKey] = {
+    cfg.localLlm.models[modelKey] = {
         ollamaUrl: newUrl.trim() || 'http://localhost:11434',
         model: newModel.trim(),
         temperature: parseFloat(newTempStr),
@@ -362,7 +362,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
             await vscode.commands.executeCommand('tomAi.cliServer.stop');
             break;
         case 'setCliAutostart': {
-            const stcConfig = loadSendToChatConfig() || { templates: {}, promptExpander: { profiles: {} }, botConversation: { profiles: {} } } as any;
+            const stcConfig = loadSendToChatConfig() || { templates: {}, localLlm: { profiles: {} }, aiConversation: { profiles: {} } } as any;
             stcConfig.cliServerAutostart = !!message.enabled;
             saveSendToChatConfig(stcConfig);
             break;
@@ -388,7 +388,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
             await setTrailEnabled(false);
             break;
         case 'updateTrailSettings': {
-            const stcConfig = loadSendToChatConfig() || { templates: {}, promptExpander: { profiles: {} }, botConversation: { profiles: {} } };
+            const stcConfig = loadSendToChatConfig() || { templates: {}, localLlm: { profiles: {} }, aiConversation: { profiles: {} } };
             if (message.cleanupDays !== undefined) { stcConfig.trailCleanupDays = message.cleanupDays; }
             if (message.maxEntries !== undefined) { stcConfig.trailMaxEntries = message.maxEntries; }
             saveSendToChatConfig(stcConfig);
@@ -441,7 +441,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
                 const promptsPath = path.join(trailFolder, `${wsName}.prompts.md`);
                 if (!fs.existsSync(trailFolder)) { fs.mkdirSync(trailFolder, { recursive: true }); }
                 if (!fs.existsSync(promptsPath)) { fs.writeFileSync(promptsPath, '# Copilot Prompts Trail\n\n', 'utf-8'); }
-                await vscode.commands.executeCommand('vscode.openWith', vscode.Uri.file(promptsPath), 'trailViewer.editor');
+                await vscode.commands.executeCommand('vscode.openWith', vscode.Uri.file(promptsPath), 'tomAi.trailViewer');
             }
             break;
         }
@@ -454,7 +454,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
             await vscode.commands.executeCommand('tomAi.telegram.testConnection');
             break;
         case 'setTelegramAutostart': {
-            const stcConfig = loadSendToChatConfig() || { templates: {}, promptExpander: { profiles: {} }, botConversation: { profiles: {} } } as any;
+            const stcConfig = loadSendToChatConfig() || { templates: {}, localLlm: { profiles: {} }, aiConversation: { profiles: {} } } as any;
             stcConfig.telegramAutostart = !!message.enabled;
             saveSendToChatConfig(stcConfig);
             break;
@@ -486,7 +486,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
         }
         // Executables (includes binaryPath)
         case 'saveExecutables': {
-            const stcConfig = loadSendToChatConfig() || { templates: {}, promptExpander: { profiles: {} }, botConversation: { profiles: {} } } as any;
+            const stcConfig = loadSendToChatConfig() || { templates: {}, localLlm: { profiles: {} }, aiConversation: { profiles: {} } } as any;
             stcConfig.executables = message.executables || {};
             stcConfig.binaryPath = message.binaryPath || {};
             saveSendToChatConfig(stcConfig);
@@ -512,13 +512,13 @@ export async function handleStatusAction(action: string, message: any): Promise<
         // LLM Profile model settings
         case 'saveLlmProfiles': {
             const cfg = loadConfig() || {};
-            if (!cfg.promptExpander) { cfg.promptExpander = {}; }
-            if (!cfg.promptExpander.profiles) { cfg.promptExpander.profiles = {}; }
+            if (!cfg.localLlm) { cfg.localLlm = {}; }
+            if (!cfg.localLlm.profiles) { cfg.localLlm.profiles = {}; }
             const profileSettings = message.profiles || {};
             for (const [name, settings] of Object.entries(profileSettings) as [string, any][]) {
-                if (cfg.promptExpander.profiles[name]) {
-                    cfg.promptExpander.profiles[name].modelConfig = settings.modelConfig || null;
-                    cfg.promptExpander.profiles[name].toolsEnabled = settings.toolsEnabled ?? true;
+                if (cfg.localLlm.profiles[name]) {
+                    cfg.localLlm.profiles[name].modelConfig = settings.modelConfig || null;
+                    cfg.localLlm.profiles[name].toolsEnabled = settings.toolsEnabled ?? true;
                 }
             }
             saveConfig(cfg);
@@ -528,12 +528,12 @@ export async function handleStatusAction(action: string, message: any): Promise<
         // AI Conversation profile model settings
         case 'saveConvProfiles': {
             const cfg = loadConfig() || {};
-            if (!cfg.botConversation) { cfg.botConversation = {}; }
-            if (!cfg.botConversation.profiles) { cfg.botConversation.profiles = {}; }
+            if (!cfg.aiConversation) { cfg.aiConversation = {}; }
+            if (!cfg.aiConversation.profiles) { cfg.aiConversation.profiles = {}; }
             const profileSettings = message.profiles || {};
             for (const [name, settings] of Object.entries(profileSettings) as [string, any][]) {
-                if (cfg.botConversation.profiles[name]) {
-                    cfg.botConversation.profiles[name].modelConfig = settings.modelConfig || null;
+                if (cfg.aiConversation.profiles[name]) {
+                    cfg.aiConversation.profiles[name].modelConfig = settings.modelConfig || null;
                 }
             }
             saveConfig(cfg);
@@ -548,7 +548,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
                 validateInput: (value) => {
                     if (!value || value.trim().length === 0) { return 'Name is required'; }
                     const cfg = loadConfig() || {};
-                    if (cfg.promptExpander?.models?.[value.trim()]) { return 'Model configuration already exists'; }
+                    if (cfg.localLlm?.models?.[value.trim()]) { return 'Model configuration already exists'; }
                     return null;
                 }
             });
@@ -561,7 +561,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
             const modelKey = message.modelKey;
             if (modelKey) {
                 const cfg = loadConfig() || {};
-                const existing = cfg.promptExpander?.models?.[modelKey] || null;
+                const existing = cfg.localLlm?.models?.[modelKey] || null;
                 await editOrCreateModelConfig(modelKey, existing);
             }
             break;
@@ -576,8 +576,8 @@ export async function handleStatusAction(action: string, message: any): Promise<
                 );
                 if (confirm === 'Delete') {
                     const cfg = loadConfig() || {};
-                    if (cfg.promptExpander?.models?.[modelKey]) {
-                        delete cfg.promptExpander.models[modelKey];
+                    if (cfg.localLlm?.models?.[modelKey]) {
+                        delete cfg.localLlm.models[modelKey];
                         saveConfig(cfg);
                         vscode.window.showInformationMessage(`Model configuration "${modelKey}" deleted`);
                         await refreshStatusPage();
@@ -590,7 +590,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
         case 'saveLlmConfigurations': {
             const cfg = loadConfig() || {};
             // Save as array at root level
-            cfg.llmConfigurations = (message.configurations || []).map((config: LlmConfiguration) => ({
+            cfg.configurations = (message.configurations || []).map((config: LlmConfiguration) => ({
                 id: config.id,
                 name: config.name,
                 ollamaUrl: config.ollamaUrl,
@@ -622,8 +622,8 @@ export async function handleStatusAction(action: string, message: any): Promise<
                 if (confirm === 'Delete') {
                     const cfg = loadConfig() || {};
                     // Delete from array
-                    const arr = Array.isArray(cfg.llmConfigurations) ? cfg.llmConfigurations : [];
-                    cfg.llmConfigurations = arr.filter((c: any) => c.id !== configId);
+                    const arr = Array.isArray(cfg.configurations) ? cfg.configurations : [];
+                    cfg.configurations = arr.filter((c: any) => c.id !== configId);
                     saveConfig(cfg);
                     vscode.window.showInformationMessage(`LLM Configuration "${configId}" deleted`);
                     await refreshStatusPage();
@@ -635,7 +635,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
         case 'saveAiConversationSetups': {
             const cfg = loadConfig() || {};
             // Save as array at root level
-            cfg.aiConversationSetups = (message.setups || []).map((setup: AiConversationSetup) => ({
+            cfg.setups = (message.setups || []).map((setup: AiConversationSetup) => ({
                 id: setup.id,
                 name: setup.name,
                 llmConfigA: setup.llmConfigA,
@@ -659,8 +659,8 @@ export async function handleStatusAction(action: string, message: any): Promise<
                 );
                 if (confirm === 'Delete') {
                     const cfg = loadConfig() || {};
-                    const arr = Array.isArray(cfg.aiConversationSetups) ? cfg.aiConversationSetups : [];
-                    cfg.aiConversationSetups = arr.filter((s: any) => s?.id !== setupId);
+                    const arr = Array.isArray(cfg.setups) ? cfg.setups : [];
+                    cfg.setups = arr.filter((s: any) => s?.id !== setupId);
                     saveConfig(cfg);
                     vscode.window.showInformationMessage(`AI Conversation Setup "${setupId}" deleted`);
                     await refreshStatusPage();
@@ -745,9 +745,9 @@ export interface StatusData {
     commandlines: CommandlineEntry[];
     favorites: FavoriteEntry[];
     /** Named LLM configurations for Local LLM @CHAT panel */
-    llmConfigurations: LlmConfiguration[];
+    configurations: LlmConfiguration[];
     /** Named AI Conversation setups for AI Conversation @CHAT panel */
-    aiConversationSetups: AiConversationSetup[];
+    setups: AiConversationSetup[];
     /** Strict configuration validation errors shown in UI/output */
     configErrors: string[];
 }
@@ -774,18 +774,18 @@ export async function gatherStatusData(): Promise<StatusData> {
         const msg = `[Status Page] Invalid strict AI configuration:\n- ${strictErrors.join('\n- ')}`;
         console.error(msg);
     }
-    const promptExpander = config?.promptExpander || {};
-    const botConversation = config?.botConversation || {};
-    const telegram = botConversation?.telegram || {};
+    const localLlm = config?.localLlm || {};
+    const aiConversation = config?.aiConversation || {};
+    const telegram = aiConversation?.telegram || {};
 
-    const llmConfigurations = Array.isArray(config?.llmConfigurations)
-        ? config.llmConfigurations
+    const configurations = Array.isArray(config?.configurations)
+        ? config.configurations
         : [];
-    const aiConversationSetups = Array.isArray(config?.aiConversationSetups)
-        ? config.aiConversationSetups
+    const setups = Array.isArray(config?.setups)
+        ? config.setups
         : [];
-    const primarySetup = aiConversationSetups[0] as any;
-    const primaryLlm = llmConfigurations.find((l: any) => l?.id === primarySetup?.llmConfigA) as any;
+    const primarySetup = setups[0] as any;
+    const primaryLlm = configurations.find((l: any) => l?.id === primarySetup?.llmConfigA) as any;
 
     // Queue and timer state
     let queueAutoSend = true;
@@ -835,24 +835,24 @@ export async function gatherStatusData(): Promise<StatusData> {
             notifyOnEnd: telegram.notifyOnEnd ?? true,
         },
         localLlm: {
-            ollamaUrl: promptExpander.ollamaUrl ?? 'http://localhost:11434',
-            model: promptExpander.model ?? 'qwen3:8b',
-            temperature: promptExpander.temperature ?? 0.4,
-            stripThinkingTags: promptExpander.stripThinkingTags ?? true,
-            expansionProfile: promptExpander.expansionProfile ?? 'expand',
-            trailMaximumTokens: promptExpander.trailMaximumTokens ?? 8000,
-            trailSummarizationTemperature: promptExpander.trailSummarizationTemperature ?? 0.3,
-            removePromptTemplateFromTrail: promptExpander.removePromptTemplateFromTrail ?? true,
-            toolsEnabled: promptExpander.toolsEnabled ?? true,
-            profiles: promptExpander.profiles ? Object.keys(promptExpander.profiles) : [],
-            models: promptExpander.models ? Object.keys(promptExpander.models) : [],
+            ollamaUrl: localLlm.ollamaUrl ?? 'http://localhost:11434',
+            model: localLlm.model ?? 'qwen3:8b',
+            temperature: localLlm.temperature ?? 0.4,
+            stripThinkingTags: localLlm.stripThinkingTags ?? true,
+            expansionProfile: localLlm.expansionProfile ?? 'expand',
+            trailMaximumTokens: localLlm.trailMaximumTokens ?? 8000,
+            trailSummarizationTemperature: localLlm.trailSummarizationTemperature ?? 0.3,
+            removePromptTemplateFromTrail: localLlm.removePromptTemplateFromTrail ?? true,
+            toolsEnabled: localLlm.toolsEnabled ?? true,
+            profiles: localLlm.profiles ? Object.keys(localLlm.profiles) : [],
+            models: localLlm.models ? Object.keys(localLlm.models) : [],
             profileDetails: Object.fromEntries(
-                Object.entries(promptExpander.profiles || {}).map(([k, v]: [string, any]) => [
+                Object.entries(localLlm.profiles || {}).map(([k, v]: [string, any]) => [
                     k, { modelConfig: v?.modelConfig ?? null, toolsEnabled: v?.toolsEnabled ?? true }
                 ])
             ),
             modelDetails: Object.fromEntries(
-                Object.entries(promptExpander.models || {}).map(([k, v]: [string, any]) => [
+                Object.entries(localLlm.models || {}).map(([k, v]: [string, any]) => [
                     k, {
                         ollamaUrl: v?.ollamaUrl ?? 'http://localhost:11434',
                         model: v?.model ?? '',
@@ -869,14 +869,14 @@ export async function gatherStatusData(): Promise<StatusData> {
             maxTurns: primarySetup?.maxTurns ?? 0,
             temperature: primaryLlm?.temperature ?? 0,
             historyMode: primarySetup?.historyMode ?? 'trim_and_summary',
-            conversationMode: botConversation.conversationMode ?? 'ollama-copilot',
+            conversationMode: aiConversation.conversationMode ?? 'ollama-copilot',
             trailMaximumTokens: primaryLlm?.trailMaximumTokens ?? 0,
             trailSummarizationTemperature: primaryLlm?.trailSummarizationTemperature ?? 0,
             removePromptTemplateFromTrail: primaryLlm?.removePromptTemplateFromTrail ?? false,
             toolsEnabled: Array.isArray(primaryLlm?.enabledTools) ? primaryLlm.enabledTools.length > 0 : false,
-            profiles: botConversation.profiles ? Object.keys(botConversation.profiles) : [],
+            profiles: aiConversation.profiles ? Object.keys(aiConversation.profiles) : [],
             profileDetails: Object.fromEntries(
-                Object.entries(botConversation.profiles || {}).map(([k, v]: [string, any]) => [
+                Object.entries(aiConversation.profiles || {}).map(([k, v]: [string, any]) => [
                     k, { modelConfig: v?.modelConfig ?? null }
                 ])
             ),
@@ -889,7 +889,7 @@ export async function gatherStatusData(): Promise<StatusData> {
         binaryPath: sendToChatConfig?.binaryPath || {},
         commandlines: (config?.commandlines || []) as CommandlineEntry[],
         favorites: (config?.favorites || []) as FavoriteEntry[],
-        llmConfigurations: llmConfigurations.map((v: any) => ({
+        configurations: configurations.map((v: any) => ({
             id: v?.id || '',
             name: v?.name || v?.id || '',
             ollamaUrl: v?.ollamaUrl || '',
@@ -906,7 +906,7 @@ export async function gatherStatusData(): Promise<StatusData> {
             enabledTools: Array.isArray(v?.enabledTools) ? v.enabledTools : [],
             keepAlive: typeof v?.keepAlive === 'string' ? v.keepAlive : '',
         })),
-        aiConversationSetups: aiConversationSetups.map((v: any) => ({
+        setups: setups.map((v: any) => ({
             id: v?.id || '',
             name: v?.name || v?.id || '',
             llmConfigA: v?.llmConfigA || '',
@@ -981,12 +981,12 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
     // Generate LLM Configuration options for dropdown
     const llmConfigOptions = (selectedId: string) => 
         `<option value="">(None)</option>` + 
-        status.llmConfigurations.map(c => 
+        status.configurations.map(c => 
             `<option value="${c.id}" ${c.id === selectedId ? 'selected' : ''}>${c.name}</option>`
         ).join('');
     const llmConfigBOptions = (selectedId: string) =>
         `<option value="copilot" ${selectedId === 'copilot' || !selectedId ? 'selected' : ''}>Copilot</option>` +
-        status.llmConfigurations.map(c =>
+        status.configurations.map(c =>
             `<option value="${c.id}" ${c.id === selectedId ? 'selected' : ''}>${c.name}</option>`
         ).join('');
     
@@ -1001,7 +1001,7 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
         }).join('');
     
     // Generate LLM Configurations rows
-    const llmConfigurationsHtml = status.llmConfigurations.map(cfg => {
+    const llmConfigurationsHtml = status.configurations.map(cfg => {
         return `<div class="sp-llmconfig-card" data-config-id="${cfg.id}">
             <div class="sp-llmconfig-header">
                 <input type="text" class="sp-config-name" value="${cfg.name}" data-field="name" placeholder="Name">
@@ -1063,7 +1063,7 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
     }).join('');
     
     // Generate AI Conversation Setups rows
-    const aiConversationSetupsHtml = status.aiConversationSetups.map(setup => {
+    const aiConversationSetupsHtml = status.setups.map(setup => {
         return `<div class="sp-aisetup-card" data-setup-id="${setup.id}">
             <div class="sp-aisetup-header">
                 <input type="text" class="sp-setup-name" value="${setup.name}" data-field="name" placeholder="Name">
@@ -1344,16 +1344,16 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
 
     <!-- LLM Configurations Section -->
     <div class="sp-section">
-        <div class="sp-section-header sp-collapsible" data-collapse="llmConfigurations">
+        <div class="sp-section-header sp-collapsible" data-collapse="configurations">
             <span class="sp-section-title"><span class="sp-collapse-icon">▶</span> ⚙️ LLM Configurations</span>
-            <span class="sp-badge">${status.llmConfigurations.length}</span>
+            <span class="sp-badge">${status.configurations.length}</span>
         </div>
-        <div class="sp-collapse-content sp-collapsed" id="sp-llmConfigurations-content">
+        <div class="sp-collapse-content sp-collapsed" id="sp-configurations-content">
             <p style="font-size:11px;color:var(--vscode-descriptionForeground);margin:0 0 8px">
                 Complete LLM configurations with all settings and per-config tool selection. 
                 Used by Local LLM @CHAT panel dropdown.
             </p>
-            <textarea id="sp-llmconfigs-init" style="display:none">${escapeHtmlContent(JSON.stringify(status.llmConfigurations || []))}</textarea>
+            <textarea id="sp-llmconfigs-init" style="display:none">${escapeHtmlContent(JSON.stringify(status.configurations || []))}</textarea>
             <div id="sp-llmconfigs-list">
                 ${llmConfigurationsHtml || '<div class="sp-info">No LLM configurations defined</div>'}
             </div>
@@ -1366,16 +1366,16 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
 
     <!-- AI Conversation Setups Section -->
     <div class="sp-section">
-        <div class="sp-section-header sp-collapsible" data-collapse="aiConversationSetups">
+        <div class="sp-section-header sp-collapsible" data-collapse="setups">
             <span class="sp-section-title"><span class="sp-collapse-icon">▶</span> 🎭 AI Conversation Setups</span>
-            <span class="sp-badge">${status.aiConversationSetups.length}</span>
+            <span class="sp-badge">${status.setups.length}</span>
         </div>
-        <div class="sp-collapse-content sp-collapsed" id="sp-aiConversationSetups-content">
+        <div class="sp-collapse-content sp-collapsed" id="sp-setups-content">
             <p style="font-size:11px;color:var(--vscode-descriptionForeground);margin:0 0 8px">
                 Named conversation setups that reference LLM Configurations.
                 Used by AI Conversation @CHAT panel dropdown.
             </p>
-            <textarea id="sp-aisetups-init" style="display:none">${escapeHtmlContent(JSON.stringify(status.aiConversationSetups || []))}</textarea>
+            <textarea id="sp-aisetups-init" style="display:none">${escapeHtmlContent(JSON.stringify(status.setups || []))}</textarea>
             <div id="sp-aisetups-list">
                 ${aiConversationSetupsHtml || '<div class="sp-info">No AI Conversation setups defined</div>'}
             </div>

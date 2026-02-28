@@ -41,9 +41,9 @@ import {
     sendToTomAiChatHandler,
     interruptTomAiChatHandler,
     expandPromptHandler,
-    PromptExpanderManager,
-    setPromptExpanderManager,
-    getPromptExpanderManager,
+    LocalLlmManager,
+    setLocalLlmManager,
+    getLocalLlmManager,
     createProfileHandler,
     switchModelHandler,
     startBotConversationHandler,
@@ -51,8 +51,8 @@ import {
     haltBotConversationHandler,
     continueBotConversationHandler,
     addToBotConversationHandler,
-    BotConversationManager,
-    setBotConversationManager,
+    AiConversationManager,
+    setAiConversationManager,
     registerChordMenuCommands,
     registerCommandlineCommands,
     registerCombinedCommands,
@@ -101,10 +101,10 @@ import { registerChatVariableResolvers } from './tools/chatVariableResolvers';
 let sendToChatAdvancedManager: SendToChatAdvancedManager | undefined;
 
 // Global manager instance for Prompt Expander
-let promptExpanderManager: PromptExpanderManager | undefined;
+let localLlmManager: LocalLlmManager | undefined;
 
 // Global manager instance for AI Conversation
-let botConversationManager: BotConversationManager | undefined;
+let aiConversationManager: AiConversationManager | undefined;
 
 let instrumentationInstalled = false;
 
@@ -409,18 +409,18 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Initialize Prompt Expander manager
     stepStart = performance.now();
-    promptExpanderManager = new PromptExpanderManager(context);
-    setPromptExpanderManager(promptExpanderManager);
+    localLlmManager = new LocalLlmManager(context);
+    setLocalLlmManager(localLlmManager);
     registerLocalLlmContextMenuCommands(context);
-    context.subscriptions.push({ dispose: () => promptExpanderManager?.dispose() });
-    timeStep('promptExpanderManager', stepStart);
+    context.subscriptions.push({ dispose: () => localLlmManager?.dispose() });
+    timeStep('localLlmManager', stepStart);
 
     // Initialize AI Conversation manager
     stepStart = performance.now();
-    botConversationManager = new BotConversationManager(context);
-    setBotConversationManager(botConversationManager);
-    context.subscriptions.push({ dispose: () => botConversationManager?.dispose() });
-    timeStep('botConversationManager', stepStart);
+    aiConversationManager = new AiConversationManager(context);
+    setAiConversationManager(aiConversationManager);
+    context.subscriptions.push({ dispose: () => aiConversationManager?.dispose() });
+    timeStep('aiConversationManager', stepStart);
 
     // Dispose standalone Telegram on deactivation
     context.subscriptions.push({ dispose: () => disposeTelegramStandalone() });
@@ -850,7 +850,7 @@ function registerCommands(context: vscode.ExtensionContext) {
  *  - tomAi.sendToLocalLlm.template  (shows profile picker)
  */
 function registerLocalLlmContextMenuCommands(context: vscode.ExtensionContext): void {
-    if (!promptExpanderManager) { return; }
+    if (!localLlmManager) { return; }
 
     // Base command — uses default profile (direct send, no picker)
     const sendToLocalLlm = vscode.commands.registerCommand(
@@ -858,13 +858,13 @@ function registerLocalLlmContextMenuCommands(context: vscode.ExtensionContext): 
         async () => {
             bridgeLog('sendToLocalLlm command invoked');
             try {
-                if (!promptExpanderManager) { return; }
-                const config = promptExpanderManager.loadConfig();
+                if (!localLlmManager) { return; }
+                const config = localLlmManager.loadConfig();
                 const defaultKey = Object.entries(config.profiles)
                     .find(([_, p]) => p.isDefault)?.[0]
                     ?? Object.keys(config.profiles)[0]
                     ?? undefined;
-                await promptExpanderManager.expandPromptCommand(defaultKey);
+                await localLlmManager.expandPromptCommand(defaultKey);
             } catch (error) {
                 bridgeLog(`sendToLocalLlm FAILED: ${error}`, 'ERROR');
                 vscode.window.showErrorMessage(`Send to Local LLM failed: ${error}`);
@@ -878,13 +878,13 @@ function registerLocalLlmContextMenuCommands(context: vscode.ExtensionContext): 
         async () => {
             bridgeLog('sendToLocalLlmStandard command invoked');
             try {
-                if (!promptExpanderManager) { return; }
-                const config = promptExpanderManager.loadConfig();
+                if (!localLlmManager) { return; }
+                const config = localLlmManager.loadConfig();
                 const defaultKey = Object.entries(config.profiles)
                     .find(([_, p]) => p.isDefault)?.[0]
                     ?? Object.keys(config.profiles)[0]
                     ?? undefined;
-                await promptExpanderManager.expandPromptCommand(defaultKey);
+                await localLlmManager.expandPromptCommand(defaultKey);
             } catch (error) {
                 bridgeLog(`sendToLocalLlmStandard FAILED: ${error}`, 'ERROR');
                 vscode.window.showErrorMessage(`Send to Local LLM (Standard) failed: ${error}`);
@@ -898,7 +898,7 @@ function registerLocalLlmContextMenuCommands(context: vscode.ExtensionContext): 
         async () => {
             bridgeLog('sendToLocalLlmAdvanced command invoked');
             try {
-                await promptExpanderManager?.expandPromptCommand();
+                await localLlmManager?.expandPromptCommand();
             } catch (error) {
                 bridgeLog(`sendToLocalLlmAdvanced FAILED: ${error}`, 'ERROR');
                 vscode.window.showErrorMessage(`Send to Local LLM (Advanced) failed: ${error}`);
@@ -910,14 +910,14 @@ function registerLocalLlmContextMenuCommands(context: vscode.ExtensionContext): 
 
     // Dynamic per-profile commands (tomAi.sendToLocalLlm.<profileKey>)
     try {
-        const config = promptExpanderManager.loadConfig();
+        const config = localLlmManager.loadConfig();
         for (const profileKey of Object.keys(config.profiles)) {
             const cmd = vscode.commands.registerCommand(
                 `tomAi.sendToLocalLlm.${profileKey}`,
                 createProfileHandler(profileKey)
             );
             context.subscriptions.push(cmd);
-            promptExpanderManager['registeredCommands'].push(cmd);
+            localLlmManager['registeredCommands'].push(cmd);
         }
     } catch (e) {
         bridgeLog(`Failed to register local LLM profile commands: ${e}`, 'ERROR');

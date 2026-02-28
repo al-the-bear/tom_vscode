@@ -8,7 +8,7 @@
  * The underlying transport (HTTP calls, polling) is handled by the
  * ChatChannel implementation (e.g. TelegramChannel).
  *
- * Configuration lives in botConversation.telegram section of tom_vscode_extension.json.
+ * Configuration lives in aiConversation.telegram section of tom_vscode_extension.json.
  */
 
 import { ChatChannel, ChannelMessage, ChannelResult } from './chat';
@@ -19,7 +19,7 @@ import { escapeMarkdownV2 } from './telegram-markdown';
 // Interfaces
 // ============================================================================
 
-/** Telegram configuration from tom_vscode_extension.json → botConversation.telegram */
+/** Telegram configuration from tom_vscode_extension.json → aiConversation.telegram */
 export interface TelegramConfig {
     /** Whether Telegram integration is enabled. */
     enabled: boolean;
@@ -291,7 +291,7 @@ Send continue to resume or info <text> to add context\.`);
 // ============================================================================
 
 /**
- * Parse Telegram config from a raw botConversation.telegram object.
+ * Parse Telegram config from a raw aiConversation.telegram object.
  */
 export function parseTelegramConfig(raw: any): TelegramConfig {
     if (!raw || typeof raw !== 'object') { return { ...TELEGRAM_DEFAULTS }; }

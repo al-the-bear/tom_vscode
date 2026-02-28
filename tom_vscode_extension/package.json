@@ -3,7 +3,7 @@
     "displayName": "@Tom",
     "description": "AI-powered build and documentation automation for Tom workspace with Copilot integration",
     "version": "0.1.0",
-    "publisher": "tom",
+    "publisher": "peter-nicolai-alexis-kyaw",
     "engines": {
         "vscode": "^1.96.0"
     },
@@ -438,44 +438,44 @@
             "explorer": [
                 {
                     "type": "webview",
-                    "id": "tomAi.tomNotepad",
+                    "id": "tomAi.vscodeNotes",
                     "name": "VS CODE NOTES",
                     "icon": "$(note)"
                 },
                 {
                     "type": "webview",
-                    "id": "tomAi.questNotesView",
+                    "id": "tomAi.questNotes",
                     "name": "QUEST NOTES",
                     "icon": "$(book)",
                     "when": "tomAi.hasWorkspaceFile"
                 },
                 {
                     "type": "webview",
-                    "id": "tomAi.questTodosView",
+                    "id": "tomAi.questTodos",
                     "name": "QUEST TODOS",
                     "icon": "$(checklist)"
                 },
                 {
                     "type": "webview",
-                    "id": "tomAi.sessionTodosView",
+                    "id": "tomAi.sessionTodos",
                     "name": "SESSION TODOS",
                     "icon": "$(clock)"
                 },
                 {
                     "type": "webview",
-                    "id": "tomAi.todoLogView",
+                    "id": "tomAi.todoLog",
                     "name": "TODO LOG",
                     "icon": "$(history)"
                 },
                 {
                     "type": "webview",
-                    "id": "tomAi.workspaceNotepad",
+                    "id": "tomAi.workspaceNotes",
                     "name": "WORKSPACE NOTES",
                     "icon": "$(file-text)"
                 },
                 {
                     "type": "webview",
-                    "id": "tomAi.workspaceTodosView",
+                    "id": "tomAi.workspaceTodos",
                     "name": "WORKSPACE TODOS",
                     "icon": "$(tasklist)"
                 }
@@ -483,7 +483,7 @@
         },
         "customEditors": [
             {
-                "viewType": "yamlGraph.editor",
+                "viewType": "tomAi.yamlGraphEditor",
                 "displayName": "YAML Graph Editor",
                 "selector": [
                     {
@@ -499,7 +499,7 @@
                 "priority": "default"
             },
             {
-                "viewType": "questTodo.editor",
+                "viewType": "tomAi.todoEditor",
                 "displayName": "Quest TODO Editor",
                 "selector": [
                     {
@@ -509,7 +509,7 @@
                 "priority": "option"
             },
             {
-                "viewType": "trailViewer.editor",
+                "viewType": "tomAi.trailViewer",
                 "displayName": "Trail Viewer",
                 "selector": [
                     {
@@ -2371,9 +2371,8 @@
                     "default": false,
                     "description": "Automatically run scripts on save"
                 },
-                "tomAi.copilotModel": {
+                "tomAi.copilot.model": {
                     "type": "string",
-                    "default": "gpt-4o",
                     "enum": [
                         "gpt-4o",
                         "gpt-4",
@@ -2386,24 +2385,52 @@
                     "default": "~/.tom/vscode/tom_vscode_extension.json",
                     "description": "Path to the extension configuration file (supports ~ for home directory and ${workspaceFolder})"
                 },
-                "tomAi.sendToChat.showNotifications": {
+                "tomAi.aiFolder": {
+                    "type": "string",
+                    "default": "_ai",
+                    "description": "Root AI folder name"
+                },
+                "tomAi.trail.enabled": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Enable trail logging"
+                },
+                "tomAi.bridge.requestTimeout": {
+                    "type": "number",
+                    "default": 30000,
+                    "description": "Bridge request timeout in milliseconds"
+                },
+                "tomAi.bridge.restartDelay": {
+                    "type": "number",
+                    "default": 5000,
+                    "description": "Delay between bridge restart attempts in milliseconds"
+                },
+                "tomAi.bridge.maxRestarts": {
+                    "type": "number",
+                    "default": 10,
+                    "description": "Maximum number of bridge restart attempts"
+                },
+                "tomAi.timedRequests.tickInterval": {
+                    "type": "number",
+                    "default": 30000,
+                    "description": "Timed request engine tick interval in milliseconds"
+                },
+                "tomAi.copilot.showNotifications": {
                     "type": "boolean",
                     "default": true,
                     "description": "Show notifications when sending text to Copilot Chat"
                 },
-                "tomAi.sendToChat.chatAnswerFolder": {
+                "tomAi.copilot.answerFolder": {
                     "type": "string",
                     "default": "_ai/chat_replies",
                     "description": "Folder path for chat answer files (relative to workspace root)"
                 },
                 "tomAi.tomAiChat.modelId": {
                     "type": "string",
-                    "default": "gpt-5.2",
                     "description": "Model ID for Tom AI chat"
                 },
                 "tomAi.tomAiChat.tokenModelId": {
                     "type": "string",
-                    "default": "gpt-4o",
                     "description": "Model ID used for token count estimates"
                 },
                 "tomAi.tomAiChat.responsesTokenLimit": {
@@ -2418,7 +2445,6 @@
                 },
                 "tomAi.tomAiChat.preProcessingModelId": {
                     "type": "string",
-                    "default": "gpt-5-mini",
                     "description": "Model ID for pre-processing step (cheap model to gather context before main processing)"
                 },
                 "tomAi.tomAiChat.enablePromptOptimization": {
@@ -2426,32 +2452,31 @@
                     "default": false,
                     "description": "Enable pre-processing step with cheap model to gather context before main processing"
                 },
-                "tomAi.ollama.url": {
+                "tomAi.localLlm.ollamaUrl": {
                     "type": "string",
                     "default": "http://localhost:11434",
-                    "description": "Ollama server URL (fallback; prefer promptExpander section in send_to_chat.json)"
+                    "description": "Ollama server URL (fallback; prefer localLlm section in send_to_chat.json)"
                 },
-                "tomAi.ollama.model": {
+                "tomAi.localLlm.ollamaModel": {
                     "type": "string",
-                    "default": "qwen3:8b",
-                    "description": "Ollama model name (fallback; prefer promptExpander section in send_to_chat.json)"
+                    "description": "Ollama model name"
                 },
-                "tomAi.notes.workspaceTodoFile": {
+                "tomAi.todo.workspaceTodoFile": {
                     "type": "string",
                     "default": "workspace.todo.yaml",
                     "description": "Workspace-relative path to the workspace todo YAML file used by WORKSPACE TODOS views"
                 },
-                "tomAi.notes.questNotesFilePattern": {
+                "tomAi.notes.questNotesPattern": {
                     "type": "string",
                     "default": "_ai/quests/${quest}/quest-notes.${quest}.md",
                     "description": "Pattern for quest notes file path. Supports ${quest} and ${workspaceFolder}."
                 },
-                "tomAi.notes.questTodoFilePattern": {
+                "tomAi.todo.questTodoPattern": {
                     "type": "string",
                     "default": "todos.${quest}.todo.yaml",
                     "description": "Pattern for quest todo filename used by QUEST TODOS view. Supports ${quest}."
                 },
-                "tomAi.guidelines.projectExcludeGlobs": {
+                "tomAi.guidelines.excludeGlobs": {
                     "type": "array",
                     "default": [
                         "tom/zom_*/**"

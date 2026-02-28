@@ -49,7 +49,7 @@ async function executeNotifyUser(input: NotifyUserInput): Promise<string> {
 
     // Try Telegram first
     const config = loadSendToChatConfig();
-    const tg = (config as any)?.botConversation?.telegram;
+    const tg = (config as any)?.aiConversation?.telegram;
     if (tg?.enabled && tg?.botTokenEnv) {
         const token = process.env[tg.botTokenEnv];
         const chatId = tg.defaultChatId;

@@ -2969,7 +2969,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 fs.writeFileSync(promptsPath, '# Copilot Prompts Trail\n\n', 'utf-8');
             }
             const uri = vscode.Uri.file(promptsPath);
-            await vscode.commands.executeCommand('vscode.openWith', uri, 'trailViewer.editor');
+            await vscode.commands.executeCommand('vscode.openWith', uri, 'tomAi.trailViewer');
             return true;
         }
         case 'qtCheckExtApp': {

@@ -12,7 +12,7 @@
  *    trigger prompt expansion programmatically
  *  - Context-menu commands mirroring Send to Chat (submenu lists profiles)
  *
- * Configuration lives in the `promptExpander` section of tom_vscode_extension.json.
+ * Configuration lives in the `localLlm` section of tom_vscode_extension.json.
  */
 
 import * as vscode from 'vscode';
@@ -31,7 +31,7 @@ import {
 } from '../tools/shared-tool-registry';
 import { READ_ONLY_TOOLS } from '../tools/tool-executors';
 import {
-    clearTrail, logPrompt, logResponse, logToolRequest, logToolResult,
+    logPrompt, logResponse, logToolRequest, logToolResult,
     logContinuationPrompt, isTrailEnabled, loadTrailConfig,
     type TrailType,
 } from './trailLogger-handler';
@@ -111,7 +111,7 @@ export interface ExpanderProfile {
 /** History mode for Local LLM. */
 export type LocalLlmHistoryMode = 'none' | 'full' | 'last' | 'summary' | 'trim_and_summary';
 
-/** Full promptExpander section from tom_vscode_extension.json. */
+/** Full localLlm section from tom_vscode_extension.json. */
 export interface PromptExpanderConfig {
     /** Default model settings (backward compat, used when models section is absent). */
     ollamaUrl: string;
@@ -141,7 +141,7 @@ export interface PromptExpanderConfig {
     /** Maximum token count for history passed to local model. */
     maxHistoryTokens: number;
     /** LLM configuration entities (root level). */
-    llmConfigurations: LlmConfiguration[];
+    configurations: LlmConfiguration[];
 }
 
 /** Result returned by the process() bridge API. */
@@ -216,7 +216,7 @@ const DEFAULTS: PromptExpanderConfig = {
     removePromptTemplateFromTrail: true,
     historyMode: 'none',
     maxHistoryTokens: 4000,
-    llmConfigurations: [],
+    configurations: [],
 };
 
 // ============================================================================
@@ -238,7 +238,7 @@ function logLocalAi(message: string, level: 'INFO' | 'WARN' | 'ERROR' = 'INFO'):
 }
 
 // ============================================================================
-// PromptExpanderManager — singleton, created in extension.ts
+// LocalLlmManager — singleton, created in extension.ts
 // ============================================================================
 
 /** A single conversation message for Local LLM history. */
@@ -248,7 +248,7 @@ export interface LocalLlmMessage {
     timestamp?: Date;
 }
 
-export class PromptExpanderManager {
+export class LocalLlmManager {
     private context: vscode.ExtensionContext;
     private registeredCommands: vscode.Disposable[] = [];
     private outputChannel: vscode.OutputChannel;
@@ -346,7 +346,7 @@ export class PromptExpanderManager {
         try {
             const raw = fs.readFileSync(configPath, 'utf-8');
             const parsed = JSON.parse(raw);
-            const sec = parsed?.promptExpander;
+            const sec = parsed?.localLlm;
             if (!sec || typeof sec !== 'object') { return config; }
 
             // Top-level scalars
@@ -412,11 +412,11 @@ export class PromptExpanderManager {
             }
 
             // LLM configurations (root-level array)
-            if (Array.isArray(parsed.llmConfigurations)) {
-                config.llmConfigurations = [];
-                for (const lc of parsed.llmConfigurations) {
+            if (Array.isArray(parsed.configurations)) {
+                config.configurations = [];
+                for (const lc of parsed.configurations) {
                     if (lc && typeof lc === 'object' && typeof lc.id === 'string') {
-                        config.llmConfigurations.push({
+                        config.configurations.push({
                             id: lc.id,
                             name: typeof lc.name === 'string' ? lc.name : lc.id,
                             ollamaUrl: typeof lc.ollamaUrl === 'string' ? lc.ollamaUrl : config.ollamaUrl,
@@ -463,15 +463,15 @@ export class PromptExpanderManager {
         return keys.length > 0 ? keys[0] : undefined;
     }
 
-    /** Resolve model config: explicit key → profile override → default model → llmConfigurations → top-level values. */
+    /** Resolve model config: explicit key → profile override → default model → configurations → top-level values. */
     resolveModelConfig(config: PromptExpanderConfig, profile?: ExpanderProfile, explicitModelKey?: string): { key: string; mc: ModelConfig } {
         const modelKey = explicitModelKey ?? profile?.modelConfig ?? this.getDefaultModelKey(config);
         if (modelKey && config.models[modelKey]) {
             return { key: modelKey, mc: config.models[modelKey] };
         }
-        // Check llmConfigurations array (root-level entities)
-        if (modelKey && config.llmConfigurations) {
-            const llmConfig = config.llmConfigurations.find(c => c.id === modelKey);
+        // Check configurations array (root-level entities)
+        if (modelKey && config.configurations) {
+            const llmConfig = config.configurations.find(c => c.id === modelKey);
             if (llmConfig) {
                 return {
                     key: llmConfig.id,
@@ -488,8 +488,8 @@ export class PromptExpanderManager {
             }
         }
         // Check for default llmConfiguration
-        if (config.llmConfigurations && config.llmConfigurations.length > 0) {
-            const defaultLlm = config.llmConfigurations.find(c => c.isDefault) || config.llmConfigurations[0];
+        if (config.configurations && config.configurations.length > 0) {
+            const defaultLlm = config.configurations.find(c => c.isDefault) || config.configurations[0];
             if (defaultLlm && !modelKey) {
                 return {
                     key: defaultLlm.id,
@@ -979,7 +979,7 @@ export class PromptExpanderManager {
     // -----------------------------------------------------------------------
 
     // -----------------------------------------------------------------------
-    // Public API — for use by other handlers (e.g. BotConversationManager)
+    // Public API — for use by other handlers (e.g. AiConversationManager)
     // -----------------------------------------------------------------------
 
     /**
@@ -1091,9 +1091,8 @@ export class PromptExpanderManager {
     ): Promise<ExpanderProcessResult> {
         const config = this.loadConfig();
 
-        // Load trail config and clear trail for new session
+        // Load trail config for new session
         loadTrailConfig();
-        clearTrail('local');
 
         // Resolve profile
         const effectiveProfileKey = profileKey ?? this.getDefaultProfileKey(config) ?? '_default';
@@ -1484,20 +1483,20 @@ export class PromptExpanderManager {
             if (fs.existsSync(configPath)) {
                 data = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
             }
-            if (!data.promptExpander) { data.promptExpander = {}; }
+            if (!data.localLlm) { data.localLlm = {}; }
 
             // Update the default model config entry, or create one
-            if (defaultModelKey && data.promptExpander.models?.[defaultModelKey]) {
-                data.promptExpander.models[defaultModelKey].model = picked.modelName;
-            } else if (data.promptExpander.models && Object.keys(data.promptExpander.models).length > 0) {
+            if (defaultModelKey && data.localLlm.models?.[defaultModelKey]) {
+                data.localLlm.models[defaultModelKey].model = picked.modelName;
+            } else if (data.localLlm.models && Object.keys(data.localLlm.models).length > 0) {
                 // Find the default one
-                const key = Object.entries(data.promptExpander.models as Record<string, any>)
+                const key = Object.entries(data.localLlm.models as Record<string, any>)
                     .find(([_, v]) => v.isDefault)?.[0]
-                    ?? Object.keys(data.promptExpander.models)[0];
-                data.promptExpander.models[key].model = picked.modelName;
+                    ?? Object.keys(data.localLlm.models)[0];
+                data.localLlm.models[key].model = picked.modelName;
             } else {
                 // Also update top-level fallback
-                data.promptExpander.model = picked.modelName;
+                data.localLlm.model = picked.modelName;
             }
 
             fs.writeFileSync(configPath, JSON.stringify(data, null, 2), 'utf-8');
@@ -1550,9 +1549,9 @@ export class PromptExpanderManager {
             if (fs.existsSync(configPath)) {
                 data = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
             }
-            if (!data.promptExpander) { data.promptExpander = {}; }
-            if (!data.promptExpander[section]) { data.promptExpander[section] = {}; }
-            data.promptExpander[section][key] = value;
+            if (!data.localLlm) { data.localLlm = {}; }
+            if (!data.localLlm[section]) { data.localLlm[section] = {}; }
+            data.localLlm[section][key] = value;
             fs.writeFileSync(configPath, JSON.stringify(data, null, 2), 'utf-8');
             return { success: true };
         } catch (err: any) {
@@ -1570,8 +1569,8 @@ export class PromptExpanderManager {
                 return { success: false, error: 'Config file does not exist' };
             }
             const data = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-            if (data.promptExpander?.[section]?.[key]) {
-                delete data.promptExpander[section][key];
+            if (data.localLlm?.[section]?.[key]) {
+                delete data.localLlm[section][key];
                 fs.writeFileSync(configPath, JSON.stringify(data, null, 2), 'utf-8');
                 return { success: true };
             }
@@ -1812,19 +1811,19 @@ export class PromptExpanderManager {
 // ============================================================================
 
 /** Global manager instance — set by extension.ts during activation. */
-let _manager: PromptExpanderManager | undefined;
+let _manager: LocalLlmManager | undefined;
 
-export function setPromptExpanderManager(mgr: PromptExpanderManager): void {
+export function setLocalLlmManager(mgr: LocalLlmManager): void {
     _manager = mgr;
 }
 
-export function getPromptExpanderManager(): PromptExpanderManager | undefined {
+export function getLocalLlmManager(): LocalLlmManager | undefined {
     return _manager;
 }
 
 /**
  * Command handler for `tomAi.sendToLocalLlm`.
- * Delegates to the global PromptExpanderManager.
+ * Delegates to the global LocalLlmManager.
  */
 export async function expandPromptHandler(): Promise<void> {
     logLocalAi('expandPrompt command invoked');

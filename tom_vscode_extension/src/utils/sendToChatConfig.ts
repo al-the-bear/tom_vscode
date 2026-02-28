@@ -28,7 +28,7 @@ export interface SendToChatConfig {
         tomAiChat?: string;    // Template key from `templates` applied to every Tom AI Chat send
         conversation?: string; // Template key from `templates` applied to every conversation start
     };
-    promptExpander: {
+    localLlm: {
         profiles: { [key: string]: {
             label: string;
             systemPrompt?: string | null;
@@ -54,7 +54,7 @@ export interface SendToChatConfig {
             keepAlive?: string;
         } };
     };
-    botConversation: {
+    aiConversation: {
         profiles: { [key: string]: {
             label: string;
             description?: string;
@@ -160,7 +160,7 @@ export interface SendToChatConfig {
      * LLM configuration entities (root level).
      * Each config defines a complete LLM setup with model settings and enabled tools.
      */
-    llmConfigurations?: Array<{
+    configurations?: Array<{
         id: string;
         name: string;
         ollamaUrl?: string;
@@ -183,7 +183,7 @@ export interface SendToChatConfig {
      * AI Conversation setup entities (root level).
      * Each setup defines a conversation configuration with LLM config references.
      */
-    aiConversationSetups?: Array<{
+    setups?: Array<{
         id: string;
         name: string;
         llmConfigA?: string;
@@ -203,55 +203,55 @@ export function validateStrictAiConfiguration(config: SendToChatConfig | null | 
         return errors;
     }
 
-    const llmConfigs = Array.isArray(config.llmConfigurations) ? config.llmConfigurations : [];
+    const llmConfigs = Array.isArray(config.configurations) ? config.configurations : [];
     if (llmConfigs.length === 0) {
-        errors.push('Missing llmConfigurations: at least one LLM configuration is required.');
+        errors.push('Missing configurations: at least one LLM configuration is required.');
     }
 
     const llmIds = new Set<string>();
     for (const entry of llmConfigs) {
         const id = (entry?.id || '').trim();
         if (!id) {
-            errors.push('Each llmConfigurations entry must define a non-empty id.');
+            errors.push('Each configurations entry must define a non-empty id.');
             continue;
         }
         llmIds.add(id);
-        if (!(entry?.name || '').trim()) { errors.push(`llmConfigurations.${id}.name is required.`); }
-        if (!(entry?.ollamaUrl || '').trim()) { errors.push(`llmConfigurations.${id}.ollamaUrl is required.`); }
-        if (!(entry?.model || '').trim()) { errors.push(`llmConfigurations.${id}.model is required.`); }
-        if (typeof entry?.temperature !== 'number') { errors.push(`llmConfigurations.${id}.temperature must be a number.`); }
-        if (typeof entry?.trailMaximumTokens !== 'number') { errors.push(`llmConfigurations.${id}.trailMaximumTokens must be a number.`); }
-        if (typeof entry?.removePromptTemplateFromTrail !== 'boolean') { errors.push(`llmConfigurations.${id}.removePromptTemplateFromTrail must be boolean.`); }
-        if (typeof entry?.trailSummarizationTemperature !== 'number') { errors.push(`llmConfigurations.${id}.trailSummarizationTemperature must be a number.`); }
-        if (!(entry?.trailSummarizationPrompt || '').trim()) { errors.push(`llmConfigurations.${id}.trailSummarizationPrompt is required.`); }
-        if (!(entry?.answerFolder || '').trim()) { errors.push(`llmConfigurations.${id}.answerFolder is required.`); }
-        if (!(entry?.logFolder || '').trim()) { errors.push(`llmConfigurations.${id}.logFolder is required.`); }
-        if (!(entry?.historyMode || '').trim()) { errors.push(`llmConfigurations.${id}.historyMode is required.`); }
+        if (!(entry?.name || '').trim()) { errors.push(`configurations.${id}.name is required.`); }
+        if (!(entry?.ollamaUrl || '').trim()) { errors.push(`configurations.${id}.ollamaUrl is required.`); }
+        if (!(entry?.model || '').trim()) { errors.push(`configurations.${id}.model is required.`); }
+        if (typeof entry?.temperature !== 'number') { errors.push(`configurations.${id}.temperature must be a number.`); }
+        if (typeof entry?.trailMaximumTokens !== 'number') { errors.push(`configurations.${id}.trailMaximumTokens must be a number.`); }
+        if (typeof entry?.removePromptTemplateFromTrail !== 'boolean') { errors.push(`configurations.${id}.removePromptTemplateFromTrail must be boolean.`); }
+        if (typeof entry?.trailSummarizationTemperature !== 'number') { errors.push(`configurations.${id}.trailSummarizationTemperature must be a number.`); }
+        if (!(entry?.trailSummarizationPrompt || '').trim()) { errors.push(`configurations.${id}.trailSummarizationPrompt is required.`); }
+        if (!(entry?.answerFolder || '').trim()) { errors.push(`configurations.${id}.answerFolder is required.`); }
+        if (!(entry?.logFolder || '').trim()) { errors.push(`configurations.${id}.logFolder is required.`); }
+        if (!(entry?.historyMode || '').trim()) { errors.push(`configurations.${id}.historyMode is required.`); }
     }
 
-    const setups = Array.isArray(config.aiConversationSetups) ? config.aiConversationSetups : [];
+    const setups = Array.isArray(config.setups) ? config.setups : [];
     if (setups.length === 0) {
-        errors.push('Missing aiConversationSetups: at least one AI conversation setup is required.');
+        errors.push('Missing setups: at least one AI conversation setup is required.');
     }
 
     for (const setup of setups) {
         const id = (setup?.id || '').trim() || '(unknown-setup)';
-        if (!(setup?.id || '').trim()) { errors.push('Each aiConversationSetups entry must define a non-empty id.'); }
-        if (!(setup?.name || '').trim()) { errors.push(`aiConversationSetups.${id}.name is required.`); }
-        if (!(setup?.llmConfigA || '').trim()) { errors.push(`aiConversationSetups.${id}.llmConfigA is required.`); }
-        if (typeof setup?.maxTurns !== 'number') { errors.push(`aiConversationSetups.${id}.maxTurns must be a number.`); }
-        if (typeof setup?.pauseBetweenTurns !== 'boolean') { errors.push(`aiConversationSetups.${id}.pauseBetweenTurns must be boolean.`); }
-        if (!(setup?.historyMode || '').trim()) { errors.push(`aiConversationSetups.${id}.historyMode is required.`); }
-        if (!(setup?.trailSummarizationLlmConfig || '').trim()) { errors.push(`aiConversationSetups.${id}.trailSummarizationLlmConfig is required.`); }
+        if (!(setup?.id || '').trim()) { errors.push('Each setups entry must define a non-empty id.'); }
+        if (!(setup?.name || '').trim()) { errors.push(`setups.${id}.name is required.`); }
+        if (!(setup?.llmConfigA || '').trim()) { errors.push(`setups.${id}.llmConfigA is required.`); }
+        if (typeof setup?.maxTurns !== 'number') { errors.push(`setups.${id}.maxTurns must be a number.`); }
+        if (typeof setup?.pauseBetweenTurns !== 'boolean') { errors.push(`setups.${id}.pauseBetweenTurns must be boolean.`); }
+        if (!(setup?.historyMode || '').trim()) { errors.push(`setups.${id}.historyMode is required.`); }
+        if (!(setup?.trailSummarizationLlmConfig || '').trim()) { errors.push(`setups.${id}.trailSummarizationLlmConfig is required.`); }
 
         if ((setup?.llmConfigA || '').trim() && !llmIds.has((setup!.llmConfigA || '').trim())) {
-            errors.push(`aiConversationSetups.${id}.llmConfigA references unknown llmConfigurations id "${setup!.llmConfigA}".`);
+            errors.push(`setups.${id}.llmConfigA references unknown configurations id "${setup!.llmConfigA}".`);
         }
         if ((setup?.llmConfigB || '').trim() && setup!.llmConfigB !== 'copilot' && !llmIds.has((setup!.llmConfigB || '').trim())) {
-            errors.push(`aiConversationSetups.${id}.llmConfigB references unknown llmConfigurations id "${setup!.llmConfigB}".`);
+            errors.push(`setups.${id}.llmConfigB references unknown configurations id "${setup!.llmConfigB}".`);
         }
         if ((setup?.trailSummarizationLlmConfig || '').trim() && !llmIds.has((setup!.trailSummarizationLlmConfig || '').trim())) {
-            errors.push(`aiConversationSetups.${id}.trailSummarizationLlmConfig references unknown llmConfigurations id "${setup!.trailSummarizationLlmConfig}".`);
+            errors.push(`setups.${id}.trailSummarizationLlmConfig references unknown configurations id "${setup!.trailSummarizationLlmConfig}".`);
         }
     }
 

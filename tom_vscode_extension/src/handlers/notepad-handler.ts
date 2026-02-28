@@ -10,9 +10,9 @@
 import * as vscode from 'vscode';
 
 const WS_NOTEPAD_VIEW_ID = 'tomAi.notepad';
-const TOM_NOTEPAD_VIEW_ID = 'tomAi.tomNotepad';
+const TOM_NOTEPAD_VIEW_ID = 'tomAi.vscodeNotes';
 const WS_NOTEPAD_STORAGE_KEY = 'tomAi.notepad.content';
-const TOM_STORAGE_KEY = 'tomAi.tomNotepad.content';
+const TOM_STORAGE_KEY = 'tomAi.vscodeNotes.content';
 
 /**
  * Generic WebviewView provider for notepads

@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { spawn, ChildProcess } from 'child_process';
-import { getPromptExpanderManager, getBotConversationManager } from './handlers';
+import { getLocalLlmManager, getAiConversationManager } from './handlers';
 
 const DART_COMMAND = 'dart';
 
@@ -629,7 +629,7 @@ export class DartBridgeClient {
                 case 'localLlm.updateModelVce':
                 case 'localLlm.removeModelVce':
                 case 'localLlm.processVce': {
-                    const mgr = getPromptExpanderManager();
+                    const mgr = getLocalLlmManager();
                     if (!mgr) {
                         throw new Error('Prompt Expander manager not initialized');
                     }
@@ -638,17 +638,17 @@ export class DartBridgeClient {
                 }
 
                 // AI Conversation bridge API
-                case 'botConversation.getConfigVce':
-                case 'botConversation.getProfilesVce':
-                case 'botConversation.startVce':
-                case 'botConversation.stopVce':
-                case 'botConversation.haltVce':
-                case 'botConversation.continueVce':
-                case 'botConversation.addInfoVce':
-                case 'botConversation.statusVce':
-                case 'botConversation.getLogVce':
-                case 'botConversation.singleTurnVce': {
-                    const botMgr = getBotConversationManager();
+                case 'aiConversation.getConfigVce':
+                case 'aiConversation.getProfilesVce':
+                case 'aiConversation.startVce':
+                case 'aiConversation.stopVce':
+                case 'aiConversation.haltVce':
+                case 'aiConversation.continueVce':
+                case 'aiConversation.addInfoVce':
+                case 'aiConversation.statusVce':
+                case 'aiConversation.getLogVce':
+                case 'aiConversation.singleTurnVce': {
+                    const botMgr = getAiConversationManager();
                     if (!botMgr) {
                         throw new Error('AI Conversation manager not initialized');
                     }

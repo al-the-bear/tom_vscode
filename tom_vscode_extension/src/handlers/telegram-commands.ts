@@ -5,7 +5,7 @@
  *  - tomAi.telegram.testConnection   — Send a test message to verify bot token & chat ID
  *  - tomAi.telegram.toggle — Start/stop Telegram polling independent of bot conversations
  *
- * Configuration is read from botConversation.telegram in tom_vscode_extension.json.
+ * Configuration is read from aiConversation.telegram in tom_vscode_extension.json.
  */
 
 import * as vscode from 'vscode';
@@ -37,7 +37,7 @@ let responseFormatter: TelegramResponseFormatter | null = null;
 
 // getConfigPath() is imported from handler_shared
 
-/** Load the Telegram config from tom_vscode_extension.json → botConversation.telegram. */
+/** Load the Telegram config from tom_vscode_extension.json → aiConversation.telegram. */
 function loadTelegramConfig(): TelegramConfig | undefined {
     const configPath = getConfigPath();
     if (!configPath || !fs.existsSync(configPath)) {
@@ -47,9 +47,9 @@ function loadTelegramConfig(): TelegramConfig | undefined {
 
     try {
         const raw = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-        const telegramRaw = raw?.botConversation?.telegram;
+        const telegramRaw = raw?.aiConversation?.telegram;
         if (!telegramRaw) {
-            vscode.window.showErrorMessage('No botConversation.telegram section in tom_vscode_extension.json.');
+            vscode.window.showErrorMessage('No aiConversation.telegram section in tom_vscode_extension.json.');
             return undefined;
         }
         return parseTelegramConfig(telegramRaw);
@@ -74,7 +74,7 @@ export async function telegramTestHandler(): Promise<void> {
     if (!config) { return; }
 
     if (!config.botTokenEnv) {
-        vscode.window.showWarningMessage('Telegram botTokenEnv is not configured. Set it in tom_vscode_extension.json → botConversation.telegram.');
+        vscode.window.showWarningMessage('Telegram botTokenEnv is not configured. Set it in tom_vscode_extension.json → aiConversation.telegram.');
         return;
     }
     if (!config.botToken) {
@@ -82,7 +82,7 @@ export async function telegramTestHandler(): Promise<void> {
         return;
     }
     if (!config.defaultChatId) {
-        vscode.window.showWarningMessage('Telegram defaultChatId is not configured. Set it in tom_vscode_extension.json → botConversation.telegram.');
+        vscode.window.showWarningMessage('Telegram defaultChatId is not configured. Set it in tom_vscode_extension.json → aiConversation.telegram.');
         return;
     }
 
@@ -150,7 +150,7 @@ export async function telegramToggleHandler(): Promise<void> {
     if (!config) { return; }
 
     if (!config.botTokenEnv) {
-        vscode.window.showWarningMessage('Telegram botTokenEnv is not configured. Set it in tom_vscode_extension.json → botConversation.telegram.');
+        vscode.window.showWarningMessage('Telegram botTokenEnv is not configured. Set it in tom_vscode_extension.json → aiConversation.telegram.');
         return;
     }
     if (!config.botToken) {
@@ -158,7 +158,7 @@ export async function telegramToggleHandler(): Promise<void> {
         return;
     }
     if (config.allowedUserIds.length === 0) {
-        vscode.window.showWarningMessage('Telegram allowedUserIds is empty. Add your Telegram user ID to tom_vscode_extension.json → botConversation.telegram.');
+        vscode.window.showWarningMessage('Telegram allowedUserIds is empty. Add your Telegram user ID to tom_vscode_extension.json → aiConversation.telegram.');
         return;
     }
 
@@ -251,7 +251,7 @@ function handleStandaloneCommand(cmd: TelegramCommand): void {
 /**
  * Interactive configuration for Telegram integration.
  * Prompts for env var name, allowed user IDs, default chat ID, and enabled state,
- * then writes the values back to tom_vscode_extension.json → botConversation.telegram.
+ * then writes the values back to tom_vscode_extension.json → aiConversation.telegram.
  */
 export async function telegramConfigureHandler(): Promise<void> {
     bridgeLog('[Telegram] Configure command invoked');
@@ -270,9 +270,9 @@ export async function telegramConfigureHandler(): Promise<void> {
         return;
     }
 
-    const telegram = raw?.botConversation?.telegram;
+    const telegram = raw?.aiConversation?.telegram;
     if (!telegram) {
-        vscode.window.showErrorMessage('No botConversation.telegram section in tom_vscode_extension.json.');
+        vscode.window.showErrorMessage('No aiConversation.telegram section in tom_vscode_extension.json.');
         return;
     }
 

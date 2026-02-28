@@ -16,7 +16,7 @@
  *     b) Outputs the goal-reached marker → conversation ends
  *  6. Full conversation log is persisted to a timestamped markdown file
  *
- * Configuration lives in the `botConversation` section of tom_vscode_extension.json.
+ * Configuration lives in the `aiConversation` section of tom_vscode_extension.json.
  */
 
 import * as vscode from 'vscode';
@@ -26,12 +26,12 @@ import { bridgeLog, getCopilotModel, sendCopilotRequest, getWorkspaceRoot, getCo
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 import { validateStrictAiConfiguration } from '../utils/sendToChatConfig';
 import { resolveTemplate } from './promptTemplate';
-import { getPromptExpanderManager } from './expandPrompt-handler';
-import type { OllamaStats } from './expandPrompt-handler';
+import { getLocalLlmManager } from './localLlm-handler';
+import type { OllamaStats } from './localLlm-handler';
 import { TelegramNotifier, TelegramConfig, TelegramCommand, parseTelegramConfig, TELEGRAM_DEFAULTS } from './telegram-notifier';
 import { TelegramChannel } from './chat';
 import {
-    clearTrail, logPrompt, logResponse, logCopilotAnswer,
+    logPrompt, logResponse, logCopilotAnswer,
     isTrailEnabled, loadTrailConfig,
 } from './trailLogger-handler';
 import { WsPaths } from '../utils/workspacePaths';
@@ -96,7 +96,7 @@ export interface SelfTalkPersona {
     actor?: ActorType;
     /** System prompt that gives this persona its identity. */
     systemPrompt: string;
-    /** Model config key from promptExpander.models (null → default). */
+    /** Model config key from localLlm.models (null → default). */
     modelConfig?: string | null;
     /** Temperature override for this persona. */
     temperature?: number | null;
@@ -131,11 +131,11 @@ export interface BotConversationProfile {
     };
 }
 
-/** Full botConversation section from tom_vscode_extension.json. */
+/** Full aiConversation section from tom_vscode_extension.json. */
 export interface BotConversationConfig {
     /** Maximum conversation turns before stopping. */
     maxTurns: number;
-    /** Which model config from promptExpander.models to use. */
+    /** Which model config from localLlm.models to use. */
     modelConfig: string | null;
     /** Optional model config used only for history summarization. */
     trailSummarizationModelConfig: string | null;
@@ -326,10 +326,10 @@ const DEFAULTS: BotConversationConfig = {
 };
 
 // ============================================================================
-// BotConversationManager
+// AiConversationManager
 // ============================================================================
 
-export class BotConversationManager {
+export class AiConversationManager {
     private context: vscode.ExtensionContext;
     private activeConversation: ConversationState | null = null;
     private telegramChannel: TelegramChannel | null = null;
@@ -497,7 +497,7 @@ export class BotConversationManager {
         try {
             const raw = fs.readFileSync(configPath, 'utf-8');
             const parsed = JSON.parse(raw);
-            const sec = parsed?.botConversation;
+            const sec = parsed?.aiConversation;
             if (!sec || typeof sec !== 'object') { return config; }
 
             // Scalars
@@ -569,7 +569,7 @@ export class BotConversationManager {
     private findLlmConfiguration(configId: string | null | undefined): any | undefined {
         if (!configId) { return undefined; }
         const cfg = loadSendToChatConfig();
-        const llmConfigs = Array.isArray(cfg?.llmConfigurations) ? cfg!.llmConfigurations : [];
+        const llmConfigs = Array.isArray(cfg?.configurations) ? cfg!.configurations : [];
         return llmConfigs.find((entry: any) => entry?.id === configId);
     }
 
@@ -612,9 +612,9 @@ export class BotConversationManager {
             throw new Error('Invalid AI configuration. Open Status Page for details.');
         }
 
-        const setups = Array.isArray(sendConfig?.aiConversationSetups) ? sendConfig!.aiConversationSetups : [];
+        const setups = Array.isArray(sendConfig?.setups) ? sendConfig!.setups : [];
         if (setups.length === 0) {
-            throw new Error('No AI conversation setup found. Configure aiConversationSetups first.');
+            throw new Error('No AI conversation setup found. Configure setups first.');
         }
 
         if (setupId) {
@@ -817,7 +817,7 @@ export class BotConversationManager {
         fullHistory: string,
         config: BotConversationConfig,
     ): Promise<string> {
-        const manager = getPromptExpanderManager();
+        const manager = getLocalLlmManager();
         if (!manager) { return fullHistory; } // fallback to full if no manager
 
         const prompt = this.resolvePlaceholders(config.summaryTemplate, {
@@ -1032,7 +1032,7 @@ export class BotConversationManager {
             this.stopConversation('Replaced by new conversation');
         }
 
-        const manager = getPromptExpanderManager();
+        const manager = getLocalLlmManager();
         if (!manager) {
             vscode.window.showErrorMessage('Prompt Expander not initialized. Cannot use local LLM.');
             return;
@@ -1049,9 +1049,9 @@ export class BotConversationManager {
             return;
         }
 
-        const setupList = Array.isArray(sendConfig?.aiConversationSetups) ? sendConfig!.aiConversationSetups : [];
+        const setupList = Array.isArray(sendConfig?.setups) ? sendConfig!.setups : [];
         if (setupList.length === 0) {
-            const msg = 'No AI conversation setup found. Configure aiConversationSetups first.';
+            const msg = 'No AI conversation setup found. Configure setups first.';
             bridgeLog(`[Bot Conversation] ${msg}`);
             vscode.window.showErrorMessage(msg);
             return;
@@ -1206,13 +1206,12 @@ export class BotConversationManager {
     /** The main conversation loop. */
     private async runConversationLoop(
         state: ConversationState,
-        manager: ReturnType<typeof getPromptExpanderManager> & object,
+        manager: ReturnType<typeof getLocalLlmManager> & object,
     ): Promise<void> {
         const { config } = state;
 
-        // Load trail config and clear trail for new conversation session
+        // Load trail config for new conversation session
         loadTrailConfig();
-        clearTrail('conversation');
 
         // Branch: self-talk mode runs an entirely different loop
         if (config.conversationMode === 'ollama-ollama') {
@@ -1467,7 +1466,7 @@ export class BotConversationManager {
      */
     private async runSelfTalkLoop(
         state: ConversationState,
-        manager: ReturnType<typeof getPromptExpanderManager> & object,
+        manager: ReturnType<typeof getLocalLlmManager> & object,
     ): Promise<void> {
         const { config } = state;
         const token = state.cancellationSource.token;
@@ -1663,41 +1662,41 @@ export class BotConversationManager {
      * Handle a bridge request for the bot conversation subsystem.
      *
      * Methods:
-     *   botConversation.getConfigVce      → return current config (profiles, defaults)
-     *   botConversation.getProfilesVce    → list available profiles
-     *   botConversation.startVce          → start a conversation (non-interactive)
-     *   botConversation.stopVce           → stop the active conversation
-     *   botConversation.haltVce           → halt (pause) the active conversation
-     *   botConversation.continueVce       → continue a halted conversation
-     *   botConversation.addInfoVce        → add additional user input to next prompt
-     *   botConversation.statusVce         → get conversation status + exchange count
-     *   botConversation.getLogVce         → return the conversation log for a given ID
-     *   botConversation.singleTurnVce     → run one Ollama→Copilot round-trip and return result
+     *   aiConversation.getConfigVce      → return current config (profiles, defaults)
+     *   aiConversation.getProfilesVce    → list available profiles
+     *   aiConversation.startVce          → start a conversation (non-interactive)
+     *   aiConversation.stopVce           → stop the active conversation
+     *   aiConversation.haltVce           → halt (pause) the active conversation
+     *   aiConversation.continueVce       → continue a halted conversation
+     *   aiConversation.addInfoVce        → add additional user input to next prompt
+     *   aiConversation.statusVce         → get conversation status + exchange count
+     *   aiConversation.getLogVce         → return the conversation log for a given ID
+     *   aiConversation.singleTurnVce     → run one Ollama→Copilot round-trip and return result
      */
     async handleBridgeRequest(method: string, params: any): Promise<any> {
         switch (method) {
-            case 'botConversation.getConfigVce':
+            case 'aiConversation.getConfigVce':
                 return this.bridgeGetConfig();
-            case 'botConversation.getProfilesVce':
+            case 'aiConversation.getProfilesVce':
                 return this.bridgeGetProfiles();
-            case 'botConversation.startVce':
+            case 'aiConversation.startVce':
                 return this.bridgeStart(params);
-            case 'botConversation.stopVce':
+            case 'aiConversation.stopVce':
                 return this.bridgeStop(params);
-            case 'botConversation.haltVce':
+            case 'aiConversation.haltVce':
                 return this.bridgeHalt(params);
-            case 'botConversation.continueVce':
+            case 'aiConversation.continueVce':
                 return this.bridgeContinue();
-            case 'botConversation.addInfoVce':
+            case 'aiConversation.addInfoVce':
                 return this.bridgeAddInfo(params);
-            case 'botConversation.statusVce':
+            case 'aiConversation.statusVce':
                 return this.bridgeStatus();
-            case 'botConversation.getLogVce':
+            case 'aiConversation.getLogVce':
                 return this.bridgeGetLog(params);
-            case 'botConversation.singleTurnVce':
+            case 'aiConversation.singleTurnVce':
                 return this.bridgeSingleTurn(params);
             default:
-                throw new Error(`Unknown botConversation method: ${method}`);
+                throw new Error(`Unknown aiConversation method: ${method}`);
         }
     }
 
@@ -1767,10 +1766,10 @@ export class BotConversationManager {
         }
 
         if (this.activeConversation?.active) {
-            throw new Error('A conversation is already active. Stop it first with botConversation.stopVce.');
+            throw new Error('A conversation is already active. Stop it first with aiConversation.stopVce.');
         }
 
-        const manager = getPromptExpanderManager();
+        const manager = getLocalLlmManager();
         if (!manager) {
             throw new Error('Prompt Expander not initialized');
         }
@@ -2033,7 +2032,7 @@ export class BotConversationManager {
             throw new Error('Missing required parameter: prompt');
         }
 
-        const manager = getPromptExpanderManager();
+        const manager = getLocalLlmManager();
         if (!manager) {
             throw new Error('Prompt Expander not initialized');
         }
@@ -2112,13 +2111,13 @@ export class BotConversationManager {
 // Exported handlers
 // ============================================================================
 
-let _botManager: BotConversationManager | undefined;
+let _botManager: AiConversationManager | undefined;
 
-export function setBotConversationManager(mgr: BotConversationManager): void {
+export function setAiConversationManager(mgr: AiConversationManager): void {
     _botManager = mgr;
 }
 
-export function getBotConversationManager(): BotConversationManager | undefined {
+export function getAiConversationManager(): AiConversationManager | undefined {
     return _botManager;
 }
 

@@ -316,6 +316,76 @@ function extractTodoRefFromText(text: string): string | undefined {
 const VIEW_TYPE = 'tomAi.trailViewer';
 
 let currentPanel: vscode.WebviewPanel | undefined;
+let currentViewerState: TrailViewerState | undefined;
+
+interface TrailViewerFolderOption {
+    id: string;
+    label: string;
+    folder: string;
+}
+
+interface TrailViewerState {
+    rootFolder: string;
+    currentFolder: string;
+    folderOptions: TrailViewerFolderOption[];
+}
+
+function hasRawTrailFiles(folder: string): boolean {
+    if (!fs.existsSync(folder)) {
+        return false;
+    }
+    const files = fs.readdirSync(folder);
+    return files.some((name) => name.endsWith('.userprompt.md') || name.endsWith('.answer.md') || name.endsWith('.answer.json'));
+}
+
+function discoverRawTrailFolders(rootFolder: string): TrailViewerFolderOption[] {
+    const options: TrailViewerFolderOption[] = [];
+
+    if (hasRawTrailFiles(rootFolder)) {
+        options.push({
+            id: path.basename(rootFolder) || 'trail',
+            label: path.basename(rootFolder) || 'trail',
+            folder: rootFolder,
+        });
+    }
+
+    if (fs.existsSync(rootFolder)) {
+        const entries = fs.readdirSync(rootFolder, { withFileTypes: true })
+            .filter((entry) => entry.isDirectory())
+            .map((entry) => entry.name)
+            .sort((a, b) => a.localeCompare(b));
+
+        for (const entryName of entries) {
+            const fullPath = path.join(rootFolder, entryName);
+            if (hasRawTrailFiles(fullPath)) {
+                options.push({
+                    id: entryName,
+                    label: entryName,
+                    folder: fullPath,
+                });
+            }
+        }
+    }
+
+    if (options.length === 0) {
+        options.push({
+            id: path.basename(rootFolder) || 'trail',
+            label: path.basename(rootFolder) || 'trail',
+            folder: rootFolder,
+        });
+    }
+
+    return options;
+}
+
+function buildViewerState(rootFolder: string): TrailViewerState {
+    const folderOptions = discoverRawTrailFolders(rootFolder);
+    return {
+        rootFolder,
+        currentFolder: folderOptions[0].folder,
+        folderOptions,
+    };
+}
 
 /**
  * Open or focus the Trail Viewer panel.
@@ -331,12 +401,21 @@ export async function openTrailViewer(
         return;
     }
     
+    const nextState = buildViewerState(folder);
+
     // If panel exists, just reveal it
     if (currentPanel) {
+        currentViewerState = nextState;
         currentPanel.reveal(vscode.ViewColumn.One);
-        currentPanel.webview.postMessage({ type: 'refresh', folder });
+        currentPanel.webview.postMessage({
+            type: 'refresh',
+            folder: nextState.currentFolder,
+            folderOptions: nextState.folderOptions,
+        });
         return;
     }
+
+    currentViewerState = nextState;
     
     // Create new panel
     currentPanel = vscode.window.createWebviewPanel(
@@ -352,18 +431,26 @@ export async function openTrailViewer(
         }
     );
     
-    currentPanel.webview.html = getWebviewHtml(currentPanel.webview, context.extensionUri, folder);
+    currentPanel.webview.html = getWebviewHtml(
+        currentPanel.webview,
+        context.extensionUri,
+        currentViewerState.currentFolder,
+        currentViewerState.folderOptions,
+    );
     
     // Handle messages from webview
     currentPanel.webview.onDidReceiveMessage(
-        message => handleMessage(message, currentPanel!.webview, folder as string, context),
+        message => handleMessage(message, currentPanel!.webview, currentViewerState!, context),
         undefined,
         context.subscriptions
     );
     
     // Clean up on dispose
     currentPanel.onDidDispose(
-        () => { currentPanel = undefined; },
+        () => {
+            currentPanel = undefined;
+            currentViewerState = undefined;
+        },
         undefined,
         context.subscriptions
     );
@@ -375,17 +462,32 @@ export async function openTrailViewer(
 async function handleMessage(
     message: any,
     webview: vscode.Webview,
-    currentFolder: string,
+    state: TrailViewerState,
     context: vscode.ExtensionContext,
 ): Promise<void> {
     switch (message.type) {
         case 'loadExchanges':
-            const exchanges = loadTrailExchanges(currentFolder);
+            const exchanges = loadTrailExchanges(state.currentFolder);
             webview.postMessage({ type: 'exchanges', exchanges });
             break;
+
+        case 'switchSubsystem': {
+            const selectedFolder = String(message.folder || '');
+            const target = state.folderOptions.find((opt) => opt.folder === selectedFolder);
+            if (target && fs.existsSync(target.folder)) {
+                state.currentFolder = target.folder;
+                const folderExchanges = loadTrailExchanges(state.currentFolder);
+                webview.postMessage({
+                    type: 'exchanges',
+                    exchanges: folderExchanges,
+                    selectedFolder: state.currentFolder,
+                });
+            }
+            break;
+        }
             
         case 'loadExchange':
-            const exchange = loadTrailExchanges(currentFolder).find(s => s.id === message.exchangeId);
+            const exchange = loadTrailExchanges(state.currentFolder).find(s => s.id === message.exchangeId);
             if (exchange) {
                 const content: Record<string, string> = {};
                 let todoRef: string | undefined;
@@ -428,7 +530,7 @@ async function handleMessage(
             break;
             
         case 'extractToMarkdown':
-            await extractToMarkdown(message.exchangeId, message.content, currentFolder);
+            await extractToMarkdown(message.exchangeId, message.content, state.currentFolder);
             break;
             
         case 'openInEditor':
@@ -522,7 +624,7 @@ export async function gotoWorkspaceTodo(todoRefRaw: string, _context: vscode.Ext
 
     const uri = vscode.Uri.file(absPath);
     try {
-        await vscode.commands.executeCommand('vscode.openWith', uri, 'questTodo.editor');
+        await vscode.commands.executeCommand('vscode.openWith', uri, 'tomAi.todoEditor');
     } catch {
         const doc = await vscode.workspace.openTextDocument(uri);
         const editor = await vscode.window.showTextDocument(doc);
@@ -628,11 +730,14 @@ async function openMarkdownExternally(
 function getWebviewHtml(
     webview: vscode.Webview,
     extensionUri: vscode.Uri,
-    trailFolder: string
+    trailFolder: string,
+    folderOptions: TrailViewerFolderOption[]
 ): string {
     const codiconsUri = webview.asWebviewUri(
         vscode.Uri.joinPath(extensionUri, 'node_modules', '@vscode', 'codicons', 'dist', 'codicon.css')
     );
+    const folderOptionsJson = JSON.stringify(folderOptions);
+    const selectedFolderJson = JSON.stringify(trailFolder);
     
     return `<!DOCTYPE html>
 <html lang="en">
@@ -885,6 +990,7 @@ function getWebviewHtml(
     <div class="sidebar">
         <div class="sidebar-header">
             <h2>Exchanges</h2>
+            <select id="subsystemSelect" title="Subsystem"></select>
             <button id="refreshBtn" title="Refresh"><span class="codicon codicon-refresh"></span></button>
         </div>
         <div class="session-list" id="sessionList">
@@ -935,9 +1041,12 @@ function getWebviewHtml(
             let exchangeTodoRef = '';
             let exchangeResponseValues = null;
             let currentTab = 'prompt';
+            let folderOptions = ${folderOptionsJson};
+            let selectedFolder = ${selectedFolderJson};
             
             // Elements
             const exchangeList = document.getElementById('sessionList');
+            const subsystemSelect = document.getElementById('subsystemSelect');
             const exchangeTitle = document.getElementById('exchangeTitle');
             const tabs = document.getElementById('tabs');
             const contentPane = document.getElementById('contentPane');
@@ -946,6 +1055,30 @@ function getWebviewHtml(
             const openInEditorBtn = document.getElementById('openInEditorBtn');
             const openExternallyBtn = document.getElementById('openExternallyBtn');
             const refreshBtn = document.getElementById('refreshBtn');
+
+            function populateSubsystems() {
+                subsystemSelect.innerHTML = '';
+                for (const option of folderOptions) {
+                    const element = document.createElement('option');
+                    element.value = option.folder;
+                    element.textContent = option.label;
+                    if (option.folder === selectedFolder) {
+                        element.selected = true;
+                    }
+                    subsystemSelect.appendChild(element);
+                }
+            }
+
+            populateSubsystems();
+
+            subsystemSelect.addEventListener('change', () => {
+                selectedFolder = subsystemSelect.value;
+                selectedExchange = null;
+                exchangeContent = {};
+                exchangeTodoRef = '';
+                exchangeResponseValues = null;
+                vscode.postMessage({ type: 'switchSubsystem', folder: selectedFolder });
+            });
             
             // Render exchange list
             function renderExchanges() {
@@ -1134,6 +1267,10 @@ function getWebviewHtml(
                 const message = event.data;
                 switch (message.type) {
                     case 'exchanges':
+                        if (message.selectedFolder) {
+                            selectedFolder = message.selectedFolder;
+                            populateSubsystems();
+                        }
                         exchanges = message.exchanges;
                         renderExchanges();
                         break;
@@ -1150,6 +1287,13 @@ function getWebviewHtml(
                         break;
                         
                     case 'refresh':
+                        if (Array.isArray(message.folderOptions)) {
+                            folderOptions = message.folderOptions;
+                        }
+                        if (message.folder) {
+                            selectedFolder = message.folder;
+                        }
+                        populateSubsystems();
                         vscode.postMessage({ type: 'loadExchanges' });
                         break;
                 }

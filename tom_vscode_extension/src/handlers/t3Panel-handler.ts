@@ -191,7 +191,7 @@ export class T3PanelHandler implements vscode.WebviewViewProvider {
                     vscode.window.showInformationMessage('T3: Export Logs clicked');
                     break;
                 case 'openWorkspaceTodoExplorer':
-                    await vscode.commands.executeCommand('tomAi.workspaceTodosView.focus');
+                    await vscode.commands.executeCommand('tomAi.workspaceTodos.focus');
                     break;
                 case 'openGuidelinesFolder': {
                     const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;

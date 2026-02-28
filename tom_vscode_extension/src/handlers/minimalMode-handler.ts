@@ -15,13 +15,13 @@ import * as path from 'path';
 const MINIMAL_VIEW_IDS = [
     'tomAi.chatPanel',
     'tomAi.wsPanel',
-    'tomAi.tomNotepad',
-    'tomAi.questNotesView',
-    'tomAi.questTodosView',
-    'tomAi.sessionTodosView',
-    'tomAi.todoLogView',
-    'tomAi.workspaceNotepad',
-    'tomAi.workspaceTodosView',
+    'tomAi.vscodeNotes',
+    'tomAi.questNotes',
+    'tomAi.questTodos',
+    'tomAi.sessionTodos',
+    'tomAi.todoLog',
+    'tomAi.workspaceNotes',
+    'tomAi.workspaceTodos',
 ];
 
 class MinimalModeViewProvider implements vscode.WebviewViewProvider {

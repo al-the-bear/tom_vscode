@@ -19,13 +19,13 @@ import {
     type TrailSet,
 } from './trailEditor-handler.js';
 import { gotoWorkspaceTodo } from './trailViewer-handler.js';
-import { getTrailFolder, getTrailFilePrefix } from './unifiedNotepad-handler.js';
+import { getTrailFolder, getTrailFilePrefix } from './chatPanel-handler.js';
 
 // ============================================================================
 // View IDs
 // ============================================================================
 
-const TODO_LOG_VIEW_ID = 'tomAi.todoLogView';
+const TODO_LOG_VIEW_ID = 'tomAi.todoLog';
 
 // ============================================================================
 // Provider
@@ -151,7 +151,7 @@ export class TodoLogViewProvider implements vscode.WebviewViewProvider {
     // ──────────────────────────────────────────────────────────────────────
 
     /**
-     * Open the trail custom editor (trailViewer.editor) for the current workspace's prompts trail file.
+     * Open the trail custom editor (tomAi.trailViewer) for the current workspace's prompts trail file.
      */
     private async _openTrailFiles(): Promise<void> {
         const trailFolder = getTrailFolder();
@@ -176,7 +176,7 @@ export class TodoLogViewProvider implements vscode.WebviewViewProvider {
 
         // Open with the custom trail editor
         const uri = vscode.Uri.file(promptsPath);
-        await vscode.commands.executeCommand('vscode.openWith', uri, 'trailViewer.editor');
+        await vscode.commands.executeCommand('vscode.openWith', uri, 'tomAi.trailViewer');
     }
 
     /**
@@ -210,7 +210,7 @@ export class TodoLogViewProvider implements vscode.WebviewViewProvider {
         });
 
         const uri = vscode.Uri.file(answersPath);
-        await vscode.commands.executeCommand('vscode.openWith', uri, 'trailViewer.editor');
+        await vscode.commands.executeCommand('vscode.openWith', uri, 'tomAi.trailViewer');
     }
 
     /**

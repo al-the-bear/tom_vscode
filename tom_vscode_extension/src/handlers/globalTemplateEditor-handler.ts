@@ -9,10 +9,10 @@
  *   1. Copilot Templates       — config.templates
  *   2. Reminder Templates      — config.reminderTemplates
  *   3. Tom AI Chat Templates   — config.tomAiChat.templates
- *   4. AI Conversation Profiles— config.botConversation.profiles
- *   5. Local LLM Profiles      — config.promptExpander.profiles
+ *   4. AI Conversation Profiles— config.aiConversation.profiles
+ *   5. Local LLM Profiles      — config.localLlm.profiles
  *   6. Timed Requests          — config.timedRequests
- *   7. Self-Talk Profiles      — config.botConversation.selfTalk
+ *   7. Self-Talk Profiles      — config.aiConversation.selfTalk
  */
 
 import * as vscode from 'vscode';
@@ -141,11 +141,11 @@ function _getItemsForCategory(config: SendToChatConfig, category: TemplateCatego
             return Object.keys(config.tomAiChat?.templates || {})
                 .map(k => ({ id: k, label: (config.tomAiChat!.templates![k] as any).label || k }));
         case 'conversation':
-            return Object.keys((config as any).botConversation?.profiles || {})
-                .map(k => ({ id: k, label: ((config as any).botConversation.profiles[k] as any).label || k }));
+            return Object.keys((config as any).aiConversation?.profiles || {})
+                .map(k => ({ id: k, label: ((config as any).aiConversation.profiles[k] as any).label || k }));
         case 'localLlm':
-            return Object.keys((config as any).promptExpander?.profiles || {})
-                .map(k => ({ id: k, label: ((config as any).promptExpander.profiles[k] as any).label || k }));
+            return Object.keys((config as any).localLlm?.profiles || {})
+                .map(k => ({ id: k, label: ((config as any).localLlm.profiles[k] as any).label || k }));
         case 'timedRequests':
             return ((config as any).timedRequests || [])
                 .map((t: any, i: number) => ({
@@ -153,7 +153,7 @@ function _getItemsForCategory(config: SendToChatConfig, category: TemplateCatego
                     label: t.originalText?.substring(0, 40) || `Timed Request ${i + 1}`,
                 }));
         case 'selfTalk':
-            return Object.keys((config as any).botConversation?.selfTalk || {})
+            return Object.keys((config as any).aiConversation?.selfTalk || {})
                 .map(k => ({
                     id: k,
                     label: k === 'personA' ? 'Person A (Creative)' : k === 'personB' ? 'Person B (Critical)' : k,
@@ -200,7 +200,7 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
             break;
         }
         case 'conversation': {
-            const profile = (config as any).botConversation?.profiles?.[itemId];
+            const profile = (config as any).aiConversation?.profiles?.[itemId];
             if (!profile) break;
             const st = profile.selfTalk || {};
             const stA = st.personA || {};
@@ -224,7 +224,7 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
             break;
         }
         case 'localLlm': {
-            const profile = (config as any).promptExpander?.profiles?.[itemId];
+            const profile = (config as any).localLlm?.profiles?.[itemId];
             if (!profile) break;
             fields.push(
                 { name: 'name', label: 'Profile Key', type: 'text', value: itemId },
@@ -255,7 +255,7 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
             break;
         }
         case 'selfTalk': {
-            const st = (config as any).botConversation?.selfTalk?.[itemId];
+            const st = (config as any).aiConversation?.selfTalk?.[itemId];
             if (!st) break;
             fields.push(
                 { name: 'name', label: 'Profile Key', type: 'text', value: itemId, readonly: true },
@@ -376,7 +376,7 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
             break;
         }
         case 'conversation': {
-            const profiles = (config as any).botConversation?.profiles;
+            const profiles = (config as any).aiConversation?.profiles;
             if (!profiles) break;
             const newName = values.name || itemId;
             if (newName !== itemId) delete profiles[itemId];
@@ -405,7 +405,7 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
             break;
         }
         case 'localLlm': {
-            const profiles = (config as any).promptExpander?.profiles;
+            const profiles = (config as any).localLlm?.profiles;
             if (!profiles) break;
             const newName = values.name || itemId;
             if (newName !== itemId) delete profiles[itemId];
@@ -439,7 +439,7 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
             break;
         }
         case 'selfTalk': {
-            const selfTalk = (config as any).botConversation?.selfTalk;
+            const selfTalk = (config as any).aiConversation?.selfTalk;
             if (!selfTalk) break;
             selfTalk[itemId] = {
                 ...selfTalk[itemId],
@@ -488,9 +488,9 @@ async function _addItem(category: TemplateCategory): Promise<void> {
             config.tomAiChat.templates[name] = { label: name, description: '', contextInstructions: '' } as any;
             break;
         case 'conversation': {
-            if (!(config as any).botConversation) (config as any).botConversation = { profiles: {} };
-            if (!(config as any).botConversation.profiles) (config as any).botConversation.profiles = {};
-            (config as any).botConversation.profiles[name] = {
+            if (!(config as any).aiConversation) (config as any).aiConversation = { profiles: {} };
+            if (!(config as any).aiConversation.profiles) (config as any).aiConversation.profiles = {};
+            (config as any).aiConversation.profiles[name] = {
                 label: name, description: '', goal: '', maxTurns: 10,
                 initialPromptTemplate: null, followUpTemplate: null,
                 selfTalk: {
@@ -501,9 +501,9 @@ async function _addItem(category: TemplateCategory): Promise<void> {
             break;
         }
         case 'localLlm': {
-            if (!(config as any).promptExpander) (config as any).promptExpander = { profiles: {} };
-            if (!(config as any).promptExpander.profiles) (config as any).promptExpander.profiles = {};
-            (config as any).promptExpander.profiles[name] = {
+            if (!(config as any).localLlm) (config as any).localLlm = { profiles: {} };
+            if (!(config as any).localLlm.profiles) (config as any).localLlm.profiles = {};
+            (config as any).localLlm.profiles[name] = {
                 label: name, systemPrompt: null, resultTemplate: null,
                 temperature: null, toolsEnabled: true,
             };
@@ -554,10 +554,10 @@ async function _deleteItem(category: TemplateCategory, itemId: string): Promise<
             if (config.tomAiChat?.templates) delete config.tomAiChat.templates[itemId];
             break;
         case 'conversation':
-            if ((config as any).botConversation?.profiles) delete (config as any).botConversation.profiles[itemId];
+            if ((config as any).aiConversation?.profiles) delete (config as any).aiConversation.profiles[itemId];
             break;
         case 'localLlm':
-            if ((config as any).promptExpander?.profiles) delete (config as any).promptExpander.profiles[itemId];
+            if ((config as any).localLlm?.profiles) delete (config as any).localLlm.profiles[itemId];
             break;
         case 'timedRequests': {
             const requests: any[] = (config as any).timedRequests || [];

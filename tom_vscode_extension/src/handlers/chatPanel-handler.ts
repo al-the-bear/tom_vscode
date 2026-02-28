@@ -21,12 +21,13 @@ import { openGlobalTemplateEditor, TemplateCategory } from './globalTemplateEdit
 import { openReusablePromptEditor } from './reusablePromptEditor-handler';
 import { debugLog } from '../utils/debugLogger';
 import { expandTemplate } from './promptTemplate';
-import { getPromptExpanderManager } from './expandPrompt-handler';
+import { getLocalLlmManager } from './localLlm-handler';
 import { getAccordionStyles } from './accordionPanel';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
 import { WsPaths } from '../utils/workspacePaths';
 import { validateStrictAiConfiguration } from '../utils/sendToChatConfig';
 import { findNearestDetectedProject, scanWorkspaceProjectsByDetectors } from '../utils/projectDetector';
+import { TrailService } from '../services/trailService';
 
 // ============================================================================
 // Answer File Utilities (for Copilot answer file feature)
@@ -338,167 +339,32 @@ function cleanupOldTrailFiles(trailFolder: string): void {
 
 /** Write to consolidated prompt trail file */
 function writePromptTrail(originalPrompt: string, templateName: string, isAnswerWrapper: boolean, expandedPrompt: string, overrideRequestId?: string): void {
-    const trailFolder = getTrailFolder();
-    if (!trailFolder) { return; }
-    
-    try {
-        if (!fs.existsSync(trailFolder)) {
-            fs.mkdirSync(trailFolder, { recursive: true });
-        }
-        
-        // Cleanup old individual files on first write of the day (from _ai/trail)
-        const cleanupDir = getIndividualTrailFolder();
-        if (cleanupDir) {
-            cleanupOldTrailFiles(cleanupDir);
-        }
-        
-        const trailPrefix = getTrailFilePrefix();
-        migrateTrailFiles(trailFolder, trailPrefix);
-        const promptsFile = path.join(trailFolder, `${trailPrefix}.prompts.md`);
-        const timestamp = getTrailFileTimestamp();
-        const readableTs = getReadableTimestamp();
-        const requestId = overrideRequestId || generateRequestId();
-        
-        // Get next sequence number
-        const currentSeq = parseSequenceFromFile(promptsFile);
-        const nextSeq = currentSeq + 1;
-        
-        // Build entry
-        const entry = `=== PROMPT ${requestId} ${readableTs} ${nextSeq} ===
+    const trailService = TrailService.instance;
+    const requestId = overrideRequestId || generateRequestId();
+    const questId = detectQuestFromWorkspace() || undefined;
+    const promptMeta = `TEMPLATE: ${templateName || '(none)'}\nANSWER-WRAPPER: ${isAnswerWrapper ? 'yes' : 'no'}\nREQUEST-ID: ${requestId}`;
+    const summaryPrompt = `${originalPrompt}\n\n${promptMeta}`;
 
-${originalPrompt}
-
-TEMPLATE: ${templateName || '(none)'}
-ANSWER-WRAPPER: ${isAnswerWrapper ? 'yes' : 'no'}
-
-`;
-        
-        // Read existing content and prepend
-        let existingContent = '';
-        if (fs.existsSync(promptsFile)) {
-            existingContent = fs.readFileSync(promptsFile, 'utf-8');
-        }
-        fs.writeFileSync(promptsFile, entry + existingContent, 'utf-8');
-        
-        // Trim if over max entries
-        trimTrailFile(promptsFile, getMaxTrailEntries());
-        
-        // Also write individual file with expanded prompt to _ai/trail
-        const individualDir = getIndividualTrailFolder();
-        if (individualDir) {
-            if (!fs.existsSync(individualDir)) { fs.mkdirSync(individualDir, { recursive: true }); }
-            const individualFile = path.join(individualDir, `${timestamp}_prompt_${requestId}.userprompt.md`);
-            fs.writeFileSync(individualFile, expandedPrompt, 'utf-8');
-        }
-        
-    } catch (e) {
-        console.error('[Trail] Failed to write prompt trail:', e);
-    }
+    void trailService.writeSummaryPrompt({ type: 'copilot' }, summaryPrompt, questId);
+    void trailService.writeRawPrompt({ type: 'copilot' }, expandedPrompt, getWindowId());
 }
 
 /** Write to consolidated answer trail file */
 function writeAnswerTrail(answer: { requestId: string; generatedMarkdown: string; comments?: string; references?: string[]; requestedAttachments?: string[]; responseValues?: Record<string, string> }): void {
-    const trailFolder = getTrailFolder();
-    if (!trailFolder) { return; }
-    
-    try {
-        if (!fs.existsSync(trailFolder)) {
-            fs.mkdirSync(trailFolder, { recursive: true });
-        }
-        
-        const trailPrefix = getTrailFilePrefix();
-        migrateTrailFiles(trailFolder, trailPrefix);
-        const answersFile = path.join(trailFolder, `${trailPrefix}.answers.md`);
-        const timestamp = getTrailFileTimestamp();
-        const readableTs = getReadableTimestamp();
-        
-        // Get next sequence number
-        const currentSeq = parseSequenceFromFile(answersFile);
-        const nextSeq = currentSeq + 1;
-        
-        // Build comments section
-        let commentsSection = '';
-        if (answer.comments) {
-            commentsSection = '\ncomments: ' + answer.comments + '\n';
-        }
-        
-        // Build variables section
-        let variablesSection = '';
-        if (answer.responseValues && Object.keys(answer.responseValues).length > 0) {
-            variablesSection = '\nvariables:\n' + Object.entries(answer.responseValues)
-                .map(([k, v]) => ` - ${k} = ${v}`)
-                .join('\n') + '\n';
-        }
-        
-        // Build references section
-        let referencesSection = '';
-        if (answer.references && answer.references.length > 0) {
-            referencesSection = '\nreferences:\n' + answer.references
-                .map(r => ` - ${r}`)
-                .join('\n') + '\n';
-        }
-        
-        // Build requestFileAttachments section
-        let attachmentsSection = '';
-        if (answer.requestedAttachments && answer.requestedAttachments.length > 0) {
-            attachmentsSection = '\nrequestFileAttachments:\n' + answer.requestedAttachments
-                .map(a => ` - ${a}`)
-                .join('\n') + '\n';
-        }
-        
-        // Build entry
-        const entry = `=== ANSWER ${answer.requestId} ${readableTs} ${nextSeq} ===
+    const trailService = TrailService.instance;
+    const questId = detectQuestFromWorkspace() || undefined;
+    const summaryAnswer = [
+        answer.generatedMarkdown,
+        answer.comments ? `\ncomments:\n${answer.comments}` : '',
+        answer.references && answer.references.length > 0 ? `\nreferences:\n${answer.references.map(r => ` - ${r}`).join('\n')}` : '',
+        answer.requestedAttachments && answer.requestedAttachments.length > 0 ? `\nrequestFileAttachments:\n${answer.requestedAttachments.map(a => ` - ${a}`).join('\n')}` : '',
+        answer.responseValues && Object.keys(answer.responseValues).length > 0
+            ? `\nvariables:\n${Object.entries(answer.responseValues).map(([k, v]) => ` - ${k} = ${v}`).join('\n')}`
+            : ''
+    ].join('');
 
-${answer.generatedMarkdown}
-${commentsSection}${variablesSection}${referencesSection}${attachmentsSection}
-`;
-        
-        // Read existing content and prepend
-        let existingContent = '';
-        if (fs.existsSync(answersFile)) {
-            existingContent = fs.readFileSync(answersFile, 'utf-8');
-        }
-        fs.writeFileSync(answersFile, entry + existingContent, 'utf-8');
-        
-        // Trim if over max entries
-        trimTrailFile(answersFile, getMaxTrailEntries());
-        
-        // Also write individual JSON answer file to _ai/trail
-        const individualDir = getIndividualTrailFolder();
-        if (individualDir) {
-            if (!fs.existsSync(individualDir)) { fs.mkdirSync(individualDir, { recursive: true }); }
-            const individualFile = path.join(individualDir, `${timestamp}_answer_${answer.requestId}.answer.json`);
-            fs.writeFileSync(individualFile, JSON.stringify(answer, null, 2), 'utf-8');
-        }
-        
-    } catch (e) {
-        console.error('[Trail] Failed to write answer trail:', e);
-    }
-}
-
-/**
- * Legacy function - kept for Trail Viewer compatibility.
- * File format: YYYYMMDD_HHMMSS_<session>.<type>.md
- */
-function writeToTrailViewer(session: string, type: 'userprompt' | 'answer', content: string): void {
-    // This function is now replaced by writePromptTrail and writeAnswerTrail
-    // Keeping for backward compatibility with Trail Viewer panel
-    const trailFolder = getTrailFolder();
-    if (!trailFolder) { return; }
-    
-    try {
-        if (!fs.existsSync(trailFolder)) {
-            fs.mkdirSync(trailFolder, { recursive: true });
-        }
-        
-        const timestamp = getTrailFileTimestamp();
-        const filename = `${timestamp}_${session}.${type}.md`;
-        const filePath = path.join(trailFolder, filename);
-        
-        fs.writeFileSync(filePath, content, 'utf-8');
-    } catch (e) {
-        console.error('[unifiedNotepad] Failed to write trail file:', e);
-    }
+    void trailService.writeSummaryAnswer({ type: 'copilot' }, summaryAnswer, { requestId: answer.requestId }, questId);
+    void trailService.writeRawAnswer({ type: 'copilot' }, answer.generatedMarkdown, getWindowId());
 }
 
 const VIEW_ID = 'tomAi.chatPanel';
@@ -803,7 +669,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
     }
 
     private _getEffectiveLlmConfigurations(config: SendToChatConfig | null): Array<{ id: string; name: string }> {
-        const explicit = Array.isArray(config?.llmConfigurations) ? config!.llmConfigurations : [];
+        const explicit = Array.isArray(config?.configurations) ? config!.configurations : [];
         if (explicit.length > 0) {
             return explicit
                 .filter((c: any) => c && typeof c.id === 'string' && c.id.trim().length > 0)
@@ -813,7 +679,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
     }
 
     private _getEffectiveAiConversationSetups(config: SendToChatConfig | null): Array<{ id: string; name: string }> {
-        const explicit = Array.isArray(config?.aiConversationSetups) ? config!.aiConversationSetups : [];
+        const explicit = Array.isArray(config?.setups) ? config!.setups : [];
         if (explicit.length > 0) {
             return explicit
                 .filter((s: any) => s && typeof s.id === 'string' && s.id.trim().length > 0)
@@ -826,13 +692,13 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
         const config = loadSendToChatConfig();
         this._view?.webview.postMessage({
             type: 'profiles',
-            localLlm: config?.promptExpander?.profiles ? Object.keys(config.promptExpander.profiles) : [],
-            conversation: config?.botConversation?.profiles ? Object.keys(config.botConversation.profiles) : [],
+            localLlm: config?.localLlm?.profiles ? Object.keys(config.localLlm.profiles) : [],
+            conversation: config?.aiConversation?.profiles ? Object.keys(config.aiConversation.profiles) : [],
             // Filter out __answer_file__ since it's hardcoded in the dropdown as "Answer Wrapper"
             copilot: config?.templates ? Object.keys(config.templates).filter(k => k !== '__answer_file__') : [],
             tomAiChat: config?.tomAiChat?.templates ? Object.keys(config.tomAiChat.templates) : [],
-            llmConfigurations: this._getEffectiveLlmConfigurations(config),
-            aiConversationSetups: this._getEffectiveAiConversationSetups(config),
+            configurations: this._getEffectiveLlmConfigurations(config),
+            setups: this._getEffectiveAiConversationSetups(config),
             defaultTemplates: config?.defaultTemplates || {},
         });
     }
@@ -1304,7 +1170,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
     }
 
     private async _handleSendLocalLlm(text: string, profile: string, llmConfig?: string): Promise<void> {
-        const manager = getPromptExpanderManager();
+        const manager = getLocalLlmManager();
         if (!manager) {
             vscode.window.showErrorMessage('Local LLM not available - extension not fully initialized');
             return;
@@ -1388,7 +1254,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
             return;
         }
 
-        const setups = Array.isArray(config?.aiConversationSetups) ? config!.aiConversationSetups : [];
+        const setups = Array.isArray(config?.setups) ? config!.setups : [];
         const selectedSetup = setups.find((s: any) => s?.id === aiSetupId);
         if (!selectedSetup) {
             const msg = `Missing required AI conversation setup: ${aiSetupId || '(none selected)'}`;
@@ -1566,7 +1432,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
 
         if (llmConfigKey) {
             const config = loadSendToChatConfig();
-            const llmConfigs = Array.isArray(config?.llmConfigurations) ? config!.llmConfigurations : [];
+            const llmConfigs = Array.isArray(config?.configurations) ? config!.configurations : [];
             const selected = llmConfigs.find((c: any) => c?.id === llmConfigKey);
             if (selected?.logFolder && typeof selected.logFolder === 'string' && selected.logFolder.trim().length > 0) {
                 return path.join(workspaceFolder.uri.fsPath, selected.logFolder);
@@ -1597,36 +1463,17 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
     }
 
     private async _appendToTrail(prompt: string, response: string, profile: string, llmConfigKey?: string | null): Promise<void> {
-        const paths = this._getLocalTrailPaths(llmConfigKey);
-        if (!paths) {
-            vscode.window.showWarningMessage('No workspace folder - cannot save to trail file');
-            return;
-        }
+        const trailService = TrailService.instance;
+        const questId = detectQuestFromWorkspace() || undefined;
+        const subsystem = {
+            type: 'localLlm' as const,
+            profile: (profile || llmConfigKey || 'default').replace(/[^a-zA-Z0-9._-]/g, '_')
+        };
 
-        const dir = path.dirname(paths.compact);
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
-        }
-
-        const timestamp = new Date().toISOString();
-        const requestId = generateRequestId();
-        const fileTs = this._getLocalTrailFileTimestamp();
-
-        const promptEntry = `=== PROMPT ${requestId} ${timestamp} ===\n\n${prompt}\n\nPROFILE: ${profile}\n\n`;
-        const answerEntry = `=== ANSWER ${requestId} ${timestamp} ===\n\n${response}\n\nPROFILE: ${profile}\n\n`;
-        const compactEntry = `\n---\n\n## ${timestamp} (${profile})\n\n### Prompt\n\n${prompt}\n\n### Response\n\n${response}\n`;
-
-        const existingPrompts = fs.existsSync(paths.prompts) ? fs.readFileSync(paths.prompts, 'utf-8') : '# Local LLM Prompts Trail\n\n';
-        const existingAnswers = fs.existsSync(paths.answers) ? fs.readFileSync(paths.answers, 'utf-8') : '# Local LLM Answers Trail\n\n';
-        fs.writeFileSync(paths.prompts, promptEntry + existingPrompts, 'utf-8');
-        fs.writeFileSync(paths.answers, answerEntry + existingAnswers, 'utf-8');
-
-        const promptFile = path.join(dir, `${fileTs}_prompt_${requestId}.userprompt.md`);
-        const answerFile = path.join(dir, `${fileTs}_answer_${requestId}.answer.json`);
-        fs.writeFileSync(promptFile, prompt, 'utf-8');
-        fs.writeFileSync(answerFile, JSON.stringify({ requestId, generatedMarkdown: response }, null, 2), 'utf-8');
-
-        fs.appendFileSync(paths.compact, compactEntry, 'utf-8');
+        await trailService.writeSummaryPrompt(subsystem, prompt, questId);
+        await trailService.writeSummaryAnswer(subsystem, response, { profile, llmConfigKey: llmConfigKey ?? undefined }, questId);
+        await trailService.writeRawPrompt(subsystem, prompt, getWindowId());
+        await trailService.writeRawAnswer(subsystem, response, getWindowId());
     }
 
     private async _showTrail(): Promise<void> {
@@ -1795,7 +1642,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
     }
 
     /**
-     * Open the trail custom editor (trailViewer.editor) for the current workspace's prompts trail file.
+     * Open the trail custom editor (tomAi.trailViewer) for the current workspace's prompts trail file.
      */
     private async _openTrailFiles(): Promise<void> {
         const trailFolder = getTrailFolder();
@@ -1815,7 +1662,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
 
         // Open with the custom trail editor
         const uri = vscode.Uri.file(promptsPath);
-        await vscode.commands.executeCommand('vscode.openWith', uri, 'trailViewer.editor');
+        await vscode.commands.executeCommand('vscode.openWith', uri, 'tomAi.trailViewer');
     }
 
     // ========================================================================
@@ -2194,7 +2041,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
         switch (section) {
             case 'localLlm': {
                 title = 'Local LLM';
-                const profile = profileOrTemplate && profileOrTemplate !== '__none__' ? config?.promptExpander?.profiles?.[profileOrTemplate] : null;
+                const profile = profileOrTemplate && profileOrTemplate !== '__none__' ? config?.localLlm?.profiles?.[profileOrTemplate] : null;
                 if (profile?.systemPrompt) {
                     previewContent = `=== SYSTEM PROMPT ===\n${profile.systemPrompt}\n\n=== USER PROMPT ===\n${text}`;
                 }
@@ -2203,7 +2050,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
             }
             case 'conversation': {
                 title = 'AI Conversation';
-                const profile = profileOrTemplate && profileOrTemplate !== '__none__' ? config?.botConversation?.profiles?.[profileOrTemplate] : null;
+                const profile = profileOrTemplate && profileOrTemplate !== '__none__' ? config?.aiConversation?.profiles?.[profileOrTemplate] : null;
                 if (profile?.initialPromptTemplate) {
                     // Use expandTemplate with goal as a value
                     previewContent = await expandTemplate(profile.initialPromptTemplate, { values: { goal: text } });
@@ -2289,10 +2136,10 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
         const config = loadSendToChatConfig();
         if (!config) { return; }
 
-        if (section === 'localLlm' && config.promptExpander?.profiles?.[name]) {
-            delete config.promptExpander.profiles[name];
-        } else if (section === 'conversation' && config.botConversation?.profiles?.[name]) {
-            delete config.botConversation.profiles[name];
+        if (section === 'localLlm' && config.localLlm?.profiles?.[name]) {
+            delete config.localLlm.profiles[name];
+        } else if (section === 'conversation' && config.aiConversation?.profiles?.[name]) {
+            delete config.aiConversation.profiles[name];
         } else { return; }
 
         if (saveSendToChatConfig(config)) {
@@ -2525,8 +2372,8 @@ var sectionsConfig = [
 ];
 var state = { expanded: ['localLlm'], pinned: [] };
 var profiles = { localLlm: [], conversation: [], copilot: [], tomAiChat: [] };
-var llmConfigurations = [];
-var aiConversationSetups = [];
+var configurations = [];
+var setups = [];
 var defaultTemplates = {};
 var reusablePromptModel = { scopes: { project: [], quest: [], scan: [] }, files: { global: [], project: {}, quest: {}, scan: {} } };
 var pendingReusableCopySection = '';
@@ -3058,8 +2905,8 @@ function populateDropdowns() {
     populateSelect('conversation-profile', profiles.conversation);
     populateSelect('copilot-template', profiles.copilot);
     populateSelect('tomAiChat-template', profiles.tomAiChat);
-    populateEntitySelect('localLlm-llmConfig', llmConfigurations, '(Select LLM Config)');
-    populateEntitySelect('conversation-aiSetup', aiConversationSetups, '(Select AI Setup)');
+    populateEntitySelect('localLlm-llmConfig', configurations, '(Select LLM Config)');
+    populateEntitySelect('conversation-aiSetup', setups, '(Select AI Setup)');
     ['localLlm', 'conversation', 'copilot', 'tomAiChat'].forEach(function(sectionId) {
         populateReusablePromptSelectors(sectionId);
     });
@@ -3216,8 +3063,8 @@ window.addEventListener('message', function(e) {
     var msg = e.data;
     if (msg.type === 'profiles') {
         profiles = { localLlm: msg.localLlm || [], conversation: msg.conversation || [], copilot: msg.copilot || [], tomAiChat: msg.tomAiChat || [] };
-        llmConfigurations = msg.llmConfigurations || [];
-        aiConversationSetups = msg.aiConversationSetups || [];
+        configurations = msg.configurations || [];
+        setups = msg.setups || [];
         defaultTemplates = msg.defaultTemplates || {};
         populateDropdowns();
         updateDefaultTemplateIndicator();

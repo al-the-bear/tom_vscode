@@ -26,7 +26,7 @@ export function registerQuestTodoCustomEditor(context: vscode.ExtensionContext):
     const provider = new QuestTodoEditorProvider(context);
     context.subscriptions.push(
         vscode.window.registerCustomEditorProvider(
-            'questTodo.editor',
+            'tomAi.todoEditor',
             provider,
             { webviewOptions: { retainContextWhenHidden: true } },
         ),

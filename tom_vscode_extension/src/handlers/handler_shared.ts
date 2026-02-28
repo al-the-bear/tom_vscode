@@ -511,7 +511,7 @@ export async function showAnalysisResult(analysis: string): Promise<void> {
  *
  * This is the **single source of truth** used as fallback when the config
  * `templates.__answer_file__` entry does not exist.  Both
- * `unifiedNotepad-handler` and `promptQueueManager` reference this constant.
+ * `chatPanel-handler` and `promptQueueManager` reference this constant.
  *
  * Placeholders resolved at expansion time:
  *   ${originalPrompt}  – the user's (already-expanded) prompt text

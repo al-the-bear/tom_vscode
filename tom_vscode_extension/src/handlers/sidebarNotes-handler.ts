@@ -4,8 +4,8 @@
  * Each notepad uses templates from its dedicated config section:
  * - Guidelines: File-based editor (no templates)
  * - Notes: Simple multi-note storage (no templates)
- * - Local LLM: Uses promptExpander.profiles
- * - Conversation: Uses botConversation.profiles
+ * - Local LLM: Uses localLlm.profiles
+ * - Conversation: Uses aiConversation.profiles
  * - Copilot: Uses templates section (prefix/suffix)
  * - Tom AI Chat: Uses tomAiChat.templates
  * 
@@ -18,7 +18,7 @@
 
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { getPromptExpanderManager } from './expandPrompt-handler';
+import { getLocalLlmManager } from './localLlm-handler';
 import * as fs from 'fs';
 import {
     getConfigPath,
@@ -33,7 +33,7 @@ import {
     PLACEHOLDER_HELP,
 } from './promptTemplate';
 import {
-    clearTrail, logPrompt, isTrailEnabled, loadTrailConfig,
+    logPrompt, isTrailEnabled, loadTrailConfig,
 } from './trailLogger-handler';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
 import { WindowSessionTodoStore } from '../managers/windowSessionTodoStore';
@@ -44,16 +44,16 @@ import { WsPaths } from '../utils/workspacePaths';
 const VIEW_IDS = {
     guidelines: 'tomAi.guidelinesNotepad',
     notes: 'tomAi.notesNotepad',
-    localLlm: 'tomAi.localLlmNotepad',
-    conversation: 'tomAi.conversationNotepad',
-    copilot: 'tomAi.copilotNotepad',
-    tomAiChat: 'tomAi.tomAiChatNotepad',
-    tomNotepad: 'tomAi.tomNotepad',
-    workspaceNotepad: 'tomAi.workspaceNotepad',
-    workspaceTodos: 'tomAi.workspaceTodosView',
-    questNotes: 'tomAi.questNotesView',
-    questTodos: 'tomAi.questTodosView',
-    sessionTodos: 'tomAi.sessionTodosView'
+    localLlm: 'tomAi.localLlmChatPanel',
+    conversation: 'tomAi.aiConversationChatPanel',
+    copilot: 'tomAi.copilotChatPanel',
+    tomAiChat: 'tomAi.tomAiChatChatPanel',
+    tomNotepad: 'tomAi.vscodeNotes',
+    workspaceNotepad: 'tomAi.workspaceNotes',
+    workspaceTodos: 'tomAi.workspaceTodos',
+    questNotes: 'tomAi.questNotes',
+    questTodos: 'tomAi.questTodos',
+    sessionTodos: 'tomAi.sessionTodos'
 };
 
 // Storage keys for drafts
@@ -581,20 +581,20 @@ const DEFAULT_QUEST_NOTES_PATTERN = '_ai/quests/${quest}/quest-notes.${quest}.md
 const DEFAULT_QUEST_TODO_FILE_PATTERN = 'todos.${quest}.todo.yaml';
 
 function getWorkspaceTodoRelativePath(): string {
-    return vscode.workspace.getConfiguration('tomAi').get<string>('notes.workspaceTodoFile')
-        || vscode.workspace.getConfiguration('tomAi').get<string>('notes.workspaceTodoFile')
+    return vscode.workspace.getConfiguration('tomAi').get<string>('todo.workspaceTodoFile')
+        || vscode.workspace.getConfiguration('tomAi').get<string>('todo.workspaceTodoFile')
         || DEFAULT_WORKSPACE_TODO_FILE;
 }
 
 function getQuestNotesPattern(): string {
-    return vscode.workspace.getConfiguration('tomAi').get<string>('notes.questNotesFilePattern')
-        || vscode.workspace.getConfiguration('tomAi').get<string>('notes.questNotesFilePattern')
+    return vscode.workspace.getConfiguration('tomAi').get<string>('notes.questNotesPattern')
+        || vscode.workspace.getConfiguration('tomAi').get<string>('notes.questNotesPattern')
         || DEFAULT_QUEST_NOTES_PATTERN;
 }
 
 function getQuestTodoFilePattern(): string {
-    return vscode.workspace.getConfiguration('tomAi').get<string>('notes.questTodoFilePattern')
-        || vscode.workspace.getConfiguration('tomAi').get<string>('notes.questTodoFilePattern')
+    return vscode.workspace.getConfiguration('tomAi').get<string>('todo.questTodoPattern')
+        || vscode.workspace.getConfiguration('tomAi').get<string>('todo.questTodoPattern')
         || DEFAULT_QUEST_TODO_FILE_PATTERN;
 }
 
@@ -985,7 +985,6 @@ class CopilotNotepadProvider implements vscode.WebviewViewProvider {
         
         // Trail: Log prompt being sent to Copilot
         loadTrailConfig();
-        clearTrail('copilot');
         logPrompt('copilot', 'github_copilot', expanded, undefined, {
             template: template?.label || '(None)',
             templateKey: this._selectedTemplate || null,
@@ -1099,7 +1098,7 @@ class CopilotNotepadProvider implements vscode.WebviewViewProvider {
 }
 
 // ============================================================================
-// Local LLM Notepad (uses promptExpander.profiles)
+// Local LLM Notepad (uses localLlm.profiles)
 // ============================================================================
 
 class LocalLlmNotepadProvider implements vscode.WebviewViewProvider {
@@ -1134,12 +1133,12 @@ class LocalLlmNotepadProvider implements vscode.WebviewViewProvider {
             id: '__default__', 
             name: '(Default)', 
             description: 'Use top-level config settings',
-            ollamaUrl: config?.promptExpander?.ollamaUrl || 'http://localhost:11434',
-            model: config?.promptExpander?.model || 'qwen3:8b'
+            ollamaUrl: config?.localLlm?.ollamaUrl || 'http://localhost:11434',
+            model: config?.localLlm?.model || 'qwen3:8b'
         });
-        // Load llmConfigurations from root level of config
-        if (Array.isArray(config?.llmConfigurations)) {
-            for (const lc of config.llmConfigurations) {
+        // Load configurations from root level of config
+        if (Array.isArray(config?.configurations)) {
+            for (const lc of config.configurations) {
                 if (lc && typeof lc.id === 'string') {
                     this._llmConfigs.push({
                         id: lc.id,
@@ -1153,8 +1152,8 @@ class LocalLlmNotepadProvider implements vscode.WebviewViewProvider {
         }
         if (!this._selectedLlmConfig && this._llmConfigs.length > 0) {
             // Find config with isDefault or use first
-            const defaultConfig = Array.isArray(config?.llmConfigurations) 
-                ? config.llmConfigurations.find((c: any) => c.isDefault)?.id
+            const defaultConfig = Array.isArray(config?.configurations) 
+                ? config.configurations.find((c: any) => c.isDefault)?.id
                 : undefined;
             this._selectedLlmConfig = defaultConfig || this._llmConfigs[0].id;
         }
@@ -1165,8 +1164,8 @@ class LocalLlmNotepadProvider implements vscode.WebviewViewProvider {
         this._profiles = [];
         // Add "(None)" option for raw prompt
         this._profiles.push({ key: '__none__', label: '(None)', description: 'Send prompt as-is', systemPrompt: undefined });
-        if (config?.promptExpander?.profiles) {
-            for (const [key, value] of Object.entries(config.promptExpander.profiles)) {
+        if (config?.localLlm?.profiles) {
+            for (const [key, value] of Object.entries(config.localLlm.profiles)) {
                 this._profiles.push({
                     key,
                     label: value.label || key,
@@ -1283,7 +1282,7 @@ class LocalLlmNotepadProvider implements vscode.WebviewViewProvider {
     }
 
     private async _sendExpanded(text: string): Promise<void> {
-        const manager = getPromptExpanderManager();
+        const manager = getLocalLlmManager();
         if (!manager) {
             vscode.window.showErrorMessage('Local LLM not available - extension not fully initialized');
             return;
@@ -1327,10 +1326,7 @@ class LocalLlmNotepadProvider implements vscode.WebviewViewProvider {
             );
             
             if (result.success) {
-                // Write to trail file
-                await this._appendToTrail(text, result.result, profileLabel);
-                // Open the trail file
-                await this._showTrail();
+                // Trail is handled by TrailService via Local LLM manager logging.
             } else {
                 vscode.window.showErrorMessage(`Local LLM error: ${result.error || 'Unknown error'}`);
             }
@@ -1339,51 +1335,8 @@ class LocalLlmNotepadProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private _getTrailFilePath(): string | null {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) { return null; }
-        return WsPaths.ai('local', 'chat_trail.md') || path.join(workspaceFolder.uri.fsPath, '_ai', 'local', 'chat_trail.md');
-    }
-
-    private async _appendToTrail(prompt: string, response: string, profile: string): Promise<void> {
-        const trailPath = this._getTrailFilePath();
-        if (!trailPath) {
-            vscode.window.showWarningMessage('No workspace folder - cannot save to trail file');
-            return;
-        }
-        
-        // Ensure directory exists
-        const dir = path.dirname(trailPath);
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
-        }
-        
-        // Build entry
-        const timestamp = new Date().toISOString();
-        const entry = `\n---\n\n## ${timestamp} (${profile})\n\n### Prompt\n\n${prompt}\n\n### Response\n\n${response}\n`;
-        
-        // Append to file
-        fs.appendFileSync(trailPath, entry, 'utf-8');
-    }
-
     private async _showTrail(): Promise<void> {
-        const trailPath = this._getTrailFilePath();
-        if (!trailPath) {
-            vscode.window.showWarningMessage('No workspace folder');
-            return;
-        }
-        
-        if (!fs.existsSync(trailPath)) {
-            // Create empty file with header
-            const dir = path.dirname(trailPath);
-            if (!fs.existsSync(dir)) {
-                fs.mkdirSync(dir, { recursive: true });
-            }
-            fs.writeFileSync(trailPath, '# Local LLM Chat Trail\n\nConversation history with local LLM.\n', 'utf-8');
-        }
-        
-        const doc = await vscode.workspace.openTextDocument(trailPath);
-        await vscode.window.showTextDocument(doc, { preview: false });
+        await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer');
     }
 
     private async _addProfile(): Promise<void> {
@@ -1406,8 +1359,8 @@ class LocalLlmNotepadProvider implements vscode.WebviewViewProvider {
         if (confirm !== 'Delete') { return; }
 
         const config = loadSendToChatConfig();
-        if (config?.promptExpander?.profiles?.[this._selectedProfile]) {
-            delete config.promptExpander.profiles[this._selectedProfile];
+        if (config?.localLlm?.profiles?.[this._selectedProfile]) {
+            delete config.localLlm.profiles[this._selectedProfile];
             if (saveSendToChatConfig(config)) {
                 this._loadProfiles();
                 this._selectedProfile = this._profiles[0]?.key || '';
@@ -1512,7 +1465,7 @@ class LocalLlmNotepadProvider implements vscode.WebviewViewProvider {
 }
 
 // ============================================================================
-// Conversation Notepad (uses botConversation.profiles)
+// Conversation Notepad (uses aiConversation.profiles)
 // ============================================================================
 
 class ConversationNotepadProvider implements vscode.WebviewViewProvider {
@@ -1552,9 +1505,9 @@ class ConversationNotepadProvider implements vscode.WebviewViewProvider {
             llmConfigA: '__default__',
             llmConfigB: '__default__'
         });
-        // Load aiConversationSetups from root level of config
-        if (Array.isArray(config?.aiConversationSetups)) {
-            for (const setup of config.aiConversationSetups) {
+        // Load setups from root level of config
+        if (Array.isArray(config?.setups)) {
+            for (const setup of config.setups) {
                 if (setup && typeof setup.id === 'string') {
                     this._aiSetups.push({
                         id: setup.id,
@@ -1569,13 +1522,13 @@ class ConversationNotepadProvider implements vscode.WebviewViewProvider {
             }
         }
         // Also load mode from config
-        const botConfig = (loadSendToChatConfig() as any)?.botConversation;
+        const botConfig = (loadSendToChatConfig() as any)?.aiConversation;
         this._conversationMode = botConfig?.conversationMode || 'ollama-copilot';
         
         // Set default if not selected
         if (!this._selectedAiSetup && this._aiSetups.length > 0) {
-            const defaultSetup = Array.isArray(config?.aiConversationSetups)
-                ? config.aiConversationSetups.find((s: any) => s.isDefault)?.id
+            const defaultSetup = Array.isArray(config?.setups)
+                ? config.setups.find((s: any) => s.isDefault)?.id
                 : undefined;
             this._selectedAiSetup = defaultSetup || this._aiSetups[0].id;
         }
@@ -1586,8 +1539,8 @@ class ConversationNotepadProvider implements vscode.WebviewViewProvider {
         this._profiles = [];
         // Add "(None)" option for raw prompt
         this._profiles.push({ key: '__none__', label: '(None)', description: 'Send prompt as-is', maxTurns: undefined, initialPromptTemplate: undefined });
-        if (config?.botConversation?.profiles) {
-            for (const [key, value] of Object.entries(config.botConversation.profiles)) {
+        if (config?.aiConversation?.profiles) {
+            for (const [key, value] of Object.entries(config.aiConversation.profiles)) {
                 this._profiles.push({
                     key,
                     label: value.label || key,
@@ -1768,8 +1721,8 @@ class ConversationNotepadProvider implements vscode.WebviewViewProvider {
         if (confirm !== 'Delete') { return; }
 
         const config = loadSendToChatConfig();
-        if (config?.botConversation?.profiles?.[this._selectedProfile]) {
-            delete config.botConversation.profiles[this._selectedProfile];
+        if (config?.aiConversation?.profiles?.[this._selectedProfile]) {
+            delete config.aiConversation.profiles[this._selectedProfile];
             if (saveSendToChatConfig(config)) {
                 this._loadProfiles();
                 this._selectedProfile = this._profiles[0]?.key || '';

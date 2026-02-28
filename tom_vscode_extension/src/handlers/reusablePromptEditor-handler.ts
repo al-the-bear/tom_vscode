@@ -117,7 +117,7 @@ export function registerReusablePromptEditorCommand(ctx: vscode.ExtensionContext
 }
 
 // ============================================================================
-// Scope resolution (adapted from unifiedNotepad-handler.ts)
+// Scope resolution (adapted from chatPanel-handler.ts)
 // ============================================================================
 
 function _getGlobalPromptsDir(): string | null {

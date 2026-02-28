@@ -3,7 +3,7 @@
  *
  * Each tool is defined *once* here and consumed by:
  *   - tomAiChat-tools.ts  → VS Code LM registration
- *   - expandPrompt-handler.ts → Ollama tool-call loop
+ *   - localLlm-handler.ts → Ollama tool-call loop
  *
  * All executors return a plain string result.
  */

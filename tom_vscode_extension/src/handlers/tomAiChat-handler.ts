@@ -15,7 +15,7 @@ import { TodoManager, TodoOperationResult } from '../managers/todoManager';
 import { setActiveTodoManager } from '../tools/tomAiChat-tools';
 import { WsPaths } from '../utils/workspacePaths';
 import {
-    clearTrail, logPrompt, logResponse, logToolRequest, logToolResult,
+    logPrompt, logResponse, logToolRequest, logToolResult,
     isTrailEnabled, loadTrailConfig, writeTrailFile,
 } from './trailLogger-handler';
 
@@ -842,9 +842,8 @@ export async function sendToTomAiChatHandler(): Promise<void> {
     // maxIterations is now read from chat file or config (default 100)
     const systemPrompt = buildSystemPrompt();
     
-    // Trail: Clear and log initial prompt
+    // Trail: Log initial prompt
     loadTrailConfig();
-    clearTrail('tomai');
     logPrompt('tomai', modelId, fullPromptTemplate, systemPrompt, {
         chatId,
         modelId,

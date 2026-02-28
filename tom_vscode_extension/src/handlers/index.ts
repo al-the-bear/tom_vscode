@@ -25,7 +25,7 @@ export {
 
 // Command handlers
 export { sendToChatHandler } from './sendToChat-handler';
-export { SendToChatAdvancedManager } from './sendToChatAdvanced-handler';
+export { SendToChatAdvancedManager } from './copilotTemplates-handler';
 export { executeInTomAiBuildHandler } from './executeInTomAiBuild-handler';
 export { executeAsScriptHandler } from './executeAsScript-handler';
 export { restartBridgeHandler, initializeBridgeClient, switchBridgeProfileHandler } from './restartBridge-handler';
@@ -46,27 +46,27 @@ export {
     expandPromptHandler,
     createProfileHandler,
     switchModelHandler,
-    PromptExpanderManager,
-    setPromptExpanderManager,
-    getPromptExpanderManager,
-} from './expandPrompt-handler';
+    LocalLlmManager,
+    setLocalLlmManager,
+    getLocalLlmManager,
+} from './localLlm-handler';
 export {
     startBotConversationHandler,
     stopBotConversationHandler,
     haltBotConversationHandler,
     continueBotConversationHandler,
     addToBotConversationHandler,
-    BotConversationManager,
-    setBotConversationManager,
-    getBotConversationManager,
-} from './botConversation-handler';
+    AiConversationManager,
+    setAiConversationManager,
+    getAiConversationManager,
+} from './aiConversation-handler';
 export { registerChordMenuCommands } from './chordMenu-handler';
 export { registerCommandlineCommands } from './commandline-handler';
 export { registerCombinedCommands } from './combinedCommand-handler';
 export { registerStateMachineCommands } from './stateMachine-handler';
 export { telegramTestHandler, telegramToggleHandler, telegramConfigureHandler, disposeTelegramStandalone, isTelegramPollingActive } from './telegram-commands';
-export { registerDsNotesViews } from './dsNotes-handler';
-export { registerUnifiedNotepad } from './unifiedNotepad-handler';
+export { registerDsNotesViews } from './sidebarNotes-handler';
+export { registerUnifiedNotepad } from './chatPanel-handler';
 export { registerT3Panel } from './t3Panel-handler';
 export { registerQuestTodoPanel } from './questTodoPanel-handler';
 export { registerChatVariablesEditorCommand } from './chatVariablesEditor-handler';

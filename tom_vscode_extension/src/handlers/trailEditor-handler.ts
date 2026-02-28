@@ -46,7 +46,7 @@ export function registerTrailCustomEditor(context: vscode.ExtensionContext): voi
     const provider = new TrailEditorProvider(context);
     context.subscriptions.push(
         vscode.window.registerCustomEditorProvider(
-            'trailViewer.editor',
+            'tomAi.trailViewer',
             provider,
             { webviewOptions: { retainContextWhenHidden: true } },
         ),
@@ -254,7 +254,7 @@ async function gotoWorkspaceTodo(ctx: vscode.ExtensionContext, todoId: string, _
             todoId: todoId,
         });
         const uri = vscode.Uri.file(yamlAbsPath);
-        await vscode.commands.executeCommand('vscode.openWith', uri, 'questTodo.editor');
+        await vscode.commands.executeCommand('vscode.openWith', uri, 'tomAi.todoEditor');
     } catch (e) {
         debugLog('[TrailEditor] gotoTodo error: ' + e, 'ERROR', 'extension');
     }
@@ -640,6 +640,8 @@ body {
 <div class="top-bar">
     <label>Trail:</label>
     <select id="quest-select"></select>
+    <label>Subsystem:</label>
+    <select id="subsystem-select"></select>
     <span class="spacer"></span>
     <button class="icon-btn" id="btn-open-prompts" title="Open prompts file in editor"><span class="codicon codicon-file-text"></span></button>
     <button class="icon-btn" id="btn-open-answers" title="Open answers file in editor"><span class="codicon codicon-file-code"></span></button>
@@ -681,29 +683,107 @@ body {
     
     let allEntries = ${entriesJson};
     let currentQuest = ${currentSetJson};
-    const trailSets = ${setsJson};
+    let trailSets = ${setsJson};
     let selectedIndex = -1;
     
-    // ---- Quest dropdown ----
+    // ---- Quest/subsystem dropdowns ----
     const questSelect = document.getElementById('quest-select');
-    function populateQuestDropdown(sets, selected) {
-        questSelect.innerHTML = '';
-        var names = Object.keys(sets).sort();
+    const subsystemSelect = document.getElementById('subsystem-select');
+
+    function splitSetName(setName) {
+        var idx = setName.indexOf('.');
+        if (idx < 0) {
+            return { quest: setName, subsystem: 'default' };
+        }
+        return {
+            quest: setName.substring(0, idx),
+            subsystem: setName.substring(idx + 1) || 'default'
+        };
+    }
+
+    function buildQuestSubsystemIndex(sets) {
+        var names = Object.keys(sets);
+        var idx = {};
         for (var i = 0; i < names.length; i++) {
+            var setName = names[i];
+            var parsed = splitSetName(setName);
+            if (!idx[parsed.quest]) {
+                idx[parsed.quest] = [];
+            }
+            idx[parsed.quest].push({ subsystem: parsed.subsystem, setName: setName });
+        }
+        var quests = Object.keys(idx);
+        for (var q = 0; q < quests.length; q++) {
+            idx[quests[q]].sort(function(a, b) { return a.subsystem.localeCompare(b.subsystem); });
+        }
+        return idx;
+    }
+
+    function resolveSelection(sets, selectedSetName) {
+        var names = Object.keys(sets).sort();
+        if (names.length === 0) {
+            return { quest: '', subsystem: '', setName: '' };
+        }
+        var chosen = selectedSetName && sets[selectedSetName] ? selectedSetName : names[0];
+        var parsed = splitSetName(chosen);
+        return { quest: parsed.quest, subsystem: parsed.subsystem, setName: chosen };
+    }
+
+    function populateSelectors(sets, selectedSetName) {
+        var selection = resolveSelection(sets, selectedSetName);
+        var index = buildQuestSubsystemIndex(sets);
+
+        questSelect.innerHTML = '';
+        var questNames = Object.keys(index).sort();
+        for (var i = 0; i < questNames.length; i++) {
             var opt = document.createElement('option');
-            opt.value = names[i];
-            opt.textContent = names[i];
-            if (names[i] === selected) { opt.selected = true; }
+            opt.value = questNames[i];
+            opt.textContent = questNames[i];
+            if (questNames[i] === selection.quest) { opt.selected = true; }
             questSelect.appendChild(opt);
         }
+
+        subsystemSelect.innerHTML = '';
+        var subs = index[selection.quest] || [];
+        for (var s = 0; s < subs.length; s++) {
+            var subOpt = document.createElement('option');
+            subOpt.value = subs[s].setName;
+            subOpt.textContent = subs[s].subsystem;
+            if (subs[s].setName === selection.setName) { subOpt.selected = true; }
+            subsystemSelect.appendChild(subOpt);
+        }
+
+        currentQuest = selection.setName;
     }
-    populateQuestDropdown(trailSets, currentQuest);
-    
+
+    populateSelectors(trailSets, currentQuest);
+
     questSelect.addEventListener('change', function() {
-        currentQuest = questSelect.value;
+        var index = buildQuestSubsystemIndex(trailSets);
+        var subs = index[questSelect.value] || [];
+        if (subs.length === 0) {
+            return;
+        }
+
+        subsystemSelect.innerHTML = '';
+        for (var s = 0; s < subs.length; s++) {
+            var subOpt = document.createElement('option');
+            subOpt.value = subs[s].setName;
+            subOpt.textContent = subs[s].subsystem;
+            subsystemSelect.appendChild(subOpt);
+        }
+
+        currentQuest = subs[0].setName;
+        subsystemSelect.value = currentQuest;
         selectedIndex = -1;
         vscode.postMessage({ type: 'switchQuest', quest: currentQuest });
     });
+
+    subsystemSelect.addEventListener('change', function() {
+        currentQuest = subsystemSelect.value;
+        selectedIndex = -1;
+        vscode.postMessage({ type: 'switchQuest', quest: currentQuest });
+    }
     
     // ---- Entry list ----
     var entryListEl = document.getElementById('entry-list');
@@ -982,7 +1062,10 @@ body {
         if (msg.type === 'updateEntries') {
             allEntries = msg.entries || [];
             if (msg.quest) { currentQuest = msg.quest; }
-            if (msg.trailSets) { populateQuestDropdown(msg.trailSets, currentQuest); }
+            if (msg.trailSets) {
+                trailSets = msg.trailSets;
+                populateSelectors(trailSets, currentQuest);
+            }
             selectedIndex = -1;
             renderEntryList();
             previewPanel.innerHTML = '<div class="empty-state">Select a prompt or answer to preview</div>';

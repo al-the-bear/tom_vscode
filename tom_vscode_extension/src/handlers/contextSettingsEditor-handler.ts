@@ -116,7 +116,7 @@ async function _handleMessage(msg: any): Promise<void> {
 }
 
 // ============================================================================
-// Data helpers (mirrored from unifiedNotepad-handler)
+// Data helpers (mirrored from chatPanel-handler)
 // ============================================================================
 
 function _getWorkspaceRoot(): string | undefined {
