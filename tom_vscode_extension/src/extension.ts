@@ -80,6 +80,7 @@ import {
 import { registerQuestTodoCustomEditor } from './handlers/questTodoEditor-handler';
 import { registerTrailCustomEditor } from './handlers/trailEditor-handler';
 import { registerTodoLogView } from './handlers/todoLogPanel-handler';
+import { registerWindowStatusView, deleteCurrentWindowState, cleanupStaleWindowStates } from './handlers/windowStatusPanel-handler';
 import { registerMinimalModePanels } from './handlers/minimalMode-handler';
 import { initializeDebugLogger, installConsoleDebugRouting, debugLog } from './utils/debugLogger';
 import { TomAiConfiguration } from './utils/tomAiConfiguration';
@@ -421,6 +422,16 @@ export async function activate(context: vscode.ExtensionContext) {
     stepStart = performance.now();
     context.subscriptions.push(registerTodoLogView(context));
     timeStep('todoLogView', stepStart);
+
+    // Register Window Status explorer sidebar panel
+    stepStart = performance.now();
+    context.subscriptions.push(registerWindowStatusView(context));
+    // Compute the trail-compatible window ID (matches chatPanel-handler getWindowId())
+    const wsWindowId = `${vscode.env.sessionId.substring(0, 8)}_${vscode.env.machineId.substring(0, 8)}`;
+    cleanupStaleWindowStates(wsWindowId);
+    // Cleanup own window state file on deactivation
+    context.subscriptions.push({ dispose: () => deleteCurrentWindowState(wsWindowId) });
+    timeStep('windowStatusView', stepStart);
 
     // Check for test reinstall marker and send reload prompt to Copilot Chat
     stepStart = performance.now();

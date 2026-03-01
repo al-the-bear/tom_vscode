@@ -119,6 +119,14 @@ export interface SendToChatConfig {
     };
 
     /**
+     * Window status panel configuration.
+     */
+    windowStatus?: {
+        /** Folder path for window-state files (supports ${ai} token). Default: ${ai}/local */
+        localFolder?: string;
+    };
+
+    /**
      * External application mappings for file types.
      * Used to open files in appropriate external applications.
      */

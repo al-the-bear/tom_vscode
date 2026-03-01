@@ -28,6 +28,7 @@ import { WsPaths } from '../utils/workspacePaths';
 import { validateStrictAiConfiguration } from '../utils/sendToChatConfig';
 import { findNearestDetectedProject, scanWorkspaceProjectsByDetectors } from '../utils/projectDetector';
 import { TrailService } from '../services/trailService';
+import { writeWindowState } from './windowStatusPanel-handler.js';
 
 // ============================================================================
 // Answer File Utilities (for Copilot answer file feature)
@@ -366,6 +367,14 @@ function writePromptTrail(originalPrompt: string, templateName: string, isAnswer
     trailService.writeSummaryPrompt({ type: 'copilot' }, summaryPrompt, getCopilotSummaryTrailPaths()?.questId);
 
     void trailService.writeRawPrompt({ type: 'copilot' }, expandedPrompt, getWindowId(), requestId);
+
+    // Update window status panel — prompt sent
+    try {
+        const quest = detectQuestFromWorkspace() || '';
+        writeWindowState(getWindowId(), getWorkspaceName(), quest, 'copilot', 'prompt-sent');
+    } catch (e) {
+        debugLog(`[Trail] Failed to update window state on prompt: ${e}`, 'WARN', 'windowStatus');
+    }
 }
 
 /** Write to consolidated answer trail file */
@@ -385,6 +394,14 @@ function writeAnswerTrail(answer: { requestId: string; generatedMarkdown: string
     );
 
     void trailService.writeRawAnswer({ type: 'copilot' }, answer.generatedMarkdown, getWindowId(), answer.requestId);
+
+    // Update window status panel — answer received
+    try {
+        const quest = detectQuestFromWorkspace() || '';
+        writeWindowState(getWindowId(), getWorkspaceName(), quest, 'copilot', 'answer-received');
+    } catch (e) {
+        debugLog(`[Trail] Failed to update window state on answer: ${e}`, 'WARN', 'windowStatus');
+    }
 }
 
 const VIEW_ID = 'tomAi.chatPanel';

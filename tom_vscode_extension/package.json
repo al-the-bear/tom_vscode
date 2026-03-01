@@ -488,6 +488,12 @@
                     "id": "tomAi.workspaceTodos",
                     "name": "WORKSPACE TODOS",
                     "icon": "$(tasklist)"
+                },
+                {
+                    "type": "webview",
+                    "id": "tomAi.windowStatus",
+                    "name": "WINDOW STATUS",
+                    "icon": "$(window)"
                 }
             ]
         },
