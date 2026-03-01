@@ -1273,7 +1273,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
             
             if (result.success) {
                 await this._appendToTrail(expanded, result.result, profileLabel, llmConfigKey);
-                await this._showTrail();
+                await this._showTrail(llmConfigKey);
             } else {
                 vscode.window.showErrorMessage(`Local LLM error: ${result.error || 'Unknown error'}`);
             }
@@ -1523,7 +1523,21 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
         await trailService.writeRawAnswer(subsystem, response, getWindowId());
     }
 
-    private async _showTrail(): Promise<void> {
+    private async _showTrail(llmConfigKey?: string | null): Promise<void> {
+        // Try to open the summary answers file from the quest folder
+        const questId = detectQuestFromWorkspace() || undefined;
+        const configName = (llmConfigKey || 'default').replace(/[^a-zA-Z0-9._-]/g, '_');
+        const subsystem = { type: 'localLlm' as const, configName };
+        const trailService = TrailService.instance;
+        const summaryPath = trailService.getSummaryFilePath('answers', subsystem, questId);
+
+        if (summaryPath && fs.existsSync(summaryPath)) {
+            const uri = vscode.Uri.file(summaryPath);
+            await vscode.commands.executeCommand('vscode.openWith', uri, 'tomAi.trailViewer');
+            return;
+        }
+
+        // Fallback: open the old compact trail file
         const paths = this._getLocalTrailPaths();
         if (!paths) {
             vscode.window.showWarningMessage('No workspace folder');

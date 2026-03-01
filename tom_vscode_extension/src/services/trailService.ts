@@ -254,6 +254,11 @@ export class TrailService {
         });
     }
 
+    /** Resolve the summary file path for external callers. */
+    getSummaryFilePath(kind: 'prompts' | 'answers', subsystem: TrailSubsystem, questId?: string): string | undefined {
+        return this.resolveSummaryFile(kind, subsystem, questId);
+    }
+
     private resolveSummaryFile(kind: 'prompts' | 'answers', subsystem: TrailSubsystem, questId?: string): string | undefined {
         const cfg = this.getSummaryConfig();
         const pattern = kind === 'prompts' ? cfg.promptsFilePattern : cfg.answersFilePattern;
