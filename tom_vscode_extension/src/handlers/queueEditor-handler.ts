@@ -14,6 +14,7 @@ import { ReminderSystem } from '../managers/reminderSystem';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import { loadSendToChatConfig, saveSendToChatConfig, PLACEHOLDER_HELP } from './handler_shared';
 import { openGlobalTemplateEditor } from './globalTemplateEditor-handler';
+import { queueEntryStyles, queueEntryUtils, queueEntryRenderFunctions, queueEntryMessageHandlers } from './queueEntryComponent';
 
 // ============================================================================
 // State
@@ -219,6 +220,12 @@ async function handleMessage(msg: any): Promise<void> {
           break;
         case 'updateText':
             await qm.updateText(msg.id, msg.text);
+            break;
+        case 'updateItemTemplate':
+            await qm.updateItemTemplateAndWrapper(msg.id, { template: msg.template });
+            break;
+        case 'updateItemAnswerWrapper':
+            await qm.updateItemTemplateAndWrapper(msg.id, { answerWrapper: msg.answerWrapper });
             break;
         case 'updateItemReminder':
           qm.updateItemReminder(msg.id, {
@@ -561,59 +568,7 @@ function getHtml(codiconsUri: string, safeStateJson: string): string {
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <link rel="stylesheet" href="${codiconsUri}">
 <style>
-  :root { --bg: var(--vscode-editor-background); --fg: var(--vscode-editor-foreground); --border: var(--vscode-panel-border); --btnBg: var(--vscode-button-background); --btnFg: var(--vscode-button-foreground); }
-  body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--fg); background: var(--bg); margin: 0; padding: 8px; }
-  h2 { margin: 0 0 8px; font-size: 1.1em; }
-  .toolbar { display: flex; gap: 6px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
-  .toolbar button:not(.ctx-btn-icon) { padding: 4px 10px; border: 1px solid var(--border); background: var(--btnBg); color: var(--btnFg); cursor: pointer; border-radius: 3px; font-size: 0.85em; }
-  .toolbar .toggle.active { background: var(--vscode-inputValidation-infoBorder, #007acc); }
-  .queue-list { display: flex; flex-direction: column; gap: 8px; }
-  .queue-item { border: 1px solid var(--border); border-radius: 4px; padding: 8px; position: relative; }
-  .queue-item.sending { border-left: 3px solid var(--vscode-inputValidation-infoBorder, #007acc); }
-  .queue-item.sent { opacity: 0.55; }
-  .queue-item.error { border-left: 3px solid var(--vscode-inputValidation-errorBorder, #f44); }
-  .queue-item.reminder { border-left: 3px solid orange; }
-  .item-header { display: flex; align-items: center; margin-bottom: 4px; }
-  .item-meta { font-size: 0.8em; opacity: 0.7; }
-  .status-bar { flex: 1; padding: 3px 10px; border-radius: 3px; font-size: 0.8em; font-weight: bold; text-transform: uppercase; color: #000; display: flex; justify-content: space-between; align-items: center; }
-  .status-bar.staged { background: #ef9a9a; }
-  .status-bar.pending { background: #4caf50; }
-  .status-bar.sending { background: #4caf50; }
-  .status-bar.sent { background: #bdbdbd; }
-  .status-bar.error { background: #e57373; }
-  .status-bar.reminder { background: #ff9800; }
-  textarea { width: 100%; min-height: 50px; resize: vertical; font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--border); padding: 4px; box-sizing: border-box; }
-  .empty { text-align: center; opacity: 0.5; padding: 20px; }
-  .context-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding: 6px 8px; background: var(--vscode-textBlockQuote-background); border-radius: 4px; font-size: 0.85em; }
-  .context-summary { flex: 1; opacity: 0.8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .ctx-btn { padding: 3px 10px; border: 1px solid var(--border); background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); cursor: pointer; border-radius: 3px; font-size: 0.8em; white-space: nowrap; }
-  .ctx-btn-icon { padding: 2px 4px; border: none; background: transparent; color: var(--fg); cursor: pointer; border-radius: 3px; font-size: 0.85em; opacity: 0.7; }
-  .ctx-btn-icon:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground); }
-  .add-form { border: 1px solid var(--border); border-radius: 4px; padding: 10px; margin-bottom: 10px; display: none; }
-  .add-form.visible { display: block; }
-  .add-form label { font-size: 0.85em; font-weight: 600; display: block; margin: 6px 0 2px; }
-  .add-form textarea { width: 100%; min-height: 50px; resize: vertical; font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--border); padding: 4px; box-sizing: border-box; }
-  .add-options { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin-top: 6px; font-size: 0.85em; }
-  .add-options label { font-weight: 600; }
-  .add-options select, .add-options input[type="number"] { background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--border); padding: 2px 6px; font-size: 0.9em; border-radius: 3px; }
-  .add-form-actions { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
-  .add-form-actions button { padding: 4px 14px; border: 1px solid var(--border); cursor: pointer; border-radius: 3px; font-size: 0.85em; }
-  .add-feedback { font-size: 0.8em; margin-left: 8px; transition: opacity 0.3s; }
-  .add-feedback.success { color: var(--vscode-charts-green, #388a34); }
-  .add-feedback.error { color: var(--vscode-charts-red, #f44); }
-  .followup-block { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 8px; }
-  .followup-block.indented { margin-left: 16px; }
-  .followup-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-start; margin-top: 4px; }
-  .followup-row { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
-  .followup-actions .followup-row { margin-top: 0; flex-wrap: wrap; }
-  .followup-row textarea { min-height: 44px; }
-  .followup-list { display: flex; flex-direction: column; gap: 6px; }
-  .followup-item { border: 1px solid var(--border); border-radius: 3px; padding: 6px; }
-  .followup-item-head { display: flex; justify-content: space-between; align-items: center; font-size: 0.8em; opacity: 0.8; margin-bottom: 4px; }
-  .followup-tools { display: flex; gap: 3px; align-items: center; }
-  .status-left { display:flex; align-items:center; gap:6px; }
-  .status-icons { display:flex; align-items:center; gap:3px; }
-  .details-hidden { display:none; }
+${queueEntryStyles()}
 </style>
 </head>
 <body>
@@ -780,6 +735,7 @@ let reminderTemplates = __INITIAL__.reminderTemplates || [];
 let promptTemplates = __INITIAL__.promptTemplates || [];
 let currentContext = __INITIAL__.context || { quest: '', role: '', activeProjects: [] };
 let detailsExpanded = {};
+var editorMode = 'queue';
 if (Array.isArray(__INITIAL__.collapsedIds)) {
   __INITIAL__.collapsedIds
     .filter(function(id) { return typeof id === 'string' && !!id; })
@@ -820,34 +776,17 @@ function normalizeState() {
   }
 }
 
+/* ---- Shared component: utilities, rendering, message handlers ---- */
+/* ---- Shared component: utilities, rendering, message handlers ---- */
+${queueEntryUtils()}
+${queueEntryRenderFunctions()}
+${queueEntryMessageHandlers()}
+
 function showFatalError(context, err) {
   const list = document.getElementById('queueList');
   if (!list) return;
   const message = (err && err.message) ? err.message : String(err || 'unknown error');
   list.innerHTML = '<div class="empty" style="color:var(--vscode-errorForeground,#f85149);">Queue render error (' + escapeHtml(context) + '): ' + escapeHtml(message) + '</div>';
-}
-
-function statusSortRank(status) {
-  if (status === 'sending') return 0;
-  if (status === 'pending') return 1;
-  if (status === 'staged') return 2;
-  if (status === 'sent') return 3;
-  return 4;
-}
-
-function formatPromptTemplateName(name) {
-  if (!name || name === '(None)') return '(None)';
-  if (name === '__answer_file__') return 'Answer Wrapper';
-  return name;
-}
-
-function reminderTimeoutOptions(selectedMinutes) {
-  const options = [5, 10, 15, 30, 60, 120, 240, 480];
-  const selected = Math.max(1, parseInt(String(selectedMinutes || 0), 10) || 0);
-  const rendered = options.map(function(m) {
-    return '<option value="' + m + '"' + (m === selected ? ' selected' : '') + '>' + m + ' min</option>';
-  }).join('');
-  return rendered || '<option value="60">60 min</option>';
 }
 
 /* Render immediately from embedded state */
@@ -945,177 +884,18 @@ function render() {
   const displayItems = [...currentItems]
     .map(function(item, idx) { return { item: item, idx: idx }; })
     .sort(function(a, b) {
-      const statusA = (a.item.status === 'staged' || a.item.status === 'pending' || a.item.status === 'sending' || a.item.status === 'sent' || a.item.status === 'error')
-        ? a.item.status
-        : 'staged';
-      const statusB = (b.item.status === 'staged' || b.item.status === 'pending' || b.item.status === 'sending' || b.item.status === 'sent' || b.item.status === 'error')
-        ? b.item.status
-        : 'staged';
-      const rankDiff = statusSortRank(statusA) - statusSortRank(statusB);
-      if (rankDiff !== 0) { return rankDiff; }
-      if (statusA === 'sent') {
-        return (new Date(b.item.createdAt || 0).getTime()) - (new Date(a.item.createdAt || 0).getTime());
-      }
+      var statusA = a.item.status || 'staged';
+      var statusB = b.item.status || 'staged';
+      var rankDiff = statusSortRank(statusA) - statusSortRank(statusB);
+      if (rankDiff !== 0) return rankDiff;
+      if (statusA === 'sent') return (new Date(b.item.createdAt || 0).getTime()) - (new Date(a.item.createdAt || 0).getTime());
       return a.idx - b.idx;
     })
     .map(function(x) { return x.item; });
 
-  list.innerHTML = displayItems.map((item, idx) => {
-    const safeStatus = (item.status === 'staged' || item.status === 'pending' || item.status === 'sending' || item.status === 'sent' || item.status === 'error')
-      ? item.status
-      : 'staged';
-    const queuePos = idx + 1;
-    const typeIconClass = item.type === 'timed' ? 'codicon-watch' : item.type === 'reminder' ? 'codicon-bell' : 'codicon-comment';
-    const cls = [safeStatus];
-    if (item.type === 'reminder') cls.push('reminder');
-    const time = item.createdAt ? new Date(item.createdAt).toLocaleTimeString() : '';
-    const sentTime = item.sentAt ? new Date(item.sentAt).toLocaleTimeString() : '';
-    const isPending = safeStatus === 'pending';
-    const isStaged = safeStatus === 'staged';
-    const isEditable = isStaged;
-    const statusBarCls = item.type === 'reminder' ? 'reminder' : safeStatus;
-    const statusLabel = safeStatus.toUpperCase();
-
-    const followUps = Array.isArray(item.followUps) ? item.followUps : [];
-    const sentFollowUps = item.followUpIndex || 0;
-    const followUpProgress = followUps.length > 0 ? ('  [FU ' + Math.min(sentFollowUps, followUps.length) + '/' + followUps.length + ']') : '';
-
-    const expanded = detailsExpanded[item.id] !== false;
-
-    return '<div class="queue-item ' + cls.join(' ') + '">' +
-      '<div class="item-header">' +
-        '<div class="status-bar ' + statusBarCls + '">' +
-          '<span class="status-left">' +
-            '<span class="codicon ' + (expanded ? 'codicon-chevron-down' : 'codicon-chevron-right') + '" style="cursor:pointer;color:#000;" onclick="toggleDetails(\\'' + item.id + '\\')" title="Toggle details"></span>' +
-            statusLabel +
-            followUpProgress +
-            (item.template && item.template !== '(None)' && item.template !== '__answer_file__' ? '  [' + escapeHtml(item.template) + ']' : '') +
-            (item.answerWrapper || item.template === '__answer_file__' ? '  [AW]' : '') +
-            '<span class="status-icons">' +
-            '<span class="codicon codicon-eye" style="cursor:pointer;color:#000;" onclick="previewItem(\\'' + item.id + '\\')" title="Preview"></span>' +
-            (isStaged ? '<span class="codicon codicon-arrow-right" style="cursor:pointer;color:#000;" onclick="setItemStatus(\\'' + item.id + '\\', \\'pending\\')" title="Set to Pending"></span>' : '') +
-            (isPending ? '<span class="codicon codicon-arrow-left" style="cursor:pointer;color:#000;" onclick="setItemStatus(\\'' + item.id + '\\', \\'staged\\')" title="Move back to Staged"></span>' : '') +
-            ((isPending || isStaged) ? '<span class="codicon codicon-play" style="cursor:pointer;color:#000;" onclick="sendNow(\\'' + item.id + '\\')" title="Send Now"></span>' : '') +
-            (isPending ? '<span class="codicon codicon-arrow-up" style="cursor:pointer;color:#000;" onclick="moveDown(\\'' + item.id + '\\')" title="Move up (away from send)"></span>' : '') +
-            (isPending ? '<span class="codicon codicon-arrow-down" style="cursor:pointer;color:#000;" onclick="moveUp(\\'' + item.id + '\\')" title="Move down (closer to send)"></span>' : '') +
-            '<span class="codicon codicon-trash" style="cursor:pointer;color:#000;" onclick="remove(\\'' + item.id + '\\')" title="Delete"></span>' +
-            '</span>' +
-          '</span>' +
-          '<span style="display:flex;align-items:center;gap:6px;">' +
-            '#' + queuePos + '  ' + time + (sentTime ? ' \\u2192 ' + sentTime : '') +
-            ' <span class="codicon ' + typeIconClass + '" style="color:#000;"></span>' +
-          '</span>' +
-        '</div>' +
-      '</div>' +
-      '<div class="' + (expanded ? '' : 'details-hidden') + '">' +
-      (isEditable
-        ? '<textarea onchange="updateText(\\'' + item.id + '\\', this.value)">' + escapeHtml(item.originalText) + '</textarea>'
-        : '<div style="margin:4px 0; white-space:pre-wrap;">' + escapeHtml(item.originalText) + '</div>') +
-      (isEditable
-        ? '<div class="followup-row" style="margin-top:6px;">' +
-            '<label style="font-size:0.8em;"><input type="checkbox" ' + (item.reminderEnabled ? 'checked' : '') + ' onchange="updateItemReminder(\\'' + item.id + '\\', \"enabled\", this.checked)"> Reminder</label>' +
-            '<select onchange="updateItemReminder(\\'' + item.id + '\\', \"template\", this.value)">' +
-              '<option value="">Global Default</option>' +
-              reminderTemplates.map(function(t){ return '<option value="' + escapeHtml(t.id) + '"' + (item.reminderTemplateId === t.id ? ' selected' : '') + '>' + escapeHtml(t.name) + '</option>'; }).join('') +
-            '</select>' +
-            '<button class="ctx-btn-icon" onclick="addReminderTemplate()" title="Add Reminder Template"><span class="codicon codicon-add"></span></button>' +
-            '<button class="ctx-btn-icon" onclick="editReminderTemplateById(\\'' + (item.reminderTemplateId || '') + '\\')" title="Edit Reminder Template"><span class="codicon codicon-edit"></span></button>' +
-            '<button class="ctx-btn-icon" onclick="deleteReminderTemplateById(\\'' + (item.reminderTemplateId || '') + '\\')" title="Delete Reminder Template"><span class="codicon codicon-trash"></span></button>' +
-            '<span style="font-size:0.8em;opacity:0.85;">Wait:</span>' +
-            '<select onchange="updateItemReminder(\\'' + item.id + '\\', \"timeout\", this.value)">' + reminderTimeoutOptions(item.reminderTimeoutMinutes || responseTimeoutMinutes) + '</select>' +
-            '<label style="font-size:0.8em;"><input type="checkbox" ' + (item.reminderRepeat ? 'checked' : '') + ' onchange="updateItemReminder(\\'' + item.id + '\\', \"repeat\", this.checked)"> Repeat</label>' +
-          '</div>'
-        : '') +
-      renderFollowUps(item, safeStatus) +
-      (item.error ? '<div style="color:var(--vscode-charts-red);font-size:0.8em;margin-top:4px;">Error: ' + escapeHtml(item.error) + '</div>' : '') +
-      '</div>' +
-    '</div>';
+  list.innerHTML = displayItems.map(function(item, idx) {
+    return renderEntry(item, idx);
   }).join('');
-}
-
-function renderFollowUps(item, status) {
-  const followUps = Array.isArray(item.followUps) ? item.followUps : [];
-  const isEditable = status === 'staged';
-  if (followUps.length === 0 && !isEditable) {
-    return '';
-  }
-  const sentFollowUps = item.followUpIndex || 0;
-  const rows = followUps.map((f, idx) => {
-    const safeItemId = escapeJsSingleQuoted(item.id);
-    const safeFollowUpId = escapeJsSingleQuoted(f.id || '');
-    const safeTemplate = escapeJsSingleQuoted(f.template || '');
-    const safeReminderTemplateId = escapeJsSingleQuoted(f.reminderTemplateId || '');
-    const doneMark = idx < sentFollowUps ? '✓ ' : '';
-    const templateLabel = formatPromptTemplateName(f.template || '(None)');
-    return '<div class="followup-item">' +
-      '<div class="followup-item-head">' +
-        '<span>' + doneMark + 'Follow-up #' + (idx + 1) + (f.template ? (' [' + escapeHtml(templateLabel) + ']') : '') + ' [AW]</span>' +
-        '<span class="followup-tools">' +
-          '<span class="codicon codicon-eye" style="cursor:pointer;" onclick="previewFollowUp(\\'' + safeItemId + '\\', \\'' + safeFollowUpId + '\\')" title="Preview follow-up"></span>' +
-          (isEditable ? '<span class="codicon codicon-trash" style="cursor:pointer;" onclick="removeFollowUp(\\'' + safeItemId + '\\', \\'' + safeFollowUpId + '\\')" title="Delete follow-up"></span>' : '') +
-        '</span>' +
-      '</div>' +
-      (isEditable
-        ? '<textarea onchange="updateFollowUp(\\'' + safeItemId + '\\', \\'' + safeFollowUpId + '\\', this.value)">' + escapeHtml(f.originalText || '') + '</textarea>' +
-          '<div class="followup-actions">' +
-            '<div class="followup-row">' +
-              '<span style="font-size:0.8em;opacity:0.85;">Template:</span>' +
-              '<select onchange="updateFollowUpTemplate(\\'' + safeItemId + '\\', \\'' + safeFollowUpId + '\\', this.value)">' +
-                '<option value="">(None)</option>' +
-                promptTemplates.map(function(name){ return '<option value="' + escapeHtml(name) + '"' + ((f.template || '') === name ? ' selected' : '') + '>' + escapeHtml(formatPromptTemplateName(name)) + '</option>'; }).join('') +
-              '</select>' +
-              '<button class="ctx-btn-icon" onclick="addPromptTemplate()" title="Add Prompt Template"><span class="codicon codicon-add"></span></button>' +
-              '<button class="ctx-btn-icon" onclick="editPromptTemplateByName(\\\'' + safeTemplate + '\\\')" title="Edit Prompt Template"><span class="codicon codicon-edit"></span></button>' +
-              '<button class="ctx-btn-icon" onclick="deletePromptTemplateByName(\\\'' + safeTemplate + '\\\')" title="Delete Prompt Template"><span class="codicon codicon-trash"></span></button>' +
-            '</div>' +
-            '<div class="followup-row">' +
-              '<label style="font-size:0.8em;"><input type="checkbox" ' + (f.reminderEnabled ? 'checked' : '') + ' onchange="updateFollowUpReminder(\\'' + safeItemId + '\\', \\'' + safeFollowUpId + '\\', \"enabled\", this.checked)"> Reminder</label>' +
-              '<select onchange="updateFollowUpReminder(\\'' + safeItemId + '\\', \\'' + safeFollowUpId + '\\', \"template\", this.value)">' +
-                '<option value="">Global Default</option>' +
-                reminderTemplates.map(function(t){ return '<option value="' + escapeHtml(t.id) + '"' + (f.reminderTemplateId === t.id ? ' selected' : '') + '>' + escapeHtml(t.name) + '</option>'; }).join('') +
-              '</select>' +
-              '<button class="ctx-btn-icon" onclick="addReminderTemplate()" title="Add Reminder Template"><span class="codicon codicon-add"></span></button>' +
-              '<button class="ctx-btn-icon" onclick="editReminderTemplateById(\\'' + safeReminderTemplateId + '\\')" title="Edit Reminder Template"><span class="codicon codicon-edit"></span></button>' +
-              '<button class="ctx-btn-icon" onclick="deleteReminderTemplateById(\\'' + safeReminderTemplateId + '\\')" title="Delete Reminder Template"><span class="codicon codicon-trash"></span></button>' +
-              '<span style="font-size:0.8em;opacity:0.85;">Wait:</span>' +
-              '<select onchange="updateFollowUpReminder(\\'' + safeItemId + '\\', \\'' + safeFollowUpId + '\\', \"timeout\", this.value)">' + reminderTimeoutOptions(f.reminderTimeoutMinutes || responseTimeoutMinutes) + '</select>' +
-              '<label style="font-size:0.8em;"><input type="checkbox" ' + (f.reminderRepeat ? 'checked' : '') + ' onchange="updateFollowUpReminder(\\'' + safeItemId + '\\', \\'' + safeFollowUpId + '\\', \"repeat\", this.checked)"> Repeat</label>' +
-            '</div>' +
-          '</div>'
-        : '<div style="margin:4px 0; white-space:pre-wrap;">' + escapeHtml(f.originalText || '') + '</div>') +
-    '</div>';
-  }).join('');
-
-  return '<div class="followup-block indented">' +
-    '<div style="font-size:0.85em;opacity:0.85;display:flex;align-items:center;gap:6px;">' +
-      'Follow-up Prompts (all wrapped with Answer Wrapper)' +
-      (isEditable ? '<button class="ctx-btn-icon" onclick="addEmptyFollowUp(\\'' + item.id + '\\')" title="Add Follow-up"><span class="codicon codicon-add"></span></button>' : '') +
-    '</div>' +
-    '<div class="followup-list">' + rows + (followUps.length === 0 ? '<div style="opacity:0.75;font-size:0.8em;">No follow-up prompts yet.</div>' : '') + '</div>' +
-    '' +
-  '</div>';
-}
-
-function escapeHtml(s) {
-  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-function escapeJsSingleQuoted(s) {
-  const value = String(s || '');
-  const backslash = String.fromCharCode(92);
-  const singleQuote = String.fromCharCode(39);
-  let out = '';
-  for (let i = 0; i < value.length; i++) {
-    const ch = value[i];
-    if (ch === backslash) {
-      out += backslash + backslash;
-    } else if (ch === singleQuote) {
-      out += backslash + singleQuote;
-    } else {
-      out += ch;
-    }
-  }
-  return out;
 }
 
 function toggleDetails(id) {
@@ -1145,19 +925,7 @@ function remove(id) { vscode.postMessage({ type: 'remove', id }); }
 function moveUp(id) { vscode.postMessage({ type: 'moveUp', id }); }
 function moveDown(id) { vscode.postMessage({ type: 'moveDown', id }); }
 function sendNow(id) { vscode.postMessage({ type: 'sendNow', id }); }
-function updateText(id, text) { vscode.postMessage({ type: 'updateText', id, text }); }
-function previewItem(id) {
-  const item = currentItems.find(i => i.id === id);
-  if (!item) return;
-  vscode.postMessage({ type: 'previewItem', id, text: item.originalText, template: item.template || '', answerWrapper: item.answerWrapper || false });
-}
-function previewFollowUp(id, followUpId) {
-  const item = currentItems.find(i => i.id === id);
-  if (!item || !Array.isArray(item.followUps)) return;
-  const follow = item.followUps.find(f => f.id === followUpId);
-  if (!follow) return;
-  vscode.postMessage({ type: 'previewFollowUp', id, followUpId, text: follow.originalText || '', template: follow.template || '' });
-}
+function openTemplateEditor() { vscode.postMessage({ type: 'openTemplateEditor' }); }
 function addPrompt() {
   const ta = document.getElementById('addText');
   const text = ta.value.trim();
@@ -1177,39 +945,6 @@ function addPrompt() {
   if (chkRemRepeat && chkRemRepeat.checked) { msg.reminderRepeat = true; }
   vscode.postMessage(msg);
   ta.value = '';
-}
-
-function updateItemReminder(id, field, value) {
-  const msg = { type: 'updateItemReminder', id };
-  if (field === 'enabled') msg.reminderEnabled = !!value;
-  if (field === 'template') msg.reminderTemplateId = value || '';
-  if (field === 'timeout') msg.reminderTimeoutMinutes = parseInt(String(value || '0'), 10) || undefined;
-  if (field === 'repeat') msg.reminderRepeat = !!value;
-  vscode.postMessage(msg);
-}
-
-function addEmptyFollowUp(id) {
-  vscode.postMessage({
-    type: 'addEmptyFollowUp',
-    id,
-  });
-}
-
-function updateFollowUp(id, followUpId, text) {
-  vscode.postMessage({ type: 'updateFollowUp', id, followUpId, text });
-}
-
-function updateFollowUpTemplate(id, followUpId, template) {
-  vscode.postMessage({ type: 'updateFollowUp', id, followUpId, template: template || '' });
-}
-
-function updateFollowUpReminder(id, followUpId, field, value) {
-  const msg = { type: 'updateFollowUp', id, followUpId };
-  if (field === 'enabled') msg.reminderEnabled = !!value;
-  if (field === 'template') msg.reminderTemplateId = value || '';
-  if (field === 'timeout') msg.reminderTimeoutMinutes = parseInt(String(value || '0'), 10) || undefined;
-  if (field === 'repeat') msg.reminderRepeat = !!value;
-  vscode.postMessage(msg);
 }
 
 function addReminderTemplate() {
@@ -1254,10 +989,6 @@ function editReminderTemplateById(id) {
 
 function deleteReminderTemplateById(id) {
   vscode.postMessage({ type: 'deleteReminderTemplate', id: id || undefined });
-}
-
-function removeFollowUp(id, followUpId) {
-  vscode.postMessage({ type: 'removeFollowUp', id, followUpId });
 }
 
 function toggleAddForm() {

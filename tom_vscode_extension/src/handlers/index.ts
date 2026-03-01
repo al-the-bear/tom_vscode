@@ -72,6 +72,7 @@ export { registerQuestTodoPanel } from './questTodoPanel-handler';
 export { registerChatVariablesEditorCommand } from './chatVariablesEditor-handler';
 export { registerContextSettingsEditorCommand } from './contextSettingsEditor-handler';
 export { registerQueueEditorCommand } from './queueEditor-handler';
+export { registerPromptTemplateEditorCommand } from './promptTemplateEditor-handler';
 export { registerTimedRequestsEditorCommand } from './timedRequestsEditor-handler';
 export { registerGlobalTemplateEditorCommand, openGlobalTemplateEditor } from './globalTemplateEditor-handler';
 export { registerReusablePromptEditorCommand, openReusablePromptEditor } from './reusablePromptEditor-handler';

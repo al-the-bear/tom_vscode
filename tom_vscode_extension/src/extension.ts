@@ -63,6 +63,7 @@ import {
     registerChatVariablesEditorCommand,
     registerContextSettingsEditorCommand,
     registerQueueEditorCommand,
+    registerPromptTemplateEditorCommand,
     registerTimedRequestsEditorCommand,
     registerGlobalTemplateEditorCommand,
     registerReusablePromptEditorCommand,
@@ -392,6 +393,11 @@ export async function activate(context: vscode.ExtensionContext) {
     stepStart = performance.now();
     registerQueueEditorCommand(context);
     timeStep('queueEditor', stepStart);
+
+    // Register Prompt Template Editor command
+    stepStart = performance.now();
+    registerPromptTemplateEditorCommand(context);
+    timeStep('promptTemplateEditor', stepStart);
 
     // Register Timed Requests Editor command
     stepStart = performance.now();
