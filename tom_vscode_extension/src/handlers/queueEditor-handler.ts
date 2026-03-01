@@ -299,6 +299,25 @@ async function handleMessage(msg: any): Promise<void> {
             qm.removeFollowUpPrompt(msg.id, msg.followUpId);
             break;
           }
+          case 'addPrePrompt': {
+            qm.addPrePrompt(msg.id, msg.text || '', msg.template || undefined);
+            break;
+          }
+          case 'updatePrePrompt': {
+            qm.updatePrePrompt(msg.id, msg.index, {
+              text: msg.text,
+              template: msg.template,
+            });
+            break;
+          }
+          case 'removePrePrompt': {
+            qm.removePrePrompt(msg.id, msg.index);
+            break;
+          }
+          case 'openTemplateEditor': {
+            await vscode.commands.executeCommand('tomAi.editor.promptTemplates');
+            return;
+          }
     }
 }
 
@@ -603,6 +622,7 @@ function getHtml(codiconsUri: string, safeStateJson: string): string {
   <span id="contextSummary" class="context-summary"></span>
   <button class="ctx-btn-icon" onclick="openChatVariables()" title="Chat Variables"><span class="codicon codicon-symbol-key"></span></button>
   <button class="ctx-btn-icon" onclick="openContextSettings()" title="Context &amp; Settings"><span class="codicon codicon-tools"></span></button>
+  <button class="ctx-btn-icon" onclick="openTemplateEditor()" title="Prompt Templates"><span class="codicon codicon-file-code"></span></button>
   <button class="ctx-btn-icon" onclick="showFile()" title="Show YAML file"><span class="codicon codicon-go-to-file"></span></button>
 </div>
 <div class="toolbar">

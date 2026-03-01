@@ -48,6 +48,12 @@ export interface QueuedFollowUpPrompt {
     createdAt: string;
 }
 
+export interface QueuedPrePrompt {
+    text: string;
+    template?: string;
+    status: 'pending' | 'sent' | 'error';
+}
+
 export interface QueuedPrompt {
     id: string;
     template: string;             // Template name or "(None)"
@@ -68,6 +74,7 @@ export interface QueuedPrompt {
     lastReminderAt?: string;
     requestId?: string;           // Initial request id extracted from the wrapped prompt
     expectedRequestId?: string;   // Request id expected in the next answer file
+    prePrompts?: QueuedPrePrompt[];  // Pre-prompts sent before the main prompt
     followUps?: QueuedFollowUpPrompt[];
     followUpIndex?: number;       // Number of follow-ups already sent
 }
@@ -521,6 +528,7 @@ export class PromptQueueManager {
         reminderRepeat?: boolean;
         reminderEnabled?: boolean;
         position?: number;
+        prePrompts?: Array<{ text: string; template?: string }>;
         followUps?: Array<{ originalText: string; template?: string; reminderTemplateId?: string; reminderTimeoutMinutes?: number; reminderRepeat?: boolean; reminderEnabled?: boolean }>;
         initialStatus?: 'staged' | 'pending';
         deferSend?: boolean;
@@ -542,6 +550,13 @@ export class PromptQueueManager {
             reminderEnabled: !!opts.reminderEnabled,
             reminderQueued: false,
             reminderSentCount: 0,
+            prePrompts: (opts.prePrompts || [])
+                .filter(p => !!(p.text || '').trim())
+                .map(p => ({
+                    text: p.text,
+                    template: p.template,
+                    status: 'pending' as const,
+                })),
             followUps: (opts.followUps || [])
                 .filter(f => !!(f.originalText || '').trim())
                 .map(f => ({
@@ -742,6 +757,43 @@ export class PromptQueueManager {
         return removed;
     }
 
+    // ----- pre-prompt management ---------------------------------------------
+
+    /** Add a pre-prompt to a queue item. */
+    addPrePrompt(itemId: string, text: string, template?: string): boolean {
+        const item = this._items.find(i => i.id === itemId);
+        if (!item || !this.isEditableStatus(item.status)) { return false; }
+        if (!item.prePrompts) { item.prePrompts = []; }
+        item.prePrompts.push({ text, template, status: 'pending' });
+        this.persist();
+        this._onDidChange.fire();
+        return true;
+    }
+
+    /** Update a pre-prompt by index. */
+    updatePrePrompt(itemId: string, index: number, patch: { text?: string; template?: string }): boolean {
+        const item = this._items.find(i => i.id === itemId);
+        if (!item || !this.isEditableStatus(item.status)) { return false; }
+        if (!item.prePrompts || index < 0 || index >= item.prePrompts.length) { return false; }
+        const pp = item.prePrompts[index];
+        if (patch.text !== undefined) pp.text = patch.text;
+        if (patch.template !== undefined) pp.template = patch.template || undefined;
+        this.persist();
+        this._onDidChange.fire();
+        return true;
+    }
+
+    /** Remove a pre-prompt by index. */
+    removePrePrompt(itemId: string, index: number): boolean {
+        const item = this._items.find(i => i.id === itemId);
+        if (!item || !this.isEditableStatus(item.status)) { return false; }
+        if (!item.prePrompts || index < 0 || index >= item.prePrompts.length) { return false; }
+        item.prePrompts.splice(index, 1);
+        this.persist();
+        this._onDidChange.fire();
+        return true;
+    }
+
     /** Send a specific item immediately (skip queue order). */
     async sendNow(id: string): Promise<void> {
         const item = this._items.find(i => i.id === id);
@@ -811,6 +863,28 @@ export class PromptQueueManager {
     }
 
     private async sendItem(item: QueuedPrompt): Promise<void> {
+        // Send pre-prompts first (sequentially, each wrapped with answer wrapper)
+        if (item.prePrompts && item.prePrompts.length > 0) {
+            for (const pp of item.prePrompts) {
+                if (pp.status === 'sent') continue; // skip already-sent pre-prompts
+                try {
+                    let prePromptText = pp.text;
+                    // Apply answer wrapper template to pre-prompts
+                    prePromptText = await this._buildExpandedText(prePromptText, pp.template, true);
+                    await vscode.commands.executeCommand('workbench.action.chat.open', { query: prePromptText });
+                    pp.status = 'sent';
+                    this.persist();
+                    this._onDidChange.fire();
+                    // Brief delay between pre-prompts and main prompt
+                    await new Promise(r => setTimeout(r, 2000));
+                } catch (err) {
+                    pp.status = 'error';
+                    debugLog(`[PromptQueueManager] Pre-prompt send error: ${err}`, 'ERROR', 'queue');
+                    // Continue — don't block main prompt on pre-prompt failure
+                }
+            }
+        }
+
         // Re-expand with current variables and apply template wrapping
         try {
             item.expandedText = await this._buildExpandedText(item.originalText, item.template, item.answerWrapper);
@@ -1024,6 +1098,15 @@ export class PromptQueueManager {
                 followUpIndex: d.execution?.['follow-up-index'] || 0,
             };
 
+            // Pre-prompts
+            if (d['pre-prompts'] && d['pre-prompts'].length > 0) {
+                prompt.prePrompts = d['pre-prompts'].map(pp => ({
+                    text: pp.text,
+                    template: pp.template,
+                    status: pp.status || 'pending',
+                }));
+            }
+
             if (d['follow-ups'] && d['follow-ups'].length > 0) {
                 prompt.followUps = d['follow-ups'].map(fu => ({
                     id: fu.id,
@@ -1070,6 +1153,15 @@ export class PromptQueueManager {
                 'last-sent-at': item.lastReminderAt || null,
                 queued: item.reminderQueued,
             };
+        }
+
+        // Pre-prompts
+        if (item.prePrompts && item.prePrompts.length > 0) {
+            entry['pre-prompts'] = item.prePrompts.map(pp => ({
+                text: pp.text,
+                template: pp.template,
+                status: pp.status,
+            }));
         }
 
         if (item.followUps && item.followUps.length > 0) {
