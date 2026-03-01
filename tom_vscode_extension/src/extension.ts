@@ -467,14 +467,9 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push({ dispose: () => aiConversationManager?.dispose() });
     timeStep('aiConversationManager', stepStart);
 
-    // Auto-start the Dart bridge (wrapped in try-catch so failures don't
-    // prevent the rest of activation from completing)
+    // Auto-start the Dart bridge
     stepStart = performance.now();
-    try {
-        await restartBridgeHandler(context, false);
-    } catch (e: any) {
-        bridgeLog(`restartBridgeHandler failed: ${e.message}`, 'ERROR');
-    }
+    await restartBridgeHandler(context, false);
     timeStep('restartBridgeHandler', stepStart);
 
     // CLI Server autostart: if enabled in config, start after bridge is ready

@@ -1805,9 +1805,23 @@ let _manager: LocalLlmManager | undefined;
 
 export function setLocalLlmManager(mgr: LocalLlmManager): void {
     _manager = mgr;
+    bridgeLog(`[LocalLlmManager] singleton set (instance=${!!mgr})`, 'INFO');
 }
 
 export function getLocalLlmManager(): LocalLlmManager | undefined {
+    return _manager;
+}
+
+/**
+ * Get or lazily create the LocalLlmManager singleton.
+ * Use this in webview handlers where the manager MUST be available,
+ * even if activate() didn't finish setting up the singleton.
+ */
+export function ensureLocalLlmManager(context: vscode.ExtensionContext): LocalLlmManager {
+    if (!_manager) {
+        bridgeLog('[LocalLlmManager] Auto-creating manager (singleton was null during ensureLocalLlmManager)', 'INFO');
+        _manager = new LocalLlmManager(context);
+    }
     return _manager;
 }
 

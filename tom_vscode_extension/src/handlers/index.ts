@@ -49,6 +49,7 @@ export {
     LocalLlmManager,
     setLocalLlmManager,
     getLocalLlmManager,
+    ensureLocalLlmManager,
 } from './localLlm-handler';
 export {
     startBotConversationHandler,

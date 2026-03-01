@@ -18,7 +18,7 @@
 
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { getLocalLlmManager } from './localLlm-handler';
+import { getLocalLlmManager, ensureLocalLlmManager } from './localLlm-handler';
 import * as fs from 'fs';
 import {
     getConfigPath,
@@ -1280,7 +1280,7 @@ class LocalLlmNotepadProvider implements vscode.WebviewViewProvider {
     }
 
     private async _sendExpanded(text: string): Promise<void> {
-        const manager = getLocalLlmManager();
+        const manager = ensureLocalLlmManager(this._context);
         if (!manager) {
             vscode.window.showErrorMessage('Local LLM not available - extension not fully initialized');
             return;

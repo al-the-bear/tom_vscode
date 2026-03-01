@@ -21,7 +21,7 @@ import { openGlobalTemplateEditor, TemplateCategory } from './globalTemplateEdit
 import { openReusablePromptEditor } from './reusablePromptEditor-handler';
 import { debugLog } from '../utils/debugLogger';
 import { expandTemplate } from './promptTemplate';
-import { getLocalLlmManager } from './localLlm-handler';
+import { getLocalLlmManager, ensureLocalLlmManager } from './localLlm-handler';
 import { getAccordionStyles } from './accordionPanel';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
 import { WsPaths } from '../utils/workspacePaths';
@@ -1204,7 +1204,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
     }
 
     private async _handleSendLocalLlm(text: string, profile: string, llmConfig?: string): Promise<void> {
-        const manager = getLocalLlmManager();
+        const manager = ensureLocalLlmManager(this._context);
         if (!manager) {
             vscode.window.showErrorMessage('Local LLM not available - extension not fully initialized. Please try again.');
             return;
