@@ -824,7 +824,6 @@ export async function sendToTomAiChatHandler(): Promise<void> {
     }
     let responseText = '';
     let lastAssistantDraft = '';
-    let currentPrompt = fullPromptTemplate;
     // maxIterations is now read from chat file or config (default 100)
     const systemPrompt = buildSystemPrompt();
     
@@ -869,15 +868,15 @@ ${parsed.promptText}
 
 Use the available tools to gather context, then respond with a summary of what you found.`;
 
-            const preProcessMessages = [vscode.LanguageModelChatMessage.User(preProcessPrompt)];
+            const preProcessMessages: vscode.LanguageModelChatMessage[] = [
+                vscode.LanguageModelChatMessage.User(preProcessPrompt),
+            ];
             chatLog.logPreProcessingStart(preProcessingModelId, preProcessingTools.map(t => t.name));
             
             let preProcessOutput = '';
             const preToolCalls: Array<{ tool: string; args: Record<string, unknown>; result: string }> = [];
             let preIterations = 0;
             const maxPreIterations = 5;
-            
-            let preCurrentPrompt = preProcessPrompt;
             
             while (preIterations < maxPreIterations) {
                 preIterations++;
@@ -888,45 +887,22 @@ Use the available tools to gather context, then respond with a summary of what y
                 }
                 
                 const preResponse = await preProcessModel.sendRequest(
-                    [vscode.LanguageModelChatMessage.User(preCurrentPrompt)],
+                    preProcessMessages,
                     { tools: preProcessingTools }
                 );
                 
                 let hasToolCalls = false;
-                const toolResults: string[] = [];
+                let iterationText = '';
+                const iterationToolCalls: vscode.LanguageModelToolCallPart[] = [];
                 
                 for await (const part of preResponse.stream) {
                     if (part instanceof vscode.LanguageModelTextPart) {
+                        iterationText += part.value;
                         preProcessOutput += part.value;
                     } else if (part instanceof vscode.LanguageModelToolCallPart) {
                         hasToolCalls = true;
-                        const toolName = part.name;
-                        const toolArgs = part.input as Record<string, unknown>;
-                        
-                        logChannel.appendLine(`[Tom AI] Pre-processing tool call: ${toolName}`);
-                        
-                        try {
-                            const toolResult = await vscode.lm.invokeTool(toolName, {
-                                input: toolArgs,
-                                toolInvocationToken: undefined
-                            }, cancellationToken);
-                            
-                            const resultText = toolResultToText(toolResult);
-                            const truncatedResult = resultText.length > 2000 
-                                ? resultText.slice(0, 2000) + '\n... [truncated]' 
-                                : resultText;
-                            
-                            preToolCalls.push({
-                                tool: toolName,
-                                args: toolArgs,
-                                result: truncatedResult
-                            });
-                            
-                            toolResults.push(`Tool: ${toolName}\nResult:\n${truncatedResult}`);
-                        } catch (error) {
-                            const errorMsg = error instanceof Error ? error.message : String(error);
-                            toolResults.push(`Tool: ${toolName}\nError: ${errorMsg}`);
-                        }
+                        iterationToolCalls.push(part);
+                        logChannel.appendLine(`[Tom AI] Pre-processing tool call: ${part.name}`);
                     }
                 }
                 
@@ -934,9 +910,53 @@ Use the available tools to gather context, then respond with a summary of what y
                     // No more tool calls, exit loop
                     break;
                 }
+
+                // Build Assistant message from text + tool calls
+                const assistantParts: (vscode.LanguageModelTextPart | vscode.LanguageModelToolCallPart)[] = [];
+                if (iterationText) {
+                    assistantParts.push(new vscode.LanguageModelTextPart(iterationText));
+                }
+                assistantParts.push(...iterationToolCalls);
+                preProcessMessages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
+
+                // Execute tool calls and build proper LanguageModelToolResultPart messages
+                const toolResultParts: vscode.LanguageModelToolResultPart[] = [];
+                for (const call of iterationToolCalls) {
+                    const toolName = call.name;
+                    const toolArgs = call.input as Record<string, unknown>;
+                    try {
+                        const toolResult = await vscode.lm.invokeTool(toolName, {
+                            input: toolArgs,
+                            toolInvocationToken: undefined
+                        }, cancellationToken);
+                        
+                        const resultText = toolResultToText(toolResult);
+                        const truncatedResult = resultText.length > 2000 
+                            ? resultText.slice(0, 2000) + '\n... [truncated]' 
+                            : resultText;
+                        
+                        preToolCalls.push({
+                            tool: toolName,
+                            args: toolArgs,
+                            result: truncatedResult
+                        });
+                        
+                        toolResultParts.push(
+                            new vscode.LanguageModelToolResultPart(call.callId, [
+                                new vscode.LanguageModelTextPart(truncatedResult),
+                            ])
+                        );
+                    } catch (error) {
+                        const errorMsg = error instanceof Error ? error.message : String(error);
+                        toolResultParts.push(
+                            new vscode.LanguageModelToolResultPart(call.callId, [
+                                new vscode.LanguageModelTextPart(`Error: ${errorMsg}`),
+                            ])
+                        );
+                    }
+                }
                 
-                // Build continuation prompt with tool results
-                preCurrentPrompt = `Previous context:\n${preProcessOutput}\n\nTool results:\n${toolResults.join('\n\n---\n\n')}\n\nContinue gathering context or provide your summary.`;
+                preProcessMessages.push(vscode.LanguageModelChatMessage.User(toolResultParts));
             }
             
             if (preProcessOutput.trim() || preToolCalls.length > 0) {
@@ -968,10 +988,14 @@ Use the available tools to gather context, then respond with a summary of what y
         }
     }
     
-    // Combine system prompt and user prompt into a single message for the initial request
+    // Build conversation history using proper message types for tool round-trips
     const initialPrompt = preProcessingContext
         ? `${systemPrompt}\n\n---\n\n## Pre-loaded Context from Analysis\n\n${preProcessingContext}\n\n---\n\n${fullPromptTemplate}`
         : `${systemPrompt}\n\n---\n\n${fullPromptTemplate}`;
+
+    const messages: vscode.LanguageModelChatMessage[] = [
+        vscode.LanguageModelChatMessage.User(initialPrompt),
+    ];
 
     for (let iteration = 1; iteration <= maxIterations; iteration += 1) {
         // Check for cancellation at start of each iteration
@@ -983,12 +1007,11 @@ Use the available tools to gather context, then respond with a summary of what y
             return;
         }
         
-        logChannel.appendLine(`[Tom AI] Request iteration ${iteration}/${maxIterations}`);
-        const promptToSend = iteration === 1 ? initialPrompt : currentPrompt;
-        const messages = [vscode.LanguageModelChatMessage.User(promptToSend)];
+        logChannel.appendLine(`[Tom AI] Request iteration ${iteration}/${maxIterations} (${messages.length} messages)`);
         
         // Log request to chat log file
-        chatLog.logRequest(iteration, promptToSend, tools.map(t => t.name));
+        const promptForLog = iteration === 1 ? initialPrompt : `[continuation with ${messages.length} messages]`;
+        chatLog.logRequest(iteration, promptForLog, tools.map(t => t.name));
         
         const response = await model.sendRequest(messages, { tools }, cancellationToken);
 
@@ -1030,17 +1053,26 @@ Use the available tools to gather context, then respond with a summary of what y
         }
         
         // Check for duplicate tool calls (same tool + args called too many times)
-        let loopWarning = '';
+        let loopDetected = false;
         for (const sig of currentToolCallSignatures) {
             const count = toolCallHistory.filter(s => s === sig).length;
             if (count >= MAX_DUPLICATE_TOOL_CALLS) {
-                loopWarning = `\n\nWARNING: You have called the same tool with the same arguments ${count} times. This appears to be a loop. Please try a different approach or provide your final response.`;
                 logChannel.appendLine(`[Tom AI] Loop detected: ${sig.substring(0, 100)}... called ${count} times`);
+                loopDetected = true;
                 break;
             }
         }
 
-        const toolResults: string[] = [];
+        // Build the Assistant message from text + tool calls
+        const assistantParts: (vscode.LanguageModelTextPart | vscode.LanguageModelToolCallPart)[] = [];
+        if (iterationText) {
+            assistantParts.push(new vscode.LanguageModelTextPart(iterationText));
+        }
+        assistantParts.push(...toolCalls);
+        messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
+
+        // Execute tools and build proper LanguageModelToolResultPart messages
+        const toolResultParts: vscode.LanguageModelToolResultPart[] = [];
         for (const call of toolCalls) {
             // Trail: Log tool request
             logToolRequest('tomai', call.name, call.input as Record<string, unknown>);
@@ -1063,7 +1095,11 @@ Use the available tools to gather context, then respond with a summary of what y
                 if (toolText.truncated) {
                     logChannel.appendLine(`[Tom AI] Tool result truncated for ${call.name}.`);
                 }
-                toolResults.push(`Tool ${call.name} result:\n${toolText.text}`);
+                toolResultParts.push(
+                    new vscode.LanguageModelToolResultPart(call.callId, [
+                        new vscode.LanguageModelTextPart(toolText.text),
+                    ])
+                );
                 // Log tool result to chat log (size only)
                 chatLog.logToolResult(call.name, toolTextRaw.length, true);
                 // Trail: Log tool result
@@ -1082,15 +1118,23 @@ Use the available tools to gather context, then respond with a summary of what y
                     if (retryText.truncated) {
                         logChannel.appendLine(`[Tom AI] Tool result truncated for ${call.name} (retry).`);
                     }
-                    toolResults.push(`Tool ${call.name} result (retry):\n${retryText.text}`);
+                    toolResultParts.push(
+                        new vscode.LanguageModelToolResultPart(call.callId, [
+                            new vscode.LanguageModelTextPart(retryText.text),
+                        ])
+                    );
                     // Log tool result to chat log (size only)
                     chatLog.logToolResult(call.name, retryTextRaw.length, true);
                     // Trail: Log tool result (retry)
                     logToolResult('tomai', call.name, retryText.text);
                 } catch (retryError) {
                     const errorMessage = `Tool ${call.name} failed: ${retryError}`;
-                    toolResults.push(errorMessage);
                     toolLogChannel.appendLine(errorMessage);
+                    toolResultParts.push(
+                        new vscode.LanguageModelToolResultPart(call.callId, [
+                            new vscode.LanguageModelTextPart(errorMessage),
+                        ])
+                    );
                     // Log tool error to chat log
                     chatLog.logToolResult(call.name, 0, false, String(retryError));
                     // Trail: Log tool error
@@ -1099,39 +1143,17 @@ Use the available tools to gather context, then respond with a summary of what y
             }
         }
 
-        const followupParts: string[] = [
-            '---',
-            '',
-            'Tool results from your previous request:',
-            '',
-            ...toolResults,
-            '',
-            '---',
-            '',
-            '=== ORIGINAL USER REQUEST (reminder) ===',
-            '',
-            parsed.promptText,
-            '',
-            '=== END ORIGINAL REQUEST ===',
-            '',
-            'Continue working on the user\'s original request above.',
-            'If you need more information to complete the task, call the appropriate tools.',
-            'If the task is complete OR if you cannot complete it (e.g., file not found, error occurred), provide your final text response to the user explaining the result.',
-            'IMPORTANT: Do not repeat the same tool call if it already failed. Try a different approach or respond with what you found.',
-        ];
-        
-        if (loopWarning) {
-            followupParts.push(loopWarning);
-        }
-        
-        if (lastAssistantDraft) {
-            followupParts.push('', 'Your previous draft:', lastAssistantDraft);
-        }
-        
-        const followupPrompt = followupParts.join('\n');
+        // Add tool results as a User message with proper LanguageModelToolResultPart types
+        messages.push(vscode.LanguageModelChatMessage.User(toolResultParts));
 
-        logChannel.appendLine(`[Tom AI] Followup prompt preview:\n${truncateLines(followupPrompt, MAX_LOG_LINES)}`);
-        currentPrompt = followupPrompt;
+        // If loop detected, add a warning as a separate user message
+        if (loopDetected) {
+            messages.push(vscode.LanguageModelChatMessage.User(
+                'WARNING: You have called the same tool with the same arguments multiple times. '
+                + 'This appears to be a loop. Please try a different approach or provide your final response.'
+            ));
+        }
+
         if (iteration === maxIterations) {
             // If we have text from the model, use it even though it also called tools
             if (lastAssistantDraft && lastAssistantDraft.length > 20) {

@@ -871,15 +871,18 @@ async function executeAskBigBrother(input: AskBigBrotherInput): Promise<string> 
                 }
                 
                 const maxIter = enableTools ? (input.maxIterations ?? config.askBigBrother.maxIterations) : 1;
-                let currentPrompt = input.prompt;
                 let finalResponse = '';
                 
+                // Build conversation history with proper message types
+                const messages: vscode.LanguageModelChatMessage[] = [
+                    vscode.LanguageModelChatMessage.User(input.prompt),
+                ];
+
                 for (let iteration = 1; iteration <= maxIter; iteration++) {
                     if (tokenSource.token.isCancellationRequested) {
                         break;
                     }
                     
-                    const messages = [vscode.LanguageModelChatMessage.User(currentPrompt)];
                     const requestOptions = tools.length > 0 ? { tools } : {};
                     const response = await model.sendRequest(messages, requestOptions, tokenSource.token);
                     
@@ -900,8 +903,16 @@ async function executeAskBigBrother(input: AskBigBrotherInput): Promise<string> 
                         break;
                     }
                     
-                    // Execute tool calls and build follow-up prompt
-                    const toolResults: string[] = [];
+                    // Build Assistant message from text + tool calls
+                    const assistantParts: (vscode.LanguageModelTextPart | vscode.LanguageModelToolCallPart)[] = [];
+                    if (iterationText) {
+                        assistantParts.push(new vscode.LanguageModelTextPart(iterationText));
+                    }
+                    assistantParts.push(...toolCalls);
+                    messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
+
+                    // Execute tool calls and build proper LanguageModelToolResultPart messages
+                    const toolResultParts: vscode.LanguageModelToolResultPart[] = [];
                     for (const call of toolCalls) {
                         try {
                             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -911,13 +922,21 @@ async function executeAskBigBrother(input: AskBigBrotherInput): Promise<string> 
                             };
                             const toolResult = await vscode.lm.invokeTool(call.name, toolInvocationOptions);
                             const resultText = toolResultToTextBigBrother(toolResult);
-                            toolResults.push(`Tool ${call.name} result:\n${resultText}`);
+                            toolResultParts.push(
+                                new vscode.LanguageModelToolResultPart(call.callId, [
+                                    new vscode.LanguageModelTextPart(resultText),
+                                ])
+                            );
                         } catch (error) {
-                            toolResults.push(`Tool ${call.name} error: ${error}`);
+                            toolResultParts.push(
+                                new vscode.LanguageModelToolResultPart(call.callId, [
+                                    new vscode.LanguageModelTextPart(`Tool ${call.name} error: ${error}`),
+                                ])
+                            );
                         }
                     }
                     
-                    currentPrompt = `Previous assistant response:\n${iterationText}\n\nTool results:\n${toolResults.join('\n\n')}\n\nPlease continue and provide your final response based on these results.`;
+                    messages.push(vscode.LanguageModelChatMessage.User(toolResultParts));
                 }
                 
                 clearTimeout(timeoutId);
