@@ -451,9 +451,30 @@ export async function activate(context: vscode.ExtensionContext) {
     checkTestReinstallMarker();
     timeStep('checkReinstallMarker', stepStart);
 
-    // Auto-start the Dart bridge
+    // Initialize Local LLM and AI Conversation managers early — they are
+    // synchronous, have no dependencies on bridge/advanced manager, and must be
+    // available as soon as the sidebar panel is visible.
     stepStart = performance.now();
-    await restartBridgeHandler(context, false);
+    localLlmManager = new LocalLlmManager(context);
+    setLocalLlmManager(localLlmManager);
+    registerLocalLlmContextMenuCommands(context);
+    context.subscriptions.push({ dispose: () => localLlmManager?.dispose() });
+    timeStep('localLlmManager', stepStart);
+
+    stepStart = performance.now();
+    aiConversationManager = new AiConversationManager(context);
+    setAiConversationManager(aiConversationManager);
+    context.subscriptions.push({ dispose: () => aiConversationManager?.dispose() });
+    timeStep('aiConversationManager', stepStart);
+
+    // Auto-start the Dart bridge (wrapped in try-catch so failures don't
+    // prevent the rest of activation from completing)
+    stepStart = performance.now();
+    try {
+        await restartBridgeHandler(context, false);
+    } catch (e: any) {
+        bridgeLog(`restartBridgeHandler failed: ${e.message}`, 'ERROR');
+    }
     timeStep('restartBridgeHandler', stepStart);
 
     // CLI Server autostart: if enabled in config, start after bridge is ready
@@ -484,27 +505,17 @@ export async function activate(context: vscode.ExtensionContext) {
         }
     }
 
-    // Initialize Send to Chat Advanced manager
+    // Initialize Send to Chat Advanced manager (wrapped in try-catch so
+    // failures don't prevent subsequent initialization)
     stepStart = performance.now();
-    sendToChatAdvancedManager = new SendToChatAdvancedManager(context, DartBridgeClient.outputChannel);
-    await sendToChatAdvancedManager.initialize();
-    context.subscriptions.push({ dispose: () => sendToChatAdvancedManager?.dispose() });
+    try {
+        sendToChatAdvancedManager = new SendToChatAdvancedManager(context, DartBridgeClient.outputChannel);
+        await sendToChatAdvancedManager.initialize();
+        context.subscriptions.push({ dispose: () => sendToChatAdvancedManager?.dispose() });
+    } catch (e: any) {
+        bridgeLog(`SendToChatAdvancedManager init failed: ${e.message}`, 'ERROR');
+    }
     timeStep('sendToChatAdvancedManager', stepStart);
-
-    // Initialize Prompt Expander manager
-    stepStart = performance.now();
-    localLlmManager = new LocalLlmManager(context);
-    setLocalLlmManager(localLlmManager);
-    registerLocalLlmContextMenuCommands(context);
-    context.subscriptions.push({ dispose: () => localLlmManager?.dispose() });
-    timeStep('localLlmManager', stepStart);
-
-    // Initialize AI Conversation manager
-    stepStart = performance.now();
-    aiConversationManager = new AiConversationManager(context);
-    setAiConversationManager(aiConversationManager);
-    context.subscriptions.push({ dispose: () => aiConversationManager?.dispose() });
-    timeStep('aiConversationManager', stepStart);
 
     // Initialize Tom Scripting Bridge handler
     stepStart = performance.now();
