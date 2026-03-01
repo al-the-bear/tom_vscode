@@ -136,8 +136,10 @@ export async function restartBridgeHandler(
     showMessages: boolean = true
 ): Promise<void> {
     try {
+        bridgeLog('[Bridge] restartBridgeHandler called (showMessages=' + showMessages + ')');
         const workspaceRoot = getWorkspaceRoot();
         if (!workspaceRoot) {
+            bridgeLog('[Bridge] No workspace folder open — aborting', 'ERROR');
             if (showMessages) {
                 vscode.window.showErrorMessage('No workspace folder open');
             }
@@ -148,6 +150,7 @@ export async function restartBridgeHandler(
         const bridgeConfig = loadBridgeConfig();
         bridgeLog(`[Bridge] Config loaded: ${bridgeConfig ? `current=${bridgeConfig.current}, profiles=[${Object.keys(bridgeConfig.profiles).join(', ')}]` : 'null'}`);
         if (!bridgeConfig) {
+            bridgeLog('[Bridge] Config is null — no "bridge" section in tom_vscode_extension.json', 'ERROR');
             if (showMessages) {
                 vscode.window.showErrorMessage('Bridge configuration missing: expected "bridge" in tom_vscode_extension.json');
             }
@@ -165,7 +168,9 @@ export async function restartBridgeHandler(
         args = profile.args;
         runPubGet = profile.runPubGet;
 
+        bridgeLog(`[Bridge] Profile: ${bridgeConfig.current} | command=${command ?? '(none)'} | args=[${args?.join(', ') ?? ''}] | cwd=${bridgePath} | runPubGet=${runPubGet}`);
         if (!fs.existsSync(bridgePath)) {
+            bridgeLog(`[Bridge] Working directory not found: ${bridgePath}`, 'ERROR');
             if (showMessages) {
                 vscode.window.showErrorMessage(`Bridge working directory not found: ${bridgePath}`);
             }
