@@ -451,22 +451,6 @@ export async function activate(context: vscode.ExtensionContext) {
     checkTestReinstallMarker();
     timeStep('checkReinstallMarker', stepStart);
 
-    // Initialize Local LLM and AI Conversation managers early — they are
-    // synchronous, have no dependencies on bridge/advanced manager, and must be
-    // available as soon as the sidebar panel is visible.
-    stepStart = performance.now();
-    localLlmManager = new LocalLlmManager(context);
-    setLocalLlmManager(localLlmManager);
-    registerLocalLlmContextMenuCommands(context);
-    context.subscriptions.push({ dispose: () => localLlmManager?.dispose() });
-    timeStep('localLlmManager', stepStart);
-
-    stepStart = performance.now();
-    aiConversationManager = new AiConversationManager(context);
-    setAiConversationManager(aiConversationManager);
-    context.subscriptions.push({ dispose: () => aiConversationManager?.dispose() });
-    timeStep('aiConversationManager', stepStart);
-
     // Auto-start the Dart bridge
     stepStart = performance.now();
     await restartBridgeHandler(context, false);
@@ -500,17 +484,29 @@ export async function activate(context: vscode.ExtensionContext) {
         }
     }
 
-    // Initialize Send to Chat Advanced manager (wrapped in try-catch so
-    // failures don't prevent subsequent initialization)
+    // Initialize Send to Chat Advanced manager
     stepStart = performance.now();
-    try {
-        sendToChatAdvancedManager = new SendToChatAdvancedManager(context, DartBridgeClient.outputChannel);
-        await sendToChatAdvancedManager.initialize();
-        context.subscriptions.push({ dispose: () => sendToChatAdvancedManager?.dispose() });
-    } catch (e: any) {
-        bridgeLog(`SendToChatAdvancedManager init failed: ${e.message}`, 'ERROR');
-    }
+    sendToChatAdvancedManager = new SendToChatAdvancedManager(context, DartBridgeClient.outputChannel);
+    await sendToChatAdvancedManager.initialize();
+    context.subscriptions.push({ dispose: () => sendToChatAdvancedManager?.dispose() });
     timeStep('sendToChatAdvancedManager', stepStart);
+
+    // Initialize Local LLM manager
+    // NOTE: Even if this fails, ensureLocalLlmManager() in the handlers
+    // will lazily create it on first use.
+    stepStart = performance.now();
+    localLlmManager = new LocalLlmManager(context);
+    setLocalLlmManager(localLlmManager);
+    registerLocalLlmContextMenuCommands(context);
+    context.subscriptions.push({ dispose: () => localLlmManager?.dispose() });
+    timeStep('localLlmManager', stepStart);
+
+    // Initialize AI Conversation manager
+    stepStart = performance.now();
+    aiConversationManager = new AiConversationManager(context);
+    setAiConversationManager(aiConversationManager);
+    context.subscriptions.push({ dispose: () => aiConversationManager?.dispose() });
+    timeStep('aiConversationManager', stepStart);
 
     // Initialize Tom Scripting Bridge handler
     stepStart = performance.now();
