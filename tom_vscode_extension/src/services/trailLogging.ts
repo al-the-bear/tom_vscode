@@ -7,7 +7,7 @@ import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 export type TrailType = 'local' | 'copilot' | 'conversation' | 'tomai';
 
 function sanitizeSegment(value: string): string {
-    return value.replace(/[^a-zA-Z0-9._-]/g, '_');
+    return value.replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-{2,}/g, '-');
 }
 
 function getWindowId(): string {

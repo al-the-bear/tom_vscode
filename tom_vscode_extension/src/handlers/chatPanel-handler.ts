@@ -1514,7 +1514,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
         const questId = detectQuestFromWorkspace() || undefined;
         const subsystem = {
             type: 'localLlm' as const,
-            configName: (llmConfigKey || profile || 'default').replace(/[^a-zA-Z0-9._-]/g, '_')
+            configName: (llmConfigKey || profile || 'default').replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-{2,}/g, '-')
         };
 
         await trailService.writeSummaryPrompt(subsystem, prompt, questId);
@@ -1524,12 +1524,12 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
     }
 
     private async _showTrail(llmConfigKey?: string | null): Promise<void> {
-        // Try to open the summary answers file from the quest folder
+        // Try to open the summary prompts file from the quest folder
         const questId = detectQuestFromWorkspace() || undefined;
-        const configName = (llmConfigKey || 'default').replace(/[^a-zA-Z0-9._-]/g, '_');
+        const configName = (llmConfigKey || 'default').replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-{2,}/g, '-');
         const subsystem = { type: 'localLlm' as const, configName };
         const trailService = TrailService.instance;
-        const summaryPath = trailService.getSummaryFilePath('answers', subsystem, questId);
+        const summaryPath = trailService.getSummaryFilePath('prompts', subsystem, questId);
 
         if (summaryPath && fs.existsSync(summaryPath)) {
             const uri = vscode.Uri.file(summaryPath);
