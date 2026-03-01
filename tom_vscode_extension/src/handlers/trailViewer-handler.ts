@@ -1179,6 +1179,8 @@ function getWebviewHtml(
                 exchangeTitle.textContent = selectedExchange.displayTime + ' - ' + selectedExchange.session;
                 tabs.style.display = 'flex';
                 extractBtn.style.display = 'flex';
+                openInEditorBtn.style.display = 'flex';
+                openExternallyBtn.style.display = 'flex';
                 gotoTodoBtn.style.display = 'none';
                 
                 // Request content

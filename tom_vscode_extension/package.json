@@ -426,6 +426,11 @@
                 "command": "tomAi.openInMdViewer",
                 "title": "@T: Open in MD Viewer",
                 "category": "@Tom"
+            },
+            {
+                "command": "tomAi.openInMdBrowser",
+                "title": "@T: Open in MD Browser",
+                "category": "@Tom"
             }
         ],
         "views": {
@@ -668,6 +673,11 @@
                     "command": "tomAi.openInMdViewer",
                     "when": "resourceExtname == .md",
                     "group": "tomAi@5"
+                },
+                {
+                    "command": "tomAi.openInMdBrowser",
+                    "when": "resourceExtname == .md",
+                    "group": "tomAi@6"
                 }
             ],
             "editor/context": [
@@ -729,6 +739,11 @@
                     "command": "tomAi.openInMdViewer",
                     "when": "resourceLangId == markdown",
                     "group": "tomAi@10"
+                },
+                {
+                    "command": "tomAi.openInMdBrowser",
+                    "when": "resourceLangId == markdown",
+                    "group": "tomAi@11"
                 }
             ],
             "tomAi.sendToCopilotSubmenu": [

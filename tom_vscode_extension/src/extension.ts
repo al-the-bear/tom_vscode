@@ -78,6 +78,7 @@ import {
 } from './handlers';
 
 import { registerQuestTodoCustomEditor } from './handlers/questTodoEditor-handler';
+import { registerMarkdownBrowser } from './handlers/markdownBrowser-handler';
 import { registerTrailCustomEditor } from './handlers/trailEditor-handler';
 import { registerTodoLogView } from './handlers/todoLogPanel-handler';
 import { registerWindowStatusView, deleteCurrentWindowState, cleanupStaleWindowStates } from './handlers/windowStatusPanel-handler';
@@ -417,6 +418,11 @@ export async function activate(context: vscode.ExtensionContext) {
     stepStart = performance.now();
     context.subscriptions.push(...registerTrailViewerCommands(context));
     timeStep('trailViewerCommands', stepStart);
+
+    // Register Markdown Browser
+    stepStart = performance.now();
+    registerMarkdownBrowser(context);
+    timeStep('markdownBrowser', stepStart);
 
     // Register TODO Log explorer sidebar panel
     stepStart = performance.now();
