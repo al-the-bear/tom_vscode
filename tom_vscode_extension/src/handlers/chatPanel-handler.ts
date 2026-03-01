@@ -702,22 +702,22 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
         );
     }
 
-    private _getEffectiveLlmConfigurations(config: SendToChatConfig | null): Array<{ id: string; name: string }> {
+    private _getEffectiveLlmConfigurations(config: SendToChatConfig | null): Array<{ id: string; name: string; isDefault?: boolean }> {
         const explicit = Array.isArray(config?.localLlm?.configurations) ? config!.localLlm!.configurations : [];
         if (explicit.length > 0) {
             return explicit
                 .filter((c: any) => c && typeof c.id === 'string' && c.id.trim().length > 0)
-                .map((c: any) => ({ id: c.id, name: c.name || c.id }));
+                .map((c: any) => ({ id: c.id, name: c.name || c.id, isDefault: c.isDefault === true }));
         }
         return [];
     }
 
-    private _getEffectiveAiConversationSetups(config: SendToChatConfig | null): Array<{ id: string; name: string }> {
+    private _getEffectiveAiConversationSetups(config: SendToChatConfig | null): Array<{ id: string; name: string; isDefault?: boolean }> {
         const explicit = Array.isArray(config?.aiConversation?.setups) ? config!.aiConversation!.setups : [];
         if (explicit.length > 0) {
             return explicit
                 .filter((s: any) => s && typeof s.id === 'string' && s.id.trim().length > 0)
-                .map((s: any) => ({ id: s.id, name: s.name || s.id }));
+                .map((s: any) => ({ id: s.id, name: s.name || s.id, isDefault: s.isDefault === true }));
         }
         return [];
     }
@@ -1222,10 +1222,16 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
         const defaultWrapped = applyDefaultTemplate(text, 'localLlm');
         const expanded = await expandTemplate(defaultWrapped);
         const profileKey = profile === '__none__' ? null : profile;
-        const llmConfigKey = llmConfig && llmConfig !== '__default__' ? llmConfig : null;
+        let llmConfigKey = llmConfig && llmConfig !== '__default__' ? llmConfig : null;
         const profileLabel = profile === '__none__' ? 'None' : profile;
+        // Fall back to default configuration if none explicitly selected
         if (!llmConfigKey) {
-            const msg = 'Missing required Local LLM configuration selection.';
+            const configs = Array.isArray(config?.localLlm?.configurations) ? config!.localLlm!.configurations : [];
+            const defaultCfg = configs.find((c: any) => c?.isDefault === true) || (configs.length > 0 ? configs[0] : null);
+            llmConfigKey = defaultCfg?.id || null;
+        }
+        if (!llmConfigKey) {
+            const msg = 'Missing required Local LLM configuration selection. Add at least one configuration in the Status Page.';
             debugLog(`[UnifiedNotepad] ${msg}`, 'ERROR', 'extension');
             vscode.window.showErrorMessage(msg);
             return;
@@ -1289,9 +1295,15 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
         }
 
         const setups = Array.isArray(config?.aiConversation?.setups) ? config!.aiConversation!.setups : [];
-        const selectedSetup = setups.find((s: any) => s?.id === aiSetupId);
+        // Fall back to default setup if none explicitly selected
+        let effectiveSetupId = aiSetupId;
+        if (!effectiveSetupId) {
+            const defaultSetup = setups.find((s: any) => s?.isDefault === true) || (setups.length > 0 ? setups[0] : null);
+            effectiveSetupId = defaultSetup?.id;
+        }
+        const selectedSetup = setups.find((s: any) => s?.id === effectiveSetupId);
         if (!selectedSetup) {
-            const msg = `Missing required AI conversation setup: ${aiSetupId || '(none selected)'}`;
+            const msg = `Missing required AI conversation setup: ${effectiveSetupId || '(none selected)'}. Add at least one setup in the Status Page.`;
             debugLog(`[UnifiedNotepad] ${msg}`, 'ERROR', 'extension');
             vscode.window.showErrorMessage(msg);
             return;
@@ -3069,16 +3081,18 @@ function populateEntitySelect(id, options, defaultLabel) {
     var sel = document.getElementById(id);
     if (!sel) return;
     var cur = sel.value;
-    var baseOption = '<option value="">' + (defaultLabel || '(Select)') + '</option>';
-    sel.innerHTML = baseOption + (options || []).map(function(o) {
+    sel.innerHTML = (options || []).map(function(o) {
         var value = (o && typeof o.id === 'string') ? o.id : '';
         var label = (o && typeof o.name === 'string' && o.name) ? o.name : value;
         return '<option value="' + value + '">' + label + '</option>';
     }).join('');
+    // Restore previous selection if still available
     if (cur && (options || []).some(function(o) { return o && o.id === cur; })) {
         sel.value = cur;
     } else {
-        sel.value = '';
+        // Preselect the default entry, or fall back to the first entry
+        var defaultOption = (options || []).find(function(o) { return o && o.isDefault; });
+        sel.value = defaultOption ? defaultOption.id : ((options && options.length > 0) ? options[0].id : '');
     }
 }
 
