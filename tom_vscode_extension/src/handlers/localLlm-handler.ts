@@ -1088,11 +1088,9 @@ export class LocalLlmManager {
         const effectiveProfileKey = profileKey ?? this.getDefaultProfileKey(config) ?? '_default';
         const profile = config.profiles[effectiveProfileKey];
 
-        // Resolve model config
+        // Resolve model config — check both models dict AND configurations array
         const effectiveModelKey = modelConfigKey ?? profile?.modelConfig ?? this.getDefaultModelKey(config);
-        const { key: resolvedModelKey, mc } = effectiveModelKey && config.models[effectiveModelKey]
-            ? { key: effectiveModelKey, mc: config.models[effectiveModelKey] }
-            : this.resolveModelConfig(config, profile);
+        const { key: resolvedModelKey, mc } = this.resolveModelConfig(config, profile, effectiveModelKey ?? undefined);
 
         const effectiveSystemPrompt = profile?.systemPrompt ?? config.systemPrompt;
         const effectiveResultTemplate = profile?.resultTemplate ?? config.resultTemplate;
@@ -1110,7 +1108,8 @@ export class LocalLlmManager {
         const resolvedSystemPrompt = this.resolvePlaceholders(effectiveSystemPrompt, preValues);
 
         // Log process() invocation
-        this.logChannel.appendLine(`[process] Profile: ${effectiveProfileKey} | Model: ${resolvedModelKey} (${mc.model})`);
+        this.logChannel.appendLine(`[process] Requested modelConfigKey: ${modelConfigKey ?? '(none)'} → effectiveModelKey: ${effectiveModelKey ?? '(none)'} → resolved: ${resolvedModelKey}`);
+        this.logChannel.appendLine(`[process] Profile: ${effectiveProfileKey} | Model: ${resolvedModelKey} (${mc.model}) | URL: ${mc.ollamaUrl}`);
         this.logChannel.appendLine(`[process] Temperature: ${effectiveTemperature} | Instructions: ${instructionsContent.length} chars`);
         this.logChannel.appendLine(`[process] Prompt: ${prompt.length} chars | System prompt: ${resolvedSystemPrompt.length} chars`);
 

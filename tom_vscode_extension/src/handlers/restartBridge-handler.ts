@@ -15,7 +15,8 @@ import {
     getBridgeClient,
     setBridgeClient,
     resolvePathVariables,
-    resolveBridgeExecutable
+    resolveBridgeExecutable,
+    bridgeLog
 } from './handler_shared';
 import { DartBridgeClient } from '../vscode-bridge';
 import { expandHomePath } from '../utils/executableResolver';
@@ -145,6 +146,7 @@ export async function restartBridgeHandler(
 
         // Load canonical bridge config
         const bridgeConfig = loadBridgeConfig();
+        bridgeLog(`[Bridge] Config loaded: ${bridgeConfig ? `current=${bridgeConfig.current}, profiles=[${Object.keys(bridgeConfig.profiles).join(', ')}]` : 'null'}`);
         if (!bridgeConfig) {
             if (showMessages) {
                 vscode.window.showErrorMessage('Bridge configuration missing: expected "bridge" in tom_vscode_extension.json');
@@ -193,8 +195,18 @@ export async function restartBridgeHandler(
 
         // Start the bridge with the resolved configuration
         if (command !== undefined && args !== undefined) {
+            bridgeLog(`[Bridge] Starting with command='${command}' args=[${args.join(', ')}] cwd='${bridgePath}' runPubGet=${runPubGet}`);
+            const commandExists = fs.existsSync(command);
+            if (!commandExists) {
+                bridgeLog(`[Bridge] WARNING: Command binary not found at: ${command}`, 'ERROR');
+                if (showMessages) {
+                    vscode.window.showErrorMessage(`Bridge binary not found: ${command}`);
+                }
+                return;
+            }
             await bridgeClient.startWithAutoRestart(bridgePath, command, args, runPubGet);
         } else {
+            bridgeLog(`[Bridge] Starting with bridgePath='${bridgePath}' (no explicit command)`);
             await bridgeClient.startWithAutoRestart(bridgePath);
         }
 

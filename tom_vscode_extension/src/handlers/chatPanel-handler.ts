@@ -1224,6 +1224,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
         const profileKey = profile === '__none__' ? null : profile;
         let llmConfigKey = llmConfig && llmConfig !== '__default__' ? llmConfig : null;
         const profileLabel = profile === '__none__' ? 'None' : profile;
+        debugLog(`[UnifiedNotepad] _handleSendLocalLlm: llmConfig from webview='${llmConfig}' → llmConfigKey='${llmConfigKey}'`, 'INFO', 'extension');
         // Fall back to default configuration if none explicitly selected
         if (!llmConfigKey) {
             const configs = Array.isArray(config?.localLlm?.configurations) ? config!.localLlm!.configurations : [];
@@ -1237,12 +1238,12 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
             return;
         }
         
-        // Resolve model name for status messages
-        const modelName = manager.getResolvedModelName();
+        // Resolve model name for status messages (pass llmConfigKey so it resolves the right model)
+        const modelName = manager.getResolvedModelName(llmConfigKey ?? undefined);
         
         try {
-            // Check if model needs loading
-            const modelLoaded = await manager.checkModelLoaded();
+            // Check if model needs loading (use the resolved model name)
+            const modelLoaded = await manager.checkModelLoaded(modelName);
             
             const result = await vscode.window.withProgress(
                 {
