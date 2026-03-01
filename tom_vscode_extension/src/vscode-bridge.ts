@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { spawn, ChildProcess } from 'child_process';
 import { getLocalLlmManager, getAiConversationManager } from './handlers';
+import { getTomScriptingBridgeHandler } from './handlers/tomScriptingBridge-handler';
 
 const DART_COMMAND = 'dart';
 
@@ -653,6 +654,99 @@ export class DartBridgeClient {
                         throw new Error('AI Conversation manager not initialized');
                     }
                     result = await botMgr.handleBridgeRequest(method, params);
+                    break;
+                }
+
+                // Tom Scripting API - TODO, Queue, Timed, Document, Workspace operations
+                case 'todo.listFilesVce':
+                case 'todo.listQuestVce':
+                case 'todo.getQuestVce':
+                case 'todo.createQuestVce':
+                case 'todo.updateQuestVce':
+                case 'todo.deleteQuestVce':
+                case 'todo.listWorkspaceFilesVce':
+                case 'todo.listWorkspaceVce':
+                case 'todo.getWorkspaceVce':
+                case 'todo.createWorkspaceVce':
+                case 'todo.updateWorkspaceVce':
+                case 'todo.deleteWorkspaceVce':
+                case 'todo.listSessionVce':
+                case 'todo.getSessionVce':
+                case 'todo.createSessionVce':
+                case 'todo.updateSessionVce':
+                case 'todo.deleteSessionVce':
+                case 'todo.listAllVce':
+                case 'queue.listVce':
+                case 'queue.getVce':
+                case 'queue.addVce':
+                case 'queue.removeVce':
+                case 'queue.clearPendingVce':
+                case 'queue.clearSentVce':
+                case 'queue.updateStatusVce':
+                case 'queue.updateTextVce':
+                case 'queue.updateReminderVce':
+                case 'queue.moveToVce':
+                case 'queue.moveUpVce':
+                case 'queue.moveDownVce':
+                case 'queue.addFollowUpVce':
+                case 'queue.removeFollowUpVce':
+                case 'queue.updateFollowUpVce':
+                case 'queue.sendNextVce':
+                case 'queue.pauseVce':
+                case 'queue.resumeVce':
+                case 'queue.isPausedVce':
+                case 'timed.listVce':
+                case 'timed.getVce':
+                case 'timed.createVce':
+                case 'timed.updateVce':
+                case 'timed.deleteVce':
+                case 'timed.enableVce':
+                case 'timed.disableVce':
+                case 'timed.isActivatedVce':
+                case 'timed.activateVce':
+                case 'timed.deactivateVce':
+                case 'timed.triggerCheckVce':
+                case 'doc.listVce':
+                case 'doc.readVce':
+                case 'doc.writeVce':
+                case 'doc.deleteVce':
+                case 'doc.existsVce':
+                case 'doc.listPromptsVce':
+                case 'doc.readPromptVce':
+                case 'doc.createPromptVce':
+                case 'doc.listAnswersVce':
+                case 'doc.readAnswerVce':
+                case 'doc.listTrailVce':
+                case 'doc.getTrailEntryVce':
+                case 'doc.findTrailByRequestIdVce':
+                case 'doc.listGuidelinesVce':
+                case 'doc.readGuidelineVce':
+                case 'doc.listNotesVce':
+                case 'doc.readNoteVce':
+                case 'doc.writeNoteVce':
+                case 'doc.listQuestDocsVce':
+                case 'doc.readQuestDocVce':
+                case 'doc.writeQuestDocVce':
+                case 'workspace.getInfoVce':
+                case 'workspace.getRootPathVce':
+                case 'workspace.getWindowIdVce':
+                case 'workspace.listProjectsVce':
+                case 'workspace.getProjectVce':
+                case 'workspace.findProjectsVce':
+                case 'workspace.listQuestsVce':
+                case 'workspace.getQuestVce':
+                case 'workspace.getActiveQuestVce':
+                case 'workspace.setActiveQuestVce':
+                case 'workspace.listChatVariablesVce':
+                case 'workspace.getChatVariableVce':
+                case 'workspace.setChatVariableVce':
+                case 'workspace.getConfigVce':
+                case 'workspace.updateConfigVce': {
+                    const tomHandler = getTomScriptingBridgeHandler();
+                    if (!tomHandler) {
+                        throw new Error('Tom Scripting Bridge handler not initialized');
+                    }
+                    result = await tomHandler.handleBridgeRequest(method, params);
                     break;
                 }
 

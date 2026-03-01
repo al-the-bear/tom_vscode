@@ -83,6 +83,7 @@ import { registerTrailCustomEditor } from './handlers/trailEditor-handler';
 import { registerTodoLogView } from './handlers/todoLogPanel-handler';
 import { registerWindowStatusView, deleteCurrentWindowState, cleanupStaleWindowStates } from './handlers/windowStatusPanel-handler';
 import { registerMinimalModePanels } from './handlers/minimalMode-handler';
+import { initTomScriptingBridgeHandler } from './handlers/tomScriptingBridge-handler';
 import { initializeDebugLogger, installConsoleDebugRouting, debugLog } from './utils/debugLogger';
 import { TomAiConfiguration } from './utils/tomAiConfiguration';
 import { TrailService } from './services/trailService';
@@ -498,6 +499,11 @@ export async function activate(context: vscode.ExtensionContext) {
     setAiConversationManager(aiConversationManager);
     context.subscriptions.push({ dispose: () => aiConversationManager?.dispose() });
     timeStep('aiConversationManager', stepStart);
+
+    // Initialize Tom Scripting Bridge handler
+    stepStart = performance.now();
+    initTomScriptingBridgeHandler(context);
+    timeStep('tomScriptingBridgeHandler', stepStart);
 
     // Dispose standalone Telegram on deactivation
     context.subscriptions.push({ dispose: () => disposeTelegramStandalone() });

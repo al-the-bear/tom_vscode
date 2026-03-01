@@ -38,6 +38,11 @@ import { WsPaths } from '../utils/workspacePaths.js';
 import { scanWorkspaceProjectsByDetectors } from '../utils/projectDetector.js';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview.js';
 import { openInExternalApplication } from './handler_shared.js';
+import {
+    getDocumentPickerHtml,
+    getDocumentPickerCss,
+    getDocumentPickerScript,
+} from './documentPicker.js';
 
 const VIEW_ID = 'tomAi.wsPanel';
 
@@ -153,10 +158,15 @@ export class T3PanelHandler implements vscode.WebviewViewProvider {
                 this._sendDocsGroups();
                 return;
             case 'getDocsFiles':
+            case 'docsGetFiles': // documentPicker message type
                 this._sendDocsFiles(message.group);
                 return;
             case 'loadDocsFile':
+            case 'docsLoadFile': // documentPicker message type
                 this._loadDocsFile(message.file, message.group);
+                return;
+            case 'docsBrowseFile': // documentPicker "Other file" browse
+                await this._browseDocsFile();
                 return;
             case 'saveDocsFile':
                 this._saveDocsFile(message.file, message.content, message.group);
@@ -263,12 +273,7 @@ export class T3PanelHandler implements vscode.WebviewViewProvider {
                 icon: 'note',
                 content: `
 <div class="toolbar">
-    <label for="docs-group">Group:</label>
-    <select id="docs-group" title="Group"></select>
-    <label id="docs-project-label" for="docs-project" style="display:none;">Project:</label>
-    <select id="docs-project" title="Project" style="display:none;"></select>
-    <label for="docs-file">File:</label>
-    <select id="docs-file" title="File"></select>
+    ${getDocumentPickerHtml({ idPrefix: 'docs', allowOtherFile: true, showGroupSelector: true, groupLabel: 'Group:', fileLabel: 'File:' })}
     <button class="icon-btn" onclick="reloadDocs()" title="Reload"><span class="codicon codicon-refresh"></span></button>
     <button class="icon-btn" onclick="addDocsFile()" title="Add"><span class="codicon codicon-add"></span></button>
     <button class="icon-btn" onclick="deleteDocsFile()" title="Delete"><span class="codicon codicon-trash"></span></button>
@@ -318,10 +323,11 @@ export class T3PanelHandler implements vscode.WebviewViewProvider {
         ];
 
         // Issues panels and Quest TODO need their own CSS and client-side scripts
-        const additionalCss = `${getIssuesCss()}\n${getQuestTodoCss()}\n
+        const additionalCss = `${getIssuesCss()}\n${getQuestTodoCss()}\n${getDocumentPickerCss()}\n
 #guidelines textarea, #documentation textarea { min-height: 220px; width: 100%; resize: vertical; }
 #guidelines .toolbar, #documentation .toolbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
 #guidelines select, #documentation select { max-width: 220px; min-width: 120px; }
+#documentation .doc-picker-toolbar { display: inline-flex; margin-bottom: 0; padding: 0; }
 .settings-panel { display: flex; flex-direction: column; height: 100%; min-height: 200px; }
 .sp-loading { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--vscode-descriptionForeground); }
 ${getEmbeddedStatusStyles()}
@@ -453,113 +459,50 @@ function onGuidelinesInput() {
     }, 500);
 }
 
-// ---- Documentation panel state ----
-var docsFiles = [];
-var docsSelectedFile = '';
-var docsSelectedGroup = 'notes';
-var docsGroups = [];
-var docsProjects = [];
-var docsSelectedProject = '';
+// ---- Documentation panel (using shared documentPicker) ----
+${getDocumentPickerScript({ idPrefix: 'docs', allowOtherFile: true, showGroupSelector: true })}
+
+// Local state for content (textarea)
 var docsContent = '';
 var docsSaveTimer = null;
 
-function effectiveDocsGroup() {
-    return docsSelectedGroup === 'project' ? docsSelectedProject : docsSelectedGroup;
-}
-
-function selectDocsGroup(group) {
-    docsSelectedGroup = (group === 'projects' ? 'project' : (group || 'notes'));
-    docsSelectedProject = '';
-    docsSelectedFile = '';
-    docsContent = '';
-    updateDocsUI();
-    if (docsSelectedGroup !== 'project') {
-        vscode.postMessage({ type: 'getDocsFiles', group: docsSelectedGroup });
-    }
-}
-
-function selectDocsProject(projectGroup) {
-    docsSelectedProject = projectGroup || '';
-    docsSelectedFile = '';
-    docsContent = '';
-    updateDocsUI();
-    if (docsSelectedProject) {
-        vscode.postMessage({ type: 'getDocsFiles', group: docsSelectedProject });
-    }
-}
-
-function selectDocsFile(file) {
-    docsSelectedFile = file || '';
-    if (docsSelectedFile) {
-        vscode.postMessage({ type: 'loadDocsFile', file: docsSelectedFile, group: effectiveDocsGroup() });
-    } else {
-        docsContent = '';
-        updateDocsUI();
-    }
-}
-
 function reloadDocs() {
     vscode.postMessage({ type: 'getDocsGroups' });
-    if (effectiveDocsGroup()) {
-        vscode.postMessage({ type: 'getDocsFiles', group: effectiveDocsGroup() });
+    var group = docs_getEffectiveGroup();
+    if (group) {
+        vscode.postMessage({ type: 'docsGetFiles', group: group });
     }
 }
 
 function addDocsFile() {
-    vscode.postMessage({ type: 'addDocsFile', group: effectiveDocsGroup() });
+    vscode.postMessage({ type: 'addDocsFile', group: docs_getEffectiveGroup() });
 }
 
 function deleteDocsFile() {
-    if (!docsSelectedFile) return;
-    vscode.postMessage({ type: 'deleteDocsFile', file: docsSelectedFile, group: effectiveDocsGroup() });
+    var file = docs_getSelectedFile();
+    if (!file) return;
+    vscode.postMessage({ type: 'deleteDocsFile', file: file, group: docs_getEffectiveGroup() });
 }
 
 function openDocsInEditor() {
-    if (!docsSelectedFile) return;
-    vscode.postMessage({ type: 'openDocsInEditor', file: docsSelectedFile, group: effectiveDocsGroup() });
+    var file = docs_getSelectedFile();
+    if (!file) return;
+    vscode.postMessage({ type: 'openDocsInEditor', file: file, group: docs_getEffectiveGroup() });
 }
 
 function previewDocs() {
-    if (!docsSelectedFile) return;
-    vscode.postMessage({ type: 'previewDocsFile', file: docsSelectedFile, group: effectiveDocsGroup() });
+    var file = docs_getSelectedFile();
+    if (!file) return;
+    vscode.postMessage({ type: 'previewDocsFile', file: file, group: docs_getEffectiveGroup() });
 }
 
 function openDocsExternal() {
-    if (!docsSelectedFile) { vscode.postMessage({ type: 'showWarning', text: 'No file selected' }); return; }
-    vscode.postMessage({ type: 'openDocsExternal', file: docsSelectedFile, group: effectiveDocsGroup() });
+    var file = docs_getSelectedFile();
+    if (!file) { vscode.postMessage({ type: 'showWarning', text: 'No file selected' }); return; }
+    vscode.postMessage({ type: 'openDocsExternal', file: file, group: docs_getEffectiveGroup() });
 }
 
-function updateDocsUI() {
-    var groupSel = document.getElementById('docs-group');
-    if (groupSel) {
-        groupSel.innerHTML = (docsGroups || []).map(function(g) {
-            return '<option value="' + g.id + '"' + (g.id === docsSelectedGroup ? ' selected' : '') + '>' + g.label + '</option>';
-        }).join('');
-    }
-
-    var projectSel = document.getElementById('docs-project');
-    var projectLabel = document.getElementById('docs-project-label');
-    if (projectSel) {
-        if (docsSelectedGroup === 'project' && (docsProjects || []).length > 0) {
-            if (projectLabel) projectLabel.style.display = '';
-            projectSel.style.display = '';
-            projectSel.innerHTML = '<option value="">(Select project)</option>' + (docsProjects || []).map(function(p) {
-                return '<option value="' + p.id + '"' + (p.id === docsSelectedProject ? ' selected' : '') + '>' + p.label + '</option>';
-            }).join('');
-        } else {
-            if (projectLabel) projectLabel.style.display = 'none';
-            projectSel.style.display = 'none';
-            projectSel.innerHTML = '';
-        }
-    }
-
-    var fileSel = document.getElementById('docs-file');
-    if (fileSel) {
-        fileSel.innerHTML = '<option value="">(Select file)</option>' + (docsFiles || []).map(function(f) {
-            return '<option value="' + f + '"' + (f === docsSelectedFile ? ' selected' : '') + '>' + f + '</option>';
-        }).join('');
-    }
-
+function updateDocsContent() {
     var ta = document.getElementById('docs-text');
     if (ta) {
         ta.value = docsContent || '';
@@ -568,11 +511,12 @@ function updateDocsUI() {
 
 function onDocsInput() {
     var ta = document.getElementById('docs-text');
-    if (!ta || !docsSelectedFile) return;
+    var file = docs_getSelectedFile();
+    if (!ta || !file) return;
     docsContent = ta.value;
     if (docsSaveTimer) clearTimeout(docsSaveTimer);
     docsSaveTimer = setTimeout(function() {
-        vscode.postMessage({ type: 'saveDocsFile', file: docsSelectedFile, content: docsContent, group: effectiveDocsGroup() });
+        vscode.postMessage({ type: 'saveDocsFile', file: file, content: docsContent, group: docs_getEffectiveGroup() });
     }, 500);
 }
 
@@ -595,20 +539,14 @@ window.addEventListener('message', function(e) {
         guidelinesContent = msg.content || '';
         updateGuidelinesUI();
     } else if (msg.type === 'docsGroups') {
-        docsGroups = msg.groups || [];
-        docsProjects = msg.projects || [];
-        updateDocsUI();
+        // Forward to documentPicker
+        docs_setGroups(msg.groups || [], msg.projects || []);
     } else if (msg.type === 'docsFiles') {
-        docsFiles = msg.files || [];
-        if (msg.selectedFile) docsSelectedFile = msg.selectedFile;
-        else if (docsFiles.length > 0 && !docsSelectedFile) docsSelectedFile = docsFiles[0];
-        updateDocsUI();
-        if (docsSelectedFile) {
-            vscode.postMessage({ type: 'loadDocsFile', file: docsSelectedFile, group: effectiveDocsGroup() });
-        }
+        // Forward to documentPicker
+        docs_setFiles(msg.files || [], msg.selectedFile);
     } else if (msg.type === 'docsContent') {
         docsContent = msg.content || '';
-        updateDocsUI();
+        updateDocsContent();
     }
 });
 
@@ -618,7 +556,7 @@ window.addEventListener('message', function(e) {
 // (function declarations are hoisted but var assignments are not).
 function onRenderComplete() {
     if (guidelinesGroups) updateGuidelinesUI();
-    if (docsGroups) updateDocsUI();
+    docs_updateUI();
 }
 
 setTimeout(function() {
@@ -999,6 +937,32 @@ window.addEventListener('message', function(e) {
         }
         const content = fs.readFileSync(filePath, 'utf-8');
         this._view?.webview.postMessage({ type: 'docsContent', content });
+    }
+
+    private async _browseDocsFile(): Promise<void> {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            return;
+        }
+        const result = await vscode.window.showOpenDialog({
+            canSelectFiles: true,
+            canSelectFolders: false,
+            canSelectMany: false,
+            filters: { 'Markdown': ['md'] },
+            defaultUri: workspaceFolder.uri,
+        });
+        if (!result || result.length === 0) {
+            return;
+        }
+        const filePath = result[0].fsPath;
+        const wsRoot = workspaceFolder.uri.fsPath;
+        const relativePath = path.relative(wsRoot, filePath);
+        this._view?.webview.postMessage({ type: 'docsBrowsedFile', file: relativePath });
+        // Also load the content
+        if (fs.existsSync(filePath)) {
+            const content = fs.readFileSync(filePath, 'utf-8');
+            this._view?.webview.postMessage({ type: 'docsContent', content });
+        }
     }
 
     private _saveDocsFile(file: string, content: string, group?: string): void {

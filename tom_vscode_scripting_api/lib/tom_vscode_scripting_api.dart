@@ -1,5 +1,5 @@
 /// VS Code Scripting API
-/// 
+///
 /// Provides Dart abstractions for VS Code extension APIs.
 /// This package allows you to interact with VS Code through a bridge adapter.
 library;
@@ -31,6 +31,13 @@ export 'src/vscode_types.dart';
 // AI APIs (local LLM prompt processing & bot conversation)
 export 'src/ai_prompt_api.dart';
 export 'src/ai_conversation_api.dart';
+
+// Tom APIs (workspace, todos, queue, timed requests, documents)
+export 'src/tom_todo_api.dart';
+export 'src/tom_queue_api.dart';
+export 'src/tom_timed_api.dart';
+export 'src/tom_document_api.dart';
+export 'src/tom_workspace_api.dart';
 
 // Script globals (vscode, window, workspace, commands, extensions, lm, chat)
 export 'script_globals.dart';
