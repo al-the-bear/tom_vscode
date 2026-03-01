@@ -26,7 +26,7 @@ function mapTypeToSubsystem(type: string, target?: string, metadata: TrailMetada
     if (type === 'local') {
         return {
             type: 'localLlm',
-            profile: sanitizeSegment(String(metadata.profile ?? target ?? 'default')),
+            configName: sanitizeSegment(String(metadata.llmConfigKey ?? metadata.profile ?? target ?? 'default')),
         };
     }
 

@@ -5,7 +5,7 @@ import { FsUtils } from '../utils/fsUtils';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 
 export type TrailSubsystem =
-    | { type: 'localLlm'; profile: string }
+    | { type: 'localLlm'; configName: string }
     | { type: 'copilot' }
     | { type: 'lmApi'; model: string };
 
@@ -244,7 +244,7 @@ export class TrailService {
                 : raw.paths?.lmApi ?? '${ai}/trail/lm-api';
 
         const suffix = subsystem.type === 'localLlm'
-            ? `-${subsystem.profile}`
+            ? `-${subsystem.configName}`
             : subsystem.type === 'lmApi'
                 ? `-${subsystem.model}`
                 : '';
@@ -387,7 +387,7 @@ export class TrailService {
             return 'copilot';
         }
         if (subsystem.type === 'localLlm') {
-            return `localllm-${subsystem.profile}`;
+            return `localllm-${subsystem.configName}`;
         }
         return `lm-api-${subsystem.model}`;
     }

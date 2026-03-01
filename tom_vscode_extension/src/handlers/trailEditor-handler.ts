@@ -518,21 +518,37 @@ function parseFallbackSummaryContent(content: string, expectedType: 'PROMPT' | '
                 entry.content = chunk.substring(0, metaStart).trim();
             }
         } else {
-            const commentMatch = chunk.match(/(?:^|\n)comments:\s*(.+)/);
-            const variablesMatch = chunk.match(/(?:^|\n)variables:\n([\s\S]*?)(?=\n(?:references|requestFileAttachments):|$)/);
-            const referencesMatch = chunk.match(/(?:^|\n)references:\n([\s\S]*?)(?=\n(?:variables|requestFileAttachments):|$)/);
-            const attachmentsMatch = chunk.match(/(?:^|\n)requestFileAttachments:\n([\s\S]*?)(?=\n(?:variables|references):|$)/);
-            if (commentMatch) { entry.comments = commentMatch[1].trim(); }
-            if (variablesMatch) { entry.variables = variablesMatch[1].trim(); }
-            if (referencesMatch) {
-                entry.references = referencesMatch[1].split('\n').map((line) => line.replace(/^\s*-\s*/, '').trim()).filter(Boolean);
-            }
-            if (attachmentsMatch) {
-                entry.attachments = attachmentsMatch[1].split('\n').map((line) => line.replace(/^\s*-\s*/, '').trim()).filter(Boolean);
-            }
-            const metaStart = chunk.search(/(?:^|\n)(?:comments|variables|references|requestFileAttachments):/);
-            if (metaStart > 0) {
-                entry.content = chunk.substring(0, metaStart).trim();
+            // Check for ### metadata JSON block (localLlm / lmApi format)
+            const metaJsonMatch = chunk.match(/(?:^|\n)### metadata\s*\n```json\n([\s\S]*?)```\s*\n*([\s\S]*)$/);
+            if (metaJsonMatch) {
+                try {
+                    const meta = JSON.parse(metaJsonMatch[1]);
+                    if (meta.profile) { entry.comments = `profile: ${meta.profile}`; }
+                    if (meta.llmConfigKey) {
+                        entry.comments = (entry.comments ? entry.comments + ', ' : '') + `config: ${meta.llmConfigKey}`;
+                    }
+                    entry.variables = Object.entries(meta)
+                        .map(([k, v]) => `${k} = ${String(v)}`)
+                        .join('\n');
+                } catch { /* ignore parse errors */ }
+                entry.content = (metaJsonMatch[2] || '').trim();
+            } else {
+                const commentMatch = chunk.match(/(?:^|\n)comments:\s*(.+)/);
+                const variablesMatch = chunk.match(/(?:^|\n)variables:\n([\s\S]*?)(?=\n(?:references|requestFileAttachments):|$)/);
+                const referencesMatch = chunk.match(/(?:^|\n)references:\n([\s\S]*?)(?=\n(?:variables|requestFileAttachments):|$)/);
+                const attachmentsMatch = chunk.match(/(?:^|\n)requestFileAttachments:\n([\s\S]*?)(?=\n(?:variables|references):|$)/);
+                if (commentMatch) { entry.comments = commentMatch[1].trim(); }
+                if (variablesMatch) { entry.variables = variablesMatch[1].trim(); }
+                if (referencesMatch) {
+                    entry.references = referencesMatch[1].split('\n').map((line) => line.replace(/^\s*-\s*/, '').trim()).filter(Boolean);
+                }
+                if (attachmentsMatch) {
+                    entry.attachments = attachmentsMatch[1].split('\n').map((line) => line.replace(/^\s*-\s*/, '').trim()).filter(Boolean);
+                }
+                const metaStart = chunk.search(/(?:^|\n)(?:comments|variables|references|requestFileAttachments):/);
+                if (metaStart > 0) {
+                    entry.content = chunk.substring(0, metaStart).trim();
+                }
             }
         }
 
@@ -564,29 +580,46 @@ function parseEntryBody(body: string, type: 'PROMPT' | 'ANSWER', requestId: stri
             entry.answerWrapper = wrapperMatch[1].trim();
         }
     } else {
-        // Extract metadata sections from the end
-        const commentMatch = body.match(/\ncomments:\s*(.+)/);
-        const variablesMatch = body.match(/\nvariables:\n([\s\S]*?)(?=\n(?:references|requestFileAttachments):|$)/);
-        const referencesMatch = body.match(/\nreferences:\n([\s\S]*?)(?=\n(?:variables|requestFileAttachments):|$)/);
-        const attachmentsMatch = body.match(/\nrequestFileAttachments:\n([\s\S]*?)(?=\n(?:variables|references):|$)/);
-        
-        if (commentMatch) { entry.comments = commentMatch[1].trim(); }
-        if (variablesMatch) { entry.variables = variablesMatch[1].trim(); }
-        if (referencesMatch) {
-            entry.references = referencesMatch[1].split('\n')
-                .map(l => l.replace(/^\s*-\s*/, '').trim())
-                .filter(Boolean);
-        }
-        if (attachmentsMatch) {
-            entry.attachments = attachmentsMatch[1].split('\n')
-                .map(l => l.replace(/^\s*-\s*/, '').trim())
-                .filter(Boolean);
-        }
-        
-        // Strip metadata from displayed content
-        const metaStart = body.search(/\n(?:comments|variables|references|requestFileAttachments):/);
-        if (metaStart > 0) {
-            entry.content = body.substring(0, metaStart).trim();
+        // Check for ### metadata JSON block (used by localLlm and lmApi trails)
+        const metaJsonMatch = body.match(/^### metadata\s*\n```json\n([\s\S]*?)```\s*\n*([\s\S]*)$/);
+        if (metaJsonMatch) {
+            try {
+                const meta = JSON.parse(metaJsonMatch[1]);
+                if (meta.profile) { entry.comments = `profile: ${meta.profile}`; }
+                if (meta.llmConfigKey) {
+                    entry.comments = (entry.comments ? entry.comments + ', ' : '') + `config: ${meta.llmConfigKey}`;
+                }
+                // Store full metadata as variables for display in metadata panel
+                entry.variables = Object.entries(meta)
+                    .map(([k, v]) => `${k} = ${String(v)}`)
+                    .join('\n');
+            } catch { /* ignore parse errors */ }
+            entry.content = (metaJsonMatch[2] || '').trim();
+        } else {
+            // Extract metadata sections from the end (copilot format)
+            const commentMatch = body.match(/\ncomments:\s*(.+)/);
+            const variablesMatch = body.match(/\nvariables:\n([\s\S]*?)(?=\n(?:references|requestFileAttachments):|$)/);
+            const referencesMatch = body.match(/\nreferences:\n([\s\S]*?)(?=\n(?:variables|requestFileAttachments):|$)/);
+            const attachmentsMatch = body.match(/\nrequestFileAttachments:\n([\s\S]*?)(?=\n(?:variables|references):|$)/);
+            
+            if (commentMatch) { entry.comments = commentMatch[1].trim(); }
+            if (variablesMatch) { entry.variables = variablesMatch[1].trim(); }
+            if (referencesMatch) {
+                entry.references = referencesMatch[1].split('\n')
+                    .map(l => l.replace(/^\s*-\s*/, '').trim())
+                    .filter(Boolean);
+            }
+            if (attachmentsMatch) {
+                entry.attachments = attachmentsMatch[1].split('\n')
+                    .map(l => l.replace(/^\s*-\s*/, '').trim())
+                    .filter(Boolean);
+            }
+            
+            // Strip metadata from displayed content
+            const metaStart = body.search(/\n(?:comments|variables|references|requestFileAttachments):/);
+            if (metaStart > 0) {
+                entry.content = body.substring(0, metaStart).trim();
+            }
         }
     }
     

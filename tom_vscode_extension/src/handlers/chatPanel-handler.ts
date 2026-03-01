@@ -1514,7 +1514,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
         const questId = detectQuestFromWorkspace() || undefined;
         const subsystem = {
             type: 'localLlm' as const,
-            profile: (profile || llmConfigKey || 'default').replace(/[^a-zA-Z0-9._-]/g, '_')
+            configName: (llmConfigKey || profile || 'default').replace(/[^a-zA-Z0-9._-]/g, '_')
         };
 
         await trailService.writeSummaryPrompt(subsystem, prompt, questId);
