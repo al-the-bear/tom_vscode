@@ -12,21 +12,20 @@ import * as path from 'path';
 import { randomUUID } from 'crypto';
 import { expandTemplate } from '../handlers/promptTemplate';
 import { loadSendToChatConfig, getCopilotChatAnswerFolderAbsolute, DEFAULT_ANSWER_FILE_TEMPLATE, getConfigPath } from '../handlers/handler_shared';
-import { readPanelYamlSync, writePanelYaml, panelFileExists } from '../utils/panelYamlStore';
-import { WsPaths } from '../utils/workspacePaths';
 import {
     readAllEntries,
     writeEntry,
     deleteEntry,
     generateEntryFileName,
     entryIdFromFileName,
-    migrateFromOldFormat,
     startWatching as startQueueWatching,
     stopWatching as stopQueueWatching,
     onQueueChanged,
     trimSentEntries,
-    type QueueEntryYaml,
     type QueueEntryFile,
+    type QueueFileYaml,
+    type QueuePromptYaml,
+    type QueueReminderConfig,
 } from '../storage/queueFileStorage';
 import { debugLog } from '../utils/debugLogger';
 
@@ -939,15 +938,9 @@ export class PromptQueueManager {
     }
 
     private restore(): void {
-        // Try new file-per-entry storage first
         const entries = readAllEntries();
-        if (entries.length > 0) {
-            this._loadFromEntryFiles(entries);
-            console.log('[PromptQueueManager] restore: loaded', this._items.length, 'items from queue files');
-        } else {
-            // Check for old panelYamlStore format and migrate
-            this._tryMigrateOldFormat();
-        }
+        this._loadFromEntryFiles(entries);
+        console.log('[PromptQueueManager] restore: loaded', this._items.length, 'items from queue files');
 
         // Reset any "sending" items back to pending (crash recovery)
         for (const item of this._items) {
@@ -976,57 +969,6 @@ export class PromptQueueManager {
         }
     }
 
-    /** Try migrating from old panelYamlStore format. */
-    private _tryMigrateOldFormat(): void {
-        try {
-            const data = readPanelYamlSync<{ items?: QueuedPrompt[]; autoSend?: boolean; responseTimeoutMinutes?: number }>('queue');
-            if (data?.items && Array.isArray(data.items) && data.items.length > 0) {
-                console.log('[PromptQueueManager] Migrating', data.items.length, 'items from old format');
-                let quest: string | undefined;
-                try { quest = (await_import_ChatVariablesStore())?.quest || ''; } catch { /* */ }
-                migrateFromOldFormat(data.items as unknown as Array<Record<string, unknown>>, quest);
-
-                this._autoSendEnabled = data.autoSend ?? true;
-                this._responseFileTimeoutMinutes = Math.max(5, data.responseTimeoutMinutes ?? 60);
-
-                // Reload from newly created files
-                const entries = readAllEntries();
-                this._loadFromEntryFiles(entries);
-                console.log('[PromptQueueManager] Migration complete:', this._items.length, 'items');
-            } else {
-                // Also try loading old format directly as fallback
-                if (data?.items && Array.isArray(data.items)) {
-                    this._items = data.items;
-                    this._validateLoadedItems();
-                    this._autoSendEnabled = data.autoSend ?? true;
-                    this._responseFileTimeoutMinutes = Math.max(5, data.responseTimeoutMinutes ?? 60);
-                    console.log('[PromptQueueManager] restore: loaded', this._items.length, 'items from old YAML');
-                } else {
-                    console.log('[PromptQueueManager] restore: no items found');
-                }
-            }
-        } catch (e) {
-            console.error('[PromptQueueManager] restore: error loading:', e);
-            this._items = [];
-        }
-    }
-
-    /** Validate items loaded from old format. */
-    private _validateLoadedItems(): void {
-        for (const item of this._items) {
-            const status = (item as any).status;
-            const validStatus = status === 'staged' || status === 'pending' || status === 'sending' || status === 'sent' || status === 'error';
-            if (!validStatus) { item.status = 'staged'; }
-            if (typeof item.id !== 'string' || !item.id) { item.id = randomUUID(); }
-            if (typeof item.originalText !== 'string') { item.originalText = ''; }
-            if (typeof item.expandedText !== 'string') { item.expandedText = item.originalText || ''; }
-            if (!item.template) { item.template = '(None)'; }
-            if (typeof item.type !== 'string' || (item.type !== 'normal' && item.type !== 'timed' && item.type !== 'reminder')) { item.type = 'normal'; }
-            if (!Array.isArray(item.followUps)) { item.followUps = []; }
-            if (typeof item.followUpIndex !== 'number' || item.followUpIndex < 0) { item.followUpIndex = 0; }
-        }
-    }
-
     /** Persist all items to individual entry files. */
     private _persistToFiles(): void {
         try {
@@ -1035,13 +977,13 @@ export class PromptQueueManager {
 
             // Write each item
             for (const item of this._items) {
-                const entryData = this._queuedPromptToEntry(item, quest);
+                const doc = this._queuedPromptToDoc(item, quest);
                 let fileName = this._fileNameMap.get(item.id);
                 if (!fileName) {
                     fileName = generateEntryFileName(quest, item.type, new Date(item.createdAt));
                     this._fileNameMap.set(item.id, fileName);
                 }
-                writeEntry(entryIdFromFileName(fileName), entryData, fileName);
+                writeEntry(entryIdFromFileName(fileName), doc, fileName);
             }
 
             // Delete files for items no longer in memory
@@ -1059,65 +1001,71 @@ export class PromptQueueManager {
         }
     }
 
-    /** Also persist to old format for backwards compatibility during transition. */
-    private async _persistYaml(): Promise<void> {
-        try {
-            await writePanelYaml('queue', {
-                autoSend: this._autoSendEnabled,
-                responseTimeoutMinutes: this._responseFileTimeoutMinutes,
-                items: this._items,
-            }, '../../_ai/schemas/yaml/queue.schema.json');
-        } catch { /* best effort */ }
-    }
-
-    // ----- Conversion: QueueEntryYaml ↔ QueuedPrompt -----------------------
+    // ----- Conversion: QueueFileYaml ↔ QueuedPrompt -----------------------
 
     private _entryToQueuedPrompt(entry: QueueEntryFile): QueuedPrompt | undefined {
         try {
-            const d = entry.data;
+            const doc = entry.doc;
+            const meta = doc.meta;
+            const prompts = doc['prompt-queue'] || [];
+            const mainId = meta['main-prompt'] || 'P1';
+            const main = prompts.find(p => p.id === mainId) || prompts.find(p => p.type === 'main') || prompts[0];
+            if (!main) return undefined;
+
             const prompt: QueuedPrompt = {
-                id: entry.entryId,
-                template: d.prompt.template || '(None)',
-                answerWrapper: d.prompt['answer-wrapper'],
-                originalText: d.prompt.text,
-                expandedText: d.prompt['expanded-text'] || d.prompt.text,
-                status: d.status,
-                type: d.type === 'prompt' ? 'normal' : d.type,
-                createdAt: d.created,
-                sentAt: d.execution?.['sent-at'] || undefined,
-                error: d.execution?.error || undefined,
-                reminderTemplateId: d.reminder?.['template-id'],
-                reminderTimeoutMinutes: d.reminder?.['timeout-minutes'],
-                reminderRepeat: d.reminder?.repeat,
-                reminderEnabled: d.reminder?.enabled,
-                reminderQueued: d.reminder?.queued,
-                reminderSentCount: d.reminder?.['sent-count'],
-                lastReminderAt: d.reminder?.['last-sent-at'] || undefined,
-                requestId: d.execution?.['request-id'] || undefined,
-                expectedRequestId: d.execution?.['expected-request-id'] || undefined,
-                followUpIndex: d.execution?.['follow-up-index'] || 0,
+                id: meta.id || entry.entryId,
+                template: main.template || '(None)',
+                answerWrapper: main['answer-wrapper'],
+                originalText: main['prompt-text'] || '',
+                expandedText: main['expanded-text'] || main['prompt-text'] || '',
+                status: (meta.status as QueuedPromptStatus) || 'staged',
+                type: 'normal',
+                createdAt: (meta.created as string) || new Date().toISOString(),
+                sentAt: main.execution?.['sent-at'] || undefined,
+                error: main.execution?.error || undefined,
+                reminderTemplateId: main.reminder?.['template-id'],
+                reminderTimeoutMinutes: main.reminder?.['timeout-minutes'],
+                reminderRepeat: main.reminder?.repeat,
+                reminderEnabled: main.reminder?.enabled,
+                reminderQueued: main.reminder?.queued,
+                reminderSentCount: main.reminder?.['sent-count'],
+                lastReminderAt: main.reminder?.['last-sent-at'] || undefined,
+                requestId: main.execution?.['request-id'] || undefined,
+                expectedRequestId: main.execution?.['expected-request-id'] || undefined,
+                followUpIndex: main.execution?.['follow-up-index'] || 0,
             };
 
-            // Pre-prompts
-            if (d['pre-prompts'] && d['pre-prompts'].length > 0) {
-                prompt.prePrompts = d['pre-prompts'].map(pp => ({
-                    text: pp.text,
-                    template: pp.template,
-                    status: pp.status || 'pending',
-                }));
+            // Pre-prompts: resolve refs from the prompt-queue
+            const preRefs = main['pre-prompt-refs'] || [];
+            if (preRefs.length > 0) {
+                prompt.prePrompts = preRefs.map(ref => {
+                    const refId = typeof ref === 'string' ? ref : undefined;
+                    const pp = refId ? prompts.find(p => p.id === refId) : undefined;
+                    return {
+                        text: pp?.['prompt-text'] || '',
+                        template: pp?.template,
+                        status: (pp?.execution?.['sent-at'] ? 'sent' : (pp?.execution?.error ? 'error' : 'pending')) as 'pending' | 'sent' | 'error',
+                    };
+                });
             }
 
-            if (d['follow-ups'] && d['follow-ups'].length > 0) {
-                prompt.followUps = d['follow-ups'].map(fu => ({
-                    id: fu.id,
-                    originalText: fu.text,
-                    template: fu.template,
-                    reminderTemplateId: fu.reminder?.['template-id'],
-                    reminderTimeoutMinutes: fu.reminder?.['timeout-minutes'],
-                    reminderRepeat: fu.reminder?.repeat,
-                    reminderEnabled: fu.reminder?.enabled,
-                    createdAt: fu.created || d.created,
-                }));
+            // Follow-ups: resolve refs from the prompt-queue
+            const fuRefs = main['follow-up-refs'] || [];
+            if (fuRefs.length > 0) {
+                prompt.followUps = fuRefs.map(ref => {
+                    const refId = typeof ref === 'string' ? ref : undefined;
+                    const fu = refId ? prompts.find(p => p.id === refId) : undefined;
+                    return {
+                        id: refId || randomUUID(),
+                        originalText: fu?.['prompt-text'] || '',
+                        template: fu?.template,
+                        reminderTemplateId: fu?.reminder?.['template-id'],
+                        reminderTimeoutMinutes: fu?.reminder?.['timeout-minutes'],
+                        reminderRepeat: fu?.reminder?.repeat,
+                        reminderEnabled: fu?.reminder?.enabled,
+                        createdAt: (fu?.metadata?.created as string) || (meta.created as string) || new Date().toISOString(),
+                    };
+                });
             } else {
                 prompt.followUps = [];
             }
@@ -1129,22 +1077,21 @@ export class PromptQueueManager {
         }
     }
 
-    private _queuedPromptToEntry(item: QueuedPrompt, quest?: string): QueueEntryYaml {
-        const entry: QueueEntryYaml = {
-            type: item.type === 'normal' ? 'prompt' : item.type,
-            quest: quest || undefined,
-            created: item.createdAt,
-            status: item.status,
-            prompt: {
-                text: item.originalText,
-                'expanded-text': item.expandedText,
-                template: item.template || '(None)',
-                'answer-wrapper': item.answerWrapper,
-            },
+    /** Convert an in-memory QueuedPrompt to a QueueFileYaml document for disk storage. */
+    private _queuedPromptToDoc(item: QueuedPrompt, quest?: string): QueueFileYaml {
+        const mainPrompt: QueuePromptYaml = {
+            id: 'P1',
+            name: 'Main Prompt',
+            type: 'main',
+            'prompt-text': item.originalText,
+            'expanded-text': item.expandedText,
+            template: item.template || '(None)',
+            'answer-wrapper': item.answerWrapper,
         };
 
+        // Reminder config
         if (item.reminderEnabled || item.reminderTemplateId) {
-            entry.reminder = {
+            const reminder: QueueReminderConfig = {
                 enabled: item.reminderEnabled,
                 'template-id': item.reminderTemplateId,
                 'timeout-minutes': item.reminderTimeoutMinutes,
@@ -1153,34 +1100,12 @@ export class PromptQueueManager {
                 'last-sent-at': item.lastReminderAt || null,
                 queued: item.reminderQueued,
             };
+            mainPrompt.reminder = reminder;
         }
 
-        // Pre-prompts
-        if (item.prePrompts && item.prePrompts.length > 0) {
-            entry['pre-prompts'] = item.prePrompts.map(pp => ({
-                text: pp.text,
-                template: pp.template,
-                status: pp.status,
-            }));
-        }
-
-        if (item.followUps && item.followUps.length > 0) {
-            entry['follow-ups'] = item.followUps.map(fu => ({
-                id: fu.id,
-                text: fu.originalText,
-                template: fu.template,
-                reminder: (fu.reminderEnabled || fu.reminderTemplateId) ? {
-                    enabled: fu.reminderEnabled,
-                    'template-id': fu.reminderTemplateId,
-                    'timeout-minutes': fu.reminderTimeoutMinutes,
-                    repeat: fu.reminderRepeat,
-                } : undefined,
-                created: fu.createdAt,
-            }));
-        }
-
+        // Execution state
         if (item.requestId || item.expectedRequestId || item.sentAt || item.error || (item.followUpIndex && item.followUpIndex > 0)) {
-            entry.execution = {
+            mainPrompt.execution = {
                 'request-id': item.requestId || null,
                 'expected-request-id': item.expectedRequestId || null,
                 'sent-at': item.sentAt || null,
@@ -1189,7 +1114,64 @@ export class PromptQueueManager {
             };
         }
 
-        return entry;
+        const allPrompts: QueuePromptYaml[] = [mainPrompt];
+
+        // Pre-prompts
+        if (item.prePrompts && item.prePrompts.length > 0) {
+            const preRefs: string[] = [];
+            item.prePrompts.forEach((pp, idx) => {
+                const ppId = `pre-${idx + 1}`;
+                preRefs.push(ppId);
+                allPrompts.push({
+                    id: ppId,
+                    type: 'preprompt',
+                    'prompt-text': pp.text,
+                    template: pp.template,
+                    execution: pp.status !== 'pending' ? {
+                        'sent-at': pp.status === 'sent' ? new Date().toISOString() : null,
+                        error: pp.status === 'error' ? 'pre-prompt failed' : null,
+                    } : undefined,
+                });
+            });
+            mainPrompt['pre-prompt-refs'] = preRefs;
+        }
+
+        // Follow-ups
+        if (item.followUps && item.followUps.length > 0) {
+            const fuRefs: string[] = [];
+            item.followUps.forEach(fu => {
+                const fuId = fu.id || randomUUID();
+                fuRefs.push(fuId);
+                const fuPrompt: QueuePromptYaml = {
+                    id: fuId,
+                    type: 'followup',
+                    'prompt-text': fu.originalText,
+                    template: fu.template,
+                    metadata: { created: fu.createdAt },
+                };
+                if (fu.reminderEnabled || fu.reminderTemplateId) {
+                    fuPrompt.reminder = {
+                        enabled: fu.reminderEnabled,
+                        'template-id': fu.reminderTemplateId,
+                        'timeout-minutes': fu.reminderTimeoutMinutes,
+                        repeat: fu.reminderRepeat,
+                    };
+                }
+                allPrompts.push(fuPrompt);
+            });
+            mainPrompt['follow-up-refs'] = fuRefs;
+        }
+
+        return {
+            meta: {
+                id: item.id,
+                quest: quest || undefined,
+                status: item.status,
+                created: item.createdAt,
+                'main-prompt': 'P1',
+            },
+            'prompt-queue': allPrompts,
+        };
     }
 
     private trimSentHistory(): void {

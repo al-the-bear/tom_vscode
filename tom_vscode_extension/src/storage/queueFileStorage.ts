@@ -1,21 +1,17 @@
 /**
  * Queue File Storage — File-per-entry storage layer for prompt queue entries.
  *
- * Replaces the monolithic panelYamlStore-based queue storage with
- * individual YAML files in a configurable queue folder.
+ * Stores each queue entry and template as an individual YAML file
+ * using the *.queue.yaml format (meta + prompt-queue).
  *
  * File naming conventions:
- *   - Queue entries:  `<YYMMDD_HHMM>_<quest-id>.<type>.entry.queue.yaml`
+ *   - Queue entries:  `<YYMMDD_HHMMSS>_<quest-id>.<type>.entry.queue.yaml`
  *   - Templates:      `<name>.template.queue.yaml`
  *
  * Default folder: `${workspaceRoot}/_ai/queue/`
  * Configurable via: `tomAi.queueFolder` setting
  *
- * Features:
- *   - Each queue entry is a separate YAML file
- *   - Shared between windows working on the same quest
- *   - File watcher for cross-window synchronisation
- *   - Schema validation via JSON schema reference
+ * Single schema: `queue-entry.schema.json` — used for both entries and templates.
  */
 
 import * as vscode from 'vscode';
@@ -34,11 +30,8 @@ const ENTRY_SUFFIX = '.entry.queue.yaml';
 /** File extension for template files. */
 const TEMPLATE_SUFFIX = '.template.queue.yaml';
 
-/** Relative schema path for entry files. */
-const ENTRY_SCHEMA_REL = '../../_ai/schemas/yaml/queue-entry.schema.json';
-
-/** Relative schema path for template files. */
-const TEMPLATE_SCHEMA_REL = '../../_ai/schemas/yaml/queue-template.schema.json';
+/** Single schema path — used for both entries and templates. */
+const SCHEMA_REL = '../../_ai/schemas/yaml/queue-entry.schema.json';
 
 /** Maximum number of sent entries to keep on disk. */
 const MAX_SENT_ON_DISK = 50;
@@ -54,7 +47,7 @@ export function setQueueStorageDebug(enabled: boolean): void {
 }
 
 // ============================================================================
-// Types — New queue.yaml schema (meta + prompt-queue)
+// Types — queue.yaml schema (meta + prompt-queue)
 // ============================================================================
 
 /** Reminder configuration, shared between prompts and follow-ups. */
@@ -104,7 +97,7 @@ export interface QueuePromptYaml {
     execution?: QueueExecutionState;
 }
 
-/** File-level metadata block. */
+/** File-level metadata block. Allows arbitrary additional properties. */
 export interface QueueMetaYaml {
     id: string;
     name?: string;
@@ -129,37 +122,6 @@ export interface QueueFileYaml {
     'prompt-queue': QueuePromptYaml[];
 }
 
-// --- Legacy types kept for backward compat / migration ---
-
-/** @deprecated Use QueueFileYaml instead. Old flat entry format. */
-export interface QueueEntryYaml {
-    type: 'prompt' | 'timed' | 'reminder';
-    quest?: string;
-    created: string;
-    updated?: string;
-    status: 'staged' | 'pending' | 'sending' | 'sent' | 'error';
-    prompt: {
-        text: string;
-        'expanded-text'?: string;
-        template?: string;
-        'answer-wrapper'?: boolean;
-    };
-    reminder?: QueueReminderConfig;
-    'pre-prompts'?: Array<{
-        text: string;
-        template?: string;
-        status?: 'pending' | 'sent' | 'error';
-    }>;
-    'follow-ups'?: Array<{
-        id: string;
-        text: string;
-        template?: string;
-        reminder?: QueueReminderConfig;
-        created?: string;
-    }>;
-    execution?: QueueExecutionState;
-}
-
 /** File info including parsed content and path metadata. */
 export interface QueueEntryFile {
     /** Absolute file path. */
@@ -168,9 +130,7 @@ export interface QueueEntryFile {
     fileName: string;
     /** Entry ID derived from the filename (without suffix). */
     entryId: string;
-    /** Parsed YAML content (new format). */
-    data: QueueEntryYaml;
-    /** New-format document (always populated). */
+    /** Parsed YAML document. */
     doc: QueueFileYaml;
 }
 
@@ -229,11 +189,7 @@ export function ensureQueueFolder(): string | undefined {
 
 /**
  * Generate a queue entry filename.
- * Format: `<YYMMDD_HHMM>_<quest>.<type>.entry.queue.yaml`
- *
- * @param quest Quest ID (defaults to 'default')
- * @param type Entry type (defaults to 'prompt')
- * @param timestamp Optional specific timestamp
+ * Format: `<YYMMDD_HHMMSS>_<quest>.<type>.entry.queue.yaml`
  */
 export function generateEntryFileName(
     quest?: string,
@@ -286,156 +242,21 @@ function sanitizeFilePart(s: string): string {
 }
 
 // ============================================================================
-// Conversion Helpers — Old flat format ↔ New meta+prompt-queue format
-// ============================================================================
-
-/**
- * Convert old flat QueueEntryYaml → new QueueFileYaml.
- */
-export function entryYamlToFileYaml(old: QueueEntryYaml, entryId: string): QueueFileYaml {
-    const mainPrompt: QueuePromptYaml = {
-        id: 'P1',
-        name: 'Main Prompt',
-        type: 'main',
-        'prompt-text': old.prompt?.text || '',
-        'expanded-text': old.prompt?.['expanded-text'],
-        template: old.prompt?.template,
-        'answer-wrapper': old.prompt?.['answer-wrapper'],
-        reminder: old.reminder,
-        execution: old.execution,
-    };
-
-    const prompts: QueuePromptYaml[] = [mainPrompt];
-
-    // Convert pre-prompts
-    if (old['pre-prompts'] && old['pre-prompts'].length > 0) {
-        const preRefs: string[] = [];
-        old['pre-prompts'].forEach((pp, idx) => {
-            const ppId = `pre-${idx + 1}`;
-            preRefs.push(ppId);
-            prompts.push({
-                id: ppId,
-                type: 'preprompt',
-                'prompt-text': pp.text,
-                template: pp.template,
-                execution: pp.status ? { 'sent-at': pp.status === 'sent' ? new Date().toISOString() : null, error: pp.status === 'error' ? 'error' : null } : undefined,
-            });
-        });
-        mainPrompt['pre-prompt-refs'] = preRefs;
-    }
-
-    // Convert follow-ups
-    if (old['follow-ups'] && old['follow-ups'].length > 0) {
-        const fuRefs: string[] = [];
-        old['follow-ups'].forEach(fu => {
-            const fuId = fu.id || `fu-${fuRefs.length + 1}`;
-            fuRefs.push(fuId);
-            prompts.push({
-                id: fuId,
-                type: 'followup',
-                'prompt-text': fu.text,
-                template: fu.template,
-                reminder: fu.reminder,
-            });
-        });
-        mainPrompt['follow-up-refs'] = fuRefs;
-    }
-
-    return {
-        meta: {
-            id: entryId,
-            quest: old.quest,
-            status: old.status,
-            created: old.created,
-            updated: old.updated,
-            'main-prompt': 'P1',
-        },
-        'prompt-queue': prompts,
-    };
-}
-
-/**
- * Convert new QueueFileYaml → legacy QueueEntryYaml (for backward compat with manager).
- */
-export function fileYamlToEntryYaml(doc: QueueFileYaml): QueueEntryYaml {
-    const mainId = doc.meta['main-prompt'] || 'P1';
-    const main = doc['prompt-queue'].find(p => p.id === mainId) || doc['prompt-queue'].find(p => p.type === 'main') || doc['prompt-queue'][0];
-
-    const result: QueueEntryYaml = {
-        type: 'prompt',
-        quest: doc.meta.quest as string | undefined,
-        created: (doc.meta.created as string) || new Date().toISOString(),
-        updated: doc.meta.updated as string | undefined,
-        status: (doc.meta.status as QueueEntryYaml['status']) || 'staged',
-        prompt: {
-            text: main?.['prompt-text'] || '',
-            'expanded-text': main?.['expanded-text'],
-            template: main?.template,
-            'answer-wrapper': main?.['answer-wrapper'],
-        },
-        reminder: main?.reminder,
-        execution: main?.execution,
-    };
-
-    // Reconstruct pre-prompts
-    const preRefs = main?.['pre-prompt-refs'] || [];
-    if (preRefs.length > 0) {
-        result['pre-prompts'] = preRefs.map(ref => {
-            const refId = typeof ref === 'string' ? ref : undefined;
-            const pp = refId ? doc['prompt-queue'].find(p => p.id === refId) : undefined;
-            return {
-                text: pp?.['prompt-text'] || '',
-                template: pp?.template,
-                status: pp?.execution?.['sent-at'] ? 'sent' as const : (pp?.execution?.error ? 'error' as const : 'pending' as const),
-            };
-        });
-    }
-
-    // Reconstruct follow-ups
-    const fuRefs = main?.['follow-up-refs'] || [];
-    if (fuRefs.length > 0) {
-        result['follow-ups'] = fuRefs.map(ref => {
-            const refId = typeof ref === 'string' ? ref : undefined;
-            const fu = refId ? doc['prompt-queue'].find(p => p.id === refId) : undefined;
-            return {
-                id: refId || generateId(),
-                text: fu?.['prompt-text'] || '',
-                template: fu?.template,
-                reminder: fu?.reminder,
-                created: fu?.metadata?.created as string | undefined,
-            };
-        });
-    }
-
-    return result;
-}
-
-/**
- * Detect whether a parsed YAML object is in the new `meta + prompt-queue` format
- * or the old flat format.
- */
-function isNewFormat(data: unknown): data is QueueFileYaml {
-    return !!data && typeof data === 'object' && 'meta' in data && 'prompt-queue' in data;
-}
-
-// ============================================================================
 // Entry CRUD
 // ============================================================================
 
 /**
- * Write a queue entry to disk in the new meta+prompt-queue format.
+ * Write a queue entry to disk.
  *
  * @param entryId Entry ID (used as base filename)
- * @param data The entry data (legacy format — converted automatically)
+ * @param doc The queue file document
  * @param fileName Optional specific filename to use
- * @param doc Optional new-format document (takes priority over data)
  * @returns The absolute file path written, or undefined on failure
  */
 export function writeEntry(
     entryId: string,
-    data: QueueEntryYaml,
+    doc: QueueFileYaml,
     fileName?: string,
-    doc?: QueueFileYaml,
 ): string | undefined {
     try {
         const folder = ensureQueueFolder();
@@ -444,15 +265,12 @@ export function writeEntry(
         const fname = fileName || (entryId + ENTRY_SUFFIX);
         const filePath = path.join(folder, fname);
 
-        // Convert to new format if doc not provided
-        const document = doc || entryYamlToFileYaml(data, entryId);
-        document.meta.updated = new Date().toISOString();
-        // Sync status from data to meta
-        if (data.status) document.meta.status = data.status;
+        doc.meta.updated = new Date().toISOString();
+        if (!doc.meta.created) doc.meta.created = doc.meta.updated;
 
         const yaml = requireYaml();
-        const schemaLine = `# yaml-language-server: $schema=${ENTRY_SCHEMA_REL}\n`;
-        const content = schemaLine + yaml.stringify(document, { lineWidth: 120 });
+        const schemaLine = `# yaml-language-server: $schema=${SCHEMA_REL}\n`;
+        const content = schemaLine + yaml.stringify(doc, { lineWidth: 120 });
 
         fs.writeFileSync(filePath, content, 'utf-8');
         if (QUEUE_STORAGE_DEBUG) debugLog(`[QueueStorage] Wrote entry: ${fname}`, 'INFO', 'queueStorage');
@@ -465,7 +283,7 @@ export function writeEntry(
 
 /**
  * Read a single queue entry from disk.
- * Handles both new format (meta+prompt-queue) and legacy flat format.
+ * Only accepts new format (meta + prompt-queue). Old format files are ignored.
  */
 export function readEntry(filePath: string): QueueEntryFile | undefined {
     try {
@@ -473,27 +291,13 @@ export function readEntry(filePath: string): QueueEntryFile | undefined {
         const content = fs.readFileSync(filePath, 'utf-8');
         const yaml = requireYaml();
         const raw = yaml.parse(content);
-        if (!raw) return undefined;
+        if (!raw || !isQueueFileYaml(raw)) return undefined;
 
         const fileName = path.basename(filePath);
         const entryId = entryIdFromFileName(fileName);
+        const doc: QueueFileYaml = raw;
 
-        let doc: QueueFileYaml;
-        let data: QueueEntryYaml;
-
-        if (isNewFormat(raw)) {
-            // New format
-            doc = raw;
-            data = fileYamlToEntryYaml(doc);
-        } else if (raw.prompt) {
-            // Legacy flat format — convert
-            data = raw as QueueEntryYaml;
-            doc = entryYamlToFileYaml(data, entryId);
-        } else {
-            return undefined;
-        }
-
-        return { filePath, fileName, entryId, data, doc };
+        return { filePath, fileName, entryId, doc };
     } catch (err) {
         debugLog(`[QueueStorage] readEntry error for ${filePath}: ${err}`, 'ERROR', 'queueStorage');
         return undefined;
@@ -587,7 +391,7 @@ export function findEntryById(entryId: string): QueueEntryFile | undefined {
 export function trimSentEntries(): void {
     try {
         const entries = readAllEntries();
-        const sent = entries.filter(e => e.data.status === 'sent');
+        const sent = entries.filter(e => e.doc.meta.status === 'sent');
 
         if (sent.length <= MAX_SENT_ON_DISK) return;
 
@@ -603,7 +407,7 @@ export function trimSentEntries(): void {
         // Check total count
         const remaining = readAllEntries();
         if (remaining.length > MAX_TOTAL_ON_DISK) {
-            const sentRemaining = remaining.filter(e => e.data.status === 'sent');
+            const sentRemaining = remaining.filter(e => e.doc.meta.status === 'sent');
             const excess = remaining.length - MAX_TOTAL_ON_DISK;
             const removable = sentRemaining.slice(0, Math.min(excess, sentRemaining.length));
             for (const entry of removable) {
@@ -620,7 +424,7 @@ export function trimSentEntries(): void {
 // ============================================================================
 
 /**
- * Write a template to disk in the new meta+prompt-queue format.
+ * Write a template to disk.
  */
 export function writeTemplate(
     templateId: string,
@@ -637,7 +441,7 @@ export function writeTemplate(
         if (!data.meta.created) data.meta.created = data.meta.updated;
 
         const yaml = requireYaml();
-        const schemaLine = `# yaml-language-server: $schema=${TEMPLATE_SCHEMA_REL}\n`;
+        const schemaLine = `# yaml-language-server: $schema=${SCHEMA_REL}\n`;
         const content = schemaLine + yaml.stringify(data, { lineWidth: 120 });
 
         fs.writeFileSync(filePath, content, 'utf-8');
@@ -648,11 +452,9 @@ export function writeTemplate(
         return undefined;
     }
 }
-    }
-}
 
 /**
- * Read a template from disk by ID. Handles new and legacy formats.
+ * Read a template from disk by ID.
  */
 export function readTemplate(templateId: string): QueueTemplateFile | undefined {
     try {
@@ -666,49 +468,13 @@ export function readTemplate(templateId: string): QueueTemplateFile | undefined 
         const content = fs.readFileSync(filePath, 'utf-8');
         const yaml = requireYaml();
         const raw = yaml.parse(content);
-        if (!raw) return undefined;
+        if (!raw || !isQueueFileYaml(raw)) return undefined;
 
-        let doc: QueueFileYaml;
-        if (isNewFormat(raw)) {
-            doc = raw;
-        } else if (raw.name && raw.template) {
-            // Legacy template format — convert to new
-            doc = convertLegacyTemplate(raw, templateId);
-        } else {
-            return undefined;
-        }
-
-        return { filePath, fileName: fname, templateId, data: doc };
+        return { filePath, fileName: fname, templateId, data: raw };
     } catch (err) {
         debugLog(`[QueueStorage] readTemplate error: ${err}`, 'ERROR', 'queueStorage');
         return undefined;
     }
-}
-
-/**
- * Convert a legacy QueueTemplateYaml to the new QueueFileYaml format.
- */
-function convertLegacyTemplate(old: Record<string, unknown>, templateId: string): QueueFileYaml {
-    return {
-        meta: {
-            id: templateId,
-            name: String(old.name || templateId),
-            description: old.description ? String(old.description) : undefined,
-            'template-name': templateId,
-            category: (old.category as 'prompt' | 'answer' | 'system') || 'prompt',
-            'show-in-menu': old['show-in-menu'] !== false,
-            created: old.created ? String(old.created) : new Date().toISOString(),
-            updated: old.updated ? String(old.updated) : new Date().toISOString(),
-        },
-        'prompt-queue': [{
-            id: 'P1',
-            name: 'Main Prompt',
-            type: 'main',
-            'prompt-text': '', // Template main prompt text is empty (filled when used)
-            template: String(old.template || ''),
-            'answer-wrapper': true,
-        }],
-    };
 }
 
 /**
@@ -728,19 +494,10 @@ export function readAllTemplates(): QueueTemplateFile[] {
                 const content = fs.readFileSync(filePath, 'utf-8');
                 const yaml = requireYaml();
                 const raw = yaml.parse(content);
-                if (!raw) continue;
+                if (!raw || !isQueueFileYaml(raw)) continue;
 
                 const templateId = templateIdFromFileName(fileName);
-                let doc: QueueFileYaml;
-                if (isNewFormat(raw)) {
-                    doc = raw;
-                } else if (raw.name && raw.template) {
-                    doc = convertLegacyTemplate(raw, templateId);
-                } else {
-                    continue;
-                }
-
-                templates.push({ filePath, fileName, templateId, data: doc });
+                templates.push({ filePath, fileName, templateId, data: raw });
             } catch { /* skip invalid templates */ }
         }
 
@@ -830,132 +587,16 @@ export function onQueueChanged(listener: () => void): vscode.Disposable {
 }
 
 // ============================================================================
-// Migration Helper
+// Helpers
 // ============================================================================
 
-/**
- * Migrate from the old panelYamlStore queue format to file-per-entry.
- * Called once on first load if the old queue file exists and no new entries do.
- *
- * @param oldItems Array of old QueuedPrompt-style objects
- * @param quest Current quest ID
- * @returns Number of entries migrated
- */
-export function migrateFromOldFormat(
-    oldItems: Array<Record<string, unknown>>,
-    quest?: string,
-): number {
-    let count = 0;
-    try {
-        const folder = ensureQueueFolder();
-        if (!folder) return 0;
-
-        for (const item of oldItems) {
-            const entryData = convertOldItemToEntry(item, quest);
-            if (!entryData) continue;
-
-            const createdDate = item.createdAt
-                ? new Date(String(item.createdAt))
-                : new Date();
-            const fileName = generateEntryFileName(quest, String(item.type || 'prompt'), createdDate);
-            const filePath = path.join(folder, fileName);
-
-            const yaml = requireYaml();
-            const schemaLine = `# yaml-language-server: $schema=${ENTRY_SCHEMA_REL}\n`;
-            fs.writeFileSync(filePath, schemaLine + yaml.stringify(entryData, { lineWidth: 120 }), 'utf-8');
-            count++;
-        }
-
-        if (QUEUE_STORAGE_DEBUG) debugLog(`[QueueStorage] Migrated ${count} entries from old format`, 'INFO', 'queueStorage');
-    } catch (err) {
-        debugLog(`[QueueStorage] Migration error: ${err}`, 'ERROR', 'queueStorage');
-    }
-    return count;
+/** Type guard: check if a parsed YAML object matches the queue.yaml schema. */
+function isQueueFileYaml(data: unknown): data is QueueFileYaml {
+    return !!data && typeof data === 'object' && 'meta' in data && 'prompt-queue' in data;
 }
 
-/**
- * Convert a single old QueuedPrompt object to the new QueueEntryYaml format.
- */
-function convertOldItemToEntry(
-    item: Record<string, unknown>,
-    quest?: string,
-): QueueEntryYaml | undefined {
-    try {
-        const text = String(item.originalText || item.text || '');
-        if (!text) return undefined;
-
-        const rawType = String(item.type || 'prompt');
-        const entry: QueueEntryYaml = {
-            type: rawType === 'normal' ? 'prompt' : (rawType as 'prompt' | 'timed' | 'reminder') || 'prompt',
-            quest: quest || undefined,
-            created: String(item.createdAt || new Date().toISOString()),
-            status: normalizeStatus(String(item.status || 'staged')),
-            prompt: {
-                text,
-                'expanded-text': String(item.expandedText || text),
-                template: String(item.template || '(None)'),
-                'answer-wrapper': Boolean(item.answerWrapper),
-            },
-        };
-
-        // Reminder
-        if (item.reminderEnabled) {
-            entry.reminder = {
-                enabled: Boolean(item.reminderEnabled),
-                'template-id': item.reminderTemplateId ? String(item.reminderTemplateId) : undefined,
-                'timeout-minutes': item.reminderTimeoutMinutes ? Number(item.reminderTimeoutMinutes) : undefined,
-                repeat: Boolean(item.reminderRepeat),
-                'sent-count': Number(item.reminderSentCount || 0),
-                'last-sent-at': item.lastReminderAt ? String(item.lastReminderAt) : null,
-                queued: Boolean(item.reminderQueued),
-            };
-        }
-
-        // Follow-ups
-        const followUps = item.followUps as Array<Record<string, unknown>> | undefined;
-        if (followUps && followUps.length > 0) {
-            entry['follow-ups'] = followUps.map(fu => ({
-                id: String(fu.id || generateId()),
-                text: String(fu.originalText || fu.text || ''),
-                template: fu.template ? String(fu.template) : undefined,
-                reminder: fu.reminderEnabled ? {
-                    enabled: Boolean(fu.reminderEnabled),
-                    'template-id': fu.reminderTemplateId ? String(fu.reminderTemplateId) : undefined,
-                    'timeout-minutes': fu.reminderTimeoutMinutes ? Number(fu.reminderTimeoutMinutes) : undefined,
-                    repeat: Boolean(fu.reminderRepeat),
-                } : undefined,
-                created: String(fu.createdAt || new Date().toISOString()),
-            }));
-        }
-
-        // Execution state
-        if (item.requestId || item.expectedRequestId || item.sentAt || item.error || item.followUpIndex) {
-            entry.execution = {
-                'request-id': item.requestId ? String(item.requestId) : null,
-                'expected-request-id': item.expectedRequestId ? String(item.expectedRequestId) : null,
-                'sent-at': item.sentAt ? String(item.sentAt) : null,
-                error: item.error ? String(item.error) : null,
-                'follow-up-index': Number(item.followUpIndex || 0),
-            };
-        }
-
-        return entry;
-    } catch (err) {
-        debugLog(`[QueueStorage] convertOldItemToEntry error: ${err}`, 'ERROR', 'queueStorage');
-        return undefined;
-    }
-}
-
-function normalizeStatus(status: string): QueueEntryYaml['status'] {
-    switch (status) {
-        case 'staged': case 'pending': case 'sending': case 'sent': case 'error':
-            return status;
-        default:
-            return 'staged';
-    }
-}
-
-function generateId(): string {
+/** Generate a unique ID. */
+export function generateId(): string {
     return 'e-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
 
