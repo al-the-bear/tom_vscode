@@ -728,6 +728,23 @@ export class LocalLlmManager {
                     let buffer = '';
                     let stats: OllamaStats | undefined;
                     let toolCalls: OllamaToolCall[] | undefined;
+                    let ollamaError: string | undefined;
+
+                    // Check for HTTP-level errors (e.g. 404 model not found)
+                    if (res.statusCode && res.statusCode >= 400) {
+                        let errorBody = '';
+                        res.on('data', (chunk: Buffer) => { errorBody += chunk.toString(); });
+                        res.on('end', () => {
+                            let errorMsg = `Ollama HTTP ${res.statusCode}`;
+                            try {
+                                const parsed = JSON.parse(errorBody);
+                                if (parsed.error) { errorMsg = parsed.error; }
+                            } catch { /* use default message */ }
+                            reject(new Error(errorMsg));
+                        });
+                        res.on('error', reject);
+                        return;
+                    }
 
                     res.on('data', (chunk: Buffer) => {
                         buffer += chunk.toString();
@@ -737,6 +754,10 @@ export class LocalLlmManager {
                             if (!line.trim()) { continue; }
                             try {
                                 const parsed = JSON.parse(line);
+                                // Detect Ollama error in streaming response
+                                if (parsed.error) {
+                                    ollamaError = parsed.error;
+                                }
                                 if (parsed.message?.content) {
                                     fullResponse += parsed.message.content;
                                     onToken?.(parsed.message.content);
@@ -761,6 +782,9 @@ export class LocalLlmManager {
                         if (buffer.trim()) {
                             try {
                                 const parsed = JSON.parse(buffer);
+                                if (parsed.error) {
+                                    ollamaError = parsed.error;
+                                }
                                 if (parsed.message?.content) {
                                     fullResponse += parsed.message.content;
                                 }
@@ -777,7 +801,12 @@ export class LocalLlmManager {
                                 }
                             } catch { /* ignore */ }
                         }
-                        resolve({ text: fullResponse, stats, toolCalls });
+                        // If Ollama returned an error in the stream, reject with it
+                        if (ollamaError && !fullResponse.trim()) {
+                            reject(new Error(ollamaError));
+                        } else {
+                            resolve({ text: fullResponse, stats, toolCalls });
+                        }
                     });
                     res.on('error', reject);
                 },

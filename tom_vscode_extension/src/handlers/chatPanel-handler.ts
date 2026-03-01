@@ -1275,9 +1275,12 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
                 await this._appendToTrail(expanded, result.result, profileLabel, llmConfigKey);
                 await this._showTrail(llmConfigKey);
             } else {
-                vscode.window.showErrorMessage(`Local LLM error: ${result.error || 'Unknown error'}`);
+                const errorMsg = result.error || 'Unknown error';
+                debugLog(`[UnifiedNotepad] Local LLM error (config=${llmConfigKey}, model=${modelName}): ${errorMsg}`, 'ERROR', 'extension');
+                vscode.window.showErrorMessage(`Local LLM error: ${errorMsg}`);
             }
         } catch (e) {
+            debugLog(`[UnifiedNotepad] Local LLM failed (config=${llmConfigKey}, model=${modelName}): ${e}`, 'ERROR', 'extension');
             vscode.window.showErrorMessage(`Local LLM failed: ${e}`);
         }
     }
