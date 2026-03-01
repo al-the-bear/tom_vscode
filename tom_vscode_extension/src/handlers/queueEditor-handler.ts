@@ -117,8 +117,11 @@ async function handleMessage(msg: any): Promise<void> {
             await vscode.commands.executeCommand('tomAi.editor.chatVariables');
             return;
         case 'showFile': {
-            const { openPanelFile } = await import('../utils/panelYamlStore.js');
-            await openPanelFile('queue');
+            const { getQueueFolder } = await import('../storage/queueFileStorage.js');
+            const folder = getQueueFolder();
+            if (folder) {
+                await vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(folder));
+            }
             return;
         }
         case 'setDetailsExpanded': {

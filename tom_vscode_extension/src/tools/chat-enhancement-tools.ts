@@ -1606,6 +1606,275 @@ export const REMINDER_TEMPLATE_MANAGE_TOOL: SharedToolDefinition<ReminderTemplat
 };
 
 // ============================================================================
+// §1.5  Delete Quest Todo
+// ============================================================================
+
+interface DeleteTodoInput {
+    questId: string;
+    todoId: string;
+    sourceFile?: string;
+}
+
+async function executeDeleteTodo(input: DeleteTodoInput): Promise<string> {
+    try {
+        const deleted = questTodo.deleteTodo(input.questId, input.todoId, input.sourceFile);
+        if (!deleted) {
+            return JSON.stringify({ success: false, error: `Todo '${input.todoId}' not found in quest '${input.questId}'.` });
+        }
+        refreshSessionPanel();
+        return JSON.stringify({ success: true, id: input.todoId, questId: input.questId });
+    } catch (err: any) {
+        return `Error deleting todo: ${err.message ?? err}`;
+    }
+}
+
+export const DELETE_TODO_TOOL: SharedToolDefinition<DeleteTodoInput> = {
+    name: 'tomAi_deleteTodo',
+    displayName: 'Delete Quest Todo',
+    description: 'Delete a todo item from a quest by its ID.',
+    tags: ['todo', 'quest', 'tom-ai-chat'],
+    readOnly: false,
+    inputSchema: {
+        type: 'object',
+        required: ['questId', 'todoId'],
+        properties: {
+            questId: { type: 'string', description: 'The quest ID.' },
+            todoId: { type: 'string', description: 'The todo item ID to delete.' },
+            sourceFile: { type: 'string', description: 'Optional source file hint (relative to quest folder).' },
+        },
+    },
+    execute: executeDeleteTodo,
+};
+
+// ============================================================================
+// §1.6  List Quests
+// ============================================================================
+
+interface ListQuestsInput {
+    includeOverview?: boolean;
+}
+
+async function executeListQuests(input: ListQuestsInput): Promise<string> {
+    try {
+        const questIds = questTodo.listQuestIds();
+        if (!input.includeOverview) {
+            return JSON.stringify({ quests: questIds }, null, 2);
+        }
+        // Enrich with overview info
+        const result: Array<{ id: string; overviewFile?: string; hasTodos: boolean }> = [];
+        for (const qid of questIds) {
+            const overviewGlob = `overview.${qid}.md`;
+            const questDir = WsPaths.ai('quests', qid);
+            const todoFiles = questTodo.listTodoFiles(qid);
+            let overviewFile: string | undefined;
+            if (questDir && fs.existsSync(path.join(questDir, overviewGlob))) {
+                overviewFile = overviewGlob;
+            }
+            result.push({ id: qid, overviewFile, hasTodos: todoFiles.length > 0 });
+        }
+        return JSON.stringify({ quests: result }, null, 2);
+    } catch (err: any) {
+        return `Error listing quests: ${err.message ?? err}`;
+    }
+}
+
+export const LIST_QUESTS_TOOL: SharedToolDefinition<ListQuestsInput> = {
+    name: 'tomAi_listQuests',
+    displayName: 'List Quests',
+    description: 'List all quest directory IDs under _ai/quests/. Optionally include overview file presence and todo count.',
+    tags: ['quest', 'workspace', 'tom-ai-chat'],
+    readOnly: true,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            includeOverview: { type: 'boolean', description: 'Include overview file and todo presence (default false).' },
+        },
+    },
+    execute: executeListQuests,
+};
+
+// ============================================================================
+// §1.7  List Projects
+// ============================================================================
+
+interface ListProjectsInput {
+    // no parameters
+}
+
+async function executeListProjects(_input: ListProjectsInput): Promise<string> {
+    try {
+        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!wsRoot) { return JSON.stringify({ projects: [] }); }
+        const masterPath = WsPaths.metadata('tom_master.yaml');
+        if (!masterPath || !fs.existsSync(masterPath)) {
+            return JSON.stringify({ error: 'tom_master.yaml not found', projects: [] });
+        }
+        const yaml = await import('yaml');
+        const content = fs.readFileSync(masterPath, 'utf8');
+        const doc = yaml.parse(content);
+        const projects: Array<{ id: string; name: string; path: string; type?: string }> = [];
+        if (doc?.projects && Array.isArray(doc.projects)) {
+            for (const p of doc.projects) {
+                projects.push({
+                    id: p.id || p.name || '',
+                    name: p.name || p.id || '',
+                    path: p.path || '',
+                    type: p.type || undefined,
+                });
+            }
+        }
+        return JSON.stringify({ projects }, null, 2);
+    } catch (err: any) {
+        return `Error listing projects: ${err.message ?? err}`;
+    }
+}
+
+export const LIST_PROJECTS_TOOL: SharedToolDefinition<ListProjectsInput> = {
+    name: 'tomAi_listProjects',
+    displayName: 'List Projects',
+    description: 'List all projects from .tom_metadata/tom_master.yaml.',
+    tags: ['workspace', 'projects', 'tom-ai-chat'],
+    readOnly: true,
+    inputSchema: {
+        type: 'object',
+        properties: {},
+    },
+    execute: executeListProjects,
+};
+
+// ============================================================================
+// §1.8  List Documents (prompts, answers, notes)
+// ============================================================================
+
+interface ListDocumentsInput {
+    category: 'prompts' | 'answers' | 'notes' | 'roles' | 'guidelines';
+    subPath?: string;
+}
+
+function listFilesRecursive(dir: string, prefix = ''): string[] {
+    if (!fs.existsSync(dir)) return [];
+    const results: string[] = [];
+    try {
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const e of entries) {
+            if (e.name.startsWith('.')) continue;
+            const relPath = prefix ? prefix + '/' + e.name : e.name;
+            if (e.isDirectory()) {
+                results.push(...listFilesRecursive(path.join(dir, e.name), relPath));
+            } else {
+                results.push(relPath);
+            }
+        }
+    } catch { /* ignore */ }
+    return results.sort();
+}
+
+async function executeListDocuments(input: ListDocumentsInput): Promise<string> {
+    try {
+        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!wsRoot) { return JSON.stringify({ files: [] }); }
+
+        let dir: string | undefined;
+        switch (input.category) {
+            case 'prompts':
+                dir = WsPaths.ai('prompt');
+                if (!dir) dir = path.join(wsRoot, '_ai', 'prompt');
+                break;
+            case 'answers':
+                dir = WsPaths.ai('answersCopilot');
+                if (!dir) dir = path.join(wsRoot, '_ai', 'answers', 'copilot');
+                break;
+            case 'notes':
+                dir = WsPaths.ai('notes');
+                if (!dir) dir = path.join(wsRoot, '_ai', 'notes');
+                break;
+            case 'roles':
+                dir = WsPaths.ai('roles');
+                if (!dir) dir = path.join(wsRoot, '_ai', 'roles');
+                break;
+            case 'guidelines':
+                dir = WsPaths.guidelines();
+                if (!dir) dir = path.join(wsRoot, '_copilot_guidelines');
+                break;
+        }
+
+        if (input.subPath) {
+            dir = dir ? path.join(dir, input.subPath) : undefined;
+        }
+
+        const files = dir ? listFilesRecursive(dir) : [];
+        return JSON.stringify({ category: input.category, files }, null, 2);
+    } catch (err: any) {
+        return `Error listing documents: ${err.message ?? err}`;
+    }
+}
+
+export const LIST_DOCUMENTS_TOOL: SharedToolDefinition<ListDocumentsInput> = {
+    name: 'tomAi_listDocuments',
+    displayName: 'List Documents',
+    description:
+        'List files in a workspace document category: prompts, answers, notes, roles, or guidelines.',
+    tags: ['documents', 'files', 'workspace', 'tom-ai-chat'],
+    readOnly: true,
+    inputSchema: {
+        type: 'object',
+        required: ['category'],
+        properties: {
+            category: {
+                type: 'string',
+                enum: ['prompts', 'answers', 'notes', 'roles', 'guidelines'],
+                description: 'The document category to list.',
+            },
+            subPath: { type: 'string', description: 'Optional sub-path within the category folder.' },
+        },
+    },
+    execute: executeListDocuments,
+};
+
+// ============================================================================
+// §1.9  Workspace-level Todos
+// ============================================================================
+
+interface WorkspaceTodoListInput {
+    status?: string;
+}
+
+async function executeWorkspaceTodoList(input: WorkspaceTodoListInput): Promise<string> {
+    try {
+        let items = questTodo.readWorkspaceTodos();
+        if (input.status) {
+            items = items.filter(t => t.status === input.status);
+        }
+        return JSON.stringify(items.map(t => ({
+            id: t.id,
+            title: t.title,
+            description: t.description,
+            status: t.status,
+            priority: t.priority,
+            tags: t.tags,
+            sourceFile: t._sourceFile,
+        })), null, 2);
+    } catch (err: any) {
+        return `Error listing workspace todos: ${err.message ?? err}`;
+    }
+}
+
+export const WORKSPACE_TODO_LIST_TOOL: SharedToolDefinition<WorkspaceTodoListInput> = {
+    name: 'tomAi_workspaceTodo_list',
+    displayName: 'List Workspace Todos',
+    description: 'List all *.todo.yaml todos across the entire workspace. Optionally filter by status.',
+    tags: ['todo', 'workspace', 'tom-ai-chat'],
+    readOnly: true,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            status: { type: 'string', description: 'Filter by status (e.g. "not-started", "in-progress", "done").' },
+        },
+    },
+    execute: executeWorkspaceTodoList,
+};
+
+// ============================================================================
 // Master list of all new tools
 // ============================================================================
 
@@ -1642,4 +1911,10 @@ export const CHAT_ENHANCEMENT_TOOLS: SharedToolDefinition<any>[] = [
     TIMED_SET_ENGINE_STATE_TOOL,
     PROMPT_TEMPLATE_MANAGE_TOOL,
     REMINDER_TEMPLATE_MANAGE_TOOL,
+    // §1.5–§1.9 — Extended tools
+    DELETE_TODO_TOOL,
+    LIST_QUESTS_TOOL,
+    LIST_PROJECTS_TOOL,
+    LIST_DOCUMENTS_TOOL,
+    WORKSPACE_TODO_LIST_TOOL,
 ];

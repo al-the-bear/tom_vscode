@@ -2305,6 +2305,138 @@
                 "toolReferenceName": "tom_reminder_template_manage"
             },
             {
+                "name": "tomAi_deleteTodo",
+                "tags": [
+                    "todo",
+                    "quest",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Delete Quest Todo",
+                "userDescription": "Delete a quest todo by ID",
+                "modelDescription": "Delete a todo item from a quest by its ID.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "questId",
+                        "todoId"
+                    ],
+                    "properties": {
+                        "questId": {
+                            "type": "string",
+                            "description": "The quest ID."
+                        },
+                        "todoId": {
+                            "type": "string",
+                            "description": "The todo item ID to delete."
+                        },
+                        "sourceFile": {
+                            "type": "string",
+                            "description": "Optional source file hint (relative to quest folder)."
+                        }
+                    }
+                },
+                "toolReferenceName": "tomAi_deleteTodo"
+            },
+            {
+                "name": "tomAi_listQuests",
+                "tags": [
+                    "quest",
+                    "workspace",
+                    "tom-ai-chat"
+                ],
+                "displayName": "List Quests",
+                "userDescription": "List all quest IDs",
+                "modelDescription": "List all quest directory IDs under _ai/quests/. Optionally include overview file presence and todo count.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "includeOverview": {
+                            "type": "boolean",
+                            "description": "Include overview file and todo presence (default false)."
+                        }
+                    }
+                },
+                "toolReferenceName": "tomAi_listQuests"
+            },
+            {
+                "name": "tomAi_listProjects",
+                "tags": [
+                    "workspace",
+                    "projects",
+                    "tom-ai-chat"
+                ],
+                "displayName": "List Projects",
+                "userDescription": "List all workspace projects",
+                "modelDescription": "List all projects from .tom_metadata/tom_master.yaml.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                },
+                "toolReferenceName": "tomAi_listProjects"
+            },
+            {
+                "name": "tomAi_listDocuments",
+                "tags": [
+                    "documents",
+                    "files",
+                    "workspace",
+                    "tom-ai-chat"
+                ],
+                "displayName": "List Documents",
+                "userDescription": "List workspace documents by category",
+                "modelDescription": "List files in a workspace document category: prompts, answers, notes, roles, or guidelines.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "category"
+                    ],
+                    "properties": {
+                        "category": {
+                            "type": "string",
+                            "enum": [
+                                "prompts",
+                                "answers",
+                                "notes",
+                                "roles",
+                                "guidelines"
+                            ],
+                            "description": "The document category to list."
+                        },
+                        "subPath": {
+                            "type": "string",
+                            "description": "Optional sub-path within the category folder."
+                        }
+                    }
+                },
+                "toolReferenceName": "tomAi_listDocuments"
+            },
+            {
+                "name": "tomAi_workspaceTodo_list",
+                "tags": [
+                    "todo",
+                    "workspace",
+                    "tom-ai-chat"
+                ],
+                "displayName": "List Workspace Todos",
+                "userDescription": "List all workspace-level todos",
+                "modelDescription": "List all *.todo.yaml todos across the entire workspace. Optionally filter by status.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "status": {
+                            "type": "string",
+                            "description": "Filter by status (e.g. not-started, in-progress, done)."
+                        }
+                    }
+                },
+                "toolReferenceName": "tomAi_workspaceTodo_list"
+            },
+            {
                 "name": "tom_askBigBrother",
                 "tags": [
                     "ai",
@@ -2425,6 +2557,11 @@
                     "type": "string",
                     "default": "_ai",
                     "description": "Root AI folder name"
+                },
+                "tomAi.queueFolder": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Queue folder path (absolute or workspace-relative). Empty defaults to ${aiFolder}/queue."
                 },
                 "tomAi.trail.enabled": {
                     "type": "boolean",

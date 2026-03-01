@@ -12,8 +12,23 @@ import * as path from 'path';
 import { randomUUID } from 'crypto';
 import { expandTemplate } from '../handlers/promptTemplate';
 import { loadSendToChatConfig, getCopilotChatAnswerFolderAbsolute, DEFAULT_ANSWER_FILE_TEMPLATE, getConfigPath } from '../handlers/handler_shared';
-import { readPanelYamlSync, writePanelYaml } from '../utils/panelYamlStore';
+import { readPanelYamlSync, writePanelYaml, panelFileExists } from '../utils/panelYamlStore';
 import { WsPaths } from '../utils/workspacePaths';
+import {
+    readAllEntries,
+    writeEntry,
+    deleteEntry,
+    generateEntryFileName,
+    entryIdFromFileName,
+    migrateFromOldFormat,
+    startWatching as startQueueWatching,
+    stopWatching as stopQueueWatching,
+    onQueueChanged,
+    trimSentEntries,
+    type QueueEntryYaml,
+    type QueueEntryFile,
+} from '../storage/queueFileStorage';
+import { debugLog } from '../utils/debugLogger';
 
 // ============================================================================
 // Types
@@ -124,6 +139,11 @@ export class PromptQueueManager {
     private _timeoutWatcher?: ReturnType<typeof setInterval>;
     private _processing = false;
 
+    /** Maps QueuedPrompt.id → entry filename on disk. */
+    private _fileNameMap = new Map<string, string>();
+    /** Disposable for queue file change listener. */
+    private _queueChangeDisposable?: vscode.Disposable;
+
     private readonly _onDidChange = new vscode.EventEmitter<void>();
     public readonly onDidChange = this._onDidChange.event;
 
@@ -165,6 +185,12 @@ export class PromptQueueManager {
         m.restore();
         m.setupAnswerWatcher();
         m.startTimeoutWatcher();
+        // Start file watcher for cross-window sync
+        startQueueWatching();
+        m._queueChangeDisposable = onQueueChanged(() => {
+            debugLog('[PromptQueueManager] Queue files changed on disk, reloading', 'INFO', 'queue');
+            m._reloadFromDisk();
+        });
         PromptQueueManager._inst = m;
     }
 
@@ -179,6 +205,8 @@ export class PromptQueueManager {
             clearInterval(this._timeoutWatcher);
             this._timeoutWatcher = undefined;
         }
+        this._queueChangeDisposable?.dispose();
+        stopQueueWatching();
         this._onDidChange.dispose();
         this._onPromptSent.dispose();
         this._onAnswerReceived.dispose();
@@ -833,53 +861,18 @@ export class PromptQueueManager {
 
     private persist(): void {
         this.trimSentHistory();
-        // Persist to YAML file only (no workspaceState fallback)
-        this._persistYaml().catch(() => { /* best effort */ });
+        this._persistToFiles();
     }
 
     private restore(): void {
-        // Load from YAML file only (no workspaceState fallback)
-        try {
-            const data = readPanelYamlSync<{ items?: QueuedPrompt[]; autoSend?: boolean; responseTimeoutMinutes?: number }>('queue');
-            if (data?.items && Array.isArray(data.items)) {
-                this._items = data.items;
-                for (const item of this._items) {
-                    const status = (item as any).status;
-                    const validStatus = status === 'staged' || status === 'pending' || status === 'sending' || status === 'sent' || status === 'error';
-                    if (!validStatus) {
-                        item.status = 'staged';
-                    }
-                    if (typeof item.id !== 'string' || !item.id) {
-                        item.id = randomUUID();
-                    }
-                    if (typeof item.originalText !== 'string') {
-                        item.originalText = '';
-                    }
-                    if (typeof item.expandedText !== 'string') {
-                        item.expandedText = item.originalText || '';
-                    }
-                    if (!item.template) {
-                        item.template = '(None)';
-                    }
-                    if (typeof item.type !== 'string' || (item.type !== 'normal' && item.type !== 'timed' && item.type !== 'reminder')) {
-                        item.type = 'normal';
-                    }
-                    if (!Array.isArray(item.followUps)) {
-                        item.followUps = [];
-                    }
-                    if (typeof item.followUpIndex !== 'number' || item.followUpIndex < 0) {
-                        item.followUpIndex = 0;
-                    }
-                }
-                this._autoSendEnabled = data.autoSend ?? true;
-                this._responseFileTimeoutMinutes = Math.max(5, data.responseTimeoutMinutes ?? 60);
-                console.log('[PromptQueueManager] restore: loaded', this._items.length, 'items from YAML');
-            } else {
-                console.log('[PromptQueueManager] restore: no items in YAML, data =', data);
-            }
-        } catch (e) {
-            console.error('[PromptQueueManager] restore: error loading YAML:', e);
-            this._items = [];
+        // Try new file-per-entry storage first
+        const entries = readAllEntries();
+        if (entries.length > 0) {
+            this._loadFromEntryFiles(entries);
+            console.log('[PromptQueueManager] restore: loaded', this._items.length, 'items from queue files');
+        } else {
+            // Check for old panelYamlStore format and migrate
+            this._tryMigrateOldFormat();
         }
 
         // Reset any "sending" items back to pending (crash recovery)
@@ -888,6 +881,111 @@ export class PromptQueueManager {
         }
     }
 
+    /** Reload state from disk (called by file watcher). */
+    private _reloadFromDisk(): void {
+        const entries = readAllEntries();
+        this._loadFromEntryFiles(entries);
+        this._onDidChange.fire();
+    }
+
+    /** Load queue items from entry files into memory. */
+    private _loadFromEntryFiles(entries: QueueEntryFile[]): void {
+        this._items = [];
+        this._fileNameMap.clear();
+
+        for (const entry of entries) {
+            const item = this._entryToQueuedPrompt(entry);
+            if (item) {
+                this._items.push(item);
+                this._fileNameMap.set(item.id, entry.fileName);
+            }
+        }
+    }
+
+    /** Try migrating from old panelYamlStore format. */
+    private _tryMigrateOldFormat(): void {
+        try {
+            const data = readPanelYamlSync<{ items?: QueuedPrompt[]; autoSend?: boolean; responseTimeoutMinutes?: number }>('queue');
+            if (data?.items && Array.isArray(data.items) && data.items.length > 0) {
+                console.log('[PromptQueueManager] Migrating', data.items.length, 'items from old format');
+                let quest: string | undefined;
+                try { quest = (await_import_ChatVariablesStore())?.quest || ''; } catch { /* */ }
+                migrateFromOldFormat(data.items as unknown as Array<Record<string, unknown>>, quest);
+
+                this._autoSendEnabled = data.autoSend ?? true;
+                this._responseFileTimeoutMinutes = Math.max(5, data.responseTimeoutMinutes ?? 60);
+
+                // Reload from newly created files
+                const entries = readAllEntries();
+                this._loadFromEntryFiles(entries);
+                console.log('[PromptQueueManager] Migration complete:', this._items.length, 'items');
+            } else {
+                // Also try loading old format directly as fallback
+                if (data?.items && Array.isArray(data.items)) {
+                    this._items = data.items;
+                    this._validateLoadedItems();
+                    this._autoSendEnabled = data.autoSend ?? true;
+                    this._responseFileTimeoutMinutes = Math.max(5, data.responseTimeoutMinutes ?? 60);
+                    console.log('[PromptQueueManager] restore: loaded', this._items.length, 'items from old YAML');
+                } else {
+                    console.log('[PromptQueueManager] restore: no items found');
+                }
+            }
+        } catch (e) {
+            console.error('[PromptQueueManager] restore: error loading:', e);
+            this._items = [];
+        }
+    }
+
+    /** Validate items loaded from old format. */
+    private _validateLoadedItems(): void {
+        for (const item of this._items) {
+            const status = (item as any).status;
+            const validStatus = status === 'staged' || status === 'pending' || status === 'sending' || status === 'sent' || status === 'error';
+            if (!validStatus) { item.status = 'staged'; }
+            if (typeof item.id !== 'string' || !item.id) { item.id = randomUUID(); }
+            if (typeof item.originalText !== 'string') { item.originalText = ''; }
+            if (typeof item.expandedText !== 'string') { item.expandedText = item.originalText || ''; }
+            if (!item.template) { item.template = '(None)'; }
+            if (typeof item.type !== 'string' || (item.type !== 'normal' && item.type !== 'timed' && item.type !== 'reminder')) { item.type = 'normal'; }
+            if (!Array.isArray(item.followUps)) { item.followUps = []; }
+            if (typeof item.followUpIndex !== 'number' || item.followUpIndex < 0) { item.followUpIndex = 0; }
+        }
+    }
+
+    /** Persist all items to individual entry files. */
+    private _persistToFiles(): void {
+        try {
+            let quest: string | undefined;
+            try { quest = (await_import_ChatVariablesStore())?.quest || ''; } catch { /* */ }
+
+            // Write each item
+            for (const item of this._items) {
+                const entryData = this._queuedPromptToEntry(item, quest);
+                let fileName = this._fileNameMap.get(item.id);
+                if (!fileName) {
+                    fileName = generateEntryFileName(quest, item.type, new Date(item.createdAt));
+                    this._fileNameMap.set(item.id, fileName);
+                }
+                writeEntry(entryIdFromFileName(fileName), entryData, fileName);
+            }
+
+            // Delete files for items no longer in memory
+            const currentIds = new Set(this._items.map(i => i.id));
+            for (const [itemId, fileName] of this._fileNameMap.entries()) {
+                if (!currentIds.has(itemId)) {
+                    deleteEntry(entryIdFromFileName(fileName));
+                    this._fileNameMap.delete(itemId);
+                }
+            }
+
+            trimSentEntries();
+        } catch (err) {
+            debugLog(`[PromptQueueManager] _persistToFiles error: ${err}`, 'ERROR', 'queue');
+        }
+    }
+
+    /** Also persist to old format for backwards compatibility during transition. */
     private async _persistYaml(): Promise<void> {
         try {
             await writePanelYaml('queue', {
@@ -896,6 +994,110 @@ export class PromptQueueManager {
                 items: this._items,
             }, '../../_ai/schemas/yaml/queue.schema.json');
         } catch { /* best effort */ }
+    }
+
+    // ----- Conversion: QueueEntryYaml ↔ QueuedPrompt -----------------------
+
+    private _entryToQueuedPrompt(entry: QueueEntryFile): QueuedPrompt | undefined {
+        try {
+            const d = entry.data;
+            const prompt: QueuedPrompt = {
+                id: entry.entryId,
+                template: d.prompt.template || '(None)',
+                answerWrapper: d.prompt['answer-wrapper'],
+                originalText: d.prompt.text,
+                expandedText: d.prompt['expanded-text'] || d.prompt.text,
+                status: d.status,
+                type: d.type === 'prompt' ? 'normal' : d.type,
+                createdAt: d.created,
+                sentAt: d.execution?.['sent-at'] || undefined,
+                error: d.execution?.error || undefined,
+                reminderTemplateId: d.reminder?.['template-id'],
+                reminderTimeoutMinutes: d.reminder?.['timeout-minutes'],
+                reminderRepeat: d.reminder?.repeat,
+                reminderEnabled: d.reminder?.enabled,
+                reminderQueued: d.reminder?.queued,
+                reminderSentCount: d.reminder?.['sent-count'],
+                lastReminderAt: d.reminder?.['last-sent-at'] || undefined,
+                requestId: d.execution?.['request-id'] || undefined,
+                expectedRequestId: d.execution?.['expected-request-id'] || undefined,
+                followUpIndex: d.execution?.['follow-up-index'] || 0,
+            };
+
+            if (d['follow-ups'] && d['follow-ups'].length > 0) {
+                prompt.followUps = d['follow-ups'].map(fu => ({
+                    id: fu.id,
+                    originalText: fu.text,
+                    template: fu.template,
+                    reminderTemplateId: fu.reminder?.['template-id'],
+                    reminderTimeoutMinutes: fu.reminder?.['timeout-minutes'],
+                    reminderRepeat: fu.reminder?.repeat,
+                    reminderEnabled: fu.reminder?.enabled,
+                    createdAt: fu.created || d.created,
+                }));
+            } else {
+                prompt.followUps = [];
+            }
+
+            return prompt;
+        } catch (err) {
+            debugLog(`[PromptQueueManager] _entryToQueuedPrompt error: ${err}`, 'ERROR', 'queue');
+            return undefined;
+        }
+    }
+
+    private _queuedPromptToEntry(item: QueuedPrompt, quest?: string): QueueEntryYaml {
+        const entry: QueueEntryYaml = {
+            type: item.type === 'normal' ? 'prompt' : item.type,
+            quest: quest || undefined,
+            created: item.createdAt,
+            status: item.status,
+            prompt: {
+                text: item.originalText,
+                'expanded-text': item.expandedText,
+                template: item.template || '(None)',
+                'answer-wrapper': item.answerWrapper,
+            },
+        };
+
+        if (item.reminderEnabled || item.reminderTemplateId) {
+            entry.reminder = {
+                enabled: item.reminderEnabled,
+                'template-id': item.reminderTemplateId,
+                'timeout-minutes': item.reminderTimeoutMinutes,
+                repeat: item.reminderRepeat,
+                'sent-count': item.reminderSentCount || 0,
+                'last-sent-at': item.lastReminderAt || null,
+                queued: item.reminderQueued,
+            };
+        }
+
+        if (item.followUps && item.followUps.length > 0) {
+            entry['follow-ups'] = item.followUps.map(fu => ({
+                id: fu.id,
+                text: fu.originalText,
+                template: fu.template,
+                reminder: (fu.reminderEnabled || fu.reminderTemplateId) ? {
+                    enabled: fu.reminderEnabled,
+                    'template-id': fu.reminderTemplateId,
+                    'timeout-minutes': fu.reminderTimeoutMinutes,
+                    repeat: fu.reminderRepeat,
+                } : undefined,
+                created: fu.createdAt,
+            }));
+        }
+
+        if (item.requestId || item.expectedRequestId || item.sentAt || item.error || (item.followUpIndex && item.followUpIndex > 0)) {
+            entry.execution = {
+                'request-id': item.requestId || null,
+                'expected-request-id': item.expectedRequestId || null,
+                'sent-at': item.sentAt || null,
+                error: item.error || null,
+                'follow-up-index': item.followUpIndex || 0,
+            };
+        }
+
+        return entry;
     }
 
     private trimSentHistory(): void {
@@ -928,4 +1130,13 @@ export class PromptQueueManager {
             this._items = this._items.filter(i => !toRemove.has(i.id));
         }
     }
+}
+
+// Lazy import helper to avoid circular dependency
+function await_import_ChatVariablesStore(): { quest: string } | undefined {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { ChatVariablesStore } = require('../managers/chatVariablesStore');
+        return ChatVariablesStore.instance;
+    } catch { return undefined; }
 }
