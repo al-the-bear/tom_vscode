@@ -324,10 +324,16 @@ export async function activate(context: vscode.ExtensionContext) {
     TrailService.init(context);
     timeStep('tomAiConfiguration + trailService', stepStart);
 
-    // Initialize bridge client
+    // Initialize bridge client and immediately start the bridge process.
+    // This must happen early so bridge output is visible even if later
+    // registrations throw and abort activate().
     stepStart = performance.now();
     const bridgeClient = initializeBridgeClient(context);
     timeStep('bridgeClient', stepStart);
+
+    stepStart = performance.now();
+    await restartBridgeHandler(context, false);
+    timeStep('restartBridgeHandler', stepStart);
 
     // Register all commands
     stepStart = performance.now();
@@ -451,10 +457,7 @@ export async function activate(context: vscode.ExtensionContext) {
     checkTestReinstallMarker();
     timeStep('checkReinstallMarker', stepStart);
 
-    // Auto-start the Dart bridge
-    stepStart = performance.now();
-    await restartBridgeHandler(context, false);
-    timeStep('restartBridgeHandler', stepStart);
+    // Bridge already started above (right after initializeBridgeClient)
 
     // CLI Server autostart: if enabled in config, start after bridge is ready
     {
