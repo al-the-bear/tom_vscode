@@ -1204,9 +1204,16 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
     }
 
     private async _handleSendLocalLlm(text: string, profile: string, llmConfig?: string): Promise<void> {
-        const manager = getLocalLlmManager();
+        // Wait for manager to become available (activate() may still be running)
+        let manager = getLocalLlmManager();
         if (!manager) {
-            vscode.window.showErrorMessage('Local LLM not available - extension not fully initialized');
+            for (let i = 0; i < 20 && !manager; i++) {
+                await new Promise(r => setTimeout(r, 500));
+                manager = getLocalLlmManager();
+            }
+        }
+        if (!manager) {
+            vscode.window.showErrorMessage('Local LLM not available - extension not fully initialized. Please try again.');
             return;
         }
 
