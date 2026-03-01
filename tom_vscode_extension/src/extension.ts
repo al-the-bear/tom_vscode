@@ -63,7 +63,6 @@ import {
     registerChatVariablesEditorCommand,
     registerContextSettingsEditorCommand,
     registerQueueEditorCommand,
-    registerPromptTemplateEditorCommand,
     registerTimedRequestsEditorCommand,
     registerGlobalTemplateEditorCommand,
     registerReusablePromptEditorCommand,
@@ -335,6 +334,7 @@ export async function activate(context: vscode.ExtensionContext) {
     await restartBridgeHandler(context, false);
     timeStep('restartBridgeHandler', stepStart);
 
+    try {
     // Register all commands
     stepStart = performance.now();
     registerCommands(context);
@@ -399,11 +399,6 @@ export async function activate(context: vscode.ExtensionContext) {
     stepStart = performance.now();
     registerQueueEditorCommand(context);
     timeStep('queueEditor', stepStart);
-
-    // Register Prompt Template Editor command
-    stepStart = performance.now();
-    registerPromptTemplateEditorCommand(context);
-    timeStep('promptTemplateEditor', stepStart);
 
     // Register Timed Requests Editor command
     stepStart = performance.now();
@@ -552,6 +547,12 @@ export async function activate(context: vscode.ExtensionContext) {
     stepStart = performance.now();
     registerChatVariableResolvers(context);
     timeStep('chatVariableResolvers', stepStart);
+
+    } catch (err: any) {
+        const msg = err?.stack ?? err?.message ?? String(err);
+        debugLog(`activate() registration error: ${msg}`, 'ERROR', 'extension.activate');
+        bridgeLog(`activate() registration error: ${msg}`, 'ERROR');
+    }
 
     // --- Activation timing summary ---
     const totalMs = Math.round((performance.now() - activateStart) * 100) / 100;
