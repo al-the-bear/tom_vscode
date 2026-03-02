@@ -40,5 +40,5 @@ Without this field, graph type resolution fails and the custom editor reports an
 
 ## Related Docs
 
-- `yaml_graph_architecture_design.md`
-- `diagram_editing.md`
+- [yaml_graph_architecture_design.md](yaml_graph_architecture_design.md)
+- [diagram_editing.md](diagram_editing.md)

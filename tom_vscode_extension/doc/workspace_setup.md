@@ -91,4 +91,4 @@ Chat variables allow dynamic prompt expansion. Configure them in `.tom/tom_vscod
 
 - Check the extension's quick reference: `@T: Extension Status Page` command
 - Review `_copilot_guidelines/` for workspace conventions
-- Consult `doc/quick_reference.md` in the extension folder
+- Consult [quick_reference.md](quick_reference.md) in the extension folder

@@ -3,7 +3,7 @@
 **Extension:** `tom-ai-extension` (renamed from `tom-ai-extension`)  
 **Date:** 26 Feb 2026  
 **Last updated:** 28 Feb 2026 (post-refactor audit sync + re-audit: no deviations)  
-**Companion docs:** `extension_analysis.md`, `extension_discrepancies.md`
+**Companion docs:** [extension_analysis.md](extension_analysis.md), [extension_discrepancies.md](extension_discrepancies.md)
 
 ---
 

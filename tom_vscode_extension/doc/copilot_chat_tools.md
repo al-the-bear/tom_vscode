@@ -73,7 +73,7 @@ Key behavior:
 
 ## Related Docs
 
-- `user_guide.md`
-- `quick_reference.md`
-- `../_copilot_guidelines/tom_ai_chat.md`
-- `../_copilot_guidelines/copilot_answers.md`
+- [user_guide.md](user_guide.md)
+- [quick_reference.md](quick_reference.md)
+- [../_copilot_guidelines/tom_ai_chat.md](../_copilot_guidelines/tom_ai_chat.md)
+- [../_copilot_guidelines/copilot_answers.md](../_copilot_guidelines/copilot_answers.md)

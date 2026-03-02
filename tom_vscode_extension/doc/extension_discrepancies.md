@@ -1,9 +1,9 @@
 # @Tom VS Code Extension — Discrepancies & Improvement Opportunities
 
-> **Note:** This document is a pre-migration snapshot. Command and setting IDs referenced here use the legacy `tomAi.*` namespace. See `refactoring_plan.md` for the canonical `tomAi.*` mappings.
+> **Note:** This document is a pre-migration snapshot. Command and setting IDs referenced here use the legacy `tomAi.*` namespace. See [refactoring_plan.md](refactoring_plan.md) for the canonical `tomAi.*` mappings.
 
 **Extension:** `tom-ai-extension` (formerly `tom-ai-extension`) v0.1.0  
-**Companion doc:** `extension_analysis.md`  
+**Companion doc:** [extension_analysis.md](extension_analysis.md)  
 **Date:** 26 Feb 2026
 
 ---

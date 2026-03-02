@@ -72,7 +72,7 @@ The custom editor requires a numeric `meta.graph-version` and renders Mermaid ou
 
 ## 7) Keyboard productivity
 
-See `quick_reference.md` and `../_copilot_guidelines/keybindings_and_commands.md`.
+See [quick_reference.md](quick_reference.md) and [../_copilot_guidelines/keybindings_and_commands.md](../_copilot_guidelines/keybindings_and_commands.md).
 
 ## 8) Reinstall and reload
 
@@ -82,4 +82,4 @@ If extension changes do not appear:
 2. reload window,
 3. rerun the affected command.
 
-Detailed flow: `../_copilot_guidelines/reinstall_extension.md`.
+Detailed flow: [../_copilot_guidelines/reinstall_extension.md](../_copilot_guidelines/reinstall_extension.md).
