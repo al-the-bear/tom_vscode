@@ -36,7 +36,7 @@ import {
     logPrompt, isTrailEnabled, loadTrailConfig,
 } from '../services/trailLogging';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
-import { WindowSessionTodoStore } from '../managers/windowSessionTodoStore';
+import { SessionTodoStore } from '../managers/sessionTodoStore';
 import { QuestTodoEmbeddedViewProvider, setQuestTodosProvider, setSessionTodosProvider } from './questTodoPanel-handler';
 import { WsPaths } from '../utils/workspacePaths';
 
@@ -3267,9 +3267,9 @@ class SessionTodosProvider implements vscode.WebviewViewProvider {
             if (msg.type === 'ready' || msg.type === 'refresh') {
                 this._sendState();
             } else if (msg.type === 'toggleDone') {
-                const item = WindowSessionTodoStore.instance.get(msg.id);
+                const item = SessionTodoStore.instance.get(msg.id);
                 if (item) {
-                    WindowSessionTodoStore.instance.update(msg.id, { status: item.status === 'done' ? 'pending' : 'done' });
+                    SessionTodoStore.instance.update(msg.id, { status: item.status === 'done' ? 'pending' : 'done' });
                 }
                 this._sendState();
             }
@@ -3278,7 +3278,7 @@ class SessionTodosProvider implements vscode.WebviewViewProvider {
 
     private _sendState(): void {
         if (!this._view) { return; }
-        this._view.webview.postMessage({ type: 'state', todos: WindowSessionTodoStore.instance.list({ status: 'all' }) });
+        this._view.webview.postMessage({ type: 'state', todos: SessionTodoStore.instance.list({ status: 'all' }) });
     }
 
     private _getHtml(): string {

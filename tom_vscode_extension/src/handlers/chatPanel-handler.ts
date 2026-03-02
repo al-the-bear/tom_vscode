@@ -1,5 +1,5 @@
 /**
- * Unified Notepad Panel (T2)
+ * Chat Panel (@CHAT)
  * 
  * A single webview containing multiple notepad sections with custom tab behavior:
  * - Accordion: opening one section collapses unpinned others
@@ -413,7 +413,7 @@ interface Section {
     content: string;
 }
 
-class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
+class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
     private _context: vscode.ExtensionContext;
     private _answerFileWatcher?: fs.FSWatcher;
@@ -1214,7 +1214,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
         const strictErrors = validateStrictAiConfiguration(config);
         if (strictErrors.length > 0) {
             const msg = `Invalid AI configuration:\n- ${strictErrors.join('\n- ')}`;
-            debugLog(`[UnifiedNotepad] ${msg}`, 'ERROR', 'extension');
+            debugLog(`[ChatPanel] ${msg}`, 'ERROR', 'extension');
             vscode.window.showErrorMessage('Invalid AI configuration. Open Status Page for details.');
             return;
         }
@@ -1224,7 +1224,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
         const profileKey = profile === '__none__' ? null : profile;
         let llmConfigKey = llmConfig && llmConfig !== '__default__' ? llmConfig : null;
         const profileLabel = profile === '__none__' ? 'None' : profile;
-        debugLog(`[UnifiedNotepad] _handleSendLocalLlm: llmConfig from webview='${llmConfig}' → llmConfigKey='${llmConfigKey}'`, 'INFO', 'extension');
+        debugLog(`[ChatPanel] _handleSendLocalLlm: llmConfig from webview='${llmConfig}' → llmConfigKey='${llmConfigKey}'`, 'INFO', 'extension');
         // Fall back to default configuration if none explicitly selected
         if (!llmConfigKey) {
             const configs = Array.isArray(config?.localLlm?.configurations) ? config!.localLlm!.configurations : [];
@@ -1233,7 +1233,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
         }
         if (!llmConfigKey) {
             const msg = 'Missing required Local LLM configuration selection. Add at least one configuration in the Status Page.';
-            debugLog(`[UnifiedNotepad] ${msg}`, 'ERROR', 'extension');
+            debugLog(`[ChatPanel] ${msg}`, 'ERROR', 'extension');
             vscode.window.showErrorMessage(msg);
             return;
         }
@@ -1276,11 +1276,11 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
                 await this._showTrail(llmConfigKey);
             } else {
                 const errorMsg = result.error || 'Unknown error';
-                debugLog(`[UnifiedNotepad] Local LLM error (config=${llmConfigKey}, model=${modelName}): ${errorMsg}`, 'ERROR', 'extension');
+                debugLog(`[ChatPanel] Local LLM error (config=${llmConfigKey}, model=${modelName}): ${errorMsg}`, 'ERROR', 'extension');
                 vscode.window.showErrorMessage(`Local LLM error: ${errorMsg}`);
             }
         } catch (e) {
-            debugLog(`[UnifiedNotepad] Local LLM failed (config=${llmConfigKey}, model=${modelName}): ${e}`, 'ERROR', 'extension');
+            debugLog(`[ChatPanel] Local LLM failed (config=${llmConfigKey}, model=${modelName}): ${e}`, 'ERROR', 'extension');
             vscode.window.showErrorMessage(`Local LLM failed: ${e}`);
         }
     }
@@ -1293,7 +1293,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
         const strictErrors = validateStrictAiConfiguration(config);
         if (strictErrors.length > 0) {
             const msg = `Invalid AI configuration:\n- ${strictErrors.join('\n- ')}`;
-            debugLog(`[UnifiedNotepad] ${msg}`, 'ERROR', 'extension');
+            debugLog(`[ChatPanel] ${msg}`, 'ERROR', 'extension');
             vscode.window.showErrorMessage('Invalid AI configuration. Open Status Page for details.');
             return;
         }
@@ -1308,7 +1308,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
         const selectedSetup = setups.find((s: any) => s?.id === effectiveSetupId);
         if (!selectedSetup) {
             const msg = `Missing required AI conversation setup: ${effectiveSetupId || '(none selected)'}. Add at least one setup in the Status Page.`;
-            debugLog(`[UnifiedNotepad] ${msg}`, 'ERROR', 'extension');
+            debugLog(`[ChatPanel] ${msg}`, 'ERROR', 'extension');
             vscode.window.showErrorMessage(msg);
             return;
         }
@@ -1321,7 +1321,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
 
         if (!llmConfigA || !summarizationModelConfig || !maxTurns || !historyMode) {
             const msg = `AI setup "${selectedSetup?.id || '(unknown)'}" is incomplete: requires llmConfigA, trailSummarizationLlmConfig, maxTurns, and historyMode.`;
-            debugLog(`[UnifiedNotepad] ${msg}`, 'ERROR', 'extension');
+            debugLog(`[ChatPanel] ${msg}`, 'ERROR', 'extension');
             vscode.window.showErrorMessage(msg);
             return;
         }
@@ -1992,7 +1992,7 @@ class UnifiedNotepadViewProvider implements vscode.WebviewViewProvider {
                 })
             );
         } catch (e) {
-            console.error('[unifiedNotepad] Failed to save drafts:', e);
+            console.error('[chatPanel] Failed to save drafts:', e);
         }
     }
 
@@ -3504,7 +3504,7 @@ function saveDrafts() {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>T2 Unified Notepad</title>
+    <title>@CHAT Panel</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -4064,10 +4064,10 @@ function saveDrafts() {
     FULL_ORIGINAL_END */
 }
 
-let _provider: UnifiedNotepadViewProvider | undefined;
+let _provider: ChatPanelViewProvider | undefined;
 
-export function registerUnifiedNotepad(context: vscode.ExtensionContext): void {
-    _provider = new UnifiedNotepadViewProvider(context);
+export function registerChatPanel(context: vscode.ExtensionContext): void {
+    _provider = new ChatPanelViewProvider(context);
     
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(VIEW_ID, _provider, {

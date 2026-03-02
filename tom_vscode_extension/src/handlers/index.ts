@@ -52,11 +52,11 @@ export {
     ensureLocalLlmManager,
 } from './localLlm-handler';
 export {
-    startBotConversationHandler,
-    stopBotConversationHandler,
-    haltBotConversationHandler,
-    continueBotConversationHandler,
-    addToBotConversationHandler,
+    startAiConversationHandler,
+    stopAiConversationHandler,
+    haltAiConversationHandler,
+    continueAiConversationHandler,
+    addToAiConversationHandler,
     AiConversationManager,
     setAiConversationManager,
     getAiConversationManager,
@@ -67,8 +67,8 @@ export { registerCombinedCommands } from './combinedCommand-handler';
 export { registerStateMachineCommands } from './stateMachine-handler';
 export { telegramTestHandler, telegramToggleHandler, telegramConfigureHandler, disposeTelegramStandalone, isTelegramPollingActive } from './telegram-commands';
 export { registerDsNotesViews } from './sidebarNotes-handler';
-export { registerUnifiedNotepad } from './chatPanel-handler';
-export { registerT3Panel } from './t3Panel-handler';
+export { registerChatPanel } from './chatPanel-handler';
+export { registerWsPanel } from './wsPanel-handler';
 export { registerQuestTodoPanel } from './questTodoPanel-handler';
 export { registerChatVariablesEditorCommand } from './chatVariablesEditor-handler';
 export { registerContextSettingsEditorCommand } from './contextSettingsEditor-handler';

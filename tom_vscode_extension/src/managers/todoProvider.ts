@@ -13,7 +13,7 @@ import {
     updateTodoInFile,
     type QuestTodoItem,
 } from './questTodoManager';
-import { WindowSessionTodoStore } from './windowSessionTodoStore';
+import { SessionTodoStore } from './sessionTodoStore';
 
 export interface TodoInput {
     id?: string;
@@ -51,7 +51,7 @@ export class TodoProvider {
 
     async create(todo: TodoInput): Promise<QuestTodoItem> {
         if (this.options.scope === 'session') {
-            const created = WindowSessionTodoStore.instance.add(todo.title, 'copilot', {
+            const created = SessionTodoStore.instance.add(todo.title, 'copilot', {
                 details: todo.description,
                 priority: todo.priority,
                 tags: todo.tags,
@@ -83,7 +83,7 @@ export class TodoProvider {
 
     async update(id: string, changes: Partial<QuestTodoItem>): Promise<QuestTodoItem> {
         if (this.options.scope === 'session') {
-            const updated = WindowSessionTodoStore.instance.update(id, {
+            const updated = SessionTodoStore.instance.update(id, {
                 title: changes.title,
                 details: changes.description,
                 priority: changes.priority,
@@ -120,7 +120,7 @@ export class TodoProvider {
 
     async delete(id: string): Promise<void> {
         if (this.options.scope === 'session') {
-            WindowSessionTodoStore.instance.delete(id);
+            SessionTodoStore.instance.delete(id);
             this._onDidChange.fire();
             return;
         }
@@ -146,7 +146,7 @@ export class TodoProvider {
 
     async get(id: string): Promise<QuestTodoItem | undefined> {
         if (this.options.scope === 'session') {
-            const item = WindowSessionTodoStore.instance.get(id);
+            const item = SessionTodoStore.instance.get(id);
             if (!item) {
                 return undefined;
             }
@@ -167,7 +167,7 @@ export class TodoProvider {
     async list(filter?: TodoFilter): Promise<QuestTodoItem[]> {
         if (this.options.scope === 'session') {
             const status = filter?.status === 'completed' ? 'done' : filter?.status === 'all' || !filter?.status ? 'all' : 'pending';
-            return WindowSessionTodoStore.instance.list({ status }).map((item) => ({
+            return SessionTodoStore.instance.list({ status }).map((item) => ({
                 id: item.id,
                 title: item.title,
                 description: item.details ?? item.title,
@@ -219,7 +219,7 @@ export class TodoProvider {
             return [this.options.todoFile];
         }
         if (this.options.scope === 'session') {
-            return [WindowSessionTodoStore.instance.filePath];
+            return [SessionTodoStore.instance.filePath];
         }
         if (this.options.scope === 'quest' && this.options.questId) {
             const folder = WsPaths.ai('quests', this.options.questId);

@@ -10,11 +10,11 @@
  *  - tomAi_createTodo         §1.3
  *  - tomAi_updateTodo         §1.3
  *  - tomAi_moveTodo           §1.3
- *  - tomAi_windowTodo_add     §1.4
- *  - tomAi_windowTodo_list    §1.4
- *  - tomAi_windowTodo_getAll  §1.4
- *  - tomAi_windowTodo_update  §1.4
- *  - tomAi_windowTodo_delete  §1.4
+ *  - tomAi_sessionTodo_add     §1.4
+ *  - tomAi_sessionTodo_list    §1.4
+ *  - tomAi_sessionTodo_getAll  §1.4
+ *  - tomAi_sessionTodo_update  §1.4
+ *  - tomAi_sessionTodo_delete  §1.4
  *
  * Each tool follows the SharedToolDefinition pattern from shared-tool-registry.ts.
  */
@@ -24,7 +24,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { SharedToolDefinition } from './shared-tool-registry';
 import { ChatVariablesStore, ChangeSource } from '../managers/chatVariablesStore';
-import { WindowSessionTodoStore } from '../managers/windowSessionTodoStore';
+import { SessionTodoStore } from '../managers/sessionTodoStore';
 import * as questTodo from '../managers/questTodoManager';
 import { loadSendToChatConfig, saveSendToChatConfig } from '../handlers/handler_shared';
 import { WsPaths } from '../utils/workspacePaths';
@@ -267,7 +267,7 @@ async function executeGetAllTodos(input: GetAllTodosInput): Promise<string> {
 
     let windowItems: any[] = [];
     try {
-        const winStore = WindowSessionTodoStore.instance;
+        const winStore = SessionTodoStore.instance;
         windowItems = winStore.getAll().todos;
     } catch { /* not initialised */ }
 
@@ -283,7 +283,7 @@ async function executeGetAllTodos(input: GetAllTodosInput): Promise<string> {
             id: t.id, title: t.title, status: t.status,
             priority: t.priority, sourceFile: t._sourceFile,
         })),
-        windowTodos: windowItems.map(t => ({
+        sessionTodos: windowItems.map(t => ({
             id: t.id, title: t.title, status: t.status,
             priority: t.priority, source: t.source,
         })),
@@ -504,18 +504,18 @@ export const MOVE_TODO_TOOL: SharedToolDefinition<MoveTodoInput> = {
 // §1.4  Window Session Todo Tools
 // ============================================================================
 
-// --- windowTodo_add ----------------------------------------------------------
+// --- sessionTodo_add ----------------------------------------------------------
 
-interface WindowTodoAddInput {
+interface SessionTodoAddInput {
     title: string;
     details?: string;
     priority?: 'low' | 'medium' | 'high';
     tags?: string[];
 }
 
-async function executeWindowTodoAdd(input: WindowTodoAddInput): Promise<string> {
+async function executeSessionTodoAdd(input: SessionTodoAddInput): Promise<string> {
     try {
-        const store = WindowSessionTodoStore.instance;
+        const store = SessionTodoStore.instance;
         const item = store.add(input.title, 'copilot', {
             details: input.details,
             priority: input.priority,
@@ -529,9 +529,9 @@ async function executeWindowTodoAdd(input: WindowTodoAddInput): Promise<string> 
     }
 }
 
-export const WINDOW_TODO_ADD_TOOL: SharedToolDefinition<WindowTodoAddInput> = {
-    name: 'tomAi_windowTodo_add',
-    displayName: 'Add Window Todo',
+export const SESSION_TODO_ADD_TOOL: SharedToolDefinition<SessionTodoAddInput> = {
+    name: 'tomAi_sessionTodo_add',
+    displayName: 'Add Session Todo',
     description:
         'Add a self-reminder todo for this window session. Use to avoid forgetting ' +
         'postponed tasks, deferred decisions, or follow-up items.',
@@ -547,19 +547,19 @@ export const WINDOW_TODO_ADD_TOOL: SharedToolDefinition<WindowTodoAddInput> = {
             tags: { type: 'array', items: { type: 'string' }, description: 'Categorization tags.' },
         },
     },
-    execute: executeWindowTodoAdd,
+    execute: executeSessionTodoAdd,
 };
 
-// --- windowTodo_list ---------------------------------------------------------
+// --- sessionTodo_list ---------------------------------------------------------
 
-interface WindowTodoListInput {
+interface SessionTodoListInput {
     status?: 'pending' | 'done' | 'all';
     tags?: string[];
 }
 
-async function executeWindowTodoList(input: WindowTodoListInput): Promise<string> {
+async function executeSessionTodoList(input: SessionTodoListInput): Promise<string> {
     try {
-        const store = WindowSessionTodoStore.instance;
+        const store = SessionTodoStore.instance;
         const items = store.list({ status: input.status, tags: input.tags });
         return JSON.stringify(items, null, 2);
     } catch (err: any) {
@@ -567,9 +567,9 @@ async function executeWindowTodoList(input: WindowTodoListInput): Promise<string
     }
 }
 
-export const WINDOW_TODO_LIST_TOOL: SharedToolDefinition<WindowTodoListInput> = {
-    name: 'tomAi_windowTodo_list',
-    displayName: 'List Window Todos',
+export const SESSION_TODO_LIST_TOOL: SharedToolDefinition<SessionTodoListInput> = {
+    name: 'tomAi_sessionTodo_list',
+    displayName: 'List Session Todos',
     description: 'List window session todos, optionally filtered by status or tags.',
     tags: ['todo', 'session', 'tom-ai-chat'],
     readOnly: true,
@@ -580,27 +580,27 @@ export const WINDOW_TODO_LIST_TOOL: SharedToolDefinition<WindowTodoListInput> = 
             tags: { type: 'array', items: { type: 'string' }, description: 'Filter by tags.' },
         },
     },
-    execute: executeWindowTodoList,
+    execute: executeSessionTodoList,
 };
 
-// --- windowTodo_getAll -------------------------------------------------------
+// --- sessionTodo_getAll -------------------------------------------------------
 
-interface WindowTodoGetAllInput {
+interface SessionTodoGetAllInput {
     // no params
 }
 
-async function executeWindowTodoGetAll(_input: WindowTodoGetAllInput): Promise<string> {
+async function executeSessionTodoGetAll(_input: SessionTodoGetAllInput): Promise<string> {
     try {
-        const store = WindowSessionTodoStore.instance;
+        const store = SessionTodoStore.instance;
         return JSON.stringify(store.getAll(), null, 2);
     } catch (err: any) {
         return `Error: ${err.message ?? err}`;
     }
 }
 
-export const WINDOW_TODO_GET_ALL_TOOL: SharedToolDefinition<WindowTodoGetAllInput> = {
-    name: 'tomAi_windowTodo_getAll',
-    displayName: 'Get All Window Todos',
+export const SESSION_TODO_GET_ALL_TOOL: SharedToolDefinition<SessionTodoGetAllInput> = {
+    name: 'tomAi_sessionTodo_getAll',
+    displayName: 'Get All Session Todos',
     description:
         'Get ALL window session todos in a single call with counts. No filtering.',
     tags: ['todo', 'session', 'tom-ai-chat'],
@@ -609,12 +609,12 @@ export const WINDOW_TODO_GET_ALL_TOOL: SharedToolDefinition<WindowTodoGetAllInpu
         type: 'object',
         properties: {},
     },
-    execute: executeWindowTodoGetAll,
+    execute: executeSessionTodoGetAll,
 };
 
-// --- windowTodo_update -------------------------------------------------------
+// --- sessionTodo_update -------------------------------------------------------
 
-interface WindowTodoUpdateInput {
+interface SessionTodoUpdateInput {
     id: string;
     status?: 'pending' | 'done';
     title?: string;
@@ -622,16 +622,16 @@ interface WindowTodoUpdateInput {
     priority?: 'low' | 'medium' | 'high';
 }
 
-async function executeWindowTodoUpdate(input: WindowTodoUpdateInput): Promise<string> {
+async function executeSessionTodoUpdate(input: SessionTodoUpdateInput): Promise<string> {
     try {
-        const store = WindowSessionTodoStore.instance;
+        const store = SessionTodoStore.instance;
         const updated = store.update(input.id, {
             status: input.status,
             title: input.title,
             details: input.details,
             priority: input.priority,
         });
-        if (!updated) { return `Window todo "${input.id}" not found.`; }
+        if (!updated) { return `Session todo "${input.id}" not found.`; }
         refreshSessionPanel();
         return JSON.stringify({ success: true, todo: updated });
     } catch (err: any) {
@@ -639,9 +639,9 @@ async function executeWindowTodoUpdate(input: WindowTodoUpdateInput): Promise<st
     }
 }
 
-export const WINDOW_TODO_UPDATE_TOOL: SharedToolDefinition<WindowTodoUpdateInput> = {
-    name: 'tomAi_windowTodo_update',
-    displayName: 'Update Window Todo',
+export const SESSION_TODO_UPDATE_TOOL: SharedToolDefinition<SessionTodoUpdateInput> = {
+    name: 'tomAi_sessionTodo_update',
+    displayName: 'Update Session Todo',
     description: 'Update a window session todo (mark done, change title/priority).',
     tags: ['todo', 'session', 'tom-ai-chat'],
     readOnly: false,
@@ -649,29 +649,29 @@ export const WINDOW_TODO_UPDATE_TOOL: SharedToolDefinition<WindowTodoUpdateInput
         type: 'object',
         required: ['id'],
         properties: {
-            id: { type: 'string', description: 'The window todo ID (e.g. "wt-1").' },
+            id: { type: 'string', description: 'The session todo ID (e.g. "wt-1").' },
             status: { type: 'string', enum: ['pending', 'done'], description: 'New status.' },
             title: { type: 'string', description: 'Updated title.' },
             details: { type: 'string', description: 'Updated details.' },
             priority: { type: 'string', enum: ['low', 'medium', 'high'], description: 'Updated priority.' },
         },
     },
-    execute: executeWindowTodoUpdate,
+    execute: executeSessionTodoUpdate,
 };
 
-// --- windowTodo_delete -------------------------------------------------------
+// --- sessionTodo_delete -------------------------------------------------------
 
-interface WindowTodoDeleteInput {
+interface SessionTodoDeleteInput {
     id: string;
 }
 
-async function executeWindowTodoDelete(input: WindowTodoDeleteInput): Promise<string> {
+async function executeSessionTodoDelete(input: SessionTodoDeleteInput): Promise<string> {
     try {
-        const store = WindowSessionTodoStore.instance;
+        const store = SessionTodoStore.instance;
         // Backup before deleting
         backupSessionTodo(input.id);
         const ok = store.delete(input.id);
-        if (!ok) { return `Window todo "${input.id}" not found.`; }
+        if (!ok) { return `Session todo "${input.id}" not found.`; }
         refreshSessionPanel();
         return JSON.stringify({ success: true, deleted: input.id });
     } catch (err: any) {
@@ -679,9 +679,9 @@ async function executeWindowTodoDelete(input: WindowTodoDeleteInput): Promise<st
     }
 }
 
-export const WINDOW_TODO_DELETE_TOOL: SharedToolDefinition<WindowTodoDeleteInput> = {
-    name: 'tomAi_windowTodo_delete',
-    displayName: 'Delete Window Todo',
+export const SESSION_TODO_DELETE_TOOL: SharedToolDefinition<SessionTodoDeleteInput> = {
+    name: 'tomAi_sessionTodo_delete',
+    displayName: 'Delete Session Todo',
     description: 'Delete a window session todo.',
     tags: ['todo', 'session', 'tom-ai-chat'],
     readOnly: false,
@@ -689,10 +689,10 @@ export const WINDOW_TODO_DELETE_TOOL: SharedToolDefinition<WindowTodoDeleteInput
         type: 'object',
         required: ['id'],
         properties: {
-            id: { type: 'string', description: 'The window todo ID to delete.' },
+            id: { type: 'string', description: 'The session todo ID to delete.' },
         },
     },
-    execute: executeWindowTodoDelete,
+    execute: executeSessionTodoDelete,
 };
 
 // ============================================================================
@@ -1890,11 +1890,11 @@ export const CHAT_ENHANCEMENT_TOOLS: SharedToolDefinition<any>[] = [
     CREATE_TODO_TOOL,
     UPDATE_TODO_TOOL,
     MOVE_TODO_TOOL,
-    WINDOW_TODO_ADD_TOOL,
-    WINDOW_TODO_LIST_TOOL,
-    WINDOW_TODO_GET_ALL_TOOL,
-    WINDOW_TODO_UPDATE_TOOL,
-    WINDOW_TODO_DELETE_TOOL,
+    SESSION_TODO_ADD_TOOL,
+    SESSION_TODO_LIST_TOOL,
+    SESSION_TODO_GET_ALL_TOOL,
+    SESSION_TODO_UPDATE_TOOL,
+    SESSION_TODO_DELETE_TOOL,
     ADD_TO_PROMPT_QUEUE_TOOL,
     ADD_FOLLOW_UP_PROMPT_TOOL,
     SEND_QUEUED_PROMPT_TOOL,

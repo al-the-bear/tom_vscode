@@ -2,7 +2,7 @@
  * Quest TODO Panel — §4
  *
  * Originally a standalone webview view, now embedded as a section
- * inside the T3 panel accordion.  Exports HTML fragment, CSS,
+ * inside the WS panel accordion.  Exports HTML fragment, CSS,
  * script, and message handler for accordion integration.
  *
  * Shows a two-pane layout:
@@ -19,7 +19,7 @@ import * as yaml from 'yaml';
 import { ChatVariablesStore } from '../managers/chatVariablesStore.js';
 import * as questTodo from '../managers/questTodoManager.js';
 import { collectAllTags, readAllQuestsTodos, readWorkspaceTodos, listQuestIds, listWorkspaceTodoFiles, scanWorkspaceProjects, collectScopeValues } from '../managers/questTodoManager.js';
-import { WindowSessionTodoStore } from '../managers/windowSessionTodoStore.js';
+import { SessionTodoStore } from '../managers/sessionTodoStore.js';
 import { WsPaths } from '../utils/workspacePaths';
 import { getExternalApplicationForFile, openInExternalApplication, resolvePathVariables, applyDefaultTemplate, DEFAULT_ANSWER_FILE_TEMPLATE } from './handler_shared';
 import { expandTemplate } from './promptTemplate';
@@ -88,7 +88,7 @@ export interface QuestTodoViewConfig {
     disableFileActions?: boolean;
 }
 
-/** Call once from extension.ts / t3Panel to store the extension context. */
+/** Call once from extension.ts / wsPanel to store the extension context. */
 export function setQuestTodoContext(ctx: vscode.ExtensionContext): void {
     _extensionContext = ctx;
 }
@@ -115,7 +115,7 @@ export function refreshSessionPanel(): void {
 /** Backup a session todo before deletion (called from copilot tools). */
 export function backupSessionTodo(todoId: string): void {
     try {
-        const sessionFp = WindowSessionTodoStore.instance.filePath;
+        const sessionFp = SessionTodoStore.instance.filePath;
         _moveToBackup(sessionFp, todoId);
     } catch { /* best-effort backup */ }
 }
@@ -123,18 +123,18 @@ export function backupSessionTodo(todoId: string): void {
 
 
 /**
- * Select a todo in the bottom-panel T3 Quest TODO accordion and focus it.
- * Uses the T3 panel (bottom panel), NOT the sidebar quest todos view.
- * Focuses the T3 panel first (which triggers resolveWebviewView if needed),
+ * Select a todo in the bottom-panel WS Quest TODO accordion and focus it.
+ * Uses the WS panel (bottom panel), NOT the sidebar quest todos view.
+ * Focuses the WS panel first (which triggers resolveWebviewView if needed),
  * then sends the selection message.
  * Returns true if the selection was sent successfully.
  */
 export async function selectTodoInBottomPanel(todoId: string, file?: string, questId?: string): Promise<boolean> {
-    const { getT3PanelProvider } = await import('./t3Panel-handler.js');
-    const t3 = getT3PanelProvider();
-    if (!t3) return false;
+    const { getWsPanelProvider } = await import('./wsPanel-handler.js');
+    const ws = getWsPanelProvider();
+    if (!ws) return false;
 
-    // Focus the T3 panel first — this reveals it and triggers resolveWebviewView
+    // Focus the WS panel first — this reveals it and triggers resolveWebviewView
     try {
         await vscode.commands.executeCommand('tomAi.wsPanel.focus');
     } catch {
@@ -142,12 +142,12 @@ export async function selectTodoInBottomPanel(todoId: string, file?: string, que
     }
 
     // If the view wasn't already resolved, wait briefly for resolveWebviewView to run
-    if (!t3.isViewAvailable) {
+    if (!ws.isViewAvailable) {
         await new Promise<void>(resolve => setTimeout(resolve, 500));
     }
 
-    if (t3.isViewAvailable) {
-        t3.selectTodo(todoId, file, questId);
+    if (ws.isViewAvailable) {
+        ws.selectTodo(todoId, file, questId);
         return true;
     }
 
@@ -155,7 +155,7 @@ export async function selectTodoInBottomPanel(todoId: string, file?: string, que
 }
 
 // ============================================================================
-// Embeddable content for T3 panel accordion
+// Embeddable content for WS panel accordion
 // ============================================================================
 
 /** CSS styles for the Quest TODO section (embedded in accordion) */
@@ -2206,10 +2206,10 @@ function qtHandleMessage(msg) {
 }
 
 // ============================================================================
-// Backend message handler (for T3 panel integration)
+// Backend message handler (for WS panel integration)
 // ============================================================================
 
-/** Handle Quest TODO messages from the webview. Call from T3 panel message handler. */
+/** Handle Quest TODO messages from the webview. Call from WS panel message handler. */
 export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promise<boolean> {
     const post = (m: any) => webview.postMessage(m);
     const cfg = _webviewConfigs.get(webview) || {};
@@ -2335,7 +2335,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 return true;
             }
             if (isSessionMode) {
-                const items = WindowSessionTodoStore.instance.list({ status: 'all' });
+                const items = SessionTodoStore.instance.list({ status: 'all' });
                 const todos = items.map(t => ({
                     id: t.id,
                     title: t.title,
@@ -2394,7 +2394,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 return true;
             }
             if (isSessionMode) {
-                const item = WindowSessionTodoStore.instance.get(msg.todoId);
+                const item = SessionTodoStore.instance.get(msg.todoId);
                 if (!item) {
                     post({ type: 'qtTodoDetail', todo: null, questId: '__session__', todoId: msg.todoId });
                     return true;
@@ -2427,14 +2427,14 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
         case 'qtSaveTodo':
             if (isSessionMode) {
                 const nextStatus = msg.updates?.status;
-                const updated = WindowSessionTodoStore.instance.update(msg.todoId, {
+                const updated = SessionTodoStore.instance.update(msg.todoId, {
                     title: msg.updates?.title,
                     details: msg.updates?.description,
                     priority: msg.updates?.priority,
                     status: nextStatus === 'completed' || nextStatus === 'cancelled' ? 'done' : undefined,
                 });
                 post({ type: 'qtSaved', success: !!updated, todoId: msg.todoId });
-                const refresh = WindowSessionTodoStore.instance.list({ status: 'all' }).map(t => ({
+                const refresh = SessionTodoStore.instance.list({ status: 'all' }).map(t => ({
                     id: t.id,
                     title: t.title,
                     status: t.status === 'done' ? 'completed' : 'not-started',
@@ -2470,13 +2470,13 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             return true;
         case 'qtCreateTodo':
             if (isSessionMode) {
-                const created = WindowSessionTodoStore.instance.add(msg.todo?.title || msg.todo?.id || 'todo', 'copilot', {
+                const created = SessionTodoStore.instance.add(msg.todo?.title || msg.todo?.id || 'todo', 'copilot', {
                     details: msg.todo?.description || '',
                     priority: msg.todo?.priority || 'medium',
                     tags: msg.todo?.tags || [],
                 });
                 if (msg.todo?.status === 'completed' || msg.todo?.status === 'cancelled') {
-                    WindowSessionTodoStore.instance.update(created.id, { status: 'done' });
+                    SessionTodoStore.instance.update(created.id, { status: 'done' });
                 }
                 post({ type: 'qtCreated', success: true, todo: { id: created.id, title: created.title, description: created.details || '', status: created.status === 'done' ? 'completed' : 'not-started', priority: created.priority, tags: created.tags } });
                 return true;
@@ -2516,10 +2516,10 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 if (confirmSess !== 'Delete') return true;
                 // Backup the todo before deleting
                 try {
-                    const sessionFp = WindowSessionTodoStore.instance.filePath;
+                    const sessionFp = SessionTodoStore.instance.filePath;
                     _moveToBackup(sessionFp, msg.todoId);
                 } catch { /* best-effort backup */ }
-                const ok = WindowSessionTodoStore.instance.delete(msg.todoId);
+                const ok = SessionTodoStore.instance.delete(msg.todoId);
                 post({ type: 'qtDeleted', success: ok, todoId: msg.todoId });
                 return true;
             }
@@ -2544,7 +2544,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             if (isSessionMode) {
                 for (const t of todos) {
                     try {
-                        WindowSessionTodoStore.instance.add(t.title || t.id, 'copilot', {
+                        SessionTodoStore.instance.add(t.title || t.id, 'copilot', {
                             details: t.description || '',
                             priority: t.priority || 'medium',
                             tags: t.tags || [],
@@ -2600,8 +2600,8 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 return true;
             }
             if (isSessionMode) {
-                WindowSessionTodoStore.instance.update(msg.todoId, { status: 'pending' });
-                const items = WindowSessionTodoStore.instance.list({ status: 'all' }).map(t => ({
+                SessionTodoStore.instance.update(msg.todoId, { status: 'pending' });
+                const items = SessionTodoStore.instance.list({ status: 'all' }).map(t => ({
                     id: t.id, title: t.title,
                     status: t.status === 'done' ? 'completed' : 'not-started',
                     priority: t.priority, tags: t.tags,
@@ -2610,7 +2610,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 }));
                 post({ type: 'qtTodos', todos: items, questId: '__session__', file: 'all' });
                 // Also refresh the detail view if this todo was selected
-                const rItem = WindowSessionTodoStore.instance.get(msg.todoId);
+                const rItem = SessionTodoStore.instance.get(msg.todoId);
                 if (rItem) {
                     post({ type: 'qtTodoDetail', todo: {
                         id: rItem.id, title: rItem.title,
@@ -2656,7 +2656,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             // Determine default directory for the file picker
             let importDefaultDir = wsRoot;
             if (isSessionMode) {
-                const sessionQid = WindowSessionTodoStore.instance.sessionQuestId;
+                const sessionQid = SessionTodoStore.instance.sessionQuestId;
                 const questDir = WsPaths.ai('quests', sessionQid) || path.join(wsRoot, '_ai', 'quests', sessionQid);
                 if (fs.existsSync(questDir)) { importDefaultDir = questDir; }
             } else if (!isWorkspaceFileMode) {
@@ -2681,7 +2681,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 if (isSessionMode) {
                     for (const t of items) {
                         try {
-                            WindowSessionTodoStore.instance.add(t.title || t.id, 'copilot', {
+                            SessionTodoStore.instance.add(t.title || t.id, 'copilot', {
                                 details: t.description || '',
                                 priority: t.priority || 'medium',
                                 tags: t.tags || [],
@@ -2690,7 +2690,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                         } catch { /* skip */ }
                     }
                     vscode.window.showInformationMessage(`Imported ${imported} todo(s) from ${path.basename(importPath)}.`);
-                    const refresh = WindowSessionTodoStore.instance.list({ status: 'all' }).map(t => ({
+                    const refresh = SessionTodoStore.instance.list({ status: 'all' }).map(t => ({
                         id: t.id, title: t.title,
                         status: t.status === 'done' ? 'completed' : 'not-started',
                         priority: t.priority, tags: t.tags,
@@ -2771,7 +2771,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 todoData.updated = new Date().toISOString().slice(0, 10);
                 // Restore into the appropriate normal file
                 if (isSessionMode) {
-                    WindowSessionTodoStore.instance.add(String(todoData.title || todoData.id), 'user', {
+                    SessionTodoStore.instance.add(String(todoData.title || todoData.id), 'user', {
                         details: String(todoData.description || ''),
                         priority: (todoData.priority as 'low' | 'medium' | 'high' | 'critical') || 'medium',
                         tags: Array.isArray(todoData.tags) ? todoData.tags : [],
@@ -2808,7 +2808,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
         case 'qtOpenYaml':
             if (isSessionMode) {
                 try {
-                    const sessionFp = WindowSessionTodoStore.instance.filePath;
+                    const sessionFp = SessionTodoStore.instance.filePath;
                     if (fs.existsSync(sessionFp)) {
                         const doc = await vscode.workspace.openTextDocument(sessionFp);
                         await vscode.window.showTextDocument(doc);
@@ -2875,7 +2875,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             const allTags = collectAllTags(tagQuestId);
             // For session mode, also merge tags from session todos
             if (isSessionMode) {
-                const sessionItems = WindowSessionTodoStore.instance.list({ status: 'all' });
+                const sessionItems = SessionTodoStore.instance.list({ status: 'all' });
                 for (const si of sessionItems) {
                     if (si.tags) { for (const tg of si.tags) { if (!allTags.includes(tg)) allTags.push(tg); } }
                 }
@@ -3126,7 +3126,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 const qid = effectiveQuestId(msg.questId);
                 // Session mode: 'local' returns session todos, 'quest' reads specified quest, 'workspace' reads all
                 if (isSessionMode && source === 'local') {
-                    const sessionItems = WindowSessionTodoStore.instance.list({ status: 'all' });
+                    const sessionItems = SessionTodoStore.instance.list({ status: 'all' });
                     items = sessionItems.map(si => ({
                         id: si.id,
                         title: si.title,
@@ -3338,7 +3338,7 @@ function _resolveBackupPath(
 ): string | undefined {
     try {
         if (isSessionMode) {
-            const sessionFp = WindowSessionTodoStore.instance.filePath;
+            const sessionFp = SessionTodoStore.instance.filePath;
             return sessionFp.replace(/\.todo\.yaml$/, '.backup.todo.yaml');
         }
         if (isWorkspaceFileMode) {
@@ -3793,6 +3793,6 @@ export class QuestTodoEmbeddedViewProvider implements vscode.WebviewViewProvider
 // ============================================================================
 
 export function registerQuestTodoPanel(_context: vscode.ExtensionContext): void {
-    // No-op — Quest TODO is now embedded in the T3 panel accordion.
+    // No-op — Quest TODO is now embedded in the WS panel accordion.
     // Kept to avoid breaking imports until all references are cleaned up.
 }

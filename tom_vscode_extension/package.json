@@ -1,7 +1,7 @@
 {
     "name": "tom-ai-extension",
     "displayName": "@Tom",
-    "description": "AI-powered build and documentation automation for Tom workspace with Copilot integration",
+    "description": "AI-powered workspace automation with Copilot, Local LLM, and AI Chat integration",
     "version": "0.1.0",
     "publisher": "peter-nicolai-alexis-kyaw",
     "engines": {
@@ -45,12 +45,12 @@
         "viewsContainers": {
             "panel": [
                 {
-                    "id": "tomAi-t2-panel",
+                    "id": "tomAi-chat-panel",
                     "title": "@CHAT",
                     "icon": "$(layout)"
                 },
                 {
-                    "id": "tomAi-t3-panel",
+                    "id": "tomAi-ws-panel",
                     "title": "@WS",
                     "icon": "$(beaker)"
                 }
@@ -434,7 +434,7 @@
             }
         ],
         "views": {
-            "tomAi-t2-panel": [
+            "tomAi-chat-panel": [
                 {
                     "type": "webview",
                     "id": "tomAi.chatPanel",
@@ -442,7 +442,7 @@
                     "icon": "$(layout)"
                 }
             ],
-            "tomAi-t3-panel": [
+            "tomAi-ws-panel": [
                 {
                     "type": "webview",
                     "id": "tomAi.wsPanel",
@@ -793,7 +793,7 @@
         },
         "languageModelTools": [
             {
-                "name": "tom_createFile",
+                "name": "tomAi_createFile",
                 "tags": [
                     "files",
                     "tom-ai-chat"
@@ -822,7 +822,7 @@
                 "toolReferenceName": "tom_createFile"
             },
             {
-                "name": "tom_readFile",
+                "name": "tomAi_readFile",
                 "tags": [
                     "files",
                     "tom-ai-chat"
@@ -854,7 +854,7 @@
                 "toolReferenceName": "tom_readFile"
             },
             {
-                "name": "tom_editFile",
+                "name": "tomAi_editFile",
                 "tags": [
                     "files",
                     "tom-ai-chat"
@@ -888,7 +888,7 @@
                 "toolReferenceName": "tom_editFile"
             },
             {
-                "name": "tom_multiEditFile",
+                "name": "tomAi_multiEditFile",
                 "tags": [
                     "files",
                     "tom-ai-chat"
@@ -931,7 +931,7 @@
                 "toolReferenceName": "tom_multiEditFile"
             },
             {
-                "name": "tom_listDirectory",
+                "name": "tomAi_listDirectory",
                 "tags": [
                     "files",
                     "tom-ai-chat"
@@ -955,7 +955,7 @@
                 "toolReferenceName": "tom_listDirectory"
             },
             {
-                "name": "tom_findFiles",
+                "name": "tomAi_findFiles",
                 "tags": [
                     "files",
                     "search",
@@ -984,7 +984,7 @@
                 "toolReferenceName": "tom_findFiles"
             },
             {
-                "name": "tom_findTextInFiles",
+                "name": "tomAi_findTextInFiles",
                 "tags": [
                     "files",
                     "search",
@@ -1021,7 +1021,7 @@
                 "toolReferenceName": "tom_findTextInFiles"
             },
             {
-                "name": "tom_runCommand",
+                "name": "tomAi_runCommand",
                 "tags": [
                     "terminal",
                     "tom-ai-chat"
@@ -1049,7 +1049,7 @@
                 "toolReferenceName": "tom_runCommand"
             },
             {
-                "name": "tom_runVscodeCommand",
+                "name": "tomAi_runVscodeCommand",
                 "tags": [
                     "vscode",
                     "tom-ai-chat"
@@ -1080,7 +1080,7 @@
                 "toolReferenceName": "tom_runVscodeCommand"
             },
             {
-                "name": "tom_getErrors",
+                "name": "tomAi_getErrors",
                 "tags": [
                     "diagnostics",
                     "tom-ai-chat"
@@ -1101,7 +1101,7 @@
                 "toolReferenceName": "tom_getErrors"
             },
             {
-                "name": "tom_fetchWebpage",
+                "name": "tomAi_fetchWebpage",
                 "tags": [
                     "web",
                     "tom-ai-chat"
@@ -1125,7 +1125,7 @@
                 "toolReferenceName": "tom_fetchWebpage"
             },
             {
-                "name": "tom_readGuideline",
+                "name": "tomAi_readGuideline",
                 "tags": [
                     "guidelines",
                     "tom-ai-chat"
@@ -1146,7 +1146,7 @@
                 "toolReferenceName": "tom_readGuideline"
             },
             {
-                "name": "tom_webSearch",
+                "name": "tomAi_webSearch",
                 "tags": [
                     "web",
                     "search",
@@ -1175,7 +1175,7 @@
                 "toolReferenceName": "tom_webSearch"
             },
             {
-                "name": "tom_manageTodo",
+                "name": "tomAi_manageTodo",
                 "tags": [
                     "todo",
                     "task-management",
@@ -1591,7 +1591,7 @@
                 "toolReferenceName": "moveQuestTodo"
             },
             {
-                "name": "tomAi_windowTodo_add",
+                "name": "tomAi_sessionTodo_add",
                 "tags": [
                     "todo",
                     "session",
@@ -1636,7 +1636,7 @@
                 "toolReferenceName": "addSessionTodo"
             },
             {
-                "name": "tomAi_windowTodo_list",
+                "name": "tomAi_sessionTodo_list",
                 "tags": [
                     "todo",
                     "session",
@@ -1670,7 +1670,7 @@
                 "toolReferenceName": "listSessionTodos"
             },
             {
-                "name": "tomAi_windowTodo_getAll",
+                "name": "tomAi_sessionTodo_getAll",
                 "tags": [
                     "todo",
                     "session",
@@ -1687,7 +1687,7 @@
                 "toolReferenceName": "getAllSessionTodos"
             },
             {
-                "name": "tomAi_windowTodo_update",
+                "name": "tomAi_sessionTodo_update",
                 "tags": [
                     "todo",
                     "session",
@@ -1737,7 +1737,7 @@
                 "toolReferenceName": "updateSessionTodo"
             },
             {
-                "name": "tomAi_windowTodo_delete",
+                "name": "tomAi_sessionTodo_delete",
                 "tags": [
                     "todo",
                     "session",
@@ -1762,7 +1762,7 @@
                 "toolReferenceName": "deleteSessionTodo"
             },
             {
-                "name": "tom_readLocalGuideline",
+                "name": "tomAi_readLocalGuideline",
                 "tags": [
                     "guidelines",
                     "local-llm"
@@ -1783,134 +1783,7 @@
                 "toolReferenceName": "tom_readLocalGuideline"
             },
             {
-                "name": "addToPromptQueue",
-                "tags": [
-                    "queue",
-                    "tom-ai-chat"
-                ],
-                "displayName": "Add To Prompt Queue",
-                "userDescription": "Add prompt to queue",
-                "modelDescription": "Add a prompt to the prompt queue, optionally with template, answer wrapper, and follow-up prompts.",
-                "canBeReferencedInPrompt": true,
-                "inputSchema": {
-                    "type": "object",
-                    "required": [
-                        "text"
-                    ],
-                    "properties": {
-                        "text": {
-                            "type": "string"
-                        },
-                        "template": {
-                            "type": "string"
-                        },
-                        "answerWrapper": {
-                            "type": "boolean"
-                        },
-                        "position": {
-                            "type": "number"
-                        },
-                        "deferSend": {
-                            "type": "boolean"
-                        }
-                    }
-                },
-                "toolReferenceName": "addToPromptQueue"
-            },
-            {
-                "name": "addFollowUpPrompt",
-                "tags": [
-                    "queue",
-                    "follow-up",
-                    "tom-ai-chat"
-                ],
-                "displayName": "Add Follow-Up Prompt",
-                "userDescription": "Add follow-up to queue item",
-                "modelDescription": "Add a follow-up prompt to an existing queue item.",
-                "canBeReferencedInPrompt": true,
-                "inputSchema": {
-                    "type": "object",
-                    "required": [
-                        "text"
-                    ],
-                    "properties": {
-                        "queueItemId": {
-                            "type": "string"
-                        },
-                        "requestId": {
-                            "type": "string"
-                        },
-                        "text": {
-                            "type": "string"
-                        },
-                        "template": {
-                            "type": "string"
-                        }
-                    }
-                },
-                "toolReferenceName": "addFollowUpPrompt"
-            },
-            {
-                "name": "sendQueuedPrompt",
-                "tags": [
-                    "queue",
-                    "tom-ai-chat"
-                ],
-                "displayName": "Send Queued Prompt",
-                "userDescription": "Send queued prompt",
-                "modelDescription": "Send one staged/pending prompt from the queue.",
-                "canBeReferencedInPrompt": true,
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "queueItemId": {
-                            "type": "string"
-                        },
-                        "requestId": {
-                            "type": "string"
-                        }
-                    }
-                },
-                "toolReferenceName": "sendQueuedPrompt"
-            },
-            {
-                "name": "addTimedRequest",
-                "tags": [
-                    "timed",
-                    "queue",
-                    "tom-ai-chat"
-                ],
-                "displayName": "Add Timed Request",
-                "userDescription": "Add timed request",
-                "modelDescription": "Add a timed request entry in interval mode.",
-                "canBeReferencedInPrompt": true,
-                "inputSchema": {
-                    "type": "object",
-                    "required": [
-                        "text"
-                    ],
-                    "properties": {
-                        "text": {
-                            "type": "string"
-                        },
-                        "template": {
-                            "type": "string"
-                        },
-                        "answerWrapper": {
-                            "type": "boolean"
-                        },
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "intervalMinutes": {
-                            "type": "number"
-                        }
-                    }
-                },
-                "toolReferenceName": "addTimedRequest"
-            },
-            {
-                "name": "tom_queue_list",
+                "name": "tomAi_queue_list",
                 "tags": [
                     "queue",
                     "tom-ai-chat"
@@ -1927,10 +1800,10 @@
                         }
                     }
                 },
-                "toolReferenceName": "tom_queue_list"
+                "toolReferenceName": "tomAi_queue_list"
             },
             {
-                "name": "tom_queue_update_item",
+                "name": "tomAi_queue_update_item",
                 "tags": [
                     "queue",
                     "tom-ai-chat"
@@ -1971,10 +1844,10 @@
                         }
                     }
                 },
-                "toolReferenceName": "tom_queue_update_item"
+                "toolReferenceName": "tomAi_queue_update_item"
             },
             {
-                "name": "tom_queue_set_status",
+                "name": "tomAi_queue_set_status",
                 "tags": [
                     "queue",
                     "tom-ai-chat"
@@ -2002,10 +1875,10 @@
                         }
                     }
                 },
-                "toolReferenceName": "tom_queue_set_status"
+                "toolReferenceName": "tomAi_queue_set_status"
             },
             {
-                "name": "tom_queue_send_now",
+                "name": "tomAi_queue_send_now",
                 "tags": [
                     "queue",
                     "tom-ai-chat"
@@ -2025,10 +1898,10 @@
                         }
                     }
                 },
-                "toolReferenceName": "tom_queue_send_now"
+                "toolReferenceName": "tomAi_queue_send_now"
             },
             {
-                "name": "tom_queue_remove_item",
+                "name": "tomAi_queue_remove_item",
                 "tags": [
                     "queue",
                     "tom-ai-chat"
@@ -2048,10 +1921,10 @@
                         }
                     }
                 },
-                "toolReferenceName": "tom_queue_remove_item"
+                "toolReferenceName": "tomAi_queue_remove_item"
             },
             {
-                "name": "tom_queue_update_followup",
+                "name": "tomAi_queue_update_followup",
                 "tags": [
                     "queue",
                     "follow-up",
@@ -2094,10 +1967,10 @@
                         }
                     }
                 },
-                "toolReferenceName": "tom_queue_update_followup"
+                "toolReferenceName": "tomAi_queue_update_followup"
             },
             {
-                "name": "tom_queue_remove_followup",
+                "name": "tomAi_queue_remove_followup",
                 "tags": [
                     "queue",
                     "follow-up",
@@ -2122,10 +1995,10 @@
                         }
                     }
                 },
-                "toolReferenceName": "tom_queue_remove_followup"
+                "toolReferenceName": "tomAi_queue_remove_followup"
             },
             {
-                "name": "tom_timed_list",
+                "name": "tomAi_timed_list",
                 "tags": [
                     "timed",
                     "tom-ai-chat"
@@ -2142,10 +2015,10 @@
                         }
                     }
                 },
-                "toolReferenceName": "tom_timed_list"
+                "toolReferenceName": "tomAi_timed_list"
             },
             {
-                "name": "tom_timed_update_entry",
+                "name": "tomAi_timed_update_entry",
                 "tags": [
                     "timed",
                     "tom-ai-chat"
@@ -2169,10 +2042,10 @@
                         }
                     }
                 },
-                "toolReferenceName": "tom_timed_update_entry"
+                "toolReferenceName": "tomAi_timed_update_entry"
             },
             {
-                "name": "tom_timed_remove_entry",
+                "name": "tomAi_timed_remove_entry",
                 "tags": [
                     "timed",
                     "tom-ai-chat"
@@ -2192,10 +2065,10 @@
                         }
                     }
                 },
-                "toolReferenceName": "tom_timed_remove_entry"
+                "toolReferenceName": "tomAi_timed_remove_entry"
             },
             {
-                "name": "tom_timed_set_engine_state",
+                "name": "tomAi_timed_set_engine_state",
                 "tags": [
                     "timed",
                     "tom-ai-chat"
@@ -2215,10 +2088,10 @@
                         }
                     }
                 },
-                "toolReferenceName": "tom_timed_set_engine_state"
+                "toolReferenceName": "tomAi_timed_set_engine_state"
             },
             {
-                "name": "tom_prompt_template_manage",
+                "name": "tomAi_templates_manage",
                 "tags": [
                     "templates",
                     "queue",
@@ -2261,7 +2134,7 @@
                 "toolReferenceName": "tom_prompt_template_manage"
             },
             {
-                "name": "tom_reminder_template_manage",
+                "name": "tomAi_reminders_manage",
                 "tags": [
                     "templates",
                     "reminder",
@@ -2437,7 +2310,7 @@
                 "toolReferenceName": "tomAi_workspaceTodo_list"
             },
             {
-                "name": "tom_askBigBrother",
+                "name": "tomAi_askBigBrother",
                 "tags": [
                     "ai",
                     "llm",
@@ -2483,7 +2356,7 @@
                 "toolReferenceName": "tom_askBigBrother"
             },
             {
-                "name": "tom_askCopilot",
+                "name": "tomAi_askCopilot",
                 "tags": [
                     "ai",
                     "copilot",

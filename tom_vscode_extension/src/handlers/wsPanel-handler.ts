@@ -1,8 +1,8 @@
 /**
- * T3 Panel Handler – Accordion panel containing TASKS, LOGS, SETTINGS, ISSUES,
+ * WS Panel Handler – Accordion panel containing TASKS, LOGS, SETTINGS, ISSUES,
  * TESTS and QUEST TODO.
  *
- * A single VS Code webview panel ("TOM") using the reusable accordion component.
+ * A single VS Code webview panel ("@WS") using the reusable accordion component.
  * The ISSUES and TESTS sections embed the issues panel fragments from
  * issuesPanel-handler; the QUEST TODO section embeds from questTodoPanel-handler.
  */
@@ -46,13 +46,13 @@ import {
 
 const VIEW_ID = 'tomAi.wsPanel';
 
-export class T3PanelHandler implements vscode.WebviewViewProvider {
+export class WsPanelHandler implements vscode.WebviewViewProvider {
     public static readonly viewType = VIEW_ID;
     private _view?: vscode.WebviewView;
     private _extensionUri: vscode.Uri;
     private _extensionContext: vscode.ExtensionContext;
 
-    /** Whether the T3 webview view has been resolved and is available. */
+    /** Whether the WS webview view has been resolved and is available. */
     get isViewAvailable(): boolean {
         return !!this._view;
     }
@@ -192,13 +192,13 @@ export class T3PanelHandler implements vscode.WebviewViewProvider {
         }
 
         if (message.type === 'action') {
-            // T3 simple-section actions (tasks / logs)
+            // WS simple-section actions (tasks / logs)
             switch (message.action) {
                 case 'refreshLogs':
-                    vscode.window.showInformationMessage('T3: Refresh Logs clicked');
+                    vscode.window.showInformationMessage('WS: Refresh Logs clicked');
                     break;
                 case 'exportLogs':
-                    vscode.window.showInformationMessage('T3: Export Logs clicked');
+                    vscode.window.showInformationMessage('WS: Export Logs clicked');
                     break;
                 case 'openWorkspaceTodoExplorer':
                     await vscode.commands.executeCommand('tomAi.workspaceTodos.focus');
@@ -1029,16 +1029,16 @@ window.addEventListener('message', function(e) {
     }
 }
 
-let _provider: T3PanelHandler | undefined;
+let _provider: WsPanelHandler | undefined;
 
-/** Get the T3 panel provider for cross-module access. */
-export function getT3PanelProvider(): T3PanelHandler | undefined {
+/** Get the WS panel provider for cross-module access. */
+export function getWsPanelProvider(): WsPanelHandler | undefined {
     return _provider;
 }
 
-export function registerT3Panel(context: vscode.ExtensionContext): void {
+export function registerWsPanel(context: vscode.ExtensionContext): void {
     initIssueProviders();
-    _provider = new T3PanelHandler(context.extensionUri, context);
+    _provider = new WsPanelHandler(context.extensionUri, context);
 
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(VIEW_ID, _provider, {

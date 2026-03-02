@@ -112,7 +112,7 @@ export interface ExpanderProfile {
 export type LocalLlmHistoryMode = 'none' | 'full' | 'last' | 'summary' | 'trim_and_summary';
 
 /** Full localLlm section from tom_vscode_extension.json. */
-export interface PromptExpanderConfig {
+export interface LocalLlmConfig {
     /** Default model settings for top-level localLlm configuration. */
     ollamaUrl: string;
     model: string;
@@ -200,7 +200,7 @@ Rules:
 - Preserve any special syntax the user wrote (e.g., !prompt, $prompt, file paths, code snippets).
 - Write in the same language/tone as the original prompt.`;
 
-const DEFAULTS: PromptExpanderConfig = {
+const DEFAULTS: LocalLlmConfig = {
     ollamaUrl: 'http://localhost:11434',
     model: 'qwen3:8b',
     temperature: 0.4,
@@ -329,8 +329,8 @@ export class LocalLlmManager {
     }
 
     /** Load config fresh from disk + VS Code settings. Never cached. */
-    loadConfig(): PromptExpanderConfig {
-        const config: PromptExpanderConfig = { ...DEFAULTS, models: {}, profiles: {} };
+    loadConfig(): LocalLlmConfig {
+        const config: LocalLlmConfig = { ...DEFAULTS, models: {}, profiles: {} };
 
         // VS Code settings
         const vsTomAi = vscode.workspace.getConfiguration('tomAi.ollama');
@@ -435,7 +435,7 @@ export class LocalLlmManager {
     // -----------------------------------------------------------------------
 
     /** Find the default model config key, or undefined if none. */
-    getDefaultModelKey(config: PromptExpanderConfig): string | undefined {
+    getDefaultModelKey(config: LocalLlmConfig): string | undefined {
         for (const [key, m] of Object.entries(config.models)) {
             if (m.isDefault) { return key; }
         }
@@ -445,7 +445,7 @@ export class LocalLlmManager {
     }
 
     /** Find the default profile key, or undefined if none. */
-    getDefaultProfileKey(config: PromptExpanderConfig): string | undefined {
+    getDefaultProfileKey(config: LocalLlmConfig): string | undefined {
         for (const [key, p] of Object.entries(config.profiles)) {
             if (p.isDefault) { return key; }
         }
@@ -454,7 +454,7 @@ export class LocalLlmManager {
     }
 
     /** Resolve model config: explicit key → profile override → default model → configurations → top-level values. */
-    resolveModelConfig(config: PromptExpanderConfig, profile?: ExpanderProfile, explicitModelKey?: string): { key: string; mc: ModelConfig } {
+    resolveModelConfig(config: LocalLlmConfig, profile?: ExpanderProfile, explicitModelKey?: string): { key: string; mc: ModelConfig } {
         const modelKey = explicitModelKey ?? profile?.modelConfig ?? this.getDefaultModelKey(config);
         if (modelKey && config.models[modelKey]) {
             return { key: modelKey, mc: config.models[modelKey] };

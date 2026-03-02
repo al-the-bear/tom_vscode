@@ -1,5 +1,5 @@
 /**
- * WindowSessionTodoStore — ephemeral, window-scoped todo list for LLMs.
+ * SessionTodoStore — ephemeral, window-scoped todo list for LLMs.
  *
  * Allows an LLM to store and retrieve its own reminders during a session
  * so postponed tasks aren't lost when the context window rotates.
@@ -26,7 +26,7 @@ import {
 // Types
 // ============================================================================
 
-export interface WindowTodoItem {
+export interface SessionTodoItem {
     id: string;
     title: string;
     details?: string;
@@ -38,8 +38,8 @@ export interface WindowTodoItem {
     source: ChangeSource;
 }
 
-export interface WindowTodoSnapshot {
-    todos: WindowTodoItem[];
+export interface SessionTodoSnapshot {
+    todos: SessionTodoItem[];
     nextSeq: number;
 }
 
@@ -60,24 +60,24 @@ function getWorkspaceQuestId(): string {
  * Manages the window-scoped session todo list for LLMs.
  * Create once per window at activation time.
  */
-export class WindowSessionTodoStore {
-    private static _instance: WindowSessionTodoStore | undefined;
+export class SessionTodoStore {
+    private static _instance: SessionTodoStore | undefined;
 
-    static get instance(): WindowSessionTodoStore {
-        if (!WindowSessionTodoStore._instance) {
-            throw new Error('WindowSessionTodoStore not initialised. Call init() first.');
+    static get instance(): SessionTodoStore {
+        if (!SessionTodoStore._instance) {
+            throw new Error('SessionTodoStore not initialised. Call init() first.');
         }
-        return WindowSessionTodoStore._instance;
+        return SessionTodoStore._instance;
     }
 
-    static init(context: vscode.ExtensionContext, windowId: string): WindowSessionTodoStore {
-        if (WindowSessionTodoStore._instance) { return WindowSessionTodoStore._instance; }
-        WindowSessionTodoStore._instance = new WindowSessionTodoStore(context, windowId);
-        return WindowSessionTodoStore._instance;
+    static init(context: vscode.ExtensionContext, windowId: string): SessionTodoStore {
+        if (SessionTodoStore._instance) { return SessionTodoStore._instance; }
+        SessionTodoStore._instance = new SessionTodoStore(context, windowId);
+        return SessionTodoStore._instance;
     }
 
     // ---- state ----
-    private todos: WindowTodoItem[] = [];
+    private todos: SessionTodoItem[] = [];
     private nextSeq = 1;
     private readonly context: vscode.ExtensionContext;
     private readonly windowId: string;
@@ -123,7 +123,7 @@ export class WindowSessionTodoStore {
         return status === 'done' ? 'completed' : 'not-started';
     }
 
-    private static toItem(todo: any): WindowTodoItem | null {
+    private static toItem(todo: any): SessionTodoItem | null {
         if (!todo || !todo.id || todo.status === 'cancelled') { return null; }
         const nowIso = new Date().toISOString();
         const createdIso = (todo.created ? `${todo.created}T00:00:00.000Z` : nowIso);
@@ -134,7 +134,7 @@ export class WindowSessionTodoStore {
             details: todo.description ? String(todo.description) : undefined,
             priority: (todo.priority === 'critical' || todo.priority === 'high' || todo.priority === 'medium' || todo.priority === 'low') ? todo.priority : 'medium',
             tags: Array.isArray(todo.tags) ? todo.tags.map((t: unknown) => String(t)) : [],
-            status: WindowSessionTodoStore.fromYamlStatus(todo.status),
+            status: SessionTodoStore.fromYamlStatus(todo.status),
             createdAt: createdIso,
             updatedAt: updatedIso,
             source: 'copilot',
@@ -147,7 +147,7 @@ export class WindowSessionTodoStore {
         title: string,
         source: ChangeSource,
         opts?: { details?: string; priority?: 'low' | 'medium' | 'high' | 'critical'; tags?: string[] },
-    ): WindowTodoItem {
+    ): SessionTodoItem {
         // Lazily create the session file on first write
         this.ensureSessionFile();
         const id = `wt-${this.nextSeq++}`;
@@ -159,13 +159,13 @@ export class WindowSessionTodoStore {
             priority: opts?.priority ?? 'medium',
             tags: opts?.tags ?? [],
         }, { quest: this.questId });
-        const mapped = WindowSessionTodoStore.toItem(created)!;
+        const mapped = SessionTodoStore.toItem(created)!;
         mapped.source = source;
         this.restore();
         return mapped;
     }
 
-    list(filter?: { status?: 'pending' | 'done' | 'all'; tags?: string[] }): WindowTodoItem[] {
+    list(filter?: { status?: 'pending' | 'done' | 'all'; tags?: string[] }): SessionTodoItem[] {
         let items = [...this.todos];
         if (filter?.status && filter.status !== 'all') {
             items = items.filter(t => t.status === filter.status);
@@ -177,7 +177,7 @@ export class WindowSessionTodoStore {
         return items;
     }
 
-    getAll(): { todos: WindowTodoItem[]; count: number; pendingCount: number } {
+    getAll(): { todos: SessionTodoItem[]; count: number; pendingCount: number } {
         return {
             todos: [...this.todos],
             count: this.todos.length,
@@ -185,24 +185,24 @@ export class WindowSessionTodoStore {
         };
     }
 
-    get(id: string): WindowTodoItem | undefined {
+    get(id: string): SessionTodoItem | undefined {
         const todo = findTodoByIdInFile(this.sessionFilePath, id);
-        const mapped = WindowSessionTodoStore.toItem(todo);
+        const mapped = SessionTodoStore.toItem(todo);
         return mapped ?? undefined;
     }
 
     update(
         id: string,
         updates: { title?: string; details?: string; priority?: 'low' | 'medium' | 'high' | 'critical'; status?: 'pending' | 'done' },
-    ): WindowTodoItem | undefined {
+    ): SessionTodoItem | undefined {
         const updated = updateTodoInFile(this.sessionFilePath, id, {
             title: updates.title,
             description: updates.details,
             priority: updates.priority,
-            status: WindowSessionTodoStore.toYamlStatus(updates.status),
+            status: SessionTodoStore.toYamlStatus(updates.status),
         });
         this.restore();
-        const mapped = WindowSessionTodoStore.toItem(updated);
+        const mapped = SessionTodoStore.toItem(updated);
         return mapped ?? undefined;
     }
 
@@ -221,8 +221,8 @@ export class WindowSessionTodoStore {
     private restore(): void {
         const raw = readTodoFile(this.sessionFilePath);
         this.todos = raw
-            .map(t => WindowSessionTodoStore.toItem(t))
-            .filter((t): t is WindowTodoItem => !!t);
+            .map(t => SessionTodoStore.toItem(t))
+            .filter((t): t is SessionTodoItem => !!t);
 
         let max = 0;
         for (const item of this.todos) {

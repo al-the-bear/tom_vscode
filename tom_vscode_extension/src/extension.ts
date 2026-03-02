@@ -46,11 +46,11 @@ import {
     getLocalLlmManager,
     createProfileHandler,
     switchModelHandler,
-    startBotConversationHandler,
-    stopBotConversationHandler,
-    haltBotConversationHandler,
-    continueBotConversationHandler,
-    addToBotConversationHandler,
+    startAiConversationHandler,
+    stopAiConversationHandler,
+    haltAiConversationHandler,
+    continueAiConversationHandler,
+    addToAiConversationHandler,
     AiConversationManager,
     setAiConversationManager,
     registerChordMenuCommands,
@@ -58,8 +58,8 @@ import {
     registerCombinedCommands,
     registerStateMachineCommands,
     registerDsNotesViews,
-    registerUnifiedNotepad,
-    registerT3Panel,
+    registerChatPanel,
+    registerWsPanel,
     registerChatVariablesEditorCommand,
     registerContextSettingsEditorCommand,
     registerQueueEditorCommand,
@@ -94,7 +94,7 @@ import { initializeToolDescriptions } from './tools/tool-executors';
 
 // Chat Enhancement stores & managers
 import { ChatVariablesStore } from './managers/chatVariablesStore';
-import { WindowSessionTodoStore } from './managers/windowSessionTodoStore';
+import { SessionTodoStore } from './managers/sessionTodoStore';
 import { PromptQueueManager } from './managers/promptQueueManager';
 import { TimerEngine } from './managers/timerEngine';
 import { ReminderSystem } from './managers/reminderSystem';
@@ -367,13 +367,13 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Register Unified Notepad (T2) panel
     stepStart = performance.now();
-    registerUnifiedNotepad(context);
-    timeStep('unifiedNotepad', stepStart);
+    registerChatPanel(context);
+    timeStep('chatPanel', stepStart);
 
-    // Register T3 panel (includes Issues, Tests, and Quest TODO tabs)
+    // Register WS panel (includes Issues, Tests, and Quest TODO tabs)
     stepStart = performance.now();
-    registerT3Panel(context);
-    timeStep('t3Panel', stepStart);
+    registerWsPanel(context);
+    timeStep('wsPanel', stepStart);
 
     // Register Chat Variables Editor command
     stepStart = performance.now();
@@ -518,7 +518,7 @@ export async function activate(context: vscode.ExtensionContext) {
     stepStart = performance.now();
     ChatVariablesStore.init(context);
     const windowId = `win-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    WindowSessionTodoStore.init(context, windowId);
+    SessionTodoStore.init(context, windowId);
     timeStep('chatEnhancementStores', stepStart);
 
     // Initialize Queue & Automation (§3.2–§3.4)
@@ -764,42 +764,42 @@ function registerCommands(context: vscode.ExtensionContext) {
     );
 
     // Start AI Conversation
-    const startBotConversationCmd = vscode.commands.registerCommand(
+    const startAiConversationCmd = vscode.commands.registerCommand(
         'tomAi.aiConversation.start',
         async () => {
-            await startBotConversationHandler();
+            await startAiConversationHandler();
         }
     );
 
     // Stop AI Conversation
-    const stopBotConversationCmd = vscode.commands.registerCommand(
+    const stopAiConversationCmd = vscode.commands.registerCommand(
         'tomAi.aiConversation.stop',
         async () => {
-            await stopBotConversationHandler();
+            await stopAiConversationHandler();
         }
     );
 
     // Halt AI Conversation
-    const haltBotConversationCmd = vscode.commands.registerCommand(
+    const haltAiConversationCmd = vscode.commands.registerCommand(
         'tomAi.aiConversation.halt',
         async () => {
-            await haltBotConversationHandler();
+            await haltAiConversationHandler();
         }
     );
 
     // Continue AI Conversation
-    const continueBotConversationCmd = vscode.commands.registerCommand(
+    const continueAiConversationCmd = vscode.commands.registerCommand(
         'tomAi.aiConversation.continue',
         async () => {
-            await continueBotConversationHandler();
+            await continueAiConversationHandler();
         }
     );
 
     // Add to AI Conversation
-    const addToBotConversationCmd = vscode.commands.registerCommand(
+    const addToAiConversationCmd = vscode.commands.registerCommand(
         'tomAi.aiConversation.add',
         async () => {
-            await addToBotConversationHandler();
+            await addToAiConversationHandler();
         }
     );
 
@@ -918,11 +918,11 @@ function registerCommands(context: vscode.ExtensionContext) {
         interruptTomAiChatCmd,
         expandPromptCmd,
         switchLocalModelCmd,
-        startBotConversationCmd,
-        stopBotConversationCmd,
-        haltBotConversationCmd,
-        continueBotConversationCmd,
-        addToBotConversationCmd,
+        startAiConversationCmd,
+        stopAiConversationCmd,
+        haltAiConversationCmd,
+        continueAiConversationCmd,
+        addToAiConversationCmd,
         telegramTestCmd,
         telegramToggleCmd,
         telegramConfigureCmd,

@@ -103,7 +103,7 @@ export interface SelfTalkPersona {
 }
 
 /** A named bot conversation profile. */
-export interface BotConversationProfile {
+export interface AiConversationProfile {
     /** Human-readable label. */
     label: string;
     /** Override initial prompt template (null → inherit top-level). */
@@ -132,7 +132,7 @@ export interface BotConversationProfile {
 }
 
 /** Full aiConversation section from tom_vscode_extension.json. */
-export interface BotConversationConfig {
+export interface AiConversationConfig {
     /** Maximum conversation turns before stopping. */
     maxTurns: number;
     /** Which model config from localLlm.models to use. */
@@ -172,7 +172,7 @@ export interface BotConversationConfig {
     /** Preferred Copilot model family (e.g. 'gpt-4o', 'claude-sonnet-4'). */
     copilotModel: string | null;
     /** Named conversation profiles. */
-    profiles: { [key: string]: BotConversationProfile };
+    profiles: { [key: string]: AiConversationProfile };
     /** Conversation mode: 'ollama-copilot' (default) or 'ollama-ollama' (self-talk). */
     conversationMode: ConversationMode;
     /** Self-talk configuration for ollama-ollama mode. */
@@ -201,7 +201,7 @@ interface ConversationState {
     /** All exchanges so far. */
     exchanges: ConversationExchange[];
     /** Resolved config for this conversation. */
-    config: BotConversationConfig;
+    config: AiConversationConfig;
     /** Profile key being used. */
     profileKey: string;
     /** Whether the conversation is still active. */
@@ -289,7 +289,7 @@ Output ONLY the summary. No preamble.`;
 
 const DEFAULT_GOAL_REACHED_MARKER = '__GOAL_REACHED__';
 
-const DEFAULTS: BotConversationConfig = {
+const DEFAULTS: AiConversationConfig = {
     maxTurns: 0,
     modelConfig: null,
     trailSummarizationModelConfig: null,
@@ -411,7 +411,7 @@ export class AiConversationManager {
     // -----------------------------------------------------------------------
 
     /** Set up Telegram notifier from config. */
-    private setupTelegram(config: BotConversationConfig): void {
+    private setupTelegram(config: AiConversationConfig): void {
         if (this.telegram) {
             this.telegram.dispose();
             this.telegram = null;
@@ -488,8 +488,8 @@ export class AiConversationManager {
         return getConfigPath();
     }
 
-    loadConfig(): BotConversationConfig {
-        const config: BotConversationConfig = { ...DEFAULTS, profiles: {} };
+    loadConfig(): AiConversationConfig {
+        const config: AiConversationConfig = { ...DEFAULTS, profiles: {} };
 
         const configPath = this.getConfigPath();
         if (!configPath || !fs.existsSync(configPath)) { return config; }
@@ -573,7 +573,7 @@ export class AiConversationManager {
         return llmConfigs.find((entry: any) => entry?.id === configId);
     }
 
-    private applyLlmRuntimeDefaults(config: BotConversationConfig, llmConfigId: string | null | undefined): void {
+    private applyLlmRuntimeDefaults(config: AiConversationConfig, llmConfigId: string | null | undefined): void {
         const llm = this.findLlmConfiguration(llmConfigId);
         if (!llm) { return; }
 
@@ -591,7 +591,7 @@ export class AiConversationManager {
         }
     }
 
-    private applyLlmSummaryDefaults(config: BotConversationConfig, llmConfigId: string | null | undefined): void {
+    private applyLlmSummaryDefaults(config: AiConversationConfig, llmConfigId: string | null | undefined): void {
         const llm = this.findLlmConfiguration(llmConfigId);
         if (!llm) { return; }
 
@@ -662,7 +662,7 @@ export class AiConversationManager {
             ? path.join(wsRoot, (activeAnswerFolder && activeAnswerFolder.trim().length > 0)
                 ? activeAnswerFolder
                 : (WsPaths.ai('trail', 'ai_conversation') || path.join('_ai', 'trail', 'ai_conversation')))
-            : WsPaths.home('botConversationAnswers');
+            : WsPaths.home('aiConversationAnswers');
         return path.join(folder, `${this.getWindowId()}_answer.json`);
     }
 
@@ -763,7 +763,7 @@ export class AiConversationManager {
     /** Build the history section for the follow-up template. */
     private async buildHistorySection(
         exchanges: ConversationExchange[],
-        config: BotConversationConfig,
+        config: AiConversationConfig,
     ): Promise<string> {
         if (exchanges.length === 0) { return '(No previous exchanges.)'; }
 
@@ -815,7 +815,7 @@ export class AiConversationManager {
     /** Use the local model to summarize conversation history. */
     private async summarizeHistory(
         fullHistory: string,
-        config: BotConversationConfig,
+        config: AiConversationConfig,
     ): Promise<string> {
         const manager = getLocalLlmManager();
         if (!manager) { return fullHistory; } // fallback to full if no manager
@@ -892,7 +892,7 @@ export class AiConversationManager {
         const wsRoot = getWorkspaceRoot();
         const logDir = wsRoot
             ? path.join(wsRoot, state.config.conversationLogPath)
-            : WsPaths.home('botConversations');
+            : WsPaths.home('aiConversations');
 
         if (!fs.existsSync(logDir)) {
             fs.mkdirSync(logDir, { recursive: true });
@@ -1972,7 +1972,7 @@ export class AiConversationManager {
         const config = this.loadConfig();
         const logDir = wsRoot
             ? path.join(wsRoot, config.conversationLogPath)
-            : WsPaths.home('botConversations');
+            : WsPaths.home('aiConversations');
         const logPath = path.join(logDir, `${conversationId}.md`);
 
         if (!fs.existsSync(logPath)) {
@@ -2099,8 +2099,8 @@ export function getAiConversationManager(): AiConversationManager | undefined {
     return _botManager;
 }
 
-export async function startBotConversationHandler(): Promise<void> {
-    logConversation('startBotConversation command invoked');
+export async function startAiConversationHandler(): Promise<void> {
+    logConversation('startAiConversation command invoked');
     try {
         if (!_botManager) {
             logConversation('Bot Conversation not initialized', 'ERROR');
@@ -2108,15 +2108,15 @@ export async function startBotConversationHandler(): Promise<void> {
             return;
         }
         await _botManager.startConversationCommand();
-        logConversation('startBotConversation completed');
+        logConversation('startAiConversation completed');
     } catch (error) {
-        logConversation(`startBotConversation FAILED: ${error}`, 'ERROR');
+        logConversation(`startAiConversation FAILED: ${error}`, 'ERROR');
         vscode.window.showErrorMessage(`Start Bot Conversation failed: ${error}`);
     }
 }
 
-export async function stopBotConversationHandler(): Promise<void> {
-    logConversation('stopBotConversation command invoked');
+export async function stopAiConversationHandler(): Promise<void> {
+    logConversation('stopAiConversation command invoked');
     try {
         if (!_botManager) {
             logConversation('Bot Conversation not initialized', 'ERROR');
@@ -2132,13 +2132,13 @@ export async function stopBotConversationHandler(): Promise<void> {
         logConversation('Bot conversation stopped');
         vscode.window.showInformationMessage('Bot conversation stopped.');
     } catch (error) {
-        logConversation(`stopBotConversation FAILED: ${error}`, 'ERROR');
+        logConversation(`stopAiConversation FAILED: ${error}`, 'ERROR');
         vscode.window.showErrorMessage(`Stop Bot Conversation failed: ${error}`);
     }
 }
 
-export async function haltBotConversationHandler(): Promise<void> {
-    logConversation('haltBotConversation command invoked');
+export async function haltAiConversationHandler(): Promise<void> {
+    logConversation('haltAiConversation command invoked');
     try {
         if (!_botManager) {
             logConversation('Bot Conversation not initialized', 'ERROR');
@@ -2159,13 +2159,13 @@ export async function haltBotConversationHandler(): Promise<void> {
         logConversation('Bot conversation halted');
         vscode.window.showInformationMessage('Bot conversation halted. Use "Continue" to resume.');
     } catch (error) {
-        logConversation(`haltBotConversation FAILED: ${error}`, 'ERROR');
+        logConversation(`haltAiConversation FAILED: ${error}`, 'ERROR');
         vscode.window.showErrorMessage(`Halt Bot Conversation failed: ${error}`);
     }
 }
 
-export async function continueBotConversationHandler(): Promise<void> {
-    logConversation('continueBotConversation command invoked');
+export async function continueAiConversationHandler(): Promise<void> {
+    logConversation('continueAiConversation command invoked');
     try {
         if (!_botManager) {
             logConversation('Bot Conversation not initialized', 'ERROR');
@@ -2181,13 +2181,13 @@ export async function continueBotConversationHandler(): Promise<void> {
         logConversation('Bot conversation continued');
         vscode.window.showInformationMessage('Bot conversation continued.');
     } catch (error) {
-        logConversation(`continueBotConversation FAILED: ${error}`, 'ERROR');
+        logConversation(`continueAiConversation FAILED: ${error}`, 'ERROR');
         vscode.window.showErrorMessage(`Continue Bot Conversation failed: ${error}`);
     }
 }
 
-export async function addToBotConversationHandler(): Promise<void> {
-    logConversation('addToBotConversation command invoked');
+export async function addToAiConversationHandler(): Promise<void> {
+    logConversation('addToAiConversation command invoked');
     try {
         if (!_botManager) {
             logConversation('Bot Conversation not initialized', 'ERROR');
@@ -2217,7 +2217,7 @@ export async function addToBotConversationHandler(): Promise<void> {
         logConversation(`Added ${text.trim().length} chars to bot conversation`);
         vscode.window.showInformationMessage(`Added ${text.trim().length} chars to bot conversation.`);
     } catch (error) {
-        logConversation(`addToBotConversation FAILED: ${error}`, 'ERROR');
+        logConversation(`addToAiConversation FAILED: ${error}`, 'ERROR');
         vscode.window.showErrorMessage(`Add to Bot Conversation failed: ${error}`);
     }
 }

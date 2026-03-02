@@ -14,7 +14,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { WsPaths } from '../utils/workspacePaths';
 import * as questTodo from '../managers/questTodoManager.js';
-import { WindowSessionTodoStore } from '../managers/windowSessionTodoStore.js';
+import { SessionTodoStore } from '../managers/sessionTodoStore.js';
 import { PromptQueueManager, QueuedPrompt } from '../managers/promptQueueManager';
 import { TimerEngine, TimedRequest, ScheduledTime } from '../managers/timerEngine';
 import { ChatVariablesStore } from '../managers/chatVariablesStore.js';
@@ -220,19 +220,19 @@ export class TomScriptingBridgeHandler {
     }
 
     private async todoListSession(): Promise<any> {
-        const store = WindowSessionTodoStore.instance;
+        const store = SessionTodoStore.instance;
         const result = store.getAll();
         return { todos: result.todos, count: result.count, pendingCount: result.pendingCount };
     }
 
     private async todoGetSession(todoId: string): Promise<any> {
-        const store = WindowSessionTodoStore.instance;
+        const store = SessionTodoStore.instance;
         const todo = store.get(todoId);
         return todo || null;
     }
 
     private async todoCreateSession(todo: any): Promise<any> {
-        const store = WindowSessionTodoStore.instance;
+        const store = SessionTodoStore.instance;
         const created = store.add(todo.title || todo.description, 'copilot', {
             details: todo.details || todo.description,
             priority: todo.priority,
@@ -242,7 +242,7 @@ export class TomScriptingBridgeHandler {
     }
 
     private async todoUpdateSession(todo: any): Promise<any> {
-        const store = WindowSessionTodoStore.instance;
+        const store = SessionTodoStore.instance;
         const updated = store.update(todo.id, {
             title: todo.title,
             details: todo.details,
@@ -253,7 +253,7 @@ export class TomScriptingBridgeHandler {
     }
 
     private async todoDeleteSession(todoId: string): Promise<any> {
-        const store = WindowSessionTodoStore.instance;
+        const store = SessionTodoStore.instance;
         const success = store.delete(todoId);
         return { success };
     }
@@ -275,7 +275,7 @@ export class TomScriptingBridgeHandler {
         }
 
         if (params.includeSession) {
-            const store = WindowSessionTodoStore.instance;
+            const store = SessionTodoStore.instance;
             const result = store.getAll();
             todos.push(...result.todos.map((t: any) => ({ ...t, _scope: 'session' })));
         }

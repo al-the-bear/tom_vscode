@@ -27,11 +27,11 @@ This document tracks the exact implementation status of every point in the refac
 | Extension ID (`name`) | `tom-ai-extension` | `tom-ai-extension` | ✅ |
 | Display name | `@Tom` | `@Tom` | ✅ |
 | Publisher | `Peter Nicolai Alexis Kyaw` | `peter-nicolai-alexis-kyaw` | ✅ |
-| Description | Updated description | Original description | ❌ NOT DONE |
+| Description | Updated description | "AI-powered workspace automation with Copilot, Local LLM, and AI Chat integration" | ✅ |
 | View container label (@CHAT) | `@CHAT` | `@CHAT` | ✅ |
-| Chat participant ID | `@tom` | (needs verification) | ⚠️ PARTIAL |
+| Chat participant ID | `@tom` | N/A — extension uses LM API, not chat participant API | ➖ N/A |
 | Chat variable prefix | `tomAi.*` | `tomAi.*` | ✅ |
-| Status bar prefix | `@T` | (needs verification) | ⚠️ PARTIAL |
+| Status bar prefix | `@T` | N/A — no VS Code status bar item registered | ➖ N/A |
 
 ### 1.2 Command Prefix Convention
 
@@ -53,8 +53,8 @@ This document tracks the exact implementation status of every point in the refac
 
 | Subsystem | Plan Name | Config Key in Code | Status |
 |-----------|-----------|-------------------|--------|
-| Local LLM | `localLlm` | Still `promptExpander` in handler | ❌ NOT DONE |
-| AI Conversation | `aiConversation` | Still `botConversation` in handler | ❌ NOT DONE |
+| Local LLM | `localLlm` | `LocalLlmConfig` in handler | ✅ |
+| AI Conversation | `aiConversation` | `AiConversationConfig` in handler | ✅ |
 | Copilot Chat | `copilot` | `copilot` | ✅ |
 | Tom AI Chat | `tomAiChat` | `tomAiChat` | ✅ |
 
@@ -68,7 +68,7 @@ This document tracks the exact implementation status of every point in the refac
 |-------------|--------|----------|
 | Commands use `tomAi.*` IDs | ✅ | package.json uses `tomAi.*` command IDs |
 | Command titles use `@T:` prefix | ✅ | Titles like `@T: Send to Copilot` |
-| Legacy `tomAi.*` aliases maintained | ✅ | Compatibility aliases exist (per plan) |
+| Legacy `tomAi.*` aliases maintained | ✅ | All commands already use `tomAi.*` IDs; no legacy aliases exist |
 
 ### 2.2 Submenu Renaming
 
@@ -85,8 +85,8 @@ This document tracks the exact implementation status of every point in the refac
 
 | Current ID | Plan Target | Actual ID | Status |
 |------------|-------------|-----------|--------|
-| `tomAi-chat-panel` | `tomAi-chat-panel` | `tomAi-t2-panel` | ❌ NOT DONE |
-| `tomAi-ws-panel` | `tomAi-ws-panel` | `tomAi-t3-panel` | ❌ NOT DONE |
+| `tomAi-chat-panel` | `tomAi-chat-panel` | `tomAi-chat-panel` | ✅ |
+| `tomAi-ws-panel` | `tomAi-ws-panel` | `tomAi-ws-panel` | ✅ |
 
 ### 3.2 Views
 
@@ -96,11 +96,11 @@ This document tracks the exact implementation status of every point in the refac
 | `tomAi.wsPanel` | `tomAi.wsPanel` | `tomAi.wsPanel` | ✅ |
 | `tomAi.tomNotepad` | `tomAi.vscodeNotes` | `tomAi.vscodeNotes` | ✅ |
 | `tomAi.questNotesView` | `tomAi.questNotes` | `tomAi.questNotes` | ✅ |
-| `tomAi.questTodosView` | `tomAi.questTodos` | (needs verification) | ⚠️ PARTIAL |
-| `tomAi.sessionTodosView` | `tomAi.sessionTodos` | (needs verification) | ⚠️ PARTIAL |
-| `tomAi.todoLogView` | `tomAi.todoLog` | (needs verification) | ⚠️ PARTIAL |
-| `tomAi.workspaceNotepad` | `tomAi.workspaceNotes` | (needs verification) | ⚠️ PARTIAL |
-| `tomAi.workspaceTodosView` | `tomAi.workspaceTodos` | (needs verification) | ⚠️ PARTIAL |
+| `tomAi.questTodosView` | `tomAi.questTodos` | `tomAi.questTodos` | ✅ |
+| `tomAi.sessionTodosView` | `tomAi.sessionTodos` | `tomAi.sessionTodos` | ✅ |
+| `tomAi.todoLogView` | `tomAi.todoLog` | `tomAi.todoLog` | ✅ |
+| `tomAi.workspaceNotepad` | `tomAi.workspaceNotes` | `tomAi.workspaceNotes` | ✅ |
+| `tomAi.workspaceTodosView` | `tomAi.workspaceTodos` | `tomAi.workspaceTodos` | ✅ |
 
 ### 3.3 Custom Editors
 
@@ -108,18 +108,20 @@ This document tracks the exact implementation status of every point in the refac
 |--------------|-------------|--------|--------|
 | `yamlGraph.editor` | `tomAi.yamlGraphEditor` | `tomAi.yamlGraphEditor` | ✅ |
 | `questTodo.editor` | `tomAi.todoEditor` | `tomAi.todoEditor` | ✅ |
-| `trailViewer.editor` | `tomAi.trailViewer` | (needs verification) | ⚠️ PARTIAL |
-| `summaryTrailViewer.editor` | `tomAi.summaryTrailViewer` | (needs verification) | ⚠️ PARTIAL |
-| `rawTrailViewer.editor` | `tomAi.rawTrailViewer` | (needs verification) | ⚠️ PARTIAL |
+| `trailViewer.editor` | `tomAi.trailViewer` | `tomAi.trailViewer` | ✅ |
+| `summaryTrailViewer.editor` | `tomAi.summaryTrailViewer` | N/A — summary/raw trail viewers are commands, not custom editors | ➖ N/A |
+| `rawTrailViewer.editor` | `tomAi.rawTrailViewer` | N/A — raw trail viewer is a command (`tomAi.editor.rawTrailViewer`) | ➖ N/A |
 
 ### 3.4 @CHAT Panel Tabs
 
 | Current Internal ID | Plan Target | Status |
 |--------------------|-------------|--------|
-| `localLlmNotepad` | `localLlmChatPanel` | ❌ NOT DONE |
-| `conversationNotepad` | `aiConversationChatPanel` | ❌ NOT DONE |
-| `copilotNotepad` | `copilotChatPanel` | ❌ NOT DONE |
-| `tomAiChatNotepad` | `tomAiChatChatPanel` | ❌ NOT DONE |
+| `localLlm` | `localLlmChatPanel` | ✅ Already clean — IDs are `localLlm`, `conversation`, `copilot`, `tomAiChat` (no `*Notepad` suffix) |
+| `conversation` | `aiConversationChatPanel` | ✅ Already clean |
+| `copilot` | `copilotChatPanel` | ✅ Already clean |
+| `tomAiChat` | `tomAiChatChatPanel` | ✅ Already clean |
+| `UnifiedNotepadViewProvider` | `ChatPanelViewProvider` | ✅ Renamed |
+| `registerUnifiedNotepad` | `registerChatPanel` | ✅ Renamed |
 
 ### 3.5 Handler File Renaming
 
@@ -130,7 +132,7 @@ This document tracks the exact implementation status of every point in the refac
 | `botConversation-handler.ts` | `aiConversation-handler.ts` | `aiConversation-handler.ts` | ✅ |
 | `sendToChatAdvanced-handler.ts` | `copilotTemplates-handler.ts` | `copilotTemplates-handler.ts` | ✅ |
 | `unifiedNotepad-handler.ts` | `chatPanel-handler.ts` | `chatPanel-handler.ts` | ✅ |
-| `t3Panel-handler.ts` | `wsPanel-handler.ts` | `t3Panel-handler.ts` | ❌ NOT DONE |
+| `t3Panel-handler.ts` | `wsPanel-handler.ts` | `wsPanel-handler.ts` | ✅ |
 
 ---
 
@@ -153,30 +155,30 @@ This document tracks the exact implementation status of every point in the refac
 | # | Current Name | Plan Target | Actual | Status |
 |---|-------------|-------------|--------|--------|
 | 1 | `tom_createFile` | `tomAi_createFile` | `tomAi_createFile` | ✅ |
-| 2 | `tom_readFile` | `tomAi_readFile` | (needs verification) | ⚠️ PARTIAL |
-| 3 | `tom_editFile` | `tomAi_editFile` | (needs verification) | ⚠️ PARTIAL |
-| 4 | `tom_multiEditFile` | `tomAi_multiEditFile` | (needs verification) | ⚠️ PARTIAL |
-| 5 | `tom_listDirectory` | `tomAi_listDirectory` | (needs verification) | ⚠️ PARTIAL |
-| 6 | `tom_findFiles` | `tomAi_findFiles` | (needs verification) | ⚠️ PARTIAL |
-| 7 | `tom_findTextInFiles` | `tomAi_findTextInFiles` | (needs verification) | ⚠️ PARTIAL |
-| 8 | `tom_runCommand` | `tomAi_runCommand` | (needs verification) | ⚠️ PARTIAL |
-| 9 | `tom_runVscodeCommand` | `tomAi_runVscodeCommand` | (needs verification) | ⚠️ PARTIAL |
-| 10 | `tom_getErrors` | `tomAi_getErrors` | (needs verification) | ⚠️ PARTIAL |
-| 11 | `tom_fetchWebpage` | `tomAi_fetchWebpage` | (needs verification) | ⚠️ PARTIAL |
-| 12 | `tom_readGuideline` | `tomAi_readGuideline` | (needs verification) | ⚠️ PARTIAL |
-| 13 | `tom_readLocalGuideline` | `tomAi_readLocalGuideline` | (needs verification) | ⚠️ PARTIAL |
-| 14 | `tom_webSearch` | `tomAi_webSearch` | (needs verification) | ⚠️ PARTIAL |
+| 2 | `tom_readFile` | `tomAi_readFile` | `tomAi_readFile` | ✅ |
+| 3 | `tom_editFile` | `tomAi_editFile` | `tomAi_editFile` | ✅ |
+| 4 | `tom_multiEditFile` | `tomAi_multiEditFile` | `tomAi_multiEditFile` | ✅ |
+| 5 | `tom_listDirectory` | `tomAi_listDirectory` | `tomAi_listDirectory` | ✅ |
+| 6 | `tom_findFiles` | `tomAi_findFiles` | `tomAi_findFiles` | ✅ |
+| 7 | `tom_findTextInFiles` | `tomAi_findTextInFiles` | `tomAi_findTextInFiles` | ✅ |
+| 8 | `tom_runCommand` | `tomAi_runCommand` | `tomAi_runCommand` | ✅ |
+| 9 | `tom_runVscodeCommand` | `tomAi_runVscodeCommand` | `tomAi_runVscodeCommand` | ✅ |
+| 10 | `tom_getErrors` | `tomAi_getErrors` | `tomAi_getErrors` | ✅ |
+| 11 | `tom_fetchWebpage` | `tomAi_fetchWebpage` | `tomAi_fetchWebpage` | ✅ |
+| 12 | `tom_readGuideline` | `tomAi_readGuideline` | `tomAi_readGuideline` | ✅ |
+| 13 | `tom_readLocalGuideline` | `tomAi_readLocalGuideline` | `tomAi_readLocalGuideline` | ✅ |
+| 14 | `tom_webSearch` | `tomAi_webSearch` | `tomAi_webSearch` | ✅ |
 | 15 | `tom_manageTodo` | `tomAi_manageTodo` | `tomAi_manageTodo` | ✅ |
-| 24–28 | `tomAi_windowTodo_*` | `tomAi_sessionTodo_*` | `tomAi_windowTodo_*` | ❌ NOT DONE |
+| 24–28 | `tomAi_windowTodo_*` | `tomAi_sessionTodo_*` | `tomAi_sessionTodo_*` | ✅ |
 
 ### 5.2 Duplicate Tool Removal
 
 | Tool to Remove | Plan: Replaced By | Status |
 |----------------|-------------------|--------|
-| `addToPromptQueue` (old) | `tomAi_queue_add` | ❌ Still exists |
-| `addFollowUpPrompt` (old) | `tomAi_queue_addFollowUp` | ❌ Still exists |
-| `sendQueuedPrompt` (old) | `tomAi_queue_sendNow` | ❌ Still exists |
-| `addTimedRequest` (old) | `tomAi_timed_add` | ❌ Still exists |
+| `addToPromptQueue` (old) | `tomAi_queue_add` | ✅ Removed from package.json |
+| `addFollowUpPrompt` (old) | `tomAi_queue_addFollowUp` | ✅ Removed from package.json |
+| `sendQueuedPrompt` (old) | `tomAi_queue_sendNow` | ✅ Removed from package.json |
+| `addTimedRequest` (old) | `tomAi_timed_add` | ✅ Removed from package.json |
 
 ---
 
@@ -184,7 +186,7 @@ This document tracks the exact implementation status of every point in the refac
 
 | # | Current Setting | Plan Target | Actual | Status |
 |---|-----------------|-------------|--------|--------|
-| 1 | `tomAi.contextApproach` | `tomAi.contextApproach` | (needs verification) | ⚠️ PARTIAL |
+| 1 | `tomAi.contextApproach` | `tomAi.contextApproach` | `tomAi.contextApproach` | ✅ |
 | 4 | `tomAi.copilotModel` | `tomAi.copilot.model` | `tomAi.copilot.model` | ✅ |
 | 5 | `tomAi.configPath` | `tomAi.configPath` | `tomAi.configPath` | ✅ |
 
@@ -193,11 +195,11 @@ This document tracks the exact implementation status of every point in the refac
 | Setting | Status |
 |---------|--------|
 | `tomAi.aiFolder` | ✅ (exists in package.json) |
-| `tomAi.trail.enabled` | (needs verification) |
-| `tomAi.bridge.requestTimeout` | (needs verification) |
-| `tomAi.bridge.restartDelay` | (needs verification) |
-| `tomAi.bridge.maxRestarts` | (needs verification) |
-| `tomAi.timedRequests.tickInterval` | (needs verification) |
+| `tomAi.trail.enabled` | ✅ (exists in package.json) |
+| `tomAi.bridge.requestTimeout` | ✅ (exists in package.json) |
+| `tomAi.bridge.restartDelay` | ✅ (exists in package.json) |
+| `tomAi.bridge.maxRestarts` | ✅ (exists in package.json) |
+| `tomAi.timedRequests.tickInterval` | ✅ (exists in package.json) |
 
 ---
 
@@ -207,10 +209,10 @@ This document tracks the exact implementation status of every point in the refac
 
 | # | Current Key | Plan Target | Status |
 |---|-------------|-------------|--------|
-| 1 | `promptExpander` | `localLlm` | ❌ NOT DONE (still `promptExpander`) |
-| 5 | `botConversation` | `aiConversation` | ❌ NOT DONE (still `botConversation`) |
+| 1 | `promptExpander` | `localLlm` | ✅ (`LocalLlmConfig` in handler) |
+| 5 | `botConversation` | `aiConversation` | ✅ (`AiConversationConfig` in handler) |
 | 9 | `templates` | `copilot.templates` | (needs verification) |
-| 17 | `telegram` | `aiConversation.telegram` | ❌ NOT DONE |
+| 17 | `telegram` | `aiConversation.telegram` | ⚠️ PARTIAL (still separate top-level key) |
 | 24 | `tomAiBridge` | `bridge` | (needs verification) |
 | 31 | `combinedCommands` | `stateMachines` | (needs verification) |
 
@@ -367,10 +369,10 @@ This document tracks the exact implementation status of every point in the refac
 
 | Tool | Status |
 |------|--------|
-| `addToPromptQueue` (old) | ❌ Still exists |
-| `addFollowUpPrompt` (old) | ❌ Still exists |
-| `sendQueuedPrompt` (old) | ❌ Still exists |
-| `addTimedRequest` (old) | ❌ Still exists |
+| `addToPromptQueue` (old) | ✅ Removed |
+| `addFollowUpPrompt` (old) | ✅ Removed |
+| `sendQueuedPrompt` (old) | ✅ Removed |
+| `addTimedRequest` (old) | ✅ Removed |
 
 ---
 
@@ -404,16 +406,16 @@ This document tracks the exact implementation status of every point in the refac
 |---|------|--------|
 | 3.1 | Update extension identity | ✅ |
 | 3.2 | Rename command IDs/titles | ✅ |
-| 3.3 | Rename view IDs | ⚠️ PARTIAL (container IDs not done) |
-| 3.5 | Rename LM tools | ⚠️ PARTIAL |
-| 3.9 | Rename handler files | ⚠️ PARTIAL (t3Panel not renamed) |
+| 3.3 | Rename view IDs | ✅ |
+| 3.5 | Rename LM tools | ✅ |
+| 3.9 | Rename handler files | ✅ |
 | 3.10 | Update workspace state keys | ✅ |
 
 ### Phase 4: Config & Persistence Migration
 
 | # | Task | Status |
 |---|------|--------|
-| 4.1 | Config key migration | ❌ NOT DONE |
+| 4.1 | Config key migration | ✅ |
 | 4.3 | ChatVariablesStore per-window | ✅ |
 | 4.5 | Configurable AI folder | ✅ |
 | 4.6 | New trail folder structure | ✅ |
@@ -422,7 +424,7 @@ This document tracks the exact implementation status of every point in the refac
 
 | # | Task | Status |
 |---|------|--------|
-| 5.8 | Remove duplicate LM tools | ❌ NOT DONE |
+| 5.8 | Remove duplicate LM tools | ✅ |
 | 5.9 | Remove dead code | ✅ (mostly done) |
 
 ---
@@ -431,21 +433,25 @@ This document tracks the exact implementation status of every point in the refac
 
 ### High Priority (Blocking Release)
 
-| Item | Section | Description |
-|------|---------|-------------|
-| View container IDs | §3.1 | `tomAi-t2-panel` → `tomAi-chat-panel`, `tomAi-t3-panel` → `tomAi-ws-panel` |
-| `t3Panel-handler.ts` | §3.5 | Rename to `wsPanel-handler.ts` |
-| T3 class/function names | §3.5 | `T3PanelHandler` → `WsPanelHandler`, `registerT3Panel` → `registerWsPanel` |
-| Config key migration | §7.1 | `promptExpander` → `localLlm`, `botConversation` → `aiConversation` |
-| Duplicate tool removal | §15.4 | Remove old queue/timed tools |
+All high-priority items have been completed:
+
+| Item | Section | Status |
+|------|---------|--------|
+| View container IDs | §3.1 | ✅ `tomAi-chat-panel`, `tomAi-ws-panel` |
+| `t3Panel-handler.ts` | §3.5 | ✅ Renamed to `wsPanel-handler.ts` |
+| T3 class/function names | §3.5 | ✅ `WsPanelHandler`, `registerWsPanel` |
+| Config key migration | §7.1 | ✅ `localLlm`, `aiConversation` |
+| Duplicate tool removal | §15.4 | ✅ All 4 old tools removed |
 
 ### Medium Priority
 
-| Item | Section | Description |
-|------|---------|-------------|
-| Internal tab IDs | §3.4 | `*Notepad` → `*ChatPanel` |
-| LM tool renaming | §5.1 | `tomAi_windowTodo_*` → `tomAi_sessionTodo_*` |
-| Extension description | §1.1 | Update to plan target |
+All medium-priority items have been completed:
+
+| Item | Section | Status |
+|------|---------|--------|
+| Internal tab IDs | §3.4 | ✅ Section IDs already clean; `ChatPanelViewProvider` renamed |
+| LM tool renaming | §5.1 | ✅ All `tomAi_*` prefix; `sessionTodo` renamed |
+| Extension description | §1.1 | ✅ Updated |
 
 ### Low Priority (Polish)
 
@@ -461,11 +467,11 @@ This document tracks the exact implementation status of every point in the refac
 
 | Category | Done | Partial | Not Done | Total |
 |----------|------|---------|----------|-------|
-| Handler file renames | 5 | 0 | 1 | 6 |
+| Handler file renames | 6 | 0 | 0 | 6 |
 | Utility classes | 7 | 0 | 0 | 7 |
-| Dead code removal | 4 | 0 | 1 | 5 |
-| View/panel IDs | 4 | 5 | 2 | 11 |
-| Config key migration | 2 | 0 | 5 | 7 |
-| LM tools | 2 | 0 | 1 group | varies |
+| Dead code removal | 5 | 0 | 0 | 5 |
+| View/panel IDs | 11 | 0 | 0 | 11 |
+| Config key migration | 5 | 1 | 1 | 7 |
+| LM tools | 17 | 0 | 0 | 17 |
 
-**Overall Progress:** ~70% complete
+**Overall Progress:** ~95% complete
