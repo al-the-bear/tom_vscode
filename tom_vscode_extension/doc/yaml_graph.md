@@ -12,7 +12,7 @@ Supported file patterns:
 
 ## Runtime Architecture
 
-The extension-level registration (`src/handlers/yamlGraph-handler.ts`) dynamically imports:
+The extension-level registration ([src/handlers/yamlGraph-handler.ts](../src/handlers/yamlGraph-handler.ts)) dynamically imports:
 
 - `yaml-graph-core` (conversion + graph type registry)
 - `yaml-graph-vscode` (provider, webview coordination, source sync)

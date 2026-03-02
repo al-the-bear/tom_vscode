@@ -10,7 +10,7 @@ The extension registers `yamlGraph.editor` as a `CustomTextEditorProvider` for:
 - `*.state.yaml`
 - `*.er.yaml`
 
-Provider wiring lives in `src/handlers/yamlGraph-handler.ts` and delegates to `yaml-graph-vscode`.
+Provider wiring lives in [src/handlers/yamlGraph-handler.ts](../src/handlers/yamlGraph-handler.ts) and delegates to `yaml-graph-vscode`.
 
 ## Main Interaction Model
 

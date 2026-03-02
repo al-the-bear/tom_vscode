@@ -4,7 +4,7 @@ This document captures the currently implemented architecture (not a proposal).
 
 ## 1. Integration boundary
 
-Extension integration point: `src/handlers/yamlGraph-handler.ts`.
+Extension integration point: [src/handlers/yamlGraph-handler.ts](../src/handlers/yamlGraph-handler.ts).
 
 Responsibilities:
 

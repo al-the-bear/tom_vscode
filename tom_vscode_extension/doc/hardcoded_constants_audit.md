@@ -7,7 +7,7 @@
 
 ## 1. WsPaths Constants (workspacePaths.ts) — Full Registry
 
-[src/utils/workspacePaths.ts](src/utils/workspacePaths.ts) defines the central path registry.
+[src/utils/workspacePaths.ts](../src/utils/workspacePaths.ts) defines the central path registry.
 
 ### Top-Level Folder Constants
 

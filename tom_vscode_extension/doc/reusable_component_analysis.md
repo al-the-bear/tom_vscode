@@ -4,7 +4,7 @@ This document summarizes reusable components currently used across the extension
 
 ## Webview UI Components
 
-### Accordion Panel (`src/handlers/accordionPanel.ts`)
+### Accordion Panel ([src/handlers/accordionPanel.ts](../src/handlers/accordionPanel.ts))
 
 Used by:
 
@@ -19,7 +19,7 @@ Provides:
 - codicon title integration,
 - optional additional CSS/JS injection.
 
-### Tab Panel (`src/handlers/tabPanel.ts`)
+### Tab Panel ([src/handlers/tabPanel.ts](../src/handlers/tabPanel.ts))
 
 Reusable tab abstraction for webview sections where strict tabbed interaction is needed.
 

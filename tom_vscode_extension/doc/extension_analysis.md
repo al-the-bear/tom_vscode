@@ -1,7 +1,7 @@
 # @Tom VS Code Extension — Architecture Analysis
 
 **Extension:** `tom-ai-extension` v0.1.0  
-**Entry Point:** `src/extension.ts`  
+**Entry Point:** [src/extension.ts](../src/extension.ts)  
 **Config File:** `.tom/tom_vscode_extension.json`
 
 > Note: This document reflects the current canonical `tomAi.*` namespace. Legacy `tomAi.*` identifiers may still appear in source as compatibility aliases.
