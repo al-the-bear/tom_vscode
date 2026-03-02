@@ -67,9 +67,7 @@ This section tracks actual implementation progress against the plan.
 
 ### Delivery guidance
 
-- **Do not publish this as a final release yet.**
-- Current state is intentionally compatibility-first and transitional (new aliases + legacy IDs).
-- Continue through Phases 3–5 (at minimum), then cut a single cohesive version to avoid a half-migrated external surface.
+Make final release ready.
 
 ---
 
