@@ -59,58 +59,67 @@
         "submenus": [
             {
                 "id": "tomAi.sendToCopilotSubmenu",
-                "label": "@Tom: Send to Copilot..."
+                "label": "Send to Copilot..."
             },
             {
                 "id": "tomAi.sendToLocalLlmSubmenu",
-                "label": "@Tom: Send to Local LLM..."
+                "label": "Send to Local LLM..."
             }
         ],
         "commands": [
             {
                 "command": "tomAi.sendToCopilot",
                 "title": "@T: Send to Copilot",
-                "category": "@Tom"
+                "category": "@Tom",
+                "shortTitle": "Send to Copilot"
             },
             {
                 "command": "tomAi.sendToCopilot.template",
                 "title": "@T: Send to Copilot (Pick Template)",
-                "category": "@Tom"
+                "category": "@Tom",
+                "shortTitle": "Send to Copilot (Pick Template)"
             },
             {
                 "command": "tomAi.sendToCopilot.standard",
                 "title": "@T: Send to Copilot (Default Template)",
-                "category": "@Tom"
+                "category": "@Tom",
+                "shortTitle": "Send to Copilot (Default Template)"
             },
             {
                 "command": "tomAi.sendToCopilot.trailReminder",
                 "title": "@T: Send with Trail Reminder",
-                "category": "@Tom"
+                "category": "@Tom",
+                "shortTitle": "Send with Trail Reminder"
             },
             {
                 "command": "tomAi.sendToCopilot.todoExecution",
                 "title": "@T: TODO Execution",
-                "category": "@Tom"
+                "category": "@Tom",
+                "shortTitle": "TODO Execution"
             },
             {
                 "command": "tomAi.sendToCopilot.codeReview",
                 "title": "@T: Code Review",
-                "category": "@Tom"
+                "category": "@Tom",
+                "shortTitle": "Code Review"
             },
             {
                 "command": "tomAi.sendToCopilot.explain",
                 "title": "@T: Explain Code",
-                "category": "@Tom"
+                "category": "@Tom",
+                "shortTitle": "Explain Code"
             },
             {
                 "command": "tomAi.sendToCopilot.addToTodo",
                 "title": "@T: Add to Todo",
-                "category": "@Tom"
+                "category": "@Tom",
+                "shortTitle": "Add to Todo"
             },
             {
                 "command": "tomAi.sendToCopilot.fixMarkdown",
                 "title": "@T: Fix Markdown here",
-                "category": "@Tom"
+                "category": "@Tom",
+                "shortTitle": "Fix Markdown here"
             },
             {
                 "command": "tomAi.reloadConfig",
@@ -130,37 +139,44 @@
             {
                 "command": "tomAi.sendToLocalLlm.standard",
                 "title": "@T: Send to Local LLM (Default Template)",
-                "category": "@Tom"
+                "category": "@Tom",
+                "shortTitle": "Send to Local LLM (Default Template)"
             },
             {
                 "command": "tomAi.sendToLocalLlm.template",
                 "title": "@T: Send to Local LLM (Pick Template)",
-                "category": "@Tom"
+                "category": "@Tom",
+                "shortTitle": "Send to Local LLM (Pick Template)"
             },
             {
                 "command": "tomAi.sendToLocalLlm.default",
                 "title": "@T: Send to Local LLM (Default)",
-                "category": "@Tom"
+                "category": "@Tom",
+                "shortTitle": "Send to Local LLM (Default)"
             },
             {
                 "command": "tomAi.sendToLocalLlm.expand",
                 "title": "@T: Expand Prompt",
-                "category": "@Tom"
+                "category": "@Tom",
+                "shortTitle": "Expand Prompt"
             },
             {
                 "command": "tomAi.sendToLocalLlm.rewrite",
                 "title": "@T: Rewrite",
-                "category": "@Tom"
+                "category": "@Tom",
+                "shortTitle": "Rewrite"
             },
             {
                 "command": "tomAi.sendToLocalLlm.detailed",
                 "title": "@T: Detailed Expansion",
-                "category": "@Tom"
+                "category": "@Tom",
+                "shortTitle": "Detailed Expansion"
             },
             {
                 "command": "tomAi.sendToLocalLlm.annotated",
                 "title": "@T: Annotated Expansion",
-                "category": "@Tom"
+                "category": "@Tom",
+                "shortTitle": "Annotated Expansion"
             },
             {
                 "command": "tomAi.aiConversation.start",
@@ -190,12 +206,14 @@
             {
                 "command": "tomAi.tomAiChat.start",
                 "title": "@T: Start Tom AI Chat",
-                "category": "@Tom"
+                "category": "@Tom",
+                "shortTitle": "Start Tom AI Chat"
             },
             {
                 "command": "tomAi.tomAiChat.send",
                 "title": "@T: Send Tom AI Chat Prompt",
-                "category": "@Tom"
+                "category": "@Tom",
+                "shortTitle": "Send Tom AI Chat Prompt"
             },
             {
                 "command": "tomAi.tomAiChat.interrupt",
@@ -205,12 +223,14 @@
             {
                 "command": "tomAi.executeFile",
                 "title": "@T: Execute File",
-                "category": "@Tom"
+                "category": "@Tom",
+                "shortTitle": "Execute File"
             },
             {
                 "command": "tomAi.executeScript",
                 "title": "@T: Execute as Script",
-                "category": "@Tom"
+                "category": "@Tom",
+                "shortTitle": "Execute as Script"
             },
             {
                 "command": "tomAi.bridge.restart",
@@ -425,12 +445,14 @@
             {
                 "command": "tomAi.openInMdViewer",
                 "title": "@T: Open in MD Viewer",
-                "category": "@Tom"
+                "category": "@Tom",
+                "shortTitle": "Open in MD Viewer"
             },
             {
                 "command": "tomAi.openInMdBrowser",
                 "title": "@T: Open in MD Browser",
-                "category": "@Tom"
+                "category": "@Tom",
+                "shortTitle": "Open in MD Browser"
             }
         ],
         "views": {

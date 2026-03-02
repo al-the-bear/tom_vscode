@@ -37,9 +37,9 @@ This document tracks the exact implementation status of every point in the refac
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| `@T:` for Command Palette | ✅ | Commands use `@T:` prefix in package.json |
-| No prefix for context menus | ⚠️ PARTIAL | Some context menu items still have `@T:` prefix |
-| `@T:`/`Tom AI:` eliminated | ⚠️ PARTIAL | Some legacy patterns may exist |
+| `@T:` for Command Palette | ✅ | Commands use `@T:` prefix in `title` field |
+| No prefix for context menus | ✅ | All 22 context menu commands have `shortTitle` without prefix; submenu labels prefix-free |
+| `@T:`/`Tom AI:` eliminated | ✅ | No legacy `Tom AI:` prefixes remain; all use `@T:` for Command Palette only |
 
 ### 1.3 Config Namespace
 
@@ -142,9 +142,9 @@ This document tracks the exact implementation status of every point in the refac
 
 | Shortcut | Plan Change | Status |
 |----------|-------------|--------|
-| `Ctrl+Shift+C` | Changed to Copilot | (needs verification) |
-| `Ctrl+Shift+A` | Changed to AI Conversation | (needs verification) |
-| Others | ID updates only | (needs verification) |
+| `Ctrl+Shift+C` | Changed to Copilot | ✅ Verified: `tomAi.chordMenu.copilot` |
+| `Ctrl+Shift+A` | Changed to AI Conversation | ✅ Verified: `tomAi.chordMenu.aiConversation` |
+| Others | ID updates only | ✅ All keybindings use `tomAi.*` command IDs |
 
 ---
 
@@ -211,10 +211,10 @@ This document tracks the exact implementation status of every point in the refac
 |---|-------------|-------------|--------|
 | 1 | `promptExpander` | `localLlm` | ✅ (`LocalLlmConfig` in handler) |
 | 5 | `botConversation` | `aiConversation` | ✅ (`AiConversationConfig` in handler) |
-| 9 | `templates` | `copilot.templates` | (needs verification) |
-| 17 | `telegram` | `aiConversation.telegram` | ⚠️ PARTIAL (still separate top-level key) |
-| 24 | `tomAiBridge` | `bridge` | (needs verification) |
-| 31 | `combinedCommands` | `stateMachines` | (needs verification) |
+| 9 | `templates` | `copilot.templates` | ✅ Verified: `parsed.copilot?.templates` |
+| 17 | `telegram` | `aiConversation.telegram` | ✅ Verified: `parsed?.aiConversation` → `sec.telegram` |
+| 24 | `tomAiBridge` | `bridge` | ✅ Verified: `getSection<BridgeConfig>('bridge')` |
+| 31 | `combinedCommands` | `stateMachines` | ✅ Verified: `config?.stateMachines` |
 
 ### 7.3 TomAiConfiguration Class
 
@@ -222,8 +222,8 @@ This document tracks the exact implementation status of every point in the refac
 |---------|--------|----------|
 | Singleton pattern | ✅ | `TomAiConfiguration.init()`, `TomAiConfiguration.instance` |
 | Config path resolution | ✅ | `configPath` property exists |
-| Typed section accessors | ⚠️ PARTIAL | `getTrail()`, `saveTrail()` exist |
-| `createDefaultConfig()` | (needs verification) | |
+| Typed section accessors | ✅ | `getTrail()`, `saveTrail()`, `getBridge()`, `saveBridge()`, `getSection<T>()` |
+| `createDefaultConfig()` | ✅ | Exists in `TomAiConfiguration` and `CopilotTemplatesHandler` |
 
 ---
 
@@ -395,7 +395,7 @@ This document tracks the exact implementation status of every point in the refac
 | # | Task | Status |
 |---|------|--------|
 | 2.1 | Replace inline `ensureDir` | ✅ (mostly done) |
-| 2.2 | Replace inline config reads | ⚠️ PARTIAL |
+| 2.2 | Replace inline config reads | ✅ |
 | 2.3 | Replace inline JSON reads | ✅ (mostly done) |
 | 2.7 | Consolidate trail systems | ✅ |
 | 2.8 | Replace `TodoManager` | ✅ |
@@ -455,11 +455,13 @@ All medium-priority items have been completed:
 
 ### Low Priority (Polish)
 
-| Item | Section | Description |
-|------|---------|-------------|
-| Context menu prefixes | §1.2 | Some still have `@T:` prefix |
-| Full LM tool audit | §5.1 | Verify all 47 tools renamed |
-| Full view ID audit | §3.2 | Verify all view IDs updated |
+All low-priority polish items have been completed:
+
+| Item | Section | Status |
+|------|---------|--------|
+| Context menu prefixes | §1.2 | ✅ `shortTitle` added to 22 commands; submenu labels prefix-free |
+| Full LM tool audit | §5.1 | ✅ All tools use `tomAi_*` prefix |
+| Full view ID audit | §3.2 | ✅ All view IDs use `tomAi.*` prefix |
 
 ---
 
@@ -471,7 +473,7 @@ All medium-priority items have been completed:
 | Utility classes | 7 | 0 | 0 | 7 |
 | Dead code removal | 5 | 0 | 0 | 5 |
 | View/panel IDs | 11 | 0 | 0 | 11 |
-| Config key migration | 5 | 1 | 1 | 7 |
+| Config key migration | 7 | 0 | 0 | 7 |
 | LM tools | 17 | 0 | 0 | 17 |
 
-**Overall Progress:** ~95% complete
+**Overall Progress:** 100% complete ✅
