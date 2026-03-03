@@ -97,6 +97,7 @@ class NavigationHistory {
 let activePanel: vscode.WebviewPanel | undefined;
 let activePanelHistory: NavigationHistory | undefined;
 let activePanelContext: vscode.ExtensionContext | undefined;
+let pendingInitialFile: string | undefined;
 
 // ============================================================================
 // Public API
@@ -152,13 +153,11 @@ export function openMarkdownBrowser(
             activePanel = undefined;
             activePanelHistory = undefined;
             activePanelContext = undefined;
+            pendingInitialFile = undefined;
         });
 
-        // Navigate to the initial file after a short delay for webview init
-        setTimeout(() => {
-            navigateToFile(filePath, 'other');
-            sendGroups();
-        }, 100);
+        // Store the file path; webview will request it when ready
+        pendingInitialFile = filePath;
 
     } catch (err) {
         debugLog(`[MdBrowser] openMarkdownBrowser error: ${err}`, 'ERROR', 'mdBrowser');
@@ -532,6 +531,15 @@ async function handleMessage(msg: any): Promise<void> {
         if (MD_BROWSER_DEBUG) debugLog(`[MdBrowser] handleMessage type=${msg?.type}`, 'INFO', 'mdBrowser');
 
         switch (msg?.type) {
+            case 'webviewReady':
+                // Webview has finished initializing — send initial content
+                sendGroups();
+                if (pendingInitialFile) {
+                    navigateToFile(pendingInitialFile, 'other');
+                    pendingInitialFile = undefined;
+                }
+                break;
+
             case PICKER_PREFIX + 'GetGroups':
                 sendGroups();
                 break;
@@ -897,9 +905,10 @@ function buildHtml(webview: vscode.Webview, context: vscode.ExtensionContext): s
             // ---- Document Picker Script ----
             ${pickerScript}
 
-            // ---- Request groups after picker script init ----
+            // ---- Notify backend that webview is ready ----
+            // (Backend will send groups and initial file content)
             setTimeout(function() {
-                vscode.postMessage({ type: '${PICKER_PREFIX}GetGroups' });
+                vscode.postMessage({ type: 'webviewReady' });
             }, 10);
 
             // ---- Navigation Buttons ----
