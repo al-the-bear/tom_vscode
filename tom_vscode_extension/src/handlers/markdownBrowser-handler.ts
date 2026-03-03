@@ -305,6 +305,12 @@ function sendGroups(): void {
             groups.push({ id: 'roles', label: 'Roles' });
         }
 
+        // Quests
+        const questsDir = WsPaths.ai('quests');
+        if (questsDir && fs.existsSync(questsDir)) {
+            groups.push({ id: 'quests', label: 'Quests' });
+        }
+
         // Copilot instructions
         const copilotInstr = WsPaths.github('copilot-instructions.md');
         if (copilotInstr && fs.existsSync(copilotInstr)) {
@@ -365,6 +371,7 @@ function resolveGroupDir(group: string): string | undefined {
 
     if (group === 'global') return WsPaths.guidelines();
     if (group === 'roles') return WsPaths.ai('roles');
+    if (group === 'quests') return WsPaths.ai('quests');
     if (group === 'copilot-instructions') return WsPaths.github();
     if (group === 'notes') return WsPaths.ai('notes');
     if (group === 'workspace') {
