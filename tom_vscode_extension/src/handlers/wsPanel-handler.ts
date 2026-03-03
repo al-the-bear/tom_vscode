@@ -556,7 +556,7 @@ window.addEventListener('message', function(e) {
 // (function declarations are hoisted but var assignments are not).
 function onRenderComplete() {
     if (guidelinesGroups) updateGuidelinesUI();
-    docs_updateUI();
+    if (typeof docs_updateUI === 'function') docs_updateUI();
 }
 
 setTimeout(function() {
