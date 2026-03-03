@@ -78,6 +78,8 @@ export function getDocumentPickerHtml(config: DocumentPickerConfig): string {
         html += '  <select id="' + p + '-group" title="Group"></select>\n';
         html += '  <label id="' + p + '-project-label" for="' + p + '-project" style="display:none;">Project:</label>\n';
         html += '  <select id="' + p + '-project" title="Project" style="display:none;"></select>\n';
+        html += '  <label id="' + p + '-quest-label" for="' + p + '-quest" style="display:none;">Quest:</label>\n';
+        html += '  <select id="' + p + '-quest" title="Quest" style="display:none;"></select>\n';
     }
 
     html += '  <label for="' + p + '-file">' + fileLabel + '</label>\n';
@@ -180,13 +182,17 @@ export function getDocumentPickerScript(config: DocumentPickerConfig): string {
 (function() {
     var _${p}_groups = [];
     var _${p}_projects = [];
+    var _${p}_quests = [];
     var _${p}_files = [];
     var _${p}_selectedGroup = '';
     var _${p}_selectedProject = '';
+    var _${p}_selectedQuest = '';
     var _${p}_selectedFile = '';
 
     function _${p}_effectiveGroup() {
-        return _${p}_selectedGroup === 'project' ? _${p}_selectedProject : _${p}_selectedGroup;
+        if (_${p}_selectedGroup === 'project') return _${p}_selectedProject;
+        if (_${p}_selectedGroup === 'quests') return _${p}_selectedQuest;
+        return _${p}_selectedGroup;
     }
 
     function _${p}_updateUI() {
@@ -211,6 +217,22 @@ export function getDocumentPickerScript(config: DocumentPickerConfig): string {
                 if (projectLabel) projectLabel.style.display = 'none';
                 projectSel.style.display = 'none';
                 projectSel.innerHTML = '';
+            }
+        }
+
+        var questSel = document.getElementById('${p}-quest');
+        var questLabel = document.getElementById('${p}-quest-label');
+        if (questSel) {
+            if (_${p}_selectedGroup === 'quests' && (_${p}_quests || []).length > 0) {
+                if (questLabel) questLabel.style.display = '';
+                questSel.style.display = '';
+                questSel.innerHTML = '<option value="">(Select quest)</option>' + (_${p}_quests || []).map(function(qq) {
+                    return '<option value="' + qq.id + '"' + (qq.id === _${p}_selectedQuest ? ' selected' : '') + '>' + qq.label + '</option>';
+                }).join('');
+            } else {
+                if (questLabel) questLabel.style.display = 'none';
+                questSel.style.display = 'none';
+                questSel.innerHTML = '';
             }
         }
         ` : ''}
@@ -251,9 +273,10 @@ export function getDocumentPickerScript(config: DocumentPickerConfig): string {
     function _${p}_selectGroup(group) {
         _${p}_selectedGroup = (group === 'projects' ? 'project' : (group || ''));
         _${p}_selectedProject = '';
+        _${p}_selectedQuest = '';
         _${p}_selectedFile = '';
         _${p}_updateUI();
-        if (_${p}_selectedGroup !== 'project' && _${p}_selectedGroup !== 'other') {
+        if (_${p}_selectedGroup !== 'project' && _${p}_selectedGroup !== 'quests' && _${p}_selectedGroup !== 'other') {
             vscode.postMessage({ type: '${p}GetFiles', group: _${p}_selectedGroup });
         }
     }
@@ -267,6 +290,15 @@ export function getDocumentPickerScript(config: DocumentPickerConfig): string {
         }
     }
 
+    function _${p}_selectQuest(quest) {
+        _${p}_selectedQuest = quest || '';
+        _${p}_selectedFile = '';
+        _${p}_updateUI();
+        if (_${p}_selectedQuest) {
+            vscode.postMessage({ type: '${p}GetFiles', group: _${p}_selectedQuest });
+        }
+    }
+
     function _${p}_selectFile(file) {
         _${p}_selectedFile = file || '';
         if (_${p}_selectedFile) {
@@ -274,9 +306,10 @@ export function getDocumentPickerScript(config: DocumentPickerConfig): string {
         }
     }
 
-    function _${p}_setGroups(groups, projects) {
+    function _${p}_setGroups(groups, projects, quests) {
         _${p}_groups = groups || [];
         _${p}_projects = projects || [];
+        _${p}_quests = quests || [];
         _${p}_updateUI();
     }
 
@@ -305,6 +338,8 @@ export function getDocumentPickerScript(config: DocumentPickerConfig): string {
         if (groupSel) groupSel.addEventListener('change', function() { _${p}_selectGroup(groupSel.value); });
         var projectSel = document.getElementById('${p}-project');
         if (projectSel) projectSel.addEventListener('change', function() { _${p}_selectProject(projectSel.value); });
+        var questSel = document.getElementById('${p}-quest');
+        if (questSel) questSel.addEventListener('change', function() { _${p}_selectQuest(questSel.value); });
         ` : ''}
         var fileSel = document.getElementById('${p}-file');
         if (fileSel) fileSel.addEventListener('change', function() { _${p}_selectFile(fileSel.value); });
@@ -330,7 +365,7 @@ export function getDocumentPickerScript(config: DocumentPickerConfig): string {
         var msg = e.data;
         if (!msg || !msg.type) return;
         if (msg.type === '${p}Groups') {
-            _${p}_setGroups(msg.groups, msg.projects);
+            _${p}_setGroups(msg.groups, msg.projects, msg.quests);
         } else if (msg.type === '${p}Files') {
             _${p}_setFiles(msg.files, msg.selectedFile);
         }${allowOther ? ` else if (msg.type === '${p}BrowsedFile') {
@@ -346,6 +381,7 @@ export function getDocumentPickerScript(config: DocumentPickerConfig): string {
     // ---- Expose API on window ----
     window['${p}_selectGroup'] = _${p}_selectGroup;
     window['${p}_selectProject'] = _${p}_selectProject;
+    window['${p}_selectQuest'] = _${p}_selectQuest;
     window['${p}_selectFile'] = _${p}_selectFile;
     window['${p}_updateUI'] = _${p}_updateUI;
     window['${p}_setGroups'] = _${p}_setGroups;

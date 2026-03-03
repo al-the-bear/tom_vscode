@@ -307,8 +307,17 @@ function sendGroups(): void {
 
         // Quests
         const questsDir = WsPaths.ai('quests');
+        const quests: { id: string; label: string }[] = [];
         if (questsDir && fs.existsSync(questsDir)) {
             groups.push({ id: 'quests', label: 'Quests' });
+            // Collect quest subfolders
+            const entries = fs.readdirSync(questsDir, { withFileTypes: true });
+            for (const entry of entries) {
+                if (entry.isDirectory()) {
+                    quests.push({ id: 'quest:' + entry.name, label: entry.name });
+                }
+            }
+            quests.sort((a, b) => a.label.localeCompare(b.label));
         }
 
         // Copilot instructions
@@ -340,6 +349,7 @@ function sendGroups(): void {
             type: PICKER_PREFIX + 'Groups',
             groups,
             projects,
+            quests,
         });
     } catch (err) {
         debugLog(`[MdBrowser] sendGroups error: ${err}`, 'ERROR', 'mdBrowser');
@@ -383,6 +393,10 @@ function resolveGroupDir(group: string): string | undefined {
     }
     if (group.startsWith('docproject:')) {
         return path.join(wsRoot, group.substring('docproject:'.length), 'doc');
+    }
+    if (group.startsWith('quest:')) {
+        const questId = group.substring('quest:'.length);
+        return WsPaths.ai(`quests/${questId}`) || path.join(wsRoot, '_ai', 'quests', questId);
     }
     return undefined;
 }

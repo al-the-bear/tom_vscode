@@ -255,6 +255,8 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
     <select id="guidelines-group" title="Group"></select>
     <label id="guidelines-project-label" for="guidelines-project" style="display:none;">Project:</label>
     <select id="guidelines-project" title="Project" style="display:none;"></select>
+    <label id="guidelines-quest-label" for="guidelines-quest" style="display:none;">Quest:</label>
+    <select id="guidelines-quest" title="Quest" style="display:none;"></select>
     <label for="guidelines-file">File:</label>
     <select id="guidelines-file" title="File"></select>
     <button class="icon-btn" onclick="reloadGuidelines()" title="Reload"><span class="codicon codicon-refresh"></span></button>
@@ -343,20 +345,25 @@ var guidelinesSelectedGroup = 'global';
 var guidelinesGroups = [];
 var guidelinesProjects = [];
 var guidelinesSelectedProject = '';
+var guidelinesQuests = [];
+var guidelinesSelectedQuest = '';
 var guidelinesContent = '';
 var guidelinesSaveTimer = null;
 
 function effectiveGuidelinesGroup() {
-    return guidelinesSelectedGroup === 'project' ? guidelinesSelectedProject : guidelinesSelectedGroup;
+    if (guidelinesSelectedGroup === 'project') return guidelinesSelectedProject;
+    if (guidelinesSelectedGroup === 'quest') return guidelinesSelectedQuest;
+    return guidelinesSelectedGroup;
 }
 
 function selectGuidelinesGroup(group) {
     guidelinesSelectedGroup = (group === 'projects' ? 'project' : (group || 'global'));
     guidelinesSelectedProject = '';
+    guidelinesSelectedQuest = '';
     guidelinesSelectedFile = '';
     guidelinesContent = '';
     updateGuidelinesUI();
-    if (guidelinesSelectedGroup !== 'project') {
+    if (guidelinesSelectedGroup !== 'project' && guidelinesSelectedGroup !== 'quest') {
         vscode.postMessage({ type: 'getGuidelinesFiles', group: guidelinesSelectedGroup });
     }
 }
@@ -368,6 +375,16 @@ function selectGuidelinesProject(projectGroup) {
     updateGuidelinesUI();
     if (guidelinesSelectedProject) {
         vscode.postMessage({ type: 'getGuidelinesFiles', group: guidelinesSelectedProject });
+    }
+}
+
+function selectGuidelinesQuest(questGroup) {
+    guidelinesSelectedQuest = questGroup || '';
+    guidelinesSelectedFile = '';
+    guidelinesContent = '';
+    updateGuidelinesUI();
+    if (guidelinesSelectedQuest) {
+        vscode.postMessage({ type: 'getGuidelinesFiles', group: guidelinesSelectedQuest });
     }
 }
 
@@ -433,6 +450,22 @@ function updateGuidelinesUI() {
             if (projectLabel) projectLabel.style.display = 'none';
             projectSel.style.display = 'none';
             projectSel.innerHTML = '';
+        }
+    }
+
+    var questSel = document.getElementById('guidelines-quest');
+    var questLabel = document.getElementById('guidelines-quest-label');
+    if (questSel) {
+        if (guidelinesSelectedGroup === 'quest' && (guidelinesQuests || []).length > 0) {
+            if (questLabel) questLabel.style.display = '';
+            questSel.style.display = '';
+            questSel.innerHTML = '<option value="">(Select quest)</option>' + (guidelinesQuests || []).map(function(q) {
+                return '<option value="' + q.id + '"' + (q.id === guidelinesSelectedQuest ? ' selected' : '') + '>' + q.label + '</option>';
+            }).join('');
+        } else {
+            if (questLabel) questLabel.style.display = 'none';
+            questSel.style.display = 'none';
+            questSel.innerHTML = '';
         }
     }
 
@@ -526,6 +559,7 @@ window.addEventListener('message', function(e) {
     if (msg.type === 'guidelinesGroups') {
         guidelinesGroups = msg.groups || [];
         guidelinesProjects = msg.projects || [];
+        guidelinesQuests = msg.quests || [];
         updateGuidelinesUI();
     } else if (msg.type === 'guidelinesFiles') {
         guidelinesFiles = msg.files || [];
@@ -564,6 +598,8 @@ setTimeout(function() {
     if (groupSel) groupSel.addEventListener('change', function() { selectGuidelinesGroup(groupSel.value); });
     var projectSel = document.getElementById('guidelines-project');
     if (projectSel) projectSel.addEventListener('change', function() { selectGuidelinesProject(projectSel.value); });
+    var questSel = document.getElementById('guidelines-quest');
+    if (questSel) questSel.addEventListener('change', function() { selectGuidelinesQuest(questSel.value); });
     var guidelinesFileSel = document.getElementById('guidelines-file');
     if (guidelinesFileSel) guidelinesFileSel.addEventListener('change', function() { selectGuidelinesFile(guidelinesFileSel.value); });
     var guidelinesText = document.getElementById('guidelines-text');
@@ -672,6 +708,13 @@ window.addEventListener('message', function(e) {
             }
             return path.join(wsRoot, projectRelPath, WsPaths.guidelinesFolder);
         }
+        if (group.startsWith('quest:')) {
+            const questId = group.substring('quest:'.length);
+            if (!questId) {
+                return null;
+            }
+            return WsPaths.ai(`quests/${questId}`) || path.join(wsRoot, '_ai', 'quests', questId);
+        }
         return null;
     }
 
@@ -689,15 +732,36 @@ window.addEventListener('message', function(e) {
         return result.sort((a, b) => a.label.localeCompare(b.label));
     }
 
+    private _collectGuidelinesQuests(): { id: string; label: string }[] {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            return [];
+        }
+        const wsRoot = workspaceFolder.uri.fsPath;
+        const questsDir = WsPaths.ai('quests') || path.join(wsRoot, '_ai', 'quests');
+        if (!fs.existsSync(questsDir)) {
+            return [];
+        }
+        const result: { id: string; label: string }[] = [];
+        const entries = fs.readdirSync(questsDir, { withFileTypes: true });
+        for (const entry of entries) {
+            if (entry.isDirectory()) {
+                result.push({ id: `quest:${entry.name}`, label: entry.name });
+            }
+        }
+        return result.sort((a, b) => a.label.localeCompare(b.label));
+    }
+
     private _sendGuidelinesGroups(): void {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
-            this._view?.webview.postMessage({ type: 'guidelinesGroups', groups: [], projects: [] });
+            this._view?.webview.postMessage({ type: 'guidelinesGroups', groups: [], projects: [], quests: [] });
             return;
         }
         const wsRoot = workspaceFolder.uri.fsPath;
         const groups: { id: string; label: string }[] = [];
         const projectsWithGuidelines: { id: string; label: string }[] = this._collectGuidelinesProjects();
+        const questFolders: { id: string; label: string }[] = this._collectGuidelinesQuests();
 
         const globalDir = WsPaths.guidelines() || path.join(wsRoot, '_copilot_guidelines');
         if (fs.existsSync(globalDir)) {
@@ -706,6 +770,10 @@ window.addEventListener('message', function(e) {
 
         if (projectsWithGuidelines.length > 0) {
             groups.push({ id: 'project', label: 'Project' });
+        }
+
+        if (questFolders.length > 0) {
+            groups.push({ id: 'quest', label: 'Quest' });
         }
 
         const rolesDir = WsPaths.ai('roles') || path.join(wsRoot, '_ai', 'roles');
@@ -718,7 +786,7 @@ window.addEventListener('message', function(e) {
             groups.push({ id: 'copilot-instructions', label: 'Copilot Instructions' });
         }
 
-        this._view?.webview.postMessage({ type: 'guidelinesGroups', groups, projects: projectsWithGuidelines });
+        this._view?.webview.postMessage({ type: 'guidelinesGroups', groups, projects: projectsWithGuidelines, quests: questFolders });
     }
 
     private _sendGuidelinesFiles(group?: string): void {
