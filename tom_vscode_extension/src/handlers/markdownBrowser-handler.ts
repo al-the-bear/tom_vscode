@@ -511,6 +511,10 @@ async function handleMessage(msg: any): Promise<void> {
         if (MD_BROWSER_DEBUG) debugLog(`[MdBrowser] handleMessage type=${msg?.type}`, 'INFO', 'mdBrowser');
 
         switch (msg?.type) {
+            case PICKER_PREFIX + 'GetGroups':
+                sendGroups();
+                break;
+
             case PICKER_PREFIX + 'GetFiles':
                 sendFilesForGroup(String(msg.group || ''));
                 break;
@@ -611,6 +615,19 @@ async function handleMessage(msg: any): Promise<void> {
                             vscode.window.showTextDocument(
                                 vscode.Uri.file(resolved.filePath),
                                 { viewColumn: vscode.ViewColumn.Beside },
+                            );
+                        }
+                        break;
+
+                    case 'open-in-editor-line':
+                        if (resolved.filePath) {
+                            const lineNumber = resolved.lineNumber || 1;
+                            vscode.window.showTextDocument(
+                                vscode.Uri.file(resolved.filePath),
+                                {
+                                    viewColumn: vscode.ViewColumn.Beside,
+                                    selection: new vscode.Range(lineNumber - 1, 0, lineNumber - 1, 0),
+                                },
                             );
                         }
                         break;
@@ -858,6 +875,11 @@ function buildHtml(webview: vscode.Webview, context: vscode.ExtensionContext): s
 
             // ---- Document Picker Script ----
             ${pickerScript}
+
+            // ---- Request groups after picker script init ----
+            setTimeout(function() {
+                vscode.postMessage({ type: '${PICKER_PREFIX}GetGroups' });
+            }, 10);
 
             // ---- Navigation Buttons ----
             backBtn.addEventListener('click', function() {

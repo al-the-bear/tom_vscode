@@ -36,6 +36,9 @@ export interface ResolvedLink {
     /** For anchor links: the anchor ID (without #). */
     anchor?: string;
 
+    /** For file links with line number: 1-based line number. */
+    lineNumber?: number;
+
     /** For special links (issue, todo, etc.): the identifier. */
     identifier?: string;
 
@@ -216,11 +219,29 @@ function resolveFileLink(href: string, context: LinkContext): ResolvedLink {
         }
     } else {
         // Non-markdown file — open in editor
-        return {
-            type: 'file',
-            action: 'open-in-editor',
-            filePath: resolvedPath,
-        };
+        // Check for line number anchor (#L20, #L20-L30, etc.)
+        let lineNumber: number | undefined;
+        if (anchor) {
+            const lineMatch = anchor.match(/^L(\d+)/i);
+            if (lineMatch) {
+                lineNumber = parseInt(lineMatch[1], 10);
+            }
+        }
+
+        if (lineNumber) {
+            return {
+                type: 'file',
+                action: 'open-in-editor-line',
+                filePath: resolvedPath,
+                lineNumber,
+            };
+        } else {
+            return {
+                type: 'file',
+                action: 'open-in-editor',
+                filePath: resolvedPath,
+            };
+        }
     }
 }
 
