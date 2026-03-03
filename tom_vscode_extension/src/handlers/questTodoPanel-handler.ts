@@ -614,8 +614,7 @@ function qtNavPush(todoId) {
     // Request username from config
     // Send config + request initial data
     vscode.postMessage({ type: 'qtInitConfig', config: qtViewConfig });
-                vscode.window.showInformationMessage('No summary trail exists yet. Send a prompt first.');
-                return true;
+    if (qtViewConfig.mode === 'session') {
         qtCurrentQuestId = '__session__';
         qtCurrentFile = 'all';
         vscode.postMessage({ type: 'qtGetTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
