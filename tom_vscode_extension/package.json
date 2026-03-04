@@ -43,6 +43,13 @@
             }
         ],
         "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "tomAi-sidebar",
+                    "title": "@TOM",
+                    "icon": "resources/tom-sidebar.svg"
+                }
+            ],
             "panel": [
                 {
                     "id": "tomAi-chat-panel",
@@ -398,6 +405,11 @@
                 "category": "@Tom"
             },
             {
+                "command": "tomAi.tomSidebar.focus",
+                "title": "@T: Focus @TOM Sidebar",
+                "category": "@Tom"
+            },
+            {
                 "command": "tomAi.showSidebarNotes",
                 "title": "@T: Show Sidebar Notes",
                 "category": "@Tom"
@@ -425,6 +437,11 @@
             {
                 "command": "tomAi.editor.promptTemplates",
                 "title": "@T: Open Prompt Template Editor",
+                "category": "@Tom"
+            },
+            {
+                "command": "tomAi.editor.queueTemplates",
+                "title": "@T: Open Queue-Template Editor",
                 "category": "@Tom"
             },
             {
@@ -472,7 +489,7 @@
                     "icon": "$(beaker)"
                 }
             ],
-            "explorer": [
+            "tomAi-sidebar": [
                 {
                     "type": "webview",
                     "id": "tomAi.vscodeNotes",
@@ -500,12 +517,6 @@
                 },
                 {
                     "type": "webview",
-                    "id": "tomAi.todoLog",
-                    "name": "TODO LOG",
-                    "icon": "$(history)"
-                },
-                {
-                    "type": "webview",
                     "id": "tomAi.workspaceNotes",
                     "name": "WORKSPACE NOTES",
                     "icon": "$(file-text)"
@@ -515,6 +526,26 @@
                     "id": "tomAi.workspaceTodos",
                     "name": "WORKSPACE TODOS",
                     "icon": "$(tasklist)"
+                },
+                {
+                    "type": "webview",
+                    "id": "tomAi.todoLogTom",
+                    "name": "TODO LOG",
+                    "icon": "$(history)"
+                },
+                {
+                    "type": "webview",
+                    "id": "tomAi.windowStatusTom",
+                    "name": "WINDOW STATUS",
+                    "icon": "$(window)"
+                }
+            ],
+            "explorer": [
+                {
+                    "type": "webview",
+                    "id": "tomAi.todoLog",
+                    "name": "TODO LOG",
+                    "icon": "$(history)"
                 },
                 {
                     "type": "webview",

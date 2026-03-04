@@ -166,8 +166,13 @@ export class ReminderSystem {
 
         const now = Date.now();
 
+        // Check if there's already a pending reminder in the queue
+        const hasPendingReminder = queue.items.some(i => i.type === 'reminder' && (i.status === 'pending' || i.status === 'staged'));
+
         for (const item of queue.items) {
-            if (item.status !== 'sending' || item.reminderQueued) { continue; }
+            if (item.status !== 'sending') { continue; }
+            // Skip if already has a queued reminder or there's already a pending reminder in queue
+            if (item.reminderQueued || hasPendingReminder) { continue; }
             if (!item.sentAt) { continue; }
 
             const sentTime = new Date(item.sentAt).getTime();
@@ -220,10 +225,12 @@ export class ReminderSystem {
             (item as QueuedPrompt).reminderQueued = true;
 
             // Insert reminder at position 1 (right after current sending item)
+            // Reminders start as pending so they auto-send when nothing is sending
             await queue.enqueue({
                 originalText: reminderText,
                 type: 'reminder',
                 position: 1,
+                initialStatus: 'pending',
             });
         }
     }

@@ -14,6 +14,9 @@
 | `Ctrl+Shift+0` | `tomAi.focusChatPanel` | Focus `@CHAT` panel |
 | `Ctrl+Shift+9` | `tomAi.wsPanel.focus` | Focus `@WS` panel |
 | `Ctrl+Shift+8` | `tomAi.statusPage` | Open status page |
+| `Ctrl+Shift+7` | `tomAi.editor.timedRequests` | Open timed requests editor |
+| `Ctrl+Shift+6` | `tomAi.editor.promptQueue` | Open prompt queue editor |
+| `Ctrl+Shift+5` | `tomAi.editor.rawTrailViewer` | Open raw trail viewer |
 | `Ctrl+Shift+Y` | `tomAi.layout.windowStateFlow` | Window state flow |
 | `Ctrl+Shift+N` | `tomAi.showSidebarNotes` | Show sidebar notes |
 | `Ctrl+Shift+\` | `tomAi.layout.maximizeToggle` | Maximize toggle |
@@ -38,8 +41,10 @@
 - QUEST NOTES
 - QUEST TODOS
 - SESSION TODOS
+- TODO LOG
 - WORKSPACE NOTES
 - WORKSPACE TODOS
+- WINDOW STATUS
 
 ## Core AI Commands
 
@@ -80,6 +85,7 @@
 | Panel | View Type | Opened Via |
 |-------|-----------|------------|
 | Status Page | `tomStatusPage` | `tomAi.statusPage` |
+| Markdown Browser | `tomAi.markdownBrowser` | `tomAi.openInMdBrowser` |
 | Prompt Trail Viewer | `tomAi.trailViewer` | `tomAi.editor.rawTrailViewer` |
 | Prompt Queue | `tomAi.queueEditor` | `tomAi.editor.promptQueue` |
 | Timed Requests | `tomAi.timedRequestsEditor` | `tomAi.editor.timedRequests` |
@@ -88,7 +94,6 @@
 | Context & Settings | `tomAi.contextSettingsEditor` | `tomAi.editor.contextSettings` |
 | Chat Variables | `tomAi.chatVariablesEditor` | `tomAi.editor.chatVariables` |
 | Quest TODO Pop-out | `tomAi.questTodoEditor` | Pop-out from sidebar |
-| Markdown Preview | `tomAi.markdownHtmlPreview` | Internal preview |
 
 ## Bottom Panel Sub-sections
 

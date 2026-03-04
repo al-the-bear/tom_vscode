@@ -28,6 +28,7 @@ import { loadSendToChatConfig } from '../utils/sendToChatConfig.js';
 
 /** View ID registered in package.json */
 const WINDOW_STATUS_VIEW_ID = 'tomAi.windowStatus';
+const WINDOW_STATUS_TOM_VIEW_ID = 'tomAi.windowStatusTom';
 
 /** File name suffix for window state files */
 const WINDOW_STATE_FILE_SUFFIX = '.window-state.json';
@@ -673,11 +674,16 @@ export function cleanupStaleWindowStates(currentWindowId: string): void {
  * @returns Disposable to unregister the view
  */
 export function registerWindowStatusView(context: vscode.ExtensionContext): vscode.Disposable {
-    const provider = new WindowStatusViewProvider(context.extensionUri, context);
-    setWindowStatusProvider(provider);
-    return vscode.window.registerWebviewViewProvider(WINDOW_STATUS_VIEW_ID, provider, {
+    const explorerProvider = new WindowStatusViewProvider(context.extensionUri, context);
+    const tomProvider = new WindowStatusViewProvider(context.extensionUri, context);
+    setWindowStatusProvider(explorerProvider);
+    const explorerRegistration = vscode.window.registerWebviewViewProvider(WINDOW_STATUS_VIEW_ID, explorerProvider, {
         webviewOptions: { retainContextWhenHidden: true },
     });
+    const tomRegistration = vscode.window.registerWebviewViewProvider(WINDOW_STATUS_TOM_VIEW_ID, tomProvider, {
+        webviewOptions: { retainContextWhenHidden: true },
+    });
+    return vscode.Disposable.from(explorerRegistration, tomRegistration);
 }
 
 // ============================================================================

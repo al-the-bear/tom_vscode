@@ -19,8 +19,11 @@ Primary categories:
 | `${vs-code-workspace-folder}` | Absolute path to the workspace root folder. | `/Users/.../tom_agent_container` |
 | `${workspaceFolder}` | Same as `vs-code-workspace-folder` (VS Code standard) | `/Users/.../tom_agent_container` |
 | `${workspace}` | Workspace display name from VS Code | `vscode_extension` |
-- template-specific values from command/workflow context,
-- response values extracted from Copilot answer JSON payloads.
+
+## Additional Placeholder Categories
+
+- Template-specific values from command/workflow context
+- Response values extracted from Copilot answer JSON payloads
 
 ## Copilot answer JSON placeholders
 

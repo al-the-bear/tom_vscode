@@ -169,6 +169,9 @@ function renderEntry(item, idx) {
   var sentTime = item.sentAt ? new Date(item.sentAt).toLocaleTimeString() : '';
   var isPending = safeStatus === 'pending';
   var isStaged = safeStatus === 'staged';
+  var isSending = safeStatus === 'sending';
+  var isSent = safeStatus === 'sent';
+  var reminderEnabled = item.reminderEnabled !== false;
   var isEditable = editorMode === 'template' || isStaged;
   var statusBarCls = item.type === 'reminder' ? 'reminder' : safeStatus;
   var statusLabel = safeStatus.toUpperCase();
@@ -183,6 +186,7 @@ function renderEntry(item, idx) {
   /* --- Template picker row --- */
   var templateRow = '';
   if (isEditable) {
+    var noReminderSelected = item.reminderEnabled === false && !item.reminderTemplateId;
     templateRow = '<div class="template-row">' +
       '<label style="font-size:0.85em;font-weight:600;">Template:</label>' +
       '<select onchange="updateItemTemplate(\\'' + safeId + '\\', this.value)">' +
@@ -191,7 +195,14 @@ function renderEntry(item, idx) {
           return '<option value="' + escapeHtml(name) + '"' + ((item.template || '') === name ? ' selected' : '') + '>' + escapeHtml(formatPromptTemplateName(name)) + '</option>';
         }).join('') +
       '</select>' +
-      '<label style="font-size:0.85em;margin-left:8px;"><input type="checkbox" ' + (item.answerWrapper ? 'checked' : '') + ' onchange="updateItemAnswerWrapper(\\'' + safeId + '\\', this.checked)"> Answer Wrapper</label>' +
+      '<select onchange="updateItemReminder(\\'' + safeId + '\\', \\'template\\', this.value)">' +
+        '<option value=""' + (!noReminderSelected && !item.reminderTemplateId ? ' selected' : '') + '>Global Default</option>' +
+        '<option value="__none__"' + (noReminderSelected ? ' selected' : '') + '>No reminder</option>' +
+        reminderTemplates.map(function(t){ return '<option value="' + escapeHtml(t.id) + '"' + (item.reminderTemplateId === t.id ? ' selected' : '') + '>' + escapeHtml(t.name) + '</option>'; }).join('') +
+      '</select>' +
+      '<span style="font-size:0.8em;opacity:0.85;">Wait:</span>' +
+      '<select onchange="updateItemReminder(\\'' + safeId + '\\', \\'timeout\\', this.value)">' + reminderTimeoutOptions(item.reminderTimeoutMinutes || responseTimeoutMinutes) + '</select>' +
+      '<label style="font-size:0.8em;"><input type="checkbox" ' + (item.reminderRepeat ? 'checked' : '') + ' onchange="updateItemReminder(\\'' + safeId + '\\', \\'repeat\\', this.checked)"> Repeat</label>' +
     '</div>';
   }
 
@@ -204,14 +215,17 @@ function renderEntry(item, idx) {
           '<span class="codicon ' + (expanded ? 'codicon-chevron-down' : 'codicon-chevron-right') + '" style="cursor:pointer;color:#000;" onclick="toggleDetails(\\'' + safeId + '\\')" title="Toggle details"></span>' +
           statusLabel + followUpProgress +
           (item.template && item.template !== '(None)' && item.template !== '__answer_file__' ? '  [' + escapeHtml(item.template) + ']' : '') +
-          (item.answerWrapper || item.template === '__answer_file__' ? '  [AW]' : '') +
+          (item.template && item.template !== '(None)' ? '  [AW]' : '') +
           '<span class="status-icons">' +
           '<span class="codicon codicon-eye" style="cursor:pointer;color:#000;" onclick="previewItem(\\'' + safeId + '\\')" title="Preview"></span>' +
           (isStaged ? '<span class="codicon codicon-arrow-right" style="cursor:pointer;color:#000;" onclick="setItemStatus(\\'' + safeId + '\\', \\'pending\\')" title="Set to Pending"></span>' : '') +
           (isPending ? '<span class="codicon codicon-arrow-left" style="cursor:pointer;color:#000;" onclick="setItemStatus(\\'' + safeId + '\\', \\'staged\\')" title="Move back to Staged"></span>' : '') +
+          (isSending ? '<span class="codicon codicon-arrow-left" style="cursor:pointer;color:#000;" onclick="setItemStatus(\\'' + safeId + '\\', \\'staged\\')" title="Interrupt and move to Staged"></span>' : '') +
+          (isSent ? '<span class="codicon codicon-arrow-left" style="cursor:pointer;color:#000;" onclick="setItemStatus(\\'' + safeId + '\\', \\'staged\\')" title="Stage again"></span>' : '') +
           ((isPending || isStaged) ? '<span class="codicon codicon-play" style="cursor:pointer;color:#000;" onclick="sendNow(\\'' + safeId + '\\')" title="Send Now"></span>' : '') +
           (isPending ? '<span class="codicon codicon-arrow-up" style="cursor:pointer;color:#000;" onclick="moveDown(\\'' + safeId + '\\')" title="Move up (away from send)"></span>' : '') +
           (isPending ? '<span class="codicon codicon-arrow-down" style="cursor:pointer;color:#000;" onclick="moveUp(\\'' + safeId + '\\')" title="Move down (closer to send)"></span>' : '') +
+          (isSending ? '<span class="codicon ' + (reminderEnabled ? 'codicon-bell' : 'codicon-bell-slash') + '" style="cursor:pointer;color:' + (reminderEnabled ? '#000' : '#888') + ';" onclick="toggleReminder(\\'' + safeId + '\\', ' + !reminderEnabled + ')" title="' + (reminderEnabled ? 'Reminders ON - click to disable' : 'Reminders OFF - click to enable') + '"></span>' : '') +
           '<span class="codicon codicon-trash" style="cursor:pointer;color:#000;" onclick="remove(\\'' + safeId + '\\')" title="Delete"></span>' +
           '</span>' +
         '</span>' +
@@ -227,7 +241,7 @@ function renderEntry(item, idx) {
       '<div class="status-bar template-mode">' +
         '<span>' +
           (item.template && item.template !== '(None)' ? '[' + escapeHtml(item.template) + ']' : '') +
-          (item.answerWrapper ? '  [AW]' : '') +
+          (item.template && item.template !== '(None)' ? '  [AW]' : '') +
         '</span>' +
       '</div>' +
     '</div>';
@@ -236,16 +250,7 @@ function renderEntry(item, idx) {
   /* Reminder row (queue mode only for main prompt, template mode always) */
   var reminderRow = '';
   if (isEditable) {
-    reminderRow = '<div class="followup-row" style="margin-top:6px;">' +
-      '<label style="font-size:0.8em;"><input type="checkbox" ' + (item.reminderEnabled ? 'checked' : '') + ' onchange="updateItemReminder(\\'' + safeId + '\\', \\'enabled\\', this.checked)"> Reminder</label>' +
-      '<select onchange="updateItemReminder(\\'' + safeId + '\\', \\'template\\', this.value)">' +
-        '<option value="">Global Default</option>' +
-        reminderTemplates.map(function(t){ return '<option value="' + escapeHtml(t.id) + '"' + (item.reminderTemplateId === t.id ? ' selected' : '') + '>' + escapeHtml(t.name) + '</option>'; }).join('') +
-      '</select>' +
-      '<span style="font-size:0.8em;opacity:0.85;">Wait:</span>' +
-      '<select onchange="updateItemReminder(\\'' + safeId + '\\', \\'timeout\\', this.value)">' + reminderTimeoutOptions(item.reminderTimeoutMinutes || responseTimeoutMinutes) + '</select>' +
-      '<label style="font-size:0.8em;"><input type="checkbox" ' + (item.reminderRepeat ? 'checked' : '') + ' onchange="updateItemReminder(\\'' + safeId + '\\', \\'repeat\\', this.checked)"> Repeat</label>' +
-    '</div>';
+    reminderRow = '';
   }
 
   return '<div class="queue-item ' + cls.join(' ') + '">' +
@@ -315,6 +320,7 @@ function renderFollowUps(item, status) {
     var safeFollowUpId = escapeJsSingleQuoted(f.id || '');
     var safeTemplate = escapeJsSingleQuoted(f.template || '');
     var safeReminderTemplateId = escapeJsSingleQuoted(f.reminderTemplateId || '');
+    var noReminderSelected = f.reminderEnabled === false && !f.reminderTemplateId;
     var doneMark = idx < sentFollowUps ? '\\u2713 ' : '';
     var templateLabel = formatPromptTemplateName(f.template || '(None)');
     return '<div class="followup-item">' +
@@ -336,9 +342,9 @@ function renderFollowUps(item, status) {
               '</select>' +
             '</div>' +
             '<div class="followup-row">' +
-              '<label style="font-size:0.8em;"><input type="checkbox" ' + (f.reminderEnabled ? 'checked' : '') + ' onchange="updateFollowUpReminder(\\'' + safeItemId + '\\', \\'' + safeFollowUpId + '\\', \\'enabled\\', this.checked)"> Reminder</label>' +
               '<select onchange="updateFollowUpReminder(\\'' + safeItemId + '\\', \\'' + safeFollowUpId + '\\', \\'template\\', this.value)">' +
-                '<option value="">Global Default</option>' +
+                '<option value=""' + (!noReminderSelected && !f.reminderTemplateId ? ' selected' : '') + '>Global Default</option>' +
+                '<option value="__none__"' + (noReminderSelected ? ' selected' : '') + '>No reminder</option>' +
                 reminderTemplates.map(function(t){ return '<option value="' + escapeHtml(t.id) + '"' + (f.reminderTemplateId === t.id ? ' selected' : '') + '>' + escapeHtml(t.name) + '</option>'; }).join('') +
               '</select>' +
               '<span style="font-size:0.8em;opacity:0.85;">Wait:</span>' +
@@ -374,11 +380,18 @@ export function queueEntryMessageHandlers(): string {
   return `
 function updateText(id, text) { vscode.postMessage({ type: 'updateText', id: id, text: text }); }
 function updateItemTemplate(id, template) { vscode.postMessage({ type: 'updateItemTemplate', id: id, template: template || '' }); }
-function updateItemAnswerWrapper(id, checked) { vscode.postMessage({ type: 'updateItemAnswerWrapper', id: id, answerWrapper: !!checked }); }
 function updateItemReminder(id, field, value) {
   var msg = { type: 'updateItemReminder', id: id };
   if (field === 'enabled') msg.reminderEnabled = !!value;
-  if (field === 'template') msg.reminderTemplateId = value || '';
+  if (field === 'template') {
+    if (value === '__none__') {
+      msg.reminderEnabled = false;
+      msg.reminderTemplateId = '';
+    } else {
+      msg.reminderTemplateId = value || '';
+      msg.reminderEnabled = true; // Enable reminders when selecting a template
+    }
+  }
   if (field === 'timeout') msg.reminderTimeoutMinutes = parseInt(String(value || '0'), 10) || undefined;
   if (field === 'repeat') msg.reminderRepeat = !!value;
   vscode.postMessage(msg);
@@ -389,7 +402,15 @@ function updateFollowUpTemplate(id, followUpId, template) { vscode.postMessage({
 function updateFollowUpReminder(id, followUpId, field, value) {
   var msg = { type: 'updateFollowUp', id: id, followUpId: followUpId };
   if (field === 'enabled') msg.reminderEnabled = !!value;
-  if (field === 'template') msg.reminderTemplateId = value || '';
+  if (field === 'template') {
+    if (value === '__none__') {
+      msg.reminderEnabled = false;
+      msg.reminderTemplateId = '';
+    } else {
+      msg.reminderTemplateId = value || '';
+      msg.reminderEnabled = true;
+    }
+  }
   if (field === 'timeout') msg.reminderTimeoutMinutes = parseInt(String(value || '0'), 10) || undefined;
   if (field === 'repeat') msg.reminderRepeat = !!value;
   vscode.postMessage(msg);

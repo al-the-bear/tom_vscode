@@ -55,7 +55,9 @@ type CombinedCommandsMap = Record<string, CombinedCommandConfig>;
 // getConfigPath() is imported from handler_shared
 
 /**
- * Read the `stateMachines.commands` map from the config file.
+ * Read the combined commands map from the config file.
+ * Combined commands can be at `stateMachines.<name>` (legacy) or
+ * `stateMachines.commands.<name>` (preferred).
  * Returns an empty object when the file or section doesn't exist.
  */
 function loadCombinedCommands(): CombinedCommandsMap {
@@ -65,13 +67,17 @@ function loadCombinedCommands(): CombinedCommandsMap {
     }
     try {
         const config = FsUtils.safeReadJson<Record<string, unknown>>(configPath);
-        const section = (config?.stateMachines as Record<string, unknown> | undefined)?.commands;
-        if (!section || typeof section !== 'object') {
+        const stateMachines = config?.stateMachines as Record<string, unknown> | undefined;
+        if (!stateMachines || typeof stateMachines !== 'object') {
             return {};
         }
-        // Validate each entry
+
+        // Merge both locations: stateMachines.commands.<name> and stateMachines.<name>
+        const commandsSection = stateMachines.commands as Record<string, unknown> | undefined;
         const result: CombinedCommandsMap = {};
-        for (const [key, value] of Object.entries(section)) {
+
+        // Helper to validate and add entry
+        const addEntry = (key: string, value: unknown) => {
             const entry = value as any;
             if (Array.isArray(entry?.commands) && entry.commands.length > 0) {
                 result[key] = {
@@ -79,7 +85,23 @@ function loadCombinedCommands(): CombinedCommandsMap {
                     commands: entry.commands.map((c: any) => String(c)),
                 };
             }
+        };
+
+        // First, add entries from stateMachines.commands (preferred location)
+        if (commandsSection && typeof commandsSection === 'object') {
+            for (const [key, value] of Object.entries(commandsSection)) {
+                addEntry(key, value);
+            }
         }
+
+        // Then, add entries directly under stateMachines (legacy location)
+        // Skip 'commands' key itself
+        for (const [key, value] of Object.entries(stateMachines)) {
+            if (key !== 'commands' && !result[key]) {
+                addEntry(key, value);
+            }
+        }
+
         return result;
     } catch (e) {
         console.error('[CombinedCommand] Failed to load config:', e);

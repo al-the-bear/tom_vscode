@@ -26,6 +26,7 @@ import { getTrailFolder, getCopilotSummaryTrailPaths } from './chatPanel-handler
 // ============================================================================
 
 const TODO_LOG_VIEW_ID = 'tomAi.todoLog';
+const TODO_LOG_TOM_VIEW_ID = 'tomAi.todoLogTom';
 
 // ============================================================================
 // Provider
@@ -524,11 +525,16 @@ function extractTodoRefsFromVariables(variables: string | undefined): string[] {
 // ============================================================================
 
 export function registerTodoLogView(context: vscode.ExtensionContext): vscode.Disposable {
-    const provider = new TodoLogViewProvider(context.extensionUri, context);
-    setTodoLogProvider(provider);
-    return vscode.window.registerWebviewViewProvider(TODO_LOG_VIEW_ID, provider, {
+    const explorerProvider = new TodoLogViewProvider(context.extensionUri, context);
+    const tomProvider = new TodoLogViewProvider(context.extensionUri, context);
+    setTodoLogProvider(explorerProvider);
+    const explorerRegistration = vscode.window.registerWebviewViewProvider(TODO_LOG_VIEW_ID, explorerProvider, {
         webviewOptions: { retainContextWhenHidden: true },
     });
+    const tomRegistration = vscode.window.registerWebviewViewProvider(TODO_LOG_TOM_VIEW_ID, tomProvider, {
+        webviewOptions: { retainContextWhenHidden: true },
+    });
+    return vscode.Disposable.from(explorerRegistration, tomRegistration);
 }
 
 // ============================================================================

@@ -20,15 +20,12 @@ mkdir -p .tom
 
 Create `.tom/tom_vscode_extension.json` with at minimum:
 
-```yaml
-# TOM AI Configuration
-version: 1
-
-# Templates for Copilot Chat integration
-templates: {}
-
-# Default templates per panel section
-defaultTemplates: {}
+```json
+{
+  "version": 1,
+  "templates": {},
+  "defaultTemplates": {}
+}
 ```
 
 ### 3. Create Required Workspace Folders

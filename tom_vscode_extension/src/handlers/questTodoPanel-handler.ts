@@ -3123,6 +3123,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 let items: questTodo.QuestTodoItem[];
                 const source = msg.source || 'local';
                 const qid = effectiveQuestId(msg.questId);
+                const rawQuestId = typeof msg.questId === 'string' ? msg.questId : '';
                 // Session mode: 'local' returns session todos, 'quest' reads specified quest, 'workspace' reads all
                 if (isSessionMode && source === 'local') {
                     const sessionItems = SessionTodoStore.instance.list({ status: 'all' });
@@ -3138,8 +3139,10 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 } else if (source === 'workspace' || qid === '__all_workspace__') {
                     items = readWorkspaceTodos();
                 } else if (source === 'quest') {
-                    // For session/workspace modes, check if qid is a real quest
-                    const realQid = (qid === '__session__' || qid === '__all_workspace__') ? msg.questId : qid;
+                    // In fixed-file mode (sidebar QUEST TODOS), allow picker-selected quest IDs
+                    // to bypass the panel's fixed quest so cross-quest references work.
+                    const requestedQid = rawQuestId && !rawQuestId.startsWith('__') ? rawQuestId : '';
+                    const realQid = requestedQid || ((qid === '__session__' || qid === '__all_workspace__') ? rawQuestId : qid);
                     items = realQid && !realQid.startsWith('__') ? questTodo.readAllTodos(realQid) : [];
                 } else {
                     if (qid && qid !== '__all_quests__' && qid !== '__all_workspace__' && qid !== '__session__') {

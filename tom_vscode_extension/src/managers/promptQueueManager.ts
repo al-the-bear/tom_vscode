@@ -22,12 +22,15 @@ import {
     stopWatching as stopQueueWatching,
     onQueueChanged,
     trimSentEntries,
+    readQueueSettings,
+    writeQueueSettings,
     type QueueEntryFile,
     type QueueFileYaml,
     type QueuePromptYaml,
     type QueueReminderConfig,
 } from '../storage/queueFileStorage';
 import { debugLog } from '../utils/debugLogger';
+import { writeWindowState } from '../handlers/windowStatusPanel-handler';
 
 // ============================================================================
 // Types
@@ -141,9 +144,11 @@ export class PromptQueueManager {
     private _autoSendEnabled = true;
     private _autoSendDelayMs = 2000;
     private _responseFileTimeoutMinutes = 60;
+    private _defaultReminderTemplateId: string | undefined;
     private _answerWatcher?: fs.FSWatcher;
     private _timeoutWatcher?: ReturnType<typeof setInterval>;
     private _processing = false;
+    private _processingAnswerFile = false;
 
     /** Maps QueuedPrompt.id → entry filename on disk. */
     private _fileNameMap = new Map<string, string>();
@@ -180,6 +185,20 @@ export class PromptQueueManager {
         let expanded = await expandTemplate(originalText, { includeEditorContext: false });
         expanded = await applyTemplateWrapping(expanded, template ?? '(None)', answerWrapper);
         return expanded;
+    }
+
+    private updateWindowStatus(status: 'prompt-sent' | 'answer-received'): void {
+        try {
+            const quest = (await_import_ChatVariablesStore())?.quest || '';
+            const windowId = getWindowStatusWindowId();
+            const workspaceName = getWindowStatusWorkspaceName();
+            // Keep queue status for future multi-subsystem routing, and mirror
+            // current queue processing into copilot subsystem status.
+            writeWindowState(windowId, workspaceName, quest, 'queue', status);
+            writeWindowState(windowId, workspaceName, quest, 'copilot', status);
+        } catch {
+            // Best-effort status panel update; queue processing must continue.
+        }
     }
 
     // ----- lifecycle ---------------------------------------------------------
@@ -232,8 +251,11 @@ export class PromptQueueManager {
         if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
 
         const basename = path.basename(this.answerFilePath);
-        this._answerWatcher = fs.watch(dir, (_, filename) => {
+        debugLog(`[PromptQueueManager] Setting up answer watcher for ${this.answerFilePath}`, 'INFO', 'queue');
+        this._answerWatcher = fs.watch(dir, (event, filename) => {
+            debugLog(`[PromptQueueManager] File watch event: ${event} ${filename} (expecting: ${basename})`, 'DEBUG', 'queue');
             if (filename === basename) {
+                debugLog(`[PromptQueueManager] Answer file changed, calling onAnswerFileChanged`, 'INFO', 'queue');
                 this.onAnswerFileChanged();
             }
         });
@@ -403,14 +425,28 @@ export class PromptQueueManager {
     }
 
     private async onAnswerFileChanged(): Promise<void> {
+        if (this._processingAnswerFile) {
+            debugLog('[PromptQueueManager] Answer processing already in progress; skipping re-entrant event', 'DEBUG', 'queue');
+            return;
+        }
+        this._processingAnswerFile = true;
+
+        try {
         const filePath = this.answerFilePath;
-        if (!fs.existsSync(filePath)) { return; }
+        debugLog(`[PromptQueueManager] onAnswerFileChanged called, checking: ${filePath}`, 'DEBUG', 'queue');
+        if (!fs.existsSync(filePath)) { 
+            debugLog(`[PromptQueueManager] Answer file does not exist`, 'DEBUG', 'queue');
+            return; 
+        }
 
         let answer: Record<string, unknown> | undefined;
         try {
             const raw = fs.readFileSync(filePath, 'utf-8');
             answer = JSON.parse(raw);
-        } catch { /* ignore parse errors */ }
+            debugLog(`[PromptQueueManager] Parsed answer file, requestId: ${(answer as any)?.requestId}`, 'DEBUG', 'queue');
+        } catch (e) { 
+            debugLog(`[PromptQueueManager] Failed to parse answer file: ${e}`, 'ERROR', 'queue');
+        }
 
         // Propagate responseValues to session-scoped chat response store only.
         // Do NOT write to persistent ChatVariablesStore — responseValues are
@@ -431,63 +467,44 @@ export class PromptQueueManager {
             ? String((answer as any).requestId)
             : undefined;
 
-        // Mark/update the current "sending" item (prefer exact request-id match)
-        let sendingIdx = -1;
-        if (answerRequestId) {
-            sendingIdx = this._items.findIndex(i => i.status === 'sending' && i.expectedRequestId === answerRequestId);
+        const sending = this._items.find(i => i.status === 'sending');
+        if (!sending) {
+            debugLog(`[PromptQueueManager] No sending item found in queue. Items: ${this._items.map(i => `${i.id}:${i.status}`).join(', ')}`, 'WARN', 'queue');
+            return;
         }
-        if (sendingIdx < 0) {
-            sendingIdx = this._items.findIndex(i => i.status === 'sending');
+
+        if (sending.expectedRequestId && answerRequestId && sending.expectedRequestId !== answerRequestId) {
+            debugLog(`[PromptQueueManager] Ignoring answer with requestId=${answerRequestId}; waiting for expectedRequestId=${sending.expectedRequestId}`, 'DEBUG', 'queue');
+            return;
         }
-        if (sendingIdx >= 0) {
-            const item = this._items[sendingIdx];
-            const followUps = item.followUps ?? [];
-            const alreadySent = item.followUpIndex ?? 0;
 
-            if (alreadySent < followUps.length) {
-                const nextFollowUp = followUps[alreadySent];
-                try {
-                    const followUpExpanded = await this._buildExpandedText(
-                        nextFollowUp.originalText,
-                        nextFollowUp.template,
-                        true,
-                    );
+        debugLog(`[PromptQueueManager] Processing answer for sending item ${sending.id}`, 'INFO', 'queue');
+        this.updateWindowStatus('answer-received');
 
-                    item.expandedText = followUpExpanded;
-                    item.expectedRequestId = this._extractRequestIdFromExpandedPrompt(followUpExpanded);
-                    item.followUpIndex = alreadySent + 1;
-                    item.sentAt = new Date().toISOString();
-                    item.reminderSentCount = 0;
-                    item.lastReminderAt = undefined;
-                    this.persist();
-                    this._onDidChange.fire();
+        try {
+            const hasNextStage = await this.dispatchNextStageForSendingItem(sending);
+            if (!hasNextStage) {
+                debugLog(`[PromptQueueManager] Marking item ${sending.id} as sent`, 'INFO', 'queue');
+                sending.status = 'sent';
+                sending.expectedRequestId = undefined;
+                sending.reminderSentCount = 0;
+                sending.lastReminderAt = undefined;
+                this.removePendingReminderFor(sending.id);
+                this.persist();
+                this._onDidChange.fire();
 
-                    try { fs.unlinkSync(this.answerFilePath); } catch { /* ok */ }
-                    await vscode.commands.executeCommand('workbench.action.chat.open', { query: followUpExpanded });
-                    this._onPromptSent.fire(item);
-                    return;
-                } catch (err) {
-                    item.status = 'error';
-                    item.error = String(err);
-                    this.persist();
-                    this._onDidChange.fire();
-                    return;
+                if (this._autoSendEnabled) {
+                    await this.delaySendNext();
                 }
             }
-
-            item.status = 'sent';
-            item.expectedRequestId = undefined;
-            item.reminderSentCount = 0;
-            item.lastReminderAt = undefined;
-            // Remove any pending reminder for this item
-            this.removePendingReminderFor(item.id);
+        } catch (err) {
+            sending.status = 'error';
+            sending.error = String(err);
             this.persist();
             this._onDidChange.fire();
         }
-
-        // Auto-send next
-        if (this._autoSendEnabled) {
-            await this.delaySendNext();
+        } finally {
+            this._processingAnswerFile = false;
         }
     }
 
@@ -500,13 +517,21 @@ export class PromptQueueManager {
 
     set autoSendEnabled(v: boolean) {
         this._autoSendEnabled = v;
-        this.persist();
+        this.persistSettings();
         this._onDidChange.fire();
     }
 
     set responseFileTimeoutMinutes(v: number) {
         this._responseFileTimeoutMinutes = Math.max(5, Math.round(v || 60));
-        this.persist();
+        this.persistSettings();
+        this._onDidChange.fire();
+    }
+
+    get defaultReminderTemplateId(): string | undefined { return this._defaultReminderTemplateId; }
+
+    set defaultReminderTemplateId(v: string | undefined) {
+        this._defaultReminderTemplateId = v || undefined;
+        this.persistSettings();
         this._onDidChange.fire();
     }
 
@@ -534,6 +559,14 @@ export class PromptQueueManager {
     }): Promise<QueuedPrompt> {
         const expanded = await this._buildExpandedText(opts.originalText, opts.template, opts.answerWrapper);
 
+        // Compute effective reminder template: provided value, or fall back to default
+        let effectiveReminderTemplateId = opts.reminderTemplateId ?? this._defaultReminderTemplateId;
+        // Handle "__none__" as "no reminders" - clear template and disable reminders
+        const isNoReminder = effectiveReminderTemplateId === '__none__';
+        if (isNoReminder) {
+            effectiveReminderTemplateId = undefined;
+        }
+
         const item: QueuedPrompt = {
             id: randomUUID(),
             template: opts.template ?? '(None)',
@@ -543,10 +576,10 @@ export class PromptQueueManager {
             status: opts.initialStatus ?? 'staged',
             type: opts.type ?? 'normal',
             createdAt: new Date().toISOString(),
-            reminderTemplateId: opts.reminderTemplateId,
+            reminderTemplateId: effectiveReminderTemplateId,
             reminderTimeoutMinutes: opts.reminderTimeoutMinutes,
             reminderRepeat: !!opts.reminderRepeat,
-            reminderEnabled: !!opts.reminderEnabled,
+            reminderEnabled: isNoReminder ? false : !!opts.reminderEnabled,
             reminderQueued: false,
             reminderSentCount: 0,
             prePrompts: (opts.prePrompts || [])
@@ -645,7 +678,13 @@ export class PromptQueueManager {
 
     updateItemReminder(id: string, patch: { reminderEnabled?: boolean; reminderTemplateId?: string; reminderTimeoutMinutes?: number; reminderRepeat?: boolean }): void {
         const item = this._items.find(i => i.id === id);
-        if (!item || !this.isEditableStatus(item.status)) { return; }
+        if (!item) { return; }
+        // Allow reminderEnabled toggle for sending items, but other changes only for staged
+        const isToggleOnly = patch.reminderEnabled !== undefined && 
+            patch.reminderTemplateId === undefined && 
+            patch.reminderTimeoutMinutes === undefined && 
+            patch.reminderRepeat === undefined;
+        if (!isToggleOnly && !this.isEditableStatus(item.status)) { return; }
         if (patch.reminderEnabled !== undefined) {
             item.reminderEnabled = !!patch.reminderEnabled;
         }
@@ -803,10 +842,38 @@ export class PromptQueueManager {
     setStatus(id: string, status: 'staged' | 'pending'): boolean {
         const item = this._items.find(i => i.id === id);
         if (!item) { return false; }
-        if (item.status === 'sending' || item.status === 'sent' || item.status === 'error') { return false; }
+        // Allow interrupting a sending item back to staged.
+        if (item.status === 'sending' && status === 'staged') {
+            if (item.prePrompts && item.prePrompts.length > 0) {
+                for (const pp of item.prePrompts) {
+                    pp.status = 'pending';
+                }
+            }
+            item.status = 'staged';
+            item.requestId = undefined;
+            item.expectedRequestId = undefined;
+            item.followUpIndex = 0;
+            item.sentAt = undefined;
+            item.reminderSentCount = 0;
+            item.lastReminderAt = undefined;
+            item.error = undefined;
+            this.removePendingReminderFor(item.id);
+            this.persist();
+            this._onDidChange.fire();
+            this.updateWindowStatus('answer-received');
+            return true;
+        }
+        // Allow sent items to be re-staged, but not error items
+        if (item.status === 'error') { return false; }
+        if (item.status === 'sending') { return false; }
         item.status = status;
         this.persist();
         this._onDidChange.fire();
+        
+        // If changed to pending and autoSend is on, try to send
+        if (status === 'pending' && this._autoSendEnabled && !this._items.some(i => i.status === 'sending')) {
+            void this.sendNext();
+        }
         return true;
     }
 
@@ -862,57 +929,98 @@ export class PromptQueueManager {
     }
 
     private async sendItem(item: QueuedPrompt): Promise<void> {
-        // Send pre-prompts first (sequentially, each wrapped with answer wrapper)
+        if (item.status === 'sending') { return; }
+
+        // Reset run state before first dispatch of this item.
         if (item.prePrompts && item.prePrompts.length > 0) {
             for (const pp of item.prePrompts) {
-                if (pp.status === 'sent') continue; // skip already-sent pre-prompts
-                try {
-                    let prePromptText = pp.text;
-                    // Apply answer wrapper template to pre-prompts
-                    prePromptText = await this._buildExpandedText(prePromptText, pp.template, true);
-                    await vscode.commands.executeCommand('workbench.action.chat.open', { query: prePromptText });
-                    pp.status = 'sent';
-                    this.persist();
-                    this._onDidChange.fire();
-                    // Brief delay between pre-prompts and main prompt
-                    await new Promise(r => setTimeout(r, 2000));
-                } catch (err) {
-                    pp.status = 'error';
-                    debugLog(`[PromptQueueManager] Pre-prompt send error: ${err}`, 'ERROR', 'queue');
-                    // Continue — don't block main prompt on pre-prompt failure
-                }
+                pp.status = 'pending';
             }
         }
-
-        // Re-expand with current variables and apply template wrapping
-        try {
-            item.expandedText = await this._buildExpandedText(item.originalText, item.template, item.answerWrapper);
-        } catch { /* use existing expansion */ }
-
-        item.requestId = this._extractRequestIdFromExpandedPrompt(item.expandedText);
-        item.expectedRequestId = item.requestId;
+        item.requestId = undefined;
+        item.expectedRequestId = undefined;
         item.followUpIndex = 0;
         item.reminderSentCount = 0;
         item.lastReminderAt = undefined;
-
+        item.error = undefined;
         item.status = 'sending';
-        item.sentAt = new Date().toISOString();
         this.persist();
         this._onDidChange.fire();
 
-        // Delete existing answer file
-        try { fs.unlinkSync(this.answerFilePath); } catch { /* ok */ }
-
-        // Send to Copilot Chat
         try {
-            await vscode.commands.executeCommand('workbench.action.chat.open', { query: item.expandedText });
-            this._onPromptSent.fire(item);
+            await this.dispatchNextStageForSendingItem(item);
         } catch (err) {
             item.status = 'error';
             item.error = String(err);
             this.persist();
             this._onDidChange.fire();
         }
+    }
+
+    private async dispatchNextStageForSendingItem(item: QueuedPrompt): Promise<boolean> {
+        // Stage 1: send next pending pre-prompt, wait for answer file before continuing.
+        const prePrompts = item.prePrompts || [];
+        const nextPrePrompt = prePrompts.find(pp => pp.status !== 'sent');
+        if (nextPrePrompt) {
+            const prePromptExpanded = await this._buildExpandedText(nextPrePrompt.text, nextPrePrompt.template, true);
+            nextPrePrompt.status = 'sent';
+            item.expandedText = prePromptExpanded;
+            item.expectedRequestId = this._extractRequestIdFromExpandedPrompt(prePromptExpanded);
+            item.sentAt = new Date().toISOString();
+            item.reminderSentCount = 0;
+            item.lastReminderAt = undefined;
+            this.persist();
+            this._onDidChange.fire();
+
+            try { fs.unlinkSync(this.answerFilePath); } catch { /* ok */ }
+            await vscode.commands.executeCommand('workbench.action.chat.open', { query: prePromptExpanded });
+            this._onPromptSent.fire(item);
+            this.updateWindowStatus('prompt-sent');
+            return true;
+        }
+
+        // Stage 2: send main prompt once, then wait for answer.
+        if (!item.requestId) {
+            item.expandedText = await this._buildExpandedText(item.originalText, item.template, item.answerWrapper);
+            item.requestId = this._extractRequestIdFromExpandedPrompt(item.expandedText);
+            item.expectedRequestId = item.requestId;
+            item.sentAt = new Date().toISOString();
+            item.reminderSentCount = 0;
+            item.lastReminderAt = undefined;
+            this.persist();
+            this._onDidChange.fire();
+
+            try { fs.unlinkSync(this.answerFilePath); } catch { /* ok */ }
+            await vscode.commands.executeCommand('workbench.action.chat.open', { query: item.expandedText });
+            this._onPromptSent.fire(item);
+            this.updateWindowStatus('prompt-sent');
+            return true;
+        }
+
+        // Stage 3: send follow-ups one-by-one, each gated by answer file.
+        const followUps = item.followUps ?? [];
+        const alreadySentFollowUps = item.followUpIndex ?? 0;
+        if (alreadySentFollowUps < followUps.length) {
+            const nextFollowUp = followUps[alreadySentFollowUps];
+            const followUpExpanded = await this._buildExpandedText(nextFollowUp.originalText, nextFollowUp.template, true);
+            item.expandedText = followUpExpanded;
+            item.expectedRequestId = this._extractRequestIdFromExpandedPrompt(followUpExpanded);
+            item.followUpIndex = alreadySentFollowUps + 1;
+            item.sentAt = new Date().toISOString();
+            item.reminderSentCount = 0;
+            item.lastReminderAt = undefined;
+            this.persist();
+            this._onDidChange.fire();
+
+            try { fs.unlinkSync(this.answerFilePath); } catch { /* ok */ }
+            await vscode.commands.executeCommand('workbench.action.chat.open', { query: followUpExpanded });
+            this._onPromptSent.fire(item);
+            this.updateWindowStatus('prompt-sent');
+            return true;
+        }
+
+        // No more stages left.
+        return false;
     }
 
     // ----- reminder helpers --------------------------------------------------
@@ -945,6 +1053,39 @@ export class PromptQueueManager {
         // Reset any "sending" items back to pending (crash recovery)
         for (const item of this._items) {
             if (item.status === 'sending') { item.status = 'pending'; }
+        }
+
+        // Restore queue-level settings
+        this.restoreSettings();
+    }
+
+    /** Persist queue-level settings to disk. */
+    private persistSettings(): void {
+        writeQueueSettings({
+            'response-timeout-minutes': this._responseFileTimeoutMinutes,
+            'default-reminder-template-id': this._defaultReminderTemplateId,
+            'auto-send-enabled': this._autoSendEnabled,
+        });
+    }
+
+    /** Restore queue-level settings from disk. */
+    private restoreSettings(): void {
+        const settings = readQueueSettings();
+        if (settings) {
+            if (typeof settings['response-timeout-minutes'] === 'number') {
+                this._responseFileTimeoutMinutes = Math.max(5, settings['response-timeout-minutes']);
+            }
+            if (settings['default-reminder-template-id']) {
+                this._defaultReminderTemplateId = settings['default-reminder-template-id'];
+            }
+            if (typeof settings['auto-send-enabled'] === 'boolean') {
+                this._autoSendEnabled = settings['auto-send-enabled'];
+            }
+            console.log('[PromptQueueManager] restoreSettings:', {
+                timeout: this._responseFileTimeoutMinutes,
+                defaultTemplate: this._defaultReminderTemplateId,
+                autoSend: this._autoSendEnabled,
+            });
         }
     }
 
@@ -1089,8 +1230,16 @@ export class PromptQueueManager {
             'answer-wrapper': item.answerWrapper,
         };
 
-        // Reminder config
-        if (item.reminderEnabled || item.reminderTemplateId) {
+        // Reminder config: persist explicit no-reminder state (reminderEnabled === false)
+        const hasMainReminderConfig =
+            item.reminderEnabled !== undefined ||
+            item.reminderTemplateId !== undefined ||
+            item.reminderTimeoutMinutes !== undefined ||
+            item.reminderRepeat !== undefined ||
+            item.reminderQueued !== undefined ||
+            item.reminderSentCount !== undefined ||
+            item.lastReminderAt !== undefined;
+        if (hasMainReminderConfig) {
             const reminder: QueueReminderConfig = {
                 enabled: item.reminderEnabled,
                 'template-id': item.reminderTemplateId,
@@ -1149,7 +1298,12 @@ export class PromptQueueManager {
                     template: fu.template,
                     metadata: { created: fu.createdAt },
                 };
-                if (fu.reminderEnabled || fu.reminderTemplateId) {
+                const hasFollowUpReminderConfig =
+                    fu.reminderEnabled !== undefined ||
+                    fu.reminderTemplateId !== undefined ||
+                    fu.reminderTimeoutMinutes !== undefined ||
+                    fu.reminderRepeat !== undefined;
+                if (hasFollowUpReminderConfig) {
                     fuPrompt.reminder = {
                         enabled: fu.reminderEnabled,
                         'template-id': fu.reminderTemplateId,
@@ -1213,4 +1367,21 @@ function await_import_ChatVariablesStore(): { quest: string } | undefined {
         const { ChatVariablesStore } = require('../managers/chatVariablesStore');
         return ChatVariablesStore.instance;
     } catch { return undefined; }
+}
+
+function getWindowStatusWindowId(): string {
+    const session = vscode.env.sessionId.substring(0, 8);
+    const machine = vscode.env.machineId.substring(0, 8);
+    return `${session}_${machine}`;
+}
+
+function getWindowStatusWorkspaceName(): string {
+    if (vscode.workspace.name) {
+        return vscode.workspace.name;
+    }
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    if (folder?.name) {
+        return folder.name;
+    }
+    return 'workspace';
 }

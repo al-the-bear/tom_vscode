@@ -66,6 +66,7 @@ import {
     registerTimedRequestsEditorCommand,
     registerGlobalTemplateEditorCommand,
     registerReusablePromptEditorCommand,
+    registerQueueTemplateEditorCommand,
     telegramTestHandler,
     telegramToggleHandler,
     telegramConfigureHandler,
@@ -399,6 +400,11 @@ export async function activate(context: vscode.ExtensionContext) {
     stepStart = performance.now();
     registerQueueEditorCommand(context);
     timeStep('queueEditor', stepStart);
+
+    // Register Queue Template Editor command
+    stepStart = performance.now();
+    registerQueueTemplateEditorCommand(context);
+    timeStep('queueTemplateEditor', stepStart);
 
     // Register Timed Requests Editor command
     stepStart = performance.now();
@@ -843,6 +849,14 @@ function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
+    // Focus @TOM activity-bar sidebar container
+    const focusTomSidebarCmd = vscode.commands.registerCommand(
+        'tomAi.tomSidebar.focus',
+        async () => {
+            await vscode.commands.executeCommand('workbench.view.extension.tomAi-sidebar');
+        }
+    );
+
     // Open in MD Viewer - dedicated command for markdown files
     const openInMdViewerCmd = vscode.commands.registerCommand(
         'tomAi.openInMdViewer',
@@ -928,6 +942,7 @@ function registerCommands(context: vscode.ExtensionContext) {
         telegramConfigureCmd,
         toggleTrailCmd,
         showStatusPageCmd,
+        focusTomSidebarCmd,
         openInMdViewerCmd,
         openExtensionSettingsCmd
     );

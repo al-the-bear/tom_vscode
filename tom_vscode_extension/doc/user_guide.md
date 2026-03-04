@@ -8,10 +8,27 @@ The extension combines VS Code automation, bridge-based scripting, Copilot workf
 
 Current bottom panel layout:
 
-- `@CHAT` (`tomAi.chatPanel`): Session Todo, Workspace Todo, Local LLM, AI Conversation, Copilot, Tom AI Chat.
+- `@CHAT` (`tomAi.chatPanel`): Local LLM, AI Conversation, Copilot, Tom AI Chat.
 - `@WS` (`tomAi.wsPanel`): Guidelines, Documentation, Logs, Settings, Issues, Tests, Quest TODO.
 
-Explorer adds note and todo views for session, quest, and workspace contexts.
+### Guidelines Panel
+
+The Guidelines panel in @WS provides a document browser for copilot guidelines. Features:
+
+- **Project dropdown**: Filter guidelines by project (shows projects with `_copilot_guidelines/` folders)
+- **Quest dropdown**: Filter guidelines by quest (shows quests when quest project type selected)
+- **Link navigation**: Click links to navigate within the panel or open in Markdown Browser
+
+### Markdown Browser
+
+The Markdown Browser is a standalone webview panel for reading markdown documents with full navigation:
+
+- **Open via**: `@T: Open in Markdown Browser` command or link clicks in Guidelines panel
+- **Quest dropdown**: Secondary dropdown to filter quest documents when in quest context
+- **Link handling**: Internal links open in the browser, external files open in VS Code editor
+- **Breadcrumb navigation**: Shows current document path
+
+Explorer adds note and todo views: VS Code Notes, Quest Notes, Quest Todos, Session Todos, TODO Log, Workspace Notes, Workspace Todos, Window Status.
 
 ## 3) Sending prompts
 

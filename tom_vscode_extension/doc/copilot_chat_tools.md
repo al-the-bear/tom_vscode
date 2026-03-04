@@ -63,7 +63,7 @@ Current variables:
 
 ## Trails and Answer Files
 
-Copilot interactions in Unified Notepad can persist prompt/answer trails under `_ai/trail` and answer artifacts under configured Copilot answer folders.
+Copilot interactions in `@CHAT` panel can persist prompt/answer trails under `_ai/trail` and answer artifacts under configured Copilot answer folders.
 
 Key behavior:
 

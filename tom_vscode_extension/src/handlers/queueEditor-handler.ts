@@ -213,6 +213,9 @@ async function handleMessage(msg: any): Promise<void> {
         case 'sendNow':
             await qm.sendNow(msg.id);
             break;
+        case 'toggleReminder':
+            qm.updateItemReminder(msg.id, { reminderEnabled: msg.enabled });
+            break;
         case 'setItemStatus':
           if (msg.status === 'staged' || msg.status === 'pending') {
             qm.setStatus(msg.id, msg.status);
@@ -222,10 +225,11 @@ async function handleMessage(msg: any): Promise<void> {
             await qm.updateText(msg.id, msg.text);
             break;
         case 'updateItemTemplate':
-            await qm.updateItemTemplateAndWrapper(msg.id, { template: msg.template });
-            break;
-        case 'updateItemAnswerWrapper':
-            await qm.updateItemTemplateAndWrapper(msg.id, { answerWrapper: msg.answerWrapper });
+            // Auto-set answerWrapper based on template: true if any template selected, false if "(None)"
+            await qm.updateItemTemplateAndWrapper(msg.id, { 
+              template: msg.template,
+              answerWrapper: !!(msg.template && msg.template !== '(None)')
+            });
             break;
         case 'updateItemReminder':
           qm.updateItemReminder(msg.id, {
@@ -247,6 +251,10 @@ async function handleMessage(msg: any): Promise<void> {
             break;
         case 'setResponseTimeout':
           qm.responseFileTimeoutMinutes = Math.max(5, parseInt(String(msg.minutes || '60'), 10) || 60);
+          sendState();
+          break;
+        case 'setDefaultReminderTemplate':
+          qm.defaultReminderTemplateId = msg.templateId || undefined;
           sendState();
           break;
         case 'addPrompt':
@@ -323,6 +331,10 @@ async function handleMessage(msg: any): Promise<void> {
           }
           case 'openTemplateEditor': {
             await vscode.commands.executeCommand('tomAi.editor.promptTemplates');
+            return;
+          }
+          case 'openQueueTemplates': {
+            await vscode.commands.executeCommand('tomAi.editor.queueTemplates');
             return;
           }
     }
@@ -498,6 +510,7 @@ function buildState(): Record<string, unknown> {
     let items: readonly QueuedPrompt[] = [];
     let autoSend = true;
   let responseTimeoutMinutes = 60;
+  let defaultReminderTemplateId: string | undefined;
     let templates: { id: string; name: string }[] = [];
 
     try {
@@ -505,6 +518,7 @@ function buildState(): Record<string, unknown> {
         items = qm.items;
         autoSend = qm.autoSendEnabled;
         responseTimeoutMinutes = qm.responseFileTimeoutMinutes;
+        defaultReminderTemplateId = qm.defaultReminderTemplateId;
         console.log('[QueueEditor] buildState: items count =', items.length);
     } catch (e) {
         console.error('[QueueEditor] buildState: PromptQueueManager not ready:', e);
@@ -539,6 +553,7 @@ function buildState(): Record<string, unknown> {
         items: [...items],  // spread to plain array for serialisation
         autoSend,
         responseTimeoutMinutes,
+        defaultReminderTemplateId,
         reminderTemplates: templates,
         promptTemplates,
       collapsedIds: Array.from(_collapsedItemIds),
@@ -578,6 +593,7 @@ ${queueEntryStyles()}
   <button class="ctx-btn-icon" onclick="openChatVariables()" title="Chat Variables"><span class="codicon codicon-symbol-key"></span></button>
   <button class="ctx-btn-icon" onclick="openContextSettings()" title="Context &amp; Settings"><span class="codicon codicon-tools"></span></button>
   <button class="ctx-btn-icon" onclick="openTemplateEditor()" title="Prompt Templates"><span class="codicon codicon-file-code"></span></button>
+  <button class="ctx-btn-icon" onclick="openQueueTemplates()" title="Queue Templates"><span class="codicon codicon-symbol-file"></span></button>
   <button class="ctx-btn-icon" onclick="showFile()" title="Show YAML file"><span class="codicon codicon-go-to-file"></span></button>
 </div>
 <div class="toolbar">
@@ -597,7 +613,7 @@ ${queueEntryStyles()}
     <option value="480">480 Minutes</option>
   </select>
   <label style="font-size:0.85em;opacity:0.85;">Reminder Template:</label>
-  <select id="toolbarReminderTemplate"></select>
+  <select id="toolbarReminderTemplate" onchange="setDefaultReminderTemplate(this.value)"></select>
   <button class="ctx-btn-icon" onclick="addReminderTemplate()" title="Add Reminder Template"><span class="codicon codicon-add"></span></button>
   <button class="ctx-btn-icon" onclick="editReminderTemplate()" title="Edit Reminder Template"><span class="codicon codicon-edit"></span></button>
   <button class="ctx-btn-icon" onclick="deleteReminderTemplate()" title="Delete Reminder Template"><span class="codicon codicon-trash"></span></button>
@@ -615,11 +631,10 @@ ${queueEntryStyles()}
     <button class="ctx-btn-icon" onclick="addPromptTemplate()" title="Add Template"><span class="codicon codicon-add"></span></button>
     <button class="ctx-btn-icon" onclick="editPromptTemplate()" title="Edit Template"><span class="codicon codicon-edit"></span></button>
     <button class="ctx-btn-icon" onclick="deletePromptTemplate()" title="Delete Template"><span class="codicon codicon-trash"></span></button>
-    <label style="margin-left:12px;"><input type="checkbox" id="addAnswerWrapper"> Answer Wrapper</label>
   </div>
   <div class="add-options">
-    <label style="margin-right:6px;"><input type="checkbox" id="addReminderEnabled"> Reminder</label>
-    <select id="addReminderTemplate"><option value="">Global Default</option></select>
+    <label style="margin-right:6px;">Reminder:</label>
+    <select id="addReminderTemplate"><option value="">Global Default</option><option value="__none__">No reminder</option></select>
     <button class="ctx-btn-icon" onclick="addReminderTemplate()" title="Add Reminder Template"><span class="codicon codicon-add"></span></button>
     <button class="ctx-btn-icon" onclick="editReminderTemplate('addReminderTemplate')" title="Edit Reminder Template"><span class="codicon codicon-edit"></span></button>
     <button class="ctx-btn-icon" onclick="deleteReminderTemplate('addReminderTemplate')" title="Delete Reminder Template"><span class="codicon codicon-trash"></span></button>
@@ -731,6 +746,7 @@ try {
 let currentItems = __INITIAL__.items || [];
 let autoSend = __INITIAL__.autoSend !== undefined ? __INITIAL__.autoSend : true;
 let responseTimeoutMinutes = __INITIAL__.responseTimeoutMinutes !== undefined ? __INITIAL__.responseTimeoutMinutes : 60;
+let defaultReminderTemplateId = __INITIAL__.defaultReminderTemplateId || '';
 let reminderTemplates = __INITIAL__.reminderTemplates || [];
 let promptTemplates = __INITIAL__.promptTemplates || [];
 let currentContext = __INITIAL__.context || { quest: '', role: '', activeProjects: [] };
@@ -809,6 +825,7 @@ window.addEventListener('message', e => {
       currentItems = msg.items || [];
       autoSend = msg.autoSend;
       responseTimeoutMinutes = msg.responseTimeoutMinutes || 60;
+      defaultReminderTemplateId = msg.defaultReminderTemplateId || '';
       reminderTemplates = msg.reminderTemplates || [];
       promptTemplates = msg.promptTemplates || [];
       currentContext = msg.context || { quest: '', role: '', activeProjects: [] };
@@ -918,6 +935,15 @@ function expandAll() {
 
 function toggleAutoSend() { vscode.postMessage({ type: 'toggleAutoSend' }); }
 function setResponseTimeout(minutes) { vscode.postMessage({ type: 'setResponseTimeout', minutes: parseInt(minutes || '60', 10) || 60 }); }
+function setDefaultReminderTemplate(templateId) {
+  const normalizedTemplateId = templateId || '';
+  defaultReminderTemplateId = normalizedTemplateId;
+  const addSel = document.getElementById('addReminderTemplate');
+  if (addSel) {
+    addSel.value = normalizedTemplateId;
+  }
+  vscode.postMessage({ type: 'setDefaultReminderTemplate', templateId: normalizedTemplateId });
+}
 function setItemStatus(id, status) { vscode.postMessage({ type: 'setItemStatus', id, status }); }
 function clearSent() { vscode.postMessage({ type: 'clearSent' }); }
 function clearAll() { vscode.postMessage({ type: 'clearAll' }); }
@@ -925,23 +951,33 @@ function remove(id) { vscode.postMessage({ type: 'remove', id }); }
 function moveUp(id) { vscode.postMessage({ type: 'moveUp', id }); }
 function moveDown(id) { vscode.postMessage({ type: 'moveDown', id }); }
 function sendNow(id) { vscode.postMessage({ type: 'sendNow', id }); }
+function toggleReminder(id, enabled) { vscode.postMessage({ type: 'toggleReminder', id, enabled }); }
 function openTemplateEditor() { vscode.postMessage({ type: 'openTemplateEditor' }); }
+function openQueueTemplates() { vscode.postMessage({ type: 'openQueueTemplates' }); }
 function addPrompt() {
   const ta = document.getElementById('addText');
   const text = ta.value.trim();
   if (!text) { showAddFeedback('Please enter prompt text', 'error'); return; }
   const selTpl = document.getElementById('addReminderTemplate');
   const selTimeout = document.getElementById('addReminderTimeout');
-  const chkRemEnabled = document.getElementById('addReminderEnabled');
   const chkRemRepeat = document.getElementById('addReminderRepeat');
   const selTemplate = document.getElementById('addTemplate');
-  const chkAw = document.getElementById('addAnswerWrapper');
   const msg = { type: 'addPrompt', text };
-  if (selTemplate && selTemplate.value) { msg.template = selTemplate.value; }
-  if (chkAw && chkAw.checked) { msg.answerWrapper = true; }
-  if (selTpl && selTpl.value) { msg.reminderTemplateId = selTpl.value; }
+  if (selTemplate && selTemplate.value) {
+    msg.template = selTemplate.value;
+    msg.answerWrapper = true; // All templates get Answer Wrapper applied
+  }
+  // Handle 'No reminder' option
+  if (selTpl && selTpl.value === '__none__') {
+    msg.reminderEnabled = false;
+  } else if (selTpl && selTpl.value) {
+    msg.reminderTemplateId = selTpl.value;
+    msg.reminderEnabled = true;
+  } else {
+    // Global default selected: honor toolbar default, including "No reminder"
+    msg.reminderEnabled = defaultReminderTemplateId === '__none__' ? false : true;
+  }
   if (selTimeout && selTimeout.value) { msg.reminderTimeoutMinutes = parseInt(String(selTimeout.value || '0'), 10) || undefined; }
-  if (chkRemEnabled && chkRemEnabled.checked) { msg.reminderEnabled = true; }
   if (chkRemRepeat && chkRemRepeat.checked) { msg.reminderRepeat = true; }
   vscode.postMessage(msg);
   ta.value = '';
@@ -1019,28 +1055,32 @@ function populateAddForm() {
   }
   const toolbarSel = document.getElementById('toolbarReminderTemplate');
   if (toolbarSel) {
-    const prevToolbar = toolbarSel.value;
-    toolbarSel.innerHTML = '<option value="">Global Default</option>';
+    toolbarSel.innerHTML = '<option value="">Global Default</option><option value="__none__">No reminder</option>';
     reminderTemplates.forEach(function(t) {
       const opt = document.createElement('option');
       opt.value = t.id;
       opt.textContent = t.name;
       toolbarSel.appendChild(opt);
     });
-    if (prevToolbar) { toolbarSel.value = prevToolbar; }
+    // Restore persisted default reminder template
+    toolbarSel.value = defaultReminderTemplateId || '';
   }
   // Populate reminder template dropdown
   const sel = document.getElementById('addReminderTemplate');
   if (!sel) return;
   const prev = sel.value;
-  sel.innerHTML = '<option value="">Global Default</option>';
+  sel.innerHTML = '<option value="">Global Default</option><option value="__none__">No reminder</option>';
   reminderTemplates.forEach(function(t) {
     const opt = document.createElement('option');
     opt.value = t.id;
     opt.textContent = t.name;
     sel.appendChild(opt);
   });
-  if (prev) { sel.value = prev; }
+  if (prev) {
+    sel.value = prev;
+  } else {
+    sel.value = defaultReminderTemplateId || '';
+  }
 }
 
 // Fallback: also request state via message in case embedded state was stale

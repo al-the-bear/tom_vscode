@@ -1,5 +1,5 @@
 /**
- * Prompt Template Editor (§3.2e)
+ * Queue Template Editor (§3.2e)
  *
  * A command-opened webview panel that shows queue.yaml templates.
  * Uses the same shared entry-editing component as the Prompt Queue Editor.
@@ -9,21 +9,24 @@
  *   - Right panel: shared queue.yaml-editor for the selected template
  *   - Bottom: "Queue Prompt" button (copies template to queue) + "Save" button
  *
- * Opened via `tomAi.editor.promptTemplates` command.
+ * Opened via `tomAi.editor.queueTemplates` command.
  */
 
 import * as vscode from 'vscode';
 import {
   readAllTemplates,
+  readTemplate,
   writeTemplate,
+  writeEntry,
   deleteTemplate,
   QueueTemplateFile,
   QueueFileYaml,
   QueueMetaYaml,
   QueuePromptYaml,
+  generateEntryFileName,
+  entryIdFromFileName,
   generateId,
 } from '../storage/queueFileStorage';
-import { PromptQueueManager } from '../managers/promptQueueManager';
 import { queueEntryStyles, queueEntryUtils, queueEntryRenderFunctions, queueEntryMessageHandlers } from './queueEntryComponent';
 import { loadSendToChatConfig } from './handler_shared';
 import { ReminderSystem } from '../managers/reminderSystem';
@@ -39,9 +42,9 @@ let _ctx: vscode.ExtensionContext | undefined;
 // Registration
 // ============================================================================
 
-export function registerPromptTemplateEditorCommand(ctx: vscode.ExtensionContext): void {
+export function registerQueueTemplateEditorCommand(ctx: vscode.ExtensionContext): void {
   ctx.subscriptions.push(
-    vscode.commands.registerCommand('tomAi.editor.promptTemplates', () => openTemplateEditor(ctx)),
+    vscode.commands.registerCommand('tomAi.editor.queueTemplates', () => openQueueTemplateEditor(ctx)),
   );
 }
 
@@ -49,15 +52,15 @@ export function registerPromptTemplateEditorCommand(ctx: vscode.ExtensionContext
 // Open / Reveal
 // ============================================================================
 
-function openTemplateEditor(ctx: vscode.ExtensionContext): void {
+function openQueueTemplateEditor(ctx: vscode.ExtensionContext): void {
   if (_panel) { _panel.reveal(); return; }
   _ctx = ctx;
 
   const codiconsUri = vscode.Uri.joinPath(ctx.extensionUri, 'node_modules', '@vscode', 'codicons', 'dist', 'codicon.css');
 
   _panel = vscode.window.createWebviewPanel(
-    'tomAi.promptTemplateEditor',
-    'Prompt Templates',
+    'tomAi.queueTemplateEditor',
+    'Queue Templates',
     vscode.ViewColumn.One,
     {
       enableScripts: true,
@@ -98,10 +101,18 @@ async function handleMessage(msg: any): Promise<void> {
       return;
 
     case 'createTemplate': {
-      const name = msg.name?.trim();
+      // Use VS Code input box since browser prompt() doesn't work in webviews
+      const name = await vscode.window.showInputBox({
+        prompt: 'Enter a name for the new queue template',
+        placeHolder: 'e.g. code-review, bug-fix, feature-request',
+        validateInput: (value) => {
+          if (!value || !value.trim()) { return 'Template name is required'; }
+          return null;
+        },
+      });
       if (!name) { return; }
       const templateId = generateId();
-      const doc = buildEmptyDoc(name);
+      const doc = buildEmptyDoc(name.trim());
       writeTemplate(templateId, doc);
       sendState(templateId);
       return;
@@ -130,7 +141,6 @@ async function handleMessage(msg: any): Promise<void> {
       // In template mode, updates the template's main prompt text (the saved template, not the prompt-to-send)
       break;
     case 'updateItemTemplate':
-    case 'updateItemAnswerWrapper':
     case 'updateItemReminder':
     case 'addEmptyFollowUp':
     case 'updateFollowUp':
@@ -347,21 +357,55 @@ function saveCurrentTemplate(msg: any): void {
 
 async function queueFromTemplate(msg: any): Promise<void> {
   const promptText = msg.promptText?.trim() || '';
-  const item = msg.item;
-  if (!item && !promptText) { return; }
+  const templateId = msg.templateId?.trim() || '';
+  if (!templateId || !promptText) { return; }
 
   try {
-    const qm = PromptQueueManager.instance;
-    await qm.enqueue({
-      originalText: promptText,
-      template: item?.template && item.template !== '(None)' ? item.template : undefined,
-      answerWrapper: item?.answerWrapper || false,
-      reminderTemplateId: item?.reminderTemplateId || undefined,
-      reminderTimeoutMinutes: item?.reminderTimeoutMinutes,
-      reminderRepeat: item?.reminderRepeat || false,
-      reminderEnabled: item?.reminderEnabled || false,
-      deferSend: true,
-    });
+    const template = readTemplate(templateId);
+    if (!template?.data) {
+      throw new Error(`Template not found: ${templateId}`);
+    }
+
+    // Clone full template doc so custom/manual fields are preserved.
+    const doc: QueueFileYaml = JSON.parse(JSON.stringify(template.data));
+    const prompts = doc['prompt-queue'] || [];
+    const mainId = doc.meta?.['main-prompt'] || 'P1';
+    const main = prompts.find(p => p.id === mainId) || prompts.find(p => p.type === 'main') || prompts[0];
+
+    if (!main) {
+      throw new Error('Template has no main prompt');
+    }
+
+    main['prompt-text'] = promptText;
+    if (typeof main['expanded-text'] === 'string') {
+      delete main['expanded-text'];
+    }
+    if (main.execution) {
+      delete main.execution;
+    }
+
+    // Fresh queue entry identity/status while preserving additional metadata.
+    doc.meta = doc.meta || ({ id: generateId() } as QueueMetaYaml);
+    doc.meta.id = generateId();
+    doc.meta.status = 'staged';
+    doc.meta.created = new Date().toISOString();
+    doc.meta.updated = doc.meta.created;
+    doc.meta['main-prompt'] = main.id || mainId;
+
+    const fileName = generateEntryFileName(undefined, 'prompt', new Date());
+    writeEntry(entryIdFromFileName(fileName), doc, fileName);
+
+    // Explicitly nudge Prompt Queue to refresh now (watcher also updates shortly after).
+    try {
+      const queueModule = await import('../managers/promptQueueManager.js');
+      const qm = queueModule.PromptQueueManager.instance as any;
+      if (typeof qm._reloadFromDisk === 'function') {
+        qm._reloadFromDisk();
+      }
+    } catch {
+      // Queue manager may not be initialized yet; file watcher will still pick up the new entry.
+    }
+
     _panel?.webview.postMessage({ type: 'queueSuccess' });
   } catch (e: any) {
     _panel?.webview.postMessage({ type: 'queueError', error: e?.message || 'Failed to queue' });
@@ -402,7 +446,7 @@ ${queueEntryStyles()}
 </style>
 </head>
 <body>
-<h2>Prompt Templates</h2>
+<h2>Queue Templates</h2>
 
 <div class="tpl-layout">
   <div class="tpl-sidebar">
@@ -517,9 +561,8 @@ function selectTemplate(templateId) {
 }
 
 function createTemplate() {
-  var name = prompt('Template name:');
-  if (!name || !name.trim()) return;
-  vscode.postMessage({ type: 'createTemplate', name: name.trim() });
+  // Extension host will show VS Code input box
+  vscode.postMessage({ type: 'createTemplate' });
 }
 
 function deleteCurrentTemplate() {
@@ -538,7 +581,8 @@ function queuePrompt() {
   var ta = document.getElementById('promptInput');
   var text = ta ? ta.value.trim() : '';
   if (!text) { showFeedback('Enter prompt text first', 'error'); return; }
-  vscode.postMessage({ type: 'queuePrompt', promptText: text, item: currentItems.length > 0 ? currentItems[0] : null });
+  if (!selectedId) { showFeedback('No template selected', 'error'); return; }
+  vscode.postMessage({ type: 'queuePrompt', templateId: selectedId, promptText: text });
 }
 
 function showFeedback(text, cls) {
@@ -567,16 +611,139 @@ var __updateItemTemplate = updateItemTemplate;
 updateItemTemplate = function(id, template) {
   if (currentItems.length > 0 && currentItems[0].id === id) {
     currentItems[0].template = template || '(None)';
+    // Auto-set answerWrapper based on template selection
+    currentItems[0].answerWrapper = !!(template && template !== '(None)');
   }
   __updateItemTemplate(id, template);
 };
 
-var __updateItemAnswerWrapper = updateItemAnswerWrapper;
-updateItemAnswerWrapper = function(id, checked) {
+/* Override follow-up handlers to update local state and re-render */
+var __addEmptyFollowUp = addEmptyFollowUp;
+addEmptyFollowUp = function(id) {
   if (currentItems.length > 0 && currentItems[0].id === id) {
-    currentItems[0].answerWrapper = !!checked;
+    if (!Array.isArray(currentItems[0].followUps)) { currentItems[0].followUps = []; }
+    var newId = 'fu-' + Date.now() + '-' + Math.random().toString(36).substr(2, 6);
+    currentItems[0].followUps.push({
+      id: newId,
+      originalText: '',
+      template: '',
+      reminderEnabled: false,
+      reminderTemplateId: '',
+      reminderTimeoutMinutes: 60,
+      reminderRepeat: false,
+      createdAt: new Date().toISOString()
+    });
+    renderEditor();
   }
-  __updateItemAnswerWrapper(id, checked);
+  __addEmptyFollowUp(id);
+};
+
+var __removeFollowUp = removeFollowUp;
+removeFollowUp = function(id, followUpId) {
+  if (currentItems.length > 0 && currentItems[0].id === id) {
+    if (Array.isArray(currentItems[0].followUps)) {
+      currentItems[0].followUps = currentItems[0].followUps.filter(function(f) { return f.id !== followUpId; });
+      renderEditor();
+    }
+  }
+  __removeFollowUp(id, followUpId);
+};
+
+var __updateFollowUp = updateFollowUp;
+updateFollowUp = function(id, followUpId, text) {
+  if (currentItems.length > 0 && currentItems[0].id === id && Array.isArray(currentItems[0].followUps)) {
+    var fu = currentItems[0].followUps.find(function(f) { return f.id === followUpId; });
+    if (fu) { fu.originalText = text; }
+  }
+  __updateFollowUp(id, followUpId, text);
+};
+
+var __updateFollowUpTemplate = updateFollowUpTemplate;
+updateFollowUpTemplate = function(id, followUpId, template) {
+  if (currentItems.length > 0 && currentItems[0].id === id && Array.isArray(currentItems[0].followUps)) {
+    var fu = currentItems[0].followUps.find(function(f) { return f.id === followUpId; });
+    if (fu) { fu.template = template || ''; }
+  }
+  __updateFollowUpTemplate(id, followUpId, template);
+};
+
+var __updateFollowUpReminder = updateFollowUpReminder;
+updateFollowUpReminder = function(id, followUpId, field, value) {
+  if (currentItems.length > 0 && currentItems[0].id === id && Array.isArray(currentItems[0].followUps)) {
+    var fu = currentItems[0].followUps.find(function(f) { return f.id === followUpId; });
+    if (fu) {
+      if (field === 'enabled') fu.reminderEnabled = !!value;
+      if (field === 'template') {
+        if (value === '__none__') {
+          fu.reminderEnabled = false;
+          fu.reminderTemplateId = '';
+        } else {
+          fu.reminderTemplateId = value || '';
+          fu.reminderEnabled = true;
+        }
+      }
+      if (field === 'timeout') fu.reminderTimeoutMinutes = parseInt(String(value || '0'), 10) || 60;
+      if (field === 'repeat') fu.reminderRepeat = !!value;
+    }
+  }
+  __updateFollowUpReminder(id, followUpId, field, value);
+};
+
+/* Override pre-prompt handlers */
+var __addPrePrompt = addPrePrompt;
+addPrePrompt = function(id) {
+  if (currentItems.length > 0 && currentItems[0].id === id) {
+    if (!Array.isArray(currentItems[0].prePrompts)) { currentItems[0].prePrompts = []; }
+    currentItems[0].prePrompts.push({
+      text: '',
+      template: '',
+      status: 'pending'
+    });
+    renderEditor();
+  }
+  __addPrePrompt(id);
+};
+
+var __removePrePrompt = removePrePrompt;
+removePrePrompt = function(id, index) {
+  if (currentItems.length > 0 && currentItems[0].id === id) {
+    if (Array.isArray(currentItems[0].prePrompts) && currentItems[0].prePrompts[index]) {
+      currentItems[0].prePrompts.splice(index, 1);
+      renderEditor();
+    }
+  }
+  __removePrePrompt(id, index);
+};
+
+var __updatePrePrompt = updatePrePrompt;
+updatePrePrompt = function(id, index, text, template) {
+  if (currentItems.length > 0 && currentItems[0].id === id) {
+    if (Array.isArray(currentItems[0].prePrompts) && currentItems[0].prePrompts[index]) {
+      if (text !== null) currentItems[0].prePrompts[index].text = text;
+      if (template !== null) currentItems[0].prePrompts[index].template = template;
+    }
+  }
+  __updatePrePrompt(id, index, text, template);
+};
+
+/* Override reminder update */
+var __updateItemReminder = updateItemReminder;
+updateItemReminder = function(id, field, value) {
+  if (currentItems.length > 0 && currentItems[0].id === id) {
+    if (field === 'enabled') currentItems[0].reminderEnabled = !!value;
+    if (field === 'template') {
+      if (value === '__none__') {
+        currentItems[0].reminderEnabled = false;
+        currentItems[0].reminderTemplateId = '';
+      } else {
+        currentItems[0].reminderTemplateId = value || '';
+        currentItems[0].reminderEnabled = true;
+      }
+    }
+    if (field === 'timeout') currentItems[0].reminderTimeoutMinutes = parseInt(String(value || '0'), 10) || 60;
+    if (field === 'repeat') currentItems[0].reminderRepeat = !!value;
+  }
+  __updateItemReminder(id, field, value);
 };
 
 /* Request state */

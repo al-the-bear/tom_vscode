@@ -30,6 +30,9 @@ const ENTRY_SUFFIX = '.entry.queue.yaml';
 /** File extension for template files. */
 const TEMPLATE_SUFFIX = '.template.queue.yaml';
 
+/** Filename for queue settings (stored in queue folder). */
+const QUEUE_SETTINGS_FILE = 'queue-settings.yaml';
+
 /** Single schema path — used for both entries and templates. */
 const SCHEMA_REL = '../../_ai/schemas/yaml/queue-entry.schema.json';
 
@@ -181,6 +184,57 @@ export function ensureQueueFolder(): string | undefined {
         }
     }
     return folder;
+}
+
+// ============================================================================
+// Queue Settings Persistence
+// ============================================================================
+
+/** Queue-level settings persisted to disk. */
+export interface QueueSettings {
+    'response-timeout-minutes'?: number;
+    'default-reminder-template-id'?: string;
+    'auto-send-enabled'?: boolean;
+}
+
+/**
+ * Read queue settings from the settings file.
+ * Returns undefined if file doesn't exist or can't be parsed.
+ */
+export function readQueueSettings(): QueueSettings | undefined {
+    try {
+        const folder = getQueueFolder();
+        if (!folder) return undefined;
+        const settingsPath = path.join(folder, QUEUE_SETTINGS_FILE);
+        if (!fs.existsSync(settingsPath)) return undefined;
+        const content = fs.readFileSync(settingsPath, 'utf8');
+        const yaml = requireYaml();
+        const raw = yaml.parse(content);
+        if (typeof raw !== 'object' || raw === null) return undefined;
+        return raw as QueueSettings;
+    } catch (err) {
+        debugLog(`[QueueStorage] Failed to read queue settings: ${err}`, 'ERROR', 'queueStorage');
+        return undefined;
+    }
+}
+
+/**
+ * Write queue settings to the settings file.
+ */
+export function writeQueueSettings(settings: QueueSettings): boolean {
+    try {
+        const folder = ensureQueueFolder();
+        if (!folder) return false;
+        const settingsPath = path.join(folder, QUEUE_SETTINGS_FILE);
+        const yaml = requireYaml();
+        const content = yaml.stringify(settings, { lineWidth: 120 });
+        fs.writeFileSync(settingsPath, content, 'utf8');
+        if (QUEUE_STORAGE_DEBUG) debugLog(`[QueueStorage] Wrote queue settings`, 'INFO', 'queueStorage');
+        return true;
+    } catch (err) {
+        debugLog(`[QueueStorage] Failed to write queue settings: ${err}`, 'ERROR', 'queueStorage');
+        return false;
+    }
 }
 
 // ============================================================================

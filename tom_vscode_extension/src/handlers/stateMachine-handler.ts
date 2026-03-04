@@ -324,14 +324,15 @@ export function createStateMachineCommandHandler(name: string): () => Promise<vo
  */
 export function registerStateMachineCommands(context: vscode.ExtensionContext): void {
     // Statically registered state machine command names in package.json
-    const registeredNames = [
-        'vsWindowStateFlow',
+    // Maps package.json command suffix to config key
+    const registeredMachines: Array<{ commandSuffix: string; configKey: string }> = [
+        { commandSuffix: 'windowStateFlow', configKey: 'vsWindowStateFlow' },
     ];
     
-    for (const name of registeredNames) {
+    for (const { commandSuffix, configKey } of registeredMachines) {
         const cmd = vscode.commands.registerCommand(
-            `tomAi.layout.${name}`,
-            createStateMachineCommandHandler(name),
+            `tomAi.layout.${commandSuffix}`,
+            createStateMachineCommandHandler(configKey),
         );
         context.subscriptions.push(cmd);
     }
