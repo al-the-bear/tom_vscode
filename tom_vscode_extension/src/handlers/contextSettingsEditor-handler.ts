@@ -336,13 +336,9 @@ async function _sendTodosForFile(file: string): Promise<void> {
         const parts = file.split('/');
         todoPath = WsPaths.ai('quests', ...parts) || path.join(wsRoot, '_ai', 'quests', ...parts);
     } else {
-        // Legacy: try to use current quest
-        let currentQuest = '';
-        try {
-            const { ChatVariablesStore } = await import('../managers/chatVariablesStore.js');
-            currentQuest = ChatVariablesStore.instance.quest || '';
-        } catch { /* */ }
-        if (!currentQuest) {
+        // Legacy: use current quest from workspace file
+        const currentQuest = WsPaths.getWorkspaceQuestId();
+        if (currentQuest === 'default') {
             _panel.webview.postMessage({ type: 'contextTodosUpdate', todos: [] });
             return;
         }

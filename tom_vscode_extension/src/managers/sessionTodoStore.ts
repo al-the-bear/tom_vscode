@@ -47,15 +47,6 @@ export interface SessionTodoSnapshot {
 // Store
 // ============================================================================
 
-function getWorkspaceQuestId(): string {
-    const wsFile = vscode.workspace.workspaceFile?.fsPath;
-    if (wsFile) {
-        const base = path.basename(wsFile).replace(/\.code-workspace$/, '').trim();
-        if (base) { return base; }
-    }
-    return 'incidents';
-}
-
 /**
  * Manages the window-scoped session todo list for LLMs.
  * Create once per window at activation time.
@@ -93,7 +84,7 @@ export class SessionTodoStore {
     private constructor(context: vscode.ExtensionContext, windowId: string) {
         this.context = context;
         this.windowId = windowId;
-        this.questId = getWorkspaceQuestId();
+        this.questId = WsPaths.getWorkspaceQuestId();
         this.sessionFilePath = this.resolveSessionFilePath();
         // Defer file creation: only restore if the file already exists.
         // The file is created lazily on the first add() call to avoid

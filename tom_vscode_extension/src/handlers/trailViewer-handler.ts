@@ -313,10 +313,21 @@ interface TrailViewerFolderOption {
     folder: string;
 }
 
+/** Discovered subsystem with its quest subfolders */
+interface DiscoveredSubsystem {
+    name: string;
+    quests: string[];  // Quest names within this subsystem
+    hasRootFiles: boolean;  // True if subsystem folder directly has trail files (legacy)
+}
+
 interface TrailViewerState {
     rootFolder: string;
     currentFolder: string;
     folderOptions: TrailViewerFolderOption[];
+    // New: separate tracking for two-dropdown UI
+    subsystems: DiscoveredSubsystem[];
+    selectedSubsystem: string;
+    selectedQuest: string;
 }
 
 function hasRawTrailFiles(folder: string): boolean {
@@ -340,6 +351,7 @@ function hasRawTrailFiles(folder: string): boolean {
 function discoverRawTrailFolders(rootFolder: string): TrailViewerFolderOption[] {
     const options: TrailViewerFolderOption[] = [];
 
+    // Check root folder itself for raw files (legacy)
     if (hasRawTrailFiles(rootFolder)) {
         options.push({
             id: path.basename(rootFolder) || 'trail',
@@ -349,19 +361,39 @@ function discoverRawTrailFolders(rootFolder: string): TrailViewerFolderOption[] 
     }
 
     if (fs.existsSync(rootFolder)) {
-        const entries = fs.readdirSync(rootFolder, { withFileTypes: true })
+        // Level 1: Discover subsystem folders (copilot, localllm, lm-api, etc.)
+        const subsystemEntries = fs.readdirSync(rootFolder, { withFileTypes: true })
             .filter((entry) => entry.isDirectory())
             .map((entry) => entry.name)
             .sort((a, b) => a.localeCompare(b));
 
-        for (const entryName of entries) {
-            const fullPath = path.join(rootFolder, entryName);
-            if (hasRawTrailFiles(fullPath)) {
+        for (const subsystemName of subsystemEntries) {
+            const subsystemPath = path.join(rootFolder, subsystemName);
+
+            // Check if subsystem folder directly has raw files (legacy flat structure)
+            if (hasRawTrailFiles(subsystemPath)) {
                 options.push({
-                    id: entryName,
-                    label: entryName,
-                    folder: fullPath,
+                    id: subsystemName,
+                    label: subsystemName,
+                    folder: subsystemPath,
                 });
+            }
+
+            // Level 2: Discover quest folders within subsystem (new structure: subsystem/quest/)
+            const questEntries = fs.readdirSync(subsystemPath, { withFileTypes: true })
+                .filter((entry) => entry.isDirectory())
+                .map((entry) => entry.name)
+                .sort((a, b) => a.localeCompare(b));
+
+            for (const questName of questEntries) {
+                const questPath = path.join(subsystemPath, questName);
+                if (hasRawTrailFiles(questPath)) {
+                    options.push({
+                        id: `${subsystemName}/${questName}`,
+                        label: `${subsystemName}/${questName}`,
+                        folder: questPath,
+                    });
+                }
             }
         }
     }
@@ -377,12 +409,107 @@ function discoverRawTrailFolders(rootFolder: string): TrailViewerFolderOption[] 
     return options;
 }
 
-function buildViewerState(rootFolder: string): TrailViewerState {
+/** Discover subsystems and their quest subfolders for the two-dropdown UI */
+function discoverSubsystemsAndQuests(rootFolder: string): DiscoveredSubsystem[] {
+    const subsystems: DiscoveredSubsystem[] = [];
+
+    if (!fs.existsSync(rootFolder)) {
+        return subsystems;
+    }
+
+    const subsystemEntries = fs.readdirSync(rootFolder, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+        .sort((a, b) => a.localeCompare(b));
+
+    for (const subsystemName of subsystemEntries) {
+        const subsystemPath = path.join(rootFolder, subsystemName);
+        const hasRootFiles = hasRawTrailFiles(subsystemPath);
+
+        // Discover quest subfolders
+        const quests: string[] = [];
+        try {
+            const questEntries = fs.readdirSync(subsystemPath, { withFileTypes: true })
+                .filter((entry) => entry.isDirectory())
+                .map((entry) => entry.name)
+                .sort((a, b) => a.localeCompare(b));
+
+            for (const questName of questEntries) {
+                const questPath = path.join(subsystemPath, questName);
+                if (hasRawTrailFiles(questPath)) {
+                    quests.push(questName);
+                }
+            }
+        } catch {
+            // Ignore read errors
+        }
+
+        // Only include subsystems that have quest folders or root files
+        if (quests.length > 0 || hasRootFiles) {
+            subsystems.push({
+                name: subsystemName,
+                quests,
+                hasRootFiles,
+            });
+        }
+    }
+
+    return subsystems;
+}
+
+function buildViewerState(rootFolder: string, preferredQuest?: string): TrailViewerState {
     const folderOptions = discoverRawTrailFolders(rootFolder);
+    const subsystems = discoverSubsystemsAndQuests(rootFolder);
+
+    // Determine initial selection - prefer the current quest if available
+    let selectedSubsystem = '';
+    let selectedQuest = '';
+
+    // Try to find a subsystem that contains the preferred quest
+    if (preferredQuest && subsystems.length > 0) {
+        const normalizedPreferred = preferredQuest.toLowerCase().replace(/-/g, '_');
+        for (const sub of subsystems) {
+            // Check for exact match first
+            if (sub.quests.includes(preferredQuest)) {
+                selectedSubsystem = sub.name;
+                selectedQuest = preferredQuest;
+                break;
+            }
+            // Check for case-insensitive / normalized match
+            const matchingQuest = sub.quests.find(q => 
+                q.toLowerCase().replace(/-/g, '_') === normalizedPreferred
+            );
+            if (matchingQuest) {
+                selectedSubsystem = sub.name;
+                selectedQuest = matchingQuest;
+                break;
+            }
+        }
+    }
+
+    // Fallback to first subsystem/quest if preferred quest not found
+    if (!selectedSubsystem && subsystems.length > 0) {
+        selectedSubsystem = subsystems[0].name;
+        if (subsystems[0].quests.length > 0) {
+            selectedQuest = subsystems[0].quests[0];
+        }
+    }
+
+    // Compute currentFolder based on selection
+    let currentFolder = folderOptions[0]?.folder ?? rootFolder;
+    if (selectedSubsystem && selectedQuest) {
+        currentFolder = path.join(rootFolder, selectedSubsystem, selectedQuest);
+    } else if (selectedSubsystem) {
+        currentFolder = path.join(rootFolder, selectedSubsystem);
+    }
+
     return {
         rootFolder,
-        currentFolder: folderOptions[0].folder,
+        currentFolder,
         folderOptions,
+        subsystems,
+        selectedSubsystem,
+        selectedQuest,
     };
 }
 
@@ -398,7 +525,10 @@ function resolveTrailPathTokens(inputPath: string): string {
         .replace(/\$\{workspaceFolder\}/g, workspaceRoot)
         .replace(/\$\{ai\}/g, path.join(workspaceRoot, aiFolder))
         .replace(/\$\{home\}/g, os.homedir())
-        .replace(/\$\{username\}/g, process.env.USER ?? process.env.USERNAME ?? 'user');
+        .replace(/\$\{username\}/g, process.env.USER ?? process.env.USERNAME ?? 'user')
+        // Strip ${quest} and ${subsystem} tokens - trail viewer discovers these dynamically
+        .replace(/\/?\$\{quest\}/g, '')
+        .replace(/\/?\$\{subsystem\}/g, '');
 
     if (path.isAbsolute(replaced)) {
         return replaced;
@@ -406,15 +536,37 @@ function resolveTrailPathTokens(inputPath: string): string {
     return path.join(workspaceRoot, replaced);
 }
 
-function getConfiguredCopilotRawTrailFolder(): string | undefined {
+/** Get the trail ROOT folder (e.g., _ai/trail) for the viewer to discover subsystems/quests */
+function getTrailRootFolder(): string {
     const trail = TomAiConfiguration.instance.getTrail() as Record<string, unknown>;
     const raw = (trail.raw ?? {}) as Record<string, unknown>;
     const paths = (raw.paths ?? {}) as Record<string, unknown>;
-    const configured = paths.copilot;
+    
+    // Get any configured path and extract the trail root (strip subsystem/quest parts)
+    const configured = paths.copilot ?? paths.localLlm ?? paths.lmApi;
     if (typeof configured === 'string' && configured.trim().length > 0) {
-        return resolveTrailPathTokens(configured);
+        // The configured path is like ${ai}/trail/copilot/${quest}
+        // We want ${ai}/trail
+        const resolved = resolveTrailPathTokens(configured);
+        // Walk up from the resolved path to find the trail root (parent of subsystem folders)
+        // The resolved path would be like /workspace/_ai/trail/copilot
+        const parts = resolved.split(path.sep);
+        // Find 'trail' in the path and return up to there
+        const trailIndex = parts.lastIndexOf('trail');
+        if (trailIndex !== -1) {
+            return parts.slice(0, trailIndex + 1).join(path.sep);
+        }
+        // Fallback: go up one level (assumes path is trail/subsystem)
+        return path.dirname(resolved);
     }
-    return WsPaths.ai('trail', 'copilot') ?? WsPaths.ai('trail');
+    
+    // Default fallback
+    return WsPaths.ai('trail') ?? path.join(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '', '_ai', 'trail');
+}
+
+function getConfiguredCopilotRawTrailFolder(): string | undefined {
+    // Return the trail root folder for the viewer
+    return getTrailRootFolder();
 }
 
 function resolveRawTrailFolder(inputPath?: string): string | undefined {
@@ -444,7 +596,12 @@ export async function openTrailViewer(
         return;
     }
     
-    const nextState = buildViewerState(folder);
+    // Get the current quest from the workspace file name
+    const currentQuest = WsPaths.getWorkspaceQuestId();
+    console.log('[TrailViewer] Current quest from workspace file:', currentQuest);
+    
+    const nextState = buildViewerState(folder, currentQuest !== 'default' ? currentQuest : undefined);
+    console.log('[TrailViewer] Selected subsystem:', nextState.selectedSubsystem, 'quest:', nextState.selectedQuest);
 
     // If panel exists, just reveal it
     if (currentPanel) {
@@ -454,6 +611,9 @@ export async function openTrailViewer(
             type: 'refresh',
             folder: nextState.currentFolder,
             folderOptions: nextState.folderOptions,
+            subsystems: nextState.subsystems,
+            selectedSubsystem: nextState.selectedSubsystem,
+            selectedQuest: nextState.selectedQuest,
         });
         return;
     }
@@ -477,8 +637,7 @@ export async function openTrailViewer(
     currentPanel.webview.html = getWebviewHtml(
         currentPanel.webview,
         context.extensionUri,
-        currentViewerState.currentFolder,
-        currentViewerState.folderOptions,
+        currentViewerState,
     );
     
     // Handle messages from webview
@@ -773,14 +932,17 @@ async function openMarkdownExternally(
 function getWebviewHtml(
     webview: vscode.Webview,
     extensionUri: vscode.Uri,
-    trailFolder: string,
-    folderOptions: TrailViewerFolderOption[]
+    state: TrailViewerState
 ): string {
     const codiconsUri = webview.asWebviewUri(
         vscode.Uri.joinPath(extensionUri, 'node_modules', '@vscode', 'codicons', 'dist', 'codicon.css')
     );
-    const folderOptionsJson = JSON.stringify(folderOptions);
-    const selectedFolderJson = JSON.stringify(trailFolder);
+    const folderOptionsJson = JSON.stringify(state.folderOptions);
+    const selectedFolderJson = JSON.stringify(state.currentFolder);
+    const subsystemsJson = JSON.stringify(state.subsystems);
+    const selectedSubsystemJson = JSON.stringify(state.selectedSubsystem);
+    const selectedQuestJson = JSON.stringify(state.selectedQuest);
+    const rootFolderJson = JSON.stringify(state.rootFolder);
     
     return `<!DOCTYPE html>
 <html lang="en">
@@ -820,16 +982,40 @@ function getWebviewHtml(
         }
         .v-splitter:hover, .v-splitter.dragging { background: var(--vscode-focusBorder); }
         .sidebar-header {
-            padding: 12px;
+            padding: 8px 12px;
             border-bottom: 1px solid var(--vscode-panel-border);
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .sidebar-header-title {
             display: flex;
             align-items: center;
             gap: 8px;
         }
-        .sidebar-header h2 {
+        .sidebar-header-title h2 {
             font-size: 14px;
             font-weight: 600;
             flex: 1;
+            margin: 0;
+        }
+        .sidebar-header-controls {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .sidebar-header select {
+            background: var(--vscode-dropdown-background);
+            color: var(--vscode-dropdown-foreground);
+            border: 1px solid var(--vscode-dropdown-border);
+            padding: 2px 4px;
+            font-size: 11px;
+            flex: 1;
+            min-width: 0;
+            cursor: pointer;
+        }
+        .sidebar-header select:focus {
+            outline: 1px solid var(--vscode-focusBorder);
         }
         .sidebar-header button {
             background: none;
@@ -1032,9 +1218,14 @@ function getWebviewHtml(
 <body>
     <div class="sidebar">
         <div class="sidebar-header">
-            <h2>Exchanges</h2>
-            <select id="subsystemSelect" title="Subsystem"></select>
-            <button id="refreshBtn" title="Refresh"><span class="codicon codicon-refresh"></span></button>
+            <div class="sidebar-header-title">
+                <h2>Exchanges</h2>
+                <button id="refreshBtn" title="Refresh"><span class="codicon codicon-refresh"></span></button>
+            </div>
+            <div class="sidebar-header-controls">
+                <select id="subsystemSelect" title="Subsystem"></select>
+                <select id="questSelect" title="Quest"></select>
+            </div>
         </div>
         <div class="session-list" id="sessionList">
             <div class="empty-state">
@@ -1086,10 +1277,15 @@ function getWebviewHtml(
             let currentTab = 'prompt';
             let folderOptions = ${folderOptionsJson};
             let selectedFolder = ${selectedFolderJson};
+            let subsystems = ${subsystemsJson};
+            let selectedSubsystem = ${selectedSubsystemJson};
+            let selectedQuest = ${selectedQuestJson};
+            const rootFolder = ${rootFolderJson};
             
             // Elements
             const exchangeList = document.getElementById('sessionList');
             const subsystemSelect = document.getElementById('subsystemSelect');
+            const questSelect = document.getElementById('questSelect');
             const exchangeTitle = document.getElementById('exchangeTitle');
             const tabs = document.getElementById('tabs');
             const contentPane = document.getElementById('contentPane');
@@ -1101,21 +1297,85 @@ function getWebviewHtml(
 
             function populateSubsystems() {
                 subsystemSelect.innerHTML = '';
-                for (const option of folderOptions) {
+                for (const sub of subsystems) {
                     const element = document.createElement('option');
-                    element.value = option.folder;
-                    element.textContent = option.label;
-                    if (option.folder === selectedFolder) {
+                    element.value = sub.name;
+                    element.textContent = sub.name;
+                    if (sub.name === selectedSubsystem) {
                         element.selected = true;
                     }
                     subsystemSelect.appendChild(element);
+                }
+                // Also populate quests for the selected subsystem
+                populateQuests();
+            }
+
+            function populateQuests() {
+                questSelect.innerHTML = '';
+                const sub = subsystems.find(s => s.name === selectedSubsystem);
+                if (!sub) {
+                    questSelect.style.display = 'none';
+                    return;
+                }
+                
+                const quests = sub.quests || [];
+                if (quests.length === 0) {
+                    // No quest folders, hide the dropdown
+                    questSelect.style.display = 'none';
+                    // If subsystem has root files, use subsystem folder
+                    if (sub.hasRootFiles) {
+                        selectedQuest = '';
+                        selectedFolder = rootFolder + '/' + selectedSubsystem;
+                    }
+                    return;
+                }
+                
+                questSelect.style.display = '';
+                for (const quest of quests) {
+                    const element = document.createElement('option');
+                    element.value = quest;
+                    element.textContent = quest;
+                    if (quest === selectedQuest) {
+                        element.selected = true;
+                    }
+                    questSelect.appendChild(element);
+                }
+                
+                // Ensure selectedQuest is valid
+                if (!quests.includes(selectedQuest)) {
+                    selectedQuest = quests[0] || '';
+                    if (questSelect.options.length > 0) {
+                        questSelect.options[0].selected = true;
+                    }
+                }
+                
+                // Update selectedFolder
+                if (selectedQuest) {
+                    selectedFolder = rootFolder + '/' + selectedSubsystem + '/' + selectedQuest;
+                } else {
+                    selectedFolder = rootFolder + '/' + selectedSubsystem;
                 }
             }
 
             populateSubsystems();
 
             subsystemSelect.addEventListener('change', () => {
-                selectedFolder = subsystemSelect.value;
+                selectedSubsystem = subsystemSelect.value;
+                populateQuests();
+                selectedExchange = null;
+                exchangeContent = {};
+                exchangeTodoRef = '';
+                exchangeResponseValues = null;
+                vscode.postMessage({ type: 'switchSubsystem', folder: selectedFolder });
+            });
+
+            questSelect.addEventListener('change', () => {
+                selectedQuest = questSelect.value;
+                if (selectedQuest) {
+                    selectedFolder = rootFolder + '/' + selectedSubsystem + '/' + selectedQuest;
+                } else {
+                    selectedFolder = rootFolder + '/' + selectedSubsystem;
+                }
                 selectedExchange = null;
                 exchangeContent = {};
                 exchangeTodoRef = '';
@@ -1334,6 +1594,15 @@ function getWebviewHtml(
                     case 'refresh':
                         if (Array.isArray(message.folderOptions)) {
                             folderOptions = message.folderOptions;
+                        }
+                        if (Array.isArray(message.subsystems)) {
+                            subsystems = message.subsystems;
+                        }
+                        if (message.selectedSubsystem !== undefined) {
+                            selectedSubsystem = message.selectedSubsystem;
+                        }
+                        if (message.selectedQuest !== undefined) {
+                            selectedQuest = message.selectedQuest;
                         }
                         if (message.folder) {
                             selectedFolder = message.folder;

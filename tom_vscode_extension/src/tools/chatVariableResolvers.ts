@@ -10,6 +10,7 @@
 
 import * as vscode from 'vscode';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
+import { WsPaths } from '../utils/workspacePaths';
 
 interface ResolverDef {
     id: string;
@@ -36,7 +37,7 @@ export function registerChatVariableResolvers(context: vscode.ExtensionContext):
             name: 'quest',
             description: 'Current active quest ID',
             resolve: () => {
-                try { return ChatVariablesStore.instance.quest; } catch { return ''; }
+                return WsPaths.getWorkspaceQuestId();
             },
         },
         {

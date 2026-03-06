@@ -436,14 +436,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
             await vscode.commands.executeCommand('tomAi.editor.promptQueue');
             break;
         case 'openTrailFile': {
-            let questId = 'incidents';
-            try {
-                const { ChatVariablesStore } = require('../managers/chatVariablesStore.js');
-                const activeQuest = ChatVariablesStore.instance.quest;
-                if (typeof activeQuest === 'string' && activeQuest.trim().length > 0) {
-                    questId = activeQuest;
-                }
-            } catch { /* */ }
+            const questId = WsPaths.getWorkspaceQuestId();
             const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
             const questFolder = WsPaths.ai('quests', questId) || (wsRoot ? path.join(wsRoot, '_ai', 'quests', questId) : '');
             if (questFolder) {

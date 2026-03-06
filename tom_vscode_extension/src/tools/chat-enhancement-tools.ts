@@ -162,18 +162,9 @@ function questFolderExists(questId: string): boolean {
 }
 
 async function executeDetermineQuest(_input: DetermineQuestInput): Promise<string> {
-    let quest = '';
-    try {
-        quest = ChatVariablesStore.instance.quest || '';
-    } catch {
-        quest = '';
-    }
+    const quest = WsPaths.getWorkspaceQuestId();
 
-    if (!quest || !questFolderExists(quest)) {
-        quest = determineQuestFromWorkspaceFile();
-    }
-
-    if (!quest || !questFolderExists(quest)) {
+    if (quest === 'default' || !questFolderExists(quest)) {
         return 'No quest set';
     }
     return quest;

@@ -262,8 +262,8 @@ export class TomScriptingBridgeHandler {
         const todos: any[] = [];
 
         if (params.includeQuest) {
-            const questId = params.questId || ChatVariablesStore.instance?.quest;
-            if (questId) {
+            const questId = params.questId || WsPaths.getWorkspaceQuestId();
+            if (questId && questId !== 'default') {
                 const questTodos = questTodo.readAllTodos(questId);
                 todos.push(...questTodos.map((t: any) => ({ ...t, _scope: 'quest' })));
             }
@@ -924,14 +924,14 @@ export class TomScriptingBridgeHandler {
             }
 
             case 'workspace.getActiveQuestVce': {
-                const questId = ChatVariablesStore.instance?.quest;
-                if (!questId) { return null; }
+                const questId = WsPaths.getWorkspaceQuestId();
+                if (questId === 'default') { return null; }
                 return this.getQuest(questId);
             }
 
             case 'workspace.setActiveQuestVce': {
-                ChatVariablesStore.instance?.set('quest', params.questId, 'copilot');
-                return { success: true };
+                // Quest is determined by workspace file - this is now a no-op
+                return { success: false, message: 'Quest is determined by the .code-workspace filename' };
             }
 
             case 'workspace.listChatVariablesVce': {
@@ -978,7 +978,7 @@ export class TomScriptingBridgeHandler {
         const wsFile = vscode.workspace.workspaceFile?.fsPath;
         const questIds = questTodo.listQuestIds();
         const projects = await scanWorkspaceProjectsByDetectors();
-        const activeQuest = ChatVariablesStore.instance?.quest;
+        const activeQuest = WsPaths.getWorkspaceQuestId();
         const windowId = this.ctx.workspaceState.get<string>('tomAi.windowId');
 
         return {
@@ -1066,7 +1066,7 @@ export class TomScriptingBridgeHandler {
     private async listQuests(includeTodoCounts?: boolean): Promise<any> {
         const questIds = questTodo.listQuestIds();
         const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
-        const activeQuest = ChatVariablesStore.instance?.quest;
+        const activeQuest = WsPaths.getWorkspaceQuestId();
         const quests: any[] = [];
 
         for (const questId of questIds) {

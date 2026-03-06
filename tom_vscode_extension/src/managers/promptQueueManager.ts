@@ -31,6 +31,7 @@ import {
 } from '../storage/queueFileStorage';
 import { debugLog } from '../utils/debugLogger';
 import { writeWindowState } from '../handlers/windowStatusPanel-handler';
+import { TrailService } from '../services/trailService';
 
 // ============================================================================
 // Types
@@ -440,12 +441,31 @@ export class PromptQueueManager {
         }
 
         let answer: Record<string, unknown> | undefined;
+        let rawAnswerContent = '';
+        let parseErrorMessage = '';
         try {
-            const raw = fs.readFileSync(filePath, 'utf-8');
-            answer = JSON.parse(raw);
+            rawAnswerContent = fs.readFileSync(filePath, 'utf-8');
+            answer = JSON.parse(rawAnswerContent);
             debugLog(`[PromptQueueManager] Parsed answer file, requestId: ${(answer as any)?.requestId}`, 'DEBUG', 'queue');
         } catch (e) { 
             debugLog(`[PromptQueueManager] Failed to parse answer file: ${e}`, 'ERROR', 'queue');
+            parseErrorMessage = String(e);
+        }
+
+        // Fallback: recover requestId from raw content if JSON parsing failed.
+        const recoveredRequestId = this._extractRequestIdFromExpandedPrompt(rawAnswerContent);
+        if (!answer && recoveredRequestId) {
+            const preview = rawAnswerContent.slice(0, 2000);
+            answer = {
+                requestId: recoveredRequestId,
+                generatedMarkdown:
+                    `An invalid answer file was received and recovered via fallback.\n\n`
+                    + `source: ${filePath}\n`
+                    + `parseError: ${parseErrorMessage || 'unknown'}\n\n`
+                    + `--- raw content preview ---\n\n`
+                    + `\`\`\`text\n${preview}\n\`\`\``,
+            };
+            debugLog(`[PromptQueueManager] Recovered requestId from invalid answer file: ${recoveredRequestId}`, 'WARN', 'queue');
         }
 
         // Propagate responseValues to session-scoped chat response store only.
@@ -466,6 +486,36 @@ export class PromptQueueManager {
         const answerRequestId = (answer && typeof answer === 'object' && typeof (answer as any).requestId === 'string')
             ? String((answer as any).requestId)
             : undefined;
+
+        // Ensure we always produce a canonical trail answer entry when a requestId is available.
+        if (answerRequestId) {
+            try {
+                const generatedMarkdown = (answer && typeof answer === 'object' && typeof (answer as any).generatedMarkdown === 'string')
+                    ? String((answer as any).generatedMarkdown)
+                    : '';
+                const fallbackText = rawAnswerContent
+                    ? `An answer file without generatedMarkdown was received.\n\nsource: ${filePath}\n\n\`\`\`json\n${rawAnswerContent}\n\`\`\``
+                    : `An answer file event was received, but no readable content was available.\n\nsource: ${filePath}`;
+                const trailText = generatedMarkdown.trim().length > 0 ? generatedMarkdown : fallbackText;
+                const quest = await_import_ChatVariablesStore()?.quest || undefined;
+
+                TrailService.instance.writeRawAnswer({ type: 'copilot' }, trailText, getWindowStatusWindowId(), answerRequestId, quest);
+                TrailService.instance.writeSummaryAnswer(
+                    { type: 'copilot' },
+                    trailText,
+                    {
+                        requestId: answerRequestId,
+                        comments: generatedMarkdown.trim().length > 0
+                            ? undefined
+                            : `invalid answer schema received from ${filePath}`,
+                        references: [filePath],
+                    },
+                    quest,
+                );
+            } catch (trailErr) {
+                debugLog(`[PromptQueueManager] Failed to write fallback trail answer: ${trailErr}`, 'WARN', 'queue');
+            }
+        }
 
         const sending = this._items.find(i => i.status === 'sending');
         if (!sending) {

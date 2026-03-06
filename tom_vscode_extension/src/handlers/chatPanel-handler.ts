@@ -232,9 +232,9 @@ export function getIndividualTrailFolder(): string {
     return WsPaths.ai('trail') || path.join(wsRoot, '_ai', 'trail');
 }
 
-/** Get the trail file name prefix — quest ID from .code-workspace when a quest is active, 'default' otherwise */
+/** Get the trail file name prefix — quest ID from .code-workspace */
 export function getTrailFilePrefix(): string {
-    return detectQuestFromWorkspace() || 'default';
+    return WsPaths.getWorkspaceQuestId();
 }
 
 export function getCopilotSummaryTrailPaths(): { questId: string; folder: string; promptsPath: string; answersPath: string } | null {
@@ -243,7 +243,7 @@ export function getCopilotSummaryTrailPaths(): { questId: string; folder: string
         return null;
     }
 
-    const questId = detectQuestFromWorkspace() || 'incidents';
+    const questId = WsPaths.getWorkspaceQuestId();
     const folder = WsPaths.ai('quests', questId) || path.join(wsRoot, '_ai', 'quests', questId);
     return {
         questId,
@@ -366,11 +366,12 @@ function writePromptTrail(originalPrompt: string, templateName: string, isAnswer
         `REQUEST-ID: ${requestId}`;
     trailService.writeSummaryPrompt({ type: 'copilot' }, summaryPrompt, getCopilotSummaryTrailPaths()?.questId);
 
-    void trailService.writeRawPrompt({ type: 'copilot' }, expandedPrompt, getWindowId(), requestId);
+    const questId = WsPaths.getWorkspaceQuestId();
+    void trailService.writeRawPrompt({ type: 'copilot' }, expandedPrompt, getWindowId(), requestId, questId);
 
     // Update window status panel — prompt sent
     try {
-        const quest = detectQuestFromWorkspace() || '';
+        const quest = WsPaths.getWorkspaceQuestId();
         writeWindowState(getWindowId(), getWorkspaceName(), quest, 'copilot', 'prompt-sent');
     } catch (e) {
         debugLog(`[Trail] Failed to update window state on prompt: ${e}`, 'WARN', 'windowStatus');
@@ -393,11 +394,11 @@ function writeAnswerTrail(answer: { requestId: string; generatedMarkdown: string
         getCopilotSummaryTrailPaths()?.questId,
     );
 
-    void trailService.writeRawAnswer({ type: 'copilot' }, answer.generatedMarkdown, getWindowId(), answer.requestId);
+    void trailService.writeRawAnswer({ type: 'copilot' }, answer.generatedMarkdown, getWindowId(), answer.requestId, getCopilotSummaryTrailPaths()?.questId);
 
     // Update window status panel — answer received
     try {
-        const quest = detectQuestFromWorkspace() || '';
+        const quest = WsPaths.getWorkspaceQuestId();
         writeWindowState(getWindowId(), getWorkspaceName(), quest, 'copilot', 'answer-received');
     } catch (e) {
         debugLog(`[Trail] Failed to update window state on answer: ${e}`, 'WARN', 'windowStatus');
@@ -1514,7 +1515,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
 
     private async _appendToTrail(prompt: string, response: string, profile: string, llmConfigKey?: string | null): Promise<void> {
         const trailService = TrailService.instance;
-        const questId = detectQuestFromWorkspace() || undefined;
+        const questId = WsPaths.getWorkspaceQuestId();
         const subsystem = {
             type: 'localLlm' as const,
             configName: (llmConfigKey || profile || 'default').replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-{2,}/g, '-')
@@ -1522,13 +1523,13 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
 
         await trailService.writeSummaryPrompt(subsystem, prompt, questId);
         await trailService.writeSummaryAnswer(subsystem, response, { profile, llmConfigKey: llmConfigKey ?? undefined }, questId);
-        await trailService.writeRawPrompt(subsystem, prompt, getWindowId());
-        await trailService.writeRawAnswer(subsystem, response, getWindowId());
+        await trailService.writeRawPrompt(subsystem, prompt, getWindowId(), undefined, questId);
+        await trailService.writeRawAnswer(subsystem, response, getWindowId(), undefined, questId);
     }
 
     private async _showTrail(llmConfigKey?: string | null): Promise<void> {
         // Try to open the summary prompts file from the quest folder
-        const questId = detectQuestFromWorkspace() || undefined;
+        const questId = WsPaths.getWorkspaceQuestId();
         const configName = (llmConfigKey || 'default').replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-{2,}/g, '-');
         const subsystem = { type: 'localLlm' as const, configName };
         const trailService = TrailService.instance;
@@ -1909,13 +1910,9 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
 
     private async _sendTodosForFile(file: string): Promise<void> {
         const wsRoot = getWorkspaceRoot();
-        let currentQuest = '';
-        try {
-            const { ChatVariablesStore } = await import('../managers/chatVariablesStore.js');
-            currentQuest = ChatVariablesStore.instance.quest || '';
-        } catch { /* ignore */ }
+        const currentQuest = WsPaths.getWorkspaceQuestId();
 
-        if (!currentQuest || !file || !wsRoot) {
+        if (currentQuest === 'default' || !file || !wsRoot) {
             this._view?.webview.postMessage({ type: 'contextData', todos: [] });
             return;
         }

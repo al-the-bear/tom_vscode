@@ -278,4 +278,18 @@ export class WsPaths {
             copilotAnswerFolder: `${aiFolder}/${AI_SUBPATHS['answersCopilot']}`,
         };
     }
+
+    /**
+     * Get the current quest ID from the open .code-workspace filename.
+     * This is the ONLY source of truth for the current quest.
+     * Returns 'default' if no workspace file is open or the name is empty.
+     */
+    static getWorkspaceQuestId(): string {
+        const wsFile = vscode.workspace.workspaceFile?.fsPath;
+        if (wsFile) {
+            const base = path.basename(wsFile).replace(/\.code-workspace$/, '').trim();
+            if (base) { return base; }
+        }
+        return 'default';
+    }
 }

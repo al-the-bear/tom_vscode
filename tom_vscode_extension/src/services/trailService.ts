@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { FsUtils } from '../utils/fsUtils';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
+import { WsPaths } from '../utils/workspacePaths';
 
 export type TrailSubsystem =
     | { type: 'localLlm'; configName: string }
@@ -53,20 +54,20 @@ export class TrailService {
         this.context = context;
     }
 
-    writeRawPrompt(subsystem: TrailSubsystem, prompt: string, windowId: string, requestId?: string): void {
-        this.writeRaw(subsystem, 'prompt', prompt, windowId, 'md', requestId);
+    writeRawPrompt(subsystem: TrailSubsystem, prompt: string, windowId: string, requestId?: string, questId?: string): void {
+        this.writeRaw(subsystem, 'prompt', prompt, windowId, 'md', requestId, questId);
     }
 
-    writeRawAnswer(subsystem: TrailSubsystem, answer: string, windowId: string, requestId?: string): void {
-        this.writeRaw(subsystem, 'answer', answer, windowId, 'json', requestId);
+    writeRawAnswer(subsystem: TrailSubsystem, answer: string, windowId: string, requestId?: string, questId?: string): void {
+        this.writeRaw(subsystem, 'answer', answer, windowId, 'json', requestId, questId);
     }
 
-    writeRawToolRequest(subsystem: TrailSubsystem, request: object, windowId: string): void {
-        this.writeRaw(subsystem, 'tool_request', JSON.stringify(request, null, 2), windowId, 'json');
+    writeRawToolRequest(subsystem: TrailSubsystem, request: object, windowId: string, questId?: string): void {
+        this.writeRaw(subsystem, 'tool_request', JSON.stringify(request, null, 2), windowId, 'json', undefined, questId);
     }
 
-    writeRawToolAnswer(subsystem: TrailSubsystem, response: object, windowId: string): void {
-        this.writeRaw(subsystem, 'tool_answer', JSON.stringify(response, null, 2), windowId, 'json');
+    writeRawToolAnswer(subsystem: TrailSubsystem, response: object, windowId: string, questId?: string): void {
+        this.writeRaw(subsystem, 'tool_answer', JSON.stringify(response, null, 2), windowId, 'json', undefined, questId);
     }
 
     writeSummaryPrompt(subsystem: TrailSubsystem, corePrompt: string, questId?: string): void {
@@ -164,20 +165,22 @@ export class TrailService {
         void TomAiConfiguration.instance.saveTrail(cfg);
     }
 
-    getSubsystemPath(subsystem: TrailSubsystem): string {
+    getSubsystemPath(subsystem: TrailSubsystem, questId?: string): string {
         const base = this.resolveRawBasePath(subsystem);
+        const quest = questId || WsPaths.getWorkspaceQuestId();
         return this.resolvePathTokens(base, {
             subsystem: this.getSubsystemName(subsystem),
+            quest,
         });
     }
 
-    private writeRaw(subsystem: TrailSubsystem, kind: string, content: string, windowId: string, ext: 'md' | 'json', requestId?: string): void {
+    private writeRaw(subsystem: TrailSubsystem, kind: string, content: string, windowId: string, ext: 'md' | 'json', requestId?: string, questId?: string): void {
         const raw = this.getRawConfig();
         if (raw.enabled !== true) {
             return;
         }
 
-        const base = this.getSubsystemPath(subsystem);
+        const base = this.getSubsystemPath(subsystem, questId);
         FsUtils.ensureDir(base);
 
         const safeContent = raw.stripThinking
@@ -218,9 +221,9 @@ export class TrailService {
             maxEntries: typeof raw.maxEntries === 'number' && raw.maxEntries > 0 ? raw.maxEntries : 1000,
             stripThinking: raw.stripThinking === true,
             paths: {
-                localLlm: raw.paths?.localLlm ?? '${ai}/trail/localllm',
-                copilot: raw.paths?.copilot ?? '${ai}/trail/copilot',
-                lmApi: raw.paths?.lmApi ?? '${ai}/trail/lm-api',
+                localLlm: raw.paths?.localLlm ?? '${ai}/trail/localllm/${quest}',
+                copilot: raw.paths?.copilot ?? '${ai}/trail/copilot/${quest}',
+                lmApi: raw.paths?.lmApi ?? '${ai}/trail/lm-api/${quest}',
             },
         };
     }
@@ -237,11 +240,12 @@ export class TrailService {
 
     private resolveRawBasePath(subsystem: TrailSubsystem): string {
         const raw = this.getRawConfig();
+        // Raw trail paths now include ${quest} for quest-scoped isolation
         const base = subsystem.type === 'localLlm'
-            ? raw.paths?.localLlm ?? '${ai}/trail/localllm'
+            ? raw.paths?.localLlm ?? '${ai}/trail/localllm/${quest}'
             : subsystem.type === 'copilot'
-                ? raw.paths?.copilot ?? '${ai}/trail/copilot'
-                : raw.paths?.lmApi ?? '${ai}/trail/lm-api';
+                ? raw.paths?.copilot ?? '${ai}/trail/copilot/${quest}'
+                : raw.paths?.lmApi ?? '${ai}/trail/lm-api/${quest}';
 
         const suffix = subsystem.type === 'localLlm'
             ? `-${subsystem.configName}`
@@ -249,9 +253,7 @@ export class TrailService {
                 ? `-${subsystem.model}`
                 : '';
 
-        return this.resolvePathTokens(`${base}${suffix}`, {
-            subsystem: this.getSubsystemName(subsystem),
-        });
+        return `${base}${suffix}`;
     }
 
     /** Resolve the summary file path for external callers. */
@@ -268,7 +270,7 @@ export class TrailService {
 
         return this.resolvePathTokens(pattern, {
             subsystem: this.getSubsystemName(subsystem),
-            quest: questId ?? 'incidents',
+            quest: questId ?? 'default',
         });
     }
 
@@ -283,7 +285,7 @@ export class TrailService {
             .replace(/\$\{ai\}/g, path.join(workspaceRoot, aiFolder))
             .replace(/\$\{username\}/g, process.env.USER ?? process.env.USERNAME ?? 'user')
             .replace(/\$\{home\}/g, process.env.HOME ?? '')
-            .replace(/\$\{quest\}/g, vars.quest ?? 'incidents')
+            .replace(/\$\{quest\}/g, vars.quest ?? 'default')
             .replace(/\$\{subsystem\}/g, vars.subsystem ?? 'copilot');
 
         if (path.isAbsolute(replaced)) {

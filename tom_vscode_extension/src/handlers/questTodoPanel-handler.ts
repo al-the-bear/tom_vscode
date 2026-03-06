@@ -2284,9 +2284,12 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             if (saved.questId && quests.indexOf(saved.questId) >= 0) {
                 activeQuest = saved.questId;
             }
-            // 2. Fall back to ChatVariablesStore
+            // 2. Fall back to workspace file name
             if (!activeQuest) {
-                try { activeQuest = ChatVariablesStore.instance.quest; } catch { /* */ }
+                const wsQuest = WsPaths.getWorkspaceQuestId();
+                if (wsQuest !== 'default' && quests.indexOf(wsQuest) >= 0) {
+                    activeQuest = wsQuest;
+                }
             }
             // 3. If no explicit quest, try to infer from the active editor file path
             if (!activeQuest && wsRoot) {
@@ -2946,13 +2949,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
         case 'qtOpenTrailFiles': {
             const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
             if (!wsRoot) return true;
-            let questId = 'incidents';
-            try {
-                const activeQuest = ChatVariablesStore.instance.quest;
-                if (typeof activeQuest === 'string' && activeQuest.trim().length > 0) {
-                    questId = activeQuest;
-                }
-            } catch { /* */ }
+            const questId = WsPaths.getWorkspaceQuestId();
             const questFolder = WsPaths.ai('quests', questId) || path.join(wsRoot, '_ai', 'quests', questId);
             if (!fs.existsSync(questFolder)) {
                 fs.mkdirSync(questFolder, { recursive: true });
@@ -3209,9 +3206,8 @@ export function setupQuestTodoWatcher(refreshFn: () => void): vscode.Disposable 
 
 /** Send the full todo list refresh to the webview */
 export function sendQuestTodoRefresh(webview: vscode.Webview): void {
-    let activeQuest = '';
-    try { activeQuest = ChatVariablesStore.instance.quest; } catch { /* */ }
-    if (!activeQuest) return;
+    const activeQuest = WsPaths.getWorkspaceQuestId();
+    if (activeQuest === 'default') return;
     const post = (m: any) => webview.postMessage(m);
     _sendTodoList(activeQuest, 'all', post);
 }

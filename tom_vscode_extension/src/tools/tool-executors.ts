@@ -29,6 +29,7 @@ import { expandTemplate } from '../handlers/promptTemplate';
 import { debugLog } from '../utils/debugLogger.js';
 import { logPrompt, logResponse } from '../services/trailLogging';
 import { ChatVariablesStore } from '../managers/chatVariablesStore.js';
+import { WsPaths } from '../utils/workspacePaths';
 
 const execAsync = promisify(exec);
 
@@ -842,13 +843,7 @@ async function executeAskBigBrother(input: AskBigBrotherInput): Promise<string> 
             }
 
             const model = models[0];
-            const questId = (() => {
-                try {
-                    return ChatVariablesStore.instance.quest || undefined;
-                } catch {
-                    return undefined;
-                }
-            })();
+            const questId = WsPaths.getWorkspaceQuestId();
 
             logPrompt('tomai', model.id, input.prompt, undefined, {
                 questId,
@@ -1068,13 +1063,7 @@ export interface AskCopilotInput {
 
 async function executeAskCopilot(input: AskCopilotInput): Promise<string> {
     const config = loadLocalLlmToolsConfig();
-    const questId = (() => {
-        try {
-            return ChatVariablesStore.instance.quest || undefined;
-        } catch {
-            return undefined;
-        }
-    })();
+    const questId = WsPaths.getWorkspaceQuestId();
     
     // Check if tool is enabled
     if (!config.askCopilot.enabled) {

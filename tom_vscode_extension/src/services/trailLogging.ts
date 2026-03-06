@@ -103,7 +103,7 @@ export function logPrompt(
 
     trailService.writeSummaryPrompt(subsystem, summaryPrompt, questId);
     const requestId = typeof metadata.requestId === 'string' ? metadata.requestId : undefined;
-    trailService.writeRawPrompt(subsystem, prompt, getWindowId(), requestId);
+    trailService.writeRawPrompt(subsystem, prompt, getWindowId(), requestId, questId);
 }
 
 export function logResponse(
@@ -119,7 +119,7 @@ export function logResponse(
 
     trailService.writeSummaryAnswer(subsystem, response, metadata, questId);
     const requestId = typeof metadata.requestId === 'string' ? metadata.requestId : undefined;
-    trailService.writeRawAnswer(subsystem, response, getWindowId(), requestId);
+    trailService.writeRawAnswer(subsystem, response, getWindowId(), requestId, questId);
 }
 
 export function logContinuationPrompt(
@@ -135,21 +135,21 @@ export function logContinuationPrompt(
     });
 }
 
-export function logToolRequest(type: TrailType | string, toolName: string, input: unknown): void {
+export function logToolRequest(type: TrailType | string, toolName: string, input: unknown, questId?: string): void {
     const subsystem = mapTypeToSubsystem(type, toolName, { model: toolName });
     TrailService.instance.writeRawToolRequest(subsystem, {
         tool: toolName,
         input,
-    }, getWindowId());
+    }, getWindowId(), questId);
 }
 
-export function logToolResult(type: TrailType | string, toolName: string, output: unknown, error?: string): void {
+export function logToolResult(type: TrailType | string, toolName: string, output: unknown, error?: string, questId?: string): void {
     const subsystem = mapTypeToSubsystem(type, toolName, { model: toolName });
     TrailService.instance.writeRawToolAnswer(subsystem, {
         tool: toolName,
         output,
         error,
-    }, getWindowId());
+    }, getWindowId(), questId);
 }
 
 export function logCopilotAnswer(answerPath: string, data: unknown): void {
