@@ -76,6 +76,7 @@ import {
     getConfigPath,
     registerYamlGraphEditor,
     registerTrailViewerCommands,
+    setExtensionPath,
 } from './handlers';
 
 import { registerQuestTodoCustomEditor } from './handlers/questTodoEditor-handler';
@@ -287,6 +288,9 @@ export async function activate(context: vscode.ExtensionContext) {
     installConsoleDebugRouting();
     debugLog('Debug logger initialized', 'INFO', 'extension.activate');
     timeStep('debugLogger + consoleRouting', stepStart);
+
+    // Store extension path for bundled binary resolution
+    setExtensionPath(context.extensionPath);
 
     stepStart = performance.now();
     installGlobalInstrumentation();

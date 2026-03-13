@@ -102,6 +102,48 @@ try {
 # Remove old VSIX files to prevent stale packaging
 Remove-Item -Path "*.vsix" -Force -ErrorAction SilentlyContinue
 
+# ── Bundle bridge binaries for all platforms ─────────────────────────────────
+$WorkspaceRoot = (Resolve-Path (Join-Path $ScriptDir '..\..\..')).Path
+$TomBinDir = Join-Path $WorkspaceRoot 'tom_binaries' 'tom'
+$BundledBinaries = @('tom_bs')
+# Platforms and their executable extension
+$Platforms = @(
+    @{ Id = 'darwin-arm64'; Ext = '' },
+    @{ Id = 'darwin-x64';   Ext = '' },
+    @{ Id = 'linux-x64';    Ext = '' },
+    @{ Id = 'linux-arm64';  Ext = '' },
+    @{ Id = 'win32-x64';    Ext = '.exe' }
+)
+
+Write-Host "📦 Bundling bridge binaries..." -ForegroundColor Cyan
+# Clean previous bin/ to avoid stale binaries
+$ExtBinDir = Join-Path $ScriptDir 'bin'
+if (Test-Path $ExtBinDir) { Remove-Item -Recurse -Force $ExtBinDir }
+
+$TotalBundled = 0
+foreach ($plat in $Platforms) {
+    $srcDir = Join-Path $TomBinDir $plat.Id
+    $dstDir = Join-Path $ScriptDir 'bin' $plat.Id
+    if (-not (Test-Path $srcDir)) {
+        Write-Host "  ⚠️  Source not found: $($plat.Id) — skipping" -ForegroundColor Yellow
+        continue
+    }
+    New-Item -ItemType Directory -Path $dstDir -Force | Out-Null
+    foreach ($bin in $BundledBinaries) {
+        $src = Join-Path $srcDir "$bin$($plat.Ext)"
+        if (Test-Path $src) {
+            Copy-Item -Path $src -Destination (Join-Path $dstDir "$bin$($plat.Ext)") -Force
+            $TotalBundled++
+            Write-Host "  ✔ $($plat.Id)/$bin$($plat.Ext)" -ForegroundColor Green
+        } else {
+            Write-Host "  ⚠️  Missing: $($plat.Id)/$bin$($plat.Ext)" -ForegroundColor Yellow
+        }
+    }
+}
+Write-Host "  Bundled $TotalBundled binaries across $($Platforms.Count) platforms" -ForegroundColor Cyan
+
+Write-Host ""
+
 # Package as VSIX
 Write-Host ""
 Write-Host "📦 Packaging extension as VSIX..." -ForegroundColor Cyan

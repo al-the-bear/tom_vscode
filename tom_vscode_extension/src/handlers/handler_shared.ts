@@ -61,6 +61,12 @@ export {
 let bridgeClient: DartBridgeClient | null = null;
 
 /**
+ * Extension installation path — set once during activation.
+ * Used for resolving bundled binaries under `bin/<platform>/`.
+ */
+let _extensionPath: string | undefined;
+
+/**
  * Get the global bridge client instance
  */
 export function getBridgeClient(): DartBridgeClient | null {
@@ -72,6 +78,20 @@ export function getBridgeClient(): DartBridgeClient | null {
  */
 export function setBridgeClient(client: DartBridgeClient | null): void {
     bridgeClient = client;
+}
+
+/**
+ * Set the extension installation path (call once from activate).
+ */
+export function setExtensionPath(extPath: string): void {
+    _extensionPath = extPath;
+}
+
+/**
+ * Get the stored extension installation path.
+ */
+export function getExtensionPath(): string | undefined {
+    return _extensionPath;
 }
 
 // ============================================================================
@@ -531,7 +551,7 @@ export const DEFAULT_ANSWER_FILE_TEMPLATE =
  */
 export function getConfigPlaceholderContext(): ConfigPlaceholderContext {
     const config = loadSendToChatConfig();
-    return buildConfigContext(config?.bridge?.binaryPath, getWorkspaceRoot());
+    return buildConfigContext(config?.bridge?.binaryPath, getWorkspaceRoot(), _extensionPath);
 }
 
 /**
@@ -543,7 +563,7 @@ export function getConfigPlaceholderContext(): ConfigPlaceholderContext {
  */
 export function resolveExecutable(name: string): string | undefined {
     const config = loadSendToChatConfig();
-    const ctx = buildConfigContext(config?.bridge?.binaryPath, getWorkspaceRoot());
+    const ctx = buildConfigContext(config?.bridge?.binaryPath, getWorkspaceRoot(), _extensionPath);
     return resolveNamedExecutable(name, config?.bridge?.executables, ctx);
 }
 
@@ -563,7 +583,7 @@ export function getExternalApplicationForFile(filePath: string): {
     const mapping = findExternalApplication(filePath, config?.externalApplications);
     if (!mapping) return undefined;
     
-    const ctx = buildConfigContext(config?.bridge?.binaryPath, getWorkspaceRoot());
+    const ctx = buildConfigContext(config?.bridge?.binaryPath, getWorkspaceRoot(), _extensionPath);
     const executable = resolveApplicationExecutable(mapping, config?.bridge?.executables, ctx);
     return {
         executable,
@@ -625,7 +645,7 @@ export function resolveBridgeExecutable(profileName: string): string | undefined
     
     // Prefer executable reference over direct command path
     if (profile.executable) {
-        const ctx = buildConfigContext(config?.bridge?.binaryPath, getWorkspaceRoot());
+        const ctx = buildConfigContext(config?.bridge?.binaryPath, getWorkspaceRoot(), _extensionPath);
         return resolveNamedExecutable(profile.executable, config?.bridge?.executables, ctx);
     }
     
@@ -651,7 +671,7 @@ export function listConfiguredExecutables(): Array<{
     
     const result: Array<{ name: string; path: string | undefined; exists: boolean }> = [];
     
-    const ctx = buildConfigContext(config?.bridge?.binaryPath, getWorkspaceRoot());
+    const ctx = buildConfigContext(config?.bridge?.binaryPath, getWorkspaceRoot(), _extensionPath);
     for (const [name, platformConfig] of Object.entries(executables)) {
         const resolved = resolveNamedExecutable(name, executables, ctx);
         result.push({

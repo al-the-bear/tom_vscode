@@ -24,7 +24,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { getConfigPath, getWorkspaceRoot, resolvePathVariables } from './handler_shared';
+import { getConfigPath, getWorkspaceRoot, resolvePathVariables, getExtensionPath } from './handler_shared';
 import { findNearestDetectedProject } from '../utils/projectDetector';
 import { resolveNamedExecutable, buildConfigContext, expandConfigPlaceholders, expandExecutablePlaceholders, type ExecutablesConfig } from '../utils/executableResolver';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
@@ -301,7 +301,7 @@ async function defineCommandline(): Promise<void> {
         { label: '$(edit) Type command manually…', _action: 'type' },
     ];
     if (execNames.length > 0) {
-        const ctx = buildConfigContext(config0.bridge?.binaryPath, getWorkspaceRoot());
+        const ctx = buildConfigContext(config0.bridge?.binaryPath, getWorkspaceRoot(), getExtensionPath());
         execItems.push({ label: '', kind: vscode.QuickPickItemKind.Separator, _action: 'type' });
         for (const name of execNames) {
             const resolved = resolveNamedExecutable(name, executables, ctx);
@@ -511,7 +511,7 @@ function expandPlaceholders(command: string): string | undefined {
 
     // Build context once for all config-level expansions
     const config = loadSendToChatConfig();
-    const ctx = buildConfigContext(config?.bridge?.binaryPath, getWorkspaceRoot());
+    const ctx = buildConfigContext(config?.bridge?.binaryPath, getWorkspaceRoot(), getExtensionPath());
 
     // Expand config-level placeholders (${binaryPath}, ${home}, etc.)
     expanded = expandConfigPlaceholders(expanded, ctx);

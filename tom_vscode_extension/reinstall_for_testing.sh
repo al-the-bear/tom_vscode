@@ -103,6 +103,40 @@ echo "🗑️  Uninstalling old version..."
 # Remove old VSIX files to prevent stale packaging
 rm -f *.vsix
 
+# ── Bundle bridge binaries for all platforms ─────────────────────────────────
+WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+TOM_BIN_DIR="$WORKSPACE_ROOT/tom_binaries/tom"
+BUNDLED_BINARIES="tom_bs"
+
+echo "📦 Bundling bridge binaries..."
+# Clean previous bin/ to avoid stale binaries
+rm -rf "$SCRIPT_DIR/bin"
+
+TOTAL_BUNDLED=0
+for PLAT_SPEC in "darwin-arm64:" "darwin-x64:" "linux-x64:" "linux-arm64:" "win32-x64:.exe"; do
+    PLAT_ID="${PLAT_SPEC%%:*}"
+    PLAT_EXT="${PLAT_SPEC#*:}"
+    SRC_DIR="$TOM_BIN_DIR/$PLAT_ID"
+    DST_DIR="$SCRIPT_DIR/bin/$PLAT_ID"
+    if [ ! -d "$SRC_DIR" ]; then
+        echo "  ⚠️  Source not found: $PLAT_ID — skipping"
+        continue
+    fi
+    mkdir -p "$DST_DIR"
+    for BIN in $BUNDLED_BINARIES; do
+        SRC="$SRC_DIR/${BIN}${PLAT_EXT}"
+        if [ -f "$SRC" ]; then
+            cp "$SRC" "$DST_DIR/${BIN}${PLAT_EXT}"
+            chmod +x "$DST_DIR/${BIN}${PLAT_EXT}"
+            TOTAL_BUNDLED=$((TOTAL_BUNDLED + 1))
+            echo "  ✔ $PLAT_ID/${BIN}${PLAT_EXT}"
+        else
+            echo "  ⚠️  Missing: $PLAT_ID/${BIN}${PLAT_EXT}"
+        fi
+    done
+done
+echo "  Bundled $TOTAL_BUNDLED binaries across 5 platforms"
+
 # Package as VSIX
 echo ""
 echo "📦 Packaging extension as VSIX..."

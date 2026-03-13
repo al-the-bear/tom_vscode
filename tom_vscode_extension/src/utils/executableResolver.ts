@@ -18,7 +18,7 @@ import * as fs from 'fs';
 
 /**
  * Platform identifiers following the pattern: <os>-<arch>
- * Examples: darwin-arm64, darwin-x64, linux-x64, windows-x64
+ * Examples: darwin-arm64, darwin-x64, linux-x64, win32-x64
  * Wildcards supported: darwin-*, linux-*, windows-*, *
  */
 export type PlatformKey = string;
@@ -47,6 +47,8 @@ export interface ConfigPlaceholderContext {
     binaryPath: string;
     /** Workspace root path (if available). */
     workspaceRoot?: string;
+    /** Extension installation path (for bundled binary lookup). */
+    extensionPath?: string;
 }
 
 /**
@@ -76,25 +78,20 @@ export interface ExternalApplicationsConfig {
 
 /**
  * Get the current platform identifier.
- * Format: <os>-<arch> (e.g., darwin-arm64, linux-x64, windows-x64)
+ * Format: <os>-<arch> (e.g., darwin-arm64, linux-x64, win32-x64)
  */
 export function getCurrentPlatform(): string {
     const platform = os.platform();
     const arch = os.arch();
-    
-    // Normalize platform names
-    const osName = platform === 'win32' ? 'windows' : platform;
-    
-    return `${osName}-${arch}`;
+    return `${platform}-${arch}`;
 }
 
 /**
  * Get platform family (os only, without arch).
- * Returns: darwin, linux, or windows
+ * Returns: darwin, linux, or win32
  */
 export function getPlatformFamily(): string {
-    const platform = os.platform();
-    return platform === 'win32' ? 'windows' : platform;
+    return os.platform();
 }
 
 // ============================================================================
@@ -177,7 +174,43 @@ export function resolveNamedExecutable(
     if (!executables) return undefined;
     const resolved = resolveExecutablePath(executables[name]);
     if (!resolved) return undefined;
-    return ctx ? expandConfigPlaceholders(resolved, ctx) : resolved;
+    let result = ctx ? expandConfigPlaceholders(resolved, ctx) : resolved;
+
+    // On Windows, append .exe if the resolved path has no file extension
+    if (os.platform() === 'win32' && !path.extname(result)) {
+        result += '.exe';
+    }
+
+    // If the result is a bare command name (no directory component),
+    // check for a bundled binary inside the extension before relying on PATH.
+    if (ctx?.extensionPath && path.dirname(result) === '.') {
+        const bundled = resolveBundledBinary(result, ctx.extensionPath);
+        if (bundled) return bundled;
+    }
+
+    return result;
+}
+
+/**
+ * Resolve a bundled binary from the extension's `bin/<platform>/` directory.
+ *
+ * The extension can ship platform-specific binaries under:
+ *   <extensionPath>/bin/<platform>/<binaryName>
+ *
+ * @param binaryName  The binary file name (e.g. "tom_bs.exe")
+ * @param extensionPath  The extension installation directory
+ * @returns The absolute path if the file exists, or undefined
+ */
+export function resolveBundledBinary(
+    binaryName: string,
+    extensionPath: string,
+): string | undefined {
+    const platform = getCurrentPlatform();
+    const candidate = path.join(extensionPath, 'bin', platform, binaryName);
+    if (fs.existsSync(candidate)) {
+        return candidate;
+    }
+    return undefined;
 }
 
 /**
@@ -252,10 +285,12 @@ export function resolveBinaryPath(
 export function buildConfigContext(
     binaryPathConfig: ExecutableConfig | undefined,
     workspaceRoot?: string,
+    extensionPath?: string,
 ): ConfigPlaceholderContext {
     return {
         binaryPath: resolveBinaryPath(binaryPathConfig, workspaceRoot),
         workspaceRoot,
+        extensionPath,
     };
 }
 

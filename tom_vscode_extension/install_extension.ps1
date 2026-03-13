@@ -129,6 +129,43 @@ if ($CodeCli) {
         
         Write-Host ""
         Write-Host "Packaging extension as VSIX..."
+
+        # ── Bundle bridge binaries for all platforms ─────────────────────
+        $WorkspaceRoot = (Resolve-Path (Join-Path $ExtensionDir '..\..\..')).Path
+        $TomBinDir = Join-Path $WorkspaceRoot 'tom_binaries' 'tom'
+        $BundledBinaries = @('tom_bs')
+        $Platforms = @(
+            @{ Id = 'darwin-arm64'; Ext = '' },
+            @{ Id = 'darwin-x64';   Ext = '' },
+            @{ Id = 'linux-x64';    Ext = '' },
+            @{ Id = 'linux-arm64';  Ext = '' },
+            @{ Id = 'win32-x64';    Ext = '.exe' }
+        )
+
+        Write-Host "Bundling bridge binaries..."
+        $ExtBinDir = Join-Path $ExtensionDir 'bin'
+        if (Test-Path $ExtBinDir) { Remove-Item -Recurse -Force $ExtBinDir }
+
+        $TotalBundled = 0
+        foreach ($plat in $Platforms) {
+            $srcDir = Join-Path $TomBinDir $plat.Id
+            $dstDir = Join-Path $ExtensionDir 'bin' $plat.Id
+            if (-not (Test-Path $srcDir)) {
+                Write-Host "  Warning: Source not found: $($plat.Id) - skipping"
+                continue
+            }
+            New-Item -ItemType Directory -Path $dstDir -Force | Out-Null
+            foreach ($bin in $BundledBinaries) {
+                $src = Join-Path $srcDir "$bin$($plat.Ext)"
+                if (Test-Path $src) {
+                    Copy-Item -Path $src -Destination (Join-Path $dstDir "$bin$($plat.Ext)") -Force
+                    $TotalBundled++
+                }
+            }
+        }
+        Write-Host "Bundled $TotalBundled binaries across $($Platforms.Count) platforms"
+        Write-Host ""
+
         cmd /c vsce package --allow-missing-repository --skip-license --baseContentUrl https://github.com/al-the-bear/tom/blob/main/tom_dartscript_extension
         
         if ($LASTEXITCODE -eq 0) {

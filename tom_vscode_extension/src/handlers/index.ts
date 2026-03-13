@@ -20,7 +20,8 @@ export {
     getFilePath,
     showAnalysisResult,
     getBridgeClient,
-    setBridgeClient
+    setBridgeClient,
+    setExtensionPath
 } from './handler_shared';
 
 // Command handlers
