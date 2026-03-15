@@ -6,7 +6,7 @@
 library;
 
 import 'package:tom_d4rt/d4rt.dart';
-import 'src/d4rt_bridges/tom_vscode_bridge_bridges.dart' as all_bridges;
+import 'src/d4rt_bridges/tom_vscode_bridge_bridges.b.dart' as all_bridges;
 
 /// Combined bridge registration for tom_vscode_bridge.
 class TomDartscriptBridgeBridges {
@@ -14,10 +14,7 @@ class TomDartscriptBridgeBridges {
   static void register([D4rt? interpreter]) {
     final d4rt = interpreter ?? D4rt();
 
-    all_bridges.AllBridge.registerBridges(
-      d4rt,
-      'tom_vscode_bridge.dart',
-    );
+    all_bridges.AllBridge.registerBridges(d4rt, 'tom_vscode_bridge.dart');
   }
 
   /// Get import block for all modules.
