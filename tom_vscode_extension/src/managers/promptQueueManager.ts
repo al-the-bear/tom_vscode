@@ -329,9 +329,9 @@ export class PromptQueueManager {
     }
 
     private isReminderEligible(item: QueuedPrompt): boolean {
-        if (item.type !== 'timed') {
-            return true;
-        }
+        // Fix Issue 3 Bug A: respect reminderEnabled for ALL item types
+        if (item.reminderEnabled === false) { return false; }
+        if (item.type !== 'timed') { return true; }
 
         const followUps = item.followUps || [];
         const sentFollowUps = item.followUpIndex || 0;
@@ -404,6 +404,12 @@ export class PromptQueueManager {
 
         if (!this.isReminderEligible(sending)) {
             logQueue(`Reminder check for ${sending.id}: not eligible (reminderEnabled=${sending.reminderEnabled}, type=${sending.type}) — skipped`);
+            return;
+        }
+
+        // Fix Issue 3 Defense: skip if template is explicitly '__none__'
+        if (sending.reminderTemplateId === '__none__') {
+            logQueue(`Reminder check for ${sending.id}: templateId=__none__ — skipped (no reminder)`);
             return;
         }
 
@@ -634,11 +640,9 @@ export class PromptQueueManager {
 
         // Compute effective reminder template: provided value, or fall back to default
         let effectiveReminderTemplateId = opts.reminderTemplateId ?? this._defaultReminderTemplateId;
-        // Handle "__none__" as "no reminders" - clear template and disable reminders
+        // Fix Issue 3 Bug B: keep '__none__' as stored value (do NOT clear to undefined)
+        // This preserves the explicit "no reminder" signal through the entire pipeline.
         const isNoReminder = effectiveReminderTemplateId === '__none__';
-        if (isNoReminder) {
-            effectiveReminderTemplateId = undefined;
-        }
 
         const item: QueuedPrompt = {
             id: randomUUID(),
