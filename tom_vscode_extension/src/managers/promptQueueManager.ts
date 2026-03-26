@@ -32,6 +32,13 @@ import {
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
 import { computeRepeatDecision, convertStagedToPending, shouldAutoPauseOnEmpty } from '../utils/queueStep3Utils';
+import {
+    buildAnswerFilePath,
+    shouldWatchAnswerFile,
+    extractRequestIdFromAnswerFilename,
+    findMatchingAnswerFile,
+    computeHealthCheckDecisions,
+} from '../utils/queueStep4Utils';
 import { writeWindowState } from '../handlers/windowStatusPanel-handler';
 import { TrailService } from '../services/trailService';
 
@@ -94,6 +101,8 @@ const MAX_SENT_HISTORY = 50;
 const MAX_TOTAL_ITEMS = 100;
 const DEFAULT_REMINDER_TEMPLATE_ID = 'default';
 const DEFAULT_REMINDER_TEXT = 'Are you still there? The previous prompt has been waiting for {{timeoutMinutes}} minutes without a response. Please continue or let me know if there\'s an issue.';
+const HEALTH_CHECK_INTERVAL_MS = 60_000;
+const ANSWER_POLL_INTERVAL_MS = 5_000;
 
 /**
  * Resolve a template name to its template string.
@@ -152,6 +161,8 @@ export class PromptQueueManager {
     private _defaultReminderTemplateId: string | undefined;
     private _answerWatcher?: fs.FSWatcher;
     private _timeoutWatcher?: ReturnType<typeof setInterval>;
+    private _healthCheckTimer?: ReturnType<typeof setInterval>;
+    private _answerPollTimer?: ReturnType<typeof setInterval>;
     private _statusBarItem?: vscode.StatusBarItem;
     private _statusBarChangeDisposable?: vscode.Disposable;
     private _processing = false;
@@ -218,6 +229,8 @@ export class PromptQueueManager {
         m.restore();
         m.setupAnswerWatcher();
         m.startTimeoutWatcher();
+        m.startHealthWatchdog();
+        m.startAnswerPollingFallback();
         m.setupStatusBarItem();
         // Start file watcher for cross-window sync
         startQueueWatching();
@@ -240,6 +253,14 @@ export class PromptQueueManager {
         if (this._timeoutWatcher) {
             clearInterval(this._timeoutWatcher);
             this._timeoutWatcher = undefined;
+        }
+        if (this._healthCheckTimer) {
+            clearInterval(this._healthCheckTimer);
+            this._healthCheckTimer = undefined;
+        }
+        if (this._answerPollTimer) {
+            clearInterval(this._answerPollTimer);
+            this._answerPollTimer = undefined;
         }
         this._queueChangeDisposable?.dispose();
         this._statusBarChangeDisposable?.dispose();
@@ -283,28 +304,51 @@ export class PromptQueueManager {
 
     // ----- answer file watcher -----------------------------------------------
 
+    private get answerDirectory(): string {
+        return getCopilotChatAnswerFolderAbsolute();
+    }
+
+    private getAnswerFilePathForRequestId(requestId?: string): string {
+        return buildAnswerFilePath({
+            folder: this.answerDirectory,
+            sessionId: vscode.env.sessionId,
+            machineId: vscode.env.machineId,
+            requestId,
+        });
+    }
+
     private get answerFilePath(): string {
-        const session = vscode.env.sessionId.substring(0, 8);
-        const machine = vscode.env.machineId.substring(0, 8);
-        const folder = getCopilotChatAnswerFolderAbsolute();
-        return path.join(folder, `${session}_${machine}_answer.json`);
+        return this.getAnswerFilePathForRequestId();
     }
 
     private setupAnswerWatcher(): void {
-        const dir = path.dirname(this.answerFilePath);
+        const dir = this.answerDirectory;
         if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
 
-        const basename = path.basename(this.answerFilePath);
-        logQueue(`Answer watcher started for ${dir} (expecting: ${basename})`);
-        debugLog(`[PromptQueueManager] Setting up answer watcher for ${this.answerFilePath}`, 'INFO', 'queue');
+        this._answerWatcher?.close();
+
+        logQueue(`Answer watcher started for ${dir} (pattern: *_answer.json)`);
+        debugLog(`[PromptQueueManager] Setting up answer watcher for ${dir}`, 'INFO', 'queue');
         this._answerWatcher = fs.watch(dir, (event, filename) => {
-            debugLog(`[PromptQueueManager] File watch event: ${event} ${filename} (expecting: ${basename})`, 'DEBUG', 'queue');
-            if (filename === basename) {
-                logQueue(`Answer file changed (event=${event}, file=${filename})`);
-                debugLog(`[PromptQueueManager] Answer file changed, calling onAnswerFileChanged`, 'INFO', 'queue');
-                this.onAnswerFileChanged();
+            const fileNameText = typeof filename === 'string' ? filename : undefined;
+            debugLog(`[PromptQueueManager] File watch event: ${event} ${fileNameText || '(none)'}`, 'DEBUG', 'queue');
+            if (shouldWatchAnswerFile(fileNameText)) {
+                const changedPath = path.join(dir, String(fileNameText));
+                logQueue(`Answer file changed (event=${event}, file=${fileNameText})`);
+                debugLog(`[PromptQueueManager] Answer file changed, calling onAnswerFileChanged for ${changedPath}`, 'INFO', 'queue');
+                void this.onAnswerFileChanged(changedPath);
             }
         });
+    }
+
+    private restartAnswerWatcher(): void {
+        try {
+            this._answerWatcher?.close();
+        } catch {
+            // no-op
+        }
+        this._answerWatcher = undefined;
+        this.setupAnswerWatcher();
     }
 
     private startTimeoutWatcher(): void {
@@ -312,6 +356,75 @@ export class PromptQueueManager {
         this._timeoutWatcher = setInterval(() => {
             void this.checkResponseTimeouts();
         }, 30_000);
+    }
+
+    private startHealthWatchdog(): void {
+        if (this._healthCheckTimer) { return; }
+        this._healthCheckTimer = setInterval(() => {
+            void this.runQueueHealthCheck();
+        }, HEALTH_CHECK_INTERVAL_MS);
+    }
+
+    private startAnswerPollingFallback(): void {
+        if (this._answerPollTimer) { return; }
+        this._answerPollTimer = setInterval(() => {
+            void this.pollForExpectedAnswer();
+        }, ANSWER_POLL_INTERVAL_MS);
+    }
+
+    private async runQueueHealthCheck(): Promise<void> {
+        const pendingCount = this._items.filter(i => i.status === 'pending').length;
+        const sendingCount = this._items.filter(i => i.status === 'sending').length;
+        const decisions = computeHealthCheckDecisions({
+            hasAnswerWatcher: !!this._answerWatcher,
+            autoSendEnabled: this._autoSendEnabled,
+            pendingCount,
+            sendingCount,
+            answerDirectoryExists: fs.existsSync(this.answerDirectory),
+        });
+
+        if (decisions.shouldEnsureDirectory) {
+            fs.mkdirSync(this.answerDirectory, { recursive: true });
+            logQueue(`Health check recreated missing answer directory: ${this.answerDirectory}`);
+        }
+
+        if (decisions.shouldRestartWatcher) {
+            logQueue('Health check restarting answer watcher');
+            this.restartAnswerWatcher();
+        }
+
+        if (decisions.shouldTriggerSendNext) {
+            logQueue('Health check detected pending prompts without active sending; triggering sendNext');
+            await this.sendNext();
+        }
+    }
+
+    private async pollForExpectedAnswer(): Promise<void> {
+        if (this._processingAnswerFile) {
+            return;
+        }
+        const sending = this._items.find(i => i.status === 'sending');
+        if (!sending || !sending.expectedRequestId) {
+            return;
+        }
+        const dir = this.answerDirectory;
+        if (!fs.existsSync(dir)) {
+            return;
+        }
+        let files: string[] = [];
+        try {
+            files = fs.readdirSync(dir);
+        } catch {
+            return;
+        }
+        const matchingFile = findMatchingAnswerFile(files, sending.expectedRequestId);
+        if (!matchingFile) {
+            return;
+        }
+
+        const fullPath = path.join(dir, matchingFile);
+        debugLog(`[PromptQueueManager] Polling fallback matched expected answer file: ${fullPath}`, 'INFO', 'queue');
+        await this.onAnswerFileChanged(fullPath);
     }
 
     private loadReminderDataFromConfig(): { templates: Array<{ id: string; prompt: string }>; defaultTemplateId: string } {
@@ -486,7 +599,7 @@ export class PromptQueueManager {
         }
     }
 
-    private async onAnswerFileChanged(): Promise<void> {
+    private async onAnswerFileChanged(changedFilePath?: string): Promise<void> {
         if (this._processingAnswerFile) {
             debugLog('[PromptQueueManager] Answer processing already in progress; skipping re-entrant event', 'DEBUG', 'queue');
             return;
@@ -494,7 +607,8 @@ export class PromptQueueManager {
         this._processingAnswerFile = true;
 
         try {
-        const filePath = this.answerFilePath;
+        const sending = this._items.find(i => i.status === 'sending');
+        const filePath = changedFilePath || this.getAnswerFilePathForRequestId(sending?.expectedRequestId);
         logQueue(`Watching for answer at ${filePath}`);
         debugLog(`[PromptQueueManager] onAnswerFileChanged called, checking: ${filePath}`, 'DEBUG', 'queue');
         if (!fs.existsSync(filePath)) { 
@@ -549,8 +663,11 @@ export class PromptQueueManager {
             ? String((answer as any).requestId)
             : undefined;
 
+        const filenameRequestId = extractRequestIdFromAnswerFilename(path.basename(filePath));
+        const resolvedAnswerRequestId = answerRequestId || filenameRequestId;
+
         // Ensure we always produce a canonical trail answer entry when a requestId is available.
-        if (answerRequestId) {
+        if (resolvedAnswerRequestId) {
             try {
                 const generatedMarkdown = (answer && typeof answer === 'object' && typeof (answer as any).generatedMarkdown === 'string')
                     ? String((answer as any).generatedMarkdown)
@@ -561,12 +678,12 @@ export class PromptQueueManager {
                 const trailText = generatedMarkdown.trim().length > 0 ? generatedMarkdown : fallbackText;
                 const quest = await_import_ChatVariablesStore()?.quest || undefined;
 
-                TrailService.instance.writeRawAnswer({ type: 'copilot' }, trailText, getWindowStatusWindowId(), answerRequestId, quest);
+                TrailService.instance.writeRawAnswer({ type: 'copilot' }, trailText, getWindowStatusWindowId(), resolvedAnswerRequestId, quest);
                 TrailService.instance.writeSummaryAnswer(
                     { type: 'copilot' },
                     trailText,
                     {
-                        requestId: answerRequestId,
+                        requestId: resolvedAnswerRequestId,
                         comments: generatedMarkdown.trim().length > 0
                             ? undefined
                             : `invalid answer schema received from ${filePath}`,
@@ -579,20 +696,19 @@ export class PromptQueueManager {
             }
         }
 
-        const sending = this._items.find(i => i.status === 'sending');
         if (!sending) {
             logQueue(`No sending item found in queue — ignoring answer. Items: ${this._items.map(i => `${i.id.substring(0, 8)}:${i.status}`).join(', ')}`);
             debugLog(`[PromptQueueManager] No sending item found in queue. Items: ${this._items.map(i => `${i.id}:${i.status}`).join(', ')}`, 'WARN', 'queue');
             return;
         }
 
-        if (sending.expectedRequestId && answerRequestId && sending.expectedRequestId !== answerRequestId) {
-            logQueue(`Answer file not matching — expected ${sending.expectedRequestId}, got ${answerRequestId}`);
-            debugLog(`[PromptQueueManager] Ignoring answer with requestId=${answerRequestId}; waiting for expectedRequestId=${sending.expectedRequestId}`, 'DEBUG', 'queue');
+        if (sending.expectedRequestId && resolvedAnswerRequestId && sending.expectedRequestId !== resolvedAnswerRequestId) {
+            logQueue(`Answer file not matching — expected ${sending.expectedRequestId}, got ${resolvedAnswerRequestId}`);
+            debugLog(`[PromptQueueManager] Ignoring answer with requestId=${resolvedAnswerRequestId}; waiting for expectedRequestId=${sending.expectedRequestId}`, 'DEBUG', 'queue');
             return;
         }
 
-        logQueue(`Answer detected for ${sending.id}, requestId=${answerRequestId || '(none)'}`);
+        logQueue(`Answer detected for ${sending.id}, requestId=${resolvedAnswerRequestId || '(none)'}`);
         debugLog(`[PromptQueueManager] Processing answer for sending item ${sending.id}`, 'INFO', 'queue');
         this.updateWindowStatus('answer-received');
 
@@ -1164,7 +1280,7 @@ export class PromptQueueManager {
 
         try {
             await this.dispatchNextStageForSendingItem(item);
-            logQueue(`Prompt ${item.id} sent, waiting for answer at ${this.answerFilePath}`);
+            logQueue(`Prompt ${item.id} sent, waiting for answer at ${this.getAnswerFilePathForRequestId(item.expectedRequestId)}`);
         } catch (err) {
             item.status = 'error';
             item.error = String(err);
@@ -1189,7 +1305,7 @@ export class PromptQueueManager {
             this.persist();
             this._onDidChange.fire();
 
-            try { fs.unlinkSync(this.answerFilePath); } catch { /* ok */ }
+            this.clearExpectedAnswerFiles(item.expectedRequestId);
             await vscode.commands.executeCommand('workbench.action.chat.open', { query: prePromptExpanded });
             this._onPromptSent.fire(item);
             this.updateWindowStatus('prompt-sent');
@@ -1207,7 +1323,7 @@ export class PromptQueueManager {
             this.persist();
             this._onDidChange.fire();
 
-            try { fs.unlinkSync(this.answerFilePath); } catch { /* ok */ }
+            this.clearExpectedAnswerFiles(item.expectedRequestId);
             await vscode.commands.executeCommand('workbench.action.chat.open', { query: item.expandedText });
             this._onPromptSent.fire(item);
             this.updateWindowStatus('prompt-sent');
@@ -1229,7 +1345,7 @@ export class PromptQueueManager {
             this.persist();
             this._onDidChange.fire();
 
-            try { fs.unlinkSync(this.answerFilePath); } catch { /* ok */ }
+            this.clearExpectedAnswerFiles(item.expectedRequestId);
             await vscode.commands.executeCommand('workbench.action.chat.open', { query: followUpExpanded });
             this._onPromptSent.fire(item);
             this.updateWindowStatus('prompt-sent');
@@ -1238,6 +1354,20 @@ export class PromptQueueManager {
 
         // No more stages left.
         return false;
+    }
+
+    private clearExpectedAnswerFiles(expectedRequestId?: string): void {
+        const candidatePaths = new Set<string>([
+            this.getAnswerFilePathForRequestId(expectedRequestId),
+            this.answerFilePath,
+        ]);
+        for (const candidate of candidatePaths) {
+            try {
+                fs.unlinkSync(candidate);
+            } catch {
+                // File may not exist yet.
+            }
+        }
     }
 
     // ----- reminder helpers --------------------------------------------------

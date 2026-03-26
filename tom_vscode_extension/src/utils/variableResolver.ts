@@ -269,8 +269,11 @@ function getAnswerFilePath(): string {
  * Compute the Copilot chat answer file path for the current window.
  * Uses the configurable copilot.answerFolder (default: _ai/answers/copilot).
  */
-function getCopilotAnswerFile(): string {
+function getCopilotAnswerFile(requestId?: string): string {
     const folder = _getCopilotChatAnswerFolderAbsolute();
+    if (requestId && requestId.trim().length > 0) {
+        return path.join(folder, `${requestId.trim()}_answer.json`);
+    }
     const session = vscode.env.sessionId.substring(0, 8);
     const machine = vscode.env.machineId.substring(0, 8);
     return path.join(folder, `${session}_${machine}_answer.json`);
@@ -372,7 +375,7 @@ export function buildVariableMap(options?: ResolveOptions): Record<string, strin
         'answer-file':    getAnswerFilePath(),
         chatAnswerFolder: answerFolder,
         copilotAnswerFolder: _getCopilotChatAnswerFolder(),
-        copilotAnswerFile: getCopilotAnswerFile(),
+        copilotAnswerFile: getCopilotAnswerFile(requestId),
 
         // VS Code meta (Tier 7)
         'vscode.version':     vscode.version,
