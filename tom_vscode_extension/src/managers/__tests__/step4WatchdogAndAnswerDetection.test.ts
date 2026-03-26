@@ -6,6 +6,7 @@ import {
     shouldWatchAnswerFile,
     extractRequestIdFromAnswerFilename,
     findMatchingAnswerFile,
+    resolveDetectedRequestId,
     computeHealthCheckDecisions,
 } from '../../utils/queueStep4Utils';
 
@@ -44,6 +45,18 @@ describe('Step 4 - Issue 7: requestId-based answer detection', () => {
         const match = findMatchingAnswerFile(['x_answer.json', 'req9_answer.json'], 'req9');
         assert.equal(match, 'req9_answer.json');
     });
+
+    test('resolveDetectedRequestId prefers filename requestId over content requestId', () => {
+        const detected = resolveDetectedRequestId('filenameRid', 'contentRid');
+        assert.equal(detected.requestId, 'filenameRid');
+        assert.equal(detected.source, 'filename');
+    });
+
+    test('resolveDetectedRequestId falls back to content requestId when filename is missing', () => {
+        const detected = resolveDetectedRequestId(undefined, 'contentRid');
+        assert.equal(detected.requestId, 'contentRid');
+        assert.equal(detected.source, 'content');
+    });
 });
 
 describe('Step 4 - Issue 6: health check decisions', () => {
@@ -78,6 +91,22 @@ describe('Step 4 - Issue 6: health check decisions', () => {
             answerDirectoryExists: false,
         });
         assert.equal(d.shouldEnsureDirectory, true);
+        assert.equal(d.shouldRestartWatcher, true);
+    });
+
+    test('requests watcher restart when sending item is stale beyond 2x timeout', () => {
+        const nowMs = Date.now();
+        const staleSentAt = new Date(nowMs - (121 * 60_000)).toISOString();
+        const d = computeHealthCheckDecisions({
+            hasAnswerWatcher: true,
+            autoSendEnabled: false,
+            pendingCount: 0,
+            sendingCount: 1,
+            answerDirectoryExists: true,
+            sendingSentAtIso: staleSentAt,
+            responseFileTimeoutMinutes: 60,
+            nowMs,
+        });
         assert.equal(d.shouldRestartWatcher, true);
     });
 });

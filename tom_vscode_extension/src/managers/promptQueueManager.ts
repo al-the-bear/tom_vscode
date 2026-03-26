@@ -37,6 +37,7 @@ import {
     shouldWatchAnswerFile,
     extractRequestIdFromAnswerFilename,
     findMatchingAnswerFile,
+    resolveDetectedRequestId,
     computeHealthCheckDecisions,
 } from '../utils/queueStep4Utils';
 import { writeWindowState } from '../handlers/windowStatusPanel-handler';
@@ -102,7 +103,7 @@ const MAX_TOTAL_ITEMS = 100;
 const DEFAULT_REMINDER_TEMPLATE_ID = 'default';
 const DEFAULT_REMINDER_TEXT = 'Are you still there? The previous prompt has been waiting for {{timeoutMinutes}} minutes without a response. Please continue or let me know if there\'s an issue.';
 const HEALTH_CHECK_INTERVAL_MS = 60_000;
-const ANSWER_POLL_INTERVAL_MS = 5_000;
+const ANSWER_POLL_INTERVAL_MS = 30_000;
 
 /**
  * Resolve a template name to its template string.
@@ -229,8 +230,8 @@ export class PromptQueueManager {
         m.restore();
         m.setupAnswerWatcher();
         m.startTimeoutWatcher();
-        m.startHealthWatchdog();
-        m.startAnswerPollingFallback();
+        m.startHealthCheck();
+        m.startAnswerPolling();
         m.setupStatusBarItem();
         // Start file watcher for cross-window sync
         startQueueWatching();
@@ -254,14 +255,8 @@ export class PromptQueueManager {
             clearInterval(this._timeoutWatcher);
             this._timeoutWatcher = undefined;
         }
-        if (this._healthCheckTimer) {
-            clearInterval(this._healthCheckTimer);
-            this._healthCheckTimer = undefined;
-        }
-        if (this._answerPollTimer) {
-            clearInterval(this._answerPollTimer);
-            this._answerPollTimer = undefined;
-        }
+        this.stopHealthCheck();
+        this.stopAnswerPolling();
         this._queueChangeDisposable?.dispose();
         this._statusBarChangeDisposable?.dispose();
         this._statusBarItem?.dispose();
@@ -318,7 +313,8 @@ export class PromptQueueManager {
     }
 
     private get answerFilePath(): string {
-        return this.getAnswerFilePathForRequestId();
+        const sending = this._items.find(i => i.status === 'sending');
+        return this.getAnswerFilePathForRequestId(sending?.expectedRequestId);
     }
 
     private setupAnswerWatcher(): void {
@@ -358,30 +354,47 @@ export class PromptQueueManager {
         }, 30_000);
     }
 
-    private startHealthWatchdog(): void {
+    private startHealthCheck(): void {
         if (this._healthCheckTimer) { return; }
         this._healthCheckTimer = setInterval(() => {
-            void this.runQueueHealthCheck();
+            void this.runHealthCheck();
         }, HEALTH_CHECK_INTERVAL_MS);
     }
 
-    private startAnswerPollingFallback(): void {
+    private stopHealthCheck(): void {
+        if (!this._healthCheckTimer) { return; }
+        clearInterval(this._healthCheckTimer);
+        this._healthCheckTimer = undefined;
+    }
+
+    private startAnswerPolling(): void {
         if (this._answerPollTimer) { return; }
         this._answerPollTimer = setInterval(() => {
             void this.pollForExpectedAnswer();
         }, ANSWER_POLL_INTERVAL_MS);
     }
 
-    private async runQueueHealthCheck(): Promise<void> {
+    private stopAnswerPolling(): void {
+        if (!this._answerPollTimer) { return; }
+        clearInterval(this._answerPollTimer);
+        this._answerPollTimer = undefined;
+    }
+
+    private async runHealthCheck(): Promise<void> {
         const pendingCount = this._items.filter(i => i.status === 'pending').length;
         const sendingCount = this._items.filter(i => i.status === 'sending').length;
+        const sending = this._items.find(i => i.status === 'sending');
         const decisions = computeHealthCheckDecisions({
             hasAnswerWatcher: !!this._answerWatcher,
             autoSendEnabled: this._autoSendEnabled,
             pendingCount,
             sendingCount,
             answerDirectoryExists: fs.existsSync(this.answerDirectory),
+            sendingSentAtIso: sending?.sentAt,
+            responseFileTimeoutMinutes: this._responseFileTimeoutMinutes,
         });
+
+        logQueue(`Health check: items=${this._items.length}, sending=${sendingCount}, pending=${pendingCount}, autoSend=${this._autoSendEnabled}`);
 
         if (decisions.shouldEnsureDirectory) {
             fs.mkdirSync(this.answerDirectory, { recursive: true });
@@ -397,6 +410,9 @@ export class PromptQueueManager {
             logQueue('Health check detected pending prompts without active sending; triggering sendNext');
             await this.sendNext();
         }
+
+        // Secondary safety net from Issue 7: scan for expected answer during health check.
+        await this.pollForExpectedAnswer();
     }
 
     private async pollForExpectedAnswer(): Promise<void> {
@@ -419,6 +435,7 @@ export class PromptQueueManager {
         }
         const matchingFile = findMatchingAnswerFile(files, sending.expectedRequestId);
         if (!matchingFile) {
+            logQueue(`Poll: no matching answer file for requestId=${sending.expectedRequestId}`);
             return;
         }
 
@@ -664,7 +681,11 @@ export class PromptQueueManager {
             : undefined;
 
         const filenameRequestId = extractRequestIdFromAnswerFilename(path.basename(filePath));
-        const resolvedAnswerRequestId = answerRequestId || filenameRequestId;
+        const detectedRequest = resolveDetectedRequestId(filenameRequestId, answerRequestId);
+        const resolvedAnswerRequestId = detectedRequest.requestId;
+        if (detectedRequest.source !== 'none') {
+            logQueue(`Answer requestId detected via ${detectedRequest.source}: ${resolvedAnswerRequestId}`);
+        }
 
         // Ensure we always produce a canonical trail answer entry when a requestId is available.
         if (resolvedAnswerRequestId) {

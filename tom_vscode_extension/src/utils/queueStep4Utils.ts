@@ -13,12 +13,20 @@ export interface HealthCheckInput {
     pendingCount: number;
     sendingCount: number;
     answerDirectoryExists: boolean;
+    sendingSentAtIso?: string;
+    responseFileTimeoutMinutes?: number;
+    nowMs?: number;
 }
 
 export interface HealthCheckDecisions {
     shouldRestartWatcher: boolean;
     shouldTriggerSendNext: boolean;
     shouldEnsureDirectory: boolean;
+}
+
+export interface DetectedRequestId {
+    requestId?: string;
+    source: 'filename' | 'content' | 'none';
 }
 
 export function buildAnswerFilePath(input: BuildAnswerFilePathInput): string {
@@ -48,9 +56,29 @@ export function findMatchingAnswerFile(files: string[], expectedRequestId?: stri
     return files.find(f => shouldWatchAnswerFile(f) && f.startsWith(expectedRequestId));
 }
 
+export function resolveDetectedRequestId(filenameRequestId?: string, contentRequestId?: string): DetectedRequestId {
+    if (filenameRequestId && filenameRequestId.trim().length > 0) {
+        return { requestId: filenameRequestId.trim(), source: 'filename' };
+    }
+    if (contentRequestId && contentRequestId.trim().length > 0) {
+        return { requestId: contentRequestId.trim(), source: 'content' };
+    }
+    return { requestId: undefined, source: 'none' };
+}
+
 export function computeHealthCheckDecisions(input: HealthCheckInput): HealthCheckDecisions {
     const shouldEnsureDirectory = !input.answerDirectoryExists;
-    const shouldRestartWatcher = !input.hasAnswerWatcher || shouldEnsureDirectory;
+    let shouldRestartForStaleSending = false;
+    if (input.sendingCount > 0 && input.sendingSentAtIso && (input.responseFileTimeoutMinutes || 0) > 0) {
+        const nowMs = input.nowMs ?? Date.now();
+        const sentAtMs = new Date(input.sendingSentAtIso).getTime();
+        if (!Number.isNaN(sentAtMs)) {
+            const staleMs = (input.responseFileTimeoutMinutes || 0) * 2 * 60_000;
+            shouldRestartForStaleSending = nowMs - sentAtMs > staleMs;
+        }
+    }
+
+    const shouldRestartWatcher = !input.hasAnswerWatcher || shouldEnsureDirectory || shouldRestartForStaleSending;
     const shouldTriggerSendNext =
         input.autoSendEnabled &&
         input.pendingCount > 0 &&
