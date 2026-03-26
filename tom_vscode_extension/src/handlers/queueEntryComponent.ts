@@ -82,7 +82,9 @@ export function queueEntryStyles(): string {
   .preprompt-list { display: flex; flex-direction: column; gap: 6px; }
   .preprompt-item { border: 1px solid var(--border); border-radius: 3px; padding: 6px; }
   .preprompt-item-head { display: flex; justify-content: space-between; align-items: center; font-size: 0.8em; opacity: 0.8; margin-bottom: 4px; }
-  .template-row { display: flex; gap: 6px; align-items: center; margin-top: 6px; font-size: 0.85em; }
+  .template-row { display: flex; gap: 6px; align-items: center; margin-top: 6px; font-size: 0.85em; flex-wrap: wrap; }
+  .repeat-affix-row { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+  .repeat-affix-row textarea { min-height: 42px; }
   `;
 }
 
@@ -190,6 +192,8 @@ function renderEntry(item, idx) {
   var templateRow = '';
   if (isEditable) {
     var noReminderSelected = item.reminderEnabled === false && !item.reminderTemplateId;
+    var repeatPrefix = (typeof item.repeatPrefix === 'string') ? item.repeatPrefix : '';
+    var repeatSuffix = (typeof item.repeatSuffix === 'string') ? item.repeatSuffix : '';
     templateRow = '<div class="template-row">' +
       '<label style="font-size:0.85em;font-weight:600;">Template:</label>' +
       '<select onchange="updateItemTemplate(\\'' + safeId + '\\', this.value)">' +
@@ -207,7 +211,13 @@ function renderEntry(item, idx) {
       '<select onchange="updateItemReminder(\\'' + safeId + '\\', \\'timeout\\', this.value)">' + reminderTimeoutOptions(item.reminderTimeoutMinutes || responseTimeoutMinutes) + '</select>' +
       '<label style="font-size:0.8em;"><input type="checkbox" ' + (item.reminderRepeat ? 'checked' : '') + ' onchange="updateItemReminder(\\'' + safeId + '\\', \\'repeat\\', this.checked)"> Repeat</label>' +
       '<span style="font-size:0.8em;opacity:0.85;margin-left:8px;">Queue Repeats:</span>' +
-      '<input type="number" min="0" step="1" value="' + repeatCount + '" style="width:80px" onchange="updateItemRepeat(\\'' + safeId + '\\', this.value)">' +
+      '<input type="number" min="0" step="1" value="' + repeatCount + '" style="width:80px" onchange="updateItemRepeat(\\'' + safeId + '\\', { repeatCount: this.value })">' +
+    '</div>' +
+    '<div class="repeat-affix-row">' +
+      '<label style="font-size:0.8em;opacity:0.9;">Repeat Prefix (supports {{repeatNumber}}, {{repeatIndex}}, {{repeatCount}})</label>' +
+      '<textarea onchange="updateItemRepeat(\\'' + safeId + '\\', { repeatPrefix: this.value })">' + escapeHtml(repeatPrefix) + '</textarea>' +
+      '<label style="font-size:0.8em;opacity:0.9;">Repeat Suffix (supports {{repeatNumber}}, {{repeatIndex}}, {{repeatCount}})</label>' +
+      '<textarea onchange="updateItemRepeat(\\'' + safeId + '\\', { repeatSuffix: this.value })">' + escapeHtml(repeatSuffix) + '</textarea>' +
     '</div>';
   }
 
@@ -384,12 +394,28 @@ function renderFollowUps(item, status) {
 export function queueEntryMessageHandlers(): string {
   return `
 function updateText(id, text) { vscode.postMessage({ type: 'updateText', id: id, text: text }); }
-function updateItemRepeat(id, repeatCount) {
-  vscode.postMessage({
+function updateItemRepeat(id, patch) {
+  var nextPatch = patch;
+  if (patch === null || typeof patch !== 'object') {
+    nextPatch = { repeatCount: patch };
+  }
+  var msg = {
     type: 'updateItemRepeat',
     id: id,
-    repeatCount: Math.max(0, parseInt(String(repeatCount || '0'), 10) || 0),
-  });
+    repeatCount: undefined,
+    repeatPrefix: undefined,
+    repeatSuffix: undefined,
+  };
+  if (Object.prototype.hasOwnProperty.call(nextPatch, 'repeatCount')) {
+    msg.repeatCount = Math.max(0, parseInt(String(nextPatch.repeatCount || '0'), 10) || 0);
+  }
+  if (Object.prototype.hasOwnProperty.call(nextPatch, 'repeatPrefix')) {
+    msg.repeatPrefix = String(nextPatch.repeatPrefix || '');
+  }
+  if (Object.prototype.hasOwnProperty.call(nextPatch, 'repeatSuffix')) {
+    msg.repeatSuffix = String(nextPatch.repeatSuffix || '');
+  }
+  vscode.postMessage(msg);
 }
 function updateItemTemplate(id, template) { vscode.postMessage({ type: 'updateItemTemplate', id: id, template: template || '' }); }
 function updateItemReminder(id, field, value) {

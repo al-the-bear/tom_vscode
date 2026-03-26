@@ -256,6 +256,8 @@ async function handleMessage(msg: any): Promise<void> {
           qm.updateRepeat(msg.id, {
             repeatCount: msg.repeatCount,
             repeatIndex: msg.repeatIndex,
+            repeatPrefix: msg.repeatPrefix,
+            repeatSuffix: msg.repeatSuffix,
           });
           break;
         case 'setResponseTimeout':
@@ -278,6 +280,8 @@ async function handleMessage(msg: any): Promise<void> {
               reminderRepeat: !!msg.reminderRepeat,
               reminderEnabled: !!msg.reminderEnabled,
               repeatCount: Number.isFinite(msg.repeatCount) ? Math.max(0, Math.round(msg.repeatCount)) : 0,
+              repeatPrefix: typeof msg.repeatPrefix === 'string' ? msg.repeatPrefix : undefined,
+              repeatSuffix: typeof msg.repeatSuffix === 'string' ? msg.repeatSuffix : undefined,
               deferSend: true,
                 });
                 console.log('[QueueEditor] addPrompt enqueued successfully');
@@ -666,6 +670,12 @@ ${queueEntryStyles()}
     <label style="margin-right:6px;">Queue Repeats:</label>
     <input id="addRepeatCount" type="number" min="0" step="1" value="0" style="width:80px" title="How many additional times to repeat after the first run"/>
   </div>
+  <div class="add-options" style="display:block;">
+    <label style="display:block;margin-bottom:4px;">Repeat Prefix (supports {{repeatNumber}}, {{repeatIndex}}, {{repeatCount}})</label>
+    <textarea id="addRepeatPrefix" rows="2" placeholder="Optional text added before repeated prompt body"></textarea>
+    <label style="display:block;margin:6px 0 4px;">Repeat Suffix (supports {{repeatNumber}}, {{repeatIndex}}, {{repeatCount}})</label>
+    <textarea id="addRepeatSuffix" rows="2" placeholder="Optional text added after repeated prompt body"></textarea>
+  </div>
   <div class="add-form-actions">
     <button onclick="addPrompt()" style="background:var(--btnBg);color:var(--btnFg);">✅ Add</button>
     <button onclick="cancelAdd()">Cancel</button>
@@ -854,6 +864,10 @@ window.addEventListener('message', e => {
       document.getElementById('addText').value = '';
       const repeatInput = document.getElementById('addRepeatCount');
       if (repeatInput) { repeatInput.value = '0'; }
+      const repeatPrefix = document.getElementById('addRepeatPrefix');
+      if (repeatPrefix) { repeatPrefix.value = ''; }
+      const repeatSuffix = document.getElementById('addRepeatSuffix');
+      if (repeatSuffix) { repeatSuffix.value = ''; }
     } else if (msg.type === 'addError') {
       showAddFeedback('Error: ' + (msg.error || 'Failed'), 'error');
     }
@@ -980,6 +994,8 @@ function addPrompt() {
   const selTimeout = document.getElementById('addReminderTimeout');
   const chkRemRepeat = document.getElementById('addReminderRepeat');
   const inputRepeatCount = document.getElementById('addRepeatCount');
+  const inputRepeatPrefix = document.getElementById('addRepeatPrefix');
+  const inputRepeatSuffix = document.getElementById('addRepeatSuffix');
   const selTemplate = document.getElementById('addTemplate');
   const msg = { type: 'addPrompt', text };
   if (selTemplate && selTemplate.value) {
@@ -1000,6 +1016,12 @@ function addPrompt() {
   if (chkRemRepeat && chkRemRepeat.checked) { msg.reminderRepeat = true; }
   if (inputRepeatCount) {
     msg.repeatCount = Math.max(0, parseInt(String(inputRepeatCount.value || '0'), 10) || 0);
+  }
+  if (inputRepeatPrefix && inputRepeatPrefix.value) {
+    msg.repeatPrefix = inputRepeatPrefix.value;
+  }
+  if (inputRepeatSuffix && inputRepeatSuffix.value) {
+    msg.repeatSuffix = inputRepeatSuffix.value;
   }
   vscode.postMessage(msg);
   ta.value = '';

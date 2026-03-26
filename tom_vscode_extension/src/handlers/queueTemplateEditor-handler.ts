@@ -626,13 +626,24 @@ updateItemTemplate = function(id, template) {
 };
 
 var __updateItemRepeat = updateItemRepeat;
-updateItemRepeat = function(id, repeatCount) {
+updateItemRepeat = function(id, patch) {
   if (currentItems.length > 0 && currentItems[0].id === id) {
-    var value = Math.max(0, parseInt(String(repeatCount || '0'), 10) || 0);
-    currentItems[0].repeatCount = value;
+    var localPatch = patch;
+    if (localPatch === null || typeof localPatch !== 'object') {
+      localPatch = { repeatCount: patch };
+    }
+    if (Object.prototype.hasOwnProperty.call(localPatch, 'repeatCount')) {
+      currentItems[0].repeatCount = Math.max(0, parseInt(String(localPatch.repeatCount || '0'), 10) || 0);
+    }
+    if (Object.prototype.hasOwnProperty.call(localPatch, 'repeatPrefix')) {
+      currentItems[0].repeatPrefix = String(localPatch.repeatPrefix || '');
+    }
+    if (Object.prototype.hasOwnProperty.call(localPatch, 'repeatSuffix')) {
+      currentItems[0].repeatSuffix = String(localPatch.repeatSuffix || '');
+    }
     renderEditor();
   }
-  __updateItemRepeat(id, repeatCount);
+  __updateItemRepeat(id, patch);
 };
 
 /* Override follow-up handlers to update local state and re-render */
