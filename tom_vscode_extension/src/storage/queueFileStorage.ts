@@ -17,8 +17,10 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { WsPaths } from '../utils/workspacePaths.js';
 import { debugLog } from '../utils/debugLogger.js';
+import { buildQueueEntryFileName } from '../utils/queueStep5Utils.js';
 
 // ============================================================================
 // Constants
@@ -250,16 +252,13 @@ export function generateEntryFileName(
     type?: string,
     timestamp?: Date,
 ): string {
-    const now = timestamp || new Date();
-    const yy = String(now.getFullYear()).slice(2);
-    const mm = String(now.getMonth() + 1).padStart(2, '0');
-    const dd = String(now.getDate()).padStart(2, '0');
-    const hh = String(now.getHours()).padStart(2, '0');
-    const min = String(now.getMinutes()).padStart(2, '0');
-    const ss = String(now.getSeconds()).padStart(2, '0');
-    const q = sanitizeFilePart(quest || 'default');
-    const t = sanitizeFilePart(type || 'prompt');
-    return `${yy}${mm}${dd}_${hh}${min}${ss}_${q}.${t}${ENTRY_SUFFIX}`;
+    return buildQueueEntryFileName({
+        hostname: os.hostname(),
+        timestamp: timestamp || new Date(),
+        quest: quest || 'default',
+        type: type || 'prompt',
+        entrySuffix: ENTRY_SUFFIX,
+    });
 }
 
 /**
