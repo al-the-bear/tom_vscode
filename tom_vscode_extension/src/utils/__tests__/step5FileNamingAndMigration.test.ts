@@ -7,7 +7,7 @@ import {
     buildTimedFileNames,
     pickTimedReadPath,
     shouldMigrateTimedFileOnWrite,
-} from '../queueStep5Utils';
+} from '../queueStep5Utils.js';
 
 describe('Step 5 - Issue 1 queue/timed filename strategy', () => {
     test('sanitizeHostnameForFile lowercases and strips unsupported characters', () => {

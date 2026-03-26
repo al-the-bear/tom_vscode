@@ -8,7 +8,7 @@ import {
     findMatchingAnswerFile,
     resolveDetectedRequestId,
     computeHealthCheckDecisions,
-} from '../../utils/queueStep4Utils';
+} from '../../utils/queueStep4Utils.js';
 
 describe('Step 4 - Issue 7: requestId-based answer detection', () => {
     test('buildAnswerFilePath uses requestId when available', () => {
