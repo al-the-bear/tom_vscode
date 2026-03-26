@@ -255,6 +255,8 @@ function docToTemplateItem(templateId: string, doc: QueueFileYaml): Record<strin
     reminderTemplateId: mainPrompt?.reminder?.['template-id'] || '',
     reminderTimeoutMinutes: mainPrompt?.reminder?.['timeout-minutes'] || 60,
     reminderRepeat: mainPrompt?.reminder?.repeat || false,
+    repeatCount: Math.max(0, Math.round(Number(mainPrompt?.metadata?.['repeat-count'] || 0))),
+    repeatIndex: Math.max(0, Math.round(Number(mainPrompt?.metadata?.['repeat-index'] || 0))),
     prePrompts: prePrompts.map(pp => ({
       text: pp['prompt-text'] || '',
       template: pp.template || '',
@@ -285,6 +287,10 @@ function templateItemToDoc(item: any, existingDoc?: QueueFileYaml): QueueFileYam
     'prompt-text': item.originalText || '',
     template: item.template && item.template !== '(None)' ? item.template : undefined,
     'answer-wrapper': item.answerWrapper || undefined,
+    metadata: {
+      'repeat-count': Math.max(0, Math.round(Number(item.repeatCount || 0))),
+      'repeat-index': Math.max(0, Math.round(Number(item.repeatIndex || 0))),
+    },
     reminder: item.reminderEnabled ? {
       enabled: true,
       'template-id': item.reminderTemplateId || undefined,
@@ -615,6 +621,16 @@ updateItemTemplate = function(id, template) {
     currentItems[0].answerWrapper = !!(template && template !== '(None)');
   }
   __updateItemTemplate(id, template);
+};
+
+var __updateItemRepeat = updateItemRepeat;
+updateItemRepeat = function(id, repeatCount) {
+  if (currentItems.length > 0 && currentItems[0].id === id) {
+    var value = Math.max(0, parseInt(String(repeatCount || '0'), 10) || 0);
+    currentItems[0].repeatCount = value;
+    renderEditor();
+  }
+  __updateItemRepeat(id, repeatCount);
 };
 
 /* Override follow-up handlers to update local state and re-render */

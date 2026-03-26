@@ -245,10 +245,19 @@ async function handleMessage(msg: any): Promise<void> {
         case 'clearAll':
             qm.clearAll();
             break;
+        case 'sendAllStaged':
+            qm.sendAllStaged();
+            break;
         case 'toggleAutoSend':
             qm.autoSendEnabled = !qm.autoSendEnabled;
             sendState();        // explicit update in case onDidChange listener isn't wired
             break;
+        case 'updateItemRepeat':
+          qm.updateRepeat(msg.id, {
+            repeatCount: msg.repeatCount,
+            repeatIndex: msg.repeatIndex,
+          });
+          break;
         case 'setResponseTimeout':
           qm.responseFileTimeoutMinutes = Math.max(5, parseInt(String(msg.minutes || '60'), 10) || 60);
           sendState();
@@ -268,6 +277,7 @@ async function handleMessage(msg: any): Promise<void> {
                     reminderTimeoutMinutes: msg.reminderTimeoutMinutes,
               reminderRepeat: !!msg.reminderRepeat,
               reminderEnabled: !!msg.reminderEnabled,
+              repeatCount: Number.isFinite(msg.repeatCount) ? Math.max(0, Math.round(msg.repeatCount)) : 0,
               deferSend: true,
                 });
                 console.log('[QueueEditor] addPrompt enqueued successfully');
@@ -599,6 +609,7 @@ ${queueEntryStyles()}
 <div class="toolbar">
   <button class="ctx-btn-icon" onclick="toggleAddForm()" title="Add to Queue"><span class="codicon codicon-add"></span></button>
   <button class="ctx-btn-icon" id="autoSendBtn" onclick="toggleAutoSend()" title="Auto-Send"><span class="codicon codicon-play"></span></button>
+  <button onclick="sendAllStaged()">Send All Staged</button>
   <button onclick="clearSent()">Clear Sent</button>
   <button onclick="clearAll()">Clear All</button>
   <label style="font-size:0.85em;opacity:0.85;">Answer Timeout:</label>
@@ -650,6 +661,10 @@ ${queueEntryStyles()}
       <option value="480">480 min</option>
     </select>
     <label style="margin-left:8px;"><input type="checkbox" id="addReminderRepeat"> Repeat</label>
+  </div>
+  <div class="add-options">
+    <label style="margin-right:6px;">Queue Repeats:</label>
+    <input id="addRepeatCount" type="number" min="0" step="1" value="0" style="width:80px" title="How many additional times to repeat after the first run"/>
   </div>
   <div class="add-form-actions">
     <button onclick="addPrompt()" style="background:var(--btnBg);color:var(--btnFg);">✅ Add</button>
@@ -837,6 +852,8 @@ window.addEventListener('message', e => {
       showAddFeedback('Added to queue ✓', 'success');
       document.getElementById('addForm').classList.remove('visible');
       document.getElementById('addText').value = '';
+      const repeatInput = document.getElementById('addRepeatCount');
+      if (repeatInput) { repeatInput.value = '0'; }
     } else if (msg.type === 'addError') {
       showAddFeedback('Error: ' + (msg.error || 'Failed'), 'error');
     }
@@ -934,6 +951,7 @@ function expandAll() {
 }
 
 function toggleAutoSend() { vscode.postMessage({ type: 'toggleAutoSend' }); }
+function sendAllStaged() { vscode.postMessage({ type: 'sendAllStaged' }); }
 function setResponseTimeout(minutes) { vscode.postMessage({ type: 'setResponseTimeout', minutes: parseInt(minutes || '60', 10) || 60 }); }
 function setDefaultReminderTemplate(templateId) {
   const normalizedTemplateId = templateId || '';
@@ -961,6 +979,7 @@ function addPrompt() {
   const selTpl = document.getElementById('addReminderTemplate');
   const selTimeout = document.getElementById('addReminderTimeout');
   const chkRemRepeat = document.getElementById('addReminderRepeat');
+  const inputRepeatCount = document.getElementById('addRepeatCount');
   const selTemplate = document.getElementById('addTemplate');
   const msg = { type: 'addPrompt', text };
   if (selTemplate && selTemplate.value) {
@@ -979,12 +998,16 @@ function addPrompt() {
   }
   if (selTimeout && selTimeout.value) { msg.reminderTimeoutMinutes = parseInt(String(selTimeout.value || '0'), 10) || undefined; }
   if (chkRemRepeat && chkRemRepeat.checked) { msg.reminderRepeat = true; }
+  if (inputRepeatCount) {
+    msg.repeatCount = Math.max(0, parseInt(String(inputRepeatCount.value || '0'), 10) || 0);
+  }
   vscode.postMessage(msg);
   ta.value = '';
 }
 
 function addReminderTemplate() {
   vscode.postMessage({ type: 'addReminderTemplate' });
+  msg.repeatCount = inputRepeatCount ? (parseInt(String(inputRepeatCount.value || '0'), 10) || 0) : 0;
 }
 
 function addPromptTemplate() {

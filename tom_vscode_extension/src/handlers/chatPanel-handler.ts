@@ -649,7 +649,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         await this._applyContext(message);
                         break;
                     case 'addToQueue':
-                        await this._handleAddToQueue(message.text, message.template);
+                        await this._handleAddToQueue(message.text, message.template, message.repeatCount);
                         break;
                     case 'openQueueEditor':
                         await vscode.commands.executeCommand('tomAi.editor.promptQueue');
@@ -1888,14 +1888,19 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         this._sendReusablePrompts();
     }
 
-    private async _handleAddToQueue(text: string, template: string): Promise<void> {
+    private async _handleAddToQueue(text: string, template: string, repeatCount?: number): Promise<void> {
         try {
             const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
             const queue = PromptQueueManager.instance;
             if (queue) {
                 // Apply panel default template wrapping
                 const wrappedText = applyDefaultTemplate(text, 'copilot');
-                await queue.enqueue({ originalText: wrappedText, template: template || undefined, deferSend: true });
+                await queue.enqueue({
+                    originalText: wrappedText,
+                    template: template || undefined,
+                    repeatCount: Math.max(0, Math.round(Number(repeatCount || 0))),
+                    deferSend: true,
+                });
                 const count = queue.items.length;
                 vscode.window.showInformationMessage(`Added to prompt queue (${count} items)`);
                 // Notify webview so it can clear text and show feedback
@@ -2648,6 +2653,7 @@ function getSectionContent(id) {
             actionButtons:
                 '<button class="icon-btn" data-action="preview" data-id="copilot" title="Preview"><span class="codicon codicon-eye"></span></button>' +
                 '<button class="icon-btn primary" id="copilot-send-btn" data-action="send" data-id="copilot" title="Send to Copilot"><span class="codicon codicon-send"></span></button>' +
+                '<label class="checkbox-label compact-keep" title="Queue repeats"><span style="opacity:0.8;">R</span><input type="number" id="copilot-repeat-count" min="0" step="1" value="0" style="width:48px"></label>' +
                 '<button class="icon-btn" data-action="addToQueue" data-id="copilot" title="Save to Queue"><span class="codicon codicon-add"></span><span class="codicon codicon-list-ordered"></span></button>' +
                 '<button class="icon-btn" data-action="openQueueEditor" data-id="copilot" title="Open Queue Editor"><span class="codicon codicon-inbox"></span></button>' +
                 '<button class="icon-btn" data-action="saveAsTimedRequest" data-id="copilot" title="Save as Timed Request"><span class="codicon codicon-save"></span></button>' +
@@ -3270,8 +3276,11 @@ function addCopilotToQueue() {
     if (!text.trim()) return;
     var template = document.getElementById('copilot-template');
     template = template ? template.value : '';
+    var repeat = document.getElementById('copilot-repeat-count');
+    repeat = repeat ? repeat.value : '0';
+    var repeatCount = parseInt(String(repeat || '0'), 10) || 0;
     var slot = ensureSlotState('copilot').activeSlot;
-    vscode.postMessage({ type: 'addToQueue', text: text, template: template, slot: slot });
+    vscode.postMessage({ type: 'addToQueue', text: text, template: template, repeatCount: repeatCount, slot: slot });
 }
 
 function openContextPopup() {

@@ -31,6 +31,7 @@ import {
 } from '../storage/queueFileStorage';
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
+import { computeRepeatDecision, convertStagedToPending, shouldAutoPauseOnEmpty } from '../utils/queueStep3Utils';
 import { writeWindowState } from '../handlers/windowStatusPanel-handler';
 import { TrailService } from '../services/trailService';
 
@@ -81,6 +82,8 @@ export interface QueuedPrompt {
     prePrompts?: QueuedPrePrompt[];  // Pre-prompts sent before the main prompt
     followUps?: QueuedFollowUpPrompt[];
     followUpIndex?: number;       // Number of follow-ups already sent
+    repeatCount?: number;
+    repeatIndex?: number;
 }
 
 // ============================================================================
@@ -149,6 +152,8 @@ export class PromptQueueManager {
     private _defaultReminderTemplateId: string | undefined;
     private _answerWatcher?: fs.FSWatcher;
     private _timeoutWatcher?: ReturnType<typeof setInterval>;
+    private _statusBarItem?: vscode.StatusBarItem;
+    private _statusBarChangeDisposable?: vscode.Disposable;
     private _processing = false;
     private _processingAnswerFile = false;
 
@@ -213,6 +218,7 @@ export class PromptQueueManager {
         m.restore();
         m.setupAnswerWatcher();
         m.startTimeoutWatcher();
+        m.setupStatusBarItem();
         // Start file watcher for cross-window sync
         startQueueWatching();
         m._queueChangeDisposable = onQueueChanged(() => {
@@ -236,10 +242,43 @@ export class PromptQueueManager {
             this._timeoutWatcher = undefined;
         }
         this._queueChangeDisposable?.dispose();
+        this._statusBarChangeDisposable?.dispose();
+        this._statusBarItem?.dispose();
         stopQueueWatching();
         this._onDidChange.dispose();
         this._onPromptSent.dispose();
         this._onAnswerReceived.dispose();
+    }
+
+    private setupStatusBarItem(): void {
+        if (this._statusBarItem) { return; }
+        this._statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
+        this._statusBarItem.command = 'tomAi.editor.promptQueue';
+        this._statusBarItem.name = 'Prompt Queue Status';
+        this._statusBarItem.show();
+        this._statusBarChangeDisposable = this.onDidChange(() => this.updateStatusBarItem());
+        this.updateStatusBarItem();
+    }
+
+    private updateStatusBarItem(): void {
+        if (!this._statusBarItem) { return; }
+        const pending = this._items.filter(i => i.status === 'pending').length;
+        const sending = this._items.filter(i => i.status === 'sending').length;
+
+        if (sending > 0) {
+            this._statusBarItem.text = '$(sync~spin) Queue Sending...';
+            this._statusBarItem.tooltip = `Prompt Queue active: sending ${sending}, pending ${pending}`;
+            return;
+        }
+
+        if (this._autoSendEnabled) {
+            this._statusBarItem.text = `$(play) Queue Active (${pending} pending)`;
+            this._statusBarItem.tooltip = 'Prompt Queue auto-send enabled';
+            return;
+        }
+
+        this._statusBarItem.text = '$(debug-pause) Queue Paused';
+        this._statusBarItem.tooltip = `Prompt Queue paused (${pending} pending)`;
     }
 
     // ----- answer file watcher -----------------------------------------------
@@ -567,11 +606,54 @@ export class PromptQueueManager {
                 sending.reminderSentCount = 0;
                 sending.lastReminderAt = undefined;
                 this.removePendingReminderFor(sending.id);
+
+                const repeatDecision = computeRepeatDecision({
+                    repeatCount: sending.repeatCount,
+                    repeatIndex: sending.repeatIndex,
+                });
+                if (repeatDecision.shouldRepeat) {
+                    await this.enqueue({
+                        originalText: sending.originalText,
+                        template: sending.template,
+                        answerWrapper: sending.answerWrapper,
+                        type: sending.type,
+                        repeatCount: sending.repeatCount,
+                        repeatIndex: repeatDecision.nextRepeatIndex,
+                        reminderTemplateId: sending.reminderTemplateId,
+                        reminderTimeoutMinutes: sending.reminderTimeoutMinutes,
+                        reminderRepeat: sending.reminderRepeat,
+                        reminderEnabled: sending.reminderEnabled,
+                        prePrompts: (sending.prePrompts || []).map(pp => ({
+                            text: pp.text,
+                            template: pp.template,
+                        })),
+                        followUps: (sending.followUps || []).map(f => ({
+                            originalText: f.originalText,
+                            template: f.template,
+                            reminderTemplateId: f.reminderTemplateId,
+                            reminderTimeoutMinutes: f.reminderTimeoutMinutes,
+                            reminderRepeat: !!f.reminderRepeat,
+                            reminderEnabled: !!f.reminderEnabled,
+                        })),
+                        initialStatus: 'pending',
+                        deferSend: true,
+                    });
+                    logQueue(`Repeat ${repeatDecision.progressLabel} queued for item ${sending.id}`);
+                }
+
                 this.persist();
                 this._onDidChange.fire();
 
                 if (this._autoSendEnabled) {
-                    await this.delaySendNext();
+                    const pendingCount = this._items.filter(i => i.status === 'pending').length;
+                    if (shouldAutoPauseOnEmpty(this._autoSendEnabled, pendingCount)) {
+                        this._autoSendEnabled = false;
+                        this.persistSettings();
+                        this._onDidChange.fire();
+                        logQueue('Queue empty — auto-pausing');
+                    } else {
+                        await this.delaySendNext();
+                    }
                 }
             }
         } catch (err) {
@@ -633,6 +715,8 @@ export class PromptQueueManager {
         position?: number;
         prePrompts?: Array<{ text: string; template?: string }>;
         followUps?: Array<{ originalText: string; template?: string; reminderTemplateId?: string; reminderTimeoutMinutes?: number; reminderRepeat?: boolean; reminderEnabled?: boolean }>;
+        repeatCount?: number;
+        repeatIndex?: number;
         initialStatus?: 'staged' | 'pending';
         deferSend?: boolean;
     }): Promise<QueuedPrompt> {
@@ -679,6 +763,8 @@ export class PromptQueueManager {
                     createdAt: new Date().toISOString(),
                 })),
             followUpIndex: 0,
+            repeatCount: Math.max(0, Math.round(opts.repeatCount || 0)),
+            repeatIndex: Math.max(0, Math.round(opts.repeatIndex || 0)),
         };
 
         logQueue(`Item enqueued: id=${item.id}, type=${item.type}, status=${item.status}, text=${promptPreview(item.originalText)}`);
@@ -963,6 +1049,35 @@ export class PromptQueueManager {
         return true;
     }
 
+    sendAllStaged(): number {
+        const changed = convertStagedToPending(this._items);
+        if (changed === 0) { return 0; }
+
+        this.persist();
+        this._onDidChange.fire();
+        logQueue(`Converted ${changed} staged items to pending`);
+
+        if (this._autoSendEnabled && !this._items.some(i => i.status === 'sending')) {
+            void this.sendNext();
+        }
+        return changed;
+    }
+
+    updateRepeat(id: string, patch: { repeatCount?: number; repeatIndex?: number }): void {
+        const item = this._items.find(i => i.id === id);
+        if (!item || !this.isEditableStatus(item.status)) { return; }
+
+        if (patch.repeatCount !== undefined) {
+            item.repeatCount = Math.max(0, Math.round(patch.repeatCount || 0));
+        }
+        if (patch.repeatIndex !== undefined) {
+            item.repeatIndex = Math.max(0, Math.round(patch.repeatIndex || 0));
+        }
+
+        this.persist();
+        this._onDidChange.fire();
+    }
+
     /**
      * Explicitly send a queued prompt by queue item ID or request ID.
      * Only pending items are eligible.
@@ -1010,7 +1125,10 @@ export class PromptQueueManager {
         const next = this._items.find(i => i.status === 'pending');
         if (!next) {
             logQueue('sendNext: no pending items');
-            if (this._autoSendEnabled) {
+            if (shouldAutoPauseOnEmpty(this._autoSendEnabled, 0)) {
+                this._autoSendEnabled = false;
+                this.persistSettings();
+                this._onDidChange.fire();
                 logQueue('Queue empty — auto-pausing');
             }
             return;
@@ -1156,6 +1274,9 @@ export class PromptQueueManager {
 
         // Restore queue-level settings
         this.restoreSettings();
+
+        // Step 3 / Issue 4: always start paused for each activation.
+        this._autoSendEnabled = false;
     }
 
     /** Persist queue-level settings to disk. */
@@ -1273,6 +1394,8 @@ export class PromptQueueManager {
                 requestId: main.execution?.['request-id'] || undefined,
                 expectedRequestId: main.execution?.['expected-request-id'] || undefined,
                 followUpIndex: main.execution?.['follow-up-index'] || 0,
+                repeatCount: Math.max(0, Math.round(Number(main.metadata?.['repeat-count'] || 0))),
+                repeatIndex: Math.max(0, Math.round(Number(main.metadata?.['repeat-index'] || 0))),
             };
 
             // Pre-prompts: resolve refs from the prompt-queue
@@ -1327,6 +1450,10 @@ export class PromptQueueManager {
             'expanded-text': item.expandedText,
             template: item.template || '(None)',
             'answer-wrapper': item.answerWrapper,
+            metadata: {
+                'repeat-count': Math.max(0, Math.round(item.repeatCount || 0)),
+                'repeat-index': Math.max(0, Math.round(item.repeatIndex || 0)),
+            },
         };
 
         // Reminder config: persist explicit no-reminder state (reminderEnabled === false)

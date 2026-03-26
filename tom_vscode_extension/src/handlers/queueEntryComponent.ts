@@ -179,6 +179,9 @@ function renderEntry(item, idx) {
   var followUps = Array.isArray(item.followUps) ? item.followUps : [];
   var sentFollowUps = item.followUpIndex || 0;
   var followUpProgress = followUps.length > 0 ? ('  [FU ' + Math.min(sentFollowUps, followUps.length) + '/' + followUps.length + ']') : '';
+  var repeatCount = Math.max(0, parseInt(String(item.repeatCount || 0), 10) || 0);
+  var repeatIndex = Math.max(0, parseInt(String(item.repeatIndex || 0), 10) || 0);
+  var repeatProgress = repeatCount > 0 ? ('  [R ' + Math.min(repeatIndex, repeatCount) + '/' + repeatCount + ']') : '';
 
   var expanded = detailsExpanded[item.id] !== false;
   var safeId = escapeJsSingleQuoted(item.id);
@@ -203,6 +206,8 @@ function renderEntry(item, idx) {
       '<span style="font-size:0.8em;opacity:0.85;">Wait:</span>' +
       '<select onchange="updateItemReminder(\\'' + safeId + '\\', \\'timeout\\', this.value)">' + reminderTimeoutOptions(item.reminderTimeoutMinutes || responseTimeoutMinutes) + '</select>' +
       '<label style="font-size:0.8em;"><input type="checkbox" ' + (item.reminderRepeat ? 'checked' : '') + ' onchange="updateItemReminder(\\'' + safeId + '\\', \\'repeat\\', this.checked)"> Repeat</label>' +
+      '<span style="font-size:0.8em;opacity:0.85;margin-left:8px;">Queue Repeats:</span>' +
+      '<input type="number" min="0" step="1" value="' + repeatCount + '" style="width:80px" onchange="updateItemRepeat(\\'' + safeId + '\\', this.value)">' +
     '</div>';
   }
 
@@ -213,7 +218,7 @@ function renderEntry(item, idx) {
       '<div class="status-bar ' + statusBarCls + '">' +
         '<span class="status-left">' +
           '<span class="codicon ' + (expanded ? 'codicon-chevron-down' : 'codicon-chevron-right') + '" style="cursor:pointer;color:#000;" onclick="toggleDetails(\\'' + safeId + '\\')" title="Toggle details"></span>' +
-          statusLabel + followUpProgress +
+          statusLabel + followUpProgress + repeatProgress +
           (item.template && item.template !== '(None)' && item.template !== '__answer_file__' ? '  [' + escapeHtml(item.template) + ']' : '') +
           (item.template && item.template !== '(None)' ? '  [AW]' : '') +
           '<span class="status-icons">' +
@@ -379,6 +384,13 @@ function renderFollowUps(item, status) {
 export function queueEntryMessageHandlers(): string {
   return `
 function updateText(id, text) { vscode.postMessage({ type: 'updateText', id: id, text: text }); }
+function updateItemRepeat(id, repeatCount) {
+  vscode.postMessage({
+    type: 'updateItemRepeat',
+    id: id,
+    repeatCount: Math.max(0, parseInt(String(repeatCount || '0'), 10) || 0),
+  });
+}
 function updateItemTemplate(id, template) { vscode.postMessage({ type: 'updateItemTemplate', id: id, template: template || '' }); }
 function updateItemReminder(id, field, value) {
   var msg = { type: 'updateItemReminder', id: id };
