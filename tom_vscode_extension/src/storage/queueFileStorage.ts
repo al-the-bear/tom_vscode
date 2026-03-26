@@ -89,6 +89,10 @@ export interface QueuePromptYaml {
     template?: string;
     'answer-template'?: string;
     'answer-wrapper'?: boolean;
+    'repeat-count'?: number;
+    'repeat-index'?: number;
+    'repeat-prefix'?: string;
+    'repeat-suffix'?: string;
     'llm-profile'?: string;
     reminder?: QueueReminderConfig;
     'gate-ref'?: string;

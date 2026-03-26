@@ -255,8 +255,10 @@ function docToTemplateItem(templateId: string, doc: QueueFileYaml): Record<strin
     reminderTemplateId: mainPrompt?.reminder?.['template-id'] || '',
     reminderTimeoutMinutes: mainPrompt?.reminder?.['timeout-minutes'] || 60,
     reminderRepeat: mainPrompt?.reminder?.repeat || false,
-    repeatCount: Math.max(0, Math.round(Number(mainPrompt?.metadata?.['repeat-count'] || 0))),
-    repeatIndex: Math.max(0, Math.round(Number(mainPrompt?.metadata?.['repeat-index'] || 0))),
+    repeatCount: Math.max(0, Math.round(Number(mainPrompt?.['repeat-count'] || 0))),
+    repeatIndex: Math.max(0, Math.round(Number(mainPrompt?.['repeat-index'] || 0))),
+    repeatPrefix: mainPrompt?.['repeat-prefix'] || '',
+    repeatSuffix: mainPrompt?.['repeat-suffix'] || '',
     prePrompts: prePrompts.map(pp => ({
       text: pp['prompt-text'] || '',
       template: pp.template || '',
@@ -287,10 +289,10 @@ function templateItemToDoc(item: any, existingDoc?: QueueFileYaml): QueueFileYam
     'prompt-text': item.originalText || '',
     template: item.template && item.template !== '(None)' ? item.template : undefined,
     'answer-wrapper': item.answerWrapper || undefined,
-    metadata: {
-      'repeat-count': Math.max(0, Math.round(Number(item.repeatCount || 0))),
-      'repeat-index': Math.max(0, Math.round(Number(item.repeatIndex || 0))),
-    },
+    'repeat-count': Math.max(0, Math.round(Number(item.repeatCount || 0))),
+    'repeat-index': Math.max(0, Math.round(Number(item.repeatIndex || 0))),
+    'repeat-prefix': item.repeatPrefix || undefined,
+    'repeat-suffix': item.repeatSuffix || undefined,
     reminder: item.reminderEnabled ? {
       enabled: true,
       'template-id': item.reminderTemplateId || undefined,

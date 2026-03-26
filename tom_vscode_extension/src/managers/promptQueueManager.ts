@@ -31,7 +31,7 @@ import {
 } from '../storage/queueFileStorage';
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
-import { computeRepeatDecision, convertStagedToPending, shouldAutoPauseOnEmpty } from '../utils/queueStep3Utils';
+import { applyRepetitionAffixes, computeRepeatDecision, convertStagedToPending, shouldAutoPauseOnEmpty } from '../utils/queueStep3Utils';
 import {
     buildAnswerFilePath,
     shouldWatchAnswerFile,
@@ -92,6 +92,8 @@ export interface QueuedPrompt {
     followUpIndex?: number;       // Number of follow-ups already sent
     repeatCount?: number;
     repeatIndex?: number;
+    repeatPrefix?: string;
+    repeatSuffix?: string;
 }
 
 // ============================================================================
@@ -200,8 +202,20 @@ export class PromptQueueManager {
         return undefined;
     }
 
-    private async _buildExpandedText(originalText: string, template?: string, answerWrapper?: boolean): Promise<string> {
-        let expanded = await expandTemplate(originalText, { includeEditorContext: false });
+    private async _buildExpandedText(
+        originalText: string,
+        template?: string,
+        answerWrapper?: boolean,
+        repetition?: { repeatCount?: number; repeatIndex?: number; repeatPrefix?: string; repeatSuffix?: string },
+    ): Promise<string> {
+        const withAffixes = applyRepetitionAffixes({
+            originalText,
+            repeatCount: repetition?.repeatCount,
+            repeatIndex: repetition?.repeatIndex,
+            repeatPrefix: repetition?.repeatPrefix,
+            repeatSuffix: repetition?.repeatSuffix,
+        });
+        let expanded = await expandTemplate(withAffixes, { includeEditorContext: false });
         expanded = await applyTemplateWrapping(expanded, template ?? '(None)', answerWrapper);
         return expanded;
     }
@@ -756,6 +770,8 @@ export class PromptQueueManager {
                         type: sending.type,
                         repeatCount: sending.repeatCount,
                         repeatIndex: repeatDecision.nextRepeatIndex,
+                        repeatPrefix: sending.repeatPrefix,
+                        repeatSuffix: sending.repeatSuffix,
                         reminderTemplateId: sending.reminderTemplateId,
                         reminderTimeoutMinutes: sending.reminderTimeoutMinutes,
                         reminderRepeat: sending.reminderRepeat,
@@ -854,10 +870,22 @@ export class PromptQueueManager {
         followUps?: Array<{ originalText: string; template?: string; reminderTemplateId?: string; reminderTimeoutMinutes?: number; reminderRepeat?: boolean; reminderEnabled?: boolean }>;
         repeatCount?: number;
         repeatIndex?: number;
+        repeatPrefix?: string;
+        repeatSuffix?: string;
         initialStatus?: 'staged' | 'pending';
         deferSend?: boolean;
     }): Promise<QueuedPrompt> {
-        const expanded = await this._buildExpandedText(opts.originalText, opts.template, opts.answerWrapper);
+        const expanded = await this._buildExpandedText(
+            opts.originalText,
+            opts.template,
+            opts.answerWrapper,
+            {
+                repeatCount: opts.repeatCount,
+                repeatIndex: opts.repeatIndex,
+                repeatPrefix: opts.repeatPrefix,
+                repeatSuffix: opts.repeatSuffix,
+            },
+        );
 
         // Compute effective reminder template: provided value, or fall back to default
         let effectiveReminderTemplateId = opts.reminderTemplateId ?? this._defaultReminderTemplateId;
@@ -902,6 +930,8 @@ export class PromptQueueManager {
             followUpIndex: 0,
             repeatCount: Math.max(0, Math.round(opts.repeatCount || 0)),
             repeatIndex: Math.max(0, Math.round(opts.repeatIndex || 0)),
+            repeatPrefix: opts.repeatPrefix,
+            repeatSuffix: opts.repeatSuffix,
         };
 
         logQueue(`Item enqueued: id=${item.id}, type=${item.type}, status=${item.status}, text=${promptPreview(item.originalText)}`);
@@ -955,7 +985,12 @@ export class PromptQueueManager {
         const item = this._items.find(i => i.id === id);
         if (!item || !this.isEditableStatus(item.status)) { return; }
         item.originalText = newText;
-        item.expandedText = await this._buildExpandedText(newText, item.template, item.answerWrapper);
+        item.expandedText = await this._buildExpandedText(newText, item.template, item.answerWrapper, {
+            repeatCount: item.repeatCount,
+            repeatIndex: item.repeatIndex,
+            repeatPrefix: item.repeatPrefix,
+            repeatSuffix: item.repeatSuffix,
+        });
         this.persist();
         this._onDidChange.fire();
     }
@@ -976,7 +1011,12 @@ export class PromptQueueManager {
 
         if (!changed) { return false; }
 
-        item.expandedText = await this._buildExpandedText(item.originalText, item.template, item.answerWrapper);
+        item.expandedText = await this._buildExpandedText(item.originalText, item.template, item.answerWrapper, {
+            repeatCount: item.repeatCount,
+            repeatIndex: item.repeatIndex,
+            repeatPrefix: item.repeatPrefix,
+            repeatSuffix: item.repeatSuffix,
+        });
         this.persist();
         this._onDidChange.fire();
         return true;
@@ -1200,7 +1240,7 @@ export class PromptQueueManager {
         return changed;
     }
 
-    updateRepeat(id: string, patch: { repeatCount?: number; repeatIndex?: number }): void {
+    updateRepeat(id: string, patch: { repeatCount?: number; repeatIndex?: number; repeatPrefix?: string; repeatSuffix?: string }): void {
         const item = this._items.find(i => i.id === id);
         if (!item || !this.isEditableStatus(item.status)) { return; }
 
@@ -1209,6 +1249,12 @@ export class PromptQueueManager {
         }
         if (patch.repeatIndex !== undefined) {
             item.repeatIndex = Math.max(0, Math.round(patch.repeatIndex || 0));
+        }
+        if (patch.repeatPrefix !== undefined) {
+            item.repeatPrefix = patch.repeatPrefix;
+        }
+        if (patch.repeatSuffix !== undefined) {
+            item.repeatSuffix = patch.repeatSuffix;
         }
 
         this.persist();
@@ -1335,7 +1381,12 @@ export class PromptQueueManager {
 
         // Stage 2: send main prompt once, then wait for answer.
         if (!item.requestId) {
-            item.expandedText = await this._buildExpandedText(item.originalText, item.template, item.answerWrapper);
+            item.expandedText = await this._buildExpandedText(item.originalText, item.template, item.answerWrapper, {
+                repeatCount: item.repeatCount,
+                repeatIndex: item.repeatIndex,
+                repeatPrefix: item.repeatPrefix,
+                repeatSuffix: item.repeatSuffix,
+            });
             item.requestId = this._extractRequestIdFromExpandedPrompt(item.expandedText);
             item.expectedRequestId = item.requestId;
             item.sentAt = new Date().toISOString();
@@ -1545,8 +1596,10 @@ export class PromptQueueManager {
                 requestId: main.execution?.['request-id'] || undefined,
                 expectedRequestId: main.execution?.['expected-request-id'] || undefined,
                 followUpIndex: main.execution?.['follow-up-index'] || 0,
-                repeatCount: Math.max(0, Math.round(Number(main.metadata?.['repeat-count'] || 0))),
-                repeatIndex: Math.max(0, Math.round(Number(main.metadata?.['repeat-index'] || 0))),
+                repeatCount: Math.max(0, Math.round(Number(main['repeat-count'] || 0))),
+                repeatIndex: Math.max(0, Math.round(Number(main['repeat-index'] || 0))),
+                repeatPrefix: main['repeat-prefix'],
+                repeatSuffix: main['repeat-suffix'],
             };
 
             // Pre-prompts: resolve refs from the prompt-queue
@@ -1601,10 +1654,10 @@ export class PromptQueueManager {
             'expanded-text': item.expandedText,
             template: item.template || '(None)',
             'answer-wrapper': item.answerWrapper,
-            metadata: {
-                'repeat-count': Math.max(0, Math.round(item.repeatCount || 0)),
-                'repeat-index': Math.max(0, Math.round(item.repeatIndex || 0)),
-            },
+            'repeat-count': Math.max(0, Math.round(item.repeatCount || 0)),
+            'repeat-index': Math.max(0, Math.round(item.repeatIndex || 0)),
+            'repeat-prefix': item.repeatPrefix,
+            'repeat-suffix': item.repeatSuffix,
         };
 
         // Reminder config: persist explicit no-reminder state (reminderEnabled === false)

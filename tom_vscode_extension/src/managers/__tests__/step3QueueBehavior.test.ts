@@ -1,7 +1,12 @@
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { computeRepeatDecision, convertStagedToPending, shouldAutoPauseOnEmpty } from '../../utils/queueStep3Utils';
+import {
+    computeRepeatDecision,
+    convertStagedToPending,
+    shouldAutoPauseOnEmpty,
+    applyRepetitionAffixes,
+} from '../../utils/queueStep3Utils.js';
 
 describe('Step 3 - Issue 4: queue auto-pause behavior', () => {
     test('auto-pause should trigger when auto-send is on and pending count is zero', () => {
@@ -64,5 +69,32 @@ describe('Step 3 - Issue 10: repeat decision', () => {
         assert.equal(decision.shouldRepeat, false);
         assert.equal(decision.nextRepeatIndex, 0);
         assert.equal(decision.progressLabel, '0/0');
+    });
+
+    test('repetition affixes wrap original prompt with blank lines', () => {
+        const wrapped = applyRepetitionAffixes({
+            originalText: 'Main prompt body',
+            repeatPrefix: 'Prefix text',
+            repeatSuffix: 'Suffix text',
+            repeatCount: 3,
+            repeatIndex: 1,
+        });
+
+        assert.equal(wrapped, 'Prefix text\n\nMain prompt body\n\nSuffix text');
+    });
+
+    test('repetition affixes substitute placeholders for current repetition number', () => {
+        const wrapped = applyRepetitionAffixes({
+            originalText: 'Prompt',
+            repeatPrefix: 'Run {{repeatNumber}} of {{repeatCount}} (index={{repeatIndex}})',
+            repeatSuffix: 'Finished {{repeatNumber}}',
+            repeatCount: 4,
+            repeatIndex: 2,
+        });
+
+        assert.equal(
+            wrapped,
+            'Run 3 of 4 (index=2)\n\nPrompt\n\nFinished 3',
+        );
     });
 });
