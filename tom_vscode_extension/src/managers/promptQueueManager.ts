@@ -30,6 +30,7 @@ import {
     type QueueReminderConfig,
 } from '../storage/queueFileStorage';
 import { debugLog } from '../utils/debugLogger';
+import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
 import { writeWindowState } from '../handlers/windowStatusPanel-handler';
 import { TrailService } from '../services/trailService';
 
@@ -206,6 +207,7 @@ export class PromptQueueManager {
 
     static init(ctx: vscode.ExtensionContext): void {
         if (PromptQueueManager._inst) { return; }
+        logQueue('PromptQueueManager initialising');
         const m = new PromptQueueManager();
         m._ctx = ctx;
         m.restore();
@@ -218,6 +220,7 @@ export class PromptQueueManager {
             m._reloadFromDisk();
         });
         PromptQueueManager._inst = m;
+        logQueue(`PromptQueueManager initialised — ${m._items.length} items restored, autoSend=${m._autoSendEnabled}`);
     }
 
     static get instance(): PromptQueueManager {
@@ -226,6 +229,7 @@ export class PromptQueueManager {
     }
 
     dispose(): void {
+        logQueue('PromptQueueManager disposing');
         this._answerWatcher?.close();
         if (this._timeoutWatcher) {
             clearInterval(this._timeoutWatcher);
@@ -252,10 +256,12 @@ export class PromptQueueManager {
         if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
 
         const basename = path.basename(this.answerFilePath);
+        logQueue(`Answer watcher started for ${dir} (expecting: ${basename})`);
         debugLog(`[PromptQueueManager] Setting up answer watcher for ${this.answerFilePath}`, 'INFO', 'queue');
         this._answerWatcher = fs.watch(dir, (event, filename) => {
             debugLog(`[PromptQueueManager] File watch event: ${event} ${filename} (expecting: ${basename})`, 'DEBUG', 'queue');
             if (filename === basename) {
+                logQueue(`Answer file changed (event=${event}, file=${filename})`);
                 debugLog(`[PromptQueueManager] Answer file changed, calling onAnswerFileChanged`, 'INFO', 'queue');
                 this.onAnswerFileChanged();
             }
@@ -392,10 +398,17 @@ export class PromptQueueManager {
     private async checkResponseTimeouts(): Promise<void> {
         const sending = this._items.find(i => i.status === 'sending');
         if (!sending || !sending.sentAt) { return; }
-        if (!this.isReminderEligible(sending)) { return; }
+
+        const timeoutMinutes = this.getActiveReminderTimeoutMinutes(sending);
+        const elapsed = Math.round((Date.now() - new Date(sending.sentAt).getTime()) / 60_000);
+
+        if (!this.isReminderEligible(sending)) {
+            logQueue(`Reminder check for ${sending.id}: not eligible (reminderEnabled=${sending.reminderEnabled}, type=${sending.type}) — skipped`);
+            return;
+        }
 
         const now = Date.now();
-        const timeoutMs = this.getActiveReminderTimeoutMinutes(sending) * 60_000;
+        const timeoutMs = timeoutMinutes * 60_000;
         const firstDue = new Date(sending.sentAt).getTime() + timeoutMs;
         if (now < firstDue) { return; }
 
@@ -403,6 +416,7 @@ export class PromptQueueManager {
         const repeat = this.isReminderRepeatEnabled(sending);
 
         if (reminderSentCount > 0 && !repeat) {
+            logQueue(`Reminder check for ${sending.id}: already sent ${reminderSentCount}x, repeat=false — skipped`);
             return;
         }
 
@@ -413,6 +427,7 @@ export class PromptQueueManager {
             }
         }
 
+        logQueue(`Reminder check for ${sending.id}: templateId=${sending.reminderTemplateId}, reminderEnabled=${sending.reminderEnabled}, elapsed=${elapsed}min, timeout=${timeoutMinutes}min → generating`);
         const reminderText = this.buildReminderText(sending);
         try {
             await vscode.commands.executeCommand('workbench.action.chat.open', { query: reminderText });
@@ -420,8 +435,9 @@ export class PromptQueueManager {
             sending.lastReminderAt = new Date().toISOString();
             this.persist();
             this._onDidChange.fire();
-        } catch {
-            // keep waiting; next check can retry
+            logQueue(`Reminder sent for ${sending.id} (count=${sending.reminderSentCount})`);
+        } catch (err) {
+            logQueueError('checkResponseTimeouts', err);
         }
     }
 
@@ -434,6 +450,7 @@ export class PromptQueueManager {
 
         try {
         const filePath = this.answerFilePath;
+        logQueue(`Watching for answer at ${filePath}`);
         debugLog(`[PromptQueueManager] onAnswerFileChanged called, checking: ${filePath}`, 'DEBUG', 'queue');
         if (!fs.existsSync(filePath)) { 
             debugLog(`[PromptQueueManager] Answer file does not exist`, 'DEBUG', 'queue');
@@ -519,21 +536,25 @@ export class PromptQueueManager {
 
         const sending = this._items.find(i => i.status === 'sending');
         if (!sending) {
+            logQueue(`No sending item found in queue — ignoring answer. Items: ${this._items.map(i => `${i.id.substring(0, 8)}:${i.status}`).join(', ')}`);
             debugLog(`[PromptQueueManager] No sending item found in queue. Items: ${this._items.map(i => `${i.id}:${i.status}`).join(', ')}`, 'WARN', 'queue');
             return;
         }
 
         if (sending.expectedRequestId && answerRequestId && sending.expectedRequestId !== answerRequestId) {
+            logQueue(`Answer file not matching — expected ${sending.expectedRequestId}, got ${answerRequestId}`);
             debugLog(`[PromptQueueManager] Ignoring answer with requestId=${answerRequestId}; waiting for expectedRequestId=${sending.expectedRequestId}`, 'DEBUG', 'queue');
             return;
         }
 
+        logQueue(`Answer detected for ${sending.id}, requestId=${answerRequestId || '(none)'}`);
         debugLog(`[PromptQueueManager] Processing answer for sending item ${sending.id}`, 'INFO', 'queue');
         this.updateWindowStatus('answer-received');
 
         try {
             const hasNextStage = await this.dispatchNextStageForSendingItem(sending);
             if (!hasNextStage) {
+                logQueue(`Marking item ${sending.id} as sent — status: sending → sent`);
                 debugLog(`[PromptQueueManager] Marking item ${sending.id} as sent`, 'INFO', 'queue');
                 sending.status = 'sent';
                 sending.expectedRequestId = undefined;
@@ -550,6 +571,7 @@ export class PromptQueueManager {
         } catch (err) {
             sending.status = 'error';
             sending.error = String(err);
+            logQueueError(`onAnswerFileChanged(${sending.id})`, err);
             this.persist();
             this._onDidChange.fire();
         }
@@ -567,6 +589,7 @@ export class PromptQueueManager {
 
     set autoSendEnabled(v: boolean) {
         this._autoSendEnabled = v;
+        logQueue(`Auto-send toggled: ${v ? 'on' : 'off'}`);
         this.persistSettings();
         this._onDidChange.fire();
     }
@@ -653,6 +676,8 @@ export class PromptQueueManager {
                 })),
             followUpIndex: 0,
         };
+
+        logQueue(`Item enqueued: id=${item.id}, type=${item.type}, status=${item.status}, text=${promptPreview(item.originalText)}`);
 
         const pos = opts.position ?? -1;
         if (pos >= 0 && pos < this._items.length) {
@@ -972,14 +997,22 @@ export class PromptQueueManager {
 
     async sendNext(): Promise<void> {
         const next = this._items.find(i => i.status === 'pending');
-        if (!next) { return; }
+        if (!next) {
+            logQueue('sendNext: no pending items');
+            return;
+        }
         // Don't send if something is already sending
-        if (this._items.some(i => i.status === 'sending')) { return; }
+        if (this._items.some(i => i.status === 'sending')) {
+            logQueue(`sendNext: skipped — another item is already sending`);
+            return;
+        }
+        logQueue(`sendNext: sending item ${next.id}`);
         await this.sendItem(next);
     }
 
     private async sendItem(item: QueuedPrompt): Promise<void> {
         if (item.status === 'sending') { return; }
+        logQueue(`Sending prompt ${item.id} to Copilot — text=${promptPreview(item.originalText)}`);
 
         // Reset run state before first dispatch of this item.
         if (item.prePrompts && item.prePrompts.length > 0) {
@@ -999,9 +1032,11 @@ export class PromptQueueManager {
 
         try {
             await this.dispatchNextStageForSendingItem(item);
+            logQueue(`Prompt ${item.id} sent, waiting for answer at ${this.answerFilePath}`);
         } catch (err) {
             item.status = 'error';
             item.error = String(err);
+            logQueueError(`sendItem(${item.id})`, err);
             this.persist();
             this._onDidChange.fire();
         }

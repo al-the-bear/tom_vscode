@@ -11,6 +11,7 @@ import * as vscode from 'vscode';
 import { randomUUID } from 'crypto';
 import { PromptQueueManager } from './promptQueueManager';
 import { readPanelYamlSync, writePanelYaml } from '../utils/panelYamlStore';
+import { logTimed, logTimedError } from '../utils/queueLogger';
 
 // ============================================================================
 // Types
@@ -70,6 +71,7 @@ export class TimerEngine {
     private _schedule: TimerScheduleSlot[] = [];
     private _timerActivated = true;
     private _timer?: ReturnType<typeof setInterval>;
+    private _tickCount = 0;
 
     private readonly _onDidChange = new vscode.EventEmitter<void>();
     public readonly onDidChange = this._onDidChange.event;
@@ -85,6 +87,7 @@ export class TimerEngine {
         e.loadEntries();
         e.start();
         TimerEngine._inst = e;
+        logTimed(`Timer engine started — ${e._entries.length} entries, activated=${e._timerActivated}`);
     }
 
     static get instance(): TimerEngine {
@@ -93,6 +96,7 @@ export class TimerEngine {
     }
 
     dispose(): void {
+        logTimed('Timer engine stopped');
         this.stop();
         this._onDidChange.dispose();
     }
@@ -105,6 +109,7 @@ export class TimerEngine {
     set timerActivated(v: boolean) {
         if (this._timerActivated === v) { return; }
         this._timerActivated = v;
+        logTimed(`Timer engine ${v ? 'activated' : 'deactivated'}`);
         this.saveEntries();
         this._onDidChange.fire();
     }
@@ -129,6 +134,7 @@ export class TimerEngine {
             status: entry.enabled ? 'active' : 'paused',
         };
         this._entries.push(full);
+        logTimed(`Entry added: '${full.originalText.substring(0, 60)}' (id=${full.id.substring(0, 8)}, mode=${full.scheduleMode})`);
         this.saveEntries();
         this._onDidChange.fire();
         return full;
@@ -146,6 +152,7 @@ export class TimerEngine {
             if (patch.enabled === false) {
                 e.enabled = false;
                 e.status = 'paused';
+                logTimed(`Entry updated: '${e.originalText.substring(0, 40)}' [paused]`);
                 this.saveEntries();
                 this._onDidChange.fire();
             }
@@ -156,17 +163,21 @@ export class TimerEngine {
             return;
         }
 
+        const changedKeys = Object.keys(patch).join(', ');
         Object.assign(e, patch);
         // Recalculate status from enabled flag
         if (patch.enabled !== undefined) {
             e.status = patch.enabled ? 'active' : 'paused';
         }
+        logTimed(`Entry updated: '${e.originalText.substring(0, 40)}' [${changedKeys}]`);
         this.saveEntries();
         this._onDidChange.fire();
     }
 
     removeEntry(id: string): void {
+        const removed = this._entries.find(e => e.id === id);
         this._entries = this._entries.filter(e => e.id !== id);
+        if (removed) { logTimed(`Entry removed: '${removed.originalText.substring(0, 40)}'`); }
         this.saveEntries();
         this._onDidChange.fire();
     }
@@ -200,10 +211,17 @@ export class TimerEngine {
 
     private async tick(): Promise<void> {
         if (!this._timerActivated) { return; }
+        this._tickCount++;
         const now = new Date();
+        const hh = String(now.getHours()).padStart(2, '0');
+        const mm = String(now.getMinutes()).padStart(2, '0');
+        const ss = String(now.getSeconds()).padStart(2, '0');
+        const activeCount = this._entries.filter(e => e.enabled && e.status === 'active').length;
 
         // Check global timer schedule (allowed time slots)
-        if (!this._isWithinSchedule(now)) { return; }
+        const inSchedule = this._isWithinSchedule(now);
+        logTimed(`Tick #${this._tickCount} at ${hh}:${mm}:${ss} — ${this._entries.length} entries (${activeCount} active), timer active, schedule ${inSchedule ? 'in-slot' : 'out-of-slot'}`);
+        if (!inSchedule) { return; }
 
         for (const entry of this._entries) {
             if (!entry.enabled || entry.status !== 'active') { continue; }
@@ -212,11 +230,16 @@ export class TimerEngine {
 
             if (entry.scheduleMode === 'interval') {
                 shouldFire = this.checkInterval(entry, now);
+                if (!shouldFire && entry.lastSentAt) {
+                    const remaining = Math.max(0, Math.round(((entry.intervalMinutes || 0) * 60_000 - (now.getTime() - new Date(entry.lastSentAt).getTime())) / 60_000));
+                    logTimed(`Checking entry '${entry.originalText.substring(0, 40)}' (id=${entry.id.substring(0, 8)}): mode=interval, interval=${entry.intervalMinutes}min — not due: ${remaining}min remaining`);
+                }
             } else if (entry.scheduleMode === 'scheduled') {
                 shouldFire = this.checkScheduledTimes(entry, now);
             }
 
             if (shouldFire) {
+                logTimed(`Checking entry '${entry.originalText.substring(0, 40)}' (id=${entry.id.substring(0, 8)}): mode=${entry.scheduleMode} — due, firing`);
                 await this.fire(entry, now);
             }
         }
@@ -320,7 +343,15 @@ export class TimerEngine {
         const hasPending = queue.items.some(
             i => i.type === 'timed' && i.status === 'pending' && i.template === `timed:${entry.id}`
         );
-        if (hasPending) { return; }
+        if (hasPending) {
+            logTimed(`Entry '${entry.originalText.substring(0, 40)}' skipped: already pending in queue`);
+            return;
+        }
+
+        const reminderDesc = entry.reminderTemplateId
+            ? `reminder: ${entry.reminderTemplateId}, timeout=${entry.reminderTimeoutMinutes ?? 0}min`
+            : 'no reminder';
+        logTimed(`Firing entry '${entry.originalText.substring(0, 40)}' → enqueueing to prompt queue (${reminderDesc}, repeat=${!!entry.reminderRepeat})`);
 
         // Enqueue
         await queue.enqueue({
@@ -346,7 +377,11 @@ export class TimerEngine {
                     if (!st.date) { return false; }
                     return new Date(st.date + 'T' + st.time) <= now;
                 });
-                if (allPast) { entry.status = 'completed'; entry.enabled = false; }
+                if (allPast) {
+                    entry.status = 'completed';
+                    entry.enabled = false;
+                    logTimed(`Entry '${entry.originalText.substring(0, 40)}' completed: all scheduled dates have passed`);
+                }
             }
         }
 
@@ -395,11 +430,14 @@ export class TimerEngine {
                     }
                 }
                 console.log('[TimerEngine] loadEntries: loaded', this._entries.length, 'entries from YAML');
+                logTimed(`Loaded ${this._entries.length} entries from YAML`);
             } else {
                 console.log('[TimerEngine] loadEntries: no entries in YAML, data =', data);
+                logTimed('No entries found in YAML store');
             }
         } catch (e) {
             console.error('[TimerEngine] loadEntries: error loading YAML:', e);
+            logTimedError('loadEntries', e);
             this._entries = [];
         }
     }

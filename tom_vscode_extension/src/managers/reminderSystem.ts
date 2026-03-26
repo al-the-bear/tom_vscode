@@ -11,6 +11,7 @@ import * as fs from 'fs';
 import { randomUUID } from 'crypto';
 import { getConfigPath } from '../handlers/handler_shared';
 import { PromptQueueManager, QueuedPrompt } from './promptQueueManager';
+import { logQueue } from '../utils/queueLogger';
 
 // ============================================================================
 // Types
@@ -172,25 +173,39 @@ export class ReminderSystem {
         for (const item of queue.items) {
             if (item.status !== 'sending') { continue; }
             // Skip if already has a queued reminder or there's already a pending reminder in queue
-            if (item.reminderQueued || hasPendingReminder) { continue; }
+            if (item.reminderQueued || hasPendingReminder) {
+                logQueue(`Reminder check for ${item.id}: skipped (reminderQueued=${item.reminderQueued}, hasPendingReminder=${hasPendingReminder})`);
+                continue;
+            }
             if (!item.sentAt) { continue; }
 
             const sentTime = new Date(item.sentAt).getTime();
             const timeoutMinutes = queue.responseFileTimeoutMinutes || this._config.defaultTimeoutMinutes;
             const timeoutMs = timeoutMinutes * 60_000;
+            const elapsed = Math.round((now - sentTime) / 60_000);
 
-            if (now - sentTime < timeoutMs) { continue; }
+            if (now - sentTime < timeoutMs) {
+                logQueue(`Reminder check for ${item.id}: templateId=${item.reminderTemplateId}, reminderEnabled=${item.reminderEnabled}, elapsed=${elapsed}min, timeout=${timeoutMinutes}min → skipped: not due yet`);
+                continue;
+            }
 
             // Timeout exceeded — queue a reminder
             const templateId = item.reminderTemplateId ?? this._config.defaultTemplateId;
 
             // __none__ means explicitly no reminder for this item
-            if (templateId === '__none__') { continue; }
+            if (templateId === '__none__') {
+                logQueue(`Reminder check for ${item.id}: templateId=__none__ → skipped: reminders disabled`);
+                continue;
+            }
 
             const template = this._templates.find(t => t.id === templateId) ?? this._templates[0];
-            if (!template) { continue; }
+            if (!template) {
+                logQueue(`Reminder check for ${item.id}: no template found for id=${templateId} → skipped`);
+                continue;
+            }
 
-            const elapsed = Math.round((now - sentTime) / 60_000);
+            logQueue(`Reminder check for ${item.id}: templateId=${templateId}, reminderEnabled=${item.reminderEnabled}, elapsed=${elapsed}min, timeout=${timeoutMinutes}min → generating`);
+
             const templateLabel = item.template || '(None)';
             const requestId = item.requestId || '';
             const expectedRequestId = item.expectedRequestId || '';
