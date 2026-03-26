@@ -224,7 +224,14 @@ export class TimerEngine {
         if (!inSchedule) { return; }
 
         for (const entry of this._entries) {
-            if (!entry.enabled || entry.status !== 'active') { continue; }
+            if (!entry.enabled || entry.status !== 'active') {
+                if (!entry.enabled) {
+                    logTimed(`Entry '${entry.originalText.substring(0, 40)}' skipped: disabled`);
+                } else if (entry.status === 'completed') {
+                    logTimed(`Entry '${entry.originalText.substring(0, 40)}' skipped: completed`);
+                }
+                continue;
+            }
 
             let shouldFire = false;
 
@@ -232,7 +239,7 @@ export class TimerEngine {
                 shouldFire = this.checkInterval(entry, now);
                 if (!shouldFire && entry.lastSentAt) {
                     const remaining = Math.max(0, Math.round(((entry.intervalMinutes || 0) * 60_000 - (now.getTime() - new Date(entry.lastSentAt).getTime())) / 60_000));
-                    logTimed(`Checking entry '${entry.originalText.substring(0, 40)}' (id=${entry.id.substring(0, 8)}): mode=interval, interval=${entry.intervalMinutes}min — not due: ${remaining}min remaining`);
+                    logTimed(`Checking entry '${entry.originalText.substring(0, 40)}' (id=${entry.id.substring(0, 8)}): mode=interval, last sent=${entry.lastSentAt}, interval=${entry.intervalMinutes}min — not due: ${remaining}min remaining`);
                 }
             } else if (entry.scheduleMode === 'scheduled') {
                 shouldFire = this.checkScheduledTimes(entry, now);
@@ -351,6 +358,9 @@ export class TimerEngine {
         const reminderDesc = entry.reminderTemplateId
             ? `reminder: ${entry.reminderTemplateId}, timeout=${entry.reminderTimeoutMinutes ?? 0}min`
             : 'no reminder';
+        if (entry.reminderTemplateId) {
+            logTimed(`Entry '${entry.originalText.substring(0, 40)}' has reminder template '${entry.reminderTemplateId}', timeout=${entry.reminderTimeoutMinutes ?? 0}min, repeat=${!!entry.reminderRepeat}`);
+        }
         logTimed(`Firing entry '${entry.originalText.substring(0, 40)}' → enqueueing to prompt queue (${reminderDesc}, repeat=${!!entry.reminderRepeat})`);
 
         // Enqueue

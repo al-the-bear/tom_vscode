@@ -699,7 +699,11 @@ export class PromptQueueManager {
 
     /** Remove an item by id. */
     remove(id: string): void {
+        const removed = this._items.find(i => i.id === id);
         this._items = this._items.filter(i => i.id !== id);
+        if (removed) {
+            logQueue(`Item removed: id=${removed.id}, type=${removed.type}, status=${removed.status}`);
+        }
         this.persist();
         this._onDidChange.fire();
     }
@@ -917,6 +921,7 @@ export class PromptQueueManager {
     setStatus(id: string, status: 'staged' | 'pending'): boolean {
         const item = this._items.find(i => i.id === id);
         if (!item) { return false; }
+        const fromStatus = item.status;
         // Allow interrupting a sending item back to staged.
         if (item.status === 'sending' && status === 'staged') {
             if (item.prePrompts && item.prePrompts.length > 0) {
@@ -932,6 +937,7 @@ export class PromptQueueManager {
             item.reminderSentCount = 0;
             item.lastReminderAt = undefined;
             item.error = undefined;
+            logQueue(`Status changed: id=${item.id}, from=${fromStatus} → to=${item.status}`);
             this.removePendingReminderFor(item.id);
             this.persist();
             this._onDidChange.fire();
@@ -942,6 +948,7 @@ export class PromptQueueManager {
         if (item.status === 'error') { return false; }
         if (item.status === 'sending') { return false; }
         item.status = status;
+        logQueue(`Status changed: id=${item.id}, from=${fromStatus} → to=${item.status}`);
         this.persist();
         this._onDidChange.fire();
         
@@ -999,6 +1006,9 @@ export class PromptQueueManager {
         const next = this._items.find(i => i.status === 'pending');
         if (!next) {
             logQueue('sendNext: no pending items');
+            if (this._autoSendEnabled) {
+                logQueue('Queue empty — auto-pausing');
+            }
             return;
         }
         // Don't send if something is already sending
