@@ -16,11 +16,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { WsPaths } from './workspacePaths';
-import {
-    buildTimedFileNames,
-    pickTimedReadPath,
-    shouldMigrateTimedFileOnWrite,
-} from './queueStep5Utils';
+import { buildTimedFileName } from './queueStep5Utils';
 
 // ============================================================================
 // Workspace helpers
@@ -63,38 +59,9 @@ export function getPanelFilePath(type: string): string | undefined {
     if (!folder) return undefined;
     const name = getWorkspaceName();
     if (type === 'timed') {
-        const names = buildTimedFileNames(os.hostname(), name);
-        return path.join(folder, names.nextFileName);
+        return path.join(folder, buildTimedFileName(os.hostname(), name));
     }
     return path.join(folder, `${name}.${type}.yaml`);
-}
-
-function getLegacyPanelFilePath(type: string): string | undefined {
-    const folder = getStorageFolder();
-    if (!folder) return undefined;
-    const name = getWorkspaceName();
-    return path.join(folder, `${name}.${type}.yaml`);
-}
-
-function resolveReadablePanelPath(type: string): string | undefined {
-    const nextPath = getPanelFilePath(type);
-    if (!nextPath) return undefined;
-
-    if (type !== 'timed') {
-        return fs.existsSync(nextPath) ? nextPath : undefined;
-    }
-
-    const legacyPath = getLegacyPanelFilePath(type);
-    if (!legacyPath) {
-        return fs.existsSync(nextPath) ? nextPath : undefined;
-    }
-
-    return pickTimedReadPath({
-        nextPath,
-        legacyPath,
-        nextExists: fs.existsSync(nextPath),
-        legacyExists: fs.existsSync(legacyPath),
-    });
 }
 
 /** Build a per-section prompt state file path (e.g. workspace.copilot.prompt-panel.yaml). */
@@ -114,8 +81,9 @@ export function getPromptPanelFilePath(section: string): string | undefined {
  * Returns undefined if the file doesn't exist or can't be parsed.
  */
 export async function readPanelYaml<T = any>(type: string): Promise<T | undefined> {
-    const filePath = resolveReadablePanelPath(type);
+    const filePath = getPanelFilePath(type);
     if (!filePath) return undefined;
+    if (!fs.existsSync(filePath)) return undefined;
     try {
         const yaml = await import('yaml');
         const content = fs.readFileSync(filePath, 'utf-8');
@@ -130,8 +98,9 @@ export async function readPanelYaml<T = any>(type: string): Promise<T | undefine
  * Uses require() to load yaml synchronously.
  */
 export function readPanelYamlSync<T = any>(type: string): T | undefined {
-    const filePath = resolveReadablePanelPath(type);
+    const filePath = getPanelFilePath(type);
     if (!filePath) return undefined;
+    if (!fs.existsSync(filePath)) return undefined;
     try {
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         const yaml = require('yaml');
@@ -158,13 +127,6 @@ export async function writePanelYaml(
         const dir = path.dirname(filePath);
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
-        }
-
-        if (type === 'timed') {
-            const legacyPath = getLegacyPanelFilePath(type);
-            if (legacyPath && shouldMigrateTimedFileOnWrite({ nextExists: fs.existsSync(filePath), legacyExists: fs.existsSync(legacyPath) })) {
-                fs.renameSync(legacyPath, filePath);
-            }
         }
 
         const yaml = await import('yaml');
@@ -233,21 +195,21 @@ export async function writePromptPanelYaml(
  * Check if a panel YAML file exists.
  */
 export function panelFileExists(type: string): boolean {
-    return !!resolveReadablePanelPath(type);
+    const filePath = getPanelFilePath(type);
+    return !!filePath && fs.existsSync(filePath);
 }
 
 /**
  * Open a panel YAML file in the editor.
  */
 export async function openPanelFile(type: string): Promise<void> {
-    const canonicalPath = getPanelFilePath(type);
-    if (!canonicalPath) {
+    const filePath = getPanelFilePath(type);
+    if (!filePath) {
         vscode.window.showWarningMessage('No workspace open');
         return;
     }
-    const filePath = resolveReadablePanelPath(type);
     if (!filePath || !fs.existsSync(filePath)) {
-        vscode.window.showWarningMessage(`File not found: ${path.basename(canonicalPath)}`);
+        vscode.window.showWarningMessage(`File not found: ${path.basename(filePath)}`);
         return;
     }
     const doc = await vscode.workspace.openTextDocument(filePath);

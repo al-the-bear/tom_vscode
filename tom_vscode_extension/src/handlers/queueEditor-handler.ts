@@ -118,11 +118,39 @@ async function handleMessage(msg: any): Promise<void> {
             await vscode.commands.executeCommand('tomAi.editor.chatVariables');
             return;
         case 'showFile': {
-            const { getQueueFolder } = await import('../storage/queueFileStorage.js');
+          const { getQueueFolder, readAllEntries } = await import('../storage/queueFileStorage.js');
+          const fs = await import('fs');
+          const path = await import('path');
             const folder = getQueueFolder();
-            if (folder) {
-                await vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(folder));
+          if (!folder) {
+            vscode.window.showWarningMessage('Queue folder is not configured for this workspace.');
+            return;
+          }
+
+          const entries = readAllEntries();
+          if (entries.length > 0) {
+            const prioritized =
+              entries.find(e => e.doc.meta.status === 'sending')
+              || entries.find(e => e.doc.meta.status === 'pending')
+              || entries.find(e => e.doc.meta.status === 'staged')
+              || entries[entries.length - 1];
+            const uri = vscode.Uri.file(prioritized.filePath);
+            const doc = await vscode.workspace.openTextDocument(uri);
+            await vscode.window.showTextDocument(doc, { preview: false });
+            await vscode.commands.executeCommand('revealInExplorer', uri);
+            return;
             }
+
+          const settingsPath = path.join(folder, 'queue-settings.yaml');
+          if (fs.existsSync(settingsPath)) {
+            const uri = vscode.Uri.file(settingsPath);
+            const doc = await vscode.workspace.openTextDocument(uri);
+            await vscode.window.showTextDocument(doc, { preview: false });
+            await vscode.commands.executeCommand('revealInExplorer', uri);
+            return;
+          }
+
+          await vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(folder));
             return;
         }
         case 'setDetailsExpanded': {

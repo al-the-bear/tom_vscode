@@ -6,23 +6,6 @@ export interface QueueEntryFileNameInput {
     entrySuffix: string;
 }
 
-export interface TimedFileNames {
-    nextFileName: string;
-    legacyFileName: string;
-}
-
-export interface TimedPathSelectionInput {
-    nextPath: string;
-    legacyPath: string;
-    nextExists: boolean;
-    legacyExists: boolean;
-}
-
-export interface TimedMigrationInput {
-    nextExists: boolean;
-    legacyExists: boolean;
-}
-
 export function sanitizeHostnameForFile(hostname: string): string {
     const trimmed = (hostname || '').trim().toLowerCase();
     return trimmed.replace(/[^a-z0-9_-]/g, '_') || 'unknown';
@@ -46,25 +29,8 @@ export function buildQueueEntryFileName(input: QueueEntryFileNameInput): string 
     return `${host}_${yy}${mm}${dd}_${hh}${min}${ss}_${q}.${t}${input.entrySuffix}`;
 }
 
-export function buildTimedFileNames(hostname: string, workspaceName: string): TimedFileNames {
+export function buildTimedFileName(hostname: string, workspaceName: string): string {
     const host = sanitizeHostnameForFile(hostname);
     const ws = sanitizeFilePart(workspaceName || 'default');
-    return {
-        nextFileName: `${host}_${ws}.timed.yaml`,
-        legacyFileName: `${ws}.timed.yaml`,
-    };
-}
-
-export function pickTimedReadPath(input: TimedPathSelectionInput): string | undefined {
-    if (input.nextExists) {
-        return input.nextPath;
-    }
-    if (input.legacyExists) {
-        return input.legacyPath;
-    }
-    return undefined;
-}
-
-export function shouldMigrateTimedFileOnWrite(input: TimedMigrationInput): boolean {
-    return !input.nextExists && input.legacyExists;
+    return `${host}_${ws}.timed.yaml`;
 }

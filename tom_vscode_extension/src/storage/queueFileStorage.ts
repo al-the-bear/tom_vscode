@@ -20,7 +20,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { WsPaths } from '../utils/workspacePaths.js';
 import { debugLog } from '../utils/debugLogger.js';
-import { buildQueueEntryFileName } from '../utils/queueStep5Utils.js';
+import { buildQueueEntryFileName, sanitizeHostnameForFile } from '../utils/queueStep5Utils.js';
 
 // ============================================================================
 // Constants
@@ -371,7 +371,11 @@ export function readAllEntries(): QueueEntryFile[] {
         if (!folder || !fs.existsSync(folder)) return [];
 
         const entries: QueueEntryFile[] = [];
-        const files = fs.readdirSync(folder).filter(f => f.endsWith(ENTRY_SUFFIX)).sort();
+        const hostPrefix = `${sanitizeHostnameForFile(os.hostname())}_`;
+        const files = fs
+            .readdirSync(folder)
+            .filter(f => f.endsWith(ENTRY_SUFFIX) && f.startsWith(hostPrefix))
+            .sort();
 
         for (const fileName of files) {
             const entry = readEntry(path.join(folder, fileName));
@@ -604,7 +608,8 @@ export function startWatching(): void {
     const folder = getQueueFolder();
     if (!folder) return;
 
-    const pattern = new vscode.RelativePattern(folder, `*${ENTRY_SUFFIX}`);
+    const hostPrefix = `${sanitizeHostnameForFile(os.hostname())}_`;
+    const pattern = new vscode.RelativePattern(folder, `${hostPrefix}*${ENTRY_SUFFIX}`);
     _entryWatcher = vscode.workspace.createFileSystemWatcher(pattern);
 
     const notify = (): void => {

@@ -4,9 +4,7 @@ import assert from 'node:assert/strict';
 import {
     sanitizeHostnameForFile,
     buildQueueEntryFileName,
-    buildTimedFileNames,
-    pickTimedReadPath,
-    shouldMigrateTimedFileOnWrite,
+    buildTimedFileName,
 } from '../queueStep5Utils.js';
 
 describe('Step 5 - Issue 1 queue/timed filename strategy', () => {
@@ -27,42 +25,8 @@ describe('Step 5 - Issue 1 queue/timed filename strategy', () => {
         assert.equal(fileName, 'dev-box_260326_140506_vscode_extension.prompt.entry.queue.yaml');
     });
 
-    test('buildTimedFileNames returns host-prefixed and legacy names', () => {
-        const names = buildTimedFileNames('dev-box', 'tom_agent_container');
-        assert.equal(names.nextFileName, 'dev-box_tom_agent_container.timed.yaml');
-        assert.equal(names.legacyFileName, 'tom_agent_container.timed.yaml');
-    });
-
-    test('pickTimedReadPath prefers new file and falls back to legacy', () => {
-        const preferred = pickTimedReadPath({
-            nextPath: '/a/dev-box_ws.timed.yaml',
-            legacyPath: '/a/ws.timed.yaml',
-            nextExists: true,
-            legacyExists: true,
-        });
-        assert.equal(preferred, '/a/dev-box_ws.timed.yaml');
-
-        const fallback = pickTimedReadPath({
-            nextPath: '/a/dev-box_ws.timed.yaml',
-            legacyPath: '/a/ws.timed.yaml',
-            nextExists: false,
-            legacyExists: true,
-        });
-        assert.equal(fallback, '/a/ws.timed.yaml');
-    });
-
-    test('shouldMigrateTimedFileOnWrite migrates legacy only when new file missing', () => {
-        assert.equal(
-            shouldMigrateTimedFileOnWrite({ nextExists: false, legacyExists: true }),
-            true,
-        );
-        assert.equal(
-            shouldMigrateTimedFileOnWrite({ nextExists: true, legacyExists: true }),
-            false,
-        );
-        assert.equal(
-            shouldMigrateTimedFileOnWrite({ nextExists: false, legacyExists: false }),
-            false,
-        );
+    test('buildTimedFileName returns host-prefixed timed filename', () => {
+        const fileName = buildTimedFileName('dev-box', 'tom_agent_container');
+        assert.equal(fileName, 'dev-box_tom_agent_container.timed.yaml');
     });
 });
