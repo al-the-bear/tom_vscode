@@ -98,6 +98,7 @@ let activePanel: vscode.WebviewPanel | undefined;
 let activePanelHistory: NavigationHistory | undefined;
 let activePanelContext: vscode.ExtensionContext | undefined;
 let pendingInitialFile: string | undefined;
+let activeFileWatcher: vscode.FileSystemWatcher | undefined;
 
 // ============================================================================
 // Public API
@@ -150,6 +151,10 @@ export function openMarkdownBrowser(
         );
 
         activePanel.onDidDispose(() => {
+            if (activeFileWatcher) {
+                activeFileWatcher.dispose();
+                activeFileWatcher = undefined;
+            }
             activePanel = undefined;
             activePanelHistory = undefined;
             activePanelContext = undefined;
@@ -161,6 +166,27 @@ export function openMarkdownBrowser(
 
     } catch (err) {
         debugLog(`[MdBrowser] openMarkdownBrowser error: ${err}`, 'ERROR', 'mdBrowser');
+    }
+}
+
+function watchCurrentFile(absPath: string): void {
+    try {
+        if (activeFileWatcher) {
+            activeFileWatcher.dispose();
+            activeFileWatcher = undefined;
+        }
+
+        const dir = path.dirname(absPath);
+        const name = path.basename(absPath);
+        const pattern = new vscode.RelativePattern(dir, name);
+        activeFileWatcher = vscode.workspace.createFileSystemWatcher(pattern, true, false, true);
+        activeFileWatcher.onDidChange(() => {
+            if (activePanelHistory?.current?.filePath === absPath) {
+                sendFileContent(absPath);
+            }
+        });
+    } catch (err) {
+        debugLog(`[MdBrowser] watchCurrentFile error: ${err}`, 'ERROR', 'mdBrowser');
     }
 }
 
@@ -212,6 +238,7 @@ function navigateToFile(filePath: string, group: string, anchor?: string): void 
 
         activePanelHistory.push({ filePath: absPath, group });
         sendFileContent(absPath, anchor);
+        watchCurrentFile(absPath);
         sendNavState();
     } catch (err) {
         debugLog(`[MdBrowser] navigateToFile error: ${err}`, 'ERROR', 'mdBrowser');

@@ -206,6 +206,9 @@ async function handleMessage(msg: any): Promise<void> {
                     reminderTemplateId: msg.reminderTemplateId,
                     reminderTimeoutMinutes: msg.reminderTimeoutMinutes,
                   reminderRepeat: !!msg.reminderRepeat,
+                    repeatCount: Number.isFinite(msg.repeatCount) ? Math.max(0, Math.round(msg.repeatCount)) : 0,
+                    repeatPrefix: typeof msg.repeatPrefix === 'string' ? msg.repeatPrefix : '',
+                    repeatSuffix: typeof msg.repeatSuffix === 'string' ? msg.repeatSuffix : '',
                 });
                 console.log('[TimedRequestsEditor] addEntry created successfully');
                 _panel?.webview.postMessage({ type: 'addSuccess' });
@@ -437,6 +440,7 @@ function getHtml(codiconsUri: string, safeStateJson: string): string {
   .entry { border: 1px solid var(--border); border-radius: 4px; padding: 10px; }
   .entry-sections { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 6px; }
   .entry-section { flex: 0 1 auto; min-width: 160px; }
+  .prompt-section { margin-top: 6px; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: color-mix(in srgb, var(--vscode-editor-background) 88%, var(--vscode-textBlockQuote-background) 12%); }
   .entry.completed { opacity: 0.4; }
   .status-bar { padding: 3px 10px; border-radius: 3px; font-size: 0.8em; font-weight: bold; text-transform: uppercase; color: #000; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
   .status-bar.active { background: #4caf50; }
@@ -485,8 +489,10 @@ function getHtml(codiconsUri: string, safeStateJson: string): string {
 </div>
 
 <div class="add-form" id="addForm">
-  <label>Prompt</label>
-  <textarea id="addText" placeholder="Enter timed request prompt…"></textarea>
+  <div class="prompt-section">
+    <label>Prompt</label>
+    <textarea id="addText" rows="4" placeholder="Enter timed request prompt…"></textarea>
+  </div>
   <label>Prompt Template</label>
   <div class="schedule-row">
     <select id="addTemplate">
@@ -524,6 +530,17 @@ function getHtml(codiconsUri: string, safeStateJson: string): string {
       <option value="480">480 min</option>
     </select>
     <label style="display:inline;"><input type="checkbox" id="addReminderRepeat"/> Repeat</label>
+  </div>
+  <label>Repetition</label>
+  <div class="schedule-row">
+    <span>Repeat Count:</span>
+    <input type="number" id="addRepeatCount" min="0" step="1" value="0" style="width:80px"/>
+  </div>
+  <div class="prompt-section">
+    <label>Repeat Prefix (supports {{repeatNumber}}, {{repeatIndex}}, {{repeatCount}})</label>
+    <textarea id="addRepeatPrefix" rows="2" placeholder="Optional text inserted before repeated prompt body"></textarea>
+    <label>Repeat Suffix (supports {{repeatNumber}}, {{repeatIndex}}, {{repeatCount}})</label>
+    <textarea id="addRepeatSuffix" rows="2" placeholder="Optional text inserted after repeated prompt body"></textarea>
   </div>
   <div class="add-form-actions">
     <button onclick="submitNewEntry()" style="background:var(--btnBg);color:var(--btnFg);">✅ Create</button>
@@ -781,6 +798,9 @@ function submitNewEntry() {
   const reminderTimeoutMinutes = parseInt(document.getElementById('addReminderTimeout').value || '60', 10) || 60;
   const reminderEnabled = !!document.getElementById('addReminderEnabled').checked;
   const reminderRepeat = !!document.getElementById('addReminderRepeat').checked;
+  const repeatCount = Math.max(0, parseInt(String(document.getElementById('addRepeatCount').value || '0'), 10) || 0);
+  const repeatPrefix = document.getElementById('addRepeatPrefix').value || '';
+  const repeatSuffix = document.getElementById('addRepeatSuffix').value || '';
 
   if (!text) {
     showAddFeedback('Please enter a prompt', 'error');
@@ -793,6 +813,7 @@ function submitNewEntry() {
     text, template, answerWrapper, scheduleMode, intervalMinutes,
     scheduledTimes: [],
     reminderEnabled, reminderTemplateId, reminderTimeoutMinutes, reminderRepeat,
+    repeatCount, repeatPrefix, repeatSuffix,
   });
 }
 
@@ -875,11 +896,11 @@ function render() {
         '<label style="display:inline;margin:0;font-weight:normal;color:#000;"><input type="checkbox"' + (entry.enabled ? ' checked' : '') +
           (isEditable ? ' onchange="toggleEnabled(\\'' + entry.id + '\\', this.checked)"' : ' disabled') + '/> Enabled</label>' +
       '</div>' +
+      '<div class="prompt-section ' + (expanded ? '' : 'details-hidden') + '">' +
+        '<label>Prompt</label>' +
+        '<textarea' + disabledAttr + ' onchange="updateField(\\'' + entry.id + '\\',\\'originalText\\',this.value)">' + esc(entry.originalText) + '</textarea>' +
+      '</div>' +
       '<div class="entry-sections ' + (expanded ? '' : 'details-hidden') + '">' +
-        '<div class="entry-section">' +
-          '<label>Prompt</label>' +
-          '<textarea' + disabledAttr + ' onchange="updateField(\\'' + entry.id + '\\',\\'originalText\\',this.value)">' + esc(entry.originalText) + '</textarea>' +
-        '</div>' +
         '<div class="entry-section">' +
           '<label>Template</label>' +
           '<div class="schedule-row">' +
@@ -923,6 +944,14 @@ function render() {
             '</select>' +
           '</div>' +
           '<div class="meta">Last sent: ' + lastSent + '</div>' +
+          '<label>Repetition</label>' +
+          '<div class="schedule-row">' +
+            '<span>Repeat Count:</span> <input type="number" min="0" step="1" value="' + (Math.max(0, parseInt(String(entry.repeatCount || 0), 10) || 0)) + '" style="width:80px"' + disabledAttr + ' onchange="updateField(\\'' + entry.id + '\\',\\'repeatCount\\',parseInt(this.value||\'0\',10)||0)"/>' +
+          '</div>' +
+          '<label>Repeat Prefix</label>' +
+          '<textarea rows="2"' + disabledAttr + ' onchange="updateField(\\'' + entry.id + '\\',\\'repeatPrefix\\',this.value)">' + esc(entry.repeatPrefix || '') + '</textarea>' +
+          '<label>Repeat Suffix</label>' +
+          '<textarea rows="2"' + disabledAttr + ' onchange="updateField(\\'' + entry.id + '\\',\\'repeatSuffix\\',this.value)">' + esc(entry.repeatSuffix || '') + '</textarea>' +
         '</div>' +
       '</div>' +
     '</div>';

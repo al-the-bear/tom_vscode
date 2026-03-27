@@ -37,6 +37,9 @@ export interface TimedRequest {
     reminderTemplateId?: string;
     reminderTimeoutMinutes?: number;
     reminderRepeat?: boolean;
+    repeatCount?: number;
+    repeatPrefix?: string;
+    repeatSuffix?: string;
     lastSentAt?: string;
     status: TimedRequestStatus;
 }
@@ -374,6 +377,9 @@ export class TimerEngine {
             reminderTemplateId: entry.reminderTemplateId,
             reminderTimeoutMinutes: entry.reminderTimeoutMinutes,
             reminderRepeat: !!entry.reminderRepeat,
+            repeatCount: Math.max(0, Math.round(Number(entry.repeatCount || 0))),
+            repeatPrefix: entry.repeatPrefix,
+            repeatSuffix: entry.repeatSuffix,
         });
 
         // Update lastSentAt
@@ -437,6 +443,13 @@ export class TimerEngine {
                     }
                     if (entry.scheduleMode === 'scheduled' && !Array.isArray(entry.scheduledTimes)) {
                         entry.scheduledTimes = [];
+                    }
+                    entry.repeatCount = Math.max(0, Math.round(Number(entry.repeatCount || 0)));
+                    if (typeof entry.repeatPrefix !== 'string') {
+                        entry.repeatPrefix = '';
+                    }
+                    if (typeof entry.repeatSuffix !== 'string') {
+                        entry.repeatSuffix = '';
                     }
                 }
                 console.log('[TimerEngine] loadEntries: loaded', this._entries.length, 'entries from YAML');

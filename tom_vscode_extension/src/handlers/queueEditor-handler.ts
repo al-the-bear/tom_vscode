@@ -153,6 +153,21 @@ async function handleMessage(msg: any): Promise<void> {
           await vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(folder));
             return;
         }
+        case 'showEntryFile': {
+          const id = typeof msg.id === 'string' ? msg.id : '';
+          if (!id) { return; }
+          const { findEntryById } = await import('../storage/queueFileStorage.js');
+          const entry = findEntryById(id);
+          if (!entry) {
+            vscode.window.showWarningMessage(`Queue entry file not found for id: ${id}`);
+            return;
+          }
+          const uri = vscode.Uri.file(entry.filePath);
+          const doc = await vscode.workspace.openTextDocument(uri);
+          await vscode.window.showTextDocument(doc, { preview: false });
+          await vscode.commands.executeCommand('revealInExplorer', uri);
+          return;
+        }
         case 'setDetailsExpanded': {
           const id = typeof msg.id === 'string' ? msg.id : '';
           if (!id) { return; }
@@ -636,7 +651,6 @@ ${queueEntryStyles()}
   <button class="ctx-btn-icon" onclick="openContextSettings()" title="Context &amp; Settings"><span class="codicon codicon-tools"></span></button>
   <button class="ctx-btn-icon" onclick="openTemplateEditor()" title="Prompt Templates"><span class="codicon codicon-file-code"></span></button>
   <button class="ctx-btn-icon" onclick="openQueueTemplates()" title="Queue Templates"><span class="codicon codicon-symbol-file"></span></button>
-  <button class="ctx-btn-icon" onclick="showFile()" title="Show YAML file"><span class="codicon codicon-go-to-file"></span></button>
 </div>
 <div class="toolbar">
   <button class="ctx-btn-icon" onclick="toggleAddForm()" title="Add to Queue"><span class="codicon codicon-add"></span></button>
@@ -929,10 +943,6 @@ function openContextSettings() {
 
 function openChatVariables() {
   vscode.postMessage({ type: 'openChatVariablesEditor' });
-}
-
-function showFile() {
-  vscode.postMessage({ type: 'showFile' });
 }
 
 function render() {
