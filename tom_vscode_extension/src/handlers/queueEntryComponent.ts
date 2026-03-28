@@ -183,7 +183,7 @@ function renderEntry(item, idx) {
   var followUpProgress = followUps.length > 0 ? ('  [FU ' + Math.min(sentFollowUps, followUps.length) + '/' + followUps.length + ']') : '';
   var repeatCount = Math.max(0, parseInt(String(item.repeatCount || 0), 10) || 0);
   var repeatIndex = Math.max(0, parseInt(String(item.repeatIndex || 0), 10) || 0);
-  var repeatProgress = repeatCount > 0 ? ('  [R ' + Math.min(repeatIndex, repeatCount) + '/' + repeatCount + ']') : '';
+  var repeatProgress = repeatCount > 0 ? ('  [R ' + Math.min(repeatIndex + 1, repeatCount) + '/' + repeatCount + ']') : '';
 
   var expanded = detailsExpanded[item.id] !== false;
   var safeId = escapeJsSingleQuoted(item.id);
