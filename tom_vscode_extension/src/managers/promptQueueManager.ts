@@ -899,7 +899,7 @@ export class PromptQueueManager {
             answerWrapper: opts.answerWrapper || false,
             originalText: opts.originalText,
             expandedText: expanded,
-            status: opts.initialStatus ?? 'staged',
+            status: opts.initialStatus ?? 'pending',
             type: opts.type ?? 'normal',
             createdAt: new Date().toISOString(),
             reminderTemplateId: effectiveReminderTemplateId,
