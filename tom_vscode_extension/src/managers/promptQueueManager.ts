@@ -1581,7 +1581,7 @@ export class PromptQueueManager {
                 answerWrapper: main['answer-wrapper'],
                 originalText: main['prompt-text'] || '',
                 expandedText: main['expanded-text'] || main['prompt-text'] || '',
-                status: (meta.status as QueuedPromptStatus) || 'staged',
+                status: (meta.status as QueuedPromptStatus) || 'pending',
                 type: 'normal',
                 createdAt: (meta.created as string) || new Date().toISOString(),
                 sentAt: main.execution?.['sent-at'] || undefined,
