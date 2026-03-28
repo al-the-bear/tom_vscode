@@ -1772,8 +1772,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         let activeProjects: string[] = [];
         let currentTodoFile = '';
         let currentTodo = '';
-        let reminderEnabled = false;
-        let reminderTimeout = 600000;
 
         try {
             const { ChatVariablesStore } = await import('../managers/chatVariablesStore.js');
@@ -1816,16 +1814,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             }
         }
 
-        // Get reminder state
-        try {
-            const { ReminderSystem } = await import('../managers/reminderSystem.js');
-            const reminder = ReminderSystem.instance;
-            if (reminder) {
-                reminderEnabled = reminder.config.enabled;
-                reminderTimeout = reminder.config.defaultTimeoutMinutes * 60000;
-            }
-        } catch { /* ignore */ }
-
         this._view?.webview.postMessage({
             type: 'contextData',
             quests,
@@ -1837,9 +1825,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             currentRole,
             activeProjects,
             currentTodoFile,
-            currentTodo,
-            reminderEnabled,
-            reminderTimeout
+            currentTodo
         });
     }
 
@@ -1868,19 +1854,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             if (msg.activeProjects !== undefined) store.setActiveProjects(msg.activeProjects || [], 'user');
             if (msg.todoFile !== undefined) store.set('todoFile', msg.todoFile, 'user');
             if (msg.todo !== undefined) store.set('todo', msg.todo, 'user');
-        } catch { /* ignore */ }
-
-        // Update reminder
-        try {
-            const { ReminderSystem } = await import('../managers/reminderSystem.js');
-            const reminder = ReminderSystem.instance;
-            if (reminder) {
-                const timeoutMinutes = Math.max(1, Math.round((msg.reminderTimeout || 600000) / 60000));
-                reminder.updateConfig({
-                    enabled: !!msg.reminderEnabled,
-                    defaultTimeoutMinutes: timeoutMinutes
-                });
-            }
         } catch { /* ignore */ }
 
         // Update context summary
@@ -2679,16 +2652,8 @@ function getSectionContent(id) {
             '<div class="context-row"><label>Todo File:</label><select id="ctx-todoFile"></select></div>' +
             '<div class="context-row"><label>Todo:</label><select id="ctx-todo"></select></div>' +
             '</fieldset>' +
-            '<fieldset class="context-group"><legend>Reminder Template</legend>' +
-            '<div class="context-row"><label>Template:</label><select id="ctx-template"><option value="">(None)</option><option value="__answer_file__">Answer Wrapper</option></select>' +
-            '<button class="icon-btn" data-action="addTemplate" data-id="copilot" title="Add"><span class="codicon codicon-add"></span></button>' +
-            '<button class="icon-btn" data-action="editTemplate" data-id="copilot" title="Edit"><span class="codicon codicon-edit"></span></button>' +
-            '<button class="icon-btn danger" data-action="deleteTemplate" data-id="copilot" title="Delete"><span class="codicon codicon-trash"></span></button></div>' +
+            '<fieldset class="context-group"><legend>Auto-Hide</legend>' +
             '<div class="context-row"><label>Auto-hide:</label><select id="copilot-autohide"><option value="0">Keep open</option><option value="1000">1s</option><option value="5000">5s</option><option value="10000">10s</option></select></div>' +
-            '</fieldset>' +
-            '<fieldset class="context-group"><legend>Reminder</legend>' +
-            '<div class="context-row"><label><input type="checkbox" id="ctx-reminder-enabled"> Alive check</label>' +
-            '<select id="ctx-reminder-timeout"><option value="300000">5m</option><option value="600000">10m</option><option value="900000">15m</option><option value="1800000">30m</option></select></div>' +
             '</fieldset>' +
             '<fieldset class="context-group"><legend>Quick Links</legend>' +
             '<div class="context-links">' +
@@ -3334,15 +3299,6 @@ function populateContextPopup(data) {
             return '<option value="' + t.id + '"' + (t.id === data.currentTodo ? ' selected' : '') + '>' + icon + ' ' + t.id + ': ' + (t.title || t.description || '').substring(0, 40) + '</option>';
         }).join('');
     }
-    // Template sync
-    var ctxTemplate = document.getElementById('ctx-template');
-    var mainTemplate = document.getElementById('copilot-template');
-    if (ctxTemplate && mainTemplate) ctxTemplate.value = mainTemplate.value;
-    // Reminder
-    var reminderCb = document.getElementById('ctx-reminder-enabled');
-    if (reminderCb) reminderCb.checked = !!data.reminderEnabled;
-    var reminderTimeout = document.getElementById('ctx-reminder-timeout');
-    if (reminderTimeout && data.reminderTimeout) reminderTimeout.value = String(data.reminderTimeout);
 }
 
 function applyContextPopup() {
@@ -3351,9 +3307,6 @@ function applyContextPopup() {
     var projSel = document.getElementById('ctx-projects');
     var todoFileSel = document.getElementById('ctx-todoFile');
     var todoSel = document.getElementById('ctx-todo');
-    var ctxTemplate = document.getElementById('ctx-template');
-    var reminderCb = document.getElementById('ctx-reminder-enabled');
-    var reminderTimeout = document.getElementById('ctx-reminder-timeout');
 
     var selectedProjects = [];
     if (projSel) {
@@ -3362,19 +3315,13 @@ function applyContextPopup() {
         }
     }
 
-    // Sync template back to main dropdown
-    var mainTemplate = document.getElementById('copilot-template');
-    if (ctxTemplate && mainTemplate) mainTemplate.value = ctxTemplate.value;
-
     vscode.postMessage({
         type: 'applyContext',
         quest: questSel ? questSel.value : '',
         role: roleSel ? roleSel.value : '',
         activeProjects: selectedProjects,
         todoFile: todoFileSel ? todoFileSel.value : '',
-        todo: todoSel ? todoSel.value : '',
-        reminderEnabled: reminderCb ? reminderCb.checked : false,
-        reminderTimeout: reminderTimeout ? parseInt(reminderTimeout.value, 10) : 600000
+        todo: todoSel ? todoSel.value : ''
     });
     closeContextPopup();
 }
