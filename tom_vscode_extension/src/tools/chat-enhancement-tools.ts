@@ -740,7 +740,7 @@ export const ADD_TO_PROMPT_QUEUE_TOOL: SharedToolDefinition<AddToPromptQueueInpu
             template: { type: 'string', description: 'Optional template name.' },
             answerWrapper: { type: 'boolean', description: 'Whether to wrap the initial prompt with answer wrapper.' },
             position: { type: 'number', description: 'Optional insert index. -1 means append.' },
-            deferSend: { type: 'boolean', description: 'When true (default), prompt is staged and not sent immediately.' },
+            deferSend: { type: 'boolean', description: 'When true (default), prompt is queued but not sent immediately.' },
             followUps: {
                 type: 'array',
                 description: 'Optional follow-up prompts to run sequentially after each answer.',

@@ -833,6 +833,11 @@ export class PromptQueueManager {
         logQueue(`Auto-send toggled: ${v ? 'on' : 'off'}`);
         this.persistSettings();
         this._onDidChange.fire();
+
+        // If enabling auto-send and there are pending items not currently sending, start processing
+        if (v && this._items.some(i => i.status === 'pending') && !this._items.some(i => i.status === 'sending')) {
+            void this.sendNext();
+        }
     }
 
     set responseFileTimeoutMinutes(v: number) {
