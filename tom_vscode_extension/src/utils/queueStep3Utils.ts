@@ -23,12 +23,16 @@ export function computeRepeatDecision(input: { repeatCount?: number; repeatIndex
         };
     }
 
-    const shouldRepeat = repeatIndex < repeatCount;
-    const nextRepeatIndex = shouldRepeat ? repeatIndex + 1 : repeatIndex;
+    // repeatCount is total number of sends (including the original)
+    // repeatIndex is 0-based: first send is index 0
+    // shouldRepeat is true if we haven't yet reached the target count
+    const currentSendNumber = repeatIndex + 1; // 1-based send number
+    const shouldRepeat = currentSendNumber < repeatCount;
+    const nextRepeatIndex = repeatIndex + 1;
     return {
         shouldRepeat,
         nextRepeatIndex,
-        progressLabel: `${Math.min(nextRepeatIndex, repeatCount)}/${repeatCount}`,
+        progressLabel: `${currentSendNumber}/${repeatCount}`,
     };
 }
 
