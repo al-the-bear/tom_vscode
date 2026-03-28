@@ -210,7 +210,7 @@ function renderEntry(item, idx) {
       '<span style="font-size:0.8em;opacity:0.85;">Wait:</span>' +
       '<select onchange="updateItemReminder(\\'' + safeId + '\\', \\'timeout\\', this.value)">' + reminderTimeoutOptions(item.reminderTimeoutMinutes || responseTimeoutMinutes) + '</select>' +
       '<span style="font-size:0.8em;opacity:0.85;margin-left:8px;">Queue Repeats:</span>' +
-      '<input type="number" min="1" step="1" value="' + Math.max(1, repeatCount) + '" style="width:80px" onchange="updateItemRepeat(\'' + safeId + '\', { repeatCount: this.value })">' +
+      '<input type="number" min="1" step="1" value="' + Math.max(1, repeatCount) + '" style="width:80px" onchange="updateItemRepeat(\\'' + safeId + '\\', { repeatCount: this.value })">' +
     '</div>' +
     '<div class="repeat-affix-row">' +
       '<label style="font-size:0.8em;opacity:0.9;">Repeat Prefix (supports {{repeatNumber}}, {{repeatIndex}}, {{repeatCount}})</label>' +
