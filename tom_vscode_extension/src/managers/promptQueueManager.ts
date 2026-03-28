@@ -805,6 +805,7 @@ export class PromptQueueManager {
                         this._onDidChange.fire();
                         logQueue('Queue empty — auto-pausing');
                     } else {
+                        // Send next pending item after delay
                         await this.delaySendNext();
                     }
                 }
@@ -1302,10 +1303,9 @@ export class PromptQueueManager {
     // ----- sending -----------------------------------------------------------
 
     private async delaySendNext(): Promise<void> {
-        if (this._processing) { return; }
-        this._processing = true;
+        // Note: We don't use _processing guard here anymore because it could cause 
+        // repeat items to get stuck. sendNext() has its own guard against concurrent sending.
         await new Promise(r => setTimeout(r, this._autoSendDelayMs));
-        this._processing = false;
         await this.sendNext();
     }
 
