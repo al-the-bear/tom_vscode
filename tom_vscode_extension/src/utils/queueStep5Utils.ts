@@ -34,3 +34,9 @@ export function buildTimedFileName(hostname: string, workspaceName: string): str
     const ws = sanitizeFilePart(workspaceName || 'default');
     return `${host}_${ws}.timed.yaml`;
 }
+
+export function buildHostPrefixedPanelFileName(hostname: string, workspaceName: string, type: string): string {
+    const host = sanitizeHostnameForFile(hostname);
+    const ws = sanitizeFilePart(workspaceName || 'default');
+    return `${host}_${ws}.${type}.yaml`;
+}

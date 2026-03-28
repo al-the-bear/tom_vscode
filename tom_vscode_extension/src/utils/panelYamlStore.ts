@@ -16,7 +16,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { WsPaths } from './workspacePaths';
-import { buildTimedFileName } from './queueStep5Utils';
+import { buildTimedFileName, buildHostPrefixedPanelFileName } from './queueStep5Utils';
 
 // ============================================================================
 // Workspace helpers
@@ -58,8 +58,8 @@ export function getPanelFilePath(type: string): string | undefined {
     const folder = getStorageFolder();
     if (!folder) return undefined;
     const name = getWorkspaceName();
-    if (type === 'timed') {
-        return path.join(folder, buildTimedFileName(os.hostname(), name));
+    if (type === 'timed' || type === 'queue') {
+        return path.join(folder, buildHostPrefixedPanelFileName(os.hostname(), name, type));
     }
     return path.join(folder, `${name}.${type}.yaml`);
 }
