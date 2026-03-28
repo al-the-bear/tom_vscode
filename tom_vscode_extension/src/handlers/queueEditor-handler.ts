@@ -706,11 +706,10 @@ ${queueEntryStyles()}
       <option value="240">240 min</option>
       <option value="480">480 min</option>
     </select>
-    <label style="margin-left:8px;"><input type="checkbox" id="addReminderRepeat"> Repeat</label>
   </div>
   <div class="add-options">
     <label style="margin-right:6px;">Queue Repeats:</label>
-    <input id="addRepeatCount" type="number" min="0" step="1" value="0" style="width:80px" title="How many additional times to repeat after the first run"/>
+    <input id="addRepeatCount" type="number" min="1" step="1" value="1" style="width:80px" title="Total number of times to send this prompt"/>
   </div>
   <div class="add-options" style="display:block;">
     <label style="display:block;margin-bottom:4px;">Repeat Prefix (supports {{repeatNumber}}, {{repeatIndex}}, {{repeatCount}})</label>
@@ -1030,7 +1029,6 @@ function addPrompt() {
   if (!text) { showAddFeedback('Please enter prompt text', 'error'); return; }
   const selTpl = document.getElementById('addReminderTemplate');
   const selTimeout = document.getElementById('addReminderTimeout');
-  const chkRemRepeat = document.getElementById('addReminderRepeat');
   const inputRepeatCount = document.getElementById('addRepeatCount');
   const inputRepeatPrefix = document.getElementById('addRepeatPrefix');
   const inputRepeatSuffix = document.getElementById('addRepeatSuffix');
@@ -1051,9 +1049,8 @@ function addPrompt() {
     msg.reminderEnabled = defaultReminderTemplateId === '__none__' ? false : true;
   }
   if (selTimeout && selTimeout.value) { msg.reminderTimeoutMinutes = parseInt(String(selTimeout.value || '0'), 10) || undefined; }
-  if (chkRemRepeat && chkRemRepeat.checked) { msg.reminderRepeat = true; }
   if (inputRepeatCount) {
-    msg.repeatCount = Math.max(0, parseInt(String(inputRepeatCount.value || '0'), 10) || 0);
+    msg.repeatCount = Math.max(1, parseInt(String(inputRepeatCount.value || '1'), 10) || 1);
   }
   if (inputRepeatPrefix && inputRepeatPrefix.value) {
     msg.repeatPrefix = inputRepeatPrefix.value;

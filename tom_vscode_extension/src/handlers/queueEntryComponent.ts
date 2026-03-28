@@ -209,9 +209,8 @@ function renderEntry(item, idx) {
       '</select>' +
       '<span style="font-size:0.8em;opacity:0.85;">Wait:</span>' +
       '<select onchange="updateItemReminder(\\'' + safeId + '\\', \\'timeout\\', this.value)">' + reminderTimeoutOptions(item.reminderTimeoutMinutes || responseTimeoutMinutes) + '</select>' +
-      '<label style="font-size:0.8em;"><input type="checkbox" ' + (item.reminderRepeat ? 'checked' : '') + ' onchange="updateItemReminder(\\'' + safeId + '\\', \\'repeat\\', this.checked)"> Repeat</label>' +
       '<span style="font-size:0.8em;opacity:0.85;margin-left:8px;">Queue Repeats:</span>' +
-      '<input type="number" min="0" step="1" value="' + repeatCount + '" style="width:80px" onchange="updateItemRepeat(\\'' + safeId + '\\', { repeatCount: this.value })">' +
+      '<input type="number" min="1" step="1" value="' + Math.max(1, repeatCount) + '" style="width:80px" onchange="updateItemRepeat(\'' + safeId + '\', { repeatCount: this.value })">' +
     '</div>' +
     '<div class="repeat-affix-row">' +
       '<label style="font-size:0.8em;opacity:0.9;">Repeat Prefix (supports {{repeatNumber}}, {{repeatIndex}}, {{repeatCount}})</label>' +
@@ -365,7 +364,7 @@ function renderFollowUps(item, status) {
               '</select>' +
               '<span style="font-size:0.8em;opacity:0.85;">Wait:</span>' +
               '<select onchange="updateFollowUpReminder(\\'' + safeItemId + '\\', \\'' + safeFollowUpId + '\\', \\'timeout\\', this.value)">' + reminderTimeoutOptions(f.reminderTimeoutMinutes || responseTimeoutMinutes) + '</select>' +
-              '<label style="font-size:0.8em;"><input type="checkbox" ' + (f.reminderRepeat ? 'checked' : '') + ' onchange="updateFollowUpReminder(\\'' + safeItemId + '\\', \\'' + safeFollowUpId + '\\', \\'repeat\\', this.checked)"> Repeat</label>' +
+
             '</div>' +
           '</div>'
         : '<div style="margin:4px 0; white-space:pre-wrap;">' + escapeHtml(f.originalText || '') + '</div>') +

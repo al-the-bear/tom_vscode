@@ -13,13 +13,13 @@ export interface RepetitionAffixInput {
 }
 
 export function computeRepeatDecision(input: { repeatCount?: number; repeatIndex?: number }): RepeatDecision {
-    const repeatCount = Math.max(0, Math.round(input.repeatCount || 0));
+    const repeatCount = Math.max(1, Math.round(input.repeatCount || 1));
     const repeatIndex = Math.max(0, Math.round(input.repeatIndex || 0));
-    if (repeatCount <= 0) {
+    if (repeatCount <= 1) {
         return {
             shouldRepeat: false,
             nextRepeatIndex: repeatIndex,
-            progressLabel: '0/0',
+            progressLabel: '1/1',
         };
     }
 

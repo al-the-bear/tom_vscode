@@ -58,7 +58,7 @@ describe('Step 3 - Issue 10: repeat decision', () => {
     });
 
     test('repeat decision does not schedule when repeatIndex reached repeatCount', () => {
-        const decision = computeRepeatDecision({ repeatCount: 3, repeatIndex: 3 });
+        const decision = computeRepeatDecision({ repeatCount: 3, repeatIndex: 2 });
         assert.equal(decision.shouldRepeat, false);
         assert.equal(decision.nextRepeatIndex, 3);
         assert.equal(decision.progressLabel, '3/3');
@@ -68,7 +68,7 @@ describe('Step 3 - Issue 10: repeat decision', () => {
         const decision = computeRepeatDecision({ repeatCount: undefined, repeatIndex: 0 });
         assert.equal(decision.shouldRepeat, false);
         assert.equal(decision.nextRepeatIndex, 0);
-        assert.equal(decision.progressLabel, '0/0');
+        assert.equal(decision.progressLabel, '1/1');
     });
 
     test('repetition affixes wrap original prompt with blank lines', () => {

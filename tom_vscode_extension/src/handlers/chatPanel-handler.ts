@@ -2626,7 +2626,7 @@ function getSectionContent(id) {
             actionButtons:
                 '<button class="icon-btn" data-action="preview" data-id="copilot" title="Preview"><span class="codicon codicon-eye"></span></button>' +
                 '<button class="icon-btn primary" id="copilot-send-btn" data-action="send" data-id="copilot" title="Send to Copilot"><span class="codicon codicon-send"></span></button>' +
-                '<label class="checkbox-label compact-keep" title="Queue repeats"><span style="opacity:0.8;">R</span><input type="number" id="copilot-repeat-count" min="0" step="1" value="0" style="width:48px"></label>' +
+                '<label class="checkbox-label compact-keep" title="Queue repeats"><span style="opacity:0.8;">R</span><input type="number" id="copilot-repeat-count" min="1" step="1" value="1" style="width:48px"></label>' +
                 '<button class="icon-btn" data-action="addToQueue" data-id="copilot" title="Save to Queue"><span class="codicon codicon-add"></span><span class="codicon codicon-list-ordered"></span></button>' +
                 '<button class="icon-btn" data-action="openQueueEditor" data-id="copilot" title="Open Queue Editor"><span class="codicon codicon-inbox"></span></button>' +
                 '<button class="icon-btn" data-action="saveAsTimedRequest" data-id="copilot" title="Save as Timed Request"><span class="codicon codicon-save"></span></button>' +
@@ -3242,8 +3242,8 @@ function addCopilotToQueue() {
     var template = document.getElementById('copilot-template');
     template = template ? template.value : '';
     var repeat = document.getElementById('copilot-repeat-count');
-    repeat = repeat ? repeat.value : '0';
-    var repeatCount = parseInt(String(repeat || '0'), 10) || 0;
+    repeat = repeat ? repeat.value : '1';
+    var repeatCount = Math.max(1, parseInt(String(repeat || '1'), 10) || 1);
     var slot = ensureSlotState('copilot').activeSlot;
     vscode.postMessage({ type: 'addToQueue', text: text, template: template, repeatCount: repeatCount, slot: slot });
 }
