@@ -2008,11 +2008,12 @@ function qtHandleMessage(msg) {
                 qtSelectedTodoId = '';
                 var dp = document.getElementById('qt-detail-pane');
                 if (dp) dp.innerHTML = '<div class="qt-empty-detail">Select a todo to view details</div>';
-                // Auto-refresh list from backend
+                // Remove deleted item client-side and re-render immediately
+                qtTodos = qtTodos.filter(function(t) { return t.id !== msg.todoId; });
+                qtRenderList();
                 if (qtViewingBackup) {
+                    // Backup deletes need a backend refresh (no server-side push)
                     vscode.postMessage({ type: 'qtGetBackupTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
-                } else {
-                    vscode.postMessage({ type: 'qtGetTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
                 }
                 // Re-check backup existence after delete (backup may now exist or be empty)
                 vscode.postMessage({ type: 'qtCheckBackupExists', questId: qtCurrentQuestId, file: qtCurrentFile });
@@ -3372,7 +3373,6 @@ async function _deleteTodo(questId: string, todoId: string, post: (m: any) => vo
     _moveToBackupByTodo(questId, todoId, sourceFile);
     const deleted = questTodo.deleteTodo(questId, todoId, sourceFile);
     post({ type: 'qtDeleted', success: !!deleted, todoId });
-    _sendTodoList(questId, undefined, post);
 }
 
 /** Move a todo to the backup file before deletion. */
