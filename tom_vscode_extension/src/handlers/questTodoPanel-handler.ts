@@ -614,6 +614,7 @@ function qtNavPush(todoId) {
     // Request username from config
     // Send config + request initial data
     vscode.postMessage({ type: 'qtInitConfig', config: qtViewConfig });
+    vscode.postMessage({ type: 'qtGetTemplates' });
     if (qtViewConfig.mode === 'session') {
         qtCurrentQuestId = '__session__';
         qtCurrentFile = 'all';
@@ -2997,16 +2998,25 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
         }
         case 'qtGetTemplates': {
             const config = loadSendToChatConfig();
+            // Built-in templates always available
+            const builtIn: Array<{ id: string; label: string }> = [
+                { id: 'TODO Execution', label: 'TODO Execution' },
+                { id: 'Code Review', label: 'Code Review' },
+                { id: 'Add Unit Tests', label: 'Add Unit Tests' },
+                { id: 'Refactor', label: 'Refactor' },
+            ];
+            const builtInIds = new Set(builtIn.map((b) => b.id));
             const configured = Object.keys(config?.copilot?.templates || {})
-                .filter((key) => key !== '__answer_file__')
+                .filter((key) => key !== '__answer_file__' && !builtInIds.has(key))
                 .sort();
             const templates = [
                 { id: '__none__', label: '(None)' },
+                ...builtIn,
                 ...configured.map((name) => ({ id: name, label: name })),
                 { id: '__answer_file__', label: 'Answer Wrapper' },
             ];
-            const defaultTemplate = String(config?.copilot?.defaultTemplate || '__none__');
-            const selected = templates.some((t) => t.id === defaultTemplate) ? defaultTemplate : '__none__';
+            const defaultTemplate = String(config?.copilot?.defaultTemplate || 'TODO Execution');
+            const selected = templates.some((t) => t.id === defaultTemplate) ? defaultTemplate : 'TODO Execution';
             post({ type: 'qtTemplates', templates, selected });
             return true;
         }
@@ -3065,7 +3075,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             } else if (selectedTemplate === '__answer_file__') {
                 expanded = await expandTemplate(answerFileTemplate, { values: { originalPrompt: wrappedText } });
             } else {
-                const selectedTemplateText = config?.copilot?.templates?.[selectedTemplate]?.template;
+                const selectedTemplateText = config?.copilot?.templates?.[selectedTemplate]?.template || BUILTIN_TODO_TEMPLATES[selectedTemplate];
                 if (selectedTemplateText) {
                     const templateExpanded = await expandTemplate(selectedTemplateText, { values: { originalPrompt: wrappedText } });
                     expanded = await expandTemplate(answerFileTemplate, { values: { originalPrompt: templateExpanded } });
@@ -3498,6 +3508,14 @@ function _openYamlFile(questId: string, file: string): void {
         vscode.window.showWarningMessage(`File not found: ${fileName}`);
     }
 }
+
+/** Built-in template texts used when config doesn't define them. */
+const BUILTIN_TODO_TEMPLATES: Record<string, string> = {
+    'TODO Execution': 'Do the following TODO:\n\n${originalPrompt}\n\nWork through the TODO completely. When you start working on the TODO change status to "In-Progress". If you notice anything that should be improved or also needs fixing, fix or do it. If you can\'t do it now, create a new todo so it is tracked.\n\nOnce the TODO is fully done, change status to "Completed".\n\nPlease verify everything stated is implemented exactly as described.',
+    'Code Review': 'Quest: ${chat.quest}\n\nPlease review this code for quality, bugs, and improvements:\n${originalPrompt}\n\nFocus on:\n- Code quality and best practices\n- Potential bugs or edge cases\n- Security vulnerabilities\n- Performance issues\n- Suggestions for improvement',
+    'Add Unit Tests': 'Quest: ${chat.quest}\n\nGenerate comprehensive unit tests for:\n${originalPrompt}\n\nRequirements:\n- High coverage\n- Test edge cases\n- Test error conditions\n- Use appropriate testing framework',
+    'Refactor': 'Quest: ${chat.quest}\n\nRefactor this code for better quality:\n${originalPrompt}\n\nFocus on:\n- Readability\n- Maintainability\n- Performance\n- Best practices',
+};
 
 function _todoYamlFragment(todo: questTodo.QuestTodoItem, questId?: string, sourceFileHint?: string): string {
     const sourcePath = _resolveTodoSourcePath(todo, questId, sourceFileHint);
