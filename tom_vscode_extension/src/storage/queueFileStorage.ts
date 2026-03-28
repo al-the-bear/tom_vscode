@@ -5,7 +5,7 @@
  * using the *.queue.yaml format (meta + prompt-queue).
  *
  * File naming conventions:
- *   - Queue entries:  `<YYMMDD_HHMMSS>_<quest-id>.<type>.entry.queue.yaml`
+ *   - Queue entries:  `<hostname>_<workspace>_<YYMMDD_HHMMSS>_<quest-id>.<type>.entry.queue.yaml`
  *   - Templates:      `<name>.template.queue.yaml`
  *
  * Default folder: `${workspaceRoot}/_ai/queue/`
@@ -21,6 +21,7 @@ import * as os from 'os';
 import { WsPaths } from '../utils/workspacePaths.js';
 import { debugLog } from '../utils/debugLogger.js';
 import { buildQueueEntryFileName, sanitizeHostnameForFile } from '../utils/queueStep5Utils.js';
+import { getWorkspaceName } from '../utils/panelYamlStore.js';
 
 // ============================================================================
 // Constants
@@ -249,7 +250,7 @@ export function writeQueueSettings(settings: QueueSettings): boolean {
 
 /**
  * Generate a queue entry filename.
- * Format: `<YYMMDD_HHMMSS>_<quest>.<type>.entry.queue.yaml`
+ * Format: `<hostname>_<workspace>_<YYMMDD_HHMMSS>_<quest>.<type>.entry.queue.yaml`
  */
 export function generateEntryFileName(
     quest?: string,
@@ -258,6 +259,7 @@ export function generateEntryFileName(
 ): string {
     return buildQueueEntryFileName({
         hostname: os.hostname(),
+        workspaceName: getWorkspaceName(),
         timestamp: timestamp || new Date(),
         quest: quest || 'default',
         type: type || 'prompt',
@@ -372,9 +374,11 @@ export function readAllEntries(): QueueEntryFile[] {
 
         const entries: QueueEntryFile[] = [];
         const hostPrefix = `${sanitizeHostnameForFile(os.hostname())}_`;
+        const wsName = getWorkspaceName().replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
+        const fullPrefix = `${hostPrefix}${wsName}_`;
         const files = fs
             .readdirSync(folder)
-            .filter(f => f.endsWith(ENTRY_SUFFIX) && f.startsWith(hostPrefix))
+            .filter(f => f.endsWith(ENTRY_SUFFIX) && f.startsWith(fullPrefix))
             .sort();
 
         for (const fileName of files) {
@@ -609,7 +613,9 @@ export function startWatching(): void {
     if (!folder) return;
 
     const hostPrefix = `${sanitizeHostnameForFile(os.hostname())}_`;
-    const pattern = new vscode.RelativePattern(folder, `${hostPrefix}*${ENTRY_SUFFIX}`);
+    const wsName = getWorkspaceName().replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
+    const fullPrefix = `${hostPrefix}${wsName}_`;
+    const pattern = new vscode.RelativePattern(folder, `${fullPrefix}*${ENTRY_SUFFIX}`);
     _entryWatcher = vscode.workspace.createFileSystemWatcher(pattern);
 
     const notify = (): void => {

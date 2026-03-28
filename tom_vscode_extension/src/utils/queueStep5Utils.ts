@@ -1,5 +1,6 @@
 export interface QueueEntryFileNameInput {
     hostname: string;
+    workspaceName: string;
     timestamp: Date;
     quest: string;
     type: string;
@@ -26,7 +27,8 @@ export function buildQueueEntryFileName(input: QueueEntryFileNameInput): string 
     const q = sanitizeFilePart(input.quest || 'default');
     const t = sanitizeFilePart(input.type || 'prompt');
     const host = sanitizeHostnameForFile(input.hostname);
-    return `${host}_${yy}${mm}${dd}_${hh}${min}${ss}_${q}.${t}${input.entrySuffix}`;
+    const ws = sanitizeFilePart(input.workspaceName || 'default');
+    return `${host}_${ws}_${yy}${mm}${dd}_${hh}${min}${ss}_${q}.${t}${input.entrySuffix}`;
 }
 
 export function buildTimedFileName(hostname: string, workspaceName: string): string {
