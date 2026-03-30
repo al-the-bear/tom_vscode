@@ -82,7 +82,8 @@ function openEditor(ctx: vscode.ExtensionContext): void {
         .replace(/</g, '\\u003c')
         .replace(/`/g, '\\u0060')
         .replace(/\$/g, '\\u0024');
-    _panel.webview.html = getHtml(webviewCodiconsUri.toString(), safeJson);
+    const htmlContent = getHtml(webviewCodiconsUri.toString(), safeJson);
+    _panel.webview.html = htmlContent;
 
     // Also push state via message (belt & suspenders)
     sendState();
@@ -948,7 +949,7 @@ function render() {
           '<div class="meta">Last sent: ' + lastSent + '</div>' +
           '<label>Repetition</label>' +
           '<div class="schedule-row">' +
-            '<span>Repeat Count:</span> <input type="number" min="0" step="1" value="' + (Math.max(0, parseInt(String(entry.repeatCount || 0), 10) || 0)) + '" style="width:80px"' + disabledAttr + ' onchange="updateField(\\'' + entry.id + '\\',\\'repeatCount\\',parseInt(this.value||\'0\',10)||0)"/>' +
+            '<span>Repeat Count:</span> <input type="number" min="0" step="1" value="' + (Math.max(0, parseInt(String(entry.repeatCount || 0), 10) || 0)) + '" style="width:80px"' + disabledAttr + ' onchange="updateField(\\'' + entry.id + '\\',\\'repeatCount\\',parseInt(this.value||\\'0\\',10)||0)"/>' +
           '</div>' +
           '<label>Repeat Prefix</label>' +
           '<textarea rows="2"' + disabledAttr + ' onchange="updateField(\\'' + entry.id + '\\',\\'repeatPrefix\\',this.value)">' + esc(entry.repeatPrefix || '') + '</textarea>' +
@@ -1218,9 +1219,9 @@ vscode.postMessage({ type: 'getState' });
     ];
     const events = diagnostics.events.slice(-80);
     const payload = diagnostics.lastStateRaw
-      ? ('\n--- last state payload ---\n' + diagnostics.lastStateRaw)
-      : '\n--- last state payload ---\n(none)';
-    debugPre.textContent = info.concat(events).join('\n') + payload;
+      ? ('\\n--- last state payload ---\\n' + diagnostics.lastStateRaw)
+      : '\\n--- last state payload ---\\n(none)';
+    debugPre.textContent = info.concat(events).join('\\n') + payload;
   }
 
   const originalConsoleError = console.error;
