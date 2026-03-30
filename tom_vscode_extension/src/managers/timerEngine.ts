@@ -158,7 +158,11 @@ export class TimerEngine {
             if (patch.enabled === false) {
                 e.enabled = false;
                 e.status = 'paused';
+                const removed = this.removeQueuedTimedItems(e.id);
                 logTimed(`Entry updated: '${e.originalText.substring(0, 40)}' [paused]`);
+                if (removed > 0) {
+                    logTimed(`Removed ${removed} pending/staged timed queue item(s) for paused entry ${e.id.substring(0, 8)}`);
+                }
                 this.saveEntries();
                 this._onDidChange.fire();
             }
@@ -174,6 +178,12 @@ export class TimerEngine {
         // Recalculate status from enabled flag
         if (patch.enabled !== undefined) {
             e.status = patch.enabled ? 'active' : 'paused';
+            if (!patch.enabled) {
+                const removed = this.removeQueuedTimedItems(e.id);
+                if (removed > 0) {
+                    logTimed(`Removed ${removed} pending/staged timed queue item(s) for paused entry ${e.id.substring(0, 8)}`);
+                }
+            }
         }
         logTimed(`Entry updated: '${e.originalText.substring(0, 40)}' [${changedKeys}]`);
         this.saveEntries();
@@ -198,7 +208,14 @@ export class TimerEngine {
 
     disableAll(): void {
         for (const e of this._entries) {
-            if (e.status === 'active') { e.enabled = false; e.status = 'paused'; }
+            if (e.status === 'active') {
+                e.enabled = false;
+                e.status = 'paused';
+                const removed = this.removeQueuedTimedItems(e.id);
+                if (removed > 0) {
+                    logTimed(`Removed ${removed} pending/staged timed queue item(s) for paused entry ${e.id.substring(0, 8)}`);
+                }
+            }
         }
         this.saveEntries();
         this._onDidChange.fire();
@@ -352,12 +369,24 @@ export class TimerEngine {
         let queue: PromptQueueManager;
         try { queue = PromptQueueManager.instance; } catch { return; }
 
+        // Safety guard: entry state may have changed after due-check but before enqueue.
+        if (!entry.enabled || entry.status !== 'active') {
+            logTimed(`Entry '${entry.originalText.substring(0, 40)}' skipped: state changed to ${entry.status}`);
+            return;
+        }
+
         // Skip if this timed entry already has a pending item in the queue
         const hasPending = queue.items.some(
             i => i.type === 'timed' && i.status === 'pending' && i.template === `timed:${entry.id}`
         );
         if (hasPending) {
             logTimed(`Entry '${entry.originalText.substring(0, 40)}' skipped: already pending in queue`);
+            return;
+        }
+
+        // Re-check state just before enqueue in case UI changed during processing.
+        if (!entry.enabled || entry.status !== 'active') {
+            logTimed(`Entry '${entry.originalText.substring(0, 40)}' skipped: state changed to ${entry.status} before enqueue`);
             return;
         }
 
@@ -417,6 +446,24 @@ export class TimerEngine {
 
         this.saveEntries();
         this._onDidChange.fire();
+    }
+
+    private removeQueuedTimedItems(entryId: string): number {
+        let queue: PromptQueueManager;
+        try {
+            queue = PromptQueueManager.instance;
+        } catch {
+            return 0;
+        }
+
+        const ids = queue.items
+            .filter(i => i.type === 'timed' && (i.status === 'pending' || i.status === 'staged') && i.template === `timed:${entryId}`)
+            .map(i => i.id);
+
+        for (const id of ids) {
+            queue.remove(id);
+        }
+        return ids.length;
     }
 
     // ----- persistence (config file + YAML) ------------------------------------
