@@ -1378,7 +1378,7 @@ export class PromptQueueManager {
         return changed;
     }
 
-    updateRepeat(id: string, patch: { repeatCount?: number; repeatIndex?: number; repeatPrefix?: string; repeatSuffix?: string }): void {
+    updateRepeat(id: string, patch: { repeatCount?: number; repeatIndex?: number; repeatPrefix?: string; repeatSuffix?: string; answerWaitMinutes?: number }): void {
         const item = this._items.find(i => i.id === id);
         if (!item || !this.isEditableStatus(item.status)) { return; }
 
@@ -1393,6 +1393,9 @@ export class PromptQueueManager {
         }
         if (patch.repeatSuffix !== undefined) {
             item.repeatSuffix = patch.repeatSuffix;
+        }
+        if (patch.answerWaitMinutes !== undefined) {
+            item.answerWaitMinutes = patch.answerWaitMinutes > 0 ? patch.answerWaitMinutes : undefined;
         }
 
         this.persist();

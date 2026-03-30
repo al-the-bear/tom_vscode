@@ -211,6 +211,8 @@ function renderEntry(item, idx) {
       '<select onchange="updateItemReminder(\\'' + safeId + '\\', \\'timeout\\', this.value)">' + reminderTimeoutOptions(item.reminderTimeoutMinutes || responseTimeoutMinutes) + '</select>' +
       '<span style="font-size:0.8em;opacity:0.85;margin-left:8px;">Queue Repeats:</span>' +
       '<input type="number" min="1" step="1" value="' + Math.max(1, repeatCount) + '" style="width:80px" onchange="updateItemRepeat(\\'' + safeId + '\\', { repeatCount: this.value })">' +
+      '<span style="font-size:0.8em;opacity:0.85;margin-left:8px;">Answer Wait (min):</span>' +
+      '<input type="number" min="0" step="1" value="' + Math.max(0, parseInt(String(item.answerWaitMinutes || 0), 10) || 0) + '" style="width:60px" title="Minutes to wait before auto-advancing (0 = wait for answer file)" onchange="updateItemRepeat(\\'' + safeId + '\\', { answerWaitMinutes: this.value })">' +
     '</div>' +
     '<div class="repeat-affix-row">' +
       '<label style="font-size:0.8em;opacity:0.9;">Repeat Prefix (supports {{repeatNumber}}, {{repeatIndex}}, {{repeatCount}})</label>' +
@@ -405,6 +407,7 @@ function updateItemRepeat(id, patch) {
     repeatCount: undefined,
     repeatPrefix: undefined,
     repeatSuffix: undefined,
+    answerWaitMinutes: undefined,
   };
   if (Object.prototype.hasOwnProperty.call(nextPatch, 'repeatCount')) {
     msg.repeatCount = Math.max(0, parseInt(String(nextPatch.repeatCount || '0'), 10) || 0);
@@ -414,6 +417,9 @@ function updateItemRepeat(id, patch) {
   }
   if (Object.prototype.hasOwnProperty.call(nextPatch, 'repeatSuffix')) {
     msg.repeatSuffix = String(nextPatch.repeatSuffix || '');
+  }
+  if (Object.prototype.hasOwnProperty.call(nextPatch, 'answerWaitMinutes')) {
+    msg.answerWaitMinutes = Math.max(0, parseInt(String(nextPatch.answerWaitMinutes || '0'), 10) || 0);
   }
   vscode.postMessage(msg);
 }

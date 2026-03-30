@@ -319,6 +319,7 @@ async function handleMessage(msg: any): Promise<void> {
             repeatIndex: msg.repeatIndex,
             repeatPrefix: msg.repeatPrefix,
             repeatSuffix: msg.repeatSuffix,
+            answerWaitMinutes: msg.answerWaitMinutes,
           });
           break;
         case 'setResponseTimeout':
