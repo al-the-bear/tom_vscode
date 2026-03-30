@@ -160,6 +160,8 @@ export class PromptQueueManager {
     private _items: QueuedPrompt[] = [];
     private _autoSendEnabled = true;
     private _autoSendDelayMs = 2000;
+    private _autoStartEnabled = false;
+    private _autoPauseEnabled = true;
     private _autoContinueEnabled = false;
     private _responseFileTimeoutMinutes = 60;
     private _defaultReminderTemplateId: string | undefined;
@@ -805,7 +807,7 @@ export class PromptQueueManager {
 
                 if (this._autoSendEnabled) {
                     const pendingCount = this._items.filter(i => i.status === 'pending').length;
-                    if (shouldAutoPauseOnEmpty(this._autoSendEnabled, pendingCount)) {
+                    if (shouldAutoPauseOnEmpty(this._autoSendEnabled, pendingCount, this._autoPauseEnabled)) {
                         this._autoSendEnabled = false;
                         this.persistSettings();
                         this._onDidChange.fire();
@@ -868,6 +870,22 @@ export class PromptQueueManager {
     set autoContinueEnabled(v: boolean) {
         this._autoContinueEnabled = v;
         logQueue(`Auto-continue toggled: ${v ? 'on' : 'off'}`);
+        this.persistSettings();
+        this._onDidChange.fire();
+    }
+
+    get autoStartEnabled(): boolean { return this._autoStartEnabled; }
+    set autoStartEnabled(v: boolean) {
+        this._autoStartEnabled = v;
+        logQueue(`Auto-start toggled: ${v ? 'on' : 'off'}`);
+        this.persistSettings();
+        this._onDidChange.fire();
+    }
+
+    get autoPauseEnabled(): boolean { return this._autoPauseEnabled; }
+    set autoPauseEnabled(v: boolean) {
+        this._autoPauseEnabled = v;
+        logQueue(`Auto-pause toggled: ${v ? 'on' : 'off'}`);
         this.persistSettings();
         this._onDidChange.fire();
     }
@@ -1349,7 +1367,7 @@ export class PromptQueueManager {
         const next = this._items.find(i => i.status === 'pending');
         if (!next) {
             logQueue('sendNext: no pending items');
-            if (shouldAutoPauseOnEmpty(this._autoSendEnabled, 0)) {
+            if (shouldAutoPauseOnEmpty(this._autoSendEnabled, 0, this._autoPauseEnabled)) {
                 this._autoSendEnabled = false;
                 this.persistSettings();
                 this._onDidChange.fire();
@@ -1518,12 +1536,17 @@ export class PromptQueueManager {
         // Restore queue-level settings
         this.restoreSettings();
 
-        // Step 3 / Issue 4: always start paused for each activation.
-        this._autoSendEnabled = false;
+        // Auto-start: if enabled, keep auto-send on after restore; otherwise start paused.
+        if (this._autoStartEnabled) {
+            logQueue('Auto-start: enabling auto-send on activation');
+            this._autoSendEnabled = true;
+        } else {
+            this._autoSendEnabled = false;
+        }
 
         // Auto-continue: if enabled and there are pending items with remaining repetitions,
         // schedule auto-start after 30 seconds to let VS Code fully initialize.
-        if (this._autoContinueEnabled) {
+        if (this._autoContinueEnabled && !this._autoStartEnabled) {
             const hasPendingRepetitions = this._items.some(i =>
                 i.status === 'pending' &&
                 (i.repeatCount ?? 1) > 1 &&
@@ -1542,6 +1565,11 @@ export class PromptQueueManager {
                 }, 30_000);
             }
         }
+
+        // If auto-send is now enabled (via auto-start) and there are pending items, kick off
+        if (this._autoSendEnabled && this._items.some(i => i.status === 'pending') && !this._items.some(i => i.status === 'sending')) {
+            void this.sendNext();
+        }
     }
 
     /** Persist queue-level settings to disk. */
@@ -1550,6 +1578,8 @@ export class PromptQueueManager {
             'response-timeout-minutes': this._responseFileTimeoutMinutes,
             'default-reminder-template-id': this._defaultReminderTemplateId,
             'auto-send-enabled': this._autoSendEnabled,
+            'auto-start-enabled': this._autoStartEnabled,
+            'auto-pause-enabled': this._autoPauseEnabled,
             'auto-continue-enabled': this._autoContinueEnabled,
         });
     }
@@ -1566,6 +1596,12 @@ export class PromptQueueManager {
             }
             if (typeof settings['auto-send-enabled'] === 'boolean') {
                 this._autoSendEnabled = settings['auto-send-enabled'];
+            }
+            if (typeof settings['auto-start-enabled'] === 'boolean') {
+                this._autoStartEnabled = settings['auto-start-enabled'];
+            }
+            if (typeof settings['auto-pause-enabled'] === 'boolean') {
+                this._autoPauseEnabled = settings['auto-pause-enabled'];
             }
             if (typeof settings['auto-continue-enabled'] === 'boolean') {
                 this._autoContinueEnabled = settings['auto-continue-enabled'];

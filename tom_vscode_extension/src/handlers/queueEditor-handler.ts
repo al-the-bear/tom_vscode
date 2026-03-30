@@ -79,7 +79,9 @@ function openQueueEditor(ctx: vscode.ExtensionContext): void {
     const initialState = buildState();
     // Escape only < to prevent </script> closing the JSON data block
     const safeJson = JSON.stringify(initialState)
-        .replace(/</g, '\\u003c');
+        .replace(/</g, '\\u003c')
+        .replace(/`/g, '\\u0060')
+        .replace(/\$/g, '\\u0024');
     _panel.webview.html = getHtml(webviewCodiconsUri.toString(), safeJson);
 
     // Also push state via message (belt & suspenders)
@@ -297,6 +299,14 @@ async function handleMessage(msg: any): Promise<void> {
             break;
         case 'toggleAutoContinue':
             qm.autoContinueEnabled = !qm.autoContinueEnabled;
+            sendState();
+            break;
+        case 'toggleAutoStart':
+            qm.autoStartEnabled = !qm.autoStartEnabled;
+            sendState();
+            break;
+        case 'toggleAutoPause':
+            qm.autoPauseEnabled = !qm.autoPauseEnabled;
             sendState();
             break;
         case 'restartQueue':
@@ -574,6 +584,8 @@ async function deletePromptTemplate(currentName?: string): Promise<void> {
 function buildState(): Record<string, unknown> {
     let items: readonly QueuedPrompt[] = [];
     let autoSend = true;
+    let autoStart = false;
+    let autoPause = true;
     let autoContinue = false;
   let responseTimeoutMinutes = 60;
   let defaultReminderTemplateId: string | undefined;
@@ -583,6 +595,8 @@ function buildState(): Record<string, unknown> {
         const qm = PromptQueueManager.instance;
         items = qm.items;
         autoSend = qm.autoSendEnabled;
+        autoStart = qm.autoStartEnabled;
+        autoPause = qm.autoPauseEnabled;
         autoContinue = qm.autoContinueEnabled;
         responseTimeoutMinutes = qm.responseFileTimeoutMinutes;
         defaultReminderTemplateId = qm.defaultReminderTemplateId;
@@ -619,6 +633,8 @@ function buildState(): Record<string, unknown> {
         type: 'state',
         items: [...items],  // spread to plain array for serialisation
         autoSend,
+        autoStart,
+        autoPause,
         autoContinue,
         responseTimeoutMinutes,
         defaultReminderTemplateId,
@@ -666,7 +682,9 @@ ${queueEntryStyles()}
 <div class="toolbar">
   <button class="ctx-btn-icon" onclick="toggleAddForm()" title="Add to Queue"><span class="codicon codicon-add"></span></button>
   <button class="ctx-btn-icon" id="autoSendBtn" onclick="toggleAutoSend()" title="Auto-Send"><span class="codicon codicon-play"></span></button>
-  <button class="ctx-btn-icon" id="autoContinueBtn" onclick="toggleAutoContinue()" title="Auto-Continue on Reload"><span class="codicon codicon-sync"></span></button>
+  <button class="ctx-btn-icon" id="autoStartBtn" onclick="toggleAutoStart()" title="Auto-Start (enable auto-send on extension load)"><span class="codicon codicon-rocket"></span></button>
+  <button class="ctx-btn-icon" id="autoPauseBtn" onclick="toggleAutoPause()" title="Auto-Pause (pause when queue empties)"><span class="codicon codicon-debug-pause"></span></button>
+  <button class="ctx-btn-icon" id="autoContinueBtn" onclick="toggleAutoContinue()" title="Auto-Continue (resume repetitions after reload)"><span class="codicon codicon-sync"></span></button>
   <button class="ctx-btn-icon" onclick="restartQueue()" title="Restart Queue (reset stuck items)"><span class="codicon codicon-debug-restart"></span></button>
   <button onclick="sendAllStaged()">Send All Staged</button>
   <button onclick="clearSent()">Clear Sent</button>
@@ -824,6 +842,8 @@ try {
 
 let currentItems = __INITIAL__.items || [];
 let autoSend = __INITIAL__.autoSend !== undefined ? __INITIAL__.autoSend : true;
+let autoStart = __INITIAL__.autoStart !== undefined ? __INITIAL__.autoStart : false;
+let autoPause = __INITIAL__.autoPause !== undefined ? __INITIAL__.autoPause : true;
 let autoContinue = __INITIAL__.autoContinue !== undefined ? __INITIAL__.autoContinue : false;
 let responseTimeoutMinutes = __INITIAL__.responseTimeoutMinutes !== undefined ? __INITIAL__.responseTimeoutMinutes : 60;
 let defaultReminderTemplateId = __INITIAL__.defaultReminderTemplateId || '';
@@ -904,6 +924,8 @@ window.addEventListener('message', e => {
     if (msg.type === 'state') {
       currentItems = msg.items || [];
       autoSend = msg.autoSend;
+      autoStart = msg.autoStart !== undefined ? msg.autoStart : false;
+      autoPause = msg.autoPause !== undefined ? msg.autoPause : true;
       autoContinue = msg.autoContinue !== undefined ? msg.autoContinue : false;
       responseTimeoutMinutes = msg.responseTimeoutMinutes || 60;
       defaultReminderTemplateId = msg.defaultReminderTemplateId || '';
@@ -971,6 +993,18 @@ function render() {
     acBtn.style.opacity = autoContinue ? '1' : '0.5';
   }
 
+  const asBtn = document.getElementById('autoStartBtn');
+  if (asBtn) {
+    asBtn.title = autoStart ? 'Auto-Start ON (auto-send enabled on extension load)' : 'Auto-Start OFF (click to enable)';
+    asBtn.style.opacity = autoStart ? '1' : '0.5';
+  }
+
+  const apBtn = document.getElementById('autoPauseBtn');
+  if (apBtn) {
+    apBtn.title = autoPause ? 'Auto-Pause ON (pauses when queue empties)' : 'Auto-Pause OFF (keeps running when empty)';
+    apBtn.style.opacity = autoPause ? '1' : '0.5';
+  }
+
   const timeoutSel = document.getElementById('responseTimeout');
   if (timeoutSel) timeoutSel.value = String(responseTimeoutMinutes || 60);
 
@@ -1023,6 +1057,8 @@ function expandAll() {
 }
 
 function toggleAutoSend() { vscode.postMessage({ type: 'toggleAutoSend' }); }
+function toggleAutoStart() { vscode.postMessage({ type: 'toggleAutoStart' }); }
+function toggleAutoPause() { vscode.postMessage({ type: 'toggleAutoPause' }); }
 function toggleAutoContinue() { vscode.postMessage({ type: 'toggleAutoContinue' }); }
 function restartQueue() { vscode.postMessage({ type: 'restartQueue' }); }
 function sendAllStaged() { vscode.postMessage({ type: 'sendAllStaged' }); }

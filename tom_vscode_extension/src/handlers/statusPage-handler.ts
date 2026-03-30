@@ -359,6 +359,30 @@ export async function handleStatusAction(action: string, message: any): Promise<
             } catch { /* not initialised */ }
             break;
         }
+        case 'setQueueAutoStartOn':
+        case 'setQueueAutoStartOff': {
+            try {
+                const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
+                PromptQueueManager.instance.autoStartEnabled = action === 'setQueueAutoStartOn';
+            } catch { /* not initialised */ }
+            break;
+        }
+        case 'setQueueAutoPauseOn':
+        case 'setQueueAutoPauseOff': {
+            try {
+                const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
+                PromptQueueManager.instance.autoPauseEnabled = action === 'setQueueAutoPauseOn';
+            } catch { /* not initialised */ }
+            break;
+        }
+        case 'setQueueAutoContinueOn':
+        case 'setQueueAutoContinueOff': {
+            try {
+                const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
+                PromptQueueManager.instance.autoContinueEnabled = action === 'setQueueAutoContinueOn';
+            } catch { /* not initialised */ }
+            break;
+        }
         case 'setTimerOn':
         case 'setTimerOff': {
             try {
@@ -684,6 +708,9 @@ export async function handleStatusAction(action: string, message: any): Promise<
 export interface StatusData {
     queue: {
         autoSendEnabled: boolean;
+        autoStartEnabled: boolean;
+        autoPauseEnabled: boolean;
+        autoContinueEnabled: boolean;
     };
     timer: {
         timerActivated: boolean;
@@ -795,9 +822,15 @@ export async function gatherStatusData(): Promise<StatusData> {
 
     // Queue and timer state
     let queueAutoSend = true;
+    let queueAutoStart = false;
+    let queueAutoPause = true;
+    let queueAutoContinue = false;
     try {
         const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
         queueAutoSend = PromptQueueManager.instance.autoSendEnabled;
+        queueAutoStart = PromptQueueManager.instance.autoStartEnabled;
+        queueAutoPause = PromptQueueManager.instance.autoPauseEnabled;
+        queueAutoContinue = PromptQueueManager.instance.autoContinueEnabled;
     } catch { /* not initialised yet */ }
     let timerActivated = true;
     let schedule: TimerScheduleSlot[] = [];
@@ -810,6 +843,9 @@ export async function gatherStatusData(): Promise<StatusData> {
     return {
         queue: {
             autoSendEnabled: queueAutoSend,
+            autoStartEnabled: queueAutoStart,
+            autoPauseEnabled: queueAutoPause,
+            autoContinueEnabled: queueAutoContinue,
         },
         timer: {
             timerActivated,
@@ -1123,6 +1159,23 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
                 <button class="sp-btn ${status.queue.autoSendEnabled ? 'primary' : ''}" data-status-action="setQueueOn">On</button>
                 <button class="sp-btn ${!status.queue.autoSendEnabled ? 'primary' : ''}" data-status-action="setQueueOff">Off</button>
             </div>
+            <label>Auto-Start:</label>
+            <div class="sp-controls sp-toggle">
+                <button class="sp-btn ${status.queue.autoStartEnabled ? 'primary' : ''}" data-status-action="setQueueAutoStartOn">On</button>
+                <button class="sp-btn ${!status.queue.autoStartEnabled ? 'primary' : ''}" data-status-action="setQueueAutoStartOff">Off</button>
+            </div>
+            <label>Auto-Pause:</label>
+            <div class="sp-controls sp-toggle">
+                <button class="sp-btn ${status.queue.autoPauseEnabled ? 'primary' : ''}" data-status-action="setQueueAutoPauseOn">On</button>
+                <button class="sp-btn ${!status.queue.autoPauseEnabled ? 'primary' : ''}" data-status-action="setQueueAutoPauseOff">Off</button>
+            </div>
+            <label>Auto-Continue:</label>
+            <div class="sp-controls sp-toggle">
+                <button class="sp-btn ${status.queue.autoContinueEnabled ? 'primary' : ''}" data-status-action="setQueueAutoContinueOn">On</button>
+                <button class="sp-btn ${!status.queue.autoContinueEnabled ? 'primary' : ''}" data-status-action="setQueueAutoContinueOff">Off</button>
+            </div>
+        </div>
+        <div class="sp-settings-row">
             <label>Timer:</label>
             <div class="sp-controls sp-toggle">
                 <button class="sp-btn ${status.timer.timerActivated ? 'primary' : ''}" data-status-action="setTimerOn">On</button>

@@ -202,6 +202,8 @@ export interface QueueSettings {
     'response-timeout-minutes'?: number;
     'default-reminder-template-id'?: string;
     'auto-send-enabled'?: boolean;
+    'auto-start-enabled'?: boolean;
+    'auto-pause-enabled'?: boolean;
     'auto-continue-enabled'?: boolean;
 }
 

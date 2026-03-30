@@ -640,6 +640,8 @@ function buildHtml(
 ): string {
     const safeJson = (value: unknown): string => JSON.stringify(value)
         .replace(/</g, '\\u003c')
+        .replace(/`/g, '\\u0060')
+        .replace(/\$/g, '\\u0024')
         .replace(/>/g, '\\u003e')
         .replace(/&/g, '\\u0026')
         .replace(/\u2028/g, '\\u2028')

@@ -76,7 +76,10 @@ function openQueueTemplateEditor(ctx: vscode.ExtensionContext): void {
   _panel.webview.onDidReceiveMessage(handleMessage);
 
   const initialState = buildState();
-  const safeJson = JSON.stringify(initialState).replace(/</g, '\\u003c');
+  const safeJson = JSON.stringify(initialState)
+      .replace(/</g, '\\u003c')
+      .replace(/`/g, '\\u0060')
+      .replace(/\$/g, '\\u0024');
   _panel.webview.html = getHtml(webviewCodiconsUri.toString(), safeJson);
 
   sendState();

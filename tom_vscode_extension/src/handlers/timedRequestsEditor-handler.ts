@@ -79,7 +79,9 @@ function openEditor(ctx: vscode.ExtensionContext): void {
     const initialState = buildState();
     // Escape only < to prevent </script> closing the JSON data block
     const safeJson = JSON.stringify(initialState)
-        .replace(/</g, '\\u003c');
+        .replace(/</g, '\\u003c')
+        .replace(/`/g, '\\u0060')
+        .replace(/\$/g, '\\u0024');
     _panel.webview.html = getHtml(webviewCodiconsUri.toString(), safeJson);
 
     // Also push state via message (belt & suspenders)

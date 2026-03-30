@@ -36,8 +36,8 @@ export function computeRepeatDecision(input: { repeatCount?: number; repeatIndex
     };
 }
 
-export function shouldAutoPauseOnEmpty(autoSendEnabled: boolean, pendingCount: number): boolean {
-    return autoSendEnabled && pendingCount <= 0;
+export function shouldAutoPauseOnEmpty(autoSendEnabled: boolean, pendingCount: number, autoPauseEnabled = true): boolean {
+    return autoPauseEnabled && autoSendEnabled && pendingCount <= 0;
 }
 
 export function convertStagedToPending(items: Array<{ status: string }>): number {
