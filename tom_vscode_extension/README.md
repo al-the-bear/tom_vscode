@@ -1,305 +1,154 @@
 # @Tom VS Code Extension
 
-A VS Code extension that enhances Dart/Flutter development with Copilot Chat integration, Dart script execution, and workspace automation tools.
+A VS Code extension for Copilot-driven workflows, prompt queue automation, timed requests, workspace tools, and bridge-based scripting.
 
 ## Overview
 
-@Tom provides productivity features for VS Code including smart Copilot Chat integration with customizable templates, Dart script execution via the D4rt interpreter, and Tom CLI integration for workspace automation.
+@Tom provides a unified AI workspace in VS Code with:
+
+- Copilot and local LLM prompt workflows
+- prompt queue orchestration with follow-ups, reminders, and repeat support
+- timed request scheduling that enqueues prompts automatically
+- markdown/guideline browsing and quest navigation
+- bridge and CLI integration for workspace automation
 
 ## Key Features
 
-- 🤖 **Copilot Chat Integration**: Send text to Copilot with customizable prompt templates
-- 🧠 **Local LLM (Ollama)**: Expand, rewrite, and process prompts using a local Ollama model — with configurable profiles and model switching. See the [User Guide](doc/user_guide.md#prompt-expander-ollama) for details.
-- 💬 **Bot Conversation**: Orchestrate multi-turn conversations between a local Ollama model and GitHub Copilot, with halt/continue control, self-talk mode, and Telegram notifications. See the [User Guide](doc/user_guide.md#bot-conversation-ollama--copilot) for details.
-- ⚡ **Dart Script Execution**: Execute Dart files directly or via D4rt interpreter
-- 🔧 **Tom CLI Integration**: Control Tom CLI from VS Code with server communication
-- 📊 **Process Monitor**: Background process monitoring with auto-restart
-- � **Issue & Test Tracking**: GitHub issue management with configurable columns, statuses, labels, and split-panel detail view. See the [User Guide](doc/user_guide.md#tom-panel) for configuration.
-- �🔄 **Window Reload**: Quick keyboard shortcut for window reload
-- ❓ **Extension Help**: Built-in documentation access
+- Copilot prompt send flows with template support
+- @CHAT panel with repeat (R) and answer-wait (W) action-bar fields
+- Prompt Queue editor with auto-send, auto-start, auto-pause, auto-continue, and restart controls
+- RequestId-based answer detection with file watcher + polling fallback
+- Timed Requests editor with interval/scheduled modes, sendMaximum, repeat affixes, and answer wait minutes
+- Dedicated output channels: Tom Prompt Queue and Tom Timed Requests
+- Markdown Browser with grouped document picker, quest filters, line anchors, and auto reload
+- Window Status panel showing per-window subsystem state from window-state files
+- Local LLM, AI Conversation, and Tom AI Chat integration
+- D4rt/bridge/CLI runtime tooling
 
 ## Installation
 
 Build and install from source:
 
 ```bash
-cd xternal/tom_module_vscode/tom_vscode_extension
 npm install
 npm run compile
 bash reinstall_for_testing.sh
 ```
 
-Or install from VSIX:
+Or install a VSIX package:
 
 ```bash
 code --install-extension tom-ai-extension-0.1.0.vsix
 ```
 
-## Commands
+## Main Commands
 
-Open Command Palette (`Cmd+Shift+P` or `Ctrl+Shift+P`) and type "@T:" to see all commands:
+Open the command palette and type @T: to discover commands.
 
-### Copilot Chat Commands
+### Core AI Commands
 
-| Command | Description |
-|---------|-------------|
-| **@T: Send to Copilot** | Send selected text to Copilot Chat |
-| **@T: Send to Copilot (Default Template)** | Send with standard formatting |
-| **@T: Send to Copilot (Pick Template)** | Choose from custom prompt templates |
-| **@T: Reload Configuration** | Reload prompt template configuration |
-| **@T: Show Chat Answer Values** | Display captured chat answer values |
-| **@T: Clear Chat Answer Values** | Clear captured chat answer values |
+- @T: Send to Copilot
+- @T: Send to Copilot (Default Template)
+- @T: Send to Copilot (Pick Template)
+- @T: Send to Local LLM
+- @T: Change Local LLM Model...
+- @T: Start AI Conversation
+- @T: Start Tom AI Chat
 
-### Send to Chat Submenu Templates
+### Queue and Timer Commands
 
-Right-click in the editor to access the "Send to Copilot..." submenu:
+- @T: Open Prompt Queue
+- @T: Open Timed Requests
+- @T: Open Prompt Templates
+- @T: Open Reusable Prompts
 
-- **Send with Trail Reminder** - Include chat trail reminder
-- **TODO Execution** - Execute TODO items
-- **Code Review** - Request code review
-- **Explain Code** - Get code explanation
-- **Add to Todo** - Add selection to todo list
-- **Fix Markdown here** - Fix markdown formatting
+### Workspace and Runtime Commands
 
-### Dart Execution Commands
+- @T: Open in Markdown Browser
+- @T: Extension Status Page
+- @T: Restart Bridge
+- @T: Start Tom CLI Integration Server
+- @T: Stop Tom CLI Integration Server
+- @T: Start Process Monitor
 
-| Command | Description |
-|---------|-------------|
-| **@T: Execute File** | Execute selected Dart file as subprocess |
-| **@T: Execute as Script** | Execute Dart file via D4rt interpreter |
+## Keybindings
 
-### Bridge & Server Commands
+See full keybindings in [doc/quick_reference.md](doc/quick_reference.md).
 
-| Command | Description |
-|---------|-------------|
-| **@T: Restart Bridge** | Restart the Dart bridge process |
-| **@T: Start Tom CLI Integration Server** | Start CLI server on default port |
-| **@T: Start CLI Server (Custom Port)** | Start CLI server on custom port |
-| **@T: Stop Tom CLI Integration Server** | Stop the running CLI server |
-| **@T: Start Process Monitor** | Start background process monitor |
-| **@T: Toggle Bridge Debug Logging** | Enable/disable detailed bridge logging |
+High-use shortcuts:
 
-### Local LLM Commands (Ollama)
+- Ctrl+Shift+0: focus @CHAT
+- Ctrl+Shift+9: focus @WS
+- Ctrl+Shift+6: open Prompt Queue
+- Ctrl+Shift+7: open Timed Requests
+- Ctrl+Shift+5: open Raw Trail Viewer
+- Ctrl+Shift+\: maximize toggle
 
-| Command | Description |
-|---------|-------------|
-| **@T: Send to Local LLM** | Expand/process selected text using local Ollama model |
-| **@T: Change Local LLM Model...** | Pick a different Ollama model |
-| **@T: Send to Local LLM (Default)** | Send selected text to local LLM |
-| **@T: Send to Local LLM (Default Template)** | Send with default profile |
-| **@T: Send to Local LLM (Pick Template)** | Choose a profile template |
+## Queue and Timed Request Behavior
 
-Right-click in the editor to access the "Send to Local LLM..." submenu with Expand, Rewrite, Detailed, and Annotated templates.
+Prompt Queue highlights:
 
-See the [User Guide](doc/user_guide.md#prompt-expander-ollama) for configuration and profile setup.
+- one-file-per-entry YAML storage
+- automation toggles for queue flow behavior
+- repetition support with prefix/suffix placeholders
+- answer-wait timeout for time-based auto-advance
+- watchdog health checks to recover watcher issues
 
-### Bot Conversation Commands
+Timed Requests highlights:
 
-| Command | Description |
-|---------|-------------|
-| **@T: Start AI Conversation** | Start a multi-turn bot conversation |
-| **@T: Stop AI Conversation** | Stop the active conversation |
-| **@T: Halt AI Conversation** | Pause the conversation between turns |
-| **@T: Continue AI Conversation** | Resume a halted conversation |
-| **@T: Add to AI Conversation** | Inject additional context into the next turn |
+- interval and scheduled firing modes
+- sendMaximum with sentCount-based auto-pause
+- reminder and repeat configuration
+- global schedule slot filtering
+- all fires enqueue through Prompt Queue (single dispatch path)
 
-See the [User Guide](doc/user_guide.md#bot-conversation-ollama--copilot) for profiles, self-talk mode, and Telegram integration.
+## Output Channels
 
-### Tom AI Chat Commands
-
-| Command | Description |
-|---------|-------------|
-| **@T: Start Tom AI Chat** | Initialize a .chat.md file for Tom AI chat |
-| **@T: Send Tom AI Chat Prompt** | Send the current prompt in a .chat.md file |
-| **@T: Interrupt Tom AI Chat** | Interrupt the active Tom AI chat session |
-
-### Utility Commands
-
-| Command | Description |
-|---------|-------------|
-| **@T: Reload Window** | Reload VS Code window (Command Palette only) |
-| **@T: Run Tests** | Run extension tests |
-| **@T: Show Extension Help** | Open extension documentation |
-| **@T: Print Configuration** | Print D4rt interpreter configuration to output |
-| **@T: Show VS Code API Info** | Show available language models, tools, and AI extensions |
-
-## Context Menu Actions
-
-### File Explorer (on .dart files)
-
-- **@T: Execute File** - Run Dart file as subprocess
-- **@T: Execute as Script** - Run via D4rt interpreter
-
-### Editor Context Menu
-
-- **Send to Copilot...** - Submenu with template options
-- **@T: Send to Copilot (Default Template)** - Quick send
-- **@T: Send to Copilot (Pick Template)** - Template picker
-- **@T: Send to Copilot** - Send selection (when text selected)
-- **@T: Execute as Script** - Run current Dart file
-
-## Keyboard Shortcuts (Which-Key Menus)
-
-Shortcuts use a **which-key menu** system — press a trigger key to open a popup, then press the indicated letter to execute instantly (no Enter needed). Works whether you release `Ctrl+Shift` first or keep it held.
-
-| Trigger Key | Menu | Available Commands |
-|-------------|------|--------------------|
-| `Ctrl+Shift+C` | Conversation | **B**egin, **S**top, **H**alt, **C**ontinue, **A**dd info, **?** Help |
-| `Ctrl+Shift+L` | Local LLM | E**x**pand, **C**hange model, **S**tandard, **T**emplate, **?** Help |
-| `Ctrl+Shift+A` | Send to Chat | Send to **C**hat, **S**tandard, **T**emplate, **R**eload config, **?** Help |
-| `Ctrl+Shift+T` | Tom AI Chat | **N**ew chat, **S**end prompt, **I**nterrupt, **?** Help |
-| `Ctrl+Shift+E` | Execute | **E**xecute, **A**dd, **D**elete, **O**pen config, **?** Help |
-
-## Custom Prompt Templates
-
-Create a `tom_vscode_extension.json` file to define custom prompt templates:
-
-**Default location**: `${workspaceFolder}/.tom/tom_vscode_extension.json`
-
-Example configuration:
-
-```json
-{
-  "templates": [
-    {
-      "id": "code-review",
-      "name": "Code Review",
-      "prompt": "Please review the following code:\n\n${selection}"
-    },
-    {
-      "id": "explain",
-      "name": "Explain Code",
-      "prompt": "Explain what this code does:\n\n${selection}"
-    }
-  ]
-}
-```
-
-Templates support these variables:
-- `${selection}` - Currently selected text
-- `${file}` - Current file path
-- `${file.name}` - Current file name (without extension)
-
-The configuration file is watched and auto-reloads when saved.
-
-## Configuration
-
-Access settings via **File > Preferences > Settings**, then search for "tomAi":
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `tomAi.contextApproach` | `accumulation` | Context persistence approach (`accumulation` or `persistent`) |
-| `tomAi.maxContextSize` | `50000` | Maximum context size in tokens |
-| `tomAi.autoRunOnSave` | `false` | Automatically run scripts on save |
-| `tomAi.copilotModel` | `gpt-4o` | Preferred Copilot model |
-| `tomAi.configPath` | `~/.tom_ai/vscode/tom_vscode_extension.json` | Path to extension config file |
-| `tomAi.sendToChat.showNotifications` | `true` | Show notifications when sending to chat |
-| `tomAi.sendToChat.chatAnswerFolder` | `_ai/chat_replies` | Folder for chat answer files |
-
-## Tom CLI Integration
-
-The extension can start a server that allows Tom CLI to communicate with VS Code:
-
-1. **Start server**: Run "@T: Start Tom CLI Integration Server"
-2. **Use Tom CLI**: CLI commands can now interact with VS Code
-3. **Stop server**: Run "@T: Stop Tom CLI Integration Server"
-
-The server enables:
-- Sending prompts to Copilot Chat from CLI
-- Reading chat responses
-- Executing VS Code commands remotely
-
-## Process Monitor
-
-Start the Tom Process Monitor to watch and auto-restart background processes:
-
-1. Run "@T: Start Process Monitor"
-2. Monitor watches configured processes
-3. Auto-restarts crashed processes
-4. Logs status to output channel
-
-## Architecture
-
-```
-┌──────────────────────────────────┐
-│  @Tom Extension                  │
-│  (VS Code Extension - TypeScript)│
-│  - Commands & menus              │
-│  - Copilot Chat integration      │
-│  - CLI server                    │
-└────────────┬─────────────────────┘
-             │ JSON-RPC 2.0
-             │ stdin/stdout
-┌────────────▼─────────────────────┐
-│  Dart Bridge (optional)          │
-│  (Dart Process)                  │
-│  - D4rt script execution         │
-│  - Bridge server                 │
-└──────────────────────────────────┘
-```
+- Tom Prompt Queue
+- Tom Timed Requests
+- Tom Debug
+- Tom Tests
+- Tom Dartbridge Log
+- Tom Conversation Log
+- Tom AI Chat Log
+- Tom Tool Log
+- Tom AI Chat Responses
+- Tom AI Local LLM
+- Tom AI Local Log
 
 ## Requirements
 
-- VS Code 1.85.0 or higher
-- GitHub Copilot subscription (for chat features)
-- Dart SDK 3.0+ (for script execution and bridge)
+- VS Code 1.85.0+
+- GitHub Copilot subscription for Copilot workflows
+- Dart SDK 3.0+ for script/bridge features
 
 ## Development
 
-### Project Structure
-
-```
-tom_vscode_extension/
-├── src/
-│   ├── extension.ts           # Main extension activation
-│   ├── vscode-bridge.ts       # DartBridgeClient (JSON-RPC)
-│   ├── handlers/              # Command handlers (~30 files)
-│   ├── managers/              # Todo persistence
-│   └── tools/                 # Language Model Tool implementations
-├── out/                       # Compiled JavaScript (generated)
-├── doc/                       # Documentation (ARCHITECTURE, IMPLEMENTATION, USER_GUIDE)
-├── _copilot_guidelines/       # Developer reference docs
-├── package.json               # Extension manifest
-├── tsconfig.json              # TypeScript configuration
-└── README.md                  # This file
-```
-
-### Building
+Build:
 
 ```bash
-npm install
 npm run compile
 ```
 
-### Watching for Changes
+Watch mode:
 
 ```bash
 npm run watch
 ```
 
-### Testing in Development
+Run extension host for manual testing:
 
-1. Open this folder in VS Code
-2. Press F5 to launch Extension Development Host
-3. Test commands in the new window
-
-### Reinstalling for Testing
-
-```bash
-bash reinstall_for_testing.sh
-```
-
-## License
-
-Copyright (c) 2024-2026 Tom Framework. All rights reserved.
+1. Open this project in VS Code.
+2. Press F5.
+3. Test commands in the Extension Development Host.
 
 ## Documentation
 
-- [User Guide](doc/user_guide.md) - Complete guide to extension features
-- [Quick Reference](doc/quick_reference.md) - Keyboard shortcuts and panel overview
-- [Feature Overview](_copilot_guidelines/vscode_extension_overview.md) - All 15 feature areas with documentation index
-- [Bridge Scripting Guide](_copilot_guidelines/bridge_scripting_guide.md) - Advanced JavaScript/Dart bridge scripting
-- [Architecture](_copilot_guidelines/architecture.md) - System architecture details
+- [doc/user_guide.md](doc/user_guide.md): complete feature guide
+- [doc/quick_reference.md](doc/quick_reference.md): shortcuts, panels, command map
+- [doc/copilot_chat_tools.md](doc/copilot_chat_tools.md): Copilot/Tom AI Chat tooling
+- [_copilot_guidelines/architecture.md](_copilot_guidelines/architecture.md): architecture and state model
+- [_copilot_guidelines/keybindings_and_commands.md](_copilot_guidelines/keybindings_and_commands.md): command and keybinding details
 
 ## Resources
 
