@@ -208,8 +208,7 @@ async function handleMessage(msg: any): Promise<void> {
                   reminderEnabled: !!msg.reminderEnabled,
                     reminderTemplateId: msg.reminderTemplateId,
                     reminderTimeoutMinutes: msg.reminderTimeoutMinutes,
-                  reminderRepeat: !!msg.reminderRepeat,
-                    repeatCount: Number.isFinite(msg.repeatCount) ? Math.max(0, Math.round(msg.repeatCount)) : 0,
+                    repeatCount: Number.isFinite(msg.repeatCount) ? Math.max(1, Math.round(msg.repeatCount)) : 1,
                     repeatPrefix: typeof msg.repeatPrefix === 'string' ? msg.repeatPrefix : '',
                     repeatSuffix: typeof msg.repeatSuffix === 'string' ? msg.repeatSuffix : '',
                 });
@@ -533,14 +532,13 @@ function getHtml(codiconsUri: string, safeStateJson: string): string {
       <option value="240">240 min</option>
       <option value="480">480 min</option>
     </select>
-    <label style="display:inline;"><input type="checkbox" id="addReminderRepeat"/> Repeat</label>
   </div>
   <div class="entry-sections">
     <div class="entry-section">
       <label>Repetition</label>
       <div class="schedule-row">
         <span>Repeat Count:</span>
-        <input type="number" id="addRepeatCount" min="0" step="1" value="0" style="width:80px"/>
+        <input type="number" id="addRepeatCount" min="1" step="1" value="1" style="width:80px"/>
       </div>
     </div>
     <div class="entry-section fill">
@@ -805,8 +803,7 @@ function submitNewEntry() {
   const reminderTemplateId = document.getElementById('addReminder').value || undefined;
   const reminderTimeoutMinutes = parseInt(document.getElementById('addReminderTimeout').value || '60', 10) || 60;
   const reminderEnabled = !!document.getElementById('addReminderEnabled').checked;
-  const reminderRepeat = !!document.getElementById('addReminderRepeat').checked;
-  const repeatCount = Math.max(0, parseInt(String(document.getElementById('addRepeatCount').value || '0'), 10) || 0);
+  const repeatCount = Math.max(1, parseInt(String(document.getElementById('addRepeatCount').value || '1'), 10) || 1);
   const repeatPrefix = document.getElementById('addRepeatPrefix').value || '';
   const repeatSuffix = document.getElementById('addRepeatSuffix').value || '';
 
@@ -820,7 +817,7 @@ function submitNewEntry() {
     type: 'addEntry',
     text, template, answerWrapper, scheduleMode, intervalMinutes,
     scheduledTimes: [],
-    reminderEnabled, reminderTemplateId, reminderTimeoutMinutes, reminderRepeat,
+    reminderEnabled, reminderTemplateId, reminderTimeoutMinutes,
     repeatCount, repeatPrefix, repeatSuffix,
   });
 }
@@ -944,7 +941,6 @@ function render() {
             '<button class="ctx-btn-icon"' + disabledAttr + ' onclick="addReminderTemplate()" title="Add Reminder Template"><span class="codicon codicon-add"></span></button>' +
             '<button class="ctx-btn-icon"' + disabledAttr + ' onclick="editReminderTemplateById(\\'' + (entry.reminderTemplateId || '') + '\\')" title="Edit Reminder Template"><span class="codicon codicon-edit"></span></button>' +
             '<button class="ctx-btn-icon"' + disabledAttr + ' onclick="deleteReminderTemplateById(\\'' + (entry.reminderTemplateId || '') + '\\')" title="Delete Reminder Template"><span class="codicon codicon-trash"></span></button>' +
-            '<label style="display:inline;"><input type="checkbox"' + (entry.reminderRepeat ? ' checked' : '') + disabledAttr + ' onchange="updateField(\\'' + entry.id + '\\',\\'reminderRepeat\\',this.checked)"/> Repeat</label>' +
           '</div>' +
           '<div class="schedule-row">' +
             '<span>Timeout:</span> <select' + disabledAttr + ' onchange="updateField(\\'' + entry.id + '\\',\\'reminderTimeoutMinutes\\',parseInt(this.value||\\\'60\\\',10)||60)">' +
@@ -954,7 +950,7 @@ function render() {
           '<div class="meta">Last sent: ' + lastSent + '</div>' +
           '<label>Repetition</label>' +
           '<div class="schedule-row">' +
-            '<span>Repeat Count:</span> <input type="number" min="0" step="1" value="' + (Math.max(0, parseInt(String(entry.repeatCount || 0), 10) || 0)) + '" style="width:80px"' + disabledAttr + ' onchange="updateField(\\'' + entry.id + '\\',\\'repeatCount\\',parseInt(this.value||\\'0\\',10)||0)"/>' +
+            '<span>Repeat Count:</span> <input type="number" min="1" step="1" value="' + (Math.max(1, parseInt(String(entry.repeatCount || 1), 10) || 1)) + '" style="width:80px"' + disabledAttr + ' onchange="updateField(\\'' + entry.id + '\\',\\'repeatCount\\',Math.max(1,parseInt(this.value||\\'1\\',10)||1))"/>' +
           '</div>' +
         '</div>' +
         '<div class="entry-section fill">' +
