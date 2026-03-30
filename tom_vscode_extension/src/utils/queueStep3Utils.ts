@@ -54,9 +54,14 @@ export function convertStagedToPending(items: Array<{ status: string }>): number
 function fillRepetitionPlaceholders(template: string, repeatCount: number, repeatIndex: number): string {
     const repeatNumber = repeatIndex + 1;
     return template
-        .replace(/\{\{repeatCount\}\}/g, String(repeatCount))
-        .replace(/\{\{repeatIndex\}\}/g, String(repeatIndex))
-        .replace(/\{\{repeatNumber\}\}/g, String(repeatNumber));
+    // Mustache style
+    .replace(/\{\{\s*repeatCount\s*\}\}/g, String(repeatCount))
+    .replace(/\{\{\s*repeatIndex\s*\}\}/g, String(repeatIndex))
+    .replace(/\{\{\s*repeatNumber\s*\}\}/g, String(repeatNumber))
+    // ${...} style used in other template systems in this extension
+    .replace(/\$\{\s*repeatCount\s*\}/g, String(repeatCount))
+    .replace(/\$\{\s*repeatIndex\s*\}/g, String(repeatIndex))
+    .replace(/\$\{\s*repeatNumber\s*\}/g, String(repeatNumber));
 }
 
 export function applyRepetitionAffixes(input: RepetitionAffixInput): string {

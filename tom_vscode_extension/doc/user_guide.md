@@ -119,7 +119,7 @@ Prompts can repeat multiple times with customizable prefix and suffix text:
 
 - **repeatCount**: Total number of times to send the prompt
 - **repeatIndex**: Current iteration (0-based internally, displayed 1-based)
-- **repeatPrefix / repeatSuffix**: Template text inserted before/after each repetition, supporting repeat tokens: `repeatNumber` (1-based), `repeatIndex` (0-based), `repeatCount` (total)
+- **repeatPrefix / repeatSuffix**: Template text inserted before/after each repetition, supporting placeholders in either syntax: `{{repeatNumber}}` or `${repeatNumber}` (1-based), `{{repeatIndex}}` or `${repeatIndex}` (0-based), `{{repeatCount}}` or `${repeatCount}` (total)
 
 ### Answer Detection
 

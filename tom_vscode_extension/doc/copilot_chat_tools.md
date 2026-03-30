@@ -36,7 +36,7 @@ Copilot prompts flow through the `PromptQueueManager` for sequenced dispatch:
 
 - **File-per-entry storage**: Each queued prompt is a separate YAML file (`q_<id>.yaml`)
 - **RequestId-based answer detection**: Unique IDs embedded in prompts match answer files
-- **Repeat support**: `repeatCount`, `repeatPrefix`, `repeatSuffix` with repeat tokens (`repeatNumber`, `repeatIndex`, `repeatCount`)
+- **Repeat support**: `repeatCount`, `repeatPrefix`, `repeatSuffix` with placeholders `{{repeatNumber}}`/`${repeatNumber}`, `{{repeatIndex}}`/`${repeatIndex}`, `{{repeatCount}}`/`${repeatCount}`
 - **Answer wait minutes**: Time-based auto-advance when `answerWaitMinutes > 0`
 - **Automation**: Auto-send, auto-start, auto-pause, auto-continue settings
 - **Watchdog**: 60s health check + 30s polling fallback for answer detection

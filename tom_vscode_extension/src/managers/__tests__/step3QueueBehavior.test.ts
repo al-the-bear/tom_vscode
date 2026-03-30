@@ -97,4 +97,34 @@ describe('Step 3 - Issue 10: repeat decision', () => {
             'Run 3 of 4 (index=2)\n\nPrompt\n\nFinished 3',
         );
     });
+
+    test('repetition affixes substitute ${...} placeholders', () => {
+        const wrapped = applyRepetitionAffixes({
+            originalText: 'Prompt',
+            repeatPrefix: 'Run ${repeatNumber} of ${repeatCount} (index=${repeatIndex})',
+            repeatSuffix: 'Finished ${repeatNumber}',
+            repeatCount: 4,
+            repeatIndex: 2,
+        });
+
+        assert.equal(
+            wrapped,
+            'Run 3 of 4 (index=2)\n\nPrompt\n\nFinished 3',
+        );
+    });
+
+    test('repetition affixes substitute mustache placeholders with whitespace', () => {
+        const wrapped = applyRepetitionAffixes({
+            originalText: 'Prompt',
+            repeatPrefix: 'Run {{ repeatNumber }} of {{ repeatCount }} (index={{ repeatIndex }})',
+            repeatSuffix: 'Finished {{ repeatNumber }}',
+            repeatCount: 4,
+            repeatIndex: 2,
+        });
+
+        assert.equal(
+            wrapped,
+            'Run 3 of 4 (index=2)\n\nPrompt\n\nFinished 3',
+        );
+    });
 });

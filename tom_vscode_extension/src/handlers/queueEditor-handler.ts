@@ -747,9 +747,9 @@ ${queueEntryStyles()}
     <input id="addRepeatCount" type="number" min="1" step="1" value="1" style="width:80px" title="Total number of times to send this prompt"/>
   </div>
   <div class="add-options" style="display:block;">
-    <label style="display:block;margin-bottom:4px;">Repeat Prefix (tokens: repeatNumber, repeatIndex, repeatCount)</label>
+    <label style="display:block;margin-bottom:4px;">Repeat Prefix (supports {{repeatNumber}} / \${repeatNumber}, {{repeatIndex}} / \${repeatIndex}, {{repeatCount}} / \${repeatCount})</label>
     <textarea id="addRepeatPrefix" rows="2" placeholder="Optional text added before repeated prompt body"></textarea>
-    <label style="display:block;margin:6px 0 4px;">Repeat Suffix (tokens: repeatNumber, repeatIndex, repeatCount)</label>
+    <label style="display:block;margin:6px 0 4px;">Repeat Suffix (supports {{repeatNumber}} / \${repeatNumber}, {{repeatIndex}} / \${repeatIndex}, {{repeatCount}} / \${repeatCount})</label>
     <textarea id="addRepeatSuffix" rows="2" placeholder="Optional text added after repeated prompt body"></textarea>
   </div>
   <div class="add-form-actions">
