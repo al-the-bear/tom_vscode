@@ -258,6 +258,9 @@ async function handleMessage(msg: any): Promise<void> {
         case 'sendNow':
             await qm.sendNow(msg.id);
             break;
+        case 'continueSending':
+          await qm.continueSending(msg.id);
+          break;
         case 'toggleReminder':
             qm.updateItemReminder(msg.id, { reminderEnabled: msg.enabled });
             break;
@@ -1080,6 +1083,7 @@ function remove(id) { vscode.postMessage({ type: 'remove', id }); }
 function moveUp(id) { vscode.postMessage({ type: 'moveUp', id }); }
 function moveDown(id) { vscode.postMessage({ type: 'moveDown', id }); }
 function sendNow(id) { vscode.postMessage({ type: 'sendNow', id }); }
+function continueSending(id) { vscode.postMessage({ type: 'continueSending', id }); }
 function toggleReminder(id, enabled) { vscode.postMessage({ type: 'toggleReminder', id, enabled }); }
 function openTemplateEditor() { vscode.postMessage({ type: 'openTemplateEditor' }); }
 function openQueueTemplates() { vscode.postMessage({ type: 'openQueueTemplates' }); }

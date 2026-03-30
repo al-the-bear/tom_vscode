@@ -1323,6 +1323,106 @@ export class PromptQueueManager {
         await this.sendItem(item);
     }
 
+    /**
+     * Abort waiting for the current sending item and continue queue progression.
+     * This behaves like receiving an answer for progression purposes:
+     * - send next pre/main/follow-up stage if one exists,
+     * - otherwise mark sent, enqueue repeat (if configured), and send next pending item.
+     */
+    async continueSending(id?: string): Promise<boolean> {
+        const sending = this._items.find(i => i.status === 'sending');
+        if (!sending) {
+            return false;
+        }
+        if (id && sending.id !== id) {
+            return false;
+        }
+
+        logQueue(`Manual continue requested for sending item ${sending.id}`);
+        this.updateWindowStatus('answer-received');
+
+        try {
+            return await this.advanceSendingItemWithoutAnswer(sending, 'manual-continue');
+        } catch (err) {
+            sending.status = 'error';
+            sending.error = String(err);
+            logQueueError(`continueSending(${sending.id})`, err);
+            this.persist();
+            this._onDidChange.fire();
+            return false;
+        }
+    }
+
+    private async advanceSendingItemWithoutAnswer(sending: QueuedPrompt, reason: string): Promise<boolean> {
+        const hasNextStage = await this.dispatchNextStageForSendingItem(sending);
+        if (hasNextStage) {
+            logQueue(`Advanced sending item ${sending.id} to next stage (${reason})`);
+            return true;
+        }
+
+        sending.status = 'sent';
+        sending.expectedRequestId = undefined;
+        sending.reminderSentCount = 0;
+        sending.lastReminderAt = undefined;
+        this.removePendingReminderFor(sending.id);
+
+        const repeatDecision = computeRepeatDecision({
+            repeatCount: sending.repeatCount,
+            repeatIndex: sending.repeatIndex,
+        });
+
+        if (repeatDecision.shouldRepeat) {
+            await this.enqueue({
+                originalText: sending.originalText,
+                template: sending.template,
+                answerWrapper: sending.answerWrapper,
+                answerWaitMinutes: sending.answerWaitMinutes,
+                type: sending.type,
+                repeatCount: sending.repeatCount,
+                repeatIndex: repeatDecision.nextRepeatIndex,
+                repeatPrefix: sending.repeatPrefix,
+                repeatSuffix: sending.repeatSuffix,
+                reminderTemplateId: sending.reminderTemplateId,
+                reminderTimeoutMinutes: sending.reminderTimeoutMinutes,
+                reminderRepeat: sending.reminderRepeat,
+                reminderEnabled: sending.reminderEnabled,
+                prePrompts: (sending.prePrompts || []).map(pp => ({
+                    text: pp.text,
+                    template: pp.template,
+                })),
+                followUps: (sending.followUps || []).map(f => ({
+                    originalText: f.originalText,
+                    template: f.template,
+                    reminderTemplateId: f.reminderTemplateId,
+                    reminderTimeoutMinutes: f.reminderTimeoutMinutes,
+                    reminderRepeat: !!f.reminderRepeat,
+                    reminderEnabled: !!f.reminderEnabled,
+                })),
+                initialStatus: 'pending',
+                deferSend: true,
+            });
+            logQueue(`Repeat ${repeatDecision.progressLabel} queued for item ${sending.id} (${reason})`);
+        }
+
+        this.persist();
+        this._onDidChange.fire();
+
+        if (this._autoSendEnabled) {
+            const pendingCount = this._items.filter(i => i.status === 'pending').length;
+            if (shouldAutoPauseOnEmpty(this._autoSendEnabled, pendingCount, this._autoPauseEnabled)) {
+                this._autoSendEnabled = false;
+                this.persistSettings();
+                this._onDidChange.fire();
+                logQueue('Queue empty — auto-pausing');
+            } else {
+                await this.delaySendNext();
+            }
+        }
+
+        logQueue(`Manual continue completed for ${sending.id} (${reason})`);
+        return true;
+    }
+
     setStatus(id: string, status: 'staged' | 'pending'): boolean {
         const item = this._items.find(i => i.id === id);
         if (!item) { return false; }

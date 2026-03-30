@@ -239,6 +239,7 @@ function renderEntry(item, idx) {
           (isSending ? '<span class="codicon codicon-arrow-left" style="cursor:pointer;color:#000;" onclick="setItemStatus(\\'' + safeId + '\\', \\'staged\\')" title="Interrupt and move to Staged"></span>' : '') +
           (isSent ? '<span class="codicon codicon-arrow-left" style="cursor:pointer;color:#000;" onclick="setItemStatus(\\'' + safeId + '\\', \\'staged\\')" title="Stage again"></span>' : '') +
           ((isPending || isStaged) ? '<span class="codicon codicon-play" style="cursor:pointer;color:#000;" onclick="sendNow(\\'' + safeId + '\\')" title="Send Now"></span>' : '') +
+          (isSending ? '<span class="codicon codicon-play" style="cursor:pointer;color:#000;" onclick="continueSending(\\'' + safeId + '\\')" title="Continue"></span>' : '') +
           (isPending ? '<span class="codicon codicon-arrow-up" style="cursor:pointer;color:#000;" onclick="moveDown(\\'' + safeId + '\\')" title="Move up (away from send)"></span>' : '') +
           (isPending ? '<span class="codicon codicon-arrow-down" style="cursor:pointer;color:#000;" onclick="moveUp(\\'' + safeId + '\\')" title="Move down (closer to send)"></span>' : '') +
           (isSending ? '<span class="codicon ' + (reminderEnabled ? 'codicon-bell' : 'codicon-bell-slash') + '" style="cursor:pointer;color:' + (reminderEnabled ? '#000' : '#888') + ';" onclick="toggleReminder(\\'' + safeId + '\\', ' + !reminderEnabled + ')" title="' + (reminderEnabled ? 'Reminders ON - click to disable' : 'Reminders OFF - click to enable') + '"></span>' : '') +
