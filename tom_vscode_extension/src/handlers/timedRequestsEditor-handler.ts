@@ -546,9 +546,9 @@ function getHtml(codiconsUri: string, safeStateJson: string): string {
       </div>
     </div>
     <div class="entry-section fill">
-      <label>Repeat Prefix (supports {{repeatNumber}}, {{repeatIndex}}, {{repeatCount}})</label>
+      <label>Repeat Prefix (tokens: repeatNumber, repeatIndex, repeatCount)</label>
       <textarea id="addRepeatPrefix" rows="2" placeholder="Optional text inserted before repeated prompt body"></textarea>
-      <label>Repeat Suffix (supports {{repeatNumber}}, {{repeatIndex}}, {{repeatCount}})</label>
+      <label>Repeat Suffix (tokens: repeatNumber, repeatIndex, repeatCount)</label>
       <textarea id="addRepeatSuffix" rows="2" placeholder="Optional text inserted after repeated prompt body"></textarea>
     </div>
   </div>
@@ -964,9 +964,9 @@ function render() {
           '</div>' +
         '</div>' +
         '<div class="entry-section fill">' +
-          '<label>Repeat Prefix (supports {{repeatNumber}}, {{repeatIndex}}, {{repeatCount}})</label>' +
+          '<label>Repeat Prefix (tokens: repeatNumber, repeatIndex, repeatCount)</label>' +
           '<textarea rows="2"' + disabledAttr + ' onchange="updateField(\\'' + entry.id + '\\',\\'repeatPrefix\\',this.value)">' + esc(entry.repeatPrefix || '') + '</textarea>' +
-          '<label>Repeat Suffix (supports {{repeatNumber}}, {{repeatIndex}}, {{repeatCount}})</label>' +
+          '<label>Repeat Suffix (tokens: repeatNumber, repeatIndex, repeatCount)</label>' +
           '<textarea rows="2"' + disabledAttr + ' onchange="updateField(\\'' + entry.id + '\\',\\'repeatSuffix\\',this.value)">' + esc(entry.repeatSuffix || '') + '</textarea>' +
         '</div>' +
       '</div>' +
