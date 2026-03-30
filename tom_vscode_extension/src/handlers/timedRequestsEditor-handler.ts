@@ -443,6 +443,7 @@ function getHtml(codiconsUri: string, safeStateJson: string): string {
   .entry { border: 1px solid var(--border); border-radius: 4px; padding: 10px; }
   .entry-sections { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 6px; }
   .entry-section { flex: 0 1 auto; min-width: 160px; }
+  .entry-section.fill { flex: 1 1 0; min-width: 200px; }
   .prompt-section { margin-top: 6px; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: color-mix(in srgb, var(--vscode-editor-background) 88%, var(--vscode-textBlockQuote-background) 12%); }
   .entry.completed { opacity: 0.4; }
   .status-bar { padding: 3px 10px; border-radius: 3px; font-size: 0.8em; font-weight: bold; text-transform: uppercase; color: #000; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
@@ -534,16 +535,20 @@ function getHtml(codiconsUri: string, safeStateJson: string): string {
     </select>
     <label style="display:inline;"><input type="checkbox" id="addReminderRepeat"/> Repeat</label>
   </div>
-  <label>Repetition</label>
-  <div class="schedule-row">
-    <span>Repeat Count:</span>
-    <input type="number" id="addRepeatCount" min="0" step="1" value="0" style="width:80px"/>
-  </div>
-  <div class="prompt-section">
-    <label>Repeat Prefix (supports {{repeatNumber}}, {{repeatIndex}}, {{repeatCount}})</label>
-    <textarea id="addRepeatPrefix" rows="2" placeholder="Optional text inserted before repeated prompt body"></textarea>
-    <label>Repeat Suffix (supports {{repeatNumber}}, {{repeatIndex}}, {{repeatCount}})</label>
-    <textarea id="addRepeatSuffix" rows="2" placeholder="Optional text inserted after repeated prompt body"></textarea>
+  <div class="entry-sections">
+    <div class="entry-section">
+      <label>Repetition</label>
+      <div class="schedule-row">
+        <span>Repeat Count:</span>
+        <input type="number" id="addRepeatCount" min="0" step="1" value="0" style="width:80px"/>
+      </div>
+    </div>
+    <div class="entry-section fill">
+      <label>Repeat Prefix (supports {{repeatNumber}}, {{repeatIndex}}, {{repeatCount}})</label>
+      <textarea id="addRepeatPrefix" rows="2" placeholder="Optional text inserted before repeated prompt body"></textarea>
+      <label>Repeat Suffix (supports {{repeatNumber}}, {{repeatIndex}}, {{repeatCount}})</label>
+      <textarea id="addRepeatSuffix" rows="2" placeholder="Optional text inserted after repeated prompt body"></textarea>
+    </div>
   </div>
   <div class="add-form-actions">
     <button onclick="submitNewEntry()" style="background:var(--btnBg);color:var(--btnFg);">✅ Create</button>
@@ -951,9 +956,11 @@ function render() {
           '<div class="schedule-row">' +
             '<span>Repeat Count:</span> <input type="number" min="0" step="1" value="' + (Math.max(0, parseInt(String(entry.repeatCount || 0), 10) || 0)) + '" style="width:80px"' + disabledAttr + ' onchange="updateField(\\'' + entry.id + '\\',\\'repeatCount\\',parseInt(this.value||\\'0\\',10)||0)"/>' +
           '</div>' +
-          '<label>Repeat Prefix</label>' +
+        '</div>' +
+        '<div class="entry-section fill">' +
+          '<label>Repeat Prefix (supports {{repeatNumber}}, {{repeatIndex}}, {{repeatCount}})</label>' +
           '<textarea rows="2"' + disabledAttr + ' onchange="updateField(\\'' + entry.id + '\\',\\'repeatPrefix\\',this.value)">' + esc(entry.repeatPrefix || '') + '</textarea>' +
-          '<label>Repeat Suffix</label>' +
+          '<label>Repeat Suffix (supports {{repeatNumber}}, {{repeatIndex}}, {{repeatCount}})</label>' +
           '<textarea rows="2"' + disabledAttr + ' onchange="updateField(\\'' + entry.id + '\\',\\'repeatSuffix\\',this.value)">' + esc(entry.repeatSuffix || '') + '</textarea>' +
         '</div>' +
       '</div>' +
