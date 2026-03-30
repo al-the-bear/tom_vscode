@@ -295,6 +295,14 @@ async function handleMessage(msg: any): Promise<void> {
             qm.autoSendEnabled = !qm.autoSendEnabled;
             sendState();        // explicit update in case onDidChange listener isn't wired
             break;
+        case 'toggleAutoContinue':
+            qm.autoContinueEnabled = !qm.autoContinueEnabled;
+            sendState();
+            break;
+        case 'restartQueue':
+            qm.restartQueue();
+            sendState();
+            break;
         case 'updateItemRepeat':
           qm.updateRepeat(msg.id, {
             repeatCount: msg.repeatCount,
@@ -566,6 +574,7 @@ async function deletePromptTemplate(currentName?: string): Promise<void> {
 function buildState(): Record<string, unknown> {
     let items: readonly QueuedPrompt[] = [];
     let autoSend = true;
+    let autoContinue = false;
   let responseTimeoutMinutes = 60;
   let defaultReminderTemplateId: string | undefined;
     let templates: { id: string; name: string }[] = [];
@@ -574,6 +583,7 @@ function buildState(): Record<string, unknown> {
         const qm = PromptQueueManager.instance;
         items = qm.items;
         autoSend = qm.autoSendEnabled;
+        autoContinue = qm.autoContinueEnabled;
         responseTimeoutMinutes = qm.responseFileTimeoutMinutes;
         defaultReminderTemplateId = qm.defaultReminderTemplateId;
         console.log('[QueueEditor] buildState: items count =', items.length);
@@ -609,6 +619,7 @@ function buildState(): Record<string, unknown> {
         type: 'state',
         items: [...items],  // spread to plain array for serialisation
         autoSend,
+        autoContinue,
         responseTimeoutMinutes,
         defaultReminderTemplateId,
         reminderTemplates: templates,
@@ -655,6 +666,8 @@ ${queueEntryStyles()}
 <div class="toolbar">
   <button class="ctx-btn-icon" onclick="toggleAddForm()" title="Add to Queue"><span class="codicon codicon-add"></span></button>
   <button class="ctx-btn-icon" id="autoSendBtn" onclick="toggleAutoSend()" title="Auto-Send"><span class="codicon codicon-play"></span></button>
+  <button class="ctx-btn-icon" id="autoContinueBtn" onclick="toggleAutoContinue()" title="Auto-Continue on Reload"><span class="codicon codicon-sync"></span></button>
+  <button class="ctx-btn-icon" onclick="restartQueue()" title="Restart Queue (reset stuck items)"><span class="codicon codicon-debug-restart"></span></button>
   <button onclick="sendAllStaged()">Send All Staged</button>
   <button onclick="clearSent()">Clear Sent</button>
   <button onclick="clearAll()">Clear All</button>
@@ -811,6 +824,7 @@ try {
 
 let currentItems = __INITIAL__.items || [];
 let autoSend = __INITIAL__.autoSend !== undefined ? __INITIAL__.autoSend : true;
+let autoContinue = __INITIAL__.autoContinue !== undefined ? __INITIAL__.autoContinue : false;
 let responseTimeoutMinutes = __INITIAL__.responseTimeoutMinutes !== undefined ? __INITIAL__.responseTimeoutMinutes : 60;
 let defaultReminderTemplateId = __INITIAL__.defaultReminderTemplateId || '';
 let reminderTemplates = __INITIAL__.reminderTemplates || [];
@@ -890,6 +904,7 @@ window.addEventListener('message', e => {
     if (msg.type === 'state') {
       currentItems = msg.items || [];
       autoSend = msg.autoSend;
+      autoContinue = msg.autoContinue !== undefined ? msg.autoContinue : false;
       responseTimeoutMinutes = msg.responseTimeoutMinutes || 60;
       defaultReminderTemplateId = msg.defaultReminderTemplateId || '';
       reminderTemplates = msg.reminderTemplates || [];
@@ -950,6 +965,12 @@ function render() {
   btn.title = autoSend ? 'Auto-Send ON (click to pause)' : 'Auto-Send OFF (click to resume)';
   btn.style.opacity = autoSend ? '1' : '0.5';
 
+  const acBtn = document.getElementById('autoContinueBtn');
+  if (acBtn) {
+    acBtn.title = autoContinue ? 'Auto-Continue ON (resumes repetitions after reload)' : 'Auto-Continue OFF (click to enable)';
+    acBtn.style.opacity = autoContinue ? '1' : '0.5';
+  }
+
   const timeoutSel = document.getElementById('responseTimeout');
   if (timeoutSel) timeoutSel.value = String(responseTimeoutMinutes || 60);
 
@@ -1002,6 +1023,8 @@ function expandAll() {
 }
 
 function toggleAutoSend() { vscode.postMessage({ type: 'toggleAutoSend' }); }
+function toggleAutoContinue() { vscode.postMessage({ type: 'toggleAutoContinue' }); }
+function restartQueue() { vscode.postMessage({ type: 'restartQueue' }); }
 function sendAllStaged() { vscode.postMessage({ type: 'sendAllStaged' }); }
 function setResponseTimeout(minutes) { vscode.postMessage({ type: 'setResponseTimeout', minutes: parseInt(minutes || '60', 10) || 60 }); }
 function setDefaultReminderTemplate(templateId) {

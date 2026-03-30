@@ -160,8 +160,10 @@ export class PromptQueueManager {
     private _items: QueuedPrompt[] = [];
     private _autoSendEnabled = true;
     private _autoSendDelayMs = 2000;
+    private _autoContinueEnabled = false;
     private _responseFileTimeoutMinutes = 60;
     private _defaultReminderTemplateId: string | undefined;
+    private _autoContinueTimer?: ReturnType<typeof setTimeout>;
     private _answerWatcher?: fs.FSWatcher;
     private _timeoutWatcher?: ReturnType<typeof setInterval>;
     private _healthCheckTimer?: ReturnType<typeof setInterval>;
@@ -265,6 +267,10 @@ export class PromptQueueManager {
     dispose(): void {
         logQueue('PromptQueueManager disposing');
         this._answerWatcher?.close();
+        if (this._autoContinueTimer) {
+            clearTimeout(this._autoContinueTimer);
+            this._autoContinueTimer = undefined;
+        }
         if (this._timeoutWatcher) {
             clearInterval(this._timeoutWatcher);
             this._timeoutWatcher = undefined;
@@ -857,6 +863,36 @@ export class PromptQueueManager {
 
     get autoSendDelayMs(): number { return this._autoSendDelayMs; }
     set autoSendDelayMs(v: number) { this._autoSendDelayMs = Math.max(500, v); }
+
+    get autoContinueEnabled(): boolean { return this._autoContinueEnabled; }
+    set autoContinueEnabled(v: boolean) {
+        this._autoContinueEnabled = v;
+        logQueue(`Auto-continue toggled: ${v ? 'on' : 'off'}`);
+        this.persistSettings();
+        this._onDidChange.fire();
+    }
+
+    /** Restart the queue: reset stuck "sending" items to "pending" and restart processing. */
+    restartQueue(): void {
+        logQueue('Restarting queue processing');
+        let resetCount = 0;
+        for (const item of this._items) {
+            if (item.status === 'sending') {
+                item.status = 'pending';
+                resetCount++;
+            }
+        }
+        this._processing = false;
+        this._processingAnswerFile = false;
+        if (resetCount > 0) {
+            logQueue(`Reset ${resetCount} stuck sending items to pending`);
+        }
+        this._onDidChange.fire();
+        // If auto-send is on, start processing
+        if (this._autoSendEnabled && this._items.some(i => i.status === 'pending')) {
+            void this.sendNext();
+        }
+    }
 
     /**
      * Add a prompt to the queue.
@@ -1484,6 +1520,28 @@ export class PromptQueueManager {
 
         // Step 3 / Issue 4: always start paused for each activation.
         this._autoSendEnabled = false;
+
+        // Auto-continue: if enabled and there are pending items with remaining repetitions,
+        // schedule auto-start after 30 seconds to let VS Code fully initialize.
+        if (this._autoContinueEnabled) {
+            const hasPendingRepetitions = this._items.some(i =>
+                i.status === 'pending' &&
+                (i.repeatCount ?? 1) > 1 &&
+                (i.repeatIndex ?? 0) >= 1,
+            );
+            if (hasPendingRepetitions) {
+                logQueue('Auto-continue: pending repetitions found, scheduling auto-start in 30s');
+                this._autoContinueTimer = setTimeout(() => {
+                    logQueue('Auto-continue: enabling auto-send to resume repetitions');
+                    this._autoSendEnabled = true;
+                    this.persistSettings();
+                    this._onDidChange.fire();
+                    if (this._items.some(i => i.status === 'pending') && !this._items.some(i => i.status === 'sending')) {
+                        void this.sendNext();
+                    }
+                }, 30_000);
+            }
+        }
     }
 
     /** Persist queue-level settings to disk. */
@@ -1492,6 +1550,7 @@ export class PromptQueueManager {
             'response-timeout-minutes': this._responseFileTimeoutMinutes,
             'default-reminder-template-id': this._defaultReminderTemplateId,
             'auto-send-enabled': this._autoSendEnabled,
+            'auto-continue-enabled': this._autoContinueEnabled,
         });
     }
 
@@ -1507,6 +1566,9 @@ export class PromptQueueManager {
             }
             if (typeof settings['auto-send-enabled'] === 'boolean') {
                 this._autoSendEnabled = settings['auto-send-enabled'];
+            }
+            if (typeof settings['auto-continue-enabled'] === 'boolean') {
+                this._autoContinueEnabled = settings['auto-continue-enabled'];
             }
             console.log('[PromptQueueManager] restoreSettings:', {
                 timeout: this._responseFileTimeoutMinutes,
