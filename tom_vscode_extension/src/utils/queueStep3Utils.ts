@@ -52,16 +52,9 @@ export function convertStagedToPending(items: Array<{ status: string }>): number
 }
 
 function fillRepetitionPlaceholders(template: string, repeatCount: number, repeatIndex: number): string {
-    const repeatNumber = repeatIndex + 1;
-    return template
-    // Mustache style
-    .replace(/\{\{\s*repeatCount\s*\}\}/g, String(repeatCount))
-    .replace(/\{\{\s*repeatIndex\s*\}\}/g, String(repeatIndex))
-    .replace(/\{\{\s*repeatNumber\s*\}\}/g, String(repeatNumber))
-    // ${...} style used in other template systems in this extension
-    .replace(/\$\{\s*repeatCount\s*\}/g, String(repeatCount))
-    .replace(/\$\{\s*repeatIndex\s*\}/g, String(repeatIndex))
-    .replace(/\$\{\s*repeatNumber\s*\}/g, String(repeatNumber));
+    // Placeholder expansion is handled by the standard resolver in PromptQueueManager.
+    // Keep this utility pure and context-free for deterministic unit tests.
+    return template;
 }
 
 export function applyRepetitionAffixes(input: RepetitionAffixInput): string {

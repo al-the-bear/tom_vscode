@@ -32,6 +32,7 @@ import {
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
 import { applyRepetitionAffixes, computeRepeatDecision, convertStagedToPending, shouldAutoPauseOnEmpty } from '../utils/queueStep3Utils';
+import { resolveVariables } from '../utils/variableResolver.js';
 import {
     buildAnswerFilePath,
     shouldWatchAnswerFile,
@@ -213,14 +214,32 @@ export class PromptQueueManager {
         answerWrapper?: boolean,
         repetition?: { repeatCount?: number; repeatIndex?: number; repeatPrefix?: string; repeatSuffix?: string },
     ): Promise<string> {
+        const repeatCount = Math.max(0, Math.round(repetition?.repeatCount || 0));
+        const repeatIndex = Math.max(0, Math.round(repetition?.repeatIndex || 0));
+        const repeatNumber = repeatIndex + 1;
         const withAffixes = applyRepetitionAffixes({
             originalText,
-            repeatCount: repetition?.repeatCount,
-            repeatIndex: repetition?.repeatIndex,
+            repeatCount,
+            repeatIndex,
             repeatPrefix: repetition?.repeatPrefix,
             repeatSuffix: repetition?.repeatSuffix,
         });
-        let expanded = await expandTemplate(withAffixes, { includeEditorContext: false });
+
+        // Resolve repeat affix placeholders via the standard variable resolver.
+        // Supported syntax for repeat placeholders is ${repeatNumber}, ${repeatIndex}, ${repeatCount}.
+        // Mustache placeholders are intentionally not supported for repeat affixes.
+        const withResolvedAffixes = resolveVariables(withAffixes, {
+            includeEditor: false,
+            unresolvedBehavior: 'empty',
+            enableJsExpressions: true,
+            values: {
+                repeatCount: String(repeatCount),
+                repeatIndex: String(repeatIndex),
+                repeatNumber: String(repeatNumber),
+            },
+        });
+
+        let expanded = await expandTemplate(withResolvedAffixes, { includeEditorContext: false });
         expanded = await applyTemplateWrapping(expanded, template ?? '(None)', answerWrapper);
         return expanded;
     }

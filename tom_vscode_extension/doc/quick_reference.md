@@ -174,7 +174,7 @@ Open: `Ctrl+Shift+7` or `@T: Open Timed Requests`
 | Mode | `interval` (every N min) or `scheduled` (specific times) |
 | Interval | Minutes between fires |
 | Repeat count | Times to repeat each fire (min 1) |
-| Repeat prefix/suffix | Text affixes with placeholders `{{repeatNumber}}`/`${repeatNumber}`, `{{repeatIndex}}`/`${repeatIndex}`, `{{repeatCount}}`/`${repeatCount}` |
+| Repeat prefix/suffix | Text affixes with placeholders `${repeatNumber}`, `${repeatIndex}`, `${repeatCount}` |
 | Send maximum | Max total fires before auto-pause (interval mode) |
 | Answer wait (min) | Auto-advance timeout (0 = classic answer file wait) |
 | Reminder | Template, timeout, enabled |

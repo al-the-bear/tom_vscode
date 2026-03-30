@@ -215,9 +215,9 @@ function renderEntry(item, idx) {
       '<input type="number" min="0" step="1" value="' + Math.max(0, parseInt(String(item.answerWaitMinutes || 0), 10) || 0) + '" style="width:60px" title="Minutes to wait before auto-advancing (0 = wait for answer file)" onchange="updateItemRepeat(\\'' + safeId + '\\', { answerWaitMinutes: this.value })">' +
     '</div>' +
     '<div class="repeat-affix-row">' +
-      '<label style="font-size:0.8em;opacity:0.9;">Repeat Prefix (supports {{repeatNumber}} / \${repeatNumber}, {{repeatIndex}} / \${repeatIndex}, {{repeatCount}} / \${repeatCount})</label>' +
+      '<label style="font-size:0.8em;opacity:0.9;">Repeat Prefix (supports \${repeatNumber}, \${repeatIndex}, \${repeatCount})</label>' +
       '<textarea onchange="updateItemRepeat(\\'' + safeId + '\\', { repeatPrefix: this.value })">' + escapeHtml(repeatPrefix) + '</textarea>' +
-      '<label style="font-size:0.8em;opacity:0.9;">Repeat Suffix (supports {{repeatNumber}} / \${repeatNumber}, {{repeatIndex}} / \${repeatIndex}, {{repeatCount}} / \${repeatCount})</label>' +
+      '<label style="font-size:0.8em;opacity:0.9;">Repeat Suffix (supports \${repeatNumber}, \${repeatIndex}, \${repeatCount})</label>' +
       '<textarea onchange="updateItemRepeat(\\'' + safeId + '\\', { repeatSuffix: this.value })">' + escapeHtml(repeatSuffix) + '</textarea>' +
     '</div>';
   }

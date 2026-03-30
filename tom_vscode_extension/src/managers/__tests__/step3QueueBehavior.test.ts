@@ -83,22 +83,7 @@ describe('Step 3 - Issue 10: repeat decision', () => {
         assert.equal(wrapped, 'Prefix text\n\nMain prompt body\n\nSuffix text');
     });
 
-    test('repetition affixes substitute placeholders for current repetition number', () => {
-        const wrapped = applyRepetitionAffixes({
-            originalText: 'Prompt',
-            repeatPrefix: 'Run {{repeatNumber}} of {{repeatCount}} (index={{repeatIndex}})',
-            repeatSuffix: 'Finished {{repeatNumber}}',
-            repeatCount: 4,
-            repeatIndex: 2,
-        });
-
-        assert.equal(
-            wrapped,
-            'Run 3 of 4 (index=2)\n\nPrompt\n\nFinished 3',
-        );
-    });
-
-    test('repetition affixes substitute ${...} placeholders', () => {
+    test('repetition affixes keep ${...} placeholders (resolved later in queue manager)', () => {
         const wrapped = applyRepetitionAffixes({
             originalText: 'Prompt',
             repeatPrefix: 'Run ${repeatNumber} of ${repeatCount} (index=${repeatIndex})',
@@ -109,22 +94,22 @@ describe('Step 3 - Issue 10: repeat decision', () => {
 
         assert.equal(
             wrapped,
-            'Run 3 of 4 (index=2)\n\nPrompt\n\nFinished 3',
+            'Run ${repeatNumber} of ${repeatCount} (index=${repeatIndex})\n\nPrompt\n\nFinished ${repeatNumber}',
         );
     });
 
-    test('repetition affixes substitute mustache placeholders with whitespace', () => {
+    test('repetition affixes keep mustache placeholders unchanged', () => {
         const wrapped = applyRepetitionAffixes({
             originalText: 'Prompt',
-            repeatPrefix: 'Run {{ repeatNumber }} of {{ repeatCount }} (index={{ repeatIndex }})',
-            repeatSuffix: 'Finished {{ repeatNumber }}',
+            repeatPrefix: 'Run {{repeatNumber}} of {{repeatCount}} (index={{repeatIndex}})',
+            repeatSuffix: 'Finished {{repeatNumber}}',
             repeatCount: 4,
             repeatIndex: 2,
         });
 
         assert.equal(
             wrapped,
-            'Run 3 of 4 (index=2)\n\nPrompt\n\nFinished 3',
+            'Run {{repeatNumber}} of {{repeatCount}} (index={{repeatIndex}})\n\nPrompt\n\nFinished {{repeatNumber}}',
         );
     });
 });
