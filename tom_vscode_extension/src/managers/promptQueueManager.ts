@@ -94,6 +94,7 @@ export interface QueuedPrompt {
     repeatIndex?: number;
     repeatPrefix?: string;
     repeatSuffix?: string;
+    answerWaitMinutes?: number;   // If > 0, auto-advance after N minutes instead of waiting for answer file
 }
 
 // ============================================================================
@@ -590,6 +591,80 @@ export class PromptQueueManager {
         const sending = this._items.find(i => i.status === 'sending');
         if (!sending || !sending.sentAt) { return; }
 
+        // Answer-wait timer: auto-advance after N minutes without waiting for answer file.
+        if (sending.answerWaitMinutes && sending.answerWaitMinutes > 0) {
+            const elapsedMs = Date.now() - new Date(sending.sentAt).getTime();
+            const waitMs = sending.answerWaitMinutes * 60_000;
+            if (elapsedMs >= waitMs) {
+                logQueue(`Answer-wait timer expired for ${sending.id}: ${sending.answerWaitMinutes}min elapsed — auto-advancing`);
+                try {
+                    const hasNextStage = await this.dispatchNextStageForSendingItem(sending);
+                    if (!hasNextStage) {
+                        sending.status = 'sent';
+                        sending.expectedRequestId = undefined;
+                        sending.reminderSentCount = 0;
+                        sending.lastReminderAt = undefined;
+                        this.removePendingReminderFor(sending.id);
+
+                        const repeatDecision = computeRepeatDecision({
+                            repeatCount: sending.repeatCount,
+                            repeatIndex: sending.repeatIndex,
+                        });
+                        if (repeatDecision.shouldRepeat) {
+                            await this.enqueue({
+                                originalText: sending.originalText,
+                                template: sending.template,
+                                answerWrapper: sending.answerWrapper,
+                                answerWaitMinutes: sending.answerWaitMinutes,
+                                type: sending.type,
+                                repeatCount: sending.repeatCount,
+                                repeatIndex: repeatDecision.nextRepeatIndex,
+                                repeatPrefix: sending.repeatPrefix,
+                                repeatSuffix: sending.repeatSuffix,
+                                reminderTemplateId: sending.reminderTemplateId,
+                                reminderTimeoutMinutes: sending.reminderTimeoutMinutes,
+                                reminderRepeat: sending.reminderRepeat,
+                                reminderEnabled: sending.reminderEnabled,
+                                prePrompts: (sending.prePrompts || []).map(pp => ({
+                                    text: pp.text,
+                                    template: pp.template,
+                                })),
+                                followUps: (sending.followUps || []).map(f => ({
+                                    originalText: f.originalText,
+                                    template: f.template,
+                                    reminderTemplateId: f.reminderTemplateId,
+                                    reminderTimeoutMinutes: f.reminderTimeoutMinutes,
+                                    reminderRepeat: !!f.reminderRepeat,
+                                    reminderEnabled: !!f.reminderEnabled,
+                                })),
+                                initialStatus: 'pending',
+                                deferSend: true,
+                            });
+                            logQueue(`Repeat queued for answer-wait item ${sending.id}`);
+                        }
+
+                        this.persist();
+                        this._onDidChange.fire();
+
+                        if (this._autoSendEnabled) {
+                            const pendingCount = this._items.filter(i => i.status === 'pending').length;
+                            if (shouldAutoPauseOnEmpty(this._autoSendEnabled, pendingCount, this._autoPauseEnabled)) {
+                                this._autoSendEnabled = false;
+                                this.persistSettings();
+                                this._onDidChange.fire();
+                                logQueue('Queue empty — auto-pausing');
+                            } else {
+                                await this.delaySendNext();
+                            }
+                        }
+                    }
+                } catch (err) {
+                    logQueueError(`checkResponseTimeouts/answerWait(${sending.id})`, err);
+                }
+            }
+            return; // Skip reminder logic for answer-wait items
+        }
+
         const timeoutMinutes = this.getActiveReminderTimeoutMinutes(sending);
         const elapsed = Math.round((Date.now() - new Date(sending.sentAt).getTime()) / 60_000);
 
@@ -775,6 +850,7 @@ export class PromptQueueManager {
                         originalText: sending.originalText,
                         template: sending.template,
                         answerWrapper: sending.answerWrapper,
+                        answerWaitMinutes: sending.answerWaitMinutes,
                         type: sending.type,
                         repeatCount: sending.repeatCount,
                         repeatIndex: repeatDecision.nextRepeatIndex,
@@ -932,6 +1008,7 @@ export class PromptQueueManager {
         repeatIndex?: number;
         repeatPrefix?: string;
         repeatSuffix?: string;
+        answerWaitMinutes?: number;
         initialStatus?: 'staged' | 'pending';
         deferSend?: boolean;
     }): Promise<QueuedPrompt> {
@@ -992,6 +1069,7 @@ export class PromptQueueManager {
             repeatIndex: Math.max(0, Math.round(opts.repeatIndex || 0)),
             repeatPrefix: opts.repeatPrefix,
             repeatSuffix: opts.repeatSuffix,
+            answerWaitMinutes: opts.answerWaitMinutes && opts.answerWaitMinutes > 0 ? opts.answerWaitMinutes : undefined,
         };
 
         logQueue(`Item enqueued: id=${item.id}, type=${item.type}, status=${item.status}, text=${promptPreview(item.originalText)}`);
@@ -1703,6 +1781,7 @@ export class PromptQueueManager {
                 repeatIndex: Math.max(0, Math.round(Number(main['repeat-index'] || 0))),
                 repeatPrefix: main['repeat-prefix'],
                 repeatSuffix: main['repeat-suffix'],
+                answerWaitMinutes: main['answer-wait-minutes'] && Number(main['answer-wait-minutes']) > 0 ? Number(main['answer-wait-minutes']) : undefined,
             };
 
             // Pre-prompts: resolve refs from the prompt-queue
@@ -1761,6 +1840,7 @@ export class PromptQueueManager {
             'repeat-index': Math.max(0, Math.round(item.repeatIndex || 0)),
             'repeat-prefix': item.repeatPrefix,
             'repeat-suffix': item.repeatSuffix,
+            'answer-wait-minutes': item.answerWaitMinutes,
         };
 
         // Reminder config: persist explicit no-reminder state (reminderEnabled === false)

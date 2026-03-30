@@ -649,7 +649,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         await this._applyContext(message);
                         break;
                     case 'addToQueue':
-                        await this._handleAddToQueue(message.text, message.template, message.repeatCount);
+                        await this._handleAddToQueue(message.text, message.template, message.repeatCount, message.answerWaitMinutes);
                         break;
                     case 'openQueueEditor':
                         await vscode.commands.executeCommand('tomAi.editor.promptQueue');
@@ -1861,7 +1861,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         this._sendReusablePrompts();
     }
 
-    private async _handleAddToQueue(text: string, template: string, repeatCount?: number): Promise<void> {
+    private async _handleAddToQueue(text: string, template: string, repeatCount?: number, answerWaitMinutes?: number): Promise<void> {
         try {
             const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
             const queue = PromptQueueManager.instance;
@@ -1872,6 +1872,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     originalText: wrappedText,
                     template: template || undefined,
                     repeatCount: Math.max(0, Math.round(Number(repeatCount || 0))),
+                    answerWaitMinutes: answerWaitMinutes && answerWaitMinutes > 0 ? answerWaitMinutes : undefined,
                     deferSend: true,
                 });
                 const count = queue.items.length;
@@ -2626,7 +2627,8 @@ function getSectionContent(id) {
             actionButtons:
                 '<button class="icon-btn" data-action="preview" data-id="copilot" title="Preview"><span class="codicon codicon-eye"></span></button>' +
                 '<button class="icon-btn primary" id="copilot-send-btn" data-action="send" data-id="copilot" title="Send to Copilot"><span class="codicon codicon-send"></span></button>' +
-                '<label class="checkbox-label compact-keep" title="Queue repeats"><span style="opacity:0.8;">R</span><input type="number" id="copilot-repeat-count" min="1" step="1" value="1" style="width:48px"></label>' +
+                '<label class="checkbox-label compact-keep" title="Queue repeats"><span style="opacity:0.8;">R</span><input type="number" id="copilot-repeat-count" min="1" step="1" value="1" style="width:24px"></label>' +
+                '<label class="checkbox-label compact-keep" title="Answer wait minutes (0 = wait for answer file)"><span style="opacity:0.8;">W</span><input type="number" id="copilot-answer-wait" min="0" step="1" value="0" style="width:24px"></label>' +
                 '<button class="icon-btn" data-action="addToQueue" data-id="copilot" title="Save to Queue"><span class="codicon codicon-add"></span><span class="codicon codicon-list-ordered"></span></button>' +
                 '<button class="icon-btn" data-action="openQueueEditor" data-id="copilot" title="Open Queue Editor"><span class="codicon codicon-inbox"></span></button>' +
                 '<button class="icon-btn" data-action="saveAsTimedRequest" data-id="copilot" title="Save as Timed Request"><span class="codicon codicon-save"></span></button>' +
@@ -3244,8 +3246,10 @@ function addCopilotToQueue() {
     var repeat = document.getElementById('copilot-repeat-count');
     repeat = repeat ? repeat.value : '1';
     var repeatCount = Math.max(1, parseInt(String(repeat || '1'), 10) || 1);
+    var waitEl = document.getElementById('copilot-answer-wait');
+    var answerWaitMinutes = Math.max(0, parseInt(String(waitEl ? waitEl.value : '0'), 10) || 0);
     var slot = ensureSlotState('copilot').activeSlot;
-    vscode.postMessage({ type: 'addToQueue', text: text, template: template, repeatCount: repeatCount, slot: slot });
+    vscode.postMessage({ type: 'addToQueue', text: text, template: template, repeatCount: repeatCount, answerWaitMinutes: answerWaitMinutes, slot: slot });
 }
 
 function openContextPopup() {

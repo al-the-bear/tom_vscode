@@ -42,6 +42,7 @@ export interface TimedRequest {
     repeatSuffix?: string;
     sendMaximum?: number;
     sentCount?: number;
+    answerWaitMinutes?: number;
     lastSentAt?: string;
     status: TimedRequestStatus;
 }
@@ -382,6 +383,7 @@ export class TimerEngine {
             repeatCount: Math.max(0, Math.round(Number(entry.repeatCount || 0))),
             repeatPrefix: entry.repeatPrefix,
             repeatSuffix: entry.repeatSuffix,
+            answerWaitMinutes: entry.answerWaitMinutes && entry.answerWaitMinutes > 0 ? entry.answerWaitMinutes : undefined,
         });
 
         // Update lastSentAt and sentCount

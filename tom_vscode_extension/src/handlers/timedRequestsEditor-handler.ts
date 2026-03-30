@@ -205,6 +205,7 @@ async function handleMessage(msg: any): Promise<void> {
                     scheduleMode: msg.scheduleMode || 'interval',
                     intervalMinutes: msg.intervalMinutes ?? 30,
                     sendMaximum: Number.isFinite(msg.sendMaximum) ? Math.max(0, Math.round(msg.sendMaximum)) : 0,
+                    answerWaitMinutes: Number.isFinite(msg.answerWaitMinutes) ? Math.max(0, Math.round(msg.answerWaitMinutes)) : 0,
                     scheduledTimes: msg.scheduledTimes ?? [],
                   reminderEnabled: !!msg.reminderEnabled,
                     reminderTemplateId: msg.reminderTemplateId,
@@ -515,6 +516,7 @@ function getHtml(codiconsUri: string, safeStateJson: string): string {
   <div id="addIntervalRow" class="schedule-row">
     <span>Every</span> <input type="number" id="addInterval" min="1" value="30" style="width:60px"/> <span>minutes</span>
     <span style="margin-left:8px;">Send max:</span> <input type="number" id="addSendMaximum" min="0" value="0" style="width:60px" title="0 = unlimited"/>
+    <span style="margin-left:8px;">Answer wait:</span> <input type="number" id="addAnswerWait" min="0" value="0" style="width:60px" title="Minutes to wait before auto-advancing (0 = wait for answer file)"/>
   </div>
   <label>Reminder</label>
   <div class="schedule-row">
@@ -803,6 +805,7 @@ function submitNewEntry() {
   modeRadios.forEach(r => { if (r.checked) scheduleMode = r.value; });
   const intervalMinutes = parseInt(document.getElementById('addInterval').value) || 30;
   const sendMaximum = Math.max(0, parseInt(String(document.getElementById('addSendMaximum').value || '0'), 10) || 0);
+  const answerWaitMinutes = Math.max(0, parseInt(String(document.getElementById('addAnswerWait').value || '0'), 10) || 0);
   const reminderTemplateId = document.getElementById('addReminder').value || undefined;
   const reminderTimeoutMinutes = parseInt(document.getElementById('addReminderTimeout').value || '60', 10) || 60;
   const reminderEnabled = !!document.getElementById('addReminderEnabled').checked;
@@ -818,7 +821,7 @@ function submitNewEntry() {
   clearAddFeedback();
   vscode.postMessage({
     type: 'addEntry',
-    text, template, answerWrapper, scheduleMode, intervalMinutes, sendMaximum,
+    text, template, answerWrapper, scheduleMode, intervalMinutes, sendMaximum, answerWaitMinutes,
     scheduledTimes: [],
     reminderEnabled, reminderTemplateId, reminderTimeoutMinutes,
     repeatCount, repeatPrefix, repeatSuffix,
@@ -932,6 +935,7 @@ function render() {
           (isInterval
             ? '<div class="schedule-row"><span>Every</span> <input type="number" min="1" value="' + (entry.intervalMinutes || 30) + '" style="width:60px"' + disabledAttr + ' onchange="updateField(\\'' + entry.id + '\\',\\'intervalMinutes\\',parseInt(this.value))"/> <span>min</span>' +
               '<span style="margin-left:8px;">Send max:</span> <input type="number" min="0" value="' + (Math.max(0, parseInt(String(entry.sendMaximum || 0), 10) || 0)) + '" style="width:60px"' + disabledAttr + ' onchange="updateField(\\'' + entry.id + '\\',\\'sendMaximum\\',Math.max(0,parseInt(this.value||\\'0\\',10)||0))" title="0 = unlimited"/>' +
+              '<span style="margin-left:8px;">Wait:</span> <input type="number" min="0" value="' + (Math.max(0, parseInt(String(entry.answerWaitMinutes || 0), 10) || 0)) + '" style="width:60px"' + disabledAttr + ' onchange="updateField(\\'' + entry.id + '\\',\\'answerWaitMinutes\\',Math.max(0,parseInt(this.value||\\'0\\',10)||0))" title="Minutes to wait before auto-advancing (0 = wait for answer file)"/>' +
               (entry.sentCount ? '<span class="meta" style="margin-left:8px;">(sent ' + entry.sentCount + ')</span>' : '') +
               '</div>'
             : '<div class="schedule-times">' + scheduledTimesHtml + '</div>') +
