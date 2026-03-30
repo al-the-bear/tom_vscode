@@ -204,6 +204,7 @@ async function handleMessage(msg: any): Promise<void> {
                     originalText: msg.text || '',
                     scheduleMode: msg.scheduleMode || 'interval',
                     intervalMinutes: msg.intervalMinutes ?? 30,
+                    sendMaximum: Number.isFinite(msg.sendMaximum) ? Math.max(0, Math.round(msg.sendMaximum)) : 0,
                     scheduledTimes: msg.scheduledTimes ?? [],
                   reminderEnabled: !!msg.reminderEnabled,
                     reminderTemplateId: msg.reminderTemplateId,
@@ -513,6 +514,7 @@ function getHtml(codiconsUri: string, safeStateJson: string): string {
   </div>
   <div id="addIntervalRow" class="schedule-row">
     <span>Every</span> <input type="number" id="addInterval" min="1" value="30" style="width:60px"/> <span>minutes</span>
+    <span style="margin-left:8px;">Send max:</span> <input type="number" id="addSendMaximum" min="0" value="0" style="width:60px" title="0 = unlimited"/>
   </div>
   <label>Reminder</label>
   <div class="schedule-row">
@@ -800,6 +802,7 @@ function submitNewEntry() {
   let scheduleMode = 'interval';
   modeRadios.forEach(r => { if (r.checked) scheduleMode = r.value; });
   const intervalMinutes = parseInt(document.getElementById('addInterval').value) || 30;
+  const sendMaximum = Math.max(0, parseInt(String(document.getElementById('addSendMaximum').value || '0'), 10) || 0);
   const reminderTemplateId = document.getElementById('addReminder').value || undefined;
   const reminderTimeoutMinutes = parseInt(document.getElementById('addReminderTimeout').value || '60', 10) || 60;
   const reminderEnabled = !!document.getElementById('addReminderEnabled').checked;
@@ -815,7 +818,7 @@ function submitNewEntry() {
   clearAddFeedback();
   vscode.postMessage({
     type: 'addEntry',
-    text, template, answerWrapper, scheduleMode, intervalMinutes,
+    text, template, answerWrapper, scheduleMode, intervalMinutes, sendMaximum,
     scheduledTimes: [],
     reminderEnabled, reminderTemplateId, reminderTimeoutMinutes,
     repeatCount, repeatPrefix, repeatSuffix,
@@ -927,7 +930,10 @@ function render() {
               disabledAttr + ' onchange="updateField(\\'' + entry.id + '\\',\\'scheduleMode\\',\\'scheduled\\')"/> Scheduled</label>' +
           '</div>' +
           (isInterval
-            ? '<div class="schedule-row"><span>Every</span> <input type="number" min="1" value="' + (entry.intervalMinutes || 30) + '" style="width:60px"' + disabledAttr + ' onchange="updateField(\\'' + entry.id + '\\',\\'intervalMinutes\\',parseInt(this.value))"/> <span>min</span></div>'
+            ? '<div class="schedule-row"><span>Every</span> <input type="number" min="1" value="' + (entry.intervalMinutes || 30) + '" style="width:60px"' + disabledAttr + ' onchange="updateField(\\'' + entry.id + '\\',\\'intervalMinutes\\',parseInt(this.value))"/> <span>min</span>' +
+              '<span style="margin-left:8px;">Send max:</span> <input type="number" min="0" value="' + (Math.max(0, parseInt(String(entry.sendMaximum || 0), 10) || 0)) + '" style="width:60px"' + disabledAttr + ' onchange="updateField(\\'' + entry.id + '\\',\\'sendMaximum\\',Math.max(0,parseInt(this.value||\\'0\\',10)||0))" title="0 = unlimited"/>' +
+              (entry.sentCount ? '<span class="meta" style="margin-left:8px;">(sent ' + entry.sentCount + ')</span>' : '') +
+              '</div>'
             : '<div class="schedule-times">' + scheduledTimesHtml + '</div>') +
         '</div>' +
         '<div class="entry-section">' +

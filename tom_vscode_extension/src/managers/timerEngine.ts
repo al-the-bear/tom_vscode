@@ -40,6 +40,8 @@ export interface TimedRequest {
     repeatCount?: number;
     repeatPrefix?: string;
     repeatSuffix?: string;
+    sendMaximum?: number;
+    sentCount?: number;
     lastSentAt?: string;
     status: TimedRequestStatus;
 }
@@ -382,8 +384,18 @@ export class TimerEngine {
             repeatSuffix: entry.repeatSuffix,
         });
 
-        // Update lastSentAt
+        // Update lastSentAt and sentCount
         entry.lastSentAt = now.toISOString();
+        entry.sentCount = (entry.sentCount || 0) + 1;
+
+        // Auto-pause interval entries when sendMaximum is reached
+        if (entry.scheduleMode === 'interval' && entry.sendMaximum && entry.sendMaximum > 0) {
+            if (entry.sentCount >= entry.sendMaximum) {
+                entry.status = 'paused';
+                entry.enabled = false;
+                logTimed(`Entry '${entry.originalText.substring(0, 40)}' auto-paused: sent ${entry.sentCount}/${entry.sendMaximum} times`);
+            }
+        }
 
         // Mark date-specific scheduled entries as completed if all dates have passed
         if (entry.scheduleMode === 'scheduled' && entry.scheduledTimes) {
