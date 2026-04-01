@@ -30,6 +30,12 @@ import { WsPaths } from '../utils/workspacePaths';
 import { validateStrictAiConfiguration, SendToChatConfig } from '../utils/sendToChatConfig';
 import type { TimerScheduleSlot } from '../managers/timerEngine';
 import type { CommandlineEntry } from './commandline-handler';
+import {
+    readQueueSettings,
+    writeQueueSettings,
+    setQueueReloadAfterReloadSetting,
+    getQueueReloadAfterReloadSetting,
+} from '../storage/queueFileStorage';
 
 /** A favorite entry stored in tom_vscode_extension.json → "favorites" */
 export interface FavoriteEntry {
@@ -391,6 +397,19 @@ export async function handleStatusAction(action: string, message: any): Promise<
             } catch { /* not initialised */ }
             break;
         }
+        case 'saveReloadPromptAfterReload': {
+            const questId = WsPaths.getWorkspaceQuestId();
+            const settings = readQueueSettings() || {};
+            const updated = setQueueReloadAfterReloadSetting(settings, questId, {
+                enabled: !!message.enabled,
+                prompt: typeof message.prompt === 'string' ? message.prompt : '',
+            });
+            writeQueueSettings(updated);
+            vscode.window.showInformationMessage(
+                `Reload prompt setting saved${questId ? ` for quest ${questId}` : ''}`,
+            );
+            break;
+        }
         // CLI Server
         case 'startCliServer':
             await vscode.commands.executeCommand('tomAi.cliServer.start');
@@ -711,6 +730,9 @@ export interface StatusData {
         autoStartEnabled: boolean;
         autoPauseEnabled: boolean;
         autoContinueEnabled: boolean;
+        reloadPromptAfterReloadEnabled: boolean;
+        reloadPromptAfterReloadText: string;
+        scopeLabel: string;
     };
     timer: {
         timerActivated: boolean;
@@ -810,6 +832,7 @@ export async function gatherStatusData(): Promise<StatusData> {
     const localLlm = config?.localLlm || {};
     const aiConversation = config?.aiConversation || {};
     const telegram = aiConversation?.telegram || {};
+    const questId = WsPaths.getWorkspaceQuestId();
 
     const configurations = Array.isArray(config?.localLlm?.configurations)
         ? config.localLlm.configurations
@@ -825,6 +848,10 @@ export async function gatherStatusData(): Promise<StatusData> {
     let queueAutoStart = false;
     let queueAutoPause = true;
     let queueAutoContinue = false;
+    const queueSettings = readQueueSettings();
+    const queueReloadPrompt = getQueueReloadAfterReloadSetting(queueSettings, questId);
+    const queueReloadPromptEnabled = queueReloadPrompt.enabled === true;
+    const queueReloadPromptText = queueReloadPrompt.prompt || '';
     try {
         const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
         queueAutoSend = PromptQueueManager.instance.autoSendEnabled;
@@ -846,6 +873,9 @@ export async function gatherStatusData(): Promise<StatusData> {
             autoStartEnabled: queueAutoStart,
             autoPauseEnabled: queueAutoPause,
             autoContinueEnabled: queueAutoContinue,
+            reloadPromptAfterReloadEnabled: queueReloadPromptEnabled,
+            reloadPromptAfterReloadText: queueReloadPromptText,
+            scopeLabel: questId ? `quest: ${questId}` : 'workspace',
         },
         timer: {
             timerActivated,
@@ -1181,6 +1211,19 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
                 <button class="sp-btn ${status.timer.timerActivated ? 'primary' : ''}" data-status-action="setTimerOn">On</button>
                 <button class="sp-btn ${!status.timer.timerActivated ? 'primary' : ''}" data-status-action="setTimerOff">Off</button>
             </div>
+        </div>
+        <div class="sp-settings-row" style="align-items:flex-start">
+            <label style="padding-top:2px">After Reload:</label>
+            <label style="display:inline-flex;align-items:center;gap:4px;color:var(--vscode-foreground)">
+                <input type="checkbox" id="sp-reloadPromptEnabled" ${status.queue.reloadPromptAfterReloadEnabled ? 'checked' : ''}>
+                Send prompt after reload
+            </label>
+            <span style="font-size:11px;color:var(--vscode-descriptionForeground)">Scope: ${escapeHtmlContent(status.queue.scopeLabel)}</span>
+        </div>
+        <div class="sp-settings-row" style="align-items:flex-start">
+            <label style="padding-top:4px">Prompt:</label>
+            <textarea id="sp-reloadPromptText" rows="3" style="flex:1;min-width:220px;max-width:none" placeholder="Prompt to send 15s after extension activation">${escapeHtmlContent(status.queue.reloadPromptAfterReloadText || '')}</textarea>
+            <button class="sp-btn" data-status-action="saveReloadPromptAfterReload">Save</button>
         </div>
     </div>
 
@@ -1764,6 +1807,9 @@ function attachStatusPanelListeners(skipEditorInit) {
             if (action === 'updateTrailSettings') {
                 msgData.cleanupDays = parseInt((document.getElementById('sp-trailCleanupDays') || {}).value || '2');
                 msgData.maxEntries = parseInt((document.getElementById('sp-trailMaxEntries') || {}).value || '1000');
+            } else if (action === 'saveReloadPromptAfterReload') {
+                msgData.enabled = !!((document.getElementById('sp-reloadPromptEnabled') || {}).checked);
+                msgData.prompt = ((document.getElementById('sp-reloadPromptText') || {}).value || '').toString();
             } else if (action === 'updateLocalLlm') {
                 msgData.settings = {
                     ollamaUrl: (document.getElementById('sp-llm-ollamaUrl') || {}).value || '',

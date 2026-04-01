@@ -199,6 +199,13 @@ export function ensureQueueFolder(): string | undefined {
 // ============================================================================
 
 /** Queue-level settings persisted to disk. */
+export interface QueueReloadAfterReloadSetting {
+    enabled?: boolean;
+    prompt?: string;
+}
+
+const QUEUE_SCOPE_WORKSPACE = '__workspace__';
+
 export interface QueueSettings {
     'response-timeout-minutes'?: number;
     'default-reminder-template-id'?: string;
@@ -206,6 +213,63 @@ export interface QueueSettings {
     'auto-start-enabled'?: boolean;
     'auto-pause-enabled'?: boolean;
     'auto-continue-enabled'?: boolean;
+    'reload-prompt-by-scope'?: Record<string, QueueReloadAfterReloadSetting>;
+}
+
+export function getQueueSettingsScopeKey(questId?: string): string {
+    const quest = (questId || '').trim();
+    return quest ? `quest:${quest}` : QUEUE_SCOPE_WORKSPACE;
+}
+
+export function getQueueReloadAfterReloadSetting(
+    settings: QueueSettings | undefined,
+    questId?: string,
+): QueueReloadAfterReloadSetting {
+    const byScope = settings?.['reload-prompt-by-scope'];
+    if (!byScope || typeof byScope !== 'object') {
+        return {};
+    }
+
+    const direct = byScope[getQueueSettingsScopeKey(questId)];
+    if (direct && typeof direct === 'object') {
+        return {
+            enabled: direct.enabled === true,
+            prompt: typeof direct.prompt === 'string' ? direct.prompt : '',
+        };
+    }
+
+    // Quest-specific settings fall back to workspace-level defaults.
+    if (questId) {
+        const fallback = byScope[QUEUE_SCOPE_WORKSPACE];
+        if (fallback && typeof fallback === 'object') {
+            return {
+                enabled: fallback.enabled === true,
+                prompt: typeof fallback.prompt === 'string' ? fallback.prompt : '',
+            };
+        }
+    }
+
+    return {};
+}
+
+export function setQueueReloadAfterReloadSetting(
+    settings: QueueSettings,
+    questId: string | undefined,
+    value: QueueReloadAfterReloadSetting,
+): QueueSettings {
+    const byScope = {
+        ...(settings['reload-prompt-by-scope'] || {}),
+    };
+
+    byScope[getQueueSettingsScopeKey(questId)] = {
+        enabled: value.enabled === true,
+        prompt: typeof value.prompt === 'string' ? value.prompt : '',
+    };
+
+    return {
+        ...settings,
+        'reload-prompt-by-scope': byScope,
+    };
 }
 
 /**
@@ -238,7 +302,12 @@ export function writeQueueSettings(settings: QueueSettings): boolean {
         if (!folder) return false;
         const settingsPath = path.join(folder, QUEUE_SETTINGS_FILE);
         const yaml = requireYaml();
-        const content = yaml.stringify(settings, { lineWidth: 120 });
+        const existing = readQueueSettings() || {};
+        const merged: QueueSettings = {
+            ...existing,
+            ...settings,
+        };
+        const content = yaml.stringify(merged, { lineWidth: 120 });
         fs.writeFileSync(settingsPath, content, 'utf8');
         if (QUEUE_STORAGE_DEBUG) debugLog(`[QueueStorage] Wrote queue settings`, 'INFO', 'queueStorage');
         return true;

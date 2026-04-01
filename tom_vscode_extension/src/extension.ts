@@ -88,7 +88,9 @@ import { registerMinimalModePanels } from './handlers/minimalMode-handler';
 import { initTomScriptingBridgeHandler } from './handlers/tomScriptingBridge-handler';
 import { initializeDebugLogger, installConsoleDebugRouting, debugLog } from './utils/debugLogger';
 import { TomAiConfiguration } from './utils/tomAiConfiguration';
+import { WsPaths } from './utils/workspacePaths';
 import { TrailService } from './services/trailService';
+import { readQueueSettings, getQueueReloadAfterReloadSetting } from './storage/queueFileStorage';
 
 // Tom AI Chat tools
 import { registerTomAiChatTools } from './tools/tomAiChat-tools';
@@ -457,10 +459,11 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push({ dispose: () => deleteCurrentWindowState(wsWindowId) });
     timeStep('windowStatusView', stepStart);
 
-    // Check for test reinstall marker and send reload prompt to Copilot Chat
+    // Check for test reinstall marker and schedule optional reload prompt send
     stepStart = performance.now();
     checkTestReinstallMarker();
-    timeStep('checkReinstallMarker', stepStart);
+    scheduleConfiguredReloadPromptSend();
+    timeStep('checkReinstallMarker + scheduleReloadPrompt', stepStart);
 
     // Bridge already started above (right after initializeBridgeClient)
 
@@ -1075,5 +1078,30 @@ function checkTestReinstallMarker(): void {
     } catch (error) {
         // Silently ignore errors checking for marker
         console.error('Error checking test reinstall marker:', error);
+    }
+}
+
+function scheduleConfiguredReloadPromptSend(): void {
+    try {
+        const questId = WsPaths.getWorkspaceQuestId();
+        const settings = readQueueSettings();
+        const reloadPrompt = getQueueReloadAfterReloadSetting(settings, questId);
+        const prompt = (reloadPrompt.prompt || '').trim();
+
+        if (!reloadPrompt.enabled || !prompt) {
+            return;
+        }
+
+        setTimeout(() => {
+            void vscode.commands.executeCommand('workbench.action.chat.open', { query: prompt });
+        }, 15_000);
+
+        bridgeLog(
+            `Scheduled reload prompt send in 15s (${questId ? `quest=${questId}` : 'workspace scope'})`,
+            'INFO',
+        );
+    } catch (error) {
+        // Best-effort behavior only; activation should not fail.
+        console.error('Error scheduling reload prompt send:', error);
     }
 }
