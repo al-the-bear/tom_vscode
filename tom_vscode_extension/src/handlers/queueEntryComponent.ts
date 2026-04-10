@@ -77,6 +77,7 @@ export function queueEntryStyles(): string {
   .status-left { display:flex; align-items:center; gap:6px; }
   .status-icons { display:flex; align-items:center; gap:3px; }
   .details-hidden { display:none; }
+  .mainprompt-content.is-active { font-weight: 700; }
   .preprompt-block { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 8px; }
   .preprompt-block.indented { margin-left: 16px; }
   .preprompt-list { display: flex; flex-direction: column; gap: 6px; }
@@ -181,6 +182,7 @@ function renderEntry(item, idx) {
   var isSent = safeStatus === 'sent';
   var reminderEnabled = item.reminderEnabled !== false;
   var isEditable = editorMode === 'template' || isStaged;
+  var isMainPromptActive = safeStatus === 'sending' && !!item.requestId && (item.followUpIndex || 0) === 0;
   var statusBarCls = item.type === 'reminder' ? 'reminder' : safeStatus;
   var statusLabel = safeStatus.toUpperCase();
 
@@ -282,7 +284,7 @@ function renderEntry(item, idx) {
     '<div class="' + (expanded ? '' : 'details-hidden') + '">' +
     (isEditable
       ? '<textarea onchange="updateText(\\'' + safeId + '\\', this.value)">' + escapeHtml(item.originalText) + '</textarea>'
-      : '<div style="margin:4px 0; white-space:pre-wrap;">' + escapeHtml(item.originalText) + '</div>') +
+      : '<div class="mainprompt-content' + (isMainPromptActive ? ' is-active' : '') + '" style="margin:4px 0; white-space:pre-wrap;">' + escapeHtml(item.originalText) + '</div>') +
     templateRow +
     reminderRow +
     renderPrePrompts(item, safeStatus) +
