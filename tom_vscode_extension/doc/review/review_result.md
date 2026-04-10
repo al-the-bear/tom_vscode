@@ -178,6 +178,33 @@ Recommendation:
   - update stale comments as part of behavioral changes,
   - forbid duplicate free-text help blocks in code review.
 
+## Coverage Check Against Requested Verification Scope
+
+1. Code duplication and consolidation candidates
+
+- Covered in High 1 and Medium 2.
+- Concrete consolidation targets are listed, including GenericNotepadProvider and shared reminder help generation.
+
+1. Unlucky patterns and room for improvement
+
+- Covered in High 2 and Medium 4.
+- Placeholder-engine fragmentation, mixed replacement behavior, and handler concentration are documented with refactoring directions.
+
+1. Duplicate actions, panels, editors for shared-component redesign
+
+- Covered in Medium 1, Medium 3, and the dedicated Actions/Panels/Editors consolidation section.
+- Includes command-surface reduction and shared panel-shell recommendations.
+
+1. Duplicate configuration
+
+- Covered in High 3 and Duplicate Configuration Assessment.
+- Legacy/new key overlap and multi-store ownership duplication are explicitly identified.
+
+1. Configuration placement and possible global shared config
+
+- Covered in Configuration Location Recommendations.
+- Recommends introducing a user-global config file for cross-workspace defaults and a workspace-local config for project-scoped behavior.
+
 ## Duplicate Configuration Assessment
 
 Observed duplicates and overlaps:
