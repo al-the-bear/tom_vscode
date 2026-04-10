@@ -477,7 +477,7 @@ async function queueFromTemplate(msg: any): Promise<void> {
     // Fresh queue entry identity/status while preserving additional metadata.
     doc.meta = doc.meta || ({ id: generateId() } as QueueMetaYaml);
     doc.meta.id = generateId();
-    doc.meta.status = 'staged';
+    doc.meta.status = 'pending';
     doc.meta.created = new Date().toISOString();
     doc.meta.updated = doc.meta.created;
     doc.meta['main-prompt'] = main.id || mainId;
@@ -491,6 +491,15 @@ async function queueFromTemplate(msg: any): Promise<void> {
       const qm = queueModule.PromptQueueManager.instance as any;
       if (typeof qm._reloadFromDisk === 'function') {
         qm._reloadFromDisk();
+      }
+      const queueItems = Array.isArray(qm.items) ? qm.items : [];
+      if (
+        qm.autoSendEnabled
+        && typeof qm.sendNext === 'function'
+        && !queueItems.some((i: any) => i.status === 'sending')
+        && queueItems.some((i: any) => i.status === 'pending')
+      ) {
+        void qm.sendNext();
       }
     } catch {
       // Queue manager may not be initialized yet; file watcher will still pick up the new entry.
