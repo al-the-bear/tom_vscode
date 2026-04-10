@@ -2535,6 +2535,12 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 if (confirmBk !== 'Delete') return true;
                 const bkPath = _resolveBackupPath(isSessionMode, isWorkspaceFileMode, msg.questId, msg.file, workspaceFilePath, cfg);
                 if (bkPath && fs.existsSync(bkPath)) {
+                    const archived = _archiveDeletedBackupTodo(bkPath, msg.todoId);
+                    if (!archived) {
+                        vscode.window.showErrorMessage(`Failed to archive backup todo ${msg.todoId}; deletion aborted.`);
+                        post({ type: 'qtDeleted', success: false, todoId: msg.todoId });
+                        return true;
+                    }
                     const okBk = questTodo.deleteTodo('__backup__', msg.todoId, bkPath);
                     post({ type: 'qtDeleted', success: okBk, todoId: msg.todoId });
                 } else {
@@ -3496,6 +3502,56 @@ function _createTodo(questId: string, todo: any, file: string | undefined, post:
     }
 }
 
+function _isBackupTodoFile(filePath: string): boolean {
+    return /(?:\.backup)+\.todo\.yaml$/.test(path.basename(filePath));
+}
+
+function _backupPathForFile(filePath: string): string {
+    const dir = path.dirname(filePath);
+    const base = path.basename(filePath);
+    const backupBase = /(?:\.backup)+\.todo\.yaml$/.test(base)
+        ? base.replace(/(?:\.backup)+\.todo\.yaml$/, '.backup.todo.yaml')
+        : base.replace(/\.todo\.yaml$/, '.backup.todo.yaml');
+    return path.join(dir, backupBase);
+}
+
+function _deletedArchivePathForBackup(filePath: string): string {
+    const dir = path.dirname(filePath);
+    const base = path.basename(filePath);
+    const archiveBase = /(?:\.backup)+\.todo\.yaml$/.test(base)
+        ? base.replace(/(?:\.backup)+\.todo\.yaml$/, '.deleted.todo.yaml')
+        : base.replace(/\.todo\.yaml$/, '.deleted.todo.yaml');
+    return path.join(dir, archiveBase);
+}
+
+function _archiveDeletedBackupTodo(filePath: string, todoId: string): boolean {
+    try {
+        const todo = questTodo.findTodoByIdInFile(filePath, todoId);
+        if (!todo) {
+            return false;
+        }
+
+        const archivePath = _deletedArchivePathForBackup(filePath);
+        const header: Record<string, unknown> = {};
+        if (path.basename(filePath).startsWith('workspace')) {
+            header.scope = { area: 'workspace' };
+        }
+        questTodo.ensureTodoFile(archivePath, header);
+
+        const todoData: Record<string, unknown> = { ...todo };
+        delete todoData._sourceFile;
+        todoData.status = todoData.status || 'cancelled';
+        todoData.updated = new Date().toISOString().slice(0, 10);
+        questTodo.createTodoInFile(archivePath, todoData as any, header);
+
+        console.log(`[QuestTodo] Archived backup todo ${todoId} to ${archivePath}`);
+        return true;
+    } catch (e) {
+        console.error(`[QuestTodo] Failed to archive backup todo ${todoId}:`, e);
+        return false;
+    }
+}
+
 /** Resolve the backup file path for the current panel context. */
 function _resolveBackupPath(
     isSessionMode: boolean,
@@ -3508,12 +3564,12 @@ function _resolveBackupPath(
     try {
         if (isSessionMode) {
             const sessionFp = SessionTodoStore.instance.filePath;
-            return sessionFp.replace(/\.todo\.yaml$/, '.backup.todo.yaml');
+            return _backupPathForFile(sessionFp);
         }
         if (isWorkspaceFileMode) {
             const fp = workspaceFilePath();
             if (!fp) return undefined;
-            return fp.replace(/\.todo\.yaml$/, '.backup.todo.yaml');
+            return _backupPathForFile(fp);
         }
         // Quest mode — resolve from quest folder
         const qid = cfg.fixedQuestId || questId;
@@ -3524,9 +3580,7 @@ function _resolveBackupPath(
         const fileName = (!file || file === 'all')
             ? `todos.${qid}.todo.yaml`
             : file;
-        const base = path.basename(fileName);
-        const backupName = base.replace(/\.todo\.yaml$/, '.backup.todo.yaml');
-        return path.join(folder, backupName);
+        return _backupPathForFile(path.join(folder, path.basename(fileName)));
     } catch {
         return undefined;
     }
@@ -3572,6 +3626,10 @@ function _moveToBackupByTodo(questId: string, todoId: string, sourceFile?: strin
                 if (fs.existsSync(absSource)) {
                     const todo = questTodo.findTodoByIdInFile(absSource, todoId);
                     if (todo) {
+                        if (_isBackupTodoFile(absSource)) {
+                            _archiveDeletedBackupTodo(absSource, todoId);
+                            return;
+                        }
                         _moveToBackup(absSource, todoId);
                         return;
                     }
@@ -3585,6 +3643,10 @@ function _moveToBackupByTodo(questId: string, todoId: string, sourceFile?: strin
                 const fp = path.join(folder, fileName);
                 const todo = questTodo.findTodoByIdInFile(fp, todoId);
                 if (todo) {
+                    if (_isBackupTodoFile(fp)) {
+                        _archiveDeletedBackupTodo(fp, todoId);
+                        return;
+                    }
                     _moveToBackup(fp, todoId);
                     return;
                 }
@@ -3598,17 +3660,17 @@ function _moveToBackupByTodo(questId: string, todoId: string, sourceFile?: strin
 /** Copy a todo to the backup variant of the given file. */
 function _moveToBackup(filePath: string, todoId: string): void {
     try {
+        if (_isBackupTodoFile(filePath)) {
+            _archiveDeletedBackupTodo(filePath, todoId);
+            return;
+        }
         const todo = questTodo.findTodoByIdInFile(filePath, todoId);
         if (!todo) {
             console.warn(`[QuestTodo] _moveToBackup: todo ${todoId} not found in ${filePath}`);
             return;
         }
-        const dir = path.dirname(filePath);
         const base = path.basename(filePath);
-        // workspace.todo.yaml => workspace.backup.todo.yaml
-        // todos.quest.todo.yaml => todos.quest.backup.todo.yaml
-        const backupName = base.replace(/\.todo\.yaml$/, '.backup.todo.yaml');
-        const backupPath = path.join(dir, backupName);
+        const backupPath = _backupPathForFile(filePath);
         // Create backup file if needed
         const header: Record<string, unknown> = {};
         if (base.startsWith('workspace')) {

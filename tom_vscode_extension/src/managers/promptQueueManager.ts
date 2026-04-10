@@ -1826,7 +1826,21 @@ export class PromptQueueManager {
         this._items = [];
         this._fileNameMap.clear();
 
-        for (const entry of entries) {
+        const orderedEntries = [...entries].sort((a, b) => {
+            const aOrder = Number((a.doc?.meta as Record<string, unknown> | undefined)?.['queue-order-index']);
+            const bOrder = Number((b.doc?.meta as Record<string, unknown> | undefined)?.['queue-order-index']);
+            const aHasOrder = Number.isFinite(aOrder);
+            const bHasOrder = Number.isFinite(bOrder);
+            if (aHasOrder && bHasOrder && aOrder !== bOrder) {
+                return aOrder - bOrder;
+            }
+            if (aHasOrder !== bHasOrder) {
+                return aHasOrder ? -1 : 1;
+            }
+            return a.fileName.localeCompare(b.fileName);
+        });
+
+        for (const entry of orderedEntries) {
             const item = this._entryToQueuedPrompt(entry);
             if (item) {
                 this._items.push(item);
@@ -1842,8 +1856,9 @@ export class PromptQueueManager {
             try { quest = (await_import_ChatVariablesStore())?.quest || ''; } catch { /* */ }
 
             // Write each item
-            for (const item of this._items) {
-                const doc = this._queuedPromptToDoc(item, quest);
+            for (let index = 0; index < this._items.length; index++) {
+                const item = this._items[index];
+                const doc = this._queuedPromptToDoc(item, quest, index);
                 let fileName = this._fileNameMap.get(item.id);
                 if (!fileName) {
                     fileName = generateEntryFileName(quest, item.type, new Date(item.createdAt));
@@ -1949,7 +1964,7 @@ export class PromptQueueManager {
     }
 
     /** Convert an in-memory QueuedPrompt to a QueueFileYaml document for disk storage. */
-    private _queuedPromptToDoc(item: QueuedPrompt, quest?: string): QueueFileYaml {
+    private _queuedPromptToDoc(item: QueuedPrompt, quest?: string, orderIndex?: number): QueueFileYaml {
         const mainPrompt: QueuePromptYaml = {
             id: 'P1',
             name: 'Main Prompt',
@@ -2058,6 +2073,7 @@ export class PromptQueueManager {
                 status: item.status,
                 created: item.createdAt,
                 'main-prompt': 'P1',
+                'queue-order-index': Number.isFinite(orderIndex as number) ? orderIndex : undefined,
             },
             'prompt-queue': allPrompts,
         };

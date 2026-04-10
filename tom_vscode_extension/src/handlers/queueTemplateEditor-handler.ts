@@ -121,6 +121,16 @@ async function handleMessage(msg: any): Promise<void> {
       return;
     }
 
+    case 'copyCurrentTemplate': {
+      await copyCurrentTemplate(msg);
+      return;
+    }
+
+    case 'renameCurrentTemplate': {
+      await renameCurrentTemplate(msg);
+      return;
+    }
+
     case 'deleteCurrentTemplate': {
       const templateId = msg.templateId?.trim();
       if (!templateId) { return; }
@@ -366,10 +376,78 @@ function saveCurrentTemplate(msg: any): void {
   sendState(templateId);
 }
 
+async function copyCurrentTemplate(msg: any): Promise<void> {
+  const templateId = msg.templateId?.trim();
+  if (!templateId) { return; }
+
+  const template = readTemplate(templateId);
+  if (!template?.data) {
+    vscode.window.showErrorMessage(`Template not found: ${templateId}`);
+    return;
+  }
+
+  const currentName = String(template.data.meta?.name || templateId);
+  const newName = await vscode.window.showInputBox({
+    prompt: 'Enter a name for the copied queue template',
+    value: `${currentName}-copy`,
+    validateInput: (value) => {
+      if (!value || !value.trim()) { return 'Template name is required'; }
+      return null;
+    },
+  });
+  if (!newName?.trim()) { return; }
+
+  const clone: QueueFileYaml = JSON.parse(JSON.stringify(template.data));
+  clone.meta = clone.meta || ({ id: generateId(), status: 'staged' as const } as QueueMetaYaml);
+  clone.meta.id = generateId();
+  clone.meta.name = newName.trim();
+  clone.meta.status = 'staged';
+  clone.meta.created = new Date().toISOString();
+  clone.meta.updated = clone.meta.created;
+
+  const newTemplateId = generateId();
+  writeTemplate(newTemplateId, clone);
+  sendState(newTemplateId);
+}
+
+async function renameCurrentTemplate(msg: any): Promise<void> {
+  const templateId = msg.templateId?.trim();
+  if (!templateId) { return; }
+
+  const template = readTemplate(templateId);
+  if (!template?.data) {
+    vscode.window.showErrorMessage(`Template not found: ${templateId}`);
+    return;
+  }
+
+  const currentName = String(template.data.meta?.name || templateId);
+  const renamed = await vscode.window.showInputBox({
+    prompt: 'Enter a new name for the queue template',
+    value: currentName,
+    validateInput: (value) => {
+      if (!value || !value.trim()) { return 'Template name is required'; }
+      return null;
+    },
+  });
+  if (!renamed?.trim()) { return; }
+
+  const nextName = renamed.trim();
+  if (nextName === currentName) {
+    return;
+  }
+
+  const doc: QueueFileYaml = JSON.parse(JSON.stringify(template.data));
+  doc.meta = doc.meta || ({ id: generateId(), status: 'staged' as const } as QueueMetaYaml);
+  doc.meta.name = nextName;
+  doc.meta.updated = new Date().toISOString();
+  writeTemplate(templateId, doc);
+  sendState(templateId);
+}
+
 async function queueFromTemplate(msg: any): Promise<void> {
-  const promptText = msg.promptText?.trim() || '';
+  const promptText = typeof msg.promptText === 'string' ? msg.promptText.trim() : '';
   const templateId = msg.templateId?.trim() || '';
-  if (!templateId || !promptText) { return; }
+  if (!templateId) { return; }
 
   try {
     const template = readTemplate(templateId);
@@ -387,10 +465,11 @@ async function queueFromTemplate(msg: any): Promise<void> {
       throw new Error('Template has no main prompt');
     }
 
-    main['prompt-text'] = promptText;
-    if (typeof main['expanded-text'] === 'string') {
-      delete main['expanded-text'];
+    // Optional prompt override: only replace template main prompt when non-empty input is provided.
+    if (promptText) {
+      main['prompt-text'] = promptText;
     }
+    delete main['expanded-text'];
     if (main.execution) {
       delete main.execution;
     }
@@ -464,6 +543,8 @@ ${queueEntryStyles()}
     <div class="tpl-sidebar-header">
       Templates
       <button class="ctx-btn-icon" onclick="createTemplate()" title="New Template"><span class="codicon codicon-add"></span></button>
+      <button class="ctx-btn-icon" onclick="copyCurrentTemplate()" title="Copy Template"><span class="codicon codicon-copy"></span></button>
+      <button class="ctx-btn-icon" onclick="renameCurrentTemplate()" title="Rename Template"><span class="codicon codicon-edit"></span></button>
       <button class="ctx-btn-icon" onclick="deleteCurrentTemplate()" title="Delete Template"><span class="codicon codicon-trash"></span></button>
     </div>
     <div class="tpl-sidebar-list" id="templateList"></div>
@@ -471,8 +552,8 @@ ${queueEntryStyles()}
   <div class="tpl-main">
     <div class="tpl-editor-area" id="editorArea"><div class="empty">Select or create a template</div></div>
     <div class="tpl-prompt-input">
-      <label>Prompt Text (not saved with template)</label>
-      <textarea id="promptInput" placeholder="Enter prompt text to queue with this template..." rows="3"></textarea>
+      <label>Prompt Text Override (optional, not saved with template)</label>
+      <textarea id="promptInput" placeholder="Leave empty to queue template with its stored main prompt text." rows="3"></textarea>
     </div>
     <div class="tpl-bottom-bar">
       <button class="primary" onclick="queuePrompt()">Queue Prompt</button>
@@ -576,6 +657,16 @@ function createTemplate() {
   vscode.postMessage({ type: 'createTemplate' });
 }
 
+function copyCurrentTemplate() {
+  if (!selectedId) { showFeedback('No template selected', 'error'); return; }
+  vscode.postMessage({ type: 'copyCurrentTemplate', templateId: selectedId });
+}
+
+function renameCurrentTemplate() {
+  if (!selectedId) { showFeedback('No template selected', 'error'); return; }
+  vscode.postMessage({ type: 'renameCurrentTemplate', templateId: selectedId });
+}
+
 function deleteCurrentTemplate() {
   if (!selectedId) return;
   if (!confirm('Delete template "' + selectedName + '"?')) return;
@@ -591,7 +682,6 @@ function saveTemplate() {
 function queuePrompt() {
   var ta = document.getElementById('promptInput');
   var text = ta ? ta.value.trim() : '';
-  if (!text) { showFeedback('Enter prompt text first', 'error'); return; }
   if (!selectedId) { showFeedback('No template selected', 'error'); return; }
   vscode.postMessage({ type: 'queuePrompt', templateId: selectedId, promptText: text });
 }
