@@ -82,9 +82,15 @@ export function queueEntryStyles(): string {
   .preprompt-list { display: flex; flex-direction: column; gap: 6px; }
   .preprompt-item { border: 1px solid var(--border); border-radius: 3px; padding: 6px; }
   .preprompt-item-head { display: flex; justify-content: space-between; align-items: center; font-size: 0.8em; opacity: 0.8; margin-bottom: 4px; }
+  .preprompt-item.is-active { border-color: var(--vscode-focusBorder, #007acc); }
+  .preprompt-item.is-active .preprompt-item-head { opacity: 1; font-weight: 700; }
+  .preprompt-item.is-active .preprompt-content { font-weight: 700; }
   .template-row { display: flex; gap: 6px; align-items: center; margin-top: 6px; font-size: 0.85em; flex-wrap: wrap; }
   .repeat-affix-row { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
   .repeat-affix-row textarea { min-height: 42px; }
+  .followup-item.is-active { border-color: var(--vscode-focusBorder, #007acc); }
+  .followup-item.is-active .followup-item-head { opacity: 1; font-weight: 700; }
+  .followup-item.is-active .followup-content { font-weight: 700; }
   `;
 }
 
@@ -291,12 +297,21 @@ function renderPrePrompts(item, status) {
   var isEditable = editorMode === 'template' || status === 'staged';
   if (prePrompts.length === 0 && !isEditable) return '';
 
+  var activePrePromptIndex = -1;
+  if (status === 'sending' && !item.requestId && prePrompts.length > 0) {
+    var sentPrePromptCount = prePrompts.filter(function(pp) { return pp.status === 'sent'; }).length;
+    if (sentPrePromptCount > 0) {
+      activePrePromptIndex = Math.min(sentPrePromptCount - 1, prePrompts.length - 1);
+    }
+  }
+
   var safeItemId = escapeJsSingleQuoted(item.id);
   var rows = prePrompts.map(function(pp, idx) {
     var ppStatus = pp.status || 'pending';
     var doneMark = ppStatus === 'sent' ? '\\u2713 ' : ppStatus === 'error' ? '\\u2717 ' : '';
     var templateLabel = formatPromptTemplateName(pp.template || '(None)');
-    return '<div class="preprompt-item">' +
+    var isActive = idx === activePrePromptIndex;
+    return '<div class="preprompt-item' + (isActive ? ' is-active' : '') + '">' +
       '<div class="preprompt-item-head">' +
         '<span>' + doneMark + 'Pre-prompt #' + (idx + 1) + (pp.template ? ' [' + escapeHtml(templateLabel) + ']' : '') + '</span>' +
         '<span class="followup-tools">' +
@@ -314,7 +329,7 @@ function renderPrePrompts(item, status) {
               }).join('') +
             '</select>' +
           '</div>'
-        : '<div style="margin:4px 0; white-space:pre-wrap;">' + escapeHtml(pp.text || '') + '</div>') +
+        : '<div class="preprompt-content" style="margin:4px 0; white-space:pre-wrap;">' + escapeHtml(pp.text || '') + '</div>') +
     '</div>';
   }).join('');
 
@@ -332,6 +347,10 @@ function renderFollowUps(item, status) {
   var isEditable = editorMode === 'template' || status === 'staged';
   if (followUps.length === 0 && !isEditable) return '';
   var sentFollowUps = item.followUpIndex || 0;
+  var activeFollowUpIndex = -1;
+  if (status === 'sending' && item.requestId && sentFollowUps > 0 && sentFollowUps <= followUps.length) {
+    activeFollowUpIndex = sentFollowUps - 1;
+  }
   var safeItemId = escapeJsSingleQuoted(item.id);
 
   var rows = followUps.map(function(f, idx) {
@@ -341,7 +360,8 @@ function renderFollowUps(item, status) {
     var noReminderSelected = f.reminderEnabled === false && !f.reminderTemplateId;
     var doneMark = idx < sentFollowUps ? '\\u2713 ' : '';
     var templateLabel = formatPromptTemplateName(f.template || '(None)');
-    return '<div class="followup-item">' +
+    var isActive = idx === activeFollowUpIndex;
+    return '<div class="followup-item' + (isActive ? ' is-active' : '') + '">' +
       '<div class="followup-item-head">' +
         '<span>' + doneMark + 'Follow-up #' + (idx + 1) + (f.template ? (' [' + escapeHtml(templateLabel) + ']') : '') + ' [AW]</span>' +
         '<span class="followup-tools">' +
@@ -370,7 +390,7 @@ function renderFollowUps(item, status) {
 
             '</div>' +
           '</div>'
-        : '<div style="margin:4px 0; white-space:pre-wrap;">' + escapeHtml(f.originalText || '') + '</div>') +
+        : '<div class="followup-content" style="margin:4px 0; white-space:pre-wrap;">' + escapeHtml(f.originalText || '') + '</div>') +
     '</div>';
   }).join('');
 
