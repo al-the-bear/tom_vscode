@@ -16,12 +16,13 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { getConfigPath, SendToChatConfig, loadSendToChatConfig, saveSendToChatConfig, PLACEHOLDER_HELP, showPreviewPanel, getWorkspaceRoot, updateChatResponseValues, applyDefaultTemplate, getCopilotChatAnswerFolderAbsolute, DEFAULT_ANSWER_FILE_TEMPLATE, reportException, escapeHtml, openInExternalApplication } from './handler_shared';
+import { getConfigPath, SendToChatConfig, loadSendToChatConfig, saveSendToChatConfig, PLACEHOLDER_HELP, showPreviewPanel, getWorkspaceRoot, updateChatResponseValues, applyDefaultTemplate, getCopilotChatAnswerFolderAbsolute, DEFAULT_ANSWER_FILE_TEMPLATE, reportException, escapeHtml, openInExternalApplication, resolvePathVariables } from './handler_shared';
 import { openGlobalTemplateEditor, TemplateCategory } from './globalTemplateEditor-handler';
 import { openReusablePromptEditor } from './reusablePromptEditor-handler';
 import { debugLog } from '../utils/debugLogger';
 import { expandTemplate } from './promptTemplate';
 import { getLocalLlmManager, ensureLocalLlmManager } from './localLlm-handler';
+import { getAiConversationManager } from './aiConversation-handler';
 import { getAccordionStyles } from './accordionPanel';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
 import { WsPaths } from '../utils/workspacePaths';
@@ -665,6 +666,18 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         break;
                     case 'openTrailViewer':
                         await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer');
+                        break;
+                    case 'openConversationTrailViewer':
+                        await this._openConversationTrailViewer();
+                        break;
+                    case 'openConversationMarkdown':
+                        await this._openConversationMarkdown();
+                        break;
+                    case 'openConversationCompactTrail':
+                        await this._openConversationCompactTrail();
+                        break;
+                    case 'openConversationTurnFilesEditor':
+                        await this._openConversationTurnFilesEditor();
                         break;
                     case 'openTrailFiles':
                         await this._openTrailFiles();
@@ -1708,6 +1721,125 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         await vscode.commands.executeCommand('vscode.openWith', uri, 'tomAi.trailViewer');
     }
 
+    private _getAiConversationLogDir(): string | null {
+        const wsRoot = getWorkspaceRoot();
+        if (!wsRoot) {
+            return null;
+        }
+
+        const configured = (loadSendToChatConfig()?.aiConversation as any)?.conversationLogPath as string | undefined;
+        const fallback = `${WsPaths.aiRelative('trail')}/ai_conversation`;
+        const rawPath = (typeof configured === 'string' && configured.trim().length > 0) ? configured.trim() : fallback;
+        const resolved = resolvePathVariables(rawPath, { silent: true }) ?? rawPath;
+        return path.isAbsolute(resolved) ? resolved : path.join(wsRoot, resolved);
+    }
+
+    private _getLatestAiConversationMarkdown(logDir: string): string | null {
+        if (!fs.existsSync(logDir) || !fs.statSync(logDir).isDirectory()) {
+            return null;
+        }
+
+        const files = fs.readdirSync(logDir)
+            .filter((file) => file.startsWith('bot_') && file.endsWith('.md'))
+            .map((file) => {
+                const fullPath = path.join(logDir, file);
+                const mtime = fs.statSync(fullPath).mtimeMs;
+                return { fullPath, mtime };
+            })
+            .sort((a, b) => b.mtime - a.mtime);
+
+        return files.length > 0 ? files[0].fullPath : null;
+    }
+
+    private async _openConversationTrailViewer(): Promise<void> {
+        const logDir = this._getAiConversationLogDir();
+        if (!logDir) {
+            vscode.window.showWarningMessage('No workspace folder found');
+            return;
+        }
+        if (!fs.existsSync(logDir)) {
+            vscode.window.showInformationMessage('No AI conversation trail folder exists yet. Start a conversation first.');
+            return;
+        }
+        await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer', vscode.Uri.file(logDir));
+    }
+
+    private async _openConversationMarkdown(): Promise<void> {
+        const logDir = this._getAiConversationLogDir();
+        if (!logDir) {
+            vscode.window.showWarningMessage('No workspace folder found');
+            return;
+        }
+
+        const latestLog = this._getLatestAiConversationMarkdown(logDir);
+        if (!latestLog) {
+            const isActive = getAiConversationManager()?.isActive === true;
+            vscode.window.showInformationMessage(
+                isActive
+                    ? 'AI conversation is active, but no conversation markdown exists yet. It is written when the conversation ends.'
+                    : 'No AI conversation markdown file found yet.',
+            );
+            return;
+        }
+
+        const doc = await vscode.workspace.openTextDocument(latestLog);
+        await vscode.window.showTextDocument(doc, { preview: false });
+    }
+
+    private async _openConversationCompactTrail(): Promise<void> {
+        const logDir = this._getAiConversationLogDir();
+        if (!logDir) {
+            vscode.window.showWarningMessage('No workspace folder found');
+            return;
+        }
+
+        const compactPath = path.join(logDir, `${getWorkspaceName()}.trail.md`);
+        if (!fs.existsSync(compactPath)) {
+            vscode.window.showInformationMessage('No compact AI conversation trail exists yet. Start and complete a conversation first.');
+            return;
+        }
+
+        const doc = await vscode.workspace.openTextDocument(compactPath);
+        await vscode.window.showTextDocument(doc, { preview: false });
+    }
+
+    private async _openConversationTurnFilesEditor(): Promise<void> {
+        const logDir = this._getAiConversationLogDir();
+        if (!logDir) {
+            vscode.window.showWarningMessage('No workspace folder found');
+            return;
+        }
+        if (!fs.existsSync(logDir) || !fs.statSync(logDir).isDirectory()) {
+            vscode.window.showInformationMessage('No AI conversation turn files exist yet.');
+            return;
+        }
+
+        const turnFiles = fs.readdirSync(logDir)
+            .filter((file) => /_(prompt|answer)_/.test(file) && (file.endsWith('.userprompt.md') || file.endsWith('.answer.json')))
+            .sort((a, b) => b.localeCompare(a));
+
+        if (turnFiles.length === 0) {
+            vscode.window.showInformationMessage('No AI conversation turn files found yet.');
+            return;
+        }
+
+        const picked = await vscode.window.showQuickPick(
+            turnFiles.map((file) => ({
+                label: file,
+                description: file.includes('_prompt_') ? 'Turn prompt file' : 'Turn answer file',
+                filePath: path.join(logDir, file),
+            })),
+            { placeHolder: 'Select AI conversation per-turn file to open' },
+        );
+
+        if (!picked) {
+            return;
+        }
+
+        const doc = await vscode.workspace.openTextDocument(picked.filePath);
+        await vscode.window.showTextDocument(doc, { preview: false });
+    }
+
     // ========================================================================
     // §3.1 Context & Settings Popup + Queue Integration
     // ========================================================================
@@ -2605,7 +2737,11 @@ function getSectionContent(id) {
             actionButtons:
                 '<button data-action="preview" data-id="conversation" title="Preview expanded prompt">Preview</button>' +
                 '<button class="primary" data-action="send" data-id="conversation" title="Start AI Conversation">Start</button>' +
-                '<button class="icon-btn" data-action="clearText" data-id="conversation" title="Clear text"><span class="codicon codicon-clear-all"></span></button>',
+                '<button class="icon-btn" data-action="clearText" data-id="conversation" title="Clear text"><span class="codicon codicon-clear-all"></span></button>' +
+                '<button class="icon-btn" data-action="openConversationTrailViewer" data-id="conversation" title="Open AI conversation trail viewer"><span class="codicon codicon-list-flat"></span></button>' +
+                '<button class="icon-btn" data-action="openConversationMarkdown" data-id="conversation" title="Open latest AI conversation markdown"><span class="codicon codicon-file"></span></button>' +
+                '<button class="icon-btn" data-action="openConversationCompactTrail" data-id="conversation" title="Open AI conversation compact trail"><span class="codicon codicon-history"></span></button>' +
+                '<button class="icon-btn" data-action="openConversationTurnFilesEditor" data-id="conversation" title="Open AI conversation per-turn files"><span class="codicon codicon-files"></span></button>',
             infoId: 'conversation-profileInfo',
             placeholder: 'Enter your goal/description for the conversation...',
             helpTitle: 'Tip: Describe the goal clearly. The bot will orchestrate a multi-turn conversation with Copilot.',
@@ -2905,6 +3041,10 @@ function handleAction(action, id, slot) {
         case 'openTimedRequestsEditor': vscode.postMessage({ type: 'openTimedRequestsEditor' }); break;
         case 'openTrailFiles': vscode.postMessage({ type: 'openTrailFiles' }); break;
         case 'openTrailViewer': vscode.postMessage({ type: 'openTrailViewer' }); break;
+        case 'openConversationTrailViewer': vscode.postMessage({ type: 'openConversationTrailViewer' }); break;
+        case 'openConversationMarkdown': vscode.postMessage({ type: 'openConversationMarkdown' }); break;
+        case 'openConversationCompactTrail': vscode.postMessage({ type: 'openConversationCompactTrail' }); break;
+        case 'openConversationTurnFilesEditor': vscode.postMessage({ type: 'openConversationTurnFilesEditor' }); break;
         case 'saveAsTimedRequest': { var trText = document.getElementById('copilot-text'); trText = trText ? trText.value : ''; if (!trText.trim()) return; var trTpl = document.getElementById('copilot-template'); trTpl = trTpl ? trTpl.value : ''; vscode.postMessage({ type: 'saveAsTimedRequest', text: trText, template: trTpl }); break; }
         case 'openChatVariablesEditor': vscode.postMessage({ type: 'openChatVariablesEditor' }); break;
         case 'openStatusPage': vscode.postMessage({ type: 'openStatusPage' }); break;

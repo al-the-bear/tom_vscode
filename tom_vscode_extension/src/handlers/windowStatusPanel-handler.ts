@@ -66,6 +66,8 @@ export interface WindowStateFile {
     activeQuest: string;
     /** Per-subsystem statuses */
     status: SubsystemStatus[];
+    /** Whether AI conversation is currently active in this window. */
+    aiConversationActive?: boolean;
 }
 
 // ============================================================================
@@ -271,6 +273,14 @@ export class WindowStatusViewProvider implements vscode.WebviewViewProvider {
             + '      flex-direction: column;\n'
             + '      gap: 2px;\n'
             + '    }\n'
+            + '    .ai-conversation-line {\n'
+            + '      margin-top: 4px;\n'
+            + '      font-size: 10px;\n'
+            + '      color: var(--vscode-descriptionForeground);\n'
+            + '    }\n'
+            + '    .ai-conversation-line.active {\n'
+            + '      color: ' + COLOUR_ANSWER_RECEIVED + ';\n'
+            + '    }\n'
             + '    .subsystem-item {\n'
             + '      display: flex;\n'
             + '      align-items: center;\n'
@@ -370,6 +380,8 @@ export class WindowStatusViewProvider implements vscode.WebviewViewProvider {
             + '        for (var i = 0; i < states.length; i++) {\n'
             + '          var s = states[i];\n'
             + '          var questLabel = s.activeQuest || s.workspace || "unknown";\n'
+            + '          var aiConversationActive = s.aiConversationActive === true;\n'
+            + '          var aiConversationHtml = "<div class=\\"ai-conversation-line " + (aiConversationActive ? "active" : "inactive") + "\\">AI conversation: " + (aiConversationActive ? "active" : "inactive") + "</div>";\n'
             + '          var subsHtml = "";\n'
             + '          if (s.status && s.status.length > 0) {\n'
             + '            for (var j = 0; j < s.status.length; j++) {\n'
@@ -390,6 +402,7 @@ export class WindowStatusViewProvider implements vscode.WebviewViewProvider {
             + '            + \'<button class="delete-btn" data-windowid="\' + escapeHtml(s.windowId) + \'" title="Remove window status">\'\n'
             + '            + \'<span class="codicon codicon-trash"></span></button>\'\n'
             + '            + \'</div>\'\n'
+            + '            + aiConversationHtml\n'
             + '            + (subsHtml ? \'<div class="subsystem-list">\' + subsHtml + \'</div>\' : \'\')\n'
             + '            + \'</div>\';\n'
             + '        }\n'
@@ -555,6 +568,7 @@ export function writeWindowState(
                 workspace,
                 activeQuest,
                 status: [],
+                aiConversationActive: false,
             };
         } else {
             state = {
@@ -562,6 +576,7 @@ export function writeWindowState(
                 workspace,
                 activeQuest,
                 status: [],
+                aiConversationActive: false,
             };
         }
 
@@ -614,6 +629,56 @@ export function deleteWindowStateFile(windowId: string): void {
         }
     } catch (error) {
         reportException('windowStatusPanel.deleteWindowStateFile', error, { windowId });
+    }
+}
+
+/**
+ * Write AI conversation active/inactive state for a window.
+ */
+export function writeWindowConversationState(
+    windowId: string,
+    workspace: string,
+    activeQuest: string,
+    isActive: boolean,
+): void {
+    try {
+        const filePath = stateFilePath(windowId);
+        if (!filePath) {
+            debugLog('[WindowStatus] Cannot write AI conversation state — no local folder', 'WARN', 'windowStatus');
+            return;
+        }
+
+        let state: WindowStateFile;
+        if (fs.existsSync(filePath)) {
+            const existing = readWindowStateFile(filePath);
+            state = existing || {
+                windowId,
+                workspace,
+                activeQuest,
+                status: [],
+                aiConversationActive: false,
+            };
+        } else {
+            state = {
+                windowId,
+                workspace,
+                activeQuest,
+                status: [],
+                aiConversationActive: false,
+            };
+        }
+
+        state.workspace = workspace;
+        state.activeQuest = activeQuest;
+        state.aiConversationActive = isActive;
+
+        const tempPath = filePath + '.tmp';
+        fs.writeFileSync(tempPath, JSON.stringify(state, null, 2), 'utf-8');
+        fs.renameSync(tempPath, filePath);
+
+        debugLog(`[WindowStatus] Updated AI conversation state: windowId=${windowId} active=${isActive}`, 'INFO', 'windowStatus');
+    } catch (error) {
+        reportException('windowStatusPanel.writeWindowConversationState', error, { windowId, isActive });
     }
 }
 

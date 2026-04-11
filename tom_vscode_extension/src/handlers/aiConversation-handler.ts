@@ -35,6 +35,7 @@ import {
     isTrailEnabled, loadTrailConfig,
 } from '../services/trailLogging';
 import { WsPaths } from '../utils/workspacePaths';
+import { writeWindowConversationState } from './windowStatusPanel-handler.js';
 
 // ============================================================================
 // Output Channel
@@ -991,6 +992,19 @@ export class AiConversationManager {
         return `${date}_${time}`;
     }
 
+    private updateWindowConversationState(isActive: boolean): void {
+        try {
+            writeWindowConversationState(
+                this.getWindowId(),
+                this.getWorkspaceName(),
+                WsPaths.getWorkspaceQuestId(),
+                isActive,
+            );
+        } catch (error) {
+            bridgeLog(`[Bot Conversation] Failed to update window conversation state: ${error}`);
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Core conversation loop
     // -----------------------------------------------------------------------
@@ -1136,6 +1150,7 @@ export class AiConversationManager {
             logFilePath: '',
         };
         this.activeConversation = state;
+        this.updateWindowConversationState(true);
 
         bridgeLog(`[Bot Conversation] Starting: ${conversationId} | Goal: ${goal.trim().substring(0, 80)}...`);
 
@@ -1158,6 +1173,7 @@ export class AiConversationManager {
         } finally {
             state.active = false;
             this.writeConversationLog(state);
+            this.updateWindowConversationState(false);
 
             if (state.logFilePath && fs.existsSync(state.logFilePath)) {
                 const action = await vscode.window.showInformationMessage(
@@ -1850,6 +1866,7 @@ export class AiConversationManager {
             logFilePath: '',
         };
         this.activeConversation = state;
+        this.updateWindowConversationState(true);
 
         bridgeLog(`[Bot Conversation] Bridge start: ${conversationId} | Goal: ${goal.substring(0, 80)}...`);
 
@@ -1874,6 +1891,7 @@ export class AiConversationManager {
         } finally {
             state.active = false;
             this.writeConversationLog(state);
+            this.updateWindowConversationState(false);
             if (this.activeConversation === state) {
                 this.activeConversation = null;
             }
@@ -2075,6 +2093,7 @@ export class AiConversationManager {
         if (this.activeConversation?.active) {
             this.activeConversation.active = false;
             this.activeConversation.cancellationSource.cancel();
+            this.updateWindowConversationState(false);
             bridgeLog(`[Bot Conversation] Stopped: ${reason ?? 'user requested'}`);
         }
     }
