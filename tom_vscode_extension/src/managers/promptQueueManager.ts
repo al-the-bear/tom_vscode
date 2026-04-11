@@ -95,6 +95,7 @@ export interface QueuedPrompt {
     repeatIndex?: number;
     repeatPrefix?: string;
     repeatSuffix?: string;
+    repeatMainPromptOnly?: boolean;
     answerWaitMinutes?: number;   // If > 0, auto-advance after N minutes instead of waiting for answer file
 }
 
@@ -630,6 +631,7 @@ export class PromptQueueManager {
                             repeatIndex: sending.repeatIndex,
                         });
                         if (repeatDecision.shouldRepeat) {
+                            const repeatMainPromptOnly = sending.repeatMainPromptOnly === true;
                             await this.enqueue({
                                 originalText: sending.originalText,
                                 template: sending.template,
@@ -640,15 +642,16 @@ export class PromptQueueManager {
                                 repeatIndex: repeatDecision.nextRepeatIndex,
                                 repeatPrefix: sending.repeatPrefix,
                                 repeatSuffix: sending.repeatSuffix,
+                                repeatMainPromptOnly,
                                 reminderTemplateId: sending.reminderTemplateId,
                                 reminderTimeoutMinutes: sending.reminderTimeoutMinutes,
                                 reminderRepeat: sending.reminderRepeat,
                                 reminderEnabled: sending.reminderEnabled,
-                                prePrompts: (sending.prePrompts || []).map(pp => ({
+                                prePrompts: repeatMainPromptOnly ? [] : (sending.prePrompts || []).map(pp => ({
                                     text: pp.text,
                                     template: pp.template,
                                 })),
-                                followUps: (sending.followUps || []).map(f => ({
+                                followUps: repeatMainPromptOnly ? [] : (sending.followUps || []).map(f => ({
                                     originalText: f.originalText,
                                     template: f.template,
                                     reminderTemplateId: f.reminderTemplateId,
@@ -865,6 +868,7 @@ export class PromptQueueManager {
                     repeatIndex: sending.repeatIndex,
                 });
                 if (repeatDecision.shouldRepeat) {
+                    const repeatMainPromptOnly = sending.repeatMainPromptOnly === true;
                     await this.enqueue({
                         originalText: sending.originalText,
                         template: sending.template,
@@ -875,15 +879,16 @@ export class PromptQueueManager {
                         repeatIndex: repeatDecision.nextRepeatIndex,
                         repeatPrefix: sending.repeatPrefix,
                         repeatSuffix: sending.repeatSuffix,
+                        repeatMainPromptOnly,
                         reminderTemplateId: sending.reminderTemplateId,
                         reminderTimeoutMinutes: sending.reminderTimeoutMinutes,
                         reminderRepeat: sending.reminderRepeat,
                         reminderEnabled: sending.reminderEnabled,
-                        prePrompts: (sending.prePrompts || []).map(pp => ({
+                        prePrompts: repeatMainPromptOnly ? [] : (sending.prePrompts || []).map(pp => ({
                             text: pp.text,
                             template: pp.template,
                         })),
-                        followUps: (sending.followUps || []).map(f => ({
+                        followUps: repeatMainPromptOnly ? [] : (sending.followUps || []).map(f => ({
                             originalText: f.originalText,
                             template: f.template,
                             reminderTemplateId: f.reminderTemplateId,
@@ -1027,6 +1032,7 @@ export class PromptQueueManager {
         repeatIndex?: number;
         repeatPrefix?: string;
         repeatSuffix?: string;
+        repeatMainPromptOnly?: boolean;
         answerWaitMinutes?: number;
         initialStatus?: 'staged' | 'pending';
         deferSend?: boolean;
@@ -1088,6 +1094,7 @@ export class PromptQueueManager {
             repeatIndex: Math.max(0, Math.round(opts.repeatIndex || 0)),
             repeatPrefix: opts.repeatPrefix,
             repeatSuffix: opts.repeatSuffix,
+            repeatMainPromptOnly: opts.repeatMainPromptOnly === true,
             answerWaitMinutes: opts.answerWaitMinutes && opts.answerWaitMinutes > 0 ? opts.answerWaitMinutes : undefined,
         };
 
@@ -1391,6 +1398,7 @@ export class PromptQueueManager {
         });
 
         if (repeatDecision.shouldRepeat) {
+            const repeatMainPromptOnly = sending.repeatMainPromptOnly === true;
             await this.enqueue({
                 originalText: sending.originalText,
                 template: sending.template,
@@ -1401,15 +1409,16 @@ export class PromptQueueManager {
                 repeatIndex: repeatDecision.nextRepeatIndex,
                 repeatPrefix: sending.repeatPrefix,
                 repeatSuffix: sending.repeatSuffix,
+                repeatMainPromptOnly,
                 reminderTemplateId: sending.reminderTemplateId,
                 reminderTimeoutMinutes: sending.reminderTimeoutMinutes,
                 reminderRepeat: sending.reminderRepeat,
                 reminderEnabled: sending.reminderEnabled,
-                prePrompts: (sending.prePrompts || []).map(pp => ({
+                prePrompts: repeatMainPromptOnly ? [] : (sending.prePrompts || []).map(pp => ({
                     text: pp.text,
                     template: pp.template,
                 })),
-                followUps: (sending.followUps || []).map(f => ({
+                followUps: repeatMainPromptOnly ? [] : (sending.followUps || []).map(f => ({
                     originalText: f.originalText,
                     template: f.template,
                     reminderTemplateId: f.reminderTemplateId,
@@ -1497,7 +1506,7 @@ export class PromptQueueManager {
         return changed;
     }
 
-    updateRepeat(id: string, patch: { repeatCount?: number; repeatIndex?: number; repeatPrefix?: string; repeatSuffix?: string; answerWaitMinutes?: number }): void {
+    updateRepeat(id: string, patch: { repeatCount?: number; repeatIndex?: number; repeatPrefix?: string; repeatSuffix?: string; answerWaitMinutes?: number; repeatMainPromptOnly?: boolean }): void {
         const item = this._items.find(i => i.id === id);
         if (!item || !this.isEditableStatus(item.status)) { return; }
 
@@ -1515,6 +1524,9 @@ export class PromptQueueManager {
         }
         if (patch.answerWaitMinutes !== undefined) {
             item.answerWaitMinutes = patch.answerWaitMinutes > 0 ? patch.answerWaitMinutes : undefined;
+        }
+        if (patch.repeatMainPromptOnly !== undefined) {
+            item.repeatMainPromptOnly = patch.repeatMainPromptOnly === true;
         }
 
         this.persist();
@@ -1918,6 +1930,7 @@ export class PromptQueueManager {
                 repeatIndex: Math.max(0, Math.round(Number(main['repeat-index'] || 0))),
                 repeatPrefix: main['repeat-prefix'],
                 repeatSuffix: main['repeat-suffix'],
+                repeatMainPromptOnly: main['repeat-main-prompt-only'] === true,
                 answerWaitMinutes: main['answer-wait-minutes'] && Number(main['answer-wait-minutes']) > 0 ? Number(main['answer-wait-minutes']) : undefined,
             };
 
@@ -1977,6 +1990,7 @@ export class PromptQueueManager {
             'repeat-index': Math.max(0, Math.round(item.repeatIndex || 0)),
             'repeat-prefix': item.repeatPrefix,
             'repeat-suffix': item.repeatSuffix,
+            'repeat-main-prompt-only': item.repeatMainPromptOnly || undefined,
             'answer-wait-minutes': item.answerWaitMinutes,
         };
 

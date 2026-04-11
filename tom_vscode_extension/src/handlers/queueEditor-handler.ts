@@ -323,6 +323,7 @@ async function handleMessage(msg: any): Promise<void> {
             repeatPrefix: msg.repeatPrefix,
             repeatSuffix: msg.repeatSuffix,
             answerWaitMinutes: msg.answerWaitMinutes,
+            repeatMainPromptOnly: msg.repeatMainPromptOnly,
           });
           break;
         case 'setResponseTimeout':

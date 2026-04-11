@@ -202,6 +202,7 @@ function renderEntry(item, idx) {
     var noReminderSelected = item.reminderEnabled === false && !item.reminderTemplateId;
     var repeatPrefix = (typeof item.repeatPrefix === 'string') ? item.repeatPrefix : '';
     var repeatSuffix = (typeof item.repeatSuffix === 'string') ? item.repeatSuffix : '';
+    var repeatMainPromptOnly = item.repeatMainPromptOnly === true;
     templateRow = '<div class="template-row">' +
       '<label style="font-size:0.85em;font-weight:600;">Template:</label>' +
       '<select onchange="updateItemTemplate(\\'' + safeId + '\\', this.value)">' +
@@ -218,9 +219,12 @@ function renderEntry(item, idx) {
       '<span style="font-size:0.8em;opacity:0.85;">Wait:</span>' +
       '<select onchange="updateItemReminder(\\'' + safeId + '\\', \\'timeout\\', this.value)">' + reminderTimeoutOptions(item.reminderTimeoutMinutes || responseTimeoutMinutes) + '</select>' +
       '<span style="font-size:0.8em;opacity:0.85;margin-left:8px;">Queue Repeats:</span>' +
-      '<input type="number" min="1" step="1" value="' + Math.max(1, repeatCount) + '" style="width:80px" onchange="updateItemRepeat(\\'' + safeId + '\\', { repeatCount: this.value })">' +
+      '<input type="number" min="1" step="1" value="' + Math.max(1, repeatCount) + '" style="width:33px" onchange="updateItemRepeat(\\'' + safeId + '\\', { repeatCount: this.value })">' +
       '<span style="font-size:0.8em;opacity:0.85;margin-left:8px;">Answer Wait (min):</span>' +
-      '<input type="number" min="0" step="1" value="' + Math.max(0, parseInt(String(item.answerWaitMinutes || 0), 10) || 0) + '" style="width:60px" title="Minutes to wait before auto-advancing (0 = wait for answer file)" onchange="updateItemRepeat(\\'' + safeId + '\\', { answerWaitMinutes: this.value })">' +
+      '<input type="number" min="0" step="1" value="' + Math.max(0, parseInt(String(item.answerWaitMinutes || 0), 10) || 0) + '" style="width:33px" title="Minutes to wait before auto-advancing (0 = wait for answer file)" onchange="updateItemRepeat(\\'' + safeId + '\\', { answerWaitMinutes: this.value })">' +
+      '<label style="font-size:0.8em;opacity:0.85;margin-left:8px;display:inline-flex;align-items:center;gap:4px;">' +
+      '<input type="checkbox"' + (repeatMainPromptOnly ? ' checked' : '') + ' onchange="updateItemRepeat(\\'' + safeId + '\\', { repeatMainPromptOnly: this.checked })">' +
+      'Repeat main prompt only</label>' +
     '</div>' +
     '<div class="repeat-affix-row">' +
       '<label style="font-size:0.8em;opacity:0.9;">Repeat Prefix (supports \${repeatNumber}, \${repeatIndex}, \${repeatCount})</label>' +
@@ -431,6 +435,7 @@ function updateItemRepeat(id, patch) {
     repeatPrefix: undefined,
     repeatSuffix: undefined,
     answerWaitMinutes: undefined,
+    repeatMainPromptOnly: undefined,
   };
   if (Object.prototype.hasOwnProperty.call(nextPatch, 'repeatCount')) {
     msg.repeatCount = Math.max(0, parseInt(String(nextPatch.repeatCount || '0'), 10) || 0);
@@ -443,6 +448,9 @@ function updateItemRepeat(id, patch) {
   }
   if (Object.prototype.hasOwnProperty.call(nextPatch, 'answerWaitMinutes')) {
     msg.answerWaitMinutes = Math.max(0, parseInt(String(nextPatch.answerWaitMinutes || '0'), 10) || 0);
+  }
+  if (Object.prototype.hasOwnProperty.call(nextPatch, 'repeatMainPromptOnly')) {
+    msg.repeatMainPromptOnly = !!nextPatch.repeatMainPromptOnly;
   }
   vscode.postMessage(msg);
 }

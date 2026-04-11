@@ -139,6 +139,21 @@ async function handleMessage(msg: any): Promise<void> {
       return;
     }
 
+    case 'showTemplateFile': {
+      const templateId = msg.templateId?.trim();
+      if (!templateId) { return; }
+      const template = readTemplate(templateId);
+      if (!template?.filePath) {
+        vscode.window.showWarningMessage(`Template file not found: ${templateId}`);
+        return;
+      }
+      const uri = vscode.Uri.file(template.filePath);
+      const doc = await vscode.workspace.openTextDocument(uri);
+      await vscode.window.showTextDocument(doc, { preview: false });
+      await vscode.commands.executeCommand('revealInExplorer', uri);
+      return;
+    }
+
     case 'saveTemplate': {
       saveCurrentTemplate(msg);
       return;
@@ -272,6 +287,8 @@ function docToTemplateItem(templateId: string, doc: QueueFileYaml): Record<strin
     repeatIndex: Math.max(0, Math.round(Number(mainPrompt?.['repeat-index'] || 0))),
     repeatPrefix: mainPrompt?.['repeat-prefix'] || '',
     repeatSuffix: mainPrompt?.['repeat-suffix'] || '',
+    answerWaitMinutes: Math.max(0, Math.round(Number(mainPrompt?.['answer-wait-minutes'] || 0))),
+    repeatMainPromptOnly: mainPrompt?.['repeat-main-prompt-only'] === true,
     prePrompts: prePrompts.map(pp => ({
       text: pp['prompt-text'] || '',
       template: pp.template || '',
@@ -306,6 +323,8 @@ function templateItemToDoc(item: any, existingDoc?: QueueFileYaml): QueueFileYam
     'repeat-index': Math.max(0, Math.round(Number(item.repeatIndex || 0))),
     'repeat-prefix': item.repeatPrefix || undefined,
     'repeat-suffix': item.repeatSuffix || undefined,
+    'answer-wait-minutes': Math.max(0, Math.round(Number(item.answerWaitMinutes || 0))) || undefined,
+    'repeat-main-prompt-only': item.repeatMainPromptOnly === true || undefined,
     reminder: item.reminderEnabled ? {
       enabled: true,
       'template-id': item.reminderTemplateId || undefined,
@@ -554,6 +573,7 @@ ${queueEntryStyles()}
       <button class="ctx-btn-icon" onclick="createTemplate()" title="New Template"><span class="codicon codicon-add"></span></button>
       <button class="ctx-btn-icon" onclick="copyCurrentTemplate()" title="Copy Template"><span class="codicon codicon-copy"></span></button>
       <button class="ctx-btn-icon" onclick="renameCurrentTemplate()" title="Rename Template"><span class="codicon codicon-edit"></span></button>
+      <button class="ctx-btn-icon" onclick="openCurrentTemplateFile()" title="Open Template YAML"><span class="codicon codicon-go-to-file"></span></button>
       <button class="ctx-btn-icon" onclick="deleteCurrentTemplate()" title="Delete Template"><span class="codicon codicon-trash"></span></button>
     </div>
     <div class="tpl-sidebar-list" id="templateList"></div>
@@ -676,6 +696,11 @@ function renameCurrentTemplate() {
   vscode.postMessage({ type: 'renameCurrentTemplate', templateId: selectedId });
 }
 
+function openCurrentTemplateFile() {
+  if (!selectedId) { showFeedback('No template selected', 'error'); return; }
+  vscode.postMessage({ type: 'showTemplateFile', templateId: selectedId });
+}
+
 function deleteCurrentTemplate() {
   if (!selectedId) return;
   if (!confirm('Delete template "' + selectedName + '"?')) return;
@@ -742,6 +767,12 @@ updateItemRepeat = function(id, patch) {
     }
     if (Object.prototype.hasOwnProperty.call(localPatch, 'repeatSuffix')) {
       currentItems[0].repeatSuffix = String(localPatch.repeatSuffix || '');
+    }
+    if (Object.prototype.hasOwnProperty.call(localPatch, 'answerWaitMinutes')) {
+      currentItems[0].answerWaitMinutes = Math.max(0, parseInt(String(localPatch.answerWaitMinutes || '0'), 10) || 0);
+    }
+    if (Object.prototype.hasOwnProperty.call(localPatch, 'repeatMainPromptOnly')) {
+      currentItems[0].repeatMainPromptOnly = !!localPatch.repeatMainPromptOnly;
     }
     renderEditor();
   }

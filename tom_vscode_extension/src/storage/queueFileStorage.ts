@@ -94,6 +94,7 @@ export interface QueuePromptYaml {
     'repeat-index'?: number;
     'repeat-prefix'?: string;
     'repeat-suffix'?: string;
+    'repeat-main-prompt-only'?: boolean;
     'answer-wait-minutes'?: number;
     'llm-profile'?: string;
     reminder?: QueueReminderConfig;
