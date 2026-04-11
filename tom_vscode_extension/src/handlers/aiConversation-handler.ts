@@ -952,6 +952,14 @@ export class AiConversationManager {
         const compactPath = path.join(logDir, `${workspaceName}.trail.md`);
         const compactLines: string[] = ['# AI Conversation Trail', '', 'Compact conversation history for AI Conversation panel.', ''];
 
+        // Do not wipe compact history when a run ends before any turn completes.
+        if (state.exchanges.length === 0) {
+            if (!fs.existsSync(compactPath)) {
+                fs.writeFileSync(compactPath, compactLines.join('\n'), 'utf-8');
+            }
+            return;
+        }
+
         for (const ex of state.exchanges) {
             const ts = ex.timestamp.toISOString();
             const fileTs = this.toTrailTimestamp(ex.timestamp);
