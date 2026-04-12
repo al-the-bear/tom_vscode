@@ -1,511 +1,1345 @@
 # Module Structure and Relationships
 
-This document shows which functional components use other functional components in the VS Code extension, based on internal TypeScript import relationships.
+This document shows which functional components in the extension use other functional components, based on resolved internal TypeScript imports.
 
-## Method and Scope
+## Analysis Basis
 
-- Scope analyzed: all TypeScript modules under src/.
-- Relationship signal: static internal imports that resolve to source files in this package.
-- Graph size: 107 source files, 251 internal imports, 12 functional components, 65 component-to-component edges.
+- Source scope: `src/**/*.ts`
+- Functional component heuristic: runtime modules such as handlers (`*-handler.ts`), managers/stores/services/engines/systems/providers/clients, tools under `src/tools/`, plus root runtime modules (`extension.ts`, `vscode-bridge.ts`).
+- Relationship edge: component A imports component B via relative module import resolved to `src` file.
+- Source files analyzed: 107
+- Functional components found: 64
+- Functional component dependency edges: 88
 
-## Functional Components
+## Subsystem Relationship Summary
 
-| Component | Outgoing dependencies | Incoming dependencies |
-| --- | --- | --- |
-| Bridge, Execution, CLI, and Integrations | 41 | 18 |
-| Chat, Copilot, and Local LLM Flows | 60 | 28 |
-| Core Extension Wiring | 30 | 47 |
-| General Handlers | 20 | 21 |
-| Queue, Timed Requests, and Scheduling | 31 | 27 |
-| Shared Infrastructure and Contracts | 6 | 61 |
-| State Managers and Coordination | 0 | 0 |
-| Todo, Notes, and Work Tracking | 22 | 13 |
-| Tooling Surface and Model Tools | 9 | 9 |
-| Trail and Markdown Views | 10 | 20 |
-| Window Layout, Panels, and UI Shell | 21 | 7 |
-| YAML Graph and Diagram Editing | 1 | 0 |
-
-## Top Cross-Component Dependencies
-
-| Using component | Used component | Import links | Evidence examples |
+| Subsystem | Functional Components | Outgoing Edges | Incoming Edges |
 | --- | --- | --- | --- |
-| Bridge, Execution, CLI, and Integrations | Core Extension Wiring | 18 | src/handlers/chat/telegram-channel.ts -> src/handlers/handler_shared.ts; src/handlers/cliServer-handler.ts -> src/handlers/handler_shared.ts |
-| Queue, Timed Requests, and Scheduling | Queue, Timed Requests, and Scheduling | 17 | src/handlers/queueEditor-handler.ts -> src/managers/promptQueueManager.ts; src/handlers/queueEditor-handler.ts -> src/managers/reminderSystem.ts |
-| Chat, Copilot, and Local LLM Flows | Shared Infrastructure and Contracts | 14 | src/handlers/aiConversation-handler.ts -> src/utils/workspacePaths.ts; src/handlers/chatPanel-handler.ts -> src/utils/debugLogger.ts |
-| Chat, Copilot, and Local LLM Flows | Chat, Copilot, and Local LLM Flows | 13 | src/handlers/__tests__/tomAiChat-utils.test.ts -> src/handlers/tomAiChat-utils.ts; src/handlers/aiConversation-handler.ts -> src/utils/sendToChatConfig.ts |
-| Bridge, Execution, CLI, and Integrations | Bridge, Execution, CLI, and Integrations | 9 | src/handlers/chat/telegram-channel.ts -> src/handlers/telegram-notifier.ts; src/handlers/restartBridge-handler.ts -> src/vscode-bridge.ts |
-| Trail and Markdown Views | Shared Infrastructure and Contracts | 8 | src/handlers/trailEditor-handler.ts -> src/utils/workspacePaths.ts; src/handlers/trailEditor-handler.ts -> src/utils/debugLogger.ts |
-| Chat, Copilot, and Local LLM Flows | Core Extension Wiring | 7 | src/handlers/aiConversation-handler.ts -> src/handlers/handler_shared.ts; src/handlers/aiConversation-handler.ts -> src/handlers/chat/index.ts |
-| Core Extension Wiring | Shared Infrastructure and Contracts | 7 | src/extension.ts -> src/utils/debugLogger.ts; src/extension.ts -> src/utils/tomAiConfiguration.ts |
-| Todo, Notes, and Work Tracking | Shared Infrastructure and Contracts | 7 | src/handlers/questTodoEditor-handler.ts -> src/utils/workspacePaths.ts; src/handlers/questTodoPanel-handler.ts -> src/utils/workspacePaths.ts |
-| Bridge, Execution, CLI, and Integrations | Shared Infrastructure and Contracts | 6 | src/handlers/commandline-handler.ts -> src/utils/projectDetector.ts; src/handlers/commandline-handler.ts -> src/utils/executableResolver.ts |
-| Chat, Copilot, and Local LLM Flows | General Handlers | 6 | src/handlers/aiConversation-handler.ts -> src/handlers/promptTemplate.ts; src/handlers/chatPanel-handler.ts -> src/handlers/globalTemplateEditor-handler.ts |
-| Chat, Copilot, and Local LLM Flows | Trail and Markdown Views | 6 | src/handlers/aiConversation-handler.ts -> src/services/trailLogging.ts; src/handlers/chatPanel-handler.ts -> src/handlers/markdownHtmlPreview.ts |
-| General Handlers | Core Extension Wiring | 6 | src/handlers/combinedCommand-handler.ts -> src/handlers/handler_shared.ts; src/handlers/debugLogging-handler.ts -> src/handlers/handler_shared.ts |
-| General Handlers | Shared Infrastructure and Contracts | 6 | src/handlers/combinedCommand-handler.ts -> src/utils/fsUtils.ts; src/handlers/contextSettingsEditor-handler.ts -> src/utils/workspacePaths.ts |
-| Chat, Copilot, and Local LLM Flows | Todo, Notes, and Work Tracking | 5 | src/handlers/chatVariablesEditor-handler.ts -> src/managers/questTodoManager.ts; src/managers/chatTodoSessionManager.ts -> src/managers/todoProvider.ts |
-| Chat, Copilot, and Local LLM Flows | Tooling Surface and Model Tools | 5 | src/handlers/localLlm-handler.ts -> src/tools/shared-tool-registry.ts; src/handlers/localLlm-handler.ts -> src/tools/tool-executors.ts |
-| General Handlers | General Handlers | 5 | src/handlers/contextSettingsEditor-handler.ts -> src/handlers/globalTemplateEditor-handler.ts; src/handlers/contextSettingsEditor-handler.ts -> src/handlers/promptTemplate.ts |
-| Queue, Timed Requests, and Scheduling | Core Extension Wiring | 5 | src/handlers/queueEditor-handler.ts -> src/handlers/handler_shared.ts; src/handlers/queueTemplateEditor-handler.ts -> src/handlers/handler_shared.ts |
-| Shared Infrastructure and Contracts | Shared Infrastructure and Contracts | 5 | src/utils/projectDetector.ts -> src/utils/workspacePaths.ts; src/utils/tomAiConfiguration.ts -> src/utils/fsUtils.ts |
-| Todo, Notes, and Work Tracking | Todo, Notes, and Work Tracking | 5 | src/handlers/sidebarNotes-handler.ts -> src/managers/sessionTodoStore.ts; src/handlers/sidebarNotes-handler.ts -> src/handlers/questTodoPanel-handler.ts |
+| handlers | 45 | 50 | 31 |
+| managers | 8 | 8 | 40 |
+| tools | 6 | 12 | 9 |
+| utils | 2 | 0 | 3 |
+| extension.ts | 1 | 17 | 0 |
+| services | 1 | 0 | 3 |
+| vscode-bridge.ts | 1 | 1 | 2 |
 
-## Dependency Matrix
+## Functional Component Inventory
 
-| From \ To | Bridge, Execution, CLI, and Integrations | Chat, Copilot, and Local LLM Flows | Core Extension Wiring | General Handlers | Queue, Timed Requests, and Scheduling | Shared Infrastructure and Contracts | State Managers and Coordination | Todo, Notes, and Work Tracking | Tooling Surface and Model Tools | Trail and Markdown Views | Window Layout, Panels, and UI Shell | YAML Graph and Diagram Editing |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Bridge, Execution, CLI, and Integrations | 9 | 2 | 18 | 0 | 2 | 6 | 0 | 0 | 0 | 4 | 0 | 0 |
-| Chat, Copilot, and Local LLM Flows | 1 | 13 | 7 | 6 | 1 | 14 | 0 | 5 | 5 | 6 | 2 | 0 |
-| Core Extension Wiring | 4 | 4 | 1 | 1 | 4 | 7 | 0 | 3 | 1 | 3 | 2 | 0 |
-| General Handlers | 0 | 1 | 6 | 5 | 0 | 6 | 0 | 0 | 0 | 1 | 1 | 0 |
-| Queue, Timed Requests, and Scheduling | 0 | 2 | 5 | 3 | 17 | 1 | 0 | 0 | 0 | 1 | 2 | 0 |
-| Shared Infrastructure and Contracts | 0 | 0 | 1 | 0 | 0 | 5 | 0 | 0 | 0 | 0 | 0 | 0 |
-| State Managers and Coordination | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| Todo, Notes, and Work Tracking | 0 | 3 | 2 | 3 | 0 | 7 | 0 | 5 | 0 | 2 | 0 | 0 |
-| Tooling Surface and Model Tools | 0 | 2 | 1 | 1 | 0 | 2 | 0 | 0 | 2 | 1 | 0 | 0 |
-| Trail and Markdown Views | 0 | 0 | 1 | 0 | 0 | 8 | 0 | 0 | 0 | 1 | 0 | 0 |
-| Window Layout, Panels, and UI Shell | 4 | 1 | 4 | 2 | 3 | 5 | 0 | 0 | 1 | 1 | 0 | 0 |
-| YAML Graph and Diagram Editing | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Component | Subsystem | File | Uses Functional Components | Used By Functional Components |
+| --- | --- | --- | --- | --- |
+| extension | extension.ts | src/extension.ts | 17 | 0 |
+| chatPanel-handler | handlers | src/handlers/chatPanel-handler.ts | 6 | 1 |
+| chat-enhancement-tools | tools | src/tools/chat-enhancement-tools.ts | 6 | 1 |
+| tomScriptingBridge-handler | handlers | src/handlers/tomScriptingBridge-handler.ts | 5 | 2 |
+| timedRequestsEditor-handler | handlers | src/handlers/timedRequestsEditor-handler.ts | 5 | 0 |
+| tool-executors | tools | src/tools/tool-executors.ts | 4 | 2 |
+| queueEditor-handler | handlers | src/handlers/queueEditor-handler.ts | 4 | 0 |
+| sidebarNotes-handler | handlers | src/handlers/sidebarNotes-handler.ts | 4 | 0 |
+| statusPage-handler | handlers | src/handlers/statusPage-handler.ts | 4 | 0 |
+| questTodoPanel-handler | handlers | src/handlers/questTodoPanel-handler.ts | 3 | 4 |
+| chatVariablesEditor-handler | handlers | src/handlers/chatVariablesEditor-handler.ts | 3 | 0 |
+| promptQueueManager | managers | src/managers/promptQueueManager.ts | 2 | 6 |
+| timerEngine | managers | src/managers/timerEngine.ts | 2 | 4 |
+| aiConversation-handler | handlers | src/handlers/aiConversation-handler.ts | 2 | 1 |
+| todoLogPanel-handler | handlers | src/handlers/todoLogPanel-handler.ts | 2 | 1 |
+| trailEditor-handler | handlers | src/handlers/trailEditor-handler.ts | 2 | 1 |
+| trailViewer-handler | handlers | src/handlers/trailViewer-handler.ts | 2 | 1 |
+| tomAiChat-handler | handlers | src/handlers/tomAiChat-handler.ts | 2 | 0 |
+| sessionTodoStore | managers | src/managers/sessionTodoStore.ts | 1 | 6 |
+| reminderSystem | managers | src/managers/reminderSystem.ts | 1 | 5 |
+| localLlm-handler | handlers | src/handlers/localLlm-handler.ts | 1 | 3 |
+| chatTodoSessionManager | managers | src/managers/chatTodoSessionManager.ts | 1 | 2 |
+| tomAiChat-tools | tools | src/tools/tomAiChat-tools.ts | 1 | 2 |
+| vscode-bridge | vscode-bridge.ts | src/vscode-bridge.ts | 1 | 2 |
+| restartBridge-handler | handlers | src/handlers/restartBridge-handler.ts | 1 | 1 |
+| reusablePromptEditor-handler | handlers | src/handlers/reusablePromptEditor-handler.ts | 1 | 1 |
+| todoProvider | managers | src/managers/todoProvider.ts | 1 | 1 |
+| chatVariableResolvers | tools | src/tools/chatVariableResolvers.ts | 1 | 1 |
+| contextSettingsEditor-handler | handlers | src/handlers/contextSettingsEditor-handler.ts | 1 | 0 |
+| issuesPanel-handler | handlers | src/handlers/issuesPanel-handler.ts | 1 | 0 |
+| queueTemplateEditor-handler | handlers | src/handlers/queueTemplateEditor-handler.ts | 1 | 0 |
+| chatVariablesStore | managers | src/managers/chatVariablesStore.ts | 0 | 10 |
+| questTodoManager | managers | src/managers/questTodoManager.ts | 0 | 6 |
+| globalTemplateEditor-handler | handlers | src/handlers/globalTemplateEditor-handler.ts | 0 | 5 |
+| windowStatusPanel-handler | handlers | src/handlers/windowStatusPanel-handler.ts | 0 | 4 |
+| trailService | services | src/services/trailService.ts | 0 | 3 |
+| shared-tool-registry | tools | src/tools/shared-tool-registry.ts | 0 | 3 |
+| panelYamlStore | utils | src/utils/panelYamlStore.ts | 0 | 3 |
+| cliServer-handler | handlers | src/handlers/cliServer-handler.ts | 0 | 1 |
+| commandline-handler | handlers | src/handlers/commandline-handler.ts | 0 | 1 |
+| githubIssueProvider | handlers | src/handlers/githubIssueProvider.ts | 0 | 1 |
+| markdownBrowser-handler | handlers | src/handlers/markdownBrowser-handler.ts | 0 | 1 |
+| minimalMode-handler | handlers | src/handlers/minimalMode-handler.ts | 0 | 1 |
+| questTodoEditor-handler | handlers | src/handlers/questTodoEditor-handler.ts | 0 | 1 |
+| chordMenu-handler | handlers | src/handlers/chordMenu-handler.ts | 0 | 0 |
+| combinedCommand-handler | handlers | src/handlers/combinedCommand-handler.ts | 0 | 0 |
+| copilotTemplates-handler | handlers | src/handlers/copilotTemplates-handler.ts | 0 | 0 |
+| debugLogging-handler | handlers | src/handlers/debugLogging-handler.ts | 0 | 0 |
+| executeAsScript-handler | handlers | src/handlers/executeAsScript-handler.ts | 0 | 0 |
+| executeInTomAiBuild-handler | handlers | src/handlers/executeInTomAiBuild-handler.ts | 0 | 0 |
+| issueProvider | handlers | src/handlers/issueProvider.ts | 0 | 0 |
+| notepad-handler | handlers | src/handlers/notepad-handler.ts | 0 | 0 |
+| printConfiguration-handler | handlers | src/handlers/printConfiguration-handler.ts | 0 | 0 |
+| processMonitor-handler | handlers | src/handlers/processMonitor-handler.ts | 0 | 0 |
+| reloadWindow-handler | handlers | src/handlers/reloadWindow-handler.ts | 0 | 0 |
+| runTests-handler | handlers | src/handlers/runTests-handler.ts | 0 | 0 |
+| sendToChat-handler | handlers | src/handlers/sendToChat-handler.ts | 0 | 0 |
+| showApiInfo-handler | handlers | src/handlers/showApiInfo-handler.ts | 0 | 0 |
+| showHelp-handler | handlers | src/handlers/showHelp-handler.ts | 0 | 0 |
+| stateMachine-handler | handlers | src/handlers/stateMachine-handler.ts | 0 | 0 |
+| wsPanel-handler | handlers | src/handlers/wsPanel-handler.ts | 0 | 0 |
+| yamlGraph-handler | handlers | src/handlers/yamlGraph-handler.ts | 0 | 0 |
+| local-llm-tools-config | tools | src/tools/local-llm-tools-config.ts | 0 | 0 |
+| baseWebviewProvider | utils | src/utils/baseWebviewProvider.ts | 0 | 0 |
+
+## Dependency Hubs (Top 15)
+
+| Component | Subsystem | File | Uses Functional Components | Used By Functional Components |
+| --- | --- | --- | --- | --- |
+| chatVariablesStore | managers | src/managers/chatVariablesStore.ts | 0 | 10 |
+| promptQueueManager | managers | src/managers/promptQueueManager.ts | 2 | 6 |
+| sessionTodoStore | managers | src/managers/sessionTodoStore.ts | 1 | 6 |
+| questTodoManager | managers | src/managers/questTodoManager.ts | 0 | 6 |
+| reminderSystem | managers | src/managers/reminderSystem.ts | 1 | 5 |
+| globalTemplateEditor-handler | handlers | src/handlers/globalTemplateEditor-handler.ts | 0 | 5 |
+| questTodoPanel-handler | handlers | src/handlers/questTodoPanel-handler.ts | 3 | 4 |
+| timerEngine | managers | src/managers/timerEngine.ts | 2 | 4 |
+| windowStatusPanel-handler | handlers | src/handlers/windowStatusPanel-handler.ts | 0 | 4 |
+| localLlm-handler | handlers | src/handlers/localLlm-handler.ts | 1 | 3 |
+| trailService | services | src/services/trailService.ts | 0 | 3 |
+| shared-tool-registry | tools | src/tools/shared-tool-registry.ts | 0 | 3 |
+| panelYamlStore | utils | src/utils/panelYamlStore.ts | 0 | 3 |
+| tomScriptingBridge-handler | handlers | src/handlers/tomScriptingBridge-handler.ts | 5 | 2 |
+| tool-executors | tools | src/tools/tool-executors.ts | 4 | 2 |
+
+## Component-to-Component Edges
+
+| From | To | From File | To File |
+| --- | --- | --- | --- |
+| extension (extension.ts) | markdownBrowser-handler (handlers) | src/extension.ts | src/handlers/markdownBrowser-handler.ts |
+| extension (extension.ts) | minimalMode-handler (handlers) | src/extension.ts | src/handlers/minimalMode-handler.ts |
+| extension (extension.ts) | questTodoEditor-handler (handlers) | src/extension.ts | src/handlers/questTodoEditor-handler.ts |
+| extension (extension.ts) | todoLogPanel-handler (handlers) | src/extension.ts | src/handlers/todoLogPanel-handler.ts |
+| extension (extension.ts) | tomScriptingBridge-handler (handlers) | src/extension.ts | src/handlers/tomScriptingBridge-handler.ts |
+| extension (extension.ts) | trailEditor-handler (handlers) | src/extension.ts | src/handlers/trailEditor-handler.ts |
+| extension (extension.ts) | windowStatusPanel-handler (handlers) | src/extension.ts | src/handlers/windowStatusPanel-handler.ts |
+| extension (extension.ts) | chatVariablesStore (managers) | src/extension.ts | src/managers/chatVariablesStore.ts |
+| extension (extension.ts) | promptQueueManager (managers) | src/extension.ts | src/managers/promptQueueManager.ts |
+| extension (extension.ts) | reminderSystem (managers) | src/extension.ts | src/managers/reminderSystem.ts |
+| extension (extension.ts) | sessionTodoStore (managers) | src/extension.ts | src/managers/sessionTodoStore.ts |
+| extension (extension.ts) | timerEngine (managers) | src/extension.ts | src/managers/timerEngine.ts |
+| extension (extension.ts) | trailService (services) | src/extension.ts | src/services/trailService.ts |
+| extension (extension.ts) | chatVariableResolvers (tools) | src/extension.ts | src/tools/chatVariableResolvers.ts |
+| extension (extension.ts) | tomAiChat-tools (tools) | src/extension.ts | src/tools/tomAiChat-tools.ts |
+| extension (extension.ts) | tool-executors (tools) | src/extension.ts | src/tools/tool-executors.ts |
+| extension (extension.ts) | vscode-bridge (vscode-bridge.ts) | src/extension.ts | src/vscode-bridge.ts |
+| aiConversation-handler (handlers) | localLlm-handler (handlers) | src/handlers/aiConversation-handler.ts | src/handlers/localLlm-handler.ts |
+| aiConversation-handler (handlers) | windowStatusPanel-handler (handlers) | src/handlers/aiConversation-handler.ts | src/handlers/windowStatusPanel-handler.ts |
+| chatPanel-handler (handlers) | aiConversation-handler (handlers) | src/handlers/chatPanel-handler.ts | src/handlers/aiConversation-handler.ts |
+| chatPanel-handler (handlers) | globalTemplateEditor-handler (handlers) | src/handlers/chatPanel-handler.ts | src/handlers/globalTemplateEditor-handler.ts |
+| chatPanel-handler (handlers) | localLlm-handler (handlers) | src/handlers/chatPanel-handler.ts | src/handlers/localLlm-handler.ts |
+| chatPanel-handler (handlers) | reusablePromptEditor-handler (handlers) | src/handlers/chatPanel-handler.ts | src/handlers/reusablePromptEditor-handler.ts |
+| chatPanel-handler (handlers) | windowStatusPanel-handler (handlers) | src/handlers/chatPanel-handler.ts | src/handlers/windowStatusPanel-handler.ts |
+| chatPanel-handler (handlers) | trailService (services) | src/handlers/chatPanel-handler.ts | src/services/trailService.ts |
+| chatVariablesEditor-handler (handlers) | chatVariablesStore (managers) | src/handlers/chatVariablesEditor-handler.ts | src/managers/chatVariablesStore.ts |
+| chatVariablesEditor-handler (handlers) | questTodoManager (managers) | src/handlers/chatVariablesEditor-handler.ts | src/managers/questTodoManager.ts |
+| chatVariablesEditor-handler (handlers) | panelYamlStore (utils) | src/handlers/chatVariablesEditor-handler.ts | src/utils/panelYamlStore.ts |
+| contextSettingsEditor-handler (handlers) | globalTemplateEditor-handler (handlers) | src/handlers/contextSettingsEditor-handler.ts | src/handlers/globalTemplateEditor-handler.ts |
+| issuesPanel-handler (handlers) | githubIssueProvider (handlers) | src/handlers/issuesPanel-handler.ts | src/handlers/githubIssueProvider.ts |
+| localLlm-handler (handlers) | tool-executors (tools) | src/handlers/localLlm-handler.ts | src/tools/tool-executors.ts |
+| questTodoPanel-handler (handlers) | chatVariablesStore (managers) | src/handlers/questTodoPanel-handler.ts | src/managers/chatVariablesStore.ts |
+| questTodoPanel-handler (handlers) | questTodoManager (managers) | src/handlers/questTodoPanel-handler.ts | src/managers/questTodoManager.ts |
+| questTodoPanel-handler (handlers) | sessionTodoStore (managers) | src/handlers/questTodoPanel-handler.ts | src/managers/sessionTodoStore.ts |
+| queueEditor-handler (handlers) | globalTemplateEditor-handler (handlers) | src/handlers/queueEditor-handler.ts | src/handlers/globalTemplateEditor-handler.ts |
+| queueEditor-handler (handlers) | chatVariablesStore (managers) | src/handlers/queueEditor-handler.ts | src/managers/chatVariablesStore.ts |
+| queueEditor-handler (handlers) | promptQueueManager (managers) | src/handlers/queueEditor-handler.ts | src/managers/promptQueueManager.ts |
+| queueEditor-handler (handlers) | reminderSystem (managers) | src/handlers/queueEditor-handler.ts | src/managers/reminderSystem.ts |
+| queueTemplateEditor-handler (handlers) | reminderSystem (managers) | src/handlers/queueTemplateEditor-handler.ts | src/managers/reminderSystem.ts |
+| restartBridge-handler (handlers) | vscode-bridge (vscode-bridge.ts) | src/handlers/restartBridge-handler.ts | src/vscode-bridge.ts |
+| reusablePromptEditor-handler (handlers) | panelYamlStore (utils) | src/handlers/reusablePromptEditor-handler.ts | src/utils/panelYamlStore.ts |
+| sidebarNotes-handler (handlers) | globalTemplateEditor-handler (handlers) | src/handlers/sidebarNotes-handler.ts | src/handlers/globalTemplateEditor-handler.ts |
+| sidebarNotes-handler (handlers) | localLlm-handler (handlers) | src/handlers/sidebarNotes-handler.ts | src/handlers/localLlm-handler.ts |
+| sidebarNotes-handler (handlers) | questTodoPanel-handler (handlers) | src/handlers/sidebarNotes-handler.ts | src/handlers/questTodoPanel-handler.ts |
+| sidebarNotes-handler (handlers) | sessionTodoStore (managers) | src/handlers/sidebarNotes-handler.ts | src/managers/sessionTodoStore.ts |
+| statusPage-handler (handlers) | cliServer-handler (handlers) | src/handlers/statusPage-handler.ts | src/handlers/cliServer-handler.ts |
+| statusPage-handler (handlers) | commandline-handler (handlers) | src/handlers/statusPage-handler.ts | src/handlers/commandline-handler.ts |
+| statusPage-handler (handlers) | restartBridge-handler (handlers) | src/handlers/statusPage-handler.ts | src/handlers/restartBridge-handler.ts |
+| statusPage-handler (handlers) | timerEngine (managers) | src/handlers/statusPage-handler.ts | src/managers/timerEngine.ts |
+| timedRequestsEditor-handler (handlers) | globalTemplateEditor-handler (handlers) | src/handlers/timedRequestsEditor-handler.ts | src/handlers/globalTemplateEditor-handler.ts |
+| timedRequestsEditor-handler (handlers) | chatVariablesStore (managers) | src/handlers/timedRequestsEditor-handler.ts | src/managers/chatVariablesStore.ts |
+| timedRequestsEditor-handler (handlers) | promptQueueManager (managers) | src/handlers/timedRequestsEditor-handler.ts | src/managers/promptQueueManager.ts |
+| timedRequestsEditor-handler (handlers) | reminderSystem (managers) | src/handlers/timedRequestsEditor-handler.ts | src/managers/reminderSystem.ts |
+| timedRequestsEditor-handler (handlers) | timerEngine (managers) | src/handlers/timedRequestsEditor-handler.ts | src/managers/timerEngine.ts |
+| todoLogPanel-handler (handlers) | chatPanel-handler (handlers) | src/handlers/todoLogPanel-handler.ts | src/handlers/chatPanel-handler.ts |
+| todoLogPanel-handler (handlers) | trailViewer-handler (handlers) | src/handlers/todoLogPanel-handler.ts | src/handlers/trailViewer-handler.ts |
+| tomAiChat-handler (handlers) | chatTodoSessionManager (managers) | src/handlers/tomAiChat-handler.ts | src/managers/chatTodoSessionManager.ts |
+| tomAiChat-handler (handlers) | tomAiChat-tools (tools) | src/handlers/tomAiChat-handler.ts | src/tools/tomAiChat-tools.ts |
+| tomScriptingBridge-handler (handlers) | chatVariablesStore (managers) | src/handlers/tomScriptingBridge-handler.ts | src/managers/chatVariablesStore.ts |
+| tomScriptingBridge-handler (handlers) | promptQueueManager (managers) | src/handlers/tomScriptingBridge-handler.ts | src/managers/promptQueueManager.ts |
+| tomScriptingBridge-handler (handlers) | questTodoManager (managers) | src/handlers/tomScriptingBridge-handler.ts | src/managers/questTodoManager.ts |
+| tomScriptingBridge-handler (handlers) | sessionTodoStore (managers) | src/handlers/tomScriptingBridge-handler.ts | src/managers/sessionTodoStore.ts |
+| tomScriptingBridge-handler (handlers) | timerEngine (managers) | src/handlers/tomScriptingBridge-handler.ts | src/managers/timerEngine.ts |
+| trailEditor-handler (handlers) | questTodoPanel-handler (handlers) | src/handlers/trailEditor-handler.ts | src/handlers/questTodoPanel-handler.ts |
+| trailEditor-handler (handlers) | questTodoManager (managers) | src/handlers/trailEditor-handler.ts | src/managers/questTodoManager.ts |
+| trailViewer-handler (handlers) | questTodoPanel-handler (handlers) | src/handlers/trailViewer-handler.ts | src/handlers/questTodoPanel-handler.ts |
+| trailViewer-handler (handlers) | questTodoManager (managers) | src/handlers/trailViewer-handler.ts | src/managers/questTodoManager.ts |
+| chatTodoSessionManager (managers) | todoProvider (managers) | src/managers/chatTodoSessionManager.ts | src/managers/todoProvider.ts |
+| promptQueueManager (managers) | windowStatusPanel-handler (handlers) | src/managers/promptQueueManager.ts | src/handlers/windowStatusPanel-handler.ts |
+| promptQueueManager (managers) | trailService (services) | src/managers/promptQueueManager.ts | src/services/trailService.ts |
+| reminderSystem (managers) | promptQueueManager (managers) | src/managers/reminderSystem.ts | src/managers/promptQueueManager.ts |
+| sessionTodoStore (managers) | chatVariablesStore (managers) | src/managers/sessionTodoStore.ts | src/managers/chatVariablesStore.ts |
+| timerEngine (managers) | promptQueueManager (managers) | src/managers/timerEngine.ts | src/managers/promptQueueManager.ts |
+| timerEngine (managers) | panelYamlStore (utils) | src/managers/timerEngine.ts | src/utils/panelYamlStore.ts |
+| todoProvider (managers) | sessionTodoStore (managers) | src/managers/todoProvider.ts | src/managers/sessionTodoStore.ts |
+| chat-enhancement-tools (tools) | questTodoPanel-handler (handlers) | src/tools/chat-enhancement-tools.ts | src/handlers/questTodoPanel-handler.ts |
+| chat-enhancement-tools (tools) | chatVariablesStore (managers) | src/tools/chat-enhancement-tools.ts | src/managers/chatVariablesStore.ts |
+| chat-enhancement-tools (tools) | questTodoManager (managers) | src/tools/chat-enhancement-tools.ts | src/managers/questTodoManager.ts |
+| chat-enhancement-tools (tools) | reminderSystem (managers) | src/tools/chat-enhancement-tools.ts | src/managers/reminderSystem.ts |
+| chat-enhancement-tools (tools) | sessionTodoStore (managers) | src/tools/chat-enhancement-tools.ts | src/managers/sessionTodoStore.ts |
+| chat-enhancement-tools (tools) | shared-tool-registry (tools) | src/tools/chat-enhancement-tools.ts | src/tools/shared-tool-registry.ts |
+| chatVariableResolvers (tools) | chatVariablesStore (managers) | src/tools/chatVariableResolvers.ts | src/managers/chatVariablesStore.ts |
+| tomAiChat-tools (tools) | shared-tool-registry (tools) | src/tools/tomAiChat-tools.ts | src/tools/shared-tool-registry.ts |
+| tool-executors (tools) | chatTodoSessionManager (managers) | src/tools/tool-executors.ts | src/managers/chatTodoSessionManager.ts |
+| tool-executors (tools) | chatVariablesStore (managers) | src/tools/tool-executors.ts | src/managers/chatVariablesStore.ts |
+| tool-executors (tools) | chat-enhancement-tools (tools) | src/tools/tool-executors.ts | src/tools/chat-enhancement-tools.ts |
+| tool-executors (tools) | shared-tool-registry (tools) | src/tools/tool-executors.ts | src/tools/shared-tool-registry.ts |
+| vscode-bridge (vscode-bridge.ts) | tomScriptingBridge-handler (handlers) | src/vscode-bridge.ts | src/handlers/tomScriptingBridge-handler.ts |
 
 ## Per-Component Relationship View
 
-### Bridge, Execution, CLI, and Integrations
+### extension (extension.ts)
 
-Functional components in this area
-
-| Declaration | Kind | Location |
-| --- | --- | --- |
-| TelegramChannel | class | src/handlers/chat/telegram-channel.ts:57 |
-| TelegramCommandRegistry | class | src/handlers/telegram-cmd-parser.ts:87 |
-| TelegramResponseFormatter | class | src/handlers/telegram-cmd-response.ts:36 |
-| TelegramNotifier | class | src/handlers/telegram-notifier.ts:90 |
-| TomScriptingBridgeHandler | class | src/handlers/tomScriptingBridge-handler.ts:43 |
-| DartBridgeClient | class | src/vscode-bridge.ts:95 |
-| CwdMode | type | src/handlers/commandline-handler.ts:37 |
-| CommandlineEntry | interface | src/handlers/commandline-handler.ts:39 |
-| PostActionDefinition | interface | src/handlers/commandline-handler.ts:65 |
-| BridgeProfile | interface | src/handlers/restartBridge-handler.ts:28 |
+- File: `src/extension.ts`
+- Uses functional components: 17
+- Used by functional components: 0
 
 Uses these functional components
 
-| Used component | Import links | Example file-level usage |
+| Component | Subsystem | File |
 | --- | --- | --- |
-| Core Extension Wiring | 18 | src/handlers/chat/telegram-channel.ts -> src/handlers/handler_shared.ts |
-| Bridge, Execution, CLI, and Integrations | 9 | src/handlers/chat/telegram-channel.ts -> src/handlers/telegram-notifier.ts |
-| Shared Infrastructure and Contracts | 6 | src/handlers/commandline-handler.ts -> src/utils/projectDetector.ts |
-| Trail and Markdown Views | 4 | src/handlers/chat/telegram-channel.ts -> src/handlers/telegram-markdown.ts |
-| Chat, Copilot, and Local LLM Flows | 2 | src/handlers/chat/telegram-channel.ts -> src/handlers/chat/chat-channel.ts |
-| Queue, Timed Requests, and Scheduling | 2 | src/handlers/tomScriptingBridge-handler.ts -> src/managers/promptQueueManager.ts |
+| markdownBrowser-handler | handlers | src/handlers/markdownBrowser-handler.ts |
+| minimalMode-handler | handlers | src/handlers/minimalMode-handler.ts |
+| questTodoEditor-handler | handlers | src/handlers/questTodoEditor-handler.ts |
+| todoLogPanel-handler | handlers | src/handlers/todoLogPanel-handler.ts |
+| tomScriptingBridge-handler | handlers | src/handlers/tomScriptingBridge-handler.ts |
+| trailEditor-handler | handlers | src/handlers/trailEditor-handler.ts |
+| windowStatusPanel-handler | handlers | src/handlers/windowStatusPanel-handler.ts |
+| chatVariablesStore | managers | src/managers/chatVariablesStore.ts |
+| promptQueueManager | managers | src/managers/promptQueueManager.ts |
+| reminderSystem | managers | src/managers/reminderSystem.ts |
+| sessionTodoStore | managers | src/managers/sessionTodoStore.ts |
+| timerEngine | managers | src/managers/timerEngine.ts |
+| trailService | services | src/services/trailService.ts |
+| chatVariableResolvers | tools | src/tools/chatVariableResolvers.ts |
+| tomAiChat-tools | tools | src/tools/tomAiChat-tools.ts |
+| tool-executors | tools | src/tools/tool-executors.ts |
+| vscode-bridge | vscode-bridge.ts | src/vscode-bridge.ts |
 
 Used by these functional components
 
-| Using component | Import links | Example file-level usage |
-| --- | --- | --- |
-| Bridge, Execution, CLI, and Integrations | 9 | src/handlers/chat/telegram-channel.ts -> src/handlers/telegram-notifier.ts |
-| Core Extension Wiring | 4 | src/extension.ts -> src/vscode-bridge.ts |
-| Window Layout, Panels, and UI Shell | 4 | src/handlers/statusPage-handler.ts -> src/handlers/cliServer-handler.ts |
-| Chat, Copilot, and Local LLM Flows | 1 | src/handlers/aiConversation-handler.ts -> src/handlers/telegram-notifier.ts |
+None.
 
-### Chat, Copilot, and Local LLM Flows
+### aiConversation-handler (handlers)
 
-Functional components in this area
-
-| Declaration | Kind | Location |
-| --- | --- | --- |
-| AiConversationManager | class | src/handlers/aiConversation-handler.ts:332 |
-| SendToChatAdvancedManager | class | src/handlers/copilotTemplates-handler.ts:53 |
-| LocalLlmManager | class | src/handlers/localLlm-handler.ts:251 |
-| ChatTodoSessionManager | class | src/managers/chatTodoSessionManager.ts:21 |
-| ChatVariablesStore | class | src/managers/chatVariablesStore.ts:55 |
-| CopilotResponse | interface | src/handlers/aiConversation-handler.ts:55 |
-| ConversationExchange | interface | src/handlers/aiConversation-handler.ts:71 |
-| HistoryMode | type | src/handlers/aiConversation-handler.ts:85 |
-| ConversationMode | type | src/handlers/aiConversation-handler.ts:88 |
-| ActorType | type | src/handlers/aiConversation-handler.ts:91 |
+- File: `src/handlers/aiConversation-handler.ts`
+- Uses functional components: 2
+- Used by functional components: 1
 
 Uses these functional components
 
-| Used component | Import links | Example file-level usage |
+| Component | Subsystem | File |
 | --- | --- | --- |
-| Shared Infrastructure and Contracts | 14 | src/handlers/aiConversation-handler.ts -> src/utils/workspacePaths.ts |
-| Chat, Copilot, and Local LLM Flows | 13 | src/handlers/__tests__/tomAiChat-utils.test.ts -> src/handlers/tomAiChat-utils.ts |
-| Core Extension Wiring | 7 | src/handlers/aiConversation-handler.ts -> src/handlers/handler_shared.ts |
-| General Handlers | 6 | src/handlers/aiConversation-handler.ts -> src/handlers/promptTemplate.ts |
-| Trail and Markdown Views | 6 | src/handlers/aiConversation-handler.ts -> src/services/trailLogging.ts |
-| Todo, Notes, and Work Tracking | 5 | src/handlers/chatVariablesEditor-handler.ts -> src/managers/questTodoManager.ts |
-| Tooling Surface and Model Tools | 5 | src/handlers/localLlm-handler.ts -> src/tools/shared-tool-registry.ts |
-| Window Layout, Panels, and UI Shell | 2 | src/handlers/chatPanel-handler.ts -> src/handlers/accordionPanel.ts |
-| Bridge, Execution, CLI, and Integrations | 1 | src/handlers/aiConversation-handler.ts -> src/handlers/telegram-notifier.ts |
-| Queue, Timed Requests, and Scheduling | 1 | src/tools/chat-enhancement-tools.ts -> src/managers/reminderSystem.ts |
+| localLlm-handler | handlers | src/handlers/localLlm-handler.ts |
+| windowStatusPanel-handler | handlers | src/handlers/windowStatusPanel-handler.ts |
 
 Used by these functional components
 
-| Using component | Import links | Example file-level usage |
+| Component | Subsystem | File |
 | --- | --- | --- |
-| Chat, Copilot, and Local LLM Flows | 13 | src/handlers/__tests__/tomAiChat-utils.test.ts -> src/handlers/tomAiChat-utils.ts |
-| Core Extension Wiring | 4 | src/extension.ts -> src/tools/tomAiChat-tools.ts |
-| Todo, Notes, and Work Tracking | 3 | src/handlers/questTodoPanel-handler.ts -> src/utils/sendToChatConfig.ts |
-| Bridge, Execution, CLI, and Integrations | 2 | src/handlers/chat/telegram-channel.ts -> src/handlers/chat/chat-channel.ts |
-| Queue, Timed Requests, and Scheduling | 2 | src/handlers/queueEditor-handler.ts -> src/managers/chatVariablesStore.ts |
-| Tooling Surface and Model Tools | 2 | src/tools/tool-executors.ts -> src/managers/chatTodoSessionManager.ts |
-| General Handlers | 1 | src/handlers/globalTemplateEditor-handler.ts -> src/utils/sendToChatConfig.ts |
-| Window Layout, Panels, and UI Shell | 1 | src/handlers/statusPage-handler.ts -> src/utils/sendToChatConfig.ts |
+| chatPanel-handler | handlers | src/handlers/chatPanel-handler.ts |
 
-### Core Extension Wiring
+### chatPanel-handler (handlers)
 
-Functional components in this area
-
-| Declaration | Kind | Location |
-| --- | --- | --- |
-| BridgeTestRunner | class | src/tests.ts:27 |
-| DocumentPickerConfig | interface | src/handlers/documentPicker.ts:19 |
-| DocPickerGroup | interface | src/handlers/documentPicker.ts:36 |
-| DocPickerProject | interface | src/handlers/documentPicker.ts:41 |
-| TemplateEditorField | interface | src/handlers/handler_shared.ts:740 |
-| TemplateEditorConfig | interface | src/handlers/handler_shared.ts:750 |
+- File: `src/handlers/chatPanel-handler.ts`
+- Uses functional components: 6
+- Used by functional components: 1
 
 Uses these functional components
 
-| Used component | Import links | Example file-level usage |
+| Component | Subsystem | File |
 | --- | --- | --- |
-| Shared Infrastructure and Contracts | 7 | src/extension.ts -> src/utils/debugLogger.ts |
-| Bridge, Execution, CLI, and Integrations | 4 | src/extension.ts -> src/vscode-bridge.ts |
-| Chat, Copilot, and Local LLM Flows | 4 | src/extension.ts -> src/tools/tomAiChat-tools.ts |
-| Queue, Timed Requests, and Scheduling | 4 | src/extension.ts -> src/storage/queueFileStorage.ts |
-| Todo, Notes, and Work Tracking | 3 | src/extension.ts -> src/handlers/questTodoEditor-handler.ts |
-| Trail and Markdown Views | 3 | src/extension.ts -> src/handlers/markdownBrowser-handler.ts |
-| Window Layout, Panels, and UI Shell | 2 | src/extension.ts -> src/handlers/windowStatusPanel-handler.ts |
-| Core Extension Wiring | 1 | src/extension.ts -> src/handlers/index.ts |
-| General Handlers | 1 | src/handlers/handler_shared.ts -> src/handlers/promptTemplate.ts |
-| Tooling Surface and Model Tools | 1 | src/extension.ts -> src/tools/tool-executors.ts |
+| aiConversation-handler | handlers | src/handlers/aiConversation-handler.ts |
+| globalTemplateEditor-handler | handlers | src/handlers/globalTemplateEditor-handler.ts |
+| localLlm-handler | handlers | src/handlers/localLlm-handler.ts |
+| reusablePromptEditor-handler | handlers | src/handlers/reusablePromptEditor-handler.ts |
+| windowStatusPanel-handler | handlers | src/handlers/windowStatusPanel-handler.ts |
+| trailService | services | src/services/trailService.ts |
 
 Used by these functional components
 
-| Using component | Import links | Example file-level usage |
+| Component | Subsystem | File |
 | --- | --- | --- |
-| Bridge, Execution, CLI, and Integrations | 18 | src/handlers/chat/telegram-channel.ts -> src/handlers/handler_shared.ts |
-| Chat, Copilot, and Local LLM Flows | 7 | src/handlers/aiConversation-handler.ts -> src/handlers/handler_shared.ts |
-| General Handlers | 6 | src/handlers/combinedCommand-handler.ts -> src/handlers/handler_shared.ts |
-| Queue, Timed Requests, and Scheduling | 5 | src/handlers/queueEditor-handler.ts -> src/handlers/handler_shared.ts |
-| Window Layout, Panels, and UI Shell | 4 | src/handlers/chordMenu-handler.ts -> src/handlers/handler_shared.ts |
-| Todo, Notes, and Work Tracking | 2 | src/handlers/questTodoPanel-handler.ts -> src/handlers/handler_shared.ts |
-| Core Extension Wiring | 1 | src/extension.ts -> src/handlers/index.ts |
-| Shared Infrastructure and Contracts | 1 | src/utils/projectDetector.ts -> src/handlers/handler_shared.ts |
-| Tooling Surface and Model Tools | 1 | src/tools/tool-executors.ts -> src/handlers/handler_shared.ts |
-| Trail and Markdown Views | 1 | src/handlers/trailViewer-handler.ts -> src/handlers/handler_shared.ts |
-| YAML Graph and Diagram Editing | 1 | src/handlers/yamlGraph-handler.ts -> src/handlers/handler_shared.ts |
+| todoLogPanel-handler | handlers | src/handlers/todoLogPanel-handler.ts |
 
-### General Handlers
+### chatVariablesEditor-handler (handlers)
 
-Functional components in this area
-
-| Declaration | Kind | Location |
-| --- | --- | --- |
-| GitHubIssueProvider | class | src/handlers/githubIssueProvider.ts:39 |
-| GitHubUser | interface | src/handlers/githubApi.ts:16 |
-| GitHubLabel | interface | src/handlers/githubApi.ts:21 |
-| GitHubIssue | interface | src/handlers/githubApi.ts:28 |
-| GitHubComment | interface | src/handlers/githubApi.ts:42 |
-| RepoInfo | interface | src/handlers/githubApi.ts:53 |
-| TemplateCategory | type | src/handlers/globalTemplateEditor-handler.ts:27 |
-| IssueProviderRepo | interface | src/handlers/issueProvider.ts:14 |
-| IssueUser | interface | src/handlers/issueProvider.ts:21 |
-| IssueItem | interface | src/handlers/issueProvider.ts:26 |
+- File: `src/handlers/chatVariablesEditor-handler.ts`
+- Uses functional components: 3
+- Used by functional components: 0
 
 Uses these functional components
 
-| Used component | Import links | Example file-level usage |
+| Component | Subsystem | File |
 | --- | --- | --- |
-| Core Extension Wiring | 6 | src/handlers/combinedCommand-handler.ts -> src/handlers/handler_shared.ts |
-| Shared Infrastructure and Contracts | 6 | src/handlers/combinedCommand-handler.ts -> src/utils/fsUtils.ts |
-| General Handlers | 5 | src/handlers/contextSettingsEditor-handler.ts -> src/handlers/globalTemplateEditor-handler.ts |
-| Chat, Copilot, and Local LLM Flows | 1 | src/handlers/globalTemplateEditor-handler.ts -> src/utils/sendToChatConfig.ts |
-| Trail and Markdown Views | 1 | src/handlers/reusablePromptEditor-handler.ts -> src/handlers/markdownHtmlPreview.ts |
-| Window Layout, Panels, and UI Shell | 1 | src/handlers/reusablePromptEditor-handler.ts -> src/utils/panelYamlStore.ts |
+| chatVariablesStore | managers | src/managers/chatVariablesStore.ts |
+| questTodoManager | managers | src/managers/questTodoManager.ts |
+| panelYamlStore | utils | src/utils/panelYamlStore.ts |
 
 Used by these functional components
 
-| Using component | Import links | Example file-level usage |
-| --- | --- | --- |
-| Chat, Copilot, and Local LLM Flows | 6 | src/handlers/aiConversation-handler.ts -> src/handlers/promptTemplate.ts |
-| General Handlers | 5 | src/handlers/contextSettingsEditor-handler.ts -> src/handlers/globalTemplateEditor-handler.ts |
-| Queue, Timed Requests, and Scheduling | 3 | src/handlers/queueEditor-handler.ts -> src/handlers/globalTemplateEditor-handler.ts |
-| Todo, Notes, and Work Tracking | 3 | src/handlers/questTodoPanel-handler.ts -> src/handlers/promptTemplate.ts |
-| Window Layout, Panels, and UI Shell | 2 | src/handlers/issuesPanel-handler.ts -> src/handlers/issueProvider.ts |
-| Core Extension Wiring | 1 | src/handlers/handler_shared.ts -> src/handlers/promptTemplate.ts |
-| Tooling Surface and Model Tools | 1 | src/tools/tool-executors.ts -> src/handlers/promptTemplate.ts |
+None.
 
-### Queue, Timed Requests, and Scheduling
+### chordMenu-handler (handlers)
 
-Functional components in this area
-
-| Declaration | Kind | Location |
-| --- | --- | --- |
-| PromptQueueManager | class | src/managers/promptQueueManager.ts:159 |
-| ReminderSystem | class | src/managers/reminderSystem.ts:51 |
-| TimerEngine | class | src/managers/timerEngine.ts:73 |
-| QueuedPromptStatus | type | src/managers/promptQueueManager.ts:51 |
-| QueuedPromptType | type | src/managers/promptQueueManager.ts:52 |
-| QueuedFollowUpPrompt | interface | src/managers/promptQueueManager.ts:54 |
-| QueuedPrePrompt | interface | src/managers/promptQueueManager.ts:65 |
-| QueuedPrompt | interface | src/managers/promptQueueManager.ts:71 |
-| ReminderTemplate | interface | src/managers/reminderSystem.ts:20 |
-| ReminderConfig | interface | src/managers/reminderSystem.ts:27 |
+- File: `src/handlers/chordMenu-handler.ts`
+- Uses functional components: 0
+- Used by functional components: 0
 
 Uses these functional components
 
-| Used component | Import links | Example file-level usage |
-| --- | --- | --- |
-| Queue, Timed Requests, and Scheduling | 17 | src/handlers/queueEditor-handler.ts -> src/managers/promptQueueManager.ts |
-| Core Extension Wiring | 5 | src/handlers/queueEditor-handler.ts -> src/handlers/handler_shared.ts |
-| General Handlers | 3 | src/handlers/queueEditor-handler.ts -> src/handlers/globalTemplateEditor-handler.ts |
-| Chat, Copilot, and Local LLM Flows | 2 | src/handlers/queueEditor-handler.ts -> src/managers/chatVariablesStore.ts |
-| Window Layout, Panels, and UI Shell | 2 | src/managers/promptQueueManager.ts -> src/handlers/windowStatusPanel-handler.ts |
-| Shared Infrastructure and Contracts | 1 | src/managers/promptQueueManager.ts -> src/utils/debugLogger.ts |
-| Trail and Markdown Views | 1 | src/managers/promptQueueManager.ts -> src/services/trailService.ts |
+None.
 
 Used by these functional components
 
-| Using component | Import links | Example file-level usage |
-| --- | --- | --- |
-| Queue, Timed Requests, and Scheduling | 17 | src/handlers/queueEditor-handler.ts -> src/managers/promptQueueManager.ts |
-| Core Extension Wiring | 4 | src/extension.ts -> src/storage/queueFileStorage.ts |
-| Window Layout, Panels, and UI Shell | 3 | src/handlers/statusPage-handler.ts -> src/managers/timerEngine.ts |
-| Bridge, Execution, CLI, and Integrations | 2 | src/handlers/tomScriptingBridge-handler.ts -> src/managers/promptQueueManager.ts |
-| Chat, Copilot, and Local LLM Flows | 1 | src/tools/chat-enhancement-tools.ts -> src/managers/reminderSystem.ts |
+None.
 
-### Shared Infrastructure and Contracts
+### cliServer-handler (handlers)
 
-Functional components in this area
-
-| Declaration | Kind | Location |
-| --- | --- | --- |
-| BaseWebviewProvider | class | src/utils/baseWebviewProvider.ts:3 |
-| FsUtils | class | src/utils/fsUtils.ts:5 |
-| TomAiConfiguration | class | src/utils/tomAiConfiguration.ts:41 |
-| WsPaths | class | src/utils/workspacePaths.ts:116 |
-| WebviewMessage | interface | src/types/webviewMessages.ts:1 |
-| ChatPanelSendMessage | interface | src/types/webviewMessages.ts:6 |
-| ChatPanelDraftMessage | interface | src/types/webviewMessages.ts:13 |
-| TodoPanelMessage | interface | src/types/webviewMessages.ts:19 |
-| PlatformKey | type | src/utils/executableResolver.ts:24 |
-| ExecutableConfig | interface | src/utils/executableResolver.ts:30 |
+- File: `src/handlers/cliServer-handler.ts`
+- Uses functional components: 0
+- Used by functional components: 1
 
 Uses these functional components
 
-| Used component | Import links | Example file-level usage |
-| --- | --- | --- |
-| Shared Infrastructure and Contracts | 5 | src/utils/projectDetector.ts -> src/utils/workspacePaths.ts |
-| Core Extension Wiring | 1 | src/utils/projectDetector.ts -> src/handlers/handler_shared.ts |
+None.
 
 Used by these functional components
 
-| Using component | Import links | Example file-level usage |
+| Component | Subsystem | File |
 | --- | --- | --- |
-| Chat, Copilot, and Local LLM Flows | 14 | src/handlers/aiConversation-handler.ts -> src/utils/workspacePaths.ts |
-| Trail and Markdown Views | 8 | src/handlers/trailEditor-handler.ts -> src/utils/workspacePaths.ts |
-| Core Extension Wiring | 7 | src/extension.ts -> src/utils/debugLogger.ts |
-| Todo, Notes, and Work Tracking | 7 | src/handlers/questTodoEditor-handler.ts -> src/utils/workspacePaths.ts |
-| Bridge, Execution, CLI, and Integrations | 6 | src/handlers/commandline-handler.ts -> src/utils/projectDetector.ts |
-| General Handlers | 6 | src/handlers/combinedCommand-handler.ts -> src/utils/fsUtils.ts |
-| Shared Infrastructure and Contracts | 5 | src/utils/projectDetector.ts -> src/utils/workspacePaths.ts |
-| Window Layout, Panels, and UI Shell | 5 | src/handlers/chordMenu-handler.ts -> src/utils/fsUtils.ts |
-| Tooling Surface and Model Tools | 2 | src/tools/local-llm-tools-config.ts -> src/utils/workspacePaths.ts |
-| Queue, Timed Requests, and Scheduling | 1 | src/managers/promptQueueManager.ts -> src/utils/debugLogger.ts |
+| statusPage-handler | handlers | src/handlers/statusPage-handler.ts |
 
-### State Managers and Coordination
+### combinedCommand-handler (handlers)
 
-Functional components in this area
-
-| Declaration | Kind | Location |
-| --- | --- | --- |
-| n/a | n/a | n/a |
+- File: `src/handlers/combinedCommand-handler.ts`
+- Uses functional components: 0
+- Used by functional components: 0
 
 Uses these functional components
 
-| Used component | Import links | Example file-level usage |
-| --- | --- | --- |
-| none | 0 | n/a |
+None.
 
 Used by these functional components
 
-| Using component | Import links | Example file-level usage |
-| --- | --- | --- |
-| none | 0 | n/a |
+None.
 
-### Todo, Notes, and Work Tracking
+### commandline-handler (handlers)
 
-Functional components in this area
-
-| Declaration | Kind | Location |
-| --- | --- | --- |
-| QuestTodoEmbeddedViewProvider | class | src/handlers/questTodoPanel-handler.ts:3954 |
-| TodoLogViewProvider | class | src/handlers/todoLogPanel-handler.ts:45 |
-| SessionTodoStore | class | src/managers/sessionTodoStore.ts:54 |
-| TodoProvider | class | src/managers/todoProvider.ts:40 |
-| QuestTodoViewConfig | interface | src/handlers/questTodoPanel-handler.ts:82 |
-| QuestTodoScope | interface | src/managers/questTodoManager.ts:27 |
-| QuestTodoReference | interface | src/managers/questTodoManager.ts:35 |
-| QuestTodoItem | interface | src/managers/questTodoManager.ts:43 |
-| QuestTodoFile | interface | src/managers/questTodoManager.ts:63 |
-| ScannedProject | interface | src/managers/questTodoManager.ts:859 |
+- File: `src/handlers/commandline-handler.ts`
+- Uses functional components: 0
+- Used by functional components: 1
 
 Uses these functional components
 
-| Used component | Import links | Example file-level usage |
-| --- | --- | --- |
-| Shared Infrastructure and Contracts | 7 | src/handlers/questTodoEditor-handler.ts -> src/utils/workspacePaths.ts |
-| Todo, Notes, and Work Tracking | 5 | src/handlers/sidebarNotes-handler.ts -> src/managers/sessionTodoStore.ts |
-| Chat, Copilot, and Local LLM Flows | 3 | src/handlers/questTodoPanel-handler.ts -> src/utils/sendToChatConfig.ts |
-| General Handlers | 3 | src/handlers/questTodoPanel-handler.ts -> src/handlers/promptTemplate.ts |
-| Core Extension Wiring | 2 | src/handlers/questTodoPanel-handler.ts -> src/handlers/handler_shared.ts |
-| Trail and Markdown Views | 2 | src/handlers/sidebarNotes-handler.ts -> src/services/trailLogging.ts |
+None.
 
 Used by these functional components
 
-| Using component | Import links | Example file-level usage |
+| Component | Subsystem | File |
 | --- | --- | --- |
-| Chat, Copilot, and Local LLM Flows | 5 | src/handlers/chatVariablesEditor-handler.ts -> src/managers/questTodoManager.ts |
-| Todo, Notes, and Work Tracking | 5 | src/handlers/sidebarNotes-handler.ts -> src/managers/sessionTodoStore.ts |
-| Core Extension Wiring | 3 | src/extension.ts -> src/handlers/questTodoEditor-handler.ts |
+| statusPage-handler | handlers | src/handlers/statusPage-handler.ts |
 
-### Tooling Surface and Model Tools
+### contextSettingsEditor-handler (handlers)
 
-Functional components in this area
-
-| Declaration | Kind | Location |
-| --- | --- | --- |
-| AskCopilotConfig | interface | src/tools/local-llm-tools-config.ts:12 |
-| AskBigBrotherConfig | interface | src/tools/local-llm-tools-config.ts:23 |
-| LocalLlmToolsConfig | interface | src/tools/local-llm-tools-config.ts:40 |
-| SharedToolDefinition | interface | src/tools/shared-tool-registry.ts:21 |
-| OllamaTool | interface | src/tools/shared-tool-registry.ts:58 |
-| OllamaToolCall | interface | src/tools/shared-tool-registry.ts:68 |
-| ReadFileInput | interface | src/tools/tool-executors.ts:66 |
-| ListDirectoryInput | interface | src/tools/tool-executors.ts:107 |
-| FindFilesInput | interface | src/tools/tool-executors.ts:139 |
-| FindTextInFilesInput | interface | src/tools/tool-executors.ts:171 |
+- File: `src/handlers/contextSettingsEditor-handler.ts`
+- Uses functional components: 1
+- Used by functional components: 0
 
 Uses these functional components
 
-| Used component | Import links | Example file-level usage |
+| Component | Subsystem | File |
 | --- | --- | --- |
-| Chat, Copilot, and Local LLM Flows | 2 | src/tools/tool-executors.ts -> src/managers/chatTodoSessionManager.ts |
-| Shared Infrastructure and Contracts | 2 | src/tools/local-llm-tools-config.ts -> src/utils/workspacePaths.ts |
-| Tooling Surface and Model Tools | 2 | src/tools/tool-executors.ts -> src/tools/shared-tool-registry.ts |
-| Core Extension Wiring | 1 | src/tools/tool-executors.ts -> src/handlers/handler_shared.ts |
-| General Handlers | 1 | src/tools/tool-executors.ts -> src/handlers/promptTemplate.ts |
-| Trail and Markdown Views | 1 | src/tools/tool-executors.ts -> src/services/trailLogging.ts |
+| globalTemplateEditor-handler | handlers | src/handlers/globalTemplateEditor-handler.ts |
 
 Used by these functional components
 
-| Using component | Import links | Example file-level usage |
-| --- | --- | --- |
-| Chat, Copilot, and Local LLM Flows | 5 | src/handlers/localLlm-handler.ts -> src/tools/shared-tool-registry.ts |
-| Tooling Surface and Model Tools | 2 | src/tools/tool-executors.ts -> src/tools/shared-tool-registry.ts |
-| Core Extension Wiring | 1 | src/extension.ts -> src/tools/tool-executors.ts |
-| Window Layout, Panels, and UI Shell | 1 | src/handlers/statusPage-handler.ts -> src/tools/local-llm-tools-config.ts |
+None.
 
-### Trail and Markdown Views
+### copilotTemplates-handler (handlers)
 
-Functional components in this area
-
-| Declaration | Kind | Location |
-| --- | --- | --- |
-| TrailService | class | src/services/trailService.ts:36 |
-| MarkdownHtmlPreviewOptions | interface | src/handlers/markdownHtmlPreview.ts:3 |
-| TrailEntry | interface | src/handlers/trailEditor-handler.ts:24 |
-| TrailSet | interface | src/handlers/trailEditor-handler.ts:229 |
-| TrailFile | interface | src/handlers/trailViewer-handler.ts:34 |
-| TrailExchange | interface | src/handlers/trailViewer-handler.ts:41 |
-| ParsedTrailFile | interface | src/handlers/trailViewer-handler.ts:54 |
-| TrailType | type | src/services/trailLogging.ts:7 |
-| TrailSubsystem | type | src/services/trailService.ts:8 |
-| TrailMetadata | interface | src/services/trailService.ts:13 |
+- File: `src/handlers/copilotTemplates-handler.ts`
+- Uses functional components: 0
+- Used by functional components: 0
 
 Uses these functional components
 
-| Used component | Import links | Example file-level usage |
-| --- | --- | --- |
-| Shared Infrastructure and Contracts | 8 | src/handlers/trailEditor-handler.ts -> src/utils/workspacePaths.ts |
-| Core Extension Wiring | 1 | src/handlers/trailViewer-handler.ts -> src/handlers/handler_shared.ts |
-| Trail and Markdown Views | 1 | src/services/trailLogging.ts -> src/services/trailService.ts |
+None.
 
 Used by these functional components
 
-| Using component | Import links | Example file-level usage |
-| --- | --- | --- |
-| Chat, Copilot, and Local LLM Flows | 6 | src/handlers/aiConversation-handler.ts -> src/services/trailLogging.ts |
-| Bridge, Execution, CLI, and Integrations | 4 | src/handlers/chat/telegram-channel.ts -> src/handlers/telegram-markdown.ts |
-| Core Extension Wiring | 3 | src/extension.ts -> src/handlers/markdownBrowser-handler.ts |
-| Todo, Notes, and Work Tracking | 2 | src/handlers/sidebarNotes-handler.ts -> src/services/trailLogging.ts |
-| General Handlers | 1 | src/handlers/reusablePromptEditor-handler.ts -> src/handlers/markdownHtmlPreview.ts |
-| Queue, Timed Requests, and Scheduling | 1 | src/managers/promptQueueManager.ts -> src/services/trailService.ts |
-| Tooling Surface and Model Tools | 1 | src/tools/tool-executors.ts -> src/services/trailLogging.ts |
-| Trail and Markdown Views | 1 | src/services/trailLogging.ts -> src/services/trailService.ts |
-| Window Layout, Panels, and UI Shell | 1 | src/handlers/statusPage-handler.ts -> src/services/trailLogging.ts |
+None.
 
-### Window Layout, Panels, and UI Shell
+### debugLogging-handler (handlers)
 
-Functional components in this area
-
-| Declaration | Kind | Location |
-| --- | --- | --- |
-| WindowStatusViewProvider | class | src/handlers/windowStatusPanel-handler.ts:89 |
-| WsPanelHandler | class | src/handlers/wsPanel-handler.ts:49 |
-| AccordionSection | interface | src/handlers/accordionPanel.ts:19 |
-| AccordionPanelConfig | interface | src/handlers/accordionPanel.ts:31 |
-| PanelMode | type | src/handlers/issuesPanel-handler.ts:28 |
-| FavoriteEntry | interface | src/handlers/statusPage-handler.ts:41 |
-| LlmConfiguration | interface | src/handlers/statusPage-handler.ts:57 |
-| AiConversationSetup | interface | src/handlers/statusPage-handler.ts:81 |
-| StatusData | interface | src/handlers/statusPage-handler.ts:727 |
-| TabSection | interface | src/handlers/tabPanel.ts:19 |
+- File: `src/handlers/debugLogging-handler.ts`
+- Uses functional components: 0
+- Used by functional components: 0
 
 Uses these functional components
 
-| Used component | Import links | Example file-level usage |
-| --- | --- | --- |
-| Shared Infrastructure and Contracts | 5 | src/handlers/chordMenu-handler.ts -> src/utils/fsUtils.ts |
-| Bridge, Execution, CLI, and Integrations | 4 | src/handlers/statusPage-handler.ts -> src/handlers/cliServer-handler.ts |
-| Core Extension Wiring | 4 | src/handlers/chordMenu-handler.ts -> src/handlers/handler_shared.ts |
-| Queue, Timed Requests, and Scheduling | 3 | src/handlers/statusPage-handler.ts -> src/managers/timerEngine.ts |
-| General Handlers | 2 | src/handlers/issuesPanel-handler.ts -> src/handlers/issueProvider.ts |
-| Chat, Copilot, and Local LLM Flows | 1 | src/handlers/statusPage-handler.ts -> src/utils/sendToChatConfig.ts |
-| Tooling Surface and Model Tools | 1 | src/handlers/statusPage-handler.ts -> src/tools/local-llm-tools-config.ts |
-| Trail and Markdown Views | 1 | src/handlers/statusPage-handler.ts -> src/services/trailLogging.ts |
+None.
 
 Used by these functional components
 
-| Using component | Import links | Example file-level usage |
-| --- | --- | --- |
-| Chat, Copilot, and Local LLM Flows | 2 | src/handlers/chatPanel-handler.ts -> src/handlers/accordionPanel.ts |
-| Core Extension Wiring | 2 | src/extension.ts -> src/handlers/windowStatusPanel-handler.ts |
-| Queue, Timed Requests, and Scheduling | 2 | src/managers/promptQueueManager.ts -> src/handlers/windowStatusPanel-handler.ts |
-| General Handlers | 1 | src/handlers/reusablePromptEditor-handler.ts -> src/utils/panelYamlStore.ts |
+None.
 
-### YAML Graph and Diagram Editing
+### executeAsScript-handler (handlers)
 
-Functional components in this area
-
-| Declaration | Kind | Location |
-| --- | --- | --- |
-| n/a | n/a | n/a |
+- File: `src/handlers/executeAsScript-handler.ts`
+- Uses functional components: 0
+- Used by functional components: 0
 
 Uses these functional components
 
-| Used component | Import links | Example file-level usage |
-| --- | --- | --- |
-| Core Extension Wiring | 1 | src/handlers/yamlGraph-handler.ts -> src/handlers/handler_shared.ts |
+None.
 
 Used by these functional components
 
-| Using component | Import links | Example file-level usage |
+None.
+
+### executeInTomAiBuild-handler (handlers)
+
+- File: `src/handlers/executeInTomAiBuild-handler.ts`
+- Uses functional components: 0
+- Used by functional components: 0
+
+Uses these functional components
+
+None.
+
+Used by these functional components
+
+None.
+
+### githubIssueProvider (handlers)
+
+- File: `src/handlers/githubIssueProvider.ts`
+- Uses functional components: 0
+- Used by functional components: 1
+
+Uses these functional components
+
+None.
+
+Used by these functional components
+
+| Component | Subsystem | File |
 | --- | --- | --- |
-| none | 0 | n/a |
+| issuesPanel-handler | handlers | src/handlers/issuesPanel-handler.ts |
 
-## Review Notes
+### globalTemplateEditor-handler (handlers)
 
-- Shared Infrastructure and Contracts is the central dependency target (highest incoming links), so changes there have broad impact across feature components.
-- Chat, Copilot, and Local LLM Flows has the highest outgoing coupling and should be treated as a primary integration hotspot during refactors.
-- Core Extension Wiring is a major integration hub and transitive dependency anchor for many components through handler_shared and extension activation wiring.
+- File: `src/handlers/globalTemplateEditor-handler.ts`
+- Uses functional components: 0
+- Used by functional components: 5
+
+Uses these functional components
+
+None.
+
+Used by these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| chatPanel-handler | handlers | src/handlers/chatPanel-handler.ts |
+| contextSettingsEditor-handler | handlers | src/handlers/contextSettingsEditor-handler.ts |
+| queueEditor-handler | handlers | src/handlers/queueEditor-handler.ts |
+| sidebarNotes-handler | handlers | src/handlers/sidebarNotes-handler.ts |
+| timedRequestsEditor-handler | handlers | src/handlers/timedRequestsEditor-handler.ts |
+
+### issueProvider (handlers)
+
+- File: `src/handlers/issueProvider.ts`
+- Uses functional components: 0
+- Used by functional components: 0
+
+Uses these functional components
+
+None.
+
+Used by these functional components
+
+None.
+
+### issuesPanel-handler (handlers)
+
+- File: `src/handlers/issuesPanel-handler.ts`
+- Uses functional components: 1
+- Used by functional components: 0
+
+Uses these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| githubIssueProvider | handlers | src/handlers/githubIssueProvider.ts |
+
+Used by these functional components
+
+None.
+
+### localLlm-handler (handlers)
+
+- File: `src/handlers/localLlm-handler.ts`
+- Uses functional components: 1
+- Used by functional components: 3
+
+Uses these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| tool-executors | tools | src/tools/tool-executors.ts |
+
+Used by these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| aiConversation-handler | handlers | src/handlers/aiConversation-handler.ts |
+| chatPanel-handler | handlers | src/handlers/chatPanel-handler.ts |
+| sidebarNotes-handler | handlers | src/handlers/sidebarNotes-handler.ts |
+
+### markdownBrowser-handler (handlers)
+
+- File: `src/handlers/markdownBrowser-handler.ts`
+- Uses functional components: 0
+- Used by functional components: 1
+
+Uses these functional components
+
+None.
+
+Used by these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| extension | extension.ts | src/extension.ts |
+
+### minimalMode-handler (handlers)
+
+- File: `src/handlers/minimalMode-handler.ts`
+- Uses functional components: 0
+- Used by functional components: 1
+
+Uses these functional components
+
+None.
+
+Used by these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| extension | extension.ts | src/extension.ts |
+
+### notepad-handler (handlers)
+
+- File: `src/handlers/notepad-handler.ts`
+- Uses functional components: 0
+- Used by functional components: 0
+
+Uses these functional components
+
+None.
+
+Used by these functional components
+
+None.
+
+### printConfiguration-handler (handlers)
+
+- File: `src/handlers/printConfiguration-handler.ts`
+- Uses functional components: 0
+- Used by functional components: 0
+
+Uses these functional components
+
+None.
+
+Used by these functional components
+
+None.
+
+### processMonitor-handler (handlers)
+
+- File: `src/handlers/processMonitor-handler.ts`
+- Uses functional components: 0
+- Used by functional components: 0
+
+Uses these functional components
+
+None.
+
+Used by these functional components
+
+None.
+
+### questTodoEditor-handler (handlers)
+
+- File: `src/handlers/questTodoEditor-handler.ts`
+- Uses functional components: 0
+- Used by functional components: 1
+
+Uses these functional components
+
+None.
+
+Used by these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| extension | extension.ts | src/extension.ts |
+
+### questTodoPanel-handler (handlers)
+
+- File: `src/handlers/questTodoPanel-handler.ts`
+- Uses functional components: 3
+- Used by functional components: 4
+
+Uses these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| chatVariablesStore | managers | src/managers/chatVariablesStore.ts |
+| questTodoManager | managers | src/managers/questTodoManager.ts |
+| sessionTodoStore | managers | src/managers/sessionTodoStore.ts |
+
+Used by these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| sidebarNotes-handler | handlers | src/handlers/sidebarNotes-handler.ts |
+| trailEditor-handler | handlers | src/handlers/trailEditor-handler.ts |
+| trailViewer-handler | handlers | src/handlers/trailViewer-handler.ts |
+| chat-enhancement-tools | tools | src/tools/chat-enhancement-tools.ts |
+
+### queueEditor-handler (handlers)
+
+- File: `src/handlers/queueEditor-handler.ts`
+- Uses functional components: 4
+- Used by functional components: 0
+
+Uses these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| globalTemplateEditor-handler | handlers | src/handlers/globalTemplateEditor-handler.ts |
+| chatVariablesStore | managers | src/managers/chatVariablesStore.ts |
+| promptQueueManager | managers | src/managers/promptQueueManager.ts |
+| reminderSystem | managers | src/managers/reminderSystem.ts |
+
+Used by these functional components
+
+None.
+
+### queueTemplateEditor-handler (handlers)
+
+- File: `src/handlers/queueTemplateEditor-handler.ts`
+- Uses functional components: 1
+- Used by functional components: 0
+
+Uses these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| reminderSystem | managers | src/managers/reminderSystem.ts |
+
+Used by these functional components
+
+None.
+
+### reloadWindow-handler (handlers)
+
+- File: `src/handlers/reloadWindow-handler.ts`
+- Uses functional components: 0
+- Used by functional components: 0
+
+Uses these functional components
+
+None.
+
+Used by these functional components
+
+None.
+
+### restartBridge-handler (handlers)
+
+- File: `src/handlers/restartBridge-handler.ts`
+- Uses functional components: 1
+- Used by functional components: 1
+
+Uses these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| vscode-bridge | vscode-bridge.ts | src/vscode-bridge.ts |
+
+Used by these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| statusPage-handler | handlers | src/handlers/statusPage-handler.ts |
+
+### reusablePromptEditor-handler (handlers)
+
+- File: `src/handlers/reusablePromptEditor-handler.ts`
+- Uses functional components: 1
+- Used by functional components: 1
+
+Uses these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| panelYamlStore | utils | src/utils/panelYamlStore.ts |
+
+Used by these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| chatPanel-handler | handlers | src/handlers/chatPanel-handler.ts |
+
+### runTests-handler (handlers)
+
+- File: `src/handlers/runTests-handler.ts`
+- Uses functional components: 0
+- Used by functional components: 0
+
+Uses these functional components
+
+None.
+
+Used by these functional components
+
+None.
+
+### sendToChat-handler (handlers)
+
+- File: `src/handlers/sendToChat-handler.ts`
+- Uses functional components: 0
+- Used by functional components: 0
+
+Uses these functional components
+
+None.
+
+Used by these functional components
+
+None.
+
+### showApiInfo-handler (handlers)
+
+- File: `src/handlers/showApiInfo-handler.ts`
+- Uses functional components: 0
+- Used by functional components: 0
+
+Uses these functional components
+
+None.
+
+Used by these functional components
+
+None.
+
+### showHelp-handler (handlers)
+
+- File: `src/handlers/showHelp-handler.ts`
+- Uses functional components: 0
+- Used by functional components: 0
+
+Uses these functional components
+
+None.
+
+Used by these functional components
+
+None.
+
+### sidebarNotes-handler (handlers)
+
+- File: `src/handlers/sidebarNotes-handler.ts`
+- Uses functional components: 4
+- Used by functional components: 0
+
+Uses these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| globalTemplateEditor-handler | handlers | src/handlers/globalTemplateEditor-handler.ts |
+| localLlm-handler | handlers | src/handlers/localLlm-handler.ts |
+| questTodoPanel-handler | handlers | src/handlers/questTodoPanel-handler.ts |
+| sessionTodoStore | managers | src/managers/sessionTodoStore.ts |
+
+Used by these functional components
+
+None.
+
+### stateMachine-handler (handlers)
+
+- File: `src/handlers/stateMachine-handler.ts`
+- Uses functional components: 0
+- Used by functional components: 0
+
+Uses these functional components
+
+None.
+
+Used by these functional components
+
+None.
+
+### statusPage-handler (handlers)
+
+- File: `src/handlers/statusPage-handler.ts`
+- Uses functional components: 4
+- Used by functional components: 0
+
+Uses these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| cliServer-handler | handlers | src/handlers/cliServer-handler.ts |
+| commandline-handler | handlers | src/handlers/commandline-handler.ts |
+| restartBridge-handler | handlers | src/handlers/restartBridge-handler.ts |
+| timerEngine | managers | src/managers/timerEngine.ts |
+
+Used by these functional components
+
+None.
+
+### timedRequestsEditor-handler (handlers)
+
+- File: `src/handlers/timedRequestsEditor-handler.ts`
+- Uses functional components: 5
+- Used by functional components: 0
+
+Uses these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| globalTemplateEditor-handler | handlers | src/handlers/globalTemplateEditor-handler.ts |
+| chatVariablesStore | managers | src/managers/chatVariablesStore.ts |
+| promptQueueManager | managers | src/managers/promptQueueManager.ts |
+| reminderSystem | managers | src/managers/reminderSystem.ts |
+| timerEngine | managers | src/managers/timerEngine.ts |
+
+Used by these functional components
+
+None.
+
+### todoLogPanel-handler (handlers)
+
+- File: `src/handlers/todoLogPanel-handler.ts`
+- Uses functional components: 2
+- Used by functional components: 1
+
+Uses these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| chatPanel-handler | handlers | src/handlers/chatPanel-handler.ts |
+| trailViewer-handler | handlers | src/handlers/trailViewer-handler.ts |
+
+Used by these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| extension | extension.ts | src/extension.ts |
+
+### tomAiChat-handler (handlers)
+
+- File: `src/handlers/tomAiChat-handler.ts`
+- Uses functional components: 2
+- Used by functional components: 0
+
+Uses these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| chatTodoSessionManager | managers | src/managers/chatTodoSessionManager.ts |
+| tomAiChat-tools | tools | src/tools/tomAiChat-tools.ts |
+
+Used by these functional components
+
+None.
+
+### tomScriptingBridge-handler (handlers)
+
+- File: `src/handlers/tomScriptingBridge-handler.ts`
+- Uses functional components: 5
+- Used by functional components: 2
+
+Uses these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| chatVariablesStore | managers | src/managers/chatVariablesStore.ts |
+| promptQueueManager | managers | src/managers/promptQueueManager.ts |
+| questTodoManager | managers | src/managers/questTodoManager.ts |
+| sessionTodoStore | managers | src/managers/sessionTodoStore.ts |
+| timerEngine | managers | src/managers/timerEngine.ts |
+
+Used by these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| extension | extension.ts | src/extension.ts |
+| vscode-bridge | vscode-bridge.ts | src/vscode-bridge.ts |
+
+### trailEditor-handler (handlers)
+
+- File: `src/handlers/trailEditor-handler.ts`
+- Uses functional components: 2
+- Used by functional components: 1
+
+Uses these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| questTodoPanel-handler | handlers | src/handlers/questTodoPanel-handler.ts |
+| questTodoManager | managers | src/managers/questTodoManager.ts |
+
+Used by these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| extension | extension.ts | src/extension.ts |
+
+### trailViewer-handler (handlers)
+
+- File: `src/handlers/trailViewer-handler.ts`
+- Uses functional components: 2
+- Used by functional components: 1
+
+Uses these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| questTodoPanel-handler | handlers | src/handlers/questTodoPanel-handler.ts |
+| questTodoManager | managers | src/managers/questTodoManager.ts |
+
+Used by these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| todoLogPanel-handler | handlers | src/handlers/todoLogPanel-handler.ts |
+
+### windowStatusPanel-handler (handlers)
+
+- File: `src/handlers/windowStatusPanel-handler.ts`
+- Uses functional components: 0
+- Used by functional components: 4
+
+Uses these functional components
+
+None.
+
+Used by these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| extension | extension.ts | src/extension.ts |
+| aiConversation-handler | handlers | src/handlers/aiConversation-handler.ts |
+| chatPanel-handler | handlers | src/handlers/chatPanel-handler.ts |
+| promptQueueManager | managers | src/managers/promptQueueManager.ts |
+
+### wsPanel-handler (handlers)
+
+- File: `src/handlers/wsPanel-handler.ts`
+- Uses functional components: 0
+- Used by functional components: 0
+
+Uses these functional components
+
+None.
+
+Used by these functional components
+
+None.
+
+### yamlGraph-handler (handlers)
+
+- File: `src/handlers/yamlGraph-handler.ts`
+- Uses functional components: 0
+- Used by functional components: 0
+
+Uses these functional components
+
+None.
+
+Used by these functional components
+
+None.
+
+### chatTodoSessionManager (managers)
+
+- File: `src/managers/chatTodoSessionManager.ts`
+- Uses functional components: 1
+- Used by functional components: 2
+
+Uses these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| todoProvider | managers | src/managers/todoProvider.ts |
+
+Used by these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| tomAiChat-handler | handlers | src/handlers/tomAiChat-handler.ts |
+| tool-executors | tools | src/tools/tool-executors.ts |
+
+### chatVariablesStore (managers)
+
+- File: `src/managers/chatVariablesStore.ts`
+- Uses functional components: 0
+- Used by functional components: 10
+
+Uses these functional components
+
+None.
+
+Used by these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| extension | extension.ts | src/extension.ts |
+| chatVariablesEditor-handler | handlers | src/handlers/chatVariablesEditor-handler.ts |
+| questTodoPanel-handler | handlers | src/handlers/questTodoPanel-handler.ts |
+| queueEditor-handler | handlers | src/handlers/queueEditor-handler.ts |
+| timedRequestsEditor-handler | handlers | src/handlers/timedRequestsEditor-handler.ts |
+| tomScriptingBridge-handler | handlers | src/handlers/tomScriptingBridge-handler.ts |
+| sessionTodoStore | managers | src/managers/sessionTodoStore.ts |
+| chat-enhancement-tools | tools | src/tools/chat-enhancement-tools.ts |
+| chatVariableResolvers | tools | src/tools/chatVariableResolvers.ts |
+| tool-executors | tools | src/tools/tool-executors.ts |
+
+### promptQueueManager (managers)
+
+- File: `src/managers/promptQueueManager.ts`
+- Uses functional components: 2
+- Used by functional components: 6
+
+Uses these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| windowStatusPanel-handler | handlers | src/handlers/windowStatusPanel-handler.ts |
+| trailService | services | src/services/trailService.ts |
+
+Used by these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| extension | extension.ts | src/extension.ts |
+| queueEditor-handler | handlers | src/handlers/queueEditor-handler.ts |
+| timedRequestsEditor-handler | handlers | src/handlers/timedRequestsEditor-handler.ts |
+| tomScriptingBridge-handler | handlers | src/handlers/tomScriptingBridge-handler.ts |
+| reminderSystem | managers | src/managers/reminderSystem.ts |
+| timerEngine | managers | src/managers/timerEngine.ts |
+
+### questTodoManager (managers)
+
+- File: `src/managers/questTodoManager.ts`
+- Uses functional components: 0
+- Used by functional components: 6
+
+Uses these functional components
+
+None.
+
+Used by these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| chatVariablesEditor-handler | handlers | src/handlers/chatVariablesEditor-handler.ts |
+| questTodoPanel-handler | handlers | src/handlers/questTodoPanel-handler.ts |
+| tomScriptingBridge-handler | handlers | src/handlers/tomScriptingBridge-handler.ts |
+| trailEditor-handler | handlers | src/handlers/trailEditor-handler.ts |
+| trailViewer-handler | handlers | src/handlers/trailViewer-handler.ts |
+| chat-enhancement-tools | tools | src/tools/chat-enhancement-tools.ts |
+
+### reminderSystem (managers)
+
+- File: `src/managers/reminderSystem.ts`
+- Uses functional components: 1
+- Used by functional components: 5
+
+Uses these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| promptQueueManager | managers | src/managers/promptQueueManager.ts |
+
+Used by these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| extension | extension.ts | src/extension.ts |
+| queueEditor-handler | handlers | src/handlers/queueEditor-handler.ts |
+| queueTemplateEditor-handler | handlers | src/handlers/queueTemplateEditor-handler.ts |
+| timedRequestsEditor-handler | handlers | src/handlers/timedRequestsEditor-handler.ts |
+| chat-enhancement-tools | tools | src/tools/chat-enhancement-tools.ts |
+
+### sessionTodoStore (managers)
+
+- File: `src/managers/sessionTodoStore.ts`
+- Uses functional components: 1
+- Used by functional components: 6
+
+Uses these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| chatVariablesStore | managers | src/managers/chatVariablesStore.ts |
+
+Used by these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| extension | extension.ts | src/extension.ts |
+| questTodoPanel-handler | handlers | src/handlers/questTodoPanel-handler.ts |
+| sidebarNotes-handler | handlers | src/handlers/sidebarNotes-handler.ts |
+| tomScriptingBridge-handler | handlers | src/handlers/tomScriptingBridge-handler.ts |
+| todoProvider | managers | src/managers/todoProvider.ts |
+| chat-enhancement-tools | tools | src/tools/chat-enhancement-tools.ts |
+
+### timerEngine (managers)
+
+- File: `src/managers/timerEngine.ts`
+- Uses functional components: 2
+- Used by functional components: 4
+
+Uses these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| promptQueueManager | managers | src/managers/promptQueueManager.ts |
+| panelYamlStore | utils | src/utils/panelYamlStore.ts |
+
+Used by these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| extension | extension.ts | src/extension.ts |
+| statusPage-handler | handlers | src/handlers/statusPage-handler.ts |
+| timedRequestsEditor-handler | handlers | src/handlers/timedRequestsEditor-handler.ts |
+| tomScriptingBridge-handler | handlers | src/handlers/tomScriptingBridge-handler.ts |
+
+### todoProvider (managers)
+
+- File: `src/managers/todoProvider.ts`
+- Uses functional components: 1
+- Used by functional components: 1
+
+Uses these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| sessionTodoStore | managers | src/managers/sessionTodoStore.ts |
+
+Used by these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| chatTodoSessionManager | managers | src/managers/chatTodoSessionManager.ts |
+
+### trailService (services)
+
+- File: `src/services/trailService.ts`
+- Uses functional components: 0
+- Used by functional components: 3
+
+Uses these functional components
+
+None.
+
+Used by these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| extension | extension.ts | src/extension.ts |
+| chatPanel-handler | handlers | src/handlers/chatPanel-handler.ts |
+| promptQueueManager | managers | src/managers/promptQueueManager.ts |
+
+### chat-enhancement-tools (tools)
+
+- File: `src/tools/chat-enhancement-tools.ts`
+- Uses functional components: 6
+- Used by functional components: 1
+
+Uses these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| questTodoPanel-handler | handlers | src/handlers/questTodoPanel-handler.ts |
+| chatVariablesStore | managers | src/managers/chatVariablesStore.ts |
+| questTodoManager | managers | src/managers/questTodoManager.ts |
+| reminderSystem | managers | src/managers/reminderSystem.ts |
+| sessionTodoStore | managers | src/managers/sessionTodoStore.ts |
+| shared-tool-registry | tools | src/tools/shared-tool-registry.ts |
+
+Used by these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| tool-executors | tools | src/tools/tool-executors.ts |
+
+### chatVariableResolvers (tools)
+
+- File: `src/tools/chatVariableResolvers.ts`
+- Uses functional components: 1
+- Used by functional components: 1
+
+Uses these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| chatVariablesStore | managers | src/managers/chatVariablesStore.ts |
+
+Used by these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| extension | extension.ts | src/extension.ts |
+
+### local-llm-tools-config (tools)
+
+- File: `src/tools/local-llm-tools-config.ts`
+- Uses functional components: 0
+- Used by functional components: 0
+
+Uses these functional components
+
+None.
+
+Used by these functional components
+
+None.
+
+### shared-tool-registry (tools)
+
+- File: `src/tools/shared-tool-registry.ts`
+- Uses functional components: 0
+- Used by functional components: 3
+
+Uses these functional components
+
+None.
+
+Used by these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| chat-enhancement-tools | tools | src/tools/chat-enhancement-tools.ts |
+| tomAiChat-tools | tools | src/tools/tomAiChat-tools.ts |
+| tool-executors | tools | src/tools/tool-executors.ts |
+
+### tomAiChat-tools (tools)
+
+- File: `src/tools/tomAiChat-tools.ts`
+- Uses functional components: 1
+- Used by functional components: 2
+
+Uses these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| shared-tool-registry | tools | src/tools/shared-tool-registry.ts |
+
+Used by these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| extension | extension.ts | src/extension.ts |
+| tomAiChat-handler | handlers | src/handlers/tomAiChat-handler.ts |
+
+### tool-executors (tools)
+
+- File: `src/tools/tool-executors.ts`
+- Uses functional components: 4
+- Used by functional components: 2
+
+Uses these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| chatTodoSessionManager | managers | src/managers/chatTodoSessionManager.ts |
+| chatVariablesStore | managers | src/managers/chatVariablesStore.ts |
+| chat-enhancement-tools | tools | src/tools/chat-enhancement-tools.ts |
+| shared-tool-registry | tools | src/tools/shared-tool-registry.ts |
+
+Used by these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| extension | extension.ts | src/extension.ts |
+| localLlm-handler | handlers | src/handlers/localLlm-handler.ts |
+
+### baseWebviewProvider (utils)
+
+- File: `src/utils/baseWebviewProvider.ts`
+- Uses functional components: 0
+- Used by functional components: 0
+
+Uses these functional components
+
+None.
+
+Used by these functional components
+
+None.
+
+### panelYamlStore (utils)
+
+- File: `src/utils/panelYamlStore.ts`
+- Uses functional components: 0
+- Used by functional components: 3
+
+Uses these functional components
+
+None.
+
+Used by these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| chatVariablesEditor-handler | handlers | src/handlers/chatVariablesEditor-handler.ts |
+| reusablePromptEditor-handler | handlers | src/handlers/reusablePromptEditor-handler.ts |
+| timerEngine | managers | src/managers/timerEngine.ts |
+
+### vscode-bridge (vscode-bridge.ts)
+
+- File: `src/vscode-bridge.ts`
+- Uses functional components: 1
+- Used by functional components: 2
+
+Uses these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| tomScriptingBridge-handler | handlers | src/handlers/tomScriptingBridge-handler.ts |
+
+Used by these functional components
+
+| Component | Subsystem | File |
+| --- | --- | --- |
+| extension | extension.ts | src/extension.ts |
+| restartBridge-handler | handlers | src/handlers/restartBridge-handler.ts |
