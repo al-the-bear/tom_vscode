@@ -232,7 +232,7 @@ export function getConfigPath(): string | undefined {
  *   ${file.content}      — full file content
  *   ${file.selection}    — selection (falls back to full content)
  *   ${configfile}        — extension config file path
- *   ${answer-file}       — answer file path
+ *   ${copilotAnswerFile} — copilot chat answer file path
  *   ${env.VARNAME}       — any environment variable
  *   ${git.branch}        — current git branch
  *   ${{javascript}}      — inline JS expression

@@ -8,12 +8,11 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { getConfigPath, updateChatResponseValues, clearChatResponseValues } from './handler_shared';
+import { getConfigPath, updateChatResponseValues, clearChatResponseValues, getChatResponseValues, getCopilotChatAnswerFolder } from './handler_shared';
 import { logCopilotAnswer, isTrailEnabled, loadTrailConfig } from '../services/trailLogging';
 import {
     resolveTemplate,
     formatDateTime,
-    getChatAnswerFolder,
 } from './promptTemplate';
 
 /**
@@ -477,11 +476,11 @@ export class SendToChatAdvancedManager {
         values['requestId'] = values['datetime'];
         values['windowId'] = vscode.env.sessionId;
         values['machineId'] = vscode.env.machineId;
-        values['chatAnswerFolder'] = getChatAnswerFolder();
+        values['copilotAnswerFolder'] = getCopilotChatAnswerFolder();
 
-        // Load chat answer file data
-        this.loadChatAnswerFile();
-        for (const [k, v] of Object.entries(SendToChatAdvancedManager.chatAnswerData)) {
+        // Load session response values from handler_shared (populated by queue answer processing)
+        const sessionResponseValues = getChatResponseValues();
+        for (const [k, v] of Object.entries(sessionResponseValues)) {
             const str = typeof v === 'string' ? v : (v !== null && v !== undefined ? JSON.stringify(v) : '');
             values[`chat.${k}`] = str;
         }
@@ -543,79 +542,6 @@ export class SendToChatAdvancedManager {
         }
 
         return parsed;
-    }
-
-    /**
-     * Load and parse the chat answer file, accumulating data into static map
-     */
-    private loadChatAnswerFile(): void {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (!workspaceFolders || workspaceFolders.length === 0) {
-            return;
-        }
-
-        const chatAnswerFolder = getChatAnswerFolder();
-        const answerFilePath = path.join(
-            workspaceFolders[0].uri.fsPath,
-            chatAnswerFolder,
-            `${vscode.env.sessionId}_${vscode.env.machineId}_answer.json`
-        );
-
-        try {
-            if (!fs.existsSync(answerFilePath)) {
-                return;
-            }
-
-            const content = fs.readFileSync(answerFilePath, 'utf-8');
-            if (!content.trim()) {
-                return;
-            }
-
-            // Try to parse as JSON first
-            try {
-                const jsonData = JSON.parse(content);
-                if (typeof jsonData === 'object' && jsonData !== null) {
-                    // Copy all top-level fields first
-                    Object.assign(SendToChatAdvancedManager.chatAnswerData, jsonData);
-                    
-                    // If responseValues exists, also spread those keys to top-level for ${chat.KEY} access
-                    if (jsonData.responseValues && typeof jsonData.responseValues === 'object') {
-                        Object.assign(SendToChatAdvancedManager.chatAnswerData, jsonData.responseValues);
-                    }
-                    
-                    // Sync to shared store so all handlers can access via ${chat.KEY}
-                    updateChatResponseValues(SendToChatAdvancedManager.chatAnswerData);
-                    
-                    this.log(`Loaded chat answer data from ${answerFilePath}`);
-                    
-                    // Trail: Log Copilot answer file
-                    loadTrailConfig();
-                    logCopilotAnswer(answerFilePath, jsonData);
-                    
-                    return;
-                }
-            } catch {
-                // Not JSON, try YAML-like
-            }
-
-            // Parse as YAML-like
-            const parsed = this.parseYamlLike(content);
-            if (Object.keys(parsed.data).length > 0) {
-                Object.assign(SendToChatAdvancedManager.chatAnswerData, parsed.data);
-                
-                // Sync to shared store
-                updateChatResponseValues(SendToChatAdvancedManager.chatAnswerData);
-                
-                this.log(`Loaded chat answer data from ${answerFilePath}`);
-                
-                // Trail: Log Copilot answer file (YAML format)
-                loadTrailConfig();
-                logCopilotAnswer(answerFilePath, parsed.data);
-            }
-
-        } catch (error: any) {
-            this.log(`Error loading chat answer file: ${error.message}`, 'ERROR');
-        }
     }
 
     /**

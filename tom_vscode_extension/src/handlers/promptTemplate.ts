@@ -70,19 +70,6 @@ export function formatDateTime(date: Date = new Date()): string {
 }
 
 /**
- * Get the chat answer folder from VS Code settings.
- */
-export function getChatAnswerFolder(): string {
-    const setting = vscode.workspace
-        .getConfiguration('tomAi.sendToChat')
-        .get<string>('chatAnswerFolder')
-        || vscode.workspace
-            .getConfiguration('tomAi.sendToCopilot')
-            .get<string>('chatAnswerFolder');
-    return setting || WsPaths.aiRelative('chatReplies');
-}
-
-/**
  * Resolve a dot-separated path against a nested data object.
  * Returns the stringified value, or undefined if not found.
  */

@@ -186,7 +186,7 @@ function evaluateJsExpression(expr: string, vars: Record<string, string>): strin
 const PATH_VARIABLE_KEYS = new Set([
     'workspaceFolder', 'home', 'file', 'fileFolder', 'configfile',
     'configfile-workspace', 'configfile-user', 'configfile-vscode',
-    'workspace-file', 'answer-file', 'chatAnswerFolder', 'tmpdir', 'shell',
+    'workspace-file', 'copilotAnswerFile', 'copilotAnswerFolder', 'tmpdir', 'shell',
 ]);
 
 /**
@@ -236,33 +236,6 @@ function getConfigFilePath(): string {
     }
 
     return configPath;
-}
-
-/**
- * Get the chat answer folder from VS Code settings.
- */
-function getChatAnswerFolder(): string {
-    const setting = vscode.workspace
-        .getConfiguration('tomAi.sendToChat')
-        .get<string>('chatAnswerFolder')
-        || vscode.workspace
-            .getConfiguration('tomAi.sendToCopilot')
-            .get<string>('chatAnswerFolder');
-    return setting || '_ai/chat_replies';
-}
-
-/**
- * Compute the answer file path for the current window.
- */
-function getAnswerFilePath(): string {
-    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
-    const folder = wsRoot
-        ? path.join(wsRoot, getChatAnswerFolder())
-        : path.join(os.homedir(), '.tom', 'chat_replies');
-
-    const session = vscode.env.sessionId;
-    const machine = vscode.env.machineId;
-    return path.join(folder, `${session}_${machine}_answer.json`);
 }
 
 /**
@@ -321,7 +294,6 @@ export function buildVariableMap(options?: ResolveOptions): Record<string, strin
     const wsRoot = wf?.uri.fsPath || '';
     const requestId = generateShortUUID();
     const configPath = getConfigFilePath();
-    const answerFolder = getChatAnswerFolder();
 
     // Derive workspace name from .code-workspace file (quest-aware)
     const workspaceFile = vscode.workspace.workspaceFile;
@@ -371,9 +343,7 @@ export function buildVariableMap(options?: ResolveOptions): Record<string, strin
         'configfile-vscode':     configPath,
         'workspace-file':        configPath,
 
-        // Answer file
-        'answer-file':    getAnswerFilePath(),
-        chatAnswerFolder: answerFolder,
+        // Answer file (Copilot chat)
         copilotAnswerFolder: _getCopilotChatAnswerFolder(),
         copilotAnswerFile: getCopilotAnswerFile(requestId),
 
@@ -462,7 +432,6 @@ function addChatValues(values: Record<string, string>): void {
     try {
         // The ChatVariablesStore is a singleton; access it dynamically
         // to avoid circular dependency with handler_shared.
-        // We look up the global _chatResponseValues via a shared accessor.
         const chatStore = getChatVariablesStoreInstance();
         if (chatStore) {
             const tv = chatStore.toTemplateValues();
@@ -473,6 +442,14 @@ function addChatValues(values: Record<string, string>): void {
             if (tv['quest']) {
                 values['quest'] = tv['quest'];
             }
+        }
+
+        // Also expose session-scoped response values from answer files.
+        // These power placeholders like ${chat.sessionCount} between prompts.
+        const responseValues = getChatResponseValuesSnapshot();
+        for (const [k, v] of Object.entries(responseValues)) {
+            if (`chat.${k}` in values) { continue; }
+            values[`chat.${k}`] = v;
         }
     } catch {
         // ChatVariablesStore not yet initialized — skip
@@ -495,6 +472,27 @@ function getChatVariablesStoreInstance(): { toTemplateValues(): Record<string, s
     }
 }
 
+/**
+ * Get session-scoped chat response values from handler_shared.
+ */
+function getChatResponseValuesSnapshot(): Record<string, string> {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const mod = require('../handlers/handler_shared');
+        const raw = typeof mod.getChatResponseValues === 'function'
+            ? mod.getChatResponseValues()
+            : {};
+        const out: Record<string, string> = {};
+        for (const [k, v] of Object.entries(raw || {})) {
+            if (!k || v === undefined || v === null) { continue; }
+            out[k] = String(v);
+        }
+        return out;
+    } catch {
+        return {};
+    }
+}
+
 // ============================================================================
 // Tier 4b — Composite block placeholders (chatVariables, contextInfo, contextAndVariables)
 // ============================================================================
@@ -505,13 +503,16 @@ function getChatVariablesStoreInstance(): { toTemplateValues(): Record<string, s
  */
 function buildChatVariablesBlock(values: Record<string, string>): string {
     const chatStore = getChatVariablesStoreInstance();
-    if (!chatStore) {
-        return 'Current Chat Variables:\n\n```json\n{}\n```';
-    }
-    const tv = chatStore.toTemplateValues();
+    const tv = chatStore ? chatStore.toTemplateValues() : {};
     const obj: Record<string, string> = {};
     for (const [k, v] of Object.entries(tv)) {
         obj[k] = v || 'not set';
+    }
+    const responseValues = getChatResponseValuesSnapshot();
+    for (const [k, v] of Object.entries(responseValues)) {
+        if (!(k in obj)) {
+            obj[k] = v || 'not set';
+        }
     }
     return `Current Chat Variables:\n\n\`\`\`json\n${JSON.stringify(obj, null, 2)}\n\`\`\``;
 }
@@ -862,8 +863,6 @@ export const PLACEHOLDER_HELP = `<strong>Available Placeholders:</strong><br>
 <code>\${machineId}</code> – VS Code machine ID<br>
 <code>\${configfile}</code> – Extension config file path<br>
 <code>\${configfile-workspace}</code> / <code>\${configfile-user}</code> / <code>\${configfile-vscode}</code> – Config variants<br>
-<code>\${answer-file}</code> – Answer file path (sendToChat system)<br>
-<code>\${chatAnswerFolder}</code> – Answer folder path (sendToChat system)<br>
 <code>\${copilotAnswerFile}</code> – Copilot chat answer file path (absolute)<br>
 <code>\${copilotAnswerFolder}</code> – Copilot chat answer folder (workspace-relative)<br>
 <code>\${config.KEY}</code> – Any VS Code setting value<br>

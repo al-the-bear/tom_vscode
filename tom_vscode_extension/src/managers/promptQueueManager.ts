@@ -195,18 +195,55 @@ export class PromptQueueManager {
     private _ctx!: vscode.ExtensionContext;
 
     private _extractRequestIdFromExpandedPrompt(expanded: string): string | undefined {
-        const patterns = [
-            /"requestId"\s*:\s*"([^"]+)"/,
-            /requestId\s*[:=]\s*['"]([^'"]+)['"]/,
-            /Request ID\s*[:=]\s*([\w.-]+)/i,
-        ];
-        for (const pattern of patterns) {
-            const match = expanded.match(pattern);
-            if (match?.[1]) {
-                return match[1].trim();
+        const lastMatch = (pattern: RegExp): string | undefined => {
+            const flags = pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`;
+            const matcher = new RegExp(pattern.source, flags);
+            let match: RegExpExecArray | null = null;
+            let last: string | undefined;
+            while ((match = matcher.exec(expanded)) !== null) {
+                const candidate = match[1]?.trim();
+                if (candidate) {
+                    last = candidate;
+                }
             }
+            return last;
+        };
+
+        // Prefer explicit trailing request-id markers in the prompt body.
+        const explicitRequestId = lastMatch(/Request ID(?: for this prompt)?\s*[:=]\s*([A-Za-z0-9_.-]+)/i);
+        if (explicitRequestId) {
+            return explicitRequestId;
         }
+
+        // If a concrete answer-file path is included, use the filename stem.
+        const answerPathRequestId = lastMatch(/\/([A-Za-z0-9_.-]+)_answer\.json\b/i);
+        if (answerPathRequestId) {
+            return answerPathRequestId;
+        }
+
+        // Fallback: pick the last requestId-like occurrence rather than the first,
+        // because templates can contain examples and context blocks with older IDs.
+        const jsonRequestId = lastMatch(/"requestId"\s*:\s*"([^"]+)"/i);
+        if (jsonRequestId) {
+            return jsonRequestId;
+        }
+
+        const inlineRequestId = lastMatch(/\brequestId\b\s*[:=]\s*['"]([^'"]+)['"]/i);
+        if (inlineRequestId) {
+            return inlineRequestId;
+        }
+
         return undefined;
+    }
+
+    private _promptLikelyTargetsRequestId(expanded: string, requestId: string): boolean {
+        if (!expanded || !requestId) {
+            return false;
+        }
+        return expanded.includes(`${requestId}_answer.json`)
+            || expanded.includes(`Request ID: ${requestId}`)
+            || expanded.includes(`Request ID for this prompt: ${requestId}`)
+            || expanded.includes(`"requestId": "${requestId}"`);
     }
 
     private async _buildExpandedText(
@@ -780,19 +817,6 @@ export class PromptQueueManager {
             debugLog(`[PromptQueueManager] Recovered requestId from invalid answer file: ${recoveredRequestId}`, 'WARN', 'queue');
         }
 
-        // Propagate responseValues to session-scoped chat response store only.
-        // Do NOT write to persistent ChatVariablesStore — responseValues are
-        // transient inter-prompt data, not intentional user-managed variables.
-        if (answer && typeof answer === 'object') {
-            const rv = (answer as any).responseValues;
-            if (rv && typeof rv === 'object') {
-                try {
-                    const { updateChatResponseValues } = require('../handlers/handler_shared');
-                    updateChatResponseValues(rv);
-                } catch { /* handler not ready */ }
-            }
-        }
-
         this._onAnswerReceived.fire(answer);
 
         const answerRequestId = (answer && typeof answer === 'object' && typeof (answer as any).requestId === 'string')
@@ -843,9 +867,57 @@ export class PromptQueueManager {
         }
 
         if (sending.expectedRequestId && resolvedAnswerRequestId && sending.expectedRequestId !== resolvedAnswerRequestId) {
+            const promptTargetsDetectedId = this._promptLikelyTargetsRequestId(
+                sending.expandedText || '',
+                resolvedAnswerRequestId,
+            );
+            if (promptTargetsDetectedId) {
+                logQueue(`Answer requestId mismatch recovered — expected ${sending.expectedRequestId}, using ${resolvedAnswerRequestId}`);
+                sending.expectedRequestId = resolvedAnswerRequestId;
+                this.persist();
+                this._onDidChange.fire();
+            } else {
             logQueue(`Answer file not matching — expected ${sending.expectedRequestId}, got ${resolvedAnswerRequestId}`);
             debugLog(`[PromptQueueManager] Ignoring answer with requestId=${resolvedAnswerRequestId}; waiting for expectedRequestId=${sending.expectedRequestId}`, 'DEBUG', 'queue');
             return;
+            }
+        }
+
+        // Propagate responseValues to session-scoped chat values and custom chat variables.
+        if (answer && typeof answer === 'object') {
+            const rv = (answer as any).responseValues;
+            if (rv && typeof rv === 'object') {
+                const normalized: Record<string, string> = {};
+                for (const [k, v] of Object.entries(rv as Record<string, unknown>)) {
+                    if (!k) { continue; }
+                    if (v === undefined || v === null) { continue; }
+                    normalized[k] = String(v);
+                }
+
+                if (Object.keys(normalized).length > 0) {
+                    try {
+                        const { updateChatResponseValues } = require('../handlers/handler_shared');
+                        updateChatResponseValues(normalized);
+                    } catch { /* handler not ready */ }
+
+                    try {
+                        const chatStore = await_import_ChatVariablesStore() as any;
+                        if (chatStore && typeof chatStore.setCustomBulk === 'function') {
+                            const builtIn = new Set(['quest', 'role', 'activeProjects', 'todo', 'todoFile']);
+                            const customValues: Record<string, string> = {};
+                            for (const [k, v] of Object.entries(normalized)) {
+                                if (builtIn.has(k)) { continue; }
+                                const key = k.startsWith('custom.') ? k.substring('custom.'.length) : k;
+                                if (!key) { continue; }
+                                customValues[key] = v;
+                            }
+                            if (Object.keys(customValues).length > 0) {
+                                chatStore.setCustomBulk(customValues, 'copilot');
+                            }
+                        }
+                    } catch { /* chat store not ready */ }
+                }
+            }
         }
 
         logQueue(`Answer detected for ${sending.id}, requestId=${resolvedAnswerRequestId || '(none)'}`);
