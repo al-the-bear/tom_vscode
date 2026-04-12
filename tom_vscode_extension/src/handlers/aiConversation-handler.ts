@@ -217,6 +217,14 @@ interface ConversationState {
     cancellationSource: vscode.CancellationTokenSource;
     /** Log file path. */
     logFilePath: string;
+    /** Current turn being processed (0 before first turn starts). */
+    currentTurn: number;
+    /** Human-readable runtime activity for status checks. */
+    currentActivity: string;
+    /** Timestamp of the most recent runtime activity update. */
+    lastActivityAt: Date;
+    /** Whether to show UI info messages while the run is active. */
+    showProgressNotifications: boolean;
 }
 
 // ============================================================================
@@ -355,6 +363,7 @@ export class AiConversationManager {
         if (!this.activeConversation?.active) { return false; }
         if (this.activeConversation.halted) { return false; } // Already halted
         this.activeConversation.halted = true;
+        this.setConversationActivity(this.activeConversation, `Halted: ${reason ?? 'user requested'}`);
         bridgeLog(`[Bot Conversation] Halted: ${reason ?? 'user requested'}`);
         this.telegram?.notifyHalted(this.activeConversation.exchanges.length);
         return true;
@@ -364,6 +373,7 @@ export class AiConversationManager {
     continueConversation(): boolean {
         if (!this.activeConversation?.active || !this.activeConversation.halted) { return false; }
         this.activeConversation.halted = false;
+        this.setConversationActivity(this.activeConversation, 'Running after continue');
         if (this.activeConversation.haltResolver) {
             this.activeConversation.haltResolver();
             this.activeConversation.haltResolver = undefined;
@@ -378,8 +388,71 @@ export class AiConversationManager {
     addUserInput(text: string): boolean {
         if (!this.activeConversation?.active) { return false; }
         this.activeConversation.additionalUserInput.push(text);
+        this.setConversationActivity(this.activeConversation, `Queued additional input (${this.activeConversation.additionalUserInput.length})`);
         bridgeLog(`[Bot Conversation] User input added (${text.length} chars): ${text.substring(0, 60)}...`);
         return true;
+    }
+
+    /** Return a structured runtime snapshot for UI/commands/bridge. */
+    getStatusSnapshot(): {
+        active: boolean;
+        halted?: boolean;
+        conversationId?: string;
+        goal?: string;
+        profileKey?: string;
+        conversationMode?: ConversationMode;
+        turnsCompleted?: number;
+        maxTurns?: number;
+        pendingUserInput?: number;
+        currentTurn?: number;
+        currentActivity?: string;
+        lastActivityAt?: string;
+        logFilePath?: string;
+    } {
+        if (!this.activeConversation) {
+            return { active: false };
+        }
+        const state = this.activeConversation;
+        return {
+            active: state.active,
+            halted: state.halted,
+            conversationId: state.conversationId,
+            goal: state.goal,
+            profileKey: state.profileKey,
+            conversationMode: state.config.conversationMode,
+            turnsCompleted: state.exchanges.length,
+            maxTurns: state.config.maxTurns,
+            pendingUserInput: state.additionalUserInput.length,
+            currentTurn: state.currentTurn,
+            currentActivity: state.currentActivity,
+            lastActivityAt: state.lastActivityAt.toISOString(),
+            logFilePath: state.logFilePath,
+        };
+    }
+
+    /** Show the current conversation progress in a user-facing message. */
+    async showStatusMessage(): Promise<void> {
+        const status = this.getStatusSnapshot();
+        if (!status.active) {
+            vscode.window.showInformationMessage('No active bot conversation.');
+            return;
+        }
+
+        const runState = status.halted ? 'halted' : 'running';
+        const progress = `${status.turnsCompleted ?? 0}/${status.maxTurns ?? 0}`;
+        const mode = status.conversationMode ?? 'ollama-copilot';
+        const pendingInfo = status.pendingUserInput ?? 0;
+        const activity = status.currentActivity ?? 'No activity reported yet';
+
+        const action = await vscode.window.showInformationMessage(
+            `Bot conversation ${runState} | Turns ${progress} | Mode ${mode} | Pending input ${pendingInfo} | ${activity}`,
+            'Open Log',
+        );
+
+        if (action === 'Open Log' && status.logFilePath && fs.existsSync(status.logFilePath)) {
+            const doc = await vscode.workspace.openTextDocument(status.logFilePath);
+            await vscode.window.showTextDocument(doc, { preview: false });
+        }
     }
 
     /** Whether the conversation is currently halted. */
@@ -1013,6 +1086,29 @@ export class AiConversationManager {
         }
     }
 
+    /** Update runtime activity fields used by status checks and notifications. */
+    private setConversationActivity(state: ConversationState, activity: string, currentTurn?: number): void {
+        state.currentActivity = activity;
+        state.lastActivityAt = new Date();
+        if (typeof currentTurn === 'number') {
+            state.currentTurn = currentTurn;
+        }
+    }
+
+    /** Lightweight in-progress info message with a direct action to inspect status. */
+    private showRunningInfoMessage(state: ConversationState): void {
+        if (!state.active || !state.showProgressNotifications) { return; }
+        const runState = state.halted ? 'halted' : 'running';
+        const actionLabel = 'Show Status';
+        const progress = `${state.exchanges.length}/${state.config.maxTurns}`;
+        const message = `Bot conversation ${runState} (${progress}) - ${state.currentActivity}`;
+        void vscode.window.showInformationMessage(message, actionLabel).then((action) => {
+            if (action === actionLabel) {
+                void this.showStatusMessage();
+            }
+        });
+    }
+
     // -----------------------------------------------------------------------
     // Core conversation loop
     // -----------------------------------------------------------------------
@@ -1156,9 +1252,14 @@ export class AiConversationManager {
             additionalUserInput: [],
             cancellationSource,
             logFilePath: '',
+            currentTurn: 0,
+            currentActivity: 'Conversation started, waiting for first turn',
+            lastActivityAt: new Date(),
+            showProgressNotifications: true,
         };
         this.activeConversation = state;
         this.updateWindowConversationState(true);
+        this.showRunningInfoMessage(state);
 
         bridgeLog(`[Bot Conversation] Starting: ${conversationId} | Goal: ${goal.trim().substring(0, 80)}...`);
 
@@ -1180,6 +1281,7 @@ export class AiConversationManager {
             }
         } finally {
             state.active = false;
+            this.setConversationActivity(state, 'Conversation finished');
             this.writeConversationLog(state);
             this.updateWindowConversationState(false);
 
@@ -1234,6 +1336,9 @@ export class AiConversationManager {
         for (let turn = 1; turn <= config.maxTurns; turn++) {
             if (token.isCancellationRequested) { throw new Error('Cancelled'); }
 
+            this.setConversationActivity(state, `Preparing turn ${turn}`, turn);
+            this.showRunningInfoMessage(state);
+
             // ------- Halt check -------
             await this.waitForContinue(state);
             if (token.isCancellationRequested) { throw new Error('Cancelled'); }
@@ -1249,6 +1354,7 @@ export class AiConversationManager {
 
             if (turn === 1) {
                 // Initial prompt
+                this.setConversationActivity(state, 'Generating initial prompt with local model', turn);
                 const templateValues: Record<string, string> = {
                     goal: state.goal,
                     description: state.description,
@@ -1286,6 +1392,7 @@ export class AiConversationManager {
                 localStats = genResult.stats;
             } else {
                 // Follow-up prompt
+                this.setConversationActivity(state, 'Evaluating progress and generating follow-up prompt', turn);
                 const lastExchange = state.exchanges[state.exchanges.length - 1];
                 const historySection = await this.buildHistorySection(
                     state.exchanges.slice(0, -1), // everything except the last (which is in lastPrompt/copilotResponse)
@@ -1332,6 +1439,7 @@ export class AiConversationManager {
 
                 // Check if goal is reached
                 if (copilotPrompt.includes(config.goalReachedMarker)) {
+                    this.setConversationActivity(state, `Goal reached at turn ${turn}`, turn);
                     bridgeLog(`[Bot Conversation] Goal reached at turn ${turn}`);
                     vscode.window.showInformationMessage(
                         `Bot conversation: goal reached after ${state.exchanges.length} turns!`,
@@ -1387,6 +1495,7 @@ export class AiConversationManager {
             });
 
             // Send to Copilot via LM API
+            this.setConversationActivity(state, 'Waiting for Copilot response', turn);
             const copilotResponseText = await vscode.window.withProgress(
                 {
                     location: vscode.ProgressLocation.Notification,
@@ -1400,6 +1509,7 @@ export class AiConversationManager {
 
             // ------- Step 3: Parse response -------
             // First check if there's a JSON answer file (preferred)
+            this.setConversationActivity(state, 'Processing Copilot response', turn);
             let copilotResponse: CopilotResponse;
 
             // Give the file watcher a moment
@@ -1430,6 +1540,7 @@ export class AiConversationManager {
                 localModelStats: localStats,
             };
             state.exchanges.push(exchange);
+            this.setConversationActivity(state, `Turn ${turn} completed`, turn);
 
             // Update log after each turn
             this.writeConversationLog(state);
@@ -1444,6 +1555,7 @@ export class AiConversationManager {
         }
 
         // Max turns reached
+        this.setConversationActivity(state, `Max turns reached (${config.maxTurns})`, config.maxTurns);
         bridgeLog(`[Bot Conversation] Max turns (${config.maxTurns}) reached`);
         vscode.window.showWarningMessage(
             `Bot conversation reached max turns (${config.maxTurns}) without achieving the goal.`,
@@ -1483,6 +1595,9 @@ export class AiConversationManager {
 
         for (let turn = 1; turn <= config.maxTurns; turn++) {
             if (token.isCancellationRequested) { throw new Error('Cancelled'); }
+
+            this.setConversationActivity(state, `Preparing self-talk turn ${turn}`, turn);
+            this.showRunningInfoMessage(state);
 
             // ------- Halt check -------
             await this.waitForContinue(state);
@@ -1529,9 +1644,11 @@ export class AiConversationManager {
 
             const personAOutput = personAResult.text.trim();
             const personAStats = personAResult.stats;
+            this.setConversationActivity(state, `Person A completed for turn ${turn}`, turn);
 
             // Check goal reached in Person A's output
             if (personAOutput.includes(config.goalReachedMarker)) {
+                this.setConversationActivity(state, `Goal reached by Person A at turn ${turn}`, turn);
                 bridgeLog(`[Bot Conversation] Self-talk goal reached by Person A at turn ${turn}`);
                 // Still record this exchange with A's output
                 state.exchanges.push({
@@ -1579,6 +1696,7 @@ export class AiConversationManager {
 
             const personBOutput = personBResult.text.trim();
             lastMessage = personBOutput;
+            this.setConversationActivity(state, `Person B completed for turn ${turn}`, turn);
 
             // Record as exchange (A's output → "prompt", B's output → "response")
             const combinedStats: OllamaStats = {
@@ -1601,6 +1719,7 @@ export class AiConversationManager {
                 localModelStats: combinedStats,
             };
             state.exchanges.push(exchange);
+            this.setConversationActivity(state, `Self-talk turn ${turn} completed`, turn);
             this.writeConversationLog(state);
 
             const statsStr = ` | A: ${personAStats?.promptTokens ?? 0}+${personAStats?.completionTokens ?? 0}t | B: ${personBResult.stats?.promptTokens ?? 0}+${personBResult.stats?.completionTokens ?? 0}t`;
@@ -1611,6 +1730,7 @@ export class AiConversationManager {
 
             // Check goal reached in Person B's output
             if (personBOutput.includes(config.goalReachedMarker)) {
+                this.setConversationActivity(state, `Goal reached by Person B at turn ${turn}`, turn);
                 bridgeLog(`[Bot Conversation] Self-talk goal reached by Person B at turn ${turn}`);
                 vscode.window.showInformationMessage(
                     `Self-talk: goal reached by Person B after ${turn} turns!`,
@@ -1621,6 +1741,7 @@ export class AiConversationManager {
         }
 
         // Max turns reached
+        this.setConversationActivity(state, `Self-talk max turns reached (${config.maxTurns})`, config.maxTurns);
         bridgeLog(`[Bot Conversation] Self-talk max turns (${config.maxTurns}) reached`);
         vscode.window.showWarningMessage(
             `Self-talk reached max turns (${config.maxTurns}) without achieving the goal.`,
@@ -1872,6 +1993,10 @@ export class AiConversationManager {
             additionalUserInput: [],
             cancellationSource,
             logFilePath: '',
+            currentTurn: 0,
+            currentActivity: 'Conversation started via bridge, waiting for first turn',
+            lastActivityAt: new Date(),
+            showProgressNotifications: false,
         };
         this.activeConversation = state;
         this.updateWindowConversationState(true);
@@ -1898,6 +2023,7 @@ export class AiConversationManager {
             }
         } finally {
             state.active = false;
+            this.setConversationActivity(state, 'Conversation finished');
             this.writeConversationLog(state);
             this.updateWindowConversationState(false);
             if (this.activeConversation === state) {
@@ -1970,21 +2096,7 @@ export class AiConversationManager {
 
     /** Return status of the active conversation. */
     private bridgeStatus(): any {
-        if (!this.activeConversation) {
-            return { active: false };
-        }
-        const state = this.activeConversation;
-        return {
-            active: state.active,
-            halted: state.halted,
-            conversationId: state.conversationId,
-            goal: state.goal,
-            profileKey: state.profileKey,
-            conversationMode: state.config.conversationMode,
-            turnsCompleted: state.exchanges.length,
-            maxTurns: state.config.maxTurns,
-            pendingUserInput: state.additionalUserInput.length,
-        };
+        return this.getStatusSnapshot();
     }
 
     /** Return a conversation log by ID (reads from disk). */
@@ -2100,6 +2212,7 @@ export class AiConversationManager {
     stopConversation(reason?: string): void {
         if (this.activeConversation?.active) {
             this.activeConversation.active = false;
+            this.setConversationActivity(this.activeConversation, `Stopped: ${reason ?? 'user requested'}`);
             this.activeConversation.cancellationSource.cancel();
             this.updateWindowConversationState(false);
             bridgeLog(`[Bot Conversation] Stopped: ${reason ?? 'user requested'}`);
@@ -2246,5 +2359,20 @@ export async function addToAiConversationHandler(): Promise<void> {
     } catch (error) {
         logConversation(`addToAiConversation FAILED: ${error}`, 'ERROR');
         vscode.window.showErrorMessage(`Add to Bot Conversation failed: ${error}`);
+    }
+}
+
+export async function showAiConversationStatusHandler(): Promise<void> {
+    logConversation('showAiConversationStatus command invoked');
+    try {
+        if (!_botManager) {
+            logConversation('Bot Conversation not initialized', 'ERROR');
+            vscode.window.showErrorMessage('Bot Conversation not initialized');
+            return;
+        }
+        await _botManager.showStatusMessage();
+    } catch (error) {
+        logConversation(`showAiConversationStatus FAILED: ${error}`, 'ERROR');
+        vscode.window.showErrorMessage(`Show Bot Conversation Status failed: ${error}`);
     }
 }

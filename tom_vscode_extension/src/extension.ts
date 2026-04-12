@@ -51,6 +51,7 @@ import {
     haltAiConversationHandler,
     continueAiConversationHandler,
     addToAiConversationHandler,
+    showAiConversationStatusHandler,
     AiConversationManager,
     setAiConversationManager,
     registerChordMenuCommands,
@@ -816,6 +817,14 @@ function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
+    // Show AI Conversation Status
+    const showAiConversationStatusCmd = vscode.commands.registerCommand(
+        'tomAi.aiConversation.status',
+        async () => {
+            await showAiConversationStatusHandler();
+        }
+    );
+
     // Telegram Test Connection
     const telegramTestCmd = vscode.commands.registerCommand(
         'tomAi.telegram.testConnection',
@@ -944,6 +953,7 @@ function registerCommands(context: vscode.ExtensionContext) {
         haltAiConversationCmd,
         continueAiConversationCmd,
         addToAiConversationCmd,
+        showAiConversationStatusCmd,
         telegramTestCmd,
         telegramToggleCmd,
         telegramConfigureCmd,

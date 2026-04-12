@@ -211,6 +211,11 @@
                 "category": "@Tom"
             },
             {
+                "command": "tomAi.aiConversation.status",
+                "title": "@T: Show AI Conversation Status",
+                "category": "@Tom"
+            },
+            {
                 "command": "tomAi.tomAiChat.start",
                 "title": "@T: Start Tom AI Chat",
                 "category": "@Tom",

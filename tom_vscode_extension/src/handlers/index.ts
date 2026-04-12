@@ -58,6 +58,7 @@ export {
     haltAiConversationHandler,
     continueAiConversationHandler,
     addToAiConversationHandler,
+    showAiConversationStatusHandler,
     AiConversationManager,
     setAiConversationManager,
     getAiConversationManager,
