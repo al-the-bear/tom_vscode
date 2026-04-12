@@ -1508,10 +1508,27 @@ export class PromptQueueManager {
 
     updateRepeat(id: string, patch: { repeatCount?: number; repeatIndex?: number; repeatPrefix?: string; repeatSuffix?: string; answerWaitMinutes?: number; repeatMainPromptOnly?: boolean }): void {
         const item = this._items.find(i => i.id === id);
-        if (!item || !this.isEditableStatus(item.status)) { return; }
+        if (!item) { return; }
+
+        const isSending = item.status === 'sending';
+        const allowFullEdit = this.isEditableStatus(item.status);
+        if (!allowFullEdit && !isSending) { return; }
 
         if (patch.repeatCount !== undefined) {
-            item.repeatCount = Math.max(0, Math.round(patch.repeatCount || 0));
+            const requested = Math.max(0, Math.round(patch.repeatCount || 0));
+            if (isSending) {
+                const currentRepeatNumber = Math.max(1, Math.round((item.repeatIndex || 0) + 1));
+                // While sending, never reduce below the current repeat number.
+                // This ensures the current send can finish and prevents re-sending when set to current.
+                item.repeatCount = Math.max(requested, currentRepeatNumber);
+            } else {
+                item.repeatCount = requested;
+            }
+        }
+        if (!allowFullEdit) {
+            this.persist();
+            this._onDidChange.fire();
+            return;
         }
         if (patch.repeatIndex !== undefined) {
             item.repeatIndex = Math.max(0, Math.round(patch.repeatIndex || 0));

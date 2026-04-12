@@ -191,10 +191,19 @@ function renderEntry(item, idx) {
   var followUpProgress = followUps.length > 0 ? ('  [FU ' + Math.min(sentFollowUps, followUps.length) + '/' + followUps.length + ']') : '';
   var repeatCount = Math.max(0, parseInt(String(item.repeatCount || 0), 10) || 0);
   var repeatIndex = Math.max(0, parseInt(String(item.repeatIndex || 0), 10) || 0);
-  var repeatProgress = repeatCount > 0 ? ('  [R ' + Math.min(repeatIndex + 1, repeatCount) + '/' + repeatCount + ']') : '';
+  var safeId = escapeJsSingleQuoted(item.id);
+  var currentRepeatNumber = repeatCount > 0 ? Math.min(repeatIndex + 1, repeatCount) : 0;
+  var repeatProgress = '';
+  if (repeatCount > 0) {
+    repeatProgress = '  [R ' + currentRepeatNumber + '/' + repeatCount + ']';
+    if (isSending) {
+      repeatProgress = '  [R ' + currentRepeatNumber + '/'
+        + '<input type="number" min="' + currentRepeatNumber + '" step="1" value="' + repeatCount + '" style="width:38px" title="Press Enter to update repeat total" onclick="event.stopPropagation()" onkeydown="submitRepeatCountFromStatus(event, \\\'' + safeId + '\\\', ' + currentRepeatNumber + ', this)">'
+        + ']';
+    }
+  }
 
   var expanded = detailsExpanded[item.id] !== false;
-  var safeId = escapeJsSingleQuoted(item.id);
 
   /* --- Template picker row --- */
   var templateRow = '';
@@ -453,6 +462,19 @@ function updateItemRepeat(id, patch) {
     msg.repeatMainPromptOnly = !!nextPatch.repeatMainPromptOnly;
   }
   vscode.postMessage(msg);
+}
+function submitRepeatCountFromStatus(event, id, currentRepeatNumber, inputEl) {
+  if (!event || event.key !== 'Enter') { return; }
+  event.preventDefault();
+  event.stopPropagation();
+  var requested = Math.max(0, parseInt(String(inputEl && inputEl.value || '0'), 10) || 0);
+  var minAllowed = Math.max(1, parseInt(String(currentRepeatNumber || 1), 10) || 1);
+  var clamped = Math.max(requested, minAllowed);
+  if (inputEl) {
+    inputEl.value = String(clamped);
+    if (typeof inputEl.blur === 'function') { inputEl.blur(); }
+  }
+  updateItemRepeat(id, { repeatCount: clamped });
 }
 function updateItemTemplate(id, template) { vscode.postMessage({ type: 'updateItemTemplate', id: id, template: template || '' }); }
 function updateItemReminder(id, field, value) {
