@@ -1,120 +1,105 @@
 # Tom VS Code Extension File Structure
 
-This document outlines the current file structure of `tom_vscode_extension` as a baseline for a full-scale code review.
+This document is the structural baseline for a full-scale code review of Tom VS Code Extension.
 
-## Review Scope
+## Scope
 
 - Project root: `tom_ai/vscode/tom_vscode_extension`
-- Snapshot depth: up to 3 directory levels for overview
-- Excluded from structural listing: `.git/`, `node_modules/`, `out/`
+- Snapshot type: repository layout + source subsystem map
+- Snapshot excludes generated/vendor folders from topology analysis: `.git/`, `node_modules/`, `out/`
 
-## Root Layout
+## Root Topology
+
+### Top-level directories
+
+- `.vscode/`
+- `_copilot_guidelines/`
+- `bin/`
+- `doc/`
+- `example/`
+- `resources/`
+- `src/`
+
+### Runtime and build anchors
 
 | Path | Purpose |
 | --- | --- |
-| `src/` | Main TypeScript source code for extension runtime |
-| `doc/` | User and design documentation |
-| `doc/review/` | Review workspace and review-specific documents |
-| `_copilot_guidelines/` | Project-specific development and architecture guidelines |
-| `example/` | Usage examples, graph sample files, script examples |
-| `resources/` | Extension static assets (icons, webview assets) |
-| `bin/` | Platform-specific helper binaries |
-| `.vscode/` | Local launch/task configuration for development |
-| `package.json` | Extension manifest, commands, contributes, scripts |
+| `package.json` | Extension manifest, contributes, scripts |
 | `tsconfig.json` | TypeScript compiler configuration |
-| `README.md` | Project overview and setup |
-| `buildkit.yaml` | Build configuration |
-| `tom_project.yaml` | Project metadata/configuration |
+| `README.md` | Main project overview |
+| `buildkit.yaml` | Build and workspace automation config |
+| `tom_project.yaml` | Project metadata/config |
 
-## Source Structure
+## Documentation Topology
 
-### Source Root
+| Path | Purpose |
+| --- | --- |
+| `doc/` | User and project documentation |
+| `doc/information/` | Internal/explanatory notes |
+| `doc/refactoring/` | Refactoring analyses and plans |
+| `doc/review/` | Structured review documents and outputs |
+
+## Source Topology
+
+### Source root map
 
 | Path | Role |
 | --- | --- |
-| `src/extension.ts` | Main activation entry point and registration wiring |
-| `src/vscode-bridge.ts` | Bridge entry and integration logic |
-| `src/tests.ts` | VS Code extension test bootstrap |
-| `src/config/` | Static configuration payloads |
-| `src/handlers/` | UI panels, commands, chat flows, editor handlers |
-| `src/managers/` | Runtime orchestration managers and state controllers |
-| `src/services/` | Service-layer helpers |
-| `src/storage/` | File-backed persistence utilities |
-| `src/tools/` | Copilot/chat tool registration and execution |
-| `src/types/` | Shared typing contracts |
-| `src/utils/` | Generic utilities, path/config/logging helpers |
+| `src/extension.ts` | Extension activation, initialization, command registration |
+| `src/vscode-bridge.ts` | Bridge runtime/client integration |
+| `src/tests.ts` | Extension test bootstrap |
+| `src/config/` | Static config payloads bundled with extension |
+| `src/handlers/` | Command/webview/panel feature handlers |
+| `src/managers/` | Stateful orchestrators and workflow controllers |
+| `src/services/` | Service-layer components |
+| `src/storage/` | File-backed storage modules |
+| `src/tools/` | Tool registration and tool executor implementations |
+| `src/types/` | Shared type contracts |
+| `src/utils/` | Cross-cutting helper utilities |
 
-### Source Module Size Snapshot
+### Source module size snapshot
 
-- Total TypeScript files in `src/`: 107
-- `src/handlers/`: 65 files
-- `src/managers/`: 11 files
-- `src/utils/`: 18 files
-- `src/tools/`: 6 files
-- `src/services/`: 2 files
-- `src/storage/`: 1 file
-- `src/types/`: 1 file
+- Total TypeScript files under `src/`: 107
+- `src/handlers/`: 65
+- `src/managers/`: 11
+- `src/utils/`: 18
+- `src/tools/`: 6
+- `src/services/`: 2
+- `src/storage/`: 1
+- `src/types/`: 1
 
-## Handler Subsystem Map
+## Subsystem Breakdown
 
-`src/handlers/` is the largest subsystem and contains feature-oriented handlers.
+### Handlers (`src/handlers/`)
 
-Main clusters:
+Primary entry surface for UI and command behavior. Largest subsystem and main review hotspot.
 
-- Chat and Copilot integration:
-  - `chatPanel-handler.ts`
-  - `tomAiChat-handler.ts`
-  - `tomAiChat-utils.ts`
-  - `copilotTemplates-handler.ts`
-  - `chatVariablesEditor-handler.ts`
-- Queue and TODO workflows:
-  - `queueEditor-handler.ts`
-  - `queueTemplateEditor-handler.ts`
-  - `questTodoEditor-handler.ts`
-  - `questTodoPanel-handler.ts`
-  - `todoLogPanel-handler.ts`
-- Bridge and automation:
-  - `cliServer-handler.ts`
-  - `tomScriptingBridge-handler.ts`
-  - `executeInTomAiBuild-handler.ts`
-  - `restartBridge-handler.ts`
-- UI panel infrastructure:
-  - `accordionPanel.ts`
-  - `tabPanel.ts`
-  - `windowStatusPanel-handler.ts`
-  - `statusPage-handler.ts`
-  - `wsPanel-handler.ts`
-- Graph/document tooling:
-  - `yamlGraph-handler.ts`
-  - `stateMachine-handler.ts`
-  - `markdownBrowser-handler.ts`
-  - `trailEditor-handler.ts`
-  - `trailViewer-handler.ts`
+Key clusters:
 
-## Manager Subsystem Map
+- Chat and Copilot flows: `chatPanel-handler.ts`, `tomAiChat-handler.ts`, `copilotTemplates-handler.ts`, `chatVariablesEditor-handler.ts`
+- Queue/TODO workflows: `queueEditor-handler.ts`, `queueTemplateEditor-handler.ts`, `questTodoEditor-handler.ts`, `todoLogPanel-handler.ts`
+- Bridge and automation: `cliServer-handler.ts`, `tomScriptingBridge-handler.ts`, `restartBridge-handler.ts`
+- Panel and shell UI: `statusPage-handler.ts`, `windowStatusPanel-handler.ts`, `wsPanel-handler.ts`
+- Graph/trail/docs tooling: `yamlGraph-handler.ts`, `stateMachine-handler.ts`, `trailEditor-handler.ts`, `trailViewer-handler.ts`, `markdownBrowser-handler.ts`
 
-`src/managers/` centralizes stateful orchestration:
+### Managers (`src/managers/`)
 
-- `promptQueueManager.ts` for queue lifecycle and file synchronization
-- `timerEngine.ts` and `reminderSystem.ts` for scheduled execution/reminders
-- `questTodoManager.ts`, `sessionTodoStore.ts`, `chatTodoSessionManager.ts` for todo state domains
-- `chatVariablesStore.ts` for variable persistence and resolution
-- `todoProvider.ts` for provider-level todo integration
+Stateful orchestration layer.
 
-## Storage, Services, and Utility Layers
+- Queue lifecycle: `promptQueueManager.ts`
+- Timers/reminders: `timerEngine.ts`, `reminderSystem.ts`
+- Variables/session state: `chatVariablesStore.ts`, `sessionTodoStore.ts`, `chatTodoSessionManager.ts`
+- TODO domain: `questTodoManager.ts`, `todoProvider.ts`
 
-- `src/storage/queueFileStorage.ts` provides queue file read/write and persistence helpers.
-- `src/services/trailService.ts` and `src/services/trailLogging.ts` provide trail-oriented service behavior.
-- `src/utils/` contains cross-cutting helpers:
-  - path and workspace resolution
-  - debug and queue logging
-  - config and constants
-  - webview base abstractions
-  - variable resolution and send-to-chat support
+### Services + storage + utils
 
-## Tests and Test Placement
+- Storage: `src/storage/queueFileStorage.ts`
+- Services: `src/services/trailService.ts`, `src/services/trailLogging.ts`
+- Utilities: path/workspace resolution, debug/queue logging, template/variable resolution, config helpers, reusable webview helpers
 
-Current in-source tests are colocated in `__tests__` directories:
+## Tests Placement
+
+Colocated test files discovered in `__tests__` folders:
 
 - `src/handlers/__tests__/tomAiChat-utils.test.ts`
 - `src/managers/__tests__/noReminder.test.ts`
@@ -123,26 +108,15 @@ Current in-source tests are colocated in `__tests__` directories:
 - `src/utils/__tests__/queueLogger.test.ts`
 - `src/utils/__tests__/step5FileNamingAndMigration.test.ts`
 
-Total test files in these colocated folders: 6
+Total colocated test files: 6
 
-## Documentation Structure
+## Structural Review Hotspots
 
-| Path | Focus |
-| --- | --- |
-| `doc/user_guide.md` | User-facing extension usage |
-| `doc/quick_reference.md` | Command and behavior quick lookup |
-| `doc/yaml_graph.md` | YAML graph feature docs |
-| `doc/yaml_graph_architecture_design.md` | YAML graph architecture |
-| `doc/refactoring/` | Refactor analyses and plans |
-| `doc/information/` | Additional internal information pages |
+This topology indicates priority review zones:
 
-## Review Guidance Derived from Structure
+- High concentration and coupling risk in `src/handlers/`
+- Cross-layer queue behavior (`handlers <-> managers <-> storage`)
+- Placeholder/value resolution path (`tools/`, `handlers/`, `utils/`, `managers/`)
+- Utility surface growth in `src/utils/` (cohesion and duplication risk)
 
-The structural hotspots for deep review are:
-
-- `src/handlers/` due to size and feature concentration.
-- Queue and TODO flow across handler-manager-storage layers.
-- Chat and tool execution boundaries across handlers and `src/tools/`.
-- Utility growth in `src/utils/` to monitor cohesion and avoid overlap.
-
-This file is intended as the baseline map for follow-up review documents (architecture risks, coupling analysis, test coverage analysis, and remediation plan).
+This file acts as the baseline for deeper review artifacts (dependency map, risk register, test-gap analysis, and remediation plan).
