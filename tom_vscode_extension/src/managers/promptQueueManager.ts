@@ -264,6 +264,7 @@ export class PromptQueueManager {
         });
 
         // Resolve repeat affix placeholders via the standard variable resolver.
+        // Placeholder values are 1-based for user-facing prompt templates.
         // Supported syntax for repeat placeholders is ${repeatNumber}, ${repeatIndex}, ${repeatCount}.
         // Mustache placeholders are intentionally not supported for repeat affixes.
         const withResolvedAffixes = resolveVariables(withAffixes, {
@@ -272,7 +273,7 @@ export class PromptQueueManager {
             enableJsExpressions: true,
             values: {
                 repeatCount: String(repeatCount),
-                repeatIndex: String(repeatIndex),
+                repeatIndex: String(repeatNumber),
                 repeatNumber: String(repeatNumber),
             },
         });
