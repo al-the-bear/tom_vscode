@@ -831,6 +831,10 @@ export class PromptQueueManager {
             logQueue(`Answer requestId detected via ${detectedRequest.source}: ${resolvedAnswerRequestId}`);
         }
 
+        // Always propagate responseValues from readable answer payloads,
+        // even when there is no active sending item or a requestId mismatch.
+        this.propagateAnswerResponseValues(answer);
+
         // Ensure we always produce a canonical trail answer entry when a requestId is available.
         if (resolvedAnswerRequestId) {
             try {
@@ -881,43 +885,6 @@ export class PromptQueueManager {
             logQueue(`Answer file not matching — expected ${sending.expectedRequestId}, got ${resolvedAnswerRequestId}`);
             debugLog(`[PromptQueueManager] Ignoring answer with requestId=${resolvedAnswerRequestId}; waiting for expectedRequestId=${sending.expectedRequestId}`, 'DEBUG', 'queue');
             return;
-            }
-        }
-
-        // Propagate responseValues to session-scoped chat values and custom chat variables.
-        if (answer && typeof answer === 'object') {
-            const rv = (answer as any).responseValues;
-            if (rv && typeof rv === 'object') {
-                const normalized: Record<string, string> = {};
-                for (const [k, v] of Object.entries(rv as Record<string, unknown>)) {
-                    if (!k) { continue; }
-                    if (v === undefined || v === null) { continue; }
-                    normalized[k] = String(v);
-                }
-
-                if (Object.keys(normalized).length > 0) {
-                    try {
-                        const { updateChatResponseValues } = require('../handlers/handler_shared');
-                        updateChatResponseValues(normalized);
-                    } catch { /* handler not ready */ }
-
-                    try {
-                        const chatStore = await_import_ChatVariablesStore() as any;
-                        if (chatStore && typeof chatStore.setCustomBulk === 'function') {
-                            const builtIn = new Set(['quest', 'role', 'activeProjects', 'todo', 'todoFile']);
-                            const customValues: Record<string, string> = {};
-                            for (const [k, v] of Object.entries(normalized)) {
-                                if (builtIn.has(k)) { continue; }
-                                const key = k.startsWith('custom.') ? k.substring('custom.'.length) : k;
-                                if (!key) { continue; }
-                                customValues[key] = v;
-                            }
-                            if (Object.keys(customValues).length > 0) {
-                                chatStore.setCustomBulk(customValues, 'copilot');
-                            }
-                        }
-                    } catch { /* chat store not ready */ }
-                }
             }
         }
 
@@ -1001,6 +968,50 @@ export class PromptQueueManager {
         } finally {
             this._processingAnswerFile = false;
         }
+    }
+
+    private propagateAnswerResponseValues(answer: Record<string, unknown> | undefined): void {
+        if (!answer || typeof answer !== 'object') {
+            return;
+        }
+
+        const rv = (answer as any).responseValues;
+        if (!rv || typeof rv !== 'object') {
+            return;
+        }
+
+        const normalized: Record<string, string> = {};
+        for (const [k, v] of Object.entries(rv as Record<string, unknown>)) {
+            if (!k) { continue; }
+            if (v === undefined || v === null) { continue; }
+            normalized[k] = String(v);
+        }
+
+        if (Object.keys(normalized).length === 0) {
+            return;
+        }
+
+        try {
+            const { updateChatResponseValues } = require('../handlers/handler_shared');
+            updateChatResponseValues(normalized);
+        } catch { /* handler not ready */ }
+
+        try {
+            const chatStore = await_import_ChatVariablesStore() as any;
+            if (chatStore && typeof chatStore.setCustomBulk === 'function') {
+                const builtIn = new Set(['quest', 'role', 'activeProjects', 'todo', 'todoFile']);
+                const customValues: Record<string, string> = {};
+                for (const [k, v] of Object.entries(normalized)) {
+                    if (builtIn.has(k)) { continue; }
+                    const key = k.startsWith('custom.') ? k.substring('custom.'.length) : k;
+                    if (!key) { continue; }
+                    customValues[key] = v;
+                }
+                if (Object.keys(customValues).length > 0) {
+                    chatStore.setCustomBulk(customValues, 'copilot');
+                }
+            }
+        } catch { /* chat store not ready */ }
     }
 
     // ----- queue CRUD --------------------------------------------------------
