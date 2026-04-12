@@ -5,9 +5,9 @@ This document is the complete UI/action inventory for the Tom VS Code extension 
 ## Snapshot Summary
 
 - Activation events: 1
-- Contributed commands: 75
+- Contributed commands: 76
 - Keybindings: 22
-- View containers: 3
+- View containers: 3 entries across 2 container areas
 - Views: 12
 - Custom editors: 3
 - Submenus: 2
@@ -159,6 +159,7 @@ Every contributed command below is accessible from Command Palette after activat
 | tomAi.aiConversation.add | @T: Add to AI Conversation | Command Palette | Always available in Command Palette after activation | none | src/extension.ts |
 | tomAi.aiConversation.continue | @T: Continue AI Conversation | Command Palette | Always available in Command Palette after activation | none | src/extension.ts |
 | tomAi.aiConversation.halt | @T: Halt AI Conversation | Command Palette | Always available in Command Palette after activation | none | src/extension.ts |
+| tomAi.aiConversation.status | @T: Show AI Conversation Status | Command Palette | Always available in Command Palette after activation | none | src/extension.ts |
 | tomAi.aiConversation.start | @T: Start AI Conversation | Command Palette | Always available in Command Palette after activation | none | src/extension.ts |
 | tomAi.aiConversation.stop | @T: Stop AI Conversation | Command Palette | Always available in Command Palette after activation | none | src/extension.ts |
 | tomAi.tomAiChat.interrupt | @T: Interrupt Tom AI Chat | Command Palette | Always available in Command Palette after activation | none | src/extension.ts |
