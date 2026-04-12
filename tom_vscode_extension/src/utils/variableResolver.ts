@@ -430,6 +430,20 @@ function addEditorValues(values: Record<string, string>): void {
  */
 function addChatValues(values: Record<string, string>): void {
     try {
+        const builtInChatKeys = new Set(['quest', 'role', 'activeProjects', 'todo', 'todoFile']);
+        const exposeCustomAliases = (rawKey: string, rawValue: string): void => {
+            const normalizedKey = rawKey.startsWith('custom.') ? rawKey.substring('custom.'.length) : rawKey;
+            if (!normalizedKey || builtInChatKeys.has(normalizedKey)) {
+                return;
+            }
+            if (!("custom." + normalizedKey in values)) {
+                values[`custom.${normalizedKey}`] = rawValue;
+            }
+            if (!(normalizedKey in values)) {
+                values[normalizedKey] = rawValue;
+            }
+        };
+
         // The ChatVariablesStore is a singleton; access it dynamically
         // to avoid circular dependency with handler_shared.
         const chatStore = getChatVariablesStoreInstance();
@@ -437,10 +451,12 @@ function addChatValues(values: Record<string, string>): void {
             const tv = chatStore.toTemplateValues();
             for (const [k, v] of Object.entries(tv)) {
                 values[`chat.${k}`] = v;
+                exposeCustomAliases(k, v);
             }
-            // Also expose quest directly for convenience
-            if (tv['quest']) {
-                values['quest'] = tv['quest'];
+            for (const key of builtInChatKeys) {
+                if (key in tv) {
+                    values[key] = tv[key];
+                }
             }
         }
 
@@ -448,8 +464,14 @@ function addChatValues(values: Record<string, string>): void {
         // These power placeholders like ${chat.sessionCount} between prompts.
         const responseValues = getChatResponseValuesSnapshot();
         for (const [k, v] of Object.entries(responseValues)) {
-            if (`chat.${k}` in values) { continue; }
-            values[`chat.${k}`] = v;
+            const normalizedKey = k.startsWith('custom.') ? k.substring('custom.'.length) : k;
+            if (!("chat." + k in values)) {
+                values[`chat.${k}`] = v;
+            }
+            if (k !== normalizedKey && !("chat." + normalizedKey in values)) {
+                values[`chat.${normalizedKey}`] = v;
+            }
+            exposeCustomAliases(k, v);
         }
     } catch {
         // ChatVariablesStore not yet initialized — skip
@@ -908,6 +930,7 @@ export const PLACEHOLDER_HELP = `<strong>Available Placeholders:</strong><br>
 <br>
 <em>Chat Variables (custom):</em><br>
 <code>\${custom.KEY}</code> – User-defined custom variable (set via Chat Variables Editor or answer files)<br>
+<code>\${KEY}</code> – Alias for custom/session variable keys when no built-in variable with that name exists<br>
 Custom variables are created from two sources:<br>
 &nbsp;&nbsp;1. <strong>Manually</strong> via the Chat Variables Editor "+ Add" button<br>
 &nbsp;&nbsp;2. <strong>Automatically</strong> from Copilot answer file <code>responseValues</code> — when a prompt queue answer<br>
@@ -917,6 +940,7 @@ Custom variables persist across window reloads. Delete them via the Chat Variabl
 <br>
 <em>Chat Response Values (session-scoped):</em><br>
 <code>\${chat.KEY}</code> – Also resolves response values from the current session's answer files<br>
+<code>\${custom.KEY}</code> / <code>\${KEY}</code> – Also available as aliases for non-built-in response values<br>
 These are populated from Copilot answer files, send-to-chat answer files, and local-LLM bridge tool answers.<br>
 Session response values are <strong>not persisted</strong> across window reloads — they exist only for the current session.<br>
 Use <code>#key=description</code> notation in prompts to request specific response values from Copilot.<br>

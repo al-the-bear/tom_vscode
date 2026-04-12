@@ -298,7 +298,7 @@ function renderTable(s) {
     // Custom variables
     var custom = s.custom || {};
     Object.keys(custom).sort().forEach(function(k) {
-        rows += varRow('custom.' + k, custom[k] || '', true);
+        rows += varRow('custom.' + k, custom[k] || '', true, k);
     });
 
     // New variable input row (hidden by default)
@@ -308,11 +308,11 @@ function renderTable(s) {
     attachInputListeners();
 }
 
-function varRow(name, value, deletable) {
+function varRow(name, value, deletable, label) {
     var escapedValue = esc(value);
     var deleteBtn = deletable ? '<button class="delete-btn" data-delete="' + esc(name.replace('custom.', '')) + '" title="Delete">🗑️</button>' : '';
     return '<tr>' +
-        '<td class="var-name">' + esc(name) + '</td>' +
+    '<td class="var-name">' + esc(label || name) + '</td>' +
         '<td class="var-value"><input data-var="' + esc(name) + '" value="' + escapedValue + '"></td>' +
         '<td class="var-actions">' + deleteBtn + '</td></tr>';
 }
