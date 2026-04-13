@@ -896,11 +896,7 @@ export class PromptQueueManager {
             parseErrorMessage = String(e);
         }
 
-        // Skip already-processed answer files
-        if (answer && typeof answer === 'object' && (answer as any).processed) {
-            debugLog(`[PromptQueueManager] Answer file already processed at ${(answer as any).processed}, skipping: ${filePath}`, 'DEBUG', 'queue');
-            return;
-        }
+        const answerAlreadyProcessed = !!(answer && typeof answer === 'object' && (answer as any).processed);
 
         // Fallback: recover requestId from raw content if JSON parsing failed.
         const recoveredRequestId = this._extractRequestIdFromExpandedPrompt(rawAnswerContent);
@@ -929,6 +925,21 @@ export class PromptQueueManager {
         const resolvedAnswerRequestId = detectedRequest.requestId;
         if (detectedRequest.source !== 'none') {
             logQueue(`Answer requestId detected via ${detectedRequest.source}: ${resolvedAnswerRequestId}`);
+        }
+
+        // Normally skip already-processed files. However, if this file still matches the
+        // currently expected requestId of the active sending item, re-process it to avoid
+        // getting stuck when persistence/race ordering marks a valid in-flight answer early.
+        if (answerAlreadyProcessed) {
+            const shouldReprocessForActiveSending = !!sending
+                && !!sending.expectedRequestId
+                && !!resolvedAnswerRequestId
+                && sending.expectedRequestId === resolvedAnswerRequestId;
+            if (!shouldReprocessForActiveSending) {
+                debugLog(`[PromptQueueManager] Answer file already processed at ${(answer as any).processed}, skipping: ${filePath}`, 'DEBUG', 'queue');
+                return;
+            }
+            logQueue(`Re-processing already-marked answer for active requestId=${resolvedAnswerRequestId}`);
         }
 
         const defaultWindowAnswerPath = this.getAnswerFilePathForRequestId(undefined);
