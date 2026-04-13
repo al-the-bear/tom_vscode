@@ -1106,6 +1106,8 @@ export class PromptQueueManager {
 
         debugLog(`[PromptQueueManager] propagateAnswerResponseValues: propagating ${Object.keys(normalized).length} values: ${JSON.stringify(normalized)}`, 'INFO', 'queue');
 
+        const answerRequestId = typeof (answer as any).requestId === 'string' ? (answer as any).requestId : undefined;
+
         try {
             const { updateChatResponseValues } = require('../handlers/handler_shared');
             updateChatResponseValues(normalized);
@@ -1127,7 +1129,7 @@ export class PromptQueueManager {
                 }
                 if (Object.keys(customValues).length > 0) {
                     debugLog(`[PromptQueueManager] propagateAnswerResponseValues: calling setCustomBulk with ${Object.keys(customValues).length} values: ${JSON.stringify(customValues)}`, 'INFO', 'queue');
-                    chatStore.setCustomBulk(customValues, 'copilot');
+                    chatStore.setCustomBulk(customValues, 'copilot', answerRequestId);
                     debugLog(`[PromptQueueManager] propagateAnswerResponseValues: setCustomBulk completed`, 'DEBUG', 'queue');
                 } else {
                     debugLog(`[PromptQueueManager] propagateAnswerResponseValues: no custom values to set (all built-in)`, 'DEBUG', 'queue');

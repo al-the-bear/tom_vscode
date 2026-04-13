@@ -28,6 +28,7 @@ export interface ChangeLogEntry {
     oldValue: unknown;
     newValue: unknown;
     source: ChangeSource;
+    requestId?: string;
 }
 
 /** Serialisable snapshot of the store (for workspace state). */
@@ -122,7 +123,7 @@ export class ChatVariablesStore {
     /**
      * Set a variable. Use this for programmatic updates with source tracking.
      */
-    set(key: string, value: unknown, source: ChangeSource): void {
+    set(key: string, value: unknown, source: ChangeSource, requestId?: string): void {
         const old = this.getRaw(key);
 
         // Apply
@@ -152,6 +153,7 @@ export class ChatVariablesStore {
             oldValue: old,
             newValue: this.getRaw(key),
             source,
+            ...(requestId ? { requestId } : {}),
         });
         if (this._changeLog.length > MAX_CHANGE_LOG) {
             this._changeLog = this._changeLog.slice(-MAX_CHANGE_LOG);
@@ -162,9 +164,9 @@ export class ChatVariablesStore {
     }
 
     /** Bulk-set custom variables (e.g. from an answer file). */
-    setCustomBulk(values: Record<string, string>, source: ChangeSource): void {
+    setCustomBulk(values: Record<string, string>, source: ChangeSource, requestId?: string): void {
         for (const [k, v] of Object.entries(values)) {
-            this.set(k, v, source);
+            this.set(k, v, source, requestId);
         }
     }
 

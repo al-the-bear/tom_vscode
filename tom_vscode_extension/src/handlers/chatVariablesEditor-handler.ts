@@ -365,11 +365,44 @@ function attachInputListeners() {
 function renderLog(entries) {
     var list = document.getElementById('log-list');
     if (!entries || !entries.length) { list.innerHTML = '<div style="color:var(--vscode-descriptionForeground)">No changes yet</div>'; return; }
-    list.innerHTML = entries.slice().reverse().map(function(e) {
-        var time = e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : '';
-        return '<div class="log-entry"><span class="log-time">' + time + '</span>' +
-            '<span class="log-var">' + esc(e.variable) + '</span> = "' + esc(String(e.value).substring(0, 60)) + '"' +
-            '<span class="log-source"> (' + esc(e.source) + ')</span></div>';
+
+    // Group consecutive entries with the same requestId into a single line
+    var reversed = entries.slice().reverse();
+    var grouped = [];
+    var i = 0;
+    while (i < reversed.length) {
+        var e = reversed[i];
+        if (e.requestId) {
+            // Collect all entries with the same requestId that are adjacent
+            var batch = [e];
+            var j = i + 1;
+            while (j < reversed.length && reversed[j].requestId === e.requestId) {
+                batch.push(reversed[j]);
+                j++;
+            }
+            grouped.push({ type: 'batch', requestId: e.requestId, timestamp: e.timestamp, source: e.source, items: batch });
+            i = j;
+        } else {
+            grouped.push({ type: 'single', entry: e });
+            i++;
+        }
+    }
+
+    list.innerHTML = grouped.map(function(g) {
+        if (g.type === 'batch') {
+            var time = g.timestamp ? new Date(g.timestamp).toLocaleTimeString([], { hour12: false }) : '';
+            var reqShort = g.requestId.length > 16 ? g.requestId.substring(0, 8) + '..' + g.requestId.substring(g.requestId.length - 4) : g.requestId;
+            var pairs = g.items.map(function(e) { return esc(e.key) + '=' + esc(String(e.newValue != null ? e.newValue : '').substring(0, 40)); }).join(' ');
+            return '<div class="log-entry"><span class="log-time">' + esc(time) + '</span>' +
+                '<span class="log-var" title="' + esc(g.requestId) + '">' + esc(reqShort) + '</span> ' + pairs +
+                '<span class="log-source"> (' + esc(g.source) + ')</span></div>';
+        } else {
+            var e = g.entry;
+            var time = e.timestamp ? new Date(e.timestamp).toLocaleTimeString([], { hour12: false }) : '';
+            return '<div class="log-entry"><span class="log-time">' + esc(time) + '</span>' +
+                '<span class="log-var">' + esc(e.key) + '</span> = "' + esc(String(e.newValue != null ? e.newValue : '').substring(0, 60)) + '"' +
+                '<span class="log-source"> (' + esc(e.source) + ')</span></div>';
+        }
     }).join('');
 }
 
