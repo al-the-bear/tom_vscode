@@ -202,7 +202,6 @@ function renderEntry(item, idx) {
 
   var followUps = Array.isArray(item.followUps) ? item.followUps : [];
   var sentFollowUps = item.followUpIndex || 0;
-  var followUpProgress = followUps.length > 0 ? ('  [FU ' + Math.min(sentFollowUps, followUps.length) + '/' + followUps.length + ']') : '';
   // repeatCount can be a number or a string (variable name)
   var repeatCountRaw = item.repeatCount;
   var repeatCountIsVar = typeof repeatCountRaw === 'string' && isNaN(parseInt(repeatCountRaw, 10));
@@ -230,24 +229,22 @@ function renderEntry(item, idx) {
     repeatProgress += ']';
   }
 
-  // Template repeat progress: "T 1/3 (varName)" with editable field when sending/staged
+  // Template repeat progress: "T 0/1" with editable input field
   var tplRepeatCountRaw = item.templateRepeatCount;
   var tplRepeatIsVar = typeof tplRepeatCountRaw === 'string' && isNaN(parseInt(tplRepeatCountRaw, 10));
   var tplRepeatCount = tplRepeatIsVar ? 0 : Math.max(0, parseInt(String(tplRepeatCountRaw || 0), 10) || 0);
   var tplRepeatIndex = Math.max(0, parseInt(String(item.templateRepeatIndex || 0), 10) || 0);
-  var tplSource = tplRepeatIsVar ? String(tplRepeatCountRaw) : String(Math.max(1, tplRepeatCount));
+  var tplRepeatCountDisplay = tplRepeatIsVar ? String(tplRepeatCountRaw) : String(Math.max(1, tplRepeatCount));
   var tplRepeatProgress = '';
-  if (tplRepeatCount > 1 || tplRepeatIsVar || isSending || isStaged || isPending) {
-    var tplCurrent = Math.max(1, tplRepeatIndex);
-    if (isSending || isStaged || isPending) {
-      tplRepeatProgress = '  [T ' + (tplRepeatCount > 1 || tplRepeatIsVar ? tplCurrent + '/' : '')
-        + '<input type="text" value="' + (tplRepeatIsVar ? '' : Math.max(1, tplRepeatCount)) + '" style="width:38px" title="Update template repeat total (Enter)" placeholder="' + escapeHtml(tplSource) + '" onclick="event.stopPropagation()" onkeydown="submitTemplateRepeatFromStatus(event, \\\'' + safeId + '\\\', this)">'
-        + (tplRepeatCount > 1 || tplRepeatIsVar ? ' (' + escapeHtml(tplSource) + ')' : '')
-        + (isSending && (tplRepeatCount > 1 || tplRepeatIsVar) ? ' <span class="codicon codicon-debug-step-over" style="cursor:pointer;font-size:11px;" onclick="event.stopPropagation();continueSending(\\'' + safeId + '\\')" title="Skip to next template iteration"></span>' : '')
-        + ']';
-    } else {
-      tplRepeatProgress = '  [T ' + tplCurrent + '/' + (tplRepeatIsVar ? '?' : tplRepeatCount) + ' (' + escapeHtml(tplSource) + ')]';
-    }
+  var tplCurrent = Math.max(0, tplRepeatIndex);
+  var tplTotal = tplRepeatIsVar ? '?' : String(Math.max(1, tplRepeatCount));
+  if (isSending || isStaged || isPending) {
+    tplRepeatProgress = '  [T ' + tplCurrent + '/'
+      + '<input type="text" value="' + escapeHtml(tplRepeatCountDisplay) + '" style="width:38px" title="Update template repeat total (Enter)" placeholder="1 or var" onclick="event.stopPropagation()" onkeydown="submitTemplateRepeatFromStatus(event, \\\'' + safeId + '\\\', this)">'
+      + (isSending && (tplRepeatCount > 1 || tplRepeatIsVar) ? ' <span class="codicon codicon-debug-step-over" style="cursor:pointer;font-size:11px;" onclick="event.stopPropagation();continueSending(\\'' + safeId + '\\')" title="Skip to next template iteration"></span>' : '')
+      + ']';
+  } else if (tplRepeatCount > 1 || tplRepeatIsVar) {
+    tplRepeatProgress = '  [T ' + tplCurrent + '/' + tplTotal + ' (' + escapeHtml(tplRepeatCountDisplay) + ')]';
   }
 
   var expanded = detailsExpanded[item.id] !== false;
@@ -297,7 +294,7 @@ function renderEntry(item, idx) {
       '<div class="status-bar ' + statusBarCls + '">' +
         '<span class="status-left">' +
           '<span class="codicon ' + (expanded ? 'codicon-chevron-down' : 'codicon-chevron-right') + '" style="cursor:pointer;color:#000;" onclick="toggleDetails(\\'' + safeId + '\\')" title="Toggle details"></span>' +
-          statusLabel + followUpProgress + repeatProgress + tplRepeatProgress +
+          statusLabel + repeatProgress + tplRepeatProgress +
           (item.template && item.template !== '(None)' && item.template !== '__answer_file__' ? '  [' + escapeHtml(item.template) + ']' : '') +
           (item.template && item.template !== '(None)' ? '  [AW]' : '') +
           '<span class="status-icons">' +
