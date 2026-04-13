@@ -358,12 +358,13 @@ function renderPrePrompts(item, status) {
     var isActive = idx === activePrePromptIndex;
     var ppRepeatCountRaw = pp.repeatCount;
     var ppRepeatCountDisplay = ppRepeatCountRaw ? String(ppRepeatCountRaw) : '1';
+    var ppRepeatLabel = formatRepeatLabel(ppRepeatCountRaw, pp.repeatIndex);
     var ppAnswerWait = Math.max(0, parseInt(String(pp.answerWaitMinutes || 0), 10) || 0);
     var ppHasExplicitReminder = pp.reminderEnabled === true || !!pp.reminderTemplateId;
     var ppNoReminderSelected = !ppHasExplicitReminder;
     return '<div class="preprompt-item' + (isActive ? ' is-active' : '') + '">' +
       '<div class="preprompt-item-head">' +
-        '<span>' + doneMark + 'Pre-prompt #' + (idx + 1) + (pp.template ? ' [' + escapeHtml(templateLabel) + ']' : '') + '</span>' +
+        '<span>' + doneMark + 'Pre-prompt #' + (idx + 1) + (pp.template ? ' [' + escapeHtml(templateLabel) + ']' : '') + (ppRepeatLabel ? ' [PP ' + ppRepeatLabel + ']' : '') + '</span>' +
         '<span class="followup-tools">' +
           (isEditable ? '<span class="codicon codicon-trash" style="cursor:pointer;" onclick="removePrePrompt(\\'' + safeItemId + '\\', ' + idx + ')" title="Delete pre-prompt"></span>' : '') +
         '</span>' +
@@ -425,10 +426,11 @@ function renderFollowUps(item, status) {
     var isActive = idx === activeFollowUpIndex;
     var fuRepeatCountRaw = f.repeatCount;
     var fuRepeatCountDisplay = fuRepeatCountRaw ? String(fuRepeatCountRaw) : '1';
+    var fuRepeatLabel = formatRepeatLabel(fuRepeatCountRaw, f.repeatIndex);
     var fuAnswerWait = Math.max(0, parseInt(String(f.answerWaitMinutes || 0), 10) || 0);
     return '<div class="followup-item' + (isActive ? ' is-active' : '') + '">' +
       '<div class="followup-item-head">' +
-        '<span>' + doneMark + 'Follow-up #' + (idx + 1) + (f.template ? (' [' + escapeHtml(templateLabel) + ']') : '') + ' [AW]</span>' +
+        '<span>' + doneMark + 'Follow-up #' + (idx + 1) + (f.template ? (' [' + escapeHtml(templateLabel) + ']') : '') + (fuRepeatLabel ? ' [FU ' + fuRepeatLabel + ']' : '') + ' [AW]</span>' +
         '<span class="followup-tools">' +
           '<span class="codicon codicon-eye" style="cursor:pointer;" onclick="previewFollowUp(\\'' + safeItemId + '\\', \\'' + safeFollowUpId + '\\')" title="Preview follow-up"></span>' +
           (isEditable ? '<span class="codicon codicon-trash" style="cursor:pointer;" onclick="removeFollowUp(\\'' + safeItemId + '\\', \\'' + safeFollowUpId + '\\')" title="Delete follow-up"></span>' : '') +
@@ -531,6 +533,20 @@ function submitRepeatCountFromStatus(event, id, currentRepeatNumber, inputEl) {
     if (typeof inputEl.blur === 'function') { inputEl.blur(); }
   }
   updateItemRepeat(id, { repeatCount: clamped });
+}
+function submitTemplateRepeatFromStatus(event, id, inputEl) {
+  if (!event || event.key !== 'Enter') { return; }
+  event.preventDefault();
+  event.stopPropagation();
+  var raw = String(inputEl && inputEl.value || '').trim();
+  if (!raw) return;
+  var isNum = /^[0-9]+$/.test(raw);
+  var val = isNum ? Math.max(1, parseInt(raw, 10) || 1) : raw;
+  if (inputEl) {
+    inputEl.value = String(val);
+    if (typeof inputEl.blur === 'function') { inputEl.blur(); }
+  }
+  updateItemRepeat(id, { templateRepeatCount: val });
 }
 function updateItemTemplate(id, template) { vscode.postMessage({ type: 'updateItemTemplate', id: id, template: template || '' }); }
 function updateItemReminder(id, field, value) {
