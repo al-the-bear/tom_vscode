@@ -60,6 +60,7 @@ export interface QueuedFollowUpPrompt {
     reminderRepeat?: boolean;
     reminderEnabled?: boolean;
     repeatCount?: number | string;
+    resolvedRepeatCount?: number; // Cached resolved value when repeatCount is a variable name
     repeatIndex?: number;         // How many times this follow-up has been sent (0-based counter)
     answerWaitMinutes?: number;
     createdAt: string;
@@ -70,6 +71,7 @@ export interface QueuedPrePrompt {
     template?: string;
     status: 'pending' | 'sent' | 'error';
     repeatCount?: number | string;
+    resolvedRepeatCount?: number; // Cached resolved value when repeatCount is a variable name
     repeatIndex?: number;         // How many times this pre-prompt has been sent (0-based counter)
     answerWaitMinutes?: number;
     reminderTemplateId?: string;
@@ -1965,11 +1967,15 @@ export class PromptQueueManager {
     private async dispatchNextStageForSendingItem(item: QueuedPrompt): Promise<boolean> {
         // Stage 1: Pre-prompts with individual repeat support.
         // Each pre-prompt is sent resolveRepeatCount(pp.repeatCount) times.
+        // Use cached resolvedRepeatCount when available (avoids re-resolving variable names).
         const prePrompts = item.prePrompts || [];
         for (const pp of prePrompts) {
-            const ppRepeatCount = Math.max(1, resolveRepeatCount(pp.repeatCount));
+            const ppRepeatCount = pp.resolvedRepeatCount || Math.max(1, resolveRepeatCount(pp.repeatCount));
             const ppSentCount = pp.repeatIndex || 0;
+            logQueue(`PP dispatch: repeatCount=${String(pp.repeatCount)}, resolved=${ppRepeatCount}, cachedResolved=${pp.resolvedRepeatCount}, sentCount=${ppSentCount}`);
             if (ppSentCount < ppRepeatCount) {
+                // Cache the resolved value for subsequent dispatches
+                pp.resolvedRepeatCount = ppRepeatCount;
                 const prePromptExpanded = await this._buildExpandedText(pp.text, pp.template, true, {
                     repeatCount: ppRepeatCount,
                     repeatIndex: ppSentCount,
@@ -2026,13 +2032,17 @@ export class PromptQueueManager {
 
         // Stage 3: Follow-ups with individual repeat support.
         // Each follow-up is sent resolveRepeatCount(fu.repeatCount) times.
+        // Use cached resolvedRepeatCount when available.
         const followUps = item.followUps ?? [];
         const currentFuIndex = item.followUpIndex ?? 0;
         if (currentFuIndex < followUps.length) {
             const nextFollowUp = followUps[currentFuIndex];
-            const fuRepeatCount = Math.max(1, resolveRepeatCount(nextFollowUp.repeatCount));
+            const fuRepeatCount = nextFollowUp.resolvedRepeatCount || Math.max(1, resolveRepeatCount(nextFollowUp.repeatCount));
             const fuSentCount = nextFollowUp.repeatIndex || 0;
+            logQueue(`FU dispatch: repeatCount=${String(nextFollowUp.repeatCount)}, resolved=${fuRepeatCount}, cachedResolved=${nextFollowUp.resolvedRepeatCount}, sentCount=${fuSentCount}`);
             if (fuSentCount < fuRepeatCount) {
+                // Cache the resolved value for subsequent dispatches
+                nextFollowUp.resolvedRepeatCount = fuRepeatCount;
                 const followUpExpanded = await this._buildExpandedText(nextFollowUp.originalText, nextFollowUp.template, true, {
                     repeatCount: fuRepeatCount,
                     repeatIndex: fuSentCount,
@@ -2313,6 +2323,7 @@ export class PromptQueueManager {
                         template: pp?.template,
                         status: (pp?.execution?.['sent-at'] ? 'sent' : (pp?.execution?.error ? 'error' : 'pending')) as 'pending' | 'sent' | 'error',
                         repeatCount: pp?.['repeat-count'],
+                        resolvedRepeatCount: pp?.['resolved-repeat-count'] ? Math.max(1, Math.round(Number(pp['resolved-repeat-count']))) : undefined,
                         repeatIndex: Math.max(0, Math.round(Number(pp?.['repeat-index'] || 0))),
                         answerWaitMinutes: pp?.['answer-wait-minutes'],
                         reminderTemplateId: pp?.reminder?.['template-id'],
@@ -2334,6 +2345,7 @@ export class PromptQueueManager {
                         originalText: fu?.['prompt-text'] || '',
                         template: fu?.template,
                         repeatCount: fu?.['repeat-count'],
+                        resolvedRepeatCount: fu?.['resolved-repeat-count'] ? Math.max(1, Math.round(Number(fu['resolved-repeat-count']))) : undefined,
                         repeatIndex: Math.max(0, Math.round(Number(fu?.['repeat-index'] || 0))),
                         answerWaitMinutes: fu?.['answer-wait-minutes'],
                         reminderTemplateId: fu?.reminder?.['template-id'],
@@ -2420,6 +2432,7 @@ export class PromptQueueManager {
                     'prompt-text': pp.text,
                     template: pp.template,
                     'repeat-count': pp.repeatCount,
+                    'resolved-repeat-count': pp.resolvedRepeatCount,
                     'repeat-index': pp.repeatIndex || 0,
                     'answer-wait-minutes': pp.answerWaitMinutes,
                     execution: pp.status !== 'pending' ? {
@@ -2457,6 +2470,7 @@ export class PromptQueueManager {
                     'prompt-text': fu.originalText,
                     template: fu.template,
                     'repeat-count': fu.repeatCount,
+                    'resolved-repeat-count': fu.resolvedRepeatCount,
                     'repeat-index': fu.repeatIndex || 0,
                     'answer-wait-minutes': fu.answerWaitMinutes,
                     metadata: { created: fu.createdAt },

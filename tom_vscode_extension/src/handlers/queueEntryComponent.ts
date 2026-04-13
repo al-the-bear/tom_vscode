@@ -167,14 +167,19 @@ function statusSortRank(status) {
  */
 export function queueEntryRenderFunctions(): string {
   return `
-function formatRepeatLabel(repeatCountRaw, repeatIndex) {
+function formatRepeatLabel(repeatCountRaw, repeatIndex, resolvedRepeatCount) {
   // Returns e.g. "1/3 (batchCount)" or "1/3 (3)" or "" if no repeat
   // repeatIndex is already 1-based after dispatch (0 = not yet sent, 1 = sent once, etc.)
+  // resolvedRepeatCount: optional cached numeric value when repeatCountRaw is a variable name
   var isVar = typeof repeatCountRaw === 'string' && isNaN(parseInt(repeatCountRaw, 10));
-  var repeatCount = isVar ? 0 : Math.max(0, parseInt(String(repeatCountRaw || 0), 10) || 0);
+  var resolved = resolvedRepeatCount ? Math.max(0, parseInt(String(resolvedRepeatCount), 10) || 0) : 0;
+  var repeatCount = resolved > 0 ? resolved : (isVar ? 0 : Math.max(0, parseInt(String(repeatCountRaw || 0), 10) || 0));
   var idx = Math.max(0, parseInt(String(repeatIndex || 0), 10) || 0);
   if (repeatCount <= 1 && !isVar) return '';
   var current = Math.max(1, idx);
+  if (isVar && repeatCount > 0) {
+    return current + '/' + repeatCount + ' (' + String(repeatCountRaw) + ')';
+  }
   if (isVar) {
     return current + '/? (' + String(repeatCountRaw) + ')';
   }
@@ -212,7 +217,7 @@ function renderEntry(item, idx) {
   var currentRepeatNumber = repeatCount > 0 ? Math.min(repeatIndex + 1, repeatCount) : 0;
 
   // Main prompt repeat progress: "MP 1/3 (varName)" with input + skip button when sending/staged
-  var mainRepeatLabel = formatRepeatLabel(repeatCountRaw, item.repeatIndex);
+  var mainRepeatLabel = formatRepeatLabel(repeatCountRaw, item.repeatIndex, item.resolvedRepeatCount);
   var repeatProgress = '';
   if (mainRepeatLabel || isSending || isStaged || isPending) {
     if (mainRepeatLabel) {
@@ -372,7 +377,7 @@ function renderPrePrompts(item, status) {
     var isActive = idx === activePrePromptIndex;
     var ppRepeatCountRaw = pp.repeatCount;
     var ppRepeatCountDisplay = ppRepeatCountRaw ? String(ppRepeatCountRaw) : '1';
-    var ppRepeatLabel = formatRepeatLabel(ppRepeatCountRaw, pp.repeatIndex);
+    var ppRepeatLabel = formatRepeatLabel(ppRepeatCountRaw, pp.repeatIndex, pp.resolvedRepeatCount);
     var ppSkipBtn = (isActive && ppRepeatLabel) ? ' <span class="codicon codicon-debug-step-over" style="cursor:pointer;font-size:11px;" onclick="event.stopPropagation();continueSending(\\'' + safeItemId + '\\')" title="Skip to next PP iteration"></span>' : '';
     var ppAnswerWait = Math.max(0, parseInt(String(pp.answerWaitMinutes || 0), 10) || 0);
     var ppHasExplicitReminder = pp.reminderEnabled === true || !!pp.reminderTemplateId;
@@ -441,7 +446,7 @@ function renderFollowUps(item, status) {
     var isActive = idx === activeFollowUpIndex;
     var fuRepeatCountRaw = f.repeatCount;
     var fuRepeatCountDisplay = fuRepeatCountRaw ? String(fuRepeatCountRaw) : '1';
-    var fuRepeatLabel = formatRepeatLabel(fuRepeatCountRaw, f.repeatIndex);
+    var fuRepeatLabel = formatRepeatLabel(fuRepeatCountRaw, f.repeatIndex, f.resolvedRepeatCount);
     var fuSkipBtn = (isActive && fuRepeatLabel) ? ' <span class="codicon codicon-debug-step-over" style="cursor:pointer;font-size:11px;" onclick="event.stopPropagation();continueSending(\\'' + safeItemId + '\\')" title="Skip to next FU iteration"></span>' : '';
     var fuAnswerWait = Math.max(0, parseInt(String(f.answerWaitMinutes || 0), 10) || 0);
     return '<div class="followup-item' + (isActive ? ' is-active' : '') + '">' +

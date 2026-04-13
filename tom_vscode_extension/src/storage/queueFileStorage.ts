@@ -92,6 +92,7 @@ export interface QueuePromptYaml {
     'answer-wrapper'?: boolean;
     'repeat-count'?: number | string;
     'repeat-index'?: number;
+    'resolved-repeat-count'?: number;
     'repeat-prefix'?: string;
     'repeat-suffix'?: string;
     'template-repeat-count'?: number | string;
