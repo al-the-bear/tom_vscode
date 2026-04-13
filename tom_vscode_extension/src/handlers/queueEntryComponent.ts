@@ -167,6 +167,19 @@ function statusSortRank(status) {
  */
 export function queueEntryRenderFunctions(): string {
   return `
+function formatRepeatLabel(repeatCountRaw, repeatIndex) {
+  // Returns e.g. "1/3 (batchCount)" or "1/3 (3)" or "" if no repeat
+  var isVar = typeof repeatCountRaw === 'string' && isNaN(parseInt(repeatCountRaw, 10));
+  var repeatCount = isVar ? 0 : Math.max(0, parseInt(String(repeatCountRaw || 0), 10) || 0);
+  var idx = Math.max(0, parseInt(String(repeatIndex || 0), 10) || 0);
+  if (repeatCount <= 1 && !isVar) return '';
+  var current = idx + 1;
+  if (isVar) {
+    return current + '/? (' + String(repeatCountRaw) + ')';
+  }
+  return current + '/' + repeatCount + ' (' + repeatCount + ')';
+}
+
 function renderEntry(item, idx) {
   var safeStatus = (item.status === 'staged' || item.status === 'pending' || item.status === 'sending' || item.status === 'sent' || item.status === 'error')
     ? item.status : 'staged';
@@ -197,13 +210,26 @@ function renderEntry(item, idx) {
   var repeatIndex = Math.max(0, parseInt(String(item.repeatIndex || 0), 10) || 0);
   var safeId = escapeJsSingleQuoted(item.id);
   var currentRepeatNumber = repeatCount > 0 ? Math.min(repeatIndex + 1, repeatCount) : 0;
-  var repeatProgress = '';
-  if (repeatCount > 0) {
-    repeatProgress = '  [R ' + currentRepeatNumber + '/' + repeatCount + ']';
+
+  // Main prompt repeat progress: "MP 1/3 (varName)"
+  var mainRepeatLabel = formatRepeatLabel(repeatCountRaw, item.repeatIndex);
+  var repeatProgress = mainRepeatLabel ? '  [MP ' + mainRepeatLabel + ']' : '';
+
+  // Template repeat progress: "T 1/3 (varName)" with editable field when sending
+  var tplRepeatCountRaw = item.templateRepeatCount;
+  var tplRepeatIsVar = typeof tplRepeatCountRaw === 'string' && isNaN(parseInt(tplRepeatCountRaw, 10));
+  var tplRepeatCount = tplRepeatIsVar ? 0 : Math.max(0, parseInt(String(tplRepeatCountRaw || 0), 10) || 0);
+  var tplRepeatIndex = Math.max(0, parseInt(String(item.templateRepeatIndex || 0), 10) || 0);
+  var tplRepeatProgress = '';
+  if (tplRepeatCount > 1 || tplRepeatIsVar) {
+    var tplCurrent = tplRepeatIndex + 1;
+    var tplSource = tplRepeatIsVar ? String(tplRepeatCountRaw) : String(tplRepeatCount);
     if (isSending) {
-      repeatProgress = '  [R ' + currentRepeatNumber + '/'
-        + '<input type="number" min="' + currentRepeatNumber + '" step="1" value="' + repeatCount + '" style="width:38px" title="Press Enter to update repeat total" onclick="event.stopPropagation()" onkeydown="submitRepeatCountFromStatus(event, \\\'' + safeId + '\\\', ' + currentRepeatNumber + ', this)">'
-        + ']';
+      tplRepeatProgress = '  [T ' + tplCurrent + '/'
+        + '<input type="text" value="' + (tplRepeatIsVar ? '' : tplRepeatCount) + '" style="width:38px" title="Update template repeat total (Enter)" placeholder="' + escapeHtml(tplSource) + '" onclick="event.stopPropagation()" onkeydown="submitTemplateRepeatFromStatus(event, \\\'' + safeId + '\\\', this)">'
+        + ' (' + escapeHtml(tplSource) + ')]';
+    } else {
+      tplRepeatProgress = '  [T ' + tplCurrent + '/' + (tplRepeatIsVar ? '?' : tplRepeatCount) + ' (' + escapeHtml(tplSource) + ')]';
     }
   }
 
@@ -254,7 +280,7 @@ function renderEntry(item, idx) {
       '<div class="status-bar ' + statusBarCls + '">' +
         '<span class="status-left">' +
           '<span class="codicon ' + (expanded ? 'codicon-chevron-down' : 'codicon-chevron-right') + '" style="cursor:pointer;color:#000;" onclick="toggleDetails(\\'' + safeId + '\\')" title="Toggle details"></span>' +
-          statusLabel + followUpProgress + repeatProgress +
+          statusLabel + followUpProgress + repeatProgress + tplRepeatProgress +
           (item.template && item.template !== '(None)' && item.template !== '__answer_file__' ? '  [' + escapeHtml(item.template) + ']' : '') +
           (item.template && item.template !== '(None)' ? '  [AW]' : '') +
           '<span class="status-icons">' +
