@@ -1816,14 +1816,7 @@ export class PromptQueueManager {
                 item.resolvedRepeatCount = undefined;
             } else {
                 const requested = Math.max(0, Math.round(typeof patch.repeatCount === 'string' ? parseInt(patch.repeatCount, 10) || 0 : patch.repeatCount || 0));
-                if (isSending) {
-                    const currentRepeatNumber = Math.max(1, Math.round((item.repeatIndex || 0) + 1));
-                    // While sending, never reduce below the current repeat number.
-                    // This ensures the current send can finish and prevents re-sending when set to current.
-                    item.repeatCount = Math.max(requested, currentRepeatNumber);
-                } else {
-                    item.repeatCount = requested;
-                }
+                item.repeatCount = requested;
                 item.resolvedRepeatCount = undefined;
             }
         }
@@ -1927,20 +1920,22 @@ export class PromptQueueManager {
 
         // Reset run state before first dispatch of this item.
         if (item.prePrompts && item.prePrompts.length > 0) {
-            for (const pp of item.prePrompts) {
+            for (let idx = 0; idx < item.prePrompts.length; idx++) {
+                const pp = item.prePrompts[idx];
                 pp.status = 'pending';
                 pp.repeatIndex = 0;
-                pp.resolvedRepeatCount = undefined;
+                pp.resolvedRepeatCount = this.resolveStableRepeatCount(pp.repeatCount, undefined, 0, `PP#${idx + 1}`);
             }
         }
         if (item.followUps && item.followUps.length > 0) {
-            for (const fu of item.followUps) {
+            for (let idx = 0; idx < item.followUps.length; idx++) {
+                const fu = item.followUps[idx];
                 fu.repeatIndex = 0;
-                fu.resolvedRepeatCount = undefined;
+                fu.resolvedRepeatCount = this.resolveStableRepeatCount(fu.repeatCount, undefined, 0, `FU#${idx + 1}`);
             }
         }
         item.repeatIndex = 0;
-        item.resolvedRepeatCount = undefined;
+        item.resolvedRepeatCount = this.resolveStableRepeatCount(item.repeatCount, undefined, 0, 'MP');
         item.requestId = undefined;
         item.expectedRequestId = undefined;
         item.followUpIndex = 0;
@@ -1963,19 +1958,43 @@ export class PromptQueueManager {
         }
     }
 
+    private resolveStableRepeatCount(
+        repeatCountRaw: number | string | undefined,
+        cachedResolved: number | undefined,
+        sentCount: number,
+        scope: string,
+    ): number {
+        const normalizedCached = cachedResolved !== undefined && cachedResolved !== null
+            ? Math.max(1, Math.round(Number(cachedResolved) || 1))
+            : undefined;
+        if (normalizedCached) {
+            return normalizedCached;
+        }
+
+        const isVariableRepeat = typeof repeatCountRaw === 'string' && isNaN(parseInt(repeatCountRaw, 10));
+        if (isVariableRepeat && sentCount > 0) {
+            // Keep variable-driven repeats from expanding if cache was lost mid-run.
+            const fallback = Math.max(1, sentCount);
+            logQueue(`${scope} dispatch: recovered stable repeat from sentCount=${fallback} for repeatCount=${String(repeatCountRaw)}`);
+            return fallback;
+        }
+
+        return Math.max(1, resolveRepeatCount(repeatCountRaw));
+    }
+
     private async dispatchNextStageForSendingItem(item: QueuedPrompt): Promise<boolean> {
         // Stage 1: Pre-prompts with individual repeat support.
-        // Each pre-prompt is sent resolveRepeatCount(pp.repeatCount) times.
-        // resolveRepeatCount is evaluated once when resolvedRepeatCount is empty.
+        // Each stage uses a stable numeric repeat target for normal loop control.
         const prePrompts = item.prePrompts || [];
-        for (const pp of prePrompts) {
-            if (!pp.resolvedRepeatCount || pp.resolvedRepeatCount < 1) {
-                pp.resolvedRepeatCount = Math.max(1, resolveRepeatCount(pp.repeatCount));
+        for (let ppIndex = 0; ppIndex < prePrompts.length; ppIndex++) {
+            const pp = prePrompts[ppIndex];
+            const ppSentCount = pp.repeatIndex || 0;
+            const ppRepeatCount = this.resolveStableRepeatCount(pp.repeatCount, pp.resolvedRepeatCount, ppSentCount, `PP#${ppIndex + 1}`);
+            if (pp.resolvedRepeatCount !== ppRepeatCount) {
+                pp.resolvedRepeatCount = ppRepeatCount;
                 this.persist();
                 this._onDidChange.fire();
             }
-            const ppSentCount = pp.repeatIndex || 0;
-            const ppRepeatCount = pp.resolvedRepeatCount;
             logQueue(`PP dispatch: repeatCount=${String(pp.repeatCount)}, resolved=${ppRepeatCount}, cachedResolved=${pp.resolvedRepeatCount}, sentCount=${ppSentCount}`);
             if (ppSentCount < ppRepeatCount) {
                 const prePromptExpanded = await this._buildExpandedText(pp.text, pp.template, true, {
@@ -2002,14 +2021,13 @@ export class PromptQueueManager {
         }
 
         // Stage 2: Main prompt with repeat support.
-        // Main prompt is sent resolveRepeatCount(item.repeatCount) times, each with affix text.
-        if (!item.resolvedRepeatCount || item.resolvedRepeatCount < 1) {
-            item.resolvedRepeatCount = Math.max(1, resolveRepeatCount(item.repeatCount));
+        const mainSentCount = item.repeatIndex || 0;
+        const mainRepeatCount = this.resolveStableRepeatCount(item.repeatCount, item.resolvedRepeatCount, mainSentCount, 'MP');
+        if (item.resolvedRepeatCount !== mainRepeatCount) {
+            item.resolvedRepeatCount = mainRepeatCount;
             this.persist();
             this._onDidChange.fire();
         }
-        const mainSentCount = item.repeatIndex || 0;
-        const mainRepeatCount = item.resolvedRepeatCount;
         if (mainSentCount < mainRepeatCount) {
             item.expandedText = await this._buildExpandedText(item.originalText, item.template, item.answerWrapper, {
                 repeatCount: mainRepeatCount,
@@ -2038,19 +2056,17 @@ export class PromptQueueManager {
         }
 
         // Stage 3: Follow-ups with individual repeat support.
-        // Each follow-up is sent resolveRepeatCount(fu.repeatCount) times.
-        // resolveRepeatCount is evaluated once when resolvedRepeatCount is empty.
         const followUps = item.followUps ?? [];
         const currentFuIndex = item.followUpIndex ?? 0;
         if (currentFuIndex < followUps.length) {
             const nextFollowUp = followUps[currentFuIndex];
-            if (!nextFollowUp.resolvedRepeatCount || nextFollowUp.resolvedRepeatCount < 1) {
-                nextFollowUp.resolvedRepeatCount = Math.max(1, resolveRepeatCount(nextFollowUp.repeatCount));
+            const fuSentCount = nextFollowUp.repeatIndex || 0;
+            const fuRepeatCount = this.resolveStableRepeatCount(nextFollowUp.repeatCount, nextFollowUp.resolvedRepeatCount, fuSentCount, `FU#${currentFuIndex + 1}`);
+            if (nextFollowUp.resolvedRepeatCount !== fuRepeatCount) {
+                nextFollowUp.resolvedRepeatCount = fuRepeatCount;
                 this.persist();
                 this._onDidChange.fire();
             }
-            const fuSentCount = nextFollowUp.repeatIndex || 0;
-            const fuRepeatCount = nextFollowUp.resolvedRepeatCount;
             logQueue(`FU dispatch: repeatCount=${String(nextFollowUp.repeatCount)}, resolved=${fuRepeatCount}, cachedResolved=${nextFollowUp.resolvedRepeatCount}, sentCount=${fuSentCount}`);
             if (fuSentCount < fuRepeatCount) {
                 const followUpExpanded = await this._buildExpandedText(nextFollowUp.originalText, nextFollowUp.template, true, {
