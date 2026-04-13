@@ -927,25 +927,28 @@ export class PromptQueueManager {
             logQueue(`Answer requestId detected via ${detectedRequest.source}: ${resolvedAnswerRequestId}`);
         }
 
-        // Normally skip already-processed files. However, if this file still matches the
-        // currently expected requestId of the active sending item, re-process it to avoid
-        // getting stuck when persistence/race ordering marks a valid in-flight answer early.
-        if (answerAlreadyProcessed) {
-            const shouldReprocessForActiveSending = !!sending
-                && !!sending.expectedRequestId
-                && !!resolvedAnswerRequestId
-                && sending.expectedRequestId === resolvedAnswerRequestId;
-            if (!shouldReprocessForActiveSending) {
-                debugLog(`[PromptQueueManager] Answer file already processed at ${(answer as any).processed}, skipping: ${filePath}`, 'DEBUG', 'queue');
-                return;
-            }
-            logQueue(`Re-processing already-marked answer for active requestId=${resolvedAnswerRequestId}`);
+        // Strict sequencing and ownership:
+        // - only active sending item may process an answer
+        // - already-processed files are never processed again
+        // - expected requestId must match when present
+        if (!sending) {
+            logQueue(`No sending item found in queue — ignoring answer file without processing. Items: ${this._items.map(i => `${i.id.substring(0, 8)}:${i.status}`).join(', ')}`);
+            debugLog(`[PromptQueueManager] No sending item found in queue, ignoring without mutation: ${filePath}`, 'INFO', 'queue');
+            return;
         }
 
-        const defaultWindowAnswerPath = this.getAnswerFilePathForRequestId(undefined);
-        const isDefaultWindowAnswerFile = path.resolve(filePath) === path.resolve(defaultWindowAnswerPath);
+        if (answerAlreadyProcessed) {
+            debugLog(`[PromptQueueManager] Answer file already processed at ${(answer as any).processed}, skipping: ${filePath}`, 'DEBUG', 'queue');
+            return;
+        }
 
-        // Ensure we always produce a canonical trail answer entry when a requestId is available.
+        if (sending.expectedRequestId && sending.expectedRequestId !== resolvedAnswerRequestId) {
+            logQueue(`Answer file not matching — expected ${sending.expectedRequestId}, got ${resolvedAnswerRequestId}`);
+            debugLog(`[PromptQueueManager] Ignoring answer with requestId=${resolvedAnswerRequestId}; waiting for expectedRequestId=${sending.expectedRequestId}`, 'DEBUG', 'queue');
+            return;
+        }
+
+        // At this point the answer is relevant for the active sending item.
         if (resolvedAnswerRequestId) {
             try {
                 const generatedMarkdown = (answer && typeof answer === 'object' && typeof (answer as any).generatedMarkdown === 'string')
@@ -972,31 +975,6 @@ export class PromptQueueManager {
                 );
             } catch (trailErr) {
                 debugLog(`[PromptQueueManager] Failed to write fallback trail answer: ${trailErr}`, 'WARN', 'queue');
-            }
-        }
-
-        if (!sending) {
-            // No sending item — ignore answer file entirely
-            this.markAnswerFileProcessed(filePath, answer);
-            logQueue(`No sending item found in queue — ignoring answer file. Items: ${this._items.map(i => `${i.id.substring(0, 8)}:${i.status}`).join(', ')}`);
-            debugLog(`[PromptQueueManager] No sending item found in queue, ignoring ${filePath}`, 'INFO', 'queue');
-            return;
-        }
-
-        if (sending.expectedRequestId && resolvedAnswerRequestId && sending.expectedRequestId !== resolvedAnswerRequestId) {
-            const promptTargetsDetectedId = this._promptLikelyTargetsRequestId(
-                sending.expandedText || '',
-                resolvedAnswerRequestId,
-            );
-            if (promptTargetsDetectedId) {
-                logQueue(`Answer requestId mismatch recovered — expected ${sending.expectedRequestId}, using ${resolvedAnswerRequestId}`);
-                sending.expectedRequestId = resolvedAnswerRequestId;
-                this.persist();
-                this._onDidChange.fire();
-            } else {
-            logQueue(`Answer file not matching — expected ${sending.expectedRequestId}, got ${resolvedAnswerRequestId}`);
-            debugLog(`[PromptQueueManager] Ignoring answer with requestId=${resolvedAnswerRequestId}; waiting for expectedRequestId=${sending.expectedRequestId}`, 'DEBUG', 'queue');
-            return;
             }
         }
 
