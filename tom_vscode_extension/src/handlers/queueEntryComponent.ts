@@ -215,13 +215,13 @@ function renderEntry(item, idx) {
   // Main prompt repeat progress: "MP 1/3 (varName)" with input + skip button when sending/staged
   var mainRepeatLabel = formatRepeatLabel(repeatCountRaw, item.repeatIndex);
   var repeatProgress = '';
-  if (mainRepeatLabel || isSending || isStaged) {
+  if (mainRepeatLabel || isSending || isStaged || isPending) {
     if (mainRepeatLabel) {
       repeatProgress = '  [MP ' + mainRepeatLabel;
     } else {
       repeatProgress = '  [MP ';
     }
-    if (isSending || isStaged) {
+    if (isSending || isStaged || isPending) {
       repeatProgress += ' <input type="text" value="' + escapeHtml(repeatCountDisplay) + '" style="width:38px" title="Update main prompt repeat count (Enter)" placeholder="1 or var" onclick="event.stopPropagation()" onkeydown="submitRepeatCountFromStatus(event, \\'' + safeId + '\\', ' + repeatIndex + ', this)">';
     }
     if (isSending && mainRepeatLabel) {
@@ -237,9 +237,9 @@ function renderEntry(item, idx) {
   var tplRepeatIndex = Math.max(0, parseInt(String(item.templateRepeatIndex || 0), 10) || 0);
   var tplSource = tplRepeatIsVar ? String(tplRepeatCountRaw) : String(Math.max(1, tplRepeatCount));
   var tplRepeatProgress = '';
-  if (tplRepeatCount > 1 || tplRepeatIsVar || isSending || isStaged) {
+  if (tplRepeatCount > 1 || tplRepeatIsVar || isSending || isStaged || isPending) {
     var tplCurrent = Math.max(1, tplRepeatIndex);
-    if (isSending || isStaged) {
+    if (isSending || isStaged || isPending) {
       tplRepeatProgress = '  [T ' + (tplRepeatCount > 1 || tplRepeatIsVar ? tplCurrent + '/' : '')
         + '<input type="text" value="' + (tplRepeatIsVar ? '' : Math.max(1, tplRepeatCount)) + '" style="width:38px" title="Update template repeat total (Enter)" placeholder="' + escapeHtml(tplSource) + '" onclick="event.stopPropagation()" onkeydown="submitTemplateRepeatFromStatus(event, \\\'' + safeId + '\\\', this)">'
         + (tplRepeatCount > 1 || tplRepeatIsVar ? ' (' + escapeHtml(tplSource) + ')' : '')
