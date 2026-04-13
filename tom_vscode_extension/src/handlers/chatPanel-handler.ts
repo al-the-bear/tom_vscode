@@ -2004,6 +2004,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     originalText: wrappedText,
                     template: template || undefined,
                     repeatCount: Math.max(0, Math.round(Number(repeatCount || 0))),
+                    templateRepeatCount: undefined, // Chat panel repeat count is for main prompt only
                     answerWaitMinutes: answerWaitMinutes && answerWaitMinutes > 0 ? answerWaitMinutes : undefined,
                     deferSend: true,
                 });

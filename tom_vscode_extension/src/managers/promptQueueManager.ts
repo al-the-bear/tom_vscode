@@ -384,6 +384,8 @@ export class PromptQueueManager {
     dispose(): void {
         logQueue('PromptQueueManager disposing');
         this._answerWatcher?.close();
+        for (const timer of this._renameDebounceTimers.values()) { clearTimeout(timer); }
+        this._renameDebounceTimers.clear();
         if (this._autoContinueTimer) {
             clearTimeout(this._autoContinueTimer);
             this._autoContinueTimer = undefined;
@@ -454,6 +456,8 @@ export class PromptQueueManager {
         return this.getAnswerFilePathForRequestId(sending?.expectedRequestId);
     }
 
+    private _renameDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
     private setupAnswerWatcher(): void {
         const dir = this.answerDirectory;
         if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
@@ -465,16 +469,32 @@ export class PromptQueueManager {
         this._answerWatcher = fs.watch(dir, (event, filename) => {
             const fileNameText = typeof filename === 'string' ? filename : undefined;
             debugLog(`[PromptQueueManager] File watch event: ${event} ${fileNameText || '(none)'}`, 'DEBUG', 'queue');
-            // Only process 'change' events — 'rename' fires when the file is created but still empty
-            if (event !== 'change') {
-                debugLog(`[PromptQueueManager] Ignoring non-change event: ${event}`, 'DEBUG', 'queue');
-                return;
-            }
-            if (shouldWatchAnswerFile(fileNameText)) {
-                const changedPath = path.join(dir, String(fileNameText));
+            if (!shouldWatchAnswerFile(fileNameText)) { return; }
+            const changedPath = path.join(dir, String(fileNameText));
+
+            if (event === 'change') {
+                // Direct modification — process immediately.
                 logQueue(`Answer file changed (event=${event}, file=${fileNameText})`);
                 debugLog(`[PromptQueueManager] Answer file changed, calling onAnswerFileChanged for ${changedPath}`, 'INFO', 'queue');
                 void this.onAnswerFileChanged(changedPath);
+            } else if (event === 'rename') {
+                // 'rename' fires on file creation — delay briefly so content is flushed.
+                const key = String(fileNameText);
+                const existing = this._renameDebounceTimers.get(key);
+                if (existing) { clearTimeout(existing); }
+                this._renameDebounceTimers.set(key, setTimeout(() => {
+                    this._renameDebounceTimers.delete(key);
+                    if (fs.existsSync(changedPath)) {
+                        try {
+                            const stat = fs.statSync(changedPath);
+                            if (stat.size > 2) {
+                                logQueue(`Answer file created (rename event, file=${fileNameText})`);
+                                debugLog(`[PromptQueueManager] Rename event with content, calling onAnswerFileChanged for ${changedPath}`, 'INFO', 'queue');
+                                void this.onAnswerFileChanged(changedPath);
+                            }
+                        } catch { /* stat failed, skip */ }
+                    }
+                }, 500));
             }
         });
     }
@@ -1950,7 +1970,10 @@ export class PromptQueueManager {
             const ppRepeatCount = Math.max(1, resolveRepeatCount(pp.repeatCount));
             const ppSentCount = pp.repeatIndex || 0;
             if (ppSentCount < ppRepeatCount) {
-                const prePromptExpanded = await this._buildExpandedText(pp.text, pp.template, true);
+                const prePromptExpanded = await this._buildExpandedText(pp.text, pp.template, true, {
+                    repeatCount: ppRepeatCount,
+                    repeatIndex: ppSentCount,
+                });
                 pp.status = 'sent';
                 pp.repeatIndex = ppSentCount + 1;
                 item.expandedText = prePromptExpanded;
@@ -2010,7 +2033,10 @@ export class PromptQueueManager {
             const fuRepeatCount = Math.max(1, resolveRepeatCount(nextFollowUp.repeatCount));
             const fuSentCount = nextFollowUp.repeatIndex || 0;
             if (fuSentCount < fuRepeatCount) {
-                const followUpExpanded = await this._buildExpandedText(nextFollowUp.originalText, nextFollowUp.template, true);
+                const followUpExpanded = await this._buildExpandedText(nextFollowUp.originalText, nextFollowUp.template, true, {
+                    repeatCount: fuRepeatCount,
+                    repeatIndex: fuSentCount,
+                });
                 nextFollowUp.repeatIndex = fuSentCount + 1;
                 item.expandedText = followUpExpanded;
                 item.expectedRequestId = this._extractRequestIdFromExpandedPrompt(followUpExpanded);

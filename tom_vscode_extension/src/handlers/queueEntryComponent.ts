@@ -169,11 +169,12 @@ export function queueEntryRenderFunctions(): string {
   return `
 function formatRepeatLabel(repeatCountRaw, repeatIndex) {
   // Returns e.g. "1/3 (batchCount)" or "1/3 (3)" or "" if no repeat
+  // repeatIndex is already 1-based after dispatch (0 = not yet sent, 1 = sent once, etc.)
   var isVar = typeof repeatCountRaw === 'string' && isNaN(parseInt(repeatCountRaw, 10));
   var repeatCount = isVar ? 0 : Math.max(0, parseInt(String(repeatCountRaw || 0), 10) || 0);
   var idx = Math.max(0, parseInt(String(repeatIndex || 0), 10) || 0);
   if (repeatCount <= 1 && !isVar) return '';
-  var current = idx + 1;
+  var current = Math.max(1, idx);
   if (isVar) {
     return current + '/? (' + String(repeatCountRaw) + ')';
   }
@@ -211,31 +212,39 @@ function renderEntry(item, idx) {
   var safeId = escapeJsSingleQuoted(item.id);
   var currentRepeatNumber = repeatCount > 0 ? Math.min(repeatIndex + 1, repeatCount) : 0;
 
-  // Main prompt repeat progress: "MP 1/3 (varName)" with skip button when sending
+  // Main prompt repeat progress: "MP 1/3 (varName)" with input + skip button when sending/staged
   var mainRepeatLabel = formatRepeatLabel(repeatCountRaw, item.repeatIndex);
   var repeatProgress = '';
-  if (mainRepeatLabel) {
-    repeatProgress = '  [MP ' + mainRepeatLabel;
-    if (isSending) {
+  if (mainRepeatLabel || isSending || isStaged) {
+    if (mainRepeatLabel) {
+      repeatProgress = '  [MP ' + mainRepeatLabel;
+    } else {
+      repeatProgress = '  [MP ';
+    }
+    if (isSending || isStaged) {
+      repeatProgress += ' <input type="text" value="' + escapeHtml(repeatCountDisplay) + '" style="width:38px" title="Update main prompt repeat count (Enter)" placeholder="1 or var" onclick="event.stopPropagation()" onkeydown="submitRepeatCountFromStatus(event, \\'' + safeId + '\\', ' + repeatIndex + ', this)">';
+    }
+    if (isSending && mainRepeatLabel) {
       repeatProgress += ' <span class="codicon codicon-debug-step-over" style="cursor:pointer;font-size:11px;" onclick="event.stopPropagation();continueSending(\\'' + safeId + '\\')" title="Skip to next iteration"></span>';
     }
     repeatProgress += ']';
   }
 
-  // Template repeat progress: "T 1/3 (varName)" with editable field when sending
+  // Template repeat progress: "T 1/3 (varName)" with editable field when sending/staged
   var tplRepeatCountRaw = item.templateRepeatCount;
   var tplRepeatIsVar = typeof tplRepeatCountRaw === 'string' && isNaN(parseInt(tplRepeatCountRaw, 10));
   var tplRepeatCount = tplRepeatIsVar ? 0 : Math.max(0, parseInt(String(tplRepeatCountRaw || 0), 10) || 0);
   var tplRepeatIndex = Math.max(0, parseInt(String(item.templateRepeatIndex || 0), 10) || 0);
+  var tplSource = tplRepeatIsVar ? String(tplRepeatCountRaw) : String(Math.max(1, tplRepeatCount));
   var tplRepeatProgress = '';
-  if (tplRepeatCount > 1 || tplRepeatIsVar) {
-    var tplCurrent = tplRepeatIndex + 1;
-    var tplSource = tplRepeatIsVar ? String(tplRepeatCountRaw) : String(tplRepeatCount);
-    if (isSending) {
-      tplRepeatProgress = '  [T ' + tplCurrent + '/'
-        + '<input type="text" value="' + (tplRepeatIsVar ? '' : tplRepeatCount) + '" style="width:38px" title="Update template repeat total (Enter)" placeholder="' + escapeHtml(tplSource) + '" onclick="event.stopPropagation()" onkeydown="submitTemplateRepeatFromStatus(event, \\\'' + safeId + '\\\', this)">'
-        + ' (' + escapeHtml(tplSource) + ')'
-        + ' <span class="codicon codicon-debug-step-over" style="cursor:pointer;font-size:11px;" onclick="event.stopPropagation();continueSending(\\'' + safeId + '\\')" title="Skip to next template iteration"></span>]';
+  if (tplRepeatCount > 1 || tplRepeatIsVar || isSending || isStaged) {
+    var tplCurrent = Math.max(1, tplRepeatIndex);
+    if (isSending || isStaged) {
+      tplRepeatProgress = '  [T ' + (tplRepeatCount > 1 || tplRepeatIsVar ? tplCurrent + '/' : '')
+        + '<input type="text" value="' + (tplRepeatIsVar ? '' : Math.max(1, tplRepeatCount)) + '" style="width:38px" title="Update template repeat total (Enter)" placeholder="' + escapeHtml(tplSource) + '" onclick="event.stopPropagation()" onkeydown="submitTemplateRepeatFromStatus(event, \\\'' + safeId + '\\\', this)">'
+        + (tplRepeatCount > 1 || tplRepeatIsVar ? ' (' + escapeHtml(tplSource) + ')' : '')
+        + (isSending && (tplRepeatCount > 1 || tplRepeatIsVar) ? ' <span class="codicon codicon-debug-step-over" style="cursor:pointer;font-size:11px;" onclick="event.stopPropagation();continueSending(\\'' + safeId + '\\')" title="Skip to next template iteration"></span>' : '')
+        + ']';
     } else {
       tplRepeatProgress = '  [T ' + tplCurrent + '/' + (tplRepeatIsVar ? '?' : tplRepeatCount) + ' (' + escapeHtml(tplSource) + ')]';
     }
@@ -535,14 +544,15 @@ function submitRepeatCountFromStatus(event, id, currentRepeatNumber, inputEl) {
   if (!event || event.key !== 'Enter') { return; }
   event.preventDefault();
   event.stopPropagation();
-  var requested = Math.max(0, parseInt(String(inputEl && inputEl.value || '0'), 10) || 0);
-  var minAllowed = Math.max(1, parseInt(String(currentRepeatNumber || 1), 10) || 1);
-  var clamped = Math.max(requested, minAllowed);
+  var raw = String(inputEl && inputEl.value || '').trim();
+  if (!raw) return;
+  var isNum = /^[0-9]+$/.test(raw);
+  var val = isNum ? Math.max(1, parseInt(raw, 10) || 1) : raw;
   if (inputEl) {
-    inputEl.value = String(clamped);
+    inputEl.value = String(val);
     if (typeof inputEl.blur === 'function') { inputEl.blur(); }
   }
-  updateItemRepeat(id, { repeatCount: clamped });
+  updateItemRepeat(id, { repeatCount: val });
 }
 function submitTemplateRepeatFromStatus(event, id, inputEl) {
   if (!event || event.key !== 'Enter') { return; }
