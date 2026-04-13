@@ -1,6 +1,6 @@
 /**
  * ChatVariablesStore — singleton that holds current chat variable state,
- * emits change events, and persists to VS Code workspace state.
+ * emits change events, and persists to a per-window YAML file.
  *
  * All panels, tools, and LLM integrations read/write through this store so
  * values stay in sync across the extension.
@@ -47,7 +47,6 @@ export interface ChatVariablesSnapshot {
 // ============================================================================
 
 const MAX_CHANGE_LOG = 100;
-const WORKSPACE_STATE_KEY = 'chatVariablesStore';
 
 /**
  * Singleton managing all chat variable state.
@@ -84,11 +83,9 @@ export class ChatVariablesStore {
     /** Fires whenever any variable changes. */
     readonly onDidChange: vscode.Event<{ key: string; value: unknown }> = this._onDidChange.event;
 
-    private readonly context: vscode.ExtensionContext;
     private readonly filePath: string;
 
     private constructor(context: vscode.ExtensionContext) {
-        this.context = context;
         this.filePath = this.resolveFilePath();
         context.subscriptions.push(this._onDidChange);
         context.subscriptions.push({ dispose: () => this.dispose() });
@@ -217,12 +214,10 @@ export class ChatVariablesStore {
             changeLog: this._changeLog,
         };
         FsUtils.safeWriteYaml(this.filePath, snap);
-        void this.context.workspaceState.update(WORKSPACE_STATE_KEY, snap);
     }
 
     private restore(): void {
-        const snap = FsUtils.safeReadYaml<ChatVariablesSnapshot>(this.filePath)
-            ?? this.context.workspaceState.get<ChatVariablesSnapshot>(WORKSPACE_STATE_KEY);
+        const snap = FsUtils.safeReadYaml<ChatVariablesSnapshot>(this.filePath);
         if (!snap) { return; }
         this._quest = snap.quest ?? '';
         this._role = snap.role ?? '';
@@ -231,10 +226,6 @@ export class ChatVariablesStore {
         this._todoFile = snap.todoFile ?? 'all';
         this._custom = snap.custom ?? {};
         this._changeLog = snap.changeLog ?? [];
-
-        if (!FsUtils.fileExists(this.filePath)) {
-            this.persist();
-        }
     }
 
     private resolveFilePath(): string {

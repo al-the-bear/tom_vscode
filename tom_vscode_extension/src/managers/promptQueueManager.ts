@@ -942,13 +942,10 @@ export class PromptQueueManager {
         }
 
         if (!sending) {
-            // When queue is idle (no sending items), propagate responseValues from any answer
-            // file in our answer directory. Cross-window protection only matters when we're
-            // actively waiting for a specific answer.
-            this.propagateAnswerResponseValues(answer);
+            // No sending item — ignore answer file entirely
             this.markAnswerFileProcessed(filePath, answer);
-            logQueue(`No sending item found in queue — propagated responseValues. Items: ${this._items.map(i => `${i.id.substring(0, 8)}:${i.status}`).join(', ')}`);
-            debugLog(`[PromptQueueManager] No sending item found in queue, propagated responseValues from ${filePath}`, 'INFO', 'queue');
+            logQueue(`No sending item found in queue — ignoring answer file. Items: ${this._items.map(i => `${i.id.substring(0, 8)}:${i.status}`).join(', ')}`);
+            debugLog(`[PromptQueueManager] No sending item found in queue, ignoring ${filePath}`, 'INFO', 'queue');
             return;
         }
 

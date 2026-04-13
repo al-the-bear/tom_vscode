@@ -211,9 +211,16 @@ function renderEntry(item, idx) {
   var safeId = escapeJsSingleQuoted(item.id);
   var currentRepeatNumber = repeatCount > 0 ? Math.min(repeatIndex + 1, repeatCount) : 0;
 
-  // Main prompt repeat progress: "MP 1/3 (varName)"
+  // Main prompt repeat progress: "MP 1/3 (varName)" with skip button when sending
   var mainRepeatLabel = formatRepeatLabel(repeatCountRaw, item.repeatIndex);
-  var repeatProgress = mainRepeatLabel ? '  [MP ' + mainRepeatLabel + ']' : '';
+  var repeatProgress = '';
+  if (mainRepeatLabel) {
+    repeatProgress = '  [MP ' + mainRepeatLabel;
+    if (isSending) {
+      repeatProgress += ' <span class="codicon codicon-debug-step-over" style="cursor:pointer;font-size:11px;" onclick="event.stopPropagation();continueSending(\\'' + safeId + '\\')" title="Skip to next iteration"></span>';
+    }
+    repeatProgress += ']';
+  }
 
   // Template repeat progress: "T 1/3 (varName)" with editable field when sending
   var tplRepeatCountRaw = item.templateRepeatCount;
@@ -227,7 +234,8 @@ function renderEntry(item, idx) {
     if (isSending) {
       tplRepeatProgress = '  [T ' + tplCurrent + '/'
         + '<input type="text" value="' + (tplRepeatIsVar ? '' : tplRepeatCount) + '" style="width:38px" title="Update template repeat total (Enter)" placeholder="' + escapeHtml(tplSource) + '" onclick="event.stopPropagation()" onkeydown="submitTemplateRepeatFromStatus(event, \\\'' + safeId + '\\\', this)">'
-        + ' (' + escapeHtml(tplSource) + ')]';
+        + ' (' + escapeHtml(tplSource) + ')'
+        + ' <span class="codicon codicon-debug-step-over" style="cursor:pointer;font-size:11px;" onclick="event.stopPropagation();continueSending(\\'' + safeId + '\\')" title="Skip to next template iteration"></span>]';
     } else {
       tplRepeatProgress = '  [T ' + tplCurrent + '/' + (tplRepeatIsVar ? '?' : tplRepeatCount) + ' (' + escapeHtml(tplSource) + ')]';
     }
@@ -359,12 +367,13 @@ function renderPrePrompts(item, status) {
     var ppRepeatCountRaw = pp.repeatCount;
     var ppRepeatCountDisplay = ppRepeatCountRaw ? String(ppRepeatCountRaw) : '1';
     var ppRepeatLabel = formatRepeatLabel(ppRepeatCountRaw, pp.repeatIndex);
+    var ppSkipBtn = (isActive && ppRepeatLabel) ? ' <span class="codicon codicon-debug-step-over" style="cursor:pointer;font-size:11px;" onclick="event.stopPropagation();continueSending(\\'' + safeItemId + '\\')" title="Skip to next PP iteration"></span>' : '';
     var ppAnswerWait = Math.max(0, parseInt(String(pp.answerWaitMinutes || 0), 10) || 0);
     var ppHasExplicitReminder = pp.reminderEnabled === true || !!pp.reminderTemplateId;
     var ppNoReminderSelected = !ppHasExplicitReminder;
     return '<div class="preprompt-item' + (isActive ? ' is-active' : '') + '">' +
       '<div class="preprompt-item-head">' +
-        '<span>' + doneMark + 'Pre-prompt #' + (idx + 1) + (pp.template ? ' [' + escapeHtml(templateLabel) + ']' : '') + (ppRepeatLabel ? ' [PP ' + ppRepeatLabel + ']' : '') + '</span>' +
+        '<span>' + doneMark + 'Pre-prompt #' + (idx + 1) + (pp.template ? ' [' + escapeHtml(templateLabel) + ']' : '') + (ppRepeatLabel ? ' [PP ' + ppRepeatLabel + ppSkipBtn + ']' : '') + '</span>' +
         '<span class="followup-tools">' +
           (isEditable ? '<span class="codicon codicon-trash" style="cursor:pointer;" onclick="removePrePrompt(\\'' + safeItemId + '\\', ' + idx + ')" title="Delete pre-prompt"></span>' : '') +
         '</span>' +
@@ -427,10 +436,11 @@ function renderFollowUps(item, status) {
     var fuRepeatCountRaw = f.repeatCount;
     var fuRepeatCountDisplay = fuRepeatCountRaw ? String(fuRepeatCountRaw) : '1';
     var fuRepeatLabel = formatRepeatLabel(fuRepeatCountRaw, f.repeatIndex);
+    var fuSkipBtn = (isActive && fuRepeatLabel) ? ' <span class="codicon codicon-debug-step-over" style="cursor:pointer;font-size:11px;" onclick="event.stopPropagation();continueSending(\\'' + safeItemId + '\\')" title="Skip to next FU iteration"></span>' : '';
     var fuAnswerWait = Math.max(0, parseInt(String(f.answerWaitMinutes || 0), 10) || 0);
     return '<div class="followup-item' + (isActive ? ' is-active' : '') + '">' +
       '<div class="followup-item-head">' +
-        '<span>' + doneMark + 'Follow-up #' + (idx + 1) + (f.template ? (' [' + escapeHtml(templateLabel) + ']') : '') + (fuRepeatLabel ? ' [FU ' + fuRepeatLabel + ']' : '') + ' [AW]</span>' +
+        '<span>' + doneMark + 'Follow-up #' + (idx + 1) + (f.template ? (' [' + escapeHtml(templateLabel) + ']') : '') + (fuRepeatLabel ? ' [FU ' + fuRepeatLabel + fuSkipBtn + ']' : '') + ' [AW]</span>' +
         '<span class="followup-tools">' +
           '<span class="codicon codicon-eye" style="cursor:pointer;" onclick="previewFollowUp(\\'' + safeItemId + '\\', \\'' + safeFollowUpId + '\\')" title="Preview follow-up"></span>' +
           (isEditable ? '<span class="codicon codicon-trash" style="cursor:pointer;" onclick="removeFollowUp(\\'' + safeItemId + '\\', \\'' + safeFollowUpId + '\\')" title="Delete follow-up"></span>' : '') +
