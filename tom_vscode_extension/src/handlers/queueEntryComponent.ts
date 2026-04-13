@@ -189,7 +189,11 @@ function renderEntry(item, idx) {
   var followUps = Array.isArray(item.followUps) ? item.followUps : [];
   var sentFollowUps = item.followUpIndex || 0;
   var followUpProgress = followUps.length > 0 ? ('  [FU ' + Math.min(sentFollowUps, followUps.length) + '/' + followUps.length + ']') : '';
-  var repeatCount = Math.max(0, parseInt(String(item.repeatCount || 0), 10) || 0);
+  // repeatCount can be a number or a string (variable name)
+  var repeatCountRaw = item.repeatCount;
+  var repeatCountIsVar = typeof repeatCountRaw === 'string' && isNaN(parseInt(repeatCountRaw, 10));
+  var repeatCount = repeatCountIsVar ? 0 : Math.max(0, parseInt(String(repeatCountRaw || 0), 10) || 0);
+  var repeatCountDisplay = repeatCountIsVar ? String(repeatCountRaw) : String(Math.max(1, repeatCount));
   var repeatIndex = Math.max(0, parseInt(String(item.repeatIndex || 0), 10) || 0);
   var safeId = escapeJsSingleQuoted(item.id);
   var currentRepeatNumber = repeatCount > 0 ? Math.min(repeatIndex + 1, repeatCount) : 0;
@@ -211,7 +215,8 @@ function renderEntry(item, idx) {
     var noReminderSelected = item.reminderEnabled === false && !item.reminderTemplateId;
     var repeatPrefix = (typeof item.repeatPrefix === 'string') ? item.repeatPrefix : '';
     var repeatSuffix = (typeof item.repeatSuffix === 'string') ? item.repeatSuffix : '';
-    var repeatMainPromptOnly = item.repeatMainPromptOnly === true;
+    var templateRepeatCountRaw = item.templateRepeatCount;
+    var templateRepeatCountDisplay = templateRepeatCountRaw ? String(templateRepeatCountRaw) : '1';
     templateRow = '<div class="template-row">' +
       '<label style="font-size:0.85em;font-weight:600;">Template:</label>' +
       '<select onchange="updateItemTemplate(\\'' + safeId + '\\', this.value)">' +
@@ -228,18 +233,17 @@ function renderEntry(item, idx) {
       '<span style="font-size:0.8em;opacity:0.85;">Wait:</span>' +
       '<select onchange="updateItemReminder(\\'' + safeId + '\\', \\'timeout\\', this.value)">' + reminderTimeoutOptions(item.reminderTimeoutMinutes || responseTimeoutMinutes) + '</select>' +
       '<span style="font-size:0.8em;opacity:0.85;margin-left:8px;">Queue Repeats:</span>' +
-      '<input type="number" min="1" step="1" value="' + Math.max(1, repeatCount) + '" style="width:33px" onchange="updateItemRepeat(\\'' + safeId + '\\', { repeatCount: this.value })">' +
+      '<input type="text" value="' + escapeHtml(repeatCountDisplay) + '" style="width:50px" placeholder="1 or var" title="Number or variable name (e.g. batchCount)" onchange="updateItemRepeat(\\'' + safeId + '\\', { repeatCount: this.value })">' +
       '<span style="font-size:0.8em;opacity:0.85;margin-left:8px;">Answer Wait (min):</span>' +
       '<input type="number" min="0" step="1" value="' + Math.max(0, parseInt(String(item.answerWaitMinutes || 0), 10) || 0) + '" style="width:33px" title="Minutes to wait before auto-advancing (0 = wait for answer file)" onchange="updateItemRepeat(\\'' + safeId + '\\', { answerWaitMinutes: this.value })">' +
-      '<label style="font-size:0.8em;opacity:0.85;margin-left:8px;display:inline-flex;align-items:center;gap:4px;">' +
-      '<input type="checkbox"' + (repeatMainPromptOnly ? ' checked' : '') + ' onchange="updateItemRepeat(\\'' + safeId + '\\', { repeatMainPromptOnly: this.checked })">' +
-      'Repeat main prompt only</label>' +
     '</div>' +
     '<div class="repeat-affix-row">' +
       '<label style="font-size:0.8em;opacity:0.9;">Repeat Prefix (supports \${repeatNumber}, \${repeatIndex}, \${repeatCount})</label>' +
       '<textarea onchange="updateItemRepeat(\\'' + safeId + '\\', { repeatPrefix: this.value })">' + escapeHtml(repeatPrefix) + '</textarea>' +
       '<label style="font-size:0.8em;opacity:0.9;">Repeat Suffix (supports \${repeatNumber}, \${repeatIndex}, \${repeatCount})</label>' +
       '<textarea onchange="updateItemRepeat(\\'' + safeId + '\\', { repeatSuffix: this.value })">' + escapeHtml(repeatSuffix) + '</textarea>' +
+      '<label style="font-size:0.8em;opacity:0.9;margin-top:8px;">Template Repeat Count (repeat entire template)</label>' +
+      '<input type="text" value="' + escapeHtml(templateRepeatCountDisplay) + '" style="width:50px" placeholder="1" title="How many times to repeat the entire template" onchange="updateItemRepeat(\\'' + safeId + '\\', { templateRepeatCount: this.value })">' +
     '</div>';
   }
 
@@ -326,6 +330,11 @@ function renderPrePrompts(item, status) {
     var doneMark = ppStatus === 'sent' ? '\\u2713 ' : ppStatus === 'error' ? '\\u2717 ' : '';
     var templateLabel = formatPromptTemplateName(pp.template || '(None)');
     var isActive = idx === activePrePromptIndex;
+    var ppRepeatCountRaw = pp.repeatCount;
+    var ppRepeatCountDisplay = ppRepeatCountRaw ? String(ppRepeatCountRaw) : '1';
+    var ppAnswerWait = Math.max(0, parseInt(String(pp.answerWaitMinutes || 0), 10) || 0);
+    var ppHasExplicitReminder = pp.reminderEnabled === true || !!pp.reminderTemplateId;
+    var ppNoReminderSelected = !ppHasExplicitReminder;
     return '<div class="preprompt-item' + (isActive ? ' is-active' : '') + '">' +
       '<div class="preprompt-item-head">' +
         '<span>' + doneMark + 'Pre-prompt #' + (idx + 1) + (pp.template ? ' [' + escapeHtml(templateLabel) + ']' : '') + '</span>' +
@@ -334,15 +343,26 @@ function renderPrePrompts(item, status) {
         '</span>' +
       '</div>' +
       (isEditable
-        ? '<textarea onchange="updatePrePrompt(\\'' + safeItemId + '\\', ' + idx + ', this.value, null)">' + escapeHtml(pp.text || '') + '</textarea>' +
+        ? '<textarea onchange="updatePrePromptField(\\'' + safeItemId + '\\', ' + idx + ', \\'text\\', this.value)">' + escapeHtml(pp.text || '') + '</textarea>' +
           '<div class="template-row">' +
             '<label style="font-size:0.85em;font-weight:600;">Template:</label>' +
-            '<select onchange="updatePrePrompt(\\'' + safeItemId + '\\', ' + idx + ', null, this.value)">' +
+            '<select onchange="updatePrePromptField(\\'' + safeItemId + '\\', ' + idx + ', \\'template\\', this.value)">' +
               '<option value="">(None)</option>' +
               promptTemplates.map(function(name) {
                 return '<option value="' + escapeHtml(name) + '"' + ((pp.template || '') === name ? ' selected' : '') + '>' + escapeHtml(formatPromptTemplateName(name)) + '</option>';
               }).join('') +
             '</select>' +
+            '<select onchange="updatePrePromptField(\\'' + safeItemId + '\\', ' + idx + ', \\'reminderTemplateId\\', this.value)">' +
+              '<option value=""' + (!ppNoReminderSelected && !pp.reminderTemplateId ? ' selected' : '') + '>Global Default</option>' +
+              '<option value="__none__"' + (ppNoReminderSelected ? ' selected' : '') + '>No reminder</option>' +
+              reminderTemplates.map(function(t){ return '<option value="' + escapeHtml(t.id) + '"' + (pp.reminderTemplateId === t.id ? ' selected' : '') + '>' + escapeHtml(t.name) + '</option>'; }).join('') +
+            '</select>' +
+            '<span style="font-size:0.8em;opacity:0.85;">Wait:</span>' +
+            '<select onchange="updatePrePromptField(\\'' + safeItemId + '\\', ' + idx + ', \\'reminderTimeoutMinutes\\', this.value)">' + reminderTimeoutOptions(pp.reminderTimeoutMinutes || responseTimeoutMinutes) + '</select>' +
+            '<span style="font-size:0.8em;opacity:0.85;margin-left:8px;">Repeats:</span>' +
+            '<input type="text" value="' + escapeHtml(ppRepeatCountDisplay) + '" style="width:40px" placeholder="1" title="Number or variable name" onchange="updatePrePromptField(\\'' + safeItemId + '\\', ' + idx + ', \\'repeatCount\\', this.value)">' +
+            '<span style="font-size:0.8em;opacity:0.85;margin-left:8px;">Answer Wait:</span>' +
+            '<input type="number" min="0" step="1" value="' + ppAnswerWait + '" style="width:33px" title="Minutes to wait" onchange="updatePrePromptField(\\'' + safeItemId + '\\', ' + idx + ', \\'answerWaitMinutes\\', this.value)">' +
           '</div>'
         : '<div class="preprompt-content" style="margin:4px 0; white-space:pre-wrap;">' + escapeHtml(pp.text || '') + '</div>') +
     '</div>';
@@ -372,10 +392,14 @@ function renderFollowUps(item, status) {
     var safeFollowUpId = escapeJsSingleQuoted(f.id || '');
     var safeTemplate = escapeJsSingleQuoted(f.template || '');
     var safeReminderTemplateId = escapeJsSingleQuoted(f.reminderTemplateId || '');
-    var noReminderSelected = f.reminderEnabled === false && !f.reminderTemplateId;
+    var fuHasExplicitReminder = f.reminderEnabled === true || !!f.reminderTemplateId;
+    var noReminderSelected = !fuHasExplicitReminder;
     var doneMark = idx < sentFollowUps ? '\\u2713 ' : '';
     var templateLabel = formatPromptTemplateName(f.template || '(None)');
     var isActive = idx === activeFollowUpIndex;
+    var fuRepeatCountRaw = f.repeatCount;
+    var fuRepeatCountDisplay = fuRepeatCountRaw ? String(fuRepeatCountRaw) : '1';
+    var fuAnswerWait = Math.max(0, parseInt(String(f.answerWaitMinutes || 0), 10) || 0);
     return '<div class="followup-item' + (isActive ? ' is-active' : '') + '">' +
       '<div class="followup-item-head">' +
         '<span>' + doneMark + 'Follow-up #' + (idx + 1) + (f.template ? (' [' + escapeHtml(templateLabel) + ']') : '') + ' [AW]</span>' +
@@ -393,8 +417,6 @@ function renderFollowUps(item, status) {
                 '<option value="">(None)</option>' +
                 promptTemplates.map(function(name){ return '<option value="' + escapeHtml(name) + '"' + ((f.template || '') === name ? ' selected' : '') + '>' + escapeHtml(formatPromptTemplateName(name)) + '</option>'; }).join('') +
               '</select>' +
-            '</div>' +
-            '<div class="followup-row">' +
               '<select onchange="updateFollowUpReminder(\\'' + safeItemId + '\\', \\'' + safeFollowUpId + '\\', \\'template\\', this.value)">' +
                 '<option value=""' + (!noReminderSelected && !f.reminderTemplateId ? ' selected' : '') + '>Global Default</option>' +
                 '<option value="__none__"' + (noReminderSelected ? ' selected' : '') + '>No reminder</option>' +
@@ -402,7 +424,10 @@ function renderFollowUps(item, status) {
               '</select>' +
               '<span style="font-size:0.8em;opacity:0.85;">Wait:</span>' +
               '<select onchange="updateFollowUpReminder(\\'' + safeItemId + '\\', \\'' + safeFollowUpId + '\\', \\'timeout\\', this.value)">' + reminderTimeoutOptions(f.reminderTimeoutMinutes || responseTimeoutMinutes) + '</select>' +
-
+              '<span style="font-size:0.8em;opacity:0.85;margin-left:8px;">Repeats:</span>' +
+              '<input type="text" value="' + escapeHtml(fuRepeatCountDisplay) + '" style="width:40px" placeholder="1" title="Number or variable name" onchange="updateFollowUpField(\\'' + safeItemId + '\\', \\'' + safeFollowUpId + '\\', \\'repeatCount\\', this.value)">' +
+              '<span style="font-size:0.8em;opacity:0.85;margin-left:8px;">Answer Wait:</span>' +
+              '<input type="number" min="0" step="1" value="' + fuAnswerWait + '" style="width:33px" title="Minutes to wait" onchange="updateFollowUpField(\\'' + safeItemId + '\\', \\'' + safeFollowUpId + '\\', \\'answerWaitMinutes\\', this.value)">' +
             '</div>' +
           '</div>'
         : '<div class="followup-content" style="margin:4px 0; white-space:pre-wrap;">' + escapeHtml(f.originalText || '') + '</div>') +
@@ -444,10 +469,13 @@ function updateItemRepeat(id, patch) {
     repeatPrefix: undefined,
     repeatSuffix: undefined,
     answerWaitMinutes: undefined,
-    repeatMainPromptOnly: undefined,
+    templateRepeatCount: undefined,
   };
   if (Object.prototype.hasOwnProperty.call(nextPatch, 'repeatCount')) {
-    msg.repeatCount = Math.max(0, parseInt(String(nextPatch.repeatCount || '0'), 10) || 0);
+    // Accept both number and string (variable name)
+    var rcVal = String(nextPatch.repeatCount || '').trim();
+    var rcNum = parseInt(rcVal, 10);
+    msg.repeatCount = isNaN(rcNum) ? rcVal : Math.max(0, rcNum);
   }
   if (Object.prototype.hasOwnProperty.call(nextPatch, 'repeatPrefix')) {
     msg.repeatPrefix = String(nextPatch.repeatPrefix || '');
@@ -458,8 +486,10 @@ function updateItemRepeat(id, patch) {
   if (Object.prototype.hasOwnProperty.call(nextPatch, 'answerWaitMinutes')) {
     msg.answerWaitMinutes = Math.max(0, parseInt(String(nextPatch.answerWaitMinutes || '0'), 10) || 0);
   }
-  if (Object.prototype.hasOwnProperty.call(nextPatch, 'repeatMainPromptOnly')) {
-    msg.repeatMainPromptOnly = !!nextPatch.repeatMainPromptOnly;
+  if (Object.prototype.hasOwnProperty.call(nextPatch, 'templateRepeatCount')) {
+    var trcVal = String(nextPatch.templateRepeatCount || '').trim();
+    var trcNum = parseInt(trcVal, 10);
+    msg.templateRepeatCount = isNaN(trcNum) ? trcVal : Math.max(0, trcNum);
   }
   vscode.postMessage(msg);
 }
@@ -518,6 +548,38 @@ function updatePrePrompt(id, index, text, template) {
   var msg = { type: 'updatePrePrompt', id: id, index: index };
   if (text !== null) msg.text = text;
   if (template !== null) msg.template = template;
+  vscode.postMessage(msg);
+}
+function updatePrePromptField(id, index, field, value) {
+  var msg = { type: 'updatePrePrompt', id: id, index: index };
+  if (field === 'text') msg.text = value;
+  if (field === 'template') msg.template = value || '';
+  if (field === 'repeatCount') {
+    var rcVal = String(value || '').trim();
+    var rcNum = parseInt(rcVal, 10);
+    msg.repeatCount = isNaN(rcNum) ? rcVal : Math.max(0, rcNum);
+  }
+  if (field === 'answerWaitMinutes') msg.answerWaitMinutes = Math.max(0, parseInt(String(value || '0'), 10) || 0);
+  if (field === 'reminderTemplateId') {
+    if (value === '__none__') {
+      msg.reminderEnabled = false;
+      msg.reminderTemplateId = '';
+    } else {
+      msg.reminderTemplateId = value || '';
+      msg.reminderEnabled = true;
+    }
+  }
+  if (field === 'reminderTimeoutMinutes') msg.reminderTimeoutMinutes = parseInt(String(value || '0'), 10) || undefined;
+  vscode.postMessage(msg);
+}
+function updateFollowUpField(id, followUpId, field, value) {
+  var msg = { type: 'updateFollowUp', id: id, followUpId: followUpId };
+  if (field === 'repeatCount') {
+    var rcVal = String(value || '').trim();
+    var rcNum = parseInt(rcVal, 10);
+    msg.repeatCount = isNaN(rcNum) ? rcVal : Math.max(0, rcNum);
+  }
+  if (field === 'answerWaitMinutes') msg.answerWaitMinutes = Math.max(0, parseInt(String(value || '0'), 10) || 0);
   vscode.postMessage(msg);
 }
 function removePrePrompt(id, index) { vscode.postMessage({ type: 'removePrePrompt', id: id, index: index }); }

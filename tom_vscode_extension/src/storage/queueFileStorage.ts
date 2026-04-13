@@ -90,11 +90,12 @@ export interface QueuePromptYaml {
     template?: string;
     'answer-template'?: string;
     'answer-wrapper'?: boolean;
-    'repeat-count'?: number;
+    'repeat-count'?: number | string;
     'repeat-index'?: number;
     'repeat-prefix'?: string;
     'repeat-suffix'?: string;
-    'repeat-main-prompt-only'?: boolean;
+    'template-repeat-count'?: number | string;
+    'template-repeat-index'?: number;
     'answer-wait-minutes'?: number;
     'llm-profile'?: string;
     reminder?: QueueReminderConfig;

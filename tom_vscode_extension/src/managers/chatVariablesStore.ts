@@ -239,9 +239,14 @@ export class ChatVariablesStore {
         const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
         const fallbackRoot = wsRoot ? path.join(wsRoot, '_ai') : path.join(process.cwd(), '_ai');
         const chatVarsDir = WsPaths.ai('chat_variables') ?? path.join(fallbackRoot, 'chat_variables');
+        const wsFile = vscode.workspace.workspaceFile?.fsPath;
+        const workspaceScopeRaw = wsFile
+            ? path.basename(wsFile, path.extname(wsFile))
+            : (vscode.workspace.workspaceFolders?.[0]?.name || 'workspace');
+        const workspaceScope = workspaceScopeRaw.replace(/[^a-zA-Z0-9_-]/g, '_');
         const rawId = vscode.env.sessionId || `window-${Date.now()}`;
         const windowId = rawId.replace(/[^a-zA-Z0-9_-]/g, '_');
-        return path.join(chatVarsDir, `${windowId}.chatvariable.yaml`);
+        return path.join(chatVarsDir, `${workspaceScope}.${windowId}.chatvariable.yaml`);
     }
 
     private dispose(): void {

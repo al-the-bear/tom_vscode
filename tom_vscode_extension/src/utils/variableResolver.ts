@@ -553,8 +553,15 @@ function buildContextInfoBlock(values: Record<string, string>): string {
         'git.branch', 'git.commit', 'git.dirty',
     ];
     const obj: Record<string, string> = {};
+    const gitValues = getGitValues();
     for (const key of contextKeys) {
-        const val = values[`chat.${key}`] ?? values[key] ?? '';
+        let val = values[`chat.${key}`] ?? values[key] ?? '';
+        if (!val && key.startsWith('git.')) {
+            val = gitValues[key.substring(4)] ?? '';
+        }
+        if (!val && key === 'chatAnswerFolder') {
+            val = values['copilotAnswerFolder'] ?? '';
+        }
         obj[key] = val || 'not set';
     }
     return `Current Context:\n\n\`\`\`json\n${JSON.stringify(obj, null, 2)}\n\`\`\``;

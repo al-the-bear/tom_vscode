@@ -166,15 +166,18 @@ function installGlobalInstrumentation(): void {
                                 const originalOnDidReceiveMessage = webviewView.webview.onDidReceiveMessage.bind(webviewView.webview);
                                 webviewAny.onDidReceiveMessage = ((listener, thisArgs, disposables) => {
                                     const wrappedListener = async (message: unknown) => {
-                                        debugLog(`webview message: ${viewId} payload=${JSON.stringify(message, (_k, v) => typeof v === 'function' ? '[Function]' : v)}`, 'INFO', 'webview.message');
+                                        // Skip logging for high-frequency polling messages
+                                        const msgType = typeof message === 'object' && message !== null && 'type' in (message as Record<string, unknown>)
+                                            ? (message as Record<string, unknown>).type
+                                            : undefined;
+                                        const isPolling = msgType === 'loadWindowStates' || msgType === 'poll' || msgType === 'ping';
+                                        if (!isPolling) {
+                                            debugLog(`webview message: ${viewId} payload=${JSON.stringify(message, (_k, v) => typeof v === 'function' ? '[Function]' : v)}`, 'INFO', 'webview.message');
+                                        }
                                         try {
                                             return await Promise.resolve(listener.call(thisArgs, message));
                                         } catch (error) {
-                                            const messageType =
-                                                typeof message === 'object' && message !== null && 'type' in (message as Record<string, unknown>)
-                                                    ? (message as Record<string, unknown>).type
-                                                    : undefined;
-                                            reportException(`webview:${viewId}.onDidReceiveMessage`, error, { messageType });
+                                            reportException(`webview:${viewId}.onDidReceiveMessage`, error, { messageType: msgType });
                                             throw error;
                                         }
                                     };

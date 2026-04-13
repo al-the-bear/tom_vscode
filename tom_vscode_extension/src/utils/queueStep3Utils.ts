@@ -8,12 +8,26 @@ export interface RepetitionAffixInput {
     originalText: string;
     repeatPrefix?: string;
     repeatSuffix?: string;
-    repeatCount?: number;
+    repeatCount?: number | string;
     repeatIndex?: number;
 }
 
-export function computeRepeatDecision(input: { repeatCount?: number; repeatIndex?: number }): RepeatDecision {
-    const repeatCount = Math.max(1, Math.round(input.repeatCount || 1));
+/**
+ * Compute repeat decision. repeatCount can be a number or a string.
+ * If string, expects caller to have already resolved it via resolveRepeatCount().
+ */
+export function computeRepeatDecision(input: { repeatCount?: number | string; repeatIndex?: number }, resolvedCount?: number): RepeatDecision {
+    // If resolvedCount is provided, use it; otherwise try to parse repeatCount directly
+    let repeatCount: number;
+    if (resolvedCount !== undefined) {
+        repeatCount = Math.max(1, Math.round(resolvedCount));
+    } else if (typeof input.repeatCount === 'number') {
+        repeatCount = Math.max(1, Math.round(input.repeatCount || 1));
+    } else {
+        // String value - try to parse as number, default to 1
+        const parsed = parseInt(String(input.repeatCount || '1'), 10);
+        repeatCount = Math.max(1, isNaN(parsed) ? 1 : parsed);
+    }
     const repeatIndex = Math.max(0, Math.round(input.repeatIndex || 0));
     if (repeatCount <= 1) {
         return {
@@ -58,7 +72,8 @@ function fillRepetitionPlaceholders(template: string, repeatCount: number, repea
 }
 
 export function applyRepetitionAffixes(input: RepetitionAffixInput): string {
-    const repeatCount = Math.max(0, Math.round(input.repeatCount || 0));
+    const rawCount = typeof input.repeatCount === 'string' ? parseInt(input.repeatCount, 10) || 0 : (input.repeatCount || 0);
+    const repeatCount = Math.max(0, Math.round(rawCount));
     const repeatIndex = Math.max(0, Math.round(input.repeatIndex || 0));
     const prefix = (input.repeatPrefix || '').trim();
     const suffix = (input.repeatSuffix || '').trim();

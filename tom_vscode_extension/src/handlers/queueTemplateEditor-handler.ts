@@ -283,21 +283,30 @@ function docToTemplateItem(templateId: string, doc: QueueFileYaml): Record<strin
     reminderTemplateId: mainPrompt?.reminder?.['template-id'] || '',
     reminderTimeoutMinutes: mainPrompt?.reminder?.['timeout-minutes'] || 60,
     reminderRepeat: mainPrompt?.reminder?.repeat || false,
-    repeatCount: Math.max(0, Math.round(Number(mainPrompt?.['repeat-count'] || 0))),
+    repeatCount: typeof mainPrompt?.['repeat-count'] === 'string' ? mainPrompt['repeat-count'] : Math.max(0, Math.round(Number(mainPrompt?.['repeat-count'] || 0))),
     repeatIndex: Math.max(0, Math.round(Number(mainPrompt?.['repeat-index'] || 0))),
     repeatPrefix: mainPrompt?.['repeat-prefix'] || '',
     repeatSuffix: mainPrompt?.['repeat-suffix'] || '',
     answerWaitMinutes: Math.max(0, Math.round(Number(mainPrompt?.['answer-wait-minutes'] || 0))),
-    repeatMainPromptOnly: mainPrompt?.['repeat-main-prompt-only'] === true,
+    templateRepeatCount: typeof mainPrompt?.['template-repeat-count'] === 'string' ? mainPrompt['template-repeat-count'] : (mainPrompt?.['template-repeat-count'] ? Math.max(0, Math.round(Number(mainPrompt['template-repeat-count']))) : undefined),
+    templateRepeatIndex: mainPrompt?.['template-repeat-index'] ? Math.max(0, Math.round(Number(mainPrompt['template-repeat-index']))) : undefined,
     prePrompts: prePrompts.map(pp => ({
       text: pp['prompt-text'] || '',
       template: pp.template || '',
       status: 'pending',
+      repeatCount: pp['repeat-count'],
+      answerWaitMinutes: pp['answer-wait-minutes'],
+      reminderTemplateId: pp.reminder?.['template-id'],
+      reminderTimeoutMinutes: pp.reminder?.['timeout-minutes'],
+      reminderRepeat: pp.reminder?.repeat,
+      reminderEnabled: pp.reminder?.enabled,
     })),
     followUps: followUps.map(fu => ({
       id: fu.id || generateId(),
       originalText: fu['prompt-text'] || '',
       template: fu.template || '',
+      repeatCount: fu['repeat-count'],
+      answerWaitMinutes: fu['answer-wait-minutes'],
       reminderEnabled: fu.reminder?.enabled || false,
       reminderTemplateId: fu.reminder?.['template-id'] || '',
       reminderTimeoutMinutes: fu.reminder?.['timeout-minutes'] || 60,
@@ -319,12 +328,13 @@ function templateItemToDoc(item: any, existingDoc?: QueueFileYaml): QueueFileYam
     'prompt-text': item.originalText || '',
     template: item.template && item.template !== '(None)' ? item.template : undefined,
     'answer-wrapper': item.answerWrapper || undefined,
-    'repeat-count': Math.max(0, Math.round(Number(item.repeatCount || 0))),
+    'repeat-count': item.repeatCount || 0,
     'repeat-index': Math.max(0, Math.round(Number(item.repeatIndex || 0))),
     'repeat-prefix': item.repeatPrefix || undefined,
     'repeat-suffix': item.repeatSuffix || undefined,
     'answer-wait-minutes': Math.max(0, Math.round(Number(item.answerWaitMinutes || 0))) || undefined,
-    'repeat-main-prompt-only': item.repeatMainPromptOnly === true || undefined,
+    'template-repeat-count': item.templateRepeatCount || undefined,
+    'template-repeat-index': item.templateRepeatIndex || undefined,
     reminder: item.reminderEnabled ? {
       enabled: true,
       'template-id': item.reminderTemplateId || undefined,
@@ -339,12 +349,23 @@ function templateItemToDoc(item: any, existingDoc?: QueueFileYaml): QueueFileYam
   const prePrompts = Array.isArray(item.prePrompts) ? item.prePrompts : [];
   prePrompts.forEach((pp: any, idx: number) => {
     const ppId = `pre-${idx + 1}`;
-    prompts.push({
+    const ppYaml: QueuePromptYaml = {
       id: ppId,
       type: 'preprompt',
       'prompt-text': pp.text || '',
       template: pp.template || undefined,
-    } as QueuePromptYaml);
+      'repeat-count': pp.repeatCount || undefined,
+      'answer-wait-minutes': pp.answerWaitMinutes || undefined,
+    };
+    if (pp.reminderEnabled) {
+      ppYaml.reminder = {
+        enabled: true,
+        'template-id': pp.reminderTemplateId || undefined,
+        'timeout-minutes': pp.reminderTimeoutMinutes || 60,
+        repeat: pp.reminderRepeat || false,
+      };
+    }
+    prompts.push(ppYaml);
     main['pre-prompt-refs']!.push(ppId);
   });
 
@@ -352,18 +373,23 @@ function templateItemToDoc(item: any, existingDoc?: QueueFileYaml): QueueFileYam
   const followUps = Array.isArray(item.followUps) ? item.followUps : [];
   followUps.forEach((fu: any, idx: number) => {
     const fuId = fu.id || `fu-${idx + 1}`;
-    prompts.push({
+    const fuYaml: QueuePromptYaml = {
       id: fuId,
       type: 'followup',
       'prompt-text': fu.originalText || '',
       template: fu.template || undefined,
-      reminder: fu.reminderEnabled ? {
+      'repeat-count': fu.repeatCount || undefined,
+      'answer-wait-minutes': fu.answerWaitMinutes || undefined,
+    };
+    if (fu.reminderEnabled) {
+      fuYaml.reminder = {
         enabled: true,
         'template-id': fu.reminderTemplateId || undefined,
         'timeout-minutes': fu.reminderTimeoutMinutes || 60,
         repeat: fu.reminderRepeat || false,
-      } : undefined,
-    } as QueuePromptYaml);
+      };
+    }
+    prompts.push(fuYaml);
     main['follow-up-refs']!.push(fuId);
   });
 
@@ -760,7 +786,8 @@ updateItemRepeat = function(id, patch) {
       localPatch = { repeatCount: patch };
     }
     if (Object.prototype.hasOwnProperty.call(localPatch, 'repeatCount')) {
-      currentItems[0].repeatCount = Math.max(0, parseInt(String(localPatch.repeatCount || '0'), 10) || 0);
+      var rcStr = String(localPatch.repeatCount || '0').trim();
+      currentItems[0].repeatCount = /^[0-9]+$/.test(rcStr) ? Math.max(0, parseInt(rcStr, 10)) : rcStr;
     }
     if (Object.prototype.hasOwnProperty.call(localPatch, 'repeatPrefix')) {
       currentItems[0].repeatPrefix = String(localPatch.repeatPrefix || '');
@@ -771,8 +798,8 @@ updateItemRepeat = function(id, patch) {
     if (Object.prototype.hasOwnProperty.call(localPatch, 'answerWaitMinutes')) {
       currentItems[0].answerWaitMinutes = Math.max(0, parseInt(String(localPatch.answerWaitMinutes || '0'), 10) || 0);
     }
-    if (Object.prototype.hasOwnProperty.call(localPatch, 'repeatMainPromptOnly')) {
-      currentItems[0].repeatMainPromptOnly = !!localPatch.repeatMainPromptOnly;
+    if (Object.prototype.hasOwnProperty.call(localPatch, 'templateRepeatCount')) {
+      currentItems[0].templateRepeatCount = localPatch.templateRepeatCount;
     }
     renderEditor();
   }
@@ -886,6 +913,48 @@ updatePrePrompt = function(id, index, text, template) {
     }
   }
   __updatePrePrompt(id, index, text, template);
+};
+
+var __updatePrePromptField = updatePrePromptField;
+updatePrePromptField = function(id, index, field, value) {
+  if (currentItems.length > 0 && currentItems[0].id === id) {
+    if (Array.isArray(currentItems[0].prePrompts) && currentItems[0].prePrompts[index]) {
+      var pp = currentItems[0].prePrompts[index];
+      if (field === 'text') pp.text = value;
+      if (field === 'template') pp.template = value || '';
+      if (field === 'repeatCount') {
+        var rcStr = String(value || '').trim();
+        pp.repeatCount = /^[0-9]+$/.test(rcStr) ? Math.max(0, parseInt(rcStr, 10)) : rcStr;
+      }
+      if (field === 'answerWaitMinutes') pp.answerWaitMinutes = Math.max(0, parseInt(String(value || '0'), 10) || 0);
+      if (field === 'reminderTemplateId') {
+        if (value === '__none__') {
+          pp.reminderEnabled = false;
+          pp.reminderTemplateId = '';
+        } else {
+          pp.reminderTemplateId = value || '';
+          pp.reminderEnabled = true;
+        }
+      }
+      if (field === 'reminderTimeoutMinutes') pp.reminderTimeoutMinutes = parseInt(String(value || '0'), 10) || undefined;
+    }
+  }
+  __updatePrePromptField(id, index, field, value);
+};
+
+var __updateFollowUpField = updateFollowUpField;
+updateFollowUpField = function(id, followUpId, field, value) {
+  if (currentItems.length > 0 && currentItems[0].id === id && Array.isArray(currentItems[0].followUps)) {
+    var fu = currentItems[0].followUps.find(function(f) { return f.id === followUpId; });
+    if (fu) {
+      if (field === 'repeatCount') {
+        var rcStr = String(value || '').trim();
+        fu.repeatCount = /^[0-9]+$/.test(rcStr) ? Math.max(0, parseInt(rcStr, 10)) : rcStr;
+      }
+      if (field === 'answerWaitMinutes') fu.answerWaitMinutes = Math.max(0, parseInt(String(value || '0'), 10) || 0);
+    }
+  }
+  __updateFollowUpField(id, followUpId, field, value);
 };
 
 /* Override reminder update */

@@ -323,7 +323,7 @@ async function handleMessage(msg: any): Promise<void> {
             repeatPrefix: msg.repeatPrefix,
             repeatSuffix: msg.repeatSuffix,
             answerWaitMinutes: msg.answerWaitMinutes,
-            repeatMainPromptOnly: msg.repeatMainPromptOnly,
+            templateRepeatCount: msg.templateRepeatCount,
           });
           break;
         case 'setResponseTimeout':
@@ -345,7 +345,7 @@ async function handleMessage(msg: any): Promise<void> {
                     reminderTimeoutMinutes: msg.reminderTimeoutMinutes,
               reminderRepeat: !!msg.reminderRepeat,
               reminderEnabled: !!msg.reminderEnabled,
-              repeatCount: Number.isFinite(msg.repeatCount) ? Math.max(0, Math.round(msg.repeatCount)) : 0,
+              repeatCount: (typeof msg.repeatCount === 'string' && !/^[0-9]+$/.test(msg.repeatCount)) ? msg.repeatCount : (typeof msg.repeatCount === 'number' || typeof msg.repeatCount === 'string' ? Math.max(0, Math.round(Number(msg.repeatCount) || 0)) : 0),
               repeatPrefix: typeof msg.repeatPrefix === 'string' ? msg.repeatPrefix : undefined,
               repeatSuffix: typeof msg.repeatSuffix === 'string' ? msg.repeatSuffix : undefined,
               deferSend: true,
@@ -383,6 +383,8 @@ async function handleMessage(msg: any): Promise<void> {
             qm.updateFollowUpPrompt(msg.id, msg.followUpId, {
               originalText: msg.text,
               template: msg.template,
+              repeatCount: msg.repeatCount,
+              answerWaitMinutes: msg.answerWaitMinutes,
               reminderTemplateId: msg.reminderTemplateId,
               reminderTimeoutMinutes: msg.reminderTimeoutMinutes,
               reminderRepeat: msg.reminderRepeat,
@@ -402,6 +404,12 @@ async function handleMessage(msg: any): Promise<void> {
             qm.updatePrePrompt(msg.id, msg.index, {
               text: msg.text,
               template: msg.template,
+              repeatCount: msg.repeatCount,
+              answerWaitMinutes: msg.answerWaitMinutes,
+              reminderTemplateId: msg.reminderTemplateId,
+              reminderTimeoutMinutes: msg.reminderTimeoutMinutes,
+              reminderRepeat: msg.reminderRepeat,
+              reminderEnabled: msg.reminderEnabled,
             });
             break;
           }
@@ -745,7 +753,7 @@ ${queueEntryStyles()}
   </div>
   <div class="add-options">
     <label style="margin-right:6px;">Queue Repeats:</label>
-    <input id="addRepeatCount" type="number" min="1" step="1" value="1" style="width:80px" title="Total number of times to send this prompt"/>
+    <input id="addRepeatCount" type="text" value="1" style="width:80px" title="Total number of times to send this prompt (number or variable name)"/>
   </div>
   <div class="add-options" style="display:block;">
     <label style="display:block;margin-bottom:4px;">Repeat Prefix (supports \${repeatNumber}, \${repeatIndex}, \${repeatCount})</label>
@@ -1115,7 +1123,8 @@ function addPrompt() {
   }
   if (selTimeout && selTimeout.value) { msg.reminderTimeoutMinutes = parseInt(String(selTimeout.value || '0'), 10) || undefined; }
   if (inputRepeatCount) {
-    msg.repeatCount = Math.max(1, parseInt(String(inputRepeatCount.value || '1'), 10) || 1);
+    var rcVal = String(inputRepeatCount.value || '1').trim();
+    msg.repeatCount = /^[0-9]+$/.test(rcVal) ? Math.max(1, parseInt(rcVal, 10)) : rcVal;
   }
   if (inputRepeatPrefix && inputRepeatPrefix.value) {
     msg.repeatPrefix = inputRepeatPrefix.value;
@@ -1129,7 +1138,12 @@ function addPrompt() {
 
 function addReminderTemplate() {
   vscode.postMessage({ type: 'addReminderTemplate' });
-  msg.repeatCount = inputRepeatCount ? (parseInt(String(inputRepeatCount.value || '0'), 10) || 0) : 0;
+  if (inputRepeatCount) {
+    var rcVal2 = String(inputRepeatCount.value || '0').trim();
+    msg.repeatCount = /^[0-9]+$/.test(rcVal2) ? Math.max(0, parseInt(rcVal2, 10)) : rcVal2;
+  } else {
+    msg.repeatCount = 0;
+  }
 }
 
 function addPromptTemplate() {

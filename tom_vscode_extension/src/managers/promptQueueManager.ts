@@ -59,6 +59,9 @@ export interface QueuedFollowUpPrompt {
     reminderTimeoutMinutes?: number;
     reminderRepeat?: boolean;
     reminderEnabled?: boolean;
+    repeatCount?: number | string;
+    repeatIndex?: number;         // How many times this follow-up has been sent (0-based counter)
+    answerWaitMinutes?: number;
     createdAt: string;
 }
 
@@ -66,6 +69,13 @@ export interface QueuedPrePrompt {
     text: string;
     template?: string;
     status: 'pending' | 'sent' | 'error';
+    repeatCount?: number | string;
+    repeatIndex?: number;         // How many times this pre-prompt has been sent (0-based counter)
+    answerWaitMinutes?: number;
+    reminderTemplateId?: string;
+    reminderTimeoutMinutes?: number;
+    reminderRepeat?: boolean;
+    reminderEnabled?: boolean;
 }
 
 export interface QueuedPrompt {
@@ -91,11 +101,12 @@ export interface QueuedPrompt {
     prePrompts?: QueuedPrePrompt[];  // Pre-prompts sent before the main prompt
     followUps?: QueuedFollowUpPrompt[];
     followUpIndex?: number;       // Number of follow-ups already sent
-    repeatCount?: number;
+    repeatCount?: number | string;
     repeatIndex?: number;
     repeatPrefix?: string;
     repeatSuffix?: string;
-    repeatMainPromptOnly?: boolean;
+    templateRepeatCount?: number | string; // Repeat the entire template this many times
+    templateRepeatIndex?: number;  // Current template repeat iteration (0-based)
     answerWaitMinutes?: number;   // If > 0, auto-advance after N minutes instead of waiting for answer file
 }
 
@@ -155,6 +166,51 @@ export async function applyTemplateWrapping(expanded: string, templateName: stri
         expanded = await expandTemplate(expanded, { includeEditorContext: false });
     }
     return expanded;
+}
+
+/**
+ * Resolve a repeat count value. If it's a number, return it directly.
+ * If it's a string, try to get the value from a chat variable with that name.
+ * Returns 1 if the value cannot be determined.
+ */
+export function resolveRepeatCount(value: number | string | undefined): number {
+    if (value === undefined || value === null) {
+        return 1;
+    }
+    if (typeof value === 'number') {
+        return Math.max(1, Math.round(value));
+    }
+    // String value - try to parse as number first
+    const parsed = parseInt(String(value), 10);
+    if (!isNaN(parsed) && parsed > 0) {
+        return parsed;
+    }
+    // Try to get from chat variable
+    const varName = String(value).trim();
+    if (!varName) {
+        return 1;
+    }
+    try {
+        const chatStore = await_import_ChatVariablesStore() as any;
+        if (chatStore && typeof chatStore.getRaw === 'function') {
+            // Try both with and without 'custom.' prefix
+            let varValue = chatStore.getRaw(`custom.${varName}`);
+            if (varValue === undefined || varValue === '' || varValue === null) {
+                varValue = chatStore.getRaw(varName);
+            }
+            if (varValue !== undefined && varValue !== '' && varValue !== null) {
+                const resolved = parseInt(String(varValue), 10);
+                if (!isNaN(resolved) && resolved > 0) {
+                    debugLog(`[PromptQueueManager] Resolved repeat count '${varName}' = ${resolved}`, 'DEBUG', 'queue');
+                    return resolved;
+                }
+            }
+        }
+    } catch (e) {
+        debugLog(`[PromptQueueManager] Failed to resolve repeat count variable '${varName}': ${e}`, 'WARN', 'queue');
+    }
+    debugLog(`[PromptQueueManager] Could not resolve repeat count '${varName}', defaulting to 1`, 'DEBUG', 'queue');
+    return 1;
 }
 
 export class PromptQueueManager {
@@ -409,6 +465,11 @@ export class PromptQueueManager {
         this._answerWatcher = fs.watch(dir, (event, filename) => {
             const fileNameText = typeof filename === 'string' ? filename : undefined;
             debugLog(`[PromptQueueManager] File watch event: ${event} ${fileNameText || '(none)'}`, 'DEBUG', 'queue');
+            // Only process 'change' events — 'rename' fires when the file is created but still empty
+            if (event !== 'change') {
+                debugLog(`[PromptQueueManager] Ignoring non-change event: ${event}`, 'DEBUG', 'queue');
+                return;
+            }
             if (shouldWatchAnswerFile(fileNameText)) {
                 const changedPath = path.join(dir, String(fileNameText));
                 logQueue(`Answer file changed (event=${event}, file=${fileNameText})`);
@@ -664,12 +725,13 @@ export class PromptQueueManager {
                         sending.lastReminderAt = undefined;
                         this.removePendingReminderFor(sending.id);
 
+                        const resolvedTemplateRepeatCount = resolveRepeatCount(sending.templateRepeatCount);
+                        logQueue(`Template repeat check (answer-wait): templateRepeatCount=${String(sending.templateRepeatCount)}, resolved=${resolvedTemplateRepeatCount}, templateRepeatIndex=${sending.templateRepeatIndex}, repeatCount=${String(sending.repeatCount)}`);
                         const repeatDecision = computeRepeatDecision({
-                            repeatCount: sending.repeatCount,
-                            repeatIndex: sending.repeatIndex,
-                        });
+                            repeatCount: sending.templateRepeatCount,
+                            repeatIndex: sending.templateRepeatIndex,
+                        }, resolvedTemplateRepeatCount);
                         if (repeatDecision.shouldRepeat) {
-                            const repeatMainPromptOnly = sending.repeatMainPromptOnly === true;
                             await this.enqueue({
                                 originalText: sending.originalText,
                                 template: sending.template,
@@ -677,21 +739,30 @@ export class PromptQueueManager {
                                 answerWaitMinutes: sending.answerWaitMinutes,
                                 type: sending.type,
                                 repeatCount: sending.repeatCount,
-                                repeatIndex: repeatDecision.nextRepeatIndex,
+                                repeatIndex: 0,
                                 repeatPrefix: sending.repeatPrefix,
                                 repeatSuffix: sending.repeatSuffix,
-                                repeatMainPromptOnly,
+                                templateRepeatCount: sending.templateRepeatCount,
+                                templateRepeatIndex: repeatDecision.nextRepeatIndex,
                                 reminderTemplateId: sending.reminderTemplateId,
                                 reminderTimeoutMinutes: sending.reminderTimeoutMinutes,
                                 reminderRepeat: sending.reminderRepeat,
                                 reminderEnabled: sending.reminderEnabled,
-                                prePrompts: repeatMainPromptOnly ? [] : (sending.prePrompts || []).map(pp => ({
+                                prePrompts: (sending.prePrompts || []).map(pp => ({
                                     text: pp.text,
                                     template: pp.template,
+                                    repeatCount: pp.repeatCount,
+                                    answerWaitMinutes: pp.answerWaitMinutes,
+                                    reminderTemplateId: pp.reminderTemplateId,
+                                    reminderTimeoutMinutes: pp.reminderTimeoutMinutes,
+                                    reminderRepeat: pp.reminderRepeat,
+                                    reminderEnabled: pp.reminderEnabled,
                                 })),
-                                followUps: repeatMainPromptOnly ? [] : (sending.followUps || []).map(f => ({
+                                followUps: (sending.followUps || []).map(f => ({
                                     originalText: f.originalText,
                                     template: f.template,
+                                    repeatCount: f.repeatCount,
+                                    answerWaitMinutes: f.answerWaitMinutes,
                                     reminderTemplateId: f.reminderTemplateId,
                                     reminderTimeoutMinutes: f.reminderTimeoutMinutes,
                                     reminderRepeat: !!f.reminderRepeat,
@@ -802,6 +873,12 @@ export class PromptQueueManager {
             parseErrorMessage = String(e);
         }
 
+        // Skip already-processed answer files
+        if (answer && typeof answer === 'object' && (answer as any).processed) {
+            debugLog(`[PromptQueueManager] Answer file already processed at ${(answer as any).processed}, skipping: ${filePath}`, 'DEBUG', 'queue');
+            return;
+        }
+
         // Fallback: recover requestId from raw content if JSON parsing failed.
         const recoveredRequestId = this._extractRequestIdFromExpandedPrompt(rawAnswerContent);
         if (!answer && recoveredRequestId) {
@@ -831,9 +908,8 @@ export class PromptQueueManager {
             logQueue(`Answer requestId detected via ${detectedRequest.source}: ${resolvedAnswerRequestId}`);
         }
 
-        // Always propagate responseValues from readable answer payloads,
-        // even when there is no active sending item or a requestId mismatch.
-        this.propagateAnswerResponseValues(answer);
+        const defaultWindowAnswerPath = this.getAnswerFilePathForRequestId(undefined);
+        const isDefaultWindowAnswerFile = path.resolve(filePath) === path.resolve(defaultWindowAnswerPath);
 
         // Ensure we always produce a canonical trail answer entry when a requestId is available.
         if (resolvedAnswerRequestId) {
@@ -866,8 +942,13 @@ export class PromptQueueManager {
         }
 
         if (!sending) {
-            logQueue(`No sending item found in queue — ignoring answer. Items: ${this._items.map(i => `${i.id.substring(0, 8)}:${i.status}`).join(', ')}`);
-            debugLog(`[PromptQueueManager] No sending item found in queue. Items: ${this._items.map(i => `${i.id}:${i.status}`).join(', ')}`, 'WARN', 'queue');
+            // When queue is idle (no sending items), propagate responseValues from any answer
+            // file in our answer directory. Cross-window protection only matters when we're
+            // actively waiting for a specific answer.
+            this.propagateAnswerResponseValues(answer);
+            this.markAnswerFileProcessed(filePath, answer);
+            logQueue(`No sending item found in queue — propagated responseValues. Items: ${this._items.map(i => `${i.id.substring(0, 8)}:${i.status}`).join(', ')}`);
+            debugLog(`[PromptQueueManager] No sending item found in queue, propagated responseValues from ${filePath}`, 'INFO', 'queue');
             return;
         }
 
@@ -888,6 +969,10 @@ export class PromptQueueManager {
             }
         }
 
+        // At this point the answer is relevant for the active sending item.
+        this.propagateAnswerResponseValues(answer);
+        this.markAnswerFileProcessed(filePath, answer);
+
         logQueue(`Answer detected for ${sending.id}, requestId=${resolvedAnswerRequestId || '(none)'}`);
         debugLog(`[PromptQueueManager] Processing answer for sending item ${sending.id}`, 'INFO', 'queue');
         this.updateWindowStatus('answer-received');
@@ -903,12 +988,13 @@ export class PromptQueueManager {
                 sending.lastReminderAt = undefined;
                 this.removePendingReminderFor(sending.id);
 
+                const resolvedTemplateRepeatCount = resolveRepeatCount(sending.templateRepeatCount);
+                logQueue(`Template repeat check (answer-file): templateRepeatCount=${String(sending.templateRepeatCount)}, resolved=${resolvedTemplateRepeatCount}, templateRepeatIndex=${sending.templateRepeatIndex}, repeatCount=${String(sending.repeatCount)}`);
                 const repeatDecision = computeRepeatDecision({
-                    repeatCount: sending.repeatCount,
-                    repeatIndex: sending.repeatIndex,
-                });
+                    repeatCount: sending.templateRepeatCount,
+                    repeatIndex: sending.templateRepeatIndex,
+                }, resolvedTemplateRepeatCount);
                 if (repeatDecision.shouldRepeat) {
-                    const repeatMainPromptOnly = sending.repeatMainPromptOnly === true;
                     await this.enqueue({
                         originalText: sending.originalText,
                         template: sending.template,
@@ -916,21 +1002,30 @@ export class PromptQueueManager {
                         answerWaitMinutes: sending.answerWaitMinutes,
                         type: sending.type,
                         repeatCount: sending.repeatCount,
-                        repeatIndex: repeatDecision.nextRepeatIndex,
+                        repeatIndex: 0,
                         repeatPrefix: sending.repeatPrefix,
                         repeatSuffix: sending.repeatSuffix,
-                        repeatMainPromptOnly,
+                        templateRepeatCount: sending.templateRepeatCount,
+                        templateRepeatIndex: repeatDecision.nextRepeatIndex,
                         reminderTemplateId: sending.reminderTemplateId,
                         reminderTimeoutMinutes: sending.reminderTimeoutMinutes,
                         reminderRepeat: sending.reminderRepeat,
                         reminderEnabled: sending.reminderEnabled,
-                        prePrompts: repeatMainPromptOnly ? [] : (sending.prePrompts || []).map(pp => ({
+                        prePrompts: (sending.prePrompts || []).map(pp => ({
                             text: pp.text,
                             template: pp.template,
+                            repeatCount: pp.repeatCount,
+                            answerWaitMinutes: pp.answerWaitMinutes,
+                            reminderTemplateId: pp.reminderTemplateId,
+                            reminderTimeoutMinutes: pp.reminderTimeoutMinutes,
+                            reminderRepeat: pp.reminderRepeat,
+                            reminderEnabled: pp.reminderEnabled,
                         })),
-                        followUps: repeatMainPromptOnly ? [] : (sending.followUps || []).map(f => ({
+                        followUps: (sending.followUps || []).map(f => ({
                             originalText: f.originalText,
                             template: f.template,
+                            repeatCount: f.repeatCount,
+                            answerWaitMinutes: f.answerWaitMinutes,
                             reminderTemplateId: f.reminderTemplateId,
                             reminderTimeoutMinutes: f.reminderTimeoutMinutes,
                             reminderRepeat: !!f.reminderRepeat,
@@ -970,13 +1065,30 @@ export class PromptQueueManager {
         }
     }
 
-    private propagateAnswerResponseValues(answer: Record<string, unknown> | undefined): void {
+    private markAnswerFileProcessed(filePath: string, answer: Record<string, unknown> | undefined): void {
         if (!answer || typeof answer !== 'object') {
+            debugLog(`[PromptQueueManager] markAnswerFileProcessed: no answer object`, 'DEBUG', 'queue');
+            return;
+        }
+        try {
+            const updated = { ...answer, processed: new Date().toISOString() };
+            fs.writeFileSync(filePath, JSON.stringify(updated, null, 2), 'utf-8');
+            debugLog(`[PromptQueueManager] markAnswerFileProcessed: marked ${filePath}`, 'DEBUG', 'queue');
+        } catch (e) {
+            debugLog(`[PromptQueueManager] markAnswerFileProcessed: failed to update ${filePath}: ${e}`, 'WARN', 'queue');
+        }
+    }
+
+    private propagateAnswerResponseValues(answer: Record<string, unknown> | undefined): void {
+        debugLog(`[PromptQueueManager] propagateAnswerResponseValues called`, 'DEBUG', 'queue');
+        if (!answer || typeof answer !== 'object') {
+            debugLog(`[PromptQueueManager] propagateAnswerResponseValues: no answer object`, 'DEBUG', 'queue');
             return;
         }
 
         const rv = (answer as any).responseValues;
         if (!rv || typeof rv !== 'object') {
+            debugLog(`[PromptQueueManager] propagateAnswerResponseValues: no responseValues in answer`, 'DEBUG', 'queue');
             return;
         }
 
@@ -988,13 +1100,19 @@ export class PromptQueueManager {
         }
 
         if (Object.keys(normalized).length === 0) {
+            debugLog(`[PromptQueueManager] propagateAnswerResponseValues: no values to propagate`, 'DEBUG', 'queue');
             return;
         }
+
+        debugLog(`[PromptQueueManager] propagateAnswerResponseValues: propagating ${Object.keys(normalized).length} values: ${JSON.stringify(normalized)}`, 'INFO', 'queue');
 
         try {
             const { updateChatResponseValues } = require('../handlers/handler_shared');
             updateChatResponseValues(normalized);
-        } catch { /* handler not ready */ }
+            debugLog(`[PromptQueueManager] propagateAnswerResponseValues: updated handler_shared`, 'DEBUG', 'queue');
+        } catch (e) {
+            debugLog(`[PromptQueueManager] propagateAnswerResponseValues: handler_shared error: ${e}`, 'WARN', 'queue');
+        }
 
         try {
             const chatStore = await_import_ChatVariablesStore() as any;
@@ -1008,10 +1126,18 @@ export class PromptQueueManager {
                     customValues[key] = v;
                 }
                 if (Object.keys(customValues).length > 0) {
+                    debugLog(`[PromptQueueManager] propagateAnswerResponseValues: calling setCustomBulk with ${Object.keys(customValues).length} values: ${JSON.stringify(customValues)}`, 'INFO', 'queue');
                     chatStore.setCustomBulk(customValues, 'copilot');
+                    debugLog(`[PromptQueueManager] propagateAnswerResponseValues: setCustomBulk completed`, 'DEBUG', 'queue');
+                } else {
+                    debugLog(`[PromptQueueManager] propagateAnswerResponseValues: no custom values to set (all built-in)`, 'DEBUG', 'queue');
                 }
+            } else {
+                debugLog(`[PromptQueueManager] propagateAnswerResponseValues: chatStore not available or setCustomBulk not a function`, 'WARN', 'queue');
             }
-        } catch { /* chat store not ready */ }
+        } catch (e) {
+            debugLog(`[PromptQueueManager] propagateAnswerResponseValues: chatStore error: ${e}`, 'WARN', 'queue');
+        }
     }
 
     // ----- queue CRUD --------------------------------------------------------
@@ -1110,23 +1236,43 @@ export class PromptQueueManager {
         reminderRepeat?: boolean;
         reminderEnabled?: boolean;
         position?: number;
-        prePrompts?: Array<{ text: string; template?: string }>;
-        followUps?: Array<{ originalText: string; template?: string; reminderTemplateId?: string; reminderTimeoutMinutes?: number; reminderRepeat?: boolean; reminderEnabled?: boolean }>;
-        repeatCount?: number;
+        prePrompts?: Array<{
+            text: string;
+            template?: string;
+            repeatCount?: number | string;
+            answerWaitMinutes?: number;
+            reminderTemplateId?: string;
+            reminderTimeoutMinutes?: number;
+            reminderRepeat?: boolean;
+            reminderEnabled?: boolean;
+        }>;
+        followUps?: Array<{
+            originalText: string;
+            template?: string;
+            repeatCount?: number | string;
+            answerWaitMinutes?: number;
+            reminderTemplateId?: string;
+            reminderTimeoutMinutes?: number;
+            reminderRepeat?: boolean;
+            reminderEnabled?: boolean;
+        }>;
+        repeatCount?: number | string;
         repeatIndex?: number;
         repeatPrefix?: string;
         repeatSuffix?: string;
-        repeatMainPromptOnly?: boolean;
+        templateRepeatCount?: number | string;
+        templateRepeatIndex?: number;
         answerWaitMinutes?: number;
         initialStatus?: 'staged' | 'pending';
         deferSend?: boolean;
     }): Promise<QueuedPrompt> {
+        const resolvedRepeatCount = resolveRepeatCount(opts.repeatCount);
         const expanded = await this._buildExpandedText(
             opts.originalText,
             opts.template,
             opts.answerWrapper,
             {
-                repeatCount: opts.repeatCount,
+                repeatCount: resolvedRepeatCount,
                 repeatIndex: opts.repeatIndex,
                 repeatPrefix: opts.repeatPrefix,
                 repeatSuffix: opts.repeatSuffix,
@@ -1160,6 +1306,12 @@ export class PromptQueueManager {
                     text: p.text,
                     template: p.template,
                     status: 'pending' as const,
+                    repeatCount: p.repeatCount,
+                    answerWaitMinutes: p.answerWaitMinutes,
+                    reminderTemplateId: p.reminderTemplateId,
+                    reminderTimeoutMinutes: p.reminderTimeoutMinutes,
+                    reminderRepeat: p.reminderRepeat,
+                    reminderEnabled: p.reminderEnabled,
                 })),
             followUps: (opts.followUps || [])
                 .filter(f => !!(f.originalText || '').trim())
@@ -1167,6 +1319,8 @@ export class PromptQueueManager {
                     id: randomUUID(),
                     originalText: f.originalText,
                     template: f.template,
+                    repeatCount: f.repeatCount,
+                    answerWaitMinutes: f.answerWaitMinutes,
                     reminderTemplateId: f.reminderTemplateId,
                     reminderTimeoutMinutes: f.reminderTimeoutMinutes,
                     reminderRepeat: !!f.reminderRepeat,
@@ -1174,11 +1328,12 @@ export class PromptQueueManager {
                     createdAt: new Date().toISOString(),
                 })),
             followUpIndex: 0,
-            repeatCount: Math.max(0, Math.round(opts.repeatCount || 0)),
+            repeatCount: opts.repeatCount,
             repeatIndex: Math.max(0, Math.round(opts.repeatIndex || 0)),
             repeatPrefix: opts.repeatPrefix,
             repeatSuffix: opts.repeatSuffix,
-            repeatMainPromptOnly: opts.repeatMainPromptOnly === true,
+            templateRepeatCount: opts.templateRepeatCount,
+            templateRepeatIndex: Math.max(0, Math.round(opts.templateRepeatIndex || 0)),
             answerWaitMinutes: opts.answerWaitMinutes && opts.answerWaitMinutes > 0 ? opts.answerWaitMinutes : undefined,
         };
 
@@ -1234,7 +1389,7 @@ export class PromptQueueManager {
         if (!item || !this.isEditableStatus(item.status)) { return; }
         item.originalText = newText;
         item.expandedText = await this._buildExpandedText(newText, item.template, item.answerWrapper, {
-            repeatCount: item.repeatCount,
+            repeatCount: resolveRepeatCount(item.repeatCount),
             repeatIndex: item.repeatIndex,
             repeatPrefix: item.repeatPrefix,
             repeatSuffix: item.repeatSuffix,
@@ -1260,7 +1415,7 @@ export class PromptQueueManager {
         if (!changed) { return false; }
 
         item.expandedText = await this._buildExpandedText(item.originalText, item.template, item.answerWrapper, {
-            repeatCount: item.repeatCount,
+            repeatCount: resolveRepeatCount(item.repeatCount),
             repeatIndex: item.repeatIndex,
             repeatPrefix: item.repeatPrefix,
             repeatSuffix: item.repeatSuffix,
@@ -1346,7 +1501,16 @@ export class PromptQueueManager {
         return entry;
     }
 
-    updateFollowUpPrompt(itemId: string, followUpId: string, patch: { originalText?: string; template?: string; reminderTemplateId?: string; reminderTimeoutMinutes?: number; reminderRepeat?: boolean; reminderEnabled?: boolean }): boolean {
+    updateFollowUpPrompt(itemId: string, followUpId: string, patch: {
+        originalText?: string;
+        template?: string;
+        repeatCount?: number | string;
+        answerWaitMinutes?: number;
+        reminderTemplateId?: string;
+        reminderTimeoutMinutes?: number;
+        reminderRepeat?: boolean;
+        reminderEnabled?: boolean;
+    }): boolean {
         const item = this._items.find(i => i.id === itemId);
         if (!item || !this.isEditableStatus(item.status)) { return false; }
         if (!item?.followUps) { return false; }
@@ -1357,6 +1521,12 @@ export class PromptQueueManager {
         }
         if (patch.template !== undefined) {
             follow.template = patch.template || undefined;
+        }
+        if (patch.repeatCount !== undefined) {
+            follow.repeatCount = patch.repeatCount;
+        }
+        if (patch.answerWaitMinutes !== undefined) {
+            follow.answerWaitMinutes = patch.answerWaitMinutes > 0 ? patch.answerWaitMinutes : undefined;
         }
         if (patch.reminderTemplateId !== undefined) {
             follow.reminderTemplateId = patch.reminderTemplateId || undefined;
@@ -1403,13 +1573,28 @@ export class PromptQueueManager {
     }
 
     /** Update a pre-prompt by index. */
-    updatePrePrompt(itemId: string, index: number, patch: { text?: string; template?: string }): boolean {
+    updatePrePrompt(itemId: string, index: number, patch: {
+        text?: string;
+        template?: string;
+        repeatCount?: number | string;
+        answerWaitMinutes?: number;
+        reminderTemplateId?: string;
+        reminderTimeoutMinutes?: number;
+        reminderRepeat?: boolean;
+        reminderEnabled?: boolean;
+    }): boolean {
         const item = this._items.find(i => i.id === itemId);
         if (!item || !this.isEditableStatus(item.status)) { return false; }
         if (!item.prePrompts || index < 0 || index >= item.prePrompts.length) { return false; }
         const pp = item.prePrompts[index];
         if (patch.text !== undefined) pp.text = patch.text;
         if (patch.template !== undefined) pp.template = patch.template || undefined;
+        if (patch.repeatCount !== undefined) pp.repeatCount = patch.repeatCount;
+        if (patch.answerWaitMinutes !== undefined) pp.answerWaitMinutes = patch.answerWaitMinutes > 0 ? patch.answerWaitMinutes : undefined;
+        if (patch.reminderTemplateId !== undefined) pp.reminderTemplateId = patch.reminderTemplateId || undefined;
+        if (patch.reminderTimeoutMinutes !== undefined) pp.reminderTimeoutMinutes = patch.reminderTimeoutMinutes;
+        if (patch.reminderRepeat !== undefined) pp.reminderRepeat = patch.reminderRepeat;
+        if (patch.reminderEnabled !== undefined) pp.reminderEnabled = patch.reminderEnabled;
         this.persist();
         this._onDidChange.fire();
         return true;
@@ -1476,13 +1661,14 @@ export class PromptQueueManager {
         sending.lastReminderAt = undefined;
         this.removePendingReminderFor(sending.id);
 
+        const resolvedTemplateRepeatCount = resolveRepeatCount(sending.templateRepeatCount);
+        logQueue(`Template repeat check (no-answer): templateRepeatCount=${String(sending.templateRepeatCount)}, resolved=${resolvedTemplateRepeatCount}, templateRepeatIndex=${sending.templateRepeatIndex}, repeatCount=${String(sending.repeatCount)}`);
         const repeatDecision = computeRepeatDecision({
-            repeatCount: sending.repeatCount,
-            repeatIndex: sending.repeatIndex,
-        });
+            repeatCount: sending.templateRepeatCount,
+            repeatIndex: sending.templateRepeatIndex,
+        }, resolvedTemplateRepeatCount);
 
         if (repeatDecision.shouldRepeat) {
-            const repeatMainPromptOnly = sending.repeatMainPromptOnly === true;
             await this.enqueue({
                 originalText: sending.originalText,
                 template: sending.template,
@@ -1490,21 +1676,30 @@ export class PromptQueueManager {
                 answerWaitMinutes: sending.answerWaitMinutes,
                 type: sending.type,
                 repeatCount: sending.repeatCount,
-                repeatIndex: repeatDecision.nextRepeatIndex,
+                repeatIndex: 0,
                 repeatPrefix: sending.repeatPrefix,
                 repeatSuffix: sending.repeatSuffix,
-                repeatMainPromptOnly,
+                templateRepeatCount: sending.templateRepeatCount,
+                templateRepeatIndex: repeatDecision.nextRepeatIndex,
                 reminderTemplateId: sending.reminderTemplateId,
                 reminderTimeoutMinutes: sending.reminderTimeoutMinutes,
                 reminderRepeat: sending.reminderRepeat,
                 reminderEnabled: sending.reminderEnabled,
-                prePrompts: repeatMainPromptOnly ? [] : (sending.prePrompts || []).map(pp => ({
+                prePrompts: (sending.prePrompts || []).map(pp => ({
                     text: pp.text,
                     template: pp.template,
+                    repeatCount: pp.repeatCount,
+                    answerWaitMinutes: pp.answerWaitMinutes,
+                    reminderTemplateId: pp.reminderTemplateId,
+                    reminderTimeoutMinutes: pp.reminderTimeoutMinutes,
+                    reminderRepeat: pp.reminderRepeat,
+                    reminderEnabled: pp.reminderEnabled,
                 })),
-                followUps: repeatMainPromptOnly ? [] : (sending.followUps || []).map(f => ({
+                followUps: (sending.followUps || []).map(f => ({
                     originalText: f.originalText,
                     template: f.template,
+                    repeatCount: f.repeatCount,
+                    answerWaitMinutes: f.answerWaitMinutes,
                     reminderTemplateId: f.reminderTemplateId,
                     reminderTimeoutMinutes: f.reminderTimeoutMinutes,
                     reminderRepeat: !!f.reminderRepeat,
@@ -1590,7 +1785,7 @@ export class PromptQueueManager {
         return changed;
     }
 
-    updateRepeat(id: string, patch: { repeatCount?: number; repeatIndex?: number; repeatPrefix?: string; repeatSuffix?: string; answerWaitMinutes?: number; repeatMainPromptOnly?: boolean }): void {
+    updateRepeat(id: string, patch: { repeatCount?: number | string; repeatIndex?: number; repeatPrefix?: string; repeatSuffix?: string; answerWaitMinutes?: number; templateRepeatCount?: number | string }): void {
         const item = this._items.find(i => i.id === id);
         if (!item) { return; }
 
@@ -1599,14 +1794,20 @@ export class PromptQueueManager {
         if (!allowFullEdit && !isSending) { return; }
 
         if (patch.repeatCount !== undefined) {
-            const requested = Math.max(0, Math.round(patch.repeatCount || 0));
-            if (isSending) {
-                const currentRepeatNumber = Math.max(1, Math.round((item.repeatIndex || 0) + 1));
-                // While sending, never reduce below the current repeat number.
-                // This ensures the current send can finish and prevents re-sending when set to current.
-                item.repeatCount = Math.max(requested, currentRepeatNumber);
+            // Accept both number and string (variable name)
+            if (typeof patch.repeatCount === 'string' && isNaN(parseInt(patch.repeatCount, 10))) {
+                // String variable name
+                item.repeatCount = patch.repeatCount;
             } else {
-                item.repeatCount = requested;
+                const requested = Math.max(0, Math.round(typeof patch.repeatCount === 'string' ? parseInt(patch.repeatCount, 10) || 0 : patch.repeatCount || 0));
+                if (isSending) {
+                    const currentRepeatNumber = Math.max(1, Math.round((item.repeatIndex || 0) + 1));
+                    // While sending, never reduce below the current repeat number.
+                    // This ensures the current send can finish and prevents re-sending when set to current.
+                    item.repeatCount = Math.max(requested, currentRepeatNumber);
+                } else {
+                    item.repeatCount = requested;
+                }
             }
         }
         if (!allowFullEdit) {
@@ -1626,8 +1827,14 @@ export class PromptQueueManager {
         if (patch.answerWaitMinutes !== undefined) {
             item.answerWaitMinutes = patch.answerWaitMinutes > 0 ? patch.answerWaitMinutes : undefined;
         }
-        if (patch.repeatMainPromptOnly !== undefined) {
-            item.repeatMainPromptOnly = patch.repeatMainPromptOnly === true;
+        if (patch.templateRepeatCount !== undefined) {
+            // Accept both number and string (variable name)
+            if (typeof patch.templateRepeatCount === 'string' && isNaN(parseInt(patch.templateRepeatCount, 10))) {
+                item.templateRepeatCount = patch.templateRepeatCount;
+            } else {
+                const val = typeof patch.templateRepeatCount === 'string' ? parseInt(patch.templateRepeatCount, 10) || 0 : patch.templateRepeatCount || 0;
+                item.templateRepeatCount = val > 0 ? val : undefined;
+            }
         }
 
         this.persist();
@@ -1705,8 +1912,15 @@ export class PromptQueueManager {
         if (item.prePrompts && item.prePrompts.length > 0) {
             for (const pp of item.prePrompts) {
                 pp.status = 'pending';
+                pp.repeatIndex = 0;
             }
         }
+        if (item.followUps && item.followUps.length > 0) {
+            for (const fu of item.followUps) {
+                fu.repeatIndex = 0;
+            }
+        }
+        item.repeatIndex = 0;
         item.requestId = undefined;
         item.expectedRequestId = undefined;
         item.followUpIndex = 0;
@@ -1730,37 +1944,50 @@ export class PromptQueueManager {
     }
 
     private async dispatchNextStageForSendingItem(item: QueuedPrompt): Promise<boolean> {
-        // Stage 1: send next pending pre-prompt, wait for answer file before continuing.
+        // Stage 1: Pre-prompts with individual repeat support.
+        // Each pre-prompt is sent resolveRepeatCount(pp.repeatCount) times.
         const prePrompts = item.prePrompts || [];
-        const nextPrePrompt = prePrompts.find(pp => pp.status !== 'sent');
-        if (nextPrePrompt) {
-            const prePromptExpanded = await this._buildExpandedText(nextPrePrompt.text, nextPrePrompt.template, true);
-            nextPrePrompt.status = 'sent';
-            item.expandedText = prePromptExpanded;
-            item.expectedRequestId = this._extractRequestIdFromExpandedPrompt(prePromptExpanded);
-            item.sentAt = new Date().toISOString();
-            item.reminderSentCount = 0;
-            item.lastReminderAt = undefined;
-            this.persist();
-            this._onDidChange.fire();
+        for (const pp of prePrompts) {
+            const ppRepeatCount = Math.max(1, resolveRepeatCount(pp.repeatCount));
+            const ppSentCount = pp.repeatIndex || 0;
+            if (ppSentCount < ppRepeatCount) {
+                const prePromptExpanded = await this._buildExpandedText(pp.text, pp.template, true);
+                pp.status = 'sent';
+                pp.repeatIndex = ppSentCount + 1;
+                item.expandedText = prePromptExpanded;
+                item.expectedRequestId = this._extractRequestIdFromExpandedPrompt(prePromptExpanded);
+                item.sentAt = new Date().toISOString();
+                item.reminderSentCount = 0;
+                item.lastReminderAt = undefined;
+                this.persist();
+                this._onDidChange.fire();
 
-            this.clearExpectedAnswerFiles(item.expectedRequestId);
-            await vscode.commands.executeCommand('workbench.action.chat.open', { query: prePromptExpanded });
-            this._onPromptSent.fire(item);
-            this.updateWindowStatus('prompt-sent');
-            return true;
+                this.clearExpectedAnswerFiles(item.expectedRequestId);
+                await vscode.commands.executeCommand('workbench.action.chat.open', { query: prePromptExpanded });
+                this._onPromptSent.fire(item);
+                this.updateWindowStatus('prompt-sent');
+                logQueue(`Pre-prompt sent (${ppSentCount + 1}/${ppRepeatCount})`);
+                return true;
+            }
         }
 
-        // Stage 2: send main prompt once, then wait for answer.
-        if (!item.requestId) {
+        // Stage 2: Main prompt with repeat support.
+        // Main prompt is sent resolveRepeatCount(item.repeatCount) times, each with affix text.
+        const mainRepeatCount = Math.max(1, resolveRepeatCount(item.repeatCount));
+        const mainSentCount = item.repeatIndex || 0;
+        if (mainSentCount < mainRepeatCount) {
             item.expandedText = await this._buildExpandedText(item.originalText, item.template, item.answerWrapper, {
-                repeatCount: item.repeatCount,
-                repeatIndex: item.repeatIndex,
+                repeatCount: mainRepeatCount,
+                repeatIndex: mainSentCount,
                 repeatPrefix: item.repeatPrefix,
                 repeatSuffix: item.repeatSuffix,
             });
-            item.requestId = this._extractRequestIdFromExpandedPrompt(item.expandedText);
-            item.expectedRequestId = item.requestId;
+            const newRequestId = this._extractRequestIdFromExpandedPrompt(item.expandedText);
+            if (!item.requestId) {
+                item.requestId = newRequestId; // Preserve first request ID
+            }
+            item.expectedRequestId = newRequestId;
+            item.repeatIndex = mainSentCount + 1;
             item.sentAt = new Date().toISOString();
             item.reminderSentCount = 0;
             item.lastReminderAt = undefined;
@@ -1771,29 +1998,43 @@ export class PromptQueueManager {
             await vscode.commands.executeCommand('workbench.action.chat.open', { query: item.expandedText });
             this._onPromptSent.fire(item);
             this.updateWindowStatus('prompt-sent');
+            logQueue(`Main prompt sent (${mainSentCount + 1}/${mainRepeatCount})`);
             return true;
         }
 
-        // Stage 3: send follow-ups one-by-one, each gated by answer file.
+        // Stage 3: Follow-ups with individual repeat support.
+        // Each follow-up is sent resolveRepeatCount(fu.repeatCount) times.
         const followUps = item.followUps ?? [];
-        const alreadySentFollowUps = item.followUpIndex ?? 0;
-        if (alreadySentFollowUps < followUps.length) {
-            const nextFollowUp = followUps[alreadySentFollowUps];
-            const followUpExpanded = await this._buildExpandedText(nextFollowUp.originalText, nextFollowUp.template, true);
-            item.expandedText = followUpExpanded;
-            item.expectedRequestId = this._extractRequestIdFromExpandedPrompt(followUpExpanded);
-            item.followUpIndex = alreadySentFollowUps + 1;
-            item.sentAt = new Date().toISOString();
-            item.reminderSentCount = 0;
-            item.lastReminderAt = undefined;
-            this.persist();
-            this._onDidChange.fire();
+        const currentFuIndex = item.followUpIndex ?? 0;
+        if (currentFuIndex < followUps.length) {
+            const nextFollowUp = followUps[currentFuIndex];
+            const fuRepeatCount = Math.max(1, resolveRepeatCount(nextFollowUp.repeatCount));
+            const fuSentCount = nextFollowUp.repeatIndex || 0;
+            if (fuSentCount < fuRepeatCount) {
+                const followUpExpanded = await this._buildExpandedText(nextFollowUp.originalText, nextFollowUp.template, true);
+                nextFollowUp.repeatIndex = fuSentCount + 1;
+                item.expandedText = followUpExpanded;
+                item.expectedRequestId = this._extractRequestIdFromExpandedPrompt(followUpExpanded);
+                // Advance to next follow-up only when all repeats for this one are done
+                if (nextFollowUp.repeatIndex >= fuRepeatCount) {
+                    item.followUpIndex = currentFuIndex + 1;
+                }
+                item.sentAt = new Date().toISOString();
+                item.reminderSentCount = 0;
+                item.lastReminderAt = undefined;
+                this.persist();
+                this._onDidChange.fire();
 
-            this.clearExpectedAnswerFiles(item.expectedRequestId);
-            await vscode.commands.executeCommand('workbench.action.chat.open', { query: followUpExpanded });
-            this._onPromptSent.fire(item);
-            this.updateWindowStatus('prompt-sent');
-            return true;
+                this.clearExpectedAnswerFiles(item.expectedRequestId);
+                await vscode.commands.executeCommand('workbench.action.chat.open', { query: followUpExpanded });
+                this._onPromptSent.fire(item);
+                this.updateWindowStatus('prompt-sent');
+                logQueue(`Follow-up ${currentFuIndex + 1} sent (${fuSentCount + 1}/${fuRepeatCount})`);
+                return true;
+            }
+            // All repeats done for this follow-up, advance to next
+            item.followUpIndex = currentFuIndex + 1;
+            return this.dispatchNextStageForSendingItem(item);
         }
 
         // No more stages left.
@@ -1862,8 +2103,8 @@ export class PromptQueueManager {
         if (this._autoContinueEnabled && !this._autoStartEnabled) {
             const hasPendingRepetitions = this._items.some(i =>
                 i.status === 'pending' &&
-                (i.repeatCount ?? 1) > 1 &&
-                (i.repeatIndex ?? 0) >= 1,
+                ((resolveRepeatCount(i.templateRepeatCount) > 1 && (i.templateRepeatIndex ?? 0) >= 1) ||
+                 (resolveRepeatCount(i.repeatCount ?? 1) > 1 && (i.repeatIndex ?? 0) >= 1)),
             );
             if (hasPendingRepetitions) {
                 logQueue('Auto-continue: pending repetitions found, scheduling auto-start in 30s');
@@ -2027,11 +2268,12 @@ export class PromptQueueManager {
                 requestId: main.execution?.['request-id'] || undefined,
                 expectedRequestId: main.execution?.['expected-request-id'] || undefined,
                 followUpIndex: main.execution?.['follow-up-index'] || 0,
-                repeatCount: Math.max(0, Math.round(Number(main['repeat-count'] || 0))),
+                repeatCount: typeof main['repeat-count'] === 'string' ? main['repeat-count'] : Math.max(0, Math.round(Number(main['repeat-count'] || 0))),
                 repeatIndex: Math.max(0, Math.round(Number(main['repeat-index'] || 0))),
                 repeatPrefix: main['repeat-prefix'],
                 repeatSuffix: main['repeat-suffix'],
-                repeatMainPromptOnly: main['repeat-main-prompt-only'] === true,
+                templateRepeatCount: typeof main['template-repeat-count'] === 'string' ? main['template-repeat-count'] : (main['template-repeat-count'] ? Math.max(0, Math.round(Number(main['template-repeat-count']))) : undefined),
+                templateRepeatIndex: main['template-repeat-index'] ? Math.max(0, Math.round(Number(main['template-repeat-index']))) : undefined,
                 answerWaitMinutes: main['answer-wait-minutes'] && Number(main['answer-wait-minutes']) > 0 ? Number(main['answer-wait-minutes']) : undefined,
             };
 
@@ -2045,6 +2287,13 @@ export class PromptQueueManager {
                         text: pp?.['prompt-text'] || '',
                         template: pp?.template,
                         status: (pp?.execution?.['sent-at'] ? 'sent' : (pp?.execution?.error ? 'error' : 'pending')) as 'pending' | 'sent' | 'error',
+                        repeatCount: pp?.['repeat-count'],
+                        repeatIndex: Math.max(0, Math.round(Number(pp?.['repeat-index'] || 0))),
+                        answerWaitMinutes: pp?.['answer-wait-minutes'],
+                        reminderTemplateId: pp?.reminder?.['template-id'],
+                        reminderTimeoutMinutes: pp?.reminder?.['timeout-minutes'],
+                        reminderRepeat: pp?.reminder?.repeat,
+                        reminderEnabled: pp?.reminder?.enabled,
                     };
                 });
             }
@@ -2059,6 +2308,9 @@ export class PromptQueueManager {
                         id: refId || randomUUID(),
                         originalText: fu?.['prompt-text'] || '',
                         template: fu?.template,
+                        repeatCount: fu?.['repeat-count'],
+                        repeatIndex: Math.max(0, Math.round(Number(fu?.['repeat-index'] || 0))),
+                        answerWaitMinutes: fu?.['answer-wait-minutes'],
                         reminderTemplateId: fu?.reminder?.['template-id'],
                         reminderTimeoutMinutes: fu?.reminder?.['timeout-minutes'],
                         reminderRepeat: fu?.reminder?.repeat,
@@ -2087,11 +2339,12 @@ export class PromptQueueManager {
             'expanded-text': item.expandedText,
             template: item.template || '(None)',
             'answer-wrapper': item.answerWrapper,
-            'repeat-count': Math.max(0, Math.round(item.repeatCount || 0)),
+            'repeat-count': item.repeatCount || 0,
             'repeat-index': Math.max(0, Math.round(item.repeatIndex || 0)),
             'repeat-prefix': item.repeatPrefix,
             'repeat-suffix': item.repeatSuffix,
-            'repeat-main-prompt-only': item.repeatMainPromptOnly || undefined,
+            'template-repeat-count': item.templateRepeatCount,
+            'template-repeat-index': item.templateRepeatIndex,
             'answer-wait-minutes': item.answerWaitMinutes,
         };
 
@@ -2136,16 +2389,33 @@ export class PromptQueueManager {
             item.prePrompts.forEach((pp, idx) => {
                 const ppId = `pre-${idx + 1}`;
                 preRefs.push(ppId);
-                allPrompts.push({
+                const ppYaml: QueuePromptYaml = {
                     id: ppId,
                     type: 'preprompt',
                     'prompt-text': pp.text,
                     template: pp.template,
+                    'repeat-count': pp.repeatCount,
+                    'repeat-index': pp.repeatIndex || 0,
+                    'answer-wait-minutes': pp.answerWaitMinutes,
                     execution: pp.status !== 'pending' ? {
                         'sent-at': pp.status === 'sent' ? new Date().toISOString() : null,
                         error: pp.status === 'error' ? 'pre-prompt failed' : null,
                     } : undefined,
-                });
+                };
+                const hasPpReminderConfig =
+                    pp.reminderEnabled !== undefined ||
+                    pp.reminderTemplateId !== undefined ||
+                    pp.reminderTimeoutMinutes !== undefined ||
+                    pp.reminderRepeat !== undefined;
+                if (hasPpReminderConfig) {
+                    ppYaml.reminder = {
+                        enabled: pp.reminderEnabled,
+                        'template-id': pp.reminderTemplateId,
+                        'timeout-minutes': pp.reminderTimeoutMinutes,
+                        repeat: pp.reminderRepeat,
+                    };
+                }
+                allPrompts.push(ppYaml);
             });
             mainPrompt['pre-prompt-refs'] = preRefs;
         }
@@ -2161,6 +2431,9 @@ export class PromptQueueManager {
                     type: 'followup',
                     'prompt-text': fu.originalText,
                     template: fu.template,
+                    'repeat-count': fu.repeatCount,
+                    'repeat-index': fu.repeatIndex || 0,
+                    'answer-wait-minutes': fu.answerWaitMinutes,
                     metadata: { created: fu.createdAt },
                 };
                 const hasFollowUpReminderConfig =

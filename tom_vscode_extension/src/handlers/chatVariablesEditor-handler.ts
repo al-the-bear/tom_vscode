@@ -14,6 +14,7 @@ import { ChatVariablesStore, ChangeSource } from '../managers/chatVariablesStore
 import { scanWorkspaceProjects } from '../managers/questTodoManager';
 import { readPanelYaml, writePanelYaml, openPanelFile } from '../utils/panelYamlStore';
 import { WsPaths } from '../utils/workspacePaths';
+import { updateChatResponseValues } from './handler_shared';
 
 // ============================================================================
 // Panel management
