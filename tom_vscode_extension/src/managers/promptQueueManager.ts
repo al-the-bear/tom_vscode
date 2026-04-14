@@ -323,7 +323,7 @@ export class PromptQueueManager {
         });
 
         // Resolve repeat affix placeholders via the standard variable resolver.
-        // Placeholder values are 1-based for user-facing prompt templates.
+        // repeatIndex is 0-based, repeatNumber is 1-based (repeatIndex + 1).
         // Supported syntax for repeat placeholders is ${repeatNumber}, ${repeatIndex}, ${repeatCount}.
         // Mustache placeholders are intentionally not supported for repeat affixes.
         const withResolvedAffixes = resolveVariables(withAffixes, {
@@ -332,7 +332,7 @@ export class PromptQueueManager {
             enableJsExpressions: true,
             values: {
                 repeatCount: String(repeatCount),
-                repeatIndex: String(repeatNumber),
+                repeatIndex: String(repeatIndex),
                 repeatNumber: String(repeatNumber),
             },
         });
@@ -1924,18 +1924,18 @@ export class PromptQueueManager {
                 const pp = item.prePrompts[idx];
                 pp.status = 'pending';
                 pp.repeatIndex = 0;
-                pp.resolvedRepeatCount = this.resolveStableRepeatCount(pp.repeatCount, undefined, 0, `PP#${idx + 1}`);
+                pp.resolvedRepeatCount = undefined;
             }
         }
         if (item.followUps && item.followUps.length > 0) {
             for (let idx = 0; idx < item.followUps.length; idx++) {
                 const fu = item.followUps[idx];
                 fu.repeatIndex = 0;
-                fu.resolvedRepeatCount = this.resolveStableRepeatCount(fu.repeatCount, undefined, 0, `FU#${idx + 1}`);
+                fu.resolvedRepeatCount = undefined;
             }
         }
         item.repeatIndex = 0;
-        item.resolvedRepeatCount = this.resolveStableRepeatCount(item.repeatCount, undefined, 0, 'MP');
+        item.resolvedRepeatCount = undefined;
         item.requestId = undefined;
         item.expectedRequestId = undefined;
         item.followUpIndex = 0;
