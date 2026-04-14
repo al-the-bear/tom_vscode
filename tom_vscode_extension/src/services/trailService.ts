@@ -8,7 +8,8 @@ import { WsPaths } from '../utils/workspacePaths';
 export type TrailSubsystem =
     | { type: 'localLlm'; configName: string }
     | { type: 'copilot' }
-    | { type: 'lmApi'; model: string };
+    | { type: 'lmApi'; model: string }
+    | { type: 'anthropic' };
 
 export interface TrailMetadata {
     requestId?: string;
@@ -24,6 +25,7 @@ interface RawTrailConfig {
         localLlm?: string;
         copilot?: string;
         lmApi?: string;
+        anthropic?: string;
     };
 }
 
@@ -153,13 +155,13 @@ export class TrailService {
     }
 
     isEnabled(): boolean {
-        return this.getRawConfig().enabled === true;
+        return this.getRawConfig().enabled !== false;
     }
 
     toggle(): void {
         const cfg = TomAiConfiguration.instance.getTrail() as Record<string, unknown>;
         const raw = ((cfg.raw ?? {}) as Record<string, unknown>);
-        const current = raw.enabled === true;
+        const current = raw.enabled !== false;
         raw.enabled = !current;
         cfg.raw = raw;
         void TomAiConfiguration.instance.saveTrail(cfg);
@@ -176,7 +178,7 @@ export class TrailService {
 
     private writeRaw(subsystem: TrailSubsystem, kind: string, content: string, windowId: string, ext: 'md' | 'json', requestId?: string, questId?: string): void {
         const raw = this.getRawConfig();
-        if (raw.enabled !== true) {
+        if (raw.enabled === false) {
             return;
         }
 
@@ -217,13 +219,14 @@ export class TrailService {
         const trail = TomAiConfiguration.instance.getTrail() as Record<string, unknown>;
         const raw = (trail.raw ?? trail) as RawTrailConfig;
         return {
-            enabled: raw.enabled === true,
+            enabled: raw.enabled !== false,
             maxEntries: typeof raw.maxEntries === 'number' && raw.maxEntries > 0 ? raw.maxEntries : 1000,
             stripThinking: raw.stripThinking === true,
             paths: {
                 localLlm: raw.paths?.localLlm ?? '${ai}/trail/localllm/${quest}',
                 copilot: raw.paths?.copilot ?? '${ai}/trail/copilot/${quest}',
                 lmApi: raw.paths?.lmApi ?? '${ai}/trail/lm-api/${quest}',
+                anthropic: raw.paths?.anthropic ?? '${ai}/trail/anthropic/${quest}',
             },
         };
     }
@@ -241,11 +244,22 @@ export class TrailService {
     private resolveRawBasePath(subsystem: TrailSubsystem): string {
         const raw = this.getRawConfig();
         // Raw trail paths now include ${quest} for quest-scoped isolation
-        const base = subsystem.type === 'localLlm'
-            ? raw.paths?.localLlm ?? '${ai}/trail/localllm/${quest}'
-            : subsystem.type === 'copilot'
-                ? raw.paths?.copilot ?? '${ai}/trail/copilot/${quest}'
-                : raw.paths?.lmApi ?? '${ai}/trail/lm-api/${quest}';
+        let base: string;
+        switch (subsystem.type) {
+            case 'localLlm':
+                base = raw.paths?.localLlm ?? '${ai}/trail/localllm/${quest}';
+                break;
+            case 'copilot':
+                base = raw.paths?.copilot ?? '${ai}/trail/copilot/${quest}';
+                break;
+            case 'anthropic':
+                base = raw.paths?.anthropic ?? '${ai}/trail/anthropic/${quest}';
+                break;
+            case 'lmApi':
+            default:
+                base = raw.paths?.lmApi ?? '${ai}/trail/lm-api/${quest}';
+                break;
+        }
 
         const suffix = subsystem.type === 'localLlm'
             ? `-${subsystem.configName}`
@@ -395,6 +409,9 @@ export class TrailService {
         }
         if (subsystem.type === 'localLlm') {
             return `localllm-${subsystem.configName}`;
+        }
+        if (subsystem.type === 'anthropic') {
+            return 'anthropic';
         }
         return `lm-api-${subsystem.model}`;
     }

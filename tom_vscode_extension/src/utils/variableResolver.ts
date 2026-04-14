@@ -32,6 +32,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as os from 'os';
+import * as fs from 'fs';
 import { execSync } from 'child_process';
 import { WsPaths } from './workspacePaths';
 
@@ -369,6 +370,11 @@ export function buildVariableMap(options?: ResolveOptions): Record<string, strin
     // Tier 1b — Workspace folder names & paths (from WsPaths registry)
     Object.assign(values, WsPaths.getResolverVariables());
 
+    // Tier 4c — File-injection placeholders (role/quest descriptions) and
+    // the universal ${userMessage} default. Runs after Tier 4 so chat
+    // values are populated, and after WsPaths so rolesPath/questsPath exist.
+    addFileInjectionPlaceholders(values);
+
     // Add .name / .extension sub-properties for path variables
     addPathSubProperties(values);
 
@@ -578,6 +584,59 @@ function addCompositeBlocks(values: Record<string, string>): void {
     values['chatVariables'] = chatVarsBlock;
     values['contextInfo'] = contextBlock;
     values['contextAndVariables'] = `${contextBlock}\n\n${chatVarsBlock}`;
+}
+
+// ============================================================================
+// Tier 4c — File-injection & user-message placeholders
+// ============================================================================
+
+function safeReadFileSync(filePath: string): string {
+    try {
+        if (!filePath || !fs.existsSync(filePath)) {
+            return '';
+        }
+        return fs.readFileSync(filePath, 'utf-8');
+    } catch {
+        return '';
+    }
+}
+
+/**
+ * Add `${role-description}`, `${quest-description}`, and `${userMessage}`.
+ *
+ * - `role-description` reads `${rolesPath}/${role}/role.md`; empty if
+ *   either `role` or the file is missing.
+ * - `quest-description` reads
+ *   `${questsPath}/${quest}/overview.${quest}.md`; empty if either
+ *   `quest` or the file is missing.
+ * - `userMessage` defaults to `""`; callers that expand an Anthropic
+ *   user-message template inject the actual user text via
+ *   `options.values.userMessage` on `resolve()`.
+ */
+function addFileInjectionPlaceholders(values: Record<string, string>): void {
+    const role = values['role'] || '';
+    const rolesPath = values['rolesPath'] || '';
+    if (role && rolesPath) {
+        values['role-description'] = safeReadFileSync(
+            path.join(rolesPath, role, 'role.md'),
+        );
+    } else {
+        values['role-description'] = '';
+    }
+
+    const quest = values['quest'] || '';
+    const questsPath = values['questsPath'] || '';
+    if (quest && questsPath) {
+        values['quest-description'] = safeReadFileSync(
+            path.join(questsPath, quest, `overview.${quest}.md`),
+        );
+    } else {
+        values['quest-description'] = '';
+    }
+
+    if (!('userMessage' in values)) {
+        values['userMessage'] = '';
+    }
 }
 
 // ============================================================================

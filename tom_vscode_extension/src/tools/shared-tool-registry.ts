@@ -41,6 +41,13 @@ export interface SharedToolDefinition<TInput = Record<string, unknown>> {
     readOnly: boolean;
 
     /**
+     * Whether a destructive or side-effecting tool needs explicit user
+     * approval before the Anthropic handler will execute it. Chat variable
+     * writes are exempt. Defaults to false.
+     */
+    requiresApproval?: boolean;
+
+    /**
      * Whether users can reference the tool directly in Copilot Chat
      * via `#toolName`. Defaults to false.
      */
@@ -92,6 +99,45 @@ export function toOllamaTools(
             description: t.description,
             parameters: t.inputSchema,
         },
+    }));
+}
+
+// ============================================================================
+// Anthropic tool format
+// ============================================================================
+
+/** Anthropic Messages API `tools` array element. */
+export interface AnthropicTool {
+    name: string;
+    description: string;
+    input_schema: Record<string, unknown>;
+}
+
+/** The tool_use content block the model emits. */
+export interface AnthropicToolUse {
+    type: 'tool_use';
+    id: string;
+    name: string;
+    input: Record<string, unknown>;
+}
+
+/**
+ * Convert shared definitions to Anthropic's tools array.
+ *
+ * @param tools   All shared tools
+ * @param filter  Optional predicate (default: include everything)
+ */
+export function toAnthropicTools(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    tools: SharedToolDefinition<any>[],
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    filter?: (t: SharedToolDefinition<any>) => boolean,
+): AnthropicTool[] {
+    const predicate = filter ?? (() => true);
+    return tools.filter(predicate).map((t) => ({
+        name: t.name,
+        description: t.description,
+        input_schema: t.inputSchema,
     }));
 }
 

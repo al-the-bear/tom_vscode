@@ -19,7 +19,7 @@ import { FsUtils } from '../utils/fsUtils';
 // ============================================================================
 
 /** Identifies who triggered a variable change. */
-export type ChangeSource = 'user' | 'localLlm' | 'copilot' | 'tomAiChat';
+export type ChangeSource = 'user' | 'localLlm' | 'copilot' | 'tomAiChat' | 'anthropic';
 
 /** A single entry in the change log. */
 export interface ChangeLogEntry {
@@ -90,6 +90,7 @@ export class ChatVariablesStore {
         context.subscriptions.push(this._onDidChange);
         context.subscriptions.push({ dispose: () => this.dispose() });
         this.restore();
+        this.autoInitDefaults();
     }
 
     // ----- accessors ---------------------------------------------------------
@@ -226,6 +227,32 @@ export class ChatVariablesStore {
         this._todoFile = snap.todoFile ?? 'all';
         this._custom = snap.custom ?? {};
         this._changeLog = snap.changeLog ?? [];
+    }
+
+    /**
+     * Derive defaults for `quest` and `role` on first open of a workspace.
+     * Runs once after `restore()` and never overwrites a value that is
+     * already set.
+     */
+    private autoInitDefaults(): void {
+        if (!this._quest) {
+            const derivedQuest = this.deriveQuestFromWorkspaceFile();
+            if (derivedQuest) {
+                this.set('quest', derivedQuest, 'user');
+            }
+        }
+        if (!this._role) {
+            this.set('role', 'default', 'user');
+        }
+    }
+
+    private deriveQuestFromWorkspaceFile(): string | null {
+        const wsFile = vscode.workspace.workspaceFile?.fsPath;
+        if (!wsFile || !wsFile.endsWith('.code-workspace')) {
+            return null;
+        }
+        const stem = path.basename(wsFile, '.code-workspace');
+        return stem || null;
     }
 
     private resolveFilePath(): string {
