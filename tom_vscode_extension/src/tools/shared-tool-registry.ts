@@ -106,11 +106,19 @@ export function toOllamaTools(
 // Anthropic tool format
 // ============================================================================
 
-/** Anthropic Messages API `tools` array element. */
+/**
+ * Anthropic Messages API `tools` array element. The `input_schema.type`
+ * literal is required by the SDK's `Tool.InputSchema`, so we model it
+ * explicitly here rather than using a plain `Record<string, unknown>`.
+ */
 export interface AnthropicTool {
     name: string;
     description: string;
-    input_schema: Record<string, unknown>;
+    input_schema: {
+        type: 'object';
+        properties?: unknown;
+        [k: string]: unknown;
+    };
 }
 
 /** The tool_use content block the model emits. */
@@ -134,10 +142,13 @@ export function toAnthropicTools(
     filter?: (t: SharedToolDefinition<any>) => boolean,
 ): AnthropicTool[] {
     const predicate = filter ?? (() => true);
-    return tools.filter(predicate).map((t) => ({
+    return tools.filter(predicate).map((t): AnthropicTool => ({
         name: t.name,
         description: t.description,
-        input_schema: t.inputSchema,
+        // All shared tool schemas are `{ type: 'object', properties: {...} }`
+        // at runtime; `SharedToolDefinition.inputSchema` is typed loosely
+        // as `Record<string, unknown>`, so assert the narrower SDK shape.
+        input_schema: t.inputSchema as AnthropicTool['input_schema'],
     }));
 }
 

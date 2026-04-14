@@ -99,6 +99,7 @@ import { initializeToolDescriptions } from './tools/tool-executors';
 
 // Chat Enhancement stores & managers
 import { ChatVariablesStore } from './managers/chatVariablesStore';
+import { AnthropicHandler } from './handlers/anthropic-handler';
 import { SessionTodoStore } from './managers/sessionTodoStore';
 import { PromptQueueManager } from './managers/promptQueueManager';
 import { TimerEngine } from './managers/timerEngine';
@@ -537,6 +538,11 @@ export async function activate(context: vscode.ExtensionContext) {
     const windowId = `win-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     SessionTodoStore.init(context, windowId);
     timeStep('chatEnhancementStores', stepStart);
+
+    // Initialize Anthropic handler (Phase 1 of anthropic_sdk_integration)
+    stepStart = performance.now();
+    AnthropicHandler.init(context);
+    timeStep('anthropicHandler', stepStart);
 
     // Initialize Queue & Automation (§3.2–§3.4)
     stepStart = performance.now();

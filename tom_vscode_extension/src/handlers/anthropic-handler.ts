@@ -11,6 +11,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
+import * as https from 'https';
 import * as vscode from 'vscode';
 import {
     executeToolCall,
@@ -71,8 +72,6 @@ export interface AnthropicSendOptions {
     userMessageTemplate?: string;
     /** Optional cancellation token. */
     cancellationToken?: vscode.CancellationToken;
-    /** Called when a write tool needs approval; resolve with `true` to allow. */
-    requestApproval?: (toolName: string, inputSummary: string, toolUseId: string) => Promise<boolean>;
 }
 
 export interface AnthropicSendResult {
@@ -80,6 +79,17 @@ export interface AnthropicSendResult {
     turnsUsed: number;
     toolCallCount: number;
     stopReason?: string;
+}
+
+/**
+ * Approval request emitted by the handler when a `requiresApproval` tool
+ * is about to run. The panel listens via `onApprovalNeeded`, shows UI,
+ * and reports back through `handleApprovalResponse(toolUseId, approved)`.
+ */
+export interface AnthropicToolApprovalRequest {
+    toolUseId: string;
+    toolName: string;
+    inputSummary: string;
 }
 
 // ============================================================================
@@ -100,10 +110,21 @@ export class AnthropicHandler {
     private readonly toolTrail: ToolTrail;
     private roundCounter = 0;
     private sessionApprovals = new Set<string>();
+    private readonly pendingApprovals = new Map<string, (approved: boolean) => void>();
 
-    static init(_context: vscode.ExtensionContext): AnthropicHandler {
+    private readonly _onApprovalNeeded = new vscode.EventEmitter<AnthropicToolApprovalRequest>();
+    /**
+     * Fired when a `requiresApproval` tool is about to run. Phase 4 wires
+     * the chat panel to this event; the panel must call
+     * `handleApprovalResponse()` with the same `toolUseId` once the user
+     * decides.
+     */
+    readonly onApprovalNeeded: vscode.Event<AnthropicToolApprovalRequest> = this._onApprovalNeeded.event;
+
+    static init(context: vscode.ExtensionContext): AnthropicHandler {
         if (!AnthropicHandler._instance) {
             AnthropicHandler._instance = new AnthropicHandler();
+            context.subscriptions.push({ dispose: () => AnthropicHandler._instance?._onApprovalNeeded.dispose() });
         }
         return AnthropicHandler._instance;
     }
@@ -117,6 +138,42 @@ export class AnthropicHandler {
 
     private constructor() {
         this.toolTrail = new ToolTrail();
+        // Eager init per spec §17 Step 1.8; falls back to lazy creation in
+        // `getClient()` if the env var was unset at activation time.
+        try {
+            this.getClient();
+        } catch {
+            // ignore — getClient already returns undefined when env var missing
+        }
+    }
+
+    /**
+     * Resolve the Promise awaiting approval for `toolUseId`. Called by
+     * the chat panel when it receives the `anthropicToolApprovalResponse`
+     * webview message. No-op if the id is unknown (already resolved or
+     * never requested).
+     */
+    handleApprovalResponse(toolUseId: string, approved: boolean): void {
+        const resolver = this.pendingApprovals.get(toolUseId);
+        if (!resolver) {
+            return;
+        }
+        this.pendingApprovals.delete(toolUseId);
+        resolver(approved);
+    }
+
+    /**
+     * Emit `onApprovalNeeded` and return a Promise that resolves when
+     * `handleApprovalResponse(toolUseId, ...)` is called. Phase 4 wires
+     * the chat panel as the listener; before then, callers must register
+     * their own listener on `onApprovalNeeded` (or only invoke tools with
+     * `requiresApproval: false`) to avoid hanging.
+     */
+    private awaitApproval(req: AnthropicToolApprovalRequest): Promise<boolean> {
+        return new Promise<boolean>((resolve) => {
+            this.pendingApprovals.set(req.toolUseId, resolve);
+            this._onApprovalNeeded.fire(req);
+        });
     }
 
     /**
@@ -145,17 +202,25 @@ export class AnthropicHandler {
     /**
      * List available models from the Anthropic API. No fallback — callers
      * must be prepared for `{ models: [], error }` on failure.
+     *
+     * Uses a raw GET because the `models` resource only exists on newer
+     * SDK versions; the stable 0.32 line does not expose it. The endpoint
+     * itself is stable on the API side.
      */
     async fetchModels(): Promise<{ models: Array<{ id: string; display_name?: string }>; error?: string }> {
-        const client = this.getClient();
-        if (!client) {
-            return { models: [], error: 'ANTHROPIC_API_KEY environment variable not set' };
+        const section = this.getAnthropicSection();
+        const envVar = section.apiKeyEnvVar || 'ANTHROPIC_API_KEY';
+        const apiKey = process.env[envVar];
+        if (!apiKey) {
+            return { models: [], error: `${envVar} environment variable not set` };
         }
         try {
-            const page = await client.models.list({ limit: 100 });
-            return {
-                models: page.data.map((m) => ({ id: m.id, display_name: m.display_name })),
-            };
+            const json = await this.httpsGetJson('api.anthropic.com', '/v1/models?limit=100', {
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01',
+            });
+            const data = (json as { data?: Array<{ id: string; display_name?: string }> }).data;
+            return { models: data ?? [] };
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             return { models: [], error: msg };
@@ -219,12 +284,7 @@ export class AnthropicHandler {
             lastText = this.extractText(response.content) || lastText;
 
             if (response.stop_reason !== 'tool_use') {
-                return {
-                    text: lastText,
-                    turnsUsed: turn + 1,
-                    toolCallCount: totalToolCalls,
-                    stopReason: lastStopReason,
-                };
+                return this.finalize(lastText, turn + 1, totalToolCalls, lastStopReason, windowId, requestId, quest);
             }
 
             messages.push({ role: 'assistant', content: response.content });
@@ -250,21 +310,32 @@ export class AnthropicHandler {
             messages.push({ role: 'user', content: toolResults });
         }
 
-        this.toolTrail.evictOldRounds();
+        return this.finalize(lastText, configuration.maxRounds, totalToolCalls, lastStopReason, windowId, requestId, quest);
+    }
+
+    /**
+     * Shared exit path: write the answer trail, evict old tool-trail
+     * rounds, and return the result. Used by both the normal-stop and
+     * max-rounds branches so each exchange always closes the same way.
+     */
+    private finalize(
+        text: string,
+        turnsUsed: number,
+        toolCallCount: number,
+        stopReason: string | undefined,
+        windowId: string,
+        requestId: string,
+        quest: string,
+    ): AnthropicSendResult {
         TrailService.instance.writeRawAnswer(
             { type: 'anthropic' },
-            lastText,
+            text,
             windowId,
             requestId,
             quest,
         );
-
-        return {
-            text: lastText,
-            turnsUsed: configuration.maxRounds,
-            toolCallCount: totalToolCalls,
-            stopReason: lastStopReason,
-        };
+        this.toolTrail.evictOldRounds();
+        return { text, turnsUsed, toolCallCount, stopReason };
     }
 
     // ------------------------------------------------------------------------
@@ -275,7 +346,7 @@ export class AnthropicHandler {
         block: Extract<AnthropicContentBlock, { type: 'tool_use' }>,
         tools: SharedToolDefinition[],
         configuration: AnthropicConfiguration,
-        options: AnthropicSendOptions,
+        _options: AnthropicSendOptions,
         round: number,
         quest: string,
         windowId: string,
@@ -286,10 +357,12 @@ export class AnthropicHandler {
 
         const approvalMode = configuration.toolApprovalMode ?? 'always';
         const needsApproval = def?.requiresApproval === true && approvalMode !== 'never';
-        if (needsApproval && approvalMode === 'always' && !this.sessionApprovals.has(block.name)) {
-            const approved = options.requestApproval
-                ? await options.requestApproval(block.name, inputSummary, block.id)
-                : false;
+        if (needsApproval && !this.sessionApprovals.has(block.name)) {
+            const approved = await this.awaitApproval({
+                toolUseId: block.id,
+                toolName: block.name,
+                inputSummary,
+            });
             if (!approved) {
                 return {
                     type: 'tool_result',
@@ -298,19 +371,9 @@ export class AnthropicHandler {
                     content: `Tool "${block.name}" was denied by the user.`,
                 };
             }
-        } else if (needsApproval && approvalMode === 'session' && !this.sessionApprovals.has(block.name)) {
-            const approved = options.requestApproval
-                ? await options.requestApproval(block.name, inputSummary, block.id)
-                : false;
-            if (!approved) {
-                return {
-                    type: 'tool_result',
-                    tool_use_id: block.id,
-                    is_error: true,
-                    content: `Tool "${block.name}" was denied by the user.`,
-                };
+            if (approvalMode === 'session') {
+                this.sessionApprovals.add(block.name);
             }
-            this.sessionApprovals.add(block.name);
         }
 
         TrailService.instance.writeRawToolRequest(
@@ -382,10 +445,16 @@ export class AnthropicHandler {
     }
 
     /**
-     * Build the `system` parameter. When `promptCachingEnabled`, returns a
-     * block array with `cache_control: { type: 'ephemeral' }` so Anthropic
-     * will cache the (typically long) system prompt. Otherwise a plain
+     * Build the `system` parameter. When `promptCachingEnabled`, emits a
+     * block array carrying `cache_control: { type: 'ephemeral' }` so the
+     * server caches the (typically long) system prompt; otherwise a plain
      * string works and costs nothing extra.
+     *
+     * The `cache_control` field is not declared on `TextBlockParam` in
+     * SDK 0.32.1 (it graduated from the beta namespace in a later
+     * release), so the caching branch is widened to `unknown[]` and cast
+     * at the call site. The field is accepted by the stable API at
+     * runtime regardless.
      */
     private buildSystemParam(
         systemPrompt: string,
@@ -395,13 +464,12 @@ export class AnthropicHandler {
             return '';
         }
         if (configuration.promptCachingEnabled) {
-            return [
-                {
-                    type: 'text',
-                    text: systemPrompt,
-                    cache_control: { type: 'ephemeral' },
-                },
-            ];
+            const block = {
+                type: 'text' as const,
+                text: systemPrompt,
+                cache_control: { type: 'ephemeral' },
+            };
+            return [block as unknown as Anthropic.TextBlockParam];
         }
         return systemPrompt;
     }
@@ -425,5 +493,36 @@ export class AnthropicHandler {
     private generateRequestId(): string {
         const hex = () => Math.random().toString(16).substring(2, 10);
         return `${hex()}_${hex()}`;
+    }
+
+    private httpsGetJson(host: string, pathAndQuery: string, headers: Record<string, string>): Promise<unknown> {
+        return new Promise((resolve, reject) => {
+            const req = https.request(
+                {
+                    method: 'GET',
+                    host,
+                    path: pathAndQuery,
+                    headers,
+                },
+                (res) => {
+                    const chunks: Buffer[] = [];
+                    res.on('data', (c) => chunks.push(Buffer.from(c)));
+                    res.on('end', () => {
+                        const body = Buffer.concat(chunks).toString('utf8');
+                        if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+                            try {
+                                resolve(JSON.parse(body));
+                            } catch (e) {
+                                reject(new Error(`invalid JSON response: ${(e as Error).message}`));
+                            }
+                        } else {
+                            reject(new Error(`HTTP ${res.statusCode ?? '?'} ${res.statusMessage ?? ''}: ${body.slice(0, 200)}`));
+                        }
+                    });
+                },
+            );
+            req.on('error', reject);
+            req.end();
+        });
     }
 }
