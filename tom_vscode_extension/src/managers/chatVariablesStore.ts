@@ -246,13 +246,28 @@ export class ChatVariablesStore {
         }
     }
 
+    /**
+     * Spec §8.5: "same logic as `detectQuestFromWorkspace()` in
+     * `chatPanel-handler.ts`". Derives the quest ID from the open
+     * `.code-workspace` filename stem, but only returns it when a
+     * matching `_ai/quests/{stem}/` folder actually exists — so
+     * generic (non-quest) workspaces don't pick up a bogus value.
+     */
     private deriveQuestFromWorkspaceFile(): string | null {
         const wsFile = vscode.workspace.workspaceFile?.fsPath;
         if (!wsFile || !wsFile.endsWith('.code-workspace')) {
             return null;
         }
         const stem = path.basename(wsFile, '.code-workspace');
-        return stem || null;
+        if (!stem) {
+            return null;
+        }
+        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!wsRoot) {
+            return null;
+        }
+        const questFolder = WsPaths.ai('quests', stem) || path.join(wsRoot, '_ai', 'quests', stem);
+        return fs.existsSync(questFolder) ? stem : null;
     }
 
     private resolveFilePath(): string {

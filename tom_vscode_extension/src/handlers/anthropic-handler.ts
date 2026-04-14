@@ -45,11 +45,20 @@ export interface AnthropicConfiguration {
     isDefault?: boolean;
 }
 
+/**
+ * Spec §7.2 `AnthropicProfileTemplate` (aliased as `AnthropicProfile` in
+ * §12.2). Stored in `anthropic.profiles[]` in the workspace config JSON;
+ * the Global Template Editor's `anthropicProfiles` category is the UI.
+ */
 export interface AnthropicProfile {
-    label: string;
-    systemPrompt: string | null;
-    configurationId: string;
-    userMessageTemplateId?: string;
+    id: string;
+    name: string;
+    description: string;
+    systemPrompt: string;
+    configurationId?: string;
+    toolsEnabled?: boolean;
+    maxRounds?: number;
+    historyMode?: string | null;
     isDefault?: boolean;
 }
 
@@ -355,8 +364,14 @@ export class AnthropicHandler {
         const input = (block.input ?? {}) as Record<string, unknown>;
         const inputSummary = this.summarizeInput(input);
 
+        // Per spec §8.1: `requiresApproval` defaults to `true` for write
+        // tools (i.e. `!readOnly`). An explicit value overrides the default
+        // — e.g. `tomAi_chatvar_write` opts out because it has its own
+        // real-time visibility mechanism (§8.5).
+        const defaultRequiresApproval = def ? !def.readOnly : false;
+        const requiresApproval = def?.requiresApproval ?? defaultRequiresApproval;
         const approvalMode = configuration.toolApprovalMode ?? 'always';
-        const needsApproval = def?.requiresApproval === true && approvalMode !== 'never';
+        const needsApproval = requiresApproval && approvalMode !== 'never';
         if (needsApproval && !this.sessionApprovals.has(block.name)) {
             const approved = await this.awaitApproval({
                 toolUseId: block.id,
@@ -430,8 +445,7 @@ export class AnthropicHandler {
     }
 
     private buildSystemPrompt(profile: AnthropicProfile): string {
-        const raw = profile.systemPrompt ?? '';
-        return resolveVariables(raw);
+        return resolveVariables(profile.systemPrompt ?? '');
     }
 
     private buildUserMessage(options: AnthropicSendOptions): string {
