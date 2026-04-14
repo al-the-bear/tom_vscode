@@ -119,6 +119,82 @@ export interface SendToChatConfig {
     };
 
     /**
+     * Anthropic SDK integration (see anthropic_sdk_integration.md §14).
+     * Partial schema — configurations/profiles/userMessageTemplates go
+     * through the Global Template Editor (§7.2).
+     */
+    anthropic?: {
+        apiKeyEnvVar?: string;
+        configurations?: Array<{
+            id: string;
+            name: string;
+            model: string;
+            maxTokens?: number;
+            temperature?: number;
+            enabledTools?: string[];
+            memoryToolsEnabled?: boolean;
+            historyMode?: string;
+            maxHistoryTokens?: number;
+            maxRounds?: number;
+            toolApprovalMode?: 'always' | 'session' | 'never';
+            memoryExtractionTemplateId?: string;
+            promptCachingEnabled?: boolean;
+            isDefault?: boolean;
+        }>;
+        profiles?: Array<{
+            id: string;
+            name: string;
+            description?: string;
+            systemPrompt: string;
+            configurationId?: string;
+            toolsEnabled?: boolean;
+            maxRounds?: number;
+            historyMode?: string | null;
+            isDefault?: boolean;
+        }>;
+        userMessageTemplates?: Array<{
+            id: string;
+            name: string;
+            description?: string;
+            template: string;
+            isDefault?: boolean;
+        }>;
+    };
+
+    /**
+     * History compaction (see anthropic_sdk_integration.md §6 and §14).
+     * Full schema pass arrives in Phase 3; Phase 2 only wires the two
+     * template arrays consumed by the Global Template Editor.
+     */
+    compaction?: {
+        llmProvider?: 'localLlm' | 'anthropic';
+        llmConfigId?: string;
+        compactionTemplateId?: string;
+        memoryExtractionTemplateId?: string;
+        enabledTools?: string[];
+        compactionMaxRounds?: number;
+        maxHistoryTokens?: number;
+        toolTrailMaxResultChars?: number;
+        toolTrailKeepRounds?: number;
+        backgroundExtractionEnabled?: boolean;
+        templates?: Array<{
+            id: string;
+            name: string;
+            description?: string;
+            template: string;
+            targetMode: string; // HistoryMode | 'all'
+        }>;
+        memoryExtractionTemplates?: Array<{
+            id: string;
+            name: string;
+            description?: string;
+            template: string;
+            targetFile: string;
+            scope: 'quest' | 'shared' | 'both';
+        }>;
+    };
+
+    /**
      * Window status panel configuration.
      */
     windowStatus?: {

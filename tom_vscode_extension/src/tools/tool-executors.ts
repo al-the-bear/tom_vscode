@@ -1261,6 +1261,120 @@ async function ensureLocalLlmBridgeToolsInitialized(): Promise<void> {
 }
 
 // ============================================================================
+// Chat variable tools (spec §8.5)
+// ============================================================================
+
+const BUILT_IN_CHATVAR_KEYS = new Set(['quest', 'role', 'activeProjects', 'todo', 'todoFile']);
+
+export interface ChatvarReadInput { key?: string }
+
+async function executeChatvarRead(input: ChatvarReadInput): Promise<string> {
+    try {
+        const store = ChatVariablesStore.instance;
+        if (input.key) {
+            const raw = store.getRaw(input.key);
+            return JSON.stringify(raw, null, 2);
+        }
+        // Spec §8.5 output shape — change log is intentionally omitted.
+        const snap = store.snapshot();
+        return JSON.stringify({
+            quest: snap.quest,
+            role: snap.role,
+            activeProjects: snap.activeProjects,
+            todo: snap.todo,
+            todoFile: snap.todoFile,
+            custom: snap.custom,
+        }, null, 2);
+    } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : String(e)}`;
+    }
+}
+
+export const CHATVAR_READ_TOOL: SharedToolDefinition<ChatvarReadInput> = {
+    name: 'tomAi_chatvar_read',
+    displayName: 'Chat Variable — Read',
+    description: 'Read the current chat variables. Omit `key` to return all variables (built-ins + custom.*). Pass a `key` to return just that variable\'s current value.',
+    tags: ['chat-variables', 'tom-ai-chat'],
+    readOnly: true,
+    requiresApproval: false,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            key: { type: 'string', description: 'Optional variable name (built-in or custom). Omit to return everything.' },
+        },
+    },
+    execute: executeChatvarRead,
+};
+
+export interface ChatvarWriteInput {
+    variables: Record<string, string>;
+}
+
+async function executeChatvarWrite(input: ChatvarWriteInput): Promise<string> {
+    try {
+        const store = ChatVariablesStore.instance;
+        const entries = Object.entries(input.variables ?? {});
+        const rejected: string[] = [];
+        const accepted: Record<string, string> = {};
+
+        for (const [rawKey, rawValue] of entries) {
+            // Normalise: strip any accidental "custom." prefix the model may send.
+            const key = rawKey.startsWith('custom.') ? rawKey.slice('custom.'.length) : rawKey;
+            if (!key) {
+                rejected.push(`"${rawKey}" (empty name)`);
+                continue;
+            }
+            if (BUILT_IN_CHATVAR_KEYS.has(key)) {
+                rejected.push(key);
+                continue;
+            }
+            accepted[key] = typeof rawValue === 'string' ? rawValue : String(rawValue ?? '');
+        }
+
+        if (Object.keys(accepted).length > 0) {
+            store.setCustomBulk(accepted, 'anthropic');
+        }
+
+        const parts: string[] = [];
+        if (Object.keys(accepted).length > 0) {
+            parts.push(`Updated: ${Object.keys(accepted).map(k => `custom.${k}`).join(', ')}`);
+        }
+        if (rejected.length > 0) {
+            parts.push(`Rejected (built-in or invalid): ${rejected.join(', ')}`);
+        }
+        if (parts.length === 0) {
+            parts.push('No variables provided.');
+        }
+        return parts.join('\n');
+    } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : String(e)}`;
+    }
+}
+
+export const CHATVAR_WRITE_TOOL: SharedToolDefinition<ChatvarWriteInput> = {
+    name: 'tomAi_chatvar_write',
+    displayName: 'Chat Variable — Write',
+    description: 'Update one or more custom chat variables. Keys are stored under the `custom.*` namespace. Built-in keys (quest, role, activeProjects, todo, todoFile) are rejected — those are user-only fields. Every change is visible live in the Chat Variables Editor.',
+    tags: ['chat-variables', 'tom-ai-chat'],
+    readOnly: false,
+    // Intentionally false: spec §8.5 — the Chat Variables panel shows every
+    // write in real time, so the approval dialog would be redundant friction.
+    requiresApproval: false,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            variables: {
+                type: 'object',
+                description: 'Map of variable names to string values. Plain names only — the tool prepends "custom." automatically. Built-in names are rejected.',
+                additionalProperties: { type: 'string' },
+            },
+        },
+        required: ['variables'],
+    },
+    execute: executeChatvarWrite,
+};
+
+// ============================================================================
 // Master registry — all shared tools in one array
 // ============================================================================
 
@@ -1290,6 +1404,9 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
     MANAGE_TODO_TOOL,
     // Chat-enhancement tools (§1.1–§1.4)
     ...CHAT_ENHANCEMENT_TOOLS,
+    // Chat variable tools (anthropic_sdk_integration §8.5)
+    CHATVAR_READ_TOOL,
+    CHATVAR_WRITE_TOOL,
 ];
 
 /**

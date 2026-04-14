@@ -31,7 +31,11 @@ export type TemplateCategory =
     | 'conversation'
     | 'localLlm'
     | 'timedRequests'
-    | 'selfTalk';
+    | 'selfTalk'
+    | 'anthropicProfiles'
+    | 'anthropicUserMessage'
+    | 'compaction'
+    | 'memoryExtraction';
 
 export const CATEGORY_LABELS: Record<TemplateCategory, string> = {
     copilot: 'Copilot',
@@ -41,6 +45,10 @@ export const CATEGORY_LABELS: Record<TemplateCategory, string> = {
     localLlm: 'Local LLM',
     timedRequests: 'Timed Requests',
     selfTalk: 'Self-Talk',
+    anthropicProfiles: 'Anthropic — Profiles',
+    anthropicUserMessage: 'Anthropic — User Message',
+    compaction: 'Compaction',
+    memoryExtraction: 'Memory Extraction',
 };
 
 interface TemplateItem {
@@ -158,6 +166,18 @@ function _getItemsForCategory(config: SendToChatConfig, category: TemplateCatego
                     id: k,
                     label: k === 'personA' ? 'Person A (Creative)' : k === 'personB' ? 'Person B (Critical)' : k,
                 }));
+        case 'anthropicProfiles':
+            return (config.anthropic?.profiles || [])
+                .map(p => ({ id: p.id, label: p.name || p.id }));
+        case 'anthropicUserMessage':
+            return (config.anthropic?.userMessageTemplates || [])
+                .map(t => ({ id: t.id, label: t.name || t.id }));
+        case 'compaction':
+            return (config.compaction?.templates || [])
+                .map(t => ({ id: t.id, label: t.name || t.id }));
+        case 'memoryExtraction':
+            return (config.compaction?.memoryExtractionTemplates || [])
+                .map(t => ({ id: t.id, label: t.name || t.id }));
     }
 }
 
@@ -262,6 +282,59 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                 { name: 'systemPrompt', label: 'System Prompt', type: 'textarea', value: st.systemPrompt || '', help: PLACEHOLDER_HELP },
                 { name: 'modelConfig', label: 'Model Config', type: 'text', value: st.modelConfig || '' },
                 { name: 'temperature', label: 'Temperature', type: 'number', value: String(st.temperature ?? '') },
+            );
+            break;
+        }
+        case 'anthropicProfiles': {
+            const profile = (config.anthropic?.profiles || []).find(p => p.id === itemId);
+            if (!profile) break;
+            fields.push(
+                { name: 'id', label: 'ID', type: 'text', value: profile.id, readonly: true },
+                { name: 'name', label: 'Name', type: 'text', value: profile.name || '' },
+                { name: 'description', label: 'Description', type: 'text', value: profile.description || '' },
+                { name: 'systemPrompt', label: 'System Prompt', type: 'textarea', value: profile.systemPrompt || '', help: PLACEHOLDER_HELP + '<br><br>Sent as the Anthropic <code>system</code> parameter. Supports <code>${role-description}</code> and <code>${quest-description}</code>.' },
+                { name: 'configurationId', label: 'Configuration ID', type: 'text', value: profile.configurationId || '', help: 'ID of an entry in <code>anthropic.configurations[]</code>. Leave empty to use the default configuration.' },
+                { name: 'toolsEnabled', label: 'Tools Enabled', type: 'checkbox', value: String(profile.toolsEnabled !== false) },
+                { name: 'maxRounds', label: 'Max Rounds', type: 'number', value: String(profile.maxRounds ?? '') },
+                { name: 'historyMode', label: 'History Mode', type: 'text', value: profile.historyMode ?? '', help: 'one of: none, full, last, summary, trim_and_summary, llm_extract — leave empty to inherit from configuration' },
+                { name: 'isDefault', label: 'Is Default', type: 'checkbox', value: String(profile.isDefault === true) },
+            );
+            break;
+        }
+        case 'anthropicUserMessage': {
+            const tpl = (config.anthropic?.userMessageTemplates || []).find(t => t.id === itemId);
+            if (!tpl) break;
+            fields.push(
+                { name: 'id', label: 'ID', type: 'text', value: tpl.id, readonly: true },
+                { name: 'name', label: 'Name', type: 'text', value: tpl.name || '' },
+                { name: 'description', label: 'Description', type: 'text', value: tpl.description || '' },
+                { name: 'template', label: 'Template', type: 'textarea', value: tpl.template || '${userMessage}', help: PLACEHOLDER_HELP + '<br><br><strong>Must contain <code>${userMessage}</code></strong> — the raw text the user typed.' },
+                { name: 'isDefault', label: 'Is Default', type: 'checkbox', value: String(tpl.isDefault === true) },
+            );
+            break;
+        }
+        case 'compaction': {
+            const tpl = (config.compaction?.templates || []).find(t => t.id === itemId);
+            if (!tpl) break;
+            fields.push(
+                { name: 'id', label: 'ID', type: 'text', value: tpl.id, readonly: true },
+                { name: 'name', label: 'Name', type: 'text', value: tpl.name || '' },
+                { name: 'description', label: 'Description', type: 'text', value: tpl.description || '' },
+                { name: 'template', label: 'Template', type: 'textarea', value: tpl.template || '', help: PLACEHOLDER_HELP + '<br><br>Compaction placeholders: <code>${compactionHistory}</code>, <code>${turnCount}</code>, <code>${tokenEstimate}</code>, <code>${compactionMode}</code>, <code>${turnsDropped}</code>, <code>${keptTurnCount}</code>, <code>${turnIndex}</code>.' },
+                { name: 'targetMode', label: 'Target Mode', type: 'text', value: tpl.targetMode || 'all', help: 'summary, trim_and_summary, llm_extract, or all' },
+            );
+            break;
+        }
+        case 'memoryExtraction': {
+            const tpl = (config.compaction?.memoryExtractionTemplates || []).find(t => t.id === itemId);
+            if (!tpl) break;
+            fields.push(
+                { name: 'id', label: 'ID', type: 'text', value: tpl.id, readonly: true },
+                { name: 'name', label: 'Name', type: 'text', value: tpl.name || '' },
+                { name: 'description', label: 'Description', type: 'text', value: tpl.description || '' },
+                { name: 'template', label: 'Template', type: 'textarea', value: tpl.template || '', help: PLACEHOLDER_HELP + '<br><br>Memory placeholders: <code>${recentHistory}</code>, <code>${existingMemory}</code>, <code>${memoryFilePath}</code>, <code>${memoryScope}</code>.' },
+                { name: 'targetFile', label: 'Target File', type: 'text', value: tpl.targetFile || 'facts.md' },
+                { name: 'scope', label: 'Scope', type: 'text', value: tpl.scope || 'quest', help: 'quest, shared, or both' },
             );
             break;
         }
@@ -441,6 +514,94 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
             }
             break;
         }
+        case 'anthropicProfiles': {
+            if (!config.anthropic) config.anthropic = {};
+            const profiles = config.anthropic.profiles ?? [];
+            const idx = profiles.findIndex(p => p.id === itemId);
+            const next = {
+                id: itemId,
+                name: values.name || itemId,
+                description: values.description || '',
+                systemPrompt: values.systemPrompt || '',
+                configurationId: values.configurationId || undefined,
+                toolsEnabled: values.toolsEnabled === 'true',
+                maxRounds: values.maxRounds ? parseInt(values.maxRounds, 10) : undefined,
+                historyMode: values.historyMode || null,
+                isDefault: values.isDefault === 'true',
+            };
+            if (idx >= 0) {
+                profiles[idx] = { ...profiles[idx], ...next };
+            } else {
+                profiles.push(next);
+            }
+            if (next.isDefault) {
+                profiles.forEach(p => { if (p.id !== itemId) p.isDefault = false; });
+            }
+            config.anthropic.profiles = profiles;
+            break;
+        }
+        case 'anthropicUserMessage': {
+            if (!config.anthropic) config.anthropic = {};
+            const templates = config.anthropic.userMessageTemplates ?? [];
+            const idx = templates.findIndex(t => t.id === itemId);
+            const next = {
+                id: itemId,
+                name: values.name || itemId,
+                description: values.description || '',
+                template: values.template || '${userMessage}',
+                isDefault: values.isDefault === 'true',
+            };
+            if (idx >= 0) {
+                templates[idx] = { ...templates[idx], ...next };
+            } else {
+                templates.push(next);
+            }
+            if (next.isDefault) {
+                templates.forEach(t => { if (t.id !== itemId) t.isDefault = false; });
+            }
+            config.anthropic.userMessageTemplates = templates;
+            break;
+        }
+        case 'compaction': {
+            if (!config.compaction) config.compaction = {};
+            const templates = config.compaction.templates ?? [];
+            const idx = templates.findIndex(t => t.id === itemId);
+            const next = {
+                id: itemId,
+                name: values.name || itemId,
+                description: values.description || '',
+                template: values.template || '',
+                targetMode: values.targetMode || 'all',
+            };
+            if (idx >= 0) {
+                templates[idx] = { ...templates[idx], ...next };
+            } else {
+                templates.push(next);
+            }
+            config.compaction.templates = templates;
+            break;
+        }
+        case 'memoryExtraction': {
+            if (!config.compaction) config.compaction = {};
+            const templates = config.compaction.memoryExtractionTemplates ?? [];
+            const idx = templates.findIndex(t => t.id === itemId);
+            const scope = (values.scope === 'shared' || values.scope === 'both') ? values.scope : 'quest';
+            const next = {
+                id: itemId,
+                name: values.name || itemId,
+                description: values.description || '',
+                template: values.template || '',
+                targetFile: values.targetFile || 'facts.md',
+                scope: scope as 'quest' | 'shared' | 'both',
+            };
+            if (idx >= 0) {
+                templates[idx] = { ...templates[idx], ...next };
+            } else {
+                templates.push(next);
+            }
+            config.compaction.memoryExtractionTemplates = templates;
+            break;
+        }
         case 'selfTalk': {
             const selfTalk = (config as any).aiConversation?.selfTalk;
             if (!selfTalk) break;
@@ -526,6 +687,57 @@ async function _addItem(category: TemplateCategory): Promise<void> {
             (config as any).timedRequests = requests;
             break;
         }
+        case 'anthropicProfiles': {
+            if (!config.anthropic) config.anthropic = {};
+            const profiles = config.anthropic.profiles ?? [];
+            profiles.push({
+                id: name,
+                name,
+                description: '',
+                systemPrompt: '',
+            });
+            config.anthropic.profiles = profiles;
+            break;
+        }
+        case 'anthropicUserMessage': {
+            if (!config.anthropic) config.anthropic = {};
+            const templates = config.anthropic.userMessageTemplates ?? [];
+            templates.push({
+                id: name,
+                name,
+                description: '',
+                template: '${userMessage}',
+            });
+            config.anthropic.userMessageTemplates = templates;
+            break;
+        }
+        case 'compaction': {
+            if (!config.compaction) config.compaction = {};
+            const templates = config.compaction.templates ?? [];
+            templates.push({
+                id: name,
+                name,
+                description: '',
+                template: '${compactionHistory}',
+                targetMode: 'all',
+            });
+            config.compaction.templates = templates;
+            break;
+        }
+        case 'memoryExtraction': {
+            if (!config.compaction) config.compaction = {};
+            const templates = config.compaction.memoryExtractionTemplates ?? [];
+            templates.push({
+                id: name,
+                name,
+                description: '',
+                template: '${recentHistory}',
+                targetFile: 'facts.md',
+                scope: 'quest',
+            });
+            config.compaction.memoryExtractionTemplates = templates;
+            break;
+        }
     }
 
     if (saveSendToChatConfig(config)) {
@@ -571,6 +783,26 @@ async function _deleteItem(category: TemplateCategory, itemId: string): Promise<
             (config as any).timedRequests = requests.filter((r: any) => r.id !== itemId);
             break;
         }
+        case 'anthropicProfiles':
+            if (config.anthropic?.profiles) {
+                config.anthropic.profiles = config.anthropic.profiles.filter(p => p.id !== itemId);
+            }
+            break;
+        case 'anthropicUserMessage':
+            if (config.anthropic?.userMessageTemplates) {
+                config.anthropic.userMessageTemplates = config.anthropic.userMessageTemplates.filter(t => t.id !== itemId);
+            }
+            break;
+        case 'compaction':
+            if (config.compaction?.templates) {
+                config.compaction.templates = config.compaction.templates.filter(t => t.id !== itemId);
+            }
+            break;
+        case 'memoryExtraction':
+            if (config.compaction?.memoryExtractionTemplates) {
+                config.compaction.memoryExtractionTemplates = config.compaction.memoryExtractionTemplates.filter(t => t.id !== itemId);
+            }
+            break;
     }
 
     if (saveSendToChatConfig(config)) {
