@@ -30,6 +30,7 @@ import {
     executeToolCall, toOllamaTools,
 } from '../tools/shared-tool-registry';
 import { READ_ONLY_TOOLS } from '../tools/tool-executors';
+import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 import {
     logPrompt, logResponse, logToolRequest, logToolResult,
     logContinuationPrompt, isTrailEnabled, loadTrailConfig,
@@ -109,7 +110,7 @@ export interface ExpanderProfile {
 }
 
 /** History mode for Local LLM. */
-export type LocalLlmHistoryMode = 'none' | 'full' | 'last' | 'summary' | 'trim_and_summary';
+export type LocalLlmHistoryMode = 'none' | 'full' | 'last' | 'summary' | 'trim_and_summary' | 'llm_extract';
 
 /** Full localLlm section from tom_vscode_extension.json. */
 export interface LocalLlmConfig {
@@ -1188,18 +1189,38 @@ export class LocalLlmManager {
             let historyForOllama: Array<{ role: string; content: string }> = [];
             if (this.historyEnabled && effectiveHistoryMode !== 'none' && this.conversationHistory.length > 0) {
                 if (effectiveHistoryMode === 'full') {
-                    // Include all history
                     historyForOllama = this.getHistoryAsMessages();
                 } else if (effectiveHistoryMode === 'last') {
-                    // Only include the last exchange (user + assistant)
                     const hist = this.conversationHistory;
                     const lastUser = hist.slice().reverse().find(m => m.role === 'user');
                     const lastAssistant = hist.slice().reverse().find(m => m.role === 'assistant');
                     if (lastUser) { historyForOllama.push({ role: 'user', content: lastUser.content }); }
                     if (lastAssistant) { historyForOllama.push({ role: 'assistant', content: lastAssistant.content }); }
                 } else {
-                    // 'summary' or 'trim_and_summary' - for now, use full history (summary implementation TBD)
-                    historyForOllama = this.getHistoryAsMessages();
+                    // 'summary' / 'trim_and_summary' / 'llm_extract' — delegate
+                    // to the shared compactor (anthropic_sdk_integration §6).
+                    try {
+                        const { compactHistory } = await import('../services/history-compaction.js');
+                        const compactionCfg = (loadSendToChatConfig() as any)?.compaction ?? {};
+                        const input = this.getHistoryAsMessages().map(m => ({
+                            role: (m.role === 'system' ? 'user' : m.role) as 'user' | 'assistant' | 'system',
+                            content: m.content,
+                        }));
+                        const compacted = await compactHistory(input, {
+                            mode: effectiveHistoryMode as any,
+                            maxHistoryTokens: compactionCfg.maxHistoryTokens,
+                            maxRounds: 1,
+                            llmProvider: compactionCfg.llmProvider ?? 'localLlm',
+                            llmConfigId: compactionCfg.llmConfigId ?? (mc as any).id ?? 'default',
+                            compactionTemplateId: compactionCfg.compactionTemplateId,
+                            memoryTemplateId: compactionCfg.memoryExtractionTemplateId,
+                            compactionMaxRounds: compactionCfg.compactionMaxRounds ?? 1,
+                        });
+                        historyForOllama = compacted.map(m => ({ role: m.role, content: m.content }));
+                    } catch (e) {
+                        this.logChannel.appendLine(`[process] compactHistory failed, falling back to full: ${String(e)}`);
+                        historyForOllama = this.getHistoryAsMessages();
+                    }
                 }
                 this.logChannel.appendLine(`[process] Passing ${historyForOllama.length} history message(s) to Ollama`);
             }

@@ -1,0 +1,495 @@
+/**
+ * History compaction — provider-neutral post-exchange compactor.
+ *
+ * Spec: anthropic_sdk_integration.md §6 (all modes), §6.5 (exported
+ * interface), §7.2 (`compaction` / `memoryExtraction` template
+ * categories), §7.4 (compaction placeholder values), §8.4 (compaction
+ * tool set).
+ *
+ * Modes:
+ *   - none              → return `[]` (handler sends no history)
+ *   - full              → return the array unchanged
+ *   - last              → keep the last `maxRounds` turns
+ *   - summary           → replace everything with a 2-message synthetic
+ *                         exchange `[user: summary, assistant: Understood]`
+ *   - trim_and_summary  → drop oldest turns until within token budget,
+ *                         prepend a single summary message of the drop
+ *   - llm_extract       → compress each turn individually (per-turn
+ *                         summarisation) and write extracted facts to
+ *                         memory via `TwoTierMemoryService`
+ *
+ * The LLM dispatch is abstracted behind `runCompactionCall()`, which
+ * selects between the Anthropic handler (internal, no tool loop, no
+ * trail write) and a direct Ollama POST. Callers populate
+ * `CompactionOptions.llmProvider` and `llmConfigId` from their config.
+ */
+
+import * as http from 'http';
+import * as https from 'https';
+import * as vscode from 'vscode';
+import { loadSendToChatConfig } from '../utils/sendToChatConfig';
+import { resolveVariables } from '../utils/variableResolver';
+import { TwoTierMemoryService } from './memory-service';
+
+// ============================================================================
+// Public types (spec §6.5)
+// ============================================================================
+
+export type HistoryMode =
+    | 'none' | 'full' | 'last'
+    | 'summary'
+    | 'trim_and_summary'
+    | 'llm_extract';
+
+export type CompactionLlmProvider = 'localLlm' | 'anthropic';
+
+export interface ConversationMessage {
+    role: 'user' | 'assistant' | 'system';
+    content: string;
+}
+
+export interface CompactionOptions {
+    mode: HistoryMode;
+    /** Target token ceiling for the returned history (trim_and_summary / last). */
+    maxHistoryTokens?: number;
+    /** Cap on turns retained in `last` mode (defaults to 1 exchange = 2 messages). */
+    maxRounds?: number;
+    /** Which provider runs the LLM compaction call. */
+    llmProvider: CompactionLlmProvider;
+    /** Config ID within the selected provider. */
+    llmConfigId: string;
+    /** `compaction` Global Template Editor entry to use. */
+    compactionTemplateId?: string;
+    /** `memoryExtraction` template for `llm_extract` mode. */
+    memoryTemplateId?: string;
+    /** Tool names for the compaction loop (localLlm only; spec §8.4). */
+    compactionTools?: string[];
+    /** Upper bound on compaction tool rounds (default 1). */
+    compactionMaxRounds?: number;
+    /** Root of the memory store (only used to seed placeholders). */
+    memoryPath?: string;
+    /** Quest id for quest-scoped memory writes. */
+    questId?: string;
+    /** Whether to emit verbose progress lines (currently a no-op hook). */
+    trailEnabled?: boolean;
+    onProgress?: (msg: string) => void;
+}
+
+export interface CompactionResult {
+    /** Compacted message array. */
+    history: ConversationMessage[];
+    /** Which mode ran. */
+    modeRun: HistoryMode;
+    /** Turns kept from the input (for diagnostics). */
+    keptTurnCount: number;
+    /** Turns dropped from the input. */
+    droppedTurnCount: number;
+    /** The summary text, when one was produced. */
+    summary?: string;
+}
+
+// ============================================================================
+// Token estimation
+// ============================================================================
+
+const CHARS_PER_TOKEN = 4;
+
+function estimateTokens(s: string): number {
+    return Math.ceil(s.length / CHARS_PER_TOKEN);
+}
+
+function historyTokens(history: ConversationMessage[]): number {
+    return history.reduce((sum, m) => sum + estimateTokens(m.content), 0);
+}
+
+function formatHistoryForTemplate(history: ConversationMessage[]): string {
+    return history
+        .map((m) => `[${m.role}] ${m.content}`)
+        .join('\n\n');
+}
+
+// ============================================================================
+// Template expansion
+// ============================================================================
+
+interface CompactionTemplateEntry {
+    id: string;
+    template: string;
+}
+
+interface MemoryExtractionTemplateEntry {
+    id: string;
+    template: string;
+    targetFile: string;
+    scope: 'quest' | 'shared' | 'both';
+}
+
+function resolveCompactionTemplate(id?: string): CompactionTemplateEntry | undefined {
+    const cfg = loadSendToChatConfig();
+    const templates = cfg?.compaction?.templates ?? [];
+    if (id) {
+        const found = templates.find((t) => t.id === id);
+        if (found) return { id: found.id, template: found.template };
+    }
+    // Fall back to the first available template if no ID matches.
+    if (templates.length > 0) {
+        return { id: templates[0].id, template: templates[0].template };
+    }
+    return undefined;
+}
+
+function resolveMemoryExtractionTemplate(id?: string): MemoryExtractionTemplateEntry | undefined {
+    const cfg = loadSendToChatConfig();
+    const templates = cfg?.compaction?.memoryExtractionTemplates ?? [];
+    if (id) {
+        const found = templates.find((t) => t.id === id);
+        if (found) return {
+            id: found.id,
+            template: found.template,
+            targetFile: found.targetFile,
+            scope: found.scope,
+        };
+    }
+    if (templates.length > 0) {
+        const t = templates[0];
+        return { id: t.id, template: t.template, targetFile: t.targetFile, scope: t.scope };
+    }
+    return undefined;
+}
+
+function expandTemplate(template: string, extraVars: Record<string, string>): string {
+    return resolveVariables(template, { values: extraVars, enableJsExpressions: true });
+}
+
+// ============================================================================
+// LLM dispatch — internal, no tool loop, no trail write
+// ============================================================================
+
+async function runCompactionCall(
+    options: CompactionOptions,
+    systemPrompt: string,
+    userPrompt: string,
+): Promise<string> {
+    if (options.llmProvider === 'anthropic') {
+        return runAnthropicCompaction(options, systemPrompt, userPrompt);
+    }
+    return runOllamaCompaction(options, systemPrompt, userPrompt);
+}
+
+async function runAnthropicCompaction(
+    options: CompactionOptions,
+    systemPrompt: string,
+    userPrompt: string,
+): Promise<string> {
+    // Lazy import to avoid a cycle — the Anthropic handler itself imports
+    // compaction indirectly when Phase 3.5 wiring is active.
+    const { AnthropicHandler } = await import('../handlers/anthropic-handler.js');
+    const handler = AnthropicHandler.instance;
+    const section = loadSendToChatConfig()?.anthropic;
+    const cfg = section?.configurations?.find((c) => c.id === options.llmConfigId)
+        ?? section?.configurations?.find((c) => c.isDefault)
+        ?? section?.configurations?.[0];
+    if (!cfg) {
+        throw new Error(`No anthropic configuration available for compaction (llmConfigId=${options.llmConfigId})`);
+    }
+    const result = await handler.sendMessage({
+        userText: userPrompt,
+        profile: {
+            id: '__compaction__',
+            name: 'compaction',
+            description: '',
+            systemPrompt,
+        },
+        configuration: {
+            ...cfg,
+            maxTokens: cfg.maxTokens ?? 2048,
+            enabledTools: cfg.enabledTools ?? [],
+            maxRounds: options.compactionMaxRounds ?? cfg.maxRounds ?? 1,
+            toolApprovalMode: 'never',
+        },
+        // No tools on the compaction call — compaction is a single,
+        // bounded summarisation, not an agentic loop.
+        tools: [],
+    });
+    return result.text;
+}
+
+async function runOllamaCompaction(
+    options: CompactionOptions,
+    systemPrompt: string,
+    userPrompt: string,
+): Promise<string> {
+    const cfg = loadSendToChatConfig();
+    const localCfg = cfg?.localLlm?.configurations?.find((c) => c.id === options.llmConfigId)
+        ?? cfg?.localLlm?.configurations?.find((c) => c.isDefault)
+        ?? cfg?.localLlm?.configurations?.[0];
+    if (!localCfg || !localCfg.ollamaUrl || !localCfg.model) {
+        throw new Error(`No complete Ollama configuration for compaction (llmConfigId=${options.llmConfigId})`);
+    }
+    const body = JSON.stringify({
+        model: localCfg.model,
+        messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+        ],
+        stream: false,
+        options: { temperature: localCfg.temperature ?? 0.3 },
+    });
+    const url = new URL(localCfg.ollamaUrl.replace(/\/$/, '') + '/api/chat');
+    const lib = url.protocol === 'https:' ? https : http;
+    return new Promise<string>((resolve, reject) => {
+        const req = lib.request(
+            {
+                method: 'POST',
+                hostname: url.hostname,
+                port: url.port || (url.protocol === 'https:' ? 443 : 80),
+                path: url.pathname + url.search,
+                headers: {
+                    'content-type': 'application/json',
+                    'content-length': Buffer.byteLength(body),
+                },
+            },
+            (res) => {
+                const chunks: Buffer[] = [];
+                res.on('data', (c) => chunks.push(Buffer.from(c)));
+                res.on('end', () => {
+                    const text = Buffer.concat(chunks).toString('utf8');
+                    if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
+                        reject(new Error(`Ollama compaction HTTP ${res.statusCode}: ${text.slice(0, 200)}`));
+                        return;
+                    }
+                    try {
+                        const json = JSON.parse(text) as { message?: { content?: string } };
+                        resolve(json.message?.content ?? '');
+                    } catch (e) {
+                        reject(new Error(`Ollama compaction JSON parse: ${(e as Error).message}`));
+                    }
+                });
+            },
+        );
+        req.on('error', reject);
+        req.write(body);
+        req.end();
+    });
+}
+
+// ============================================================================
+// Mode implementations
+// ============================================================================
+
+function runNone(): CompactionResult {
+    return { history: [], modeRun: 'none', keptTurnCount: 0, droppedTurnCount: 0 };
+}
+
+function runFull(history: ConversationMessage[]): CompactionResult {
+    return {
+        history: [...history],
+        modeRun: 'full',
+        keptTurnCount: history.length,
+        droppedTurnCount: 0,
+    };
+}
+
+function runLast(history: ConversationMessage[], options: CompactionOptions): CompactionResult {
+    // `last` = keep the most recent `maxRounds` exchanges. A round is
+    // user+assistant, so default of 1 keeps the last 2 messages.
+    const rounds = Math.max(1, options.maxRounds ?? 1);
+    const keep = Math.min(history.length, rounds * 2);
+    const kept = history.slice(-keep);
+    return {
+        history: kept,
+        modeRun: 'last',
+        keptTurnCount: kept.length,
+        droppedTurnCount: history.length - kept.length,
+    };
+}
+
+async function runSummary(
+    history: ConversationMessage[],
+    options: CompactionOptions,
+): Promise<CompactionResult> {
+    if (history.length === 0) {
+        return { history: [], modeRun: 'summary', keptTurnCount: 0, droppedTurnCount: 0 };
+    }
+    const tpl = resolveCompactionTemplate(options.compactionTemplateId);
+    if (!tpl) {
+        options.onProgress?.('summary: no compaction template configured — falling back to `full`');
+        return runFull(history);
+    }
+    const historyText = formatHistoryForTemplate(history);
+    const userPrompt = expandTemplate(tpl.template, {
+        compactionHistory: historyText,
+        turnCount: String(history.length),
+        tokenEstimate: String(historyTokens(history)),
+        compactionMode: 'summary',
+    });
+    const summary = (await runCompactionCall(options, 'You compact conversation history.', userPrompt)).trim()
+        || '(empty summary)';
+    return {
+        history: [
+            { role: 'user', content: `[Context from earlier]\n${summary}` },
+            { role: 'assistant', content: 'Understood.' },
+        ],
+        modeRun: 'summary',
+        keptTurnCount: 2,
+        droppedTurnCount: history.length,
+        summary,
+    };
+}
+
+async function runTrimAndSummary(
+    history: ConversationMessage[],
+    options: CompactionOptions,
+): Promise<CompactionResult> {
+    const budget = options.maxHistoryTokens ?? 8000;
+    const total = historyTokens(history);
+    if (total <= budget) {
+        return runFull(history);
+    }
+    // Walk from newest to oldest until adding one more turn would exceed
+    // budget; everything older is overflow.
+    let used = 0;
+    let splitIdx = history.length;
+    for (let i = history.length - 1; i >= 0; i--) {
+        const t = estimateTokens(history[i].content);
+        if (used + t > budget) {
+            break;
+        }
+        used += t;
+        splitIdx = i;
+    }
+    const overflow = history.slice(0, splitIdx);
+    const kept = history.slice(splitIdx);
+    if (overflow.length === 0) {
+        return { history: kept, modeRun: 'trim_and_summary', keptTurnCount: kept.length, droppedTurnCount: 0 };
+    }
+    const tpl = resolveCompactionTemplate(options.compactionTemplateId);
+    let summary = '';
+    if (tpl) {
+        const userPrompt = expandTemplate(tpl.template, {
+            compactionHistory: formatHistoryForTemplate(overflow),
+            turnCount: String(history.length),
+            tokenEstimate: String(total),
+            compactionMode: 'trim_and_summary',
+            turnsDropped: String(overflow.length),
+            keptTurnCount: String(kept.length),
+        });
+        summary = (await runCompactionCall(options, 'You compact conversation history.', userPrompt)).trim();
+    } else {
+        options.onProgress?.('trim_and_summary: no compaction template — using raw overflow as summary');
+        summary = overflow.map((m) => `[${m.role}] ${m.content.slice(0, 120)}`).join('\n');
+    }
+    return {
+        history: [
+            { role: 'user', content: `[Context from earlier]\n${summary || '(empty summary)'}` },
+            { role: 'assistant', content: 'Understood.' },
+            ...kept,
+        ],
+        modeRun: 'trim_and_summary',
+        keptTurnCount: kept.length,
+        droppedTurnCount: overflow.length,
+        summary,
+    };
+}
+
+async function runLlmExtract(
+    history: ConversationMessage[],
+    options: CompactionOptions,
+): Promise<CompactionResult> {
+    if (history.length === 0) {
+        return { history: [], modeRun: 'llm_extract', keptTurnCount: 0, droppedTurnCount: 0 };
+    }
+    const tpl = resolveMemoryExtractionTemplate(options.memoryTemplateId);
+    if (!tpl) {
+        options.onProgress?.('llm_extract: no memoryExtraction template configured — skipping extraction');
+        return runLast(history, options);
+    }
+    // Pair user/assistant turns into exchanges and extract from the
+    // most recent complete exchange only. The older turns are trimmed
+    // via `last` semantics so the returned history stays bounded.
+    const pairs: ConversationMessage[][] = [];
+    for (let i = 0; i < history.length - 1; i++) {
+        if (history[i].role === 'user' && history[i + 1].role === 'assistant') {
+            pairs.push([history[i], history[i + 1]]);
+            i++;
+        }
+    }
+    const latest = pairs[pairs.length - 1];
+    if (latest) {
+        try {
+            const memorySvc = TwoTierMemoryService.instance;
+            const scope = tpl.scope === 'shared' ? 'shared' : 'quest';
+            const existing = memorySvc.read(scope, tpl.targetFile, options.questId);
+            const recentHistoryText = formatHistoryForTemplate(latest);
+            const memoryFilePath = memorySvc.filePath(scope, tpl.targetFile, options.questId);
+            const userPrompt = expandTemplate(tpl.template, {
+                recentHistory: recentHistoryText,
+                existingMemory: existing,
+                memoryFilePath,
+                memoryScope: scope,
+            });
+            const extracted = (await runCompactionCall(options, 'You extract key facts for memory.', userPrompt)).trim();
+            if (extracted) {
+                if (tpl.scope === 'both') {
+                    memorySvc.append('quest', tpl.targetFile, extracted, options.questId);
+                    memorySvc.append('shared', tpl.targetFile, extracted, options.questId);
+                } else {
+                    memorySvc.append(scope, tpl.targetFile, extracted, options.questId);
+                }
+            }
+        } catch (e) {
+            options.onProgress?.(`llm_extract: memory write failed: ${e instanceof Error ? e.message : String(e)}`);
+        }
+    }
+    // Return the trimmed-last history so the next prompt isn't drowned
+    // in turns we've already distilled into memory.
+    const rounds = Math.max(1, options.maxRounds ?? 1);
+    const keep = Math.min(history.length, rounds * 2);
+    const kept = history.slice(-keep);
+    return {
+        history: kept,
+        modeRun: 'llm_extract',
+        keptTurnCount: kept.length,
+        droppedTurnCount: history.length - kept.length,
+    };
+}
+
+// ============================================================================
+// Public entry point (spec §6.5)
+// ============================================================================
+
+export async function compactHistory(
+    history: ConversationMessage[],
+    options: CompactionOptions,
+): Promise<ConversationMessage[]> {
+    const result = await compactHistoryDetailed(history, options);
+    return result.history;
+}
+
+/** Same as `compactHistory` but returns the detailed `CompactionResult`. */
+export async function compactHistoryDetailed(
+    history: ConversationMessage[],
+    options: CompactionOptions,
+): Promise<CompactionResult> {
+    try {
+        switch (options.mode) {
+            case 'none':             return runNone();
+            case 'full':             return runFull(history);
+            case 'last':             return runLast(history, options);
+            case 'summary':          return await runSummary(history, options);
+            case 'trim_and_summary': return await runTrimAndSummary(history, options);
+            case 'llm_extract':      return await runLlmExtract(history, options);
+            default: {
+                options.onProgress?.(`compactHistory: unknown mode "${options.mode}" — passing through`);
+                return runFull(history);
+            }
+        }
+    } catch (e) {
+        options.onProgress?.(`compactHistory failed: ${e instanceof Error ? e.message : String(e)}`);
+        // On error, return the input unchanged so the next exchange
+        // doesn't lose context.
+        return runFull(history);
+    }
+}
+
+void vscode; // imported for API-surface parity with sibling services

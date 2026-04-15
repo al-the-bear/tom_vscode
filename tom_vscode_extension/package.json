@@ -425,6 +425,11 @@
                 "category": "@Tom"
             },
             {
+                "command": "tomAi.panel.memory",
+                "title": "@T: Open Memory Panel",
+                "category": "@Tom"
+            },
+            {
                 "command": "tomAi.editor.promptQueue",
                 "title": "@T: Open Prompt Queue Editor",
                 "category": "@Tom"
@@ -2494,6 +2499,93 @@
                     }
                 },
                 "toolReferenceName": "tom_chatvar_write"
+            },
+            {
+                "name": "tomAi_memory_save",
+                "tags": ["memory", "tom-ai-chat"],
+                "displayName": "Memory — Save",
+                "userDescription": "Persist a fact to memory",
+                "modelDescription": "Append a fact to a memory file (or replace a named markdown section when `heading` is provided). Default file is `facts.md`. Scope is `quest` (default) or `shared`.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["content"],
+                    "properties": {
+                        "scope": { "type": "string", "enum": ["quest", "shared"], "description": "Memory tier." },
+                        "file": { "type": "string", "description": "Memory file name within the scope (default: facts.md)." },
+                        "content": { "type": "string", "description": "Fact or section body to persist." },
+                        "heading": { "type": "string", "description": "Optional markdown heading to replace." }
+                    }
+                },
+                "toolReferenceName": "tom_memory_save"
+            },
+            {
+                "name": "tomAi_memory_update",
+                "tags": ["memory", "tom-ai-chat"],
+                "displayName": "Memory — Update section",
+                "userDescription": "Replace a memory section",
+                "modelDescription": "Replace the content under a named markdown heading in a memory file. If the heading does not exist yet it is appended.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["file", "heading", "content"],
+                    "properties": {
+                        "scope": { "type": "string", "enum": ["quest", "shared"] },
+                        "file": { "type": "string" },
+                        "heading": { "type": "string" },
+                        "content": { "type": "string" }
+                    }
+                },
+                "toolReferenceName": "tom_memory_update"
+            },
+            {
+                "name": "tomAi_memory_forget",
+                "tags": ["memory", "tom-ai-chat"],
+                "displayName": "Memory — Forget",
+                "userDescription": "Delete a fact or file",
+                "modelDescription": "Delete an entire memory file, or clear the content under a named markdown heading when `heading` is provided.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["file"],
+                    "properties": {
+                        "scope": { "type": "string", "enum": ["quest", "shared"] },
+                        "file": { "type": "string" },
+                        "heading": { "type": "string" }
+                    }
+                },
+                "toolReferenceName": "tom_memory_forget"
+            },
+            {
+                "name": "tomAi_memory_read",
+                "tags": ["memory", "tom-ai-chat"],
+                "displayName": "Memory — Read",
+                "userDescription": "Read memory contents",
+                "modelDescription": "Read memory contents. Omit `file` to get the concatenated contents of all files in the scope. Scope is `quest` (default), `shared`, or `all`.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "scope": { "type": "string", "enum": ["quest", "shared", "all"] },
+                        "file": { "type": "string" }
+                    }
+                },
+                "toolReferenceName": "tom_memory_read"
+            },
+            {
+                "name": "tomAi_memory_list",
+                "tags": ["memory", "tom-ai-chat"],
+                "displayName": "Memory — List",
+                "userDescription": "List memory files",
+                "modelDescription": "List memory files in the given scope. Scope is `quest` (default), `shared`, or `all`.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "scope": { "type": "string", "enum": ["quest", "shared", "all"] }
+                    }
+                },
+                "toolReferenceName": "tom_memory_list"
             }
         ],
         "configuration": {

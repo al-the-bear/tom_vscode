@@ -30,6 +30,7 @@ import { debugLog } from '../utils/debugLogger.js';
 import { logPrompt, logResponse } from '../services/trailLogging';
 import { ChatVariablesStore } from '../managers/chatVariablesStore.js';
 import { getCurrentToolContext } from '../services/tool-execution-context';
+import { TwoTierMemoryService, MemoryScope, MemoryReadScope } from '../services/memory-service';
 import { WsPaths } from '../utils/workspacePaths';
 
 const execAsync = promisify(exec);
@@ -1387,6 +1388,238 @@ export const CHATVAR_WRITE_TOOL: SharedToolDefinition<ChatvarWriteInput> = {
 };
 
 // ============================================================================
+// Memory tools (spec §8.2)
+// ============================================================================
+
+function parseWriteScope(scope: unknown): MemoryScope {
+    return scope === 'shared' ? 'shared' : 'quest';
+}
+
+function parseReadScope(scope: unknown): MemoryReadScope {
+    if (scope === 'shared' || scope === 'all') {
+        return scope;
+    }
+    return 'quest';
+}
+
+export interface MemorySaveInput {
+    scope?: 'quest' | 'shared';
+    file?: string;
+    content: string;
+    heading?: string;
+}
+
+async function executeMemorySave(input: MemorySaveInput): Promise<string> {
+    try {
+        const svc = TwoTierMemoryService.instance;
+        const scope = parseWriteScope(input.scope);
+        const file = (input.file || 'facts.md').trim() || 'facts.md';
+        if (!input.content || !input.content.trim()) {
+            return 'Error: content is empty.';
+        }
+        if (input.heading) {
+            svc.replaceSection(scope, file, input.heading, input.content);
+            return `Memory (${scope}/${file}) — section "${input.heading}" replaced.`;
+        }
+        svc.append(scope, file, input.content);
+        return `Memory (${scope}/${file}) — appended ${input.content.length} chars.`;
+    } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : String(e)}`;
+    }
+}
+
+export const MEMORY_SAVE_TOOL: SharedToolDefinition<MemorySaveInput> = {
+    name: 'tomAi_memory_save',
+    displayName: 'Memory — Save',
+    description: 'Append a fact to a memory file (or replace a named markdown section when `heading` is provided). Default file is `facts.md`. Scope is `quest` (default) or `shared`.',
+    tags: ['memory', 'tom-ai-chat'],
+    readOnly: false,
+    requiresApproval: true,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            scope: { type: 'string', enum: ['quest', 'shared'], description: 'Memory tier — quest (default) or shared.' },
+            file: { type: 'string', description: 'Memory file name within the scope (default: facts.md).' },
+            content: { type: 'string', description: 'Fact or section body to persist.' },
+            heading: { type: 'string', description: 'Optional markdown heading to replace. Omit to append at end.' },
+        },
+        required: ['content'],
+    },
+    execute: executeMemorySave,
+};
+
+export interface MemoryUpdateInput {
+    scope?: 'quest' | 'shared';
+    file: string;
+    heading: string;
+    content: string;
+}
+
+async function executeMemoryUpdate(input: MemoryUpdateInput): Promise<string> {
+    try {
+        const svc = TwoTierMemoryService.instance;
+        const scope = parseWriteScope(input.scope);
+        if (!input.file || !input.heading) {
+            return 'Error: file and heading are required.';
+        }
+        svc.replaceSection(scope, input.file, input.heading, input.content ?? '');
+        return `Memory (${scope}/${input.file}) — section "${input.heading}" updated.`;
+    } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : String(e)}`;
+    }
+}
+
+export const MEMORY_UPDATE_TOOL: SharedToolDefinition<MemoryUpdateInput> = {
+    name: 'tomAi_memory_update',
+    displayName: 'Memory — Update section',
+    description: 'Replace the content under a named markdown heading in a memory file. If the heading does not exist yet it is appended.',
+    tags: ['memory', 'tom-ai-chat'],
+    readOnly: false,
+    requiresApproval: true,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            scope: { type: 'string', enum: ['quest', 'shared'] },
+            file: { type: 'string', description: 'Memory file name within the scope.' },
+            heading: { type: 'string', description: 'Markdown heading text to target (without the leading #).' },
+            content: { type: 'string', description: 'New content for the section.' },
+        },
+        required: ['file', 'heading', 'content'],
+    },
+    execute: executeMemoryUpdate,
+};
+
+export interface MemoryForgetInput {
+    scope?: 'quest' | 'shared';
+    file: string;
+    heading?: string;
+}
+
+async function executeMemoryForget(input: MemoryForgetInput): Promise<string> {
+    try {
+        const svc = TwoTierMemoryService.instance;
+        const scope = parseWriteScope(input.scope);
+        if (!input.file) {
+            return 'Error: file is required.';
+        }
+        if (input.heading) {
+            svc.replaceSection(scope, input.file, input.heading, '');
+            return `Memory (${scope}/${input.file}) — section "${input.heading}" cleared.`;
+        }
+        svc.delete(scope, input.file);
+        return `Memory (${scope}/${input.file}) — file deleted.`;
+    } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : String(e)}`;
+    }
+}
+
+export const MEMORY_FORGET_TOOL: SharedToolDefinition<MemoryForgetInput> = {
+    name: 'tomAi_memory_forget',
+    displayName: 'Memory — Forget',
+    description: 'Delete an entire memory file, or clear the content under a named markdown heading when `heading` is provided.',
+    tags: ['memory', 'tom-ai-chat'],
+    readOnly: false,
+    requiresApproval: true,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            scope: { type: 'string', enum: ['quest', 'shared'] },
+            file: { type: 'string', description: 'Memory file name within the scope.' },
+            heading: { type: 'string', description: 'Optional heading to clear instead of deleting the whole file.' },
+        },
+        required: ['file'],
+    },
+    execute: executeMemoryForget,
+};
+
+export interface MemoryReadInput {
+    scope?: 'quest' | 'shared' | 'all';
+    file?: string;
+}
+
+async function executeMemoryRead(input: MemoryReadInput): Promise<string> {
+    try {
+        const svc = TwoTierMemoryService.instance;
+        const scope = parseReadScope(input.scope);
+        if (input.file) {
+            if (scope === 'all') {
+                const shared = svc.read('shared', input.file);
+                const quest = svc.read('quest', input.file);
+                const parts: string[] = [];
+                if (shared) parts.push(`### shared/${input.file}\n${shared.trimEnd()}`);
+                if (quest)  parts.push(`### quest/${input.file}\n${quest.trimEnd()}`);
+                return parts.length > 0 ? parts.join('\n\n') : '(empty)';
+            }
+            const body = svc.read(scope, input.file);
+            return body ? body : '(empty)';
+        }
+        const body = svc.readAll(scope);
+        return body || '(no memory files in scope)';
+    } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : String(e)}`;
+    }
+}
+
+export const MEMORY_READ_TOOL: SharedToolDefinition<MemoryReadInput> = {
+    name: 'tomAi_memory_read',
+    displayName: 'Memory — Read',
+    description: 'Read memory contents. Omit `file` to get the concatenated contents of all files in the scope. Scope is `quest` (default), `shared`, or `all`.',
+    tags: ['memory', 'tom-ai-chat'],
+    readOnly: true,
+    requiresApproval: false,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            scope: { type: 'string', enum: ['quest', 'shared', 'all'] },
+            file: { type: 'string', description: 'Optional file name within the scope.' },
+        },
+    },
+    execute: executeMemoryRead,
+};
+
+export interface MemoryListInput {
+    scope?: 'quest' | 'shared' | 'all';
+}
+
+async function executeMemoryList(input: MemoryListInput): Promise<string> {
+    try {
+        const svc = TwoTierMemoryService.instance;
+        const scope = parseReadScope(input.scope);
+        const scopes: MemoryScope[] = scope === 'all' ? ['shared', 'quest'] : [scope];
+        const lines: string[] = [];
+        for (const tier of scopes) {
+            const files = svc.list(tier);
+            if (files.length === 0) {
+                lines.push(`(${tier}) (empty)`);
+            } else {
+                for (const f of files) {
+                    lines.push(`${tier}/${f}`);
+                }
+            }
+        }
+        return lines.join('\n');
+    } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : String(e)}`;
+    }
+}
+
+export const MEMORY_LIST_TOOL: SharedToolDefinition<MemoryListInput> = {
+    name: 'tomAi_memory_list',
+    displayName: 'Memory — List',
+    description: 'List memory files in the given scope. Scope is `quest` (default), `shared`, or `all`.',
+    tags: ['memory', 'tom-ai-chat'],
+    readOnly: true,
+    requiresApproval: false,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            scope: { type: 'string', enum: ['quest', 'shared', 'all'] },
+        },
+    },
+    execute: executeMemoryList,
+};
+
+// ============================================================================
 // Master registry — all shared tools in one array
 // ============================================================================
 
@@ -1419,6 +1652,12 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
     // Chat variable tools (anthropic_sdk_integration §8.5)
     CHATVAR_READ_TOOL,
     CHATVAR_WRITE_TOOL,
+    // Memory tools (anthropic_sdk_integration §8.2)
+    MEMORY_SAVE_TOOL,
+    MEMORY_UPDATE_TOOL,
+    MEMORY_FORGET_TOOL,
+    MEMORY_READ_TOOL,
+    MEMORY_LIST_TOOL,
 ];
 
 /**

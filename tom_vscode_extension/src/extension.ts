@@ -100,6 +100,8 @@ import { initializeToolDescriptions } from './tools/tool-executors';
 // Chat Enhancement stores & managers
 import { ChatVariablesStore } from './managers/chatVariablesStore';
 import { AnthropicHandler } from './handlers/anthropic-handler';
+import { TwoTierMemoryService } from './services/memory-service';
+import { registerMemoryPanelCommand } from './handlers/memoryPanel-handler';
 import { SessionTodoStore } from './managers/sessionTodoStore';
 import { PromptQueueManager } from './managers/promptQueueManager';
 import { TimerEngine } from './managers/timerEngine';
@@ -543,6 +545,12 @@ export async function activate(context: vscode.ExtensionContext) {
     stepStart = performance.now();
     AnthropicHandler.init(context);
     timeStep('anthropicHandler', stepStart);
+
+    // Memory service + panel (Phase 3 of anthropic_sdk_integration)
+    stepStart = performance.now();
+    TwoTierMemoryService.init(context);
+    registerMemoryPanelCommand(context);
+    timeStep('memoryServiceAndPanel', stepStart);
 
     // Initialize Queue & Automation (§3.2–§3.4)
     stepStart = performance.now();

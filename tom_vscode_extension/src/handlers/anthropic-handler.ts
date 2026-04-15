@@ -21,6 +21,12 @@ import {
 import { TrailService } from '../services/trailService';
 import { ToolTrail } from '../services/tool-trail';
 import { runWithToolContext } from '../services/tool-execution-context';
+import {
+    compactHistory,
+    ConversationMessage,
+    HistoryMode,
+} from '../services/history-compaction';
+import { TwoTierMemoryService } from '../services/memory-service';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 import { WsPaths } from '../utils/workspacePaths';
 import { resolveVariables } from '../utils/variableResolver';
@@ -121,6 +127,12 @@ export class AnthropicHandler {
     private roundCounter = 0;
     private sessionApprovals = new Set<string>();
     private readonly pendingApprovals = new Map<string, (approved: boolean) => void>();
+    /**
+     * Rolling conversation history kept across `sendMessage()` calls,
+     * compacted after each exchange per the configuration's `historyMode`.
+     * Phase 3.5 introduces this — Phase 1 treated each call as stateless.
+     */
+    private history: ConversationMessage[] = [];
 
     private readonly _onApprovalNeeded = new vscode.EventEmitter<AnthropicToolApprovalRequest>();
     /**
@@ -155,6 +167,19 @@ export class AnthropicHandler {
         } catch {
             // ignore — getClient already returns undefined when env var missing
         }
+    }
+
+    /** Clear all in-session state (rolling history, tool trail, session-mode approvals). */
+    clearSession(): void {
+        this.history = [];
+        this.toolTrail.clear();
+        this.sessionApprovals.clear();
+        this.roundCounter = 0;
+    }
+
+    /** Returns a shallow copy of the current rolling history (for diagnostics / tests). */
+    getHistory(): ConversationMessage[] {
+        return [...this.history];
     }
 
     /**
@@ -268,6 +293,12 @@ export class AnthropicHandler {
 
         const anthropicTools = toAnthropicTools(tools);
         const messages: AnthropicMessageParam[] = [
+            // Rolling history from prior exchanges — compacted per-turn
+            // by the handler's post-exchange `compactHistory()` call.
+            ...this.history.map((m) => ({
+                role: m.role === 'system' ? 'user' : m.role as 'user' | 'assistant',
+                content: m.content,
+            })),
             { role: 'user', content: userContent },
         ];
 
@@ -294,7 +325,7 @@ export class AnthropicHandler {
             lastText = this.extractText(response.content) || lastText;
 
             if (response.stop_reason !== 'tool_use') {
-                return this.finalize(lastText, turn + 1, totalToolCalls, lastStopReason, windowId, requestId, quest);
+                return this.finalize(userContent, lastText, turn + 1, totalToolCalls, lastStopReason, windowId, requestId, quest, configuration);
             }
 
             messages.push({ role: 'assistant', content: response.content });
@@ -321,15 +352,18 @@ export class AnthropicHandler {
             messages.push({ role: 'user', content: toolResults });
         }
 
-        return this.finalize(lastText, configuration.maxRounds, totalToolCalls, lastStopReason, windowId, requestId, quest);
+        return this.finalize(userContent, lastText, configuration.maxRounds, totalToolCalls, lastStopReason, windowId, requestId, quest, configuration);
     }
 
     /**
      * Shared exit path: write the answer trail, evict old tool-trail
-     * rounds, and return the result. Used by both the normal-stop and
-     * max-rounds branches so each exchange always closes the same way.
+     * rounds, append the exchange to the rolling session history, fire a
+     * background compaction pass (spec §12.1 — "async, non-blocking"),
+     * and return the result. Every `sendMessage()` exit funnels through
+     * here so history accumulation and trail writes stay in lockstep.
      */
     private finalize(
+        userContent: string,
         text: string,
         turnsUsed: number,
         toolCallCount: number,
@@ -337,6 +371,7 @@ export class AnthropicHandler {
         windowId: string,
         requestId: string,
         quest: string,
+        configuration: AnthropicConfiguration,
     ): AnthropicSendResult {
         TrailService.instance.writeRawAnswer(
             { type: 'anthropic' },
@@ -346,7 +381,52 @@ export class AnthropicHandler {
             quest,
         );
         this.toolTrail.evictOldRounds();
+
+        // Accumulate this exchange into the rolling history, then
+        // compact it asynchronously for the next turn.
+        this.history.push({ role: 'user', content: userContent });
+        this.history.push({ role: 'assistant', content: text });
+        void this.compactHistoryAsync(configuration);
+
         return { text, turnsUsed, toolCallCount, stopReason };
+    }
+
+    /**
+     * Fire-and-forget: compact the rolling history per the configuration's
+     * `historyMode` and reassign `this.history`. Errors are swallowed so a
+     * failed compaction can never corrupt the user-visible result.
+     */
+    private async compactHistoryAsync(configuration: AnthropicConfiguration): Promise<void> {
+        try {
+            const mode = (configuration.historyMode as HistoryMode | undefined) ?? 'last';
+            const section = TomAiConfiguration.instance.getSection<{
+                llmProvider?: 'localLlm' | 'anthropic';
+                llmConfigId?: string;
+                compactionTemplateId?: string;
+                memoryExtractionTemplateId?: string;
+                compactionMaxRounds?: number;
+            }>('compaction') ?? {};
+            const snapshot = [...this.history];
+            const compacted = await compactHistory(snapshot, {
+                mode,
+                maxHistoryTokens: configuration.maxHistoryTokens,
+                maxRounds: 1,
+                llmProvider: section.llmProvider ?? 'anthropic',
+                llmConfigId: section.llmConfigId ?? configuration.id,
+                compactionTemplateId: section.compactionTemplateId,
+                memoryTemplateId: configuration.memoryExtractionTemplateId ?? section.memoryExtractionTemplateId,
+                compactionMaxRounds: section.compactionMaxRounds ?? 1,
+                memoryPath: TwoTierMemoryService.instance.memoryRoot(),
+                questId: TwoTierMemoryService.instance.currentQuest(),
+            });
+            // Only adopt the result if the history hasn't been mutated
+            // in the meantime (e.g. by a concurrent sendMessage call).
+            if (this.history.length === snapshot.length) {
+                this.history = compacted;
+            }
+        } catch {
+            // Swallow — compaction is best-effort background work.
+        }
     }
 
     // ------------------------------------------------------------------------
