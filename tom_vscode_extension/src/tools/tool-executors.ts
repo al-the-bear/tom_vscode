@@ -13,7 +13,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as http from 'http';
 import * as https from 'https';
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
 import { resolvePathVariables } from '../handlers/handler_shared.js';
 import { SharedToolDefinition } from './shared-tool-registry';
@@ -34,6 +34,7 @@ import { TwoTierMemoryService, MemoryScope, MemoryReadScope } from '../services/
 import { WsPaths } from '../utils/workspacePaths';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 // ============================================================================
 // Helpers
@@ -664,6 +665,135 @@ export const RUN_VSCODE_COMMAND_TOOL: SharedToolDefinition<RunVscodeCommandInput
         required: ['command'],
     },
     execute: executeRunVscodeCommand,
+};
+
+// --- git ---------------------------------------------------------------------
+
+export interface GitInput {
+    subcommand: 'status' | 'diff' | 'log' | 'blame';
+    args?: string[];
+}
+
+const ALLOWED_GIT_SUBCOMMANDS = new Set(['status', 'diff', 'log', 'blame']);
+
+async function executeGit(input: GitInput): Promise<string> {
+    const sub = (input.subcommand || '').toString();
+    if (!ALLOWED_GIT_SUBCOMMANDS.has(sub)) {
+        return `Error: subcommand must be one of status, diff, log, blame.`;
+    }
+    const args = Array.isArray(input.args)
+        ? input.args.filter((a): a is string => typeof a === 'string')
+        : [];
+    const cwd = getWorkspaceRoot();
+    try {
+        const { stdout, stderr } = await execFileAsync('git', [sub, ...args], {
+            cwd,
+            maxBuffer: 4 * 1024 * 1024,
+        });
+        return stdout || stderr || '(no output)';
+    } catch (error: any) {
+        const stderr = error?.stderr ? `\n${error.stderr}` : '';
+        return `Error: ${error?.message ?? String(error)}${stderr}`;
+    }
+}
+
+export const GIT_TOOL: SharedToolDefinition<GitInput> = {
+    name: 'tomAi_git',
+    displayName: 'Git',
+    description: 'Run a structured read-only git command (status, diff, log, blame) and return its output.',
+    tags: ['git', 'tom-ai-chat'],
+    readOnly: true,
+    requiresApproval: false,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            subcommand: {
+                type: 'string',
+                enum: ['status', 'diff', 'log', 'blame'],
+                description: 'Git subcommand to run.',
+            },
+            args: {
+                type: 'array',
+                description: 'Optional arguments appended after the subcommand (e.g. ["--stat"], ["-n","20"]).',
+                items: { type: 'string' },
+            },
+        },
+        required: ['subcommand'],
+    },
+    execute: executeGit,
+};
+
+// --- delete_file -------------------------------------------------------------
+
+export interface DeleteFileInput { path: string }
+
+async function executeDeleteFile(input: DeleteFileInput): Promise<string> {
+    if (!input?.path) { return 'Error: path is required.'; }
+    const resolved = resolvePath(input.path);
+    if (!isInsideWorkspace(resolved)) {
+        return `Error: path is outside workspace.`;
+    }
+    try {
+        await fs.promises.unlink(resolved);
+        return `Deleted: ${resolved}`;
+    } catch (error: any) {
+        return `Error: ${error?.message ?? String(error)}`;
+    }
+}
+
+export const DELETE_FILE_TOOL: SharedToolDefinition<DeleteFileInput> = {
+    name: 'tomAi_deleteFile',
+    displayName: 'Delete File',
+    description: 'Delete a file from the workspace. Requires user approval.',
+    tags: ['files', 'tom-ai-chat'],
+    readOnly: false,
+    requiresApproval: true,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            path: { type: 'string', description: 'Workspace-relative or absolute path of the file to delete.' },
+        },
+        required: ['path'],
+    },
+    execute: executeDeleteFile,
+};
+
+// --- move_file ---------------------------------------------------------------
+
+export interface MoveFileInput { from: string; to: string }
+
+async function executeMoveFile(input: MoveFileInput): Promise<string> {
+    if (!input?.from || !input?.to) { return 'Error: from and to are required.'; }
+    const fromResolved = resolvePath(input.from);
+    const toResolved = resolvePath(input.to);
+    if (!isInsideWorkspace(fromResolved) || !isInsideWorkspace(toResolved)) {
+        return `Error: paths must be inside the workspace.`;
+    }
+    try {
+        await fs.promises.mkdir(path.dirname(toResolved), { recursive: true });
+        await fs.promises.rename(fromResolved, toResolved);
+        return `Moved: ${fromResolved} → ${toResolved}`;
+    } catch (error: any) {
+        return `Error: ${error?.message ?? String(error)}`;
+    }
+}
+
+export const MOVE_FILE_TOOL: SharedToolDefinition<MoveFileInput> = {
+    name: 'tomAi_moveFile',
+    displayName: 'Move/Rename File',
+    description: 'Move or rename a file within the workspace. Requires user approval.',
+    tags: ['files', 'tom-ai-chat'],
+    readOnly: false,
+    requiresApproval: true,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            from: { type: 'string', description: 'Source path (workspace-relative or absolute).' },
+            to: { type: 'string', description: 'Destination path (workspace-relative or absolute).' },
+        },
+        required: ['from', 'to'],
+    },
+    execute: executeMoveFile,
 };
 
 // ============================================================================
@@ -1646,6 +1776,9 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
     MULTI_EDIT_FILE_TOOL,
     RUN_COMMAND_TOOL,
     RUN_VSCODE_COMMAND_TOOL,
+    GIT_TOOL,
+    DELETE_FILE_TOOL,
+    MOVE_FILE_TOOL,
     MANAGE_TODO_TOOL,
     // Chat-enhancement tools (§1.1–§1.4)
     ...CHAT_ENHANCEMENT_TOOLS,

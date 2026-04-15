@@ -1,0 +1,275 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "tom_vscode_extension.schema.json",
+    "title": "Tom VS Code Extension Configuration",
+    "description": "User configuration for the Tom VS Code extension. Covers anthropic, compaction, memory, and trail subsystems (anthropic_sdk_integration.md §14).",
+    "type": "object",
+    "properties": {
+        "anthropic": {
+            "type": "object",
+            "description": "Anthropic SDK integration (anthropic_sdk_integration.md §14).",
+            "properties": {
+                "apiKeyEnvVar": {
+                    "type": "string",
+                    "default": "ANTHROPIC_API_KEY",
+                    "description": "Environment variable name from which the Anthropic API key is read at runtime. No key material is stored in this file."
+                },
+                "configurations": {
+                    "type": "array",
+                    "description": "Named Anthropic configurations selectable in the ANTHROPIC panel section.",
+                    "items": { "$ref": "#/definitions/anthropicConfiguration" }
+                },
+                "profiles": {
+                    "type": "array",
+                    "description": "System-prompt profiles. A profile binds a system prompt to a configuration.",
+                    "items": { "$ref": "#/definitions/anthropicProfile" }
+                },
+                "userMessageTemplates": {
+                    "type": "array",
+                    "description": "Optional user-message templates (anthropicUserMessage category).",
+                    "items": { "$ref": "#/definitions/userMessageTemplate" }
+                },
+                "memory": { "$ref": "#/definitions/anthropicMemory" }
+            },
+            "additionalProperties": true
+        },
+        "compaction": {
+            "type": "object",
+            "description": "History compaction settings (anthropic_sdk_integration.md §6, §10, §14).",
+            "properties": {
+                "llmProvider": {
+                    "type": "string",
+                    "enum": ["localLlm", "anthropic"],
+                    "default": "localLlm",
+                    "description": "Which provider runs the compaction LLM."
+                },
+                "llmConfigId": {
+                    "type": "string",
+                    "description": "Configuration id within the selected provider."
+                },
+                "compactionTemplateId": {
+                    "type": "string",
+                    "description": "Active 'compaction' template id (managed via Global Template Editor)."
+                },
+                "memoryExtractionTemplateId": {
+                    "type": "string",
+                    "description": "Active 'memoryExtraction' template id (managed via Global Template Editor)."
+                },
+                "enabledTools": {
+                    "type": "array",
+                    "description": "Restricted tool set for the compaction pass (Local LLM only).",
+                    "items": { "type": "string" },
+                    "default": [
+                        "tomAi_readFile", "tomAi_listDirectory",
+                        "tomAi_findFiles", "tomAi_findTextInFiles", "tomAi_getErrors"
+                    ]
+                },
+                "compactionMaxRounds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "default": 1,
+                    "description": "Maximum tool-call rounds during a single compaction pass."
+                },
+                "maxHistoryTokens": {
+                    "type": "integer",
+                    "minimum": 1000,
+                    "default": 8000,
+                    "description": "Token budget for trim_and_summary modes."
+                },
+                "toolTrailMaxResultChars": {
+                    "type": "integer",
+                    "minimum": 100,
+                    "default": 500,
+                    "description": "Per tool-result truncation when included in the tool trail summary."
+                },
+                "toolTrailKeepRounds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "default": 2,
+                    "description": "Number of recent rounds kept full in the tool trail."
+                },
+                "backgroundExtractionEnabled": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Enable implicit llm_extract memory writes after each turn."
+                },
+                "templates": {
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/compactionTemplate" }
+                },
+                "memoryExtractionTemplates": {
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/memoryExtractionTemplate" }
+                }
+            },
+            "additionalProperties": true
+        },
+        "memory": {
+            "type": "object",
+            "description": "Two-tier memory system settings (anthropic_sdk_integration.md §5, §14).",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Master switch for the memory subsystem."
+                },
+                "path": {
+                    "type": "string",
+                    "default": "_ai/memory",
+                    "description": "Workspace-relative root directory for memory files."
+                },
+                "injectIntoSystemPrompt": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Whether memory contents are injected into the Anthropic system prompt."
+                },
+                "maxInjectedTokens": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "default": 3000,
+                    "description": "Token cap for memory injection."
+                },
+                "keywordTriggers": {
+                    "type": "object",
+                    "properties": {
+                        "remember": { "type": "boolean", "default": true },
+                        "forget": { "type": "boolean", "default": true }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "additionalProperties": true
+        },
+        "tomAi.trail.raw": {
+            "type": "object",
+            "description": "Raw trail subsystem configuration (anthropic_sdk_integration.md §4, §14).",
+            "properties": {
+                "enabled": { "type": "boolean", "default": true },
+                "maxEntries": { "type": "integer", "minimum": 1, "default": 1000 },
+                "stripThinking": { "type": "boolean", "default": false },
+                "paths": {
+                    "type": "object",
+                    "properties": {
+                        "localLlm": { "type": "string", "default": "${ai}/trail/localllm/${quest}" },
+                        "copilot": { "type": "string", "default": "${ai}/trail/copilot/${quest}" },
+                        "lmApi": { "type": "string", "default": "${ai}/trail/lm-api/${quest}" },
+                        "anthropic": { "type": "string", "default": "${ai}/trail/anthropic/${quest}" }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "additionalProperties": true
+        }
+    },
+    "additionalProperties": true,
+    "definitions": {
+        "anthropicConfiguration": {
+            "type": "object",
+            "required": ["id", "name", "model"],
+            "properties": {
+                "id": { "type": "string", "description": "Stable identifier for cross-references." },
+                "name": { "type": "string", "description": "Human label shown in dropdowns." },
+                "model": { "type": "string", "description": "Anthropic model id (e.g. claude-sonnet-4-6)." },
+                "maxTokens": { "type": "integer", "minimum": 1, "default": 8192 },
+                "temperature": { "type": "number", "minimum": 0, "maximum": 2 },
+                "enabledTools": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Tool names exposed to the model for this configuration."
+                },
+                "memoryToolsEnabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Expose memory read/write tools to the model."
+                },
+                "historyMode": {
+                    "type": "string",
+                    "enum": ["last", "all", "summary", "trim_and_summary", "llm_extract"],
+                    "default": "last"
+                },
+                "maxHistoryTokens": { "type": "integer", "minimum": 0 },
+                "maxRounds": { "type": "integer", "minimum": 1, "default": 10 },
+                "toolApprovalMode": {
+                    "type": "string",
+                    "enum": ["always", "session", "never"],
+                    "default": "always"
+                },
+                "memoryExtractionTemplateId": { "type": "string" },
+                "promptCachingEnabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Send the system prompt as cache_control blocks for prompt caching (anthropic_sdk_integration.md §16)."
+                },
+                "isDefault": { "type": "boolean", "default": false }
+            }
+        },
+        "anthropicProfile": {
+            "type": "object",
+            "required": ["id", "name", "systemPrompt"],
+            "properties": {
+                "id": { "type": "string" },
+                "name": { "type": "string" },
+                "description": { "type": "string" },
+                "systemPrompt": { "type": ["string", "null"] },
+                "configurationId": { "type": "string", "description": "Default configuration id for this profile." },
+                "toolsEnabled": { "type": "boolean" },
+                "maxRounds": { "type": "integer", "minimum": 1 },
+                "historyMode": { "type": ["string", "null"] },
+                "isDefault": { "type": "boolean" }
+            }
+        },
+        "userMessageTemplate": {
+            "type": "object",
+            "required": ["id", "name", "template"],
+            "properties": {
+                "id": { "type": "string" },
+                "name": { "type": "string" },
+                "description": { "type": "string" },
+                "template": { "type": "string", "description": "Supports ${userMessage} and other resolver placeholders." },
+                "isDefault": { "type": "boolean" }
+            }
+        },
+        "anthropicMemory": {
+            "type": "object",
+            "description": "Cross-config memory defaults applied when a configuration does not override them.",
+            "properties": {
+                "memoryToolsEnabled": { "type": "boolean" },
+                "memoryExtractionTemplateId": { "type": "string" },
+                "autoExtractMode": {
+                    "type": "string",
+                    "enum": ["never", "summary", "trim_and_summary", "llm_extract", "all"]
+                },
+                "maxInjectedTokens": { "type": "integer", "minimum": 0 }
+            }
+        },
+        "compactionTemplate": {
+            "type": "object",
+            "required": ["id", "name", "template", "targetMode"],
+            "properties": {
+                "id": { "type": "string" },
+                "name": { "type": "string" },
+                "description": { "type": "string" },
+                "template": { "type": "string" },
+                "targetMode": {
+                    "type": "string",
+                    "enum": ["all", "summary", "trim_and_summary", "llm_extract"]
+                }
+            }
+        },
+        "memoryExtractionTemplate": {
+            "type": "object",
+            "required": ["id", "name", "template", "targetFile", "scope"],
+            "properties": {
+                "id": { "type": "string" },
+                "name": { "type": "string" },
+                "description": { "type": "string" },
+                "template": { "type": "string" },
+                "targetFile": { "type": "string", "description": "File name within the chosen scope (e.g. facts.md)." },
+                "scope": {
+                    "type": "string",
+                    "enum": ["quest", "shared", "both"]
+                }
+            }
+        }
+    }
+}

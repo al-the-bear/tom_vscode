@@ -798,6 +798,13 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             anthropicApiKeyOk,
             defaultCopilotTemplate: config?.copilot?.defaultTemplate || '',
         });
+        // §11.4: dedicated anthropicProfiles message for downstream consumers
+        // that subscribe to the typed Anthropic message stream.
+        this._view?.webview.postMessage({
+            type: 'anthropicProfiles',
+            profiles: anthropicProfiles.map((id) => ({ id })),
+            configurations: anthropicConfigurations.map((c) => ({ id: c.id, name: c.name })),
+        });
     }
 
     private _getGlobalPromptsDir(): string | null {
@@ -1605,6 +1612,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 text: result.text,
                 turnsUsed: result.turnsUsed,
                 toolCallCount: result.toolCallCount,
+                historyMode: cfg.historyMode || '',
             });
         } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
@@ -2717,6 +2725,8 @@ var anthropicConfigurations = [];
 var anthropicModels = [];
 var anthropicApiKeyOk = false;
 var anthropicSending = false;
+var anthropicSessionTurns = 0;
+var anthropicLastToolCalls = 0;
 var pendingAnthropicApprovals = {};
 var defaultCopilotTemplate = '';
 var reusablePromptModel = { scopes: { project: [], quest: [], scan: [] }, files: { global: [], project: {}, quest: {}, scan: {} } };
@@ -3295,7 +3305,7 @@ function handleAction(action, id, slot) {
         case 'openReusablePromptEditor': vscode.postMessage({ type: 'openReusablePromptEditor' }); break;
         case 'openContextSettingsEditor': vscode.postMessage({ type: 'openContextSettingsEditor' }); break;
         case 'refreshAnthropicModels': vscode.postMessage({ type: 'refreshAnthropicModels' }); break;
-        case 'clearAnthropicHistory': vscode.postMessage({ type: 'clearAnthropicHistory' }); _anthropicSessionDeny = {}; setAnthropicStatus('History cleared'); break;
+        case 'clearAnthropicHistory': vscode.postMessage({ type: 'clearAnthropicHistory' }); _anthropicSessionDeny = {}; anthropicSessionTurns = 0; anthropicLastToolCalls = 0; setAnthropicStatus('History cleared'); break;
         case 'openAnthropicMemory': vscode.postMessage({ type: 'openAnthropicMemory' }); break;
         case 'anthropicApprovalApprove': resolveAnthropicApproval(true, false); break;
         case 'anthropicApprovalApproveAll': resolveAnthropicApproval(true, true); break;
@@ -3441,6 +3451,23 @@ function updateAnthropicSendButton() {
 function setAnthropicStatus(text) {
     var el = document.getElementById('anthropic-status');
     if (el) el.textContent = text || '';
+}
+
+function buildAnthropicStatusLine(historyMode) {
+    var modelEl = document.getElementById('anthropic-model');
+    var modelName = modelEl ? modelEl.value : '';
+    if (!historyMode) {
+        var cfgSel = document.getElementById('anthropic-config');
+        var cfgId = cfgSel ? cfgSel.value : '';
+        var cfg = (anthropicConfigurations || []).find(function(c) { return c.id === cfgId; });
+        historyMode = cfg && cfg.historyMode ? cfg.historyMode : '';
+    }
+    var parts = [];
+    if (modelName) parts.push(modelName);
+    if (historyMode) parts.push(historyMode);
+    parts.push('last ' + anthropicLastToolCalls + ' tool calls');
+    parts.push(anthropicSessionTurns + ' session turns');
+    return parts.join(' · ');
 }
 
 function ensureReusablePromptState(sectionId) {
@@ -3618,13 +3645,9 @@ window.addEventListener('message', function(e) {
     } else if (msg.type === 'anthropicResult') {
         anthropicSending = false;
         updateAnthropicSendButton();
-        var modelEl = document.getElementById('anthropic-model');
-        var modelName = modelEl ? modelEl.value : '';
-        var parts = [];
-        if (modelName) parts.push(modelName);
-        parts.push('turns: ' + (msg.turnsUsed || 0));
-        parts.push('tool calls: ' + (msg.toolCallCount || 0));
-        setAnthropicStatus(parts.join(' · '));
+        anthropicSessionTurns += 1;
+        anthropicLastToolCalls = msg.toolCallCount || 0;
+        setAnthropicStatus(buildAnthropicStatusLine(msg.historyMode || ''));
     } else if (msg.type === 'anthropicError') {
         anthropicSending = false;
         updateAnthropicSendButton();

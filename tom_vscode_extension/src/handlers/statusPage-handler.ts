@@ -108,6 +108,9 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_multiEditFile',
     'tomAi_runCommand',
     'tomAi_runVscodeCommand',
+    'tomAi_git',
+    'tomAi_deleteFile',
+    'tomAi_moveFile',
     'tomAi_manageTodo',
     'tomAi_notifyUser',
     'tomAi_getWorkspaceInfo',
@@ -1660,9 +1663,9 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
                 </select>
                 <label>Config:</label>
                 <select id="sp-comp-llmConfigId">
-                    <option value="">(default)</option>
-                    ${status.configurations.map(c => `<option value="${c.id}" ${c.id === status.compaction.llmConfigId ? 'selected' : ''}>LL: ${escapeHtmlContent(c.name)}</option>`).join('')}
-                    ${status.anthropicConfigurationChoices.map(c => `<option value="${c.id}" ${c.id === status.compaction.llmConfigId ? 'selected' : ''}>AT: ${escapeHtmlContent(c.name)}</option>`).join('')}
+                    <option value="" data-provider="">(default)</option>
+                    ${status.configurations.map(c => `<option value="${c.id}" data-provider="localLlm" ${status.compaction.llmProvider === 'localLlm' && c.id === status.compaction.llmConfigId ? 'selected' : ''}>${escapeHtmlContent(c.name)}</option>`).join('')}
+                    ${status.anthropicConfigurationChoices.map(c => `<option value="${c.id}" data-provider="anthropic" ${status.compaction.llmProvider === 'anthropic' && c.id === status.compaction.llmConfigId ? 'selected' : ''}>${escapeHtmlContent(c.name)}</option>`).join('')}
                 </select>
             </div>
             <div class="sp-settings-row">
@@ -2199,6 +2202,39 @@ function attachStatusPanelListeners(skipEditorInit) {
             vscode.postMessage({ type: 'statusAction', action: action, value: el.value });
         });
     });
+
+    var compProviderSel = document.getElementById('sp-comp-llmProvider');
+    var compConfigSel = document.getElementById('sp-comp-llmConfigId');
+    if (compProviderSel && compConfigSel && !compProviderSel.dataset.spProviderBound) {
+        compProviderSel.dataset.spProviderBound = '1';
+        var filterCompConfig = function() {
+            var p = compProviderSel.value || 'localLlm';
+            var firstVisibleValue = '';
+            Array.prototype.forEach.call(compConfigSel.options, function(opt) {
+                var dp = opt.getAttribute('data-provider') || '';
+                var visible = (dp === '' || dp === p);
+                opt.hidden = !visible;
+                opt.disabled = !visible;
+                if (visible && !firstVisibleValue && opt.value) firstVisibleValue = opt.value;
+            });
+            var current = compConfigSel.selectedOptions[0];
+            if (!current || current.disabled) {
+                compConfigSel.value = firstVisibleValue;
+            }
+            var toolSetBtn = document.querySelector('[data-status-action="editCompactionToolSet"]');
+            if (toolSetBtn) {
+                if (p === 'anthropic') {
+                    toolSetBtn.setAttribute('disabled', 'disabled');
+                    toolSetBtn.title = 'Anthropic uses configuration enabledTools';
+                } else {
+                    toolSetBtn.removeAttribute('disabled');
+                    toolSetBtn.title = '';
+                }
+            }
+        };
+        compProviderSel.addEventListener('change', filterCompConfig);
+        filterCompConfig();
+    }
 
     if (skipEditorInit) {
         return;

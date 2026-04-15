@@ -86,6 +86,7 @@ export interface AnthropicResultMessage extends WebviewMessage {
     text: string;
     turnsUsed: number;
     toolCallCount: number;
+    historyMode?: string;
 }
 
 export interface AnthropicErrorMessage extends WebviewMessage {

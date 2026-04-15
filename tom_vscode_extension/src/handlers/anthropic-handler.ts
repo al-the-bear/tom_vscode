@@ -353,7 +353,8 @@ export class AnthropicHandler {
         const { cleaned: keywordCleanedText } = this.applyKeywordTriggers(userText, quest);
         const effectiveUserText = keywordCleanedText.trim() || userText;
 
-        const systemPrompt = this.buildSystemPrompt(profile, quest);
+        const systemSegments = this.buildSystemSegments(profile, quest);
+        const systemPrompt = systemSegments.filter((s) => s).join('\n\n');
         const expandedUser = this.buildUserMessage({ ...options, userText: effectiveUserText });
         const trailLinePrefix = this.toolTrail.toSummaryString();
         const userContent = trailLinePrefix
@@ -379,7 +380,7 @@ export class AnthropicHandler {
             { role: 'user', content: userContent },
         ];
 
-        const systemParam = this.buildSystemParam(systemPrompt, configuration);
+        const systemParam = this.buildSystemParam(systemSegments, configuration);
         let totalToolCalls = 0;
         let lastText = '';
         let lastStopReason: string | undefined;
@@ -619,23 +620,37 @@ export class AnthropicHandler {
     }
 
     private buildSystemPrompt(profile: AnthropicProfile, questId?: string): string {
+        const segments = this.buildSystemSegments(profile, questId);
+        return segments.filter((s) => s).join('\n\n');
+    }
+
+    /**
+     * Return the system prompt as ordered segments — base profile first, then
+     * the memory injection (if enabled and non-empty). When `promptCachingEnabled`
+     * is on, `buildSystemParam` puts `cache_control` on the *last* segment so
+     * everything up to and including it becomes a cache checkpoint (per spec
+     * §5.2 / §16: "the memory injection block after Phase 3").
+     */
+    private buildSystemSegments(profile: AnthropicProfile, questId?: string): string[] {
+        const segments: string[] = [];
         const base = resolveVariables(profile.systemPrompt ?? '');
+        if (base) { segments.push(base); }
         const memorySection = TomAiConfiguration.instance.getSection<{
             enabled?: boolean;
             injectIntoSystemPrompt?: boolean;
             maxInjectedTokens?: number;
         }>('memory') ?? {};
         if (memorySection.enabled === false || memorySection.injectIntoSystemPrompt === false) {
-            return base;
+            return segments;
         }
         const injection = TwoTierMemoryService.instance.injectForSystemPrompt(
             memorySection.maxInjectedTokens,
             questId,
         );
-        if (!injection.text) {
-            return base;
+        if (injection.text) {
+            segments.push(injection.text);
         }
-        return base ? `${base}\n\n${injection.text}` : injection.text;
+        return segments;
     }
 
     /**
@@ -733,21 +748,25 @@ export class AnthropicHandler {
      * runtime regardless.
      */
     private buildSystemParam(
-        systemPrompt: string,
+        systemSegments: string[],
         configuration: AnthropicConfiguration,
     ): string | Anthropic.TextBlockParam[] {
-        if (!systemPrompt) {
+        const segments = systemSegments.filter((s) => typeof s === 'string' && s.length > 0);
+        if (segments.length === 0) {
             return '';
         }
-        if (configuration.promptCachingEnabled) {
-            const block = {
-                type: 'text' as const,
-                text: systemPrompt,
-                cache_control: { type: 'ephemeral' },
-            };
-            return [block as unknown as Anthropic.TextBlockParam];
+        if (!configuration.promptCachingEnabled) {
+            return segments.join('\n\n');
         }
-        return systemPrompt;
+        const blocks = segments.map((text, idx) => {
+            const isLast = idx === segments.length - 1;
+            const block: Record<string, unknown> = { type: 'text', text };
+            if (isLast) {
+                block.cache_control = { type: 'ephemeral' };
+            }
+            return block as unknown as Anthropic.TextBlockParam;
+        });
+        return blocks;
     }
 
     private extractText(content: AnthropicContentBlock[]): string {

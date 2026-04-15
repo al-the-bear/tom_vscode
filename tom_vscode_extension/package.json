@@ -2741,7 +2741,13 @@
                     "description": "Glob patterns excluded from full-workspace project detection scans."
                 }
             }
-        }
+        },
+        "jsonValidation": [
+            {
+                "fileMatch": "tom_vscode_extension.json",
+                "url": "./out/config/tom_vscode_extension.schema.json"
+            }
+        ]
     },
     "scripts": {
         "vscode:prepublish": "npm run compile",

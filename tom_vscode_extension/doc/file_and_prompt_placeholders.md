@@ -20,6 +20,7 @@ Primary categories:
 | `${vs-code-workspace-folder}` | Absolute path to the workspace root folder. | `/Users/.../tom_agent_container` |
 | `${workspaceFolder}` | Same as `vs-code-workspace-folder` (VS Code standard) | `/Users/.../tom_agent_container` |
 | `${workspace}` | Workspace display name from VS Code | `vscode_extension` |
+| `${userMessage}` | Raw user input. Resolves to the typed text inside `anthropicUserMessage` templates (anthropic_sdk_integration.md §7.3); empty string in every other template context. | `Refactor the auth middleware to drop the legacy session shim.` |
 
 ## Additional Placeholder Categories
 
