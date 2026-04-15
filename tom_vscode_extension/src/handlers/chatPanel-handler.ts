@@ -555,7 +555,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         await this._handleSendTomAiChat(message.text, message.template);
                         break;
                     case 'sendAnthropic':
-                        await this._handleSendAnthropic(message.text, message.profile, message.model, message.config);
+                        await this._handleSendAnthropic(message.text, message.profile, message.model, message.config, message.userMessageTemplate);
                         break;
                     case 'refreshAnthropicModels':
                         await this._sendAnthropicModels();
@@ -582,7 +582,13 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         this._sendReusablePrompts();
                         break;
                     case 'sendReusablePrompt':
-                        await this._sendReusablePrompt(message.reusableId);
+                        await this._sendReusablePrompt(message.reusableId, message.section);
+                        break;
+                    case 'editAnthropicProfile':
+                        await this._handleEditProfile('anthropic', message.name || '');
+                        break;
+                    case 'editAnthropicUserMessage':
+                        await this._handleEditAnthropicUserMessage(message.name || '');
                         break;
                     case 'loadReusablePromptContent':
                         this._loadReusablePromptContent(message.reusableId);
@@ -815,6 +821,11 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     model: typeof c.model === 'string' ? c.model : '',
                 }))
             : [];
+        const anthropicUserMessageTemplates = Array.isArray(config?.anthropic?.userMessageTemplates)
+            ? config!.anthropic!.userMessageTemplates!
+                .filter((t: any) => t && typeof t.id === 'string')
+                .map((t: any) => t.id)
+            : [];
         const envVar = config?.anthropic?.apiKeyEnvVar || 'ANTHROPIC_API_KEY';
         const anthropicApiKeyOk = !!process.env[envVar];
         // Spec §18.6: the 🤖 dot appears only when at least one
@@ -842,6 +853,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             configurations: this._getEffectiveLlmConfigurations(config),
             setups: this._getEffectiveAiConversationSetups(config),
             anthropicConfigurations,
+            anthropicUserMessageTemplates,
             anthropicApiKeyOk,
             claudeCliOk,
             claudeCliVisible: anyAgentSdkConfig,
@@ -1186,7 +1198,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         this._view?.webview.postMessage({ type: 'reusablePromptContent', reusableId, content });
     }
 
-    private async _sendReusablePrompt(reusableId: string): Promise<void> {
+    private async _sendReusablePrompt(reusableId: string, section?: string): Promise<void> {
         const parsed = this._parseReusablePromptId(reusableId);
         if (!parsed || !fs.existsSync(parsed.filePath)) {
             vscode.window.showWarningMessage('Reusable prompt file not found.');
@@ -1195,6 +1207,14 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         const content = fs.readFileSync(parsed.filePath, 'utf-8');
         if (!content.trim()) {
             vscode.window.showWarningMessage('Reusable prompt is empty.');
+            return;
+        }
+        // Route by originating section so the Send icon behaves like typing
+        // the reusable prompt into the section's textarea and clicking Send
+        // (spec: user expectation). Unknown / legacy sections fall back to
+        // Copilot for backwards compatibility.
+        if (section === 'anthropic') {
+            await this._handleSendAnthropic(content, '', '', '');
             return;
         }
         await this._handleSendCopilot(content, '__answer_file__', 1);
@@ -1591,7 +1611,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         });
     }
 
-    private async _handleSendAnthropic(text: string, profileId: string, modelId: string, configId: string): Promise<void> {
+    private async _handleSendAnthropic(text: string, profileId: string, modelId: string, configId: string, userMessageTemplateId?: string): Promise<void> {
         if (!text || !text.trim()) { return; }
         const config = loadSendToChatConfig();
         const profiles: AnthropicProfile[] = Array.isArray(config?.anthropic?.profiles)
@@ -1600,6 +1620,13 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         const configurations: AnthropicConfiguration[] = Array.isArray(config?.anthropic?.configurations)
             ? (config!.anthropic!.configurations! as AnthropicConfiguration[])
             : [];
+        const userMessageTemplates: Array<{ id: string; template: string; isDefault?: boolean }> = Array.isArray(config?.anthropic?.userMessageTemplates)
+            ? (config!.anthropic!.userMessageTemplates! as Array<{ id: string; template: string; isDefault?: boolean }>)
+            : [];
+        const userMessageTemplate = (userMessageTemplateId
+            ? userMessageTemplates.find((t) => t.id === userMessageTemplateId)?.template
+            : userMessageTemplates.find((t) => t.isDefault)?.template)
+            || undefined;
 
         let profile = profiles.find((p) => p.id === profileId)
             || profiles.find((p) => p.isDefault)
@@ -1655,6 +1682,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 profile,
                 configuration: cfg,
                 tools,
+                ...(userMessageTemplate ? { userMessageTemplate } : {}),
             });
             this._view?.webview.postMessage({
                 type: 'anthropicResult',
@@ -2505,16 +2533,23 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     }
 
     private async _handleEditProfile(section: string, name?: string): Promise<void> {
-        if (!name) { return; }
         const categoryMap: Record<string, TemplateCategory> = {
             localLlm: 'localLlm',
             conversation: 'conversation',
             anthropic: 'anthropicProfiles',
         };
         const category = categoryMap[section];
-        if (category) {
-            openGlobalTemplateEditor(this._context, { category, itemId: name });
-        }
+        if (!category) { return; }
+        // When no profile is selected, open the editor on the category
+        // root so the user can pick / add one. Previously returned early.
+        openGlobalTemplateEditor(this._context, { category, ...(name ? { itemId: name } : {}) });
+    }
+
+    private async _handleEditAnthropicUserMessage(name?: string): Promise<void> {
+        openGlobalTemplateEditor(this._context, {
+            category: 'anthropicUserMessage',
+            ...(name ? { itemId: name } : {}),
+        });
     }
 
     private async _handleDeleteProfile(section: string, name?: string): Promise<void> {
@@ -2771,6 +2806,7 @@ var profiles = { localLlm: [], conversation: [], copilot: [], tomAiChat: [], ant
 var configurations = [];
 var setups = [];
 var anthropicConfigurations = [];
+var anthropicUserMessageTemplates = [];
 var anthropicModels = [];
 var anthropicApiKeyOk = false;
 var claudeCliOk = null;      // null = probing, true/false = resolved (spec §18.6)
@@ -3100,15 +3136,21 @@ function getSectionContent(id) {
             selectorLabel: 'Profile',
             selectorOptions: '<option value="">(None)</option>',
             secondarySelectorHtml:
+                // Edit-profile icon sits immediately after the Profile
+                // dropdown — opens the Global Template Editor on the
+                // 'anthropicProfiles' category for the selected profile.
+                '<button class="icon-btn" data-action="editAnthropicProfile" data-id="anthropic" title="Edit Anthropic profile (system prompt)"><span class="codicon codicon-edit"></span></button>' +
                 '<label>Model:</label><select id="anthropic-model" style="width:60%" title="Models from Anthropic API"><option value="">(loading...)</option></select>' +
                 '<button class="icon-btn" data-action="refreshAnthropicModels" data-id="anthropic" title="Refresh models from API"><span class="codicon codicon-refresh"></span></button>' +
                 '<label>Config:</label><select id="anthropic-config" style="width:50%" title="Anthropic configuration"></select>' +
                 '<span id="anthropic-apikey-dot" class="api-status-dot" title="API key status" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--vscode-errorForeground);margin-left:6px;"></span>' +
-                '<span id="anthropic-claude-dot" class="api-status-dot" title="Claude Code install status (Agent SDK transport)" style="display:none;width:10px;height:10px;border-radius:50%;background:var(--vscode-errorForeground);margin-left:4px;"></span>',
-            manageButtons:
-                '<button class="icon-btn" data-action="addProfile" data-id="anthropic" title="Add Profile"><span class="codicon codicon-add"></span></button>' +
-                '<button class="icon-btn" data-action="editProfile" data-id="anthropic" title="Edit Profile"><span class="codicon codicon-edit"></span></button>' +
-                '<button class="icon-btn danger" data-action="deleteProfile" data-id="anthropic" title="Delete Profile"><span class="codicon codicon-trash"></span></button>',
+                '<span id="anthropic-claude-dot" class="api-status-dot" title="Claude Code install status (Agent SDK transport)" style="display:none;width:10px;height:10px;border-radius:50%;background:var(--vscode-errorForeground);margin-left:4px;"></span>' +
+                // User-message template dropdown + inline edit icon (§7.3)
+                '<label>User Prompt:</label><select id="anthropic-userMessage" style="width:40%" title="Anthropic user-message template"><option value="">(None)</option></select>' +
+                '<button class="icon-btn" data-action="editAnthropicUserMessage" data-id="anthropic" title="Edit Anthropic user-message template"><span class="codicon codicon-edit"></span></button>',
+            // Intentionally empty: add/delete for profiles and user-message
+            // templates is done inside the Global Template Editor, not here.
+            manageButtons: '',
             actionButtons:
                 '<button data-action="preview" data-id="anthropic" title="Preview expanded prompt">Preview</button>' +
                 '<button class="primary" id="anthropic-send-btn" data-action="send" data-id="anthropic" title="Send to Anthropic">Send to Anthropic</button>' +
@@ -3270,7 +3312,7 @@ function stopResize() { /* legacy */ }
 
 function handleAction(action, id, slot) {
     switch(action) {
-        case 'send': { var text = document.getElementById(id + '-text'); text = text ? text.value : ''; if (!text.trim()) return; var profile = document.getElementById(id + '-profile'); profile = profile ? profile.value : ''; var template = document.getElementById(id + '-template'); template = template ? template.value : ''; var llmConfig = document.getElementById('localLlm-llmConfig'); llmConfig = llmConfig ? llmConfig.value : ''; var aiSetup = document.getElementById('conversation-aiSetup'); aiSetup = aiSetup ? aiSetup.value : ''; var anthropicModel = document.getElementById('anthropic-model'); anthropicModel = anthropicModel ? anthropicModel.value : ''; var anthropicConfig = document.getElementById('anthropic-config'); anthropicConfig = anthropicConfig ? anthropicConfig.value : ''; var slotNo = ensureSlotState(id).activeSlot; if (id === 'anthropic') { if (!anthropicModel) { setAnthropicStatus('Select a model first.'); return; } anthropicSending = true; updateAnthropicSendButton(); setAnthropicStatus('Sending…'); } vscode.postMessage({ type: 'send' + id.charAt(0).toUpperCase() + id.slice(1), text: text, profile: profile, template: template, llmConfig: llmConfig, aiSetup: aiSetup, model: anthropicModel, config: anthropicConfig, slot: slotNo }); break; }
+        case 'send': { var text = document.getElementById(id + '-text'); text = text ? text.value : ''; if (!text.trim()) return; var profile = document.getElementById(id + '-profile'); profile = profile ? profile.value : ''; var template = document.getElementById(id + '-template'); template = template ? template.value : ''; var llmConfig = document.getElementById('localLlm-llmConfig'); llmConfig = llmConfig ? llmConfig.value : ''; var aiSetup = document.getElementById('conversation-aiSetup'); aiSetup = aiSetup ? aiSetup.value : ''; var anthropicModel = document.getElementById('anthropic-model'); anthropicModel = anthropicModel ? anthropicModel.value : ''; var anthropicConfig = document.getElementById('anthropic-config'); anthropicConfig = anthropicConfig ? anthropicConfig.value : ''; var anthropicUserMessage = document.getElementById('anthropic-userMessage'); anthropicUserMessage = anthropicUserMessage ? anthropicUserMessage.value : ''; var slotNo = ensureSlotState(id).activeSlot; if (id === 'anthropic') { if (!anthropicModel) { setAnthropicStatus('Select a model first.'); return; } anthropicSending = true; updateAnthropicSendButton(); setAnthropicStatus('Sending…'); } vscode.postMessage({ type: 'send' + id.charAt(0).toUpperCase() + id.slice(1), text: text, profile: profile, template: template, llmConfig: llmConfig, aiSetup: aiSetup, model: anthropicModel, config: anthropicConfig, userMessageTemplate: anthropicUserMessage, slot: slotNo }); break; }
         case 'preview': { var prvText = document.getElementById(id + '-text'); prvText = prvText ? prvText.value : ''; var prvTpl = document.getElementById(id + '-template'); prvTpl = prvTpl ? prvTpl.value : ''; vscode.postMessage({ type: 'preview', section: id, text: prvText, template: prvTpl }); break; }
         case 'clearText': {
             if (!id) break;
@@ -3297,10 +3339,20 @@ function handleAction(action, id, slot) {
         case 'deleteTemplate': { var dtSel = document.getElementById(id + '-template'); var dtVal = dtSel ? dtSel.value : ''; if (dtVal === '__answer_file__') { vscode.postMessage({ type: 'showMessage', message: 'The Answer File template is built-in and cannot be deleted.' }); return; } confirmDelete('template', id); break; }
         case 'openChatFile': vscode.postMessage({ type: 'openChatFile' }); break;
         case 'insertToChatFile': { var insertText = document.getElementById(id + '-text'); insertText = insertText ? insertText.value : ''; if (!insertText.trim()) return; var insertTemplate = document.getElementById(id + '-template'); insertTemplate = insertTemplate ? insertTemplate.value : ''; vscode.postMessage({ type: 'insertToChatFile', text: insertText, template: insertTemplate }); break; }
+        case 'editAnthropicProfile': {
+            var epaSel = document.getElementById('anthropic-profile');
+            vscode.postMessage({ type: 'editAnthropicProfile', name: epaSel ? epaSel.value : '' });
+            break;
+        }
+        case 'editAnthropicUserMessage': {
+            var eumSel = document.getElementById('anthropic-userMessage');
+            vscode.postMessage({ type: 'editAnthropicUserMessage', name: eumSel ? eumSel.value : '' });
+            break;
+        }
         case 'sendReusablePrompt': {
             var reusableToSend = getSelectedReusablePromptId(id);
             if (!reusableToSend) return;
-            vscode.postMessage({ type: 'sendReusablePrompt', reusableId: reusableToSend });
+            vscode.postMessage({ type: 'sendReusablePrompt', reusableId: reusableToSend, section: id });
             break;
         }
         case 'copyReusablePrompt': {
@@ -3424,6 +3476,7 @@ function populateDropdowns() {
     populateSelect('copilot-template', profiles.copilot);
     populateSelect('tomAiChat-template', profiles.tomAiChat);
     populateSelect('anthropic-profile', profiles.anthropic);
+    populateSelect('anthropic-userMessage', anthropicUserMessageTemplates);
     populateEntitySelect('localLlm-llmConfig', configurations, '(Select LLM Config)');
     populateEntitySelect('conversation-aiSetup', setups, '(Select AI Setup)');
     populateEntitySelect('anthropic-config', anthropicConfigurations, '(Select Config)');
@@ -3698,6 +3751,7 @@ window.addEventListener('message', function(e) {
         configurations = msg.configurations || [];
         setups = msg.setups || [];
         anthropicConfigurations = msg.anthropicConfigurations || [];
+        anthropicUserMessageTemplates = msg.anthropicUserMessageTemplates || [];
         anthropicApiKeyOk = !!msg.anthropicApiKeyOk;
         claudeCliVisible = !!msg.claudeCliVisible;
         claudeCliOk = (msg.claudeCliOk === true || msg.claudeCliOk === false) ? msg.claudeCliOk : null;
@@ -4001,7 +4055,7 @@ function initCopilotSection() {
 }
 
 function initReusablePromptSelectors() {
-    ['localLlm', 'conversation', 'copilot', 'tomAiChat'].forEach(function(sectionId) {
+    ['localLlm', 'conversation', 'copilot', 'tomAiChat', 'anthropic'].forEach(function(sectionId) {
         var typeSel = document.getElementById(sectionId + '-reusable-type');
         if (typeSel) {
             typeSel.addEventListener('change', function() {
