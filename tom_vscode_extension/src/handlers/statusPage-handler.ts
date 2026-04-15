@@ -610,10 +610,24 @@ export async function handleStatusAction(action: string, message: any): Promise<
             break;
         }
         case 'editCompactionToolSet': {
-            // Tool set editor opens the global template editor focused on compaction config.
-            // For now, route to the template editor as a placeholder; full tool-checklist UI
-            // is out of scope for Phase 4.
-            vscode.window.showInformationMessage('Compaction tool set editor: select tools via the LLM Configurations entry assigned as the compaction config.');
+            const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
+            if (!stcConfig.compaction) { stcConfig.compaction = {}; }
+            const enabled = new Set(stcConfig.compaction.enabledTools || [
+                'tomAi_readFile', 'tomAi_listDirectory', 'tomAi_findFiles', 'tomAi_findTextInFiles',
+            ]);
+            const items: vscode.QuickPickItem[] = AVAILABLE_LLM_TOOLS.map((name) => ({
+                label: name,
+                picked: enabled.has(name),
+            }));
+            const picked = await vscode.window.showQuickPick(items, {
+                canPickMany: true,
+                title: 'Compaction tool set (Local LLM only)',
+                placeHolder: 'Tools the compaction LLM may call during the summary pass',
+            });
+            if (!picked) break;
+            stcConfig.compaction.enabledTools = picked.map((p) => p.label);
+            saveSendToChatConfig(stcConfig);
+            vscode.window.showInformationMessage(`Compaction tool set updated (${picked.length} tools).`);
             break;
         }
         // Schedule

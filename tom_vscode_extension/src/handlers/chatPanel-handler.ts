@@ -775,7 +775,12 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         const anthropicConfigurations = Array.isArray(config?.anthropic?.configurations)
             ? config!.anthropic!.configurations!
                 .filter((c: any) => c && typeof c.id === 'string')
-                .map((c: any) => ({ id: c.id, name: c.name || c.id, isDefault: c.isDefault === true }))
+                .map((c: any) => ({
+                    id: c.id,
+                    name: c.name || c.id,
+                    isDefault: c.isDefault === true,
+                    model: typeof c.model === 'string' ? c.model : '',
+                }))
             : [];
         const envVar = config?.anthropic?.apiKeyEnvVar || 'ANTHROPIC_API_KEY';
         const anthropicApiKeyOk = !!process.env[envVar];
@@ -3045,8 +3050,8 @@ function getSectionContent(id) {
             actionButtons:
                 '<button data-action="preview" data-id="anthropic" title="Preview expanded prompt">Preview</button>' +
                 '<button class="primary" id="anthropic-send-btn" data-action="send" data-id="anthropic" title="Send to Anthropic">Send to Anthropic</button>' +
-                '<button class="icon-btn" data-action="openTrailViewer" data-id="anthropic" title="Open Trail Files Viewer"><span class="codicon codicon-list-flat"></span></button>' +
-                '<button class="icon-btn" data-action="openTrailFiles" data-id="anthropic" title="Open Trail"><span class="codicon codicon-history"></span></button>' +
+                '<button class="icon-btn" data-action="openTrailViewer" data-id="anthropic" title="Open Raw Trail Viewer (Anthropic subsystem)"><span class="codicon codicon-list-flat"></span></button>' +
+                '<button class="icon-btn" data-action="openTrailFiles" data-id="anthropic" title="Open Trail Files (anthropic.*.md summary)"><span class="codicon codicon-history"></span></button>' +
                 '<button class="icon-btn" data-action="openAnthropicMemory" data-id="anthropic" title="Memory Panel"><span class="codicon codicon-book"></span></button>' +
                 '<button class="icon-btn" data-action="clearAnthropicHistory" data-id="anthropic" title="Clear session history"><span class="codicon codicon-clear-all"></span></button>',
             afterToolbarHtml:
@@ -3362,6 +3367,24 @@ function populateDropdowns() {
     populateEntitySelect('anthropic-config', anthropicConfigurations, '(Select Config)');
     populateAnthropicModels();
     updateAnthropicApiKeyDot();
+    var anthropicConfigSel = document.getElementById('anthropic-config');
+    if (anthropicConfigSel && !anthropicConfigSel._anthropicChangeBound) {
+        anthropicConfigSel._anthropicChangeBound = true;
+        anthropicConfigSel.addEventListener('change', function() {
+            // Pre-select the model from the newly chosen configuration.
+            var cfg = (anthropicConfigurations || []).find(function(c) { return c.id === anthropicConfigSel.value; });
+            var modelSel = document.getElementById('anthropic-model');
+            if (cfg && cfg.model && modelSel && anthropicModels && anthropicModels.some(function(m) { return m.id === cfg.model; })) {
+                modelSel.value = cfg.model;
+                updateAnthropicSendButton();
+            }
+        });
+    }
+    var anthropicModelSel = document.getElementById('anthropic-model');
+    if (anthropicModelSel && !anthropicModelSel._anthropicChangeBound) {
+        anthropicModelSel._anthropicChangeBound = true;
+        anthropicModelSel.addEventListener('change', updateAnthropicSendButton);
+    }
     ['localLlm', 'conversation', 'copilot', 'tomAiChat', 'anthropic'].forEach(function(sectionId) {
         populateReusablePromptSelectors(sectionId);
     });
@@ -3383,6 +3406,17 @@ function populateAnthropicModels() {
     sel.innerHTML = opts;
     if (cur && anthropicModels && anthropicModels.some(function(m) { return m.id === cur; })) {
         sel.value = cur;
+    } else if (anthropicModels && anthropicModels.length > 0) {
+        // Pre-select the model from the active configuration (or the default
+        // configuration when none is selected). Per spec §11.1.
+        var cfgSel = document.getElementById('anthropic-config');
+        var cfgId = cfgSel ? cfgSel.value : '';
+        var activeCfg = (anthropicConfigurations || []).find(function(c) { return c.id === cfgId; })
+            || (anthropicConfigurations || []).find(function(c) { return c.isDefault; })
+            || (anthropicConfigurations || [])[0];
+        if (activeCfg && activeCfg.model && anthropicModels.some(function(m) { return m.id === activeCfg.model; })) {
+            sel.value = activeCfg.model;
+        }
     }
     updateAnthropicSendButton();
 }
@@ -3584,7 +3618,13 @@ window.addEventListener('message', function(e) {
     } else if (msg.type === 'anthropicResult') {
         anthropicSending = false;
         updateAnthropicSendButton();
-        setAnthropicStatus('Done · turns: ' + (msg.turnsUsed || 0) + ' · tool calls: ' + (msg.toolCallCount || 0));
+        var modelEl = document.getElementById('anthropic-model');
+        var modelName = modelEl ? modelEl.value : '';
+        var parts = [];
+        if (modelName) parts.push(modelName);
+        parts.push('turns: ' + (msg.turnsUsed || 0));
+        parts.push('tool calls: ' + (msg.toolCallCount || 0));
+        setAnthropicStatus(parts.join(' · '));
     } else if (msg.type === 'anthropicError') {
         anthropicSending = false;
         updateAnthropicSendButton();
