@@ -4666,11 +4666,32 @@ let _provider: ChatPanelViewProvider | undefined;
 
 export function registerChatPanel(context: vscode.ExtensionContext): void {
     _provider = new ChatPanelViewProvider(context);
-    
+
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(VIEW_ID, _provider, {
             webviewOptions: { retainContextWhenHidden: true }
         })
     );
+}
+
+/**
+ * External hook used by the status page (and any other configuration UI)
+ * to push fresh Anthropic state into the chat panel after a config edit.
+ * Re-emits profiles/configurations + the env-var-derived 🔑 status, then
+ * fires a fresh `models.list()` so the Model dropdown reflects the new
+ * `apiKeyEnvVar` without requiring a reload-window.
+ *
+ * Also resets the cached Anthropic SDK client and the `claude --version`
+ * probe so the next request reads the new env var name and the 🤖 dot
+ * re-checks against the host install.
+ */
+export function notifyAnthropicConfigChanged(): void {
+    AnthropicHandler.instance.resetClient();
+    ChatPanelViewProvider.resetClaudeCliProbe();
+    if (!_provider) { return; }
+    // Re-emit profiles + 🔑 / 🤖 dot states.
+    (_provider as unknown as { _sendProfiles: () => void })._sendProfiles();
+    // Trigger model list refresh.
+    void (_provider as unknown as { _sendAnthropicModels: () => Promise<void> })._sendAnthropicModels();
 }
 

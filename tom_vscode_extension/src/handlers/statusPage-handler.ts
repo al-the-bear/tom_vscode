@@ -15,6 +15,8 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getBridgeClient, getConfigPath, loadSendToChatConfig, saveSendToChatConfig } from './handler_shared';
+import { notifyAnthropicConfigChanged } from './chatPanel-handler';
+import { AnthropicHandler } from './anthropic-handler';
 import { getCliServerStatus } from './cliServer-handler';
 import { loadBridgeConfig, BridgeConfig } from './restartBridge-handler';
 import { isTrailEnabled, setTrailEnabled, loadTrailConfig, toggleTrail } from '../services/trailLogging';
@@ -666,7 +668,59 @@ async function editOrCreateAnthropicConfiguration(configId: string | null): Prom
     vscode.window.showInformationMessage(
         isNew ? `Added Anthropic configuration "${updated.name}"` : `Updated Anthropic configuration "${updated.name}"`,
     );
+    notifyAnthropicConfigChanged();
     await refreshStatusPage();
+}
+
+/**
+ * Make a tiny one-shot Anthropic request to verify the API key env var
+ * is set and accepted. Uses the first available model from `models.list()`
+ * (or the configuration's default model when present) and asks for a
+ * single-token reply. Reports success or the error message via a
+ * VS Code notification.
+ *
+ * Spec §18 — works for direct transport. Agent SDK transport doesn't use
+ * apiKeyEnvVar, so we surface a hint pointing the user at `claude login`.
+ */
+async function runTestAnthropicApiKey(): Promise<void> {
+    const stcConfig = loadSendToChatConfig();
+    const envVar = stcConfig?.anthropic?.apiKeyEnvVar || 'ANTHROPIC_API_KEY';
+    const present = !!process.env[envVar];
+    if (!present) {
+        vscode.window.showWarningMessage(
+            `Env var "${envVar}" is not set in the extension host. Set it in your shell init (~/.profile), then restart VS Code from a shell that has the variable.`,
+        );
+        return;
+    }
+
+    const handler = AnthropicHandler.instance;
+    const fetchResult = await handler.fetchModels();
+    if (fetchResult.error) {
+        vscode.window.showErrorMessage(`Anthropic API key test failed (models.list): ${fetchResult.error}`);
+        return;
+    }
+    if (fetchResult.models.length === 0) {
+        vscode.window.showWarningMessage('Anthropic API returned an empty model list — key may be valid but has no model access.');
+        return;
+    }
+    const firstConfig = stcConfig?.anthropic?.configurations?.find((c) => c?.transport !== 'agentSdk');
+    const model = firstConfig?.model || fetchResult.models[0].id;
+    try {
+        const reply = await handler.runInternalCall({
+            systemPrompt: 'You are a connectivity probe.',
+            userPrompt: 'Reply with the single word: pong',
+            model,
+            maxTokens: 16,
+            temperature: 0,
+        });
+        const trimmed = (reply || '').trim();
+        vscode.window.showInformationMessage(
+            `Anthropic API key OK — model "${model}" replied "${trimmed.slice(0, 80) || '(empty)'}"`,
+        );
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        vscode.window.showErrorMessage(`Anthropic API key test failed: ${msg}`);
+    }
 }
 
 /**
@@ -884,8 +938,20 @@ export async function handleStatusAction(action: string, message: any): Promise<
             if (!stcConfig.anthropic) { stcConfig.anthropic = {}; }
             stcConfig.anthropic.apiKeyEnvVar = envVar;
             saveSendToChatConfig(stcConfig);
-            vscode.window.showInformationMessage(`Anthropic API key env var set to "${envVar}"`);
+            const present = !!process.env[envVar];
+            vscode.window.showInformationMessage(
+                `Anthropic API key env var set to "${envVar}"${present ? ' — variable is set' : ' — variable is NOT set in extension host env'}`,
+            );
+            // Push the change to the chat panel (resets the SDK client,
+            // re-emits profiles/dots, and re-fetches models with the new
+            // env var) so the user sees the model dropdown refresh
+            // immediately, no panel reload required.
+            notifyAnthropicConfigChanged();
             await refreshStatusPage();
+            break;
+        }
+        case 'testAnthropicApiKey': {
+            await runTestAnthropicApiKey();
             break;
         }
         case 'addAnthropicConfiguration': {
@@ -912,6 +978,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
                 stcConfig.anthropic.configurations = stcConfig.anthropic.configurations.filter((c) => c?.id !== configId);
                 saveSendToChatConfig(stcConfig);
                 vscode.window.showInformationMessage(`Deleted Anthropic configuration: ${configId}`);
+                notifyAnthropicConfigChanged();
                 await refreshStatusPage();
             }
             break;
@@ -2117,9 +2184,11 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
                 <label style="flex:0 0 auto;white-space:nowrap"><strong>API key env var:</strong></label>
                 <input type="text" id="sp-anthropic-apiKeyEnvVar" value="${escapeHtmlContent(status.anthropicApiKeyEnvVar)}" placeholder="ANTHROPIC_API_KEY" style="flex:1;min-width:200px">
                 <button class="sp-btn small" data-status-action="updateAnthropicApiKeyEnvVar" style="flex:0 0 auto">Save</button>
+                <button class="sp-btn small" data-status-action="testAnthropicApiKey" style="flex:0 0 auto" title="Send a tiny one-shot request to verify the API key">🧪 Test</button>
             </div>
             <p style="font-size:11px;color:var(--vscode-descriptionForeground);margin:0 0 10px 0">
                 Name of the env var that holds the API key (Direct transport only; ignored by Agent SDK).
+                Saving also re-fetches models and refreshes the 🔑 dot in the panel.
             </p>
             ${status.anthropicConfigurationsSummary.length === 0
                 ? '<div class="sp-info">No Anthropic configurations defined</div>'
