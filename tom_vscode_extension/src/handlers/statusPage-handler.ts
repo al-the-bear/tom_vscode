@@ -2113,12 +2113,14 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
                 Each configuration selects a transport: <strong>Direct API</strong> (uses <code>${escapeHtmlContent(status.anthropicApiKeyEnvVar)}</code>) or
                 <strong>Agent SDK</strong> (inherits auth from the host Claude Code install — see <code>anthropic_sdk_integration.md</code> §18).
             </p>
-            <div class="sp-settings-row" style="align-items:center;gap:8px;margin-bottom:10px">
-                <label style="min-width:140px"><strong>API key env var:</strong></label>
-                <input type="text" id="sp-anthropic-apiKeyEnvVar" value="${escapeHtmlContent(status.anthropicApiKeyEnvVar)}" placeholder="ANTHROPIC_API_KEY" style="flex:1;max-width:280px">
-                <button class="sp-btn small" data-status-action="updateAnthropicApiKeyEnvVar">Save</button>
-                <span style="font-size:11px;color:var(--vscode-descriptionForeground)">Name of the env var that holds the API key (Direct transport only; ignored by Agent SDK).</span>
+            <div class="sp-settings-row" style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+                <label style="flex:0 0 auto;white-space:nowrap"><strong>API key env var:</strong></label>
+                <input type="text" id="sp-anthropic-apiKeyEnvVar" value="${escapeHtmlContent(status.anthropicApiKeyEnvVar)}" placeholder="ANTHROPIC_API_KEY" style="flex:1;min-width:200px">
+                <button class="sp-btn small" data-status-action="updateAnthropicApiKeyEnvVar" style="flex:0 0 auto">Save</button>
             </div>
+            <p style="font-size:11px;color:var(--vscode-descriptionForeground);margin:0 0 10px 0">
+                Name of the env var that holds the API key (Direct transport only; ignored by Agent SDK).
+            </p>
             ${status.anthropicConfigurationsSummary.length === 0
                 ? '<div class="sp-info">No Anthropic configurations defined</div>'
                 : `<table style="width:100%;border-collapse:collapse;font-size:11px">
