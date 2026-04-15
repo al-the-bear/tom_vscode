@@ -354,6 +354,322 @@ async function editOrCreateModelConfig(modelKey: string, existing: any | null): 
 }
 
 /**
+ * Multi-step input wizard that creates or edits an Anthropic configuration
+ * (anthropic_sdk_integration.md §14, §18). When `configId` is null, a new
+ * configuration is added; otherwise the existing entry with that id is
+ * updated in place. Transport selection drives which follow-up prompts
+ * appear (direct-only vs agentSdk-only fields).
+ */
+async function editOrCreateAnthropicConfiguration(configId: string | null): Promise<void> {
+    const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
+    if (!stcConfig.anthropic) { stcConfig.anthropic = {}; }
+    if (!Array.isArray(stcConfig.anthropic.configurations)) { stcConfig.anthropic.configurations = []; }
+    const all = stcConfig.anthropic.configurations;
+    const existing = configId ? all.find((c) => c?.id === configId) : undefined;
+    const isNew = !existing;
+
+    if (configId && !existing) {
+        vscode.window.showWarningMessage(`Anthropic configuration "${configId}" not found.`);
+        return;
+    }
+
+    const newName = await vscode.window.showInputBox({
+        prompt: 'Display name (shown in the panel dropdown)',
+        value: existing?.name ?? '',
+        placeHolder: 'e.g., Sonnet 4.6 — Direct API',
+        validateInput: (v) => v.trim().length === 0 ? 'Name is required' : null,
+    });
+    if (newName === undefined) { return; }
+
+    let newId = existing?.id;
+    if (isNew) {
+        newId = await vscode.window.showInputBox({
+            prompt: 'Stable id (used for cross-references; lowercase, hyphenated)',
+            value: newName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''),
+            placeHolder: 'e.g., sonnet-direct',
+            validateInput: (v) => {
+                const t = v.trim();
+                if (!t) { return 'Id is required'; }
+                if (!/^[a-z0-9][a-z0-9-]*$/i.test(t)) { return 'Use letters, digits and hyphens only'; }
+                if (all.some((c) => c?.id === t)) { return `Id "${t}" already exists`; }
+                return null;
+            },
+        });
+        if (newId === undefined) { return; }
+        newId = newId.trim();
+    }
+
+    const transportChoice = await vscode.window.showQuickPick(
+        [
+            { label: 'Direct API', description: 'Uses @anthropic-ai/sdk and the apiKeyEnvVar env var', value: 'direct' as const },
+            { label: 'Claude Agent SDK', description: 'Inherits auth from the host Claude Code install', value: 'agentSdk' as const },
+        ],
+        {
+            placeHolder: 'Transport',
+            title: `Transport for ${newName}`,
+            ignoreFocusOut: true,
+        },
+    );
+    if (!transportChoice) { return; }
+    const transport = transportChoice.value;
+
+    const modelPick = await vscode.window.showQuickPick(
+        [
+            { label: 'Sonnet 4.6', description: 'claude-sonnet-4-6 — fast, cost-efficient', value: 'claude-sonnet-4-6' },
+            { label: 'Opus 4.6', description: 'claude-opus-4-6 — deepest reasoning', value: 'claude-opus-4-6' },
+            { label: 'Haiku 4.5', description: 'claude-haiku-4-5 — fastest', value: 'claude-haiku-4-5' },
+            { label: 'Custom…', description: 'Enter a model id by hand', value: '__custom__' },
+        ],
+        {
+            placeHolder: 'Model',
+            title: 'Anthropic model',
+            ignoreFocusOut: true,
+        },
+    );
+    if (!modelPick) { return; }
+    let newModel = modelPick.value;
+    if (newModel === '__custom__') {
+        const customModel = await vscode.window.showInputBox({
+            prompt: 'Anthropic model id',
+            value: existing?.model ?? '',
+            placeHolder: 'claude-sonnet-4-6',
+            validateInput: (v) => v.trim().length === 0 ? 'Model id is required' : null,
+        });
+        if (customModel === undefined) { return; }
+        newModel = customModel.trim();
+    }
+
+    const maxTokensStr = await vscode.window.showInputBox({
+        prompt: 'Max output tokens per response',
+        value: String(existing?.maxTokens ?? 8192),
+        validateInput: (v) => {
+            const n = parseInt(v, 10);
+            if (!Number.isFinite(n) || n < 1) { return 'Enter a positive integer'; }
+            return null;
+        },
+    });
+    if (maxTokensStr === undefined) { return; }
+
+    const tempStr = await vscode.window.showInputBox({
+        prompt: 'Temperature (0.0 - 2.0, blank to omit)',
+        value: existing?.temperature !== undefined ? String(existing.temperature) : '0.5',
+        validateInput: (v) => {
+            if (v.trim() === '') { return null; }
+            const n = parseFloat(v);
+            if (!Number.isFinite(n) || n < 0 || n > 2) { return 'Enter a number between 0 and 2 (or leave blank)'; }
+            return null;
+        },
+    });
+    if (tempStr === undefined) { return; }
+
+    const maxRoundsStr = await vscode.window.showInputBox({
+        prompt: 'Max tool-use rounds per request',
+        value: String(existing?.maxRounds ?? 20),
+        validateInput: (v) => {
+            const n = parseInt(v, 10);
+            if (!Number.isFinite(n) || n < 1) { return 'Enter a positive integer'; }
+            return null;
+        },
+    });
+    if (maxRoundsStr === undefined) { return; }
+
+    const approvalPick = await vscode.window.showQuickPick(
+        [
+            { label: 'Always', description: 'Prompt before every write tool call', value: 'always' as const },
+            { label: 'Session', description: 'Prompt once per tool per session', value: 'session' as const },
+            { label: 'Never', description: 'Never prompt (dangerous)', value: 'never' as const },
+        ],
+        {
+            placeHolder: 'Tool approval mode',
+            ignoreFocusOut: true,
+        },
+    );
+    if (!approvalPick) { return; }
+
+    const memoryToolsPick = await vscode.window.showQuickPick(
+        [
+            { label: 'No', value: false },
+            { label: 'Yes', value: true },
+        ],
+        {
+            placeHolder: `Expose memory write tools? (current: ${existing?.memoryToolsEnabled ? 'Yes' : 'No'})`,
+            ignoreFocusOut: true,
+        },
+    );
+    if (!memoryToolsPick) { return; }
+
+    // Transport-specific fields
+    let historyMode: string | undefined = existing?.historyMode ?? 'last';
+    let maxHistoryTokens: number | undefined = existing?.maxHistoryTokens;
+    let promptCachingEnabled = existing?.promptCachingEnabled === true;
+    let agentSdkOpts: { permissionMode: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'; settingSources: Array<'user' | 'project' | 'local'>; maxTurns?: number } | undefined;
+
+    if (transport === 'direct') {
+        const historyPick = await vscode.window.showQuickPick(
+            [
+                { label: 'last', description: 'Keep only the latest turn (no history)', value: 'last' },
+                { label: 'all', description: 'Keep every turn verbatim', value: 'all' },
+                { label: 'summary', description: 'Summarize after each turn', value: 'summary' },
+                { label: 'trim_and_summary', description: 'Trim-then-summarize (recommended for long sessions)', value: 'trim_and_summary' },
+                { label: 'llm_extract', description: 'Summarize and extract durable facts', value: 'llm_extract' },
+            ],
+            {
+                placeHolder: 'History mode',
+                ignoreFocusOut: true,
+            },
+        );
+        if (!historyPick) { return; }
+        historyMode = historyPick.value;
+
+        if (historyMode === 'trim_and_summary' || historyMode === 'summary' || historyMode === 'llm_extract') {
+            const maxHistStr = await vscode.window.showInputBox({
+                prompt: 'Max history tokens (blank to omit)',
+                value: existing?.maxHistoryTokens !== undefined ? String(existing.maxHistoryTokens) : '16000',
+                validateInput: (v) => {
+                    if (v.trim() === '') { return null; }
+                    const n = parseInt(v, 10);
+                    if (!Number.isFinite(n) || n < 0) { return 'Enter a non-negative integer (or leave blank)'; }
+                    return null;
+                },
+            });
+            if (maxHistStr === undefined) { return; }
+            maxHistoryTokens = maxHistStr.trim() === '' ? undefined : parseInt(maxHistStr, 10);
+        } else {
+            maxHistoryTokens = undefined;
+        }
+
+        const cachePick = await vscode.window.showQuickPick(
+            [
+                { label: 'No', value: false },
+                { label: 'Yes', value: true },
+            ],
+            {
+                placeHolder: `Prompt caching (cache_control on system prompt)? (current: ${promptCachingEnabled ? 'Yes' : 'No'})`,
+                ignoreFocusOut: true,
+            },
+        );
+        if (!cachePick) { return; }
+        promptCachingEnabled = cachePick.value;
+    } else {
+        // agentSdk
+        const modePick = await vscode.window.showQuickPick(
+            [
+                { label: 'default', description: 'Prompt for dangerous ops via canUseTool', value: 'default' as const },
+                { label: 'acceptEdits', description: 'Auto-accept file edit operations', value: 'acceptEdits' as const },
+                { label: 'plan', description: 'Planning mode — no execution of tools', value: 'plan' as const },
+                { label: 'bypassPermissions', description: 'Bypass all permission checks (dangerous)', value: 'bypassPermissions' as const },
+            ],
+            {
+                placeHolder: 'Agent SDK permission mode',
+                ignoreFocusOut: true,
+            },
+        );
+        if (!modePick) { return; }
+
+        const sourcesPick = await vscode.window.showQuickPick(
+            [
+                { label: 'user', description: '~/.claude/settings.json', value: 'user' as const, picked: existing?.agentSdk?.settingSources?.includes('user') },
+                { label: 'project', description: '.claude/settings.json (needed to load CLAUDE.md)', value: 'project' as const, picked: existing?.agentSdk?.settingSources?.includes('project') },
+                { label: 'local', description: '.claude/settings.local.json', value: 'local' as const, picked: existing?.agentSdk?.settingSources?.includes('local') },
+            ],
+            {
+                canPickMany: true,
+                placeHolder: 'Setting sources to load (blank = isolation mode)',
+                ignoreFocusOut: true,
+            },
+        );
+        if (!sourcesPick) { return; }
+
+        const maxTurnsStr = await vscode.window.showInputBox({
+            prompt: 'Agent SDK maxTurns (blank to use maxRounds)',
+            value: existing?.agentSdk?.maxTurns !== undefined ? String(existing.agentSdk.maxTurns) : '',
+            placeHolder: 'leave blank to fall back to maxRounds',
+            validateInput: (v) => {
+                if (v.trim() === '') { return null; }
+                const n = parseInt(v, 10);
+                if (!Number.isFinite(n) || n < 1) { return 'Enter a positive integer (or leave blank)'; }
+                return null;
+            },
+        });
+        if (maxTurnsStr === undefined) { return; }
+
+        agentSdkOpts = {
+            permissionMode: modePick.value,
+            settingSources: sourcesPick.map((s) => s.value),
+            ...(maxTurnsStr.trim() === '' ? {} : { maxTurns: parseInt(maxTurnsStr, 10) }),
+        };
+    }
+
+    // Enabled tools — preserve existing, or seed with a sensible default
+    // on first creation. Users can further edit via the JSON file if they
+    // need fine-grained control; the wizard keeps scope reasonable.
+    const enabledTools = existing?.enabledTools ?? [
+        'tomAi_readFile',
+        'tomAi_listDirectory',
+        'tomAi_findFiles',
+        'tomAi_findTextInFiles',
+        'tomAi_getErrors',
+        'tomAi_chatvar_read',
+        'tomAi_memory_read',
+        'tomAi_memory_list',
+    ];
+
+    const defaultPick = await vscode.window.showQuickPick(
+        [
+            { label: 'No', value: false },
+            { label: 'Yes', value: true },
+        ],
+        {
+            placeHolder: `Set as default configuration? (current: ${existing?.isDefault ? 'Yes' : 'No'})`,
+            ignoreFocusOut: true,
+        },
+    );
+    if (!defaultPick) { return; }
+
+    const updated: NonNullable<NonNullable<ReturnType<typeof loadSendToChatConfig>>['anthropic']>['configurations'] extends (infer E)[] | undefined ? E : never =
+        {
+            id: newId!,
+            name: newName.trim(),
+            model: newModel,
+            maxTokens: parseInt(maxTokensStr, 10),
+            maxRounds: parseInt(maxRoundsStr, 10),
+            toolApprovalMode: approvalPick.value,
+            memoryToolsEnabled: memoryToolsPick.value,
+            enabledTools,
+            isDefault: defaultPick.value,
+            transport,
+            ...(tempStr.trim() === '' ? {} : { temperature: parseFloat(tempStr) }),
+            ...(transport === 'direct'
+                ? {
+                    historyMode,
+                    ...(maxHistoryTokens !== undefined ? { maxHistoryTokens } : {}),
+                    promptCachingEnabled,
+                }
+                : { agentSdk: agentSdkOpts! }),
+        };
+
+    // If the user marked this one default, clear the flag on every other
+    // configuration so the UI shows a single default.
+    if (updated.isDefault) {
+        for (const c of all) {
+            if (c && c.id !== updated.id) { c.isDefault = false; }
+        }
+    }
+
+    if (existing) {
+        const idx = all.indexOf(existing);
+        all[idx] = updated;
+    } else {
+        all.push(updated);
+    }
+    saveSendToChatConfig(stcConfig);
+    vscode.window.showInformationMessage(
+        isNew ? `Added Anthropic configuration "${updated.name}"` : `Updated Anthropic configuration "${updated.name}"`,
+    );
+    await refreshStatusPage();
+}
+
+/**
  * Shared action handler for status panel actions.
  * Used by both the embedded sidebar panel and the full status page webview.
  */
@@ -556,6 +872,48 @@ export async function handleStatusAction(action: string, message: any): Promise<
             stcConfig.anthropic.memory.maxInjectedTokens = Number.isFinite(s.maxInjectedTokens) ? s.maxInjectedTokens : 3000;
             saveSendToChatConfig(stcConfig);
             vscode.window.showInformationMessage('Anthropic memory settings saved');
+            break;
+        }
+        // -----------------------------------------------------------------
+        // Anthropic configurations editor (spec §18.8)
+        // -----------------------------------------------------------------
+        case 'updateAnthropicApiKeyEnvVar': {
+            const raw = typeof message.value === 'string' ? message.value.trim() : '';
+            const envVar = raw || 'ANTHROPIC_API_KEY';
+            const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
+            if (!stcConfig.anthropic) { stcConfig.anthropic = {}; }
+            stcConfig.anthropic.apiKeyEnvVar = envVar;
+            saveSendToChatConfig(stcConfig);
+            vscode.window.showInformationMessage(`Anthropic API key env var set to "${envVar}"`);
+            await refreshStatusPage();
+            break;
+        }
+        case 'addAnthropicConfiguration': {
+            await editOrCreateAnthropicConfiguration(null);
+            break;
+        }
+        case 'editAnthropicConfiguration': {
+            const configId = String(message.configId || '').trim();
+            if (!configId) { break; }
+            await editOrCreateAnthropicConfiguration(configId);
+            break;
+        }
+        case 'deleteAnthropicConfiguration': {
+            const configId = String(message.configId || '').trim();
+            if (!configId) { break; }
+            const confirm = await vscode.window.showWarningMessage(
+                `Delete Anthropic configuration "${configId}"?`,
+                { modal: true },
+                'Delete',
+            );
+            if (confirm !== 'Delete') { break; }
+            const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
+            if (stcConfig.anthropic?.configurations) {
+                stcConfig.anthropic.configurations = stcConfig.anthropic.configurations.filter((c) => c?.id !== configId);
+                saveSendToChatConfig(stcConfig);
+                vscode.window.showInformationMessage(`Deleted Anthropic configuration: ${configId}`);
+                await refreshStatusPage();
+            }
             break;
         }
         case 'editCompactionTemplate': {
@@ -937,7 +1295,9 @@ export interface StatusData {
     memoryExtractionTemplateChoices: Array<{ id: string; name: string }>;
     /** Anthropic configurations (id+name) for the compaction provider select. */
     anthropicConfigurationChoices: Array<{ id: string; name: string }>;
-    /** Anthropic configurations summary for the read-only list (anthropic_sdk_integration.md §18.8). */
+    /** Environment variable name that holds the Anthropic API key (anthropic_sdk_integration.md §14). */
+    anthropicApiKeyEnvVar: string;
+    /** Anthropic configurations summary for the editor (anthropic_sdk_integration.md §18.8). */
     anthropicConfigurationsSummary: Array<{
         id: string;
         name: string;
@@ -946,6 +1306,7 @@ export interface StatusData {
         permissionMode?: string;
         promptCachingEnabled: boolean;
         historyMode: string;
+        isDefault: boolean;
     }>;
 }
 
@@ -1156,6 +1517,7 @@ export async function gatherStatusData(): Promise<StatusData> {
         anthropicConfigurationChoices: (sendToChatConfig?.anthropic?.configurations || []).map((c) => ({
             id: c.id, name: c.name || c.id,
         })),
+        anthropicApiKeyEnvVar: sendToChatConfig?.anthropic?.apiKeyEnvVar || 'ANTHROPIC_API_KEY',
         anthropicConfigurationsSummary: (sendToChatConfig?.anthropic?.configurations || []).map((c) => ({
             id: c.id,
             name: c.name || c.id,
@@ -1164,6 +1526,7 @@ export async function gatherStatusData(): Promise<StatusData> {
             permissionMode: (c as { agentSdk?: { permissionMode?: string } }).agentSdk?.permissionMode,
             promptCachingEnabled: (c as { promptCachingEnabled?: boolean }).promptCachingEnabled === true,
             historyMode: (c as { historyMode?: string }).historyMode || 'last',
+            isDefault: (c as { isDefault?: boolean }).isDefault === true,
         })),
     };
 }
@@ -1739,16 +2102,23 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
         </div>
     </div>
 
-    <!-- Anthropic — Configurations Summary (anthropic_sdk_integration.md §18.8) -->
+    <!-- Anthropic — Configurations Editor (anthropic_sdk_integration.md §18.8) -->
     <div class="sp-section">
         <div class="sp-section-header sp-collapsible" data-collapse="anthropicConfigs">
             <span class="sp-section-title"><span class="sp-collapse-icon">▶</span> 🤖 Anthropic — Configurations</span>
         </div>
         <div class="sp-collapse-content sp-collapsed" id="sp-anthropicConfigs-content">
             <p style="font-size:11px;color:var(--vscode-descriptionForeground);margin:0 0 8px">
-                Read-only summary of <code>anthropic.configurations[]</code> from <code>tom_vscode_extension.json</code>.
-                Edit transport, model, and SDK options directly in the JSON file — the schema provides IntelliSense for all fields (see <code>anthropic_sdk_integration.md</code> §18).
+                Anthropic LLM configurations used by the <strong>ANTHROPIC</strong> bottom panel.
+                Each configuration selects a transport: <strong>Direct API</strong> (uses <code>${escapeHtmlContent(status.anthropicApiKeyEnvVar)}</code>) or
+                <strong>Agent SDK</strong> (inherits auth from the host Claude Code install — see <code>anthropic_sdk_integration.md</code> §18).
             </p>
+            <div class="sp-settings-row" style="align-items:center;gap:8px;margin-bottom:10px">
+                <label style="min-width:140px"><strong>API key env var:</strong></label>
+                <input type="text" id="sp-anthropic-apiKeyEnvVar" value="${escapeHtmlContent(status.anthropicApiKeyEnvVar)}" placeholder="ANTHROPIC_API_KEY" style="flex:1;max-width:280px">
+                <button class="sp-btn small" data-status-action="updateAnthropicApiKeyEnvVar">Save</button>
+                <span style="font-size:11px;color:var(--vscode-descriptionForeground)">Name of the env var that holds the API key (Direct transport only; ignored by Agent SDK).</span>
+            </div>
             ${status.anthropicConfigurationsSummary.length === 0
                 ? '<div class="sp-info">No Anthropic configurations defined</div>'
                 : `<table style="width:100%;border-collapse:collapse;font-size:11px">
@@ -1760,6 +2130,7 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
                             <th style="padding:4px 8px">Permission</th>
                             <th style="padding:4px 8px">Cache</th>
                             <th style="padding:4px 8px">History</th>
+                            <th style="padding:4px 8px;text-align:right">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1773,17 +2144,25 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
                             const historyLabel = c.transport === 'agentSdk'
                                 ? '<span title="Managed by Agent SDK" style="color:var(--vscode-descriptionForeground)">SDK-managed</span>'
                                 : escapeHtmlContent(c.historyMode);
+                            const defaultMark = c.isDefault ? ' <span title="Default" style="color:var(--vscode-editorWarning-foreground, #cca700)">★</span>' : '';
                             return `<tr style="border-bottom:1px solid var(--vscode-panel-border)">
-                                <td style="padding:4px 8px"><strong>${escapeHtmlContent(c.name)}</strong><br><code style="font-size:10px;color:var(--vscode-descriptionForeground)">${escapeHtmlContent(c.id)}</code></td>
+                                <td style="padding:4px 8px"><strong>${escapeHtmlContent(c.name)}</strong>${defaultMark}<br><code style="font-size:10px;color:var(--vscode-descriptionForeground)">${escapeHtmlContent(c.id)}</code></td>
                                 <td style="padding:4px 8px"><code style="font-size:10px">${escapeHtmlContent(c.model)}</code></td>
                                 <td style="padding:4px 8px">${transportBadge}</td>
                                 <td style="padding:4px 8px">${c.transport === 'agentSdk' ? escapeHtmlContent(c.permissionMode || 'default') : '—'}</td>
                                 <td style="padding:4px 8px">${cacheLabel}</td>
                                 <td style="padding:4px 8px">${historyLabel}</td>
+                                <td style="padding:4px 8px;text-align:right;white-space:nowrap">
+                                    <button class="sp-btn small" data-status-action="editAnthropicConfiguration" data-config-id="${escapeHtmlContent(c.id)}" title="Edit">✏️</button>
+                                    <button class="sp-btn small danger" data-status-action="deleteAnthropicConfiguration" data-config-id="${escapeHtmlContent(c.id)}" title="Delete">🗑️</button>
+                                </td>
                             </tr>`;
                         }).join('')}
                     </tbody>
                 </table>`}
+            <div class="sp-settings-row" style="margin-top:10px">
+                <button class="sp-btn primary" data-status-action="addAnthropicConfiguration">➕ Add Configuration</button>
+            </div>
         </div>
     </div>
 
@@ -2226,6 +2605,10 @@ function attachStatusPanelListeners(skipEditorInit) {
                 msgData.modelKey = el.getAttribute('data-model-key');
             } else if (action === 'deleteLlmConfiguration') {
                 msgData.configId = el.getAttribute('data-config-id');
+            } else if (action === 'editAnthropicConfiguration' || action === 'deleteAnthropicConfiguration') {
+                msgData.configId = el.getAttribute('data-config-id');
+            } else if (action === 'updateAnthropicApiKeyEnvVar') {
+                msgData.value = (document.getElementById('sp-anthropic-apiKeyEnvVar') || {}).value || 'ANTHROPIC_API_KEY';
             } else if (action === 'deleteAiConversationSetup') {
                 msgData.setupId = el.getAttribute('data-setup-id');
             } else if (action === 'updateCompactionSettings') {
