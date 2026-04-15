@@ -200,6 +200,39 @@
                     "default": false,
                     "description": "Send the system prompt as cache_control blocks for prompt caching (anthropic_sdk_integration.md §16)."
                 },
+                "transport": {
+                    "type": "string",
+                    "enum": ["direct", "agentSdk"],
+                    "default": "direct",
+                    "description": "Backend selector (anthropic_sdk_integration.md §18). 'direct' uses @anthropic-ai/sdk with apiKeyEnvVar. 'agentSdk' routes through @anthropic-ai/claude-agent-sdk, inheriting auth from the host Claude Code install and delegating tool-use loop, prompt caching, and compaction to the SDK."
+                },
+                "agentSdk": {
+                    "type": "object",
+                    "description": "Agent SDK specific options; ignored when transport !== 'agentSdk'.",
+                    "properties": {
+                        "permissionMode": {
+                            "type": "string",
+                            "enum": ["default", "acceptEdits", "plan", "bypassPermissions"],
+                            "default": "default",
+                            "description": "SDK permission mode. 'default' prompts for dangerous ops via canUseTool; 'acceptEdits' auto-accepts file edits; 'plan' never executes tools; 'bypassPermissions' disables prompts entirely."
+                        },
+                        "settingSources": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": ["user", "project", "local"]
+                            },
+                            "default": [],
+                            "description": "Which filesystem settings layers the SDK should load. Empty array = isolation mode (no filesystem settings)."
+                        },
+                        "maxTurns": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Turn cap for the agent loop. When omitted, the configuration's maxRounds is used."
+                        }
+                    },
+                    "additionalProperties": false
+                },
                 "isDefault": { "type": "boolean", "default": false }
             }
         },

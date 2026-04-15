@@ -44,6 +44,43 @@ A configuration bundles a model id, token limits, history mode, tool set, and ap
 
 The model dropdown in the panel is populated live from `anthropic.models.list()` — there is no hardcoded fallback list. If the API is unreachable, the dropdown is empty and Send is disabled.
 
+## 2b. Choosing a transport
+
+Every configuration runs over one of two backends, picked per-configuration via the `transport` field (`anthropic_sdk_integration.md` §18):
+
+| Field | `transport: "direct"` (default) | `transport: "agentSdk"` |
+| --- | --- | --- |
+| Auth source | `ANTHROPIC_API_KEY` env var | Inherited from the host Claude Code install |
+| Billing | Anthropic API account | Claude Code subscription / Bedrock / Vertex |
+| Prompt caching | Opt-in via `promptCachingEnabled` | SDK-managed (field ignored) |
+| Context compaction | Our `history-compaction.ts` | SDK-managed (`historyMode`, `maxHistoryTokens` ignored) |
+| Tool-use loop | Hand-rolled in `anthropic-handler.ts` | SDK-managed |
+| Memory tools | Same (`tomAi_memory_*`) | Same (`tomAi_memory_*`) — still exposed over MCP |
+| Memory → system prompt injection | Yes (§5.2) | No — agent pulls via tools on demand |
+
+To switch, edit the JSON config:
+
+```json
+{
+  "transport": "agentSdk",
+  "agentSdk": {
+    "permissionMode": "default",
+    "settingSources": [],
+    "maxTurns": 40
+  }
+}
+```
+
+Ignored fields on the `agentSdk` path: `apiKeyEnvVar`, `promptCachingEnabled`, `historyMode`, `maxHistoryTokens`. The approval gate still runs — write tools prompt identically on both paths via the SDK's `canUseTool` hook.
+
+The panel shows a 🤖 dot next to the 🔑 dot whenever any configuration has `transport: "agentSdk"`:
+
+- **Green** — `claude --version` succeeded at panel load.
+- **Red** — `claude` CLI not found on PATH or exited non-zero. Install Claude Code and run `claude login` or `claude setup-token`, then reload the window.
+- **Hidden** — no configuration uses the Agent SDK transport.
+
+A quick summary of every configuration (name, model, transport, permission mode, cache, history) is available on the **Status Page → Anthropic — Configurations** section.
+
 ## 3. Create a profile
 
 A profile is a system prompt bound to a configuration. Open the **Global Template Editor** (`Tom AI: Edit Templates` command) and switch to the **Anthropic Profiles** category. Each profile has:
@@ -83,10 +120,10 @@ The Anthropic flow uses four template categories, all editable via the **Global 
 
 | Category | Purpose | Where it runs |
 | --- | --- | --- |
-| `anthropicProfiles` | System-prompt profiles | Sent as `system` on every request |
-| `anthropicUserMessage` | User-input wrapping (e.g. add file context, role banner) | Wraps each user turn before sending |
-| `compaction` | History-summary template | `history-compaction.ts` between turns |
-| `memoryExtraction` | Extract durable facts from a finished exchange | Background pass after each turn |
+| `anthropicProfiles` | System-prompt profiles | Sent as `system` on every request (both transports) |
+| `anthropicUserMessage` | User-input wrapping (e.g. add file context, role banner) | Wraps each user turn before sending (both transports) |
+| `compaction` | History-summary template | `history-compaction.ts` between turns (direct only — SDK compacts on `agentSdk`) |
+| `memoryExtraction` | Extract durable facts from a finished exchange | Background pass after each turn (direct only on `agentSdk`) |
 
 The compaction and memory extraction templates support `${userMessage}` (raw user input) plus all the universal placeholders documented in `file_and_prompt_placeholders.md`.
 
@@ -98,3 +135,4 @@ The compaction and memory extraction templates support `${userMessage}` (raw use
 - §10 Status Page — Compaction + Anthropic Memory sections
 - §11 Bottom panel — ANTHROPIC accordion
 - §14 Configuration schema
+- §18 Claude Agent SDK transport (alternative backend)

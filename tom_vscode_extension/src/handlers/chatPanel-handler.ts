@@ -16,6 +16,8 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { getConfigPath, SendToChatConfig, loadSendToChatConfig, saveSendToChatConfig, PLACEHOLDER_HELP, showPreviewPanel, getWorkspaceRoot, updateChatResponseValues, applyDefaultTemplate, getCopilotChatAnswerFolderAbsolute, DEFAULT_ANSWER_FILE_TEMPLATE, reportException, escapeHtml, openInExternalApplication, resolvePathVariables } from './handler_shared';
 import { openGlobalTemplateEditor, TemplateCategory } from './globalTemplateEditor-handler';
 import { openReusablePromptEditor } from './reusablePromptEditor-handler';
@@ -767,6 +769,37 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         return [];
     }
 
+    /**
+     * Detect whether the host `claude` CLI (used by the Agent SDK transport
+     * per spec §18.6) is installed and reachable. Cached at module scope
+     * after first resolution so we don't spawn a subprocess on every panel
+     * event. Returns `null` while the probe is in flight, `true`/`false`
+     * after.
+     */
+    private static claudeCliOk: boolean | null = null;
+    private static _claudeCliProbe: Promise<boolean> | undefined;
+    private static async probeClaudeCli(): Promise<boolean> {
+        if (!ChatPanelViewProvider._claudeCliProbe) {
+            const execFileAsync = promisify(execFile);
+            ChatPanelViewProvider._claudeCliProbe = (async () => {
+                try {
+                    await execFileAsync('claude', ['--version'], { timeout: 1500 });
+                    ChatPanelViewProvider.claudeCliOk = true;
+                    return true;
+                } catch {
+                    ChatPanelViewProvider.claudeCliOk = false;
+                    return false;
+                }
+            })();
+        }
+        return ChatPanelViewProvider._claudeCliProbe;
+    }
+    /** Re-run the `claude --version` probe on next access (e.g. after config save). */
+    static resetClaudeCliProbe(): void {
+        ChatPanelViewProvider.claudeCliOk = null;
+        ChatPanelViewProvider._claudeCliProbe = undefined;
+    }
+
     private _sendProfiles(): void {
         const config = loadSendToChatConfig();
         const anthropicProfiles = Array.isArray(config?.anthropic?.profiles)
@@ -784,6 +817,20 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             : [];
         const envVar = config?.anthropic?.apiKeyEnvVar || 'ANTHROPIC_API_KEY';
         const anthropicApiKeyOk = !!process.env[envVar];
+        // Spec §18.6: the 🤖 dot appears only when at least one
+        // configuration opts into the Agent SDK transport. Configs are
+        // typed loosely here since the schema is validated elsewhere.
+        const anyAgentSdkConfig = Array.isArray(config?.anthropic?.configurations) &&
+            config!.anthropic!.configurations!.some((c) => c?.transport === 'agentSdk');
+        const claudeCliOk = ChatPanelViewProvider.claudeCliOk;
+        if (anyAgentSdkConfig) {
+            // Fire the probe; when it resolves we emit a typed status
+            // message so the webview can toggle the dot without waiting
+            // for the next _sendProfiles() call.
+            void ChatPanelViewProvider.probeClaudeCli().then((ok) => {
+                this._view?.webview.postMessage({ type: 'anthropicClaudeCliStatus', ok, visible: true });
+            });
+        }
         this._view?.webview.postMessage({
             type: 'profiles',
             localLlm: config?.localLlm?.profiles ? Object.keys(config.localLlm.profiles) : [],
@@ -796,6 +843,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             setups: this._getEffectiveAiConversationSetups(config),
             anthropicConfigurations,
             anthropicApiKeyOk,
+            claudeCliOk,
+            claudeCliVisible: anyAgentSdkConfig,
             defaultCopilotTemplate: config?.copilot?.defaultTemplate || '',
         });
         // §11.4: dedicated anthropicProfiles message for downstream consumers
@@ -2724,6 +2773,8 @@ var setups = [];
 var anthropicConfigurations = [];
 var anthropicModels = [];
 var anthropicApiKeyOk = false;
+var claudeCliOk = null;      // null = probing, true/false = resolved (spec §18.6)
+var claudeCliVisible = false; // true when any config uses transport: 'agentSdk'
 var anthropicSending = false;
 var anthropicSessionTurns = 0;
 var anthropicLastToolCalls = 0;
@@ -3052,7 +3103,8 @@ function getSectionContent(id) {
                 '<label>Model:</label><select id="anthropic-model" style="width:60%" title="Models from Anthropic API"><option value="">(loading...)</option></select>' +
                 '<button class="icon-btn" data-action="refreshAnthropicModels" data-id="anthropic" title="Refresh models from API"><span class="codicon codicon-refresh"></span></button>' +
                 '<label>Config:</label><select id="anthropic-config" style="width:50%" title="Anthropic configuration"></select>' +
-                '<span id="anthropic-apikey-dot" class="api-status-dot" title="API key status" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--vscode-errorForeground);margin-left:6px;"></span>',
+                '<span id="anthropic-apikey-dot" class="api-status-dot" title="API key status" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--vscode-errorForeground);margin-left:6px;"></span>' +
+                '<span id="anthropic-claude-dot" class="api-status-dot" title="Claude Code install status (Agent SDK transport)" style="display:none;width:10px;height:10px;border-radius:50%;background:var(--vscode-errorForeground);margin-left:4px;"></span>',
             manageButtons:
                 '<button class="icon-btn" data-action="addProfile" data-id="anthropic" title="Add Profile"><span class="codicon codicon-add"></span></button>' +
                 '<button class="icon-btn" data-action="editProfile" data-id="anthropic" title="Edit Profile"><span class="codicon codicon-edit"></span></button>' +
@@ -3440,6 +3492,26 @@ function updateAnthropicApiKeyDot() {
     dot.title = anthropicApiKeyOk ? 'Anthropic API key OK' : 'Anthropic API key missing or invalid';
 }
 
+function updateClaudeCliDot() {
+    var dot = document.getElementById('anthropic-claude-dot');
+    if (!dot) return;
+    if (!claudeCliVisible) {
+        dot.style.display = 'none';
+        return;
+    }
+    dot.style.display = 'inline-block';
+    if (claudeCliOk === null) {
+        dot.style.background = 'var(--vscode-editorWarning-foreground, #cca700)';
+        dot.title = 'Claude CLI: probing...';
+    } else if (claudeCliOk) {
+        dot.style.background = 'var(--vscode-testing-iconPassed, #3fb950)';
+        dot.title = 'Claude CLI detected — Agent SDK transport available';
+    } else {
+        dot.style.background = 'var(--vscode-errorForeground, #f85149)';
+        dot.title = "Claude CLI not found. Install Claude Code and run 'claude login' to use Agent SDK configurations.";
+    }
+}
+
 function updateAnthropicSendButton() {
     var btn = document.getElementById('anthropic-send-btn');
     if (!btn) return;
@@ -3627,9 +3699,17 @@ window.addEventListener('message', function(e) {
         setups = msg.setups || [];
         anthropicConfigurations = msg.anthropicConfigurations || [];
         anthropicApiKeyOk = !!msg.anthropicApiKeyOk;
+        claudeCliVisible = !!msg.claudeCliVisible;
+        claudeCliOk = (msg.claudeCliOk === true || msg.claudeCliOk === false) ? msg.claudeCliOk : null;
         defaultCopilotTemplate = msg.defaultCopilotTemplate || '';
         populateDropdowns();
         updateDefaultTemplateIndicator();
+        updateAnthropicApiKeyDot();
+        updateClaudeCliDot();
+    } else if (msg.type === 'anthropicClaudeCliStatus') {
+        claudeCliOk = !!msg.ok;
+        claudeCliVisible = msg.visible !== false;
+        updateClaudeCliDot();
     } else if (msg.type === 'anthropicModels') {
         anthropicModels = msg.models || [];
         if (msg.error) {

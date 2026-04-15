@@ -937,6 +937,16 @@ export interface StatusData {
     memoryExtractionTemplateChoices: Array<{ id: string; name: string }>;
     /** Anthropic configurations (id+name) for the compaction provider select. */
     anthropicConfigurationChoices: Array<{ id: string; name: string }>;
+    /** Anthropic configurations summary for the read-only list (anthropic_sdk_integration.md §18.8). */
+    anthropicConfigurationsSummary: Array<{
+        id: string;
+        name: string;
+        model: string;
+        transport: 'direct' | 'agentSdk';
+        permissionMode?: string;
+        promptCachingEnabled: boolean;
+        historyMode: string;
+    }>;
 }
 
 /**
@@ -1145,6 +1155,15 @@ export async function gatherStatusData(): Promise<StatusData> {
         })),
         anthropicConfigurationChoices: (sendToChatConfig?.anthropic?.configurations || []).map((c) => ({
             id: c.id, name: c.name || c.id,
+        })),
+        anthropicConfigurationsSummary: (sendToChatConfig?.anthropic?.configurations || []).map((c) => ({
+            id: c.id,
+            name: c.name || c.id,
+            model: (c as { model?: string }).model || '',
+            transport: ((c as { transport?: string }).transport === 'agentSdk' ? 'agentSdk' : 'direct') as 'direct' | 'agentSdk',
+            permissionMode: (c as { agentSdk?: { permissionMode?: string } }).agentSdk?.permissionMode,
+            promptCachingEnabled: (c as { promptCachingEnabled?: boolean }).promptCachingEnabled === true,
+            historyMode: (c as { historyMode?: string }).historyMode || 'last',
         })),
     };
 }
@@ -1717,6 +1736,54 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
             <div class="sp-settings-row">
                 <button class="sp-btn primary" data-status-action="updateCompactionSettings">Save Compaction Settings</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Anthropic — Configurations Summary (anthropic_sdk_integration.md §18.8) -->
+    <div class="sp-section">
+        <div class="sp-section-header sp-collapsible" data-collapse="anthropicConfigs">
+            <span class="sp-section-title"><span class="sp-collapse-icon">▶</span> 🤖 Anthropic — Configurations</span>
+        </div>
+        <div class="sp-collapse-content sp-collapsed" id="sp-anthropicConfigs-content">
+            <p style="font-size:11px;color:var(--vscode-descriptionForeground);margin:0 0 8px">
+                Read-only summary of <code>anthropic.configurations[]</code> from <code>tom_vscode_extension.json</code>.
+                Edit transport, model, and SDK options directly in the JSON file — the schema provides IntelliSense for all fields (see <code>anthropic_sdk_integration.md</code> §18).
+            </p>
+            ${status.anthropicConfigurationsSummary.length === 0
+                ? '<div class="sp-info">No Anthropic configurations defined</div>'
+                : `<table style="width:100%;border-collapse:collapse;font-size:11px">
+                    <thead>
+                        <tr style="text-align:left;border-bottom:1px solid var(--vscode-panel-border)">
+                            <th style="padding:4px 8px">Name</th>
+                            <th style="padding:4px 8px">Model</th>
+                            <th style="padding:4px 8px">Transport</th>
+                            <th style="padding:4px 8px">Permission</th>
+                            <th style="padding:4px 8px">Cache</th>
+                            <th style="padding:4px 8px">History</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${status.anthropicConfigurationsSummary.map(c => {
+                            const transportBadge = c.transport === 'agentSdk'
+                                ? '<span style="background:#4a9eff;color:white;padding:2px 6px;border-radius:3px;font-size:10px">Agent SDK</span>'
+                                : '<span style="background:#888;color:white;padding:2px 6px;border-radius:3px;font-size:10px">Direct</span>';
+                            const cacheLabel = c.transport === 'agentSdk'
+                                ? '<span title="Managed by Agent SDK" style="color:var(--vscode-descriptionForeground)">SDK-managed</span>'
+                                : (c.promptCachingEnabled ? 'On' : 'Off');
+                            const historyLabel = c.transport === 'agentSdk'
+                                ? '<span title="Managed by Agent SDK" style="color:var(--vscode-descriptionForeground)">SDK-managed</span>'
+                                : escapeHtmlContent(c.historyMode);
+                            return `<tr style="border-bottom:1px solid var(--vscode-panel-border)">
+                                <td style="padding:4px 8px"><strong>${escapeHtmlContent(c.name)}</strong><br><code style="font-size:10px;color:var(--vscode-descriptionForeground)">${escapeHtmlContent(c.id)}</code></td>
+                                <td style="padding:4px 8px"><code style="font-size:10px">${escapeHtmlContent(c.model)}</code></td>
+                                <td style="padding:4px 8px">${transportBadge}</td>
+                                <td style="padding:4px 8px">${c.transport === 'agentSdk' ? escapeHtmlContent(c.permissionMode || 'default') : '—'}</td>
+                                <td style="padding:4px 8px">${cacheLabel}</td>
+                                <td style="padding:4px 8px">${historyLabel}</td>
+                            </tr>`;
+                        }).join('')}
+                    </tbody>
+                </table>`}
         </div>
     </div>
 

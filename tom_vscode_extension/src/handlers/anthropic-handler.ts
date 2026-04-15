@@ -28,12 +28,32 @@ import {
 } from '../services/history-compaction';
 import { TwoTierMemoryService } from '../services/memory-service';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
+import { runAgentSdkQuery } from './agent-sdk-transport';
 import { WsPaths } from '../utils/workspacePaths';
 import { resolveVariables } from '../utils/variableResolver';
 
 // ============================================================================
 // Configuration shapes (subset — full schema in §14 of the spec)
 // ============================================================================
+
+/**
+ * Spec §18.2 — `transport: 'direct'` (default) routes through
+ * `@anthropic-ai/sdk` (the original Phase 1–5 path). `'agentSdk'` routes
+ * through `@anthropic-ai/claude-agent-sdk`, inheriting auth from the host
+ * Claude Code install and delegating the tool-use loop, prompt caching,
+ * and context compaction to the SDK.
+ */
+export type AnthropicTransport = 'direct' | 'agentSdk';
+
+/** Spec §18.2 — per-configuration Agent SDK knobs. */
+export interface AnthropicAgentSdkOptions {
+    /** SDK `permissionMode`; `default` prompts for dangerous ops. */
+    permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
+    /** Which filesystem settings layers the SDK should load. Empty (default) = isolation mode. */
+    settingSources?: Array<'user' | 'project' | 'local'>;
+    /** Turn cap; when omitted, the configuration's `maxRounds` is used. */
+    maxTurns?: number;
+}
 
 export interface AnthropicConfiguration {
     id: string;
@@ -49,6 +69,10 @@ export interface AnthropicConfiguration {
     toolApprovalMode?: 'always' | 'session' | 'never';
     memoryExtractionTemplateId?: string;
     promptCachingEnabled?: boolean;
+    /** Spec §18 — backend selector; `'direct'` when omitted. */
+    transport?: AnthropicTransport;
+    /** Spec §18.2 — Agent SDK specific options; ignored when `transport !== 'agentSdk'`. */
+    agentSdk?: AnthropicAgentSdkOptions;
     isDefault?: boolean;
 }
 
@@ -331,12 +355,9 @@ export class AnthropicHandler {
 
     /** Main entry point — send a message and run the tool-call loop to completion. */
     async sendMessage(options: AnthropicSendOptions): Promise<AnthropicSendResult> {
-        const client = this.getClient();
-        if (!client) {
-            throw new Error('Anthropic client not available — set the configured API key env var');
-        }
-
         const { profile, configuration, tools, userText } = options;
+        const transport = configuration.transport ?? 'direct';
+
         const quest = WsPaths.getWorkspaceQuestId();
         const windowId = vscode.env.sessionId;
         const requestId = this.generateRequestId();
@@ -353,7 +374,11 @@ export class AnthropicHandler {
         const { cleaned: keywordCleanedText } = this.applyKeywordTriggers(userText, quest);
         const effectiveUserText = keywordCleanedText.trim() || userText;
 
-        const systemSegments = this.buildSystemSegments(profile, quest);
+        // Agent SDK path: no memory injection into the system prompt (§18.4).
+        // The agent pulls memory via `tomAi_memory_*` tools on demand.
+        const systemSegments = transport === 'agentSdk'
+            ? [profile.systemPrompt ?? ''].filter((s): s is string => !!s)
+            : this.buildSystemSegments(profile, quest);
         const systemPrompt = systemSegments.filter((s) => s).join('\n\n');
         const expandedUser = this.buildUserMessage({ ...options, userText: effectiveUserText });
         const trailLinePrefix = this.toolTrail.toSummaryString();
@@ -368,6 +393,37 @@ export class AnthropicHandler {
             requestId,
             quest,
         );
+
+        if (transport === 'agentSdk') {
+            const result = await runAgentSdkQuery({
+                configuration,
+                tools,
+                systemPrompt,
+                userText: userContent,
+                cancellationToken: options.cancellationToken,
+                context: {
+                    requestApproval: (req) => this.awaitApproval(req),
+                    sessionApprovals: this.sessionApprovals,
+                    toolTrail: this.toolTrail,
+                    round,
+                    questId: quest,
+                    windowId,
+                    requestId,
+                },
+            });
+            // Skip history compaction (§18.4) — the SDK manages its own
+            // context window — but still record the exchange in our rolling
+            // history so users see continuity across direct/agentSdk
+            // switches within the same session.
+            this.history.push({ role: 'user', content: userContent });
+            this.history.push({ role: 'assistant', content: result.text });
+            return result;
+        }
+
+        const client = this.getClient();
+        if (!client) {
+            throw new Error('Anthropic client not available — set the configured API key env var');
+        }
 
         const anthropicTools = toAnthropicTools(tools);
         const messages: AnthropicMessageParam[] = [

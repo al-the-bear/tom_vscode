@@ -139,6 +139,14 @@ export interface SendToChatConfig {
             toolApprovalMode?: 'always' | 'session' | 'never';
             memoryExtractionTemplateId?: string;
             promptCachingEnabled?: boolean;
+            /** Backend selector — anthropic_sdk_integration.md §18. */
+            transport?: 'direct' | 'agentSdk';
+            /** Agent SDK options; applies when transport === 'agentSdk'. */
+            agentSdk?: {
+                permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
+                settingSources?: Array<'user' | 'project' | 'local'>;
+                maxTurns?: number;
+            };
             isDefault?: boolean;
         }>;
         profiles?: Array<{
