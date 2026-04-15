@@ -1273,7 +1273,13 @@ async function executeChatvarRead(input: ChatvarReadInput): Promise<string> {
     try {
         const store = ChatVariablesStore.instance;
         if (input.key) {
-            const raw = store.getRaw(input.key);
+            // Spec §8.5: custom values are addressable both as
+            // `${custom.myKey}` and `${myKey}`. Mirror that here so the
+            // model can pass either form.
+            const key = input.key.startsWith('custom.')
+                ? input.key.slice('custom.'.length)
+                : input.key;
+            const raw = store.getRaw(key);
             return JSON.stringify(raw, null, 2);
         }
         // Spec §8.5 output shape — change log is intentionally omitted.

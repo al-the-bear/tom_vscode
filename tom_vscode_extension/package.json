@@ -2446,6 +2446,54 @@
                     }
                 },
                 "toolReferenceName": "tom_askCopilot"
+            },
+            {
+                "name": "tomAi_chatvar_read",
+                "tags": [
+                    "chat-variables",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Chat Variable — Read",
+                "userDescription": "Read chat variables",
+                "modelDescription": "Read the current chat variables. Omit `key` to return all variables (built-ins + custom.*). Pass a `key` to return just that variable's current value.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "key": {
+                            "type": "string",
+                            "description": "Optional variable name (built-in or custom). Omit to return everything."
+                        }
+                    }
+                },
+                "toolReferenceName": "tom_chatvar_read"
+            },
+            {
+                "name": "tomAi_chatvar_write",
+                "tags": [
+                    "chat-variables",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Chat Variable — Write",
+                "userDescription": "Update custom chat variables",
+                "modelDescription": "Update one or more custom chat variables. Keys are stored under the `custom.*` namespace. Built-in keys (quest, role, activeProjects, todo, todoFile) are rejected — those are user-only fields. Every change is visible live in the Chat Variables Editor.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "variables"
+                    ],
+                    "properties": {
+                        "variables": {
+                            "type": "object",
+                            "description": "Map of variable names to string values. Plain names only — the tool prepends \"custom.\" automatically. Built-in names are rejected.",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                },
+                "toolReferenceName": "tom_chatvar_write"
             }
         ],
         "configuration": {
