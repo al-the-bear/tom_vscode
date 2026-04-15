@@ -159,6 +159,14 @@ export interface SendToChatConfig {
             template: string;
             isDefault?: boolean;
         }>;
+        /** Memory subsystem cross-config defaults (anthropic_sdk_integration.md §10). */
+        memory?: {
+            memoryToolsEnabled?: boolean;
+            memoryExtractionTemplateId?: string;
+            /** Which history modes trigger background memory extraction. */
+            autoExtractMode?: 'never' | 'summary' | 'trim_and_summary' | 'llm_extract' | 'all';
+            maxInjectedTokens?: number;
+        };
     };
 
     /**

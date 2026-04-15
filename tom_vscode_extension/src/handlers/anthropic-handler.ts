@@ -126,7 +126,7 @@ export class AnthropicHandler {
     private readonly toolTrail: ToolTrail;
     private roundCounter = 0;
     private sessionApprovals = new Set<string>();
-    private readonly pendingApprovals = new Map<string, (approved: boolean) => void>();
+    private readonly pendingApprovals = new Map<string, { resolve: (approved: boolean) => void; toolName: string }>();
     /**
      * Rolling conversation history kept across `sendMessage()` calls,
      * compacted after each exchange per the configuration's `historyMode`.
@@ -217,13 +217,20 @@ export class AnthropicHandler {
      * webview message. No-op if the id is unknown (already resolved or
      * never requested).
      */
-    handleApprovalResponse(toolUseId: string, approved: boolean): void {
-        const resolver = this.pendingApprovals.get(toolUseId);
-        if (!resolver) {
+    handleApprovalResponse(toolUseId: string, approved: boolean, approveAll: boolean = false): void {
+        const entry = this.pendingApprovals.get(toolUseId);
+        if (!entry) {
             return;
         }
         this.pendingApprovals.delete(toolUseId);
-        resolver(approved);
+        // "Approve All" = "approve every subsequent invocation of this tool
+        // in the current session" (spec §11.4 `approveAll`). It only takes
+        // effect when the decision is approve — denying with approveAll
+        // would be nonsensical.
+        if (approved && approveAll && entry.toolName) {
+            this.sessionApprovals.add(entry.toolName);
+        }
+        entry.resolve(approved);
     }
 
     /**
@@ -235,7 +242,7 @@ export class AnthropicHandler {
      */
     private awaitApproval(req: AnthropicToolApprovalRequest): Promise<boolean> {
         return new Promise<boolean>((resolve) => {
-            this.pendingApprovals.set(req.toolUseId, resolve);
+            this.pendingApprovals.set(req.toolUseId, { resolve, toolName: req.toolName });
             this._onApprovalNeeded.fire(req);
         });
     }

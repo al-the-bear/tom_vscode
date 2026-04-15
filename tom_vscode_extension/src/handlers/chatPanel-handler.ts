@@ -30,6 +30,8 @@ import { validateStrictAiConfiguration } from '../utils/sendToChatConfig';
 import { findNearestDetectedProject, scanWorkspaceProjectsByDetectors } from '../utils/projectDetector';
 import { TrailService } from '../services/trailService';
 import { writeWindowState } from './windowStatusPanel-handler.js';
+import { AnthropicHandler, AnthropicProfile, AnthropicConfiguration } from './anthropic-handler';
+import { ALL_SHARED_TOOLS } from '../tools/tool-executors';
 
 // ============================================================================
 // Answer File Utilities (for Copilot answer file feature)
@@ -550,8 +552,29 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'sendTomAiChat':
                         await this._handleSendTomAiChat(message.text, message.template);
                         break;
+                    case 'sendAnthropic':
+                        await this._handleSendAnthropic(message.text, message.profile, message.model, message.config);
+                        break;
+                    case 'refreshAnthropicModels':
+                        await this._sendAnthropicModels();
+                        break;
+                    case 'clearAnthropicHistory':
+                        AnthropicHandler.instance.clearSession();
+                        break;
+                    case 'openAnthropicMemory':
+                        await vscode.commands.executeCommand('tomAi.panel.memory');
+                        break;
+                    case 'anthropicToolApprovalResponse':
+                        AnthropicHandler.instance.handleApprovalResponse(
+                            String(message.toolId || ''),
+                            !!message.approved,
+                            !!message.approveAll,
+                        );
+                        break;
                     case 'getProfiles':
                         this._sendProfiles();
+                        // Fire-and-forget: models arrive asynchronously via postMessage
+                        void this._sendAnthropicModels();
                         break;
                     case 'getReusablePrompts':
                         this._sendReusablePrompts();
@@ -665,7 +688,11 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         await vscode.commands.executeCommand('tomAi.editor.timedRequests');
                         break;
                     case 'openTrailViewer':
-                        await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer');
+                        if (message.section === 'anthropic') {
+                            await this._openAnthropicRawTrail();
+                        } else {
+                            await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer');
+                        }
                         break;
                     case 'openConversationTrailViewer':
                         await this._openConversationTrailViewer();
@@ -680,7 +707,11 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         await this._openConversationTurnFilesEditor();
                         break;
                     case 'openTrailFiles':
-                        await this._openTrailFiles();
+                        if (message.section === 'anthropic') {
+                            await this._openAnthropicSummaryTrail();
+                        } else {
+                            await this._openTrailFiles();
+                        }
                         break;
                     case 'openStatusPage':
                         await vscode.commands.executeCommand('tomAi.statusPage');
@@ -738,6 +769,16 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
 
     private _sendProfiles(): void {
         const config = loadSendToChatConfig();
+        const anthropicProfiles = Array.isArray(config?.anthropic?.profiles)
+            ? config!.anthropic!.profiles!.map((p: any) => p.id).filter((s: any) => typeof s === 'string' && s.length > 0)
+            : [];
+        const anthropicConfigurations = Array.isArray(config?.anthropic?.configurations)
+            ? config!.anthropic!.configurations!
+                .filter((c: any) => c && typeof c.id === 'string')
+                .map((c: any) => ({ id: c.id, name: c.name || c.id, isDefault: c.isDefault === true }))
+            : [];
+        const envVar = config?.anthropic?.apiKeyEnvVar || 'ANTHROPIC_API_KEY';
+        const anthropicApiKeyOk = !!process.env[envVar];
         this._view?.webview.postMessage({
             type: 'profiles',
             localLlm: config?.localLlm?.profiles ? Object.keys(config.localLlm.profiles) : [],
@@ -745,8 +786,11 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             // Filter out __answer_file__ since it's hardcoded in the dropdown as "Answer Wrapper"
             copilot: config?.copilot?.templates ? Object.keys(config.copilot.templates).filter(k => k !== '__answer_file__') : [],
             tomAiChat: config?.tomAiChat?.templates ? Object.keys(config.tomAiChat.templates) : [],
+            anthropic: anthropicProfiles,
             configurations: this._getEffectiveLlmConfigurations(config),
             setups: this._getEffectiveAiConversationSetups(config),
+            anthropicConfigurations,
+            anthropicApiKeyOk,
             defaultCopilotTemplate: config?.copilot?.defaultTemplate || '',
         });
     }
@@ -1462,6 +1506,145 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         const requestId = this._extractRequestIdFromExpandedPrompt(expanded);
         writePromptTrail(text, template || '__none__', false, expanded, requestId);
         await this._insertExpandedToChatFile(expanded);
+    }
+
+    // --- Anthropic: send, model fetch, trail -------------------------------
+    // Spec §11 — ANTHROPIC panel section. The handler funnels the user
+    // input through AnthropicHandler.sendMessage(), which runs the full
+    // tool loop (with approval gating) and returns a single answer string.
+
+    private _anthropicApprovalListenerAttached = false;
+
+    private _ensureAnthropicApprovalListener(): void {
+        if (this._anthropicApprovalListenerAttached) {
+            return;
+        }
+        this._anthropicApprovalListenerAttached = true;
+        AnthropicHandler.instance.onApprovalNeeded((req) => {
+            this._view?.webview.postMessage({
+                type: 'anthropicToolApproval',
+                toolId: req.toolUseId,
+                toolName: req.toolName,
+                inputSummary: req.inputSummary,
+            });
+        });
+    }
+
+    private async _handleSendAnthropic(text: string, profileId: string, modelId: string, configId: string): Promise<void> {
+        if (!text || !text.trim()) { return; }
+        const config = loadSendToChatConfig();
+        const profiles: AnthropicProfile[] = Array.isArray(config?.anthropic?.profiles)
+            ? (config!.anthropic!.profiles! as AnthropicProfile[])
+            : [];
+        const configurations: AnthropicConfiguration[] = Array.isArray(config?.anthropic?.configurations)
+            ? (config!.anthropic!.configurations! as AnthropicConfiguration[])
+            : [];
+
+        let profile = profiles.find((p) => p.id === profileId)
+            || profiles.find((p) => p.isDefault)
+            || profiles[0];
+        if (!profile) {
+            profile = {
+                id: '__inline__',
+                name: '(inline)',
+                description: '',
+                systemPrompt: '',
+            };
+        }
+
+        let cfg = configurations.find((c) => c.id === configId)
+            || (profile.configurationId ? configurations.find((c) => c.id === profile.configurationId) : undefined)
+            || configurations.find((c) => c.isDefault)
+            || configurations[0];
+
+        if (!cfg && !modelId) {
+            this._view?.webview.postMessage({
+                type: 'anthropicError',
+                message: 'No Anthropic configuration and no model selected. Add a configuration on the Status Page or pick a model.',
+            });
+            return;
+        }
+        if (!cfg) {
+            cfg = {
+                id: '__inline__',
+                name: '(inline)',
+                model: modelId,
+                maxTokens: 8192,
+                enabledTools: [],
+                maxRounds: 10,
+                toolApprovalMode: 'always',
+            };
+        }
+        // The model dropdown takes precedence — the user may override the
+        // model on a per-send basis without editing the configuration.
+        if (modelId) {
+            cfg = { ...cfg, model: modelId };
+        }
+
+        const enabledIds = Array.isArray(cfg.enabledTools) ? cfg.enabledTools : [];
+        const tools = enabledIds.length > 0
+            ? ALL_SHARED_TOOLS.filter((t) => enabledIds.includes(t.name))
+            : [];
+
+        this._ensureAnthropicApprovalListener();
+
+        try {
+            const result = await AnthropicHandler.instance.sendMessage({
+                userText: text,
+                profile,
+                configuration: cfg,
+                tools,
+            });
+            this._view?.webview.postMessage({
+                type: 'anthropicResult',
+                text: result.text,
+                turnsUsed: result.turnsUsed,
+                toolCallCount: result.toolCallCount,
+            });
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            debugLog(`[ChatPanel] Anthropic send failed: ${msg}`, 'ERROR', 'extension');
+            this._view?.webview.postMessage({ type: 'anthropicError', message: msg });
+        }
+    }
+
+    private async _sendAnthropicModels(): Promise<void> {
+        const result = await AnthropicHandler.instance.fetchModels();
+        this._view?.webview.postMessage({
+            type: 'anthropicModels',
+            models: result.models,
+            ...(result.error ? { error: result.error } : {}),
+        });
+    }
+
+    private async _openAnthropicRawTrail(): Promise<void> {
+        const questId = WsPaths.getWorkspaceQuestId();
+        const summaryPath = TrailService.instance.getSummaryFilePath('prompts', { type: 'anthropic' }, questId);
+        // The Raw Trail Viewer command takes a directory and browses it; fall
+        // back to the summary file location's folder when no raw folder exists.
+        const wsRoot = getWorkspaceRoot();
+        if (!wsRoot) { vscode.window.showWarningMessage('No workspace folder'); return; }
+        const rawDir = path.join(wsRoot, '_ai', 'trail', 'anthropic', questId || 'default');
+        if (fs.existsSync(rawDir)) {
+            await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer', vscode.Uri.file(rawDir));
+            return;
+        }
+        if (summaryPath && fs.existsSync(summaryPath)) {
+            await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(summaryPath));
+            return;
+        }
+        vscode.window.showInformationMessage('No Anthropic trail exists yet. Send a prompt first.');
+    }
+
+    private async _openAnthropicSummaryTrail(): Promise<void> {
+        const questId = WsPaths.getWorkspaceQuestId();
+        const summaryPath = TrailService.instance.getSummaryFilePath('prompts', { type: 'anthropic' }, questId);
+        if (!summaryPath || !fs.existsSync(summaryPath)) {
+            vscode.window.showInformationMessage('No Anthropic summary trail exists yet. Send a prompt first.');
+            return;
+        }
+        const uri = vscode.Uri.file(summaryPath);
+        await vscode.commands.executeCommand('vscode.openWith', uri, 'tomAi.trailViewer');
     }
 
     private async _insertExpandedToChatFile(expanded: string): Promise<void> {
@@ -2251,6 +2434,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         const categoryMap: Record<string, TemplateCategory> = {
             localLlm: 'localLlm',
             conversation: 'conversation',
+            anthropic: 'anthropicProfiles',
         };
         const category = categoryMap[section];
         if (category) {
@@ -2263,6 +2447,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         const categoryMap: Record<string, TemplateCategory> = {
             localLlm: 'localLlm',
             conversation: 'conversation',
+            anthropic: 'anthropicProfiles',
         };
         const category = categoryMap[section];
         if (category) {
@@ -2284,6 +2469,10 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             delete config.localLlm.profiles[name];
         } else if (section === 'conversation' && config.aiConversation?.profiles?.[name]) {
             delete config.aiConversation.profiles[name];
+        } else if (section === 'anthropic' && Array.isArray(config.anthropic?.profiles)) {
+            const before = config.anthropic!.profiles!.length;
+            config.anthropic!.profiles = config.anthropic!.profiles!.filter((p: any) => p?.id !== name);
+            if (config.anthropic!.profiles!.length === before) { return; }
         } else { return; }
 
         if (saveSendToChatConfig(config)) {
@@ -2512,12 +2701,18 @@ var sectionsConfig = [
     { id: 'localLlm', icon: '<span class="codicon codicon-robot"></span>', title: 'Local LLM' },
     { id: 'conversation', icon: '<span class="codicon codicon-comment-discussion"></span>', title: 'AI Conversation' },
     { id: 'copilot', icon: '<span class="codicon codicon-copilot"></span>', title: 'Copilot' },
-    { id: 'tomAiChat', icon: '<span class="codicon codicon-comment-discussion-sparkle"></span>', title: 'Tom AI Chat' }
+    { id: 'tomAiChat', icon: '<span class="codicon codicon-comment-discussion-sparkle"></span>', title: 'Tom AI Chat' },
+    { id: 'anthropic', icon: '<span class="codicon codicon-sparkle"></span>', title: 'Anthropic' }
 ];
 var state = { expanded: ['localLlm'], pinned: [] };
-var profiles = { localLlm: [], conversation: [], copilot: [], tomAiChat: [] };
+var profiles = { localLlm: [], conversation: [], copilot: [], tomAiChat: [], anthropic: [] };
 var configurations = [];
 var setups = [];
+var anthropicConfigurations = [];
+var anthropicModels = [];
+var anthropicApiKeyOk = false;
+var anthropicSending = false;
+var pendingAnthropicApprovals = {};
 var defaultCopilotTemplate = '';
 var reusablePromptModel = { scopes: { project: [], quest: [], scan: [] }, files: { global: [], project: {}, quest: {}, scan: {} } };
 var pendingReusableCopySection = '';
@@ -2527,7 +2722,7 @@ var reusablePreferredScanId = '';
 var reusablePromptState = {};
 var copilotHasAnswer = false;
 var copilotAnswerSlot = 0;
-var slotEnabledSections = ['localLlm', 'conversation', 'copilot', 'tomAiChat'];
+var slotEnabledSections = ['localLlm', 'conversation', 'copilot', 'tomAiChat', 'anthropic'];
 var sectionSlotState = {};
 var delegatedUiHandlersAttached = false;
 
@@ -2832,6 +3027,48 @@ function getSectionContent(id) {
             infoId: 'tomAiChat-templateInfo',
             placeholder: 'Enter your prompt for Tom AI Chat...',
             helpTitle: 'Show Placeholder Help',
+        }),
+        anthropic: getPromptEditorComponent({
+            sectionId: 'anthropic',
+            selectorKind: 'profile',
+            selectorLabel: 'Profile',
+            selectorOptions: '<option value="">(None)</option>',
+            secondarySelectorHtml:
+                '<label>Model:</label><select id="anthropic-model" style="width:60%" title="Models from Anthropic API"><option value="">(loading...)</option></select>' +
+                '<button class="icon-btn" data-action="refreshAnthropicModels" data-id="anthropic" title="Refresh models from API"><span class="codicon codicon-refresh"></span></button>' +
+                '<label>Config:</label><select id="anthropic-config" style="width:50%" title="Anthropic configuration"></select>' +
+                '<span id="anthropic-apikey-dot" class="api-status-dot" title="API key status" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--vscode-errorForeground);margin-left:6px;"></span>',
+            manageButtons:
+                '<button class="icon-btn" data-action="addProfile" data-id="anthropic" title="Add Profile"><span class="codicon codicon-add"></span></button>' +
+                '<button class="icon-btn" data-action="editProfile" data-id="anthropic" title="Edit Profile"><span class="codicon codicon-edit"></span></button>' +
+                '<button class="icon-btn danger" data-action="deleteProfile" data-id="anthropic" title="Delete Profile"><span class="codicon codicon-trash"></span></button>',
+            actionButtons:
+                '<button data-action="preview" data-id="anthropic" title="Preview expanded prompt">Preview</button>' +
+                '<button class="primary" id="anthropic-send-btn" data-action="send" data-id="anthropic" title="Send to Anthropic">Send to Anthropic</button>' +
+                '<button class="icon-btn" data-action="openTrailViewer" data-id="anthropic" title="Open Trail Files Viewer"><span class="codicon codicon-list-flat"></span></button>' +
+                '<button class="icon-btn" data-action="openTrailFiles" data-id="anthropic" title="Open Trail"><span class="codicon codicon-history"></span></button>' +
+                '<button class="icon-btn" data-action="openAnthropicMemory" data-id="anthropic" title="Memory Panel"><span class="codicon codicon-book"></span></button>' +
+                '<button class="icon-btn" data-action="clearAnthropicHistory" data-id="anthropic" title="Clear session history"><span class="codicon codicon-clear-all"></span></button>',
+            afterToolbarHtml:
+                '<div id="anthropic-approval-overlay" class="context-overlay" style="display:none;">' +
+                '<div id="anthropic-approval-popup" class="context-popup">' +
+                '<div class="context-popup-header"><span>Tool Approval Required</span></div>' +
+                '<div class="context-popup-body">' +
+                '<div id="anthropic-approval-body" style="padding:8px;font-family:var(--vscode-editor-font-family);white-space:pre-wrap;max-height:40vh;overflow:auto;"></div>' +
+                '</div>' +
+                '<div class="context-popup-footer">' +
+                '<button class="primary" data-action="anthropicApprovalApprove">Approve</button>' +
+                '<button data-action="anthropicApprovalApproveAll">Allow All (session)</button>' +
+                '<button data-action="anthropicApprovalDeny">Deny</button>' +
+                '<button data-action="anthropicApprovalDenyAll">Deny All (session)</button>' +
+                '</div>' +
+                '</div>' +
+                '</div>',
+            infoId: 'anthropic-profileInfo',
+            placeholder: 'Enter your prompt for Anthropic...',
+            helpTitle: '',
+            afterEditorHtml:
+                '<div class="status-bar"><span id="anthropic-status" class="context-summary"></span></div>',
         })
     };
     return contents[id] || '<div>Unknown section</div>';
@@ -2966,7 +3203,7 @@ function stopResize() { /* legacy */ }
 
 function handleAction(action, id, slot) {
     switch(action) {
-        case 'send': { var text = document.getElementById(id + '-text'); text = text ? text.value : ''; if (!text.trim()) return; var profile = document.getElementById(id + '-profile'); profile = profile ? profile.value : ''; var template = document.getElementById(id + '-template'); template = template ? template.value : ''; var llmConfig = document.getElementById('localLlm-llmConfig'); llmConfig = llmConfig ? llmConfig.value : ''; var aiSetup = document.getElementById('conversation-aiSetup'); aiSetup = aiSetup ? aiSetup.value : ''; var slotNo = ensureSlotState(id).activeSlot; vscode.postMessage({ type: 'send' + id.charAt(0).toUpperCase() + id.slice(1), text: text, profile: profile, template: template, llmConfig: llmConfig, aiSetup: aiSetup, slot: slotNo }); break; }
+        case 'send': { var text = document.getElementById(id + '-text'); text = text ? text.value : ''; if (!text.trim()) return; var profile = document.getElementById(id + '-profile'); profile = profile ? profile.value : ''; var template = document.getElementById(id + '-template'); template = template ? template.value : ''; var llmConfig = document.getElementById('localLlm-llmConfig'); llmConfig = llmConfig ? llmConfig.value : ''; var aiSetup = document.getElementById('conversation-aiSetup'); aiSetup = aiSetup ? aiSetup.value : ''; var anthropicModel = document.getElementById('anthropic-model'); anthropicModel = anthropicModel ? anthropicModel.value : ''; var anthropicConfig = document.getElementById('anthropic-config'); anthropicConfig = anthropicConfig ? anthropicConfig.value : ''; var slotNo = ensureSlotState(id).activeSlot; if (id === 'anthropic') { if (!anthropicModel) { setAnthropicStatus('Select a model first.'); return; } anthropicSending = true; updateAnthropicSendButton(); setAnthropicStatus('Sending…'); } vscode.postMessage({ type: 'send' + id.charAt(0).toUpperCase() + id.slice(1), text: text, profile: profile, template: template, llmConfig: llmConfig, aiSetup: aiSetup, model: anthropicModel, config: anthropicConfig, slot: slotNo }); break; }
         case 'preview': { var prvText = document.getElementById(id + '-text'); prvText = prvText ? prvText.value : ''; var prvTpl = document.getElementById(id + '-template'); prvTpl = prvTpl ? prvTpl.value : ''; vscode.postMessage({ type: 'preview', section: id, text: prvText, template: prvTpl }); break; }
         case 'clearText': {
             if (!id) break;
@@ -3040,8 +3277,8 @@ function handleAction(action, id, slot) {
         case 'addToQueue': addCopilotToQueue(); break;
         case 'openQueueEditor': vscode.postMessage({ type: 'openQueueEditor' }); break;
         case 'openTimedRequestsEditor': vscode.postMessage({ type: 'openTimedRequestsEditor' }); break;
-        case 'openTrailFiles': vscode.postMessage({ type: 'openTrailFiles' }); break;
-        case 'openTrailViewer': vscode.postMessage({ type: 'openTrailViewer' }); break;
+        case 'openTrailFiles': vscode.postMessage({ type: 'openTrailFiles', section: id || '' }); break;
+        case 'openTrailViewer': vscode.postMessage({ type: 'openTrailViewer', section: id || '' }); break;
         case 'openConversationTrailViewer': vscode.postMessage({ type: 'openConversationTrailViewer' }); break;
         case 'openConversationMarkdown': vscode.postMessage({ type: 'openConversationMarkdown' }); break;
         case 'openConversationCompactTrail': vscode.postMessage({ type: 'openConversationCompactTrail' }); break;
@@ -3052,7 +3289,57 @@ function handleAction(action, id, slot) {
         case 'openGlobalTemplateEditor': vscode.postMessage({ type: 'openGlobalTemplateEditor' }); break;
         case 'openReusablePromptEditor': vscode.postMessage({ type: 'openReusablePromptEditor' }); break;
         case 'openContextSettingsEditor': vscode.postMessage({ type: 'openContextSettingsEditor' }); break;
+        case 'refreshAnthropicModels': vscode.postMessage({ type: 'refreshAnthropicModels' }); break;
+        case 'clearAnthropicHistory': vscode.postMessage({ type: 'clearAnthropicHistory' }); _anthropicSessionDeny = {}; setAnthropicStatus('History cleared'); break;
+        case 'openAnthropicMemory': vscode.postMessage({ type: 'openAnthropicMemory' }); break;
+        case 'anthropicApprovalApprove': resolveAnthropicApproval(true, false); break;
+        case 'anthropicApprovalApproveAll': resolveAnthropicApproval(true, true); break;
+        case 'anthropicApprovalDeny': resolveAnthropicApproval(false, false); break;
+        case 'anthropicApprovalDenyAll': resolveAnthropicApproval(false, true); break;
     }
+}
+
+var _currentAnthropicApprovalId = '';
+var _currentAnthropicApprovalTool = '';
+var _anthropicSessionDeny = {};
+function showAnthropicApprovalDialog(toolId, toolName, inputSummary) {
+    // Session-level auto-deny — suppresses the dialog entirely.
+    if (_anthropicSessionDeny[toolName]) {
+        vscode.postMessage({
+            type: 'anthropicToolApprovalResponse',
+            toolId: toolId,
+            approved: false,
+            approveAll: false,
+        });
+        return;
+    }
+    _currentAnthropicApprovalId = toolId;
+    _currentAnthropicApprovalTool = toolName;
+    var body = document.getElementById('anthropic-approval-body');
+    if (body) {
+        body.textContent = 'Tool: ' + toolName + '\\n\\nInput:\\n' + (inputSummary || '(no input)');
+    }
+    var overlay = document.getElementById('anthropic-approval-overlay');
+    if (overlay) overlay.style.display = 'block';
+}
+
+function resolveAnthropicApproval(approved, approveAll) {
+    var overlay = document.getElementById('anthropic-approval-overlay');
+    if (overlay) overlay.style.display = 'none';
+    if (!_currentAnthropicApprovalId) return;
+    // Deny with approveAll (labelled "Deny All session") — remember locally
+    // so the rest of the session short-circuits without round-tripping.
+    if (!approved && approveAll && _currentAnthropicApprovalTool) {
+        _anthropicSessionDeny[_currentAnthropicApprovalTool] = true;
+    }
+    vscode.postMessage({
+        type: 'anthropicToolApprovalResponse',
+        toolId: _currentAnthropicApprovalId,
+        approved: approved,
+        approveAll: !!approveAll,
+    });
+    _currentAnthropicApprovalId = '';
+    _currentAnthropicApprovalTool = '';
 }
 
 function confirmDelete(itemType, sectionId) {
@@ -3069,11 +3356,57 @@ function populateDropdowns() {
     populateSelect('conversation-profile', profiles.conversation);
     populateSelect('copilot-template', profiles.copilot);
     populateSelect('tomAiChat-template', profiles.tomAiChat);
+    populateSelect('anthropic-profile', profiles.anthropic);
     populateEntitySelect('localLlm-llmConfig', configurations, '(Select LLM Config)');
     populateEntitySelect('conversation-aiSetup', setups, '(Select AI Setup)');
-    ['localLlm', 'conversation', 'copilot', 'tomAiChat'].forEach(function(sectionId) {
+    populateEntitySelect('anthropic-config', anthropicConfigurations, '(Select Config)');
+    populateAnthropicModels();
+    updateAnthropicApiKeyDot();
+    ['localLlm', 'conversation', 'copilot', 'tomAiChat', 'anthropic'].forEach(function(sectionId) {
         populateReusablePromptSelectors(sectionId);
     });
+}
+
+function populateAnthropicModels() {
+    var sel = document.getElementById('anthropic-model');
+    if (!sel) return;
+    var cur = sel.value;
+    var opts = '';
+    if (!anthropicModels || anthropicModels.length === 0) {
+        opts = '<option value="">(no models — check API key)</option>';
+    } else {
+        opts = '<option value="">(Select Model)</option>' + anthropicModels.map(function(m) {
+            var label = m.display_name ? (m.display_name + ' (' + m.id + ')') : m.id;
+            return '<option value="' + m.id + '">' + label + '</option>';
+        }).join('');
+    }
+    sel.innerHTML = opts;
+    if (cur && anthropicModels && anthropicModels.some(function(m) { return m.id === cur; })) {
+        sel.value = cur;
+    }
+    updateAnthropicSendButton();
+}
+
+function updateAnthropicApiKeyDot() {
+    var dot = document.getElementById('anthropic-apikey-dot');
+    if (!dot) return;
+    dot.style.background = anthropicApiKeyOk
+        ? 'var(--vscode-testing-iconPassed, #3fb950)'
+        : 'var(--vscode-errorForeground, #f85149)';
+    dot.title = anthropicApiKeyOk ? 'Anthropic API key OK' : 'Anthropic API key missing or invalid';
+}
+
+function updateAnthropicSendButton() {
+    var btn = document.getElementById('anthropic-send-btn');
+    if (!btn) return;
+    var modelSel = document.getElementById('anthropic-model');
+    var hasModel = modelSel && modelSel.value;
+    btn.disabled = !!(anthropicSending || !hasModel || !anthropicApiKeyOk);
+}
+
+function setAnthropicStatus(text) {
+    var el = document.getElementById('anthropic-status');
+    if (el) el.textContent = text || '';
 }
 
 function ensureReusablePromptState(sectionId) {
@@ -3228,12 +3561,36 @@ function populateEntitySelect(id, options, defaultLabel) {
 window.addEventListener('message', function(e) {
     var msg = e.data;
     if (msg.type === 'profiles') {
-        profiles = { localLlm: msg.localLlm || [], conversation: msg.conversation || [], copilot: msg.copilot || [], tomAiChat: msg.tomAiChat || [] };
+        profiles = { localLlm: msg.localLlm || [], conversation: msg.conversation || [], copilot: msg.copilot || [], tomAiChat: msg.tomAiChat || [], anthropic: msg.anthropic || [] };
         configurations = msg.configurations || [];
         setups = msg.setups || [];
+        anthropicConfigurations = msg.anthropicConfigurations || [];
+        anthropicApiKeyOk = !!msg.anthropicApiKeyOk;
         defaultCopilotTemplate = msg.defaultCopilotTemplate || '';
         populateDropdowns();
         updateDefaultTemplateIndicator();
+    } else if (msg.type === 'anthropicModels') {
+        anthropicModels = msg.models || [];
+        if (msg.error) {
+            setAnthropicStatus('Models unavailable: ' + msg.error);
+        } else {
+            setAnthropicStatus('');
+        }
+        populateAnthropicModels();
+    } else if (msg.type === 'anthropicApiKeyStatus') {
+        anthropicApiKeyOk = !!msg.ok;
+        updateAnthropicApiKeyDot();
+        updateAnthropicSendButton();
+    } else if (msg.type === 'anthropicResult') {
+        anthropicSending = false;
+        updateAnthropicSendButton();
+        setAnthropicStatus('Done · turns: ' + (msg.turnsUsed || 0) + ' · tool calls: ' + (msg.toolCallCount || 0));
+    } else if (msg.type === 'anthropicError') {
+        anthropicSending = false;
+        updateAnthropicSendButton();
+        setAnthropicStatus('Error: ' + (msg.message || 'unknown'));
+    } else if (msg.type === 'anthropicToolApproval') {
+        showAnthropicApprovalDialog(msg.toolId || '', msg.toolName || '', msg.inputSummary || '');
     } else if (msg.type === 'reusablePrompts') {
         reusablePromptModel = msg.model || { scopes: { project: [], quest: [], scan: [] }, files: { global: [], project: {}, quest: {}, scan: {} } };
         reusablePreferredQuestId = msg.preferredQuestId || '';

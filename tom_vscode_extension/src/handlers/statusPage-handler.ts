@@ -524,6 +524,98 @@ export async function handleStatusAction(action: string, message: any): Promise<
         case 'updateAskBigBrother':
             await updateAskBigBrotherSettings(message.settings || {});
             break;
+        case 'updateCompactionSettings': {
+            const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
+            if (!stcConfig.compaction) { stcConfig.compaction = {}; }
+            const s = message.settings || {};
+            stcConfig.compaction.llmProvider = s.llmProvider === 'anthropic' ? 'anthropic' : 'localLlm';
+            stcConfig.compaction.llmConfigId = s.llmConfigId || '';
+            stcConfig.compaction.compactionTemplateId = s.compactionTemplateId || '';
+            stcConfig.compaction.memoryExtractionTemplateId = s.memoryExtractionTemplateId || '';
+            stcConfig.compaction.compactionMaxRounds = Number.isFinite(s.compactionMaxRounds) ? s.compactionMaxRounds : 1;
+            stcConfig.compaction.maxHistoryTokens = Number.isFinite(s.maxHistoryTokens) ? s.maxHistoryTokens : 8000;
+            stcConfig.compaction.toolTrailMaxResultChars = Number.isFinite(s.toolTrailMaxResultChars) ? s.toolTrailMaxResultChars : 500;
+            stcConfig.compaction.backgroundExtractionEnabled = s.backgroundExtractionEnabled === true;
+            if (!stcConfig.trail) { stcConfig.trail = {}; }
+            if (Number.isFinite(s.trailCleanupDays)) { stcConfig.trail.cleanupDays = s.trailCleanupDays; }
+            saveSendToChatConfig(stcConfig);
+            vscode.window.showInformationMessage('Compaction settings saved');
+            break;
+        }
+        case 'updateAnthropicMemorySettings': {
+            const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
+            if (!stcConfig.anthropic) { stcConfig.anthropic = {}; }
+            if (!stcConfig.anthropic.memory) { stcConfig.anthropic.memory = {}; }
+            const s = message.settings || {};
+            stcConfig.anthropic.memory.memoryToolsEnabled = s.memoryToolsEnabled === true;
+            stcConfig.anthropic.memory.memoryExtractionTemplateId = s.memoryExtractionTemplateId || '';
+            stcConfig.anthropic.memory.autoExtractMode = ['never', 'summary', 'trim_and_summary', 'llm_extract', 'all'].includes(s.autoExtractMode) ? s.autoExtractMode : 'never';
+            stcConfig.anthropic.memory.maxInjectedTokens = Number.isFinite(s.maxInjectedTokens) ? s.maxInjectedTokens : 3000;
+            saveSendToChatConfig(stcConfig);
+            vscode.window.showInformationMessage('Anthropic memory settings saved');
+            break;
+        }
+        case 'editCompactionTemplate': {
+            await vscode.commands.executeCommand('tomAi.editor.promptTemplates', {
+                category: 'compaction',
+                itemId: message.itemId || undefined,
+            });
+            break;
+        }
+        case 'addCompactionTemplate': {
+            await vscode.commands.executeCommand('tomAi.editor.promptTemplates', {
+                category: 'compaction',
+            });
+            break;
+        }
+        case 'deleteCompactionTemplate': {
+            const itemId = String(message.itemId || '').trim();
+            if (!itemId) {
+                vscode.window.showWarningMessage('Select a compaction template first.');
+                break;
+            }
+            const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
+            if (stcConfig.compaction?.templates) {
+                stcConfig.compaction.templates = stcConfig.compaction.templates.filter(t => t.id !== itemId);
+                saveSendToChatConfig(stcConfig);
+                vscode.window.showInformationMessage(`Deleted compaction template: ${itemId}`);
+            }
+            break;
+        }
+        case 'editMemoryExtractionTemplate': {
+            await vscode.commands.executeCommand('tomAi.editor.promptTemplates', {
+                category: 'memoryExtraction',
+                itemId: message.itemId || undefined,
+            });
+            break;
+        }
+        case 'addMemoryExtractionTemplate': {
+            await vscode.commands.executeCommand('tomAi.editor.promptTemplates', {
+                category: 'memoryExtraction',
+            });
+            break;
+        }
+        case 'deleteMemoryExtractionTemplate': {
+            const itemId = String(message.itemId || '').trim();
+            if (!itemId) {
+                vscode.window.showWarningMessage('Select a memory extraction template first.');
+                break;
+            }
+            const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
+            if (stcConfig.compaction?.memoryExtractionTemplates) {
+                stcConfig.compaction.memoryExtractionTemplates = stcConfig.compaction.memoryExtractionTemplates.filter(t => t.id !== itemId);
+                saveSendToChatConfig(stcConfig);
+                vscode.window.showInformationMessage(`Deleted memory extraction template: ${itemId}`);
+            }
+            break;
+        }
+        case 'editCompactionToolSet': {
+            // Tool set editor opens the global template editor focused on compaction config.
+            // For now, route to the template editor as a placeholder; full tool-checklist UI
+            // is out of scope for Phase 4.
+            vscode.window.showInformationMessage('Compaction tool set editor: select tools via the LLM Configurations entry assigned as the compaction config.');
+            break;
+        }
         // Schedule
         case 'saveSchedule': {
             try {
@@ -805,6 +897,29 @@ export interface StatusData {
     setups: AiConversationSetup[];
     /** Strict configuration validation errors shown in UI/output */
     configErrors: string[];
+    /** History compaction settings (anthropic_sdk_integration.md §10). */
+    compaction: {
+        llmProvider: 'localLlm' | 'anthropic';
+        llmConfigId: string;
+        compactionTemplateId: string;
+        memoryExtractionTemplateId: string;
+        compactionMaxRounds: number;
+        maxHistoryTokens: number;
+        toolTrailMaxResultChars: number;
+        backgroundExtractionEnabled: boolean;
+    };
+    /** Anthropic memory subsystem defaults (anthropic_sdk_integration.md §10). */
+    anthropicMemory: {
+        memoryToolsEnabled: boolean;
+        memoryExtractionTemplateId: string;
+        autoExtractMode: 'never' | 'summary' | 'trim_and_summary' | 'llm_extract' | 'all';
+        maxInjectedTokens: number;
+    };
+    /** Templates available for the compaction `<select>` controls. */
+    compactionTemplateChoices: Array<{ id: string; name: string }>;
+    memoryExtractionTemplateChoices: Array<{ id: string; name: string }>;
+    /** Anthropic configurations (id+name) for the compaction provider select. */
+    anthropicConfigurationChoices: Array<{ id: string; name: string }>;
 }
 
 /**
@@ -989,6 +1104,31 @@ export async function gatherStatusData(): Promise<StatusData> {
             trailSummarizationLlmConfig: typeof v?.trailSummarizationLlmConfig === 'string' ? v.trailSummarizationLlmConfig : '',
         })),
         configErrors: strictErrors,
+        compaction: {
+            llmProvider: (sendToChatConfig?.compaction?.llmProvider as 'localLlm' | 'anthropic') || 'localLlm',
+            llmConfigId: sendToChatConfig?.compaction?.llmConfigId || '',
+            compactionTemplateId: sendToChatConfig?.compaction?.compactionTemplateId || '',
+            memoryExtractionTemplateId: sendToChatConfig?.compaction?.memoryExtractionTemplateId || '',
+            compactionMaxRounds: sendToChatConfig?.compaction?.compactionMaxRounds ?? 1,
+            maxHistoryTokens: sendToChatConfig?.compaction?.maxHistoryTokens ?? 8000,
+            toolTrailMaxResultChars: sendToChatConfig?.compaction?.toolTrailMaxResultChars ?? 500,
+            backgroundExtractionEnabled: sendToChatConfig?.compaction?.backgroundExtractionEnabled === true,
+        },
+        anthropicMemory: {
+            memoryToolsEnabled: sendToChatConfig?.anthropic?.memory?.memoryToolsEnabled === true,
+            memoryExtractionTemplateId: sendToChatConfig?.anthropic?.memory?.memoryExtractionTemplateId || '',
+            autoExtractMode: (sendToChatConfig?.anthropic?.memory?.autoExtractMode as StatusData['anthropicMemory']['autoExtractMode']) || 'never',
+            maxInjectedTokens: sendToChatConfig?.anthropic?.memory?.maxInjectedTokens ?? 3000,
+        },
+        compactionTemplateChoices: (sendToChatConfig?.compaction?.templates || []).map((t) => ({
+            id: t.id, name: t.name || t.id,
+        })),
+        memoryExtractionTemplateChoices: (sendToChatConfig?.compaction?.memoryExtractionTemplates || []).map((t) => ({
+            id: t.id, name: t.name || t.id,
+        })),
+        anthropicConfigurationChoices: (sendToChatConfig?.anthropic?.configurations || []).map((c) => ({
+            id: c.id, name: c.name || c.id,
+        })),
     };
 }
 
@@ -1488,6 +1628,128 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
         </div>
     </div>
 
+    <!-- History Compaction Section -->
+    <div class="sp-section">
+        <div class="sp-section-header sp-collapsible" data-collapse="historyCompaction">
+            <span class="sp-section-title"><span class="sp-collapse-icon">▶</span> 🗜️ History Compaction</span>
+        </div>
+        <div class="sp-collapse-content sp-collapsed" id="sp-historyCompaction-content">
+            <p style="font-size:11px;color:var(--vscode-descriptionForeground);margin:0 0 8px">
+                Settings for the LLM that compacts conversation history when it overflows the context window.
+                Used by both Local LLM and Anthropic chat panels.
+            </p>
+            <div class="sp-settings-row">
+                <label>Provider:</label>
+                <select id="sp-comp-llmProvider">
+                    <option value="localLlm" ${status.compaction.llmProvider === 'localLlm' ? 'selected' : ''}>Local LLM</option>
+                    <option value="anthropic" ${status.compaction.llmProvider === 'anthropic' ? 'selected' : ''}>Anthropic</option>
+                </select>
+                <label>Config:</label>
+                <select id="sp-comp-llmConfigId">
+                    <option value="">(default)</option>
+                    ${status.configurations.map(c => `<option value="${c.id}" ${c.id === status.compaction.llmConfigId ? 'selected' : ''}>LL: ${escapeHtmlContent(c.name)}</option>`).join('')}
+                    ${status.anthropicConfigurationChoices.map(c => `<option value="${c.id}" ${c.id === status.compaction.llmConfigId ? 'selected' : ''}>AT: ${escapeHtmlContent(c.name)}</option>`).join('')}
+                </select>
+            </div>
+            <div class="sp-settings-row">
+                <label>Compaction template:</label>
+                <select id="sp-comp-compactionTemplateId">
+                    <option value="">(default)</option>
+                    ${status.compactionTemplateChoices.map(t => `<option value="${t.id}" ${t.id === status.compaction.compactionTemplateId ? 'selected' : ''}>${escapeHtmlContent(t.name)}</option>`).join('')}
+                </select>
+                <button class="sp-btn small" data-status-action="editCompactionTemplate">✏️ Edit</button>
+                <button class="sp-btn small" data-status-action="addCompactionTemplate">➕</button>
+                <button class="sp-btn small danger" data-status-action="deleteCompactionTemplate">🗑️</button>
+            </div>
+            <div class="sp-settings-row">
+                <label>Memory extraction template:</label>
+                <select id="sp-comp-memoryExtractionTemplateId">
+                    <option value="">(default)</option>
+                    ${status.memoryExtractionTemplateChoices.map(t => `<option value="${t.id}" ${t.id === status.compaction.memoryExtractionTemplateId ? 'selected' : ''}>${escapeHtmlContent(t.name)}</option>`).join('')}
+                </select>
+                <button class="sp-btn small" data-status-action="editMemoryExtractionTemplate">✏️ Edit</button>
+                <button class="sp-btn small" data-status-action="addMemoryExtractionTemplate">➕</button>
+                <button class="sp-btn small danger" data-status-action="deleteMemoryExtractionTemplate">🗑️</button>
+            </div>
+            <div class="sp-settings-row">
+                <label>Compaction tool set:</label>
+                <button class="sp-btn small" data-status-action="editCompactionToolSet"
+                    ${status.compaction.llmProvider === 'anthropic' ? 'disabled title="Anthropic uses configuration enabledTools"' : ''}>
+                    Edit ▼
+                </button>
+            </div>
+            <div class="sp-settings-row">
+                <label>Max rounds:</label>
+                <input type="number" id="sp-comp-maxRounds" value="${status.compaction.compactionMaxRounds}" min="1" max="10" style="width:60px">
+                <label>Max history tokens:</label>
+                <input type="number" id="sp-comp-maxHistoryTokens" value="${status.compaction.maxHistoryTokens}" min="1000" style="width:90px">
+            </div>
+            <div class="sp-settings-row">
+                <label>Tool trail max chars:</label>
+                <input type="number" id="sp-comp-toolTrailMaxResultChars" value="${status.compaction.toolTrailMaxResultChars}" min="100" style="width:90px">
+                <label>Trail cleanup days:</label>
+                <input type="number" id="sp-comp-trailCleanupDays" value="${status.trail.cleanupDays}" min="1" max="365" style="width:60px">
+            </div>
+            <div class="sp-settings-row">
+                <label>Background extraction:</label>
+                <select id="sp-comp-backgroundExtractionEnabled">
+                    <option value="true" ${status.compaction.backgroundExtractionEnabled ? 'selected' : ''}>Enabled</option>
+                    <option value="false" ${!status.compaction.backgroundExtractionEnabled ? 'selected' : ''}>Disabled</option>
+                </select>
+            </div>
+            <div class="sp-settings-row">
+                <button class="sp-btn primary" data-status-action="updateCompactionSettings">Save Compaction Settings</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Anthropic — Memory Section -->
+    <div class="sp-section">
+        <div class="sp-section-header sp-collapsible" data-collapse="anthropicMemory">
+            <span class="sp-section-title"><span class="sp-collapse-icon">▶</span> 🧠 Anthropic — Memory</span>
+        </div>
+        <div class="sp-collapse-content sp-collapsed" id="sp-anthropicMemory-content">
+            <p style="font-size:11px;color:var(--vscode-descriptionForeground);margin:0 0 8px">
+                Defaults for the two-tier memory system used by the Anthropic chat panel
+                (<code>_ai/memory/shared/</code> and <code>_ai/memory/{quest}/</code>).
+            </p>
+            <div class="sp-settings-row">
+                <label>Memory tools:</label>
+                <select id="sp-mem-memoryToolsEnabled">
+                    <option value="true" ${status.anthropicMemory.memoryToolsEnabled ? 'selected' : ''}>Enabled</option>
+                    <option value="false" ${!status.anthropicMemory.memoryToolsEnabled ? 'selected' : ''}>Disabled</option>
+                </select>
+            </div>
+            <div class="sp-settings-row">
+                <label>Memory extraction template:</label>
+                <select id="sp-mem-memoryExtractionTemplateId">
+                    <option value="">(default)</option>
+                    ${status.memoryExtractionTemplateChoices.map(t => `<option value="${t.id}" ${t.id === status.anthropicMemory.memoryExtractionTemplateId ? 'selected' : ''}>${escapeHtmlContent(t.name)}</option>`).join('')}
+                </select>
+                <button class="sp-btn small" data-status-action="editMemoryExtractionTemplate">✏️ Edit</button>
+                <button class="sp-btn small" data-status-action="addMemoryExtractionTemplate">➕</button>
+                <button class="sp-btn small danger" data-status-action="deleteMemoryExtractionTemplate">🗑️</button>
+            </div>
+            <div class="sp-settings-row">
+                <label>Auto-extract on:</label>
+                <select id="sp-mem-autoExtractMode">
+                    <option value="never" ${status.anthropicMemory.autoExtractMode === 'never' ? 'selected' : ''}>Never</option>
+                    <option value="summary" ${status.anthropicMemory.autoExtractMode === 'summary' ? 'selected' : ''}>Summary mode</option>
+                    <option value="trim_and_summary" ${status.anthropicMemory.autoExtractMode === 'trim_and_summary' ? 'selected' : ''}>Trim+Summary mode</option>
+                    <option value="llm_extract" ${status.anthropicMemory.autoExtractMode === 'llm_extract' ? 'selected' : ''}>LLM extract mode</option>
+                    <option value="all" ${status.anthropicMemory.autoExtractMode === 'all' ? 'selected' : ''}>All compaction modes</option>
+                </select>
+            </div>
+            <div class="sp-settings-row">
+                <label>Max injected tokens:</label>
+                <input type="number" id="sp-mem-maxInjectedTokens" value="${status.anthropicMemory.maxInjectedTokens}" min="0" max="32000" style="width:90px">
+            </div>
+            <div class="sp-settings-row">
+                <button class="sp-btn primary" data-status-action="updateAnthropicMemorySettings">Save Memory Settings</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Ask Copilot Settings Section -->
     <div class="sp-section">
         <div class="sp-section-header sp-collapsible" data-collapse="askCopilot">
@@ -1882,6 +2144,33 @@ function attachStatusPanelListeners(skipEditorInit) {
                 msgData.configId = el.getAttribute('data-config-id');
             } else if (action === 'deleteAiConversationSetup') {
                 msgData.setupId = el.getAttribute('data-setup-id');
+            } else if (action === 'updateCompactionSettings') {
+                msgData.settings = {
+                    llmProvider: (document.getElementById('sp-comp-llmProvider') || {}).value || 'localLlm',
+                    llmConfigId: (document.getElementById('sp-comp-llmConfigId') || {}).value || '',
+                    compactionTemplateId: (document.getElementById('sp-comp-compactionTemplateId') || {}).value || '',
+                    memoryExtractionTemplateId: (document.getElementById('sp-comp-memoryExtractionTemplateId') || {}).value || '',
+                    compactionMaxRounds: parseInt((document.getElementById('sp-comp-maxRounds') || {}).value || '1'),
+                    maxHistoryTokens: parseInt((document.getElementById('sp-comp-maxHistoryTokens') || {}).value || '8000'),
+                    toolTrailMaxResultChars: parseInt((document.getElementById('sp-comp-toolTrailMaxResultChars') || {}).value || '500'),
+                    trailCleanupDays: parseInt((document.getElementById('sp-comp-trailCleanupDays') || {}).value || '2'),
+                    backgroundExtractionEnabled: (document.getElementById('sp-comp-backgroundExtractionEnabled') || {}).value === 'true'
+                };
+            } else if (action === 'updateAnthropicMemorySettings') {
+                msgData.settings = {
+                    memoryToolsEnabled: (document.getElementById('sp-mem-memoryToolsEnabled') || {}).value === 'true',
+                    memoryExtractionTemplateId: (document.getElementById('sp-mem-memoryExtractionTemplateId') || {}).value || '',
+                    autoExtractMode: (document.getElementById('sp-mem-autoExtractMode') || {}).value || 'never',
+                    maxInjectedTokens: parseInt((document.getElementById('sp-mem-maxInjectedTokens') || {}).value || '3000')
+                };
+            } else if (action === 'editCompactionTemplate') {
+                msgData.itemId = (document.getElementById('sp-comp-compactionTemplateId') || {}).value || '';
+            } else if (action === 'deleteCompactionTemplate') {
+                msgData.itemId = (document.getElementById('sp-comp-compactionTemplateId') || {}).value || '';
+            } else if (action === 'editMemoryExtractionTemplate') {
+                msgData.itemId = (document.getElementById('sp-comp-memoryExtractionTemplateId') || document.getElementById('sp-mem-memoryExtractionTemplateId') || {}).value || '';
+            } else if (action === 'deleteMemoryExtractionTemplate') {
+                msgData.itemId = (document.getElementById('sp-comp-memoryExtractionTemplateId') || document.getElementById('sp-mem-memoryExtractionTemplateId') || {}).value || '';
             }
             
             vscode.postMessage(msgData);
