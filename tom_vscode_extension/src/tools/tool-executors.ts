@@ -29,6 +29,7 @@ import { expandTemplate } from '../handlers/promptTemplate';
 import { debugLog } from '../utils/debugLogger.js';
 import { logPrompt, logResponse } from '../services/trailLogging';
 import { ChatVariablesStore } from '../managers/chatVariablesStore.js';
+import { getCurrentToolContext } from '../services/tool-execution-context';
 import { WsPaths } from '../utils/workspacePaths';
 
 const execAsync = promisify(exec);
@@ -1332,7 +1333,12 @@ async function executeChatvarWrite(input: ChatvarWriteInput): Promise<string> {
         }
 
         if (Object.keys(accepted).length > 0) {
-            store.setCustomBulk(accepted, 'anthropic');
+            // Spec §8.5: log with the calling handler's source and request
+            // ID when available. Falls back to 'anthropic' when called
+            // without an ambient context (e.g. manual invocation).
+            const ctx = getCurrentToolContext();
+            const source = ctx?.source ?? 'anthropic';
+            store.setCustomBulk(accepted, source, ctx?.requestId);
         }
 
         const parts: string[] = [];

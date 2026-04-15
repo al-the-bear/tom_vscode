@@ -20,6 +20,7 @@ import {
 } from '../tools/shared-tool-registry';
 import { TrailService } from '../services/trailService';
 import { ToolTrail } from '../services/tool-trail';
+import { runWithToolContext } from '../services/tool-execution-context';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 import { WsPaths } from '../utils/workspacePaths';
 import { resolveVariables } from '../utils/variableResolver';
@@ -312,6 +313,7 @@ export class AnthropicHandler {
                     round,
                     quest,
                     windowId,
+                    requestId,
                 );
                 toolResults.push(toolResultBlock);
             }
@@ -359,6 +361,7 @@ export class AnthropicHandler {
         round: number,
         quest: string,
         windowId: string,
+        requestId: string,
     ): Promise<AnthropicToolResultBlockParam> {
         const def = tools.find((t) => t.name === block.name);
         const input = (block.input ?? {}) as Record<string, unknown>;
@@ -402,9 +405,14 @@ export class AnthropicHandler {
         let result = '';
         let error: string | undefined;
         try {
-            result = await executeToolCall(tools, {
-                function: { name: block.name, arguments: input },
-            });
+            // Ambient context so tools (e.g. tomAi_chatvar_write) can log
+            // change-log entries with the correct source and request ID.
+            result = await runWithToolContext(
+                { source: 'anthropic', requestId },
+                () => executeToolCall(tools, {
+                    function: { name: block.name, arguments: input },
+                }),
+            );
         } catch (e) {
             error = e instanceof Error ? e.message : String(e);
             result = `Error: ${error}`;
