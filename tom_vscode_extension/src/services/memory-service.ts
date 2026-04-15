@@ -253,6 +253,64 @@ export class TwoTierMemoryService {
         };
     }
 
+    // ------------------------------------------------------------------------
+    // Compacted history snapshots (spec §5.2 — multi-session continuity)
+    // ------------------------------------------------------------------------
+
+    /** Absolute path to the history snapshot folder for `questId`. */
+    historyFolder(questId?: string): string {
+        return path.join(this.scopeFolder('quest', questId), 'history');
+    }
+
+    /**
+     * Persist a compacted message array as a timestamped snapshot under
+     * `_ai/memory/{quest}/history/`. Filename format:
+     * `YYYYMMDD_HHMMSS.history.json`. Quietly no-ops on I/O error — the
+     * user-visible result must not depend on persistence succeeding.
+     */
+    persistHistorySnapshot(messages: unknown, questId?: string): string | undefined {
+        try {
+            const folder = this.historyFolder(questId);
+            FsUtils.ensureDir(folder);
+            const stamp = this.timestampNow();
+            const file = path.join(folder, `${stamp}.history.json`);
+            fs.writeFileSync(file, JSON.stringify({ messages, savedAt: new Date().toISOString() }, null, 2), 'utf-8');
+            return file;
+        } catch {
+            return undefined;
+        }
+    }
+
+    /**
+     * Load the most recent history snapshot for `questId`. Returns the
+     * raw messages payload or `undefined` when no snapshot exists.
+     */
+    loadLatestHistorySnapshot<T = unknown>(questId?: string): T | undefined {
+        try {
+            const folder = this.historyFolder(questId);
+            if (!fs.existsSync(folder)) {
+                return undefined;
+            }
+            const entries = fs.readdirSync(folder)
+                .filter((n) => n.endsWith('.history.json'))
+                .map((n) => ({ n, mtime: fs.statSync(path.join(folder, n)).mtimeMs }))
+                .sort((a, b) => b.mtime - a.mtime);
+            if (entries.length === 0) {
+                return undefined;
+            }
+            const raw = FsUtils.safeReadJson<{ messages?: T }>(path.join(folder, entries[0].n));
+            return raw?.messages;
+        } catch {
+            return undefined;
+        }
+    }
+
+    private timestampNow(): string {
+        const d = new Date();
+        const pad = (n: number) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+    }
+
     /** Active quest id from the chat variables store, or '' if unset. */
     currentQuest(): string {
         try {

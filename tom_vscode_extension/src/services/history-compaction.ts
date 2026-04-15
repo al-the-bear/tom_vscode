@@ -181,8 +181,8 @@ async function runAnthropicCompaction(
     systemPrompt: string,
     userPrompt: string,
 ): Promise<string> {
-    // Lazy import to avoid a cycle — the Anthropic handler itself imports
-    // compaction indirectly when Phase 3.5 wiring is active.
+    // Lazy import to avoid a cycle — the Anthropic handler imports the
+    // compaction module for its post-exchange `compactHistoryAsync` call.
     const { AnthropicHandler } = await import('../handlers/anthropic-handler.js');
     const handler = AnthropicHandler.instance;
     const section = loadSendToChatConfig()?.anthropic;
@@ -192,26 +192,17 @@ async function runAnthropicCompaction(
     if (!cfg) {
         throw new Error(`No anthropic configuration available for compaction (llmConfigId=${options.llmConfigId})`);
     }
-    const result = await handler.sendMessage({
-        userText: userPrompt,
-        profile: {
-            id: '__compaction__',
-            name: 'compaction',
-            description: '',
-            systemPrompt,
-        },
-        configuration: {
-            ...cfg,
-            maxTokens: cfg.maxTokens ?? 2048,
-            enabledTools: cfg.enabledTools ?? [],
-            maxRounds: options.compactionMaxRounds ?? cfg.maxRounds ?? 1,
-            toolApprovalMode: 'never',
-        },
-        // No tools on the compaction call — compaction is a single,
-        // bounded summarisation, not an agentic loop.
-        tools: [],
+    // Route through the low-level internal helper so the compaction call
+    // doesn't inherit the main handler's trail write, rolling-history
+    // accumulation, or recursive `compactHistoryAsync` trigger (spec
+    // §6.5 Step 3.4: "Anthropic → internal, no tool loop, no trail write").
+    return handler.runInternalCall({
+        systemPrompt,
+        userPrompt,
+        model: cfg.model,
+        maxTokens: cfg.maxTokens ?? 2048,
+        temperature: cfg.temperature,
     });
-    return result.text;
 }
 
 async function runOllamaCompaction(

@@ -131,8 +131,11 @@ export class AnthropicHandler {
      * Rolling conversation history kept across `sendMessage()` calls,
      * compacted after each exchange per the configuration's `historyMode`.
      * Phase 3.5 introduces this — Phase 1 treated each call as stateless.
+     * Seeded on the first send from the most recent compacted-history
+     * snapshot (spec §5.2) so context carries across sessions.
      */
     private history: ConversationMessage[] = [];
+    private historySeeded = false;
 
     private readonly _onApprovalNeeded = new vscode.EventEmitter<AnthropicToolApprovalRequest>();
     /**
@@ -172,9 +175,35 @@ export class AnthropicHandler {
     /** Clear all in-session state (rolling history, tool trail, session-mode approvals). */
     clearSession(): void {
         this.history = [];
+        this.historySeeded = true; // an explicit clear should not reload a prior snapshot
         this.toolTrail.clear();
         this.sessionApprovals.clear();
         this.roundCounter = 0;
+    }
+
+    /**
+     * Seed `this.history` from the most recent `{timestamp}.history.json`
+     * under `_ai/memory/{quest}/history/` — called at the start of the
+     * first `sendMessage()` for multi-session continuity (spec §5.2).
+     */
+    private seedHistoryFromSnapshot(questId: string): void {
+        if (this.historySeeded) {
+            return;
+        }
+        this.historySeeded = true;
+        try {
+            const snapshot = TwoTierMemoryService.instance.loadLatestHistorySnapshot<ConversationMessage[]>(questId);
+            if (Array.isArray(snapshot) && snapshot.length > 0) {
+                this.history = snapshot.filter(
+                    (m): m is ConversationMessage =>
+                        !!m && typeof m === 'object' &&
+                        (m.role === 'user' || m.role === 'assistant' || m.role === 'system') &&
+                        typeof m.content === 'string',
+                );
+            }
+        } catch {
+            // ignore — fresh session is a safe fallback
+        }
     }
 
     /** Returns a shallow copy of the current rolling history (for diagnostics / tests). */
@@ -235,6 +264,37 @@ export class AnthropicHandler {
     }
 
     /**
+     * Low-level one-shot call for internal consumers (history compaction,
+     * memory extraction) — no tool loop, no trail write, no history
+     * accumulation, no recursive compaction (spec §6.5 Step 3.4:
+     * "Anthropic → internal, no tool loop, no trail write"). Callers
+     * supply a fully-formed system and user prompt.
+     */
+    async runInternalCall(params: {
+        systemPrompt: string;
+        userPrompt: string;
+        model: string;
+        maxTokens?: number;
+        temperature?: number;
+    }): Promise<string> {
+        const client = this.getClient();
+        if (!client) {
+            throw new Error('Anthropic client not available — set the configured API key env var');
+        }
+        const response = await client.messages.create({
+            model: params.model,
+            max_tokens: params.maxTokens ?? 2048,
+            ...(params.temperature !== undefined ? { temperature: params.temperature } : {}),
+            ...(params.systemPrompt ? { system: params.systemPrompt } : {}),
+            messages: [{ role: 'user', content: params.userPrompt }],
+        });
+        return response.content
+            .filter((b): b is Extract<AnthropicContentBlock, { type: 'text' }> => b.type === 'text')
+            .map((b) => b.text)
+            .join('');
+    }
+
+    /**
      * List available models from the Anthropic API. No fallback — callers
      * must be prepared for `{ models: [], error }` on failure.
      *
@@ -276,8 +336,18 @@ export class AnthropicHandler {
         this.roundCounter += 1;
         const round = this.roundCounter;
 
-        const systemPrompt = this.buildSystemPrompt(profile);
-        const expandedUser = this.buildUserMessage(options);
+        this.seedHistoryFromSnapshot(quest);
+
+        // Scan the outgoing message for `Remember:` / `Forget:` keyword
+        // triggers (spec §5.4). Matched lines are handled in-process and
+        // stripped; what's left goes to the model. A message that consists
+        // entirely of triggers still sends the original text so the user
+        // sees a response turn rather than an empty prompt.
+        const { cleaned: keywordCleanedText } = this.applyKeywordTriggers(userText, quest);
+        const effectiveUserText = keywordCleanedText.trim() || userText;
+
+        const systemPrompt = this.buildSystemPrompt(profile, quest);
+        const expandedUser = this.buildUserMessage({ ...options, userText: effectiveUserText });
         const trailLinePrefix = this.toolTrail.toSummaryString();
         const userContent = trailLinePrefix
             ? `${trailLinePrefix}\n\n${expandedUser}`
@@ -424,6 +494,15 @@ export class AnthropicHandler {
             if (this.history.length === snapshot.length) {
                 this.history = compacted;
             }
+            // Persist the freshly compacted snapshot for multi-session
+            // continuity (spec §5.2). Only writes when there's something
+            // worth saving — an empty compaction has no recall value.
+            if (compacted.length > 0) {
+                TwoTierMemoryService.instance.persistHistorySnapshot(
+                    compacted,
+                    TwoTierMemoryService.instance.currentQuest(),
+                );
+            }
         } catch {
             // Swallow — compaction is best-effort background work.
         }
@@ -532,8 +611,96 @@ export class AnthropicHandler {
         return TomAiConfiguration.instance.getSection<AnthropicSection>('anthropic') ?? {};
     }
 
-    private buildSystemPrompt(profile: AnthropicProfile): string {
-        return resolveVariables(profile.systemPrompt ?? '');
+    private buildSystemPrompt(profile: AnthropicProfile, questId?: string): string {
+        const base = resolveVariables(profile.systemPrompt ?? '');
+        const memorySection = TomAiConfiguration.instance.getSection<{
+            enabled?: boolean;
+            injectIntoSystemPrompt?: boolean;
+            maxInjectedTokens?: number;
+        }>('memory') ?? {};
+        if (memorySection.enabled === false || memorySection.injectIntoSystemPrompt === false) {
+            return base;
+        }
+        const injection = TwoTierMemoryService.instance.injectForSystemPrompt(
+            memorySection.maxInjectedTokens,
+            questId,
+        );
+        if (!injection.text) {
+            return base;
+        }
+        return base ? `${base}\n\n${injection.text}` : injection.text;
+    }
+
+    /**
+     * Scan `userText` line-by-line for `Remember: ...` and `Forget: ...`
+     * triggers (spec §5.4). Remember writes the fact to `shared/facts.md`;
+     * Forget removes matching lines from `shared/facts.md` (and, if absent
+     * there, from every quest-scope memory file). Triggers are stripped
+     * from the returned `cleaned` text. The leading keyword is matched
+     * case-insensitively and may be followed by optional whitespace.
+     */
+    private applyKeywordTriggers(userText: string, questId?: string): { cleaned: string; applied: string[] } {
+        const section = TomAiConfiguration.instance.getSection<{
+            keywordTriggers?: { remember?: boolean; forget?: boolean };
+            enabled?: boolean;
+        }>('memory') ?? {};
+        if (section.enabled === false) {
+            return { cleaned: userText, applied: [] };
+        }
+        const triggers = section.keywordTriggers ?? {};
+        const rememberOn = triggers.remember !== false;
+        const forgetOn = triggers.forget !== false;
+        if (!rememberOn && !forgetOn) {
+            return { cleaned: userText, applied: [] };
+        }
+        const applied: string[] = [];
+        const remaining: string[] = [];
+        for (const line of userText.split(/\r?\n/)) {
+            const rem = /^\s*remember\s*:\s*(.+)$/i.exec(line);
+            const fgt = /^\s*forget\s*:\s*(.+)$/i.exec(line);
+            if (rem && rememberOn) {
+                try {
+                    TwoTierMemoryService.instance.append('shared', 'facts.md', rem[1].trim(), questId);
+                    applied.push(`remember: ${rem[1].trim()}`);
+                } catch { /* ignore — model still sees the cleaned message */ }
+                continue;
+            }
+            if (fgt && forgetOn) {
+                try {
+                    this.forgetFact(fgt[1].trim(), questId);
+                    applied.push(`forget: ${fgt[1].trim()}`);
+                } catch { /* ignore */ }
+                continue;
+            }
+            remaining.push(line);
+        }
+        return { cleaned: remaining.join('\n'), applied };
+    }
+
+    /**
+     * Remove lines containing `needle` from `shared/facts.md` first; if no
+     * match, walk every quest-scope memory file and remove there. Case-
+     * insensitive substring match. Empties left behind are kept as files
+     * so the user sees the history of what was removed.
+     */
+    private forgetFact(needle: string, questId?: string): void {
+        const svc = TwoTierMemoryService.instance;
+        const match = needle.toLowerCase();
+        const strip = (body: string) => body
+            .split(/\r?\n/)
+            .filter((l) => !l.toLowerCase().includes(match))
+            .join('\n');
+        const sharedBody = svc.read('shared', 'facts.md', questId);
+        if (sharedBody && sharedBody.toLowerCase().includes(match)) {
+            svc.write('shared', 'facts.md', strip(sharedBody), questId);
+            return;
+        }
+        for (const file of svc.list('quest', questId)) {
+            const body = svc.read('quest', file, questId);
+            if (body && body.toLowerCase().includes(match)) {
+                svc.write('quest', file, strip(body), questId);
+            }
+        }
     }
 
     private buildUserMessage(options: AnthropicSendOptions): string {
