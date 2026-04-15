@@ -19,6 +19,7 @@ import * as vscode from 'vscode';
 import { loadSendToChatConfig, saveSendToChatConfig, SendToChatConfig } from '../utils/sendToChatConfig';
 import { PLACEHOLDER_HELP } from './promptTemplate';
 import { escapeHtml } from './handler_shared';
+import { AVAILABLE_LLM_TOOLS } from './statusPage-handler';
 
 // ============================================================================
 // Types
@@ -181,8 +182,8 @@ function _getItemsForCategory(config: SendToChatConfig, category: TemplateCatego
     }
 }
 
-function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory, itemId: string): { fields: Array<{ name: string; label: string; type: 'text' | 'textarea' | 'checkbox' | 'number'; value: string; readonly?: boolean; help?: string }>; } {
-    const fields: Array<{ name: string; label: string; type: 'text' | 'textarea' | 'checkbox' | 'number'; value: string; readonly?: boolean; help?: string }> = [];
+function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory, itemId: string): { fields: Array<{ name: string; label: string; type: 'text' | 'textarea' | 'checkbox' | 'number' | 'select' | 'multi-checkbox'; value: string; readonly?: boolean; help?: string; options?: Array<{ value: string; label: string }>; disabledWhen?: { field: string; equals: string } }>; } {
+    const fields: Array<{ name: string; label: string; type: 'text' | 'textarea' | 'checkbox' | 'number' | 'select' | 'multi-checkbox'; value: string; readonly?: boolean; help?: string; options?: Array<{ value: string; label: string }>; disabledWhen?: { field: string; equals: string } }> = [];
 
     switch (category) {
         case 'copilot': {
@@ -288,13 +289,38 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
         case 'anthropicProfiles': {
             const profile = (config.anthropic?.profiles || []).find(p => p.id === itemId);
             if (!profile) break;
+            // Configuration dropdown — options come from the user's
+            // anthropic.configurations[] list, plus a blank entry that
+            // means "inherit the default".
+            const configurationOptions = [
+                { value: '', label: '(inherit default)' },
+                ...((config.anthropic?.configurations || [])
+                    .filter((c) => c && typeof c.id === 'string')
+                    .map((c) => ({ value: c.id, label: c.name ? `${c.name} (${c.id})` : c.id }))),
+            ];
+            // Tool picker options — every tool the extension knows about,
+            // whether or not the configuration already enables it. Empty
+            // selection + allToolsEnabled=false means "no tools".
+            const toolOptions = AVAILABLE_LLM_TOOLS.map((tool) => ({ value: tool, label: tool }));
+            // Profile-level enabledTools override. We stash the list as
+            // JSON in the field value so the multi-checkbox renderer can
+            // pre-select the right rows without a second hidden field.
+            const profileEnabledTools = Array.isArray((profile as unknown as { enabledTools?: string[] }).enabledTools)
+                ? (profile as unknown as { enabledTools: string[] }).enabledTools
+                : [];
+            // `toolsEnabled` on the stored profile is legacy shorthand for
+            // "allow every tool from the configuration". We map it onto a
+            // clearer `allToolsEnabled` toggle here; when that toggle is
+            // on, the per-tool picker below is disabled.
+            const allToolsEnabled = profile.toolsEnabled !== false && profileEnabledTools.length === 0;
             fields.push(
                 { name: 'id', label: 'ID', type: 'text', value: profile.id, readonly: true },
                 { name: 'name', label: 'Name', type: 'text', value: profile.name || '' },
                 { name: 'description', label: 'Description', type: 'text', value: profile.description || '' },
                 { name: 'systemPrompt', label: 'System Prompt', type: 'textarea', value: profile.systemPrompt || '', help: PLACEHOLDER_HELP + '<br><br>Sent as the Anthropic <code>system</code> parameter. Supports <code>${role-description}</code> and <code>${quest-description}</code>.' },
-                { name: 'configurationId', label: 'Configuration ID', type: 'text', value: profile.configurationId || '', help: 'ID of an entry in <code>anthropic.configurations[]</code>. Leave empty to use the default configuration.' },
-                { name: 'toolsEnabled', label: 'Tools Enabled', type: 'checkbox', value: String(profile.toolsEnabled !== false) },
+                { name: 'configurationId', label: 'Configuration', type: 'select', value: profile.configurationId || '', options: configurationOptions, help: 'Which <code>anthropic.configurations[]</code> entry this profile uses. "(inherit default)" falls back to the configuration marked <code>isDefault</code>.' },
+                { name: 'allToolsEnabled', label: 'All Tools Enabled', type: 'checkbox', value: String(allToolsEnabled), help: 'When checked, every tool from the selected configuration\'s <code>enabledTools</code> is available to the model. Uncheck to pick a profile-specific subset below.' },
+                { name: 'enabledTools', label: 'Tools', type: 'multi-checkbox', value: JSON.stringify(profileEnabledTools), options: toolOptions, disabledWhen: { field: 'allToolsEnabled', equals: 'true' }, help: 'Profile-level tool subset. Active only when "All Tools Enabled" is off; an empty list then means no tools at all.' },
                 { name: 'maxRounds', label: 'Max Rounds', type: 'number', value: String(profile.maxRounds ?? '') },
                 { name: 'historyMode', label: 'History Mode', type: 'text', value: profile.historyMode ?? '', help: 'one of: none, full, last, summary, trim_and_summary, llm_extract — leave empty to inherit from configuration' },
                 { name: 'isDefault', label: 'Is Default', type: 'checkbox', value: String(profile.isDefault === true) },
@@ -518,19 +544,42 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
             if (!config.anthropic) config.anthropic = {};
             const profiles = config.anthropic.profiles ?? [];
             const idx = profiles.findIndex(p => p.id === itemId);
+            // New tools UX: "All Tools Enabled" checkbox + a multi-checkbox
+            // picker whose value arrives as a JSON-encoded string[]. When
+            // "All Tools Enabled" is on, we normalise by clearing the
+            // picker (enabledTools stored as undefined) and keeping the
+            // legacy toolsEnabled=true shorthand.
+            const allToolsEnabled = values.allToolsEnabled === 'true';
+            let enabledTools: string[] | undefined;
+            try {
+                const parsed = JSON.parse(values.enabledTools || '[]');
+                if (Array.isArray(parsed)) {
+                    enabledTools = parsed.filter((t): t is string => typeof t === 'string');
+                }
+            } catch {
+                enabledTools = undefined;
+            }
             const next = {
                 id: itemId,
                 name: values.name || itemId,
                 description: values.description || '',
                 systemPrompt: values.systemPrompt || '',
                 configurationId: values.configurationId || undefined,
-                toolsEnabled: values.toolsEnabled === 'true',
+                toolsEnabled: allToolsEnabled,
+                ...(allToolsEnabled ? {} : { enabledTools: enabledTools ?? [] }),
                 maxRounds: values.maxRounds ? parseInt(values.maxRounds, 10) : undefined,
                 historyMode: values.historyMode || null,
                 isDefault: values.isDefault === 'true',
             };
             if (idx >= 0) {
-                profiles[idx] = { ...profiles[idx], ...next };
+                const existing = profiles[idx] as unknown as Record<string, unknown>;
+                // Drop a stale enabledTools from the old entry when
+                // allToolsEnabled is on — otherwise a re-save wouldn't
+                // clear it from disk.
+                if (allToolsEnabled && 'enabledTools' in existing) {
+                    delete existing.enabledTools;
+                }
+                profiles[idx] = { ...existing, ...next };
             } else {
                 profiles.push(next);
             }
@@ -1192,18 +1241,41 @@ function renderFields(fields) {
 
     // Render remaining fields
     html += otherFields.map(function(f) {
+        var helpBtn = f.help ? ' <button class="help-icon" type="button" data-help="' + escapeAttr(f.help) + '" title="Show help">?</button>' : '';
+        var labelHtml = '<div class="label-row"><label for="field_' + f.name + '">' + escapeText(f.label) + '</label>' + helpBtn + '</div>';
         if (f.type === 'checkbox') {
             return '<div class="field checkbox-field">' +
                 '<input type="checkbox" id="field_' + f.name + '"' + (f.value === 'true' ? ' checked' : '') +
                 (f.readonly ? ' disabled' : '') + '>' +
-                '<label for="field_' + f.name + '">' + escapeText(f.label) + '</label></div>';
+                '<label for="field_' + f.name + '">' + escapeText(f.label) + '</label>' + helpBtn + '</div>';
+        }
+        if (f.type === 'select') {
+            var opts = (f.options || []).map(function(o) {
+                return '<option value="' + escapeAttr(o.value) + '"' + (o.value === f.value ? ' selected' : '') + '>' + escapeText(o.label) + '</option>';
+            }).join('');
+            return '<div class="field">' + labelHtml +
+                '<select id="field_' + f.name + '"' + (f.readonly ? ' disabled' : '') + '>' + opts + '</select></div>';
+        }
+        if (f.type === 'multi-checkbox') {
+            var checked = [];
+            try { checked = JSON.parse(f.value || '[]'); } catch (e) { checked = []; }
+            if (!Array.isArray(checked)) { checked = []; }
+            var disabledWhen = f.disabledWhen || null;
+            var disabledAttr = disabledWhen ? ' data-disabled-when-field="' + escapeAttr(disabledWhen.field) + '" data-disabled-when-equals="' + escapeAttr(disabledWhen.equals) + '"' : '';
+            var rows = (f.options || []).map(function(o) {
+                var id = 'field_' + f.name + '__' + o.value.replace(/[^a-zA-Z0-9_-]/g, '_');
+                var isChecked = checked.indexOf(o.value) >= 0;
+                return '<label class="multi-checkbox-row" style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;font-weight:normal">' +
+                    '<input type="checkbox" class="field-multi-option" data-field="' + f.name + '" value="' + escapeAttr(o.value) + '" id="' + id + '"' + (isChecked ? ' checked' : '') + '>' +
+                    escapeText(o.label) + '</label>';
+            }).join('');
+            return '<div class="field multi-checkbox-field" data-field-name="' + f.name + '"' + disabledAttr + '>' + labelHtml +
+                '<div class="multi-checkbox-group" style="display:flex;flex-wrap:wrap;padding:4px 0">' + rows + '</div></div>';
         }
         var ro = f.readonly ? ' readonly disabled' : '';
         var inputType = f.type === 'number' ? 'number' : 'text';
         var isTextarea = f.type === 'textarea';
         var growClass = isTextarea ? ' field-grow' : '';
-        var helpBtn = f.help ? ' <button class="help-icon" type="button" data-help="' + escapeAttr(f.help) + '" title="Show help">?</button>' : '';
-        var labelHtml = '<div class="label-row"><label for="field_' + f.name + '">' + escapeText(f.label) + '</label>' + helpBtn + '</div>';
         var input = isTextarea
             ? '<textarea id="field_' + f.name + '"' + ro + '>' + escapeText(f.value || '') + '</textarea>'
             : '<input type="' + inputType + '" id="field_' + f.name + '" value="' + escapeAttr(f.value || '') + '"' + ro + '>';
@@ -1217,12 +1289,45 @@ function renderFields(fields) {
     editorArea.querySelectorAll('.help-icon').forEach(function(btn) {
         btn.addEventListener('click', function() { showHelpOverlay(btn.getAttribute('data-help')); });
     });
+
+    // Wire conditional-disable for multi-checkbox fields that depend on
+    // another field. Applies the current state now and re-runs whenever
+    // the target field changes.
+    function applyMultiCheckboxDisabled() {
+        editorArea.querySelectorAll('.multi-checkbox-field[data-disabled-when-field]').forEach(function(group) {
+            var srcName = group.getAttribute('data-disabled-when-field');
+            var srcEquals = group.getAttribute('data-disabled-when-equals');
+            var src = document.getElementById('field_' + srcName);
+            if (!src) return;
+            var srcVal = src.type === 'checkbox' ? String(!!src.checked) : src.value;
+            var isDisabled = srcVal === srcEquals;
+            group.style.opacity = isDisabled ? '0.45' : '';
+            group.querySelectorAll('input.field-multi-option').forEach(function(cb) {
+                cb.disabled = isDisabled;
+            });
+        });
+    }
+    editorArea.querySelectorAll('input[type="checkbox"], input[type="text"], input[type="number"], select').forEach(function(el) {
+        el.addEventListener('change', applyMultiCheckboxDisabled);
+    });
+    applyMultiCheckboxDisabled();
 }
 
 function saveCurrentItem() {
     if (!currentCategory || !currentItemId || !currentFields.length) return;
     const values = {};
     currentFields.forEach(f => {
+        if (f.type === 'multi-checkbox') {
+            // Collect the checked values from the field's option rows,
+            // serialize as JSON so the extension side gets a stable shape
+            // regardless of ordering.
+            const picked = [];
+            document.querySelectorAll('input.field-multi-option[data-field="' + f.name + '"]').forEach(function(cb) {
+                if (cb.checked) { picked.push(cb.value); }
+            });
+            values[f.name] = JSON.stringify(picked);
+            return;
+        }
         const el = document.getElementById('field_' + f.name);
         if (!el) return;
         if (f.type === 'checkbox') {

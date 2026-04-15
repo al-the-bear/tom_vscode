@@ -1669,7 +1669,16 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             cfg = { ...cfg, model: modelId };
         }
 
-        const enabledIds = Array.isArray(cfg.enabledTools) ? cfg.enabledTools : [];
+        // Tool resolution:
+        //  - profile.toolsEnabled === false AND profile.enabledTools is an
+        //    array → profile overrides the configuration's list
+        //  - otherwise → fall back to configuration.enabledTools
+        //  - empty result → no tools exposed to the model
+        const profileOverride = (profile as unknown as { enabledTools?: string[]; toolsEnabled?: boolean });
+        const profileSubset = profileOverride.toolsEnabled === false && Array.isArray(profileOverride.enabledTools)
+            ? profileOverride.enabledTools
+            : undefined;
+        const enabledIds = profileSubset ?? (Array.isArray(cfg.enabledTools) ? cfg.enabledTools : []);
         const tools = enabledIds.length > 0
             ? ALL_SHARED_TOOLS.filter((t) => enabledIds.includes(t.name))
             : [];
