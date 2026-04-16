@@ -461,12 +461,12 @@
             },
             {
                 "command": "tomAi.editor.rawTrailViewer",
-                "title": "@T: Open Raw Trail Viewer",
+                "title": "@T: Open Raw Trail Files Viewer",
                 "category": "@Tom"
             },
             {
                 "command": "tomAi.editor.summaryTrailViewer",
-                "title": "@T: Open Summary Trail Viewer",
+                "title": "@T: Open Trail Summary Viewer",
                 "category": "@Tom"
             },
             {
@@ -672,7 +672,7 @@
                 "key": "ctrl+shift+1"
             },
             {
-                "command": "tomAi.editor.rawTrailViewer",
+                "command": "tomAi.editor.summaryTrailViewer",
                 "key": "ctrl+shift+5"
             },
             {

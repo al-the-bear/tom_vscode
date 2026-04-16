@@ -1334,7 +1334,7 @@ class LocalLlmNotepadProvider implements vscode.WebviewViewProvider {
     }
 
     private async _showTrail(): Promise<void> {
-        await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer');
+        await vscode.commands.executeCommand('tomAi.editor.summaryTrailViewer');
     }
 
     private async _addProfile(): Promise<void> {

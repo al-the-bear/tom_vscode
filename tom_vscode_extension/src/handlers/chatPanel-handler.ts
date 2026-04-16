@@ -700,10 +700,14 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'openTimedRequestsEditor':
                         await vscode.commands.executeCommand('tomAi.editor.timedRequests');
                         break;
-                    // openTrailRawFiles = Raw Trail Files Viewer (the directory browser
-                    // at _ai/trail/, with subsystem + quest dropdowns).
+                    // openTrailRawFiles = Raw Trail Files Viewer (the per-file "individual
+                    // entries" viewer — TrailEditorProvider custom editor).
                     case 'openTrailRawFiles':
-                        await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer');
+                        if (message.section === 'anthropic') {
+                            await this._openAnthropicSummaryTrail();
+                        } else {
+                            await this._openTrailFiles();
+                        }
                         break;
                     case 'openConversationTrailViewer':
                         await this._openConversationTrailViewer();
@@ -717,14 +721,10 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'openConversationTurnFilesEditor':
                         await this._openConversationTurnFilesEditor();
                         break;
-                    // openTrailSummaryViewer = Trail Summary Viewer (the compact
-                    // *.prompts.md custom editor showing paired user prompts + answers).
+                    // openTrailSummaryViewer = Trail Summary Viewer (the grouped-exchanges
+                    // webview panel browsing _ai/trail/, with subsystem + quest dropdowns).
                     case 'openTrailSummaryViewer':
-                        if (message.section === 'anthropic') {
-                            await this._openAnthropicSummaryTrail();
-                        } else {
-                            await this._openTrailFiles();
-                        }
+                        await vscode.commands.executeCommand('tomAi.editor.summaryTrailViewer');
                         break;
                     case 'openStatusPage':
                         await vscode.commands.executeCommand('tomAi.statusPage');
@@ -2038,7 +2038,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             vscode.window.showInformationMessage('No AI conversation trail folder exists yet. Start a conversation first.');
             return;
         }
-        await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer', vscode.Uri.file(logDir));
+        await vscode.commands.executeCommand('tomAi.editor.summaryTrailViewer', vscode.Uri.file(logDir));
     }
 
     private async _openConversationMarkdown(): Promise<void> {

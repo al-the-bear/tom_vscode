@@ -513,6 +513,16 @@ export class AnthropicHandler {
             requestId,
             quest,
         );
+        // Also write the compact summary trail (_ai/quests/{quest}/{quest}.anthropic.prompts.md
+        // and .answers.md) so the Raw Trail Files Viewer (per-file view) can open it. Same
+        // pattern copilot uses via writeSummaryPrompt + writeSummaryAnswer.
+        TrailService.instance.writeSummaryPrompt(ANTHROPIC_SUBSYSTEM, userContent, quest);
+        TrailService.instance.writeSummaryAnswer(
+            ANTHROPIC_SUBSYSTEM,
+            text,
+            { requestId, model: configuration.model },
+            quest,
+        );
         this.toolTrail.evictOldRounds();
 
         // Accumulate this exchange into the rolling history, then

@@ -1735,10 +1735,13 @@ function getWebviewHtml(
 
 export function registerTrailViewerCommands(context: vscode.ExtensionContext): vscode.Disposable[] {
     return [
-        vscode.commands.registerCommand('tomAi.editor.rawTrailViewer', async (uri?: vscode.Uri) => 
-            openTrailViewer(context, uri?.fsPath)
-        ),
-        vscode.commands.registerCommand('tomAi.editor.summaryTrailViewer', async (uri?: vscode.Uri) => {
+        // `rawTrailViewer` = the per-file "individual entries" viewer.
+        // Opens the custom editor (TrailEditorProvider) for a *.prompts.md
+        // / *.answers.md summary file, showing one row per prompt or answer.
+        // If given a directory, falls back to the grouped-exchanges webview
+        // panel. With no argument, shows an open-dialog for either file or
+        // folder.
+        vscode.commands.registerCommand('tomAi.editor.rawTrailViewer', async (uri?: vscode.Uri) => {
             if (uri?.fsPath) {
                 const invokedPath = uri.fsPath;
                 if (fs.existsSync(invokedPath) && fs.statSync(invokedPath).isFile() && isSummaryTrailFile(invokedPath)) {
@@ -1749,17 +1752,14 @@ export function registerTrailViewerCommands(context: vscode.ExtensionContext): v
                 return;
             }
 
-            // Allow user to select either a summary trail file or a trail folder
             const selected = await vscode.window.showOpenDialog({
                 canSelectFolders: true,
                 canSelectFiles: true,
                 canSelectMany: false,
                 title: 'Select Trail File or Folder',
-                filters: {
-                    'Trail files': ['md', 'json'],
-                },
+                filters: { 'Trail files': ['md', 'json'] },
             });
-            
+
             if (selected && selected[0]) {
                 const selectedPath = selected[0].fsPath;
                 if (fs.existsSync(selectedPath) && fs.statSync(selectedPath).isFile() && isSummaryTrailFile(selectedPath)) {
@@ -1769,5 +1769,12 @@ export function registerTrailViewerCommands(context: vscode.ExtensionContext): v
                 }
             }
         }),
+        // `summaryTrailViewer` = the grouped-exchanges overview.
+        // Opens a webview panel over a trail directory (e.g. _ai/trail/),
+        // listing prompt+answer pairs grouped by requestId, with subsystem
+        // and quest dropdowns.
+        vscode.commands.registerCommand('tomAi.editor.summaryTrailViewer', async (uri?: vscode.Uri) =>
+            openTrailViewer(context, uri?.fsPath),
+        ),
     ];
 }
