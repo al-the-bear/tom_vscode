@@ -513,15 +513,6 @@ export class AnthropicHandler {
             requestId,
             quest,
         );
-        // Write the compact summary trail so the Exchanges Viewer works.
-        // Same pattern as copilot (writeSummaryPrompt + writeSummaryAnswer).
-        TrailService.instance.writeSummaryPrompt(ANTHROPIC_SUBSYSTEM, userContent, quest);
-        TrailService.instance.writeSummaryAnswer(
-            ANTHROPIC_SUBSYSTEM,
-            text,
-            { requestId, model: configuration.model },
-            quest,
-        );
         this.toolTrail.evictOldRounds();
 
         // Accumulate this exchange into the rolling history, then
