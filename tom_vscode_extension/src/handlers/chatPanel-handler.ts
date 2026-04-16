@@ -4716,10 +4716,10 @@ function saveDrafts() {
                     vscode.postMessage({ type: 'openPromptsFile' });
                     break;
                 case 'openTrailFiles':
-                    vscode.postMessage({ type: 'openTrailFiles' });
+                    vscode.postMessage({ type: 'openTrailFiles', section: id || '' });
                     break;
                 case 'openTrailViewer':
-                    vscode.postMessage({ type: 'openTrailViewer' });
+                    vscode.postMessage({ type: 'openTrailViewer', section: id || '' });
                     break;
             }
         }
