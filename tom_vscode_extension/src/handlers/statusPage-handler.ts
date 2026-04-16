@@ -15,6 +15,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getBridgeClient, getConfigPath, loadSendToChatConfig, saveSendToChatConfig } from './handler_shared';
+import { AVAILABLE_LLM_TOOLS } from '../utils/constants';
 import { notifyAnthropicConfigChanged } from './chatPanel-handler';
 import { AnthropicHandler } from './anthropic-handler';
 import { getCliServerStatus } from './cliServer-handler';
@@ -93,30 +94,9 @@ export interface AiConversationSetup {
     trailSummarizationLlmConfig?: string;
 }
 
-/** Available tools for LLM configurations */
-export const AVAILABLE_LLM_TOOLS = [
-    'tomAi_readFile',
-    'tomAi_listDirectory',
-    'tomAi_findFiles',
-    'tomAi_findTextInFiles',
-    'tomAi_fetchWebpage',
-    'tomAi_webSearch',
-    'tomAi_getErrors',
-    'tomAi_readLocalGuideline',
-    'tomAi_askBigBrother',
-    'tomAi_askCopilot',
-    'tomAi_createFile',
-    'tomAi_editFile',
-    'tomAi_multiEditFile',
-    'tomAi_runCommand',
-    'tomAi_runVscodeCommand',
-    'tomAi_git',
-    'tomAi_deleteFile',
-    'tomAi_moveFile',
-    'tomAi_manageTodo',
-    'tomAi_notifyUser',
-    'tomAi_getWorkspaceInfo',
-];
+// Re-exported for the few callers that import from this module.
+// The canonical definition lives in utils/constants.ts.
+export { AVAILABLE_LLM_TOOLS } from '../utils/constants';
 
 let statusPanel: vscode.WebviewPanel | undefined;
 

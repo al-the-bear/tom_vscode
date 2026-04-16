@@ -123,6 +123,7 @@ import type {
     AnthropicSendResult,
     AnthropicToolApprovalRequest,
 } from './anthropic-handler';
+import { ANTHROPIC_SUBSYSTEM } from './anthropic-handler';
 
 // ============================================================================
 // Context — provided by AnthropicHandler.sendMessage when it delegates here
@@ -245,7 +246,7 @@ function buildMcpServer(
                 const inputSummary = summarizeInput(input);
 
                 TrailService.instance.writeRawToolRequest(
-                    { type: 'anthropic' },
+                    ANTHROPIC_SUBSYSTEM,
                     { id: `${ctx.requestId}-${def.name}-${Date.now()}`, name: def.name, input },
                     ctx.windowId,
                     ctx.questId,
@@ -266,7 +267,7 @@ function buildMcpServer(
                 const durationMs = Date.now() - start;
 
                 TrailService.instance.writeRawToolAnswer(
-                    { type: 'anthropic' },
+                    ANTHROPIC_SUBSYSTEM,
                     { name: def.name, result, durationMs, error },
                     ctx.windowId,
                     ctx.questId,
@@ -439,7 +440,7 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Anth
     }
 
     TrailService.instance.writeRawAnswer(
-        { type: 'anthropic' },
+        ANTHROPIC_SUBSYSTEM,
         lastText,
         context.windowId,
         context.requestId,
@@ -467,7 +468,7 @@ function handleAssistantMessage(msg: SDKAssistantMessage, ctx: AgentSdkTransport
         const b = block as { type?: string; text?: unknown };
         if (b.type === 'text' && typeof b.text === 'string' && b.text) {
             TrailService.instance.writeRawAnswer(
-                { type: 'anthropic' },
+                ANTHROPIC_SUBSYSTEM,
                 b.text,
                 ctx.windowId,
                 ctx.requestId,

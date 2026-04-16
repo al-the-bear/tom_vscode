@@ -19,7 +19,7 @@ import * as vscode from 'vscode';
 import { loadSendToChatConfig, saveSendToChatConfig, SendToChatConfig } from '../utils/sendToChatConfig';
 import { PLACEHOLDER_HELP } from './promptTemplate';
 import { escapeHtml } from './handler_shared';
-import { AVAILABLE_LLM_TOOLS } from './statusPage-handler';
+import { AVAILABLE_LLM_TOOLS } from '../utils/constants';
 
 // ============================================================================
 // Types

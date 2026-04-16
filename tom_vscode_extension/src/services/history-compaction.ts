@@ -31,6 +31,7 @@ import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 import { resolveVariables } from '../utils/variableResolver';
 import { TwoTierMemoryService } from './memory-service';
 import { TrailService } from './trailService';
+import { ANTHROPIC_SUBSYSTEM } from '../handlers/anthropic-handler';
 
 // ============================================================================
 // Public types (spec §6.5)
@@ -196,7 +197,7 @@ async function runAnthropicCompaction(
         throw new Error(`No anthropic configuration available for compaction (llmConfigId=${options.llmConfigId})`);
     }
 
-    const subsystem = { type: 'anthropic' as const, category: trailCategory };
+    const subsystem = { ...ANTHROPIC_SUBSYSTEM, category: trailCategory };
     const windowId = vscode.env.sessionId;
     const requestId = `${trailCategory}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
     const questId = options.questId;

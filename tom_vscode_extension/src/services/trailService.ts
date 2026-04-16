@@ -299,9 +299,9 @@ export class TrailService {
 
     private resolvePathTokens(input: string, vars: Record<string, string>): string {
         const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
-        const aiFolder = vscode.workspace.getConfiguration('tomAi').get<string>('aiFolder')
-            || vscode.workspace.getConfiguration('tomAi').get<string>('aiFolder')
-            || '_ai';
+        // Use WsPaths.aiFolder so the configured folder name (e.g. '_ai') is
+        // read from the same central place as everywhere else in the extension.
+        const aiFolder = WsPaths.aiFolder;
 
         const replaced = input
             .replace(/\$\{workspaceFolder\}/g, workspaceRoot)

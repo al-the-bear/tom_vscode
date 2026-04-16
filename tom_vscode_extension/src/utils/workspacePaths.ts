@@ -91,6 +91,8 @@ const AI_SUBPATHS: Record<string, string> = {
     answersCopilot:      'answers/copilot',
     queue:               'queue',
     prompt:              'prompt',
+    memory:              'memory',
+    trail:               'trail',
     // Trail sub-folders (inside local/ etc.)
     trailLocal:          'local/trail',
     trailConversation:   'conversation/trail',

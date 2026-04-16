@@ -113,6 +113,9 @@ export interface AnthropicSendOptions {
     cancellationToken?: vscode.CancellationToken;
 }
 
+/** Reusable TrailSubsystem literal — avoids `ANTHROPIC_SUBSYSTEM` scattered across calls. */
+export const ANTHROPIC_SUBSYSTEM = { type: 'anthropic' as const } satisfies import('../services/trailService').TrailSubsystem;
+
 export interface AnthropicSendResult {
     text: string;
     turnsUsed: number;
@@ -383,7 +386,7 @@ export class AnthropicHandler {
             : expandedUser;
 
         TrailService.instance.writeRawPrompt(
-            { type: 'anthropic' },
+            ANTHROPIC_SUBSYSTEM,
             `SYSTEM:\n${systemPrompt}\n\nUSER:\n${userContent}`,
             windowId,
             requestId,
@@ -504,7 +507,7 @@ export class AnthropicHandler {
         configuration: AnthropicConfiguration,
     ): AnthropicSendResult {
         TrailService.instance.writeRawAnswer(
-            { type: 'anthropic' },
+            ANTHROPIC_SUBSYSTEM,
             text,
             windowId,
             requestId,
@@ -614,7 +617,7 @@ export class AnthropicHandler {
         }
 
         TrailService.instance.writeRawToolRequest(
-            { type: 'anthropic' },
+            ANTHROPIC_SUBSYSTEM,
             { id: block.id, name: block.name, input },
             windowId,
             quest,
@@ -639,7 +642,7 @@ export class AnthropicHandler {
         const durationMs = Date.now() - start;
 
         TrailService.instance.writeRawToolAnswer(
-            { type: 'anthropic' },
+            ANTHROPIC_SUBSYSTEM,
             { id: block.id, name: block.name, result, durationMs, error },
             windowId,
             quest,

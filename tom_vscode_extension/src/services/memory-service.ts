@@ -65,7 +65,11 @@ export class TwoTierMemoryService {
     /** Absolute path to the memory root (`_ai/memory/`). */
     memoryRoot(): string {
         const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
-        return WsPaths.ai('memory') ?? path.join(wsRoot, '_ai', 'memory');
+        // WsPaths.ai('memory') resolves via the configured AI folder name
+        // (WsPaths.aiFolder, e.g. '_ai'). 'memory' is now in AI_SUBPATHS,
+        // so WsPaths.ai('memory') should always succeed; the fallback uses
+        // WsPaths.aiFolder to avoid hardcoding '_ai'.
+        return WsPaths.ai('memory') ?? path.join(wsRoot, WsPaths.aiFolder, 'memory');
     }
 
     /** Absolute path to the folder for the given scope. */

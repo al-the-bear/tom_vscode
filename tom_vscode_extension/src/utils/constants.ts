@@ -28,3 +28,47 @@ export const GLOB_CHAT = '**/*.chat.md';
 export const GLOB_FLOW = '*.flow.yaml';
 export const GLOB_STATE = '*.state.yaml';
 export const GLOB_ER = '*.er.yaml';
+
+/**
+ * Canonical list of tool names that can be exposed to LLM configurations.
+ * Derived from ALL_SHARED_TOOLS in tool-executors.ts — update both together
+ * when adding new tools.
+ * Used in the status page tool picker and the Anthropic profile editor.
+ */
+export const AVAILABLE_LLM_TOOLS = [
+    // Read-only file / workspace tools
+    'tomAi_readFile',
+    'tomAi_listDirectory',
+    'tomAi_findFiles',
+    'tomAi_findTextInFiles',
+    'tomAi_fetchWebpage',
+    'tomAi_webSearch',
+    'tomAi_getErrors',
+    'tomAi_readLocalGuideline',
+    'tomAi_readGuideline',
+    // Ask-AI tools
+    'tomAi_askBigBrother',
+    'tomAi_askCopilot',
+    // Write / mutating file tools
+    'tomAi_createFile',
+    'tomAi_editFile',
+    'tomAi_multiEditFile',
+    'tomAi_deleteFile',
+    'tomAi_moveFile',
+    // Shell / VS Code
+    'tomAi_runCommand',
+    'tomAi_runVscodeCommand',
+    // Git (read-only, structured)
+    'tomAi_git',
+    // Todo / task management
+    'tomAi_manageTodo',
+    // Chat variables
+    'tomAi_chatvar_read',
+    'tomAi_chatvar_write',
+    // Memory
+    'tomAi_memory_read',
+    'tomAi_memory_list',
+    'tomAi_memory_save',
+    'tomAi_memory_update',
+    'tomAi_memory_forget',
+] as const;
