@@ -32,7 +32,7 @@ import { validateStrictAiConfiguration } from '../utils/sendToChatConfig';
 import { findNearestDetectedProject, scanWorkspaceProjectsByDetectors } from '../utils/projectDetector';
 import { TrailService } from '../services/trailService';
 import { writeWindowState } from './windowStatusPanel-handler.js';
-import { AnthropicHandler, AnthropicProfile, AnthropicConfiguration, ANTHROPIC_SUBSYSTEM } from './anthropic-handler';
+import { AnthropicHandler, AnthropicProfile, AnthropicConfiguration } from './anthropic-handler';
 import { ALL_SHARED_TOOLS } from '../tools/tool-executors';
 
 // ============================================================================
@@ -700,31 +700,15 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'openTimedRequestsEditor':
                         await vscode.commands.executeCommand('tomAi.editor.timedRequests');
                         break;
-                    // openTrailFiles = raw file viewer (the actual prompt/answer files on disk).
-                    // For section-specific panels (anthropic) we pass the subsystem directory
-                    // directly so the viewer doesn't need to guess the workspace root. For
-                    // other sections we use the trail root and let the viewer discover.
-                    case 'openTrailFiles': {
-                        let trailUri: vscode.Uri | undefined;
+                    // openTrailFiles = Exchanges Viewer (the compact *.prompts.md custom editor).
+                    // Called from the list-icon button labelled "Open Exchanges Viewer".
+                    case 'openTrailFiles':
                         if (message.section === 'anthropic') {
-                            // Pass the anthropic trail dir straight to the viewer; TrailService
-                            // resolves it through the same config as the trail writer.
-                            const questId = WsPaths.getWorkspaceQuestId();
-                            const anthropicDir = TrailService.instance.getSubsystemPath(
-                                ANTHROPIC_SUBSYSTEM, questId,
-                            );
-                            if (anthropicDir) {
-                                // Walk up two levels: .../anthropic/quest → .../trail
-                                const trailRoot = path.dirname(path.dirname(anthropicDir));
-                                trailUri = vscode.Uri.file(trailRoot);
-                            }
+                            await this._openAnthropicSummaryTrail();
                         } else {
-                            const trailRoot = WsPaths.ai('trail');
-                            if (trailRoot) { trailUri = vscode.Uri.file(trailRoot); }
+                            await this._openTrailFiles();
                         }
-                        await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer', trailUri);
                         break;
-                    }
                     case 'openConversationTrailViewer':
                         await this._openConversationTrailViewer();
                         break;
@@ -737,13 +721,11 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'openConversationTurnFilesEditor':
                         await this._openConversationTurnFilesEditor();
                         break;
-                    // openTrailViewer = compact exchanges viewer (summary trail)
+                    // openTrailViewer = Raw Trail Viewer (the directory browser over
+                    // .userprompt.md + .answer.json files in _ai/trail/). Same code path
+                    // for every section; the viewer discovers subsystems itself.
                     case 'openTrailViewer':
-                        if (message.section === 'anthropic') {
-                            await this._openAnthropicSummaryTrail();
-                        } else {
-                            await this._openTrailFiles();
-                        }
+                        await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer');
                         break;
                     case 'openStatusPage':
                         await vscode.commands.executeCommand('tomAi.statusPage');
