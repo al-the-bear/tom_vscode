@@ -701,12 +701,18 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         await vscode.commands.executeCommand('tomAi.editor.timedRequests');
                         break;
                     // openTrailFiles = raw file viewer (the actual prompt/answer files on disk).
-                    // Calling the command without an argument lets the viewer resolve the trail
-                    // root via getTrailRootFolder() — which reads the configured path including
-                    // any custom _ai folder name — same as it did before anthropic was added.
-                    case 'openTrailFiles':
-                        await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer');
+                    // Pass the trail root explicitly via WsPaths.ai('trail') so the viewer
+                    // always opens at the correct workspace root — passing no argument relies
+                    // on the active editor's workspace folder which may differ in multi-root
+                    // workspaces and silently shows "Trail folder not found".
+                    case 'openTrailFiles': {
+                        const trailRoot = WsPaths.ai('trail');
+                        await vscode.commands.executeCommand(
+                            'tomAi.editor.rawTrailViewer',
+                            trailRoot ? vscode.Uri.file(trailRoot) : undefined,
+                        );
                         break;
+                    }
                     case 'openConversationTrailViewer':
                         await this._openConversationTrailViewer();
                         break;
@@ -3099,8 +3105,8 @@ function getSectionContent(id) {
                 '<button class="icon-btn" data-action="openQueueEditor" data-id="copilot" title="Open Queue Editor"><span class="codicon codicon-inbox"></span></button>' +
                 '<button class="icon-btn" data-action="saveAsTimedRequest" data-id="copilot" title="Save as Timed Request"><span class="codicon codicon-save"></span></button>' +
                 '<button class="icon-btn" data-action="openTimedRequestsEditor" data-id="copilot" title="Timed Requests"><span class="codicon codicon-watch"></span></button>' +
-                '<button class="icon-btn" data-action="openTrailFiles" data-id="copilot" title="Open Raw Trail Viewer"><span class="codicon codicon-history"></span></button>' +
-                '<button class="icon-btn" data-action="openTrailViewer" data-id="copilot" title="Open Exchanges Viewer (compact summary)"><span class="codicon codicon-list-flat"></span></button>' +
+                '<button class="icon-btn" data-action="openTrailViewer" data-id="copilot" title="Open Raw Trail Viewer"><span class="codicon codicon-history"></span></button>' +
+                '<button class="icon-btn" data-action="openTrailFiles" data-id="copilot" title="Open Exchanges Viewer (compact summary)"><span class="codicon codicon-list-flat"></span></button>' +
                 '<label class="checkbox-label compact-keep"><input type="checkbox" id="copilot-keep-content"> Keep</label>' +
                 '<button class="icon-btn" data-action="clearText" data-id="copilot" title="Clear text"><span class="codicon codicon-clear-all"></span></button>',
             afterToolbarHtml:
@@ -3130,8 +3136,8 @@ function getSectionContent(id) {
             '<button class="link-btn" data-action="openReusablePromptEditor" title="Reusable Prompt Editor"><span class="codicon codicon-note"></span> Reusable Prompts</button>' +
             '<button class="link-btn" data-action="openContextSettingsEditor" title="Context & Settings Editor"><span class="codicon codicon-settings-gear"></span> Context Editor</button>' +
             '<button class="link-btn" data-action="openChatVariablesEditor" title="Chat Variables Editor"><span class="codicon codicon-symbol-key"></span> Chat Variables</button>' +
-            '<button class="link-btn" data-action="openTrailFiles" data-id="copilot" title="Raw Trail Viewer"><span class="codicon codicon-history"></span> Raw Trail Viewer</button>' +
-            '<button class="link-btn" data-action="openTrailViewer" data-id="copilot" title="Exchanges Viewer (compact summary)"><span class="codicon codicon-list-flat"></span> Exchanges Viewer</button>' +
+            '<button class="link-btn" data-action="openTrailViewer" data-id="copilot" title="Raw Trail Viewer"><span class="codicon codicon-history"></span> Raw Trail Viewer</button>' +
+            '<button class="link-btn" data-action="openTrailFiles" data-id="copilot" title="Exchanges Viewer (compact summary)"><span class="codicon codicon-list-flat"></span> Exchanges Viewer</button>' +
             '</div>' +
             '</fieldset>' +
             '</div>' +
