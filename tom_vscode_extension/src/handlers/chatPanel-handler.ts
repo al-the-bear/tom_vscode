@@ -1991,22 +1991,17 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     }
 
     /**
-     * Open the trail custom editor (tomAi.trailViewer) for the current workspace's prompts trail file.
+     * Open the trail custom editor (tomAi.trailViewer) for the copilot prompts trail file.
+     * Uses TrailService for path resolution so it is consistent with _openAnthropicSummaryTrail.
      */
     private async _openTrailFiles(): Promise<void> {
-        const summaryPaths = getCopilotSummaryTrailPaths();
-        if (!summaryPaths) {
-            vscode.window.showWarningMessage('No workspace folder found');
+        const questId = WsPaths.getWorkspaceQuestId();
+        const summaryPath = TrailService.instance.getSummaryFilePath('prompts', { type: 'copilot' }, questId);
+        if (!summaryPath || !fs.existsSync(summaryPath)) {
+            vscode.window.showInformationMessage('No Copilot summary trail exists yet. Send a prompt first.');
             return;
         }
-
-        if (!fs.existsSync(summaryPaths.promptsPath)) {
-            vscode.window.showInformationMessage('No summary trail exists yet. Send a prompt first.');
-            return;
-        }
-
-        // Open with the custom trail editor
-        const uri = vscode.Uri.file(summaryPaths.promptsPath);
+        const uri = vscode.Uri.file(summaryPath);
         await vscode.commands.executeCommand('vscode.openWith', uri, 'tomAi.trailViewer');
     }
 
@@ -3192,8 +3187,8 @@ function getSectionContent(id) {
             actionButtons:
                 '<button data-action="preview" data-id="anthropic" title="Preview expanded prompt">Preview</button>' +
                 '<button class="primary" id="anthropic-send-btn" data-action="send" data-id="anthropic" title="Send to Anthropic">Send to Anthropic</button>' +
-                '<button class="icon-btn" data-action="openTrailFiles" data-id="anthropic" title="Open Raw Trail Viewer"><span class="codicon codicon-history"></span></button>' +
-                '<button class="icon-btn" data-action="openTrailViewer" data-id="anthropic" title="Open Exchanges Viewer (compact summary)"><span class="codicon codicon-list-flat"></span></button>' +
+                '<button class="icon-btn" data-action="openTrailViewer" data-id="anthropic" title="Open Exchanges Viewer (compact summary)"><span class="codicon codicon-history"></span></button>' +
+                '<button class="icon-btn" data-action="openTrailFiles" data-id="anthropic" title="Open Raw Trail Viewer"><span class="codicon codicon-list-flat"></span></button>' +
                 '<button class="icon-btn" data-action="openAnthropicMemory" data-id="anthropic" title="Memory Panel"><span class="codicon codicon-book"></span></button>' +
                 '<button class="icon-btn" data-action="clearAnthropicHistory" data-id="anthropic" title="Clear session history"><span class="codicon codicon-clear-all"></span></button>',
             afterToolbarHtml:
