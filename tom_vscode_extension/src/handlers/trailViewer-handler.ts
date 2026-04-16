@@ -397,6 +397,28 @@ function discoverRawTrailFolders(rootFolder: string): TrailViewerFolderOption[] 
                         folder: questPath,
                     });
                 }
+
+                // Level 3: sub-category folders within the quest directory
+                // (e.g. anthropic/{quest}/compaction, anthropic/{quest}/memory)
+                try {
+                    const categoryEntries = fs.readdirSync(questPath, { withFileTypes: true })
+                        .filter((entry) => entry.isDirectory())
+                        .map((entry) => entry.name)
+                        .sort((a, b) => a.localeCompare(b));
+
+                    for (const catName of categoryEntries) {
+                        const catPath = path.join(questPath, catName);
+                        if (hasRawTrailFiles(catPath)) {
+                            options.push({
+                                id: `${subsystemName}/${questName}/${catName}`,
+                                label: `${subsystemName}/${questName}/${catName}`,
+                                folder: catPath,
+                            });
+                        }
+                    }
+                } catch {
+                    // Ignore — non-critical discovery
+                }
             }
         }
     }
@@ -442,6 +464,19 @@ function discoverSubsystemsAndQuests(rootFolder: string): DiscoveredSubsystem[] 
                 if (hasRawTrailFiles(questPath)) {
                     quests.push(questName);
                 }
+                // Also surface sub-category folders as separate quest-like entries
+                try {
+                    const catEntries = fs.readdirSync(questPath, { withFileTypes: true })
+                        .filter((e) => e.isDirectory())
+                        .map((e) => e.name)
+                        .sort();
+                    for (const catName of catEntries) {
+                        const catPath = path.join(questPath, catName);
+                        if (hasRawTrailFiles(catPath)) {
+                            quests.push(`${questName}/${catName}`);
+                        }
+                    }
+                } catch { /* ignore */ }
             }
         } catch {
             // Ignore read errors

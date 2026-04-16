@@ -30,6 +30,7 @@ import * as vscode from 'vscode';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 import { resolveVariables } from '../utils/variableResolver';
 import { TwoTierMemoryService } from './memory-service';
+import { TrailService } from './trailService';
 
 // ============================================================================
 // Public types (spec §6.5)
@@ -169,9 +170,10 @@ async function runCompactionCall(
     options: CompactionOptions,
     systemPrompt: string,
     userPrompt: string,
+    trailCategory: 'compaction' | 'memory' = 'compaction',
 ): Promise<string> {
     if (options.llmProvider === 'anthropic') {
-        return runAnthropicCompaction(options, systemPrompt, userPrompt);
+        return runAnthropicCompaction(options, systemPrompt, userPrompt, trailCategory);
     }
     return runOllamaCompaction(options, systemPrompt, userPrompt);
 }
@@ -180,6 +182,7 @@ async function runAnthropicCompaction(
     options: CompactionOptions,
     systemPrompt: string,
     userPrompt: string,
+    trailCategory: 'compaction' | 'memory' = 'compaction',
 ): Promise<string> {
     // Lazy import to avoid a cycle — the Anthropic handler imports the
     // compaction module for its post-exchange `compactHistoryAsync` call.
@@ -192,17 +195,37 @@ async function runAnthropicCompaction(
     if (!cfg) {
         throw new Error(`No anthropic configuration available for compaction (llmConfigId=${options.llmConfigId})`);
     }
-    // Route through the low-level internal helper so the compaction call
-    // doesn't inherit the main handler's trail write, rolling-history
-    // accumulation, or recursive `compactHistoryAsync` trigger (spec
-    // §6.5 Step 3.4: "Anthropic → internal, no tool loop, no trail write").
-    return handler.runInternalCall({
+
+    const subsystem = { type: 'anthropic' as const, category: trailCategory };
+    const windowId = vscode.env.sessionId;
+    const requestId = `${trailCategory}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    const questId = options.questId;
+
+    TrailService.instance.writeRawPrompt(
+        subsystem,
+        `SYSTEM:\n${systemPrompt}\n\nUSER:\n${userPrompt}`,
+        windowId,
+        requestId,
+        questId,
+    );
+
+    const result = await handler.runInternalCall({
         systemPrompt,
         userPrompt,
         model: cfg.model,
         maxTokens: cfg.maxTokens ?? 2048,
         temperature: cfg.temperature,
     });
+
+    TrailService.instance.writeRawAnswer(
+        subsystem,
+        result,
+        windowId,
+        requestId,
+        questId,
+    );
+
+    return result;
 }
 
 async function runOllamaCompaction(
@@ -419,7 +442,7 @@ async function runLlmExtract(
                 memoryFilePath,
                 memoryScope: scope,
             });
-            const extracted = (await runCompactionCall(options, 'You extract key facts for memory.', userPrompt)).trim();
+            const extracted = (await runCompactionCall(options, 'You extract key facts for memory.', userPrompt, 'memory')).trim();
             if (extracted) {
                 if (tpl.scope === 'both') {
                     memorySvc.append('quest', tpl.targetFile, extracted, options.questId);

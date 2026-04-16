@@ -9,7 +9,14 @@ export type TrailSubsystem =
     | { type: 'localLlm'; configName: string }
     | { type: 'copilot' }
     | { type: 'lmApi'; model: string }
-    | { type: 'anthropic' };
+    /**
+     * Anthropic subsystem. An optional `category` places files in a
+     * sub-folder of the quest directory:
+     *   - (absent)      → _ai/trail/anthropic/{quest}/
+     *   - 'compaction'  → _ai/trail/anthropic/{quest}/compaction/
+     *   - 'memory'      → _ai/trail/anthropic/{quest}/memory/
+     */
+    | { type: 'anthropic'; category?: 'compaction' | 'memory' };
 
 export interface TrailMetadata {
     requestId?: string;
@@ -252,9 +259,11 @@ export class TrailService {
             case 'copilot':
                 base = raw.paths?.copilot ?? '${ai}/trail/copilot/${quest}';
                 break;
-            case 'anthropic':
-                base = raw.paths?.anthropic ?? '${ai}/trail/anthropic/${quest}';
+            case 'anthropic': {
+                const catSuffix = subsystem.category ? `/${subsystem.category}` : '';
+                base = `${raw.paths?.anthropic ?? '${ai}/trail/anthropic/${quest}'}${catSuffix}`;
                 break;
+            }
             case 'lmApi':
             default:
                 base = raw.paths?.lmApi ?? '${ai}/trail/lm-api/${quest}';
