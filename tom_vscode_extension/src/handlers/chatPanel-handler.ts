@@ -3117,8 +3117,8 @@ function getSectionContent(id) {
                 '<button class="icon-btn" data-action="openQueueEditor" data-id="copilot" title="Open Queue Editor"><span class="codicon codicon-inbox"></span></button>' +
                 '<button class="icon-btn" data-action="saveAsTimedRequest" data-id="copilot" title="Save as Timed Request"><span class="codicon codicon-save"></span></button>' +
                 '<button class="icon-btn" data-action="openTimedRequestsEditor" data-id="copilot" title="Timed Requests"><span class="codicon codicon-watch"></span></button>' +
-                '<button class="icon-btn" data-action="openTrailFiles" data-id="copilot" title="Open Exchanges Viewer (compact summary)"><span class="codicon codicon-history"></span></button>' +
-                '<button class="icon-btn" data-action="openTrailViewer" data-id="copilot" title="Open Raw Trail Viewer"><span class="codicon codicon-list-flat"></span></button>' +
+                '<button class="icon-btn" data-action="openTrailFiles" data-id="copilot" title="Open Raw Trail Viewer"><span class="codicon codicon-history"></span></button>' +
+                '<button class="icon-btn" data-action="openTrailViewer" data-id="copilot" title="Open Exchanges Viewer (compact summary)"><span class="codicon codicon-list-flat"></span></button>' +
                 '<label class="checkbox-label compact-keep"><input type="checkbox" id="copilot-keep-content"> Keep</label>' +
                 '<button class="icon-btn" data-action="clearText" data-id="copilot" title="Clear text"><span class="codicon codicon-clear-all"></span></button>',
             afterToolbarHtml:
@@ -3148,8 +3148,8 @@ function getSectionContent(id) {
             '<button class="link-btn" data-action="openReusablePromptEditor" title="Reusable Prompt Editor"><span class="codicon codicon-note"></span> Reusable Prompts</button>' +
             '<button class="link-btn" data-action="openContextSettingsEditor" title="Context & Settings Editor"><span class="codicon codicon-settings-gear"></span> Context Editor</button>' +
             '<button class="link-btn" data-action="openChatVariablesEditor" title="Chat Variables Editor"><span class="codicon codicon-symbol-key"></span> Chat Variables</button>' +
-            '<button class="link-btn" data-action="openTrailFiles" data-id="copilot" title="Exchanges Viewer (compact summary)"><span class="codicon codicon-history"></span> Exchanges Viewer</button>' +
-            '<button class="link-btn" data-action="openTrailViewer" data-id="copilot" title="Raw Trail Viewer"><span class="codicon codicon-list-flat"></span> Raw Trail Viewer</button>' +
+            '<button class="link-btn" data-action="openTrailFiles" data-id="copilot" title="Raw Trail Viewer"><span class="codicon codicon-history"></span> Raw Trail Viewer</button>' +
+            '<button class="link-btn" data-action="openTrailViewer" data-id="copilot" title="Exchanges Viewer (compact summary)"><span class="codicon codicon-list-flat"></span> Exchanges Viewer</button>' +
             '</div>' +
             '</fieldset>' +
             '</div>' +
@@ -3204,8 +3204,8 @@ function getSectionContent(id) {
             actionButtons:
                 '<button data-action="preview" data-id="anthropic" title="Preview expanded prompt">Preview</button>' +
                 '<button class="primary" id="anthropic-send-btn" data-action="send" data-id="anthropic" title="Send to Anthropic">Send to Anthropic</button>' +
-                '<button class="icon-btn" data-action="openTrailFiles" data-id="anthropic" title="Open Exchanges Viewer (anthropic compact summary)"><span class="codicon codicon-history"></span></button>' +
-                '<button class="icon-btn" data-action="openTrailViewer" data-id="anthropic" title="Open Raw Trail Viewer (Anthropic subsystem)"><span class="codicon codicon-list-flat"></span></button>' +
+                '<button class="icon-btn" data-action="openTrailFiles" data-id="anthropic" title="Open Raw Trail Viewer"><span class="codicon codicon-history"></span></button>' +
+                '<button class="icon-btn" data-action="openTrailViewer" data-id="anthropic" title="Open Exchanges Viewer (compact summary)"><span class="codicon codicon-list-flat"></span></button>' +
                 '<button class="icon-btn" data-action="openAnthropicMemory" data-id="anthropic" title="Memory Panel"><span class="codicon codicon-book"></span></button>' +
                 '<button class="icon-btn" data-action="clearAnthropicHistory" data-id="anthropic" title="Clear session history"><span class="codicon codicon-clear-all"></span></button>',
             afterToolbarHtml:
