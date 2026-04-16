@@ -701,17 +701,12 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         await vscode.commands.executeCommand('tomAi.editor.timedRequests');
                         break;
                     // openTrailFiles = raw file viewer (the actual prompt/answer files on disk).
-                    // All subsystems share the same _ai/trail/ root, so no section-specific
-                    // handling is needed — the viewer discovers subsystems itself.
-                    case 'openTrailFiles': {
-                        const wsRoot = getWorkspaceRoot();
-                        const trailRoot = wsRoot ? path.join(wsRoot, '_ai', 'trail') : undefined;
-                        await vscode.commands.executeCommand(
-                            'tomAi.editor.rawTrailViewer',
-                            trailRoot ? vscode.Uri.file(trailRoot) : undefined,
-                        );
+                    // Calling the command without an argument lets the viewer resolve the trail
+                    // root via getTrailRootFolder() — which reads the configured path including
+                    // any custom _ai folder name — same as it did before anthropic was added.
+                    case 'openTrailFiles':
+                        await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer');
                         break;
-                    }
                     case 'openConversationTrailViewer':
                         await this._openConversationTrailViewer();
                         break;
