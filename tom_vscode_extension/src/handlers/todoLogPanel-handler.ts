@@ -133,7 +133,7 @@ export class TodoLogViewProvider implements vscode.WebviewViewProvider {
                 break;
             }
             case 'openTrailViewer': {
-                await vscode.commands.executeCommand('tomAi.editor.summaryTrailViewer');
+                await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer');
                 break;
             }
             case 'openTrailFiles': {

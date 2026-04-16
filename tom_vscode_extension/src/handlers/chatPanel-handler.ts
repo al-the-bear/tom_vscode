@@ -700,14 +700,16 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'openTimedRequestsEditor':
                         await vscode.commands.executeCommand('tomAi.editor.timedRequests');
                         break;
-                    // openTrailRawFiles = Raw Trail Files Viewer (the per-file "individual
-                    // entries" viewer — TrailEditorProvider custom editor).
+                    // openTrailRawFiles = Raw Trail Files Viewer (the grouped-exchanges
+                    // webview panel over _ai/trail/{subsystem}/{quest}/). Forwards the
+                    // originating section as a subsystem hint so the dropdown lands
+                    // on the right subsystem.
                     case 'openTrailRawFiles':
-                        if (message.section === 'anthropic') {
-                            await this._openAnthropicSummaryTrail();
-                        } else {
-                            await this._openTrailFiles();
-                        }
+                        await vscode.commands.executeCommand(
+                            'tomAi.editor.rawTrailViewer',
+                            undefined,
+                            message.section || undefined,
+                        );
                         break;
                     case 'openConversationTrailViewer':
                         await this._openConversationTrailViewer();
@@ -721,17 +723,15 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'openConversationTurnFilesEditor':
                         await this._openConversationTurnFilesEditor();
                         break;
-                    // openTrailSummaryViewer = Trail Summary Viewer (the grouped-exchanges
-                    // webview panel browsing _ai/trail/, with subsystem + quest dropdowns).
-                    // Pass the originating section as a subsystem hint so the viewer pre-
-                    // selects the correct subsystem (otherwise it falls back to alphabetical
-                    // order and 'anthropic' beats 'copilot').
+                    // openTrailSummaryViewer = Trail Summary Viewer (the per-file
+                    // TrailEditorProvider custom editor over the concatenated
+                    // *.prompts.md / *.answers.md files in _ai/quests/).
                     case 'openTrailSummaryViewer':
-                        await vscode.commands.executeCommand(
-                            'tomAi.editor.summaryTrailViewer',
-                            undefined,
-                            message.section || undefined,
-                        );
+                        if (message.section === 'anthropic') {
+                            await this._openAnthropicSummaryTrail();
+                        } else {
+                            await this._openTrailFiles();
+                        }
                         break;
                     case 'openStatusPage':
                         await vscode.commands.executeCommand('tomAi.statusPage');
@@ -2045,7 +2045,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             vscode.window.showInformationMessage('No AI conversation trail folder exists yet. Start a conversation first.');
             return;
         }
-        await vscode.commands.executeCommand('tomAi.editor.summaryTrailViewer', vscode.Uri.file(logDir));
+        await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer', vscode.Uri.file(logDir));
     }
 
     private async _openConversationMarkdown(): Promise<void> {
@@ -3100,8 +3100,8 @@ function getSectionContent(id) {
                 '<button class="icon-btn" data-action="openQueueEditor" data-id="copilot" title="Open Queue Editor"><span class="codicon codicon-inbox"></span></button>' +
                 '<button class="icon-btn" data-action="saveAsTimedRequest" data-id="copilot" title="Save as Timed Request"><span class="codicon codicon-save"></span></button>' +
                 '<button class="icon-btn" data-action="openTimedRequestsEditor" data-id="copilot" title="Timed Requests"><span class="codicon codicon-watch"></span></button>' +
-                '<button class="icon-btn" data-action="openTrailSummaryViewer" data-id="copilot" title="Open Trail Summary Viewer"><span class="codicon codicon-history"></span></button>' +
-                '<button class="icon-btn" data-action="openTrailRawFiles" data-id="copilot" title="Open Raw Trail Files Viewer"><span class="codicon codicon-list-flat"></span></button>' +
+                '<button class="icon-btn" data-action="openTrailRawFiles" data-id="copilot" title="Open Raw Trail Files Viewer"><span class="codicon codicon-history"></span></button>' +
+                '<button class="icon-btn" data-action="openTrailSummaryViewer" data-id="copilot" title="Open Trail Summary Viewer"><span class="codicon codicon-list-flat"></span></button>' +
                 '<label class="checkbox-label compact-keep"><input type="checkbox" id="copilot-keep-content"> Keep</label>' +
                 '<button class="icon-btn" data-action="clearText" data-id="copilot" title="Clear text"><span class="codicon codicon-clear-all"></span></button>',
             afterToolbarHtml:
@@ -3131,8 +3131,8 @@ function getSectionContent(id) {
             '<button class="link-btn" data-action="openReusablePromptEditor" title="Reusable Prompt Editor"><span class="codicon codicon-note"></span> Reusable Prompts</button>' +
             '<button class="link-btn" data-action="openContextSettingsEditor" title="Context & Settings Editor"><span class="codicon codicon-settings-gear"></span> Context Editor</button>' +
             '<button class="link-btn" data-action="openChatVariablesEditor" title="Chat Variables Editor"><span class="codicon codicon-symbol-key"></span> Chat Variables</button>' +
-            '<button class="link-btn" data-action="openTrailSummaryViewer" data-id="copilot" title="Trail Summary Viewer"><span class="codicon codicon-history"></span> Trail Summary Viewer</button>' +
-            '<button class="link-btn" data-action="openTrailRawFiles" data-id="copilot" title="Raw Trail Files Viewer"><span class="codicon codicon-list-flat"></span> Raw Trail Files Viewer</button>' +
+            '<button class="link-btn" data-action="openTrailRawFiles" data-id="copilot" title="Raw Trail Files Viewer"><span class="codicon codicon-history"></span> Raw Trail Files Viewer</button>' +
+            '<button class="link-btn" data-action="openTrailSummaryViewer" data-id="copilot" title="Trail Summary Viewer"><span class="codicon codicon-list-flat"></span> Trail Summary Viewer</button>' +
             '</div>' +
             '</fieldset>' +
             '</div>' +
@@ -3187,8 +3187,8 @@ function getSectionContent(id) {
             actionButtons:
                 '<button data-action="preview" data-id="anthropic" title="Preview expanded prompt">Preview</button>' +
                 '<button class="primary" id="anthropic-send-btn" data-action="send" data-id="anthropic" title="Send to Anthropic">Send to Anthropic</button>' +
-                '<button class="icon-btn" data-action="openTrailSummaryViewer" data-id="anthropic" title="Open Trail Summary Viewer"><span class="codicon codicon-history"></span></button>' +
-                '<button class="icon-btn" data-action="openTrailRawFiles" data-id="anthropic" title="Open Raw Trail Files Viewer"><span class="codicon codicon-list-flat"></span></button>' +
+                '<button class="icon-btn" data-action="openTrailRawFiles" data-id="anthropic" title="Open Raw Trail Files Viewer"><span class="codicon codicon-history"></span></button>' +
+                '<button class="icon-btn" data-action="openTrailSummaryViewer" data-id="anthropic" title="Open Trail Summary Viewer"><span class="codicon codicon-list-flat"></span></button>' +
                 '<button class="icon-btn" data-action="openAnthropicMemory" data-id="anthropic" title="Memory Panel"><span class="codicon codicon-book"></span></button>' +
                 '<button class="icon-btn" data-action="clearAnthropicHistory" data-id="anthropic" title="Clear session history"><span class="codicon codicon-clear-all"></span></button>',
             afterToolbarHtml:

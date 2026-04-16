@@ -823,7 +823,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
             await vscode.commands.executeCommand('tomAi.editor.chatVariables');
             break;
         case 'openTrailViewer':
-            await vscode.commands.executeCommand('tomAi.editor.summaryTrailViewer');
+            await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer');
             break;
         case 'openTimedRequestsEditor':
             await vscode.commands.executeCommand('tomAi.editor.timedRequests');

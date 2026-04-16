@@ -672,7 +672,7 @@
                 "key": "ctrl+shift+1"
             },
             {
-                "command": "tomAi.editor.summaryTrailViewer",
+                "command": "tomAi.editor.rawTrailViewer",
                 "key": "ctrl+shift+5"
             },
             {

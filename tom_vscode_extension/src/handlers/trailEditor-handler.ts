@@ -939,6 +939,7 @@ body {
 
 <!-- Top bar -->
 <div class="top-bar">
+    <strong style="margin-right:8px">Summary Viewer</strong>
     <label>Trail:</label>
     <select id="quest-select">${initialQuestOptionsHtml}</select>
     <label>Subsystem:</label>
