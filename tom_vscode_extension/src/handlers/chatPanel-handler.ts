@@ -2385,21 +2385,32 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private async _saveDrafts(drafts: Record<string, { text?: string; profile?: string; llmConfig?: string; aiSetup?: string; activeSlot?: number; slots?: Record<string, string> }>): Promise<void> {
+    private async _saveDrafts(drafts: Record<string, {
+        text?: string; profile?: string; llmConfig?: string; aiSetup?: string;
+        activeSlot?: number; slots?: Record<string, string>;
+        // Anthropic-specific extras
+        model?: string; config?: string; userMessageTemplate?: string;
+    }>): Promise<void> {
         try {
             const { writePromptPanelYaml } = await import('../utils/panelYamlStore.js');
-            const sections = ['localLlm', 'conversation', 'copilot', 'tomAiChat'];
+            const sections = ['localLlm', 'conversation', 'copilot', 'tomAiChat', 'anthropic'];
             await Promise.all(
                 sections.map(async (section) => {
-                    const sectionDraft = drafts[section] || {};
-                    await writePromptPanelYaml(section, {
-                        text: sectionDraft.text || '',
-                        profile: sectionDraft.profile || '',
-                        llmConfig: sectionDraft.llmConfig || '',
-                        aiSetup: sectionDraft.aiSetup || '',
-                        activeSlot: sectionDraft.activeSlot || 1,
-                        slots: sectionDraft.slots || {},
-                    });
+                    const d = drafts[section] || {};
+                    const base: Record<string, unknown> = {
+                        text: d.text || '',
+                        profile: d.profile || '',
+                        llmConfig: d.llmConfig || '',
+                        aiSetup: d.aiSetup || '',
+                        activeSlot: d.activeSlot || 1,
+                        slots: d.slots || {},
+                    };
+                    if (section === 'anthropic') {
+                        base.model = d.model || '';
+                        base.config = d.config || '';
+                        base.userMessageTemplate = d.userMessageTemplate || '';
+                    }
+                    await writePromptPanelYaml(section, base);
                 })
             );
         } catch (e) {
@@ -2410,10 +2421,18 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     private async _loadDrafts(): Promise<void> {
         try {
             const { readPromptPanelYaml } = await import('../utils/panelYamlStore.js');
-            const sections = ['localLlm', 'conversation', 'copilot', 'tomAiChat'];
-            const loaded: Record<string, { text?: string; profile?: string; llmConfig?: string; aiSetup?: string; activeSlot?: number; slots?: Record<string, string> }> = {};
+            const sections = ['localLlm', 'conversation', 'copilot', 'tomAiChat', 'anthropic'];
+            const loaded: Record<string, {
+                text?: string; profile?: string; llmConfig?: string; aiSetup?: string;
+                activeSlot?: number; slots?: Record<string, string>;
+                model?: string; config?: string; userMessageTemplate?: string;
+            }> = {};
             for (const section of sections) {
-                const data = await readPromptPanelYaml<{ text?: string; profile?: string; llmConfig?: string; aiSetup?: string; activeSlot?: number; slots?: Record<string, string> }>(section);
+                const data = await readPromptPanelYaml<{
+                    text?: string; profile?: string; llmConfig?: string; aiSetup?: string;
+                    activeSlot?: number; slots?: Record<string, string>;
+                    model?: string; config?: string; userMessageTemplate?: string;
+                }>(section);
                 if (data) {
                     loaded[section] = {
                         text: data.text || '',
@@ -2422,6 +2441,9 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         aiSetup: data.aiSetup || '',
                         activeSlot: data.activeSlot || 1,
                         slots: data.slots || {},
+                        model: data.model || '',
+                        config: data.config || '',
+                        userMessageTemplate: data.userMessageTemplate || '',
                     };
                 }
             }
@@ -2430,10 +2452,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 this._view?.webview.postMessage({ type: 'draftsLoaded', sections: loaded });
                 return;
             }
-            // No data found — still signal so the webview unlocks draft saving
             this._view?.webview.postMessage({ type: 'draftsLoaded', sections: {} });
         } catch {
-            // File may not exist yet — unlock draft saving anyway
             this._view?.webview.postMessage({ type: 'draftsLoaded', sections: {} });
         }
     }
@@ -2837,6 +2857,7 @@ var setups = [];
 var anthropicConfigurations = [];
 var anthropicProfileEntries = [];
 var anthropicUserMessageTemplates = [];
+window._pendingAnthropicModel = '';
 var anthropicModels = [];
 var anthropicApiKeyOk = false;
 var claudeCliOk = null;      // null = probing, true/false = resolved (spec §18.6)
@@ -3573,8 +3594,13 @@ function populateAnthropicModels() {
         }).join('');
     }
     sel.innerHTML = opts;
-    if (cur && anthropicModels && anthropicModels.some(function(m) { return m.id === cur; })) {
-        sel.value = cur;
+    // Restore priority: 1) saved draft model, 2) previously selected model
+    // if still valid, 3) configuration's default model.
+    var pending = window._pendingAnthropicModel || '';
+    var target = pending || cur;
+    if (target && anthropicModels && anthropicModels.some(function(m) { return m.id === target; })) {
+        sel.value = target;
+        window._pendingAnthropicModel = '';
     } else if (anthropicModels && anthropicModels.length > 0) {
         // Pre-select the model from the active configuration (or the default
         // configuration when none is selected). Per spec §11.1.
@@ -3962,6 +3988,27 @@ window.addEventListener('message', function(e) {
             }
             updateSlotButtonsUI(s);
         });
+        // Restore Anthropic-specific state
+        var da = secs['anthropic'];
+        if (da) {
+            var anthrSectionState = ensureSlotState('anthropic');
+            if (da.slots && typeof da.slots === 'object') { anthrSectionState.slots = da.slots; }
+            if (da.activeSlot && da.activeSlot >= 1 && da.activeSlot <= 9) { anthrSectionState.activeSlot = da.activeSlot; }
+            var anthrTa = document.getElementById('anthropic-text');
+            if (anthrTa) { anthrTa.value = getSlotText('anthropic', anthrSectionState.activeSlot) || da.text || ''; }
+            var anthrProfile = document.getElementById('anthropic-profile');
+            if (anthrProfile && da.profile) { anthrProfile.value = da.profile; }
+            // Model is populated asynchronously from the API, so we stash
+            // the saved value and re-apply it once the model list arrives.
+            // For immediately-available dropdowns (config, userMessage) we
+            // can set them straight away.
+            if (da.model) { window._pendingAnthropicModel = da.model; }
+            var anthrConfig = document.getElementById('anthropic-config');
+            if (anthrConfig && da.config) { anthrConfig.value = da.config; }
+            var anthrUserMsg = document.getElementById('anthropic-userMessage');
+            if (anthrUserMsg && da.userMessageTemplate) { anthrUserMsg.value = da.userMessageTemplate; }
+            updateSlotButtonsUI('anthropic');
+        }
         refreshCopilotAnswerToolbarVisibility();
         _draftsLoaded = true;
     }
@@ -4185,19 +4232,36 @@ function saveDrafts() {
                 slots: sectionState.slots,
             };
         });
+        // Anthropic section — save Anthropic-specific dropdowns in addition to the standard fields
+        var anthrTa = document.getElementById('anthropic-text');
+        var anthrSectionState = ensureSlotState('anthropic');
+        if (anthrTa) { setSlotText('anthropic', anthrSectionState.activeSlot, anthrTa.value || ''); }
+        var anthrProfile = document.getElementById('anthropic-profile');
+        var anthrModel = document.getElementById('anthropic-model');
+        var anthrConfig = document.getElementById('anthropic-config');
+        var anthrUserMsg = document.getElementById('anthropic-userMessage');
+        drafts['anthropic'] = {
+            text: anthrTa ? anthrTa.value : '',
+            profile: anthrProfile ? anthrProfile.value : '',
+            model: anthrModel ? anthrModel.value : '',
+            config: anthrConfig ? anthrConfig.value : '',
+            userMessageTemplate: anthrUserMsg ? anthrUserMsg.value : '',
+            activeSlot: anthrSectionState.activeSlot,
+            slots: anthrSectionState.slots,
+        };
         vscode.postMessage({ type: 'saveDrafts', drafts: drafts });
     }, 1000);
 }
 // Attach save to all textareas and dropdowns
-['localLlm-text', 'conversation-text', 'copilot-text', 'tomAiChat-text'].forEach(function(id) {
+['localLlm-text', 'conversation-text', 'copilot-text', 'tomAiChat-text', 'anthropic-text'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.addEventListener('input', saveDrafts);
 });
-['localLlm-profile', 'conversation-profile', 'copilot-template', 'tomAiChat-template'].forEach(function(id) {
+['localLlm-profile', 'conversation-profile', 'copilot-template', 'tomAiChat-template', 'anthropic-profile'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.addEventListener('change', saveDrafts);
 });
-['localLlm-llmConfig', 'conversation-aiSetup'].forEach(function(id) {
+['localLlm-llmConfig', 'conversation-aiSetup', 'anthropic-model', 'anthropic-config', 'anthropic-userMessage'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.addEventListener('change', saveDrafts);
 });
