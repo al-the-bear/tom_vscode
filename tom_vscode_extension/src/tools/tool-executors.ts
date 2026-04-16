@@ -1754,6 +1754,7 @@ export const MEMORY_LIST_TOOL: SharedToolDefinition<MemoryListInput> = {
 // ============================================================================
 
 import { CHAT_ENHANCEMENT_TOOLS } from './chat-enhancement-tools';
+import { WAVE_A_TOOLS } from './workspace-awareness-tools';
 
 /** All shared tool definitions (registered with VS Code LM API). */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1791,6 +1792,8 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
     MEMORY_FORGET_TOOL,
     MEMORY_READ_TOOL,
     MEMORY_LIST_TOOL,
+    // Wave A — workspace awareness (llm_tools.md §6.3)
+    ...WAVE_A_TOOLS,
 ];
 
 /**

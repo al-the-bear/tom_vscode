@@ -71,4 +71,17 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_memory_save',
     'tomAi_memory_update',
     'tomAi_memory_forget',
+    // Wave A — workspace awareness (llm_tools.md §6.3)
+    'tomAi_getWorkspaceInfoFull',
+    'tomAi_getActiveEditor',
+    'tomAi_getOpenEditors',
+    'tomAi_getProblems',
+    'tomAi_getOutputChannel',
+    'tomAi_getTerminalOutput',
+    'tomAi_findSymbol',
+    'tomAi_gotoDefinition',
+    'tomAi_findReferences',
+    'tomAi_getCodeActions',
+    'tomAi_listGuidelines',
+    'tomAi_searchGuidelines',
 ] as const;
