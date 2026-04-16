@@ -175,7 +175,7 @@ async function runCompactionCall(
     if (options.llmProvider === 'anthropic') {
         return runAnthropicCompaction(options, systemPrompt, userPrompt, trailCategory);
     }
-    return runOllamaCompaction(options, systemPrompt, userPrompt);
+    return runOllamaCompaction(options, systemPrompt, userPrompt, trailCategory);
 }
 
 async function runAnthropicCompaction(
@@ -232,6 +232,7 @@ async function runOllamaCompaction(
     options: CompactionOptions,
     systemPrompt: string,
     userPrompt: string,
+    trailCategory: 'compaction' | 'memory' = 'compaction',
 ): Promise<string> {
     const cfg = loadSendToChatConfig();
     const localCfg = cfg?.localLlm?.configurations?.find((c) => c.id === options.llmConfigId)
@@ -240,6 +241,21 @@ async function runOllamaCompaction(
     if (!localCfg || !localCfg.ollamaUrl || !localCfg.model) {
         throw new Error(`No complete Ollama configuration for compaction (llmConfigId=${options.llmConfigId})`);
     }
+
+    // Trail — write to localllm-compaction/{quest}/ so both Ollama and
+    // Anthropic compaction calls are visible in the same viewer category.
+    const subsystem = { type: 'localLlm' as const, configName: `compaction-${trailCategory}` };
+    const windowId = vscode.env.sessionId;
+    const requestId = `${trailCategory}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    const questId = options.questId;
+    TrailService.instance.writeRawPrompt(
+        subsystem,
+        `MODEL: ${localCfg.model}\nSYSTEM:\n${systemPrompt}\n\nUSER:\n${userPrompt}`,
+        windowId,
+        requestId,
+        questId,
+    );
+
     const body = JSON.stringify({
         model: localCfg.model,
         messages: [
@@ -251,7 +267,7 @@ async function runOllamaCompaction(
     });
     const url = new URL(localCfg.ollamaUrl.replace(/\/$/, '') + '/api/chat');
     const lib = url.protocol === 'https:' ? https : http;
-    return new Promise<string>((resolve, reject) => {
+    const result = await new Promise<string>((resolve, reject) => {
         const req = lib.request(
             {
                 method: 'POST',
@@ -285,6 +301,10 @@ async function runOllamaCompaction(
         req.write(body);
         req.end();
     });
+
+    TrailService.instance.writeRawAnswer(subsystem, result, windowId, requestId, questId);
+
+    return result;
 }
 
 // ============================================================================
