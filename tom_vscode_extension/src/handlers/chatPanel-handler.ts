@@ -723,8 +723,15 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         break;
                     // openTrailSummaryViewer = Trail Summary Viewer (the grouped-exchanges
                     // webview panel browsing _ai/trail/, with subsystem + quest dropdowns).
+                    // Pass the originating section as a subsystem hint so the viewer pre-
+                    // selects the correct subsystem (otherwise it falls back to alphabetical
+                    // order and 'anthropic' beats 'copilot').
                     case 'openTrailSummaryViewer':
-                        await vscode.commands.executeCommand('tomAi.editor.summaryTrailViewer');
+                        await vscode.commands.executeCommand(
+                            'tomAi.editor.summaryTrailViewer',
+                            undefined,
+                            message.section || undefined,
+                        );
                         break;
                     case 'openStatusPage':
                         await vscode.commands.executeCommand('tomAi.statusPage');

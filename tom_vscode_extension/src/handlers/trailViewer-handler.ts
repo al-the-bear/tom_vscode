@@ -495,16 +495,36 @@ function discoverSubsystemsAndQuests(rootFolder: string): DiscoveredSubsystem[] 
     return subsystems;
 }
 
-function buildViewerState(rootFolder: string, preferredQuest?: string): TrailViewerState {
+function buildViewerState(
+    rootFolder: string,
+    preferredQuest?: string,
+    preferredSubsystem?: string,
+): TrailViewerState {
     const folderOptions = discoverRawTrailFolders(rootFolder);
     const subsystems = discoverSubsystemsAndQuests(rootFolder);
 
-    // Determine initial selection - prefer the current quest if available
+    // Determine initial selection - prefer the explicit subsystem hint
+    // (from the originating panel), then the current quest, then the first.
     let selectedSubsystem = '';
     let selectedQuest = '';
 
-    // Try to find a subsystem that contains the preferred quest
-    if (preferredQuest && subsystems.length > 0) {
+    // 1. Caller-provided subsystem hint wins outright when the subsystem
+    //    exists in the discovered set. Quest is chosen from that subsystem.
+    if (preferredSubsystem) {
+        const sub = subsystems.find((s) => s.name === preferredSubsystem);
+        if (sub) {
+            selectedSubsystem = sub.name;
+            if (preferredQuest && sub.quests.includes(preferredQuest)) {
+                selectedQuest = preferredQuest;
+            } else if (sub.quests.length > 0) {
+                selectedQuest = sub.quests[0];
+            }
+        }
+    }
+
+    // 2. No subsystem hint (or hint not found): fall back to quest-only
+    //    matching across all subsystems in alphabetical order.
+    if (!selectedSubsystem && preferredQuest && subsystems.length > 0) {
         const normalizedPreferred = preferredQuest.toLowerCase().replace(/-/g, '_');
         for (const sub of subsystems) {
             // Check for exact match first
@@ -514,7 +534,7 @@ function buildViewerState(rootFolder: string, preferredQuest?: string): TrailVie
                 break;
             }
             // Check for case-insensitive / normalized match
-            const matchingQuest = sub.quests.find(q => 
+            const matchingQuest = sub.quests.find(q =>
                 q.toLowerCase().replace(/-/g, '_') === normalizedPreferred
             );
             if (matchingQuest) {
@@ -622,23 +642,34 @@ function resolveRawTrailFolder(inputPath?: string): string | undefined {
 
 /**
  * Open or focus the Trail Viewer panel.
+ *
+ * @param preferredSubsystem Optional hint (e.g. 'copilot', 'anthropic') so the
+ *   caller can request a specific subsystem be pre-selected in the dropdown
+ *   instead of the alphabetically-first discovered one. Used by the chat
+ *   panel trail buttons so clicking from the copilot accordion pre-selects
+ *   the copilot subsystem and clicking from anthropic pre-selects anthropic.
  */
 export async function openTrailViewer(
     context: vscode.ExtensionContext,
-    trailFolderOrFile?: string
+    trailFolderOrFile?: string,
+    preferredSubsystem?: string,
 ): Promise<void> {
     const folder = resolveRawTrailFolder(trailFolderOrFile);
-    
+
     if (!folder || !fs.existsSync(folder)) {
         vscode.window.showWarningMessage(`Trail folder not found: ${folder || '_ai/trail'}`);
         return;
     }
-    
+
     // Get the current quest from the workspace file name
     const currentQuest = WsPaths.getWorkspaceQuestId();
     console.log('[TrailViewer] Current quest from workspace file:', currentQuest);
-    
-    const nextState = buildViewerState(folder, currentQuest !== 'default' ? currentQuest : undefined);
+
+    const nextState = buildViewerState(
+        folder,
+        currentQuest !== 'default' ? currentQuest : undefined,
+        preferredSubsystem,
+    );
     console.log('[TrailViewer] Selected subsystem:', nextState.selectedSubsystem, 'quest:', nextState.selectedQuest);
 
     // If panel exists, just reveal it
@@ -1772,9 +1803,12 @@ export function registerTrailViewerCommands(context: vscode.ExtensionContext): v
         // `summaryTrailViewer` = the grouped-exchanges overview.
         // Opens a webview panel over a trail directory (e.g. _ai/trail/),
         // listing prompt+answer pairs grouped by requestId, with subsystem
-        // and quest dropdowns.
-        vscode.commands.registerCommand('tomAi.editor.summaryTrailViewer', async (uri?: vscode.Uri) =>
-            openTrailViewer(context, uri?.fsPath),
+        // and quest dropdowns. Second arg is a subsystem hint so callers
+        // can request a specific subsystem be pre-selected.
+        vscode.commands.registerCommand(
+            'tomAi.editor.summaryTrailViewer',
+            async (uri?: vscode.Uri, preferredSubsystem?: string) =>
+                openTrailViewer(context, uri?.fsPath, preferredSubsystem),
         ),
     ];
 }
