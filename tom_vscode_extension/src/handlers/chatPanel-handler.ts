@@ -1738,17 +1738,16 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     private async _openAnthropicRawTrail(): Promise<void> {
         const wsRoot = getWorkspaceRoot();
         if (!wsRoot) { vscode.window.showWarningMessage('No workspace folder'); return; }
-        // The viewer scans from the _ai/trail root and discovers subsystems
-        // (localllm/copilot/anthropic) + quest subdirs itself. Pointing it
-        // at the leaf (anthropic/{quest}) used to make discovery come up
-        // empty because there are no subdirectories there — only the raw
-        // request/answer files.
         const trailRoot = path.join(wsRoot, '_ai', 'trail');
-        const questId = WsPaths.getWorkspaceQuestId();
-        const leafDir = path.join(trailRoot, 'anthropic', questId || 'default');
-        if (!fs.existsSync(leafDir)) {
+        // Check that the anthropic subsystem folder exists at all — the
+        // viewer discovers the specific quest subfolder by itself, so we
+        // do not gate on a quest-specific path (which would fail when the
+        // active .code-workspace name differs from the one used when the
+        // prompts were written).
+        const anthropicDir = path.join(trailRoot, 'anthropic');
+        if (!fs.existsSync(anthropicDir)) {
             vscode.window.showInformationMessage(
-                `No raw Anthropic trail directory yet at ${leafDir}. Send a prompt first, or click the Exchanges Viewer button for the summary.`,
+                'No raw Anthropic trail yet. Send a prompt first.',
             );
             return;
         }
@@ -3205,8 +3204,8 @@ function getSectionContent(id) {
             actionButtons:
                 '<button data-action="preview" data-id="anthropic" title="Preview expanded prompt">Preview</button>' +
                 '<button class="primary" id="anthropic-send-btn" data-action="send" data-id="anthropic" title="Send to Anthropic">Send to Anthropic</button>' +
-                '<button class="icon-btn" data-action="openTrailFiles" data-id="anthropic" title="Open Exchanges Viewer (anthropic.*.md compact summary)"><span class="codicon codicon-history"></span></button>' +
-                '<button class="icon-btn" data-action="openTrailViewer" data-id="anthropic" title="Open Raw Trail Viewer (Anthropic subsystem)"><span class="codicon codicon-list-flat"></span></button>' +
+                '<button class="icon-btn" data-action="openTrailViewer" data-id="anthropic" title="Open Raw Trail Viewer (Anthropic subsystem)"><span class="codicon codicon-history"></span></button>' +
+                '<button class="icon-btn" data-action="openTrailFiles" data-id="anthropic" title="Open Exchanges Viewer (anthropic.*.md compact summary)"><span class="codicon codicon-list-flat"></span></button>' +
                 '<button class="icon-btn" data-action="openAnthropicMemory" data-id="anthropic" title="Memory Panel"><span class="codicon codicon-book"></span></button>' +
                 '<button class="icon-btn" data-action="clearAnthropicHistory" data-id="anthropic" title="Clear session history"><span class="codicon codicon-clear-all"></span></button>',
             afterToolbarHtml:
