@@ -84,4 +84,9 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_getCodeActions',
     'tomAi_listGuidelines',
     'tomAi_searchGuidelines',
+    // Wave B — IDE navigation (llm_tools.md §6.3)
+    'tomAi_openFile',
+    'tomAi_listCommands',
+    'tomAi_askUser',
+    'tomAi_askUserPicker',
 ] as const;
