@@ -3204,8 +3204,8 @@ function getSectionContent(id) {
             actionButtons:
                 '<button data-action="preview" data-id="anthropic" title="Preview expanded prompt">Preview</button>' +
                 '<button class="primary" id="anthropic-send-btn" data-action="send" data-id="anthropic" title="Send to Anthropic">Send to Anthropic</button>' +
-                '<button class="icon-btn" data-action="openTrailViewer" data-id="anthropic" title="Open Raw Trail Viewer (Anthropic subsystem)"><span class="codicon codicon-history"></span></button>' +
-                '<button class="icon-btn" data-action="openTrailFiles" data-id="anthropic" title="Open Exchanges Viewer (anthropic.*.md compact summary)"><span class="codicon codicon-list-flat"></span></button>' +
+                '<button class="icon-btn" data-action="openTrailFiles" data-id="anthropic" title="Open Exchanges Viewer (anthropic compact summary)"><span class="codicon codicon-history"></span></button>' +
+                '<button class="icon-btn" data-action="openTrailViewer" data-id="anthropic" title="Open Raw Trail Viewer (Anthropic subsystem)"><span class="codicon codicon-list-flat"></span></button>' +
                 '<button class="icon-btn" data-action="openAnthropicMemory" data-id="anthropic" title="Memory Panel"><span class="codicon codicon-book"></span></button>' +
                 '<button class="icon-btn" data-action="clearAnthropicHistory" data-id="anthropic" title="Clear session history"><span class="codicon codicon-clear-all"></span></button>',
             afterToolbarHtml:
