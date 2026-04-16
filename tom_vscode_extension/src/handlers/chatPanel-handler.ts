@@ -700,7 +700,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'openTimedRequestsEditor':
                         await vscode.commands.executeCommand('tomAi.editor.timedRequests');
                         break;
-                    case 'openTrailViewer':
+                    // openTrailFiles = raw file viewer (the actual prompt/answer files on disk)
+                    case 'openTrailFiles':
                         if (message.section === 'anthropic') {
                             await this._openAnthropicRawTrail();
                         } else {
@@ -719,7 +720,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'openConversationTurnFilesEditor':
                         await this._openConversationTurnFilesEditor();
                         break;
-                    case 'openTrailFiles':
+                    // openTrailViewer = compact exchanges viewer (summary trail)
+                    case 'openTrailViewer':
                         if (message.section === 'anthropic') {
                             await this._openAnthropicSummaryTrail();
                         } else {
@@ -1738,19 +1740,10 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     private async _openAnthropicRawTrail(): Promise<void> {
         const wsRoot = getWorkspaceRoot();
         if (!wsRoot) { vscode.window.showWarningMessage('No workspace folder'); return; }
+        // Open the raw trail viewer at the _ai/trail root; the viewer
+        // discovers subsystems and quests itself. No existence check —
+        // the viewer handles an empty or missing directory gracefully.
         const trailRoot = path.join(wsRoot, '_ai', 'trail');
-        // Check that the anthropic subsystem folder exists at all — the
-        // viewer discovers the specific quest subfolder by itself, so we
-        // do not gate on a quest-specific path (which would fail when the
-        // active .code-workspace name differs from the one used when the
-        // prompts were written).
-        const anthropicDir = path.join(trailRoot, 'anthropic');
-        if (!fs.existsSync(anthropicDir)) {
-            vscode.window.showInformationMessage(
-                'No raw Anthropic trail yet. Send a prompt first.',
-            );
-            return;
-        }
         await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer', vscode.Uri.file(trailRoot));
     }
 
