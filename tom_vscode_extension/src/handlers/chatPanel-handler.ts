@@ -700,14 +700,10 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'openTimedRequestsEditor':
                         await vscode.commands.executeCommand('tomAi.editor.timedRequests');
                         break;
-                    // openTrailFiles = Exchanges Viewer (the compact *.prompts.md custom editor).
-                    // Called from the list-icon button labelled "Open Exchanges Viewer".
-                    case 'openTrailFiles':
-                        if (message.section === 'anthropic') {
-                            await this._openAnthropicSummaryTrail();
-                        } else {
-                            await this._openTrailFiles();
-                        }
+                    // openTrailRawFiles = Raw Trail Files Viewer (the directory browser
+                    // at _ai/trail/, with subsystem + quest dropdowns).
+                    case 'openTrailRawFiles':
+                        await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer');
                         break;
                     case 'openConversationTrailViewer':
                         await this._openConversationTrailViewer();
@@ -721,11 +717,14 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'openConversationTurnFilesEditor':
                         await this._openConversationTurnFilesEditor();
                         break;
-                    // openTrailViewer = Raw Trail Viewer (the directory browser over
-                    // .userprompt.md + .answer.json files in _ai/trail/). Same code path
-                    // for every section; the viewer discovers subsystems itself.
-                    case 'openTrailViewer':
-                        await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer');
+                    // openTrailSummaryViewer = Trail Summary Viewer (the compact
+                    // *.prompts.md custom editor showing paired user prompts + answers).
+                    case 'openTrailSummaryViewer':
+                        if (message.section === 'anthropic') {
+                            await this._openAnthropicSummaryTrail();
+                        } else {
+                            await this._openTrailFiles();
+                        }
                         break;
                     case 'openStatusPage':
                         await vscode.commands.executeCommand('tomAi.statusPage');
@@ -3094,8 +3093,8 @@ function getSectionContent(id) {
                 '<button class="icon-btn" data-action="openQueueEditor" data-id="copilot" title="Open Queue Editor"><span class="codicon codicon-inbox"></span></button>' +
                 '<button class="icon-btn" data-action="saveAsTimedRequest" data-id="copilot" title="Save as Timed Request"><span class="codicon codicon-save"></span></button>' +
                 '<button class="icon-btn" data-action="openTimedRequestsEditor" data-id="copilot" title="Timed Requests"><span class="codicon codicon-watch"></span></button>' +
-                '<button class="icon-btn" data-action="openTrailViewer" data-id="copilot" title="Open Raw Trail Viewer"><span class="codicon codicon-history"></span></button>' +
-                '<button class="icon-btn" data-action="openTrailFiles" data-id="copilot" title="Open Exchanges Viewer (compact summary)"><span class="codicon codicon-list-flat"></span></button>' +
+                '<button class="icon-btn" data-action="openTrailSummaryViewer" data-id="copilot" title="Open Trail Summary Viewer"><span class="codicon codicon-history"></span></button>' +
+                '<button class="icon-btn" data-action="openTrailRawFiles" data-id="copilot" title="Open Raw Trail Files Viewer"><span class="codicon codicon-list-flat"></span></button>' +
                 '<label class="checkbox-label compact-keep"><input type="checkbox" id="copilot-keep-content"> Keep</label>' +
                 '<button class="icon-btn" data-action="clearText" data-id="copilot" title="Clear text"><span class="codicon codicon-clear-all"></span></button>',
             afterToolbarHtml:
@@ -3125,8 +3124,8 @@ function getSectionContent(id) {
             '<button class="link-btn" data-action="openReusablePromptEditor" title="Reusable Prompt Editor"><span class="codicon codicon-note"></span> Reusable Prompts</button>' +
             '<button class="link-btn" data-action="openContextSettingsEditor" title="Context & Settings Editor"><span class="codicon codicon-settings-gear"></span> Context Editor</button>' +
             '<button class="link-btn" data-action="openChatVariablesEditor" title="Chat Variables Editor"><span class="codicon codicon-symbol-key"></span> Chat Variables</button>' +
-            '<button class="link-btn" data-action="openTrailViewer" data-id="copilot" title="Raw Trail Viewer"><span class="codicon codicon-history"></span> Raw Trail Viewer</button>' +
-            '<button class="link-btn" data-action="openTrailFiles" data-id="copilot" title="Exchanges Viewer (compact summary)"><span class="codicon codicon-list-flat"></span> Exchanges Viewer</button>' +
+            '<button class="link-btn" data-action="openTrailSummaryViewer" data-id="copilot" title="Trail Summary Viewer"><span class="codicon codicon-history"></span> Trail Summary Viewer</button>' +
+            '<button class="link-btn" data-action="openTrailRawFiles" data-id="copilot" title="Raw Trail Files Viewer"><span class="codicon codicon-list-flat"></span> Raw Trail Files Viewer</button>' +
             '</div>' +
             '</fieldset>' +
             '</div>' +
@@ -3181,8 +3180,8 @@ function getSectionContent(id) {
             actionButtons:
                 '<button data-action="preview" data-id="anthropic" title="Preview expanded prompt">Preview</button>' +
                 '<button class="primary" id="anthropic-send-btn" data-action="send" data-id="anthropic" title="Send to Anthropic">Send to Anthropic</button>' +
-                '<button class="icon-btn" data-action="openTrailViewer" data-id="anthropic" title="Open Raw Trail Viewer"><span class="codicon codicon-history"></span></button>' +
-                '<button class="icon-btn" data-action="openTrailFiles" data-id="anthropic" title="Open Exchanges Viewer (compact summary)"><span class="codicon codicon-list-flat"></span></button>' +
+                '<button class="icon-btn" data-action="openTrailSummaryViewer" data-id="anthropic" title="Open Trail Summary Viewer"><span class="codicon codicon-history"></span></button>' +
+                '<button class="icon-btn" data-action="openTrailRawFiles" data-id="anthropic" title="Open Raw Trail Files Viewer"><span class="codicon codicon-list-flat"></span></button>' +
                 '<button class="icon-btn" data-action="openAnthropicMemory" data-id="anthropic" title="Memory Panel"><span class="codicon codicon-book"></span></button>' +
                 '<button class="icon-btn" data-action="clearAnthropicHistory" data-id="anthropic" title="Clear session history"><span class="codicon codicon-clear-all"></span></button>',
             afterToolbarHtml:
@@ -3441,8 +3440,8 @@ function handleAction(action, id, slot) {
         case 'addToQueue': addCopilotToQueue(); break;
         case 'openQueueEditor': vscode.postMessage({ type: 'openQueueEditor' }); break;
         case 'openTimedRequestsEditor': vscode.postMessage({ type: 'openTimedRequestsEditor' }); break;
-        case 'openTrailFiles': vscode.postMessage({ type: 'openTrailFiles', section: id || '' }); break;
-        case 'openTrailViewer': vscode.postMessage({ type: 'openTrailViewer', section: id || '' }); break;
+        case 'openTrailRawFiles': vscode.postMessage({ type: 'openTrailRawFiles', section: id || '' }); break;
+        case 'openTrailSummaryViewer': vscode.postMessage({ type: 'openTrailSummaryViewer', section: id || '' }); break;
         case 'openConversationTrailViewer': vscode.postMessage({ type: 'openConversationTrailViewer' }); break;
         case 'openConversationMarkdown': vscode.postMessage({ type: 'openConversationMarkdown' }); break;
         case 'openConversationCompactTrail': vscode.postMessage({ type: 'openConversationCompactTrail' }); break;
