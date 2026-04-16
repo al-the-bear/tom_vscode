@@ -293,3 +293,42 @@ Overall:
 Expected outcome:
 
 - Lower drift risk, fewer behavior mismatches, reduced command/UI clutter, and clearer long-term maintainability.
+
+---
+
+## Anthropic SDK / Agent SDK Integration — Deferred Review Items
+
+_Added 2026-04-16 after the Anthropic panel implementation (Phases 1–6 of `anthropic_sdk_integration.md`). The items below were identified in the post-implementation code review but deferred because they touch pre-existing patterns across the whole extension, not just the new anthropic code._
+
+### 1. `loadSendToChatConfig()` vs `TomAiConfiguration.instance.getSection()`
+
+**Where:** `src/handlers/statusPage-handler.ts` (multiple call sites)
+
+**Issue:** The status page handler calls `loadSendToChatConfig()` from `handler_shared` to access the `anthropic` config section, whereas `anthropic-handler.ts` consistently uses `TomAiConfiguration.instance.getSection<AnthropicSection>('anthropic')`. Mixing both access patterns makes it harder to ensure uniform caching and reload behaviour.
+
+**Recommended fix:** Migrate all `loadSendToChatConfig()?.anthropic.*` accesses in the status page to `TomAiConfiguration.instance.getSection('anthropic')`, the same way memory and compaction subsystem config is accessed.
+
+### 2. `resolvePathTokens` in `TrailService` duplicates variable-resolver logic
+
+**Where:** `src/services/trailService.ts`, `resolvePathTokens()` method
+
+**Issue:** Performs its own `${workspaceFolder}`, `${ai}`, `${quest}`, `${username}` substitution via manual `string.replace()`, duplicating the central `resolveVariables()` in `src/utils/variableResolver.ts`.
+
+**Recommended fix:** Replace `resolvePathTokens()` with `resolveVariables()` passing `{ values: { quest, subsystem } }`. Path-specific post-processing (absolute-path guard, `path.join`) stays in place. A focused regression test pass is needed because `resolveVariables()` reads live VS Code state for some tokens.
+
+### 3. Remaining `section === 'anthropic'` special cases in `chatPanel-handler.ts`
+
+**Where:** `src/handlers/chatPanel-handler.ts`
+
+Two remaining blocks are intentional today but should be converted to a provider registry when a third LLM panel is added:
+
+- **`openTrailViewer` routing** (~line 724): routes to `_openAnthropicSummaryTrail()`. A third provider would require another `else if`; should become a provider map lookup.
+- **`saveDrafts` / `draftsLoaded` extra fields** (~lines 2389, 3973): Anthropic persists `model`, `config`, and `userMessageTemplate` that other sections do not have. When more sections need per-panel extra fields the draft schema and save/load should be generalized.
+
+### 4. `ANTHROPIC_SUBSYSTEM` import direction violates handler→service layering
+
+**Where:** `src/services/history-compaction.ts` imports `ANTHROPIC_SUBSYSTEM` from `src/handlers/anthropic-handler.ts`
+
+**Issue:** A service imports a constant from a handler, reversing the expected dependency direction.
+
+**Recommended fix:** Move `ANTHROPIC_SUBSYSTEM` (and future `LOCALLLM_SUBSYSTEM` etc.) into `src/services/trailService.ts` or a new `src/types/trailSubsystem.ts` so that handlers import from services, not the reverse.
