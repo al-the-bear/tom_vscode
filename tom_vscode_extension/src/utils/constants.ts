@@ -89,4 +89,17 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_listCommands',
     'tomAi_askUser',
     'tomAi_askUserPicker',
+    // Wave C — IDE execution (llm_tools.md §6.3)
+    'tomAi_applyEdit',
+    'tomAi_getCodeActionsCached',
+    'tomAi_applyCodeAction',
+    'tomAi_rename',
+    'tomAi_vscode',
+    'tomAi_runTask',
+    'tomAi_runDebugConfig',
+    'tomAi_runCommandStream',
+    'tomAi_readCommandOutput',
+    'tomAi_killCommand',
+    'tomAi_gitExec',
+    'tomAi_gitShow',
 ] as const;
