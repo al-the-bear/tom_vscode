@@ -245,9 +245,40 @@
                 "description": { "type": "string" },
                 "systemPrompt": { "type": ["string", "null"] },
                 "configurationId": { "type": "string", "description": "Default configuration id for this profile." },
-                "toolsEnabled": { "type": "boolean" },
+                "toolsEnabled": { "type": "boolean", "description": "If true, expose every tool from the configuration's enabledTools. Uncheck to pick a profile-specific subset via enabledTools below." },
+                "enabledTools": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Profile-level tool subset. Only used when toolsEnabled is false."
+                },
                 "maxRounds": { "type": "integer", "minimum": 1 },
                 "historyMode": { "type": ["string", "null"] },
+                "thinkingEnabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Enable Claude extended thinking. Passes `thinking: { type: 'enabled', budget_tokens }` on the direct SDK; forwarded to the Agent SDK when set."
+                },
+                "thinkingBudgetTokens": {
+                    "type": "integer",
+                    "minimum": 1024,
+                    "default": 8192,
+                    "description": "Token budget for extended thinking. Ignored if thinkingEnabled is false."
+                },
+                "promptCachingEnabled": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Prompt caching for this profile. Overrides configuration.promptCachingEnabled. Default on at the profile level to reduce latency / cost."
+                },
+                "autoApproveAll": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Skip the approval gate for write tools in this profile (forces toolApprovalMode = 'never'). Use with caution — the model can delete, edit, and run commands without confirmation."
+                },
+                "useBuiltInTools": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Agent SDK transport only: expose Claude Code's built-in tool preset (Read, Write, Edit, Glob, Grep, Bash, WebFetch, etc.) and automatically suppress extension tools that duplicate them. No effect on the direct Anthropic SDK."
+                },
                 "isDefault": { "type": "boolean" }
             }
         },

@@ -79,6 +79,10 @@ export interface AnthropicConfiguration {
  * Spec §7.2 `AnthropicProfileTemplate` (aliased as `AnthropicProfile` in
  * §12.2). Stored in `anthropic.profiles[]` in the workspace config JSON;
  * the Global Template Editor's `anthropicProfiles` category is the UI.
+ *
+ * Profile-level overrides (thinkingEnabled, promptCachingEnabled,
+ * autoApproveAll, useBuiltInTools) take precedence over the
+ * configuration's settings when provided.
  */
 export interface AnthropicProfile {
     id: string;
@@ -87,9 +91,25 @@ export interface AnthropicProfile {
     systemPrompt: string;
     configurationId?: string;
     toolsEnabled?: boolean;
+    enabledTools?: string[];
     maxRounds?: number;
     historyMode?: string | null;
     isDefault?: boolean;
+    /** Extended thinking — sends `thinking: { type: 'enabled', budget_tokens }`. */
+    thinkingEnabled?: boolean;
+    /** Budget in tokens for extended thinking. Default 8192 when `thinkingEnabled`. */
+    thinkingBudgetTokens?: number;
+    /** Prompt caching — overrides configuration.promptCachingEnabled. Default true at profile level. */
+    promptCachingEnabled?: boolean;
+    /** Skip the approval gate for write tools in this profile (forces `toolApprovalMode = 'never'`). */
+    autoApproveAll?: boolean;
+    /**
+     * Agent SDK path only — enable the built-in Claude Code tool preset
+     * (Read, Write, Edit, Glob, Grep, Bash, WebFetch, etc.) and suppress
+     * extension tools that would duplicate them. Has no effect on the
+     * direct Anthropic SDK path.
+     */
+    useBuiltInTools?: boolean;
 }
 
 interface AnthropicSection {
@@ -115,6 +135,28 @@ export interface AnthropicSendOptions {
 
 /** Reusable TrailSubsystem literal — avoids `ANTHROPIC_SUBSYSTEM` scattered across calls. */
 export const ANTHROPIC_SUBSYSTEM = { type: 'anthropic' as const } satisfies import('../services/trailService').TrailSubsystem;
+
+/**
+ * Extension tools that duplicate Claude Code's built-in preset. When a
+ * profile opts into `useBuiltInTools`, we suppress these so the agent sees
+ * only the SDK's native versions (same capability, single source of truth).
+ * Extension-only tools (memory_*, chatvar_*, git, askBigBrother, askCopilot,
+ * getErrors, manageTodo, readGuideline) are kept.
+ */
+export const DUPLICATES_OF_CLAUDE_CODE_BUILTINS: ReadonlySet<string> = new Set([
+    'tomAi_readFile',
+    'tomAi_createFile',
+    'tomAi_editFile',
+    'tomAi_multiEditFile',
+    'tomAi_deleteFile',
+    'tomAi_moveFile',
+    'tomAi_listDirectory',
+    'tomAi_findFiles',
+    'tomAi_findTextInFiles',
+    'tomAi_runCommand',
+    'tomAi_fetchWebpage',
+    'tomAi_webSearch',
+]);
 
 export interface AnthropicSendResult {
     text: string;
@@ -394,12 +436,21 @@ export class AnthropicHandler {
         );
 
         if (transport === 'agentSdk') {
+            // When useBuiltInTools is on, hide our duplicates of Claude Code
+            // built-ins so the model sees the SDK's native versions instead
+            // (single source of truth per capability).
+            const effectiveTools = profile.useBuiltInTools
+                ? tools.filter((t) => !DUPLICATES_OF_CLAUDE_CODE_BUILTINS.has(t.name))
+                : tools;
             const result = await runAgentSdkQuery({
                 configuration,
-                tools,
+                tools: effectiveTools,
                 systemPrompt,
                 userText: userContent,
                 cancellationToken: options.cancellationToken,
+                autoApproveAll: profile.autoApproveAll === true,
+                useBuiltInTools: profile.useBuiltInTools === true,
+                thinkingBudgetTokens: profile.thinkingEnabled ? (profile.thinkingBudgetTokens ?? 8192) : undefined,
                 context: {
                     requestApproval: (req) => this.awaitApproval(req),
                     sessionApprovals: this.sessionApprovals,
@@ -435,7 +486,21 @@ export class AnthropicHandler {
             { role: 'user', content: userContent },
         ];
 
-        const systemParam = this.buildSystemParam(systemSegments, configuration);
+        // Profile-level overrides: prompt caching defaults to on when the
+        // profile omits it; extended thinking is off unless the profile
+        // opts in.
+        const profileCachingOverride = profile.promptCachingEnabled;
+        const effectiveCaching = profileCachingOverride === undefined
+            ? configuration.promptCachingEnabled === true
+            : profileCachingOverride !== false;
+        const systemParam = this.buildSystemParam(
+            systemSegments,
+            { ...configuration, promptCachingEnabled: effectiveCaching },
+        );
+        const thinkingBlock: Anthropic.ThinkingConfigParam | undefined = profile.thinkingEnabled
+            ? { type: 'enabled', budget_tokens: profile.thinkingBudgetTokens ?? 8192 }
+            : undefined;
+
         let totalToolCalls = 0;
         let lastText = '';
         let lastStopReason: string | undefined;
@@ -449,6 +514,7 @@ export class AnthropicHandler {
                 model: configuration.model,
                 max_tokens: configuration.maxTokens,
                 ...(configuration.temperature !== undefined ? { temperature: configuration.temperature } : {}),
+                ...(thinkingBlock ? { thinking: thinkingBlock } : {}),
                 system: systemParam,
                 ...(anthropicTools.length > 0 ? { tools: anthropicTools } : {}),
                 messages,
@@ -589,7 +655,7 @@ export class AnthropicHandler {
         block: Extract<AnthropicContentBlock, { type: 'tool_use' }>,
         tools: SharedToolDefinition[],
         configuration: AnthropicConfiguration,
-        _options: AnthropicSendOptions,
+        options: AnthropicSendOptions,
         round: number,
         quest: string,
         windowId: string,
@@ -603,9 +669,12 @@ export class AnthropicHandler {
         // tools (i.e. `!readOnly`). An explicit value overrides the default
         // — e.g. `tomAi_chatvar_write` opts out because it has its own
         // real-time visibility mechanism (§8.5).
+        // Profile-level `autoApproveAll` forces mode to 'never'.
         const defaultRequiresApproval = def ? !def.readOnly : false;
         const requiresApproval = def?.requiresApproval ?? defaultRequiresApproval;
-        const approvalMode = configuration.toolApprovalMode ?? 'always';
+        const approvalMode = options.profile.autoApproveAll
+            ? 'never'
+            : (configuration.toolApprovalMode ?? 'always');
         const needsApproval = requiresApproval && approvalMode !== 'never';
         if (needsApproval && !this.sessionApprovals.has(block.name)) {
             const approved = await this.awaitApproval({

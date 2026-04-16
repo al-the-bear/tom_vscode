@@ -332,6 +332,16 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
             // clearer `allToolsEnabled` toggle here; when that toggle is
             // on, the per-tool picker below is disabled.
             const allToolsEnabled = profile.toolsEnabled !== false && profileEnabledTools.length === 0;
+            // Profile-level overrides (default "on" for promptCaching so
+            // the field resolves to true when absent).
+            const p = profile as unknown as {
+                thinkingEnabled?: boolean;
+                thinkingBudgetTokens?: number;
+                promptCachingEnabled?: boolean;
+                autoApproveAll?: boolean;
+                useBuiltInTools?: boolean;
+            };
+            const promptCachingDefaultOn = p.promptCachingEnabled !== false;
             fields.push(
                 { name: 'id', label: 'ID', type: 'text', value: profile.id, readonly: true },
                 { name: 'name', label: 'Name', type: 'text', value: profile.name || '' },
@@ -340,6 +350,11 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                 { name: 'configurationId', label: 'Configuration', type: 'select', value: profile.configurationId || '', options: configurationOptions, help: 'Which <code>anthropic.configurations[]</code> entry this profile uses. "(inherit default)" falls back to the configuration marked <code>isDefault</code>.' },
                 { name: 'allToolsEnabled', label: 'All Tools Enabled', type: 'checkbox', value: String(allToolsEnabled), help: 'When checked, every tool from the selected configuration\'s <code>enabledTools</code> is available to the model. Uncheck to pick a profile-specific subset below.' },
                 { name: 'enabledTools', label: 'Tools', type: 'multi-checkbox', value: JSON.stringify(profileEnabledTools), options: toolOptions, disabledWhen: { field: 'allToolsEnabled', equals: 'true' }, help: 'Profile-level tool subset. Active only when "All Tools Enabled" is off; an empty list then means no tools at all.' },
+                { name: 'thinkingEnabled', label: 'Extended Thinking', type: 'checkbox', value: String(p.thinkingEnabled === true), help: 'Enable Claude extended thinking. Sends <code>thinking: { type: "enabled", budget_tokens }</code> on the direct SDK; forwarded to the Agent SDK where supported.' },
+                { name: 'thinkingBudgetTokens', label: 'Thinking Budget (tokens)', type: 'number', value: String(p.thinkingBudgetTokens ?? 8192), help: 'Token budget for extended thinking. Minimum 1024. Ignored when Extended Thinking is off.', disabledWhen: { field: 'thinkingEnabled', equals: 'false' } },
+                { name: 'promptCachingEnabled', label: 'Prompt Caching', type: 'checkbox', value: String(promptCachingDefaultOn), help: 'Enable prompt caching for this profile. Overrides <code>configuration.promptCachingEnabled</code>. Defaults to on.' },
+                { name: 'autoApproveAll', label: 'Auto-Approve All Tools', type: 'checkbox', value: String(p.autoApproveAll === true), help: 'Skip the approval gate for every tool call in this profile. Forces <code>toolApprovalMode = "never"</code>. Dangerous — the model can delete, edit, and run commands without confirmation.' },
+                { name: 'useBuiltInTools', label: 'Use Built-In Agent SDK Tools', type: 'checkbox', value: String(p.useBuiltInTools === true), help: 'Agent SDK transport only: expose Claude Code\'s built-in tool preset (Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch, TodoWrite, …) and automatically suppress extension tools that duplicate them. No effect on the direct Anthropic SDK.' },
                 { name: 'maxRounds', label: 'Max Rounds', type: 'number', value: String(profile.maxRounds ?? '') },
                 { name: 'historyMode', label: 'History Mode', type: 'text', value: profile.historyMode ?? '', help: 'one of: none, full, last, summary, trim_and_summary, llm_extract — leave empty to inherit from configuration' },
                 { name: 'isDefault', label: 'Is Default', type: 'checkbox', value: String(profile.isDefault === true) },
@@ -584,6 +599,11 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
             } catch {
                 enabledTools = undefined;
             }
+            const thinkingEnabled = values.thinkingEnabled === 'true';
+            const thinkingBudgetTokens = values.thinkingBudgetTokens ? parseInt(values.thinkingBudgetTokens, 10) : undefined;
+            const promptCachingEnabled = values.promptCachingEnabled !== 'false'; // default on
+            const autoApproveAll = values.autoApproveAll === 'true';
+            const useBuiltInTools = values.useBuiltInTools === 'true';
             const next = {
                 id: itemId,
                 name: values.name || itemId,
@@ -592,6 +612,11 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
                 configurationId: values.configurationId || undefined,
                 toolsEnabled: allToolsEnabled,
                 ...(allToolsEnabled ? {} : { enabledTools: enabledTools ?? [] }),
+                thinkingEnabled,
+                ...(thinkingEnabled && thinkingBudgetTokens ? { thinkingBudgetTokens } : {}),
+                promptCachingEnabled,
+                autoApproveAll,
+                useBuiltInTools,
                 maxRounds: values.maxRounds ? parseInt(values.maxRounds, 10) : undefined,
                 historyMode: values.historyMode || null,
                 isDefault: values.isDefault === 'true',

@@ -156,8 +156,14 @@ export interface SendToChatConfig {
             systemPrompt: string;
             configurationId?: string;
             toolsEnabled?: boolean;
+            enabledTools?: string[];
             maxRounds?: number;
             historyMode?: string | null;
+            thinkingEnabled?: boolean;
+            thinkingBudgetTokens?: number;
+            promptCachingEnabled?: boolean;
+            autoApproveAll?: boolean;
+            useBuiltInTools?: boolean;
             isDefault?: boolean;
         }>;
         userMessageTemplates?: Array<{

@@ -201,14 +201,161 @@ The heaviest source of friction right now is **one-tool-at-a-time boilerplate** 
 6. **Session logs → retrievable context** — currently trail files live in `_ai/trail/` but there's no `tomAi_readPreviousExchange` tool. Letting the model look back at its own history across sessions is cheaper than re-explaining context.
 7. **`_copilot_guidelines/` as first-class tool scope** — `tomAi_readGuideline` exists, add a `tomAi_listGuidelines` and `tomAi_searchGuidelines` so the model can proactively find relevant conventions before writing code.
 
-### Priority shortlist for "full IDE development"
+## 6. Concrete tool lists per transport (for implementation)
 
-If only five of the above shipped, these would close the biggest gaps:
+Two target lists — one for each transport — that together give the chat "full development mode." For each tool we list whether it is **new** (to build) or **existing** (already in `ALL_SHARED_TOOLS`), plus its approval category.
 
-1. `tomAi_getActiveEditor` + `tomAi_getOpenEditors` — situational awareness.
-2. `tomAi_runTerminal` (with streaming stdout + kill handle) — real execution in the user's shell.
-3. `tomAi_runTask` — integrate with existing `tasks.json` (tests, build, lint).
-4. `tomAi_getOutputChannel` — read TypeScript/ESLint/etc. logs that don't surface in Problems.
-5. The `tomAi_vscode` meta-tool + allowlist — one door to every `vscode.commands.executeCommand` behaviour, covering Quick Pick, file open, code actions, rename, etc.
+### 6.1 Agent SDK transport (`transport: 'agentSdk'`)
 
-Items 1–4 are concrete executors; item 5 reshapes how we onboard new IDE capabilities so steps 6–10 stop requiring fresh Tom-side work.
+With `profile.useBuiltInTools = true` (the recommended default going forward), the Agent SDK supplies the file / shell / search layer natively; our extension tools add only what is VS Code specific or Tom specific.
+
+**From Claude Code built-in preset (pass `tools: { type: 'preset', preset: 'claude_code' }`):**
+
+| SDK tool | Category | Replaces custom tool |
+| --- | --- | --- |
+| `Read` | read | `tomAi_readFile` |
+| `Write` | write | `tomAi_createFile` |
+| `Edit` | write | `tomAi_editFile` |
+| `MultiEdit` | write | `tomAi_multiEditFile` |
+| `Glob` | read | `tomAi_findFiles` |
+| `Grep` | read | `tomAi_findTextInFiles` |
+| `Bash` / `BashOutput` / `KillBash` | write | `tomAi_runCommand` (plus streaming & cancel, which we lack) |
+| `WebFetch` | read | `tomAi_fetchWebpage` |
+| `WebSearch` | read | `tomAi_webSearch` |
+| `NotebookEdit` | write | (no existing equivalent) |
+| `TodoWrite` | read/write | `tomAi_manageTodo` |
+| `Task` (spawn subagent) | — | (no existing equivalent) |
+| `AskUserQuestion` | user | (no existing equivalent) |
+| `ExitPlanMode` | — | (no existing equivalent) |
+| `SlashCommand` | — | (no existing equivalent) |
+
+The 12 extension tools listed in `DUPLICATES_OF_CLAUDE_CODE_BUILTINS` are automatically suppressed when `useBuiltInTools` is on.
+
+**Extension tools to keep on the Agent SDK path** (no SDK equivalent):
+
+| Tool | Category | Status |
+| --- | --- | --- |
+| `tomAi_getErrors` | read | existing |
+| `tomAi_git` (read subcommands) | read | existing |
+| `tomAi_readGuideline` | read | existing |
+| `tomAi_readLocalGuideline` | read | existing |
+| `tomAi_askBigBrother` | read | existing |
+| `tomAi_askCopilot` | read | existing |
+| `tomAi_chatvar_read` | read | existing |
+| `tomAi_chatvar_write` | write | existing |
+| `tomAi_memory_read` | read | existing |
+| `tomAi_memory_list` | read | existing |
+| `tomAi_memory_save` | write | existing |
+| `tomAi_memory_update` | write | existing |
+| `tomAi_memory_forget` | write | existing |
+
+**New extension tools to add for the Agent SDK path** (VS Code specific — no SDK equivalent):
+
+| Tool | Category | Purpose |
+| --- | --- | --- |
+| `tomAi_getWorkspaceInfo` | read | Workspace folders, `.code-workspace` filename, quest id, role, active projects, git branch/dirty. |
+| `tomAi_getActiveEditor` | read | Active file path, language, selection text + range, cursor, dirty, visible range. |
+| `tomAi_getOpenEditors` | read | All open tabs with active/dirty/pinned flags. |
+| `tomAi_getProblems` | read | Replaces/extends `tomAi_getErrors` with severity filtering, source, related code-actions. |
+| `tomAi_runTask` | write | `vscode.tasks.executeTask` + stream output + return exit code. |
+| `tomAi_runDebugConfig` | write | `vscode.debug.startDebugging` + watch for termination. |
+| `tomAi_getOutputChannel` | read | Read our own output channels (Tom Log, Ollama, etc.). Third-party channels are not exposed by VS Code. |
+| `tomAi_getTerminalOutput` | read | Shell-integration `execution.read()` for the active terminal / selected terminal id. |
+| `tomAi_openFile` | write (no approval) | `vscode.window.showTextDocument(uri, { selection })`. Purely navigational. |
+| `tomAi_applyEdit` | write | Multi-file transactional edit via `vscode.workspace.applyEdit`. Atomic undo. |
+| `tomAi_getCodeActions` | read | `vscode.executeCodeActionProvider` at a position. |
+| `tomAi_applyCodeAction` | write | Execute a specific code action by id + args. |
+| `tomAi_findSymbol` | read | `vscode.executeWorkspaceSymbolProvider` — workspace-wide symbol search. |
+| `tomAi_gotoDefinition` | read | `vscode.executeDefinitionProvider` at a position. |
+| `tomAi_findReferences` | read | `vscode.executeReferenceProvider` at a position. |
+| `tomAi_rename` | write | `vscode.executeDocumentRenameProvider` — LSP-safe rename. |
+| `tomAi_notebookEdit` | write | Add/remove/replace notebook cells (complementary to `NotebookEdit`, VS Code surface). |
+| `tomAi_notebookRun` | write | Execute a cell via `notebook.cell.execute`. |
+| `tomAi_gitExec` | write | `git add/commit/push/branch/checkout` via `execFile('git')`. Approval gated. |
+| `tomAi_gitShow` | read | `git show <ref>[:path]`. |
+| `tomAi_askUser` | user | `vscode.window.showInputBox` when we want free-form text (vs the SDK's picker-style `AskUserQuestion`). |
+| `tomAi_notifyUser` | user (no approval) | `showInformationMessage` / `showWarningMessage` / `showErrorMessage`. |
+| `tomAi_listGuidelines` | read | List `_copilot_guidelines/*.md` entries so the model can discover conventions. |
+| `tomAi_searchGuidelines` | read | Grep inside the guidelines folder. |
+
+**Meta / infrastructure:**
+
+| Tool | Category | Purpose |
+| --- | --- | --- |
+| `tomAi_vscode` | variable | Thin wrapper around `vscode.commands.executeCommand({ command, args })`. Approval required for any command not on an allow-list. Pair with `tomAi_listCommands` for discovery. Covers any future VS Code feature without a new tool. |
+| `tomAi_listCommands` | read | Filtered `vscode.commands.getCommands()` so the model can find the right command id before calling `tomAi_vscode`. |
+
+### 6.2 Direct Anthropic SDK transport (`transport: 'direct'`)
+
+Without the SDK preset, we implement every capability ourselves. This list = 6.1's "new tools" **plus** everything from `DUPLICATES_OF_CLAUDE_CODE_BUILTINS` (already built) **plus** the shared extension-specific tools from §3.
+
+Additional tools specific to the direct path — these are the capability gaps relative to the Agent SDK path:
+
+| Tool | Category | Why needed on direct path |
+| --- | --- | --- |
+| `tomAi_runCommandStream` | write | Equivalent of `Bash` + `BashOutput` — run a shell command, stream stdout/stderr, optionally kill. Our current `tomAi_runCommand` is fire-and-forget. |
+| `tomAi_killCommand` | write | Cancel a running `tomAi_runCommandStream`. |
+| `tomAi_spawnSubagent` | — | Equivalent of SDK's `Task`: call `messages.create` with a different system prompt and a restricted tool set, return the summary. Lets the model delegate research tasks. |
+| `tomAi_askUserPicker` | user | Picker-style elicitation (`showQuickPick`) — mirrors the SDK's `AskUserQuestion`. |
+| `tomAi_enterPlanMode` / `tomAi_exitPlanMode` | — | Explicit "I'm planning, don't execute tools" state, since no SDK equivalent exists. |
+| `tomAi_searchNotebookCells` | read | Notebook-aware search — SDK's `NotebookEdit` has context we'd otherwise miss. |
+| `tomAi_editNotebook` | write | Already covered by `tomAi_notebookEdit`; on direct path this is the only way. |
+
+Everything else is shared with the Agent SDK list (§6.1). The Agent SDK path is strictly a superset via its preset.
+
+### 6.3 Implementation priorities (every tool, by order)
+
+To avoid stalls, implement in waves. Each wave is independently useful.
+
+**Wave A — situational awareness (read-only, no approval).** Low risk, unlocks most model behaviours.
+
+1. `tomAi_getWorkspaceInfo`
+2. `tomAi_getActiveEditor`
+3. `tomAi_getOpenEditors`
+4. `tomAi_getProblems`
+5. `tomAi_getOutputChannel`
+6. `tomAi_getTerminalOutput`
+7. `tomAi_findSymbol`
+8. `tomAi_gotoDefinition`
+9. `tomAi_findReferences`
+10. `tomAi_getCodeActions`
+11. `tomAi_listGuidelines`
+12. `tomAi_searchGuidelines`
+
+**Wave B — IDE navigation (low/no approval).**
+
+1. `tomAi_openFile`
+2. `tomAi_notifyUser`
+3. `tomAi_listCommands`
+4. `tomAi_askUser`
+5. `tomAi_askUserPicker`
+
+**Wave C — IDE execution (approval gated).**
+
+1. `tomAi_runTask`
+2. `tomAi_runDebugConfig`
+3. `tomAi_runCommandStream` + `tomAi_killCommand` (direct path; Agent SDK uses `Bash`)
+4. `tomAi_applyEdit`
+5. `tomAi_applyCodeAction`
+6. `tomAi_rename`
+7. `tomAi_vscode` + allow-list
+8. `tomAi_gitExec`
+9. `tomAi_gitShow`
+
+**Wave D — notebook + advanced agent ops.**
+
+1. `tomAi_notebookEdit`
+2. `tomAi_notebookRun`
+3. `tomAi_spawnSubagent` (direct path; Agent SDK uses `Task`)
+4. `tomAi_enterPlanMode` / `tomAi_exitPlanMode`
+
+**Prerequisite infrastructure (reusable across tools):**
+
+- **Streaming result envelope** `{ content, truncated, continuationToken }` in `shared-tool-registry.ts` so large outputs paginate without bespoke code.
+- **Structured approval preview** in `chatPanel-handler.ts` so edits/commands/fetches render human-readable previews (unified diff, command preview).
+- **Claude Code built-in tool policy** — `useBuiltInTools` works end-to-end: feature-flagged via the profile editor, duplicates suppressed, trail entries for SDK tools labelled clearly.
+
+### 6.4 Non-goals
+
+- We deliberately do **not** surface Anthropic's server-side `code_execution`, `computer_use`, or `text_editor_20250429` — they run outside the workspace and bypass our approval gate.
+- `ExitPlanMode` / `EnterPlanMode` on the Agent SDK path come from the SDK; we only need custom versions on the direct transport.

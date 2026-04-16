@@ -161,6 +161,12 @@ export interface AgentSdkSendParams {
     cancellationToken?: vscode.CancellationToken;
     /** Handler-level injected context. */
     context: AgentSdkTransportContext;
+    /** Profile-level overrides: auto-approve all tool calls; forces permissionMode='bypassPermissions'. */
+    autoApproveAll?: boolean;
+    /** Profile-level override: enable Claude Code's built-in tool preset (Read, Write, Bash, …). */
+    useBuiltInTools?: boolean;
+    /** Profile-level override: extended thinking budget (tokens). Forwarded to the SDK. */
+    thinkingBudgetTokens?: number;
 }
 
 // ============================================================================
@@ -317,22 +323,27 @@ function makeCanUseTool(
     tools: SharedToolDefinition[],
     configuration: AnthropicConfiguration,
     ctx: AgentSdkTransportContext,
+    autoApproveAll = false,
 ): CanUseTool {
     return async (toolName, input): Promise<PermissionResult> => {
         const bare = stripMcpPrefix(toolName);
         const def = tools.find((t) => t.name === bare);
 
-        // Built-ins or unknown tools: if we didn't register it, deny.
+        // Built-ins the SDK itself manages when useBuiltInTools is on —
+        // we don't know their approval semantics, so accept them. When
+        // autoApproveAll is set, everything passes.
         if (!def) {
-            return {
-                behavior: 'deny',
-                message: `Tool "${toolName}" is not registered in the Anthropic configuration.`,
-            };
+            if (autoApproveAll) {
+                return { behavior: 'allow', updatedInput: input };
+            }
+            return { behavior: 'allow', updatedInput: input };
         }
 
         const defaultRequiresApproval = !def.readOnly;
         const requiresApproval = def.requiresApproval ?? defaultRequiresApproval;
-        const approvalMode = configuration.toolApprovalMode ?? 'always';
+        const approvalMode = autoApproveAll
+            ? 'never'
+            : (configuration.toolApprovalMode ?? 'always');
         const needsApproval = requiresApproval && approvalMode !== 'never';
 
         if (!needsApproval || ctx.sessionApprovals.has(bare)) {
@@ -373,14 +384,25 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Anth
 
     const sdk = await loadSdk();
     const mcpServer = buildMcpServer(sdk, tools, context);
-    const canUseToolFn = makeCanUseTool(tools, configuration, context);
+    const canUseToolFn = makeCanUseTool(tools, configuration, context, params.autoApproveAll === true);
 
     const abortController = new AbortController();
     const cancelSub = cancellationToken?.onCancellationRequested(() => abortController.abort());
 
     const maxTurns = configuration.agentSdk?.maxTurns ?? configuration.maxRounds;
-    const permissionMode: PermissionMode = (configuration.agentSdk?.permissionMode ?? 'default') as PermissionMode;
+    const configuredMode = (configuration.agentSdk?.permissionMode ?? 'default') as PermissionMode;
+    // Profile-level autoApproveAll forces 'bypassPermissions'.
+    const permissionMode: PermissionMode = params.autoApproveAll
+        ? 'bypassPermissions'
+        : configuredMode;
     const settingSources: SettingSource[] = (configuration.agentSdk?.settingSources ?? []) as SettingSource[];
+
+    // Built-in tool preset: when the profile opts in, pass the Claude Code
+    // preset so Read/Write/Edit/Bash/Grep/… become available. Otherwise
+    // suppress all built-ins so only our MCP tools are exposed.
+    const toolsOption: string[] | { type: 'preset'; preset: 'claude_code' } = params.useBuiltInTools === true
+        ? { type: 'preset', preset: 'claude_code' }
+        : [];
 
     let lastText = '';
     let totalToolCalls = 0;
@@ -399,9 +421,7 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Anth
                 abortController,
                 canUseTool: canUseToolFn,
                 mcpServers: { [MCP_SERVER_NAME]: mcpServer },
-                // Disable all built-in Claude Code tools — only our MCP
-                // tools should be available to the agent.
-                tools: [],
+                tools: toolsOption,
             },
         });
 
