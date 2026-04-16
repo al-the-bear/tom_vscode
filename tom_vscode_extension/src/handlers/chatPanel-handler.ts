@@ -32,7 +32,7 @@ import { validateStrictAiConfiguration } from '../utils/sendToChatConfig';
 import { findNearestDetectedProject, scanWorkspaceProjectsByDetectors } from '../utils/projectDetector';
 import { TrailService } from '../services/trailService';
 import { writeWindowState } from './windowStatusPanel-handler.js';
-import { AnthropicHandler, AnthropicProfile, AnthropicConfiguration } from './anthropic-handler';
+import { AnthropicHandler, AnthropicProfile, AnthropicConfiguration, ANTHROPIC_SUBSYSTEM } from './anthropic-handler';
 import { ALL_SHARED_TOOLS } from '../tools/tool-executors';
 
 // ============================================================================
@@ -701,16 +701,28 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         await vscode.commands.executeCommand('tomAi.editor.timedRequests');
                         break;
                     // openTrailFiles = raw file viewer (the actual prompt/answer files on disk).
-                    // Pass the trail root explicitly via WsPaths.ai('trail') so the viewer
-                    // always opens at the correct workspace root — passing no argument relies
-                    // on the active editor's workspace folder which may differ in multi-root
-                    // workspaces and silently shows "Trail folder not found".
+                    // For section-specific panels (anthropic) we pass the subsystem directory
+                    // directly so the viewer doesn't need to guess the workspace root. For
+                    // other sections we use the trail root and let the viewer discover.
                     case 'openTrailFiles': {
-                        const trailRoot = WsPaths.ai('trail');
-                        await vscode.commands.executeCommand(
-                            'tomAi.editor.rawTrailViewer',
-                            trailRoot ? vscode.Uri.file(trailRoot) : undefined,
-                        );
+                        let trailUri: vscode.Uri | undefined;
+                        if (message.section === 'anthropic') {
+                            // Pass the anthropic trail dir straight to the viewer; TrailService
+                            // resolves it through the same config as the trail writer.
+                            const questId = WsPaths.getWorkspaceQuestId();
+                            const anthropicDir = TrailService.instance.getSubsystemPath(
+                                ANTHROPIC_SUBSYSTEM, questId,
+                            );
+                            if (anthropicDir) {
+                                // Walk up two levels: .../anthropic/quest → .../trail
+                                const trailRoot = path.dirname(path.dirname(anthropicDir));
+                                trailUri = vscode.Uri.file(trailRoot);
+                            }
+                        } else {
+                            const trailRoot = WsPaths.ai('trail');
+                            if (trailRoot) { trailUri = vscode.Uri.file(trailRoot); }
+                        }
+                        await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer', trailUri);
                         break;
                     }
                     case 'openConversationTrailViewer':
