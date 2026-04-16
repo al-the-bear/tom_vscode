@@ -1366,8 +1366,16 @@ window.addEventListener('message', e => {
             break;
         case 'selectItem':
             if (msg.category) {
+                var categoryChanged = currentCategory !== msg.category;
                 currentCategory = msg.category;
                 categorySelect.value = msg.category;
+                if (categoryChanged) {
+                    // Items for this category may be stale if the file was
+                    // edited since the editor was opened — fetch fresh,
+                    // same code path as the categorySelect onchange handler
+                    // (which the user confirmed recovers the correct list).
+                    vscode.postMessage({ type: 'selectCategory', category: currentCategory });
+                }
             }
             if (msg.itemId) {
                 currentItemId = msg.itemId;

@@ -582,7 +582,12 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         this._sendReusablePrompts();
                         break;
                     case 'sendReusablePrompt':
-                        await this._sendReusablePrompt(message.reusableId, message.section);
+                        await this._sendReusablePrompt(message.reusableId, message.section, {
+                            profile: message.profile,
+                            model: message.model,
+                            config: message.config,
+                            userMessageTemplate: message.userMessageTemplate,
+                        });
                         break;
                     case 'editAnthropicProfile':
                         await this._handleEditProfile('anthropic', message.name || '');
@@ -808,9 +813,12 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
 
     private _sendProfiles(): void {
         const config = loadSendToChatConfig();
-        const anthropicProfiles = Array.isArray(config?.anthropic?.profiles)
-            ? config!.anthropic!.profiles!.map((p: any) => p.id).filter((s: any) => typeof s === 'string' && s.length > 0)
+        const anthropicProfileEntries: Array<{ id: string; name: string; isDefault: boolean }> = Array.isArray(config?.anthropic?.profiles)
+            ? (config!.anthropic!.profiles! as Array<{ id: string; name?: string; isDefault?: boolean }>)
+                .filter((p) => p && typeof p.id === 'string' && p.id.length > 0)
+                .map((p) => ({ id: p.id, name: (p.name || p.id), isDefault: p.isDefault === true }))
             : [];
+        const anthropicProfiles = anthropicProfileEntries.map((p) => p.id);
         const anthropicConfigurations = Array.isArray(config?.anthropic?.configurations)
             ? config!.anthropic!.configurations!
                 .filter((c: any) => c && typeof c.id === 'string')
@@ -853,6 +861,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             configurations: this._getEffectiveLlmConfigurations(config),
             setups: this._getEffectiveAiConversationSetups(config),
             anthropicConfigurations,
+            anthropicProfileEntries,
             anthropicUserMessageTemplates,
             anthropicApiKeyOk,
             claudeCliOk,
@@ -1198,7 +1207,11 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         this._view?.webview.postMessage({ type: 'reusablePromptContent', reusableId, content });
     }
 
-    private async _sendReusablePrompt(reusableId: string, section?: string): Promise<void> {
+    private async _sendReusablePrompt(
+        reusableId: string,
+        section?: string,
+        anthropicState?: { profile?: string; model?: string; config?: string; userMessageTemplate?: string },
+    ): Promise<void> {
         const parsed = this._parseReusablePromptId(reusableId);
         if (!parsed || !fs.existsSync(parsed.filePath)) {
             vscode.window.showWarningMessage('Reusable prompt file not found.');
@@ -1214,7 +1227,13 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         // (spec: user expectation). Unknown / legacy sections fall back to
         // Copilot for backwards compatibility.
         if (section === 'anthropic') {
-            await this._handleSendAnthropic(content, '', '', '');
+            await this._handleSendAnthropic(
+                content,
+                anthropicState?.profile || '',
+                anthropicState?.model || '',
+                anthropicState?.config || '',
+                anthropicState?.userMessageTemplate || '',
+            );
             return;
         }
         await this._handleSendCopilot(content, '__answer_file__', 1);
@@ -1718,21 +1737,19 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
 
     private async _openAnthropicRawTrail(): Promise<void> {
         const questId = WsPaths.getWorkspaceQuestId();
-        const summaryPath = TrailService.instance.getSummaryFilePath('prompts', { type: 'anthropic' }, questId);
-        // The Raw Trail Viewer command takes a directory and browses it; fall
-        // back to the summary file location's folder when no raw folder exists.
         const wsRoot = getWorkspaceRoot();
         if (!wsRoot) { vscode.window.showWarningMessage('No workspace folder'); return; }
         const rawDir = path.join(wsRoot, '_ai', 'trail', 'anthropic', questId || 'default');
-        if (fs.existsSync(rawDir)) {
-            await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer', vscode.Uri.file(rawDir));
+        if (!fs.existsSync(rawDir)) {
+            // Don't silently fall back to the summary file — that's what
+            // the Exchanges Viewer button is for, and the fallback made
+            // users think the buttons were swapped.
+            vscode.window.showInformationMessage(
+                `No raw Anthropic trail directory yet at ${rawDir}. Send a prompt first, or click the Exchanges Viewer button for the summary.`,
+            );
             return;
         }
-        if (summaryPath && fs.existsSync(summaryPath)) {
-            await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(summaryPath));
-            return;
-        }
-        vscode.window.showInformationMessage('No Anthropic trail exists yet. Send a prompt first.');
+        await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer', vscode.Uri.file(rawDir));
     }
 
     private async _openAnthropicSummaryTrail(): Promise<void> {
@@ -2815,6 +2832,7 @@ var profiles = { localLlm: [], conversation: [], copilot: [], tomAiChat: [], ant
 var configurations = [];
 var setups = [];
 var anthropicConfigurations = [];
+var anthropicProfileEntries = [];
 var anthropicUserMessageTemplates = [];
 var anthropicModels = [];
 var anthropicApiKeyOk = false;
@@ -2879,7 +2897,7 @@ function getReusablePromptControlsHtml(sectionId) {
     '<select id="' + sectionId + '-reusable-file" class="reusable-prompt-file" title="Reusable prompt file"><option value="">(File)</option></select>' +
     '<button class="icon-btn" data-action="previewReusablePrompt" data-id="' + sectionId + '" title="Preview in overlay"><span class="codicon codicon-open-preview"></span></button>' +
         '<button class="icon-btn" data-action="openReusablePromptExternal" data-id="' + sectionId + '" title="Open in MD viewer"><span class="codicon codicon-link-external"></span></button>' +
-        '<button class="icon-btn" data-action="sendReusablePrompt" data-id="' + sectionId + '" title="Send reusable prompt to Copilot (Answer Wrapper)"><span class="codicon codicon-send"></span></button>' +
+        '<button class="icon-btn" data-action="sendReusablePrompt" data-id="' + sectionId + '" title="Send reusable prompt to this section"><span class="codicon codicon-send"></span></button>' +
         '<button class="icon-btn" data-action="copyReusablePrompt" data-id="' + sectionId + '" title="Copy reusable prompt into this tab"><span class="codicon codicon-copy"></span></button>' +
         '<button class="icon-btn" data-action="openReusablePrompt" data-id="' + sectionId + '" title="Open reusable prompt file in editor"><span class="codicon codicon-edit"></span></button>' +
         '<button class="icon-btn" data-action="saveReusablePrompt" data-id="' + sectionId + '" title="Save current tab as reusable prompt"><span class="codicon codicon-save"></span></button>';
@@ -3076,8 +3094,8 @@ function getSectionContent(id) {
                 '<button class="icon-btn" data-action="openQueueEditor" data-id="copilot" title="Open Queue Editor"><span class="codicon codicon-inbox"></span></button>' +
                 '<button class="icon-btn" data-action="saveAsTimedRequest" data-id="copilot" title="Save as Timed Request"><span class="codicon codicon-save"></span></button>' +
                 '<button class="icon-btn" data-action="openTimedRequestsEditor" data-id="copilot" title="Timed Requests"><span class="codicon codicon-watch"></span></button>' +
-                '<button class="icon-btn" data-action="openTrailFiles" data-id="copilot" title="Open Trail"><span class="codicon codicon-history"></span></button>' +
-                '<button class="icon-btn" data-action="openTrailViewer" data-id="copilot" title="Open Trail Files Viewer"><span class="codicon codicon-list-flat"></span></button>' +
+                '<button class="icon-btn" data-action="openTrailFiles" data-id="copilot" title="Open Exchanges Viewer (compact summary)"><span class="codicon codicon-history"></span></button>' +
+                '<button class="icon-btn" data-action="openTrailViewer" data-id="copilot" title="Open Raw Trail Viewer"><span class="codicon codicon-list-flat"></span></button>' +
                 '<label class="checkbox-label compact-keep"><input type="checkbox" id="copilot-keep-content"> Keep</label>' +
                 '<button class="icon-btn" data-action="clearText" data-id="copilot" title="Clear text"><span class="codicon codicon-clear-all"></span></button>',
             afterToolbarHtml:
@@ -3107,8 +3125,8 @@ function getSectionContent(id) {
             '<button class="link-btn" data-action="openReusablePromptEditor" title="Reusable Prompt Editor"><span class="codicon codicon-note"></span> Reusable Prompts</button>' +
             '<button class="link-btn" data-action="openContextSettingsEditor" title="Context & Settings Editor"><span class="codicon codicon-settings-gear"></span> Context Editor</button>' +
             '<button class="link-btn" data-action="openChatVariablesEditor" title="Chat Variables Editor"><span class="codicon codicon-symbol-key"></span> Chat Variables</button>' +
-            '<button class="link-btn" data-action="openTrailFiles" data-id="copilot" title="Trail Custom Editor"><span class="codicon codicon-history"></span> Trail File</button>' +
-            '<button class="link-btn" data-action="openTrailViewer" data-id="copilot" title="Trail Files Viewer"><span class="codicon codicon-list-flat"></span> Trail Viewer</button>' +
+            '<button class="link-btn" data-action="openTrailFiles" data-id="copilot" title="Exchanges Viewer (compact summary)"><span class="codicon codicon-history"></span> Exchanges Viewer</button>' +
+            '<button class="link-btn" data-action="openTrailViewer" data-id="copilot" title="Raw Trail Viewer"><span class="codicon codicon-list-flat"></span> Raw Trail Viewer</button>' +
             '</div>' +
             '</fieldset>' +
             '</div>' +
@@ -3163,8 +3181,8 @@ function getSectionContent(id) {
             actionButtons:
                 '<button data-action="preview" data-id="anthropic" title="Preview expanded prompt">Preview</button>' +
                 '<button class="primary" id="anthropic-send-btn" data-action="send" data-id="anthropic" title="Send to Anthropic">Send to Anthropic</button>' +
+                '<button class="icon-btn" data-action="openTrailFiles" data-id="anthropic" title="Open Exchanges Viewer (anthropic.*.md compact summary)"><span class="codicon codicon-history"></span></button>' +
                 '<button class="icon-btn" data-action="openTrailViewer" data-id="anthropic" title="Open Raw Trail Viewer (Anthropic subsystem)"><span class="codicon codicon-list-flat"></span></button>' +
-                '<button class="icon-btn" data-action="openTrailFiles" data-id="anthropic" title="Open Trail Files (anthropic.*.md summary)"><span class="codicon codicon-history"></span></button>' +
                 '<button class="icon-btn" data-action="openAnthropicMemory" data-id="anthropic" title="Memory Panel"><span class="codicon codicon-book"></span></button>' +
                 '<button class="icon-btn" data-action="clearAnthropicHistory" data-id="anthropic" title="Clear session history"><span class="codicon codicon-clear-all"></span></button>',
             afterToolbarHtml:
@@ -3361,7 +3379,25 @@ function handleAction(action, id, slot) {
         case 'sendReusablePrompt': {
             var reusableToSend = getSelectedReusablePromptId(id);
             if (!reusableToSend) return;
-            vscode.postMessage({ type: 'sendReusablePrompt', reusableId: reusableToSend, section: id });
+            var rpMsg = { type: 'sendReusablePrompt', reusableId: reusableToSend, section: id };
+            if (id === 'anthropic') {
+                // Pass current panel state so the reusable prompt is sent
+                // just like a manual "Send to Anthropic" — same profile,
+                // configuration, model override, and user-message template.
+                var rpProfile = document.getElementById('anthropic-profile');
+                var rpModel = document.getElementById('anthropic-model');
+                var rpConfig = document.getElementById('anthropic-config');
+                var rpUserMsg = document.getElementById('anthropic-userMessage');
+                rpMsg.profile = rpProfile ? rpProfile.value : '';
+                rpMsg.model = rpModel ? rpModel.value : '';
+                rpMsg.config = rpConfig ? rpConfig.value : '';
+                rpMsg.userMessageTemplate = rpUserMsg ? rpUserMsg.value : '';
+                if (!rpMsg.model) { setAnthropicStatus('Select a model first.'); return; }
+                anthropicSending = true;
+                updateAnthropicSendButton();
+                setAnthropicStatus('Sending reusable prompt…');
+            }
+            vscode.postMessage(rpMsg);
             break;
         }
         case 'copyReusablePrompt': {
@@ -3484,7 +3520,13 @@ function populateDropdowns() {
     populateSelect('conversation-profile', profiles.conversation);
     populateSelect('copilot-template', profiles.copilot);
     populateSelect('tomAiChat-template', profiles.tomAiChat);
-    populateSelect('anthropic-profile', profiles.anthropic);
+    // Use populateEntitySelect for anthropic profiles so the entry marked
+    // isDefault is preselected; the label shown is the human-readable name.
+    if (anthropicProfileEntries && anthropicProfileEntries.length > 0) {
+        populateEntitySelect('anthropic-profile', anthropicProfileEntries, '(Select Profile)');
+    } else {
+        populateSelect('anthropic-profile', profiles.anthropic);
+    }
     populateSelect('anthropic-userMessage', anthropicUserMessageTemplates);
     populateEntitySelect('localLlm-llmConfig', configurations, '(Select LLM Config)');
     populateEntitySelect('conversation-aiSetup', setups, '(Select AI Setup)');
@@ -3760,6 +3802,7 @@ window.addEventListener('message', function(e) {
         configurations = msg.configurations || [];
         setups = msg.setups || [];
         anthropicConfigurations = msg.anthropicConfigurations || [];
+        anthropicProfileEntries = msg.anthropicProfileEntries || [];
         anthropicUserMessageTemplates = msg.anthropicUserMessageTemplates || [];
         anthropicApiKeyOk = !!msg.anthropicApiKeyOk;
         claudeCliVisible = !!msg.claudeCliVisible;
@@ -3802,7 +3845,7 @@ window.addEventListener('message', function(e) {
         reusablePreferredQuestId = msg.preferredQuestId || '';
         reusablePreferredProjectId = msg.preferredProjectId || '';
         reusablePreferredScanId = msg.preferredScanId || '';
-        ['localLlm', 'conversation', 'copilot', 'tomAiChat'].forEach(function(sectionId) {
+        ['localLlm', 'conversation', 'copilot', 'tomAiChat', 'anthropic'].forEach(function(sectionId) {
             populateReusablePromptSelectors(sectionId);
         });
     } else if (msg.type === 'reusablePromptContent') {

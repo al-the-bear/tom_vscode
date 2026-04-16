@@ -306,6 +306,9 @@ const VIEW_TYPE = 'tomAi.trailViewer';
 
 let currentPanel: vscode.WebviewPanel | undefined;
 let currentViewerState: TrailViewerState | undefined;
+let currentWatcher: fs.FSWatcher | undefined;
+let currentWatchedFolder: string | undefined;
+let pendingRefreshTimer: NodeJS.Timeout | undefined;
 
 interface TrailViewerFolderOption {
     id: string;
@@ -615,6 +618,7 @@ export async function openTrailViewer(
             selectedSubsystem: nextState.selectedSubsystem,
             selectedQuest: nextState.selectedQuest,
         });
+        attachTrailFolderWatcher(nextState.currentFolder);
         return;
     }
 
@@ -652,10 +656,57 @@ export async function openTrailViewer(
         () => {
             currentPanel = undefined;
             currentViewerState = undefined;
+            detachTrailFolderWatcher();
         },
         undefined,
         context.subscriptions
     );
+
+    attachTrailFolderWatcher(currentViewerState.currentFolder);
+}
+
+/**
+ * Watch the currently-displayed raw trail folder and push an `exchanges`
+ * refresh into the webview whenever its contents change (file added /
+ * renamed / removed). Debounced at 250 ms so a burst of writes — the
+ * request file then its matching answer — only triggers one reload.
+ */
+function attachTrailFolderWatcher(folder: string): void {
+    if (!folder || folder === currentWatchedFolder) {
+        return;
+    }
+    detachTrailFolderWatcher();
+    if (!fs.existsSync(folder)) {
+        return;
+    }
+    try {
+        currentWatcher = fs.watch(folder, { persistent: false, recursive: false }, () => {
+            if (!currentPanel || !currentViewerState) { return; }
+            if (pendingRefreshTimer) { clearTimeout(pendingRefreshTimer); }
+            pendingRefreshTimer = setTimeout(() => {
+                pendingRefreshTimer = undefined;
+                if (!currentPanel || !currentViewerState) { return; }
+                const exchanges = loadTrailExchanges(currentViewerState.currentFolder);
+                currentPanel.webview.postMessage({ type: 'exchanges', exchanges });
+            }, 250);
+        });
+        currentWatchedFolder = folder;
+    } catch {
+        // Ignore — watch is best-effort; users can reopen the panel to
+        // force a full refresh if the platform can't watch the path.
+    }
+}
+
+function detachTrailFolderWatcher(): void {
+    if (pendingRefreshTimer) {
+        clearTimeout(pendingRefreshTimer);
+        pendingRefreshTimer = undefined;
+    }
+    if (currentWatcher) {
+        try { currentWatcher.close(); } catch { /* ignore */ }
+        currentWatcher = undefined;
+    }
+    currentWatchedFolder = undefined;
 }
 
 /**
@@ -684,6 +735,7 @@ async function handleMessage(
                     exchanges: folderExchanges,
                     selectedFolder: state.currentFolder,
                 });
+                attachTrailFolderWatcher(state.currentFolder);
             }
             break;
         }
