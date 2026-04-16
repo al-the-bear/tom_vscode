@@ -63,6 +63,13 @@ interface TemplateItem {
 
 let _panel: vscode.WebviewPanel | undefined;
 let _context: vscode.ExtensionContext | undefined;
+// Stash the most recent (category, itemId) that `openGlobalTemplateEditor`
+// was asked to land on. The webview's 'ready' handshake arrives AFTER we
+// try to push the right category, so without this pin the ready handler
+// would always fall back to 'copilot' and wipe the target. Cleared once
+// the webview acks the initial allData push.
+let _pendingInitialCategory: TemplateCategory | undefined;
+let _pendingInitialItemId: string | undefined;
 
 /**
  * Open the global template editor, optionally pre-selecting a category and item.
@@ -113,9 +120,21 @@ export function openGlobalTemplateEditor(
 
     _panel.webview.html = _getHtml(webviewCodiconsUri.toString());
 
-    _panel.onDidDispose(() => { _panel = undefined; });
+    _panel.onDidDispose(() => {
+        _panel = undefined;
+        _pendingInitialCategory = undefined;
+        _pendingInitialItemId = undefined;
+    });
 
-    // Initial data push (after a tick so html is ready)
+    // Stash the target category/itemId so the 'ready' handshake (which
+    // arrives async from the webview after HTML loads) lands on the same
+    // pair instead of defaulting to 'copilot'.
+    _pendingInitialCategory = options?.category;
+    _pendingInitialItemId = options?.itemId;
+
+    // Initial data push (after a tick so html is ready). Belt-and-braces:
+    // if the webview is quick enough to fire 'ready' first, its handler
+    // reads the same pending pair. Either path lands on the right state.
     setTimeout(() => {
         _sendAllData(options?.category, options?.itemId);
     }, 100);
@@ -375,7 +394,13 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
 async function _handleMessage(msg: any): Promise<void> {
     switch (msg.type) {
         case 'ready':
-            _sendAllData();
+            // Honour a pending (category, itemId) stashed by a just-opened
+            // editor call; then clear it so subsequent 'ready' signals
+            // (e.g. after a retainContextWhenHidden reveal) don't keep
+            // snapping back to an old selection.
+            _sendAllData(_pendingInitialCategory, _pendingInitialItemId);
+            _pendingInitialCategory = undefined;
+            _pendingInitialItemId = undefined;
             break;
         case 'requestData':
             _sendAllData(msg.category, msg.itemId);

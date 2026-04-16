@@ -2843,7 +2843,7 @@
     },
     "dependencies": {
         "@anthropic-ai/claude-agent-sdk": "^0.2.110",
-        "@anthropic-ai/sdk": "^0.32.1",
+        "@anthropic-ai/sdk": "^0.89.0",
         "@vscode/codicons": "^0.0.45",
         "ajv": "^8.18.0",
         "marked": "^14.1.2",

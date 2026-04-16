@@ -1736,20 +1736,23 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     }
 
     private async _openAnthropicRawTrail(): Promise<void> {
-        const questId = WsPaths.getWorkspaceQuestId();
         const wsRoot = getWorkspaceRoot();
         if (!wsRoot) { vscode.window.showWarningMessage('No workspace folder'); return; }
-        const rawDir = path.join(wsRoot, '_ai', 'trail', 'anthropic', questId || 'default');
-        if (!fs.existsSync(rawDir)) {
-            // Don't silently fall back to the summary file — that's what
-            // the Exchanges Viewer button is for, and the fallback made
-            // users think the buttons were swapped.
+        // The viewer scans from the _ai/trail root and discovers subsystems
+        // (localllm/copilot/anthropic) + quest subdirs itself. Pointing it
+        // at the leaf (anthropic/{quest}) used to make discovery come up
+        // empty because there are no subdirectories there — only the raw
+        // request/answer files.
+        const trailRoot = path.join(wsRoot, '_ai', 'trail');
+        const questId = WsPaths.getWorkspaceQuestId();
+        const leafDir = path.join(trailRoot, 'anthropic', questId || 'default');
+        if (!fs.existsSync(leafDir)) {
             vscode.window.showInformationMessage(
-                `No raw Anthropic trail directory yet at ${rawDir}. Send a prompt first, or click the Exchanges Viewer button for the summary.`,
+                `No raw Anthropic trail directory yet at ${leafDir}. Send a prompt first, or click the Exchanges Viewer button for the summary.`,
             );
             return;
         }
-        await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer', vscode.Uri.file(rawDir));
+        await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer', vscode.Uri.file(trailRoot));
     }
 
     private async _openAnthropicSummaryTrail(): Promise<void> {

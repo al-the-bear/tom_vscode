@@ -11,7 +11,6 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
-import * as https from 'https';
 import * as vscode from 'vscode';
 import {
     executeToolCall,
@@ -328,25 +327,22 @@ export class AnthropicHandler {
     /**
      * List available models from the Anthropic API. No fallback — callers
      * must be prepared for `{ models: [], error }` on failure.
-     *
-     * Uses a raw GET because the `models` resource only exists on newer
-     * SDK versions; the stable 0.32 line does not expose it. The endpoint
-     * itself is stable on the API side.
      */
     async fetchModels(): Promise<{ models: Array<{ id: string; display_name?: string }>; error?: string }> {
-        const section = this.getAnthropicSection();
-        const envVar = section.apiKeyEnvVar || 'ANTHROPIC_API_KEY';
-        const apiKey = process.env[envVar];
-        if (!apiKey) {
+        const client = this.getClient();
+        if (!client) {
+            const section = this.getAnthropicSection();
+            const envVar = section.apiKeyEnvVar || 'ANTHROPIC_API_KEY';
             return { models: [], error: `${envVar} environment variable not set` };
         }
         try {
-            const json = await this.httpsGetJson('api.anthropic.com', '/v1/models?limit=100', {
-                'x-api-key': apiKey,
-                'anthropic-version': '2023-06-01',
-            });
-            const data = (json as { data?: Array<{ id: string; display_name?: string }> }).data;
-            return { models: data ?? [] };
+            const page = await client.models.list({ limit: 100 });
+            return {
+                models: (page.data ?? []).map((m) => ({
+                    id: m.id,
+                    ...(m.display_name ? { display_name: m.display_name } : {}),
+                })),
+            };
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             return { models: [], error: msg };
@@ -796,12 +792,6 @@ export class AnthropicHandler {
      * block array carrying `cache_control: { type: 'ephemeral' }` so the
      * server caches the (typically long) system prompt; otherwise a plain
      * string works and costs nothing extra.
-     *
-     * The `cache_control` field is not declared on `TextBlockParam` in
-     * SDK 0.32.1 (it graduated from the beta namespace in a later
-     * release), so the caching branch is widened to `unknown[]` and cast
-     * at the call site. The field is accepted by the stable API at
-     * runtime regardless.
      */
     private buildSystemParam(
         systemSegments: string[],
@@ -814,15 +804,11 @@ export class AnthropicHandler {
         if (!configuration.promptCachingEnabled) {
             return segments.join('\n\n');
         }
-        const blocks = segments.map((text, idx) => {
-            const isLast = idx === segments.length - 1;
-            const block: Record<string, unknown> = { type: 'text', text };
-            if (isLast) {
-                block.cache_control = { type: 'ephemeral' };
-            }
-            return block as unknown as Anthropic.TextBlockParam;
-        });
-        return blocks;
+        return segments.map<Anthropic.TextBlockParam>((text, idx) => ({
+            type: 'text',
+            text,
+            ...(idx === segments.length - 1 ? { cache_control: { type: 'ephemeral' } } : {}),
+        }));
     }
 
     private extractText(content: AnthropicContentBlock[]): string {
@@ -844,36 +830,5 @@ export class AnthropicHandler {
     private generateRequestId(): string {
         const hex = () => Math.random().toString(16).substring(2, 10);
         return `${hex()}_${hex()}`;
-    }
-
-    private httpsGetJson(host: string, pathAndQuery: string, headers: Record<string, string>): Promise<unknown> {
-        return new Promise((resolve, reject) => {
-            const req = https.request(
-                {
-                    method: 'GET',
-                    host,
-                    path: pathAndQuery,
-                    headers,
-                },
-                (res) => {
-                    const chunks: Buffer[] = [];
-                    res.on('data', (c) => chunks.push(Buffer.from(c)));
-                    res.on('end', () => {
-                        const body = Buffer.concat(chunks).toString('utf8');
-                        if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-                            try {
-                                resolve(JSON.parse(body));
-                            } catch (e) {
-                                reject(new Error(`invalid JSON response: ${(e as Error).message}`));
-                            }
-                        } else {
-                            reject(new Error(`HTTP ${res.statusCode ?? '?'} ${res.statusMessage ?? ''}: ${body.slice(0, 200)}`));
-                        }
-                    });
-                },
-            );
-            req.on('error', reject);
-            req.end();
-        });
     }
 }
