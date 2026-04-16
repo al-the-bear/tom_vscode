@@ -700,14 +700,18 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'openTimedRequestsEditor':
                         await vscode.commands.executeCommand('tomAi.editor.timedRequests');
                         break;
-                    // openTrailFiles = raw file viewer (the actual prompt/answer files on disk)
-                    case 'openTrailFiles':
-                        if (message.section === 'anthropic') {
-                            await this._openAnthropicRawTrail();
-                        } else {
-                            await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer');
-                        }
+                    // openTrailFiles = raw file viewer (the actual prompt/answer files on disk).
+                    // All subsystems share the same _ai/trail/ root, so no section-specific
+                    // handling is needed — the viewer discovers subsystems itself.
+                    case 'openTrailFiles': {
+                        const wsRoot = getWorkspaceRoot();
+                        const trailRoot = wsRoot ? path.join(wsRoot, '_ai', 'trail') : undefined;
+                        await vscode.commands.executeCommand(
+                            'tomAi.editor.rawTrailViewer',
+                            trailRoot ? vscode.Uri.file(trailRoot) : undefined,
+                        );
                         break;
+                    }
                     case 'openConversationTrailViewer':
                         await this._openConversationTrailViewer();
                         break;
@@ -1735,16 +1739,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             models: result.models,
             ...(result.error ? { error: result.error } : {}),
         });
-    }
-
-    private async _openAnthropicRawTrail(): Promise<void> {
-        const wsRoot = getWorkspaceRoot();
-        if (!wsRoot) { vscode.window.showWarningMessage('No workspace folder'); return; }
-        // Open the raw trail viewer at the _ai/trail root; the viewer
-        // discovers subsystems and quests itself. No existence check —
-        // the viewer handles an empty or missing directory gracefully.
-        const trailRoot = path.join(wsRoot, '_ai', 'trail');
-        await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer', vscode.Uri.file(trailRoot));
     }
 
     private async _openAnthropicSummaryTrail(): Promise<void> {
