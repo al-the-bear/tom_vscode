@@ -28,6 +28,7 @@ Parallel execution across transports is explicitly **not a goal** — a single o
 5. **Queue-level default + per-item override.** The queue editor has dropdowns at the top selecting the default transport (+ profile/config as appropriate). Each item's add/edit form has a collapsible "Advanced" section to override just for that item.
 6. **Chat-panel buttons for queue-compatible transports.** Every queue-compatible chat panel (Copilot, Anthropic, Local LLM, Tom AI Chat) gets the same two action-bar buttons — "Add to Queue" and "Open Queue Editor" — pre-wired to set the right transport metadata when staging. The AI Conversation panel does not get these buttons (it orchestrates bot-to-bot exchanges, not user-initiated prompts).
 7. **Queue-dispatched direct items always force auto-approve-all.** Queue execution is unattended — if a tool call triggers the approval bar, the queue deadlocks. For `anthropic` and `localLlm` transports the dispatcher sets `autoApproveAll = true` unconditionally, regardless of the profile's configured value. This is the "everything else is unusable" constraint: without it the queue can't run a multi-step Anthropic item that uses any approval-gated tool. The UI must make this explicit (see §4.7) so the user knows queue runs have weaker safety than interactive chat.
+8. **Prompt templates are per-transport.** The four transports already have four *different* template shapes today (see §4.12), so there is no shared template store to reuse. The template editor becomes per-transport (the transport picker switches which config key it edits), and the queue's template dropdown is filtered by the item's current transport. A *Default* template option (transport-agnostic body-only template) is stored in a small new shared pool.
 
 ## 3. Current state reference
 
@@ -192,12 +193,17 @@ Today only the Copilot section has the queue buttons ([line 3099–3100](tom_vsc
 **Changes:**
 
 1. Add the same two buttons to the **Anthropic**, **Local LLM**, and **Tom AI Chat** sections. Each keeps its `data-id` distinct (`"anthropic"`, `"localLlm"`, `"tomAiChat"`). The **AI Conversation** section does **not** get queue buttons — it orchestrates bot-to-bot exchanges, not user-initiated prompts.
-2. In the `addToQueue` handler (currently `addCopilotToQueue()` at [line 3447](tom_vscode_extension/src/handlers/chatPanel-handler.ts#L3447)), dispatch by `data-id`:
-   - `copilot` → current behaviour.
-   - `anthropic` → post `{ type: 'addToQueue', transport: 'anthropic', text, anthropicProfileId, anthropicConfigId, … }`. The backend's queue-add router resolves the profile/config from the section's dropdowns.
-   - `localLlm` → analogous with `localLlmConfigId`.
-   - `tomAiChat` → analogous with `tomAiChatConfigId`.
-3. `openQueueEditor` is unchanged — it opens the same queue editor regardless of which panel's button was clicked.
+2. In the `addToQueue` handler (currently `addCopilotToQueue()` at [line 3447](tom_vscode_extension/src/handlers/chatPanel-handler.ts#L3447)), dispatch by `data-id`. The staged queue item **must** carry the transport-specific metadata read from that panel's own dropdowns. This is non-trivial — the current Copilot button only needs `text` + `template`, but direct transports need the full target context:
+
+   | `data-id` | `transport` set | Extra payload (read from that panel's dropdowns) |
+   | --- | --- | --- |
+   | `copilot` | `'copilot'` | `template`, `answerWrapper`, `repeatCount`, `answerWaitMinutes` (current) |
+   | `anthropic` | `'anthropic'` | `anthropicProfileId`, `anthropicConfigId`, `template` |
+   | `localLlm` | `'localLlm'` | `localLlmConfigId`, `template` |
+   | `tomAiChat` | `'tomAiChat'` | `tomAiChatConfigId`, `template` |
+
+3. The backend's queue-add router (`case 'addToQueue'` at [line 688](tom_vscode_extension/src/handlers/chatPanel-handler.ts#L688)) must forward all five new fields into `PromptQueueManager.enqueue()` unchanged. A queue item staged from the Anthropic panel should never inherit the queue's default transport — the user clicked *that* panel's button precisely to pin the transport.
+4. `openQueueEditor` is unchanged — it opens the same queue editor regardless of which panel's button was clicked.
 
 ### 4.9 Tool surface — `chat-enhancement-tools.ts`
 
@@ -226,6 +232,85 @@ The executors forward these to the manager unchanged. Defaults mirror the data m
 
 Queue state is persisted to `_ai/local/*.prompt-panel.yaml`. The new fields are additive optional → **no migration**. Existing queue items deserialise with `transport: undefined`, which resolves to `'copilot'` at dispatch time — identical to current behaviour.
 
+### 4.11 Reusable TransportPicker component
+
+The same four transport dropdowns + profile/config dropdown combinations are needed in three places:
+
+- Queue editor — queue-level default
+- Queue editor — per-item / per-stage "Advanced" override
+- **Prompt template editor** (see §4.12)
+
+Rather than duplicate the markup + event handlers three times, extract a single webview-side helper:
+
+```ts
+// shared between queueEditor-handler.ts, chatPanel-handler.ts, and templateEditor-handler.ts
+renderTransportPicker(options: {
+  idPrefix: string;                      // disambiguates DOM ids when multiple pickers are on a page
+  context: 'queue-default' | 'queue-item' | 'queue-stage' | 'template-editor';
+  value: TransportPickerValue;           // current selected transport + target ids
+  showTargets: boolean;                  // whether to render the profile/config dropdowns below
+  onChangeEvent: string;                 // webview postMessage type fired on any change
+}): string;   // returns HTML fragment
+```
+
+**Option set varies by context:**
+
+| Context | Dropdown options | Has "inherit / default" option? |
+| --- | --- | --- |
+| `queue-default` | Copilot, Anthropic, Local LLM, Tom AI Chat | no — this *is* the default |
+| `queue-item` | *Inherit (queue default)*, Copilot, Anthropic, Local LLM, Tom AI Chat | yes, labelled **Inherit** |
+| `queue-stage` | *Inherit (item)*, Copilot, Anthropic, Local LLM, Tom AI Chat | yes, labelled **Inherit** |
+| `template-editor` | *Default (transport-agnostic)*, Copilot, Anthropic, Local LLM, Tom AI Chat | yes, labelled **Default** |
+
+**Conditional target pickers** (shown when `showTargets: true` and a non-inherit transport is selected):
+
+- Copilot → no target dropdowns (answer-file pipeline is fixed).
+- Anthropic → profile dropdown + config dropdown. Reuse the list-loading logic from [chatPanel-handler.ts:3166–3214](tom_vscode_extension/src/handlers/chatPanel-handler.ts#L3166-L3214).
+- Local LLM → config dropdown only.
+- Tom AI Chat → config dropdown only.
+
+In the **template editor** (§4.12) `showTargets` should be **`false`** — templates don't pin a profile/config; they just declare which transport store they belong to. Profile/config are applied at queue time, not template-define time.
+
+The picker emits a single `{ type: onChangeEvent, transport, anthropicProfileId?, anthropicConfigId?, localLlmConfigId?, tomAiChatConfigId? }` message, and the consuming handler writes it to the right store (queue item, queue default, or template record).
+
+### 4.12 Prompt template editor — per-transport templates
+
+Today the template editor only knows about the **Copilot** template store (`config.copilot.templates` — see [sendToChatConfig.ts:108–112](tom_vscode_extension/src/utils/sendToChatConfig.ts#L108-L112)). With multi-transport queueing the editor must also reach the other three stores — which have **four genuinely different shapes**:
+
+| Transport | Config key | Shape |
+| --- | --- | --- |
+| Copilot | `config.copilot.templates` | map `{ [name]: { template, showInMenu } }` |
+| Anthropic | `config.anthropic.userMessageTemplates` | array `[{ id, name, description?, template, isDefault }]` |
+| Tom AI Chat | `config.tomAiChat.templates` | map `{ [name]: { label, description?, contextInstructions?, systemPromptOverride? } }` — **not a plain body template**, structural system-prompt config |
+| Local LLM | `config.localLlm.profiles[key].{ systemPrompt, resultTemplate }` + `config.localLlm.defaultTemplate` | **per-profile** attributes, no separate named store |
+| Default (new) | `config.sharedQueueTemplates` (new) | array `[{ id, name, description?, template }]` — transport-agnostic body text |
+
+**Template editor changes:**
+
+1. **Add the TransportPicker** (context `'template-editor'`, `showTargets: false`) at the top of the editor. Its value selects which store the editor is reading/writing.
+2. **Load the template list from that store** on transport change. For Tom AI Chat and Local LLM the list is **structurally different** from the simple `{name, body}` model the editor renders today — the editor must branch:
+   - Copilot / Anthropic / Default → render a plain "name + body" edit form (current form, unchanged).
+   - Tom AI Chat → render label + description + contextInstructions + systemPromptOverride fields. Body-only templates can still be stored alongside, but the editor should surface the fuller shape.
+   - Local LLM → **read-only listing** of per-profile `resultTemplate` strings; editing the body happens via the Local LLM profile editor, not here. Show a hint: *"Local LLM templates live on each profile. Open the Local LLM profile editor to change them."*
+3. **Create/update/delete** operations go to the matching config key. The existing `tomAi_templates_manage` tool (§4.9 addendum) gets a `transport` field that selects the target store; without it the tool defaults to `copilot` (current behaviour preserved).
+4. **Default store bootstrap**: if the user creates a template with transport `Default`, write it to `config.sharedQueueTemplates[]`. This is a new config key — additive, requires a one-line addition to `SendToChatConfig` and the JSON schema.
+
+**Queue editor — template dropdown** (existing):
+
+- When a queue item's effective transport is known, the template dropdown **filters its contents to that transport's store plus the Default store**. The Default store is always visible because its templates are transport-neutral.
+- Changing a queue item's transport **blanks** the template selection (see §5 edge case). The dropdown repopulates with templates for the new transport + Default.
+
+**`tomAi_templates_manage` tool extension:**
+
+```ts
+operation: 'list' | 'create' | 'update' | 'delete'
+transport?: 'copilot' | 'anthropic' | 'localLlm' | 'tomAiChat' | 'default';   // default: 'copilot'
+```
+
+- `list` without a transport lists only Copilot templates (current behaviour).
+- `list` with a transport returns that store's templates, normalised into a common `{ id, name, template, extras?: { ... transport-specific fields } }` shape.
+- `create` / `update` / `delete` target the matching store. For Local LLM, `create` returns an error steering the user to the profile editor; `update`/`delete` of a Local LLM resultTemplate is allowed and writes to the profile.
+
 ## 5. Edge cases and non-obvious bits
 
 - **Template expansion placeholders** (`${repeatNumber}`, `${repeatIndex}`, chat variables): these happen at expand-time before transport dispatch — unchanged. Chat-variable-driven `repeatCount` keeps working identically.
@@ -233,6 +318,8 @@ Queue state is persisted to `_ai/local/*.prompt-panel.yaml`. The new fields are 
 - **`sendMaximum` on timed requests**: orthogonal to transport; still counted the same way.
 - **`templateRepeatCount`**: re-runs the entire (pre-prompts + main + follow-ups) group. Works identically per-transport. If transport is direct, the whole re-run is fast and synchronous.
 - **Anthropic `profile.autoApproveAll`**: queue dispatch **always overrides** this to `true` — see §2 decision 7 and §4.3. The profile's stored value applies only when the profile is used interactively from the chat panel. This is a safety tradeoff the user needs to understand: queue runs are unattended and cannot pause for approval.
+- **Template reference invalidated when transport changes.** A queue item's `template` name is meaningful only within one transport's store. If the user switches a queue item's transport (via the per-item Advanced picker) from Copilot to Anthropic, the previously-selected template name may not exist in `config.anthropic.userMessageTemplates`. **Handling**: on transport change inside the queue editor, clear the template selection and repopulate the dropdown from the new transport's store + Default store. Do **not** try to copy templates across stores automatically — too magical, and Tom AI Chat's shape doesn't even match the simple body-only model. A "Save a copy in the new transport's store" button on the item editor is a reasonable future add; out of scope for the first pass.
+- **Tom AI Chat and Local LLM template shapes don't round-trip.** Tom AI Chat templates carry structural fields (`systemPromptOverride`, `contextInstructions`) that have no meaning in the other stores; Local LLM templates are per-profile. The template editor must not offer to "convert" a template between stores — the user has to recreate it deliberately.
 - **Concurrency**: the queue is strictly sequential (one `sending` item at a time — [isEditableStatus guard](tom_vscode_extension/src/managers/promptQueueManager.ts)). Direct transport doesn't change this.
 - **Failure modes**:
   - Anthropic API error → item status `'error'`, error message surfaced, queue pauses (same as the current `'error'` handling).
@@ -247,11 +334,15 @@ Queue state is persisted to `_ai/local/*.prompt-panel.yaml`. The new fields are 
 3. **Polling / reminder / answer-wait guards** — skip direct items in all three. Verify Copilot still works end-to-end.
 4. **Direct-transport execution** — wire the Anthropic and Local LLM branches through. Exercise with a hand-crafted item in each transport.
 5. **Tool-input extensions** — expose the four new fields in the six queue tools.
-6. **Queue editor UI** — queue-level dropdowns + per-item Advanced section. Share the `renderTransportTargetPickers()` helper with the chat panel.
-7. **Chat-panel buttons** — add the two buttons to Anthropic / Local LLM / Tom AI Chat sections. Dispatch by `data-id`. (AI Conversation is excluded — it's for bot-to-bot orchestration.)
-8. **Documentation** — update `llm_tools.md` §4.20, `copilot_chat_integration.md` if it exists, and this doc's "current state" once implemented.
+6. **Reusable `renderTransportPicker()` helper** (§4.11) — extract from the current Chat Panel's dropdowns; call sites come in the next steps.
+7. **Queue editor UI** — queue-level dropdowns + per-item Advanced section, using the helper from step 6. Transport change blanks the template selection.
+8. **Chat-panel buttons** — add the two buttons to Anthropic / Local LLM / Tom AI Chat sections. Dispatch by `data-id`; the payload carries transport + target ids read from the clicked panel's own dropdowns. (AI Conversation is excluded.)
+9. **Add `config.sharedQueueTemplates` to `SendToChatConfig` + JSON schema** (§4.12) — one-line additions; needed before the template editor gets a Default option.
+10. **Template editor — per-transport switcher** — add the `renderTransportPicker()` at the top, swap the list source + edit form per transport (Tom AI Chat's structural form is a branch, Local LLM is read-only with a hint).
+11. **Extend `tomAi_templates_manage` with `transport`** — default `'copilot'` for backward compat; routes to the matching store.
+12. **Documentation** — update `llm_tools.md` §4.20, `copilot_chat_integration.md` if it exists, and this doc's "current state" once implemented.
 
-Rough effort: **2–3 days** end-to-end, depending on how much polish the per-stage override UI gets.
+Rough effort: **3–4 days** end-to-end. The template editor per-transport branching is the largest single chunk — the Tom AI Chat form is structurally different from the others, so the UI can't just be "swap the datasource".
 
 ## 7. Out of scope
 
@@ -272,7 +363,14 @@ Rough effort: **2–3 days** end-to-end, depending on how much polish the per-st
 - [ ] Selecting Anthropic or Local LLM transport shows the auto-approve-all warning.
 - [ ] Queue-dispatched Anthropic items run with `autoApproveAll = true` even when the profile stores `false` — verified by a tool call that would otherwise prompt.
 - [ ] "Add to Queue" + "Open Queue Editor" buttons exist on queue-compatible chat panels (Copilot, Anthropic, Local LLM, Tom AI Chat). AI Conversation panel does **not** have these buttons.
+- [ ] Each chat panel's "Add to Queue" button stages an item with the **correct transport** and target-ids read from that panel's own dropdowns (not the queue's default).
 - [ ] A queue item with `transport: 'tomAiChat'` fires the VS Code LM API, stores the text, and advances without polling.
 - [ ] `tomAi_queue_add` and siblings accept the four new fields.
 - [ ] Anthropic and Local LLM trail files contain entries for queue-dispatched prompts (verified by the transport's own logging).
 - [ ] A queue item with a stale/invalid `anthropicProfileId` surfaces a clear error.
+- [ ] `renderTransportPicker()` helper is used in all three call sites (chat panel, queue editor, template editor) with the right `context` value.
+- [ ] Template editor's transport picker switches the list source for Copilot / Anthropic / Default stores and renders Tom AI Chat's structural form when selected.
+- [ ] Template editor shows the read-only hint for Local LLM with a pointer to the profile editor.
+- [ ] Switching a queue item's transport in the editor clears its template selection and repopulates the dropdown.
+- [ ] `tomAi_templates_manage` honours a `transport` field, defaulting to `copilot` when absent.
+- [ ] `config.sharedQueueTemplates` exists in the schema and holds Default templates.
