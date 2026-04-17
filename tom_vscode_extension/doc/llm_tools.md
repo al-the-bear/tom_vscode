@@ -303,51 +303,58 @@ Additional tools specific to the direct path — these are the capability gaps r
 
 Everything else is shared with the Agent SDK list (§6.1). The Agent SDK path is strictly a superset via its preset.
 
-### 6.3 Implementation priorities (every tool, by order)
+### 6.3 Implementation status
 
-To avoid stalls, implement in waves. Each wave is independently useful.
+Waves A–D are landed. Status legend: ✅ implemented, ⚠️ partial (API limitation documented), 🔌 stub awaiting host integration.
 
-**Wave A — situational awareness (read-only, no approval).** Low risk, unlocks most model behaviours.
+**Wave A — situational awareness** (`src/tools/workspace-awareness-tools.ts`)
 
-1. `tomAi_getWorkspaceInfo`
-2. `tomAi_getActiveEditor`
-3. `tomAi_getOpenEditors`
-4. `tomAi_getProblems`
-5. `tomAi_getOutputChannel`
-6. `tomAi_getTerminalOutput`
-7. `tomAi_findSymbol`
-8. `tomAi_gotoDefinition`
-9. `tomAi_findReferences`
-10. `tomAi_getCodeActions`
-11. `tomAi_listGuidelines`
-12. `tomAi_searchGuidelines`
+1. ✅ `tomAi_getWorkspaceInfoFull` (enhanced successor to `tomAi_getWorkspaceInfo`)
+2. ✅ `tomAi_getActiveEditor`
+3. ✅ `tomAi_getOpenEditors`
+4. ✅ `tomAi_getProblems`
+5. ⚠️ `tomAi_getOutputChannel` — VS Code has no cross-extension API for reading third-party output channels. The tool reads only channels the Tom extension tracks and documents the limitation.
+6. ⚠️ `tomAi_getTerminalOutput` — VS Code exposes terminal metadata but no scrollback API. The tool returns terminal state and steers callers to `tomAi_runCommand` for captured output.
+7. ✅ `tomAi_findSymbol`
+8. ✅ `tomAi_gotoDefinition`
+9. ✅ `tomAi_findReferences`
+10. ✅ `tomAi_getCodeActions`
+11. ✅ `tomAi_listGuidelines`
+12. ✅ `tomAi_searchGuidelines`
 
-**Wave B — IDE navigation (low/no approval).**
+**Wave B — IDE navigation** (`src/tools/ide-navigation-tools.ts`)
 
-1. `tomAi_openFile`
-2. `tomAi_notifyUser`
-3. `tomAi_listCommands`
-4. `tomAi_askUser`
-5. `tomAi_askUserPicker`
+1. ✅ `tomAi_openFile`
+2. ✅ `tomAi_notifyUser` (already existed in `chat-enhancement-tools.ts`)
+3. ✅ `tomAi_listCommands`
+4. ✅ `tomAi_askUser`
+5. ✅ `tomAi_askUserPicker`
 
-**Wave C — IDE execution (approval gated).**
+**Wave C — IDE execution** (`src/tools/ide-execution-tools.ts`)
 
-1. `tomAi_runTask`
-2. `tomAi_runDebugConfig`
-3. `tomAi_runCommandStream` + `tomAi_killCommand` (direct path; Agent SDK uses `Bash`)
-4. `tomAi_applyEdit`
-5. `tomAi_applyCodeAction`
-6. `tomAi_rename`
-7. `tomAi_vscode` + allow-list
-8. `tomAi_gitExec`
-9. `tomAi_gitShow`
+1. ✅ `tomAi_applyEdit` (multi-file WorkspaceEdit, atomic undo)
+2. ✅ `tomAi_getCodeActionsCached` (companion to `getCodeActions` that returns cacheable actionIds)
+3. ✅ `tomAi_applyCodeAction` (apply by actionId; 5-minute TTL)
+4. ✅ `tomAi_rename` (LSP-safe rename)
+5. ✅ `tomAi_vscode` (typed-args executeCommand; safe-list prefix hints included)
+6. ✅ `tomAi_runTask`
+7. ✅ `tomAi_runDebugConfig`
+8. ✅ `tomAi_runCommandStream` + `tomAi_readCommandOutput` + `tomAi_killCommand` (in-process registry; `readCommandOutput` added to the plan)
+9. ✅ `tomAi_gitExec` (allow-listed git write subcommands)
+10. ✅ `tomAi_gitShow`
 
-**Wave D — notebook + advanced agent ops.**
+**Wave D — notebook + advanced agent ops** (`src/tools/advanced-agent-tools.ts`)
 
-1. `tomAi_notebookEdit`
-2. `tomAi_notebookRun`
-3. `tomAi_spawnSubagent` (direct path; Agent SDK uses `Task`)
-4. `tomAi_enterPlanMode` / `tomAi_exitPlanMode`
+1. ✅ `tomAi_notebookEdit` (insert/replace/delete cells via `NotebookEdit` + `WorkspaceEdit`)
+2. ✅ `tomAi_notebookRun` (dispatches `notebook.execute` / `notebook.cell.execute` — output streams asynchronously)
+3. 🔌 `tomAi_spawnSubagent` — stub. The Anthropic handler must call `registerSubagentSpawner(fn)` to wire it up; until then the tool returns an instructive error. On the Agent SDK transport, prefer the built-in `Task` tool.
+4. ✅ `tomAi_enterPlanMode` / `tomAi_exitPlanMode` — module-level flag readable by host handlers via `isPlanModeActive()`. Full enforcement (blocking approval-gated tools while active) is deferred to the handler.
+
+**Deferred / follow-ups.**
+
+- Sub-agent wiring: add a `registerSubagentSpawner` call in `anthropic-handler.ts` that reuses the current `AnthropicConfiguration` to run a nested tool-use loop with a restricted tool set and returns the final text.
+- Plan-mode enforcement: in `anthropic-handler.ts` / `tool-execution-context`, refuse approval-gated tool calls while `isPlanModeActive()` unless the user explicitly overrides.
+- Code-action cache: consider a cross-session key or persistence so `actionId`s survive a handler restart.
 
 **Prerequisite infrastructure (reusable across tools):**
 

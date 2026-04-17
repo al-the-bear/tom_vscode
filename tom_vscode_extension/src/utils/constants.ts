@@ -102,4 +102,10 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_killCommand',
     'tomAi_gitExec',
     'tomAi_gitShow',
+    // Wave D — notebook + advanced agent ops (llm_tools.md §6.3)
+    'tomAi_enterPlanMode',
+    'tomAi_exitPlanMode',
+    'tomAi_spawnSubagent',
+    'tomAi_notebookEdit',
+    'tomAi_notebookRun',
 ] as const;
