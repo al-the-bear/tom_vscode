@@ -2920,7 +2920,6 @@ var setups = [];
 var anthropicConfigurations = [];
 var anthropicProfileEntries = [];
 var anthropicUserMessageTemplates = [];
-window._pendingAnthropicModel = '';
 var anthropicModels = [];
 var anthropicApiKeyOk = false;
 var claudeCliOk = null;      // null = probing, true/false = resolved (spec §18.6)
@@ -3259,9 +3258,7 @@ function getSectionContent(id) {
                 // dropdown — opens the Global Template Editor on the
                 // 'anthropicProfiles' category for the selected profile.
                 '<button class="icon-btn" data-action="editAnthropicProfile" data-id="anthropic" title="Edit Anthropic profile (system prompt)"><span class="codicon codicon-edit"></span></button>' +
-                '<label>Model:</label><select id="anthropic-model" style="width:60%" title="Models from Anthropic API"><option value="">(loading...)</option></select>' +
-                '<button class="icon-btn" data-action="refreshAnthropicModels" data-id="anthropic" title="Refresh models from API"><span class="codicon codicon-refresh"></span></button>' +
-                '<label>Config:</label><select id="anthropic-config" style="width:50%" title="Anthropic configuration"></select>' +
+                '<label>Config:</label><select id="anthropic-config" style="width:50%" title="Anthropic configuration — the configuration is the source of truth for model + parameters"></select>' +
                 '<span id="anthropic-apikey-dot" class="api-status-dot" title="API key status" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--vscode-errorForeground);margin-left:6px;"></span>' +
                 '<span id="anthropic-claude-dot" class="api-status-dot" title="Claude Code install status (Agent SDK transport)" style="display:none;width:10px;height:10px;border-radius:50%;background:var(--vscode-errorForeground);margin-left:4px;"></span>' +
                 // User-message template dropdown + inline edit icon (§7.3)
@@ -3297,7 +3294,17 @@ function getSectionContent(id) {
             placeholder: 'Enter your prompt for Anthropic...',
             helpTitle: '',
             afterEditorHtml:
-                '<div class="status-bar"><span id="anthropic-status" class="context-summary"></span><span class="status-bar-actions"><button class="icon-btn" data-action="openChatVariablesEditor" title="Chat Variables Editor"><span class="codicon codicon-symbol-key"></span></button></span></div>',
+                // The Model dropdown here is informational only — configurations
+                // are the source of truth. It lets the user eyeball which models
+                // the API currently returns so they can add configurations when
+                // new models ship. The value is never read when sending.
+                '<div class="status-bar"><span id="anthropic-status" class="context-summary"></span>' +
+                '<span class="status-bar-actions">' +
+                '<button class="icon-btn" data-action="openChatVariablesEditor" title="Chat Variables Editor"><span class="codicon codicon-symbol-key"></span></button>' +
+                '<label style="margin-left:6px;">Available Models:</label>' +
+                '<select id="anthropic-model" style="max-width:240px;" title="Read-only list of models returned by the Anthropic API. The selected configuration controls which model is actually used."><option value="">(loading...)</option></select>' +
+                '<button class="icon-btn" data-action="refreshAnthropicModels" data-id="anthropic" title="Refresh models from API"><span class="codicon codicon-refresh"></span></button>' +
+                '</span></div>',
         })
     };
     return contents[id] || '<div>Unknown section</div>';
@@ -3432,7 +3439,7 @@ function stopResize() { /* legacy */ }
 
 function handleAction(action, id, slot) {
     switch(action) {
-        case 'send': { var text = document.getElementById(id + '-text'); text = text ? text.value : ''; if (!text.trim()) return; var profile = document.getElementById(id + '-profile'); profile = profile ? profile.value : ''; var template = document.getElementById(id + '-template'); template = template ? template.value : ''; var llmConfig = document.getElementById('localLlm-llmConfig'); llmConfig = llmConfig ? llmConfig.value : ''; var aiSetup = document.getElementById('conversation-aiSetup'); aiSetup = aiSetup ? aiSetup.value : ''; var anthropicModel = document.getElementById('anthropic-model'); anthropicModel = anthropicModel ? anthropicModel.value : ''; var anthropicConfig = document.getElementById('anthropic-config'); anthropicConfig = anthropicConfig ? anthropicConfig.value : ''; var anthropicUserMessage = document.getElementById('anthropic-userMessage'); anthropicUserMessage = anthropicUserMessage ? anthropicUserMessage.value : ''; var slotNo = ensureSlotState(id).activeSlot; if (id === 'anthropic') { if (!anthropicModel) { setAnthropicStatus('Select a model first.'); return; } anthropicSending = true; updateAnthropicSendButton(); setAnthropicStatus('Sending…'); } vscode.postMessage({ type: 'send' + id.charAt(0).toUpperCase() + id.slice(1), text: text, profile: profile, template: template, llmConfig: llmConfig, aiSetup: aiSetup, model: anthropicModel, config: anthropicConfig, userMessageTemplate: anthropicUserMessage, slot: slotNo }); break; }
+        case 'send': { var text = document.getElementById(id + '-text'); text = text ? text.value : ''; if (!text.trim()) return; var profile = document.getElementById(id + '-profile'); profile = profile ? profile.value : ''; var template = document.getElementById(id + '-template'); template = template ? template.value : ''; var llmConfig = document.getElementById('localLlm-llmConfig'); llmConfig = llmConfig ? llmConfig.value : ''; var aiSetup = document.getElementById('conversation-aiSetup'); aiSetup = aiSetup ? aiSetup.value : ''; var anthropicConfig = document.getElementById('anthropic-config'); anthropicConfig = anthropicConfig ? anthropicConfig.value : ''; var anthropicUserMessage = document.getElementById('anthropic-userMessage'); anthropicUserMessage = anthropicUserMessage ? anthropicUserMessage.value : ''; var slotNo = ensureSlotState(id).activeSlot; if (id === 'anthropic') { if (!anthropicConfig) { setAnthropicStatus('Select a configuration first.'); return; } anthropicSending = true; updateAnthropicSendButton(); setAnthropicStatus('Sending…'); } vscode.postMessage({ type: 'send' + id.charAt(0).toUpperCase() + id.slice(1), text: text, profile: profile, template: template, llmConfig: llmConfig, aiSetup: aiSetup, model: '', config: anthropicConfig, userMessageTemplate: anthropicUserMessage, slot: slotNo }); break; }
         case 'preview': { var prvText = document.getElementById(id + '-text'); prvText = prvText ? prvText.value : ''; var prvTpl = document.getElementById(id + '-template'); prvTpl = prvTpl ? prvTpl.value : ''; vscode.postMessage({ type: 'preview', section: id, text: prvText, template: prvTpl }); break; }
         case 'clearText': {
             if (!id) break;
@@ -3476,16 +3483,16 @@ function handleAction(action, id, slot) {
             if (id === 'anthropic') {
                 // Pass current panel state so the reusable prompt is sent
                 // just like a manual "Send to Anthropic" — same profile,
-                // configuration, model override, and user-message template.
+                // configuration, and user-message template. The Model
+                // dropdown is informational only; configuration drives sends.
                 var rpProfile = document.getElementById('anthropic-profile');
-                var rpModel = document.getElementById('anthropic-model');
                 var rpConfig = document.getElementById('anthropic-config');
                 var rpUserMsg = document.getElementById('anthropic-userMessage');
                 rpMsg.profile = rpProfile ? rpProfile.value : '';
-                rpMsg.model = rpModel ? rpModel.value : '';
+                rpMsg.model = '';
                 rpMsg.config = rpConfig ? rpConfig.value : '';
                 rpMsg.userMessageTemplate = rpUserMsg ? rpUserMsg.value : '';
-                if (!rpMsg.model) { setAnthropicStatus('Select a model first.'); return; }
+                if (!rpMsg.config) { setAnthropicStatus('Select a configuration first.'); return; }
                 anthropicSending = true;
                 updateAnthropicSendButton();
                 setAnthropicStatus('Sending reusable prompt…');
@@ -3627,23 +3634,16 @@ function populateDropdowns() {
     populateEntitySelect('anthropic-config', anthropicConfigurations, '(Select Config)');
     populateAnthropicModels();
     updateAnthropicApiKeyDot();
+    // Config dropdown: refresh the send button + status line whenever the
+    // user switches configurations, since those are now the source of truth
+    // for the active model and history mode.
     var anthropicConfigSel = document.getElementById('anthropic-config');
     if (anthropicConfigSel && !anthropicConfigSel._anthropicChangeBound) {
         anthropicConfigSel._anthropicChangeBound = true;
         anthropicConfigSel.addEventListener('change', function() {
-            // Pre-select the model from the newly chosen configuration.
-            var cfg = (anthropicConfigurations || []).find(function(c) { return c.id === anthropicConfigSel.value; });
-            var modelSel = document.getElementById('anthropic-model');
-            if (cfg && cfg.model && modelSel && anthropicModels && anthropicModels.some(function(m) { return m.id === cfg.model; })) {
-                modelSel.value = cfg.model;
-                updateAnthropicSendButton();
-            }
+            updateAnthropicSendButton();
+            setAnthropicStatus(buildAnthropicStatusLine());
         });
-    }
-    var anthropicModelSel = document.getElementById('anthropic-model');
-    if (anthropicModelSel && !anthropicModelSel._anthropicChangeBound) {
-        anthropicModelSel._anthropicChangeBound = true;
-        anthropicModelSel.addEventListener('change', updateAnthropicSendButton);
     }
     ['localLlm', 'conversation', 'copilot', 'tomAiChat', 'anthropic'].forEach(function(sectionId) {
         populateReusablePromptSelectors(sectionId);
@@ -3651,38 +3651,21 @@ function populateDropdowns() {
 }
 
 function populateAnthropicModels() {
+    // Informational: list the models the API currently returns so the user
+    // can add configurations when new models ship. The value is never read
+    // when sending — configurations drive model selection.
     var sel = document.getElementById('anthropic-model');
     if (!sel) return;
-    var cur = sel.value;
     var opts = '';
     if (!anthropicModels || anthropicModels.length === 0) {
         opts = '<option value="">(no models — check API key)</option>';
     } else {
-        opts = '<option value="">(Select Model)</option>' + anthropicModels.map(function(m) {
+        opts = '<option value="">(' + anthropicModels.length + ' models available)</option>' + anthropicModels.map(function(m) {
             var label = m.display_name ? (m.display_name + ' (' + m.id + ')') : m.id;
             return '<option value="' + m.id + '">' + label + '</option>';
         }).join('');
     }
     sel.innerHTML = opts;
-    // Restore priority: 1) saved draft model, 2) previously selected model
-    // if still valid, 3) configuration's default model.
-    var pending = window._pendingAnthropicModel || '';
-    var target = pending || cur;
-    if (target && anthropicModels && anthropicModels.some(function(m) { return m.id === target; })) {
-        sel.value = target;
-        window._pendingAnthropicModel = '';
-    } else if (anthropicModels && anthropicModels.length > 0) {
-        // Pre-select the model from the active configuration (or the default
-        // configuration when none is selected). Per spec §11.1.
-        var cfgSel = document.getElementById('anthropic-config');
-        var cfgId = cfgSel ? cfgSel.value : '';
-        var activeCfg = (anthropicConfigurations || []).find(function(c) { return c.id === cfgId; })
-            || (anthropicConfigurations || []).find(function(c) { return c.isDefault; })
-            || (anthropicConfigurations || [])[0];
-        if (activeCfg && activeCfg.model && anthropicModels.some(function(m) { return m.id === activeCfg.model; })) {
-            sel.value = activeCfg.model;
-        }
-    }
     updateAnthropicSendButton();
 }
 
@@ -3718,9 +3701,11 @@ function updateClaudeCliDot() {
 function updateAnthropicSendButton() {
     var btn = document.getElementById('anthropic-send-btn');
     if (!btn) return;
-    var modelSel = document.getElementById('anthropic-model');
-    var hasModel = modelSel && modelSel.value;
-    btn.disabled = !!(anthropicSending || !hasModel || !anthropicApiKeyOk);
+    // The Model dropdown is informational only — the active configuration
+    // is the source of truth for what actually gets sent.
+    var cfgSel = document.getElementById('anthropic-config');
+    var hasConfig = cfgSel && cfgSel.value;
+    btn.disabled = !!(anthropicSending || !hasConfig || !anthropicApiKeyOk);
 }
 
 function setAnthropicStatus(text) {
@@ -3729,12 +3714,13 @@ function setAnthropicStatus(text) {
 }
 
 function buildAnthropicStatusLine(historyMode) {
-    var modelEl = document.getElementById('anthropic-model');
-    var modelName = modelEl ? modelEl.value : '';
+    // Show the configuration's model, since the Model dropdown is no longer
+    // the source of truth.
+    var cfgSel = document.getElementById('anthropic-config');
+    var cfgId = cfgSel ? cfgSel.value : '';
+    var cfg = (anthropicConfigurations || []).find(function(c) { return c.id === cfgId; });
+    var modelName = cfg && cfg.model ? cfg.model : '';
     if (!historyMode) {
-        var cfgSel = document.getElementById('anthropic-config');
-        var cfgId = cfgSel ? cfgSel.value : '';
-        var cfg = (anthropicConfigurations || []).find(function(c) { return c.id === cfgId; });
         historyMode = cfg && cfg.historyMode ? cfg.historyMode : '';
     }
     var parts = [];
@@ -4068,11 +4054,7 @@ window.addEventListener('message', function(e) {
             if (anthrTa) { anthrTa.value = getSlotText('anthropic', anthrSectionState.activeSlot) || da.text || ''; }
             var anthrProfile = document.getElementById('anthropic-profile');
             if (anthrProfile && da.profile) { anthrProfile.value = da.profile; }
-            // Model is populated asynchronously from the API, so we stash
-            // the saved value and re-apply it once the model list arrives.
-            // For immediately-available dropdowns (config, userMessage) we
-            // can set them straight away.
-            if (da.model) { window._pendingAnthropicModel = da.model; }
+            // (Model dropdown is informational only — no value to restore.)
             var anthrConfig = document.getElementById('anthropic-config');
             if (anthrConfig && da.config) { anthrConfig.value = da.config; }
             var anthrUserMsg = document.getElementById('anthropic-userMessage');
@@ -4307,13 +4289,11 @@ function saveDrafts() {
         var anthrSectionState = ensureSlotState('anthropic');
         if (anthrTa) { setSlotText('anthropic', anthrSectionState.activeSlot, anthrTa.value || ''); }
         var anthrProfile = document.getElementById('anthropic-profile');
-        var anthrModel = document.getElementById('anthropic-model');
         var anthrConfig = document.getElementById('anthropic-config');
         var anthrUserMsg = document.getElementById('anthropic-userMessage');
         drafts['anthropic'] = {
             text: anthrTa ? anthrTa.value : '',
             profile: anthrProfile ? anthrProfile.value : '',
-            model: anthrModel ? anthrModel.value : '',
             config: anthrConfig ? anthrConfig.value : '',
             userMessageTemplate: anthrUserMsg ? anthrUserMsg.value : '',
             activeSlot: anthrSectionState.activeSlot,
@@ -4331,7 +4311,7 @@ function saveDrafts() {
     var el = document.getElementById(id);
     if (el) el.addEventListener('change', saveDrafts);
 });
-['localLlm-llmConfig', 'conversation-aiSetup', 'anthropic-model', 'anthropic-config', 'anthropic-userMessage'].forEach(function(id) {
+['localLlm-llmConfig', 'conversation-aiSetup', 'anthropic-config', 'anthropic-userMessage'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.addEventListener('change', saveDrafts);
 });

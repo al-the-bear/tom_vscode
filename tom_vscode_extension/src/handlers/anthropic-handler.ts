@@ -146,6 +146,19 @@ export interface AnthropicSendOptions {
 export const ANTHROPIC_SUBSYSTEM = { type: 'anthropic' as const } satisfies import('../services/trailService').TrailSubsystem;
 
 /**
+ * Decide whether to send a `temperature` parameter to the API. Omit it when
+ * it is undefined OR equal to the server default (1.0). Some newer models
+ * (e.g. claude-opus-4-7) return 400 "Temperature is deprecated for this
+ * model" if it is sent at all — and the server default already matches
+ * what callers get when omitting, so this is safe across every model. Any
+ * explicit non-1 value (e.g. 0.3, 0.5) is forwarded unchanged.
+ */
+export function temperatureField(temperature: number | undefined): { temperature?: number } {
+    if (typeof temperature !== 'number' || temperature === 1) { return {}; }
+    return { temperature };
+}
+
+/**
  * Extension tools that duplicate Claude Code's built-in preset. When a
  * profile opts into `useBuiltInTools`, we suppress these so the agent sees
  * only the SDK's native versions (same capability, single source of truth).
@@ -368,7 +381,7 @@ export class AnthropicHandler {
         const response = await client.messages.create({
             model: params.model,
             max_tokens: params.maxTokens ?? 2048,
-            ...(params.temperature !== undefined ? { temperature: params.temperature } : {}),
+            ...temperatureField(params.temperature),
             ...(params.systemPrompt ? { system: params.systemPrompt } : {}),
             messages: [{ role: 'user', content: params.userPrompt }],
         });
@@ -550,7 +563,7 @@ export class AnthropicHandler {
             const response = await client.messages.create({
                 model: configuration.model,
                 max_tokens: configuration.maxTokens,
-                ...(configuration.temperature !== undefined ? { temperature: configuration.temperature } : {}),
+                ...temperatureField(configuration.temperature),
                 ...(thinkingBlock ? { thinking: thinkingBlock } : {}),
                 system: systemParam,
                 ...(anthropicTools.length > 0 ? { tools: anthropicTools } : {}),
