@@ -170,7 +170,7 @@ export interface SendToChatConfig {
             thinkingEnabled?: boolean;
             thinkingBudgetTokens?: number;
             promptCachingEnabled?: boolean;
-            toolApprovalMode?: 'always' | 'session' | 'never';
+            toolApprovalMode?: 'always' | 'never';
             useBuiltInTools?: boolean;
             isDefault?: boolean;
         }>;

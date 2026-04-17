@@ -105,7 +105,7 @@ Two-tier memory (`_ai/memory/shared/` + `_ai/memory/{quest}/`) is exposed via fi
 }
 ```
 
-Memory writes are subject to the approval gate (§8.1) unless the active profile's `toolApprovalMode` is set to `session` or `never`.
+Memory writes are subject to the approval gate (§8.1) unless the active profile's `toolApprovalMode` is set to `never` (or the user elevates the call at the approval bar via "Allow All (session)").
 
 ## 5. The four template categories
 

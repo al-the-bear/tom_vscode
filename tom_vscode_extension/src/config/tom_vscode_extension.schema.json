@@ -261,9 +261,9 @@
                 },
                 "toolApprovalMode": {
                     "type": "string",
-                    "enum": ["always", "session", "never"],
+                    "enum": ["always", "never"],
                     "default": "always",
-                    "description": "Approval policy for write tool calls. 'always' prompts every time, 'session' prompts once per tool per session, 'never' skips the approval gate entirely (dangerous). On the Agent SDK transport, 'never' also forces permissionMode=bypassPermissions."
+                    "description": "Approval gate for write tool calls. 'always' shows the approval bar before every write tool (the user can elevate a single approval to the full session via the 'Allow All (session)' button at the bar). 'never' skips the gate entirely (dangerous); on the Agent SDK transport it also forces permissionMode=bypassPermissions."
                 },
                 "useBuiltInTools": {
                     "type": "boolean",

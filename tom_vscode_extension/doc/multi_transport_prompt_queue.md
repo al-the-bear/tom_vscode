@@ -369,7 +369,7 @@ Rough effort: **3–4 days** end-to-end. The template editor per-transport branc
 - [ ] Per-item Advanced section lets me override transport for one item.
 - [ ] Reminder + answerWait fields are visibly disabled for direct-transport items.
 - [ ] Selecting Anthropic or Local LLM transport shows the auto-approve-all warning.
-- [ ] Queue-dispatched Anthropic items run with `toolApprovalMode = 'never'` even when the profile stores `'always'` or `'session'` — verified by a tool call that would otherwise prompt.
+- [ ] Queue-dispatched Anthropic items run with `toolApprovalMode = 'never'` even when the profile stores `'always'` — verified by a tool call that would otherwise prompt.
 - [ ] "Add to Queue" + "Open Queue Editor" buttons exist on queue-compatible chat panels (Copilot, Anthropic, Local LLM, Tom AI Chat). AI Conversation panel does **not** have these buttons.
 - [ ] Each chat panel's "Add to Queue" button stages an item with the **correct transport** and target-ids read from that panel's own dropdowns (not the queue's default).
 - [ ] A queue item with `transport: 'tomAiChat'` fires the VS Code LM API, stores the text, and advances without polling.

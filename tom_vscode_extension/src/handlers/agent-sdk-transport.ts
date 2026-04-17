@@ -162,11 +162,12 @@ export interface AgentSdkSendParams {
     /** Handler-level injected context. */
     context: AgentSdkTransportContext;
     /**
-     * Profile-level approval policy. `never` skips the approval gate and
-     * forces the SDK permissionMode to `bypassPermissions`. Defaults to
-     * `always` when absent.
+     * Profile-level approval gate. `never` skips the gate and forces the
+     * SDK permissionMode to `bypassPermissions`. Session-wide elevation of
+     * a single call is offered at the approval bar, not configured here.
+     * Defaults to `always`.
      */
-    toolApprovalMode?: 'always' | 'session' | 'never';
+    toolApprovalMode?: 'always' | 'never';
     /** Profile-level override: enable Claude Code's built-in tool preset (Read, Write, Bash, …). */
     useBuiltInTools?: boolean;
     /** Profile-level override: extended thinking budget (tokens). Forwarded to the SDK. */
@@ -326,7 +327,7 @@ function stripMcpPrefix(toolName: string): string {
 function makeCanUseTool(
     tools: SharedToolDefinition[],
     ctx: AgentSdkTransportContext,
-    approvalMode: 'always' | 'session' | 'never' = 'always',
+    approvalMode: 'always' | 'never' = 'always',
 ): CanUseTool {
     return async (toolName, input): Promise<PermissionResult> => {
         const bare = stripMcpPrefix(toolName);
@@ -357,9 +358,9 @@ function makeCanUseTool(
                 message: `Tool "${bare}" was denied by the user.`,
             };
         }
-        if (approvalMode === 'session') {
-            ctx.sessionApprovals.add(bare);
-        }
+        // Session-wide elevation is handled at the approval bar via the
+        // handler's handleApprovalResponse + this.sessionApprovals set;
+        // no action needed here.
         return { behavior: 'allow', updatedInput: input };
     };
 }

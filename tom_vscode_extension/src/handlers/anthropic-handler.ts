@@ -101,13 +101,13 @@ export interface AnthropicProfile {
     /** Prompt caching — overrides configuration.promptCachingEnabled. Default true at profile level. */
     promptCachingEnabled?: boolean;
     /**
-     * Approval policy for write tool calls. `always` prompts every time,
-     * `session` prompts once per tool per session, `never` skips approval
-     * entirely. Defaults to `always` when absent. Lives on the profile
-     * (which captures persona + behavior), not the configuration (which
-     * is API capacity).
+     * Approval gate for write tool calls. `always` shows the approval bar
+     * for every write call (the user can elevate that single call to a
+     * session-wide allow by clicking "Allow All (session)" at the bar).
+     * `never` skips the gate entirely. Defaults to `always`. Lives on the
+     * profile (persona + behavior), not the configuration (API capacity).
      */
-    toolApprovalMode?: 'always' | 'session' | 'never';
+    toolApprovalMode?: 'always' | 'never';
     /**
      * Agent SDK path only — enable the built-in Claude Code tool preset
      * (Read, Write, Edit, Glob, Grep, Bash, WebFetch, etc.) and suppress
@@ -755,9 +755,9 @@ export class AnthropicHandler {
                     content: `Tool "${block.name}" was denied by the user.`,
                 };
             }
-            if (approvalMode === 'session') {
-                this.sessionApprovals.add(block.name);
-            }
+            // Session-wide elevation is handled at the approval bar —
+            // handleApprovalResponse adds the tool to sessionApprovals
+            // when the user clicks "Allow All (session)".
         }
 
         TrailService.instance.writeRawToolRequest(

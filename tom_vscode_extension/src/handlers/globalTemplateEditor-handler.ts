@@ -368,10 +368,10 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                 thinkingEnabled?: boolean;
                 thinkingBudgetTokens?: number;
                 promptCachingEnabled?: boolean;
-                toolApprovalMode?: 'always' | 'session' | 'never';
+                toolApprovalMode?: 'always' | 'never';
                 useBuiltInTools?: boolean;
             };
-            const approvalMode: 'always' | 'session' | 'never' = p.toolApprovalMode ?? 'always';
+            const approvalMode: 'always' | 'never' = p.toolApprovalMode === 'never' ? 'never' : 'always';
             const promptCachingDefaultOn = p.promptCachingEnabled !== false;
             fields.push(
                 { name: 'id', label: 'ID', type: 'text', value: profile.id, readonly: true },
@@ -384,7 +384,7 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                 { name: 'thinkingEnabled', label: 'Extended Thinking', type: 'checkbox', value: String(p.thinkingEnabled === true), help: 'Enable Claude extended thinking. Sends <code>thinking: { type: "enabled", budget_tokens }</code> on the direct SDK; forwarded to the Agent SDK where supported.' },
                 { name: 'thinkingBudgetTokens', label: 'Thinking Budget (tokens)', type: 'number', value: String(p.thinkingBudgetTokens ?? 8192), help: 'Token budget for extended thinking. Minimum 1024. Ignored when Extended Thinking is off.', disabledWhen: { field: 'thinkingEnabled', equals: 'false' } },
                 { name: 'promptCachingEnabled', label: 'Prompt Caching', type: 'checkbox', value: String(promptCachingDefaultOn), help: 'Enable prompt caching for this profile. Overrides <code>configuration.promptCachingEnabled</code>. Defaults to on.' },
-                { name: 'toolApprovalMode', label: 'Tool Approval', type: 'select', value: approvalMode, options: [{ value: 'always', label: 'Always — prompt before every write tool call' }, { value: 'session', label: 'Session — prompt once per tool per session' }, { value: 'never', label: 'Never — skip the approval gate (dangerous)' }], help: 'When and how the user is prompted before the model runs a write tool. <strong>Never</strong> on the Agent SDK also forces <code>permissionMode=bypassPermissions</code>.' },
+                { name: 'toolApprovalMode', label: 'Tool Approval', type: 'select', value: approvalMode, options: [{ value: 'always', label: 'Always — prompt before every write tool call' }, { value: 'never', label: 'Never — skip the approval gate (dangerous)' }], help: 'Approval gate for write tool calls. <strong>Always</strong> shows the approval bar; the user can elevate a single approval to the full session via the "Allow All (session)" button at the bar. <strong>Never</strong> skips the gate entirely (on the Agent SDK it also forces <code>permissionMode=bypassPermissions</code>).' },
                 { name: 'useBuiltInTools', label: 'Use Built-In Agent SDK Tools', type: 'checkbox', value: String(p.useBuiltInTools === true), help: 'Agent SDK transport only: expose Claude Code\'s built-in tool preset (Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch, TodoWrite, …) and automatically suppress extension tools that duplicate them. No effect on the direct Anthropic SDK.' },
                 { name: 'maxRounds', label: 'Max Rounds', type: 'number', value: String(profile.maxRounds ?? '') },
                 { name: 'historyMode', label: 'History Mode', type: 'text', value: profile.historyMode ?? '', help: 'one of: none, full, last, summary, trim_and_summary, llm_extract — leave empty to inherit from configuration' },
@@ -666,9 +666,7 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
             const thinkingEnabled = values.thinkingEnabled === 'true';
             const thinkingBudgetTokens = values.thinkingBudgetTokens ? parseInt(values.thinkingBudgetTokens, 10) : undefined;
             const promptCachingEnabled = values.promptCachingEnabled !== 'false'; // default on
-            const rawApprovalMode = values.toolApprovalMode;
-            const toolApprovalMode: 'always' | 'session' | 'never' =
-                rawApprovalMode === 'never' || rawApprovalMode === 'session' ? rawApprovalMode : 'always';
+            const toolApprovalMode: 'always' | 'never' = values.toolApprovalMode === 'never' ? 'never' : 'always';
             const useBuiltInTools = values.useBuiltInTools === 'true';
             const next = {
                 id: itemId,
