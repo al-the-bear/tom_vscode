@@ -6,7 +6,9 @@ Today the prompt queue only routes to **Copilot Chat**. Prompts are wrapped with
 
 - **Anthropic** (Agent SDK or direct) — call `AnthropicHandler.sendMessage()` and capture the returned text synchronously.
 - **Local LLM (Ollama)** — call `localLlmManager.ollamaGenerateWithTools()` the same way.
-- **AI Conversation (VS Code LM)** — future; same pattern.
+- **Tom AI Chat (VS Code LM API)** — call the VS Code language model API for direct LLM conversation.
+
+**Note:** The CHAT panel has five sections: Anthropic, Tom AI Chat, AI Conversation, Copilot, and Local LLM. The **AI Conversation** panel is for bot-to-bot orchestrated exchanges between two models — it manages its own multi-turn flow programmatically and is **not** a queue target.
 
 Each transport writes its **own trail** already (Anthropic via `TrailService.writeSummaryPrompt/Answer` with `ANTHROPIC_SUBSYSTEM` at [anthropic-handler.ts:585](tom_vscode_extension/src/handlers/anthropic-handler.ts#L585); Local LLM via `logPrompt`/`logResponse` with `trailType='local'` at [localLlm-handler.ts:1038](tom_vscode_extension/src/handlers/localLlm-handler.ts#L1038)), so the queue does not need synthetic answer files — responses flow directly into the queue's state machine and the handler owns logging.
 
@@ -24,7 +26,7 @@ Parallel execution across transports is explicitly **not a goal** — a single o
    - **`expectedRequestId`** — not extracted.
    - **Polling loop** — skipped.
 5. **Queue-level default + per-item override.** The queue editor has dropdowns at the top selecting the default transport (+ profile/config as appropriate). Each item's add/edit form has a collapsible "Advanced" section to override just for that item.
-6. **Chat-panel buttons for all transports.** Every chat panel (copilot, anthropic, localLlm, aiConversation) gets the same two action-bar buttons the copilot panel has today — "Add to Queue" and "Open Queue Editor" — pre-wired to set the right transport metadata when staging.
+6. **Chat-panel buttons for queue-compatible transports.** Every queue-compatible chat panel (Copilot, Anthropic, Local LLM, Tom AI Chat) gets the same two action-bar buttons — "Add to Queue" and "Open Queue Editor" — pre-wired to set the right transport metadata when staging. The AI Conversation panel does not get these buttons (it orchestrates bot-to-bot exchanges, not user-initiated prompts).
 7. **Queue-dispatched direct items always force auto-approve-all.** Queue execution is unattended — if a tool call triggers the approval bar, the queue deadlocks. For `anthropic` and `localLlm` transports the dispatcher sets `autoApproveAll = true` unconditionally, regardless of the profile's configured value. This is the "everything else is unusable" constraint: without it the queue can't run a multi-step Anthropic item that uses any approval-gated tool. The UI must make this explicit (see §4.7) so the user knows queue runs have weaker safety than interactive chat.
 
 ## 3. Current state reference
@@ -49,10 +51,11 @@ Parallel execution across transports is explicitly **not a goal** — a single o
 Add to `QueuedPrompt`, `QueuedPrePrompt`, `QueuedFollowUpPrompt`:
 
 ```ts
-transport?: 'copilot' | 'anthropic' | 'localLlm';   // default 'copilot'
+transport?: 'copilot' | 'anthropic' | 'localLlm' | 'tomAiChat';   // default 'copilot'
 anthropicProfileId?: string;
 anthropicConfigId?: string;
 localLlmConfigId?: string;
+tomAiChatConfigId?: string;
 answerText?: string;        // captured direct response (not written by Copilot path)
 ```
 
@@ -88,9 +91,14 @@ if (transport === 'anthropic') {
   });
   return { mode: 'direct', answerText: result.text };
 }
-// localLlm
-const opts = resolveLocalLlmTargets(item, stage);
-const result = await localLlmManager.ollamaGenerateWithTools(opts, expandedText);
+if (transport === 'localLlm') {
+  const opts = resolveLocalLlmTargets(item, stage);
+  const result = await localLlmManager.ollamaGenerateWithTools(opts, expandedText);
+  return { mode: 'direct', answerText: result.text };
+}
+// tomAiChat (VS Code LM API)
+const opts = resolveTomAiChatTargets(item, stage);
+const result = await tomAiChatManager.sendMessage(opts, expandedText);
 return { mode: 'direct', answerText: result.text };
 ```
 
@@ -183,12 +191,12 @@ Today only the Copilot section has the queue buttons ([line 3099–3100](tom_vsc
 
 **Changes:**
 
-1. Add the same two buttons to the **Anthropic**, **Local LLM**, and **AI Conversation** sections. Each keeps its `data-id` distinct (`"anthropic"`, `"localLlm"`, `"aiConversation"`).
+1. Add the same two buttons to the **Anthropic**, **Local LLM**, and **Tom AI Chat** sections. Each keeps its `data-id` distinct (`"anthropic"`, `"localLlm"`, `"tomAiChat"`). The **AI Conversation** section does **not** get queue buttons — it orchestrates bot-to-bot exchanges, not user-initiated prompts.
 2. In the `addToQueue` handler (currently `addCopilotToQueue()` at [line 3447](tom_vscode_extension/src/handlers/chatPanel-handler.ts#L3447)), dispatch by `data-id`:
    - `copilot` → current behaviour.
    - `anthropic` → post `{ type: 'addToQueue', transport: 'anthropic', text, anthropicProfileId, anthropicConfigId, … }`. The backend's queue-add router resolves the profile/config from the section's dropdowns.
    - `localLlm` → analogous with `localLlmConfigId`.
-   - `aiConversation` → once AI Conversation gets direct-transport support.
+   - `tomAiChat` → analogous with `tomAiChatConfigId`.
 3. `openQueueEditor` is unchanged — it opens the same queue editor regardless of which panel's button was clicked.
 
 ### 4.9 Tool surface — `chat-enhancement-tools.ts`
@@ -205,10 +213,11 @@ Extend the input schemas of:
 with the four new fields:
 
 ```ts
-transport?: 'copilot' | 'anthropic' | 'localLlm';
+transport?: 'copilot' | 'anthropic' | 'localLlm' | 'tomAiChat';
 anthropicProfileId?: string;
 anthropicConfigId?: string;
 localLlmConfigId?: string;
+tomAiChatConfigId?: string;
 ```
 
 The executors forward these to the manager unchanged. Defaults mirror the data model (undefined = inherit).
@@ -239,7 +248,7 @@ Queue state is persisted to `_ai/local/*.prompt-panel.yaml`. The new fields are 
 4. **Direct-transport execution** — wire the Anthropic and Local LLM branches through. Exercise with a hand-crafted item in each transport.
 5. **Tool-input extensions** — expose the four new fields in the six queue tools.
 6. **Queue editor UI** — queue-level dropdowns + per-item Advanced section. Share the `renderTransportTargetPickers()` helper with the chat panel.
-7. **Chat-panel buttons** — add the two buttons to anthropic / localLlm / aiConversation sections. Dispatch by `data-id`.
+7. **Chat-panel buttons** — add the two buttons to Anthropic / Local LLM / Tom AI Chat sections. Dispatch by `data-id`. (AI Conversation is excluded — it's for bot-to-bot orchestration.)
 8. **Documentation** — update `llm_tools.md` §4.20, `copilot_chat_integration.md` if it exists, and this doc's "current state" once implemented.
 
 Rough effort: **2–3 days** end-to-end, depending on how much polish the per-stage override UI gets.
@@ -248,7 +257,7 @@ Rough effort: **2–3 days** end-to-end, depending on how much polish the per-st
 
 - Parallel execution across transports (explicitly not needed).
 - Cross-transport abstraction as a shared `ChatTransport` interface — a local dispatcher is simpler and has no reuse target beyond the queue.
-- AI Conversation transport — the plumbing mirrors Anthropic/Local LLM (same `sendMessage`-style entry point via `vscode.lm.*`) but the chat panel integration is different enough to split into a follow-up.
+- **AI Conversation panel** — bot-to-bot orchestration, manages its own multi-turn flow. The queue does not drive it; the AI Conversation panel does not get queue buttons.
 - Streaming responses — current transports return the full text once done; no stream events are propagated to the queue. If needed later, add a `onChunk` callback to the dispatcher without changing the overall shape.
 - UI for viewing the direct-response trail from inside the queue editor — the existing trail viewer already covers this.
 
@@ -262,7 +271,8 @@ Rough effort: **2–3 days** end-to-end, depending on how much polish the per-st
 - [ ] Reminder + answerWait fields are visibly disabled for direct-transport items.
 - [ ] Selecting Anthropic or Local LLM transport shows the auto-approve-all warning.
 - [ ] Queue-dispatched Anthropic items run with `autoApproveAll = true` even when the profile stores `false` — verified by a tool call that would otherwise prompt.
-- [ ] "Add to Queue" + "Open Queue Editor" buttons exist on every chat panel (copilot, anthropic, localLlm, aiConversation).
+- [ ] "Add to Queue" + "Open Queue Editor" buttons exist on queue-compatible chat panels (Copilot, Anthropic, Local LLM, Tom AI Chat). AI Conversation panel does **not** have these buttons.
+- [ ] A queue item with `transport: 'tomAiChat'` fires the VS Code LM API, stores the text, and advances without polling.
 - [ ] `tomAi_queue_add` and siblings accept the four new fields.
 - [ ] Anthropic and Local LLM trail files contain entries for queue-dispatched prompts (verified by the transport's own logging).
 - [ ] A queue item with a stale/invalid `anthropicProfileId` surfaces a clear error.
