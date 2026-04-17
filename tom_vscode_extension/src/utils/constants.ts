@@ -44,8 +44,7 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_fetchWebpage',
     'tomAi_webSearch',
     'tomAi_getErrors',
-    'tomAi_readLocalGuideline',
-    'tomAi_readGuideline',
+    // Guidelines — global + project
     // Ask-AI tools
     'tomAi_askBigBrother',
     'tomAi_askCopilot',
@@ -82,9 +81,13 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_gotoDefinition',
     'tomAi_findReferences',
     'tomAi_getCodeActions',
-    // Guidelines
-    'tomAi_listGuidelines',
-    'tomAi_searchGuidelines',
+    // Guidelines — global + project (scope applies at each tool)
+    'tomAi_readGlobalGuideline',
+    'tomAi_listGlobalGuidelines',
+    'tomAi_searchGlobalGuidelines',
+    'tomAi_readProjectGuideline',
+    'tomAi_listProjectGuidelines',
+    'tomAi_searchProjectGuidelines',
     // VS Code commands and navigation
     'tomAi_openFile',
     'tomAi_listCommands',

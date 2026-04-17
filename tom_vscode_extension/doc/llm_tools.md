@@ -131,12 +131,21 @@ Each table lists every tool in the family with a per-transport default.
 
 ### 4.10 Guidelines and pattern prompts
 
+Guidelines split into two scopes:
+
+- **Global** — workspace-root `_copilot_guidelines/` (recursive).
+- **Project** — `{projectPath}/_copilot_guidelines/` inside each project folder (recursive). Discover projectPath values via `tomAi_listProjects`.
+
+The legacy `_copilot_tomai/` and `_copilot_local/` folders are no longer supported.
+
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
 | --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_readGuideline` | Read a file in `_copilot_tomai/`. | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_readLocalGuideline` | Read a file in `_copilot_local/`. | ⚪ | ⚪ | ✅ | ⚪ | ⚪ |
-| `tomAi_listGuidelines` | List `_copilot_guidelines/*.md` recursively. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_searchGuidelines` | Grep inside `_copilot_guidelines/`. | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_readGlobalGuideline` | Read a single global guideline (workspace root `_copilot_guidelines/`). | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_listGlobalGuidelines` | List all global guidelines recursively. | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_searchGlobalGuidelines` | Grep inside global `_copilot_guidelines/`. | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_readProjectGuideline` | Read a single project guideline. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_listProjectGuidelines` | List a project's guidelines recursively. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_searchProjectGuidelines` | Grep inside one project's `_copilot_guidelines/`. | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_listPatternPrompts` | List workspace `!<name>` pattern prompts. | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_readPatternPrompt` | Read a `!<name>` prompt body. | ✅ | ✅ | ✅ | ✅ | ✅ |
 

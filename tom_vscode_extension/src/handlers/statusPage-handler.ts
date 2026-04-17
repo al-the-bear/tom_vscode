@@ -3442,7 +3442,7 @@ function addLlmConfiguration() {
         logFolder: '',
         historyMode: 'trim_and_summary',
         keepAlive: '5m',
-        enabledTools: ['tomAi_readFile', 'tomAi_listDirectory', 'tomAi_findFiles', 'tomAi_findTextInFiles', 'tomAi_fetchWebpage', 'tomAi_webSearch', 'tomAi_getErrors', 'tomAi_readLocalGuideline', 'tomAi_askBigBrother', 'tomAi_askCopilot']
+        enabledTools: ['tomAi_readFile', 'tomAi_listDirectory', 'tomAi_findFiles', 'tomAi_findTextInFiles', 'tomAi_fetchWebpage', 'tomAi_webSearch', 'tomAi_getErrors', 'tomAi_readGlobalGuideline', 'tomAi_listGlobalGuidelines', 'tomAi_askBigBrother', 'tomAi_askCopilot']
     };
     __llmConfigs.push(cfg);
     renderLlmConfigurations();

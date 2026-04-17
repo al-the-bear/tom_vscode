@@ -392,8 +392,8 @@ export const GET_ERRORS_TOOL: SharedToolDefinition<GetErrorsInput> = {
     execute: executeGetErrors,
 };
 
-// Guideline tools (tomAi_readGuideline, tomAi_readLocalGuideline,
-// tomAi_listGuidelines, tomAi_searchGuidelines) + initializeToolDescriptions()
+// Guideline tools — global (`_copilot_guidelines/`) + project
+// (`{project}/_copilot_guidelines/`) — plus initializeToolDescriptions()
 // live in `./guideline-tools.ts`.
 
 // ============================================================================

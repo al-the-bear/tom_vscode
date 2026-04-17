@@ -177,8 +177,12 @@ export function formatToolSummary(
         case 'tomAi_getIssue':
         case 'tomAi_getTest':
             return `${name.slice('tomAi_'.length)}(${i.repoId} #${i.issueNumber})${result ? arrow + truncate(result, 120) : ''}${failedTag}`;
-        case 'tomAi_listGuidelines':
-        case 'tomAi_searchGuidelines':
+        case 'tomAi_readGlobalGuideline':
+        case 'tomAi_listGlobalGuidelines':
+        case 'tomAi_searchGlobalGuidelines':
+        case 'tomAi_readProjectGuideline':
+        case 'tomAi_listProjectGuidelines':
+        case 'tomAi_searchProjectGuidelines':
         case 'tomAi_listPatternPrompts':
         case 'tomAi_readPatternPrompt':
             return `${name.slice('tomAi_'.length)}(${safeJson(i, 80)})${result ? arrow + truncate(result, 120) : ''}${failedTag}`;
