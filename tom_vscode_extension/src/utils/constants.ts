@@ -108,4 +108,12 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_spawnSubagent',
     'tomAi_notebookEdit',
     'tomAi_notebookRun',
+    // Pattern prompts
+    'tomAi_listPatternPrompts',
+    'tomAi_readPatternPrompt',
+    // Issues / testkit panel
+    'tomAi_listIssueRepos',
+    'tomAi_listIssues',
+    'tomAi_getIssue',
+    'tomAi_listIssueComments',
 ] as const;

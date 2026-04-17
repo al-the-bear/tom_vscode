@@ -1758,6 +1758,8 @@ import { WAVE_A_TOOLS } from './workspace-awareness-tools';
 import { WAVE_B_TOOLS } from './ide-navigation-tools';
 import { WAVE_C_TOOLS } from './ide-execution-tools';
 import { WAVE_D_TOOLS } from './advanced-agent-tools';
+import { PATTERN_PROMPTS_TOOLS } from './pattern-prompts-tools';
+import { ISSUE_TOOLS } from './issue-tools';
 
 /** All shared tool definitions (registered with VS Code LM API). */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1803,6 +1805,9 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
     ...WAVE_C_TOOLS,
     // Wave D — notebook + advanced agent ops (llm_tools.md §6.3)
     ...WAVE_D_TOOLS,
+    // Pattern prompts + Issue/Testkit panel tools
+    ...PATTERN_PROMPTS_TOOLS,
+    ...ISSUE_TOOLS,
 ];
 
 /**
