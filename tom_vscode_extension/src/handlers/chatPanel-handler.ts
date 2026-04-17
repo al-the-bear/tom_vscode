@@ -25,6 +25,7 @@ import { debugLog } from '../utils/debugLogger';
 import { expandTemplate } from './promptTemplate';
 import { getLocalLlmManager, ensureLocalLlmManager } from './localLlm-handler';
 import { getAiConversationManager } from './aiConversation-handler';
+import { interruptTomAiChatHandler } from './tomAiChat-handler';
 import { getAccordionStyles } from './accordionPanel';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
 import { WsPaths } from '../utils/workspacePaths';
@@ -429,6 +430,12 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     private _lastSentCopilotSlot: number = 1;
     private _currentAnswerSlot: number = 1;
     private _copilotRequestSlotMap: Map<string, number> = new Map();
+    /**
+     * Active cancellation-token sources keyed by section. Created when a send
+     * starts, cancelled from the panel's stop button, disposed on completion.
+     * Only one entry per section (the panels are strictly sequential).
+     */
+    private _activeCts: Map<string, vscode.CancellationTokenSource> = new Map();
 
     constructor(context: vscode.ExtensionContext) {
         this._context = context;
@@ -556,6 +563,9 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         break;
                     case 'sendAnthropic':
                         await this._handleSendAnthropic(message.text, message.profile, message.model, message.config, message.userMessageTemplate);
+                        break;
+                    case 'cancel':
+                        this._handleCancel(String(message.section || ''));
                         break;
                     case 'refreshAnthropicModels':
                         await this._sendAnthropicModels();
@@ -1406,10 +1416,16 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         // Resolve model name for status messages (pass llmConfigKey so it resolves the right model)
         const modelName = manager.getResolvedModelName(llmConfigKey ?? undefined);
         
+        // Register a CTS so the panel's stop button can cancel the turn, not
+        // only the progress notification's X.
+        this._activeCts.get('localLlm')?.dispose();
+        const externalCts = new vscode.CancellationTokenSource();
+        this._activeCts.set('localLlm', externalCts);
+
         try {
             // Check if model needs loading (use the resolved model name)
             const modelLoaded = await manager.checkModelLoaded(modelName);
-            
+
             const result = await vscode.window.withProgress(
                 {
                     location: vscode.ProgressLocation.Notification,
@@ -1417,6 +1433,9 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     cancellable: true,
                 },
                 async (progress, token) => {
+                    // Forward progress-notification cancellation into our external CTS so
+                    // the handler only observes one token (externalCts.token).
+                    token.onCancellationRequested(() => externalCts.cancel());
                     if (!modelLoaded) {
                         // Model is loading as part of generate — update status once process starts
                         // The loading happens at the start of the Ollama call
@@ -1427,12 +1446,12 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                                 clearInterval(checkInterval);
                             }
                         }, 2000);
-                        token.onCancellationRequested(() => clearInterval(checkInterval));
+                        externalCts.token.onCancellationRequested(() => clearInterval(checkInterval));
                     } else {
                         // Model already loaded, go straight to processing
                         progress.report({ message: `Processing prompt with ${modelName}...` });
                     }
-                    return manager.process(expanded, profileKey, llmConfigKey, undefined, token);
+                    return manager.process(expanded, profileKey, llmConfigKey, undefined, externalCts.token);
                 }
             );
             
@@ -1447,6 +1466,11 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         } catch (e) {
             debugLog(`[ChatPanel] Local LLM failed (config=${llmConfigKey}, model=${modelName}): ${e}`, 'ERROR', 'extension');
             vscode.window.showErrorMessage(`Local LLM failed: ${e}`);
+        } finally {
+            if (this._activeCts.get('localLlm') === externalCts) {
+                this._activeCts.delete('localLlm');
+            }
+            externalCts.dispose();
         }
     }
 
@@ -1602,6 +1626,33 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
+    /**
+     * Cancel the in-flight turn on the given section. Each section dispatches
+     * to its own cancellation primitive:
+     *  - anthropic / localLlm → cancel the CTS we created before calling the handler
+     *  - tomAiChat            → interruptTomAiChatHandler() (handler owns its own CTS)
+     *  - conversation         → haltConversation() on the AI conversation manager
+     */
+    private _handleCancel(section: string): void {
+        debugLog(`[ChatPanel] cancel requested for section=${section}`, 'INFO', 'extension');
+        if (section === 'anthropic' || section === 'localLlm') {
+            const cts = this._activeCts.get(section);
+            if (cts) {
+                cts.cancel();
+            }
+            return;
+        }
+        if (section === 'tomAiChat') {
+            interruptTomAiChatHandler();
+            return;
+        }
+        if (section === 'conversation') {
+            const mgr = getAiConversationManager();
+            mgr?.haltConversation('Halted via chat panel stop button');
+            return;
+        }
+    }
+
     private async _handleSendTomAiChat(text: string, template: string): Promise<void> {
         const config = loadSendToChatConfig();
         const templateObj = template && template !== '__none__' ? config?.tomAiChat?.templates?.[template] : null;
@@ -1711,12 +1762,18 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
 
         this._ensureAnthropicApprovalListener();
 
+        // Register a cancellation source so the panel's stop button can abort the turn.
+        this._activeCts.get('anthropic')?.dispose();
+        const cts = new vscode.CancellationTokenSource();
+        this._activeCts.set('anthropic', cts);
+
         try {
             const result = await AnthropicHandler.instance.sendMessage({
                 userText: text,
                 profile,
                 configuration: cfg,
                 tools,
+                cancellationToken: cts.token,
                 ...(userMessageTemplate ? { userMessageTemplate } : {}),
             });
             this._view?.webview.postMessage({
@@ -1730,6 +1787,11 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             const msg = e instanceof Error ? e.message : String(e);
             debugLog(`[ChatPanel] Anthropic send failed: ${msg}`, 'ERROR', 'extension');
             this._view?.webview.postMessage({ type: 'anthropicError', message: msg });
+        } finally {
+            if (this._activeCts.get('anthropic') === cts) {
+                this._activeCts.delete('anthropic');
+            }
+            cts.dispose();
         }
     }
 
@@ -3049,6 +3111,7 @@ function getSectionContent(id) {
             actionButtons:
                 '<button data-action="preview" data-id="localLlm" title="Preview expanded prompt">Preview</button>' +
                 '<button class="primary" data-action="send" data-id="localLlm" title="Send prompt to Local LLM">Send to LLM</button>' +
+                '<button class="icon-btn" data-action="cancel" data-id="localLlm" title="Stop current Local LLM turn"><span class="codicon codicon-debug-stop"></span></button>' +
                 '<button class="icon-btn" data-action="trail" data-id="localLlm" title="Open Trail File"><span class="codicon codicon-list-flat"></span></button>' +
                 '<button class="icon-btn" data-action="clearText" data-id="localLlm" title="Clear text"><span class="codicon codicon-clear-all"></span></button>',
             infoId: 'localLlm-profileInfo',
@@ -3068,6 +3131,7 @@ function getSectionContent(id) {
             actionButtons:
                 '<button data-action="preview" data-id="conversation" title="Preview expanded prompt">Preview</button>' +
                 '<button class="primary" data-action="send" data-id="conversation" title="Start AI Conversation">Start</button>' +
+                '<button class="icon-btn" data-action="cancel" data-id="conversation" title="Halt AI conversation"><span class="codicon codicon-debug-stop"></span></button>' +
                 '<button class="icon-btn" data-action="clearText" data-id="conversation" title="Clear text"><span class="codicon codicon-clear-all"></span></button>' +
                 '<button class="icon-btn" data-action="openConversationTrailViewer" data-id="conversation" title="Open AI conversation trail viewer"><span class="codicon codicon-list-flat"></span></button>' +
                 '<button class="icon-btn" data-action="openConversationMarkdown" data-id="conversation" title="Open latest AI conversation markdown"><span class="codicon codicon-file"></span></button>' +
@@ -3157,6 +3221,7 @@ function getSectionContent(id) {
             actionButtons:
                 '<button data-action="openChatFile" data-id="tomAiChat" title="Open or create .chat.md file">Open</button>' +
                 '<button data-action="preview" data-id="tomAiChat" title="Preview expanded prompt">Preview</button>' +
+                '<button class="icon-btn" data-action="cancel" data-id="tomAiChat" title="Interrupt Tom AI Chat turn"><span class="codicon codicon-debug-stop"></span></button>' +
                 '<button class="primary" data-action="insertToChatFile" data-id="tomAiChat" title="Insert into .chat.md file">Insert</button>' +
                 '<button class="icon-btn" data-action="clearText" data-id="tomAiChat" title="Clear text"><span class="codicon codicon-clear-all"></span></button>',
             infoId: 'tomAiChat-templateInfo',
@@ -3189,6 +3254,7 @@ function getSectionContent(id) {
             actionButtons:
                 '<button data-action="preview" data-id="anthropic" title="Preview expanded prompt">Preview</button>' +
                 '<button class="primary" id="anthropic-send-btn" data-action="send" data-id="anthropic" title="Send to Anthropic">Send to Anthropic</button>' +
+                '<button class="icon-btn" data-action="cancel" data-id="anthropic" title="Stop current Anthropic turn"><span class="codicon codicon-debug-stop"></span></button>' +
                 '<button class="icon-btn" data-action="openTrailRawFiles" data-id="anthropic" title="Open Raw Trail Files Viewer"><span class="codicon codicon-history"></span></button>' +
                 '<button class="icon-btn" data-action="openTrailSummaryViewer" data-id="anthropic" title="Open Trail Summary Viewer"><span class="codicon codicon-list-flat"></span></button>' +
                 '<button class="icon-btn" data-action="openAnthropicMemory" data-id="anthropic" title="Memory Panel"><span class="codicon codicon-book"></span></button>' +
@@ -3446,6 +3512,7 @@ function handleAction(action, id, slot) {
         case 'openContextPopup': openContextPopup(); break;
         case 'closeContextPopup': closeContextPopup(); break;
         case 'applyContext': applyContextPopup(); break;
+        case 'cancel': vscode.postMessage({ type: 'cancel', section: id || '' }); break;
         case 'addToQueue': addCopilotToQueue(); break;
         case 'openQueueEditor': vscode.postMessage({ type: 'openQueueEditor' }); break;
         case 'openTimedRequestsEditor': vscode.postMessage({ type: 'openTimedRequestsEditor' }); break;
@@ -4658,6 +4725,9 @@ function saveDrafts() {
                 }
                 case 'trail':
                     vscode.postMessage({ type: 'showTrail', section: id });
+                    break;
+                case 'cancel':
+                    vscode.postMessage({ type: 'cancel', section: id });
                     break;
                 case 'reload':
                     vscode.postMessage({ type: 'reload', section: id });
