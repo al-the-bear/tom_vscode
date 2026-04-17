@@ -25,16 +25,9 @@ A configuration bundles a model id, token limits, history mode, tool set, and ap
       "model": "claude-sonnet-4-6",
       "maxTokens": 8192,
       "temperature": 0.5,
-      "enabledTools": [
-        "tomAi_readFile", "tomAi_listDirectory", "tomAi_findFiles",
-        "tomAi_findTextInFiles", "tomAi_getErrors",
-        "tomAi_chatvar_read",
-        "tomAi_memory_read", "tomAi_memory_list"
-      ],
       "memoryToolsEnabled": false,
       "historyMode": "last",
       "maxRounds": 20,
-      "toolApprovalMode": "always",
       "promptCachingEnabled": false,
       "isDefault": true
     }
@@ -112,7 +105,7 @@ Two-tier memory (`_ai/memory/shared/` + `_ai/memory/{quest}/`) is exposed via fi
 }
 ```
 
-Memory writes are subject to the approval gate (§8.1) unless `toolApprovalMode` is set to `session` or `never`.
+Memory writes are subject to the approval gate (§8.1) unless the active profile's `toolApprovalMode` is set to `session` or `never`.
 
 ## 5. The four template categories
 

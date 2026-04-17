@@ -358,10 +358,9 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
             const profileEnabledTools = Array.isArray((profile as unknown as { enabledTools?: string[] }).enabledTools)
                 ? (profile as unknown as { enabledTools: string[] }).enabledTools
                 : [];
-            // `toolsEnabled` on the stored profile is legacy shorthand for
-            // "allow every tool from the configuration". We map it onto a
-            // clearer `allToolsEnabled` toggle here; when that toggle is
-            // on, the per-tool picker below is disabled.
+            // `toolsEnabled === true` (default) means "all tools"; when the
+            // user unchecks it, the picker below is enabled and its subset
+            // becomes the active set.
             const allToolsEnabled = profile.toolsEnabled !== false && profileEnabledTools.length === 0;
             // Profile-level overrides (default "on" for promptCaching so
             // the field resolves to true when absent).
@@ -370,12 +369,9 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                 thinkingBudgetTokens?: number;
                 promptCachingEnabled?: boolean;
                 toolApprovalMode?: 'always' | 'session' | 'never';
-                autoApproveAll?: boolean;
                 useBuiltInTools?: boolean;
             };
-            // Migration: legacy autoApproveAll=true maps to toolApprovalMode='never'.
-            const approvalMode: 'always' | 'session' | 'never' =
-                p.toolApprovalMode ?? (p.autoApproveAll === true ? 'never' : 'always');
+            const approvalMode: 'always' | 'session' | 'never' = p.toolApprovalMode ?? 'always';
             const promptCachingDefaultOn = p.promptCachingEnabled !== false;
             fields.push(
                 { name: 'id', label: 'ID', type: 'text', value: profile.id, readonly: true },
@@ -698,10 +694,6 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
                 // clear it from disk.
                 if (allToolsEnabled && 'enabledTools' in existing) {
                     delete existing.enabledTools;
-                }
-                // Drop the legacy autoApproveAll field — replaced by toolApprovalMode.
-                if ('autoApproveAll' in existing) {
-                    delete existing.autoApproveAll;
                 }
                 profiles[idx] = { ...existing, ...next };
             } else {
