@@ -61,12 +61,10 @@ export interface AnthropicConfiguration {
     model: string;
     maxTokens: number;
     temperature?: number;
-    enabledTools: string[];
     memoryToolsEnabled?: boolean;
     historyMode?: string;
     maxHistoryTokens?: number;
     maxRounds: number;
-    toolApprovalMode?: 'always' | 'session' | 'never';
     memoryExtractionTemplateId?: string;
     promptCachingEnabled?: boolean;
     /** Spec §18 — backend selector; `'direct'` when omitted. */
@@ -82,7 +80,7 @@ export interface AnthropicConfiguration {
  * the Global Template Editor's `anthropicProfiles` category is the UI.
  *
  * Profile-level overrides (thinkingEnabled, promptCachingEnabled,
- * autoApproveAll, useBuiltInTools) take precedence over the
+ * toolApprovalMode, useBuiltInTools) take precedence over the
  * configuration's settings when provided.
  */
 export interface AnthropicProfile {
@@ -102,8 +100,14 @@ export interface AnthropicProfile {
     thinkingBudgetTokens?: number;
     /** Prompt caching — overrides configuration.promptCachingEnabled. Default true at profile level. */
     promptCachingEnabled?: boolean;
-    /** Skip the approval gate for write tools in this profile (forces `toolApprovalMode = 'never'`). */
-    autoApproveAll?: boolean;
+    /**
+     * Approval policy for write tool calls. `always` prompts every time,
+     * `session` prompts once per tool per session, `never` skips approval
+     * entirely. Defaults to `always` when absent. Lives on the profile
+     * (which captures persona + behavior), not the configuration (which
+     * is API capacity).
+     */
+    toolApprovalMode?: 'always' | 'session' | 'never';
     /**
      * Agent SDK path only — enable the built-in Claude Code tool preset
      * (Read, Write, Edit, Glob, Grep, Bash, WebFetch, etc.) and suppress
@@ -478,7 +482,7 @@ export class AnthropicHandler {
                 systemPrompt,
                 userText: userContent,
                 cancellationToken: options.cancellationToken,
-                autoApproveAll: profile.autoApproveAll === true,
+                toolApprovalMode: profile.toolApprovalMode ?? 'always',
                 useBuiltInTools: profile.useBuiltInTools === true,
                 thinkingBudgetTokens: profile.thinkingEnabled ? (profile.thinkingBudgetTokens ?? 8192) : undefined,
                 context: {
@@ -733,12 +737,9 @@ export class AnthropicHandler {
         // tools (i.e. `!readOnly`). An explicit value overrides the default
         // — e.g. `tomAi_writeChatVariable` opts out because it has its own
         // real-time visibility mechanism (§8.5).
-        // Profile-level `autoApproveAll` forces mode to 'never'.
         const defaultRequiresApproval = def ? !def.readOnly : false;
         const requiresApproval = def?.requiresApproval ?? defaultRequiresApproval;
-        const approvalMode = options.profile.autoApproveAll
-            ? 'never'
-            : (configuration.toolApprovalMode ?? 'always');
+        const approvalMode = options.profile.toolApprovalMode ?? 'always';
         const needsApproval = requiresApproval && approvalMode !== 'never';
         if (needsApproval && !this.sessionApprovals.has(block.name)) {
             const approved = await this.awaitApproval({
@@ -994,7 +995,7 @@ import { ALL_SHARED_TOOLS } from '../tools/tool-executors';
  * `sendMessage()` loop with `isolated: true` so no state (history, session
  * approvals) crosses the sub-agent boundary.
  *
- * The sub-agent always runs with `autoApproveAll = true` because it's
+ * The sub-agent always runs with `toolApprovalMode = 'never'` because it's
  * unattended — the parent conversation can't pause for an approval bar.
  * Callers must therefore constrain the tool set (`enabledTools`) to only
  * trusted capabilities.
@@ -1032,18 +1033,17 @@ export async function spawnAnthropicSubagent(options: {
         ...configuration,
         maxRounds: Math.max(1, options.maxRounds ?? 10),
         ...(typeof options.temperature === 'number' ? { temperature: options.temperature } : {}),
-        // Sub-agents must not prompt — force auto-approve on the configuration too.
-        toolApprovalMode: 'never',
     };
 
-    // Ephemeral profile for the sub-agent.
+    // Ephemeral profile for the sub-agent. Approval is pinned to 'never'
+    // because the parent conversation can't pause for an approval bar.
     const profile: AnthropicProfile = {
         id: '__subagent__',
         name: '__subagent__',
         description: 'Ephemeral sub-agent profile',
         systemPrompt: options.systemPrompt
             ?? 'You are a sub-agent. Complete the requested task using the available tools and return a concise summary. Be direct.',
-        autoApproveAll: true,
+        toolApprovalMode: 'never',
         promptCachingEnabled: false, // no benefit for one-shot runs
     };
 

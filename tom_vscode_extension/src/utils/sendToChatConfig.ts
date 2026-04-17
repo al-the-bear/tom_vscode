@@ -141,12 +141,10 @@ export interface SendToChatConfig {
             model: string;
             maxTokens?: number;
             temperature?: number;
-            enabledTools?: string[];
             memoryToolsEnabled?: boolean;
             historyMode?: string;
             maxHistoryTokens?: number;
             maxRounds?: number;
-            toolApprovalMode?: 'always' | 'session' | 'never';
             memoryExtractionTemplateId?: string;
             promptCachingEnabled?: boolean;
             /** Backend selector — anthropic_sdk_integration.md §18. */
@@ -172,7 +170,7 @@ export interface SendToChatConfig {
             thinkingEnabled?: boolean;
             thinkingBudgetTokens?: number;
             promptCachingEnabled?: boolean;
-            autoApproveAll?: boolean;
+            toolApprovalMode?: 'always' | 'session' | 'never';
             useBuiltInTools?: boolean;
             isDefault?: boolean;
         }>;

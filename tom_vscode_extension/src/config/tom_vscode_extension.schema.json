@@ -172,11 +172,6 @@
                 "model": { "type": "string", "description": "Anthropic model id (e.g. claude-sonnet-4-6)." },
                 "maxTokens": { "type": "integer", "minimum": 1, "default": 8192 },
                 "temperature": { "type": "number", "minimum": 0, "maximum": 2 },
-                "enabledTools": {
-                    "type": "array",
-                    "items": { "type": "string" },
-                    "description": "Tool names exposed to the model for this configuration."
-                },
                 "memoryToolsEnabled": {
                     "type": "boolean",
                     "default": false,
@@ -189,11 +184,6 @@
                 },
                 "maxHistoryTokens": { "type": "integer", "minimum": 0 },
                 "maxRounds": { "type": "integer", "minimum": 1, "default": 10 },
-                "toolApprovalMode": {
-                    "type": "string",
-                    "enum": ["always", "session", "never"],
-                    "default": "always"
-                },
                 "memoryExtractionTemplateId": { "type": "string" },
                 "promptCachingEnabled": {
                     "type": "boolean",
@@ -245,7 +235,7 @@
                 "description": { "type": "string" },
                 "systemPrompt": { "type": ["string", "null"] },
                 "configurationId": { "type": "string", "description": "Default configuration id for this profile." },
-                "toolsEnabled": { "type": "boolean", "description": "If true, expose every tool from the configuration's enabledTools. Uncheck to pick a profile-specific subset via enabledTools below." },
+                "toolsEnabled": { "type": "boolean", "description": "If true (default), expose every tool in ALL_SHARED_TOOLS. Uncheck to pick a profile-specific subset via enabledTools below." },
                 "enabledTools": {
                     "type": "array",
                     "items": { "type": "string" },
@@ -269,10 +259,11 @@
                     "default": true,
                     "description": "Prompt caching for this profile. Overrides configuration.promptCachingEnabled. Default on at the profile level to reduce latency / cost."
                 },
-                "autoApproveAll": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Skip the approval gate for write tools in this profile (forces toolApprovalMode = 'never'). Use with caution — the model can delete, edit, and run commands without confirmation."
+                "toolApprovalMode": {
+                    "type": "string",
+                    "enum": ["always", "session", "never"],
+                    "default": "always",
+                    "description": "Approval policy for write tool calls. 'always' prompts every time, 'session' prompts once per tool per session, 'never' skips the approval gate entirely (dangerous). On the Agent SDK transport, 'never' also forces permissionMode=bypassPermissions."
                 },
                 "useBuiltInTools": {
                     "type": "boolean",

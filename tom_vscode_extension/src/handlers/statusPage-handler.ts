@@ -455,18 +455,8 @@ async function editOrCreateAnthropicConfiguration(configId: string | null): Prom
     });
     if (maxRoundsStr === undefined) { return; }
 
-    const approvalPick = await vscode.window.showQuickPick(
-        [
-            { label: 'Always', description: 'Prompt before every write tool call', value: 'always' as const },
-            { label: 'Session', description: 'Prompt once per tool per session', value: 'session' as const },
-            { label: 'Never', description: 'Never prompt (dangerous)', value: 'never' as const },
-        ],
-        {
-            placeHolder: 'Tool approval mode',
-            ignoreFocusOut: true,
-        },
-    );
-    if (!approvalPick) { return; }
+    // Tool approval + enabledTools are no longer part of the configuration —
+    // they live on the profile (see anthropic-handler.ts AnthropicProfile).
 
     const memoryToolsPick = await vscode.window.showQuickPick(
         [
@@ -582,20 +572,6 @@ async function editOrCreateAnthropicConfiguration(configId: string | null): Prom
         };
     }
 
-    // Enabled tools — preserve existing, or seed with a sensible default
-    // on first creation. Users can further edit via the JSON file if they
-    // need fine-grained control; the wizard keeps scope reasonable.
-    const enabledTools = existing?.enabledTools ?? [
-        'tomAi_readFile',
-        'tomAi_listDirectory',
-        'tomAi_findFiles',
-        'tomAi_findTextInFiles',
-        'tomAi_getErrors',
-        'tomAi_readChatVariable',
-        'tomAi_readMemory',
-        'tomAi_listMemory',
-    ];
-
     const defaultPick = await vscode.window.showQuickPick(
         [
             { label: 'No', value: false },
@@ -615,9 +591,7 @@ async function editOrCreateAnthropicConfiguration(configId: string | null): Prom
             model: newModel,
             maxTokens: parseInt(maxTokensStr, 10),
             maxRounds: parseInt(maxRoundsStr, 10),
-            toolApprovalMode: approvalPick.value,
             memoryToolsEnabled: memoryToolsPick.value,
-            enabledTools,
             isDefault: defaultPick.value,
             transport,
             ...(tempStr.trim() === '' ? {} : { temperature: parseFloat(tempStr) }),
@@ -2120,7 +2094,7 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
             <div class="sp-settings-row">
                 <label>Compaction tool set:</label>
                 <button class="sp-btn small" data-status-action="editCompactionToolSet"
-                    ${status.compaction.llmProvider === 'anthropic' ? 'disabled title="Anthropic uses configuration enabledTools"' : ''}>
+                    ${status.compaction.llmProvider === 'anthropic' ? 'disabled title="Anthropic uses the active profile\'s enabledTools"' : ''}>
                     Edit ▼
                 </button>
             </div>
@@ -2726,7 +2700,7 @@ function attachStatusPanelListeners(skipEditorInit) {
             if (toolSetBtn) {
                 if (p === 'anthropic') {
                     toolSetBtn.setAttribute('disabled', 'disabled');
-                    toolSetBtn.title = 'Anthropic uses configuration enabledTools';
+                    toolSetBtn.title = "Anthropic uses the active profile's enabledTools";
                 } else {
                     toolSetBtn.removeAttribute('disabled');
                     toolSetBtn.title = '';

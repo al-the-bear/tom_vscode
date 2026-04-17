@@ -1738,9 +1738,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 name: '(inline)',
                 model: modelId,
                 maxTokens: 8192,
-                enabledTools: [],
                 maxRounds: 10,
-                toolApprovalMode: 'always',
             };
         }
         // The model dropdown takes precedence — the user may override the
@@ -1749,24 +1747,18 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             cfg = { ...cfg, model: modelId };
         }
 
-        // Tool resolution (matches the "All Tools Enabled" checkbox in the
-        // profile editor — see globalTemplateEditor-handler.ts):
-        //  1. profile.toolsEnabled !== false  → ALL tools (every entry in
-        //     ALL_SHARED_TOOLS); the checkbox in the profile UI is on.
-        //  2. profile.toolsEnabled === false  → restricted set:
-        //     - if profile.enabledTools is a non-empty array → profile subset
-        //     - else if cfg.enabledTools is a non-empty array → configuration subset
-        //     - else → no tools
+        // Tool resolution — profile is the single source of truth
+        // (see globalTemplateEditor-handler.ts `anthropicProfiles` case):
+        //  1. profile.toolsEnabled !== false  → ALL tools (ALL_SHARED_TOOLS)
+        //  2. profile.toolsEnabled === false  → profile.enabledTools subset
+        //     (empty array → no tools)
         const profileOverride = (profile as unknown as { enabledTools?: string[]; toolsEnabled?: boolean });
         const allToolsEnabled = profileOverride.toolsEnabled !== false;
         let tools: SharedToolDefinition[];
         if (allToolsEnabled) {
             tools = [...ALL_SHARED_TOOLS];
         } else {
-            const profileList = Array.isArray(profileOverride.enabledTools) && profileOverride.enabledTools.length > 0
-                ? profileOverride.enabledTools
-                : undefined;
-            const enabledIds = profileList ?? (Array.isArray(cfg.enabledTools) ? cfg.enabledTools : []);
+            const enabledIds = Array.isArray(profileOverride.enabledTools) ? profileOverride.enabledTools : [];
             tools = enabledIds.length > 0
                 ? ALL_SHARED_TOOLS.filter((t) => enabledIds.includes(t.name))
                 : [];

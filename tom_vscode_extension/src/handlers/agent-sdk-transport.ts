@@ -161,8 +161,12 @@ export interface AgentSdkSendParams {
     cancellationToken?: vscode.CancellationToken;
     /** Handler-level injected context. */
     context: AgentSdkTransportContext;
-    /** Profile-level overrides: auto-approve all tool calls; forces permissionMode='bypassPermissions'. */
-    autoApproveAll?: boolean;
+    /**
+     * Profile-level approval policy. `never` skips the approval gate and
+     * forces the SDK permissionMode to `bypassPermissions`. Defaults to
+     * `always` when absent.
+     */
+    toolApprovalMode?: 'always' | 'session' | 'never';
     /** Profile-level override: enable Claude Code's built-in tool preset (Read, Write, Bash, …). */
     useBuiltInTools?: boolean;
     /** Profile-level override: extended thinking budget (tokens). Forwarded to the SDK. */
@@ -321,29 +325,21 @@ function stripMcpPrefix(toolName: string): string {
 
 function makeCanUseTool(
     tools: SharedToolDefinition[],
-    configuration: AnthropicConfiguration,
     ctx: AgentSdkTransportContext,
-    autoApproveAll = false,
+    approvalMode: 'always' | 'session' | 'never' = 'always',
 ): CanUseTool {
     return async (toolName, input): Promise<PermissionResult> => {
         const bare = stripMcpPrefix(toolName);
         const def = tools.find((t) => t.name === bare);
 
         // Built-ins the SDK itself manages when useBuiltInTools is on —
-        // we don't know their approval semantics, so accept them. When
-        // autoApproveAll is set, everything passes.
+        // we don't know their approval semantics, so accept them.
         if (!def) {
-            if (autoApproveAll) {
-                return { behavior: 'allow', updatedInput: input };
-            }
             return { behavior: 'allow', updatedInput: input };
         }
 
         const defaultRequiresApproval = !def.readOnly;
         const requiresApproval = def.requiresApproval ?? defaultRequiresApproval;
-        const approvalMode = autoApproveAll
-            ? 'never'
-            : (configuration.toolApprovalMode ?? 'always');
         const needsApproval = requiresApproval && approvalMode !== 'never';
 
         if (!needsApproval || ctx.sessionApprovals.has(bare)) {
@@ -384,15 +380,17 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Anth
 
     const sdk = await loadSdk();
     const mcpServer = buildMcpServer(sdk, tools, context);
-    const canUseToolFn = makeCanUseTool(tools, configuration, context, params.autoApproveAll === true);
+    const approvalMode = params.toolApprovalMode ?? 'always';
+    const canUseToolFn = makeCanUseTool(tools, context, approvalMode);
 
     const abortController = new AbortController();
     const cancelSub = cancellationToken?.onCancellationRequested(() => abortController.abort());
 
     const maxTurns = configuration.agentSdk?.maxTurns ?? configuration.maxRounds;
     const configuredMode = (configuration.agentSdk?.permissionMode ?? 'default') as PermissionMode;
-    // Profile-level autoApproveAll forces 'bypassPermissions'.
-    const permissionMode: PermissionMode = params.autoApproveAll
+    // toolApprovalMode === 'never' forces 'bypassPermissions' so the SDK
+    // doesn't fire canUseTool at all.
+    const permissionMode: PermissionMode = approvalMode === 'never'
         ? 'bypassPermissions'
         : configuredMode;
     const settingSources: SettingSource[] = (configuration.agentSdk?.settingSources ?? []) as SettingSource[];
