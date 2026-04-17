@@ -71,49 +71,87 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_memory_save',
     'tomAi_memory_update',
     'tomAi_memory_forget',
-    // Wave A — workspace awareness (llm_tools.md §6.3)
-    'tomAi_getWorkspaceInfoFull',
+    // Editor / workspace context
+    'tomAi_getWorkspaceInfo',
     'tomAi_getActiveEditor',
     'tomAi_getOpenEditors',
+    // Diagnostics
     'tomAi_getProblems',
-    'tomAi_getOutputChannel',
-    'tomAi_getTerminalOutput',
+    // Language service
     'tomAi_findSymbol',
     'tomAi_gotoDefinition',
     'tomAi_findReferences',
     'tomAi_getCodeActions',
+    // Guidelines
     'tomAi_listGuidelines',
     'tomAi_searchGuidelines',
-    // Wave B — IDE navigation (llm_tools.md §6.3)
+    // VS Code commands and navigation
     'tomAi_openFile',
     'tomAi_listCommands',
+    'tomAi_vscode',
+    // User interaction
     'tomAi_askUser',
     'tomAi_askUserPicker',
-    // Wave C — IDE execution (llm_tools.md §6.3)
+    // Workspace-wide edit
     'tomAi_applyEdit',
+    // Language service (cached code-action + rename)
     'tomAi_getCodeActionsCached',
     'tomAi_applyCodeAction',
     'tomAi_rename',
-    'tomAi_vscode',
+    // Tasks / debug
     'tomAi_runTask',
     'tomAi_runDebugConfig',
+    // Streaming processes
     'tomAi_runCommandStream',
     'tomAi_readCommandOutput',
     'tomAi_killCommand',
+    // Git (write + show)
     'tomAi_gitExec',
     'tomAi_gitShow',
-    // Wave D — notebook + advanced agent ops (llm_tools.md §6.3)
+    // Planning + delegation
     'tomAi_enterPlanMode',
     'tomAi_exitPlanMode',
     'tomAi_spawnSubagent',
+    // Notebook
     'tomAi_notebookEdit',
     'tomAi_notebookRun',
     // Pattern prompts
     'tomAi_listPatternPrompts',
     'tomAi_readPatternPrompt',
-    // Issues / testkit panel
+    // Quest todos
+    'tomAi_listQuestTodos',
+    'tomAi_getQuestTodo',
+    'tomAi_createQuestTodo',
+    'tomAi_updateQuestTodo',
+    'tomAi_moveQuestTodo',
+    'tomAi_deleteQuestTodo',
+    'tomAi_listWorkspaceQuestTodos',
+    'tomAi_getAllTodos',
+    'tomAi_listQuests',
+    // Session todos
+    'tomAi_sessionTodo_add',
+    'tomAi_sessionTodo_list',
+    'tomAi_sessionTodo_getAll',
+    'tomAi_sessionTodo_update',
+    'tomAi_sessionTodo_delete',
+    // Notification
+    'tomAi_notifyUser',
+    // Issues (bottom-panel WS tab — issue tracker)
     'tomAi_listIssueRepos',
     'tomAi_listIssues',
     'tomAi_getIssue',
     'tomAi_listIssueComments',
+    'tomAi_createIssue',
+    'tomAi_addIssueComment',
+    'tomAi_setIssueStatus',
+    'tomAi_toggleIssueLabel',
+    // Tests (bottom-panel WS tab — testkit)
+    'tomAi_listTestRepos',
+    'tomAi_listTests',
+    'tomAi_getTest',
+    'tomAi_listTestComments',
+    'tomAi_createTest',
+    'tomAi_addTestComment',
+    'tomAi_setTestStatus',
+    'tomAi_toggleTestLabel',
 ] as const;

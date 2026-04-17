@@ -1461,6 +1461,34 @@ export class PromptQueueManager {
         this._onDidChange.fire();
     }
 
+    /**
+     * Patch the main item's repetition / answer-wait fields. Editable while the
+     * item is in an editable status (staged or pending).
+     */
+    updateItemRepetition(id: string, patch: {
+        repeatCount?: number | string;
+        repeatPrefix?: string;
+        repeatSuffix?: string;
+        templateRepeatCount?: number | string;
+        answerWaitMinutes?: number;
+    }): boolean {
+        const item = this._items.find(i => i.id === id);
+        if (!item || !this.isEditableStatus(item.status)) { return false; }
+        if (patch.repeatCount !== undefined) {
+            item.repeatCount = patch.repeatCount;
+            item.resolvedRepeatCount = undefined;
+        }
+        if (patch.repeatPrefix !== undefined) { item.repeatPrefix = patch.repeatPrefix || undefined; }
+        if (patch.repeatSuffix !== undefined) { item.repeatSuffix = patch.repeatSuffix || undefined; }
+        if (patch.templateRepeatCount !== undefined) { item.templateRepeatCount = patch.templateRepeatCount; }
+        if (patch.answerWaitMinutes !== undefined) {
+            item.answerWaitMinutes = patch.answerWaitMinutes > 0 ? patch.answerWaitMinutes : undefined;
+        }
+        this.persist();
+        this._onDidChange.fire();
+        return true;
+    }
+
     getById(id: string): QueuedPrompt | undefined {
         return this._items.find(i => i.id === id);
     }

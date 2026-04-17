@@ -28,12 +28,12 @@ function toRelative(uri: vscode.Uri): string {
 }
 
 // ---------------------------------------------------------------------------
-// tomAi_getWorkspaceInfoFull
+// tomAi_getWorkspaceInfo
 // ---------------------------------------------------------------------------
 
-interface GetWorkspaceInfoFullInput { includeGit?: boolean }
+interface GetWorkspaceInfoInput { includeGit?: boolean }
 
-async function executeGetWorkspaceInfoFull(input: GetWorkspaceInfoFullInput): Promise<string> {
+async function executeGetWorkspaceInfo(input: GetWorkspaceInfoInput): Promise<string> {
     const wsFile = vscode.workspace.workspaceFile?.fsPath ?? '';
     const wsName = vscode.workspace.name ?? '';
     const folders = (vscode.workspace.workspaceFolders ?? []).map((f, idx) => ({
@@ -96,13 +96,12 @@ async function executeGetWorkspaceInfoFull(input: GetWorkspaceInfoFullInput): Pr
     }, null, 2);
 }
 
-export const GET_WORKSPACE_INFO_FULL_TOOL: SharedToolDefinition<GetWorkspaceInfoFullInput> = {
-    name: 'tomAi_getWorkspaceInfoFull',
-    displayName: 'Get Workspace Info (Full)',
+export const GET_WORKSPACE_INFO_TOOL: SharedToolDefinition<GetWorkspaceInfoInput> = {
+    name: 'tomAi_getWorkspaceInfo',
+    displayName: 'Get Workspace Info',
     description:
-        'Return full workspace context: workspace name, .code-workspace file, folders, quest id, ' +
-        'projects from tom_master.yaml, and current git branch/commit/dirty state. ' +
-        'Prefer this over the legacy tomAi_getWorkspaceInfo when git details are useful.',
+        'Return workspace context: workspace name, .code-workspace file, folders, quest id, ' +
+        'projects from tom_master.yaml, and current git branch/commit/dirty state.',
     tags: ['workspace', 'context', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {
@@ -111,7 +110,7 @@ export const GET_WORKSPACE_INFO_FULL_TOOL: SharedToolDefinition<GetWorkspaceInfo
             includeGit: { type: 'boolean', description: 'Include git branch/commit/dirty. Default true.' },
         },
     },
-    execute: executeGetWorkspaceInfoFull,
+    execute: executeGetWorkspaceInfo,
 };
 
 // ---------------------------------------------------------------------------
@@ -221,7 +220,7 @@ export const GET_OPEN_EDITORS_TOOL: SharedToolDefinition<GetOpenEditorsInput> = 
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const EDITOR_CONTEXT_TOOLS: SharedToolDefinition<any>[] = [
-    GET_WORKSPACE_INFO_FULL_TOOL,
+    GET_WORKSPACE_INFO_TOOL,
     GET_ACTIVE_EDITOR_TOOL,
     GET_OPEN_EDITORS_TOOL,
 ];

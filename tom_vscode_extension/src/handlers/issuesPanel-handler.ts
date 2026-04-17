@@ -52,7 +52,7 @@ function parseColumnDef(raw: string): ColumnDef | null {
     return { key: m[1], style: m[2] || 'grey', minWidth: parseInt(m[3], 10), maxWidth: parseInt(m[4], 10), required: !!m[5] };
 }
 
-interface IssuePanelConfig {
+export interface IssuePanelConfig {
     provider: string;
     scanWorkspace: boolean;
     allReposOption: boolean;
@@ -94,7 +94,7 @@ const DEFAULT_AVAILABLE_COLUMNS: ColumnDef[] = [
     { key: 'updateTimestamp', style: 'grey', minWidth: 80, maxWidth: 80, required: false },
 ];
 
-function loadPanelConfig(mode: PanelMode): IssuePanelConfig {
+export function loadPanelConfig(mode: PanelMode): IssuePanelConfig {
     const panelName = getPanelName(mode);
     const defaultStatuses = ['open[green]', 'in_triage[yellow]', 'assigned[red]', 'closed[grey]'];
     const defaults: IssuePanelConfig = {

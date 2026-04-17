@@ -1,11 +1,11 @@
 /**
- * Diagnostics tools — Problems panel, Output channels, Terminal state.
+ * Diagnostics tools — Problems panel access.
  *
- * Two tools (`tomAi_getOutputChannel`, `tomAi_getTerminalOutput`) are limited
- * by VS Code APIs: output channels from other extensions are not readable,
- * and there is no terminal scrollback API. The descriptions steer callers to
- * `tomAi_runCommand` / `tomAi_runCommandStream` when captured output is
- * actually needed.
+ * Earlier revisions also exposed `tomAi_getOutputChannel` and
+ * `tomAi_getTerminalOutput`. Both were removed: VS Code has no API to read
+ * third-party output channels and no terminal scrollback API, so the tools
+ * couldn't provide useful output. For captured command output, use
+ * `tomAi_runCommand` (fire-and-forget) or `tomAi_runCommandStream` + `tomAi_readCommandOutput`.
  */
 
 import * as vscode from 'vscode';
@@ -117,117 +117,10 @@ export const GET_PROBLEMS_TOOL: SharedToolDefinition<GetProblemsInput> = {
 };
 
 // ---------------------------------------------------------------------------
-// tomAi_getOutputChannel — minimal (third-party channels aren't readable via API)
-// ---------------------------------------------------------------------------
-
-interface GetOutputChannelInput { channel?: string; maxLines?: number }
-
-async function executeGetOutputChannel(input: GetOutputChannelInput): Promise<string> {
-    const registry: Record<string, string[]> = (globalThis as any).__tomAiOutputChannelRegistry ?? {};
-    const names = Object.keys(registry).sort();
-    if (!input.channel) {
-        return JSON.stringify({
-            channels: names,
-            note: 'VS Code does not expose third-party output channels to other extensions. Only channels tracked by this extension are readable here.',
-        }, null, 2);
-    }
-    const lines = registry[input.channel];
-    if (!lines) {
-        return JSON.stringify({
-            error: `Output channel not tracked: "${input.channel}"`,
-            available: names,
-        }, null, 2);
-    }
-    const max = Math.max(1, input.maxLines ?? 500);
-    const slice = lines.slice(-max);
-    return JSON.stringify({ channel: input.channel, lineCount: slice.length, lines: slice }, null, 2);
-}
-
-export const GET_OUTPUT_CHANNEL_TOOL: SharedToolDefinition<GetOutputChannelInput> = {
-    name: 'tomAi_getOutputChannel',
-    displayName: 'Get Output Channel',
-    description:
-        'Read recent lines from an extension-tracked Output panel channel. ' +
-        'Without a channel parameter, lists available tracked channels. ' +
-        'Note: VS Code does not expose third-party output channels across extensions; only channels the Tom extension tracks are accessible.',
-    tags: ['output', 'context', 'tom-ai-chat'],
-    readOnly: true,
-    inputSchema: {
-        type: 'object',
-        properties: {
-            channel: { type: 'string', description: 'Name of a tracked output channel. Omit to list available channels.' },
-            maxLines: { type: 'number', description: 'Max trailing lines to return. Default 500.' },
-        },
-    },
-    execute: executeGetOutputChannel,
-};
-
-// ---------------------------------------------------------------------------
-// tomAi_getTerminalOutput — limited (VS Code has no scrollback API)
-// ---------------------------------------------------------------------------
-
-interface GetTerminalOutputInput { name?: string }
-
-async function executeGetTerminalOutput(input: GetTerminalOutputInput): Promise<string> {
-    const terminals = vscode.window.terminals.map((t) => {
-        const anyT: any = t;
-        return {
-            name: t.name,
-            active: t === vscode.window.activeTerminal,
-            processId: undefined as number | undefined,
-            exitStatus: anyT.exitStatus ? { code: anyT.exitStatus.code } : undefined,
-            hasShellIntegration: !!anyT.shellIntegration,
-        };
-    });
-
-    await Promise.all(
-        vscode.window.terminals.map(async (t, idx) => {
-            try { terminals[idx].processId = await t.processId; } catch { /* ignore */ }
-        }),
-    );
-
-    if (input.name) {
-        const match = terminals.find((t) => t.name === input.name);
-        if (!match) {
-            return JSON.stringify({ error: `Terminal not found: "${input.name}"`, available: terminals.map((t) => t.name) });
-        }
-        return JSON.stringify({
-            terminal: match,
-            note: 'VS Code exposes terminal metadata but not scrollback. Use shell integration or tomAi_runCommand for command output capture.',
-        }, null, 2);
-    }
-
-    return JSON.stringify({
-        count: terminals.length,
-        terminals,
-        note: 'VS Code exposes terminal metadata but not scrollback. To capture command output, use tomAi_runCommand (captures stdout/stderr directly).',
-    }, null, 2);
-}
-
-export const GET_TERMINAL_OUTPUT_TOOL: SharedToolDefinition<GetTerminalOutputInput> = {
-    name: 'tomAi_getTerminalOutput',
-    displayName: 'Get Terminal Output',
-    description:
-        'List open terminals and their exit status / shell integration state. ' +
-        'Note: VS Code has no API for terminal scrollback. Use tomAi_runCommand when you need captured command output.',
-    tags: ['terminal', 'context', 'tom-ai-chat'],
-    readOnly: true,
-    inputSchema: {
-        type: 'object',
-        properties: {
-            name: { type: 'string', description: 'Optional terminal name to focus on.' },
-        },
-    },
-    execute: executeGetTerminalOutput,
-};
-
-// ---------------------------------------------------------------------------
 // Master list
 // ---------------------------------------------------------------------------
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const DIAGNOSTICS_TOOLS: SharedToolDefinition<any>[] = [
     GET_PROBLEMS_TOOL,
-    GET_OUTPUT_CHANNEL_TOOL,
-    GET_TERMINAL_OUTPUT_TOOL,
 ];

@@ -99,46 +99,7 @@ export const NOTIFY_USER_TOOL: SharedToolDefinition<NotifyUserInput> = {
     execute: executeNotifyUser,
 };
 
-// ============================================================================
-// §1.2  Get Workspace Info
-// ============================================================================
-
-interface GetWorkspaceInfoInput {
-    // no parameters
-}
-
-async function executeGetWorkspaceInfo(_input: GetWorkspaceInfoInput): Promise<string> {
-    const wsFile = vscode.workspace.workspaceFile;
-    const wsName = vscode.workspace.name ?? '';
-    const folders = (vscode.workspace.workspaceFolders ?? []).map(f => f.uri.fsPath);
-
-    let store: ChatVariablesStore | undefined;
-    try { store = ChatVariablesStore.instance; } catch { /* not initialised yet */ }
-
-    return JSON.stringify({
-        workspaceName: wsName,
-        workspaceFile: wsFile?.fsPath ?? '',
-        workspaceFolders: folders,
-        quest: store?.quest ?? '',
-        role: store?.role ?? '',
-        activeProjects: store?.activeProjects ?? [],
-    }, null, 2);
-}
-
-export const GET_WORKSPACE_INFO_TOOL: SharedToolDefinition<GetWorkspaceInfoInput> = {
-    name: 'tomAi_getWorkspaceInfo',
-    displayName: 'Get Workspace Info',
-    description:
-        'Detect which workspace is open, current quest, role, and active projects. ' +
-        'No parameters required.',
-    tags: ['workspace', 'context', 'tom-ai-chat'],
-    readOnly: true,
-    inputSchema: {
-        type: 'object',
-        properties: {},
-    },
-    execute: executeGetWorkspaceInfo,
-};
+// Workspace-info tool moved to `editor-context-tools.ts` (tomAi_getWorkspaceInfo).
 
 // --- determineQuest ---------------------------------------------------------
 
@@ -228,7 +189,7 @@ async function executeListTodos(input: ListTodosInput): Promise<string> {
 }
 
 export const LIST_TODOS_TOOL: SharedToolDefinition<ListTodosInput> = {
-    name: 'tomAi_listTodos',
+    name: 'tomAi_listQuestTodos',
     displayName: 'List Quest Todos',
     description:
         'List todos from a quest, optionally filtered by status, file, or tags.',
@@ -314,7 +275,7 @@ async function executeGetTodo(input: GetTodoInput): Promise<string> {
 }
 
 export const GET_TODO_TOOL: SharedToolDefinition<GetTodoInput> = {
-    name: 'tomAi_getTodo',
+    name: 'tomAi_getQuestTodo',
     displayName: 'Get Todo',
     description: 'Get a single todo by ID from a quest.',
     tags: ['todo', 'quest', 'tom-ai-chat'],
@@ -366,7 +327,7 @@ async function executeCreateTodo(input: CreateTodoInput): Promise<string> {
 }
 
 export const CREATE_TODO_TOOL: SharedToolDefinition<CreateTodoInput> = {
-    name: 'tomAi_createTodo',
+    name: 'tomAi_createQuestTodo',
     displayName: 'Create Quest Todo',
     description:
         'Create a new todo item in a quest YAML file. YAML formatting is preserved.',
@@ -430,7 +391,7 @@ async function executeUpdateTodo(input: UpdateTodoInput): Promise<string> {
 }
 
 export const UPDATE_TODO_TOOL: SharedToolDefinition<UpdateTodoInput> = {
-    name: 'tomAi_updateTodo',
+    name: 'tomAi_updateQuestTodo',
     displayName: 'Update Quest Todo',
     description: 'Update fields of an existing quest todo. YAML formatting is preserved.',
     tags: ['todo', 'quest', 'tom-ai-chat'],
@@ -474,7 +435,7 @@ async function executeMoveTodo(input: MoveTodoInput): Promise<string> {
 }
 
 export const MOVE_TODO_TOOL: SharedToolDefinition<MoveTodoInput> = {
-    name: 'tomAi_moveTodo',
+    name: 'tomAi_moveQuestTodo',
     displayName: 'Move Quest Todo',
     description: 'Move a todo from one YAML file to another within a quest folder.',
     tags: ['todo', 'quest', 'tom-ai-chat'],
@@ -690,13 +651,45 @@ export const SESSION_TODO_DELETE_TOOL: SharedToolDefinition<SessionTodoDeleteInp
 // Prompt Queue / Timed Request Tools
 // ============================================================================
 
+interface QueuePrePromptInput {
+    text: string;
+    template?: string;
+    repeatCount?: number | string;
+    answerWaitMinutes?: number;
+    reminderTemplateId?: string;
+    reminderTimeoutMinutes?: number;
+    reminderRepeat?: boolean;
+    reminderEnabled?: boolean;
+}
+
+interface QueueFollowUpInput {
+    text: string;
+    template?: string;
+    repeatCount?: number | string;
+    answerWaitMinutes?: number;
+    reminderTemplateId?: string;
+    reminderTimeoutMinutes?: number;
+    reminderRepeat?: boolean;
+    reminderEnabled?: boolean;
+}
+
 interface AddToPromptQueueInput {
     text: string;
     template?: string;
     answerWrapper?: boolean;
     position?: number;
     deferSend?: boolean;
-    followUps?: Array<{ text: string; template?: string }>;
+    prePrompts?: QueuePrePromptInput[];
+    followUps?: QueueFollowUpInput[];
+    repeatCount?: number | string;
+    repeatPrefix?: string;
+    repeatSuffix?: string;
+    templateRepeatCount?: number | string;
+    answerWaitMinutes?: number;
+    reminderTemplateId?: string;
+    reminderTimeoutMinutes?: number;
+    reminderRepeat?: boolean;
+    reminderEnabled?: boolean;
 }
 
 async function executeAddToPromptQueue(input: AddToPromptQueueInput): Promise<string> {
@@ -709,9 +702,34 @@ async function executeAddToPromptQueue(input: AddToPromptQueueInput): Promise<st
             answerWrapper: input.answerWrapper,
             position: input.position,
             deferSend: input.deferSend ?? true,
+            repeatCount: input.repeatCount,
+            repeatPrefix: input.repeatPrefix,
+            repeatSuffix: input.repeatSuffix,
+            templateRepeatCount: input.templateRepeatCount,
+            answerWaitMinutes: input.answerWaitMinutes,
+            reminderTemplateId: input.reminderTemplateId,
+            reminderTimeoutMinutes: input.reminderTimeoutMinutes,
+            reminderRepeat: input.reminderRepeat,
+            reminderEnabled: input.reminderEnabled,
+            prePrompts: (input.prePrompts || []).map(p => ({
+                text: p.text,
+                template: p.template,
+                repeatCount: p.repeatCount,
+                answerWaitMinutes: p.answerWaitMinutes,
+                reminderTemplateId: p.reminderTemplateId,
+                reminderTimeoutMinutes: p.reminderTimeoutMinutes,
+                reminderRepeat: p.reminderRepeat,
+                reminderEnabled: p.reminderEnabled,
+            })),
             followUps: (input.followUps || []).map(f => ({
                 originalText: f.text,
                 template: f.template,
+                repeatCount: f.repeatCount,
+                answerWaitMinutes: f.answerWaitMinutes,
+                reminderTemplateId: f.reminderTemplateId,
+                reminderTimeoutMinutes: f.reminderTimeoutMinutes,
+                reminderRepeat: f.reminderRepeat,
+                reminderEnabled: f.reminderEnabled,
             })),
         });
         return JSON.stringify({
@@ -719,6 +737,7 @@ async function executeAddToPromptQueue(input: AddToPromptQueueInput): Promise<st
             id: item.id,
             status: item.status,
             queueLength: queue.items.length,
+            prePromptCount: item.prePrompts?.length ?? 0,
             followUpCount: item.followUps?.length ?? 0,
         });
     } catch (err: any) {
@@ -726,10 +745,41 @@ async function executeAddToPromptQueue(input: AddToPromptQueueInput): Promise<st
     }
 }
 
+const prePromptItemSchema = {
+    type: 'object' as const,
+    required: ['text'],
+    properties: {
+        text: { type: 'string' },
+        template: { type: 'string' },
+        repeatCount: { description: 'Literal number or chat-variable name (string). When a string, resolved at send time against chat variables.' },
+        answerWaitMinutes: { type: 'number', description: 'Auto-advance after N minutes instead of waiting for answer.' },
+        reminderTemplateId: { type: 'string' },
+        reminderTimeoutMinutes: { type: 'number' },
+        reminderRepeat: { type: 'boolean' },
+        reminderEnabled: { type: 'boolean' },
+    },
+};
+const followUpItemSchema = {
+    type: 'object' as const,
+    required: ['text'],
+    properties: {
+        text: { type: 'string' },
+        template: { type: 'string' },
+        repeatCount: { description: 'Literal number or chat-variable name for per-follow-up repeats.' },
+        answerWaitMinutes: { type: 'number' },
+        reminderTemplateId: { type: 'string' },
+        reminderTimeoutMinutes: { type: 'number' },
+        reminderRepeat: { type: 'boolean' },
+        reminderEnabled: { type: 'boolean' },
+    },
+};
+
 export const ADD_TO_PROMPT_QUEUE_TOOL: SharedToolDefinition<AddToPromptQueueInput> = {
     name: 'tomAi_queue_add',
     displayName: 'Add To Prompt Queue',
-    description: 'Add a prompt to the prompt queue, optionally with template, answer wrapper, and follow-up prompts.',
+    description:
+        'Add a prompt to the Copilot Chat prompt queue. Supports pre-prompts (sent before the main prompt), follow-ups (sent after each answer), and per-item repeat/answer-wait controls. ' +
+        'repeatCount / templateRepeatCount / pre-prompt repeatCount / follow-up repeatCount accept a literal number or the name of a chat variable that holds the count — the manager resolves the variable at send time and decrements it each iteration.',
     tags: ['queue', 'copilot', 'tom-ai-chat'],
     readOnly: false,
     inputSchema: {
@@ -738,24 +788,168 @@ export const ADD_TO_PROMPT_QUEUE_TOOL: SharedToolDefinition<AddToPromptQueueInpu
         properties: {
             text: { type: 'string', description: 'Initial prompt text.' },
             template: { type: 'string', description: 'Optional template name.' },
-            answerWrapper: { type: 'boolean', description: 'Whether to wrap the initial prompt with answer wrapper.' },
-            position: { type: 'number', description: 'Optional insert index. -1 means append.' },
-            deferSend: { type: 'boolean', description: 'When true (default), prompt is queued but not sent immediately.' },
-            followUps: {
-                type: 'array',
-                description: 'Optional follow-up prompts to run sequentially after each answer.',
-                items: {
-                    type: 'object',
-                    required: ['text'],
-                    properties: {
-                        text: { type: 'string' },
-                        template: { type: 'string' },
-                    },
-                },
-            },
+            answerWrapper: { type: 'boolean', description: 'Wrap the initial prompt with the answer wrapper.' },
+            position: { type: 'number', description: 'Insert index. -1 means append.' },
+            deferSend: { type: 'boolean', description: 'When true (default), prompt is staged but not sent immediately.' },
+            prePrompts: { type: 'array', items: prePromptItemSchema, description: 'Pre-prompts sent before the main prompt (in order).' },
+            followUps: { type: 'array', items: followUpItemSchema, description: 'Follow-ups sent sequentially after each answer.' },
+            repeatCount: { description: 'Main-prompt repeat count (number) or chat-variable name (string). Uses repeatPrefix/repeatSuffix for ${repeatNumber}/${repeatIndex} placeholder expansion.' },
+            repeatPrefix: { type: 'string' },
+            repeatSuffix: { type: 'string' },
+            templateRepeatCount: { description: 'Repeat the entire template (main + follow-ups) this many times. Literal number or chat-variable name.' },
+            answerWaitMinutes: { type: 'number', description: 'Main-prompt answer-wait: auto-advance after N minutes instead of waiting for the answer file.' },
+            reminderTemplateId: { type: 'string', description: 'Reminder template ID for the main prompt.' },
+            reminderTimeoutMinutes: { type: 'number' },
+            reminderRepeat: { type: 'boolean' },
+            reminderEnabled: { type: 'boolean' },
         },
     },
     execute: executeAddToPromptQueue,
+};
+
+// ---------------------------------------------------------------------------
+// Pre-prompt management
+// ---------------------------------------------------------------------------
+
+interface AddPrePromptInput {
+    queueItemId: string;
+    text: string;
+    template?: string;
+}
+
+async function executeAddPrePrompt(input: AddPrePromptInput): Promise<string> {
+    try {
+        if (!input.queueItemId || !input.text) {
+            return 'Error: queueItemId and text are required.';
+        }
+        const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
+        const queue = PromptQueueManager.instance;
+        const ok = queue.addPrePrompt(input.queueItemId, input.text, input.template);
+        if (!ok) {
+            return 'Error: could not add pre-prompt (item not found or not editable).';
+        }
+        const updated = queue.getById(input.queueItemId);
+        return JSON.stringify({
+            success: true,
+            queueItemId: input.queueItemId,
+            prePromptCount: updated?.prePrompts?.length ?? 0,
+        });
+    } catch (err: any) {
+        return `Error: ${err.message ?? err}`;
+    }
+}
+
+export const ADD_PRE_PROMPT_TOOL: SharedToolDefinition<AddPrePromptInput> = {
+    name: 'tomAi_queue_addPrePrompt',
+    displayName: 'Add Pre-Prompt',
+    description:
+        'Append a pre-prompt to an existing staged queue item. Pre-prompts are sent *before* the main prompt, in order, and each waits for its answer (or answerWaitMinutes) before the next runs. ' +
+        'Use tomAi_queue_updatePrePrompt to add repeat count, answer-wait, or reminder settings after creation.',
+    tags: ['queue', 'pre-prompt', 'copilot', 'tom-ai-chat'],
+    readOnly: false,
+    inputSchema: {
+        type: 'object',
+        required: ['queueItemId', 'text'],
+        properties: {
+            queueItemId: { type: 'string' },
+            text: { type: 'string' },
+            template: { type: 'string' },
+        },
+    },
+    execute: executeAddPrePrompt,
+};
+
+interface UpdatePrePromptInput {
+    queueItemId: string;
+    index: number;
+    text?: string;
+    template?: string;
+    repeatCount?: number | string;
+    answerWaitMinutes?: number;
+    reminderTemplateId?: string;
+    reminderTimeoutMinutes?: number;
+    reminderRepeat?: boolean;
+    reminderEnabled?: boolean;
+}
+
+async function executeUpdatePrePrompt(input: UpdatePrePromptInput): Promise<string> {
+    try {
+        if (!input.queueItemId || typeof input.index !== 'number') {
+            return 'Error: queueItemId and index are required.';
+        }
+        const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
+        const queue = PromptQueueManager.instance;
+        const ok = queue.updatePrePrompt(input.queueItemId, input.index, {
+            text: input.text,
+            template: input.template,
+            repeatCount: input.repeatCount,
+            answerWaitMinutes: input.answerWaitMinutes,
+            reminderTemplateId: input.reminderTemplateId,
+            reminderTimeoutMinutes: input.reminderTimeoutMinutes,
+            reminderRepeat: input.reminderRepeat,
+            reminderEnabled: input.reminderEnabled,
+        });
+        if (!ok) { return 'Error: could not update pre-prompt (item/index not found or item not editable).'; }
+        return JSON.stringify({ success: true, queueItemId: input.queueItemId, index: input.index });
+    } catch (err: any) {
+        return `Error: ${err.message ?? err}`;
+    }
+}
+
+export const UPDATE_PRE_PROMPT_TOOL: SharedToolDefinition<UpdatePrePromptInput> = {
+    name: 'tomAi_queue_updatePrePrompt',
+    displayName: 'Update Pre-Prompt',
+    description: 'Patch fields on an existing pre-prompt (by queue-item id + zero-based index).',
+    tags: ['queue', 'pre-prompt', 'copilot', 'tom-ai-chat'],
+    readOnly: false,
+    inputSchema: {
+        type: 'object',
+        required: ['queueItemId', 'index'],
+        properties: {
+            queueItemId: { type: 'string' },
+            index: { type: 'number', description: 'Zero-based pre-prompt index.' },
+            text: { type: 'string' },
+            template: { type: 'string' },
+            repeatCount: { description: 'Literal number or chat-variable name.' },
+            answerWaitMinutes: { type: 'number' },
+            reminderTemplateId: { type: 'string' },
+            reminderTimeoutMinutes: { type: 'number' },
+            reminderRepeat: { type: 'boolean' },
+            reminderEnabled: { type: 'boolean' },
+        },
+    },
+    execute: executeUpdatePrePrompt,
+};
+
+interface RemovePrePromptInput { queueItemId: string; index: number }
+
+async function executeRemovePrePrompt(input: RemovePrePromptInput): Promise<string> {
+    try {
+        const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
+        const queue = PromptQueueManager.instance;
+        const ok = queue.removePrePrompt(input.queueItemId, input.index);
+        if (!ok) { return 'Error: could not remove pre-prompt.'; }
+        return JSON.stringify({ success: true, queueItemId: input.queueItemId, index: input.index });
+    } catch (err: any) {
+        return `Error: ${err.message ?? err}`;
+    }
+}
+
+export const REMOVE_PRE_PROMPT_TOOL: SharedToolDefinition<RemovePrePromptInput> = {
+    name: 'tomAi_queue_removePrePrompt',
+    displayName: 'Remove Pre-Prompt',
+    description: 'Remove a pre-prompt from a queue item by zero-based index.',
+    tags: ['queue', 'pre-prompt', 'copilot', 'tom-ai-chat'],
+    readOnly: false,
+    inputSchema: {
+        type: 'object',
+        required: ['queueItemId', 'index'],
+        properties: {
+            queueItemId: { type: 'string' },
+            index: { type: 'number' },
+        },
+    },
+    execute: executeRemovePrePrompt,
 };
 
 interface SendQueuedPromptInput {
@@ -815,6 +1009,12 @@ interface AddFollowUpPromptInput {
     requestId?: string;
     text: string;
     template?: string;
+    repeatCount?: number | string;
+    answerWaitMinutes?: number;
+    reminderTemplateId?: string;
+    reminderTimeoutMinutes?: number;
+    reminderRepeat?: boolean;
+    reminderEnabled?: boolean;
 }
 
 async function executeAddFollowUpPrompt(input: AddFollowUpPromptInput): Promise<string> {
@@ -832,10 +1032,23 @@ async function executeAddFollowUpPrompt(input: AddFollowUpPromptInput): Promise<
         const follow = queue.addFollowUpPrompt(item.id, {
             originalText: input.text,
             template: input.template,
+            reminderTemplateId: input.reminderTemplateId,
+            reminderTimeoutMinutes: input.reminderTimeoutMinutes,
+            reminderRepeat: input.reminderRepeat,
+            reminderEnabled: input.reminderEnabled,
         });
 
         if (!follow) {
             return 'Error: failed to add follow-up prompt.';
+        }
+
+        // The manager's addFollowUpPrompt() doesn't accept repeatCount / answerWaitMinutes;
+        // patch via updateFollowUpPrompt if the caller provided them.
+        if (input.repeatCount !== undefined || input.answerWaitMinutes !== undefined) {
+            queue.updateFollowUpPrompt(item.id, follow.id, {
+                repeatCount: input.repeatCount,
+                answerWaitMinutes: input.answerWaitMinutes,
+            } as any);
         }
 
         const updated = queue.getById(item.id);
@@ -853,17 +1066,24 @@ async function executeAddFollowUpPrompt(input: AddFollowUpPromptInput): Promise<
 export const ADD_FOLLOW_UP_PROMPT_TOOL: SharedToolDefinition<AddFollowUpPromptInput> = {
     name: 'tomAi_queue_addFollowUp',
     displayName: 'Add Follow-Up Prompt',
-    description: 'Add a follow-up prompt to an existing queue item (located by queue item ID or request ID).',
+    description:
+        'Add a follow-up prompt to an existing queue item. Supports per-follow-up repeatCount (number or chat-variable name), answerWaitMinutes, and reminder settings.',
     tags: ['queue', 'follow-up', 'copilot', 'tom-ai-chat'],
     readOnly: false,
     inputSchema: {
         type: 'object',
         required: ['text'],
         properties: {
-            queueItemId: { type: 'string', description: 'Target queue item ID.' },
-            requestId: { type: 'string', description: 'Alternative target: request ID of the queued/sending item.' },
+            queueItemId: { type: 'string', description: 'Target queue item ID (preferred).' },
+            requestId: { type: 'string', description: 'Alternative: request ID of the queued/sending item.' },
             text: { type: 'string', description: 'Follow-up prompt text.' },
-            template: { type: 'string', description: 'Optional follow-up template name.' },
+            template: { type: 'string' },
+            repeatCount: { description: 'Literal number or chat-variable name to repeat this follow-up.' },
+            answerWaitMinutes: { type: 'number' },
+            reminderTemplateId: { type: 'string' },
+            reminderTimeoutMinutes: { type: 'number' },
+            reminderRepeat: { type: 'boolean' },
+            reminderEnabled: { type: 'boolean' },
         },
     },
     execute: executeAddFollowUpPrompt,
@@ -875,6 +1095,15 @@ interface AddTimedRequestInput {
     answerWrapper?: boolean;
     enabled?: boolean;
     intervalMinutes?: number;
+    repeatCount?: number;
+    repeatPrefix?: string;
+    repeatSuffix?: string;
+    sendMaximum?: number;
+    answerWaitMinutes?: number;
+    reminderEnabled?: boolean;
+    reminderTemplateId?: string;
+    reminderTimeoutMinutes?: number;
+    reminderRepeat?: boolean;
 }
 
 async function executeAddTimedRequest(input: AddTimedRequestInput): Promise<string> {
@@ -889,6 +1118,15 @@ async function executeAddTimedRequest(input: AddTimedRequestInput): Promise<stri
             scheduleMode: 'interval',
             intervalMinutes: Math.max(1, input.intervalMinutes ?? 30),
             scheduledTimes: [],
+            repeatCount: input.repeatCount,
+            repeatPrefix: input.repeatPrefix,
+            repeatSuffix: input.repeatSuffix,
+            sendMaximum: input.sendMaximum,
+            answerWaitMinutes: input.answerWaitMinutes,
+            reminderEnabled: input.reminderEnabled,
+            reminderTemplateId: input.reminderTemplateId,
+            reminderTimeoutMinutes: input.reminderTimeoutMinutes,
+            reminderRepeat: input.reminderRepeat,
         });
         return JSON.stringify({
             success: true,
@@ -905,18 +1143,30 @@ async function executeAddTimedRequest(input: AddTimedRequestInput): Promise<stri
 export const ADD_TIMED_REQUEST_TOOL: SharedToolDefinition<AddTimedRequestInput> = {
     name: 'tomAi_timed_add',
     displayName: 'Add Timed Request',
-    description: 'Add a timed request entry (interval mode) to the timed requests list.',
+    description:
+        'Add a timed request entry (interval mode). Supports per-entry repeat (count/prefix/suffix), sendMaximum ' +
+        '(auto-pause after N total sends), answerWaitMinutes (auto-advance), and reminder settings. ' +
+        'Use tomAi_timed_updateEntry to switch to scheduled mode with HH:MM slots.',
     tags: ['timed', 'queue', 'copilot', 'tom-ai-chat'],
     readOnly: false,
     inputSchema: {
         type: 'object',
         required: ['text'],
         properties: {
-            text: { type: 'string', description: 'Prompt text for the timed request.' },
-            template: { type: 'string', description: 'Optional template name.' },
-            answerWrapper: { type: 'boolean', description: 'Whether to wrap with answer wrapper.' },
+            text: { type: 'string' },
+            template: { type: 'string' },
+            answerWrapper: { type: 'boolean' },
             enabled: { type: 'boolean', description: 'Whether the entry starts enabled. Default false.' },
             intervalMinutes: { type: 'number', description: 'Interval in minutes (min 1). Default 30.' },
+            repeatCount: { type: 'number' },
+            repeatPrefix: { type: 'string' },
+            repeatSuffix: { type: 'string' },
+            sendMaximum: { type: 'number', description: 'Auto-pause after this many sends (0 = no cap).' },
+            answerWaitMinutes: { type: 'number' },
+            reminderEnabled: { type: 'boolean' },
+            reminderTemplateId: { type: 'string' },
+            reminderTimeoutMinutes: { type: 'number' },
+            reminderRepeat: { type: 'boolean' },
         },
     },
     execute: executeAddTimedRequest,
@@ -988,6 +1238,11 @@ interface QueueUpdateItemInput {
     reminderTemplateId?: string;
     reminderTimeoutMinutes?: number;
     reminderRepeat?: boolean;
+    repeatCount?: number | string;
+    repeatPrefix?: string;
+    repeatSuffix?: string;
+    templateRepeatCount?: number | string;
+    answerWaitMinutes?: number;
 }
 
 async function executeQueueUpdateItem(input: QueueUpdateItemInput): Promise<string> {
@@ -1024,6 +1279,22 @@ async function executeQueueUpdateItem(input: QueueUpdateItemInput): Promise<stri
             });
         }
 
+        if (
+            input.repeatCount !== undefined ||
+            input.repeatPrefix !== undefined ||
+            input.repeatSuffix !== undefined ||
+            input.templateRepeatCount !== undefined ||
+            input.answerWaitMinutes !== undefined
+        ) {
+            queue.updateItemRepetition(input.queueItemId, {
+                repeatCount: input.repeatCount,
+                repeatPrefix: input.repeatPrefix,
+                repeatSuffix: input.repeatSuffix,
+                templateRepeatCount: input.templateRepeatCount,
+                answerWaitMinutes: input.answerWaitMinutes,
+            });
+        }
+
         const updated = queue.getById(input.queueItemId);
         return JSON.stringify({
             success: true,
@@ -1032,6 +1303,9 @@ async function executeQueueUpdateItem(input: QueueUpdateItemInput): Promise<stri
             template: updated?.template,
             answerWrapper: !!updated?.answerWrapper,
             reminderEnabled: !!updated?.reminderEnabled,
+            repeatCount: updated?.repeatCount ?? null,
+            templateRepeatCount: updated?.templateRepeatCount ?? null,
+            answerWaitMinutes: updated?.answerWaitMinutes ?? null,
         });
     } catch (err: any) {
         return `Error updating queue item: ${err.message ?? err}`;
@@ -1041,7 +1315,9 @@ async function executeQueueUpdateItem(input: QueueUpdateItemInput): Promise<stri
 export const QUEUE_UPDATE_ITEM_TOOL: SharedToolDefinition<QueueUpdateItemInput> = {
     name: 'tomAi_queue_updateItem',
     displayName: 'Queue Update Item',
-    description: 'Update an editable queue item text/template/answer-wrapper/reminder settings.',
+    description:
+        'Update an editable queue item: text, template, answer-wrapper, reminder, main-prompt repeat (count/prefix/suffix), templateRepeatCount, and answerWaitMinutes. ' +
+        'repeatCount / templateRepeatCount accept a literal number or the name of a chat variable that holds the count.',
     tags: ['queue', 'copilot', 'tom-ai-chat'],
     readOnly: false,
     inputSchema: {
@@ -1049,13 +1325,18 @@ export const QUEUE_UPDATE_ITEM_TOOL: SharedToolDefinition<QueueUpdateItemInput> 
         required: ['queueItemId'],
         properties: {
             queueItemId: { type: 'string', description: 'Queue item ID to update.' },
-            text: { type: 'string', description: 'New prompt text.' },
-            template: { type: 'string', description: 'Template name or empty string for none.' },
-            answerWrapper: { type: 'boolean', description: 'Whether answer wrapper is enabled.' },
+            text: { type: 'string' },
+            template: { type: 'string' },
+            answerWrapper: { type: 'boolean' },
             reminderEnabled: { type: 'boolean' },
             reminderTemplateId: { type: 'string' },
             reminderTimeoutMinutes: { type: 'number' },
             reminderRepeat: { type: 'boolean' },
+            repeatCount: { description: 'Main-prompt repeat count (literal number or chat-variable name).' },
+            repeatPrefix: { type: 'string' },
+            repeatSuffix: { type: 'string' },
+            templateRepeatCount: { description: 'Template-level repeat count (literal number or chat-variable name).' },
+            answerWaitMinutes: { type: 'number' },
         },
     },
     execute: executeQueueUpdateItem,
@@ -1169,6 +1450,8 @@ interface QueueUpdateFollowUpInput {
     reminderTemplateId?: string;
     reminderTimeoutMinutes?: number;
     reminderRepeat?: boolean;
+    repeatCount?: number | string;
+    answerWaitMinutes?: number;
 }
 
 async function executeQueueUpdateFollowUp(input: QueueUpdateFollowUpInput): Promise<string> {
@@ -1182,6 +1465,8 @@ async function executeQueueUpdateFollowUp(input: QueueUpdateFollowUpInput): Prom
             reminderTemplateId: input.reminderTemplateId,
             reminderTimeoutMinutes: input.reminderTimeoutMinutes,
             reminderRepeat: input.reminderRepeat,
+            repeatCount: input.repeatCount,
+            answerWaitMinutes: input.answerWaitMinutes,
         });
         if (!ok) {
             return 'Error: queue item or follow-up not found.';
@@ -1195,7 +1480,8 @@ async function executeQueueUpdateFollowUp(input: QueueUpdateFollowUpInput): Prom
 export const QUEUE_UPDATE_FOLLOW_UP_TOOL: SharedToolDefinition<QueueUpdateFollowUpInput> = {
     name: 'tomAi_queue_updateFollowUp',
     displayName: 'Queue Update Follow-Up',
-    description: 'Update a follow-up prompt fields for an existing queue item.',
+    description:
+        'Update fields on an existing follow-up prompt: text, template, reminder, repeatCount (number or chat-variable name), answerWaitMinutes.',
     tags: ['queue', 'follow-up', 'copilot', 'tom-ai-chat'],
     readOnly: false,
     inputSchema: {
@@ -1210,6 +1496,8 @@ export const QUEUE_UPDATE_FOLLOW_UP_TOOL: SharedToolDefinition<QueueUpdateFollow
             reminderTemplateId: { type: 'string' },
             reminderTimeoutMinutes: { type: 'number' },
             reminderRepeat: { type: 'boolean' },
+            repeatCount: { description: 'Literal number or chat-variable name.' },
+            answerWaitMinutes: { type: 'number' },
         },
     },
     execute: executeQueueUpdateFollowUp,
@@ -1309,11 +1597,17 @@ interface TimedUpdateEntryInput {
         originalText?: string;
         scheduleMode?: 'interval' | 'scheduled';
         intervalMinutes?: number;
-        scheduledTimes?: Array<{ hour: number; minute: number }>;
+        /** HH:MM slots; optionally one-shot via ISO date "YYYY-MM-DD". */
+        scheduledTimes?: Array<{ time: string; date?: string }>;
         reminderEnabled?: boolean;
         reminderTemplateId?: string;
         reminderTimeoutMinutes?: number;
         reminderRepeat?: boolean;
+        repeatCount?: number;
+        repeatPrefix?: string;
+        repeatSuffix?: string;
+        sendMaximum?: number;
+        answerWaitMinutes?: number;
     };
 }
 
@@ -1335,7 +1629,9 @@ async function executeTimedUpdateEntry(input: TimedUpdateEntryInput): Promise<st
 export const TIMED_UPDATE_ENTRY_TOOL: SharedToolDefinition<TimedUpdateEntryInput> = {
     name: 'tomAi_timed_updateEntry',
     displayName: 'Timed Update Entry',
-    description: 'Update a timed request entry fields (text/template/schedule/reminder/enabled).',
+    description:
+        'Patch fields on a timed-request entry: schedule (interval or HH:MM-slot scheduled mode), ' +
+        'repeat (count/prefix/suffix), sendMaximum (auto-pause after N sends), answerWaitMinutes, reminder settings.',
     tags: ['timed', 'copilot', 'tom-ai-chat'],
     readOnly: false,
     inputSchema: {
@@ -1352,12 +1648,13 @@ export const TIMED_UPDATE_ENTRY_TOOL: SharedToolDefinition<TimedUpdateEntryInput
                 intervalMinutes: { type: 'number' },
                 scheduledTimes: {
                     type: 'array',
+                    description: 'Per-entry schedule slots. Each element: {time:"HH:MM"} for daily, or add date:"YYYY-MM-DD" for one-shot.',
                     items: {
                         type: 'object',
-                        required: ['hour', 'minute'],
+                        required: ['time'],
                         properties: {
-                            hour: { type: 'number' },
-                            minute: { type: 'number' },
+                            time: { type: 'string', description: 'HH:MM (24h).' },
+                            date: { type: 'string', description: 'Optional YYYY-MM-DD for one-shot firing.' },
                         },
                     },
                 },
@@ -1365,6 +1662,11 @@ export const TIMED_UPDATE_ENTRY_TOOL: SharedToolDefinition<TimedUpdateEntryInput
                 reminderTemplateId: { type: 'string' },
                 reminderTimeoutMinutes: { type: 'number' },
                 reminderRepeat: { type: 'boolean' },
+                repeatCount: { type: 'number' },
+                repeatPrefix: { type: 'string' },
+                repeatSuffix: { type: 'string' },
+                sendMaximum: { type: 'number', description: 'Auto-pause after N total sends; 0 for no cap.' },
+                answerWaitMinutes: { type: 'number' },
             } },
         },
     },
@@ -1620,7 +1922,7 @@ async function executeDeleteTodo(input: DeleteTodoInput): Promise<string> {
 }
 
 export const DELETE_TODO_TOOL: SharedToolDefinition<DeleteTodoInput> = {
-    name: 'tomAi_deleteTodo',
+    name: 'tomAi_deleteQuestTodo',
     displayName: 'Delete Quest Todo',
     description: 'Delete a todo item from a quest by its ID.',
     tags: ['todo', 'quest', 'tom-ai-chat'],
@@ -1851,7 +2153,7 @@ async function executeWorkspaceTodoList(input: WorkspaceTodoListInput): Promise<
 }
 
 export const WORKSPACE_TODO_LIST_TOOL: SharedToolDefinition<WorkspaceTodoListInput> = {
-    name: 'tomAi_workspaceTodo_list',
+    name: 'tomAi_listWorkspaceQuestTodos',
     displayName: 'List Workspace Todos',
     description: 'List all *.todo.yaml todos across the entire workspace. Optionally filter by status.',
     tags: ['todo', 'workspace', 'tom-ai-chat'],
@@ -1873,7 +2175,6 @@ export const WORKSPACE_TODO_LIST_TOOL: SharedToolDefinition<WorkspaceTodoListInp
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const CHAT_ENHANCEMENT_TOOLS: SharedToolDefinition<any>[] = [
     NOTIFY_USER_TOOL,
-    GET_WORKSPACE_INFO_TOOL,
     DETERMINE_QUEST_TOOL,
     LIST_TODOS_TOOL,
     GET_ALL_TODOS_TOOL,
@@ -1888,6 +2189,9 @@ export const CHAT_ENHANCEMENT_TOOLS: SharedToolDefinition<any>[] = [
     SESSION_TODO_DELETE_TOOL,
     ADD_TO_PROMPT_QUEUE_TOOL,
     ADD_FOLLOW_UP_PROMPT_TOOL,
+    ADD_PRE_PROMPT_TOOL,
+    UPDATE_PRE_PROMPT_TOOL,
+    REMOVE_PRE_PROMPT_TOOL,
     SEND_QUEUED_PROMPT_TOOL,
     ADD_TIMED_REQUEST_TOOL,
     QUEUE_LIST_TOOL,

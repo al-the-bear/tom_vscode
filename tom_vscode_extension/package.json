@@ -1355,7 +1355,7 @@
                 "toolReferenceName": "tomAi_getWorkspaceInfo"
             },
             {
-                "name": "tomAi_listTodos",
+                "name": "tomAi_listQuestTodos",
                 "tags": [
                     "todo",
                     "quest",
@@ -1427,7 +1427,7 @@
                 "toolReferenceName": "listAllQuestAndSessionTodos"
             },
             {
-                "name": "tomAi_getTodo",
+                "name": "tomAi_getQuestTodo",
                 "tags": [
                     "todo",
                     "quest",
@@ -1457,7 +1457,7 @@
                 "toolReferenceName": "getQuestTodoById"
             },
             {
-                "name": "tomAi_createTodo",
+                "name": "tomAi_createQuestTodo",
                 "tags": [
                     "todo",
                     "quest",
@@ -1543,7 +1543,7 @@
                 "toolReferenceName": "createQuestTodo"
             },
             {
-                "name": "tomAi_updateTodo",
+                "name": "tomAi_updateQuestTodo",
                 "tags": [
                     "todo",
                     "quest",
@@ -1619,7 +1619,7 @@
                 "toolReferenceName": "updateQuestTodo"
             },
             {
-                "name": "tomAi_moveTodo",
+                "name": "tomAi_moveQuestTodo",
                 "tags": [
                     "todo",
                     "quest",
@@ -2241,7 +2241,7 @@
                 "toolReferenceName": "tom_reminder_template_manage"
             },
             {
-                "name": "tomAi_deleteTodo",
+                "name": "tomAi_deleteQuestTodo",
                 "tags": [
                     "todo",
                     "quest",
@@ -2272,7 +2272,7 @@
                         }
                     }
                 },
-                "toolReferenceName": "tomAi_deleteTodo"
+                "toolReferenceName": "tomAi_deleteQuestTodo"
             },
             {
                 "name": "tomAi_listQuests",
@@ -2351,7 +2351,7 @@
                 "toolReferenceName": "tomAi_listDocuments"
             },
             {
-                "name": "tomAi_workspaceTodo_list",
+                "name": "tomAi_listWorkspaceQuestTodos",
                 "tags": [
                     "todo",
                     "workspace",
@@ -2370,7 +2370,7 @@
                         }
                     }
                 },
-                "toolReferenceName": "tomAi_workspaceTodo_list"
+                "toolReferenceName": "tomAi_listWorkspaceQuestTodos"
             },
             {
                 "name": "tomAi_askBigBrother",
