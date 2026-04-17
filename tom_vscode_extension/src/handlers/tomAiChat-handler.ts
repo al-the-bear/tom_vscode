@@ -14,6 +14,7 @@ import {
 import { ChatTodoSessionManager, TodoOperationResult } from '../managers/chatTodoSessionManager';
 import { setActiveTodoManager } from '../tools/tomAiChat-tools';
 import { WsPaths } from '../utils/workspacePaths';
+import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 import {
     logPrompt, logResponse, logToolRequest, logToolResult,
     isTrailEnabled, loadTrailConfig, writeTrailFile,
@@ -809,15 +810,44 @@ export async function sendToTomAiChatHandler(): Promise<void> {
     }
     logChannel.appendLine(`[Tom AI] Prompt preview:\n${truncateLines(fullPromptTemplate, MAX_LOG_LINES)}`);
 
+    // Template-driven tool selection (matches the pattern used by Anthropic
+    // and Local LLM profile editors — see globalTemplateEditor-handler.ts):
+    //  1. template.toolsEnabled !== false  → every valid registered tool.
+    //  2. template.toolsEnabled === false  → only template.enabledTools subset.
+    //  3. no template picked                → fall back to TOM_AI_CHAT_ALLOWED_TOOLS.
+    const sendConfig = loadSendToChatConfig();
+    const templateId = parsed.template || '';
+    const templateObj = templateId
+        ? (sendConfig?.tomAiChat?.templates?.[templateId] as { toolsEnabled?: boolean; enabledTools?: string[] } | undefined)
+        : undefined;
     const allTools = Array.from(vscode.lm.tools) as unknown as vscode.LanguageModelChatTool[];
     const sortedTools = [...allTools].sort((a, b) => a.name.localeCompare(b.name));
     const invalidSchemaTools = sortedTools.filter((tool) => !isToolSchemaValid(tool));
     const validTools = sortedTools.filter((tool) => isToolSchemaValid(tool));
-    const allowedTools = validTools.filter((tool) => TOM_AI_CHAT_ALLOWED_TOOLS.has(tool.name));
+
+    let allowedTools: vscode.LanguageModelChatTool[];
+    let toolSelectionSource: string;
+    if (templateObj) {
+        const allEnabled = templateObj.toolsEnabled !== false;
+        if (allEnabled) {
+            allowedTools = validTools;
+            toolSelectionSource = `template '${templateId}' (All Tools Enabled)`;
+        } else {
+            const enabledIds = Array.isArray(templateObj.enabledTools) ? templateObj.enabledTools : [];
+            allowedTools = enabledIds.length > 0
+                ? validTools.filter((tool) => enabledIds.includes(tool.name))
+                : [];
+            toolSelectionSource = `template '${templateId}' (${enabledIds.length} enabled)`;
+        }
+    } else {
+        allowedTools = validTools.filter((tool) => TOM_AI_CHAT_ALLOWED_TOOLS.has(tool.name));
+        toolSelectionSource = 'default TOM_AI_CHAT_ALLOWED_TOOLS';
+    }
     const maxTools = 128;
     const tools = allowedTools.slice(0, maxTools);
     if (allTools.length > 0) {
         logChannel.appendLine(`[Tom AI] Tools registered: ${allTools.length}`);
+        logChannel.appendLine(`[Tom AI] Tool selection source: ${toolSelectionSource}`);
         if (invalidSchemaTools.length > 0) {
             logChannel.appendLine(
                 `[Tom AI] Tools skipped due to invalid schema: ${invalidSchemaTools
@@ -831,11 +861,13 @@ export async function sendToTomAiChatHandler(): Promise<void> {
             const skipped = allowedTools.slice(maxTools).map((tool) => tool.name).join(', ');
             logChannel.appendLine(`[Tom AI] Tools skipped due to cap (${maxTools}): ${skipped}`);
         }
-        const missingAllowed = Array.from(TOM_AI_CHAT_ALLOWED_TOOLS).filter(
-            (toolName) => !validTools.some((tool) => tool.name === toolName)
-        );
-        if (missingAllowed.length > 0) {
-            logChannel.appendLine(`[Tom AI] Allowed tools not registered: ${missingAllowed.join(', ')}`);
+        if (!templateObj) {
+            const missingAllowed = Array.from(TOM_AI_CHAT_ALLOWED_TOOLS).filter(
+                (toolName) => !validTools.some((tool) => tool.name === toolName)
+            );
+            if (missingAllowed.length > 0) {
+                logChannel.appendLine(`[Tom AI] Allowed tools not registered: ${missingAllowed.join(', ')}`);
+            }
         }
     }
     let responseText = '';

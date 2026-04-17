@@ -26,6 +26,7 @@ import { expandTemplate } from './promptTemplate';
 import { getLocalLlmManager, ensureLocalLlmManager } from './localLlm-handler';
 import { getAiConversationManager } from './aiConversation-handler';
 import { interruptTomAiChatHandler } from './tomAiChat-handler';
+import { setMetadataValue } from './tomAiChat-utils';
 import { getAccordionStyles } from './accordionPanel';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
 import { WsPaths } from '../utils/workspacePaths';
@@ -1664,7 +1665,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         const expanded = await expandTemplate(content);
         const requestId = this._extractRequestIdFromExpandedPrompt(expanded);
         writePromptTrail(text, template || '__none__', false, expanded, requestId);
-        await this._insertExpandedToChatFile(expanded);
+        const templateId = templateObj ? (template || '') : '';
+        await this._insertExpandedToChatFile(expanded, templateId);
     }
 
     // --- Anthropic: send, model fetch, trail -------------------------------
@@ -1825,7 +1827,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         await vscode.commands.executeCommand('vscode.openWith', uri, 'tomAi.trailViewer');
     }
 
-    private async _insertExpandedToChatFile(expanded: string): Promise<void> {
+    private async _insertExpandedToChatFile(expanded: string, templateId: string = ''): Promise<void> {
         const editor = vscode.window.activeTextEditor;
         if (!editor || !editor.document.fileName.endsWith('.chat.md')) {
             vscode.window.showWarningMessage('Please open a .chat.md file first');
@@ -1835,14 +1837,21 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         const doc = editor.document;
         const text = doc.getText();
         const chatHeaderMatch = text.match(/_{3,}\s*CHAT\s+\w+\s*_{3,}/);
-        
+
         if (chatHeaderMatch) {
-            const headerIndex = text.indexOf(chatHeaderMatch[0]);
-            const headerEnd = headerIndex + chatHeaderMatch[0].length;
-            const position = doc.positionAt(headerEnd);
-            
+            // Persist the template id in the metadata block so
+            // sendToTomAiChatHandler can apply its tool settings. We do this
+            // by rewriting the whole file content (metadata block is small
+            // and the header is always preserved).
+            const withTemplate = setMetadataValue(text, 'template', templateId);
+            const headerMatchAfter = withTemplate.match(/_{3,}\s*CHAT\s+\w+\s*_{3,}/);
+            const headerIndex = withTemplate.indexOf(headerMatchAfter ? headerMatchAfter[0] : chatHeaderMatch[0]);
+            const headerEnd = headerIndex + (headerMatchAfter ? headerMatchAfter[0].length : chatHeaderMatch[0].length);
+            const insertedOffset = headerEnd;
+            const newContent = withTemplate.slice(0, insertedOffset) + '\n\n' + expanded + withTemplate.slice(insertedOffset);
+            const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(text.length));
             await editor.edit(editBuilder => {
-                editBuilder.insert(position, '\n\n' + expanded);
+                editBuilder.replace(fullRange, newContent);
             });
         } else {
             await editor.edit(editBuilder => {

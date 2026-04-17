@@ -65,6 +65,12 @@ export interface ChatParseResult {
     maxToolResultChars?: number;
     maxDraftChars?: number;
     contextFilePath?: string;
+    /**
+     * Template id the last prompt was expanded from. Persisted in the
+     * metadata block so sendToTomAiChatHandler can apply the template's
+     * toolsEnabled / enabledTools settings.
+     */
+    template?: string;
     lines: string[];
 }
 
@@ -79,7 +85,8 @@ export function buildMetadataBlock(
     enablePromptOptimization: boolean = false,
     maxContextChars: number = 50000,
     maxToolResultChars: number = 50000,
-    maxDraftChars: number = 8000
+    maxDraftChars: number = 8000,
+    template: string = ''
 ): string {
     return [
         `toolInvocationToken:`,
@@ -93,12 +100,36 @@ export function buildMetadataBlock(
         `maxContextChars: ${maxContextChars}`,
         `maxToolResultChars: ${maxToolResultChars}`,
         `maxDraftChars: ${maxDraftChars}`,
+        `template: ${template}`,
         `contextFilePath:`,
         '',
         `${'_'.repeat(9)} CHAT ${chatId} ${'_'.repeat(12)}`,
         '',
         ''
     ].join('\n');
+}
+
+/**
+ * Insert or overwrite a `key: value` line in the metadata block (everything
+ * before the CHAT header). Used by _handleSendTomAiChat to persist which
+ * template the user picked when queuing the prompt, so sendToTomAiChatHandler
+ * can look up its tool settings at send time.
+ */
+export function setMetadataValue(text: string, key: string, value: string): string {
+    const lines = text.split(/\r?\n/);
+    const headerIdx = lines.findIndex((line) => CHAT_HEADER_REGEX.test(line));
+    const searchEnd = headerIdx === -1 ? lines.length : headerIdx;
+    const keyPrefix = `${key}:`;
+    for (let i = 0; i < searchEnd; i += 1) {
+        if (lines[i].startsWith(keyPrefix)) {
+            lines[i] = `${keyPrefix} ${value}`;
+            return lines.join('\n');
+        }
+    }
+    // No existing line — insert just before the CHAT header (or at end).
+    const insertAt = headerIdx === -1 ? lines.length : headerIdx;
+    lines.splice(insertAt, 0, `${keyPrefix} ${value}`);
+    return lines.join('\n');
 }
 
 export function buildSystemPrompt(): string {
@@ -245,6 +276,7 @@ export function parseChatText(text: string, filePath: string): ChatParseResult {
     const maxToolResultChars = parseNumberValue('maxToolResultChars');
     const maxDraftChars = parseNumberValue('maxDraftChars');
     const contextFilePath = getLineValue('contextFilePath');
+    const template = getLineValue('template');
 
     return {
         chatId,
@@ -264,6 +296,7 @@ export function parseChatText(text: string, filePath: string): ChatParseResult {
         maxToolResultChars,
         maxDraftChars,
         contextFilePath,
+        template,
         lines
     };
 }
