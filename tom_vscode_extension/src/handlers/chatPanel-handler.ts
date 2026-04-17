@@ -35,6 +35,7 @@ import { TrailService } from '../services/trailService';
 import { writeWindowState } from './windowStatusPanel-handler.js';
 import { AnthropicHandler, AnthropicProfile, AnthropicConfiguration } from './anthropic-handler';
 import { ALL_SHARED_TOOLS } from '../tools/tool-executors';
+import { SharedToolDefinition } from '../tools/shared-tool-registry';
 
 // ============================================================================
 // Answer File Utilities (for Copilot answer file feature)
@@ -1746,19 +1747,28 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             cfg = { ...cfg, model: modelId };
         }
 
-        // Tool resolution:
-        //  - profile.toolsEnabled === false AND profile.enabledTools is an
-        //    array → profile overrides the configuration's list
-        //  - otherwise → fall back to configuration.enabledTools
-        //  - empty result → no tools exposed to the model
+        // Tool resolution (matches the "All Tools Enabled" checkbox in the
+        // profile editor — see globalTemplateEditor-handler.ts):
+        //  1. profile.toolsEnabled !== false  → ALL tools (every entry in
+        //     ALL_SHARED_TOOLS); the checkbox in the profile UI is on.
+        //  2. profile.toolsEnabled === false  → restricted set:
+        //     - if profile.enabledTools is a non-empty array → profile subset
+        //     - else if cfg.enabledTools is a non-empty array → configuration subset
+        //     - else → no tools
         const profileOverride = (profile as unknown as { enabledTools?: string[]; toolsEnabled?: boolean });
-        const profileSubset = profileOverride.toolsEnabled === false && Array.isArray(profileOverride.enabledTools)
-            ? profileOverride.enabledTools
-            : undefined;
-        const enabledIds = profileSubset ?? (Array.isArray(cfg.enabledTools) ? cfg.enabledTools : []);
-        const tools = enabledIds.length > 0
-            ? ALL_SHARED_TOOLS.filter((t) => enabledIds.includes(t.name))
-            : [];
+        const allToolsEnabled = profileOverride.toolsEnabled !== false;
+        let tools: SharedToolDefinition[];
+        if (allToolsEnabled) {
+            tools = [...ALL_SHARED_TOOLS];
+        } else {
+            const profileList = Array.isArray(profileOverride.enabledTools) && profileOverride.enabledTools.length > 0
+                ? profileOverride.enabledTools
+                : undefined;
+            const enabledIds = profileList ?? (Array.isArray(cfg.enabledTools) ? cfg.enabledTools : []);
+            tools = enabledIds.length > 0
+                ? ALL_SHARED_TOOLS.filter((t) => enabledIds.includes(t.name))
+                : [];
+        }
 
         this._ensureAnthropicApprovalListener();
 
