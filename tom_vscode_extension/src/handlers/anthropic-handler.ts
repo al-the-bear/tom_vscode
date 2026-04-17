@@ -28,6 +28,7 @@ import {
 import { TwoTierMemoryService } from '../services/memory-service';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 import { runAgentSdkQuery } from './agent-sdk-transport';
+import * as anthropicOutput from './anthropic-output-channels';
 import { WsPaths } from '../utils/workspacePaths';
 import { resolveVariables } from '../utils/variableResolver';
 
@@ -435,6 +436,14 @@ export class AnthropicHandler {
             quest,
         );
 
+        anthropicOutput.logTurnStart({
+            requestId,
+            transport,
+            model: configuration.model,
+            systemPromptLength: systemPrompt.length,
+            userText: userContent,
+        });
+
         if (transport === 'agentSdk') {
             // When useBuiltInTools is on, hide our duplicates of Claude Code
             // built-ins so the model sees the SDK's native versions instead
@@ -579,6 +588,15 @@ export class AnthropicHandler {
             requestId,
             quest,
         );
+
+        anthropicOutput.logAssistantText(text);
+        anthropicOutput.logTurnEnd({
+            requestId,
+            rounds: turnsUsed,
+            toolCallCount,
+            stopReason,
+        });
+
         // Also write the compact summary trail (_ai/quests/{quest}/{quest}.anthropic.prompts.md
         // and .answers.md) so the Raw Trail Files Viewer (per-file view) can open it. Same
         // pattern copilot uses via writeSummaryPrompt + writeSummaryAnswer.
@@ -702,6 +720,8 @@ export class AnthropicHandler {
             quest,
         );
 
+        anthropicOutput.logToolRequest(block.name, input);
+
         const start = Date.now();
         let result = '';
         let error: string | undefined;
@@ -726,6 +746,8 @@ export class AnthropicHandler {
             windowId,
             quest,
         );
+
+        anthropicOutput.logToolResult(block.name, input, result, durationMs, error);
 
         this.toolTrail.add({
             timestamp: new Date().toISOString().slice(11, 19),
