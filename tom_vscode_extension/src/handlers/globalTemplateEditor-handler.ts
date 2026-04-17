@@ -230,12 +230,17 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
         case 'tomAiChat': {
             const tpl = (config.tomAiChat?.templates as any)?.[itemId];
             if (!tpl) break;
+            const tcToolOptions = AVAILABLE_LLM_TOOLS.map((tool) => ({ value: tool, label: tool }));
+            const tcEnabledTools = Array.isArray(tpl.enabledTools) ? (tpl.enabledTools as string[]) : [];
+            const tcAllToolsEnabled = tpl.toolsEnabled !== false && tcEnabledTools.length === 0;
             fields.push(
                 { name: 'name', label: 'Template Key', type: 'text', value: itemId },
                 { name: 'label', label: 'Display Label', type: 'text', value: tpl.label || '' },
                 { name: 'description', label: 'Description', type: 'text', value: tpl.description || '' },
                 { name: 'contextInstructions', label: 'Context Instructions', type: 'textarea', value: tpl.contextInstructions || '', help: PLACEHOLDER_HELP },
                 { name: 'systemPromptOverride', label: 'System Prompt Override', type: 'textarea', value: tpl.systemPromptOverride || '' },
+                { name: 'allToolsEnabled', label: 'All Tools Enabled', type: 'checkbox', value: String(tcAllToolsEnabled), help: 'When checked, <strong>every</strong> tool the extension knows about (all of <code>ALL_SHARED_TOOLS</code>) is exposed to the model. Uncheck to pick a template-specific subset below.' },
+                { name: 'enabledTools', label: 'Tools', type: 'multi-checkbox', value: JSON.stringify(tcEnabledTools), options: tcToolOptions, disabledWhen: { field: 'allToolsEnabled', equals: 'true' }, help: 'Template-level tool subset. Active only when "All Tools Enabled" is off.' },
             );
             break;
         }
@@ -266,6 +271,11 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
         case 'localLlm': {
             const profile = (config as any).localLlm?.profiles?.[itemId];
             if (!profile) break;
+            const llmToolOptions = AVAILABLE_LLM_TOOLS.map((tool) => ({ value: tool, label: tool }));
+            const llmProfileEnabledTools = Array.isArray(profile.enabledTools)
+                ? (profile.enabledTools as string[])
+                : [];
+            const llmAllToolsEnabled = profile.toolsEnabled !== false && llmProfileEnabledTools.length === 0;
             fields.push(
                 { name: 'name', label: 'Profile Key', type: 'text', value: itemId },
                 { name: 'label', label: 'Display Label', type: 'text', value: profile.label || '' },
@@ -273,7 +283,8 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                 { name: 'resultTemplate', label: 'Result Template', type: 'textarea', value: profile.resultTemplate || '' },
                 { name: 'temperature', label: 'Temperature', type: 'number', value: String(profile.temperature ?? '') },
                 { name: 'modelConfig', label: 'Model Config', type: 'text', value: profile.modelConfig || '' },
-                { name: 'toolsEnabled', label: 'Tools Enabled', type: 'checkbox', value: String(profile.toolsEnabled !== false) },
+                { name: 'allToolsEnabled', label: 'All Tools Enabled', type: 'checkbox', value: String(llmAllToolsEnabled), help: 'When checked, <strong>every</strong> tool the extension knows about (all of <code>ALL_SHARED_TOOLS</code>) is exposed to the model. Uncheck to pick a profile-specific subset below — empty subset then means no tools.' },
+                { name: 'enabledTools', label: 'Tools', type: 'multi-checkbox', value: JSON.stringify(llmProfileEnabledTools), options: llmToolOptions, disabledWhen: { field: 'allToolsEnabled', equals: 'true' }, help: 'Profile-level tool subset. Active only when "All Tools Enabled" is off.' },
                 { name: 'isDefault', label: 'Is Default', type: 'checkbox', value: String(profile.isDefault === true) },
                 { name: 'stripThinkingTags', label: 'Strip Thinking Tags', type: 'checkbox', value: String(profile.stripThinkingTags === true) },
             );
@@ -509,11 +520,21 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
             if (!config.tomAiChat.templates) config.tomAiChat.templates = {};
             const newName = values.name || itemId;
             if (newName !== itemId) delete config.tomAiChat.templates[itemId];
+            const tcAll = values.allToolsEnabled === 'true';
+            let tcEnabled: string[] | undefined;
+            try {
+                const parsed = JSON.parse(values.enabledTools || '[]');
+                if (Array.isArray(parsed)) {
+                    tcEnabled = parsed.filter((t): t is string => typeof t === 'string');
+                }
+            } catch { tcEnabled = undefined; }
             config.tomAiChat.templates[newName] = {
                 label: values.label || newName,
                 description: values.description || '',
                 contextInstructions: values.contextInstructions || '',
                 systemPromptOverride: values.systemPromptOverride || null,
+                toolsEnabled: tcAll,
+                enabledTools: tcAll ? undefined : (tcEnabled ?? []),
             } as any;
             break;
         }
@@ -551,6 +572,14 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
             if (!profiles) break;
             const newName = values.name || itemId;
             if (newName !== itemId) delete profiles[itemId];
+            const llmAll = values.allToolsEnabled === 'true';
+            let llmEnabled: string[] | undefined;
+            try {
+                const parsed = JSON.parse(values.enabledTools || '[]');
+                if (Array.isArray(parsed)) {
+                    llmEnabled = parsed.filter((t): t is string => typeof t === 'string');
+                }
+            } catch { llmEnabled = undefined; }
             profiles[newName] = {
                 ...(profiles[itemId] || profiles[newName] || {}),
                 label: values.label || newName,
@@ -558,7 +587,8 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
                 resultTemplate: values.resultTemplate || null,
                 temperature: values.temperature ? parseFloat(values.temperature) : null,
                 modelConfig: values.modelConfig || null,
-                toolsEnabled: values.toolsEnabled === 'true',
+                toolsEnabled: llmAll,
+                enabledTools: llmAll ? undefined : (llmEnabled ?? []),
                 isDefault: values.isDefault === 'true',
                 stripThinkingTags: values.stripThinkingTags === 'true',
             };

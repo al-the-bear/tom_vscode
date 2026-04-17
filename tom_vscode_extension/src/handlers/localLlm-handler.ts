@@ -29,7 +29,7 @@ import {
     OllamaTool, OllamaToolCall, SharedToolDefinition,
     executeToolCall, toOllamaTools,
 } from '../tools/shared-tool-registry';
-import { READ_ONLY_TOOLS } from '../tools/tool-executors';
+import { READ_ONLY_TOOLS, ALL_SHARED_TOOLS } from '../tools/tool-executors';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 import {
     logPrompt, logResponse, logToolRequest, logToolResult,
@@ -1168,9 +1168,26 @@ export class LocalLlmManager {
             // The model can choose to use tools or just produce a direct answer.
             const effectiveMaxRounds = profile?.maxRounds ?? 20;
 
-            // Resolve toolsEnabled from profile or config
-            const effectiveToolsEnabled = profile?.toolsEnabled ?? config.toolsEnabled;
-            const toolsToUse = effectiveToolsEnabled ? READ_ONLY_TOOLS : [];
+            // Tool resolution (matches the "All Tools Enabled" checkbox in
+            // the profile editor — see globalTemplateEditor-handler.ts):
+            //  1. profile.toolsEnabled !== false  → ALL tools (every entry in
+            //     ALL_SHARED_TOOLS).
+            //  2. profile.toolsEnabled === false  → use profile.enabledTools
+            //     subset; empty subset = no tools.
+            // Top-level config.toolsEnabled supplies the default when the
+            // profile omits the field entirely.
+            const profileToolsEnabled = (profile as { toolsEnabled?: boolean } | undefined)?.toolsEnabled;
+            const profileEnabledTools = (profile as { enabledTools?: string[] } | undefined)?.enabledTools;
+            const allToolsEnabled = (profileToolsEnabled ?? config.toolsEnabled) !== false;
+            let toolsToUse: SharedToolDefinition[];
+            if (allToolsEnabled) {
+                toolsToUse = [...ALL_SHARED_TOOLS];
+            } else {
+                const enabledIds = Array.isArray(profileEnabledTools) ? profileEnabledTools : [];
+                toolsToUse = enabledIds.length > 0
+                    ? ALL_SHARED_TOOLS.filter((t) => enabledIds.includes(t.name))
+                    : [];
+            }
 
             // Trail: Log full prompt with system prompt and metadata
             logPrompt('local', 'ollama', prompt, resolvedSystemPrompt, {
@@ -1225,7 +1242,7 @@ export class LocalLlmManager {
                 this.logChannel.appendLine(`[process] Passing ${historyForOllama.length} history message(s) to Ollama`);
             }
 
-            this.logChannel.appendLine(`[process] Tools enabled: ${effectiveToolsEnabled} | Tools count: ${toolsToUse.length}`);
+            this.logChannel.appendLine(`[process] All tools enabled: ${allToolsEnabled} | Tools count: ${toolsToUse.length}`);
 
             const result = await this.ollamaGenerateWithTools({
                 baseUrl: mc.ollamaUrl,

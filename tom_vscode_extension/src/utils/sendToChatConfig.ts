@@ -28,7 +28,13 @@ export interface SendToChatConfig {
             resultTemplate?: string | null;
             temperature?: number | null;
             modelConfig?: string | null;
+            /** When true (default), expose every tool in ALL_SHARED_TOOLS. When false, use enabledTools (or fall back to no tools). */
             toolsEnabled?: boolean;
+            /** Profile-level tool subset; honored when toolsEnabled === false. */
+            enabledTools?: string[];
+            /** Optional override for the model-level history/turn cap. */
+            maxRounds?: number;
+            historyMode?: string;
             stripThinkingTags?: boolean | null;
             isDefault?: boolean;
         } };
@@ -103,6 +109,10 @@ export interface SendToChatConfig {
             description?: string;
             contextInstructions?: string;
             systemPromptOverride?: string | null;
+            /** When true (default), expose every tool in ALL_SHARED_TOOLS. When false, use enabledTools. */
+            toolsEnabled?: boolean;
+            /** Template-level tool subset; honored when toolsEnabled === false. */
+            enabledTools?: string[];
         } };
     };
     copilot?: {
