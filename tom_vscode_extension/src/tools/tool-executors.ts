@@ -1613,6 +1613,7 @@ import { NOTEBOOK_TOOLS } from './notebook-tools';
 import { PATTERN_PROMPTS_TOOLS } from './pattern-prompts-tools';
 import { ISSUE_TOOLS } from './issue-tools';
 import { TEST_TOOLS } from './test-tools';
+import { CONVERSATION_RESULT_TOOLS } from './conversation-result-tools';
 
 // Re-export initializeToolDescriptions so existing consumers continue to work
 // without needing to update their import paths.
@@ -1677,6 +1678,7 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
     ...PATTERN_PROMPTS_TOOLS,   // listPatternPrompts, readPatternPrompt
     ...ISSUE_TOOLS,             // Issues subpanel: list/get/createIssue, addComment, setStatus, toggleLabel
     ...TEST_TOOLS,              // Tests subpanel (testkit): parallel to ISSUE_TOOLS against testkit repos
+    ...CONVERSATION_RESULT_TOOLS, // AI Conversation outcome document — read/write result file
 ];
 
 /**

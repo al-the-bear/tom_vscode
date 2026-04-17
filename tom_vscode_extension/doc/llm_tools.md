@@ -221,6 +221,15 @@ Two-tier: `shared/` (cross-quest) and `{quest}/` (per-quest).
 | `tomAi_memory_update` | Patch-edit memory (approval). | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_memory_forget` | Delete memory (approval). | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
 
+### 4.17.5 AI Conversation result document
+
+A shared markdown document per conversation that both participants read + write so the bot-to-bot exchange can produce a durable outcome. Stored at `_ai/ai_conversation/{conversationId}.result.md` (default id: `"current"`). This is the **only mutation tool** enabled for AI Conversation in the default seed config — every other mutating tool is off.
+
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
+| --- | --- | :-: | :-: | :-: | :-: | :-: |
+| `tomAi_readConversationResult` | Read current content of the conversation's result document. | ⚪ | ⚪ | ⚪ | ⚪ | ✅ |
+| `tomAi_writeConversationResult` | Write (replace) or append to the conversation's result document. | ⚪ | ⚪ | ⚪ | ⚪ | ✅ |
+
 ### 4.18 User interaction
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
@@ -303,14 +312,25 @@ The user's single-conversation surface. Structurally similar to Anthropic API di
 
 ### 5.5 AI Conversation (VS Code LM)
 
-Two agents converse via the VS Code LM API, orchestrated without a human in the loop. Most tools that apply to Tom AI Chat also apply here — but the interactive and delegation tools don't.
+Two agents converse via the VS Code LM API, orchestrated without a human in the loop. **This mode is experimental.** Until it is proven reliable, the default seed config restricts AI Conversation to a **read-only tool subset** plus the two `tomAi_{read,write}ConversationResult` tools that let the bots produce an outcome document.
 
-- **No human** — `askUser` / `askUserPicker` are ❌. `notifyUser` is ⚪: the conversation can still emit notifications (e.g. "I reached a conclusion"), but that's informational for the watching user, not interactive.
+Default enabled tools (seed config `default-conversation-llm`):
+
+- **Read-only file / workspace**: `readFile`, `listDirectory`, `findFiles`, `findTextInFiles`, `getWorkspaceInfo`, `getActiveEditor`, `getOpenEditors`.
+- **Diagnostics**: `getErrors`, `getProblems`.
+- **Git read**: `git`, `gitShow`.
+- **Web research**: `fetchWebpage`, `webSearch`.
+- **Guidelines + pattern prompts**: `readGuideline`, `readLocalGuideline`, `listGuidelines`, `searchGuidelines`, `listPatternPrompts`, `readPatternPrompt`.
+- **Result document**: `readConversationResult`, `writeConversationResult` (the only mutation allowed).
+
+Explicitly off (even though they'd technically work):
+
+- **No human** — `askUser` / `askUserPicker` are ❌ (no one to ask). `notifyUser` is ⚪ (informational only).
 - `tomAi_askCopilot` is ❌ — the conversation has no way to read Copilot's answer back.
 - `tomAi_askBigBrother` is ❌ — same VS Code LM surface; delegation is circular.
 - `tomAi_spawnSubagent` is ❌ — use the VS Code LM primitives to spawn another conversation participant instead.
+- **All file writes, shell, VS Code command execution, git writes, queue orchestration** — deliberately excluded while the mode is experimental. Enable per-profile only when you have a specific reason.
 - `tomAi_enterPlanMode` / `tomAi_exitPlanMode` are ⚪ — less useful for a bounded two-party exchange, but harmless.
-- The Copilot Chat orchestration family (§4.20) is ⚪ — rarely appropriate; a bot-to-bot exchange isn't usually the driver of a Copilot workflow.
 
 ## 6. Stubs pending host integration
 

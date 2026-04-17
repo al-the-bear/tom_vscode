@@ -154,4 +154,7 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_addTestComment',
     'tomAi_setTestStatus',
     'tomAi_toggleTestLabel',
+    // AI Conversation — result document (the only mutation exposed there)
+    'tomAi_readConversationResult',
+    'tomAi_writeConversationResult',
 ] as const;
