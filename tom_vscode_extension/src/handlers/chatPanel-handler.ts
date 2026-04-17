@@ -832,10 +832,10 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
 
     private _sendProfiles(): void {
         const config = loadSendToChatConfig();
-        const anthropicProfileEntries: Array<{ id: string; name: string; isDefault: boolean }> = Array.isArray(config?.anthropic?.profiles)
-            ? (config!.anthropic!.profiles! as Array<{ id: string; name?: string; isDefault?: boolean }>)
+        const anthropicProfileEntries: Array<{ id: string; name: string; isDefault: boolean; configurationId: string }> = Array.isArray(config?.anthropic?.profiles)
+            ? (config!.anthropic!.profiles! as Array<{ id: string; name?: string; isDefault?: boolean; configurationId?: string }>)
                 .filter((p) => p && typeof p.id === 'string' && p.id.length > 0)
-                .map((p) => ({ id: p.id, name: (p.name || p.id), isDefault: p.isDefault === true }))
+                .map((p) => ({ id: p.id, name: (p.name || p.id), isDefault: p.isDefault === true, configurationId: p.configurationId || '' }))
             : [];
         const anthropicProfiles = anthropicProfileEntries.map((p) => p.id);
         const anthropicConfigurations = Array.isArray(config?.anthropic?.configurations)
@@ -3431,7 +3431,7 @@ function stopResize() { /* legacy */ }
 
 function handleAction(action, id, slot) {
     switch(action) {
-        case 'send': { var text = document.getElementById(id + '-text'); text = text ? text.value : ''; if (!text.trim()) return; var profile = document.getElementById(id + '-profile'); profile = profile ? profile.value : ''; var template = document.getElementById(id + '-template'); template = template ? template.value : ''; var llmConfig = document.getElementById('localLlm-llmConfig'); llmConfig = llmConfig ? llmConfig.value : ''; var aiSetup = document.getElementById('conversation-aiSetup'); aiSetup = aiSetup ? aiSetup.value : ''; var anthropicConfig = document.getElementById('anthropic-config'); anthropicConfig = anthropicConfig ? anthropicConfig.value : ''; var anthropicUserMessage = document.getElementById('anthropic-userMessage'); anthropicUserMessage = anthropicUserMessage ? anthropicUserMessage.value : ''; var slotNo = ensureSlotState(id).activeSlot; if (id === 'anthropic') { if (!anthropicConfig) { setAnthropicStatus('Select a configuration first.'); return; } anthropicSending = true; updateAnthropicSendButton(); setAnthropicStatus('Sending…'); } vscode.postMessage({ type: 'send' + id.charAt(0).toUpperCase() + id.slice(1), text: text, profile: profile, template: template, llmConfig: llmConfig, aiSetup: aiSetup, model: '', config: anthropicConfig, userMessageTemplate: anthropicUserMessage, slot: slotNo }); break; }
+        case 'send': { var text = document.getElementById(id + '-text'); text = text ? text.value : ''; if (!text.trim()) return; var profile = document.getElementById(id + '-profile'); profile = profile ? profile.value : ''; var template = document.getElementById(id + '-template'); template = template ? template.value : ''; var llmConfig = document.getElementById('localLlm-llmConfig'); llmConfig = llmConfig ? llmConfig.value : ''; var aiSetup = document.getElementById('conversation-aiSetup'); aiSetup = aiSetup ? aiSetup.value : ''; var anthropicConfig = document.getElementById('anthropic-config'); anthropicConfig = anthropicConfig ? anthropicConfig.value : ''; var anthropicUserMessage = document.getElementById('anthropic-userMessage'); anthropicUserMessage = anthropicUserMessage ? anthropicUserMessage.value : ''; var slotNo = ensureSlotState(id).activeSlot; if (id === 'anthropic') { anthropicSending = true; updateAnthropicSendButton(); setAnthropicStatus('Sending…'); } vscode.postMessage({ type: 'send' + id.charAt(0).toUpperCase() + id.slice(1), text: text, profile: profile, template: template, llmConfig: llmConfig, aiSetup: aiSetup, model: '', config: anthropicConfig, userMessageTemplate: anthropicUserMessage, slot: slotNo }); break; }
         case 'preview': { var prvText = document.getElementById(id + '-text'); prvText = prvText ? prvText.value : ''; var prvTpl = document.getElementById(id + '-template'); prvTpl = prvTpl ? prvTpl.value : ''; vscode.postMessage({ type: 'preview', section: id, text: prvText, template: prvTpl }); break; }
         case 'clearText': {
             if (!id) break;
@@ -3484,7 +3484,7 @@ function handleAction(action, id, slot) {
                 rpMsg.model = '';
                 rpMsg.config = rpConfig ? rpConfig.value : '';
                 rpMsg.userMessageTemplate = rpUserMsg ? rpUserMsg.value : '';
-                if (!rpMsg.config) { setAnthropicStatus('Select a configuration first.'); return; }
+                // Empty config = "Profile default" — resolved on the handler side.
                 anthropicSending = true;
                 updateAnthropicSendButton();
                 setAnthropicStatus('Sending reusable prompt…');
@@ -3623,7 +3623,7 @@ function populateDropdowns() {
     populateSelect('anthropic-userMessage', anthropicUserMessageTemplates);
     populateEntitySelect('localLlm-llmConfig', configurations, '(Select LLM Config)');
     populateEntitySelect('conversation-aiSetup', setups, '(Select AI Setup)');
-    populateEntitySelect('anthropic-config', anthropicConfigurations, '(Select Config)');
+    populateAnthropicConfigSelect();
     populateAnthropicModels();
     updateAnthropicApiKeyDot();
     // Config dropdown: refresh the send button + status line whenever the
@@ -3637,9 +3637,43 @@ function populateDropdowns() {
             setAnthropicStatus(buildAnthropicStatusLine());
         });
     }
+    // Profile dropdown: when "(Profile default)" is selected on the config
+    // dropdown, the effective model depends on the profile. Refresh the
+    // status line on profile change too.
+    var anthropicProfileSel = document.getElementById('anthropic-profile');
+    if (anthropicProfileSel && !anthropicProfileSel._anthropicStatusBound) {
+        anthropicProfileSel._anthropicStatusBound = true;
+        anthropicProfileSel.addEventListener('change', function() {
+            setAnthropicStatus(buildAnthropicStatusLine());
+        });
+    }
     ['localLlm', 'conversation', 'copilot', 'tomAiChat', 'anthropic'].forEach(function(sectionId) {
         populateReusablePromptSelectors(sectionId);
     });
+}
+
+function populateAnthropicConfigSelect() {
+    // Prepend a "(Profile default)" entry with empty value. When the user
+    // leaves that selected, _handleSendAnthropic resolves the effective
+    // configuration from profile.configurationId → isDefault → first.
+    var sel = document.getElementById('anthropic-config');
+    if (!sel) return;
+    var cur = sel.value;
+    var opts = '<option value="">(Profile default)</option>';
+    opts += (anthropicConfigurations || []).map(function(c) {
+        var value = (c && typeof c.id === 'string') ? c.id : '';
+        var label = (c && typeof c.name === 'string' && c.name) ? c.name : value;
+        return '<option value="' + value + '">' + label + '</option>';
+    }).join('');
+    sel.innerHTML = opts;
+    // Preserve the previous selection if still valid; otherwise default to
+    // the empty "Profile default" entry rather than auto-picking a config
+    // (which would override the profile silently).
+    if (cur && (anthropicConfigurations || []).some(function(c) { return c && c.id === cur; })) {
+        sel.value = cur;
+    } else {
+        sel.value = '';
+    }
 }
 
 function populateAnthropicModels() {
@@ -3693,11 +3727,9 @@ function updateClaudeCliDot() {
 function updateAnthropicSendButton() {
     var btn = document.getElementById('anthropic-send-btn');
     if (!btn) return;
-    // The Model dropdown is informational only — the active configuration
-    // is the source of truth for what actually gets sent.
-    var cfgSel = document.getElementById('anthropic-config');
-    var hasConfig = cfgSel && cfgSel.value;
-    btn.disabled = !!(anthropicSending || !hasConfig || !anthropicApiKeyOk);
+    // Empty config value means "Profile default" — still valid to send.
+    // Disable only on missing API key or in-flight request.
+    btn.disabled = !!(anthropicSending || !anthropicApiKeyOk);
 }
 
 function setAnthropicStatus(text) {
@@ -3706,17 +3738,26 @@ function setAnthropicStatus(text) {
 }
 
 function buildAnthropicStatusLine(historyMode) {
-    // Show the configuration's model, since the Model dropdown is no longer
-    // the source of truth.
+    // Resolve the effective configuration the same way _handleSendAnthropic
+    // does: explicit config dropdown value → profile.configurationId →
+    // isDefault → first. This way the status line reflects what actually
+    // gets sent when "(Profile default)" is selected.
     var cfgSel = document.getElementById('anthropic-config');
     var cfgId = cfgSel ? cfgSel.value : '';
-    var cfg = (anthropicConfigurations || []).find(function(c) { return c.id === cfgId; });
+    var profileSel = document.getElementById('anthropic-profile');
+    var profileId = profileSel ? profileSel.value : '';
+    var profile = (anthropicProfileEntries || []).find(function(p) { return p.id === profileId; });
+    var configs = anthropicConfigurations || [];
+    var cfg = configs.find(function(c) { return c.id === cfgId; })
+        || (profile && profile.configurationId ? configs.find(function(c) { return c.id === profile.configurationId; }) : undefined)
+        || configs.find(function(c) { return c.isDefault; })
+        || configs[0];
     var modelName = cfg && cfg.model ? cfg.model : '';
     if (!historyMode) {
         historyMode = cfg && cfg.historyMode ? cfg.historyMode : '';
     }
     var parts = [];
-    if (modelName) parts.push(modelName);
+    if (modelName) parts.push(modelName + (cfgId ? '' : ' (profile default)'));
     if (historyMode) parts.push(historyMode);
     parts.push('last ' + anthropicLastToolCalls + ' tool calls');
     parts.push(anthropicSessionTurns + ' session turns');
