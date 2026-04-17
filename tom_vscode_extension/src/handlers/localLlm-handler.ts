@@ -1021,6 +1021,12 @@ export class LocalLlmManager {
         onToolCall?: (toolName: string, args: Record<string, unknown>, result: string) => void;
         /** Trail type for logging (defaults to 'local'). Pass 'conversation' for bot conversations. */
         trailType?: TrailType;
+        /**
+         * Optional tool override. When provided, uses these tools instead of the
+         * default READ_ONLY_TOOLS. Used by AI Conversation per-persona tool
+         * resolution.
+         */
+        tools?: SharedToolDefinition[];
     }): Promise<{ text: string; rawText: string; thinkContent: string; stats?: OllamaStats; toolCallCount?: number; turnsUsed?: number }> {
         const config = this.loadConfig();
         const { mc } = this.resolveModelConfig(config, undefined, options.modelConfigKey);
@@ -1043,14 +1049,16 @@ export class LocalLlmManager {
             source: 'chatWithOllama',
         });
 
-        // Always use tool-call loop — model decides whether to use tools
+        // Always use tool-call loop — model decides whether to use tools.
+        // Tool set: caller override (e.g. per-persona for AI Conversation), else
+        // the conservative READ_ONLY_TOOLS default for general chat.
         const result = await this.ollamaGenerateWithTools({
             baseUrl: mc.ollamaUrl,
             model: mc.model,
             systemPrompt: options.systemPrompt,
             userPrompt: options.userPrompt,
             temperature: temp,
-            tools: READ_ONLY_TOOLS,
+            tools: options.tools ?? READ_ONLY_TOOLS,
             onToolCall: options.onToolCall,
             cancellationToken: options.cancellationToken,
             keepAlive: mc.keepAlive,

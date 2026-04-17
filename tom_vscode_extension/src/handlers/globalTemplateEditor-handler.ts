@@ -250,6 +250,20 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
             const st = profile.selfTalk || {};
             const stA = st.personA || {};
             const stB = st.personB || {};
+            const convToolOptions = AVAILABLE_LLM_TOOLS.map((tool) => ({ value: tool, label: tool }));
+            // Self-Talk Model dropdown options come from the user's local LLM
+            // configurations (the same list used elsewhere). "(default)" =
+            // inherit the conversation-level modelConfig.
+            const llmModelOptions = [
+                { value: '', label: '(default — inherit conversation modelConfig)' },
+                ...(((config as any).localLlm?.configurations ?? [])
+                    .filter((c: any) => c && typeof c.id === 'string')
+                    .map((c: any) => ({ value: c.id as string, label: c.name ? `${c.name} (${c.id})` : c.id }))),
+            ];
+            const stAEnabled = Array.isArray(stA.enabledTools) ? (stA.enabledTools as string[]) : [];
+            const stAAll = stA.toolsEnabled !== false && stAEnabled.length === 0;
+            const stBEnabled = Array.isArray(stB.enabledTools) ? (stB.enabledTools as string[]) : [];
+            const stBAll = stB.toolsEnabled !== false && stBEnabled.length === 0;
             fields.push(
                 { name: 'name', label: 'Profile Key', type: 'text', value: itemId },
                 { name: 'label', label: 'Display Label', type: 'text', value: profile.label || '' },
@@ -259,12 +273,18 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                 { name: 'initialPromptTemplate', label: 'Initial Prompt Template', type: 'textarea', value: profile.initialPromptTemplate || '', help: PLACEHOLDER_HELP },
                 { name: 'followUpTemplate', label: 'Follow-Up Template', type: 'textarea', value: profile.followUpTemplate || '', help: PLACEHOLDER_HELP },
                 { name: 'temperature', label: 'Temperature', type: 'number', value: String(profile.temperature ?? '') },
+                // ---- Person A ----
                 { name: 'selfTalkPersonASystemPrompt', label: 'Self-Talk A Prompt', type: 'textarea', value: stA.systemPrompt || '' },
-                { name: 'selfTalkPersonAModelConfig', label: 'Self-Talk A Model', type: 'text', value: stA.modelConfig || '' },
+                { name: 'selfTalkPersonAModelConfig', label: 'Self-Talk A Model', type: 'select', value: stA.modelConfig || '', options: llmModelOptions, help: 'Local LLM configuration for Person A. "(default)" inherits the conversation-level <code>modelConfig</code>.' },
                 { name: 'selfTalkPersonATemperature', label: 'Self-Talk A Temp', type: 'number', value: String(stA.temperature ?? '') },
+                { name: 'selfTalkPersonAAllToolsEnabled', label: 'Self-Talk A — All Tools Enabled', type: 'checkbox', value: String(stAAll), help: 'When checked, Person A sees every tool in <code>ALL_SHARED_TOOLS</code>. Uncheck to pick a Person A subset below.' },
+                { name: 'selfTalkPersonAEnabledTools', label: 'Self-Talk A — Tools', type: 'multi-checkbox', value: JSON.stringify(stAEnabled), options: convToolOptions, disabledWhen: { field: 'selfTalkPersonAAllToolsEnabled', equals: 'true' }, help: 'Person-A-only tool subset. Active only when "All Tools Enabled" is off.' },
+                // ---- Person B ----
                 { name: 'selfTalkPersonBSystemPrompt', label: 'Self-Talk B Prompt', type: 'textarea', value: stB.systemPrompt || '' },
-                { name: 'selfTalkPersonBModelConfig', label: 'Self-Talk B Model', type: 'text', value: stB.modelConfig || '' },
+                { name: 'selfTalkPersonBModelConfig', label: 'Self-Talk B Model', type: 'select', value: stB.modelConfig || '', options: llmModelOptions, help: 'Local LLM configuration for Person B.' },
                 { name: 'selfTalkPersonBTemperature', label: 'Self-Talk B Temp', type: 'number', value: String(stB.temperature ?? '') },
+                { name: 'selfTalkPersonBAllToolsEnabled', label: 'Self-Talk B — All Tools Enabled', type: 'checkbox', value: String(stBAll), help: 'When checked, Person B sees every tool in <code>ALL_SHARED_TOOLS</code>. Uncheck to pick a Person B subset below.' },
+                { name: 'selfTalkPersonBEnabledTools', label: 'Self-Talk B — Tools', type: 'multi-checkbox', value: JSON.stringify(stBEnabled), options: convToolOptions, disabledWhen: { field: 'selfTalkPersonBAllToolsEnabled', equals: 'true' }, help: 'Person-B-only tool subset. Active only when "All Tools Enabled" is off.' },
             );
             break;
         }
@@ -543,6 +563,16 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
             if (!profiles) break;
             const newName = values.name || itemId;
             if (newName !== itemId) delete profiles[itemId];
+            const parseTools = (json: string): string[] | undefined => {
+                try {
+                    const parsed = JSON.parse(json || '[]');
+                    return Array.isArray(parsed) ? parsed.filter((t): t is string => typeof t === 'string') : undefined;
+                } catch { return undefined; }
+            };
+            const personAAll = values.selfTalkPersonAAllToolsEnabled === 'true';
+            const personBAll = values.selfTalkPersonBAllToolsEnabled === 'true';
+            const personAEnabled = parseTools(values.selfTalkPersonAEnabledTools || '');
+            const personBEnabled = parseTools(values.selfTalkPersonBEnabledTools || '');
             profiles[newName] = {
                 ...(profiles[itemId] || profiles[newName] || {}),
                 label: values.label || newName,
@@ -557,11 +587,15 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
                         systemPrompt: values.selfTalkPersonASystemPrompt || '',
                         modelConfig: values.selfTalkPersonAModelConfig || null,
                         temperature: values.selfTalkPersonATemperature ? parseFloat(values.selfTalkPersonATemperature) : undefined,
+                        toolsEnabled: personAAll,
+                        enabledTools: personAAll ? undefined : (personAEnabled ?? []),
                     },
                     personB: {
                         systemPrompt: values.selfTalkPersonBSystemPrompt || '',
                         modelConfig: values.selfTalkPersonBModelConfig || null,
                         temperature: values.selfTalkPersonBTemperature ? parseFloat(values.selfTalkPersonBTemperature) : undefined,
+                        toolsEnabled: personBAll,
+                        enabledTools: personBAll ? undefined : (personBEnabled ?? []),
                     },
                 },
             };

@@ -28,6 +28,8 @@ import { validateStrictAiConfiguration } from '../utils/sendToChatConfig';
 import { resolveTemplate } from './promptTemplate';
 import { getLocalLlmManager } from './localLlm-handler';
 import type { OllamaStats } from './localLlm-handler';
+import { ALL_SHARED_TOOLS } from '../tools/tool-executors';
+import type { SharedToolDefinition } from '../tools/shared-tool-registry';
 import { TelegramNotifier, TelegramConfig, TelegramCommand, parseTelegramConfig, TELEGRAM_DEFAULTS } from './telegram-notifier';
 import { TelegramChannel } from './chat';
 import {
@@ -101,6 +103,13 @@ export interface SelfTalkPersona {
     modelConfig?: string | null;
     /** Temperature override for this persona. */
     temperature?: number | null;
+    /**
+     * When true (default), expose every tool in ALL_SHARED_TOOLS to this
+     * persona. When false, expose only the persona's enabledTools subset.
+     */
+    toolsEnabled?: boolean;
+    /** Persona-specific tool subset; honored when toolsEnabled === false. */
+    enabledTools?: string[];
 }
 
 /** A named bot conversation profile. */
@@ -333,6 +342,25 @@ const DEFAULTS: AiConversationConfig = {
     trailSummarizationTemperature: 0.3,
     removePromptTemplateFromTrail: true,
 };
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+/**
+ * Resolve the tools a self-talk persona should see.
+ *
+ * Matches the unified pattern used by Anthropic and Local LLM profile editors:
+ * when `toolsEnabled !== false` (the default) the persona sees every tool in
+ * ALL_SHARED_TOOLS; otherwise it sees only the explicitly whitelisted subset
+ * in `enabledTools`.
+ */
+function resolvePersonaTools(persona: SelfTalkPersona): SharedToolDefinition[] {
+    const allEnabled = persona.toolsEnabled !== false;
+    if (allEnabled) { return [...ALL_SHARED_TOOLS]; }
+    const ids = Array.isArray(persona.enabledTools) ? persona.enabledTools : [];
+    return ids.length > 0 ? ALL_SHARED_TOOLS.filter(t => ids.includes(t.name)) : [];
+}
 
 // ============================================================================
 // AiConversationManager
@@ -610,12 +638,16 @@ export class AiConversationManager {
                                     systemPrompt: typeof p.selfTalk.personA.systemPrompt === 'string' ? p.selfTalk.personA.systemPrompt : '',
                                     modelConfig: typeof p.selfTalk.personA.modelConfig === 'string' ? p.selfTalk.personA.modelConfig : null,
                                     temperature: typeof p.selfTalk.personA.temperature === 'number' ? p.selfTalk.personA.temperature : undefined,
+                                    toolsEnabled: typeof p.selfTalk.personA.toolsEnabled === 'boolean' ? p.selfTalk.personA.toolsEnabled : undefined,
+                                    enabledTools: Array.isArray(p.selfTalk.personA.enabledTools) ? p.selfTalk.personA.enabledTools.filter((t: any): t is string => typeof t === 'string') : undefined,
                                 } : undefined,
                                 personB: p.selfTalk.personB && typeof p.selfTalk.personB === 'object' ? {
                                     actor: typeof p.selfTalk.personB.actor === 'string' ? p.selfTalk.personB.actor : undefined,
                                     systemPrompt: typeof p.selfTalk.personB.systemPrompt === 'string' ? p.selfTalk.personB.systemPrompt : '',
                                     modelConfig: typeof p.selfTalk.personB.modelConfig === 'string' ? p.selfTalk.personB.modelConfig : null,
                                     temperature: typeof p.selfTalk.personB.temperature === 'number' ? p.selfTalk.personB.temperature : undefined,
+                                    toolsEnabled: typeof p.selfTalk.personB.toolsEnabled === 'boolean' ? p.selfTalk.personB.toolsEnabled : undefined,
+                                    enabledTools: Array.isArray(p.selfTalk.personB.enabledTools) ? p.selfTalk.personB.enabledTools.filter((t: any): t is string => typeof t === 'string') : undefined,
                                 } : undefined,
                             } : undefined,
                         };
@@ -1638,6 +1670,7 @@ export class AiConversationManager {
                         stripThinkingTags: config.stripThinkingTags,
                         cancellationToken: cancelToken,
                         trailType: 'conversation',
+                        tools: resolvePersonaTools(personA),
                     });
                 },
             );
@@ -1690,6 +1723,7 @@ export class AiConversationManager {
                         stripThinkingTags: config.stripThinkingTags,
                         cancellationToken: cancelToken,
                         trailType: 'conversation',
+                        tools: resolvePersonaTools(personB),
                     });
                 },
             );
