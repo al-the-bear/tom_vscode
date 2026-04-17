@@ -3168,6 +3168,8 @@ function getSectionContent(id) {
             selectorKind: 'profile',
             selectorLabel: 'Profile',
             selectorOptions: '<option value="">(None)</option>',
+            prefixButtons:
+                '<button class="icon-btn" data-action="openContextPopup" data-id="anthropic" title="Context & Settings"><span class="codicon codicon-tools"></span></button>',
             secondarySelectorHtml:
                 // Edit-profile icon sits immediately after the Profile
                 // dropdown — opens the Global Template Editor on the
@@ -3210,7 +3212,7 @@ function getSectionContent(id) {
             placeholder: 'Enter your prompt for Anthropic...',
             helpTitle: '',
             afterEditorHtml:
-                '<div class="status-bar"><span id="anthropic-status" class="context-summary"></span></div>',
+                '<div class="status-bar"><span id="anthropic-status" class="context-summary"></span><span class="status-bar-actions"><button class="icon-btn" data-action="openChatVariablesEditor" title="Chat Variables Editor"><span class="codicon codicon-symbol-key"></span></button></span></div>',
         })
     };
     return contents[id] || '<div>Unknown section</div>';
