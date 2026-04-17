@@ -132,6 +132,14 @@ export interface AnthropicSendOptions {
     userMessageTemplate?: string;
     /** Optional cancellation token. */
     cancellationToken?: vscode.CancellationToken;
+    /**
+     * Run the request in isolation: do not prepend the handler's rolling
+     * history to the messages, do not push this exchange onto the history
+     * afterwards, and do not trigger background compaction. Used by
+     * `spawnAnthropicSubagent()` so a sub-agent call cannot pollute the
+     * parent conversation's history.
+     */
+    isolated?: boolean;
 }
 
 /** Reusable TrailSubsystem literal — avoids `ANTHROPIC_SUBSYSTEM` scattered across calls. */
@@ -474,8 +482,10 @@ export class AnthropicHandler {
             // context window — but still record the exchange in our rolling
             // history so users see continuity across direct/agentSdk
             // switches within the same session.
-            this.history.push({ role: 'user', content: userContent });
-            this.history.push({ role: 'assistant', content: result.text });
+            if (!options.isolated) {
+                this.history.push({ role: 'user', content: userContent });
+                this.history.push({ role: 'assistant', content: result.text });
+            }
             return result;
         }
 
@@ -485,13 +495,17 @@ export class AnthropicHandler {
         }
 
         const anthropicTools = toAnthropicTools(tools);
+        const rollingHistory = options.isolated
+            ? []
+            : this.history.map((m) => ({
+                role: m.role === 'system' ? 'user' : m.role as 'user' | 'assistant',
+                content: m.content,
+            }));
         const messages: AnthropicMessageParam[] = [
             // Rolling history from prior exchanges — compacted per-turn
             // by the handler's post-exchange `compactHistory()` call.
-            ...this.history.map((m) => ({
-                role: m.role === 'system' ? 'user' : m.role as 'user' | 'assistant',
-                content: m.content,
-            })),
+            // Skipped when options.isolated (subagent path).
+            ...rollingHistory,
             { role: 'user', content: userContent },
         ];
 
@@ -533,7 +547,7 @@ export class AnthropicHandler {
             lastText = this.extractText(response.content) || lastText;
 
             if (response.stop_reason !== 'tool_use') {
-                return this.finalize(userContent, lastText, turn + 1, totalToolCalls, lastStopReason, windowId, requestId, quest, configuration);
+                return this.finalize(userContent, lastText, turn + 1, totalToolCalls, lastStopReason, windowId, requestId, quest, configuration, options.isolated === true);
             }
 
             messages.push({ role: 'assistant', content: response.content });
@@ -560,7 +574,7 @@ export class AnthropicHandler {
             messages.push({ role: 'user', content: toolResults });
         }
 
-        return this.finalize(userContent, lastText, configuration.maxRounds, totalToolCalls, lastStopReason, windowId, requestId, quest, configuration);
+        return this.finalize(userContent, lastText, configuration.maxRounds, totalToolCalls, lastStopReason, windowId, requestId, quest, configuration, options.isolated === true);
     }
 
     /**
@@ -580,6 +594,7 @@ export class AnthropicHandler {
         requestId: string,
         quest: string,
         configuration: AnthropicConfiguration,
+        isolated: boolean = false,
     ): AnthropicSendResult {
         TrailService.instance.writeRawAnswer(
             ANTHROPIC_SUBSYSTEM,
@@ -611,9 +626,13 @@ export class AnthropicHandler {
 
         // Accumulate this exchange into the rolling history, then
         // compact it asynchronously for the next turn.
-        this.history.push({ role: 'user', content: userContent });
-        this.history.push({ role: 'assistant', content: text });
-        void this.compactHistoryAsync(configuration);
+        // Isolated sub-agent runs skip this so the parent conversation
+        // is unaffected by their intermediate reasoning.
+        if (!isolated) {
+            this.history.push({ role: 'user', content: userContent });
+            this.history.push({ role: 'assistant', content: text });
+            void this.compactHistoryAsync(configuration);
+        }
 
         return { text, turnsUsed, toolCallCount, stopReason };
     }
@@ -935,4 +954,84 @@ export class AnthropicHandler {
         const hex = () => Math.random().toString(16).substring(2, 10);
         return `${hex()}_${hex()}`;
     }
+}
+
+// ============================================================================
+// Sub-agent spawner — wired to planning-tools.ts registerSubagentSpawner()
+// ============================================================================
+
+import { ALL_SHARED_TOOLS } from '../tools/tool-executors';
+
+/**
+ * Spawn an isolated Anthropic sub-agent. Reuses the singleton handler's
+ * `sendMessage()` loop with `isolated: true` so no state (history, session
+ * approvals) crosses the sub-agent boundary.
+ *
+ * The sub-agent always runs with `autoApproveAll = true` because it's
+ * unattended — the parent conversation can't pause for an approval bar.
+ * Callers must therefore constrain the tool set (`enabledTools`) to only
+ * trusted capabilities.
+ *
+ * Registered from extension activation via:
+ *     registerSubagentSpawner(spawnAnthropicSubagent);
+ */
+export async function spawnAnthropicSubagent(options: {
+    prompt: string;
+    systemPrompt?: string;
+    enabledTools?: string[];
+    maxRounds?: number;
+    temperature?: number;
+}): Promise<{ summary: string; rounds: number; toolCalls: number; stopReason?: string }> {
+    const section = TomAiConfiguration.instance.getSection<AnthropicSection>('anthropic') ?? {};
+    const configurations = section.configurations ?? [];
+    const configuration = configurations.find((c) => c.isDefault) ?? configurations[0];
+    if (!configuration) {
+        throw new Error(
+            'No Anthropic configuration is available. Add at least one in the Status page before spawning a sub-agent.',
+        );
+    }
+
+    // Tool set: explicit allow-list from caller, or fall back to read-only tools.
+    // Sub-agents run autonomously so an empty / unspecified list should
+    // never default to "all tools".
+    const allow = Array.isArray(options.enabledTools) && options.enabledTools.length > 0
+        ? new Set(options.enabledTools)
+        : undefined;
+    const tools: SharedToolDefinition[] = allow
+        ? ALL_SHARED_TOOLS.filter((t) => allow.has(t.name))
+        : ALL_SHARED_TOOLS.filter((t) => t.readOnly);
+
+    const effectiveConfiguration: AnthropicConfiguration = {
+        ...configuration,
+        maxRounds: Math.max(1, options.maxRounds ?? 10),
+        ...(typeof options.temperature === 'number' ? { temperature: options.temperature } : {}),
+        // Sub-agents must not prompt — force auto-approve on the configuration too.
+        toolApprovalMode: 'never',
+    };
+
+    // Ephemeral profile for the sub-agent.
+    const profile: AnthropicProfile = {
+        id: '__subagent__',
+        name: '__subagent__',
+        description: 'Ephemeral sub-agent profile',
+        systemPrompt: options.systemPrompt
+            ?? 'You are a sub-agent. Complete the requested task using the available tools and return a concise summary. Be direct.',
+        autoApproveAll: true,
+        promptCachingEnabled: false, // no benefit for one-shot runs
+    };
+
+    const result = await AnthropicHandler.instance.sendMessage({
+        userText: options.prompt,
+        profile,
+        configuration: effectiveConfiguration,
+        tools,
+        isolated: true,
+    });
+
+    return {
+        summary: result.text,
+        rounds: result.turnsUsed,
+        toolCalls: result.toolCallCount,
+        stopReason: result.stopReason ?? undefined,
+    };
 }

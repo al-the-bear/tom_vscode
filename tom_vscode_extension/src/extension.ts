@@ -579,6 +579,19 @@ export async function activate(context: vscode.ExtensionContext) {
     registerChatVariableResolvers(context);
     timeStep('chatVariableResolvers', stepStart);
 
+    // Register the Anthropic sub-agent spawner so tomAi_spawnSubagent works
+    // on the direct transport. (The Agent SDK transport uses its own `Task`
+    // tool and does not go through this path.)
+    stepStart = performance.now();
+    try {
+        const { spawnAnthropicSubagent } = await import('./handlers/anthropic-handler.js');
+        const { registerSubagentSpawner } = await import('./tools/planning-tools.js');
+        registerSubagentSpawner(spawnAnthropicSubagent);
+        timeStep('spawnSubagent.register', stepStart);
+    } catch (err: any) {
+        debugLog(`spawnSubagent registration failed: ${err?.message ?? err}`, 'WARN', 'extension.activate');
+    }
+
     } catch (err: any) {
         const msg = err?.stack ?? err?.message ?? String(err);
         debugLog(`activate() registration error: ${msg}`, 'ERROR', 'extension.activate');
