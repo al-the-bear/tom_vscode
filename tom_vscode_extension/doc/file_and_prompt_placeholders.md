@@ -10,7 +10,7 @@ Primary categories:
 
 - workspace/context values (`workspace`, `workspaceFolder`, `vs-code-workspace-name`, `vs-code-workspace-folder`, file, selection),
 - chat variables (`quest`, `role`, `activeProjects`, `todo`, `workspaceName`),
-- file-injection placeholders (`role-description`, `quest-description`),
+- file-injection placeholders — active role/quest shortcuts (`role-description`, `quest-description`), workspace instructions (`claude.md`, `copilot-instructions`, `instructions`), named guideline/role/quest files (`guidelines-<name>`, `role-<name>`, `quest-<type>`), and arbitrary files (`file-<path>`). See [File-injection placeholders](#file-injection-placeholders) below for the full reference.
 
 ## VS Code Workspace Placeholders
 
@@ -50,21 +50,94 @@ For send-to-chat style commands:
 
 ## File-injection placeholders
 
-These placeholders read the **contents** of a file at variable-resolution time and inline the result. If the file does not exist or the referenced variable is empty, the placeholder resolves to `""`.
+These placeholders read the **contents** of a file at variable-resolution time and inline the result. If the file does not exist (or the referenced chat variable is empty), the placeholder resolves to `""` — never throws — so templates stay valid prompts.
+
+### Eagerly populated (role + quest description)
+
+Two shortcuts for the most common case — the active role / quest from the Chat Variables Editor:
 
 | Placeholder | File read | Depends on |
 | --- | --- | --- |
 | `${role-description}` | `_ai/roles/${role}/role.md` | `role` chat variable |
 | `${quest-description}` | `_ai/quests/${quest}/overview.${quest}.md` | `quest` chat variable |
 
-Both placeholders are available in all template contexts (system prompts, compaction templates, memory extraction templates, etc.).
+### Workspace instructions
 
-Example — conditional injection using the JS expression syntax:
+| Placeholder | File read |
+| --- | --- |
+| `${claude.md}` | `CLAUDE.md` at the workspace root |
+| `${copilot-instructions}` | `.github/copilot-instructions.md` (also accepts `${copilot-instructions.md}`) |
+| `${instructions}` | `CLAUDE.md` if present; otherwise `.github/copilot-instructions.md`. Prefer this in templates that should work in either type of workspace. |
+
+### Project guidelines
+
+`${guidelines-<name>}` reads a single file from the workspace guidelines folder:
+
+1. `_copilot_guidelines/<name>.md` (primary — matches the project convention)
+2. `_guidelines/<name>.md` (fallback when no `_copilot_` prefix is used)
+
+`<name>` can either include the `.md` extension or omit it. Examples:
+
+| Placeholder | File read |
+| --- | --- |
+| `${guidelines-index}` or `${guidelines-index.md}` | `_copilot_guidelines/index.md` |
+| `${guidelines-project_guidelines}` | `_copilot_guidelines/project_guidelines.md` |
+| `${guidelines-dart/coding_guidelines}` | `_copilot_guidelines/dart/coding_guidelines.md` (subfolder paths work too) |
+
+### Specific roles
+
+`${role-<name>}` reads one role file. It tries two layouts in order so either convention works:
+
+1. `_ai/roles/<name>.md` (flat)
+2. `_ai/roles/<name>/role.md` (folder — same layout used by `${role-description}`)
+
+```text
+${role-reviewer}           → _ai/roles/reviewer.md, else _ai/roles/reviewer/role.md
+${role-senior_engineer}    → _ai/roles/senior_engineer.md, …
+```
+
+`${role-description}` is reserved for the active-role shortcut (above) and is not overridden by `${role-*}` — it keeps its existing semantics.
+
+### Quest files
+
+`${quest-<type>}` reads the **first file** in `_ai/quests/${quest}/` whose name starts with `<type>.${quest}.` — regardless of extension. This lets you address every quest artefact with a short name:
+
+```text
+${quest-overview}       → _ai/quests/<quest>/overview.<quest>.md
+${quest-copilot_todos}  → _ai/quests/<quest>/copilot_todos.<quest>.md
+${quest-todos}          → _ai/quests/<quest>/todos.<quest>.yaml
+${quest-references}     → _ai/quests/<quest>/references.<quest>.md
+```
+
+Requires the `quest` chat variable to be set. Like `${role-description}`, `${quest-description}` is reserved for the active-quest shortcut and is not overridden by this pattern.
+
+### Arbitrary files
+
+`${file-<path>}` reads any file by path:
+
+- Absolute when `<path>` starts with `/` (or a Windows drive letter like `C:\`).
+- Otherwise resolved relative to the **workspace root**.
+
+```text
+${file-README.md}                      → <workspace>/README.md
+${file-src/main.ts}                    → <workspace>/src/main.ts
+${file-/etc/hosts}                     → /etc/hosts (absolute)
+${file-_ai/notes/design-decisions.md}  → <workspace>/_ai/notes/…
+```
+
+### Available in every template context
+
+All file-injection placeholders work inside system prompts, user-message templates, compaction and memory-extraction templates, Local LLM / Tom AI Chat / Copilot prompt templates, and the AI Conversation orchestrator prompts. They resolve the same way everywhere.
+
+### Conditional injection via JS expressions
 
 ```text
 ${{ vars["role-description"] ? "## Your role\n" + vars["role-description"] + "\n" : "" }}
 ${{ vars["quest-description"] ? "## Current quest\n" + vars["quest-description"] + "\n" : "" }}
+${{ vars["instructions"] ? "## Workspace instructions\n" + vars["instructions"] + "\n" : "" }}
 ```
+
+Note: inside `${{ ... }}` expressions the dynamic keys (`${guidelines-*}`, `${role-*}`, `${quest-*}`, `${file-*}`) are **not** pre-populated into the `vars` object — they're resolved only when referenced via `${...}`. If you need the content in JS, put the `${...}` form in a separate pass or use `${{ (() => { /* read via fs */ })() }}` — most prompts don't need this.
 
 ## Notes
 

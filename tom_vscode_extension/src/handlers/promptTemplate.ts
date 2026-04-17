@@ -36,6 +36,7 @@ import {
     resolveVariablesAsync,
     buildVariableMap,
     formatDateTime as formatDateTimeShared,
+    resolveDynamicKey,
     PLACEHOLDER_HELP as RESOLVER_PLACEHOLDER_HELP,
 } from '../utils/variableResolver.js';
 
@@ -205,33 +206,14 @@ function resolvePass(text: string, values: Record<string, string>): string {
             if (k.toLowerCase() === lk) { return v; }
         }
 
-        // Dynamic namespace resolution
+        // Dynamic namespace resolution — delegates to the unified resolver
+        // so date.*, time.*, env.*, config.*, git.*, vscode.*, chat.* and
+        // the file-injection placeholders (claude.md, copilot-instructions,
+        // instructions, guidelines-*, role-*, quest-*, file-*) all resolve
+        // identically regardless of which code path reached here.
         const now = new Date();
-
-        // ${date.FORMAT}
-        if (key.startsWith('date.')) {
-            const { formatDateTimeToken } = require('../utils/variableResolver.js');
-            return formatDateTimeToken(now, key.slice(5));
-        }
-        // ${time.FORMAT}
-        if (key.startsWith('time.')) {
-            const { formatDateTimeToken } = require('../utils/variableResolver.js');
-            return formatDateTimeToken(now, key.slice(5));
-        }
-        // ${env.VARNAME}
-        if (key.startsWith('env.')) {
-            return process.env[key.slice(4)] ?? '';
-        }
-        // ${config.KEY}
-        if (key.startsWith('config.')) {
-            const val = vscode.workspace.getConfiguration().get(key.slice(7));
-            return val !== undefined && val !== null ? String(val) : '';
-        }
-        // ${git.KEY} — resolved in the values map by variableResolver
-        // ${vscode.KEY} — resolved in the values map by variableResolver
-        // ${chat.KEY} — resolved in the values map by variableResolver
-
-        return ''; // unresolved → empty string
+        const dynamic = resolveDynamicKey(key, values, now);
+        return dynamic ?? '';
     });
 
     return result;

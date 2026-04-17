@@ -694,9 +694,14 @@ function generateShortUUID(): string {
 
 /**
  * Resolve a variable key that wasn't found in the static values map.
- * Handles dynamic namespaces: env.*, config.*, git.*, vscode.*, date.FORMAT, time.FORMAT.
+ * Handles dynamic namespaces: env.*, config.*, git.*, vscode.*, date.FORMAT, time.FORMAT,
+ * plus file-injection placeholders (claude.md, copilot-instructions, instructions,
+ * guidelines-*, role-*, quest-*, file-*).
+ *
+ * Exported so the older `promptTemplate.resolvePass()` can share the same
+ * dispatch rules instead of forking.
  */
-function resolveDynamicKey(key: string, values: Record<string, string>, now: Date): string | undefined {
+export function resolveDynamicKey(key: string, values: Record<string, string>, now: Date): string | undefined {
     // ${date.FORMAT} — custom date formatting
     if (key.startsWith('date.')) {
         return formatDateTimeToken(now, key.slice(5));
@@ -743,7 +748,123 @@ function resolveDynamicKey(key: string, values: Record<string, string>, now: Dat
         return values[key] ?? '';
     }
 
+    // File-injection placeholders — read a file and inline its contents.
+    // Missing files resolve to "" (never throw).
+    const fileInjection = resolveFileInjectionKey(key, values);
+    if (fileInjection !== undefined) { return fileInjection; }
+
     return undefined; // truly unresolved
+}
+
+/**
+ * Dynamic file-injection placeholders.
+ *
+ *   ${claude.md}              → <workspace>/CLAUDE.md
+ *   ${copilot-instructions}   → <workspace>/.github/copilot-instructions.md
+ *   ${instructions}           → CLAUDE.md if present, else .github/copilot-instructions.md
+ *   ${guidelines-<name>}      → <workspace>/_copilot_guidelines/<name>.md
+ *                                (fallback: _guidelines/<name>.md). `<name>` can
+ *                                already include `.md`; no double-extension.
+ *                                `${guidelines-index}` is the folder's index.md.
+ *   ${role-<name>}            → <workspace>/_ai/roles/<name>.md
+ *                                (fallback: _ai/roles/<name>/role.md)
+ *   ${quest-<type>}           → first file matching
+ *                                _ai/quests/${quest}/<type>.${quest}.* —
+ *                                e.g. ${quest-overview} → overview.${quest}.md
+ *   ${file-<path>}            → <path> (relative to workspace root, or
+ *                                absolute when it starts with `/`)
+ *
+ * All of these resolve to "" when the target file does not exist.
+ */
+function resolveFileInjectionKey(key: string, values: Record<string, string>): string | undefined {
+    const wsRoot = values['workspaceFolder'] || '';
+
+    // Fixed keys — explicit matches first.
+    if (key === 'claude.md') {
+        return safeReadFileSync(path.join(wsRoot, 'CLAUDE.md'));
+    }
+    if (key === 'copilot-instructions' || key === 'copilot-instructions.md') {
+        return safeReadFileSync(path.join(wsRoot, '.github', 'copilot-instructions.md'));
+    }
+    if (key === 'instructions') {
+        const claude = safeReadFileSync(path.join(wsRoot, 'CLAUDE.md'));
+        if (claude) { return claude; }
+        return safeReadFileSync(path.join(wsRoot, '.github', 'copilot-instructions.md'));
+    }
+
+    // ${guidelines-<name>} — read a single file from the guidelines folder.
+    // Tries `_copilot_guidelines/<name>` first (the project convention), then
+    // falls back to `_guidelines/<name>`. Appends `.md` if the caller didn't.
+    if (key.startsWith('guidelines-')) {
+        const rawName = key.slice('guidelines-'.length);
+        if (!rawName) { return ''; }
+        const fileName = rawName.endsWith('.md') ? rawName : `${rawName}.md`;
+        const primary = values['guidelinesPath'] || (wsRoot ? path.join(wsRoot, '_copilot_guidelines') : '');
+        const fallback = wsRoot ? path.join(wsRoot, '_guidelines') : '';
+        const primaryContent = primary ? safeReadFileSync(path.join(primary, fileName)) : '';
+        if (primaryContent) { return primaryContent; }
+        return fallback ? safeReadFileSync(path.join(fallback, fileName)) : '';
+    }
+
+    // ${role-<name>} — read a specific role file. Tries both the flat
+    // layout (`_ai/roles/<name>.md`) and the folder layout
+    // (`_ai/roles/<name>/role.md`), preferring the flat file when both exist.
+    if (key.startsWith('role-')) {
+        const rawName = key.slice('role-'.length);
+        // Preserve the existing `${role-description}` behavior: that entry is
+        // eagerly populated in addFileInjectionPlaceholders(), so it will have
+        // already hit the static-map lookup before reaching here. We only
+        // handle `role-<other-name>`.
+        if (!rawName || rawName === 'description') { return undefined; }
+        const rolesPath = values['rolesPath'] || (wsRoot ? path.join(wsRoot, '_ai', 'roles') : '');
+        if (!rolesPath) { return ''; }
+        const flat = safeReadFileSync(path.join(rolesPath, `${rawName}.md`));
+        if (flat) { return flat; }
+        return safeReadFileSync(path.join(rolesPath, rawName, 'role.md'));
+    }
+
+    // ${quest-<type>} — read the first file matching
+    // <type>.<current quest>.* inside the current quest folder.
+    if (key.startsWith('quest-')) {
+        const rawType = key.slice('quest-'.length);
+        // `${quest-description}` is eagerly populated elsewhere; fall through
+        // to the static-map lookup for that one.
+        if (!rawType || rawType === 'description') { return undefined; }
+        const quest = values['quest'] || '';
+        const questsPath = values['questsPath'] || (wsRoot ? path.join(wsRoot, '_ai', 'quests') : '');
+        if (!quest || !questsPath) { return ''; }
+        return readFirstMatchingFile(path.join(questsPath, quest), `${rawType}.${quest}.`);
+    }
+
+    // ${file-<path>} — read an arbitrary workspace-relative or absolute file.
+    // Absolute = starts with `/` or a Windows drive letter.
+    if (key.startsWith('file-')) {
+        const rawPath = key.slice('file-'.length);
+        if (!rawPath) { return ''; }
+        const isAbsolute = rawPath.startsWith('/') || /^[A-Za-z]:[\\/]/.test(rawPath);
+        const resolved = isAbsolute ? rawPath : (wsRoot ? path.join(wsRoot, rawPath) : rawPath);
+        return safeReadFileSync(resolved);
+    }
+
+    return undefined;
+}
+
+/**
+ * Return the contents of the first file in `dir` whose basename starts with
+ * `prefix`. Returns '' when the directory is missing or nothing matches.
+ */
+function readFirstMatchingFile(dir: string, prefix: string): string {
+    try {
+        if (!dir || !fs.existsSync(dir)) { return ''; }
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        const match = entries.find(
+            (e) => e.isFile() && e.name.startsWith(prefix),
+        );
+        if (!match) { return ''; }
+        return safeReadFileSync(path.join(dir, match.name));
+    } catch {
+        return '';
+    }
 }
 
 // ============================================================================
@@ -1015,6 +1136,17 @@ Use <code>#key=description</code> notation in prompts to request specific respon
 <code>\${chatVariables}</code> – All chat variables as a formatted JSON code block<br>
 <code>\${contextInfo}</code> – All context settings as a formatted JSON code block ("not set" for empty values)<br>
 <code>\${contextAndVariables}</code> – Both context info and chat variables blocks combined<br>
+<br>
+<em>File-Injection (inlines file contents; empty when the file does not exist):</em><br>
+<code>\${role-description}</code> – <code>_ai/roles/\${role}/role.md</code><br>
+<code>\${quest-description}</code> – <code>_ai/quests/\${quest}/overview.\${quest}.md</code><br>
+<code>\${claude.md}</code> – Workspace-root <code>CLAUDE.md</code><br>
+<code>\${copilot-instructions}</code> – <code>.github/copilot-instructions.md</code><br>
+<code>\${instructions}</code> – <code>CLAUDE.md</code> if present, else <code>.github/copilot-instructions.md</code><br>
+<code>\${guidelines-NAME}</code> – <code>_copilot_guidelines/NAME.md</code> (fallback: <code>_guidelines/NAME.md</code>). Omit or include <code>.md</code>. Example: <code>\${guidelines-index}</code>, <code>\${guidelines-project_guidelines}</code>.<br>
+<code>\${role-NAME}</code> – <code>_ai/roles/NAME.md</code> (fallback: <code>_ai/roles/NAME/role.md</code>). Example: <code>\${role-reviewer}</code>.<br>
+<code>\${quest-TYPE}</code> – First file matching <code>_ai/quests/\${quest}/TYPE.\${quest}.*</code>. Example: <code>\${quest-overview}</code>, <code>\${quest-copilot_todos}</code>.<br>
+<code>\${file-PATH}</code> – Inline any file; <code>PATH</code> is workspace-relative, or absolute when it starts with <code>/</code>. Example: <code>\${file-README.md}</code>, <code>\${file-/etc/hosts}</code>.<br>
 <br>
 <em>Path variables support sub-properties:</em><br>
 <code>\${KEY.name}</code> – Filename/basename without extension<br>
