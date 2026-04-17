@@ -25,6 +25,7 @@ Parallel execution across transports is explicitly **not a goal** — a single o
    - **Polling loop** — skipped.
 5. **Queue-level default + per-item override.** The queue editor has dropdowns at the top selecting the default transport (+ profile/config as appropriate). Each item's add/edit form has a collapsible "Advanced" section to override just for that item.
 6. **Chat-panel buttons for all transports.** Every chat panel (copilot, anthropic, localLlm, aiConversation) gets the same two action-bar buttons the copilot panel has today — "Add to Queue" and "Open Queue Editor" — pre-wired to set the right transport metadata when staging.
+7. **Queue-dispatched direct items always force auto-approve-all.** Queue execution is unattended — if a tool call triggers the approval bar, the queue deadlocks. For `anthropic` and `localLlm` transports the dispatcher sets `autoApproveAll = true` unconditionally, regardless of the profile's configured value. This is the "everything else is unusable" constraint: without it the queue can't run a multi-step Anthropic item that uses any approval-gated tool. The UI must make this explicit (see §4.7) so the user knows queue runs have weaker safety than interactive chat.
 
 ## 3. Current state reference
 
@@ -104,6 +105,7 @@ return { mode: 'direct', answerText: result.text };
   - `{ mode: 'polled' }`: record `expectedRequestId` and let the existing poll loop drive `continueSending()`.
   - `{ mode: 'direct' }`: store `answerText` on the item/stage (use the existing `prePrompts[i].status = 'sent'` / follow-up `repeatIndex++` machinery), then call `continueSending()` synchronously.
 - On direct-transport failure: set item status `'error'` and surface the error message.
+- **Inside `dispatchStage()` for Anthropic**: clone the resolved profile and set `autoApproveAll = true` before passing it to `sendMessage()`, regardless of the profile's stored value. Same applies to Local LLM's approval flow — the dispatcher coerces any tool-approval parameter to "bypass" for queue runs. See §2 decision 7.
 
 ### 4.4 Per-transport skips
 
@@ -137,7 +139,7 @@ If the queue ever wants a cross-transport view, the existing trail viewer alread
 
 **Header row — queue-level defaults** (new, above the existing toolbar):
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────┐
 │  Default transport: [ Copilot ▾ ]                                   │
 │  [Anthropic selected → ] Profile: [ ▾ ]   Config: [ ▾ ]             │
@@ -149,7 +151,7 @@ The three dropdowns are **conditional on transport**. Reuse the existing renderi
 
 **Per-item form — advanced section** (collapsed by default):
 
-```
+```text
 ▶ Advanced
     Transport: [ inherit (Copilot) ▾ ]
     [if Anthropic] Profile, Config pickers
@@ -161,6 +163,12 @@ The three dropdowns are **conditional on transport**. Reuse the existing renderi
 - When transport ≠ copilot, **disable** the Reminder dropdown and `answerWaitMinutes` input (with a tooltip explaining why).
 
 **Per-stage override** (pre-prompts and follow-ups): apply the same collapsible "Advanced" section inside each stage's editor. Default to inherit-from-item. Three levels of resolution: stage > item > queue default > `'copilot'`.
+
+**Auto-approve warning**: when the user picks `Anthropic` or `Local LLM` as the queue-level or item-level transport, render a visible notice directly below the transport dropdown:
+
+> ⚠️ Queue runs auto-approve every tool call — the profile's approval setting is ignored. The queue cannot pause for the approval bar.
+
+No checkbox to disable it. See §2 decision 7.
 
 **Display of direct responses**: when `item.answerText` exists (direct transport), show it inline under the item (truncated preview + expand-to-full button). The authoritative trail is the transport's trail file, but seeing the text in the queue itself is the practical way to inspect what happened.
 
@@ -215,7 +223,7 @@ Queue state is persisted to `_ai/local/*.prompt-panel.yaml`. The new fields are 
 - **Pre-prompts with direct transport**: each pre-prompt awaits its own direct call. Because direct calls are synchronous, the pre-prompt chain runs back-to-back without polling gaps. This is much faster than the Copilot flow, which waits 30-second poll intervals between stages. May surprise users — consider documenting in the queue editor's help text.
 - **`sendMaximum` on timed requests**: orthogonal to transport; still counted the same way.
 - **`templateRepeatCount`**: re-runs the entire (pre-prompts + main + follow-ups) group. Works identically per-transport. If transport is direct, the whole re-run is fast and synchronous.
-- **Anthropic `profile.autoApproveAll`**: when enabled, the queue can run Anthropic tool calls end-to-end without user prompts. When disabled, every tool call opens the approval bar and the queue stage awaits it (the handler already blocks). That's the user's call, not the queue's.
+- **Anthropic `profile.autoApproveAll`**: queue dispatch **always overrides** this to `true` — see §2 decision 7 and §4.3. The profile's stored value applies only when the profile is used interactively from the chat panel. This is a safety tradeoff the user needs to understand: queue runs are unattended and cannot pause for approval.
 - **Concurrency**: the queue is strictly sequential (one `sending` item at a time — [isEditableStatus guard](tom_vscode_extension/src/managers/promptQueueManager.ts)). Direct transport doesn't change this.
 - **Failure modes**:
   - Anthropic API error → item status `'error'`, error message surfaced, queue pauses (same as the current `'error'` handling).
@@ -252,6 +260,8 @@ Rough effort: **2–3 days** end-to-end, depending on how much polish the per-st
 - [ ] Queue editor header shows the transport default + conditional profile/config dropdowns.
 - [ ] Per-item Advanced section lets me override transport for one item.
 - [ ] Reminder + answerWait fields are visibly disabled for direct-transport items.
+- [ ] Selecting Anthropic or Local LLM transport shows the auto-approve-all warning.
+- [ ] Queue-dispatched Anthropic items run with `autoApproveAll = true` even when the profile stores `false` — verified by a tool call that would otherwise prompt.
 - [ ] "Add to Queue" + "Open Queue Editor" buttons exist on every chat panel (copilot, anthropic, localLlm, aiConversation).
 - [ ] `tomAi_queue_add` and siblings accept the four new fields.
 - [ ] Anthropic and Local LLM trail files contain entries for queue-dispatched prompts (verified by the transport's own logging).
