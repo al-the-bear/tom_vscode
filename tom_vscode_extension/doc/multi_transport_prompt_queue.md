@@ -1,5 +1,12 @@
 # Multi-Transport Prompt Queue — design
 
+## Scope and phases
+
+This design is delivered in two phases. **Phase 2 is a separate follow-up** — don't mix it into the Phase 1 commits.
+
+- **Phase 1 — Queue multi-transport + chat-panel buttons + template editor per-transport.** Everything in §1–§8 below. The existing five-panel chat structure is preserved; each queue-compatible panel (Copilot, Anthropic, Local LLM, Tom AI Chat) just gains the "Add to Queue" and "Open Queue Editor" buttons. The `TransportPicker` component appears in the queue editor and template editor only.
+- **Phase 2 — Panel consolidation** (§9). A follow-up milestone that merges the Anthropic, Local LLM, and Tom AI Chat panels into a single "LLM" panel, folds the Tom AI Chat `.md` conversation format in as a view mode, and adds a twin `TransportPicker` to the AI Conversation panel (one per participant). Structural work — bigger, optional, and sequenced *after* Phase 1 lands and the `TransportPicker` has been battle-tested in the queue + template editor.
+
 ## 1. Goal
 
 Today the prompt queue only routes to **Copilot Chat**. Prompts are wrapped with an answer-file template, dispatched via `workbench.action.chat.open`, and advance when an answer JSON appears in the Copilot answer directory. We want the same queue to also be able to route to:
@@ -344,11 +351,12 @@ transport?: 'copilot' | 'anthropic' | 'localLlm' | 'tomAiChat' | 'default';   //
 
 Rough effort: **3–4 days** end-to-end. The template editor per-transport branching is the largest single chunk — the Tom AI Chat form is structurally different from the others, so the UI can't just be "swap the datasource".
 
-## 7. Out of scope
+## 7. Out of scope (for Phase 1)
 
 - Parallel execution across transports (explicitly not needed).
 - Cross-transport abstraction as a shared `ChatTransport` interface — a local dispatcher is simpler and has no reuse target beyond the queue.
-- **AI Conversation panel** — bot-to-bot orchestration, manages its own multi-turn flow. The queue does not drive it; the AI Conversation panel does not get queue buttons.
+- **AI Conversation panel (as a queue target)** — bot-to-bot orchestration, manages its own multi-turn flow. The queue does not drive it; the AI Conversation panel does not get queue buttons. (But it *does* get transport pickers in Phase 2 — see §9.3.)
+- **Panel consolidation** — merging Anthropic + Local LLM + Tom AI Chat into a single "LLM" panel is Phase 2 work, designed in §9 below.
 - Streaming responses — current transports return the full text once done; no stream events are propagated to the queue. If needed later, add a `onChunk` callback to the dispatcher without changing the overall shape.
 - UI for viewing the direct-response trail from inside the queue editor — the existing trail viewer already covers this.
 
@@ -374,3 +382,95 @@ Rough effort: **3–4 days** end-to-end. The template editor per-transport branc
 - [ ] Switching a queue item's transport in the editor clears its template selection and repopulates the dropdown.
 - [ ] `tomAi_templates_manage` honours a `transport` field, defaulting to `copilot` when absent.
 - [ ] `config.sharedQueueTemplates` exists in the schema and holds Default templates.
+
+## 9. Phase 2 — panel consolidation (deferred)
+
+Phase 1 keeps the five-panel structure untouched. Phase 2 consolidates the chat panels so the `TransportPicker` component becomes the primary way to choose a backend, instead of a panel-per-transport. **This is a separate milestone** — land it after Phase 1 is proven in production.
+
+### 9.1 What consolidates and what doesn't
+
+The four "direct API" transports (Anthropic, Local LLM, Tom AI Chat as a VS Code LM API consumer) are structurally a unit — same `sendMessage(opts, text) → Promise<{text}>` shape, same config+profile picker structure, same approval gate. Copilot is different (answer-file protocol); AI Conversation is different (bot-to-bot meta panel).
+
+| Transport | Structural role | Phase 2 outcome |
+| --- | --- | --- |
+| Anthropic | Direct API, configurations + profiles | folds into **LLM panel** |
+| Local LLM (Ollama) | Direct API, configurations | folds into **LLM panel** |
+| Tom AI Chat (VS Code LM API) | Direct API, `.md` conversation format is a view mode | folds into **LLM panel** as `Conversation (.md)` view mode |
+| Copilot | Answer-file protocol, externally-managed conversation history | stays its own panel |
+| AI Conversation | Two participants, multi-turn meta | stays its own panel, gains **twin transport pickers** (§9.3) |
+
+**Final layout: 3 panels** (down from 5): *LLM*, *Copilot*, *AI Conversation*.
+
+Tom AI Chat simplification (user-confirmed): it uses the VS Code LM API in a programming model almost identical to the Anthropic API. **Model selection is a config parameter, not a separate picker.** Currently there is only one Tom AI Chat configuration; the consolidated LLM panel will surface Tom AI Chat via the `TransportPicker`'s config dropdown (which will be a single-option dropdown until more configs exist).
+
+### 9.2 Merged "LLM" panel
+
+**UI on top:**
+
+- `TransportPicker` in `queue-default` mode with transport set `{Anthropic | Local LLM | Tom AI Chat}` — no "inherit"/"default" option because this panel *is* the top-level selector.
+- Conditional target dropdowns below (from `showTargets: true`):
+  - Anthropic → profile + config.
+  - Local LLM → config.
+  - Tom AI Chat → config (single option today).
+- **View mode** toggle: `[ Single exchange | Conversation (.md) ]`.
+  - `Single exchange` — behaves like today's Anthropic/Local LLM panels (one prompt → one reply → clear).
+  - `Conversation (.md)` — behaves like today's Tom AI Chat panel (persists to a `.md` file, each send appends). Orthogonal to transport.
+
+**Panel state per transport:** the panel remembers the last-used configuration per transport, so switching the transport picker doesn't force re-selection of config every time.
+
+**What unifies under the hood:**
+
+- **User-message templates** — all three direct transports take a text prompt and optionally wrap it. Canonical store becomes `config.sharedQueueTemplates[]` (introduced in §4.12 for queue use). The legacy `anthropic.userMessageTemplates[]` and `copilot.templates[]` stay read-only for migration; the merged panel only writes to `sharedQueueTemplates`.
+- **System prompt (optional override)** — one textarea. Per-transport the handler maps it to the right API field (Anthropic `system:`, Local LLM message prefix, Tom AI Chat `systemPromptOverride`).
+
+**What stays per-transport:**
+
+- Configurations (Anthropic configs have `apiKeyEnvVar`/`maxTokens`, Local LLM configs have `ollamaUrl`/`keepAlive` — genuinely different schemas).
+- Tool approval semantics — each transport owns its own approval gate.
+- Trail writers (already per-transport; see §4.6).
+- Tom AI Chat's structural `.md` configuration (contextInstructions, documents referenced) — lives on the *conversation*, not on the transport.
+
+### 9.3 AI Conversation panel — twin transport pickers
+
+AI Conversation orchestrates two participants exchanging messages. Today each participant has its own hard-coded backend selector. Phase 2: each participant gets its own `TransportPicker` (context `queue-item`, `showTargets: true`). So participant A could be Anthropic+profile-X while participant B is Local LLM+config-Y.
+
+This keeps the AI Conversation panel intact as a standalone surface but surfaces the same transport model as the rest of the UI. No queue integration — AI Conversation still manages its own turn-taking loop.
+
+### 9.4 Keybinding + command compatibility
+
+Double-check findings from before Phase 2 design:
+
+- **4 per-panel chord-menu keybindings** exist today:
+  - `tomAi.chordMenu.copilot` — stays, targets the Copilot panel unchanged.
+  - `tomAi.chordMenu.aiConversation` — stays, targets the AI Conversation panel unchanged.
+  - `tomAi.chordMenu.localLlm` — **aliased** to open the merged LLM panel with transport pre-selected to Local LLM.
+  - `tomAi.chordMenu.tomAiChat` — **aliased** to open the merged LLM panel with transport pre-selected to Tom AI Chat + view mode set to `Conversation (.md)`.
+  - No `tomAi.chordMenu.anthropic` command exists today; optionally add one that opens the LLM panel with transport pre-selected to Anthropic.
+- **33 per-panel `sendTo*` commands** (`tomAi.sendToCopilot.*`, `tomAi.sendToLocalLlm.*`) — all stay. The `sendToLocalLlm.*` commands internally dispatch into the merged LLM panel with transport `Local LLM` pre-selected and the named template applied.
+- **Settings keys** (`tomAi.copilot.*`, `tomAi.localLlm.*`, `tomAi.tomAiChat.*`) — unchanged. They back per-transport configurations, which still exist under the hood.
+- **No direct key-command references to "panel"** are in use — the merging can proceed without binding rewrites.
+
+### 9.5 Migration / risk
+
+- **Persisted panel state** in `_ai/local/*.prompt-panel.yaml` — today there are per-panel YAMLs (`copilot`, `localLlm`, `tomAiChat`, `aiConversation`). After merge, Local LLM + Tom AI Chat state migrates into a single `llm.prompt-panel.yaml` (transport + config + view mode + history). Write a one-shot migration on first activation that reads the legacy files and seeds the new one, then leaves the old files in place as a backup.
+- **Template editor** — already per-transport from Phase 1 (§4.12). Phase 2 adds no new template work; the user-message-template store just becomes the default home for templates written from the merged LLM panel.
+- **Risk of dropped features** — audit each of the three panels for any transport-specific UI (e.g. Anthropic's "test API key" button, Local LLM's "reload models") and make sure every feature maps to the merged panel (conditional on transport).
+
+### 9.6 Open questions before committing to Phase 2
+
+1. **`.md` conversation format portability** — cheap verification: does Tom AI Chat's current system-prompt composition (context instructions + systemPromptOverride) render sensibly when the backend is Anthropic or Local LLM instead of VS Code LM? Smoke-test with a few conversations before locking the view-mode merge.
+2. **Anthropic "test API key" button** — fits naturally into the merged panel's config-level actions; no new design needed.
+3. **Tom AI Chat's `contextInstructions`** — belongs on the conversation document, not on the transport. The merged panel needs a place to surface / edit those when view mode is `Conversation (.md)`.
+4. **Model selection in Tom AI Chat** — today a config parameter, single config exists. If more configs get added later, the `TransportPicker`'s config dropdown handles it without extra work.
+
+### 9.7 Phase 2 acceptance checklist
+
+- [ ] A single **LLM** panel exists, with a transport picker covering Anthropic, Local LLM, Tom AI Chat and conditional profile/config dropdowns.
+- [ ] View mode toggle (`Single exchange` / `Conversation (.md)`) persists per transport.
+- [ ] Legacy `tomAi.chordMenu.localLlm` / `.tomAiChat` open the merged panel with the right pre-selected transport.
+- [ ] All 33 legacy `sendTo*` commands continue to work end-to-end.
+- [ ] Existing `_ai/local/*.prompt-panel.yaml` state migrates cleanly on first activation.
+- [ ] AI Conversation panel renders **two** `TransportPicker` components (one per participant), with independent config selection.
+- [ ] AI Conversation still runs its own turn loop; no queue integration.
+- [ ] Copilot panel is unchanged.
+- [ ] No regression in the per-transport trail writers.
