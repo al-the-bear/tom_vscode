@@ -591,9 +591,9 @@ async function editOrCreateAnthropicConfiguration(configId: string | null): Prom
         'tomAi_findFiles',
         'tomAi_findTextInFiles',
         'tomAi_getErrors',
-        'tomAi_chatvar_read',
-        'tomAi_memory_read',
-        'tomAi_memory_list',
+        'tomAi_readChatVariable',
+        'tomAi_readMemory',
+        'tomAi_listMemory',
     ];
 
     const defaultPick = await vscode.window.showQuickPick(

@@ -4,7 +4,7 @@
  * Tools are invoked via a plain `(input) => Promise<string>` signature, so
  * they cannot accept context parameters directly. This module exposes a
  * module-level request/source context that the invoking handler sets
- * around each tool call, letting tools (e.g. `tomAi_chatvar_write`) log
+ * around each tool call, letting tools (e.g. `tomAi_writeChatVariable`) log
  * entries with the correct `source` and `requestId`.
  *
  * Usage (from a handler):

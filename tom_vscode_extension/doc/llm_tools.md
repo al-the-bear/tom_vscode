@@ -80,7 +80,7 @@ Each table lists every tool in the family with a per-transport default.
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
 | --- | --- | :-: | :-: | :-: | :-: | :-: |
 | `tomAi_runVscodeCommand` | Execute command ID (string args). | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_vscode` | Execute command ID (typed args, safe-list hints). | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_runVscodeCommandTyped` | Execute command ID (typed args, safe-list hints). | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_listCommands` | Discover command IDs (filtered). | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_openFile` | `showTextDocument` with optional selection. | ✅ | ✅ | ✅ | ✅ | ✅ |
 
@@ -91,7 +91,7 @@ Each table lists every tool in the family with a per-transport default.
 | `tomAi_getWorkspaceInfo` | Workspace + quest + projects + git. | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_getActiveEditor` | Active file, selection, cursor, visible range. | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_getOpenEditors` | All open tabs with dirty / pinned flags. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `determineQuest` | Resolve the active quest ID. | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_getActiveQuest` | Resolve the active quest ID. | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ### 4.6 Diagnostics
 
@@ -118,9 +118,9 @@ Each table lists every tool in the family with a per-transport default.
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
 | --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_git` | Read-only (status, diff, log, blame). | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_gitRead` | Read-only (status, diff, log, blame). | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_gitShow` | `git show <ref>[:path]`. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_gitExec` | Allow-listed git writes (approval). | ⚪ | ✅ | ❌ | ✅ | ✅ |
+| `tomAi_gitWrite` | Allow-listed git writes (approval). | ⚪ | ✅ | ❌ | ✅ | ✅ |
 
 ### 4.9 Notebook
 
@@ -151,18 +151,18 @@ Each table lists every tool in the family with a per-transport default.
 | `tomAi_moveQuestTodo` | Move between YAML files within a quest. | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_deleteQuestTodo` | Delete a quest todo. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
 | `tomAi_listWorkspaceQuestTodos` | All `*.todo.yaml` across the workspace. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_getAllTodos` | Aggregate quest + session in one call. | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_getCombinedTodos` | Aggregate quest + session in one call. | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_listQuests` | Enumerate quest folders under `_ai/quests/`. | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ### 4.12 Session todos (per window)
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
 | --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_sessionTodo_add` | Add a window-scoped self-reminder. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_sessionTodo_list` | List session todos. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_sessionTodo_getAll` | Counts + all items. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_sessionTodo_update` | Patch fields. | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_sessionTodo_delete` | Delete. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
+| `tomAi_addSessionTodo` | Add a window-scoped self-reminder. | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_listSessionTodos` | List session todos. | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_getAllSessionTodos` | Counts + all items. | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_updateSessionTodo` | Patch fields. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_deleteSessionTodo` | Delete. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
 | `tomAi_manageTodo` | Chat-session todo manager — separate from quest / window todos. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
 
 ### 4.13 Workspace metadata
@@ -206,8 +206,8 @@ Parallel to §4.14 but scoped to the **Tests** subpanel (test reports, flaky-tes
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
 | --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_chatvar_read` | Read a chat variable. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_chatvar_write` | Write a chat variable (own change log — no approval). | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_readChatVariable` | Read a chat variable. | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_writeChatVariable` | Write a chat variable (own change log — no approval). | ✅ | ✅ | ⚪ | ✅ | ✅ |
 
 ### 4.17 Memory (`_ai/memory/`)
 
@@ -215,11 +215,11 @@ Two-tier: `shared/` (cross-quest) and `{quest}/` (per-quest).
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
 | --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_memory_read` | Read a memory file. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_memory_list` | List memory files. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_memory_save` | Save new memory (approval). | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_memory_update` | Patch-edit memory (approval). | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_memory_forget` | Delete memory (approval). | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
+| `tomAi_readMemory` | Read a memory file. | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_listMemory` | List memory files. | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_saveMemory` | Save new memory (approval). | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_updateMemory` | Patch-edit memory (approval). | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_forgetMemory` | Delete memory (approval). | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
 
 ### 4.17.5 AI Conversation result document
 
@@ -256,26 +256,32 @@ These tools drive the **Copilot Chat user-facing panel** via a bridge. They are 
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
 | --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_queue_add` | Stage a prompt; now accepts prePrompts, per-item repeat/answer-wait, and full follow-up / reminder fields. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
-| `tomAi_queue_addFollowUp` | Append a follow-up; now accepts repeatCount, answerWaitMinutes, reminders. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
-| `tomAi_queue_addPrePrompt` | Append a pre-prompt (sent before the main prompt). | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
-| `tomAi_queue_updatePrePrompt` | Patch pre-prompt fields by (itemId, index). | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
-| `tomAi_queue_removePrePrompt` | Remove a pre-prompt by index. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
-| `tomAi_queue_sendNow` | Send one staged prompt. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
-| `tomAi_queue_sendNowById` | Send a specific item immediately. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
-| `tomAi_queue_list` | List queue items. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_queue_updateItem` | Patch item fields incl. repeat / answerWait / reminder. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
-| `tomAi_queue_setStatus` | Toggle staged / pending. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
-| `tomAi_queue_removeItem` | Delete. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
-| `tomAi_queue_updateFollowUp` | Patch follow-up incl. repeat / answerWait. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
-| `tomAi_queue_removeFollowUp` | Remove a follow-up. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
-| `tomAi_timed_add` | Create a timed entry (interval) with repeat / sendMaximum / answerWait / reminder. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
-| `tomAi_timed_list` | List timed entries. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_timed_updateEntry` | Patch timed entry; schedule slots use `{time:"HH:MM", date?:...}`. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
-| `tomAi_timed_removeEntry` | Remove a timed entry. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
-| `tomAi_timed_setEngineState` | Enable / disable the timer engine. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
-| `tomAi_templates_manage` | CRUD prompt templates. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
-| `tomAi_reminders_manage` | CRUD reminder templates. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
+| `tomAi_addQueueItem` | Stage a prompt; now accepts prePrompts, per-item repeat/answer-wait, and full follow-up / reminder fields. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
+| `tomAi_addQueueFollowUp` | Append a follow-up; now accepts repeatCount, answerWaitMinutes, reminders. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
+| `tomAi_addQueuePrePrompt` | Append a pre-prompt (sent before the main prompt). | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
+| `tomAi_updateQueuePrePrompt` | Patch pre-prompt fields by (itemId, index). | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
+| `tomAi_removeQueuePrePrompt` | Remove a pre-prompt by index. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
+| `tomAi_sendQueuedPrompt` | Send one staged prompt. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
+| `tomAi_sendQueueItem` | Send a specific item immediately. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
+| `tomAi_listQueue` | List queue items. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_updateQueueItem` | Patch item fields incl. repeat / answerWait / reminder. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
+| `tomAi_setQueueItemStatus` | Toggle staged / pending. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
+| `tomAi_removeQueueItem` | Delete. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
+| `tomAi_updateQueueFollowUp` | Patch follow-up incl. repeat / answerWait. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
+| `tomAi_removeQueueFollowUp` | Remove a follow-up. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
+| `tomAi_addTimedRequest` | Create a timed entry (interval) with repeat / sendMaximum / answerWait / reminder. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
+| `tomAi_listTimedRequests` | List timed entries. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_updateTimedRequest` | Patch timed entry; schedule slots use `{time:"HH:MM", date?:...}`. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
+| `tomAi_removeTimedRequest` | Remove a timed entry. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
+| `tomAi_setTimerEngineState` | Enable / disable the timer engine. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
+| `tomAi_listPromptTemplates` | List prompt templates. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_createPromptTemplate` | Create a new prompt template. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
+| `tomAi_updatePromptTemplate` | Patch (optionally rename) a prompt template. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
+| `tomAi_deletePromptTemplate` | Delete a prompt template. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
+| `tomAi_listReminderTemplates` | List reminder templates. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_createReminderTemplate` | Create a reminder template. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
+| `tomAi_updateReminderTemplate` | Patch a reminder template. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
+| `tomAi_deleteReminderTemplate` | Delete a reminder template. | ⚪ | ⚪ | ❌ | ⚪ | ⚪ |
 
 **Remaining gaps** (manager features still with no tool): engine-wide `TimerScheduleSlot` (awake/asleep windows with weekday / first-weekday / last-weekday / day-of-month patterns) and reminder-system config (`ReminderSystem.config.enabled`, `defaultTimeoutMinutes`). Add if a workflow needs LLM-driven control of those.
 
@@ -344,96 +350,7 @@ Explicitly off (even though they'd technically work):
 - **Tool-result truncation envelope** — a standard `{ content, truncated, continuationToken }` shape would let every tool stream results without bespoke code.
 - **Engine-wide timer schedule** — LLM-driven control of `TimerEngine._schedule` (weekday / first-weekday / last-weekday / day-of-month awake windows). No tool today.
 
-## 8. Naming consistency — suggestions
-
-The current name set has grown organically. Below are the inconsistencies and suggested renames. These are **suggestions**, not applied yet.
-
-### 8.1 Verb-first vs noun-first
-
-Most tools are `tomAi_<verb><Object>` (`getActiveEditor`, `listIssues`, `applyEdit`). A few are noun-first or mixed:
-
-| Current | Issue | Suggested |
-| --- | --- | --- |
-| `tomAi_git` | Bare noun; no verb. | `tomAi_gitRead` (paired with `tomAi_gitExec`) — or keep as-is and rename `tomAi_gitExec` → `tomAi_gitWrite`. |
-| `tomAi_vscode` | Bare noun meta-tool; meaning unclear from name. | `tomAi_runVscodeCommandTyped` (explicit pairing with existing `tomAi_runVscodeCommand`). |
-| `determineQuest` | Missing `tomAi_` prefix (legacy). | `tomAi_getActiveQuest`. |
-| `tomAi_manageTodo` | Single tool hides 5 operations (list/add/update/remove/clear). | Either keep as a deliberate simplified API for chat-session todos (current justification) **or** split into `tomAi_chatTodo_{add,list,update,remove,clear}` to mirror the session-todo family. Keep since chat-session todos are ephemeral. |
-
-### 8.2 Underscore vs camelCase delimiters
-
-The codebase uses two separator conventions inside the name:
-
-- **camelCase** — `tomAi_listIssues`, `tomAi_createQuestTodo`, `tomAi_runCommand`.
-- **snake_case-after-family** — `tomAi_sessionTodo_add`, `tomAi_queue_add`, `tomAi_timed_list`, `tomAi_chatvar_read`, `tomAi_memory_save`.
-
-Pick one. The camelCase form is more consistent with the majority. Suggested renames:
-
-| Current | Suggested |
-| --- | --- |
-| `tomAi_sessionTodo_add` | `tomAi_addSessionTodo` |
-| `tomAi_sessionTodo_list` | `tomAi_listSessionTodos` |
-| `tomAi_sessionTodo_getAll` | `tomAi_getAllSessionTodos` |
-| `tomAi_sessionTodo_update` | `tomAi_updateSessionTodo` |
-| `tomAi_sessionTodo_delete` | `tomAi_deleteSessionTodo` |
-| `tomAi_queue_add` | `tomAi_addQueueItem` |
-| `tomAi_queue_addFollowUp` | `tomAi_addQueueFollowUp` |
-| `tomAi_queue_addPrePrompt` | `tomAi_addQueuePrePrompt` |
-| `tomAi_queue_updateItem` | `tomAi_updateQueueItem` |
-| `tomAi_queue_updateFollowUp` | `tomAi_updateQueueFollowUp` |
-| `tomAi_queue_updatePrePrompt` | `tomAi_updateQueuePrePrompt` |
-| `tomAi_queue_setStatus` | `tomAi_setQueueItemStatus` |
-| `tomAi_queue_sendNow` | `tomAi_sendQueuedPrompt` |
-| `tomAi_queue_sendNowById` | `tomAi_sendQueueItem` |
-| `tomAi_queue_list` | `tomAi_listQueue` |
-| `tomAi_queue_removeItem` | `tomAi_removeQueueItem` |
-| `tomAi_queue_removeFollowUp` | `tomAi_removeQueueFollowUp` |
-| `tomAi_queue_removePrePrompt` | `tomAi_removeQueuePrePrompt` |
-| `tomAi_timed_add` | `tomAi_addTimedRequest` |
-| `tomAi_timed_list` | `tomAi_listTimedRequests` |
-| `tomAi_timed_updateEntry` | `tomAi_updateTimedRequest` |
-| `tomAi_timed_removeEntry` | `tomAi_removeTimedRequest` |
-| `tomAi_timed_setEngineState` | `tomAi_setTimerEngineState` |
-| `tomAi_chatvar_read` | `tomAi_readChatVariable` |
-| `tomAi_chatvar_write` | `tomAi_writeChatVariable` |
-| `tomAi_memory_read` | `tomAi_readMemory` |
-| `tomAi_memory_list` | `tomAi_listMemory` |
-| `tomAi_memory_save` | `tomAi_saveMemory` |
-| `tomAi_memory_update` | `tomAi_updateMemory` |
-| `tomAi_memory_forget` | `tomAi_forgetMemory` |
-| `tomAi_templates_manage` | Split: `tomAi_listPromptTemplates` / `tomAi_createPromptTemplate` / `tomAi_updatePromptTemplate` / `tomAi_deletePromptTemplate` |
-| `tomAi_reminders_manage` | Split: `tomAi_listReminderTemplates` / `tomAi_createReminderTemplate` / … |
-
-### 8.3 `manage` single-tool vs split-per-operation
-
-`tomAi_templates_manage` and `tomAi_reminders_manage` hide four operations (list/create/update/delete) behind one tool with an `operation` enum. Matches the `tomAi_manageTodo` pattern but inconsistent with `tomAi_sessionTodo_*` / `tomAi_queue_*` / `tomAi_memory_*` which all split per-operation.
-
-Suggestion: **split all `*_manage` tools** into per-op tools (see §8.2 table) unless the API is genuinely simplified (chat-session todos, where ephemerality justifies the collapse).
-
-### 8.4 Inconsistent plural forms
-
-Mostly singular = "one", plural = "many". A few drift:
-
-| Current | Issue | Suggested |
-| --- | --- | --- |
-| `tomAi_getAllTodos` | Returns session + quest aggregate. Name doesn't reveal which kinds. | `tomAi_getAllTodosAggregated` or `tomAi_getCombinedTodos` — or keep if called out in description. |
-| `tomAi_listWorkspaceQuestTodos` | Long but clear. | Keep. |
-
-### 8.5 `determineQuest` outlier
-
-Only tool in the registry missing the `tomAi_` prefix. Rename to `tomAi_getActiveQuest` to align.
-
-### 8.6 Recommended action
-
-Before renaming, decide on the convention (camelCase separator) and commit in a single batch with updates to:
-
-1. Each tool's `name:` field.
-2. `AVAILABLE_LLM_TOOLS` in `src/utils/constants.ts`.
-3. Every `languageModelTools[].name` and `toolReferenceName` in `package.json`.
-4. Seed configs under `.tom/tom_vscode_extension.json` (workspace `enabledTools` lists).
-5. This document.
-6. Any hard-coded references in `DUPLICATES_OF_CLAUDE_CODE_BUILTINS` (`anthropic-handler.ts`).
-
-## 9. Adding new tools
+## 8. Adding new tools
 
 Tools are grouped by functional family, one file per family under `src/tools/`:
 

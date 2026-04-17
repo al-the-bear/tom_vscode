@@ -59,18 +59,18 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_runCommand',
     'tomAi_runVscodeCommand',
     // Git (read-only, structured)
-    'tomAi_git',
+    'tomAi_gitRead',
     // Todo / task management
     'tomAi_manageTodo',
     // Chat variables
-    'tomAi_chatvar_read',
-    'tomAi_chatvar_write',
+    'tomAi_readChatVariable',
+    'tomAi_writeChatVariable',
     // Memory
-    'tomAi_memory_read',
-    'tomAi_memory_list',
-    'tomAi_memory_save',
-    'tomAi_memory_update',
-    'tomAi_memory_forget',
+    'tomAi_readMemory',
+    'tomAi_listMemory',
+    'tomAi_saveMemory',
+    'tomAi_updateMemory',
+    'tomAi_forgetMemory',
     // Editor / workspace context
     'tomAi_getWorkspaceInfo',
     'tomAi_getActiveEditor',
@@ -88,7 +88,7 @@ export const AVAILABLE_LLM_TOOLS = [
     // VS Code commands and navigation
     'tomAi_openFile',
     'tomAi_listCommands',
-    'tomAi_vscode',
+    'tomAi_runVscodeCommandTyped',
     // User interaction
     'tomAi_askUser',
     'tomAi_askUserPicker',
@@ -106,7 +106,7 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_readCommandOutput',
     'tomAi_killCommand',
     // Git (write + show)
-    'tomAi_gitExec',
+    'tomAi_gitWrite',
     'tomAi_gitShow',
     // Planning + delegation
     'tomAi_enterPlanMode',
@@ -126,14 +126,14 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_moveQuestTodo',
     'tomAi_deleteQuestTodo',
     'tomAi_listWorkspaceQuestTodos',
-    'tomAi_getAllTodos',
+    'tomAi_getCombinedTodos',
     'tomAi_listQuests',
     // Session todos
-    'tomAi_sessionTodo_add',
-    'tomAi_sessionTodo_list',
-    'tomAi_sessionTodo_getAll',
-    'tomAi_sessionTodo_update',
-    'tomAi_sessionTodo_delete',
+    'tomAi_addSessionTodo',
+    'tomAi_listSessionTodos',
+    'tomAi_getAllSessionTodos',
+    'tomAi_updateSessionTodo',
+    'tomAi_deleteSessionTodo',
     // Notification
     'tomAi_notifyUser',
     // Issues (bottom-panel WS tab — issue tracker)
@@ -157,4 +157,13 @@ export const AVAILABLE_LLM_TOOLS = [
     // AI Conversation — result document (the only mutation exposed there)
     'tomAi_readConversationResult',
     'tomAi_writeConversationResult',
+    // Prompt + reminder templates (split from manage-style)
+    'tomAi_listPromptTemplates',
+    'tomAi_createPromptTemplate',
+    'tomAi_updatePromptTemplate',
+    'tomAi_deletePromptTemplate',
+    'tomAi_listReminderTemplates',
+    'tomAi_createReminderTemplate',
+    'tomAi_updateReminderTemplate',
+    'tomAi_deleteReminderTemplate',
 ] as const;

@@ -1,9 +1,9 @@
 /**
  * Git tools — read + write variants, plus `git show`.
  *
- * `tomAi_git` is the read-only companion (status / diff / log / blame).
+ * `tomAi_gitRead` is the read-only companion (status / diff / log / blame).
  * `tomAi_gitShow` exposes historical revisions.
- * `tomAi_gitExec` gates git write commands behind an allow-list and approval.
+ * `tomAi_gitWrite` gates git write commands behind an allow-list and approval.
  */
 
 import * as vscode from 'vscode';
@@ -25,7 +25,7 @@ function resolvePath(filePath: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// tomAi_git — read-only subcommands
+// tomAi_gitRead — read-only subcommands
 // ---------------------------------------------------------------------------
 
 export interface GitInput {
@@ -57,7 +57,7 @@ async function executeGit(input: GitInput): Promise<string> {
 }
 
 export const GIT_TOOL: SharedToolDefinition<GitInput> = {
-    name: 'tomAi_git',
+    name: 'tomAi_gitRead',
     displayName: 'Git',
     description: 'Run a structured read-only git command (status, diff, log, blame) and return its output.',
     tags: ['git', 'tom-ai-chat'],
@@ -83,7 +83,7 @@ export const GIT_TOOL: SharedToolDefinition<GitInput> = {
 };
 
 // ---------------------------------------------------------------------------
-// tomAi_gitExec — write subcommands (allow-listed, approval-gated)
+// tomAi_gitWrite — write subcommands (allow-listed, approval-gated)
 // ---------------------------------------------------------------------------
 
 const GIT_WRITE_ALLOWLIST: ReadonlySet<string> = new Set([
@@ -126,7 +126,7 @@ async function executeGitExec(input: GitExecInput): Promise<string> {
 }
 
 export const GIT_EXEC_TOOL: SharedToolDefinition<GitExecInput> = {
-    name: 'tomAi_gitExec',
+    name: 'tomAi_gitWrite',
     displayName: 'Git Exec (Write)',
     description:
         'Run a git write command (add/commit/push/branch/checkout/merge/rebase/etc.). ' +

@@ -117,7 +117,7 @@ export function formatToolSummary(
         case 'tomAi_runCommand':
             return `runCommand(\`${truncate(i.command, 60)}\`)${result ? arrow + truncate(result.replace(/\s+/g, ' '), 120) : ''}${failedTag}`;
         case 'tomAi_runVscodeCommand':
-        case 'tomAi_vscode':
+        case 'tomAi_runVscodeCommandTyped':
             return `${name.slice('tomAi_'.length)}(${i.command})${result ? arrow + truncate(result, 120) : ''}${failedTag}`;
         case 'tomAi_runCommandStream':
             return `runCommandStream(\`${truncate(i.command, 60)}\`)${result ? arrow + 'handle issued' : ''}${failedTag}`;
@@ -129,11 +129,11 @@ export function formatToolSummary(
             return `fetchWebpage(${i.url})${result ? arrow + result.length + ' chars' : ''}${failedTag}`;
         case 'tomAi_webSearch':
             return `webSearch("${truncate(i.query, 60)}")${result ? arrow + countOccurrences(result, /\n/g) + ' results' : ''}${failedTag}`;
-        case 'tomAi_git':
+        case 'tomAi_gitRead':
             return `git ${i.subcommand}${Array.isArray(i.args) ? ' ' + i.args.join(' ') : ''}${result ? arrow + truncate(result, 120) : ''}${failedTag}`;
         case 'tomAi_gitShow':
             return `gitShow(${i.ref}${i.filePath ? ':' + i.filePath : ''})${result ? arrow + truncate(result, 120) : ''}${failedTag}`;
-        case 'tomAi_gitExec':
+        case 'tomAi_gitWrite':
             return `gitExec ${i.subcommand}${Array.isArray(i.args) ? ' ' + i.args.join(' ') : ''}${result ? arrow + truncate(result, 120) : ''}${failedTag}`;
         case 'tomAi_findSymbol':
             return `findSymbol("${i.query}")${result ? arrow + countOccurrences(result, /"name":/g) + ' symbols' : ''}${failedTag}`;
@@ -152,15 +152,15 @@ export function formatToolSummary(
             return `runTask("${i.name}")${result ? arrow + truncate(result, 120) : ''}${failedTag}`;
         case 'tomAi_runDebugConfig':
             return `runDebugConfig("${i.configName}")${failedTag}`;
-        case 'tomAi_memory_read':
-        case 'tomAi_memory_list':
-        case 'tomAi_memory_save':
-        case 'tomAi_memory_update':
-        case 'tomAi_memory_forget':
+        case 'tomAi_readMemory':
+        case 'tomAi_listMemory':
+        case 'tomAi_saveMemory':
+        case 'tomAi_updateMemory':
+        case 'tomAi_forgetMemory':
             return `${name.slice('tomAi_'.length)}(${safeJson(i, 80)})${result ? arrow + truncate(result, 120) : ''}${failedTag}`;
-        case 'tomAi_chatvar_read':
+        case 'tomAi_readChatVariable':
             return `chatvar_read(${i.name || i.key})${result ? arrow + truncate(result, 120) : ''}${failedTag}`;
-        case 'tomAi_chatvar_write':
+        case 'tomAi_writeChatVariable':
             return `chatvar_write(${i.name || i.key}=${truncate(String(i.value), 60)})${failedTag}`;
         case 'tomAi_askBigBrother':
         case 'tomAi_askCopilot':

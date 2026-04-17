@@ -565,7 +565,7 @@ export const RUN_VSCODE_COMMAND_TOOL: SharedToolDefinition<RunVscodeCommandInput
     execute: executeRunVscodeCommand,
 };
 
-// Git tools (tomAi_git, tomAi_gitShow, tomAi_gitExec) live in `./git-tools.ts`.
+// Git tools (tomAi_gitRead, tomAi_gitShow, tomAi_gitWrite) live in `./git-tools.ts`.
 
 // --- delete_file -------------------------------------------------------------
 
@@ -1273,7 +1273,7 @@ async function executeChatvarRead(input: ChatvarReadInput): Promise<string> {
 }
 
 export const CHATVAR_READ_TOOL: SharedToolDefinition<ChatvarReadInput> = {
-    name: 'tomAi_chatvar_read',
+    name: 'tomAi_readChatVariable',
     displayName: 'Chat Variable — Read',
     description: 'Read the current chat variables. Omit `key` to return all variables (built-ins + custom.*). Pass a `key` to return just that variable\'s current value.',
     tags: ['chat-variables', 'tom-ai-chat'],
@@ -1339,7 +1339,7 @@ async function executeChatvarWrite(input: ChatvarWriteInput): Promise<string> {
 }
 
 export const CHATVAR_WRITE_TOOL: SharedToolDefinition<ChatvarWriteInput> = {
-    name: 'tomAi_chatvar_write',
+    name: 'tomAi_writeChatVariable',
     displayName: 'Chat Variable — Write',
     description: 'Update one or more custom chat variables. Keys are stored under the `custom.*` namespace. Built-in keys (quest, role, activeProjects, todo, todoFile) are rejected — those are user-only fields. Every change is visible live in the Chat Variables Editor.',
     tags: ['chat-variables', 'tom-ai-chat'],
@@ -1403,7 +1403,7 @@ async function executeMemorySave(input: MemorySaveInput): Promise<string> {
 }
 
 export const MEMORY_SAVE_TOOL: SharedToolDefinition<MemorySaveInput> = {
-    name: 'tomAi_memory_save',
+    name: 'tomAi_saveMemory',
     displayName: 'Memory — Save',
     description: 'Append a fact to a memory file (or replace a named markdown section when `heading` is provided). Default file is `facts.md`. Scope is `quest` (default) or `shared`.',
     tags: ['memory', 'tom-ai-chat'],
@@ -1444,7 +1444,7 @@ async function executeMemoryUpdate(input: MemoryUpdateInput): Promise<string> {
 }
 
 export const MEMORY_UPDATE_TOOL: SharedToolDefinition<MemoryUpdateInput> = {
-    name: 'tomAi_memory_update',
+    name: 'tomAi_updateMemory',
     displayName: 'Memory — Update section',
     description: 'Replace the content under a named markdown heading in a memory file. If the heading does not exist yet it is appended.',
     tags: ['memory', 'tom-ai-chat'],
@@ -1488,7 +1488,7 @@ async function executeMemoryForget(input: MemoryForgetInput): Promise<string> {
 }
 
 export const MEMORY_FORGET_TOOL: SharedToolDefinition<MemoryForgetInput> = {
-    name: 'tomAi_memory_forget',
+    name: 'tomAi_forgetMemory',
     displayName: 'Memory — Forget',
     description: 'Delete an entire memory file, or clear the content under a named markdown heading when `heading` is provided.',
     tags: ['memory', 'tom-ai-chat'],
@@ -1535,7 +1535,7 @@ async function executeMemoryRead(input: MemoryReadInput): Promise<string> {
 }
 
 export const MEMORY_READ_TOOL: SharedToolDefinition<MemoryReadInput> = {
-    name: 'tomAi_memory_read',
+    name: 'tomAi_readMemory',
     displayName: 'Memory — Read',
     description: 'Read memory contents. Omit `file` to get the concatenated contents of all files in the scope. Scope is `quest` (default), `shared`, or `all`.',
     tags: ['memory', 'tom-ai-chat'],
@@ -1578,7 +1578,7 @@ async function executeMemoryList(input: MemoryListInput): Promise<string> {
 }
 
 export const MEMORY_LIST_TOOL: SharedToolDefinition<MemoryListInput> = {
-    name: 'tomAi_memory_list',
+    name: 'tomAi_listMemory',
     displayName: 'Memory — List',
     description: 'List memory files in the given scope. Scope is `quest` (default), `shared`, or `all`.',
     tags: ['memory', 'tom-ai-chat'],

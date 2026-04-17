@@ -1402,7 +1402,7 @@
                 "toolReferenceName": "listAllQuestTodos"
             },
             {
-                "name": "tomAi_getAllTodos",
+                "name": "tomAi_getCombinedTodos",
                 "tags": [
                     "todo",
                     "quest",
@@ -1654,7 +1654,7 @@
                 "toolReferenceName": "moveQuestTodo"
             },
             {
-                "name": "tomAi_sessionTodo_add",
+                "name": "tomAi_addSessionTodo",
                 "tags": [
                     "todo",
                     "session",
@@ -1699,7 +1699,7 @@
                 "toolReferenceName": "addSessionTodo"
             },
             {
-                "name": "tomAi_sessionTodo_list",
+                "name": "tomAi_listSessionTodos",
                 "tags": [
                     "todo",
                     "session",
@@ -1733,7 +1733,7 @@
                 "toolReferenceName": "listSessionTodos"
             },
             {
-                "name": "tomAi_sessionTodo_getAll",
+                "name": "tomAi_getAllSessionTodos",
                 "tags": [
                     "todo",
                     "session",
@@ -1750,7 +1750,7 @@
                 "toolReferenceName": "getAllSessionTodos"
             },
             {
-                "name": "tomAi_sessionTodo_update",
+                "name": "tomAi_updateSessionTodo",
                 "tags": [
                     "todo",
                     "session",
@@ -1800,7 +1800,7 @@
                 "toolReferenceName": "updateSessionTodo"
             },
             {
-                "name": "tomAi_sessionTodo_delete",
+                "name": "tomAi_deleteSessionTodo",
                 "tags": [
                     "todo",
                     "session",
@@ -1846,7 +1846,7 @@
                 "toolReferenceName": "tom_readLocalGuideline"
             },
             {
-                "name": "tomAi_queue_list",
+                "name": "tomAi_listQueue",
                 "tags": [
                     "queue",
                     "tom-ai-chat"
@@ -1863,7 +1863,7 @@
                         }
                     }
                 },
-                "toolReferenceName": "tomAi_queue_list"
+                "toolReferenceName": "tomAi_listQueue"
             },
             {
                 "name": "tomAi_queue_update_item",
@@ -2061,7 +2061,7 @@
                 "toolReferenceName": "tomAi_queue_remove_followup"
             },
             {
-                "name": "tomAi_timed_list",
+                "name": "tomAi_listTimedRequests",
                 "tags": [
                     "timed",
                     "tom-ai-chat"
@@ -2078,7 +2078,7 @@
                         }
                     }
                 },
-                "toolReferenceName": "tomAi_timed_list"
+                "toolReferenceName": "tomAi_listTimedRequests"
             },
             {
                 "name": "tomAi_timed_update_entry",
@@ -2154,91 +2154,126 @@
                 "toolReferenceName": "tomAi_timed_set_engine_state"
             },
             {
-                "name": "tomAi_templates_manage",
-                "tags": [
-                    "templates",
-                    "queue",
-                    "timed",
-                    "tom-ai-chat"
-                ],
-                "displayName": "Prompt Template Manage",
-                "userDescription": "Manage prompt templates",
-                "modelDescription": "List/create/update/delete prompt templates used by queue and timed requests.",
+                "name": "tomAi_listPromptTemplates",
+                "tags": ["templates", "copilot", "tom-ai-chat"],
+                "displayName": "List Prompt Templates",
+                "userDescription": "List prompt templates",
+                "modelDescription": "List prompt templates used by the queue and timed requests.",
                 "canBeReferencedInPrompt": true,
-                "inputSchema": {
-                    "type": "object",
-                    "required": [
-                        "operation"
-                    ],
-                    "properties": {
-                        "operation": {
-                            "type": "string",
-                            "enum": [
-                                "list",
-                                "create",
-                                "update",
-                                "delete"
-                            ]
-                        },
-                        "name": {
-                            "type": "string"
-                        },
-                        "newName": {
-                            "type": "string"
-                        },
-                        "template": {
-                            "type": "string"
-                        },
-                        "showInMenu": {
-                            "type": "boolean"
-                        }
-                    }
-                },
-                "toolReferenceName": "tom_prompt_template_manage"
+                "inputSchema": { "type": "object", "properties": {} },
+                "toolReferenceName": "tomAi_listPromptTemplates"
             },
             {
-                "name": "tomAi_reminders_manage",
-                "tags": [
-                    "templates",
-                    "reminder",
-                    "queue",
-                    "timed",
-                    "tom-ai-chat"
-                ],
-                "displayName": "Reminder Template Manage",
-                "userDescription": "Manage reminder templates",
-                "modelDescription": "List/create/update/delete reminder templates used by queue and timed reminders.",
+                "name": "tomAi_createPromptTemplate",
+                "tags": ["templates", "copilot", "tom-ai-chat"],
+                "displayName": "Create Prompt Template",
+                "userDescription": "Create a new prompt template",
+                "modelDescription": "Create a new prompt template.",
                 "canBeReferencedInPrompt": true,
                 "inputSchema": {
                     "type": "object",
-                    "required": [
-                        "operation"
-                    ],
+                    "required": ["name"],
                     "properties": {
-                        "operation": {
-                            "type": "string",
-                            "enum": [
-                                "list",
-                                "create",
-                                "update",
-                                "delete"
-                            ]
-                        },
-                        "id": {
-                            "type": "string"
-                        },
-                        "name": {
-                            "type": "string"
-                        },
-                        "prompt": {
-                            "type": "string"
-                        },
-                        "isDefault": {
-                            "type": "boolean"
-                        }
+                        "name": { "type": "string" },
+                        "template": { "type": "string" },
+                        "showInMenu": { "type": "boolean" }
                     }
                 },
-                "toolReferenceName": "tom_reminder_template_manage"
+                "toolReferenceName": "tomAi_createPromptTemplate"
+            },
+            {
+                "name": "tomAi_updatePromptTemplate",
+                "tags": ["templates", "copilot", "tom-ai-chat"],
+                "displayName": "Update Prompt Template",
+                "userDescription": "Update a prompt template",
+                "modelDescription": "Patch an existing prompt template. Optionally rename via newName.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["name"],
+                    "properties": {
+                        "name": { "type": "string" },
+                        "newName": { "type": "string" },
+                        "template": { "type": "string" },
+                        "showInMenu": { "type": "boolean" }
+                    }
+                },
+                "toolReferenceName": "tomAi_updatePromptTemplate"
+            },
+            {
+                "name": "tomAi_deletePromptTemplate",
+                "tags": ["templates", "copilot", "tom-ai-chat"],
+                "displayName": "Delete Prompt Template",
+                "userDescription": "Delete a prompt template",
+                "modelDescription": "Delete a prompt template by name.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["name"],
+                    "properties": { "name": { "type": "string" } }
+                },
+                "toolReferenceName": "tomAi_deletePromptTemplate"
+            },
+            {
+                "name": "tomAi_listReminderTemplates",
+                "tags": ["templates", "reminder", "tom-ai-chat"],
+                "displayName": "List Reminder Templates",
+                "userDescription": "List reminder templates",
+                "modelDescription": "List reminder templates used by the queue and timed-request reminders.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": { "type": "object", "properties": {} },
+                "toolReferenceName": "tomAi_listReminderTemplates"
+            },
+            {
+                "name": "tomAi_createReminderTemplate",
+                "tags": ["templates", "reminder", "tom-ai-chat"],
+                "displayName": "Create Reminder Template",
+                "userDescription": "Create a reminder template",
+                "modelDescription": "Create a new reminder template.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["name", "prompt"],
+                    "properties": {
+                        "name": { "type": "string" },
+                        "prompt": { "type": "string" },
+                        "isDefault": { "type": "boolean" }
+                    }
+                },
+                "toolReferenceName": "tomAi_createReminderTemplate"
+            },
+            {
+                "name": "tomAi_updateReminderTemplate",
+                "tags": ["templates", "reminder", "tom-ai-chat"],
+                "displayName": "Update Reminder Template",
+                "userDescription": "Update a reminder template",
+                "modelDescription": "Patch an existing reminder template by id.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["id"],
+                    "properties": {
+                        "id": { "type": "string" },
+                        "name": { "type": "string" },
+                        "prompt": { "type": "string" },
+                        "isDefault": { "type": "boolean" }
+                    }
+                },
+                "toolReferenceName": "tomAi_updateReminderTemplate"
+            },
+            {
+                "name": "tomAi_deleteReminderTemplate",
+                "tags": ["templates", "reminder", "tom-ai-chat"],
+                "displayName": "Delete Reminder Template",
+                "userDescription": "Delete a reminder template",
+                "modelDescription": "Delete a reminder template by id.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["id"],
+                    "properties": { "id": { "type": "string" } }
+                },
+                "toolReferenceName": "tomAi_deleteReminderTemplate"
             },
             {
                 "name": "tomAi_deleteQuestTodo",
@@ -2453,7 +2488,7 @@
                 "toolReferenceName": "tom_askCopilot"
             },
             {
-                "name": "tomAi_chatvar_read",
+                "name": "tomAi_readChatVariable",
                 "tags": [
                     "chat-variables",
                     "tom-ai-chat"
@@ -2474,7 +2509,7 @@
                 "toolReferenceName": "tom_chatvar_read"
             },
             {
-                "name": "tomAi_chatvar_write",
+                "name": "tomAi_writeChatVariable",
                 "tags": [
                     "chat-variables",
                     "tom-ai-chat"
@@ -2501,7 +2536,7 @@
                 "toolReferenceName": "tom_chatvar_write"
             },
             {
-                "name": "tomAi_memory_save",
+                "name": "tomAi_saveMemory",
                 "tags": [
                     "memory",
                     "tom-ai-chat"
@@ -2541,7 +2576,7 @@
                 "toolReferenceName": "tom_memory_save"
             },
             {
-                "name": "tomAi_memory_update",
+                "name": "tomAi_updateMemory",
                 "tags": [
                     "memory",
                     "tom-ai-chat"
@@ -2579,7 +2614,7 @@
                 "toolReferenceName": "tom_memory_update"
             },
             {
-                "name": "tomAi_memory_forget",
+                "name": "tomAi_forgetMemory",
                 "tags": [
                     "memory",
                     "tom-ai-chat"
@@ -2612,7 +2647,7 @@
                 "toolReferenceName": "tom_memory_forget"
             },
             {
-                "name": "tomAi_memory_read",
+                "name": "tomAi_readMemory",
                 "tags": [
                     "memory",
                     "tom-ai-chat"
@@ -2640,7 +2675,7 @@
                 "toolReferenceName": "tom_memory_read"
             },
             {
-                "name": "tomAi_memory_list",
+                "name": "tomAi_listMemory",
                 "tags": [
                     "memory",
                     "tom-ai-chat"

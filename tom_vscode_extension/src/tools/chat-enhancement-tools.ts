@@ -5,16 +5,16 @@
  *  - tomAi_notifyUser         §1.1
  *  - tomAi_getWorkspaceInfo   §1.2
  *  - tomAi_listTodos          §1.3
- *  - tomAi_getAllTodos         §1.3
+ *  - tomAi_getCombinedTodos         §1.3
  *  - tomAi_getTodo            §1.3
  *  - tomAi_createTodo         §1.3
  *  - tomAi_updateTodo         §1.3
  *  - tomAi_moveTodo           §1.3
- *  - tomAi_sessionTodo_add     §1.4
- *  - tomAi_sessionTodo_list    §1.4
- *  - tomAi_sessionTodo_getAll  §1.4
- *  - tomAi_sessionTodo_update  §1.4
- *  - tomAi_sessionTodo_delete  §1.4
+ *  - tomAi_addSessionTodo     §1.4
+ *  - tomAi_listSessionTodos    §1.4
+ *  - tomAi_getAllSessionTodos  §1.4
+ *  - tomAi_updateSessionTodo  §1.4
+ *  - tomAi_deleteSessionTodo  §1.4
  *
  * Each tool follows the SharedToolDefinition pattern from shared-tool-registry.ts.
  */
@@ -101,13 +101,13 @@ export const NOTIFY_USER_TOOL: SharedToolDefinition<NotifyUserInput> = {
 
 // Workspace-info tool moved to `editor-context-tools.ts` (tomAi_getWorkspaceInfo).
 
-// --- determineQuest ---------------------------------------------------------
+// --- tomAi_getActiveQuest ---------------------------------------------------------
 
 interface DetermineQuestInput {
     // no parameters
 }
 
-function determineQuestFromWorkspaceFile(): string {
+function tomAi_getActiveQuestFromWorkspaceFile(): string {
     const wsFile = vscode.workspace.workspaceFile?.fsPath;
     if (!wsFile) { return ''; }
     const base = path.basename(wsFile);
@@ -132,7 +132,7 @@ async function executeDetermineQuest(_input: DetermineQuestInput): Promise<strin
 }
 
 export const DETERMINE_QUEST_TOOL: SharedToolDefinition<DetermineQuestInput> = {
-    name: 'determineQuest',
+    name: 'tomAi_getActiveQuest',
     displayName: 'Determine Quest',
     description:
         'Determine the active quest ID. Returns the quest ID when set, otherwise returns "No quest set".',
@@ -244,7 +244,7 @@ async function executeGetAllTodos(input: GetAllTodosInput): Promise<string> {
 }
 
 export const GET_ALL_TODOS_TOOL: SharedToolDefinition<GetAllTodosInput> = {
-    name: 'tomAi_getAllTodos',
+    name: 'tomAi_getCombinedTodos',
     displayName: 'Get All Todos',
     description:
         'Get ALL todos from ALL sources in a single call: quest YAML files + window session. ' +
@@ -482,7 +482,7 @@ async function executeSessionTodoAdd(input: SessionTodoAddInput): Promise<string
 }
 
 export const SESSION_TODO_ADD_TOOL: SharedToolDefinition<SessionTodoAddInput> = {
-    name: 'tomAi_sessionTodo_add',
+    name: 'tomAi_addSessionTodo',
     displayName: 'Add Session Todo',
     description:
         'Add a self-reminder todo for this window session. Use to avoid forgetting ' +
@@ -520,7 +520,7 @@ async function executeSessionTodoList(input: SessionTodoListInput): Promise<stri
 }
 
 export const SESSION_TODO_LIST_TOOL: SharedToolDefinition<SessionTodoListInput> = {
-    name: 'tomAi_sessionTodo_list',
+    name: 'tomAi_listSessionTodos',
     displayName: 'List Session Todos',
     description: 'List window session todos, optionally filtered by status or tags.',
     tags: ['todo', 'session', 'tom-ai-chat'],
@@ -551,7 +551,7 @@ async function executeSessionTodoGetAll(_input: SessionTodoGetAllInput): Promise
 }
 
 export const SESSION_TODO_GET_ALL_TOOL: SharedToolDefinition<SessionTodoGetAllInput> = {
-    name: 'tomAi_sessionTodo_getAll',
+    name: 'tomAi_getAllSessionTodos',
     displayName: 'Get All Session Todos',
     description:
         'Get ALL window session todos in a single call with counts. No filtering.',
@@ -592,7 +592,7 @@ async function executeSessionTodoUpdate(input: SessionTodoUpdateInput): Promise<
 }
 
 export const SESSION_TODO_UPDATE_TOOL: SharedToolDefinition<SessionTodoUpdateInput> = {
-    name: 'tomAi_sessionTodo_update',
+    name: 'tomAi_updateSessionTodo',
     displayName: 'Update Session Todo',
     description: 'Update a window session todo (mark done, change title/priority).',
     tags: ['todo', 'session', 'tom-ai-chat'],
@@ -632,7 +632,7 @@ async function executeSessionTodoDelete(input: SessionTodoDeleteInput): Promise<
 }
 
 export const SESSION_TODO_DELETE_TOOL: SharedToolDefinition<SessionTodoDeleteInput> = {
-    name: 'tomAi_sessionTodo_delete',
+    name: 'tomAi_deleteSessionTodo',
     displayName: 'Delete Session Todo',
     description: 'Delete a window session todo.',
     tags: ['todo', 'session', 'tom-ai-chat'],
@@ -775,7 +775,7 @@ const followUpItemSchema = {
 };
 
 export const ADD_TO_PROMPT_QUEUE_TOOL: SharedToolDefinition<AddToPromptQueueInput> = {
-    name: 'tomAi_queue_add',
+    name: 'tomAi_addQueueItem',
     displayName: 'Add To Prompt Queue',
     description:
         'Add a prompt to the Copilot Chat prompt queue. Supports pre-prompts (sent before the main prompt), follow-ups (sent after each answer), and per-item repeat/answer-wait controls. ' +
@@ -840,11 +840,11 @@ async function executeAddPrePrompt(input: AddPrePromptInput): Promise<string> {
 }
 
 export const ADD_PRE_PROMPT_TOOL: SharedToolDefinition<AddPrePromptInput> = {
-    name: 'tomAi_queue_addPrePrompt',
+    name: 'tomAi_addQueuePrePrompt',
     displayName: 'Add Pre-Prompt',
     description:
         'Append a pre-prompt to an existing staged queue item. Pre-prompts are sent *before* the main prompt, in order, and each waits for its answer (or answerWaitMinutes) before the next runs. ' +
-        'Use tomAi_queue_updatePrePrompt to add repeat count, answer-wait, or reminder settings after creation.',
+        'Use tomAi_updateQueuePrePrompt to add repeat count, answer-wait, or reminder settings after creation.',
     tags: ['queue', 'pre-prompt', 'copilot', 'tom-ai-chat'],
     readOnly: false,
     inputSchema: {
@@ -897,7 +897,7 @@ async function executeUpdatePrePrompt(input: UpdatePrePromptInput): Promise<stri
 }
 
 export const UPDATE_PRE_PROMPT_TOOL: SharedToolDefinition<UpdatePrePromptInput> = {
-    name: 'tomAi_queue_updatePrePrompt',
+    name: 'tomAi_updateQueuePrePrompt',
     displayName: 'Update Pre-Prompt',
     description: 'Patch fields on an existing pre-prompt (by queue-item id + zero-based index).',
     tags: ['queue', 'pre-prompt', 'copilot', 'tom-ai-chat'],
@@ -936,7 +936,7 @@ async function executeRemovePrePrompt(input: RemovePrePromptInput): Promise<stri
 }
 
 export const REMOVE_PRE_PROMPT_TOOL: SharedToolDefinition<RemovePrePromptInput> = {
-    name: 'tomAi_queue_removePrePrompt',
+    name: 'tomAi_removeQueuePrePrompt',
     displayName: 'Remove Pre-Prompt',
     description: 'Remove a pre-prompt from a queue item by zero-based index.',
     tags: ['queue', 'pre-prompt', 'copilot', 'tom-ai-chat'],
@@ -983,13 +983,13 @@ async function executeSendQueuedPrompt(input: SendQueuedPromptInput): Promise<st
 }
 
 export const SEND_QUEUED_PROMPT_TOOL: SharedToolDefinition<SendQueuedPromptInput> = {
-    name: 'tomAi_queue_sendNow',
+    name: 'tomAi_sendQueuedPrompt',
     displayName: 'Send Queued Prompt',
     description:
         'Explicitly send one staged prompt from the Prompt Queue. ' +
-        'Recommended workflow: (1) call tomAi_queue_add with deferSend=true (default) to stage the initial prompt, ' +
-        '(2) call tomAi_queue_addFollowUp one or more times to append follow-ups, then (3) call tomAi_queue_sendNow to start execution. ' +
-        'After tomAi_queue_sendNow starts the item, the queue manager waits for the answer file, then automatically sends follow-up #1, waits again, sends follow-up #2, and so on until all follow-ups finish, finally marking the item as sent. ' +
+        'Recommended workflow: (1) call tomAi_addQueueItem with deferSend=true (default) to stage the initial prompt, ' +
+        '(2) call tomAi_addQueueFollowUp one or more times to append follow-ups, then (3) call tomAi_sendQueuedPrompt to start execution. ' +
+        'After tomAi_sendQueuedPrompt starts the item, the queue manager waits for the answer file, then automatically sends follow-up #1, waits again, sends follow-up #2, and so on until all follow-ups finish, finally marking the item as sent. ' +
         'All follow-up prompts are wrapped with the Answer Wrapper automatically. ' +
         'Target selection: pass queueItemId (preferred) for an exact item, or requestId when available; only pending items can be sent.',
     tags: ['queue', 'copilot', 'tom-ai-chat'],
@@ -1064,7 +1064,7 @@ async function executeAddFollowUpPrompt(input: AddFollowUpPromptInput): Promise<
 }
 
 export const ADD_FOLLOW_UP_PROMPT_TOOL: SharedToolDefinition<AddFollowUpPromptInput> = {
-    name: 'tomAi_queue_addFollowUp',
+    name: 'tomAi_addQueueFollowUp',
     displayName: 'Add Follow-Up Prompt',
     description:
         'Add a follow-up prompt to an existing queue item. Supports per-follow-up repeatCount (number or chat-variable name), answerWaitMinutes, and reminder settings.',
@@ -1141,12 +1141,12 @@ async function executeAddTimedRequest(input: AddTimedRequestInput): Promise<stri
 }
 
 export const ADD_TIMED_REQUEST_TOOL: SharedToolDefinition<AddTimedRequestInput> = {
-    name: 'tomAi_timed_add',
+    name: 'tomAi_addTimedRequest',
     displayName: 'Add Timed Request',
     description:
         'Add a timed request entry (interval mode). Supports per-entry repeat (count/prefix/suffix), sendMaximum ' +
         '(auto-pause after N total sends), answerWaitMinutes (auto-advance), and reminder settings. ' +
-        'Use tomAi_timed_updateEntry to switch to scheduled mode with HH:MM slots.',
+        'Use tomAi_updateTimedRequest to switch to scheduled mode with HH:MM slots.',
     tags: ['timed', 'queue', 'copilot', 'tom-ai-chat'],
     readOnly: false,
     inputSchema: {
@@ -1215,7 +1215,7 @@ async function executeQueueList(input: QueueListInput): Promise<string> {
 }
 
 export const QUEUE_LIST_TOOL: SharedToolDefinition<QueueListInput> = {
-    name: 'tomAi_queue_list',
+    name: 'tomAi_listQueue',
     displayName: 'Queue List',
     description: 'List prompt queue items with status, IDs, reminder metadata, and follow-up counts.',
     tags: ['queue', 'copilot', 'tom-ai-chat'],
@@ -1313,7 +1313,7 @@ async function executeQueueUpdateItem(input: QueueUpdateItemInput): Promise<stri
 }
 
 export const QUEUE_UPDATE_ITEM_TOOL: SharedToolDefinition<QueueUpdateItemInput> = {
-    name: 'tomAi_queue_updateItem',
+    name: 'tomAi_updateQueueItem',
     displayName: 'Queue Update Item',
     description:
         'Update an editable queue item: text, template, answer-wrapper, reminder, main-prompt repeat (count/prefix/suffix), templateRepeatCount, and answerWaitMinutes. ' +
@@ -1362,7 +1362,7 @@ async function executeQueueSetStatus(input: QueueSetStatusInput): Promise<string
 }
 
 export const QUEUE_SET_STATUS_TOOL: SharedToolDefinition<QueueSetStatusInput> = {
-    name: 'tomAi_queue_setStatus',
+    name: 'tomAi_setQueueItemStatus',
     displayName: 'Queue Set Status',
     description: 'Set queue item status to staged or pending.',
     tags: ['queue', 'copilot', 'tom-ai-chat'],
@@ -1395,7 +1395,7 @@ async function executeQueueSendNow(input: QueueSendNowInput): Promise<string> {
 }
 
 export const QUEUE_SEND_NOW_TOOL: SharedToolDefinition<QueueSendNowInput> = {
-    name: 'tomAi_queue_sendNowById',
+    name: 'tomAi_sendQueueItem',
     displayName: 'Queue Send Now',
     description: 'Send a staged/pending queue item immediately.',
     tags: ['queue', 'copilot', 'tom-ai-chat'],
@@ -1426,7 +1426,7 @@ async function executeQueueRemoveItem(input: QueueRemoveItemInput): Promise<stri
 }
 
 export const QUEUE_REMOVE_ITEM_TOOL: SharedToolDefinition<QueueRemoveItemInput> = {
-    name: 'tomAi_queue_removeItem',
+    name: 'tomAi_removeQueueItem',
     displayName: 'Queue Remove Item',
     description: 'Remove a queue item by ID.',
     tags: ['queue', 'copilot', 'tom-ai-chat'],
@@ -1478,7 +1478,7 @@ async function executeQueueUpdateFollowUp(input: QueueUpdateFollowUpInput): Prom
 }
 
 export const QUEUE_UPDATE_FOLLOW_UP_TOOL: SharedToolDefinition<QueueUpdateFollowUpInput> = {
-    name: 'tomAi_queue_updateFollowUp',
+    name: 'tomAi_updateQueueFollowUp',
     displayName: 'Queue Update Follow-Up',
     description:
         'Update fields on an existing follow-up prompt: text, template, reminder, repeatCount (number or chat-variable name), answerWaitMinutes.',
@@ -1523,7 +1523,7 @@ async function executeQueueRemoveFollowUp(input: QueueRemoveFollowUpInput): Prom
 }
 
 export const QUEUE_REMOVE_FOLLOW_UP_TOOL: SharedToolDefinition<QueueRemoveFollowUpInput> = {
-    name: 'tomAi_queue_removeFollowUp',
+    name: 'tomAi_removeQueueFollowUp',
     displayName: 'Queue Remove Follow-Up',
     description: 'Remove a follow-up prompt from a queue item.',
     tags: ['queue', 'follow-up', 'copilot', 'tom-ai-chat'],
@@ -1574,7 +1574,7 @@ async function executeTimedList(input: TimedListInput): Promise<string> {
 }
 
 export const TIMED_LIST_TOOL: SharedToolDefinition<TimedListInput> = {
-    name: 'tomAi_timed_list',
+    name: 'tomAi_listTimedRequests',
     displayName: 'Timed List',
     description: 'List timed request entries with schedule and reminder metadata.',
     tags: ['timed', 'copilot', 'tom-ai-chat'],
@@ -1627,7 +1627,7 @@ async function executeTimedUpdateEntry(input: TimedUpdateEntryInput): Promise<st
 }
 
 export const TIMED_UPDATE_ENTRY_TOOL: SharedToolDefinition<TimedUpdateEntryInput> = {
-    name: 'tomAi_timed_updateEntry',
+    name: 'tomAi_updateTimedRequest',
     displayName: 'Timed Update Entry',
     description:
         'Patch fields on a timed-request entry: schedule (interval or HH:MM-slot scheduled mode), ' +
@@ -1689,7 +1689,7 @@ async function executeTimedRemoveEntry(input: TimedRemoveEntryInput): Promise<st
 }
 
 export const TIMED_REMOVE_ENTRY_TOOL: SharedToolDefinition<TimedRemoveEntryInput> = {
-    name: 'tomAi_timed_removeEntry',
+    name: 'tomAi_removeTimedRequest',
     displayName: 'Timed Remove Entry',
     description: 'Remove a timed request entry by ID.',
     tags: ['timed', 'copilot', 'tom-ai-chat'],
@@ -1720,7 +1720,7 @@ async function executeTimedSetEngineState(input: TimedSetEngineStateInput): Prom
 }
 
 export const TIMED_SET_ENGINE_STATE_TOOL: SharedToolDefinition<TimedSetEngineStateInput> = {
-    name: 'tomAi_timed_setEngineState',
+    name: 'tomAi_setTimerEngineState',
     displayName: 'Timed Set Engine State',
     description: 'Enable or disable the global timed request engine.',
     tags: ['timed', 'copilot', 'tom-ai-chat'],
@@ -1735,167 +1735,225 @@ export const TIMED_SET_ENGINE_STATE_TOOL: SharedToolDefinition<TimedSetEngineSta
     execute: executeTimedSetEngineState,
 };
 
-interface PromptTemplateManageInput {
-    operation: 'list' | 'create' | 'update' | 'delete';
-    name?: string;
-    newName?: string;
-    template?: string;
-    showInMenu?: boolean;
+// Prompt templates (queue + timed requests) — one tool per operation.
+// Templates live in `config.copilot.templates`.
+
+interface PromptTemplateEntry { template: string; showInMenu?: boolean }
+
+function getPromptTemplates(): { config: NonNullable<ReturnType<typeof loadSendToChatConfig>>; map: Record<string, PromptTemplateEntry> } | string {
+    const config = loadSendToChatConfig();
+    if (!config) { return 'Error: Send-to-chat config is not available.'; }
+    if (!config.copilot) { config.copilot = {}; }
+    if (!config.copilot.templates) { config.copilot.templates = {}; }
+    return { config, map: config.copilot.templates as Record<string, PromptTemplateEntry> };
 }
 
-async function executePromptTemplateManage(input: PromptTemplateManageInput): Promise<string> {
-    const config = loadSendToChatConfig();
-    if (!config) {
-        return 'Error: Send-to-chat config is not available.';
-    }
-    if (!config.copilot) {
-        config.copilot = {};
-    }
-    if (!config.copilot.templates) {
-        config.copilot.templates = {};
-    }
-    const templates = config.copilot.templates;
-
-    if (input.operation === 'list') {
-        const templateEntries = Object.entries(templates).map(([name, value]) => ({
+export const LIST_PROMPT_TEMPLATES_TOOL: SharedToolDefinition<Record<string, never>> = {
+    name: 'tomAi_listPromptTemplates',
+    displayName: 'List Prompt Templates',
+    description: 'List prompt templates used by the queue and timed requests (stored in copilot.templates).',
+    tags: ['templates', 'copilot', 'tom-ai-chat'],
+    readOnly: true,
+    inputSchema: { type: 'object', properties: {} },
+    execute: async () => {
+        const r = getPromptTemplates();
+        if (typeof r === 'string') { return r; }
+        const entries = Object.entries(r.map).map(([name, value]) => ({
             name,
             template: value.template,
             showInMenu: value.showInMenu !== false,
         }));
-        return JSON.stringify({ count: templateEntries.length, templates: templateEntries }, null, 2);
-    }
+        return JSON.stringify({ count: entries.length, templates: entries }, null, 2);
+    },
+};
 
-    if (input.operation === 'create') {
-        if (!input.name) { return 'Error: name is required for create.'; }
-        templates[input.name] = {
-            template: input.template || '${originalPrompt}',
-            showInMenu: input.showInMenu !== false,
-        };
-        saveSendToChatConfig(config);
-        return JSON.stringify({ success: true, operation: 'create', name: input.name });
-    }
-
-    if (input.operation === 'update') {
-        if (!input.name || !templates[input.name]) {
-            return 'Error: existing template name is required for update.';
-        }
-        const targetName = input.newName || input.name;
-        const old = templates[input.name];
-        if (targetName !== input.name) {
-            delete templates[input.name];
-        }
-        templates[targetName] = {
-            template: input.template !== undefined ? input.template : old.template,
-            showInMenu: input.showInMenu !== undefined ? input.showInMenu : (old.showInMenu !== false),
-        };
-        saveSendToChatConfig(config);
-        return JSON.stringify({ success: true, operation: 'update', name: targetName });
-    }
-
-    if (input.operation === 'delete') {
-        if (!input.name || !templates[input.name]) {
-            return 'Error: existing template name is required for delete.';
-        }
-        delete templates[input.name];
-        saveSendToChatConfig(config);
-        return JSON.stringify({ success: true, operation: 'delete', name: input.name });
-    }
-
-    return `Error: unsupported operation \"${input.operation}\".`;
-}
-
-export const PROMPT_TEMPLATE_MANAGE_TOOL: SharedToolDefinition<PromptTemplateManageInput> = {
-    name: 'tomAi_templates_manage',
-    displayName: 'Prompt Template Manage',
-    description: 'List/create/update/delete prompt templates used by queue and timed requests.',
-    tags: ['templates', 'queue', 'timed', 'copilot', 'tom-ai-chat'],
+export const CREATE_PROMPT_TEMPLATE_TOOL: SharedToolDefinition<{ name: string; template?: string; showInMenu?: boolean }> = {
+    name: 'tomAi_createPromptTemplate',
+    displayName: 'Create Prompt Template',
+    description: 'Create a new prompt template.',
+    tags: ['templates', 'copilot', 'tom-ai-chat'],
     readOnly: false,
     inputSchema: {
         type: 'object',
-        required: ['operation'],
+        required: ['name'],
         properties: {
-            operation: { type: 'string', enum: ['list', 'create', 'update', 'delete'] },
             name: { type: 'string' },
-            newName: { type: 'string' },
+            template: { type: 'string', description: 'Template body. Default: "${originalPrompt}".' },
+            showInMenu: { type: 'boolean', description: 'Default true.' },
+        },
+    },
+    execute: async (input) => {
+        if (!input.name) { return 'Error: name is required.'; }
+        const r = getPromptTemplates();
+        if (typeof r === 'string') { return r; }
+        r.map[input.name] = {
+            template: input.template || '${originalPrompt}',
+            showInMenu: input.showInMenu !== false,
+        };
+        saveSendToChatConfig(r.config);
+        return JSON.stringify({ success: true, name: input.name });
+    },
+};
+
+export const UPDATE_PROMPT_TEMPLATE_TOOL: SharedToolDefinition<{ name: string; newName?: string; template?: string; showInMenu?: boolean }> = {
+    name: 'tomAi_updatePromptTemplate',
+    displayName: 'Update Prompt Template',
+    description: 'Patch an existing prompt template. Optionally rename via newName.',
+    tags: ['templates', 'copilot', 'tom-ai-chat'],
+    readOnly: false,
+    inputSchema: {
+        type: 'object',
+        required: ['name'],
+        properties: {
+            name: { type: 'string', description: 'Existing template name.' },
+            newName: { type: 'string', description: 'Optional rename target.' },
             template: { type: 'string' },
             showInMenu: { type: 'boolean' },
         },
     },
-    execute: executePromptTemplateManage,
+    execute: async (input) => {
+        const r = getPromptTemplates();
+        if (typeof r === 'string') { return r; }
+        if (!input.name || !r.map[input.name]) {
+            return 'Error: existing template name is required.';
+        }
+        const targetName = input.newName || input.name;
+        const old = r.map[input.name];
+        if (targetName !== input.name) { delete r.map[input.name]; }
+        r.map[targetName] = {
+            template: input.template !== undefined ? input.template : old.template,
+            showInMenu: input.showInMenu !== undefined ? input.showInMenu : (old.showInMenu !== false),
+        };
+        saveSendToChatConfig(r.config);
+        return JSON.stringify({ success: true, name: targetName });
+    },
 };
 
-interface ReminderTemplateManageInput {
-    operation: 'list' | 'create' | 'update' | 'delete';
-    id?: string;
-    name?: string;
-    prompt?: string;
-    isDefault?: boolean;
-}
+export const DELETE_PROMPT_TEMPLATE_TOOL: SharedToolDefinition<{ name: string }> = {
+    name: 'tomAi_deletePromptTemplate',
+    displayName: 'Delete Prompt Template',
+    description: 'Delete a prompt template by name.',
+    tags: ['templates', 'copilot', 'tom-ai-chat'],
+    readOnly: false,
+    inputSchema: {
+        type: 'object',
+        required: ['name'],
+        properties: { name: { type: 'string' } },
+    },
+    execute: async (input) => {
+        const r = getPromptTemplates();
+        if (typeof r === 'string') { return r; }
+        if (!input.name || !r.map[input.name]) { return 'Error: template name required and must exist.'; }
+        delete r.map[input.name];
+        saveSendToChatConfig(r.config);
+        return JSON.stringify({ success: true, name: input.name });
+    },
+};
 
-async function executeReminderTemplateManage(input: ReminderTemplateManageInput): Promise<string> {
-    try {
-        const reminder = ReminderSystem.instance;
+// Reminder templates — one tool per operation. Backed by ReminderSystem.
 
-        if (input.operation === 'list') {
+export const LIST_REMINDER_TEMPLATES_TOOL: SharedToolDefinition<Record<string, never>> = {
+    name: 'tomAi_listReminderTemplates',
+    displayName: 'List Reminder Templates',
+    description: 'List reminder templates used by the queue and timed-request reminders.',
+    tags: ['templates', 'reminder', 'tom-ai-chat'],
+    readOnly: true,
+    inputSchema: { type: 'object', properties: {} },
+    execute: async () => {
+        try {
+            const reminder = ReminderSystem.instance;
             return JSON.stringify({
                 count: reminder.templates.length,
                 templates: reminder.templates,
             }, null, 2);
+        } catch (err: any) {
+            return `Error: ${err?.message ?? err}`;
         }
+    },
+};
 
-        if (input.operation === 'create') {
-            if (!input.name || !input.prompt) {
-                return 'Error: name and prompt are required for create.';
-            }
-            const created = reminder.addTemplate({
+export const CREATE_REMINDER_TEMPLATE_TOOL: SharedToolDefinition<{ name: string; prompt: string; isDefault?: boolean }> = {
+    name: 'tomAi_createReminderTemplate',
+    displayName: 'Create Reminder Template',
+    description: 'Create a new reminder template.',
+    tags: ['templates', 'reminder', 'tom-ai-chat'],
+    readOnly: false,
+    inputSchema: {
+        type: 'object',
+        required: ['name', 'prompt'],
+        properties: {
+            name: { type: 'string' },
+            prompt: { type: 'string', description: 'Template body (may contain {{timeoutMinutes}}, etc.).' },
+            isDefault: { type: 'boolean' },
+        },
+    },
+    execute: async (input) => {
+        try {
+            if (!input.name || !input.prompt) { return 'Error: name and prompt are required.'; }
+            const created = ReminderSystem.instance.addTemplate({
                 name: input.name,
                 prompt: input.prompt,
                 isDefault: !!input.isDefault,
             });
-            return JSON.stringify({ success: true, operation: 'create', template: created }, null, 2);
+            return JSON.stringify({ success: true, template: created }, null, 2);
+        } catch (err: any) {
+            return `Error: ${err?.message ?? err}`;
         }
+    },
+};
 
-        if (input.operation === 'update') {
-            if (!input.id) { return 'Error: id is required for update.'; }
-            reminder.updateTemplate(input.id, {
-                name: input.name,
-                prompt: input.prompt,
-                isDefault: input.isDefault,
-            });
-            const updated = reminder.templates.find(t => t.id === input.id) || null;
-            return JSON.stringify({ success: true, operation: 'update', template: updated }, null, 2);
-        }
-
-        if (input.operation === 'delete') {
-            if (!input.id) { return 'Error: id is required for delete.'; }
-            reminder.removeTemplate(input.id);
-            return JSON.stringify({ success: true, operation: 'delete', id: input.id });
-        }
-
-        return `Error: unsupported operation \"${input.operation}\".`;
-    } catch (err: any) {
-        return `Error managing reminder templates: ${err.message ?? err}`;
-    }
-}
-
-export const REMINDER_TEMPLATE_MANAGE_TOOL: SharedToolDefinition<ReminderTemplateManageInput> = {
-    name: 'tomAi_reminders_manage',
-    displayName: 'Reminder Template Manage',
-    description: 'List/create/update/delete reminder templates used by queue and timed reminders.',
-    tags: ['templates', 'reminder', 'queue', 'timed', 'copilot', 'tom-ai-chat'],
+export const UPDATE_REMINDER_TEMPLATE_TOOL: SharedToolDefinition<{ id: string; name?: string; prompt?: string; isDefault?: boolean }> = {
+    name: 'tomAi_updateReminderTemplate',
+    displayName: 'Update Reminder Template',
+    description: 'Patch an existing reminder template by id.',
+    tags: ['templates', 'reminder', 'tom-ai-chat'],
     readOnly: false,
     inputSchema: {
         type: 'object',
-        required: ['operation'],
+        required: ['id'],
         properties: {
-            operation: { type: 'string', enum: ['list', 'create', 'update', 'delete'] },
             id: { type: 'string' },
             name: { type: 'string' },
             prompt: { type: 'string' },
             isDefault: { type: 'boolean' },
         },
     },
-    execute: executeReminderTemplateManage,
+    execute: async (input) => {
+        try {
+            if (!input.id) { return 'Error: id is required.'; }
+            ReminderSystem.instance.updateTemplate(input.id, {
+                name: input.name,
+                prompt: input.prompt,
+                isDefault: input.isDefault,
+            });
+            const updated = ReminderSystem.instance.templates.find((t) => t.id === input.id) || null;
+            return JSON.stringify({ success: true, template: updated }, null, 2);
+        } catch (err: any) {
+            return `Error: ${err?.message ?? err}`;
+        }
+    },
+};
+
+export const DELETE_REMINDER_TEMPLATE_TOOL: SharedToolDefinition<{ id: string }> = {
+    name: 'tomAi_deleteReminderTemplate',
+    displayName: 'Delete Reminder Template',
+    description: 'Delete a reminder template by id.',
+    tags: ['templates', 'reminder', 'tom-ai-chat'],
+    readOnly: false,
+    inputSchema: {
+        type: 'object',
+        required: ['id'],
+        properties: { id: { type: 'string' } },
+    },
+    execute: async (input) => {
+        try {
+            if (!input.id) { return 'Error: id is required.'; }
+            ReminderSystem.instance.removeTemplate(input.id);
+            return JSON.stringify({ success: true, id: input.id });
+        } catch (err: any) {
+            return `Error: ${err?.message ?? err}`;
+        }
+    },
 };
 
 // ============================================================================
@@ -2204,8 +2262,14 @@ export const CHAT_ENHANCEMENT_TOOLS: SharedToolDefinition<any>[] = [
     TIMED_UPDATE_ENTRY_TOOL,
     TIMED_REMOVE_ENTRY_TOOL,
     TIMED_SET_ENGINE_STATE_TOOL,
-    PROMPT_TEMPLATE_MANAGE_TOOL,
-    REMINDER_TEMPLATE_MANAGE_TOOL,
+    LIST_PROMPT_TEMPLATES_TOOL,
+    CREATE_PROMPT_TEMPLATE_TOOL,
+    UPDATE_PROMPT_TEMPLATE_TOOL,
+    DELETE_PROMPT_TEMPLATE_TOOL,
+    LIST_REMINDER_TEMPLATES_TOOL,
+    CREATE_REMINDER_TEMPLATE_TOOL,
+    UPDATE_REMINDER_TEMPLATE_TOOL,
+    DELETE_REMINDER_TEMPLATE_TOOL,
     // §1.5–§1.9 — Extended tools
     DELETE_TODO_TOOL,
     LIST_QUESTS_TOOL,

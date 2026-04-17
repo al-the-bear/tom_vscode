@@ -147,7 +147,7 @@ export const LIST_COMMANDS_TOOL: SharedToolDefinition<ListCommandsInput> = {
 };
 
 // ---------------------------------------------------------------------------
-// tomAi_vscode — meta-tool (wrapper over executeCommand)
+// tomAi_runVscodeCommandTyped — meta-tool (wrapper over executeCommand)
 // ---------------------------------------------------------------------------
 
 const VSCODE_SAFE_COMMAND_PREFIXES: ReadonlyArray<string> = [
@@ -187,7 +187,7 @@ async function executeVscodeMeta(input: VscodeMetaInput): Promise<string> {
 }
 
 export const VSCODE_META_TOOL: SharedToolDefinition<VscodeMetaInput> = {
-    name: 'tomAi_vscode',
+    name: 'tomAi_runVscodeCommandTyped',
     displayName: 'VS Code Meta Command',
     description:
         'Execute any VS Code command with typed args array. Complements tomAi_runVscodeCommand ' +

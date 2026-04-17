@@ -704,7 +704,7 @@ export class AnthropicHandler {
 
         // Per spec §8.1: `requiresApproval` defaults to `true` for write
         // tools (i.e. `!readOnly`). An explicit value overrides the default
-        // — e.g. `tomAi_chatvar_write` opts out because it has its own
+        // — e.g. `tomAi_writeChatVariable` opts out because it has its own
         // real-time visibility mechanism (§8.5).
         // Profile-level `autoApproveAll` forces mode to 'never'.
         const defaultRequiresApproval = def ? !def.readOnly : false;
@@ -745,7 +745,7 @@ export class AnthropicHandler {
         let result = '';
         let error: string | undefined;
         try {
-            // Ambient context so tools (e.g. tomAi_chatvar_write) can log
+            // Ambient context so tools (e.g. tomAi_writeChatVariable) can log
             // change-log entries with the correct source and request ID.
             result = await runWithToolContext(
                 { source: 'anthropic', requestId },
