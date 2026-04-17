@@ -478,6 +478,20 @@ export class AnthropicHandler {
                     requestId,
                 },
             });
+
+            // Summary trails: the direct-Anthropic path writes them via
+            // finalize(), but the SDK branch returns early so we write them
+            // here. Without this the Prompt Summary Viewer never sees
+            // agentSdk prompts (only the raw files get the write above).
+            TrailService.instance.writeSummaryPrompt(ANTHROPIC_SUBSYSTEM, userContent, quest);
+            TrailService.instance.writeSummaryAnswer(
+                ANTHROPIC_SUBSYSTEM,
+                result.text,
+                { requestId, model: configuration.model },
+                quest,
+            );
+            this.toolTrail.evictOldRounds();
+
             // Skip history compaction (§18.4) — the SDK manages its own
             // context window — but still record the exchange in our rolling
             // history so users see continuity across direct/agentSdk
