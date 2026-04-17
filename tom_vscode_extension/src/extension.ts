@@ -95,7 +95,7 @@ import { readQueueSettings, getQueueReloadAfterReloadSetting } from './storage/q
 
 // Tom AI Chat tools
 import { registerTomAiChatTools } from './tools/tomAiChat-tools';
-import { initializeToolDescriptions } from './tools/tool-executors';
+import { initializeToolDescriptions } from './tools/guideline-tools';
 
 // Chat Enhancement stores & managers
 import { ChatVariablesStore } from './managers/chatVariablesStore';

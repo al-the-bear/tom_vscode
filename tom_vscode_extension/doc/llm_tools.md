@@ -279,7 +279,7 @@ Two tools carry caveats documented in their descriptions:
 
 ## 7. Stubs pending host integration
 
-- **`tomAi_spawnSubagent`** — the Anthropic handler must call `registerSubagentSpawner(fn)` from `advanced-agent-tools.ts`. Until wired, the tool returns an instructive error. On the Agent SDK transport, prefer the SDK's `Task` tool.
+- **`tomAi_spawnSubagent`** — the Anthropic handler must call `registerSubagentSpawner(fn)` from `planning-tools.ts`. Until wired, the tool returns an instructive error. On the Agent SDK transport, prefer the SDK's `Task` tool.
 
 ## 8. Deferred / future
 
@@ -291,10 +291,32 @@ Two tools carry caveats documented in their descriptions:
 
 ## 9. Adding new tools
 
+Tools are grouped by functional family, one file per family under `src/tools/`:
+
+| File | Family |
+| --- | --- |
+| `editor-context-tools.ts` | Active editor, open editors, workspace info |
+| `diagnostics-tools.ts` | Problems panel, output channels, terminal metadata |
+| `language-service-tools.ts` | Symbol search, navigation, refactor, rename, code actions |
+| `guideline-tools.ts` | Guideline + guideline-index access |
+| `pattern-prompts-tools.ts` | `!<name>` workspace pattern prompts |
+| `vscode-command-tools.ts` | `openFile`, `listCommands`, typed-args meta-tool |
+| `user-interaction-tools.ts` | `askUser`, `askUserPicker` |
+| `workspace-edit-tools.ts` | Transactional multi-file edits (`applyEdit`) |
+| `task-debug-tools.ts` | `runTask`, `runDebugConfig` |
+| `process-tools.ts` | Streaming command spawn / read / kill |
+| `git-tools.ts` | Git read (`git`), `gitShow`, allow-listed `gitExec` |
+| `planning-tools.ts` | Plan-mode signals + sub-agent delegation |
+| `notebook-tools.ts` | Jupyter `notebookEdit`, `notebookRun` |
+| `issue-tools.ts` | Issues + testkit panel |
+| `chat-enhancement-tools.ts` | Notify, quest/session todos, queue, timed, templates, reminders |
+| `tool-executors.ts` | File I/O primitives, shell, web, memory, chat vars, ask-AI bridges |
+
 Every new tool needs:
 
-1. A `SharedToolDefinition` in `src/tools/<family>.ts`.
-2. Entry in the family's master list, then in `ALL_SHARED_TOOLS` (`src/tools/tool-executors.ts`).
-3. Entry in `AVAILABLE_LLM_TOOLS` (`src/utils/constants.ts`).
-4. For Agent SDK duplicates: add to `DUPLICATES_OF_CLAUDE_CODE_BUILTINS` in `anthropic-handler.ts`.
-5. A row in the right family table in this document.
+1. A `SharedToolDefinition` in the appropriate `src/tools/<family>-tools.ts` (or a new family file if no existing one fits).
+2. Added to the family file's exported list (e.g. `NOTEBOOK_TOOLS`).
+3. The family list spread into `ALL_SHARED_TOOLS` in `src/tools/tool-executors.ts`.
+4. Entry in `AVAILABLE_LLM_TOOLS` (`src/utils/constants.ts`).
+5. For Agent SDK duplicates: add to `DUPLICATES_OF_CLAUDE_CODE_BUILTINS` in `anthropic-handler.ts`.
+6. A row in the right family table in this document.

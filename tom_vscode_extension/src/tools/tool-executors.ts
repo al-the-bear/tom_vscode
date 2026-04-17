@@ -13,7 +13,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as http from 'http';
 import * as https from 'https';
-import { exec, execFile } from 'child_process';
+import { exec } from 'child_process';
 import { promisify } from 'util';
 import { resolvePathVariables } from '../handlers/handler_shared.js';
 import { SharedToolDefinition } from './shared-tool-registry';
@@ -34,7 +34,6 @@ import { TwoTierMemoryService, MemoryScope, MemoryReadScope } from '../services/
 import { WsPaths } from '../utils/workspacePaths';
 
 const execAsync = promisify(exec);
-const execFileAsync = promisify(execFile);
 
 // ============================================================================
 // Helpers
@@ -393,110 +392,9 @@ export const GET_ERRORS_TOOL: SharedToolDefinition<GetErrorsInput> = {
     execute: executeGetErrors,
 };
 
-// --- read_guideline ----------------------------------------------------------
-
-export interface ReadGuidelineInput { fileName?: string }
-
-/**
- * Generic guideline reader for any base directory.
- * Used by both tom_readGuideline (_copilot_tomai/) and tom_readLocalGuideline (_copilot_local/).
- */
-function createGuidelineExecutor(baseDir: string): (input: ReadGuidelineInput) => Promise<string> {
-    return async (input: ReadGuidelineInput): Promise<string> => {
-        const workspaceRoot = getWorkspaceRoot();
-        const guidelinesDir = path.join(workspaceRoot, baseDir);
-        if (!fs.existsSync(guidelinesDir)) {
-            return `Guidelines directory not found: ${guidelinesDir}`;
-        }
-        if (!input.fileName) {
-            const files = fs.readdirSync(guidelinesDir).filter(f => f.endsWith('.md')).sort();
-            let result = `Available guideline files in ${baseDir}/:\n\n`;
-            result += files.map(f => `- ${f}`).join('\n');
-            const indexPath = path.join(guidelinesDir, 'index.md');
-            if (fs.existsSync(indexPath)) {
-                result += '\n\n---\n\nindex.md content:\n\n';
-                result += fs.readFileSync(indexPath, 'utf8');
-            }
-            return result;
-        }
-        const targetFile = input.fileName.endsWith('.md') ? input.fileName : `${input.fileName}.md`;
-        const filePath = path.join(guidelinesDir, targetFile);
-        if (fs.existsSync(filePath)) {
-            return fs.readFileSync(filePath, 'utf8');
-        }
-        // try subdirectories
-        const subDirs = fs.readdirSync(guidelinesDir, { withFileTypes: true }).filter(d => d.isDirectory());
-        for (const sd of subDirs) {
-            const subPath = path.join(guidelinesDir, sd.name, targetFile);
-            if (fs.existsSync(subPath)) { return fs.readFileSync(subPath, 'utf8'); }
-        }
-        return `Guideline file not found: ${targetFile}`;
-    };
-}
-
-const guidelineInputSchema = {
-    type: 'object',
-    properties: {
-        fileName: {
-            type: 'string',
-            description: "Optional specific guideline file to read (e.g., 'coding_guidelines.md' or 'coding_guidelines'). If not specified, returns index.md with list of available files.",
-        },
-    },
-};
-
-export const READ_GUIDELINE_TOOL: SharedToolDefinition<ReadGuidelineInput> = {
-    name: 'tomAi_readGuideline',
-    displayName: 'Read Guideline',
-    description:
-        'Read workspace guidelines from _copilot_tomai/ folder. Without a fileName, returns the list of available files and the content of index.md (the main guideline index). Key guidelines: coding_guidelines.md (code structure, naming), documentation_guidelines.md (docs format), tests.md (test creation), project_structure.md (project patterns), bug_fixing.md (debugging workflow). Use this tool to understand workspace conventions before making changes.',
-    tags: ['guidelines', 'tom-ai-chat'],
-    readOnly: true,
-    inputSchema: guidelineInputSchema,
-    execute: createGuidelineExecutor('_copilot_tomai'),
-};
-
-export const READ_LOCAL_GUIDELINE_TOOL: SharedToolDefinition<ReadGuidelineInput> = {
-    name: 'tomAi_readLocalGuideline',
-    displayName: 'Read Local Guideline',
-    description:
-        'Read local LLM guidelines from _copilot_local/ folder. Without a fileName, returns the list of available files and the content of index.md. Use this tool to understand workspace conventions before making changes.',
-    tags: ['guidelines', 'local-llm'],
-    readOnly: true,
-    inputSchema: guidelineInputSchema,
-    execute: createGuidelineExecutor('_copilot_local'),
-};
-
-/**
- * Patch tool descriptions at activation time by reading index.md from the
- * respective guideline folders. This embeds the full guideline index into
- * the tool description so the model knows what's available without an extra call.
- */
-export function initializeToolDescriptions(): void {
-    const workspaceRoot = getWorkspaceRoot();
-    if (!workspaceRoot) { return; }
-
-    const patchDescription = (tool: SharedToolDefinition<ReadGuidelineInput>, baseDir: string, intro: string) => {
-        const indexPath = path.join(workspaceRoot, baseDir, 'index.md');
-        if (fs.existsSync(indexPath)) {
-            try {
-                const indexContent = fs.readFileSync(indexPath, 'utf8');
-                tool.description = `${intro}\n\nGuideline index:\n\n${indexContent}`;
-            } catch { /* keep static description */ }
-        }
-    };
-
-    patchDescription(
-        READ_GUIDELINE_TOOL,
-        '_copilot_tomai',
-        'Read workspace guidelines from _copilot_tomai/ folder. Provide a fileName parameter to read a specific guideline. Without fileName, returns the full index and file list. Use this tool to understand workspace conventions before making changes.',
-    );
-
-    patchDescription(
-        READ_LOCAL_GUIDELINE_TOOL,
-        '_copilot_local',
-        'Read local LLM guidelines from _copilot_local/ folder. Provide a fileName parameter to read a specific guideline. Without fileName, returns the full index and file list. Use this tool to understand workspace conventions before making changes.',
-    );
-}
+// Guideline tools (tomAi_readGuideline, tomAi_readLocalGuideline,
+// tomAi_listGuidelines, tomAi_searchGuidelines) + initializeToolDescriptions()
+// live in `./guideline-tools.ts`.
 
 // ============================================================================
 // WRITE executors (VS Code LM only — never sent to Ollama by default)
@@ -667,61 +565,7 @@ export const RUN_VSCODE_COMMAND_TOOL: SharedToolDefinition<RunVscodeCommandInput
     execute: executeRunVscodeCommand,
 };
 
-// --- git ---------------------------------------------------------------------
-
-export interface GitInput {
-    subcommand: 'status' | 'diff' | 'log' | 'blame';
-    args?: string[];
-}
-
-const ALLOWED_GIT_SUBCOMMANDS = new Set(['status', 'diff', 'log', 'blame']);
-
-async function executeGit(input: GitInput): Promise<string> {
-    const sub = (input.subcommand || '').toString();
-    if (!ALLOWED_GIT_SUBCOMMANDS.has(sub)) {
-        return `Error: subcommand must be one of status, diff, log, blame.`;
-    }
-    const args = Array.isArray(input.args)
-        ? input.args.filter((a): a is string => typeof a === 'string')
-        : [];
-    const cwd = getWorkspaceRoot();
-    try {
-        const { stdout, stderr } = await execFileAsync('git', [sub, ...args], {
-            cwd,
-            maxBuffer: 4 * 1024 * 1024,
-        });
-        return stdout || stderr || '(no output)';
-    } catch (error: any) {
-        const stderr = error?.stderr ? `\n${error.stderr}` : '';
-        return `Error: ${error?.message ?? String(error)}${stderr}`;
-    }
-}
-
-export const GIT_TOOL: SharedToolDefinition<GitInput> = {
-    name: 'tomAi_git',
-    displayName: 'Git',
-    description: 'Run a structured read-only git command (status, diff, log, blame) and return its output.',
-    tags: ['git', 'tom-ai-chat'],
-    readOnly: true,
-    requiresApproval: false,
-    inputSchema: {
-        type: 'object',
-        properties: {
-            subcommand: {
-                type: 'string',
-                enum: ['status', 'diff', 'log', 'blame'],
-                description: 'Git subcommand to run.',
-            },
-            args: {
-                type: 'array',
-                description: 'Optional arguments appended after the subcommand (e.g. ["--stat"], ["-n","20"]).',
-                items: { type: 'string' },
-            },
-        },
-        required: ['subcommand'],
-    },
-    execute: executeGit,
-};
+// Git tools (tomAi_git, tomAi_gitShow, tomAi_gitExec) live in `./git-tools.ts`.
 
 // --- delete_file -------------------------------------------------------------
 
@@ -1754,60 +1598,83 @@ export const MEMORY_LIST_TOOL: SharedToolDefinition<MemoryListInput> = {
 // ============================================================================
 
 import { CHAT_ENHANCEMENT_TOOLS } from './chat-enhancement-tools';
-import { WAVE_A_TOOLS } from './workspace-awareness-tools';
-import { WAVE_B_TOOLS } from './ide-navigation-tools';
-import { WAVE_C_TOOLS } from './ide-execution-tools';
-import { WAVE_D_TOOLS } from './advanced-agent-tools';
+import { EDITOR_CONTEXT_TOOLS } from './editor-context-tools';
+import { DIAGNOSTICS_TOOLS } from './diagnostics-tools';
+import { LANGUAGE_SERVICE_TOOLS } from './language-service-tools';
+import { GUIDELINE_TOOLS } from './guideline-tools';
+import { VSCODE_COMMAND_TOOLS } from './vscode-command-tools';
+import { USER_INTERACTION_TOOLS } from './user-interaction-tools';
+import { WORKSPACE_EDIT_TOOLS } from './workspace-edit-tools';
+import { TASK_DEBUG_TOOLS } from './task-debug-tools';
+import { PROCESS_TOOLS } from './process-tools';
+import { GIT_TOOLS } from './git-tools';
+import { PLANNING_TOOLS } from './planning-tools';
+import { NOTEBOOK_TOOLS } from './notebook-tools';
 import { PATTERN_PROMPTS_TOOLS } from './pattern-prompts-tools';
 import { ISSUE_TOOLS } from './issue-tools';
 
-/** All shared tool definitions (registered with VS Code LM API). */
+// Re-export initializeToolDescriptions so existing consumers continue to work
+// without needing to update their import paths.
+export { initializeToolDescriptions } from './guideline-tools';
+
+/**
+ * All shared tool definitions grouped by functional family. Each group is
+ * self-contained in its own file under `src/tools/`. Add a new family by
+ * creating a new file, exporting `export const {FAMILY}_TOOLS`, and adding it
+ * to the spread below.
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
-    // Read-only tools (available to both Ollama and VS Code LM)
+    // --- Families defined in tool-executors.ts itself ---
+    // Files (read + write primitives)
     READ_FILE_TOOL,
     LIST_DIRECTORY_TOOL,
     FIND_FILES_TOOL,
     FIND_TEXT_IN_FILES_TOOL,
-    FETCH_WEBPAGE_TOOL,
-    WEB_SEARCH_TOOL,
-    GET_ERRORS_TOOL,
-    READ_GUIDELINE_TOOL,        // VS Code LM only — reads from _copilot_tomai/
-    READ_LOCAL_GUIDELINE_TOOL,   // Ollama only — reads from _copilot_local/
-    ASK_BIG_BROTHER_TOOL,        // Local LLM only — escalate to VS Code LM API
-    ASK_COPILOT_TOOL,            // Local LLM only — escalate to Copilot Chat window
-    // Write tools (VS Code LM only by default)
     CREATE_FILE_TOOL,
     EDIT_FILE_TOOL,
     MULTI_EDIT_FILE_TOOL,
-    RUN_COMMAND_TOOL,
-    RUN_VSCODE_COMMAND_TOOL,
-    GIT_TOOL,
     DELETE_FILE_TOOL,
     MOVE_FILE_TOOL,
+    // Shell (one-shot) and VS Code command (string args)
+    RUN_COMMAND_TOOL,
+    RUN_VSCODE_COMMAND_TOOL,
+    // Web
+    FETCH_WEBPAGE_TOOL,
+    WEB_SEARCH_TOOL,
+    // Diagnostics (legacy)
+    GET_ERRORS_TOOL,
+    // Ask-AI delegation bridges
+    ASK_BIG_BROTHER_TOOL,
+    ASK_COPILOT_TOOL,
+    // Chat todo (in-session)
     MANAGE_TODO_TOOL,
-    // Chat-enhancement tools (§1.1–§1.4)
-    ...CHAT_ENHANCEMENT_TOOLS,
-    // Chat variable tools (anthropic_sdk_integration §8.5)
+    // Chat variables
     CHATVAR_READ_TOOL,
     CHATVAR_WRITE_TOOL,
-    // Memory tools (anthropic_sdk_integration §8.2)
+    // Memory
     MEMORY_SAVE_TOOL,
     MEMORY_UPDATE_TOOL,
     MEMORY_FORGET_TOOL,
     MEMORY_READ_TOOL,
     MEMORY_LIST_TOOL,
-    // Wave A — workspace awareness (llm_tools.md §6.3)
-    ...WAVE_A_TOOLS,
-    // Wave B — IDE navigation (llm_tools.md §6.3)
-    ...WAVE_B_TOOLS,
-    // Wave C — IDE execution (llm_tools.md §6.3)
-    ...WAVE_C_TOOLS,
-    // Wave D — notebook + advanced agent ops (llm_tools.md §6.3)
-    ...WAVE_D_TOOLS,
-    // Pattern prompts + Issue/Testkit panel tools
-    ...PATTERN_PROMPTS_TOOLS,
-    ...ISSUE_TOOLS,
+
+    // --- Families defined in dedicated files ---
+    ...CHAT_ENHANCEMENT_TOOLS,  // quest/session todos, notify, queue, timed, templates, reminders
+    ...EDITOR_CONTEXT_TOOLS,    // getWorkspaceInfoFull, getActiveEditor, getOpenEditors
+    ...DIAGNOSTICS_TOOLS,       // getProblems, getOutputChannel, getTerminalOutput
+    ...LANGUAGE_SERVICE_TOOLS,  // findSymbol, gotoDefinition, findReferences, getCodeActions(+Cached), applyCodeAction, rename
+    ...GUIDELINE_TOOLS,         // readGuideline, readLocalGuideline, listGuidelines, searchGuidelines
+    ...VSCODE_COMMAND_TOOLS,    // openFile, listCommands, vscode (meta)
+    ...USER_INTERACTION_TOOLS,  // askUser, askUserPicker
+    ...WORKSPACE_EDIT_TOOLS,    // applyEdit (transactional)
+    ...TASK_DEBUG_TOOLS,        // runTask, runDebugConfig
+    ...PROCESS_TOOLS,           // runCommandStream, readCommandOutput, killCommand
+    ...GIT_TOOLS,               // git, gitShow, gitExec
+    ...PLANNING_TOOLS,          // enterPlanMode, exitPlanMode, spawnSubagent
+    ...NOTEBOOK_TOOLS,          // notebookEdit, notebookRun
+    ...PATTERN_PROMPTS_TOOLS,   // listPatternPrompts, readPatternPrompt
+    ...ISSUE_TOOLS,             // listIssueRepos, listIssues, getIssue, listIssueComments
 ];
 
 /**
