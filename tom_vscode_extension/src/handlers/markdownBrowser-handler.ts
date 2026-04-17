@@ -724,6 +724,18 @@ async function handleMessage(msg: any): Promise<void> {
                 }
                 break;
             }
+
+            case 'reload': {
+                const current = activePanelHistory?.current;
+                if (current && fs.existsSync(current.filePath)) {
+                    sendFileContent(current.filePath);
+                } else if (activePanel) {
+                    activePanel.webview.postMessage({
+                        type: 'mdContent', content: '', error: 'No file to reload.',
+                    });
+                }
+                break;
+            }
         }
     } catch (err) {
         debugLog(`[MdBrowser] handleMessage error: ${err}`, 'ERROR', 'mdBrowser');
@@ -897,6 +909,10 @@ function buildHtml(webview: vscode.Webview, context: vscode.ExtensionContext): s
             <button class="icon-btn" id="forwardBtn" disabled title="Go Forward">
                 <span class="codicon codicon-arrow-right"></span>
             </button>
+            <span style="width:1px; height:16px; background:var(--vscode-panel-border); margin:0 2px;"></span>
+            <button class="icon-btn" id="reloadBtn" title="Reload Current File">
+                <span class="codicon codicon-refresh"></span>
+            </button>
         </div>
     </div>
 
@@ -924,6 +940,7 @@ function buildHtml(webview: vscode.Webview, context: vscode.ExtensionContext): s
             var forwardBtn = document.getElementById('forwardBtn');
             var openInEditorBtn = document.getElementById('openInEditorBtn');
             var openExternalBtn = document.getElementById('openExternalBtn');
+            var reloadBtn = document.getElementById('reloadBtn');
             var contentArea = document.getElementById('contentArea');
             var filePathEl = document.getElementById('filePath');
 
@@ -950,6 +967,9 @@ function buildHtml(webview: vscode.Webview, context: vscode.ExtensionContext): s
             });
             openExternalBtn.addEventListener('click', function() {
                 vscode.postMessage({ type: 'openExternal' });
+            });
+            reloadBtn.addEventListener('click', function() {
+                vscode.postMessage({ type: 'reload' });
             });
 
             // ---- Render Markdown ----
