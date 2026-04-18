@@ -294,6 +294,20 @@ A shared markdown document per conversation that both participants read + write 
 | `tomAi_readConversationResult` | Read current content of the conversation's result document. | ⚪ | ⚪ | ⚪ | ⚪ | ✅ |
 | `tomAi_writeConversationResult` | Write (replace) or append to the conversation's result document. | ⚪ | ⚪ | ⚪ | ⚪ | ✅ |
 
+### 4.22 Past tool access (session-scoped history lookup)
+
+Session-scoped pull access to earlier tool calls + their full results. Backed by the Anthropic handler's in-memory `ToolTrail` ring buffer (default 40 entries, 100 kB per entry). The injected `[Tool history — last N calls]` block at the top of every outgoing user message already summarises the most recent calls and includes a **replay key** per line; these tools let the agent look up the full result on demand, or grep across the buffer.
+
+The buffer is **session-scoped** (cleared on `Clear session history`) and **Anthropic-only** — the Local LLM handler maintains its own unrelated conversation state, so these tools return an informative message there instead of wrong data. Read-only; never prompt for approval.
+
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
+| --- | --- | :-: | :-: | :-: | :-: | :-: |
+| `tomAi_listPastToolCalls` | List recent tool calls with replay keys. Optional filters: `toolName`, `sinceRound`, `limit` (default 20, max 200). | ✅ | ✅ | ⚪ | ⚪ | ⚪ |
+| `tomAi_searchPastToolResults` | Regex search across past result bodies; returns snippets with replay keys. Arguments: `pattern`, optional `toolName`, `caseSensitive`, `limit`, `contextChars`. | ✅ | ✅ | ⚪ | ⚪ | ⚪ |
+| `tomAi_readPastToolResult` | Return the full body of a past tool call by its replay key (e.g. `t14`). | ✅ | ✅ | ⚪ | ⚪ | ⚪ |
+
+Typical usage: the injected history block shows `14:23:05 [t14] R3 tomAi_readFile(src/foo.ts) → export function foo …`. Past tool N returned content the model now wants verbatim → `tomAi_readPastToolResult({ key: "t14" })` returns the whole file content it saw earlier, no tool re-run.
+
 ## 5. Transport-specific recommendations
 
 ### 5.1 Anthropic Agent SDK (`transport: 'agentSdk'`)

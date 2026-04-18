@@ -536,13 +536,36 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
                     break;
             }
         }
+    } catch (err) {
+        // Always write *something* to the raw answer trail so the file
+        // pair (prompt + answer) is complete even when the SDK stream
+        // errors out. Re-throw afterwards — the chat panel reports the
+        // error on its side; this just guarantees the trail stays intact
+        // so subsequent history/compaction steps have a record to read.
+        const errMsg = err instanceof Error ? (err.stack || err.message) : String(err);
+        const body = lastText
+            ? `${lastText}\n\n---\n(stream error after partial output)\n${errMsg}`
+            : `(no text produced — stream errored before any assistant text)\n${errMsg}`;
+        TrailService.instance.writeRawAnswer(
+            ANTHROPIC_SUBSYSTEM,
+            body,
+            context.windowId,
+            context.requestId,
+            context.questId,
+        );
+        throw err;
     } finally {
         cancelSub?.dispose();
     }
 
+    // Clean exit — write the final text (with an informative placeholder
+    // when the SDK produced none) *before* returning, so the trail file
+    // is always present and the caller's subsequent compaction work
+    // can reference it.
+    const finalBody = lastText || `(no text produced — stop_reason: ${stopReason ?? 'unknown'})`;
     TrailService.instance.writeRawAnswer(
         ANTHROPIC_SUBSYSTEM,
-        lastText,
+        finalBody,
         context.windowId,
         context.requestId,
         context.questId,

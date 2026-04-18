@@ -18,7 +18,7 @@ import {
     toAnthropicTools,
 } from '../tools/shared-tool-registry';
 import { TrailService } from '../services/trailService';
-import { ToolTrail } from '../services/tool-trail';
+import { ToolTrail, setActiveToolTrail } from '../services/tool-trail';
 import { runWithToolContext } from '../services/tool-execution-context';
 import {
     compactHistory,
@@ -421,6 +421,11 @@ export class AnthropicHandler {
 
     private constructor() {
         this.toolTrail = new ToolTrail();
+        // Register this handler's ToolTrail as the session-wide active
+        // one so the `tomAi_listPastToolCalls` / `searchPastToolResults`
+        // / `readPastToolResult` tools can reach it without a circular
+        // import on the handler module.
+        setActiveToolTrail(this.toolTrail);
         // Eager init per spec §17 Step 1.8; falls back to lazy creation in
         // `getClient()` if the env var was unset at activation time.
         try {
@@ -1110,50 +1115,64 @@ export class AnthropicHandler {
         let lastText = '';
         let lastStopReason: string | undefined;
 
-        for (let turn = 0; turn < configuration.maxRounds; turn++) {
-            if (options.cancellationToken?.isCancellationRequested) {
-                break;
-            }
-
-            const response = await client.messages.create({
-                model: configuration.model,
-                max_tokens: configuration.maxTokens,
-                ...temperatureField(configuration.temperature),
-                ...(thinkingBlock ? { thinking: thinkingBlock } : {}),
-                system: systemParam,
-                ...(anthropicTools.length > 0 ? { tools: anthropicTools } : {}),
-                messages,
-            });
-
-            lastStopReason = response.stop_reason ?? undefined;
-            lastText = this.extractText(response.content) || lastText;
-
-            if (response.stop_reason !== 'tool_use') {
-                return this.finalize(userContent, lastText, turn + 1, totalToolCalls, lastStopReason, windowId, requestId, quest, configuration, options.isolated === true);
-            }
-
-            messages.push({ role: 'assistant', content: response.content });
-
-            const toolResults: AnthropicToolResultBlockParam[] = [];
-            for (const block of response.content) {
-                if (block.type !== 'tool_use') {
-                    continue;
+        try {
+            for (let turn = 0; turn < configuration.maxRounds; turn++) {
+                if (options.cancellationToken?.isCancellationRequested) {
+                    break;
                 }
-                totalToolCalls += 1;
-                const toolResultBlock = await this.runTool(
-                    block,
-                    tools,
-                    configuration,
-                    options,
-                    round,
-                    quest,
-                    windowId,
-                    requestId,
-                );
-                toolResults.push(toolResultBlock);
-            }
 
-            messages.push({ role: 'user', content: toolResults });
+                const response = await client.messages.create({
+                    model: configuration.model,
+                    max_tokens: configuration.maxTokens,
+                    ...temperatureField(configuration.temperature),
+                    ...(thinkingBlock ? { thinking: thinkingBlock } : {}),
+                    system: systemParam,
+                    ...(anthropicTools.length > 0 ? { tools: anthropicTools } : {}),
+                    messages,
+                });
+
+                lastStopReason = response.stop_reason ?? undefined;
+                lastText = this.extractText(response.content) || lastText;
+
+                if (response.stop_reason !== 'tool_use') {
+                    return this.finalize(userContent, lastText, turn + 1, totalToolCalls, lastStopReason, windowId, requestId, quest, configuration, options.isolated === true);
+                }
+
+                messages.push({ role: 'assistant', content: response.content });
+
+                const toolResults: AnthropicToolResultBlockParam[] = [];
+                for (const block of response.content) {
+                    if (block.type !== 'tool_use') {
+                        continue;
+                    }
+                    totalToolCalls += 1;
+                    const toolResultBlock = await this.runTool(
+                        block,
+                        tools,
+                        configuration,
+                        options,
+                        round,
+                        quest,
+                        windowId,
+                        requestId,
+                    );
+                    toolResults.push(toolResultBlock);
+                }
+
+                messages.push({ role: 'user', content: toolResults });
+            }
+        } catch (err) {
+            // Guarantee the raw answer file exists even when the API
+            // call throws (network error, 400, token exhaustion, …).
+            // Without this, the trail stops at the userprompt/payload
+            // files and subsequent history/compaction work operates
+            // on a missing trail entry.
+            const errMsg = err instanceof Error ? (err.stack || err.message) : String(err);
+            const body = lastText
+                ? `${lastText}\n\n---\n(request error after partial output)\n${errMsg}`
+                : `(no text produced — request errored before any assistant text)\n${errMsg}`;
+            TrailService.instance.writeRawAnswer(ANTHROPIC_SUBSYSTEM, body, windowId, requestId, quest);
+            throw err;
         }
 
         return this.finalize(userContent, lastText, configuration.maxRounds, totalToolCalls, lastStopReason, windowId, requestId, quest, configuration, options.isolated === true);
@@ -1178,9 +1197,15 @@ export class AnthropicHandler {
         configuration: AnthropicConfiguration,
         isolated: boolean = false,
     ): AnthropicSendResult {
+        // Never write a truly empty answer body to the trail — either
+        // the text the model produced, or a short diagnostic line so
+        // the `.answer.json` file is always informative.
+        const trailBody = text && text.length > 0
+            ? text
+            : `(no text produced — stop_reason: ${stopReason ?? 'unknown'}, turns: ${turnsUsed})`;
         TrailService.instance.writeRawAnswer(
             ANTHROPIC_SUBSYSTEM,
-            text,
+            trailBody,
             windowId,
             requestId,
             quest,
