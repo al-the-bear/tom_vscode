@@ -283,13 +283,17 @@ export class TwoTierMemoryService {
     /**
      * Persist a compacted message array to the quest's history folder.
      *
-     * Always writes `history.json` (a single fixed-name file that gets
-     * overwritten every turn — the one git-trackable snapshot of the
-     * session state). When `archive` is true, *additionally* writes a
-     * timestamped `YYYYMMDD_HHMMSS.history.json` alongside it so the
-     * caller can compare turns during debugging. Archive is opt-in via
-     * the Compaction section's "Archive every turn" setting; default
-     * off to keep the folder lean.
+     * Writes **two** files with matching base names every time:
+     *   - `history.json` — structured payload the handler reloads from.
+     *   - `history.md`   — human-readable version rendered by
+     *                       `formatHistoryAsMarkdown`, intended for the
+     *                       "Open session history" button in the chat
+     *                       panel and for git-diff inspection.
+     *
+     * When `archive` is true, additionally writes `<ts>.history.json`
+     * and `<ts>.history.md` alongside — same pair, timestamped. Archive
+     * is opt-in via the Compaction section's "Archive every turn"
+     * setting; default off to keep the folder lean.
      *
      * Quietly no-ops on I/O error — persistence failure must never
      * affect the user-visible turn result.
@@ -299,16 +303,26 @@ export class TwoTierMemoryService {
             const folder = this.historyFolder(questId);
             FsUtils.ensureDir(folder);
             const savedAt = new Date().toISOString();
-            const content = JSON.stringify({ messages, savedAt }, null, 2);
-            // Single rolling file.
-            const canonical = path.join(folder, 'history.json');
-            fs.writeFileSync(canonical, content, 'utf-8');
+            const payload = { messages, savedAt };
+            const jsonContent = JSON.stringify(payload, null, 2);
+            const mdContent = formatHistoryAsMarkdown({
+                messages,
+                savedAt,
+                questId: questId || this.currentQuest() || 'default',
+            });
+            // Single rolling pair.
+            const canonicalJson = path.join(folder, 'history.json');
+            const canonicalMd = path.join(folder, 'history.md');
+            fs.writeFileSync(canonicalJson, jsonContent, 'utf-8');
+            fs.writeFileSync(canonicalMd, mdContent, 'utf-8');
             if (archive) {
                 const stamp = this.timestampNow();
-                const archiveFile = path.join(folder, `${stamp}.history.json`);
-                fs.writeFileSync(archiveFile, content, 'utf-8');
+                const archiveJson = path.join(folder, `${stamp}.history.json`);
+                const archiveMd = path.join(folder, `${stamp}.history.md`);
+                fs.writeFileSync(archiveJson, jsonContent, 'utf-8');
+                fs.writeFileSync(archiveMd, mdContent, 'utf-8');
             }
-            return canonical;
+            return canonicalJson;
         } catch {
             return undefined;
         }
@@ -409,4 +423,94 @@ export class TwoTierMemoryService {
     private escapeRegex(s: string): string {
         return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
+}
+
+// ============================================================================
+// History → Markdown rendering
+// ============================================================================
+
+export interface HistoryMarkdownInput {
+    messages: unknown;
+    savedAt: string;
+    questId: string;
+}
+
+/**
+ * Render a persisted session history payload as human-readable Markdown.
+ *
+ * Supports both the current shape (`{ compactedSummary, rawTurns }`)
+ * and the legacy flat-array shape. Unknown payloads are dumped as a
+ * JSON code block so the file is still something you can open and
+ * read without a parser in the middle.
+ *
+ * Written next to every `history.json` (see `persistHistorySnapshot`)
+ * so the "Open session history" button in the chat panels has a
+ * single stable path to open in the MD Browser.
+ */
+export function formatHistoryAsMarkdown(input: HistoryMarkdownInput): string {
+    const { messages, savedAt, questId } = input;
+    const lines: string[] = [];
+    lines.push(`# Session history — \`${questId}\``);
+    lines.push('');
+    lines.push(`_Saved at ${savedAt}._`);
+    lines.push('');
+
+    // --- Current shape: { compactedSummary, rawTurns } ---
+    if (messages && typeof messages === 'object' && !Array.isArray(messages)) {
+        const obj = messages as { compactedSummary?: unknown; rawTurns?: unknown };
+        const summary = typeof obj.compactedSummary === 'string' ? obj.compactedSummary : '';
+        const rawTurnsRaw = Array.isArray(obj.rawTurns) ? obj.rawTurns : [];
+        const rawTurns = rawTurnsRaw.filter((m): m is { role: string; content: string } =>
+            !!m && typeof m === 'object' &&
+            typeof (m as { role?: unknown }).role === 'string' &&
+            typeof (m as { content?: unknown }).content === 'string',
+        );
+
+        lines.push(`## Compacted summary — ${summary.length} chars`);
+        lines.push('');
+        if (!summary) {
+            lines.push('_(empty — no turns have been compacted into the summary yet.)_');
+        } else {
+            lines.push(summary);
+        }
+        lines.push('');
+        lines.push(`## Raw turns — ${rawTurns.length} messages`);
+        lines.push('');
+        if (rawTurns.length === 0) {
+            lines.push('_(empty — fresh session or just after a clear.)_');
+        } else {
+            for (let i = 0; i < rawTurns.length; i++) {
+                const m = rawTurns[i];
+                lines.push(`### [${i + 1}] ${m.role} — ${m.content.length} chars`);
+                lines.push('');
+                lines.push(m.content);
+                lines.push('');
+            }
+        }
+        return lines.join('\n');
+    }
+
+    // --- Legacy flat array of ConversationMessage ---
+    if (Array.isArray(messages)) {
+        lines.push(`## Legacy flat history — ${messages.length} messages`);
+        lines.push('');
+        for (let i = 0; i < messages.length; i++) {
+            const m = messages[i] as { role?: unknown; content?: unknown };
+            const role = typeof m?.role === 'string' ? m.role : 'unknown';
+            const content = typeof m?.content === 'string' ? m.content : String(m?.content ?? '');
+            lines.push(`### [${i + 1}] ${role} — ${content.length} chars`);
+            lines.push('');
+            lines.push(content);
+            lines.push('');
+        }
+        return lines.join('\n');
+    }
+
+    // --- Fallback: raw JSON dump so the file is still inspectable ---
+    lines.push('## Raw payload');
+    lines.push('');
+    lines.push('```json');
+    lines.push(JSON.stringify(messages, null, 2));
+    lines.push('```');
+    return lines.join('\n');
 }

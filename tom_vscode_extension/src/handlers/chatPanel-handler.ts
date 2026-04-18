@@ -33,6 +33,7 @@ import { WsPaths } from '../utils/workspacePaths';
 import { validateStrictAiConfiguration } from '../utils/sendToChatConfig';
 import { findNearestDetectedProject, scanWorkspaceProjectsByDetectors } from '../utils/projectDetector';
 import { TrailService } from '../services/trailService';
+import { TwoTierMemoryService } from '../services/memory-service';
 import { writeWindowState } from './windowStatusPanel-handler.js';
 import { AnthropicHandler, AnthropicProfile, AnthropicConfiguration } from './anthropic-handler';
 import { ALL_SHARED_TOOLS } from '../tools/tool-executors';
@@ -744,6 +745,13 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         } else {
                             await this._openTrailFiles();
                         }
+                        break;
+                    case 'openSessionHistory':
+                        // Open `_ai/quests/<quest>/history/history.md` (the
+                        // rolling markdown version of the session history
+                        // written by persistHistorySnapshot) in the MD
+                        // Browser custom editor.
+                        await this._openSessionHistoryMarkdown();
                         break;
                     case 'openStatusPage':
                         await vscode.commands.executeCommand('tomAi.statusPage');
@@ -1838,6 +1846,26 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         }
         const uri = vscode.Uri.file(summaryPath);
         await vscode.commands.executeCommand('vscode.openWith', uri, 'tomAi.trailViewer');
+    }
+
+    /**
+     * Open the rolling session history (the markdown version written next
+     * to history.json on every turn by TwoTierMemoryService.persistHistorySnapshot)
+     * in the MD Browser custom editor. When the file is missing we
+     * fall through to a warning instead of opening something blank.
+     */
+    private async _openSessionHistoryMarkdown(): Promise<void> {
+        const questId = WsPaths.getWorkspaceQuestId() ?? TwoTierMemoryService.instance.currentQuest() ?? '';
+        const folder = TwoTierMemoryService.instance.historyFolder(questId || undefined);
+        const target = path.join(folder, 'history.md');
+        if (!fs.existsSync(target)) {
+            vscode.window.showInformationMessage(
+                `No session history yet for quest "${questId || 'default'}". The history file is written after the first completed turn (${target}).`,
+            );
+            return;
+        }
+        const uri = vscode.Uri.file(target);
+        await vscode.commands.executeCommand('tomAi.openInMdBrowser', uri);
     }
 
     private async _insertExpandedToChatFile(expanded: string, templateId: string = ''): Promise<void> {
@@ -3286,6 +3314,7 @@ function getSectionContent(id) {
                 '<button class="icon-btn" data-action="cancel" data-id="anthropic" title="Stop current Anthropic turn"><span class="codicon codicon-debug-stop"></span></button>' +
                 '<button class="icon-btn" data-action="openTrailRawFiles" data-id="anthropic" title="Open Raw Trail Files Viewer"><span class="codicon codicon-history"></span></button>' +
                 '<button class="icon-btn" data-action="openTrailSummaryViewer" data-id="anthropic" title="Open Trail Summary Viewer"><span class="codicon codicon-list-flat"></span></button>' +
+                '<button class="icon-btn" data-action="openSessionHistory" data-id="anthropic" title="Open session history — the rolling history.md from the quest folder, rendered in the MD Browser"><span class="codicon codicon-file-text"></span></button>' +
                 '<button class="icon-btn" data-action="openAnthropicMemory" data-id="anthropic" title="Memory Panel"><span class="codicon codicon-book"></span></button>' +
                 '<button class="icon-btn" data-action="clearAnthropicHistory" data-id="anthropic" title="Clear session history"><span class="codicon codicon-clear-all"></span></button>',
             afterToolbarHtml:
@@ -3557,6 +3586,7 @@ function handleAction(action, id, slot) {
         case 'openTimedRequestsEditor': vscode.postMessage({ type: 'openTimedRequestsEditor' }); break;
         case 'openTrailRawFiles': vscode.postMessage({ type: 'openTrailRawFiles', section: id || '' }); break;
         case 'openTrailSummaryViewer': vscode.postMessage({ type: 'openTrailSummaryViewer', section: id || '' }); break;
+        case 'openSessionHistory': vscode.postMessage({ type: 'openSessionHistory', section: id || '' }); break;
         case 'openConversationTrailViewer': vscode.postMessage({ type: 'openConversationTrailViewer' }); break;
         case 'openConversationMarkdown': vscode.postMessage({ type: 'openConversationMarkdown' }); break;
         case 'openConversationCompactTrail': vscode.postMessage({ type: 'openConversationCompactTrail' }); break;
