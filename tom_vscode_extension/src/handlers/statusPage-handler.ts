@@ -1471,6 +1471,17 @@ export interface StatusData {
         promptCachingEnabled: boolean;
         historyMode: string;
         isDefault: boolean;
+        // Extended detail so the configurations table can render the
+        // full settings inline and the user knows what `Edit` is
+        // about to replace. Any field that's absent on an individual
+        // configuration simply renders as "—" in the view.
+        maxTokens?: number;
+        maxRounds?: number;
+        temperature?: number;
+        maxHistoryTokens?: number;
+        memoryToolsEnabled?: boolean;
+        settingSources?: Array<'user' | 'project' | 'local'>;
+        maxTurns?: number;
     }>;
 }
 
@@ -1684,16 +1695,44 @@ export async function gatherStatusData(): Promise<StatusData> {
             id: c.id, name: c.name || c.id,
         })),
         anthropicApiKeyEnvVar: sendToChatConfig?.anthropic?.apiKeyEnvVar || 'ANTHROPIC_API_KEY',
-        anthropicConfigurationsSummary: (sendToChatConfig?.anthropic?.configurations || []).map((c) => ({
-            id: c.id,
-            name: c.name || c.id,
-            model: (c as { model?: string }).model || '',
-            transport: ((c as { transport?: string }).transport === 'agentSdk' ? 'agentSdk' : 'direct') as 'direct' | 'agentSdk',
-            permissionMode: (c as { agentSdk?: { permissionMode?: string } }).agentSdk?.permissionMode,
-            promptCachingEnabled: (c as { promptCachingEnabled?: boolean }).promptCachingEnabled === true,
-            historyMode: (c as { historyMode?: string }).historyMode || 'last',
-            isDefault: (c as { isDefault?: boolean }).isDefault === true,
-        })),
+        anthropicConfigurationsSummary: (sendToChatConfig?.anthropic?.configurations || []).map((c) => {
+            const cc = c as {
+                id: string;
+                name?: string;
+                model?: string;
+                transport?: string;
+                maxTokens?: number;
+                maxRounds?: number;
+                temperature?: number;
+                maxHistoryTokens?: number;
+                memoryToolsEnabled?: boolean;
+                promptCachingEnabled?: boolean;
+                historyMode?: string;
+                isDefault?: boolean;
+                agentSdk?: {
+                    permissionMode?: string;
+                    settingSources?: Array<'user' | 'project' | 'local'>;
+                    maxTurns?: number;
+                };
+            };
+            return {
+                id: cc.id,
+                name: cc.name || cc.id,
+                model: cc.model || '',
+                transport: (cc.transport === 'agentSdk' ? 'agentSdk' : 'direct') as 'direct' | 'agentSdk',
+                permissionMode: cc.agentSdk?.permissionMode,
+                promptCachingEnabled: cc.promptCachingEnabled === true,
+                historyMode: cc.historyMode || '',
+                isDefault: cc.isDefault === true,
+                maxTokens: cc.maxTokens,
+                maxRounds: cc.maxRounds,
+                temperature: cc.temperature,
+                maxHistoryTokens: cc.maxHistoryTokens,
+                memoryToolsEnabled: cc.memoryToolsEnabled,
+                settingSources: cc.agentSdk?.settingSources,
+                maxTurns: cc.agentSdk?.maxTurns,
+            };
+        }),
     };
 }
 
@@ -2335,10 +2374,33 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
                             const cacheLabel = c.transport === 'agentSdk'
                                 ? '<span title="Managed by Agent SDK" style="color:var(--vscode-descriptionForeground)">SDK-managed</span>'
                                 : (c.promptCachingEnabled ? 'On' : 'Off');
-                            const historyLabel = c.transport === 'agentSdk'
+                            const historyLabel = c.transport === 'agentSdk' && !c.historyMode
                                 ? '<span title="Managed by Agent SDK" style="color:var(--vscode-descriptionForeground)">SDK-managed</span>'
-                                : escapeHtmlContent(c.historyMode);
+                                : escapeHtmlContent(c.historyMode || '—');
                             const defaultMark = c.isDefault ? ' <span title="Default" style="color:var(--vscode-editorWarning-foreground, #cca700)">★</span>' : '';
+                            // Build the second-line detail summary. Every
+                            // configuration field the wizard can set is
+                            // listed here so the user sees the current
+                            // values without having to click Edit (which
+                            // resets the inputs).
+                            const dim = (s: string): string => '<span style="color:var(--vscode-descriptionForeground)">' + s + '</span>';
+                            const fmt = (v: number | undefined): string => v === undefined ? '—' : String(v);
+                            const detailParts: string[] = [];
+                            detailParts.push(`${dim('maxTokens')} ${fmt(c.maxTokens)}`);
+                            detailParts.push(`${dim('maxRounds')} ${fmt(c.maxRounds)}`);
+                            detailParts.push(`${dim('temp')} ${fmt(c.temperature)}`);
+                            detailParts.push(`${dim('memoryTools')} ${c.memoryToolsEnabled === true ? 'on' : c.memoryToolsEnabled === false ? 'off' : '—'}`);
+                            if (c.transport === 'direct') {
+                                detailParts.push(`${dim('maxHistTokens')} ${fmt(c.maxHistoryTokens)}`);
+                                detailParts.push(`${dim('caching')} ${c.promptCachingEnabled ? 'on' : 'off'}`);
+                            } else {
+                                detailParts.push(`${dim('maxTurns')} ${fmt(c.maxTurns)}`);
+                                const sources = (c.settingSources && c.settingSources.length > 0)
+                                    ? c.settingSources.join(',')
+                                    : '(isolation)';
+                                detailParts.push(`${dim('settingSources')} ${sources}`);
+                            }
+                            const detailLine = detailParts.join(' &nbsp;·&nbsp; ');
                             return `<tr style="border-bottom:1px solid var(--vscode-panel-border)">
                                 <td style="padding:4px 8px"><strong>${escapeHtmlContent(c.name)}</strong>${defaultMark}<br><code style="font-size:10px;color:var(--vscode-descriptionForeground)">${escapeHtmlContent(c.id)}</code></td>
                                 <td style="padding:4px 8px"><code style="font-size:10px">${escapeHtmlContent(c.model)}</code></td>
@@ -2350,6 +2412,9 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
                                     <button class="sp-btn small" data-status-action="editAnthropicConfiguration" data-config-id="${escapeHtmlContent(c.id)}" title="Edit">✏️</button>
                                     <button class="sp-btn small danger" data-status-action="deleteAnthropicConfiguration" data-config-id="${escapeHtmlContent(c.id)}" title="Delete">🗑️</button>
                                 </td>
+                            </tr>
+                            <tr style="border-bottom:1px solid var(--vscode-panel-border)">
+                                <td colspan="7" style="padding:2px 8px 6px 8px;font-size:10px;color:var(--vscode-foreground)">${detailLine}</td>
                             </tr>`;
                         }).join('')}
                     </tbody>
