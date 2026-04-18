@@ -1675,6 +1675,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     // tool loop (with approval gating) and returns a single answer string.
 
     private _anthropicApprovalListenerAttached = false;
+    private _anthropicStatusListenerAttached = false;
 
     private _ensureAnthropicApprovalListener(): void {
         if (this._anthropicApprovalListenerAttached) {
@@ -1687,6 +1688,25 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 toolId: req.toolUseId,
                 toolName: req.toolName,
                 inputSummary: req.inputSummary,
+            });
+        });
+    }
+
+    /**
+     * Forward handler status events ("waiting for history compaction…",
+     * "Rebuild history from last N prompts…") to the webview so they
+     * show up in place of the generic "Sending…" status while the
+     * handler waits on background work.
+     */
+    private _ensureAnthropicStatusListener(): void {
+        if (this._anthropicStatusListenerAttached) {
+            return;
+        }
+        this._anthropicStatusListenerAttached = true;
+        AnthropicHandler.instance.onStatusUpdate((text) => {
+            this._view?.webview.postMessage({
+                type: 'anthropicStatus',
+                text,
             });
         });
     }
@@ -1765,6 +1785,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         }
 
         this._ensureAnthropicApprovalListener();
+        this._ensureAnthropicStatusListener();
 
         // Register a cancellation source so the panel's stop button can abort the turn.
         this._activeCts.get('anthropic')?.dispose();
@@ -3946,6 +3967,15 @@ window.addEventListener('message', function(e) {
         anthropicApiKeyOk = !!msg.ok;
         updateAnthropicApiKeyDot();
         updateAnthropicSendButton();
+    } else if (msg.type === 'anthropicStatus') {
+        // Handler-driven status text (e.g. "waiting for history
+        // compaction…", "Rebuild history from last N prompts…").
+        // Only apply while we're actively sending — after a result
+        // we want the result's own status line (tool-call summary /
+        // session turn count), not a stale "waiting…" entry.
+        if (anthropicSending && typeof msg.text === 'string' && msg.text.length > 0) {
+            setAnthropicStatus(msg.text);
+        }
     } else if (msg.type === 'anthropicResult') {
         anthropicSending = false;
         updateAnthropicSendButton();

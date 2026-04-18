@@ -950,6 +950,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
             stcConfig.compaction.maxHistoryTokens = Number.isFinite(s.maxHistoryTokens) ? s.maxHistoryTokens : 8000;
             (stcConfig.compaction as { fullTrailMaxTurns?: number }).fullTrailMaxTurns = Number.isFinite(s.fullTrailMaxTurns) ? s.fullTrailMaxTurns : 200;
             (stcConfig.compaction as { runMemoryExtractionOnCompaction?: boolean }).runMemoryExtractionOnCompaction = s.runMemoryExtractionOnCompaction !== false;
+            (stcConfig.compaction as { rebuildFromLastNPrompts?: number }).rebuildFromLastNPrompts = Number.isFinite(s.rebuildFromLastNPrompts) ? s.rebuildFromLastNPrompts : 200;
             stcConfig.compaction.toolTrailMaxResultChars = Number.isFinite(s.toolTrailMaxResultChars) ? s.toolTrailMaxResultChars : 500;
             stcConfig.compaction.backgroundExtractionEnabled = s.backgroundExtractionEnabled === true;
             if (!stcConfig.trail) { stcConfig.trail = {}; }
@@ -976,9 +977,13 @@ export async function handleStatusAction(action: string, message: any): Promise<
             if (!stcConfig.anthropic.memory) { stcConfig.anthropic.memory = {}; }
             const s = message.settings || {};
             stcConfig.anthropic.memory.memoryToolsEnabled = s.memoryToolsEnabled === true;
-            stcConfig.anthropic.memory.memoryExtractionTemplateId = s.memoryExtractionTemplateId || '';
-            stcConfig.anthropic.memory.autoExtractMode = ['never', 'summary', 'trim_and_summary', 'llm_extract', 'all'].includes(s.autoExtractMode) ? s.autoExtractMode : 'never';
             stcConfig.anthropic.memory.maxInjectedTokens = Number.isFinite(s.maxInjectedTokens) ? s.maxInjectedTokens : 3000;
+            // The memoryExtractionTemplateId + autoExtractMode fields
+            // are no longer part of this panel — the compaction section
+            // owns the extraction template and runMemoryExtractionOnCompaction.
+            // Strip any stale values so the config stays clean.
+            delete (stcConfig.anthropic.memory as { memoryExtractionTemplateId?: string }).memoryExtractionTemplateId;
+            delete (stcConfig.anthropic.memory as { autoExtractMode?: string }).autoExtractMode;
             saveSendToChatConfig(stcConfig);
             vscode.window.showInformationMessage('Anthropic memory settings saved');
             break;
@@ -1394,6 +1399,12 @@ export interface StatusData {
         /** When true, memory extraction runs after every compaction call
          *  (checkbox in the status page). Default true. */
         runMemoryExtractionOnCompaction: boolean;
+        /**
+         * When no history file exists but compact trail files (the
+         * quest's .prompts.md / .answers.md) do, we reconstruct a
+         * history from the last N prompt/answer pairs. Default 200.
+         */
+        rebuildFromLastNPrompts: number;
     };
     /** Anthropic memory subsystem defaults (anthropic_sdk_integration.md §10). */
     anthropicMemory: {
@@ -1613,6 +1624,7 @@ export async function gatherStatusData(): Promise<StatusData> {
             maxHistoryTokens: sendToChatConfig?.compaction?.maxHistoryTokens ?? 8000,
             fullTrailMaxTurns: (sendToChatConfig?.compaction as { fullTrailMaxTurns?: number })?.fullTrailMaxTurns ?? 200,
             runMemoryExtractionOnCompaction: (sendToChatConfig?.compaction as { runMemoryExtractionOnCompaction?: boolean })?.runMemoryExtractionOnCompaction !== false,
+            rebuildFromLastNPrompts: (sendToChatConfig?.compaction as { rebuildFromLastNPrompts?: number })?.rebuildFromLastNPrompts ?? 200,
             toolTrailMaxResultChars: sendToChatConfig?.compaction?.toolTrailMaxResultChars ?? 500,
             backgroundExtractionEnabled: sendToChatConfig?.compaction?.backgroundExtractionEnabled === true,
         },
@@ -2196,11 +2208,15 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
             <div class="sp-settings-row">
                 <label title="Hard cap on the number of turns returned in 'full' history mode, so a runaway session cannot blow the context window when the user has chosen not to compact.">Full trail mode max turns:</label>
                 <input type="number" id="sp-comp-fullTrailMaxTurns" value="${status.compaction.fullTrailMaxTurns}" min="2" max="1000" style="width:70px">
-                <label title="Run memory extraction on every compaction pass (after the summary is produced). Uncheck to skip extraction and only produce a compacted summary.">Run memory extraction:</label>
+                <label title="Run memory extraction on every completed turn. Input is the last turn + the current compacted summary + existing memory. Uncheck to skip extraction entirely.">Run memory extraction:</label>
                 <select id="sp-comp-runMemoryExtractionOnCompaction">
                     <option value="true" ${status.compaction.runMemoryExtractionOnCompaction ? 'selected' : ''}>Enabled</option>
                     <option value="false" ${!status.compaction.runMemoryExtractionOnCompaction ? 'selected' : ''}>Disabled</option>
                 </select>
+            </div>
+            <div class="sp-settings-row">
+                <label title="Exceptional/error case: when the handler finds no history snapshot on session start, it rebuilds history from the last N prompt/answer pairs in the quest's compact trail files (.prompts.md / .answers.md). While the rebuild runs, sending a new prompt shows 'Rebuild history from last N prompts…'">Rebuild from last N prompts:</label>
+                <input type="number" id="sp-comp-rebuildFromLastNPrompts" value="${status.compaction.rebuildFromLastNPrompts}" min="1" max="1000" style="width:70px">
             </div>
             <div class="sp-settings-row">
                 <label>Tool trail max chars:</label>
@@ -2308,29 +2324,17 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
                 </select>
             </div>
             <div class="sp-settings-row">
-                <label>Memory extraction template:</label>
-                <select id="sp-mem-memoryExtractionTemplateId">
-                    <option value="">(default)</option>
-                    ${status.memoryExtractionTemplateChoices.map(t => `<option value="${t.id}" ${t.id === status.anthropicMemory.memoryExtractionTemplateId ? 'selected' : ''}>${escapeHtmlContent(t.name)}</option>`).join('')}
-                </select>
-                <button class="sp-btn small" data-status-action="editMemoryExtractionTemplate">✏️ Edit</button>
-                <button class="sp-btn small" data-status-action="addMemoryExtractionTemplate">➕</button>
-                <button class="sp-btn small danger" data-status-action="deleteMemoryExtractionTemplate">🗑️</button>
-            </div>
-            <div class="sp-settings-row">
-                <label>Auto-extract on:</label>
-                <select id="sp-mem-autoExtractMode">
-                    <option value="never" ${status.anthropicMemory.autoExtractMode === 'never' ? 'selected' : ''}>Never</option>
-                    <option value="summary" ${status.anthropicMemory.autoExtractMode === 'summary' ? 'selected' : ''}>Summary mode</option>
-                    <option value="trim_and_summary" ${status.anthropicMemory.autoExtractMode === 'trim_and_summary' ? 'selected' : ''}>Trim+Summary mode</option>
-                    <option value="llm_extract" ${status.anthropicMemory.autoExtractMode === 'llm_extract' ? 'selected' : ''}>LLM extract mode</option>
-                    <option value="all" ${status.anthropicMemory.autoExtractMode === 'all' ? 'selected' : ''}>All compaction modes</option>
-                </select>
-            </div>
-            <div class="sp-settings-row">
-                <label>Max injected tokens:</label>
+                <label title="Maximum tokens of memory injected into the Anthropic system prompt at send time. Only applies when the memory tools are disabled (otherwise the agent reads memory via tools on demand).">Max injected tokens:</label>
                 <input type="number" id="sp-mem-maxInjectedTokens" value="${status.anthropicMemory.maxInjectedTokens}" min="0" max="32000" style="width:90px">
             </div>
+            <p style="font-size:11px;color:var(--vscode-descriptionForeground);margin:6px 0 0">
+                <strong>Note:</strong> the memory extraction template and the
+                <em>run memory extraction on every turn</em> toggle both live in the
+                <strong>History Compaction</strong> section above — they drive the
+                same extraction pass regardless of transport. This panel only
+                controls the Anthropic-specific memory-tool exposure and the
+                system-prompt injection cap.
+            </p>
             <div class="sp-settings-row">
                 <button class="sp-btn primary" data-status-action="updateAnthropicMemorySettings">Save Memory Settings</button>
             </div>
@@ -2745,6 +2749,7 @@ function attachStatusPanelListeners(skipEditorInit) {
                     maxHistoryTokens: parseInt((document.getElementById('sp-comp-maxHistoryTokens') || {}).value || '8000'),
                     fullTrailMaxTurns: parseInt((document.getElementById('sp-comp-fullTrailMaxTurns') || {}).value || '200'),
                     runMemoryExtractionOnCompaction: (document.getElementById('sp-comp-runMemoryExtractionOnCompaction') || {}).value !== 'false',
+                    rebuildFromLastNPrompts: parseInt((document.getElementById('sp-comp-rebuildFromLastNPrompts') || {}).value || '200'),
                     toolTrailMaxResultChars: parseInt((document.getElementById('sp-comp-toolTrailMaxResultChars') || {}).value || '500'),
                     trailCleanupDays: parseInt((document.getElementById('sp-comp-trailCleanupDays') || {}).value || '2'),
                     backgroundExtractionEnabled: (document.getElementById('sp-comp-backgroundExtractionEnabled') || {}).value === 'true'
@@ -2752,8 +2757,6 @@ function attachStatusPanelListeners(skipEditorInit) {
             } else if (action === 'updateAnthropicMemorySettings') {
                 msgData.settings = {
                     memoryToolsEnabled: (document.getElementById('sp-mem-memoryToolsEnabled') || {}).value === 'true',
-                    memoryExtractionTemplateId: (document.getElementById('sp-mem-memoryExtractionTemplateId') || {}).value || '',
-                    autoExtractMode: (document.getElementById('sp-mem-autoExtractMode') || {}).value || 'never',
                     maxInjectedTokens: parseInt((document.getElementById('sp-mem-maxInjectedTokens') || {}).value || '3000')
                 };
             } else if (action === 'editCompactionTemplate') {

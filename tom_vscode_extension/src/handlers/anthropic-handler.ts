@@ -169,8 +169,9 @@ function buildPayloadDump(params: {
     effectiveCaching: boolean;
     thinkingBudgetTokens?: number;
     useBuiltInTools?: boolean;
+    compactedSummary?: string;
 }): string {
-    const { requestId, transport, configuration, profile, systemPrompt, tools, history, userContent } = params;
+    const { requestId, transport, configuration, profile, systemPrompt, tools, history, userContent, compactedSummary } = params;
     const lines: string[] = [];
 
     lines.push('# Anthropic API payload');
@@ -213,7 +214,7 @@ function buildPayloadDump(params: {
     }
     lines.push('');
 
-    lines.push(`## Rolling history (${history.length} messages)`);
+    lines.push(`## Raw turns (${history.length} messages — sent verbatim)`);
     lines.push('');
     if (history.length === 0) {
         lines.push('_(empty — first turn of the session or just after a clear)_');
@@ -226,6 +227,22 @@ function buildPayloadDump(params: {
             lines.push(`- **[${i}] ${m.role}** — ${content.length} chars`);
             lines.push(`  > ${head}${tail}`);
         }
+    }
+    lines.push('');
+
+    // The compacted summary is injected into the wire payload *after* the
+    // raw turns and *before* the current user message. Show the actual
+    // content here (it tends to be a few KB — small enough not to
+    // dominate the file, and this is the only place the reconstructed
+    // summary is visible).
+    lines.push(`## Compacted summary (${(compactedSummary ?? '').length} chars — injected after raw turns)`);
+    lines.push('');
+    if (!compactedSummary) {
+        lines.push('_(empty — no turns have been compacted yet, or session was just cleared)_');
+    } else {
+        lines.push('```text');
+        lines.push(compactedSummary);
+        lines.push('```');
     }
     lines.push('');
 
@@ -274,6 +291,14 @@ export const DUPLICATES_OF_CLAUDE_CODE_BUILTINS: ReadonlySet<string> = new Set([
     'tomAi_webSearch',
 ]);
 
+function isConversationMessage(m: unknown): m is ConversationMessage {
+    return !!m && typeof m === 'object' &&
+        ((m as ConversationMessage).role === 'user' ||
+         (m as ConversationMessage).role === 'assistant' ||
+         (m as ConversationMessage).role === 'system') &&
+        typeof (m as ConversationMessage).content === 'string';
+}
+
 export interface AnthropicSendResult {
     text: string;
     turnsUsed: number;
@@ -312,14 +337,34 @@ export class AnthropicHandler {
     private sessionApprovals = new Set<string>();
     private readonly pendingApprovals = new Map<string, { resolve: (approved: boolean) => void; toolName: string }>();
     /**
-     * Rolling conversation history kept across `sendMessage()` calls,
-     * compacted after each exchange per the configuration's `historyMode`.
-     * Phase 3.5 introduces this — Phase 1 treated each call as stateless.
-     * Seeded on the first send from the most recent compacted-history
-     * snapshot (spec §5.2) so context carries across sessions.
+     * Session history is split into two parallel fields:
+     *
+     *   - `compactedSummary` — a single running summary of everything that
+     *     happened before the last few raw turns. Updated by a background
+     *     local-LLM compaction call after every exchange; initially empty
+     *     and seeded from disk on the first send. Sent to the model as a
+     *     synthetic user/assistant pair positioned *after* the raw turns
+     *     (so the most recent complete-fidelity turns come first).
+     *   - `rawTurns` — user/assistant messages kept verbatim, trimmed to
+     *     the last `compactionMaxRounds * 2` messages after each
+     *     compaction pass so older turns are never duplicated in the wire
+     *     payload (they live in the summary already).
      */
-    private history: ConversationMessage[] = [];
+    private compactedSummary: string = '';
+    private rawTurns: ConversationMessage[] = [];
     private historySeeded = false;
+
+    /**
+     * Fire-and-forget in-flight work from a just-completed turn. The next
+     * `sendMessage()` awaits these so the user's next prompt goes out with
+     * the freshest compaction/memory state — and emits a status update so
+     * the chat panel can show "waiting for history compaction…" /
+     * "waiting for memory extraction…" / "Rebuild history from last N
+     * prompts…" instead of a bare "Sending…".
+     */
+    private compactionInFlight: Promise<void> | null = null;
+    private memoryExtractionInFlight: Promise<void> | null = null;
+    private historyRebuildInFlight: Promise<void> | null = null;
 
     private readonly _onApprovalNeeded = new vscode.EventEmitter<AnthropicToolApprovalRequest>();
     /**
@@ -330,10 +375,24 @@ export class AnthropicHandler {
      */
     readonly onApprovalNeeded: vscode.Event<AnthropicToolApprovalRequest> = this._onApprovalNeeded.event;
 
+    private readonly _onStatusUpdate = new vscode.EventEmitter<string>();
+    /**
+     * Fired while the handler is doing preparatory work before a send
+     * (awaiting a compaction pass, awaiting memory extraction, awaiting a
+     * trail-based history rebuild). Text is UI-ready ("waiting for
+     * history compaction…"), no prefix needed.
+     */
+    readonly onStatusUpdate: vscode.Event<string> = this._onStatusUpdate.event;
+
     static init(context: vscode.ExtensionContext): AnthropicHandler {
         if (!AnthropicHandler._instance) {
             AnthropicHandler._instance = new AnthropicHandler();
-            context.subscriptions.push({ dispose: () => AnthropicHandler._instance?._onApprovalNeeded.dispose() });
+            context.subscriptions.push({
+                dispose: () => {
+                    AnthropicHandler._instance?._onApprovalNeeded.dispose();
+                    AnthropicHandler._instance?._onStatusUpdate.dispose();
+                },
+            });
         }
         return AnthropicHandler._instance;
     }
@@ -356,19 +415,31 @@ export class AnthropicHandler {
         }
     }
 
-    /** Clear all in-session state (rolling history, tool trail, session-mode approvals). */
+    /** Clear all in-session state (compacted summary, raw turns, tool trail, session-mode approvals). */
     clearSession(): void {
-        this.history = [];
+        this.compactedSummary = '';
+        this.rawTurns = [];
         this.historySeeded = true; // an explicit clear should not reload a prior snapshot
         this.toolTrail.clear();
         this.sessionApprovals.clear();
         this.roundCounter = 0;
+        this.compactionInFlight = null;
+        this.memoryExtractionInFlight = null;
+        this.historyRebuildInFlight = null;
     }
 
     /**
-     * Seed `this.history` from the most recent `{timestamp}.history.json`
-     * under `_ai/memory/{quest}/history/` — called at the start of the
-     * first `sendMessage()` for multi-session continuity (spec §5.2).
+     * Seed the split state from the most recent
+     * `_ai/quests/<quest>/history/<ts>.history.json` — called at the start
+     * of the first `sendMessage()` for multi-session continuity. The
+     * snapshot stores `{ compactedSummary, rawTurns }`; legacy snapshots
+     * that stored a flat `ConversationMessage[]` still load (folded into
+     * rawTurns with an empty summary).
+     *
+     * When no snapshot exists, a trail-based rebuild (parsing the quest's
+     * `<quest>.anthropic.prompts.md` + `.answers.md` files) is kicked off
+     * as fire-and-forget; subsequent sendMessage() calls await the
+     * rebuild via historyRebuildInFlight.
      */
     private seedHistoryFromSnapshot(questId: string): void {
         if (this.historySeeded) {
@@ -376,23 +447,255 @@ export class AnthropicHandler {
         }
         this.historySeeded = true;
         try {
-            const snapshot = TwoTierMemoryService.instance.loadLatestHistorySnapshot<ConversationMessage[]>(questId);
-            if (Array.isArray(snapshot) && snapshot.length > 0) {
-                this.history = snapshot.filter(
-                    (m): m is ConversationMessage =>
-                        !!m && typeof m === 'object' &&
-                        (m.role === 'user' || m.role === 'assistant' || m.role === 'system') &&
-                        typeof m.content === 'string',
-                );
+            const raw = TwoTierMemoryService.instance.loadLatestHistorySnapshot<unknown>(questId);
+            // New shape: { compactedSummary: string, rawTurns: ConversationMessage[] }
+            if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+                const obj = raw as { compactedSummary?: unknown; rawTurns?: unknown };
+                if (typeof obj.compactedSummary === 'string') {
+                    this.compactedSummary = obj.compactedSummary;
+                }
+                if (Array.isArray(obj.rawTurns)) {
+                    this.rawTurns = obj.rawTurns.filter(isConversationMessage);
+                }
+                return;
             }
+            // Legacy shape: flat ConversationMessage[].
+            if (Array.isArray(raw) && raw.length > 0) {
+                this.rawTurns = raw.filter(isConversationMessage);
+                return;
+            }
+            // No snapshot — kick off trail-based rebuild if prompts.md/answers.md
+            // exist. The first user send after this point will await
+            // historyRebuildInFlight with a "Rebuild history from last N
+            // prompts…" status update.
+            this.historyRebuildInFlight = this.rebuildHistoryFromTrail(questId)
+                .finally(() => { this.historyRebuildInFlight = null; });
         } catch {
             // ignore — fresh session is a safe fallback
         }
     }
 
-    /** Returns a shallow copy of the current rolling history (for diagnostics / tests). */
+    /**
+     * Returns a shallow, flattened view of the current session for
+     * diagnostics / test callers. `getHistory()` predates the
+     * compacted-summary + raw-tail split; it now returns the raw turns
+     * only so existing callers (dry-run, etc.) keep working without
+     * accidentally seeing the synthetic summary pair we inject at send
+     * time. Use `getSessionState()` to read both fields.
+     */
     getHistory(): ConversationMessage[] {
-        return [...this.history];
+        return [...this.rawTurns];
+    }
+
+    /** New accessor: read both fields together for diagnostics. */
+    getSessionState(): { compactedSummary: string; rawTurns: ConversationMessage[] } {
+        return { compactedSummary: this.compactedSummary, rawTurns: [...this.rawTurns] };
+    }
+
+    /**
+     * Await any in-flight compaction / memory extraction / history
+     * rebuild before sending the next message, emitting status updates
+     * so the chat panel can show what the delay is. Called at the top of
+     * every sendMessage().
+     */
+    private async awaitInFlightBackgroundWork(): Promise<void> {
+        if (this.historyRebuildInFlight) {
+            this._onStatusUpdate.fire('Rebuild history from last N prompts…');
+            try { await this.historyRebuildInFlight; } catch { /* swallowed */ }
+        }
+        if (this.compactionInFlight) {
+            this._onStatusUpdate.fire('waiting for history compaction…');
+            try { await this.compactionInFlight; } catch { /* swallowed */ }
+        }
+        if (this.memoryExtractionInFlight) {
+            this._onStatusUpdate.fire('waiting for memory extraction…');
+            try { await this.memoryExtractionInFlight; } catch { /* swallowed */ }
+        }
+    }
+
+    /** Serialize the split state to the quest-folder history file. */
+    private persistSessionHistory(questId: string | undefined): void {
+        try {
+            TwoTierMemoryService.instance.persistHistorySnapshot(
+                { compactedSummary: this.compactedSummary, rawTurns: this.rawTurns },
+                questId,
+            );
+        } catch {
+            // best-effort — a failed save must never affect the turn result
+        }
+    }
+
+    /**
+     * Read the compaction config section from TomAiConfiguration. Centralised
+     * so the same defaults apply everywhere (sendMessage, background
+     * compaction, background memory extraction).
+     */
+    private getCompactionConfig(): {
+        llmProvider: 'localLlm' | 'anthropic';
+        llmConfigId: string;
+        compactionTemplateId?: string;
+        memoryExtractionTemplateId?: string;
+        compactionMaxRounds: number;
+        maxHistoryTokens: number;
+        fullTrailMaxTurns: number;
+        runMemoryExtractionOnCompaction: boolean;
+        rebuildFromLastNPrompts: number;
+    } {
+        const section = TomAiConfiguration.instance.getSection<{
+            llmProvider?: 'localLlm' | 'anthropic';
+            llmConfigId?: string;
+            compactionTemplateId?: string;
+            memoryExtractionTemplateId?: string;
+            compactionMaxRounds?: number;
+            maxHistoryTokens?: number;
+            fullTrailMaxTurns?: number;
+            runMemoryExtractionOnCompaction?: boolean;
+            rebuildFromLastNPrompts?: number;
+        }>('compaction') ?? {};
+        return {
+            llmProvider: section.llmProvider === 'anthropic' ? 'anthropic' : 'localLlm',
+            llmConfigId: section.llmConfigId ?? '',
+            compactionTemplateId: section.compactionTemplateId,
+            memoryExtractionTemplateId: section.memoryExtractionTemplateId,
+            compactionMaxRounds: Number.isFinite(section.compactionMaxRounds) ? (section.compactionMaxRounds as number) : 4,
+            maxHistoryTokens: Number.isFinite(section.maxHistoryTokens) ? (section.maxHistoryTokens as number) : 8000,
+            fullTrailMaxTurns: Number.isFinite(section.fullTrailMaxTurns) ? (section.fullTrailMaxTurns as number) : 200,
+            runMemoryExtractionOnCompaction: section.runMemoryExtractionOnCompaction !== false,
+            rebuildFromLastNPrompts: Number.isFinite(section.rebuildFromLastNPrompts) ? (section.rebuildFromLastNPrompts as number) : 200,
+        };
+    }
+
+    /**
+     * Run one compaction pass in the background, integrating the just-
+     * completed exchange into the existing compacted summary. Updates
+     * `this.compactedSummary` and trims `this.rawTurns` when done.
+     *
+     * Compaction is expected to be faster than the Anthropic round-trip
+     * in the common case (small local LLM summarising a single exchange),
+     * but may be slower on bigger models — which is why sendMessage
+     * awaits `compactionInFlight` before sending the next turn.
+     */
+    private runCompactionInBackground(
+        lastExchange: ConversationMessage[],
+        questId: string | undefined,
+    ): Promise<void> {
+        const cfg = this.getCompactionConfig();
+        if (!cfg.llmConfigId) {
+            return Promise.resolve();
+        }
+        return (async () => {
+            try {
+                const existingSummary = this.compactedSummary;
+                const { runIncrementalCompaction } = await import('../services/history-compaction.js');
+                const newSummary = await runIncrementalCompaction({
+                    existingSummary,
+                    lastTurn: lastExchange,
+                    llmProvider: cfg.llmProvider,
+                    llmConfigId: cfg.llmConfigId,
+                    compactionTemplateId: cfg.compactionTemplateId,
+                    maxHistoryTokens: cfg.maxHistoryTokens,
+                    questId,
+                });
+                if (typeof newSummary === 'string' && newSummary.trim().length > 0) {
+                    this.compactedSummary = newSummary.trim();
+                }
+                // Trim raw turns so we only keep the last `maxRounds * 2`
+                // messages in memory. Older turns are already baked into
+                // `compactedSummary`.
+                const keep = Math.max(2, cfg.compactionMaxRounds * 2);
+                if (this.rawTurns.length > keep) {
+                    this.rawTurns = this.rawTurns.slice(-keep);
+                }
+                this.persistSessionHistory(questId);
+            } catch {
+                // best-effort; a failed compaction is recoverable on the next turn
+            }
+        })();
+    }
+
+    /**
+     * Run memory extraction in the background. Input: last exchange +
+     * current compacted summary + existing memory file content. Output
+     * is applied via the memory tools (or appended directly to the
+     * target file) inside the compaction service.
+     */
+    private runMemoryExtractionInBackground(
+        lastExchange: ConversationMessage[],
+        questId: string | undefined,
+    ): Promise<void> {
+        const cfg = this.getCompactionConfig();
+        if (!cfg.runMemoryExtractionOnCompaction || !cfg.llmConfigId) {
+            return Promise.resolve();
+        }
+        return (async () => {
+            try {
+                const { runIncrementalMemoryExtraction } = await import('../services/history-compaction.js');
+                await runIncrementalMemoryExtraction({
+                    lastTurn: lastExchange,
+                    compactedSummary: this.compactedSummary,
+                    llmProvider: cfg.llmProvider,
+                    llmConfigId: cfg.llmConfigId,
+                    memoryTemplateId: cfg.memoryExtractionTemplateId,
+                    questId,
+                });
+            } catch {
+                // best-effort
+            }
+        })();
+    }
+
+    /**
+     * Fallback history seed when no `{ts}.history.json` snapshot exists.
+     * Parses the last N entries from the quest's compact trail files
+     * (`<quest>.anthropic.prompts.md` + `.answers.md`), reconstructs a
+     * rawTurns array, and runs one compaction pass over older entries so
+     * the compactedSummary starts non-empty.
+     */
+    private async rebuildHistoryFromTrail(questId: string): Promise<void> {
+        try {
+            const cfg = this.getCompactionConfig();
+            const limit = Math.max(1, cfg.rebuildFromLastNPrompts);
+            const { loadLastNTrailExchanges } = await import('../services/history-compaction.js');
+            const exchanges = loadLastNTrailExchanges(questId, limit);
+            if (exchanges.length === 0) {
+                return;
+            }
+            // Keep the last N turns raw; any extra gets folded into the
+            // summary so the next turn's payload stays small.
+            const rawLimit = Math.max(2, cfg.compactionMaxRounds * 2);
+            const flat: ConversationMessage[] = [];
+            for (const pair of exchanges) {
+                if (pair.user) { flat.push({ role: 'user', content: pair.user }); }
+                if (pair.assistant) { flat.push({ role: 'assistant', content: pair.assistant }); }
+            }
+            if (flat.length <= rawLimit) {
+                this.rawTurns = flat;
+            } else {
+                this.rawTurns = flat.slice(-rawLimit);
+                // Fold the older prefix into the summary.
+                const older = flat.slice(0, flat.length - rawLimit);
+                if (older.length > 0 && cfg.llmConfigId) {
+                    try {
+                        const { runIncrementalCompaction } = await import('../services/history-compaction.js');
+                        const summary = await runIncrementalCompaction({
+                            existingSummary: '',
+                            lastTurn: older,
+                            llmProvider: cfg.llmProvider,
+                            llmConfigId: cfg.llmConfigId,
+                            compactionTemplateId: cfg.compactionTemplateId,
+                            maxHistoryTokens: cfg.maxHistoryTokens,
+                            questId,
+                        });
+                        if (typeof summary === 'string') { this.compactedSummary = summary.trim(); }
+                    } catch {
+                        // leave compactedSummary empty
+                    }
+                }
+            }
+            this.persistSessionHistory(questId);
+        } catch {
+            // best-effort — empty history is a safe fallback
+        }
     }
 
     /**
@@ -523,6 +826,15 @@ export class AnthropicHandler {
 
         this.seedHistoryFromSnapshot(quest);
 
+        // Await any background work from the previous turn before we
+        // build the wire payload. This emits status events the chat
+        // panel forwards to the webview ("waiting for history
+        // compaction…", etc.). Isolated sub-agent calls skip it so
+        // they don't stall on state they don't use.
+        if (!options.isolated) {
+            await this.awaitInFlightBackgroundWork();
+        }
+
         // Scan the outgoing message for `Remember:` / `Forget:` keyword
         // triggers (spec §5.4). Matched lines are handled in-process and
         // stripped; what's left goes to the model. A message that consists
@@ -567,7 +879,7 @@ export class AnthropicHandler {
         const payloadEffectiveTools = (transport === 'agentSdk' && profile.useBuiltInTools)
             ? tools.filter((t) => !DUPLICATES_OF_CLAUDE_CODE_BUILTINS.has(t.name))
             : tools;
-        const payloadHistory = options.isolated ? [] : this.history;
+        const payloadHistory = options.isolated ? [] : this.rawTurns;
         TrailService.instance.writeRawPayload(
             ANTHROPIC_SUBSYSTEM,
             buildPayloadDump({
@@ -582,6 +894,7 @@ export class AnthropicHandler {
                 effectiveCaching: payloadEffectiveCaching,
                 thinkingBudgetTokens: effectiveThinkingBudget,
                 useBuiltInTools: profile.useBuiltInTools === true,
+                compactedSummary: this.compactedSummary,
             }),
             windowId,
             requestId,
@@ -636,13 +949,17 @@ export class AnthropicHandler {
             );
             this.toolTrail.evictOldRounds();
 
-            // Skip history compaction (§18.4) — the SDK manages its own
-            // context window — but still record the exchange in our rolling
-            // history so users see continuity across direct/agentSdk
-            // switches within the same session.
+            // The Agent SDK runs its own context compaction, but we still
+            // append to rawTurns so continuity carries across
+            // direct/agentSdk transport switches in the same session. We
+            // also schedule our own background compaction + memory
+            // extraction so the compacted summary and memory files stay
+            // up to date regardless of transport.
             if (!options.isolated) {
-                this.history.push({ role: 'user', content: userContent });
-                this.history.push({ role: 'assistant', content: result.text });
+                const userMsg: ConversationMessage = { role: 'user', content: userContent };
+                const assistantMsg: ConversationMessage = { role: 'assistant', content: result.text };
+                this.rawTurns.push(userMsg, assistantMsg);
+                this.scheduleBackgroundCompactionAndExtraction([userMsg, assistantMsg], false);
             }
             return result;
         }
@@ -653,17 +970,37 @@ export class AnthropicHandler {
         }
 
         const anthropicTools = toAnthropicTools(tools);
-        const rollingHistory = options.isolated
+        // Wire payload shape:
+        //
+        //   [...rawTurns, <summary-prefix user>, <ack assistant>, currentUser]
+        //
+        // The compacted summary is placed *after* the raw turns (most-
+        // recent-first isn't what we want — rawTurns ARE the most recent
+        // complete-fidelity exchanges; the summary covers everything
+        // that preceded them and sits between the raw tail and the
+        // current prompt so the model reads it last before the new
+        // question). Empty `compactedSummary` = no synthetic pair.
+        const rollingHistory: AnthropicMessageParam[] = options.isolated
             ? []
-            : this.history.map((m) => ({
+            : this.rawTurns.map((m) => ({
                 role: m.role === 'system' ? 'user' : m.role as 'user' | 'assistant',
                 content: m.content,
             }));
+        const summaryBlock: AnthropicMessageParam[] = (!options.isolated && this.compactedSummary)
+            ? [
+                {
+                    role: 'user',
+                    content: `## Additional context (compacted from earlier turns)\n\n${this.compactedSummary}`,
+                },
+                {
+                    role: 'assistant',
+                    content: 'Understood — continuing with this context in mind.',
+                },
+            ]
+            : [];
         const messages: AnthropicMessageParam[] = [
-            // Rolling history from prior exchanges — compacted per-turn
-            // by the handler's post-exchange `compactHistory()` call.
-            // Skipped when options.isolated (subagent path).
             ...rollingHistory,
+            ...summaryBlock,
             { role: 'user', content: userContent },
         ];
 
@@ -782,70 +1119,66 @@ export class AnthropicHandler {
         );
         this.toolTrail.evictOldRounds();
 
-        // Accumulate this exchange into the rolling history, then
-        // compact it asynchronously for the next turn.
-        // Isolated sub-agent runs skip this so the parent conversation
-        // is unaffected by their intermediate reasoning.
+        // Accumulate this exchange into rawTurns, then schedule the
+        // background compaction + memory extraction passes for the next
+        // turn. Isolated sub-agent runs skip this so the parent
+        // conversation is unaffected by their intermediate reasoning.
         if (!isolated) {
-            this.history.push({ role: 'user', content: userContent });
-            this.history.push({ role: 'assistant', content: text });
-            void this.compactHistoryAsync(configuration);
+            const userMsg: ConversationMessage = { role: 'user', content: userContent };
+            const assistantMsg: ConversationMessage = { role: 'assistant', content: text };
+            this.rawTurns.push(userMsg, assistantMsg);
+            // Persist the raw-turn append *now* (before compaction
+            // finishes) so a crash during compaction doesn't lose this
+            // exchange.
+            this.persistSessionHistory(TwoTierMemoryService.instance.currentQuest());
+            this.scheduleBackgroundCompactionAndExtraction([userMsg, assistantMsg], false);
         }
 
         return { text, turnsUsed, toolCallCount, stopReason };
     }
 
     /**
-     * Fire-and-forget: compact the rolling history per the configuration's
-     * `historyMode` and reassign `this.history`. Errors are swallowed so a
-     * failed compaction can never corrupt the user-visible result.
+     * Fire-and-forget background work after a completed exchange:
+     *   1. Run an incremental compaction pass so the compacted summary
+     *      absorbs the just-completed turn. Trims rawTurns to the last
+     *      `maxRounds * 2`.
+     *   2. If `runMemoryExtractionOnCompaction` is enabled, run a memory
+     *      extraction pass over the last turn + current summary +
+     *      existing memory so durable facts move into the quest memory
+     *      file.
+     *
+     * Both promises are stored on the handler so the next sendMessage
+     * can await them and show "waiting for history compaction…" /
+     * "waiting for memory extraction…" in the UI.
+     *
+     * Sub-agent (isolated) runs skip this entirely — their ephemeral
+     * conversation must not leak into the parent session's state.
      */
-    private async compactHistoryAsync(configuration: AnthropicConfiguration): Promise<void> {
-        try {
-            // Default mode: trim_and_summary. Older configs stored 'last' /
-            // 'none' — both collapse into trim_and_summary at the callsite
-            // level so we never pass a removed enum value into compaction.
-            const rawMode = configuration.historyMode as string | undefined;
-            const mode: HistoryMode = (rawMode === 'full' || rawMode === 'summary' || rawMode === 'trim_and_summary' || rawMode === 'llm_extract')
-                ? rawMode
-                : 'trim_and_summary';
-            const section = TomAiConfiguration.instance.getSection<{
-                llmProvider?: 'localLlm' | 'anthropic';
-                llmConfigId?: string;
-                compactionTemplateId?: string;
-                memoryExtractionTemplateId?: string;
-                compactionMaxRounds?: number;
-            }>('compaction') ?? {};
-            const snapshot = [...this.history];
-            const compacted = await compactHistory(snapshot, {
-                mode,
-                maxHistoryTokens: configuration.maxHistoryTokens,
-                maxRounds: 1,
-                llmProvider: section.llmProvider ?? 'anthropic',
-                llmConfigId: section.llmConfigId ?? configuration.id,
-                compactionTemplateId: section.compactionTemplateId,
-                memoryTemplateId: configuration.memoryExtractionTemplateId ?? section.memoryExtractionTemplateId,
-                compactionMaxRounds: section.compactionMaxRounds ?? 1,
-                memoryPath: TwoTierMemoryService.instance.memoryRoot(),
-                questId: TwoTierMemoryService.instance.currentQuest(),
-            });
-            // Only adopt the result if the history hasn't been mutated
-            // in the meantime (e.g. by a concurrent sendMessage call).
-            if (this.history.length === snapshot.length) {
-                this.history = compacted;
+    private scheduleBackgroundCompactionAndExtraction(
+        lastExchange: ConversationMessage[],
+        isolated: boolean,
+    ): void {
+        if (isolated) { return; }
+        const questId = TwoTierMemoryService.instance.currentQuest();
+        // Compaction runs first; memory extraction reads `this.compactedSummary`
+        // so it benefits from any just-written summary. Each pass is a
+        // separate promise so sendMessage can await them independently
+        // and emit precise status updates.
+        this.compactionInFlight = this.runCompactionInBackground(lastExchange, questId)
+            .finally(() => { this.compactionInFlight = null; });
+        this.memoryExtractionInFlight = (async () => {
+            try {
+                // Chain so memory extraction sees the freshly updated
+                // compactedSummary. If compaction failed we still run
+                // extraction against whatever summary we had before.
+                if (this.compactionInFlight) {
+                    try { await this.compactionInFlight; } catch { /* already handled */ }
+                }
+                await this.runMemoryExtractionInBackground(lastExchange, questId);
+            } catch {
+                // swallowed
             }
-            // Persist the freshly compacted snapshot for multi-session
-            // continuity (spec §5.2). Only writes when there's something
-            // worth saving — an empty compaction has no recall value.
-            if (compacted.length > 0) {
-                TwoTierMemoryService.instance.persistHistorySnapshot(
-                    compacted,
-                    TwoTierMemoryService.instance.currentQuest(),
-                );
-            }
-        } catch {
-            // Swallow — compaction is best-effort background work.
-        }
+        })().finally(() => { this.memoryExtractionInFlight = null; });
     }
 
     // ------------------------------------------------------------------------

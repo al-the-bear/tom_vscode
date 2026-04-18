@@ -212,6 +212,12 @@ export interface SendToChatConfig {
         backgroundExtractionEnabled?: boolean;
         /** Whether memory extraction runs after every compaction pass. */
         runMemoryExtractionOnCompaction?: boolean;
+        /**
+         * Fallback seed size when the handler finds no history file but
+         * compact trail files (prompts.md / answers.md) do exist in the
+         * quest folder. Default 200.
+         */
+        rebuildFromLastNPrompts?: number;
         templates?: Array<{
             id: string;
             name: string;

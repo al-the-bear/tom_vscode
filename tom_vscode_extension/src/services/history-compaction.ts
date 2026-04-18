@@ -561,6 +561,206 @@ async function runLlmExtract(
 }
 
 // ============================================================================
+// Incremental (every-turn) compaction + memory extraction
+// ============================================================================
+
+/**
+ * Incremental compaction: integrate the last user/assistant exchange
+ * into the existing compacted summary. Returns the NEW summary (or
+ * empty string on failure). Callers assign it to their session state
+ * atomically.
+ *
+ * Template placeholders: `${existingSummary}`, `${lastTurn}`,
+ * `${maxHistoryTokens}`, `${maxHistorySize}` (char target = tokens × 4),
+ * `${lastTurnCharCount}`.
+ */
+export async function runIncrementalCompaction(params: {
+    existingSummary: string;
+    lastTurn: ConversationMessage[];
+    llmProvider: CompactionLlmProvider;
+    llmConfigId: string;
+    compactionTemplateId?: string;
+    maxHistoryTokens?: number;
+    questId?: string;
+}): Promise<string> {
+    const tpl = resolveCompactionTemplate(params.compactionTemplateId);
+    if (!tpl) { return params.existingSummary; }
+    const budget = params.maxHistoryTokens ?? 8000;
+    const lastTurnText = formatHistoryForTemplate(params.lastTurn);
+    const userPrompt = expandTemplate(tpl.template, {
+        existingSummary: params.existingSummary || '(empty — this is the first turn of the session)',
+        // Also expose the last turn under the legacy ${compactionHistory}
+        // name so older templates keep working.
+        compactionHistory: lastTurnText,
+        lastTurn: lastTurnText,
+        compactionMode: 'incremental',
+        turnCount: String(params.lastTurn.length),
+        turnsDropped: '0',
+        keptTurnCount: String(params.lastTurn.length),
+        tokenEstimate: String(historyTokens(params.lastTurn)),
+        maxHistorySize: String(budget * CHARS_PER_TOKEN),
+        maxHistoryTokens: String(budget),
+        lastTurnCharCount: String(params.lastTurn.reduce((n, m) => n + (m.content?.length ?? 0), 0)),
+    });
+    const options: CompactionOptions = {
+        mode: 'trim_and_summary',
+        llmProvider: params.llmProvider,
+        llmConfigId: params.llmConfigId,
+        compactionTemplateId: params.compactionTemplateId,
+        maxHistoryTokens: budget,
+        questId: params.questId,
+        source: 'every-turn',
+    };
+    return (await runCompactionCall(options, 'You compact conversation history.', userPrompt)).trim();
+}
+
+/**
+ * Every-turn memory extraction. Input: last exchange + current
+ * compacted summary + existing memory file. Output is handled by the
+ * underlying compaction LLM call and appended to the quest (or shared)
+ * memory file by the service.
+ *
+ * Template placeholders: `${lastTurn}`, `${compactedSummary}`,
+ * `${existingMemory}`, `${memoryFilePath}`, `${memoryScope}`.
+ */
+export async function runIncrementalMemoryExtraction(params: {
+    lastTurn: ConversationMessage[];
+    compactedSummary: string;
+    llmProvider: CompactionLlmProvider;
+    llmConfigId: string;
+    memoryTemplateId?: string;
+    questId?: string;
+}): Promise<void> {
+    const tpl = resolveMemoryExtractionTemplate(params.memoryTemplateId);
+    if (!tpl) { return; }
+    const memorySvc = TwoTierMemoryService.instance;
+    const scope = tpl.scope === 'shared' ? 'shared' : 'quest';
+    const existing = memorySvc.read(scope, tpl.targetFile, params.questId);
+    const memoryFilePath = memorySvc.filePath(scope, tpl.targetFile, params.questId);
+    const userPrompt = expandTemplate(tpl.template, {
+        lastTurn: formatHistoryForTemplate(params.lastTurn),
+        // Accept both names so either phrasing works in a template.
+        compactedSummary: params.compactedSummary,
+        compactedHistory: params.compactedSummary,
+        // Legacy key used by existing templates.
+        recentHistory: formatHistoryForTemplate(params.lastTurn),
+        existingMemory: existing,
+        memoryFilePath,
+        memoryScope: scope,
+    });
+    const options: CompactionOptions = {
+        mode: 'trim_and_summary',
+        llmProvider: params.llmProvider,
+        llmConfigId: params.llmConfigId,
+        memoryTemplateId: params.memoryTemplateId,
+        questId: params.questId,
+        source: 'every-turn',
+    };
+    const extracted = (await runCompactionCall(
+        options,
+        'You extract durable facts worth remembering.',
+        userPrompt,
+        'memory',
+    )).trim();
+    if (!extracted) {
+        logCompactionWarn(`memory extraction returned empty output (template=${tpl.id})`);
+        return;
+    }
+    const model = params.llmProvider === 'anthropic'
+        ? loadSendToChatConfig()?.anthropic?.configurations?.find((c) => c.id === params.llmConfigId)?.model
+        : loadSendToChatConfig()?.localLlm?.configurations?.find((c) => c.id === params.llmConfigId)?.model;
+    logMemoryExtraction({
+        templateId: tpl.id,
+        templateName: loadSendToChatConfig()?.compaction?.memoryExtractionTemplates?.find((t) => t.id === tpl.id)?.name,
+        provider: params.llmProvider,
+        configId: params.llmConfigId,
+        model,
+        scope: tpl.scope,
+        targetFile: tpl.targetFile,
+        outputChars: extracted.length,
+        questId: params.questId,
+    });
+    if (tpl.scope === 'both') {
+        memorySvc.append('quest', tpl.targetFile, extracted, params.questId);
+        memorySvc.append('shared', tpl.targetFile, extracted, params.questId);
+        logMemoryWrite(`quest:${tpl.targetFile}`, Buffer.byteLength(extracted, 'utf8'), 'append');
+        logMemoryWrite(`shared:${tpl.targetFile}`, Buffer.byteLength(extracted, 'utf8'), 'append');
+    } else {
+        memorySvc.append(scope, tpl.targetFile, extracted, params.questId);
+        logMemoryWrite(`${scope}:${tpl.targetFile}`, Buffer.byteLength(extracted, 'utf8'), 'append');
+    }
+}
+
+// ============================================================================
+// Trail-based rebuild
+// ============================================================================
+
+/**
+ * Parse the last N exchanges from the quest's compact trail files
+ * (`<quest>.anthropic.prompts.md` + `.answers.md`) and return them as
+ * paired user/assistant strings, most recent last.
+ *
+ * Entries have a `=== PROMPT <requestId> <timestamp> <seq> ===` header;
+ * we walk headers from newest to oldest until we hit `n` or run out.
+ */
+export function loadLastNTrailExchanges(
+    questId: string,
+    n: number,
+): Array<{ user: string; assistant: string }> {
+    const limit = Math.max(1, n);
+    try {
+        // Resolve the trail summary file paths via TrailService.
+        const prompts = TrailService.instance.getSummaryFilePath('prompts', { type: 'anthropic' as const }, questId);
+        const answers = TrailService.instance.getSummaryFilePath('answers', { type: 'anthropic' as const }, questId);
+        if (!prompts || !answers) { return []; }
+        const fsMod = require('fs') as typeof import('fs');
+        const readEntries = (file: string): Map<string, string> => {
+            const out = new Map<string, string>();
+            if (!fsMod.existsSync(file)) { return out; }
+            const text = fsMod.readFileSync(file, 'utf-8');
+            // Entries are prepended newest-first. Header:
+            //   === PROMPT <id> <iso> <seq> === / === ANSWER <id> <iso> <seq> ===
+            const lines = text.split(/\r?\n/);
+            let currentId = '';
+            let buf: string[] = [];
+            const flush = (): void => {
+                if (currentId) {
+                    const body = buf.join('\n').replace(/\n+TEMPLATE:[\s\S]*$/, '').trim();
+                    if (body && !out.has(currentId)) { out.set(currentId, body); }
+                }
+                buf = [];
+            };
+            for (const line of lines) {
+                const headerMatch = line.match(/^===\s*(?:PROMPT|ANSWER)\s+(\S+)\s+\S+\s+\d+\s*===$/);
+                if (headerMatch) {
+                    flush();
+                    currentId = headerMatch[1];
+                    continue;
+                }
+                if (currentId) { buf.push(line); }
+            }
+            flush();
+            return out;
+        };
+        const promptMap = readEntries(prompts);
+        const answerMap = readEntries(answers);
+        // Iterate in insertion order — the prepend pattern means the
+        // first entries in each file are the newest.
+        const out: Array<{ user: string; assistant: string }> = [];
+        for (const [id, user] of promptMap.entries()) {
+            const assistant = answerMap.get(id) ?? '';
+            if (!user && !assistant) { continue; }
+            out.push({ user, assistant });
+            if (out.length >= limit) { break; }
+        }
+        // Reverse so callers get chronological order (oldest first).
+        return out.reverse();
+    } catch {
+        return [];
+    }
+}
+
+// ============================================================================
 // Public entry point (spec §6.5)
 // ============================================================================
 
