@@ -1024,6 +1024,13 @@ export class AnthropicHandler {
                 const userMsg: ConversationMessage = { role: 'user', content: userContent };
                 const assistantMsg: ConversationMessage = { role: 'assistant', content: result.text };
                 this.rawTurns.push(userMsg, assistantMsg);
+                // Persist the raw-turn append immediately (same as the
+                // direct-transport finalize()). Without this, the
+                // history.json / history.md files only get the new turn
+                // once background compaction completes, so inspecting
+                // the files right after a send can show a stale
+                // user-only view.
+                this.persistSessionHistory(TwoTierMemoryService.instance.currentQuest());
                 this.scheduleBackgroundCompactionAndExtraction([userMsg, assistantMsg], false);
             }
             return result;
