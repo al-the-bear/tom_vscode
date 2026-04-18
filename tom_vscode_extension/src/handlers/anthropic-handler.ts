@@ -1372,25 +1372,16 @@ export class AnthropicHandler {
      * everything up to and including it becomes a cache checkpoint (per spec
      * §5.2 / §16: "the memory injection block after Phase 3").
      */
-    private buildSystemSegments(profile: AnthropicProfile, questId?: string): string[] {
+    private buildSystemSegments(profile: AnthropicProfile, _questId?: string): string[] {
+        // Memory injection is no longer automatic. Drop `${memory}`,
+        // `${memory-shared}`, or `${memory-quest}` into the profile's
+        // system prompt (or a user-message template — usually better
+        // for prompt caching) to include a memory block. The placeholder
+        // resolver reads anthropic.memory.maxInjectedTokens for the
+        // char budget.
         const segments: string[] = [];
         const base = resolveVariables(profile.systemPrompt ?? '');
         if (base) { segments.push(base); }
-        const memorySection = TomAiConfiguration.instance.getSection<{
-            enabled?: boolean;
-            injectIntoSystemPrompt?: boolean;
-            maxInjectedTokens?: number;
-        }>('memory') ?? {};
-        if (memorySection.enabled === false || memorySection.injectIntoSystemPrompt === false) {
-            return segments;
-        }
-        const injection = TwoTierMemoryService.instance.injectForSystemPrompt(
-            memorySection.maxInjectedTokens,
-            questId,
-        );
-        if (injection.text) {
-            segments.push(injection.text);
-        }
         return segments;
     }
 

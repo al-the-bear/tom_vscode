@@ -846,7 +846,79 @@ function resolveFileInjectionKey(key: string, values: Record<string, string>): s
         return safeReadFileSync(resolved);
     }
 
+    // ${memory}         — full block: shared/* (priority) + quest/* (newest-first)
+    // ${memory-shared}  — shared scope only
+    // ${memory-quest}   — current quest's scope only
+    //
+    // The budget (chars) is sourced from anthropic.memory.maxInjectedTokens
+    // (token × 4). Drop the placeholder into either the profile system
+    // prompt or a user-message template — wherever you want the block to
+    // appear. When you put it in the user prompt, the (often long) system
+    // prompt above stays byte-identical turn-to-turn, so prompt caching
+    // keeps hitting.
+    if (key === 'memory' || key === 'memory-shared' || key === 'memory-quest') {
+        return resolveMemoryPlaceholder(key, values);
+    }
+
     return undefined;
+}
+
+/**
+ * Compute a memory block for the `${memory*}` placeholders. Lazy-loads
+ * TwoTierMemoryService to avoid a static circular dep with handler_shared.
+ * Uses the current `${quest}` value (from the chat variables) and the
+ * `anthropic.memory.maxInjectedTokens` setting as the char budget; falls
+ * back to 3000 tokens when neither is configured.
+ */
+function resolveMemoryPlaceholder(
+    key: 'memory' | 'memory-shared' | 'memory-quest',
+    values: Record<string, string>,
+): string {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const mod = require('./memory-service') as typeof import('../services/memory-service');
+        // ...but that import path is wrong from this file's perspective.
+        void mod;
+    } catch { /* ignored — actual load below */ }
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const mod = require('../services/memory-service') as typeof import('../services/memory-service');
+        const svc = mod.TwoTierMemoryService.instance;
+        // Read the memory injection budget off the active config.
+        let budgetTokens = 3000;
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const handlerShared = require('../handlers/handler_shared') as typeof import('../handlers/handler_shared');
+            const cfg = handlerShared.loadSendToChatConfig();
+            const v = cfg?.anthropic?.memory?.maxInjectedTokens;
+            if (typeof v === 'number' && Number.isFinite(v) && v >= 0) { budgetTokens = v; }
+        } catch { /* fallback stays */ }
+        const quest = values['quest'] || values['chat.quest'] || '';
+        // When a subset is requested, shrink the injection to only that
+        // scope's files by re-rendering manually — `injectForSystemPrompt`
+        // always emits both scopes. Cheaper than parameterising the
+        // service for a rarely-used path.
+        if (key === 'memory') {
+            return svc.injectForSystemPrompt(budgetTokens, quest || undefined).text;
+        }
+        const charBudget = Math.max(0, budgetTokens * 4);
+        const scope: 'shared' | 'quest' = key === 'memory-shared' ? 'shared' : 'quest';
+        const entries = svc.listWithMeta(scope, quest || undefined);
+        const ordered = scope === 'quest' ? entries.sort((a, b) => b.mtime - a.mtime) : entries;
+        const blocks: string[] = [];
+        let used = 0;
+        for (const e of ordered) {
+            const body = svc.read(scope, e.file, quest || undefined).trim();
+            if (!body) { continue; }
+            const block = `### ${e.scope}/${e.file}\n${body}\n`;
+            if (used + block.length > charBudget) { break; }
+            blocks.push(block);
+            used += block.length;
+        }
+        return blocks.length > 0 ? `## Memory (${scope})\n\n${blocks.join('\n')}` : '';
+    } catch {
+        return '';
+    }
 }
 
 /**
@@ -1147,6 +1219,9 @@ Use <code>#key=description</code> notation in prompts to request specific respon
 <code>\${role-NAME}</code> – <code>_ai/roles/NAME.md</code> (fallback: <code>_ai/roles/NAME/role.md</code>). Example: <code>\${role-reviewer}</code>.<br>
 <code>\${quest-TYPE}</code> – First file matching <code>_ai/quests/\${quest}/TYPE.\${quest}.*</code>. Example: <code>\${quest-overview}</code>, <code>\${quest-copilot_todos}</code>.<br>
 <code>\${file-PATH}</code> – Inline any file; <code>PATH</code> is workspace-relative, or absolute when it starts with <code>/</code>. Example: <code>\${file-README.md}</code>, <code>\${file-/etc/hosts}</code>.<br>
+<code>\${memory}</code> – The full two-tier memory block: shared memory (priority), then the current quest's memory newest-first. Char budget comes from <code>anthropic.memory.maxInjectedTokens</code> (× 4). Put this in the user-message template (preferred, so prompt caching on the system prompt keeps hitting) or directly in the system prompt.<br>
+<code>\${memory-shared}</code> – <code>_ai/memory/shared/*.md</code> only.<br>
+<code>\${memory-quest}</code> – <code>_ai/memory/quest/\${quest}/*.md</code> only, newest-first.<br>
 <br>
 <em>Path variables support sub-properties:</em><br>
 <code>\${KEY.name}</code> – Filename/basename without extension<br>

@@ -10,7 +10,7 @@ Primary categories:
 
 - workspace/context values (`workspace`, `workspaceFolder`, `vs-code-workspace-name`, `vs-code-workspace-folder`, file, selection),
 - chat variables (`quest`, `role`, `activeProjects`, `todo`, `workspaceName`),
-- file-injection placeholders — active role/quest shortcuts (`role-description`, `quest-description`), workspace instructions (`claude.md`, `copilot-instructions`, `instructions`), named guideline/role/quest files (`guidelines-<name>`, `role-<name>`, `quest-<type>`), and arbitrary files (`file-<path>`). See [File-injection placeholders](#file-injection-placeholders) below for the full reference.
+- file-injection placeholders — active role/quest shortcuts (`role-description`, `quest-description`), workspace instructions (`claude.md`, `copilot-instructions`, `instructions`), named guideline/role/quest files (`guidelines-<name>`, `role-<name>`, `quest-<type>`), arbitrary files (`file-<path>`), and two-tier memory (`memory`, `memory-shared`, `memory-quest`). See [File-injection placeholders](#file-injection-placeholders) below for the full reference.
 
 ## VS Code Workspace Placeholders
 
@@ -124,6 +124,26 @@ ${file-src/main.ts}                    → <workspace>/src/main.ts
 ${file-/etc/hosts}                     → /etc/hosts (absolute)
 ${file-_ai/notes/design-decisions.md}  → <workspace>/_ai/notes/…
 ```
+
+### Memory
+
+The two-tier memory files (`_ai/memory/shared/*.md`, `_ai/memory/quest/<quest>/*.md`) are exposed as placeholders so you can put them wherever gives you the best prompt-caching behavior:
+
+| Placeholder | Expands to |
+| --- | --- |
+| `${memory}` | Full block: shared memory (priority), then the current quest's memory newest-first, prefixed by `## Memory`. |
+| `${memory-shared}` | Only `_ai/memory/shared/*.md`, prefixed by `## Memory (shared)`. |
+| `${memory-quest}` | Only the current quest's memory, prefixed by `## Memory (quest)`. |
+
+Char budget comes from `anthropic.memory.maxInjectedTokens × 4` (default 3000 tokens → 12000 chars). Files that would push the block past budget are dropped.
+
+**Prompt caching note.** Anthropic's prompt cache matches on a byte-identical prefix; any change to the system prompt invalidates the cache for that session. Memory content changes as the extractor runs → drop `${memory}` into a **user-message template** rather than the profile's system prompt, and the system prefix stays stable so the cache keeps hitting.
+
+Quick setups:
+
+- **Caching-friendly** — system prompt has no memory; user-message template is `default-memory-injection` extended with `${memory}` at the top, or a dedicated `with-memory` template that prepends `${memory}\n\n${userMessage}`.
+- **Simple** — put `${memory}` at the top of the profile's system prompt. Memory shows up without any user-template changes, but caching misses every turn.
+- **Tool-only** — don't use the placeholder at all; enable memory tools in the compaction panel. The agent reads memory via `tomAi_readMemory` / `tomAi_listMemory` on demand; no injection, no cache invalidation.
 
 ### Available in every template context
 

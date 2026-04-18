@@ -118,16 +118,11 @@
                     "default": "_ai/memory",
                     "description": "Workspace-relative root directory for memory files."
                 },
-                "injectIntoSystemPrompt": {
-                    "type": "boolean",
-                    "default": true,
-                    "description": "Whether memory contents are injected into the Anthropic system prompt."
-                },
                 "maxInjectedTokens": {
                     "type": "integer",
                     "minimum": 0,
                     "default": 3000,
-                    "description": "Token cap for memory injection."
+                    "description": "Token cap for the ${memory} / ${memory-shared} / ${memory-quest} placeholders. Memory is no longer auto-injected into the system prompt — add the placeholder to your profile's system prompt or user-message template to opt in."
                 },
                 "keywordTriggers": {
                     "type": "object",
