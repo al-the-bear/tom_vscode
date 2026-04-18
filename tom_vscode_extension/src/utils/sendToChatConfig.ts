@@ -162,6 +162,13 @@ export interface SendToChatConfig {
             name: string;
             description?: string;
             systemPrompt: string;
+            /**
+             * Profile-level wrapper applied after `userMessageTemplate`
+             * has expanded. Must include `${wrappedPrompt}`. Intended
+             * for "system-like" context injection kept at the user-
+             * prompt layer for prompt-caching friendliness.
+             */
+            userPromptWrapper?: string;
             configurationId?: string;
             toolsEnabled?: boolean;
             enabledTools?: string[];

@@ -115,6 +115,21 @@ export interface AnthropicProfile {
      * direct Anthropic SDK path.
      */
     useBuiltInTools?: boolean;
+    /**
+     * Profile-level wrapper applied *after* the `userMessageTemplate`
+     * has expanded. Meant for "system-like" injections the profile wants
+     * to attach at the user-prompt layer so the system prompt itself can
+     * stay byte-identical across turns (better for prompt caching).
+     *
+     * Must contain `${wrappedPrompt}` where the user-message-template
+     * result should be inlined. Leave empty to skip this wrapping stage.
+     *
+     * Expansion order on every send:
+     *   1. raw user text
+     *   2. userMessageTemplate wraps it (via `${userMessage}`) → `wrappedPrompt`
+     *   3. profile.userPromptWrapper wraps *that* (via `${wrappedPrompt}`) → final
+     */
+    userPromptWrapper?: string;
 }
 
 interface AnthropicSection {
@@ -1477,17 +1492,40 @@ export class AnthropicHandler {
         options: AnthropicSendOptions,
         extras?: { compactedSummary?: string; rawTurns?: ConversationMessage[] },
     ): string {
-        const template = options.userMessageTemplate;
-        if (!template) {
-            return options.userText;
-        }
         const compactedSummary = extras?.compactedSummary ?? '';
         const rawTurns = extras?.rawTurns ?? [];
         const rawTurnsFormatted = rawTurns
             .map((m) => `[${m.role}] ${typeof m.content === 'string' ? m.content : String(m.content ?? '')}`)
             .join('\n\n');
-        return resolveVariables(template, {
+
+        // Stage 1: expand userMessageTemplate (if any) around the raw
+        // user text via ${userMessage}. When no template is set, the
+        // wrapped prompt is the raw text itself.
+        const template = options.userMessageTemplate;
+        const wrappedPrompt = template
+            ? resolveVariables(template, {
+                values: {
+                    userMessage: options.userText,
+                    compactedSummary,
+                    rawTurns: rawTurnsFormatted,
+                    rawTurnCount: String(rawTurns.length),
+                },
+            })
+            : options.userText;
+
+        // Stage 2: expand profile.userPromptWrapper around wrappedPrompt
+        // via ${wrappedPrompt}. This is the "system-like injection at
+        // the user-prompt layer" slot — lets a profile attach context
+        // (memory, role banner, etc.) without touching the system
+        // prompt, so prompt caching on the system prefix keeps hitting.
+        const profile = options.profile as AnthropicProfile & { userPromptWrapper?: string };
+        const wrapper = profile?.userPromptWrapper;
+        if (!wrapper || !wrapper.includes('${wrappedPrompt}')) {
+            return wrappedPrompt;
+        }
+        return resolveVariables(wrapper, {
             values: {
+                wrappedPrompt,
                 userMessage: options.userText,
                 compactedSummary,
                 rawTurns: rawTurnsFormatted,

@@ -378,6 +378,7 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                 { name: 'name', label: 'Name', type: 'text', value: profile.name || '' },
                 { name: 'description', label: 'Description', type: 'text', value: profile.description || '' },
                 { name: 'systemPrompt', label: 'System Prompt', type: 'textarea', value: profile.systemPrompt || '', help: PLACEHOLDER_HELP + '<br><br>Sent as the Anthropic <code>system</code> parameter. Supports <code>${role-description}</code> and <code>${quest-description}</code>.' },
+                { name: 'userPromptWrapper', label: 'User Prompt Wrapper', type: 'textarea', value: (profile as { userPromptWrapper?: string }).userPromptWrapper || '', help: 'Profile-level wrapper applied <strong>after</strong> the user-message template has expanded — meant for "system-like" injections kept at the user-prompt layer so the system prompt can stay byte-identical across turns (prompt-caching friendly).<br><br><strong>Must contain <code>${wrappedPrompt}</code></strong> where the user-message-template result should appear. Also has access to <code>${compactedSummary}</code>, <code>${rawTurns}</code>, <code>${rawTurnCount}</code>, and the full workspace placeholder set (<code>${memory}</code>, <code>${instructions}</code>, <code>${role-description}</code>, …).<br><br>Leave empty to skip this wrapping stage.<br><br>Expansion order:<br>1. raw user text<br>2. User Message Template wraps it (<code>${userMessage}</code>) → <code>wrappedPrompt</code><br>3. this wrapper wraps <code>wrappedPrompt</code> → final message sent to Anthropic.' },
                 { name: 'configurationId', label: 'Configuration', type: 'select', value: profile.configurationId || '', options: configurationOptions, help: 'Which <code>anthropic.configurations[]</code> entry this profile uses. "(inherit default)" falls back to the configuration marked <code>isDefault</code>.' },
                 { name: 'allToolsEnabled', label: 'All Tools Enabled', type: 'checkbox', value: String(allToolsEnabled), help: 'When checked, <strong>every</strong> tool the extension knows about (all of <code>ALL_SHARED_TOOLS</code>) is exposed to the model. Uncheck to pick a profile-specific subset below.' },
                 { name: 'enabledTools', label: 'Tools', type: 'multi-checkbox', value: JSON.stringify(profileEnabledTools), options: toolOptions, disabledWhen: { field: 'allToolsEnabled', equals: 'true' }, help: 'Profile-level tool subset. Active only when "All Tools Enabled" is off. Empty subset → no tools.' },
@@ -482,6 +483,12 @@ async function _handleMessage(msg: any): Promise<void> {
             break;
         case 'add':
             await _addItem(msg.category);
+            break;
+        case 'copy':
+            await _copyItem(msg.category, msg.itemId);
+            break;
+        case 'rename':
+            await _renameItem(msg.category, msg.itemId);
             break;
         case 'delete':
             await _deleteItem(msg.category, msg.itemId);
@@ -688,11 +695,13 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
             const promptCachingEnabled = values.promptCachingEnabled !== 'false'; // default on
             const toolApprovalMode: 'always' | 'never' = values.toolApprovalMode === 'never' ? 'never' : 'always';
             const useBuiltInTools = values.useBuiltInTools === 'true';
+            const userPromptWrapper = (values.userPromptWrapper || '').trim();
             const next = {
                 id: itemId,
                 name: values.name || itemId,
                 description: values.description || '',
                 systemPrompt: values.systemPrompt || '',
+                ...(userPromptWrapper ? { userPromptWrapper } : {}),
                 configurationId: values.configurationId || undefined,
                 toolsEnabled: allToolsEnabled,
                 ...(allToolsEnabled ? {} : { enabledTools: enabledTools ?? [] }),
@@ -712,6 +721,12 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
                 // clear it from disk.
                 if (allToolsEnabled && 'enabledTools' in existing) {
                     delete existing.enabledTools;
+                }
+                // Drop a stale userPromptWrapper when the user cleared
+                // it. `next` omits the field when empty (see above), so
+                // without this the spread would preserve the old value.
+                if (!userPromptWrapper && 'userPromptWrapper' in existing) {
+                    delete existing.userPromptWrapper;
                 }
                 profiles[idx] = { ...existing, ...next };
             } else {
@@ -945,6 +960,276 @@ async function _addItem(category: TemplateCategory): Promise<void> {
 
     if (saveSendToChatConfig(config)) {
         _sendAllData(category, name);
+    }
+}
+
+/**
+ * Unique id generator: probe `${base}_copy`, `${base}_copy2`, …,
+ * `${base}_copyN` until one is free. Used by `_copyItem` to pick a
+ * default new id without collisions.
+ */
+function _uniqueIdFromBase(base: string, existingIds: Set<string>): string {
+    let candidate = `${base}_copy`;
+    if (!existingIds.has(candidate)) { return candidate; }
+    for (let i = 2; i < 1000; i++) {
+        candidate = `${base}_copy${i}`;
+        if (!existingIds.has(candidate)) { return candidate; }
+    }
+    return `${base}_copy${Date.now()}`;
+}
+
+/**
+ * List the existing ids for a category so rename/copy prompts can
+ * validate uniqueness and suggest defaults. Returns an empty set for
+ * unknown categories rather than throwing — the caller's switch handles
+ * the actual per-category logic.
+ */
+function _listIds(config: NonNullable<ReturnType<typeof loadSendToChatConfig>>, category: TemplateCategory): Set<string> {
+    switch (category) {
+        case 'copilot':               return new Set(Object.keys(config.copilot?.templates ?? {}));
+        case 'tomAiChat':             return new Set(Object.keys(config.tomAiChat?.templates ?? {}));
+        case 'conversation':          return new Set(Object.keys((config as any).aiConversation?.profiles ?? {}));
+        case 'localLlm':              return new Set(Object.keys((config as any).localLlm?.profiles ?? {}));
+        case 'reminder':              return new Set(((config as any).reminders?.templates ?? []).map((t: any) => t.id));
+        case 'timedRequests':         return new Set(((config as any).timedRequests ?? []).map((r: any) => r.id));
+        case 'anthropicProfiles':     return new Set((config.anthropic?.profiles ?? []).map((p) => p.id));
+        case 'anthropicUserMessage':  return new Set((config.anthropic?.userMessageTemplates ?? []).map((t) => t.id));
+        case 'compaction':            return new Set((config.compaction?.templates ?? []).map((t) => t.id));
+        case 'memoryExtraction':      return new Set((config.compaction?.memoryExtractionTemplates ?? []).map((t) => t.id));
+        default:                      return new Set();
+    }
+}
+
+/**
+ * Duplicate the selected item under a new id. The prompt defaults to
+ * `<itemId>_copy` and increments (`_copy2`, `_copy3`, …) when that's
+ * taken. Copy preserves every field from the source; only the id
+ * (and its display name where the two are coupled) changes. Supports
+ * every category except `selfTalk` (fixed-slot Person A / Person B).
+ */
+async function _copyItem(category: TemplateCategory, itemId: string): Promise<void> {
+    if (category === 'selfTalk') {
+        vscode.window.showWarningMessage('Self-Talk profiles are fixed slots — nothing to copy.');
+        return;
+    }
+    const config = loadSendToChatConfig();
+    if (!config) return;
+
+    const existing = _listIds(config, category);
+    const suggested = _uniqueIdFromBase(itemId, existing);
+    const newId = await vscode.window.showInputBox({
+        prompt: `Copy "${itemId}" as…`,
+        value: suggested,
+        validateInput: (v) => {
+            const trimmed = (v || '').trim();
+            if (!trimmed) { return 'Name cannot be empty'; }
+            if (trimmed === itemId) { return 'Pick a different name'; }
+            if (existing.has(trimmed)) { return 'Already exists'; }
+            return null;
+        },
+    });
+    if (!newId) return;
+    const targetId = newId.trim();
+
+    switch (category) {
+        case 'copilot': {
+            const src = config.copilot?.templates?.[itemId];
+            if (!src) return;
+            config.copilot!.templates![targetId] = JSON.parse(JSON.stringify(src));
+            break;
+        }
+        case 'tomAiChat': {
+            const src = config.tomAiChat?.templates?.[itemId];
+            if (!src) return;
+            config.tomAiChat!.templates![targetId] = JSON.parse(JSON.stringify(src));
+            break;
+        }
+        case 'conversation': {
+            const src = (config as any).aiConversation?.profiles?.[itemId];
+            if (!src) return;
+            (config as any).aiConversation.profiles[targetId] = JSON.parse(JSON.stringify(src));
+            break;
+        }
+        case 'localLlm': {
+            const src = (config as any).localLlm?.profiles?.[itemId];
+            if (!src) return;
+            const clone = JSON.parse(JSON.stringify(src));
+            (config as any).localLlm.profiles[targetId] = { ...clone, label: clone.label || targetId };
+            break;
+        }
+        case 'reminder': {
+            const templates: any[] = (config as any).reminders?.templates || [];
+            const src = templates.find((t: any) => t.id === itemId);
+            if (!src) return;
+            templates.push({ ...JSON.parse(JSON.stringify(src)), id: targetId, name: targetId, isDefault: false });
+            break;
+        }
+        case 'timedRequests': {
+            const requests: any[] = (config as any).timedRequests || [];
+            const src = requests.find((r: any) => r.id === itemId);
+            if (!src) return;
+            requests.push({ ...JSON.parse(JSON.stringify(src)), id: targetId });
+            break;
+        }
+        case 'anthropicProfiles': {
+            const src = (config.anthropic?.profiles ?? []).find((p) => p.id === itemId);
+            if (!src) return;
+            const clone = JSON.parse(JSON.stringify(src));
+            clone.id = targetId;
+            clone.name = `${src.name} (copy)`;
+            clone.isDefault = false;
+            (config.anthropic!.profiles ??= []).push(clone);
+            break;
+        }
+        case 'anthropicUserMessage': {
+            const src = (config.anthropic?.userMessageTemplates ?? []).find((t) => t.id === itemId);
+            if (!src) return;
+            const clone = JSON.parse(JSON.stringify(src));
+            clone.id = targetId;
+            clone.name = `${src.name} (copy)`;
+            clone.isDefault = false;
+            (config.anthropic!.userMessageTemplates ??= []).push(clone);
+            break;
+        }
+        case 'compaction': {
+            const src = (config.compaction?.templates ?? []).find((t) => t.id === itemId);
+            if (!src) return;
+            const clone = JSON.parse(JSON.stringify(src));
+            clone.id = targetId;
+            clone.name = `${src.name} (copy)`;
+            (config.compaction!.templates ??= []).push(clone);
+            break;
+        }
+        case 'memoryExtraction': {
+            const src = (config.compaction?.memoryExtractionTemplates ?? []).find((t) => t.id === itemId);
+            if (!src) return;
+            const clone = JSON.parse(JSON.stringify(src));
+            clone.id = targetId;
+            clone.name = `${src.name} (copy)`;
+            (config.compaction!.memoryExtractionTemplates ??= []).push(clone);
+            break;
+        }
+    }
+
+    if (saveSendToChatConfig(config)) {
+        _sendAllData(category, targetId);
+    }
+}
+
+/**
+ * Change an item's id. All category shapes support it — for keyed
+ * maps (`copilot.templates`, `tomAiChat.templates`, …) we re-key the
+ * object; for arrays (`anthropic.profiles`, `compaction.templates`,
+ * …) we update the `id` field on the matching entry. The `name`
+ * field is also updated when it previously equalled the id (so the
+ * display label follows the rename) unless it was already distinct.
+ */
+async function _renameItem(category: TemplateCategory, itemId: string): Promise<void> {
+    if (category === 'selfTalk') {
+        vscode.window.showWarningMessage('Self-Talk profiles cannot be renamed.');
+        return;
+    }
+    const config = loadSendToChatConfig();
+    if (!config) return;
+
+    const existing = _listIds(config, category);
+    const newId = await vscode.window.showInputBox({
+        prompt: `Rename "${itemId}" to…`,
+        value: itemId,
+        validateInput: (v) => {
+            const trimmed = (v || '').trim();
+            if (!trimmed) { return 'Name cannot be empty'; }
+            if (trimmed === itemId) { return 'Name unchanged'; }
+            if (existing.has(trimmed)) { return 'Already exists'; }
+            return null;
+        },
+    });
+    if (!newId) return;
+    const targetId = newId.trim();
+
+    switch (category) {
+        case 'copilot': {
+            const tpls = config.copilot?.templates;
+            if (!tpls || !tpls[itemId]) return;
+            tpls[targetId] = tpls[itemId];
+            delete tpls[itemId];
+            break;
+        }
+        case 'tomAiChat': {
+            const tpls = config.tomAiChat?.templates;
+            if (!tpls || !tpls[itemId]) return;
+            tpls[targetId] = tpls[itemId];
+            delete tpls[itemId];
+            break;
+        }
+        case 'conversation': {
+            const profs = (config as any).aiConversation?.profiles;
+            if (!profs || !profs[itemId]) return;
+            profs[targetId] = profs[itemId];
+            delete profs[itemId];
+            break;
+        }
+        case 'localLlm': {
+            const profs = (config as any).localLlm?.profiles;
+            if (!profs || !profs[itemId]) return;
+            profs[targetId] = profs[itemId];
+            delete profs[itemId];
+            break;
+        }
+        case 'reminder': {
+            const tpls: any[] = (config as any).reminders?.templates || [];
+            const entry = tpls.find((t: any) => t.id === itemId);
+            if (!entry) return;
+            entry.id = targetId;
+            if (entry.name === itemId) { entry.name = targetId; }
+            break;
+        }
+        case 'timedRequests': {
+            const reqs: any[] = (config as any).timedRequests || [];
+            const entry = reqs.find((r: any) => r.id === itemId);
+            if (!entry) return;
+            entry.id = targetId;
+            break;
+        }
+        case 'anthropicProfiles': {
+            const entry = (config.anthropic?.profiles ?? []).find((p) => p.id === itemId);
+            if (!entry) return;
+            entry.id = targetId;
+            if (entry.name === itemId) { entry.name = targetId; }
+            break;
+        }
+        case 'anthropicUserMessage': {
+            const entry = (config.anthropic?.userMessageTemplates ?? []).find((t) => t.id === itemId);
+            if (!entry) return;
+            entry.id = targetId;
+            if (entry.name === itemId) { entry.name = targetId; }
+            break;
+        }
+        case 'compaction': {
+            const entry = (config.compaction?.templates ?? []).find((t) => t.id === itemId);
+            if (!entry) return;
+            entry.id = targetId;
+            if (entry.name === itemId) { entry.name = targetId; }
+            break;
+        }
+        case 'memoryExtraction': {
+            const entry = (config.compaction?.memoryExtractionTemplates ?? []).find((t) => t.id === itemId);
+            if (!entry) return;
+            entry.id = targetId;
+            if (entry.name === itemId) { entry.name = targetId; }
+            break;
+        }
+    }
+
+    // Fix up profile → configuration cross-references when renaming a
+    // config-like target. We only re-point ids that equalled the old
+    // one (so nothing unrelated breaks).
+    if (category === 'anthropicProfiles') {
+        // Profile ids aren't referenced elsewhere; no-op.
+    }
+
+    if (saveSendToChatConfig(config)) {
+        _sendAllData(category, targetId);
     }
 }
 
@@ -1250,6 +1535,12 @@ body {
     <button class="icon-btn" id="btnAdd" title="Add new template">
         <span class="codicon codicon-add"></span>
     </button>
+    <button class="icon-btn" id="btnCopy" title="Copy the selected template under a new name">
+        <span class="codicon codicon-copy"></span>
+    </button>
+    <button class="icon-btn" id="btnRename" title="Rename the selected template (changes its id)">
+        <span class="codicon codicon-edit"></span>
+    </button>
     <button class="icon-btn" id="btnDelete" title="Delete selected template">
         <span class="codicon codicon-trash"></span>
     </button>
@@ -1300,6 +1591,14 @@ categorySelect.addEventListener('change', () => {
 
 document.getElementById('btnAdd').addEventListener('click', () => {
     vscode.postMessage({ type: 'add', category: currentCategory });
+});
+document.getElementById('btnCopy').addEventListener('click', () => {
+    if (!currentItemId) return;
+    vscode.postMessage({ type: 'copy', category: currentCategory, itemId: currentItemId });
+});
+document.getElementById('btnRename').addEventListener('click', () => {
+    if (!currentItemId) return;
+    vscode.postMessage({ type: 'rename', category: currentCategory, itemId: currentItemId });
 });
 document.getElementById('btnDelete').addEventListener('click', () => {
     if (!currentItemId) return;
