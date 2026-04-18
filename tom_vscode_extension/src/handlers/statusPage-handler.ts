@@ -951,6 +951,18 @@ export async function handleStatusAction(action: string, message: any): Promise<
             (stcConfig.compaction as { fullTrailMaxTurns?: number }).fullTrailMaxTurns = Number.isFinite(s.fullTrailMaxTurns) ? s.fullTrailMaxTurns : 200;
             (stcConfig.compaction as { runMemoryExtractionOnCompaction?: boolean }).runMemoryExtractionOnCompaction = s.runMemoryExtractionOnCompaction !== false;
             (stcConfig.compaction as { rebuildFromLastNPrompts?: number }).rebuildFromLastNPrompts = Number.isFinite(s.rebuildFromLastNPrompts) ? s.rebuildFromLastNPrompts : 200;
+            // Memory tool exposure + injection cap live under anthropic.memory
+            // on disk (to match the handler that reads them) but are edited
+            // in the Compaction panel now. The Anthropic Memory section has
+            // been removed.
+            if (!stcConfig.anthropic) { stcConfig.anthropic = {}; }
+            if (!stcConfig.anthropic.memory) { stcConfig.anthropic.memory = {}; }
+            if (typeof s.memoryToolsEnabled === 'boolean') {
+                stcConfig.anthropic.memory.memoryToolsEnabled = s.memoryToolsEnabled;
+            }
+            if (Number.isFinite(s.memoryMaxInjectedTokens)) {
+                stcConfig.anthropic.memory.maxInjectedTokens = s.memoryMaxInjectedTokens;
+            }
             stcConfig.compaction.toolTrailMaxResultChars = Number.isFinite(s.toolTrailMaxResultChars) ? s.toolTrailMaxResultChars : 500;
             stcConfig.compaction.backgroundExtractionEnabled = s.backgroundExtractionEnabled === true;
             if (!stcConfig.trail) { stcConfig.trail = {}; }
@@ -971,23 +983,9 @@ export async function handleStatusAction(action: string, message: any): Promise<
             await runCompactionDryRun(message.settings || {});
             break;
         }
-        case 'updateAnthropicMemorySettings': {
-            const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
-            if (!stcConfig.anthropic) { stcConfig.anthropic = {}; }
-            if (!stcConfig.anthropic.memory) { stcConfig.anthropic.memory = {}; }
-            const s = message.settings || {};
-            stcConfig.anthropic.memory.memoryToolsEnabled = s.memoryToolsEnabled === true;
-            stcConfig.anthropic.memory.maxInjectedTokens = Number.isFinite(s.maxInjectedTokens) ? s.maxInjectedTokens : 3000;
-            // The memoryExtractionTemplateId + autoExtractMode fields
-            // are no longer part of this panel — the compaction section
-            // owns the extraction template and runMemoryExtractionOnCompaction.
-            // Strip any stale values so the config stays clean.
-            delete (stcConfig.anthropic.memory as { memoryExtractionTemplateId?: string }).memoryExtractionTemplateId;
-            delete (stcConfig.anthropic.memory as { autoExtractMode?: string }).autoExtractMode;
-            saveSendToChatConfig(stcConfig);
-            vscode.window.showInformationMessage('Anthropic memory settings saved');
-            break;
-        }
+        // `updateAnthropicMemorySettings` removed — the two settings
+        // (memoryToolsEnabled, maxInjectedTokens) now live in the
+        // Compaction section and are persisted by updateCompactionSettings.
         // -----------------------------------------------------------------
         // Anthropic configurations editor (spec §18.8)
         // -----------------------------------------------------------------
@@ -1406,11 +1404,14 @@ export interface StatusData {
          */
         rebuildFromLastNPrompts: number;
     };
-    /** Anthropic memory subsystem defaults (anthropic_sdk_integration.md §10). */
+    /**
+     * Anthropic memory subsystem defaults. Previously rendered in its own
+     * Status Page section; those two settings now live inside the History
+     * Compaction section, but the shape is still exposed here so the
+     * template reads the current values when rendering.
+     */
     anthropicMemory: {
         memoryToolsEnabled: boolean;
-        memoryExtractionTemplateId: string;
-        autoExtractMode: 'never' | 'summary' | 'trim_and_summary' | 'llm_extract' | 'all';
         maxInjectedTokens: number;
     };
     /** Templates available for the compaction `<select>` controls. */
@@ -1630,8 +1631,6 @@ export async function gatherStatusData(): Promise<StatusData> {
         },
         anthropicMemory: {
             memoryToolsEnabled: sendToChatConfig?.anthropic?.memory?.memoryToolsEnabled === true,
-            memoryExtractionTemplateId: sendToChatConfig?.anthropic?.memory?.memoryExtractionTemplateId || '',
-            autoExtractMode: (sendToChatConfig?.anthropic?.memory?.autoExtractMode as StatusData['anthropicMemory']['autoExtractMode']) || 'never',
             maxInjectedTokens: sendToChatConfig?.anthropic?.memory?.maxInjectedTokens ?? 3000,
         },
         compactionTemplateChoices: (sendToChatConfig?.compaction?.templates || []).map((t) => ({
@@ -2219,6 +2218,15 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
                 <input type="number" id="sp-comp-rebuildFromLastNPrompts" value="${status.compaction.rebuildFromLastNPrompts}" min="1" max="1000" style="width:70px">
             </div>
             <div class="sp-settings-row">
+                <label title="Expose the tomAi_*Memory tools to the main Anthropic agent during its tool-use loop. When off, memory is injected into the system prompt at send time (capped by the next field) and the agent cannot mutate memory on demand.">Memory tools:</label>
+                <select id="sp-mem-memoryToolsEnabled">
+                    <option value="true" ${status.anthropicMemory.memoryToolsEnabled ? 'selected' : ''}>Enabled</option>
+                    <option value="false" ${!status.anthropicMemory.memoryToolsEnabled ? 'selected' : ''}>Disabled</option>
+                </select>
+                <label title="Upper bound on memory content injected into the Anthropic system prompt at send time. Only applies when the memory tools are disabled (otherwise the agent reads memory on demand via tools, so no injection happens).">Memory max injected tokens:</label>
+                <input type="number" id="sp-mem-maxInjectedTokens" value="${status.anthropicMemory.maxInjectedTokens}" min="0" max="32000" style="width:90px">
+            </div>
+            <div class="sp-settings-row">
                 <label>Tool trail max chars:</label>
                 <input type="number" id="sp-comp-toolTrailMaxResultChars" value="${status.compaction.toolTrailMaxResultChars}" min="100" style="width:90px">
                 <label>Trail cleanup days:</label>
@@ -2306,40 +2314,10 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
         </div>
     </div>
 
-    <!-- Anthropic — Memory Section -->
-    <div class="sp-section">
-        <div class="sp-section-header sp-collapsible" data-collapse="anthropicMemory">
-            <span class="sp-section-title"><span class="sp-collapse-icon">▶</span> 🧠 Anthropic — Memory</span>
-        </div>
-        <div class="sp-collapse-content sp-collapsed" id="sp-anthropicMemory-content">
-            <p style="font-size:11px;color:var(--vscode-descriptionForeground);margin:0 0 8px">
-                Defaults for the two-tier memory system used by the Anthropic chat panel
-                (<code>_ai/memory/shared/</code> and <code>_ai/memory/{quest}/</code>).
-            </p>
-            <div class="sp-settings-row">
-                <label>Memory tools:</label>
-                <select id="sp-mem-memoryToolsEnabled">
-                    <option value="true" ${status.anthropicMemory.memoryToolsEnabled ? 'selected' : ''}>Enabled</option>
-                    <option value="false" ${!status.anthropicMemory.memoryToolsEnabled ? 'selected' : ''}>Disabled</option>
-                </select>
-            </div>
-            <div class="sp-settings-row">
-                <label title="Maximum tokens of memory injected into the Anthropic system prompt at send time. Only applies when the memory tools are disabled (otherwise the agent reads memory via tools on demand).">Max injected tokens:</label>
-                <input type="number" id="sp-mem-maxInjectedTokens" value="${status.anthropicMemory.maxInjectedTokens}" min="0" max="32000" style="width:90px">
-            </div>
-            <p style="font-size:11px;color:var(--vscode-descriptionForeground);margin:6px 0 0">
-                <strong>Note:</strong> the memory extraction template and the
-                <em>run memory extraction on every turn</em> toggle both live in the
-                <strong>History Compaction</strong> section above — they drive the
-                same extraction pass regardless of transport. This panel only
-                controls the Anthropic-specific memory-tool exposure and the
-                system-prompt injection cap.
-            </p>
-            <div class="sp-settings-row">
-                <button class="sp-btn primary" data-status-action="updateAnthropicMemorySettings">Save Memory Settings</button>
-            </div>
-        </div>
-    </div>
+    <!-- Anthropic — Memory section removed; the two settings moved to the
+         History Compaction section above (memoryToolsEnabled + the
+         memory injection cap live with the rest of the compaction +
+         memory extraction configuration). -->
 
     <!-- Ask Copilot Settings Section -->
     <div class="sp-section">
@@ -2750,14 +2728,11 @@ function attachStatusPanelListeners(skipEditorInit) {
                     fullTrailMaxTurns: parseInt((document.getElementById('sp-comp-fullTrailMaxTurns') || {}).value || '200'),
                     runMemoryExtractionOnCompaction: (document.getElementById('sp-comp-runMemoryExtractionOnCompaction') || {}).value !== 'false',
                     rebuildFromLastNPrompts: parseInt((document.getElementById('sp-comp-rebuildFromLastNPrompts') || {}).value || '200'),
+                    memoryToolsEnabled: (document.getElementById('sp-mem-memoryToolsEnabled') || {}).value === 'true',
+                    memoryMaxInjectedTokens: parseInt((document.getElementById('sp-mem-maxInjectedTokens') || {}).value || '3000'),
                     toolTrailMaxResultChars: parseInt((document.getElementById('sp-comp-toolTrailMaxResultChars') || {}).value || '500'),
                     trailCleanupDays: parseInt((document.getElementById('sp-comp-trailCleanupDays') || {}).value || '2'),
                     backgroundExtractionEnabled: (document.getElementById('sp-comp-backgroundExtractionEnabled') || {}).value === 'true'
-                };
-            } else if (action === 'updateAnthropicMemorySettings') {
-                msgData.settings = {
-                    memoryToolsEnabled: (document.getElementById('sp-mem-memoryToolsEnabled') || {}).value === 'true',
-                    maxInjectedTokens: parseInt((document.getElementById('sp-mem-maxInjectedTokens') || {}).value || '3000')
                 };
             } else if (action === 'editCompactionTemplate') {
                 msgData.itemId = (document.getElementById('sp-comp-compactionTemplateId') || {}).value || '';

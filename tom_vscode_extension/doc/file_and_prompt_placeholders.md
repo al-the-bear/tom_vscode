@@ -139,6 +139,40 @@ ${{ vars["instructions"] ? "## Workspace instructions\n" + vars["instructions"] 
 
 Note: inside `${{ ... }}` expressions the dynamic keys (`${guidelines-*}`, `${role-*}`, `${quest-*}`, `${file-*}`) are **not** pre-populated into the `vars` object — they're resolved only when referenced via `${...}`. If you need the content in JS, put the `${...}` form in a separate pass or use `${{ (() => { /* read via fs */ })() }}` — most prompts don't need this.
 
+---
+
+## Compaction and memory extraction placeholders
+
+The compaction and memory extraction templates (Global Template Editor → **Compaction** / **Memory Extraction** categories) get a small additional placeholder set that is **only** resolved during those LLM calls. Everywhere else they expand to empty strings.
+
+### Compaction template
+
+Runs every turn on the configured local LLM. Produces a new running summary that the Anthropic handler injects into the wire payload between the raw turns and the current user prompt.
+
+| Placeholder | Meaning |
+| --- | --- |
+| `${existingSummary}` | The compacted summary as it stood at the end of the previous turn. Empty (`"(empty — …)"`) on the first turn or when the Compaction dry-run is invoked in a batch mode. |
+| `${lastTurn}` | The new content to integrate. In the normal every-turn flow this is one user/assistant pair; when the dry-run button runs a batch mode (`summary` / `trim_and_summary`) it's the whole history / overflow slice instead. |
+| `${lastTurnCharCount}` | Character count of `${lastTurn}` — useful when the template wants to tell the model roughly how much new material it's integrating. |
+| `${maxHistoryTokens}` | Target token budget for the summary. Sourced from the Status Page → History Compaction → **Compacted history max tokens** field. |
+| `${maxHistorySize}` | The same budget expressed in characters (`maxHistoryTokens × 4`). Use this to steer verbosity — writing "produce a summary of approximately `${maxHistorySize}` characters" gives the model a concrete target. |
+
+### Memory extraction template
+
+Runs every turn on the configured local LLM (controlled by the History Compaction section's **Run memory extraction** toggle). Can call the memory tools to write/update the target file.
+
+| Placeholder | Meaning |
+| --- | --- |
+| `${lastTurn}` | The exchange that just completed (user/assistant pair). |
+| `${compactedSummary}` | The running session summary — the same value that sits in the wire payload between raw turns and the current prompt. Gives the extraction call context on what's already been summarised so it doesn't re-record things that are already in the summary. |
+| `${existingMemory}` | Current contents of the Memory Extraction template's Target File in its Scope. Lets the extraction call decide between `tomAi_saveMemory` (new entry) vs `tomAi_updateMemory` (refresh an existing one). |
+| `${memoryFilePath}` | Absolute path to that memory file, so the prompt can cite it to the model. |
+| `${memoryScope}` | `quest` or `shared`. |
+
+### Legacy placeholders (removed)
+
+Earlier iterations used `${compactionHistory}`, `${recentHistory}`, `${turnCount}`, `${tokenEstimate}`, `${compactionMode}`, `${turnsDropped}`, `${keptTurnCount}` — these no longer resolve. Any template still referencing them will see an empty string where they used to appear.
+
 ## Notes
 
 - Placeholder syntax and available fields are configuration-driven.

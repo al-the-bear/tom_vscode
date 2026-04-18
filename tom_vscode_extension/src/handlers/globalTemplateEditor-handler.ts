@@ -414,7 +414,12 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                 { name: 'id', label: 'ID', type: 'text', value: tpl.id, readonly: true },
                 { name: 'name', label: 'Name', type: 'text', value: tpl.name || '' },
                 { name: 'description', label: 'Description', type: 'text', value: tpl.description || '' },
-                { name: 'template', label: 'Template', type: 'textarea', value: tpl.template || '', help: PLACEHOLDER_HELP + '<br><br>Compaction placeholders: <code>${compactionHistory}</code>, <code>${turnCount}</code>, <code>${tokenEstimate}</code>, <code>${compactionMode}</code>, <code>${turnsDropped}</code>, <code>${keptTurnCount}</code>, <code>${maxHistoryTokens}</code>, <code>${maxHistorySize}</code> (target char size for the summary).' },
+                { name: 'template', label: 'Template', type: 'textarea', value: tpl.template || '', help: PLACEHOLDER_HELP + '<br><br><strong>Compaction placeholders</strong> (only resolved during the compaction call — empty everywhere else):<br>'
+                    + '<code>${existingSummary}</code> – the compacted summary as it stood at the end of the previous turn (or the string <em>"(empty …)"</em> on the first turn / in batch modes)<br>'
+                    + '<code>${lastTurn}</code> – the new content to integrate (one user/assistant pair in incremental mode; the whole overflow slice in batch modes)<br>'
+                    + '<code>${lastTurnCharCount}</code> – character count of <code>${lastTurn}</code><br>'
+                    + '<code>${maxHistoryTokens}</code> – target token budget for the summary (from the Compaction Max History Tokens setting)<br>'
+                    + '<code>${maxHistorySize}</code> – same budget expressed in characters (<code>maxHistoryTokens × 4</code>) — use this to steer the LLM\'s verbosity<br>' },
                 { name: 'targetMode', label: 'Target Mode', type: 'text', value: tpl.targetMode || 'all', help: 'summary, trim_and_summary, llm_extract, or all' },
                 { name: 'allToolsEnabled', label: 'All Tools Enabled', type: 'checkbox', value: String(compAllEnabled), help: 'When checked, the compaction call exposes every tool in <code>ALL_SHARED_TOOLS</code>. Uncheck to pick a template-specific subset.' },
                 { name: 'enabledTools', label: 'Tools', type: 'multi-checkbox', value: JSON.stringify(compEnabled), options: compToolOptions, disabledWhen: { field: 'allToolsEnabled', equals: 'true' }, help: 'Tool subset the compaction LLM may call. Only read-only tools are useful for a summary pass — <code>tomAi_readFile</code>, <code>tomAi_listMemory</code>, <code>tomAi_readMemory</code>, <code>tomAi_listGlobalGuidelines</code>, etc.' },
@@ -431,7 +436,12 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                 { name: 'id', label: 'ID', type: 'text', value: tpl.id, readonly: true },
                 { name: 'name', label: 'Name', type: 'text', value: tpl.name || '' },
                 { name: 'description', label: 'Description', type: 'text', value: tpl.description || '' },
-                { name: 'template', label: 'Template', type: 'textarea', value: tpl.template || '', help: PLACEHOLDER_HELP + '<br><br>Memory placeholders: <code>${recentHistory}</code>, <code>${existingMemory}</code>, <code>${memoryFilePath}</code>, <code>${memoryScope}</code>.' },
+                { name: 'template', label: 'Template', type: 'textarea', value: tpl.template || '', help: PLACEHOLDER_HELP + '<br><br><strong>Memory extraction placeholders</strong> (only resolved during the extraction call):<br>'
+                    + '<code>${lastTurn}</code> – the exchange just completed (user/assistant pair)<br>'
+                    + '<code>${compactedSummary}</code> – the running session summary (the same value that sits in the wire payload between raw turns and the current prompt)<br>'
+                    + '<code>${existingMemory}</code> – current contents of the <em>Target File</em> in the <em>Scope</em> you picked below<br>'
+                    + '<code>${memoryFilePath}</code> – absolute path to that file, so the prompt can cite it<br>'
+                    + '<code>${memoryScope}</code> – either <code>quest</code> or <code>shared</code><br>' },
                 { name: 'targetFile', label: 'Target File', type: 'text', value: tpl.targetFile || 'facts.md' },
                 { name: 'scope', label: 'Scope', type: 'text', value: tpl.scope || 'quest', help: 'quest, shared, or both' },
                 { name: 'allToolsEnabled', label: 'All Tools Enabled', type: 'checkbox', value: String(memAllEnabled), help: 'When checked, the memory extraction call exposes every tool in <code>ALL_SHARED_TOOLS</code>. Uncheck to pick a template-specific subset — typically the memory read/write tools.' },

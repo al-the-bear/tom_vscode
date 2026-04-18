@@ -389,13 +389,16 @@ async function runSummary(
         options.onProgress?.('summary: no compaction template configured — falling back to `full`');
         return runFull(history, options);
     }
+    // Batch summary uses the same placeholder vocabulary as the
+    // incremental path — `existingSummary` is empty, `lastTurn` carries
+    // the full history. This keeps the default compaction template
+    // reusable for dry runs without branching.
     const historyText = formatHistoryForTemplate(history);
     const budget = options.maxHistoryTokens ?? 8000;
     const userPrompt = expandTemplate(tpl.template, {
-        compactionHistory: historyText,
-        turnCount: String(history.length),
-        tokenEstimate: String(historyTokens(history)),
-        compactionMode: 'summary',
+        existingSummary: '(empty — batch summary of the whole history)',
+        lastTurn: historyText,
+        lastTurnCharCount: String(historyText.length),
         maxHistorySize: String(budget * CHARS_PER_TOKEN),
         maxHistoryTokens: String(budget),
     });
@@ -442,19 +445,15 @@ async function runTrimAndSummary(
     const tpl = resolveCompactionTemplate(options.compactionTemplateId);
     let summary = '';
     if (tpl) {
-        // ${maxHistorySize} — a rough target character count for the
-        // compacted summary. Derived from the token budget at 4 chars per
-        // token. Templates should reference this so the LLM knows how
-        // detailed to make the summary.
-        const maxHistoryChars = String(budget * CHARS_PER_TOKEN);
+        // Same placeholder vocabulary as the incremental path:
+        // `existingSummary` carries context (empty for trim_and_summary),
+        // `lastTurn` carries what's being summarised (the overflow).
+        const overflowText = formatHistoryForTemplate(overflow);
         const userPrompt = expandTemplate(tpl.template, {
-            compactionHistory: formatHistoryForTemplate(overflow),
-            turnCount: String(history.length),
-            tokenEstimate: String(total),
-            compactionMode: 'trim_and_summary',
-            turnsDropped: String(overflow.length),
-            keptTurnCount: String(kept.length),
-            maxHistorySize: maxHistoryChars,
+            existingSummary: `(empty — compacting ${overflow.length} overflow messages)`,
+            lastTurn: overflowText,
+            lastTurnCharCount: String(overflowText.length),
+            maxHistorySize: String(budget * CHARS_PER_TOKEN),
             maxHistoryTokens: String(budget),
         });
         summary = (await runCompactionCall(options, 'You compact conversation history.', userPrompt)).trim();
@@ -589,18 +588,10 @@ export async function runIncrementalCompaction(params: {
     const lastTurnText = formatHistoryForTemplate(params.lastTurn);
     const userPrompt = expandTemplate(tpl.template, {
         existingSummary: params.existingSummary || '(empty — this is the first turn of the session)',
-        // Also expose the last turn under the legacy ${compactionHistory}
-        // name so older templates keep working.
-        compactionHistory: lastTurnText,
         lastTurn: lastTurnText,
-        compactionMode: 'incremental',
-        turnCount: String(params.lastTurn.length),
-        turnsDropped: '0',
-        keptTurnCount: String(params.lastTurn.length),
-        tokenEstimate: String(historyTokens(params.lastTurn)),
+        lastTurnCharCount: String(params.lastTurn.reduce((n, m) => n + (m.content?.length ?? 0), 0)),
         maxHistorySize: String(budget * CHARS_PER_TOKEN),
         maxHistoryTokens: String(budget),
-        lastTurnCharCount: String(params.lastTurn.reduce((n, m) => n + (m.content?.length ?? 0), 0)),
     });
     const options: CompactionOptions = {
         mode: 'trim_and_summary',
@@ -639,11 +630,7 @@ export async function runIncrementalMemoryExtraction(params: {
     const memoryFilePath = memorySvc.filePath(scope, tpl.targetFile, params.questId);
     const userPrompt = expandTemplate(tpl.template, {
         lastTurn: formatHistoryForTemplate(params.lastTurn),
-        // Accept both names so either phrasing works in a template.
         compactedSummary: params.compactedSummary,
-        compactedHistory: params.compactedSummary,
-        // Legacy key used by existing templates.
-        recentHistory: formatHistoryForTemplate(params.lastTurn),
         existingMemory: existing,
         memoryFilePath,
         memoryScope: scope,
