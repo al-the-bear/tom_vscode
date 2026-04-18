@@ -32,6 +32,14 @@ import { resolveVariables } from '../utils/variableResolver';
 import { TwoTierMemoryService } from './memory-service';
 import { TrailService } from './trailService';
 import { ANTHROPIC_SUBSYSTEM } from '../handlers/anthropic-handler';
+import {
+    logCompactionStart,
+    logCompactionEnd,
+    logMemoryExtraction,
+    logMemoryWrite,
+    logError as logCompactionError,
+    logWarn as logCompactionWarn,
+} from './compaction-log';
 
 // ============================================================================
 // Public types (spec §6.5)
@@ -75,6 +83,8 @@ export interface CompactionOptions {
     /** Whether to emit verbose progress lines (currently a no-op hook). */
     trailEnabled?: boolean;
     onProgress?: (msg: string) => void;
+    /** Label for the compaction-log channel. Defaults to 'post-exchange'. */
+    source?: string;
 }
 
 export interface CompactionResult {
@@ -464,16 +474,37 @@ async function runLlmExtract(
                 memoryScope: scope,
             });
             const extracted = (await runCompactionCall(options, 'You extract key facts for memory.', userPrompt, 'memory')).trim();
+            const memoryTemplateName = loadSendToChatConfig()?.compaction?.memoryExtractionTemplates?.find((t) => t.id === tpl.id)?.name;
+            const memoryModel = options.llmProvider === 'anthropic'
+                ? loadSendToChatConfig()?.anthropic?.configurations?.find((c) => c.id === options.llmConfigId)?.model
+                : loadSendToChatConfig()?.localLlm?.configurations?.find((c) => c.id === options.llmConfigId)?.model;
+            logMemoryExtraction({
+                templateId: tpl.id,
+                templateName: memoryTemplateName,
+                provider: options.llmProvider,
+                configId: options.llmConfigId,
+                model: memoryModel,
+                scope: tpl.scope,
+                targetFile: tpl.targetFile,
+                outputChars: extracted.length,
+                questId: options.questId,
+            });
             if (extracted) {
                 if (tpl.scope === 'both') {
                     memorySvc.append('quest', tpl.targetFile, extracted, options.questId);
                     memorySvc.append('shared', tpl.targetFile, extracted, options.questId);
+                    logMemoryWrite(`quest:${tpl.targetFile}`, Buffer.byteLength(extracted, 'utf8'), 'append');
+                    logMemoryWrite(`shared:${tpl.targetFile}`, Buffer.byteLength(extracted, 'utf8'), 'append');
                 } else {
                     memorySvc.append(scope, tpl.targetFile, extracted, options.questId);
+                    logMemoryWrite(`${scope}:${tpl.targetFile}`, Buffer.byteLength(extracted, 'utf8'), 'append');
                 }
+            } else {
+                logCompactionWarn(`memory extraction returned empty output (template=${tpl.id})`);
             }
         } catch (e) {
             options.onProgress?.(`llm_extract: memory write failed: ${e instanceof Error ? e.message : String(e)}`);
+            logCompactionError('memory extraction failed', e);
         }
     }
     // Return the trimmed-last history so the next prompt isn't drowned
@@ -506,25 +537,66 @@ export async function compactHistoryDetailed(
     history: ConversationMessage[],
     options: CompactionOptions,
 ): Promise<CompactionResult> {
+    const startedAt = Date.now();
+    const totalChars = history.reduce((n, m) => n + (typeof m.content === 'string' ? m.content.length : 0), 0);
+    // Best-effort template name lookup for the log line.
+    let templateName: string | undefined;
+    if (options.compactionTemplateId) {
+        const entry = loadSendToChatConfig()?.compaction?.templates?.find((t) => t.id === options.compactionTemplateId);
+        templateName = entry?.name;
+    }
+    const model = options.llmProvider === 'anthropic'
+        ? loadSendToChatConfig()?.anthropic?.configurations?.find((c) => c.id === options.llmConfigId)?.model
+        : loadSendToChatConfig()?.localLlm?.configurations?.find((c) => c.id === options.llmConfigId)?.model;
+
+    logCompactionStart({
+        mode: options.mode,
+        provider: options.llmProvider,
+        configId: options.llmConfigId,
+        model,
+        templateId: options.compactionTemplateId,
+        templateName,
+        turnCount: history.length,
+        totalChars,
+        maxHistoryTokens: options.maxHistoryTokens,
+        maxRounds: options.maxRounds,
+        questId: options.questId,
+        source: options.source ?? 'post-exchange',
+    });
+
+    let result: CompactionResult;
     try {
         switch (options.mode) {
-            case 'none':             return runNone();
-            case 'full':             return runFull(history);
-            case 'last':             return runLast(history, options);
-            case 'summary':          return await runSummary(history, options);
-            case 'trim_and_summary': return await runTrimAndSummary(history, options);
-            case 'llm_extract':      return await runLlmExtract(history, options);
+            case 'none':             result = runNone(); break;
+            case 'full':             result = runFull(history); break;
+            case 'last':             result = runLast(history, options); break;
+            case 'summary':          result = await runSummary(history, options); break;
+            case 'trim_and_summary': result = await runTrimAndSummary(history, options); break;
+            case 'llm_extract':      result = await runLlmExtract(history, options); break;
             default: {
                 options.onProgress?.(`compactHistory: unknown mode "${options.mode}" — passing through`);
-                return runFull(history);
+                logCompactionWarn(`unknown mode "${options.mode}" — passing through`);
+                result = runFull(history);
             }
         }
     } catch (e) {
-        options.onProgress?.(`compactHistory failed: ${e instanceof Error ? e.message : String(e)}`);
+        const msg = e instanceof Error ? e.message : String(e);
+        options.onProgress?.(`compactHistory failed: ${msg}`);
+        logCompactionError('compactHistory failed', e);
         // On error, return the input unchanged so the next exchange
         // doesn't lose context.
-        return runFull(history);
+        result = runFull(history);
     }
+
+    const outputChars = result.history.reduce((n, m) => n + (typeof m.content === 'string' ? m.content.length : 0), 0);
+    logCompactionEnd({
+        keptTurnCount: result.keptTurnCount,
+        droppedTurnCount: result.droppedTurnCount,
+        modeRun: result.modeRun,
+        outputChars,
+        durationMs: Date.now() - startedAt,
+    });
+    return result;
 }
 
 void vscode; // imported for API-surface parity with sibling services

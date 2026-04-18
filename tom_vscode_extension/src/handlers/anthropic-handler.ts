@@ -150,6 +150,96 @@ export interface AnthropicSendOptions {
 export const ANTHROPIC_SUBSYSTEM = { type: 'anthropic' as const } satisfies import('../services/trailService').TrailSubsystem;
 
 /**
+ * Build the full-payload markdown dump (system + tools + rolling history +
+ * current user message) written alongside the `.userprompt.md` file. Rolling
+ * history entries are summarized (role + char count + first ~200 chars) so
+ * the file stays compact on long sessions while still letting you see what
+ * shape of history went out — the per-turn raw trail already has the full
+ * text for each exchange, and the request ids correlate.
+ */
+function buildPayloadDump(params: {
+    requestId: string;
+    transport: 'direct' | 'agentSdk';
+    configuration: AnthropicConfiguration;
+    profile: AnthropicProfile;
+    systemPrompt: string;
+    tools: SharedToolDefinition[];
+    history: ConversationMessage[];
+    userContent: string;
+    effectiveCaching: boolean;
+    thinkingBudgetTokens?: number;
+    useBuiltInTools?: boolean;
+}): string {
+    const { requestId, transport, configuration, profile, systemPrompt, tools, history, userContent } = params;
+    const lines: string[] = [];
+
+    lines.push('# Anthropic API payload');
+    lines.push('');
+    lines.push(`- requestId: \`${requestId}\``);
+    lines.push(`- transport: \`${transport}\``);
+    lines.push(`- profile: \`${profile.id}\` (${profile.name})`);
+    lines.push(`- configuration: \`${configuration.id}\` → model \`${configuration.model}\``);
+    lines.push(`- maxTokens: ${configuration.maxTokens}, maxRounds: ${configuration.maxRounds}`);
+    if (typeof configuration.temperature === 'number') {
+        lines.push(`- temperature: ${configuration.temperature}`);
+    }
+    lines.push(`- promptCachingEnabled (effective): ${params.effectiveCaching}`);
+    if (params.thinkingBudgetTokens !== undefined) {
+        lines.push(`- thinking.budget_tokens: ${params.thinkingBudgetTokens}`);
+    }
+    if (transport === 'agentSdk') {
+        lines.push(`- useBuiltInTools: ${params.useBuiltInTools === true}`);
+        lines.push(`- agentSdk.permissionMode: ${configuration.agentSdk?.permissionMode ?? 'default'}`);
+        lines.push(`- agentSdk.settingSources: ${(configuration.agentSdk?.settingSources ?? []).join(', ') || '(isolation mode)'}`);
+    }
+    lines.push(`- toolApprovalMode: ${profile.toolApprovalMode ?? 'always'}`);
+    lines.push('');
+
+    lines.push(`## System prompt (${systemPrompt.length} chars)`);
+    lines.push('');
+    lines.push('```text');
+    lines.push(systemPrompt);
+    lines.push('```');
+    lines.push('');
+
+    lines.push(`## Tools (${tools.length})`);
+    lines.push('');
+    if (tools.length === 0) {
+        lines.push('_(none)_');
+    } else {
+        for (const t of tools) {
+            lines.push(`- \`${t.name}\``);
+        }
+    }
+    lines.push('');
+
+    lines.push(`## Rolling history (${history.length} messages)`);
+    lines.push('');
+    if (history.length === 0) {
+        lines.push('_(empty — first turn of the session or just after a clear)_');
+    } else {
+        for (let i = 0; i < history.length; i++) {
+            const m = history[i];
+            const content = typeof m.content === 'string' ? m.content : String(m.content ?? '');
+            const head = content.slice(0, 200).replace(/\s+/g, ' ').trim();
+            const tail = content.length > 200 ? ' …' : '';
+            lines.push(`- **[${i}] ${m.role}** — ${content.length} chars`);
+            lines.push(`  > ${head}${tail}`);
+        }
+    }
+    lines.push('');
+
+    lines.push(`## Current user message (${userContent.length} chars)`);
+    lines.push('');
+    lines.push('```text');
+    lines.push(userContent);
+    lines.push('```');
+    lines.push('');
+
+    return lines.join('\n');
+}
+
+/**
  * Decide whether to send a `temperature` parameter to the API. Omit it when
  * it is undefined OR equal to the server default (1.0). Some newer models
  * (e.g. claude-opus-4-7) return 400 "Temperature is deprecated for this
@@ -456,6 +546,43 @@ export class AnthropicHandler {
         TrailService.instance.writeRawPrompt(
             ANTHROPIC_SUBSYSTEM,
             `SYSTEM:\n${systemPrompt}\n\nUSER:\n${userContent}`,
+            windowId,
+            requestId,
+            quest,
+        );
+
+        // Full-payload log: the `.userprompt.md` only has system + user;
+        // this captures tools, rolling history, caching/thinking flags, and
+        // transport-specific settings so the user can audit exactly what
+        // went out on every turn. History is summarized per-message (role
+        // + length + first ~200 chars). Written *before* compaction so the
+        // uncompacted rolling history is visible.
+        const effectiveThinkingBudget = profile.thinkingEnabled
+            ? (profile.thinkingBudgetTokens ?? 8192)
+            : undefined;
+        const payloadProfileCaching = profile.promptCachingEnabled;
+        const payloadEffectiveCaching = payloadProfileCaching === undefined
+            ? configuration.promptCachingEnabled === true
+            : payloadProfileCaching !== false;
+        const payloadEffectiveTools = (transport === 'agentSdk' && profile.useBuiltInTools)
+            ? tools.filter((t) => !DUPLICATES_OF_CLAUDE_CODE_BUILTINS.has(t.name))
+            : tools;
+        const payloadHistory = options.isolated ? [] : this.history;
+        TrailService.instance.writeRawPayload(
+            ANTHROPIC_SUBSYSTEM,
+            buildPayloadDump({
+                requestId,
+                transport,
+                configuration,
+                profile,
+                systemPrompt,
+                tools: payloadEffectiveTools,
+                history: payloadHistory,
+                userContent,
+                effectiveCaching: payloadEffectiveCaching,
+                thinkingBudgetTokens: effectiveThinkingBudget,
+                useBuiltInTools: profile.useBuiltInTools === true,
+            }),
             windowId,
             requestId,
             quest,

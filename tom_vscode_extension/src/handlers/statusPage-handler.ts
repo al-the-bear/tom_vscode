@@ -18,6 +18,8 @@ import { getBridgeClient, getConfigPath, loadSendToChatConfig, saveSendToChatCon
 import { AVAILABLE_LLM_TOOLS } from '../utils/constants';
 import { notifyAnthropicConfigChanged } from './chatPanel-handler';
 import { AnthropicHandler } from './anthropic-handler';
+import { compactHistoryDetailed, type ConversationMessage, type HistoryMode, type CompactionLlmProvider } from '../services/history-compaction';
+import { logRunBanner, showCompactionChannel, logError as logCompactionError } from '../services/compaction-log';
 import { getCliServerStatus } from './cliServer-handler';
 import { loadBridgeConfig, BridgeConfig } from './restartBridge-handler';
 import { isTrailEnabled, setTrailEnabled, loadTrailConfig, toggleTrail } from '../services/trailLogging';
@@ -636,6 +638,91 @@ async function editOrCreateAnthropicConfiguration(configId: string | null): Prom
  * Spec §18 — works for direct transport. Agent SDK transport doesn't use
  * apiKeyEnvVar, so we surface a hint pointing the user at `claude login`.
  */
+/**
+ * Compaction/memory-extraction dry-run. Uses the values the user just picked
+ * in the status page form (not the saved config), runs one full compaction
+ * pass, and lets the existing compaction-log channel capture the details.
+ *
+ * Side-effects:
+ *   - Writes raw prompts/answers to the trail (same place as normal runs).
+ *   - Writes memory entries when the mode is `llm_extract` and the memory
+ *     extraction template returns non-empty output. We surface this in the
+ *     confirmation dialog so the user can opt out.
+ *   - Does NOT mutate the active Anthropic handler's rolling history.
+ */
+async function runCompactionDryRun(settings: {
+    llmProvider?: string;
+    llmConfigId?: string;
+    compactionTemplateId?: string;
+    memoryExtractionTemplateId?: string;
+    compactionMaxRounds?: number;
+    maxHistoryTokens?: number;
+}): Promise<void> {
+    const mode = await vscode.window.showQuickPick(
+        [
+            { label: 'summary', description: 'Replace history with a 2-message summary', value: 'summary' as const },
+            { label: 'trim_and_summary', description: 'Trim-then-summarize (recommended for long sessions)', value: 'trim_and_summary' as const },
+            { label: 'llm_extract', description: 'Extract facts from the latest exchange + keep last turn', value: 'llm_extract' as const },
+        ],
+        { placeHolder: 'History mode for the dry run', ignoreFocusOut: true },
+    );
+    if (!mode) { return; }
+
+    // Use the live rolling history when non-empty; otherwise fabricate a
+    // compact synthetic history so the LLM has something to compact.
+    const liveHistory = AnthropicHandler.instance.getHistory();
+    const syntheticHistory: ConversationMessage[] = [
+        { role: 'user', content: 'Walk me through how the compaction subsystem decides when to run.' },
+        { role: 'assistant', content: 'Compaction runs fire-and-forget after every exchange today (anthropic-handler.ts sendMessage). It has no awareness of the model context window; maxHistoryTokens is a static profile value.' },
+        { role: 'user', content: 'And what about memory extraction — which modes do that?' },
+        { role: 'assistant', content: 'Only the llm_extract mode. It runs a separate LLM call on the last user/assistant pair and appends the distilled facts via TwoTierMemoryService.append to the target memory file.' },
+        { role: 'user', content: 'Where are the prompts/answers logged?' },
+        { role: 'assistant', content: 'Raw prompts and answers are written under _ai/trail/anthropic/<quest>/compaction/ and .../memory/ by TrailService. The compaction-log output channel (new) also indexes every call with the template id, LLM config, turn counts, and memory write targets.' },
+    ];
+    const history = liveHistory.length > 0 ? liveHistory : syntheticHistory;
+
+    const questId = WsPaths.getWorkspaceQuestId() ?? '';
+    const saved = loadSendToChatConfig()?.compaction ?? {};
+    const llmProvider: CompactionLlmProvider = (settings.llmProvider === 'anthropic' ? 'anthropic' : 'localLlm');
+    const llmConfigId = String(settings.llmConfigId || saved.llmConfigId || '').trim();
+    if (!llmConfigId) {
+        vscode.window.showWarningMessage('Dry run: no LLM configuration selected. Pick one in the Compaction section first.');
+        return;
+    }
+    const maxHistoryTokens = Number.isFinite(settings.maxHistoryTokens) ? settings.maxHistoryTokens : saved.maxHistoryTokens ?? 8000;
+    const compactionMaxRounds = Number.isFinite(settings.compactionMaxRounds) ? settings.compactionMaxRounds : saved.compactionMaxRounds ?? 1;
+
+    showCompactionChannel();
+    logRunBanner('DRY RUN', [
+        `mode=${mode.value}`,
+        `provider=${llmProvider}  config=${llmConfigId}`,
+        `history=${history.length} messages (${liveHistory.length > 0 ? 'from live session' : 'synthetic'})`,
+        `maxHistoryTokens=${maxHistoryTokens}  maxRounds=${compactionMaxRounds}`,
+        `quest=${questId || '(none)'}`,
+    ]);
+
+    try {
+        await compactHistoryDetailed([...history], {
+            mode: mode.value as HistoryMode,
+            llmProvider,
+            llmConfigId,
+            compactionTemplateId: String(settings.compactionTemplateId || saved.compactionTemplateId || ''),
+            memoryTemplateId: String(settings.memoryExtractionTemplateId || saved.memoryExtractionTemplateId || ''),
+            compactionMaxRounds,
+            maxHistoryTokens,
+            questId: questId || undefined,
+            source: 'dry-run',
+            onProgress: (m) => logRunBanner('progress', [m]),
+        });
+        vscode.window.showInformationMessage(
+            `Compaction dry run complete — see "Tom AI Compaction and Memory Extraction" output channel and _ai/trail/anthropic/<quest>/compaction/ for details.${mode.value === 'llm_extract' ? ' Memory files were appended to if extraction produced output.' : ''}`,
+        );
+    } catch (e) {
+        logCompactionError('dry run failed', e);
+        vscode.window.showErrorMessage(`Compaction dry run failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+}
+
 async function runTestAnthropicApiKey(): Promise<void> {
     const stcConfig = loadSendToChatConfig();
     const envVar = stcConfig?.anthropic?.apiKeyEnvVar || 'ANTHROPIC_API_KEY';
@@ -867,6 +954,18 @@ export async function handleStatusAction(action: string, message: any): Promise<
             if (Number.isFinite(s.trailCleanupDays)) { stcConfig.trail.cleanupDays = s.trailCleanupDays; }
             saveSendToChatConfig(stcConfig);
             vscode.window.showInformationMessage('Compaction settings saved');
+            break;
+        }
+        case 'runCompactionDryRun': {
+            // Side-effect-free: uses the active rolling history if present
+            // (or a small synthetic fallback), writes raw prompts/answers
+            // under _ai/trail/anthropic/<quest>/compaction|memory/, logs a
+            // structured summary to the 'Tom AI Compaction and Memory
+            // Extraction' output channel, and discards the compacted
+            // result. Memory writes DO happen (so the user can inspect
+            // what was extracted) — they're always appends, and the user
+            // is warned via the info message.
+            await runCompactionDryRun(message.settings || {});
             break;
         }
         case 'updateAnthropicMemorySettings': {
@@ -2119,6 +2218,7 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
             </div>
             <div class="sp-settings-row">
                 <button class="sp-btn primary" data-status-action="updateCompactionSettings">Save Compaction Settings</button>
+                <button class="sp-btn" data-status-action="runCompactionDryRun" title="Run one compaction + memory-extraction pass against the current rolling history (or a small synthetic one when empty). Writes raw prompts/answers to the trail and a detailed line to the 'Tom AI Compaction and Memory Extraction' output channel. Does NOT mutate the live history or memory files.">🧪 Dry Run</button>
             </div>
         </div>
     </div>
@@ -2636,7 +2736,7 @@ function attachStatusPanelListeners(skipEditorInit) {
                 msgData.value = (document.getElementById('sp-anthropic-apiKeyEnvVar') || {}).value || 'ANTHROPIC_API_KEY';
             } else if (action === 'deleteAiConversationSetup') {
                 msgData.setupId = el.getAttribute('data-setup-id');
-            } else if (action === 'updateCompactionSettings') {
+            } else if (action === 'updateCompactionSettings' || action === 'runCompactionDryRun') {
                 msgData.settings = {
                     llmProvider: (document.getElementById('sp-comp-llmProvider') || {}).value || 'localLlm',
                     llmConfigId: (document.getElementById('sp-comp-llmConfigId') || {}).value || '',

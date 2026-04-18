@@ -67,6 +67,17 @@ export class TrailService {
         this.writeRaw(subsystem, 'prompt', prompt, windowId, 'md', requestId, questId);
     }
 
+    /**
+     * Capture the full outgoing API payload (system + tools + rolling
+     * history + current user message) as a single markdown file — the
+     * companion to the `.userprompt.md` file that only stores system +
+     * user. Purpose: audit exactly what goes to the API on every turn,
+     * including what context-window was consumed before compaction ran.
+     */
+    writeRawPayload(subsystem: TrailSubsystem, payload: string, windowId: string, requestId?: string, questId?: string): void {
+        this.writeRaw(subsystem, 'payload', payload, windowId, 'md', requestId, questId);
+    }
+
     writeRawAnswer(subsystem: TrailSubsystem, answer: string, windowId: string, requestId?: string, questId?: string): void {
         this.writeRaw(subsystem, 'answer', answer, windowId, 'json', requestId, questId);
     }
@@ -203,7 +214,9 @@ export class TrailService {
             ? `${ts}_prompt_${exchangeId}.userprompt.md`
             : kind === 'answer'
                 ? `${ts}_answer_${exchangeId}.answer.json`
-                : `${ts}_${kind}_${windowId}.${ext}`;
+                : kind === 'payload'
+                    ? `${ts}_payload_${exchangeId}.payload.md`
+                    : `${ts}_${kind}_${windowId}.${ext}`;
         const filePath = path.join(base, fileName);
         FsUtils.ensureDir(path.dirname(filePath));
         if (ext === 'json') {
