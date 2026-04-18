@@ -45,8 +45,21 @@ import {
 // Public types (spec §6.5)
 // ============================================================================
 
+/**
+ * Supported history-compaction modes.
+ *
+ * Removed in this pass:
+ *   - `none` — bogus: it threw away context entirely
+ *   - `last` — a degenerate special case of `trim_and_summary` with zero
+ *     summary budget; covered by `trim_and_summary` with a small
+ *     `maxHistoryTokens`
+ *
+ * Still recognised at the type level for backward-compat at the callsite
+ * level (config-loading migrations map them into `trim_and_summary`) but
+ * no longer branched on.
+ */
 export type HistoryMode =
-    | 'none' | 'full' | 'last'
+    | 'full'
     | 'summary'
     | 'trim_and_summary'
     | 'llm_extract';
@@ -60,10 +73,18 @@ export interface ConversationMessage {
 
 export interface CompactionOptions {
     mode: HistoryMode;
-    /** Target token ceiling for the returned history (trim_and_summary / last). */
+    /** Target token ceiling for the returned history (trim_and_summary). */
     maxHistoryTokens?: number;
-    /** Cap on turns retained in `last` mode (defaults to 1 exchange = 2 messages). */
+    /** Raw turn cap — how many user+assistant rounds are kept raw in the
+     *  returned history. Applies to both `trim_and_summary` and as the
+     *  trailing-tail size in future compaction strategies. */
     maxRounds?: number;
+    /**
+     * `full` mode max turns. Caps the returned array even in "full" mode
+     * so you can't accidentally DoS the model with a gigantic history.
+     * Defaults to 200 when absent.
+     */
+    fullTrailMaxTurns?: number;
     /** Which provider runs the LLM compaction call. */
     llmProvider: CompactionLlmProvider;
     /** Config ID within the selected provider. */
@@ -112,6 +133,23 @@ function estimateTokens(s: string): number {
 
 function historyTokens(history: ConversationMessage[]): number {
     return history.reduce((sum, m) => sum + estimateTokens(m.content), 0);
+}
+
+/**
+ * Rough context-window size (in tokens) for known Anthropic models.
+ *
+ * Used only for the compaction log's "X% of context" hint — we don't
+ * enforce anything on the basis of this number. The Anthropic API
+ * doesn't expose per-model limits; this table is hand-maintained. An
+ * unknown model returns `undefined` and the hint is hidden.
+ */
+function estimateModelContextTokens(model?: string): number | undefined {
+    if (!model) { return undefined; }
+    // Claude 4.x: 200k native context across Opus / Sonnet / Haiku.
+    if (/^claude-(opus|sonnet|haiku)-4-\d+/i.test(model)) { return 200_000; }
+    // Legacy Claude 3.x: same 200k.
+    if (/^claude-3/i.test(model)) { return 200_000; }
+    return undefined;
 }
 
 function formatHistoryForTemplate(history: ConversationMessage[]): string {
@@ -322,28 +360,18 @@ async function runOllamaCompaction(
 // Mode implementations
 // ============================================================================
 
-function runNone(): CompactionResult {
-    return { history: [], modeRun: 'none', keptTurnCount: 0, droppedTurnCount: 0 };
-}
-
-function runFull(history: ConversationMessage[]): CompactionResult {
-    return {
-        history: [...history],
-        modeRun: 'full',
-        keptTurnCount: history.length,
-        droppedTurnCount: 0,
-    };
-}
-
-function runLast(history: ConversationMessage[], options: CompactionOptions): CompactionResult {
-    // `last` = keep the most recent `maxRounds` exchanges. A round is
-    // user+assistant, so default of 1 keeps the last 2 messages.
-    const rounds = Math.max(1, options.maxRounds ?? 1);
-    const keep = Math.min(history.length, rounds * 2);
+/**
+ * `full` mode — keep the history as-is, bounded by `fullTrailMaxTurns`
+ * (defaults to 200) so a runaway session can't blow the context window
+ * when the user chose "no compaction".
+ */
+function runFull(history: ConversationMessage[], options: CompactionOptions): CompactionResult {
+    const cap = Math.max(1, options.fullTrailMaxTurns ?? 200);
+    const keep = Math.min(history.length, cap);
     const kept = history.slice(-keep);
     return {
         history: kept,
-        modeRun: 'last',
+        modeRun: 'full',
         keptTurnCount: kept.length,
         droppedTurnCount: history.length - kept.length,
     };
@@ -359,14 +387,17 @@ async function runSummary(
     const tpl = resolveCompactionTemplate(options.compactionTemplateId);
     if (!tpl) {
         options.onProgress?.('summary: no compaction template configured — falling back to `full`');
-        return runFull(history);
+        return runFull(history, options);
     }
     const historyText = formatHistoryForTemplate(history);
+    const budget = options.maxHistoryTokens ?? 8000;
     const userPrompt = expandTemplate(tpl.template, {
         compactionHistory: historyText,
         turnCount: String(history.length),
         tokenEstimate: String(historyTokens(history)),
         compactionMode: 'summary',
+        maxHistorySize: String(budget * CHARS_PER_TOKEN),
+        maxHistoryTokens: String(budget),
     });
     const summary = (await runCompactionCall(options, 'You compact conversation history.', userPrompt)).trim()
         || '(empty summary)';
@@ -389,7 +420,7 @@ async function runTrimAndSummary(
     const budget = options.maxHistoryTokens ?? 8000;
     const total = historyTokens(history);
     if (total <= budget) {
-        return runFull(history);
+        return runFull(history, options);
     }
     // Walk from newest to oldest until adding one more turn would exceed
     // budget; everything older is overflow.
@@ -411,6 +442,11 @@ async function runTrimAndSummary(
     const tpl = resolveCompactionTemplate(options.compactionTemplateId);
     let summary = '';
     if (tpl) {
+        // ${maxHistorySize} — a rough target character count for the
+        // compacted summary. Derived from the token budget at 4 chars per
+        // token. Templates should reference this so the LLM knows how
+        // detailed to make the summary.
+        const maxHistoryChars = String(budget * CHARS_PER_TOKEN);
         const userPrompt = expandTemplate(tpl.template, {
             compactionHistory: formatHistoryForTemplate(overflow),
             turnCount: String(history.length),
@@ -418,6 +454,8 @@ async function runTrimAndSummary(
             compactionMode: 'trim_and_summary',
             turnsDropped: String(overflow.length),
             keptTurnCount: String(kept.length),
+            maxHistorySize: maxHistoryChars,
+            maxHistoryTokens: String(budget),
         });
         summary = (await runCompactionCall(options, 'You compact conversation history.', userPrompt)).trim();
     } else {
@@ -447,7 +485,9 @@ async function runLlmExtract(
     const tpl = resolveMemoryExtractionTemplate(options.memoryTemplateId);
     if (!tpl) {
         options.onProgress?.('llm_extract: no memoryExtraction template configured — skipping extraction');
-        return runLast(history, options);
+        // With no extraction template, behave like trim_and_summary so the
+        // caller still gets a size-bounded history back.
+        return runTrimAndSummary(history, options);
     }
     // Pair user/assistant turns into exchanges and extract from the
     // most recent complete exchange only. The older turns are trimmed
@@ -549,6 +589,9 @@ export async function compactHistoryDetailed(
         ? loadSendToChatConfig()?.anthropic?.configurations?.find((c) => c.id === options.llmConfigId)?.model
         : loadSendToChatConfig()?.localLlm?.configurations?.find((c) => c.id === options.llmConfigId)?.model;
 
+    const inputTokens = historyTokens(history);
+    const contextLimit = estimateModelContextTokens(model);
+    const contextWindowPct = contextLimit ? (inputTokens / contextLimit) * 100 : undefined;
     logCompactionStart({
         mode: options.mode,
         provider: options.llmProvider,
@@ -558,25 +601,32 @@ export async function compactHistoryDetailed(
         templateName,
         turnCount: history.length,
         totalChars,
+        estimatedTokens: inputTokens,
+        contextWindowPct,
         maxHistoryTokens: options.maxHistoryTokens,
         maxRounds: options.maxRounds,
+        fullTrailMaxTurns: options.fullTrailMaxTurns,
         questId: options.questId,
         source: options.source ?? 'post-exchange',
     });
 
     let result: CompactionResult;
     try {
-        switch (options.mode) {
-            case 'none':             result = runNone(); break;
-            case 'full':             result = runFull(history); break;
-            case 'last':             result = runLast(history, options); break;
+        // Back-compat for stored configs that still reference 'none' or
+        // 'last' — map them onto trim_and_summary so a session save from
+        // a previous version still works.
+        const mode = (options.mode as unknown as string) === 'none' || (options.mode as unknown as string) === 'last'
+            ? 'trim_and_summary'
+            : options.mode;
+        switch (mode) {
+            case 'full':             result = runFull(history, options); break;
             case 'summary':          result = await runSummary(history, options); break;
             case 'trim_and_summary': result = await runTrimAndSummary(history, options); break;
             case 'llm_extract':      result = await runLlmExtract(history, options); break;
             default: {
                 options.onProgress?.(`compactHistory: unknown mode "${options.mode}" — passing through`);
                 logCompactionWarn(`unknown mode "${options.mode}" — passing through`);
-                result = runFull(history);
+                result = runFull(history, options);
             }
         }
     } catch (e) {
@@ -585,15 +635,17 @@ export async function compactHistoryDetailed(
         logCompactionError('compactHistory failed', e);
         // On error, return the input unchanged so the next exchange
         // doesn't lose context.
-        result = runFull(history);
+        result = runFull(history, options);
     }
 
     const outputChars = result.history.reduce((n, m) => n + (typeof m.content === 'string' ? m.content.length : 0), 0);
+    const outputTokens = historyTokens(result.history);
     logCompactionEnd({
         keptTurnCount: result.keptTurnCount,
         droppedTurnCount: result.droppedTurnCount,
         modeRun: result.modeRun,
         outputChars,
+        outputTokens,
         durationMs: Date.now() - startedAt,
     });
     return result;

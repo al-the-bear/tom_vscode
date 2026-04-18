@@ -802,7 +802,13 @@ export class AnthropicHandler {
      */
     private async compactHistoryAsync(configuration: AnthropicConfiguration): Promise<void> {
         try {
-            const mode = (configuration.historyMode as HistoryMode | undefined) ?? 'last';
+            // Default mode: trim_and_summary. Older configs stored 'last' /
+            // 'none' — both collapse into trim_and_summary at the callsite
+            // level so we never pass a removed enum value into compaction.
+            const rawMode = configuration.historyMode as string | undefined;
+            const mode: HistoryMode = (rawMode === 'full' || rawMode === 'summary' || rawMode === 'trim_and_summary' || rawMode === 'llm_extract')
+                ? rawMode
+                : 'trim_and_summary';
             const section = TomAiConfiguration.instance.getSection<{
                 llmProvider?: 'localLlm' | 'anthropic';
                 llmConfigId?: string;

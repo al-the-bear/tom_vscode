@@ -54,8 +54,15 @@ export interface CompactionStartInfo {
     templateName?: string;
     turnCount: number;
     totalChars: number;
+    /** ~ rough token estimate for the *input* history (chars/4). */
+    estimatedTokens?: number;
+    /** Optional rough percentage of the target model's context window
+     *  that this history occupies, so the user can see whether to
+     *  compact. Computed by caller when a model context limit is known. */
+    contextWindowPct?: number;
     maxHistoryTokens?: number;
     maxRounds?: number;
+    fullTrailMaxTurns?: number;
     questId?: string;
     source: string; // "post-exchange" | "dry-run" | other callers later
 }
@@ -65,6 +72,8 @@ export interface CompactionEndInfo {
     droppedTurnCount: number;
     modeRun: string;
     outputChars?: number;
+    /** ~ rough token estimate for the *output* history (chars/4). */
+    outputTokens?: number;
     durationMs?: number;
 }
 
@@ -82,18 +91,22 @@ export interface MemoryExtractionInfo {
 
 export function logCompactionStart(info: CompactionStartInfo): void {
     const ch = channel();
+    const tokenBlurb = info.estimatedTokens !== undefined
+        ? `  ~${info.estimatedTokens}tok` + (info.contextWindowPct !== undefined ? ` (${info.contextWindowPct.toFixed(1)}% of ctx)` : '')
+        : '';
     ch.appendLine(
         `[${ts()}] compaction start  mode=${info.mode}  source=${info.source}  ` +
-        `turns=${info.turnCount}  chars=${info.totalChars}  ` +
+        `turns=${info.turnCount}  chars=${info.totalChars}${tokenBlurb}  ` +
         `provider=${info.provider}  config=${info.configId}` +
         (info.model ? ` (${info.model})` : '') +
         (info.templateId ? `  template=${info.templateId}` : '') +
         (info.questId ? `  quest=${info.questId}` : ''),
     );
-    if (info.maxHistoryTokens !== undefined || info.maxRounds !== undefined) {
+    if (info.maxHistoryTokens !== undefined || info.maxRounds !== undefined || info.fullTrailMaxTurns !== undefined) {
         const parts: string[] = [];
         if (info.maxHistoryTokens !== undefined) { parts.push(`maxHistoryTokens=${info.maxHistoryTokens}`); }
         if (info.maxRounds !== undefined) { parts.push(`maxRounds=${info.maxRounds}`); }
+        if (info.fullTrailMaxTurns !== undefined) { parts.push(`fullTrailMaxTurns=${info.fullTrailMaxTurns}`); }
         ch.appendLine(`[${ts()}]   settings: ${parts.join('  ')}`);
     }
     if (info.templateName && info.templateName !== info.templateId) {
@@ -105,6 +118,7 @@ export function logCompactionEnd(info: CompactionEndInfo): void {
     channel().appendLine(
         `[${ts()}] compaction end    modeRun=${info.modeRun}  kept=${info.keptTurnCount}  dropped=${info.droppedTurnCount}` +
         (info.outputChars !== undefined ? `  outChars=${info.outputChars}` : '') +
+        (info.outputTokens !== undefined ? `  ~${info.outputTokens}tok` : '') +
         (info.durationMs !== undefined ? `  ${info.durationMs}ms` : ''),
     );
 }

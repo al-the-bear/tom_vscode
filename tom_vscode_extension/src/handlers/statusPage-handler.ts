@@ -946,8 +946,10 @@ export async function handleStatusAction(action: string, message: any): Promise<
             stcConfig.compaction.llmConfigId = s.llmConfigId || '';
             stcConfig.compaction.compactionTemplateId = s.compactionTemplateId || '';
             stcConfig.compaction.memoryExtractionTemplateId = s.memoryExtractionTemplateId || '';
-            stcConfig.compaction.compactionMaxRounds = Number.isFinite(s.compactionMaxRounds) ? s.compactionMaxRounds : 1;
+            stcConfig.compaction.compactionMaxRounds = Number.isFinite(s.compactionMaxRounds) ? s.compactionMaxRounds : 4;
             stcConfig.compaction.maxHistoryTokens = Number.isFinite(s.maxHistoryTokens) ? s.maxHistoryTokens : 8000;
+            (stcConfig.compaction as { fullTrailMaxTurns?: number }).fullTrailMaxTurns = Number.isFinite(s.fullTrailMaxTurns) ? s.fullTrailMaxTurns : 200;
+            (stcConfig.compaction as { runMemoryExtractionOnCompaction?: boolean }).runMemoryExtractionOnCompaction = s.runMemoryExtractionOnCompaction !== false;
             stcConfig.compaction.toolTrailMaxResultChars = Number.isFinite(s.toolTrailMaxResultChars) ? s.toolTrailMaxResultChars : 500;
             stcConfig.compaction.backgroundExtractionEnabled = s.backgroundExtractionEnabled === true;
             if (!stcConfig.trail) { stcConfig.trail = {}; }
@@ -1090,27 +1092,10 @@ export async function handleStatusAction(action: string, message: any): Promise<
             }
             break;
         }
-        case 'editCompactionToolSet': {
-            const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
-            if (!stcConfig.compaction) { stcConfig.compaction = {}; }
-            const enabled = new Set(stcConfig.compaction.enabledTools || [
-                'tomAi_readFile', 'tomAi_listDirectory', 'tomAi_findFiles', 'tomAi_findTextInFiles',
-            ]);
-            const items: vscode.QuickPickItem[] = AVAILABLE_LLM_TOOLS.map((name) => ({
-                label: name,
-                picked: enabled.has(name),
-            }));
-            const picked = await vscode.window.showQuickPick(items, {
-                canPickMany: true,
-                title: 'Compaction tool set (Local LLM only)',
-                placeHolder: 'Tools the compaction LLM may call during the summary pass',
-            });
-            if (!picked) break;
-            stcConfig.compaction.enabledTools = picked.map((p) => p.label);
-            saveSendToChatConfig(stcConfig);
-            vscode.window.showInformationMessage(`Compaction tool set updated (${picked.length} tools).`);
-            break;
-        }
+        // `editCompactionToolSet` has been removed — compaction + memory
+        // extraction tool sets are now configured per-template in the
+        // Global Template Editor (compaction and memoryExtraction
+        // categories), not at the section level.
         // Schedule
         case 'saveSchedule': {
             try {
@@ -1398,10 +1383,17 @@ export interface StatusData {
         llmConfigId: string;
         compactionTemplateId: string;
         memoryExtractionTemplateId: string;
+        /** Raw turns sent alongside the compacted summary. */
         compactionMaxRounds: number;
+        /** Target size of the compacted-history summary (tokens). */
         maxHistoryTokens: number;
+        /** Turn cap for `full` mode so it can't grow unbounded. */
+        fullTrailMaxTurns: number;
         toolTrailMaxResultChars: number;
         backgroundExtractionEnabled: boolean;
+        /** When true, memory extraction runs after every compaction call
+         *  (checkbox in the status page). Default true. */
+        runMemoryExtractionOnCompaction: boolean;
     };
     /** Anthropic memory subsystem defaults (anthropic_sdk_integration.md §10). */
     anthropicMemory: {
@@ -1617,8 +1609,10 @@ export async function gatherStatusData(): Promise<StatusData> {
             llmConfigId: sendToChatConfig?.compaction?.llmConfigId || '',
             compactionTemplateId: sendToChatConfig?.compaction?.compactionTemplateId || '',
             memoryExtractionTemplateId: sendToChatConfig?.compaction?.memoryExtractionTemplateId || '',
-            compactionMaxRounds: sendToChatConfig?.compaction?.compactionMaxRounds ?? 1,
+            compactionMaxRounds: sendToChatConfig?.compaction?.compactionMaxRounds ?? 4,
             maxHistoryTokens: sendToChatConfig?.compaction?.maxHistoryTokens ?? 8000,
+            fullTrailMaxTurns: (sendToChatConfig?.compaction as { fullTrailMaxTurns?: number })?.fullTrailMaxTurns ?? 200,
+            runMemoryExtractionOnCompaction: (sendToChatConfig?.compaction as { runMemoryExtractionOnCompaction?: boolean })?.runMemoryExtractionOnCompaction !== false,
             toolTrailMaxResultChars: sendToChatConfig?.compaction?.toolTrailMaxResultChars ?? 500,
             backgroundExtractionEnabled: sendToChatConfig?.compaction?.backgroundExtractionEnabled === true,
         },
@@ -2190,18 +2184,23 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
                 <button class="sp-btn small" data-status-action="addMemoryExtractionTemplate">➕</button>
                 <button class="sp-btn small danger" data-status-action="deleteMemoryExtractionTemplate">🗑️</button>
             </div>
+            <!-- Compaction + memory extraction tools are now configured
+                 per-template (see the "Tools" row inside each template's
+                 editor). The section-level picker has been removed. -->
             <div class="sp-settings-row">
-                <label>Compaction tool set:</label>
-                <button class="sp-btn small" data-status-action="editCompactionToolSet"
-                    ${status.compaction.llmProvider === 'anthropic' ? 'disabled title="Anthropic uses the active profile\'s enabledTools"' : ''}>
-                    Edit ▼
-                </button>
+                <label title="Number of raw user+assistant rounds sent verbatim with every request, alongside the compacted summary. Higher = more fidelity on recent turns, more tokens used.">Raw rounds kept:</label>
+                <input type="number" id="sp-comp-maxRounds" value="${status.compaction.compactionMaxRounds}" min="1" max="20" style="width:60px">
+                <label title="Target size of the compacted-history summary in tokens. Summaries aim for roughly this size; the compaction template should reference \${maxHistoryTokens} / \${maxHistorySize}.">Compacted history max tokens:</label>
+                <input type="number" id="sp-comp-maxHistoryTokens" value="${status.compaction.maxHistoryTokens}" min="1000" style="width:90px">
             </div>
             <div class="sp-settings-row">
-                <label>Max rounds:</label>
-                <input type="number" id="sp-comp-maxRounds" value="${status.compaction.compactionMaxRounds}" min="1" max="10" style="width:60px">
-                <label>Max history tokens:</label>
-                <input type="number" id="sp-comp-maxHistoryTokens" value="${status.compaction.maxHistoryTokens}" min="1000" style="width:90px">
+                <label title="Hard cap on the number of turns returned in 'full' history mode, so a runaway session cannot blow the context window when the user has chosen not to compact.">Full trail mode max turns:</label>
+                <input type="number" id="sp-comp-fullTrailMaxTurns" value="${status.compaction.fullTrailMaxTurns}" min="2" max="1000" style="width:70px">
+                <label title="Run memory extraction on every compaction pass (after the summary is produced). Uncheck to skip extraction and only produce a compacted summary.">Run memory extraction:</label>
+                <select id="sp-comp-runMemoryExtractionOnCompaction">
+                    <option value="true" ${status.compaction.runMemoryExtractionOnCompaction ? 'selected' : ''}>Enabled</option>
+                    <option value="false" ${!status.compaction.runMemoryExtractionOnCompaction ? 'selected' : ''}>Disabled</option>
+                </select>
             </div>
             <div class="sp-settings-row">
                 <label>Tool trail max chars:</label>
@@ -2742,8 +2741,10 @@ function attachStatusPanelListeners(skipEditorInit) {
                     llmConfigId: (document.getElementById('sp-comp-llmConfigId') || {}).value || '',
                     compactionTemplateId: (document.getElementById('sp-comp-compactionTemplateId') || {}).value || '',
                     memoryExtractionTemplateId: (document.getElementById('sp-comp-memoryExtractionTemplateId') || {}).value || '',
-                    compactionMaxRounds: parseInt((document.getElementById('sp-comp-maxRounds') || {}).value || '1'),
+                    compactionMaxRounds: parseInt((document.getElementById('sp-comp-maxRounds') || {}).value || '4'),
                     maxHistoryTokens: parseInt((document.getElementById('sp-comp-maxHistoryTokens') || {}).value || '8000'),
+                    fullTrailMaxTurns: parseInt((document.getElementById('sp-comp-fullTrailMaxTurns') || {}).value || '200'),
+                    runMemoryExtractionOnCompaction: (document.getElementById('sp-comp-runMemoryExtractionOnCompaction') || {}).value !== 'false',
                     toolTrailMaxResultChars: parseInt((document.getElementById('sp-comp-toolTrailMaxResultChars') || {}).value || '500'),
                     trailCleanupDays: parseInt((document.getElementById('sp-comp-trailCleanupDays') || {}).value || '2'),
                     backgroundExtractionEnabled: (document.getElementById('sp-comp-backgroundExtractionEnabled') || {}).value === 'true'

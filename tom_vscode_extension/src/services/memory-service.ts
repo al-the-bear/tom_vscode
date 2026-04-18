@@ -261,14 +261,28 @@ export class TwoTierMemoryService {
     // Compacted history snapshots (spec §5.2 — multi-session continuity)
     // ------------------------------------------------------------------------
 
-    /** Absolute path to the history snapshot folder for `questId`. */
+    /**
+     * Absolute path to the history snapshot folder for `questId`.
+     *
+     * Location: `_ai/quests/<quest>/history/` — inside the quest folder so
+     * the compacted history moves across machines with the quest via git,
+     * alongside the compact trail files. Previous location was under
+     * `_ai/memory/<quest>/history/` (not typically committed).
+     */
     historyFolder(questId?: string): string {
-        return path.join(this.scopeFolder('quest', questId), 'history');
+        const quest = questId || this.currentQuest() || 'default';
+        const root = WsPaths.ai('quests')
+            ?? path.join(
+                vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '',
+                WsPaths.aiFolder,
+                'quests',
+            );
+        return path.join(root, quest, 'history');
     }
 
     /**
      * Persist a compacted message array as a timestamped snapshot under
-     * `_ai/memory/{quest}/history/`. Filename format:
+     * `_ai/quests/{quest}/history/`. Filename format:
      * `YYYYMMDD_HHMMSS.history.json`. Quietly no-ops on I/O error — the
      * user-visible result must not depend on persistence succeeding.
      */

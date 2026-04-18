@@ -201,18 +201,27 @@ export interface SendToChatConfig {
         llmConfigId?: string;
         compactionTemplateId?: string;
         memoryExtractionTemplateId?: string;
+        /** @deprecated section-level tool picker; see per-template enabledTools instead. */
         enabledTools?: string[];
         compactionMaxRounds?: number;
         maxHistoryTokens?: number;
+        /** Cap on turns returned in 'full' history mode (runFull). */
+        fullTrailMaxTurns?: number;
         toolTrailMaxResultChars?: number;
         toolTrailKeepRounds?: number;
         backgroundExtractionEnabled?: boolean;
+        /** Whether memory extraction runs after every compaction pass. */
+        runMemoryExtractionOnCompaction?: boolean;
         templates?: Array<{
             id: string;
             name: string;
             description?: string;
             template: string;
             targetMode: string; // HistoryMode | 'all'
+            /** When false, use enabledTools subset; otherwise ALL_SHARED_TOOLS. */
+            toolsEnabled?: boolean;
+            /** Per-template tool allow-list. */
+            enabledTools?: string[];
         }>;
         memoryExtractionTemplates?: Array<{
             id: string;
@@ -221,6 +230,8 @@ export interface SendToChatConfig {
             template: string;
             targetFile: string;
             scope: 'quest' | 'shared' | 'both';
+            toolsEnabled?: boolean;
+            enabledTools?: string[];
         }>;
     };
 

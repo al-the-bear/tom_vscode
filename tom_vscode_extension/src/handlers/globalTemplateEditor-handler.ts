@@ -407,18 +407,26 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
         case 'compaction': {
             const tpl = (config.compaction?.templates || []).find(t => t.id === itemId);
             if (!tpl) break;
+            const compToolOptions = AVAILABLE_LLM_TOOLS.map((tool) => ({ value: tool, label: tool }));
+            const compEnabled = Array.isArray((tpl as { enabledTools?: unknown }).enabledTools) ? (tpl as { enabledTools: string[] }).enabledTools : [];
+            const compAllEnabled = (tpl as { toolsEnabled?: boolean }).toolsEnabled !== false && compEnabled.length === 0;
             fields.push(
                 { name: 'id', label: 'ID', type: 'text', value: tpl.id, readonly: true },
                 { name: 'name', label: 'Name', type: 'text', value: tpl.name || '' },
                 { name: 'description', label: 'Description', type: 'text', value: tpl.description || '' },
-                { name: 'template', label: 'Template', type: 'textarea', value: tpl.template || '', help: PLACEHOLDER_HELP + '<br><br>Compaction placeholders: <code>${compactionHistory}</code>, <code>${turnCount}</code>, <code>${tokenEstimate}</code>, <code>${compactionMode}</code>, <code>${turnsDropped}</code>, <code>${keptTurnCount}</code>, <code>${turnIndex}</code>.' },
+                { name: 'template', label: 'Template', type: 'textarea', value: tpl.template || '', help: PLACEHOLDER_HELP + '<br><br>Compaction placeholders: <code>${compactionHistory}</code>, <code>${turnCount}</code>, <code>${tokenEstimate}</code>, <code>${compactionMode}</code>, <code>${turnsDropped}</code>, <code>${keptTurnCount}</code>, <code>${maxHistoryTokens}</code>, <code>${maxHistorySize}</code> (target char size for the summary).' },
                 { name: 'targetMode', label: 'Target Mode', type: 'text', value: tpl.targetMode || 'all', help: 'summary, trim_and_summary, llm_extract, or all' },
+                { name: 'allToolsEnabled', label: 'All Tools Enabled', type: 'checkbox', value: String(compAllEnabled), help: 'When checked, the compaction call exposes every tool in <code>ALL_SHARED_TOOLS</code>. Uncheck to pick a template-specific subset.' },
+                { name: 'enabledTools', label: 'Tools', type: 'multi-checkbox', value: JSON.stringify(compEnabled), options: compToolOptions, disabledWhen: { field: 'allToolsEnabled', equals: 'true' }, help: 'Tool subset the compaction LLM may call. Only read-only tools are useful for a summary pass — <code>tomAi_readFile</code>, <code>tomAi_listMemory</code>, <code>tomAi_readMemory</code>, <code>tomAi_listGlobalGuidelines</code>, etc.' },
             );
             break;
         }
         case 'memoryExtraction': {
             const tpl = (config.compaction?.memoryExtractionTemplates || []).find(t => t.id === itemId);
             if (!tpl) break;
+            const memToolOptions = AVAILABLE_LLM_TOOLS.map((tool) => ({ value: tool, label: tool }));
+            const memEnabled = Array.isArray((tpl as { enabledTools?: unknown }).enabledTools) ? (tpl as { enabledTools: string[] }).enabledTools : [];
+            const memAllEnabled = (tpl as { toolsEnabled?: boolean }).toolsEnabled !== false && memEnabled.length === 0;
             fields.push(
                 { name: 'id', label: 'ID', type: 'text', value: tpl.id, readonly: true },
                 { name: 'name', label: 'Name', type: 'text', value: tpl.name || '' },
@@ -426,6 +434,8 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                 { name: 'template', label: 'Template', type: 'textarea', value: tpl.template || '', help: PLACEHOLDER_HELP + '<br><br>Memory placeholders: <code>${recentHistory}</code>, <code>${existingMemory}</code>, <code>${memoryFilePath}</code>, <code>${memoryScope}</code>.' },
                 { name: 'targetFile', label: 'Target File', type: 'text', value: tpl.targetFile || 'facts.md' },
                 { name: 'scope', label: 'Scope', type: 'text', value: tpl.scope || 'quest', help: 'quest, shared, or both' },
+                { name: 'allToolsEnabled', label: 'All Tools Enabled', type: 'checkbox', value: String(memAllEnabled), help: 'When checked, the memory extraction call exposes every tool in <code>ALL_SHARED_TOOLS</code>. Uncheck to pick a template-specific subset — typically the memory read/write tools.' },
+                { name: 'enabledTools', label: 'Tools', type: 'multi-checkbox', value: JSON.stringify(memEnabled), options: memToolOptions, disabledWhen: { field: 'allToolsEnabled', equals: 'true' }, help: 'Tool subset the memory extraction LLM may call. Typical defaults: <code>tomAi_listMemory</code>, <code>tomAi_readMemory</code>, <code>tomAi_saveMemory</code>, <code>tomAi_updateMemory</code>.' },
             );
             break;
         }
@@ -729,17 +739,27 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
             if (!config.compaction) config.compaction = {};
             const templates = config.compaction.templates ?? [];
             const idx = templates.findIndex(t => t.id === itemId);
-            const next = {
+            const compAllTools = values.allToolsEnabled === 'true';
+            let compTools: string[] | undefined;
+            try {
+                const parsed = JSON.parse(values.enabledTools || '[]');
+                if (Array.isArray(parsed)) { compTools = parsed.filter((t): t is string => typeof t === 'string'); }
+            } catch { compTools = undefined; }
+            const next: Record<string, unknown> = {
                 id: itemId,
                 name: values.name || itemId,
                 description: values.description || '',
                 template: values.template || '',
                 targetMode: values.targetMode || 'all',
+                toolsEnabled: compAllTools,
+                ...(compAllTools ? {} : { enabledTools: compTools ?? [] }),
             };
             if (idx >= 0) {
-                templates[idx] = { ...templates[idx], ...next };
+                const existing = templates[idx] as unknown as Record<string, unknown>;
+                if (compAllTools && 'enabledTools' in existing) { delete existing.enabledTools; }
+                templates[idx] = { ...existing, ...next } as typeof templates[number];
             } else {
-                templates.push(next);
+                templates.push(next as typeof templates[number]);
             }
             config.compaction.templates = templates;
             break;
@@ -749,18 +769,28 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
             const templates = config.compaction.memoryExtractionTemplates ?? [];
             const idx = templates.findIndex(t => t.id === itemId);
             const scope = (values.scope === 'shared' || values.scope === 'both') ? values.scope : 'quest';
-            const next = {
+            const memAllTools = values.allToolsEnabled === 'true';
+            let memTools: string[] | undefined;
+            try {
+                const parsed = JSON.parse(values.enabledTools || '[]');
+                if (Array.isArray(parsed)) { memTools = parsed.filter((t): t is string => typeof t === 'string'); }
+            } catch { memTools = undefined; }
+            const next: Record<string, unknown> = {
                 id: itemId,
                 name: values.name || itemId,
                 description: values.description || '',
                 template: values.template || '',
                 targetFile: values.targetFile || 'facts.md',
                 scope: scope as 'quest' | 'shared' | 'both',
+                toolsEnabled: memAllTools,
+                ...(memAllTools ? {} : { enabledTools: memTools ?? [] }),
             };
             if (idx >= 0) {
-                templates[idx] = { ...templates[idx], ...next };
+                const existing = templates[idx] as unknown as Record<string, unknown>;
+                if (memAllTools && 'enabledTools' in existing) { delete existing.enabledTools; }
+                templates[idx] = { ...existing, ...next } as typeof templates[number];
             } else {
-                templates.push(next);
+                templates.push(next as typeof templates[number]);
             }
             config.compaction.memoryExtractionTemplates = templates;
             break;
