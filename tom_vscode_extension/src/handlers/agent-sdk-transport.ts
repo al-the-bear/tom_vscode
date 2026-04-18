@@ -469,6 +469,13 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
     let capturedSessionId: string | undefined;
 
     try {
+        // `cwd` anchors the SDK's filesystem lookups (CLAUDE.md,
+        // `.claude/settings.json`, project-scoped settingSources, etc.)
+        // to the VS Code workspace root. Without it the SDK defaults to
+        // the extension host's process.cwd() — usually the user's home
+        // or wherever VS Code was launched from — and would silently
+        // find no CLAUDE.md even when 'project' is in settingSources.
+        const workspaceCwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
         const queryOptions: Record<string, unknown> = {
             model: configuration.model,
             systemPrompt: effectiveSystemPrompt || undefined,
@@ -479,6 +486,7 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
             canUseTool: canUseToolFn,
             mcpServers: { [MCP_SERVER_NAME]: mcpServer },
             tools: toolsOption,
+            ...(workspaceCwd ? { cwd: workspaceCwd } : {}),
         };
         // Continuity: passing `resume` tells the SDK to continue a prior
         // session so it sees the full turn history it produced earlier.
