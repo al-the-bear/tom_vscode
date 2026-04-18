@@ -218,6 +218,14 @@ export interface SendToChatConfig {
          * quest folder. Default 200.
          */
         rebuildFromLastNPrompts?: number;
+        /**
+         * When true, each compaction pass writes a timestamped archive
+         * file (`YYYYMMDD_HHMMSS.history.json`) in addition to overwriting
+         * the canonical `history.json`. Off by default; useful for
+         * debugging turn-by-turn changes. Produces one new file per turn
+         * so leave it off for normal operation.
+         */
+        archiveHistoryEveryTurn?: boolean;
         templates?: Array<{
             id: string;
             name: string;

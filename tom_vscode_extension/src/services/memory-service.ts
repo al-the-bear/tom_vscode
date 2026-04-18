@@ -281,27 +281,45 @@ export class TwoTierMemoryService {
     }
 
     /**
-     * Persist a compacted message array as a timestamped snapshot under
-     * `_ai/quests/{quest}/history/`. Filename format:
-     * `YYYYMMDD_HHMMSS.history.json`. Quietly no-ops on I/O error — the
-     * user-visible result must not depend on persistence succeeding.
+     * Persist a compacted message array to the quest's history folder.
+     *
+     * Always writes `history.json` (a single fixed-name file that gets
+     * overwritten every turn — the one git-trackable snapshot of the
+     * session state). When `archive` is true, *additionally* writes a
+     * timestamped `YYYYMMDD_HHMMSS.history.json` alongside it so the
+     * caller can compare turns during debugging. Archive is opt-in via
+     * the Compaction section's "Archive every turn" setting; default
+     * off to keep the folder lean.
+     *
+     * Quietly no-ops on I/O error — persistence failure must never
+     * affect the user-visible turn result.
      */
-    persistHistorySnapshot(messages: unknown, questId?: string): string | undefined {
+    persistHistorySnapshot(messages: unknown, questId?: string, archive: boolean = false): string | undefined {
         try {
             const folder = this.historyFolder(questId);
             FsUtils.ensureDir(folder);
-            const stamp = this.timestampNow();
-            const file = path.join(folder, `${stamp}.history.json`);
-            fs.writeFileSync(file, JSON.stringify({ messages, savedAt: new Date().toISOString() }, null, 2), 'utf-8');
-            return file;
+            const savedAt = new Date().toISOString();
+            const content = JSON.stringify({ messages, savedAt }, null, 2);
+            // Single rolling file.
+            const canonical = path.join(folder, 'history.json');
+            fs.writeFileSync(canonical, content, 'utf-8');
+            if (archive) {
+                const stamp = this.timestampNow();
+                const archiveFile = path.join(folder, `${stamp}.history.json`);
+                fs.writeFileSync(archiveFile, content, 'utf-8');
+            }
+            return canonical;
         } catch {
             return undefined;
         }
     }
 
     /**
-     * Load the most recent history snapshot for `questId`. Returns the
-     * raw messages payload or `undefined` when no snapshot exists.
+     * Load the most recent history snapshot for `questId`. Prefers the
+     * single `history.json`; falls back to the most recent
+     * `<timestamp>.history.json` if only archived files exist (e.g. the
+     * canonical file was deleted manually). Returns the raw messages
+     * payload, or `undefined` when no snapshot can be read.
      */
     loadLatestHistorySnapshot<T = unknown>(questId?: string): T | undefined {
         try {
@@ -309,8 +327,15 @@ export class TwoTierMemoryService {
             if (!fs.existsSync(folder)) {
                 return undefined;
             }
+            // 1. Prefer the rolling `history.json`.
+            const canonical = path.join(folder, 'history.json');
+            if (fs.existsSync(canonical)) {
+                const raw = FsUtils.safeReadJson<{ messages?: T }>(canonical);
+                if (raw?.messages !== undefined) { return raw.messages; }
+            }
+            // 2. Fall back to the most recent archive file, if any.
             const entries = fs.readdirSync(folder)
-                .filter((n) => n.endsWith('.history.json'))
+                .filter((n) => n !== 'history.json' && n.endsWith('.history.json'))
                 .map((n) => ({ n, mtime: fs.statSync(path.join(folder, n)).mtimeMs }))
                 .sort((a, b) => b.mtime - a.mtime);
             if (entries.length === 0) {

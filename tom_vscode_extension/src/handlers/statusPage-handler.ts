@@ -951,6 +951,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
             (stcConfig.compaction as { fullTrailMaxTurns?: number }).fullTrailMaxTurns = Number.isFinite(s.fullTrailMaxTurns) ? s.fullTrailMaxTurns : 200;
             (stcConfig.compaction as { runMemoryExtractionOnCompaction?: boolean }).runMemoryExtractionOnCompaction = s.runMemoryExtractionOnCompaction !== false;
             (stcConfig.compaction as { rebuildFromLastNPrompts?: number }).rebuildFromLastNPrompts = Number.isFinite(s.rebuildFromLastNPrompts) ? s.rebuildFromLastNPrompts : 200;
+            (stcConfig.compaction as { archiveHistoryEveryTurn?: boolean }).archiveHistoryEveryTurn = s.archiveHistoryEveryTurn === true;
             // Memory tool exposure + injection cap live under anthropic.memory
             // on disk (to match the handler that reads them) but are edited
             // in the Compaction panel now. The Anthropic Memory section has
@@ -1403,6 +1404,11 @@ export interface StatusData {
          * history from the last N prompt/answer pairs. Default 200.
          */
         rebuildFromLastNPrompts: number;
+        /**
+         * Debug toggle: also persist a timestamped history snapshot
+         * every turn (in addition to the rolling history.json).
+         */
+        archiveHistoryEveryTurn: boolean;
     };
     /**
      * Anthropic memory subsystem defaults. Previously rendered in its own
@@ -1626,6 +1632,7 @@ export async function gatherStatusData(): Promise<StatusData> {
             fullTrailMaxTurns: (sendToChatConfig?.compaction as { fullTrailMaxTurns?: number })?.fullTrailMaxTurns ?? 200,
             runMemoryExtractionOnCompaction: (sendToChatConfig?.compaction as { runMemoryExtractionOnCompaction?: boolean })?.runMemoryExtractionOnCompaction !== false,
             rebuildFromLastNPrompts: (sendToChatConfig?.compaction as { rebuildFromLastNPrompts?: number })?.rebuildFromLastNPrompts ?? 200,
+            archiveHistoryEveryTurn: (sendToChatConfig?.compaction as { archiveHistoryEveryTurn?: boolean })?.archiveHistoryEveryTurn === true,
             toolTrailMaxResultChars: sendToChatConfig?.compaction?.toolTrailMaxResultChars ?? 500,
             backgroundExtractionEnabled: sendToChatConfig?.compaction?.backgroundExtractionEnabled === true,
         },
@@ -2216,6 +2223,11 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
             <div class="sp-settings-row">
                 <label title="Exceptional/error case: when the handler finds no history snapshot on session start, it rebuilds history from the last N prompt/answer pairs in the quest's compact trail files (.prompts.md / .answers.md). While the rebuild runs, sending a new prompt shows 'Rebuild history from last N prompts…'">Rebuild from last N prompts:</label>
                 <input type="number" id="sp-comp-rebuildFromLastNPrompts" value="${status.compaction.rebuildFromLastNPrompts}" min="1" max="1000" style="width:70px">
+                <label title="Debug only. When on, every compaction pass ALSO writes a timestamped YYYYMMDD_HHMMSS.history.json alongside the rolling history.json — one extra file per turn. Off by default; turn on to compare turn-by-turn state, then back off for normal operation.">Archive every turn:</label>
+                <select id="sp-comp-archiveHistoryEveryTurn">
+                    <option value="true" ${status.compaction.archiveHistoryEveryTurn ? 'selected' : ''}>Enabled (debug)</option>
+                    <option value="false" ${!status.compaction.archiveHistoryEveryTurn ? 'selected' : ''}>Disabled</option>
+                </select>
             </div>
             <div class="sp-settings-row">
                 <label title="Expose the tomAi_*Memory tools to the main Anthropic agent during its tool-use loop. When off, memory is injected into the system prompt at send time (capped by the next field) and the agent cannot mutate memory on demand.">Memory tools:</label>
@@ -2728,6 +2740,7 @@ function attachStatusPanelListeners(skipEditorInit) {
                     fullTrailMaxTurns: parseInt((document.getElementById('sp-comp-fullTrailMaxTurns') || {}).value || '200'),
                     runMemoryExtractionOnCompaction: (document.getElementById('sp-comp-runMemoryExtractionOnCompaction') || {}).value !== 'false',
                     rebuildFromLastNPrompts: parseInt((document.getElementById('sp-comp-rebuildFromLastNPrompts') || {}).value || '200'),
+                    archiveHistoryEveryTurn: (document.getElementById('sp-comp-archiveHistoryEveryTurn') || {}).value === 'true',
                     memoryToolsEnabled: (document.getElementById('sp-mem-memoryToolsEnabled') || {}).value === 'true',
                     memoryMaxInjectedTokens: parseInt((document.getElementById('sp-mem-maxInjectedTokens') || {}).value || '3000'),
                     toolTrailMaxResultChars: parseInt((document.getElementById('sp-comp-toolTrailMaxResultChars') || {}).value || '500'),

@@ -474,27 +474,16 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Anth
 // Message helpers
 // ============================================================================
 
-function handleAssistantMessage(msg: SDKAssistantMessage, ctx: AgentSdkTransportContext): void {
-    const body = msg.message;
-    if (!body) {
-        return;
-    }
-    const content = Array.isArray((body as { content?: unknown }).content) ? (body as { content: unknown[] }).content : [];
-    for (const block of content) {
-        if (!block || typeof block !== 'object') {
-            continue;
-        }
-        const b = block as { type?: string; text?: unknown };
-        if (b.type === 'text' && typeof b.text === 'string' && b.text) {
-            TrailService.instance.writeRawAnswer(
-                ANTHROPIC_SUBSYSTEM,
-                b.text,
-                ctx.windowId,
-                ctx.requestId,
-                ctx.questId,
-            );
-        }
-    }
+/**
+ * Previously emitted a `writeRawAnswer` for every streaming text block,
+ * which produced a duplicate of the final answer in the raw trail (one
+ * per block + one at the end of runAgentSdkQuery). The final write in
+ * runAgentSdkQuery covers the canonical answer content; the per-block
+ * writes were noise. The hook stays so future callers can add streaming
+ * UI side-effects here without reintroducing the duplicate trail file.
+ */
+function handleAssistantMessage(_msg: SDKAssistantMessage, _ctx: AgentSdkTransportContext): void {
+    /* no-op on trail; final answer is written once in runAgentSdkQuery */
 }
 
 function extractAssistantText(msg: SDKAssistantMessage): string {

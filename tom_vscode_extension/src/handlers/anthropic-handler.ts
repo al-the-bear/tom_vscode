@@ -513,12 +513,18 @@ export class AnthropicHandler {
         }
     }
 
-    /** Serialize the split state to the quest-folder history file. */
+    /**
+     * Serialize the split state to the quest-folder history file. Always
+     * overwrites `history.json`; when the compaction config has
+     * `archiveHistoryEveryTurn` on, also writes a timestamped copy.
+     */
     private persistSessionHistory(questId: string | undefined): void {
         try {
+            const archive = this.getCompactionConfig().archiveHistoryEveryTurn;
             TwoTierMemoryService.instance.persistHistorySnapshot(
                 { compactedSummary: this.compactedSummary, rawTurns: this.rawTurns },
                 questId,
+                archive,
             );
         } catch {
             // best-effort — a failed save must never affect the turn result
@@ -540,6 +546,7 @@ export class AnthropicHandler {
         fullTrailMaxTurns: number;
         runMemoryExtractionOnCompaction: boolean;
         rebuildFromLastNPrompts: number;
+        archiveHistoryEveryTurn: boolean;
     } {
         const section = TomAiConfiguration.instance.getSection<{
             llmProvider?: 'localLlm' | 'anthropic';
@@ -551,6 +558,7 @@ export class AnthropicHandler {
             fullTrailMaxTurns?: number;
             runMemoryExtractionOnCompaction?: boolean;
             rebuildFromLastNPrompts?: number;
+            archiveHistoryEveryTurn?: boolean;
         }>('compaction') ?? {};
         return {
             llmProvider: section.llmProvider === 'anthropic' ? 'anthropic' : 'localLlm',
@@ -562,6 +570,7 @@ export class AnthropicHandler {
             fullTrailMaxTurns: Number.isFinite(section.fullTrailMaxTurns) ? (section.fullTrailMaxTurns as number) : 200,
             runMemoryExtractionOnCompaction: section.runMemoryExtractionOnCompaction !== false,
             rebuildFromLastNPrompts: Number.isFinite(section.rebuildFromLastNPrompts) ? (section.rebuildFromLastNPrompts as number) : 200,
+            archiveHistoryEveryTurn: section.archiveHistoryEveryTurn === true,
         };
     }
 
