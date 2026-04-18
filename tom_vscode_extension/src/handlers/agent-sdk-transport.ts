@@ -422,20 +422,37 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
         ? 'bypassPermissions'
         : configuredMode;
     let settingSources: SettingSource[] = (configuration.agentSdk?.settingSources ?? []) as SettingSource[];
-    // Auto-include 'project' when CLAUDE.md exists at the workspace root
-    // (the SDK picks up CLAUDE.md + .claude/settings.json via this source).
-    // Only in SDK-managed mode — see AgentSdkSendParams.autoLoadProjectSettings.
-    if (params.autoLoadProjectSettings === true && !settingSources.includes('project')) {
+    let effectiveSystemPrompt = systemPrompt;
+    // Auto-load workspace instructions when the handler asks for it
+    // (SDK-managed mode). Priority:
+    //   1. CLAUDE.md at workspace root  → include 'project' in settingSources;
+    //      the SDK picks up CLAUDE.md + .claude/settings.json natively.
+    //   2. else .github/copilot-instructions.md → inject its contents into
+    //      the system prompt; the SDK has no native loader for that file.
+    //   3. else no-op.
+    if (params.autoLoadProjectSettings === true) {
         try {
             const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
             if (wsRoot) {
-                const claudeMdPath = `${wsRoot}/CLAUDE.md`;
                 const fsMod = require('fs') as typeof import('fs');
+                const pathMod = require('path') as typeof import('path');
+                const claudeMdPath = pathMod.join(wsRoot, 'CLAUDE.md');
+                const copilotPath = pathMod.join(wsRoot, '.github', 'copilot-instructions.md');
                 if (fsMod.existsSync(claudeMdPath)) {
-                    settingSources = [...settingSources, 'project'];
+                    if (!settingSources.includes('project')) {
+                        settingSources = [...settingSources, 'project'];
+                    }
+                } else if (fsMod.existsSync(copilotPath)) {
+                    const body = fsMod.readFileSync(copilotPath, 'utf-8');
+                    if (body && body.trim().length > 0) {
+                        const block = `## Workspace instructions (from .github/copilot-instructions.md)\n\n${body}`;
+                        effectiveSystemPrompt = effectiveSystemPrompt
+                            ? `${effectiveSystemPrompt}\n\n${block}`
+                            : block;
+                    }
                 }
             }
-        } catch { /* leave settingSources as configured */ }
+        } catch { /* leave systemPrompt + settingSources as configured */ }
     }
 
     // Built-in tool preset: when the profile opts in, pass the Claude Code
@@ -454,7 +471,7 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
     try {
         const queryOptions: Record<string, unknown> = {
             model: configuration.model,
-            systemPrompt: systemPrompt || undefined,
+            systemPrompt: effectiveSystemPrompt || undefined,
             maxTurns,
             permissionMode,
             settingSources,
