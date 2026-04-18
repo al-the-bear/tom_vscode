@@ -1129,8 +1129,16 @@ body {
     text-align: center;
 }
 .field { margin-bottom: 16px; flex-shrink: 0; }
-.field.field-grow { flex: 1; display: flex; flex-direction: column; margin-bottom: 0; }
-.field.field-grow textarea { flex: 1; min-height: 100px; resize: none; }
+/*
+ * .field-grow used to apply flex:1 + resize:none to every textarea
+ * so the form filled the available height without a scrollbar. That
+ * side-effected away the native resize grip — users could not drag
+ * any multi-line field. The form now scrolls and each textarea gets
+ * a generous starting height + resize:vertical, so every multi-line
+ * field is individually draggable via the bottom-right grip.
+ */
+.field.field-grow { display: flex; flex-direction: column; margin-bottom: 16px; }
+.field.field-grow textarea { min-height: 220px; resize: vertical; }
 .field label {
     display: block;
     margin-bottom: 4px;
@@ -1150,7 +1158,7 @@ body {
     font-size: var(--vscode-editor-font-size, 13px);
     border-radius: 3px;
 }
-.field textarea { min-height: 100px; resize: vertical; line-height: 1.5; }
+.field textarea { min-height: 180px; resize: vertical; line-height: 1.5; }
 .field input:focus, .field textarea:focus { border-color: var(--vscode-focusBorder); outline: none; }
 /* Inline row: name + checkbox on same line */
 .field-inline-row {
