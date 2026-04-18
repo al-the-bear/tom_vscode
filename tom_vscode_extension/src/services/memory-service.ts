@@ -420,6 +420,59 @@ export class TwoTierMemoryService {
         return trimmed;
     }
 
+    // ------------------------------------------------------------------------
+    // Agent SDK session-id persistence (per VS Code window, per quest)
+    // ------------------------------------------------------------------------
+
+    /**
+     * Sessions live in `_ai/quests/<quest>/history/<windowId>_sessionid.json`
+     * rather than the main `history.json` because SDK sessions are tied to a
+     * single machine/installation — they can't move with git like the
+     * compacted history can. Separate file, same folder.
+     */
+    private agentSdkSessionFile(windowId: string, questId?: string): string {
+        const safe = windowId.replace(/[^A-Za-z0-9_-]/g, '_');
+        return path.join(this.historyFolder(questId), `${safe}_sessionid.json`);
+    }
+
+    /** Read the stored session id for (window, quest). Undefined when missing / unparseable. */
+    loadAgentSdkSessionId(windowId: string, questId?: string): string | undefined {
+        try {
+            const file = this.agentSdkSessionFile(windowId, questId);
+            if (!fs.existsSync(file)) { return undefined; }
+            const raw = FsUtils.safeReadJson<{ sessionId?: unknown }>(file);
+            const sid = raw?.sessionId;
+            return typeof sid === 'string' && sid.length > 0 ? sid : undefined;
+        } catch {
+            return undefined;
+        }
+    }
+
+    /** Persist the session id returned by the Claude Code SDK. */
+    saveAgentSdkSessionId(windowId: string, sessionId: string, questId?: string, model?: string): void {
+        try {
+            const file = this.agentSdkSessionFile(windowId, questId);
+            FsUtils.ensureDir(path.dirname(file));
+            fs.writeFileSync(
+                file,
+                JSON.stringify({ sessionId, windowId, updatedAt: new Date().toISOString(), model: model ?? '' }, null, 2),
+                'utf-8',
+            );
+        } catch {
+            // best-effort
+        }
+    }
+
+    /** Remove the session-id file (used by clearSession). */
+    clearAgentSdkSessionId(windowId: string, questId?: string): void {
+        try {
+            const file = this.agentSdkSessionFile(windowId, questId);
+            if (fs.existsSync(file)) { fs.unlinkSync(file); }
+        } catch {
+            // best-effort
+        }
+    }
+
     private escapeRegex(s: string): string {
         return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }

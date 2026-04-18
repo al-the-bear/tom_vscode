@@ -48,17 +48,26 @@ import {
 /**
  * Supported history-compaction modes.
  *
- * Removed in this pass:
- *   - `none` — bogus: it threw away context entirely
- *   - `last` — a degenerate special case of `trim_and_summary` with zero
- *     summary budget; covered by `trim_and_summary` with a small
- *     `maxHistoryTokens`
+ *  - `sdk-managed`     — Agent SDK only. Continuity is provided by the
+ *    SDK's own session-resume mechanism: we persist the session id
+ *    returned by the first call and pass it back via `resume` on
+ *    subsequent calls. Our `rawTurns` / `compactedSummary` are
+ *    maintained in parallel (for the history.md file + dry-run) but
+ *    not injected into the user prompt.
+ *  - `trim_and_summary` / `full` — works on both transports. On the
+ *    direct path they drive `messages[]`. On the Agent SDK path the
+ *    compacted summary + raw turns are prepended to the user prompt
+ *    via the userMessage template (see the `default-memory-injection`
+ *    seed template for an example).
+ *  - `summary` / `llm_extract` — direct transport only, retained for
+ *    dry-run parity with older workflows.
  *
- * Still recognised at the type level for backward-compat at the callsite
- * level (config-loading migrations map them into `trim_and_summary`) but
- * no longer branched on.
+ * Removed: `none` (threw away context) and `last` (degenerate case of
+ * trim_and_summary). Stored configs still referencing them are mapped
+ * to `trim_and_summary` at callsite level.
  */
 export type HistoryMode =
+    | 'sdk-managed'
     | 'full'
     | 'summary'
     | 'trim_and_summary'
@@ -806,6 +815,13 @@ export async function compactHistoryDetailed(
             ? 'trim_and_summary'
             : options.mode;
         switch (mode) {
+            case 'sdk-managed':
+                // Agent SDK manages continuity via resume. Our compacted
+                // summary is still kept up to date in parallel (so the
+                // history.md file is always readable) — but this call
+                // path just passes the history through so the next turn
+                // doesn't stall on a no-op LLM call.
+                result = runFull(history, options); break;
             case 'full':             result = runFull(history, options); break;
             case 'summary':          result = await runSummary(history, options); break;
             case 'trim_and_summary': result = await runTrimAndSummary(history, options); break;

@@ -481,11 +481,10 @@ async function editOrCreateAnthropicConfiguration(configId: string | null): Prom
     if (transport === 'direct') {
         const historyPick = await vscode.window.showQuickPick(
             [
-                { label: 'last', description: 'Keep only the latest turn (no history)', value: 'last' },
-                { label: 'all', description: 'Keep every turn verbatim', value: 'all' },
-                { label: 'summary', description: 'Summarize after each turn', value: 'summary' },
-                { label: 'trim_and_summary', description: 'Trim-then-summarize (recommended for long sessions)', value: 'trim_and_summary' },
-                { label: 'llm_extract', description: 'Summarize and extract durable facts', value: 'llm_extract' },
+                { label: 'trim_and_summary', description: 'Running summary + last N raw turns (recommended)', value: 'trim_and_summary' },
+                { label: 'full', description: 'Every turn verbatim (capped by Full trail mode max turns)', value: 'full' },
+                { label: 'summary', description: 'Replace history with a 2-message summary every turn', value: 'summary' },
+                { label: 'llm_extract', description: 'Summarize + extract durable facts to memory', value: 'llm_extract' },
             ],
             {
                 placeHolder: 'History mode',
@@ -572,6 +571,41 @@ async function editOrCreateAnthropicConfiguration(configId: string | null): Prom
             settingSources: sourcesPick.map((s) => s.value),
             ...(maxTurnsStr.trim() === '' ? {} : { maxTurns: parseInt(maxTurnsStr, 10) }),
         };
+
+        // Agent SDK history mode picker. 'sdk-managed' (default) uses the
+        // SDK's own session-resume mechanism; the other two reuse our own
+        // compaction pipeline and inject the compacted summary + raw
+        // turns into the user prompt via a memory-injection template.
+        const agentHistoryPick = await vscode.window.showQuickPick(
+            [
+                { label: 'sdk-managed', description: 'Claude Code SDK session resume (persisted per window). Default.', value: 'sdk-managed' as const },
+                { label: 'trim_and_summary', description: 'Our running summary + last N raw turns, prepended to the prompt', value: 'trim_and_summary' as const },
+                { label: 'full', description: 'Every turn verbatim, prepended to the prompt (capped by Full trail mode max turns)', value: 'full' as const },
+            ],
+            {
+                placeHolder: 'Agent SDK history mode',
+                ignoreFocusOut: true,
+            },
+        );
+        if (!agentHistoryPick) { return; }
+        historyMode = agentHistoryPick.value;
+        // For the two memory-injection modes, let the user set the token
+        // budget that the compaction template targets.
+        if (historyMode === 'trim_and_summary') {
+            const maxHistStr = await vscode.window.showInputBox({
+                prompt: 'Compacted history max tokens (target for the summary prepended to the prompt)',
+                value: existing?.maxHistoryTokens !== undefined ? String(existing.maxHistoryTokens) : '8000',
+                validateInput: (v) => {
+                    const n = parseInt(v, 10);
+                    if (!Number.isFinite(n) || n < 0) { return 'Enter a non-negative integer'; }
+                    return null;
+                },
+            });
+            if (maxHistStr === undefined) { return; }
+            maxHistoryTokens = parseInt(maxHistStr, 10);
+        } else {
+            maxHistoryTokens = existing?.maxHistoryTokens;
+        }
     }
 
     const defaultPick = await vscode.window.showQuickPick(

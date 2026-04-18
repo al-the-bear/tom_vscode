@@ -172,6 +172,33 @@ export interface AgentSdkSendParams {
     useBuiltInTools?: boolean;
     /** Profile-level override: extended thinking budget (tokens). Forwarded to the SDK. */
     thinkingBudgetTokens?: number;
+    /**
+     * When provided, passed as `resume` to the SDK so the agent continues a
+     * previous session (Claude Code's own continuity mechanism). Typically
+     * populated from the per-window session-id file when the configuration
+     * uses `historyMode: 'sdk-managed'`. Ignored when the stored id
+     * doesn't match anything the SDK recognises — the SDK silently starts
+     * a new session in that case.
+     */
+    resumeSessionId?: string;
+    /**
+     * When true, automatically include `'project'` in `settingSources` if
+     * a CLAUDE.md exists at the workspace root. This is how the SDK picks
+     * up CLAUDE.md and the project-level settings file. Requested by the
+     * handler's SDK-managed path; ignored on other paths (which use
+     * whatever the configuration specifies).
+     */
+    autoLoadProjectSettings?: boolean;
+}
+
+export interface AgentSdkResult {
+    text: string;
+    turnsUsed: number;
+    toolCallCount: number;
+    stopReason?: string;
+    /** Session id returned by the SDK's init/result messages; used by the
+     *  handler to persist continuity for the next call in sdk-managed mode. */
+    sessionId?: string;
 }
 
 // ============================================================================
@@ -376,7 +403,7 @@ function makeCanUseTool(
  * The SDK handles retries, caching, and compaction internally. We only
  * observe the event stream and forward it to our logging / UI surfaces.
  */
-export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<AnthropicSendResult> {
+export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<AgentSdkResult> {
     const { configuration, tools, systemPrompt, userText, cancellationToken, context } = params;
 
     const sdk = await loadSdk();
@@ -394,7 +421,22 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Anth
     const permissionMode: PermissionMode = approvalMode === 'never'
         ? 'bypassPermissions'
         : configuredMode;
-    const settingSources: SettingSource[] = (configuration.agentSdk?.settingSources ?? []) as SettingSource[];
+    let settingSources: SettingSource[] = (configuration.agentSdk?.settingSources ?? []) as SettingSource[];
+    // Auto-include 'project' when CLAUDE.md exists at the workspace root
+    // (the SDK picks up CLAUDE.md + .claude/settings.json via this source).
+    // Only in SDK-managed mode — see AgentSdkSendParams.autoLoadProjectSettings.
+    if (params.autoLoadProjectSettings === true && !settingSources.includes('project')) {
+        try {
+            const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (wsRoot) {
+                const claudeMdPath = `${wsRoot}/CLAUDE.md`;
+                const fsMod = require('fs') as typeof import('fs');
+                if (fsMod.existsSync(claudeMdPath)) {
+                    settingSources = [...settingSources, 'project'];
+                }
+            }
+        } catch { /* leave settingSources as configured */ }
+    }
 
     // Built-in tool preset: when the profile opts in, pass the Claude Code
     // preset so Read/Write/Edit/Bash/Grep/… become available. Otherwise
@@ -407,26 +449,41 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Anth
     let totalToolCalls = 0;
     let stopReason: string | undefined;
     let turnsUsed = 0;
+    let capturedSessionId: string | undefined;
 
     try {
+        const queryOptions: Record<string, unknown> = {
+            model: configuration.model,
+            systemPrompt: systemPrompt || undefined,
+            maxTurns,
+            permissionMode,
+            settingSources,
+            abortController,
+            canUseTool: canUseToolFn,
+            mcpServers: { [MCP_SERVER_NAME]: mcpServer },
+            tools: toolsOption,
+        };
+        // Continuity: passing `resume` tells the SDK to continue a prior
+        // session so it sees the full turn history it produced earlier.
+        if (params.resumeSessionId && params.resumeSessionId.length > 0) {
+            queryOptions.resume = params.resumeSessionId;
+        }
         const stream = sdk.query({
             prompt: userText,
-            options: {
-                model: configuration.model,
-                systemPrompt: systemPrompt || undefined,
-                maxTurns,
-                permissionMode,
-                settingSources,
-                abortController,
-                canUseTool: canUseToolFn,
-                mcpServers: { [MCP_SERVER_NAME]: mcpServer },
-                tools: toolsOption,
-            },
+            options: queryOptions as Parameters<typeof sdk.query>[0]['options'],
         });
 
         for await (const msg of stream) {
             if (cancellationToken?.isCancellationRequested) {
                 break;
+            }
+            // Every SDK message carries a session_id — capture the first
+            // non-empty one we see. On first send the SDK emits a new id
+            // (persist it); on resume it echoes the id we passed back
+            // (safe to re-persist — same value).
+            const sid = (msg as { session_id?: unknown }).session_id;
+            if (typeof sid === 'string' && sid.length > 0 && !capturedSessionId) {
+                capturedSessionId = sid;
             }
             switch (msg.type) {
                 case 'assistant':
@@ -467,7 +524,13 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Anth
     );
     context.toolTrail.evictOldRounds();
 
-    return { text: lastText, turnsUsed: turnsUsed || maxTurns, toolCallCount: totalToolCalls, stopReason };
+    return {
+        text: lastText,
+        turnsUsed: turnsUsed || maxTurns,
+        toolCallCount: totalToolCalls,
+        stopReason,
+        sessionId: capturedSessionId,
+    };
 }
 
 // ============================================================================

@@ -415,7 +415,7 @@ export class AnthropicHandler {
         }
     }
 
-    /** Clear all in-session state (compacted summary, raw turns, tool trail, session-mode approvals). */
+    /** Clear all in-session state (compacted summary, raw turns, tool trail, session-mode approvals, persisted SDK session id). */
     clearSession(): void {
         this.compactedSummary = '';
         this.rawTurns = [];
@@ -426,6 +426,14 @@ export class AnthropicHandler {
         this.compactionInFlight = null;
         this.memoryExtractionInFlight = null;
         this.historyRebuildInFlight = null;
+        // Drop the Agent SDK session-id file so the next sdk-managed
+        // send starts a brand-new conversation rather than resuming the
+        // one we just cleared.
+        try {
+            const windowId = vscode.env.sessionId;
+            const quest = TwoTierMemoryService.instance.currentQuest();
+            TwoTierMemoryService.instance.clearAgentSdkSessionId(windowId, quest);
+        } catch { /* best-effort */ }
     }
 
     /**
@@ -858,7 +866,30 @@ export class AnthropicHandler {
             ? [profile.systemPrompt ?? ''].filter((s): s is string => !!s)
             : this.buildSystemSegments(profile, quest);
         const systemPrompt = systemSegments.filter((s) => s).join('\n\n');
-        const expandedUser = this.buildUserMessage({ ...options, userText: effectiveUserText });
+        // Effective history mode for this call. Agent SDK configs may use
+        // 'sdk-managed' (SDK session resumption); 'full' / 'trim_and_summary'
+        // on either transport triggers our own history injection. Direct
+        // transport defaults to trim_and_summary.
+        const rawHistoryMode = configuration.historyMode as string | undefined;
+        const effectiveHistoryMode: 'sdk-managed' | 'full' | 'summary' | 'trim_and_summary' | 'llm_extract' =
+            rawHistoryMode === 'sdk-managed' ? 'sdk-managed'
+                : rawHistoryMode === 'full' ? 'full'
+                : rawHistoryMode === 'summary' ? 'summary'
+                : rawHistoryMode === 'llm_extract' ? 'llm_extract'
+                : 'trim_and_summary';
+        // When a user-message template is set AND the history mode wants
+        // us to inject our own history (anything except sdk-managed),
+        // expose ${compactedSummary} and ${rawTurns} so a
+        // memory-injection template can prepend them to the user prompt.
+        // Only really used on the Agent SDK path — the direct path builds
+        // rawTurns into messages[] separately.
+        const shouldExposeOurHistory = effectiveHistoryMode !== 'sdk-managed' && !options.isolated;
+        const expandedUser = this.buildUserMessage(
+            { ...options, userText: effectiveUserText },
+            shouldExposeOurHistory
+                ? { compactedSummary: this.compactedSummary, rawTurns: this.rawTurns }
+                : undefined,
+        );
         const trailLinePrefix = this.toolTrail.toSummaryString();
         const userContent = trailLinePrefix
             ? `${trailLinePrefix}\n\n${expandedUser}`
@@ -925,6 +956,17 @@ export class AnthropicHandler {
             const effectiveTools = profile.useBuiltInTools
                 ? tools.filter((t) => !DUPLICATES_OF_CLAUDE_CODE_BUILTINS.has(t.name))
                 : tools;
+            // SDK-managed mode: look up the saved session id for this
+            // (window, quest) pair and pass it as `resume` so the SDK
+            // continues its prior conversation. Also auto-include
+            // 'project' in settingSources when a CLAUDE.md exists, so
+            // workspace instructions reach the agent without the user
+            // having to configure settingSources manually.
+            const useSdkManagedContinuity = effectiveHistoryMode === 'sdk-managed' && !options.isolated;
+            const resumeSessionId = useSdkManagedContinuity
+                ? TwoTierMemoryService.instance.loadAgentSdkSessionId(windowId, quest)
+                : undefined;
+
             const result = await runAgentSdkQuery({
                 configuration,
                 tools: effectiveTools,
@@ -934,6 +976,8 @@ export class AnthropicHandler {
                 toolApprovalMode: profile.toolApprovalMode ?? 'always',
                 useBuiltInTools: profile.useBuiltInTools === true,
                 thinkingBudgetTokens: profile.thinkingEnabled ? (profile.thinkingBudgetTokens ?? 8192) : undefined,
+                resumeSessionId,
+                autoLoadProjectSettings: useSdkManagedContinuity,
                 context: {
                     requestApproval: (req) => this.awaitApproval(req),
                     sessionApprovals: this.sessionApprovals,
@@ -944,6 +988,18 @@ export class AnthropicHandler {
                     requestId,
                 },
             });
+
+            // Persist the session id so the next call can resume it.
+            // Only in sdk-managed mode — the other modes don't rely on
+            // SDK continuity and persisting would leak stale ids.
+            if (useSdkManagedContinuity && result.sessionId) {
+                TwoTierMemoryService.instance.saveAgentSdkSessionId(
+                    windowId,
+                    result.sessionId,
+                    quest,
+                    configuration.model,
+                );
+            }
 
             // Summary trails: the direct-Anthropic path writes them via
             // finalize(), but the SDK branch returns early so we write them
@@ -1403,13 +1459,42 @@ export class AnthropicHandler {
         }
     }
 
-    private buildUserMessage(options: AnthropicSendOptions): string {
+    /**
+     * Expand the configured user-message template (if any) around the
+     * current user text.
+     *
+     * In addition to `${userMessage}` (the raw user text), the template
+     * can reference:
+     *
+     *   ${compactedSummary}  — running session summary (empty on first turn)
+     *   ${rawTurns}          — last N user/assistant exchanges formatted
+     *   ${rawTurnCount}      — number of messages in `${rawTurns}`
+     *
+     * These extras are the entire reason the `default-memory-injection`
+     * user-message template works for Agent SDK calls: the SDK doesn't
+     * accept a messages[] array, so the only way to hand it prior
+     * context is via this prompt-prepended blob.
+     */
+    private buildUserMessage(
+        options: AnthropicSendOptions,
+        extras?: { compactedSummary?: string; rawTurns?: ConversationMessage[] },
+    ): string {
         const template = options.userMessageTemplate;
         if (!template) {
             return options.userText;
         }
+        const compactedSummary = extras?.compactedSummary ?? '';
+        const rawTurns = extras?.rawTurns ?? [];
+        const rawTurnsFormatted = rawTurns
+            .map((m) => `[${m.role}] ${typeof m.content === 'string' ? m.content : String(m.content ?? '')}`)
+            .join('\n\n');
         return resolveVariables(template, {
-            values: { userMessage: options.userText },
+            values: {
+                userMessage: options.userText,
+                compactedSummary,
+                rawTurns: rawTurnsFormatted,
+                rawTurnCount: String(rawTurns.length),
+            },
         });
     }
 
