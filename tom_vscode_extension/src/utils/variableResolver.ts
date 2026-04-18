@@ -1228,6 +1228,28 @@ Use <code>#key=description</code> notation in prompts to request specific respon
 <code>\${KEY.extension}</code> – File extension including dot<br>
 <br>
 <em>Inline JavaScript:</em><br>
-<code>\${{expression}}</code> – Evaluate JS at resolution time<br>
+<code>\${{expression}}</code> – Evaluate a single JS expression at resolution time. The result is stringified and spliced into the template.<br>
+<br>
+<em>Six objects are in scope inside <code>\${{ ... }}</code>:</em><br>
+<code>vars</code> – <code>Record&lt;string, string&gt;</code>: every built-in placeholder value (workspace, file, git.*, chat.*, custom.*, etc.). Use bracket notation for keys with dots or dashes: <code>vars["git.branch"]</code>, <code>vars["file.name"]</code>, <code>vars["role-description"]</code>. All values are strings — convert with <code>Number()</code> / <code>parseInt()</code> for arithmetic.<br>
+<code>env</code> – <code>Record&lt;string, string&gt;</code>: <code>process.env</code>. Example: <code>env.HOME</code>, <code>env.PATH</code>.<br>
+<code>path</code> – Node's <code>path</code> module. Example: <code>path.basename(vars.workspaceFolder)</code>, <code>path.join(vars.home, ".tom")</code>.<br>
+<code>os</code> – Node's <code>os</code> module. Example: <code>os.homedir()</code>, <code>os.platform()</code>, <code>os.cpus().length</code>.<br>
+<code>vscode</code> – the full VS Code API namespace. Example: <code>vscode.version</code>, <code>vscode.env.appName</code>, <code>vscode.workspace.workspaceFolders?.length</code>.<br>
+<code>editor</code> – <code>vscode.window.activeTextEditor</code> or <code>undefined</code>. Always guard with <code>?.</code>: <code>editor?.document.languageId</code>.<br>
+<br>
+Standard JS globals (<code>Math</code>, <code>Date</code>, <code>JSON</code>, <code>Array</code>, <code>String</code>, <code>Number</code>, etc.) are available too — the expression runs under <code>"use strict"</code>. No <code>require</code>, no filesystem access beyond what the injected objects expose.<br>
+<br>
+<em>Evaluation order:</em> <code>\${{ ... }}</code> runs <strong>before</strong> <code>\${...}</code> in each pass. Throwing or returning <code>null</code>/<code>undefined</code> yields <code>""</code>. The resolver loops up to 10 passes, so a <code>\${...}</code> value produced in pass 1 is visible to <code>\${{ ... }}</code> in pass 2.<br>
+<br>
+<em>Dynamic file-injection placeholders</em> (<code>\${role-*}</code>, <code>\${quest-*}</code>, <code>\${guidelines-*}</code>, <code>\${file-*}</code>, <code>\${memory*}</code>) are <strong>not</strong> pre-populated into <code>vars</code>. They're resolved only when referenced via <code>\${...}</code>. For programmatic access from JS, put the <code>\${...}</code> form in a prior pass.<br>
+<br>
+<em>Examples:</em><br>
+<code>\${{ vars["git.branch"] === "main" ? "PROD" : "DEV" }}</code><br>
+<code>\${{ Number(vars.repeatNumber) + 1 }}</code><br>
+<code>\${{ path.basename(vars.workspaceFolder) }}</code><br>
+<code>\${{ vars["role-description"] ? "## Role\\n" + vars["role-description"] : "" }}</code><br>
+<br>
+<em>Recursive resolution:</em> placeholders inside file-injection results are resolved on the next pass (max 10). A role.md file that contains <code>\${guidelines-coding_guidelines}</code> will have the guidelines text inlined automatically.<br>
 <br>
 `;
