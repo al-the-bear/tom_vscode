@@ -19,6 +19,7 @@ import {
 } from '../tools/shared-tool-registry';
 import { TrailService } from '../services/trailService';
 import { ToolTrail, setActiveToolTrail } from '../services/tool-trail';
+import { LiveTrailWriter } from '../services/live-trail';
 import { runWithToolContext } from '../services/tool-execution-context';
 import {
     compactHistory,
@@ -367,6 +368,14 @@ export class AnthropicHandler {
      */
     private compactedSummary: string = '';
     private rawTurns: ConversationMessage[] = [];
+    /**
+     * Active live-trail writer for the turn currently being processed.
+     * Created at the top of `sendMessage`; consulted by `runTool` to
+     * emit tool_use / tool_result events; cleared (to null) when the
+     * turn exits. A null value means "no writer — trail writes are
+     * no-ops", which matches what isolated sub-agent calls want.
+     */
+    private currentLiveTrail: LiveTrailWriter | null = null;
     private historySeeded = false;
 
     /**
@@ -863,6 +872,16 @@ export class AnthropicHandler {
 
         this.seedHistoryFromSnapshot(quest);
 
+        // Live trail writer — appends step-by-step events to
+        // `_ai/quests/<quest>/live-trail.md` as the turn runs so the
+        // user can watch in the MD Browser. Isolated sub-agent runs
+        // don't get a writer — their intermediate work shouldn't
+        // clutter the parent quest's trail. The writer is cheap to
+        // instantiate; we hold it on the handler for the duration of
+        // the turn so `runTool` can emit tool events without having to
+        // thread the reference through every call.
+        this.currentLiveTrail = options.isolated ? null : new LiveTrailWriter(quest);
+
         // Await any background work from the previous turn before we
         // build the wire payload. This emits status events the chat
         // panel forwards to the webview ("waiting for history
@@ -914,6 +933,14 @@ export class AnthropicHandler {
         const userContent = trailLinePrefix
             ? `${trailLinePrefix}\n\n${expandedUser}`
             : expandedUser;
+
+        // First live-trail event for this turn — shows up in the
+        // MD Browser as soon as the send button is clicked.
+        this.currentLiveTrail?.beginPrompt({
+            transport,
+            config: configuration.id,
+            userText: effectiveUserText,
+        });
 
         TrailService.instance.writeRawPrompt(
             ANTHROPIC_SUBSYSTEM,
@@ -987,27 +1014,36 @@ export class AnthropicHandler {
                 ? TwoTierMemoryService.instance.loadAgentSdkSessionId(windowId, quest)
                 : undefined;
 
-            const result = await runAgentSdkQuery({
-                configuration,
-                tools: effectiveTools,
-                systemPrompt,
-                userText: userContent,
-                cancellationToken: options.cancellationToken,
-                toolApprovalMode: profile.toolApprovalMode ?? 'always',
-                useBuiltInTools: profile.useBuiltInTools === true,
-                thinkingBudgetTokens: profile.thinkingEnabled ? (profile.thinkingBudgetTokens ?? 8192) : undefined,
-                resumeSessionId,
-                autoLoadProjectSettings: useSdkManagedContinuity,
-                context: {
-                    requestApproval: (req) => this.awaitApproval(req),
-                    sessionApprovals: this.sessionApprovals,
-                    toolTrail: this.toolTrail,
-                    round,
-                    questId: quest,
-                    windowId,
-                    requestId,
-                },
-            });
+            let result: AnthropicSendResult & { sessionId?: string };
+            try {
+                result = await runAgentSdkQuery({
+                    configuration,
+                    tools: effectiveTools,
+                    systemPrompt,
+                    userText: userContent,
+                    cancellationToken: options.cancellationToken,
+                    toolApprovalMode: profile.toolApprovalMode ?? 'always',
+                    useBuiltInTools: profile.useBuiltInTools === true,
+                    thinkingBudgetTokens: profile.thinkingEnabled ? (profile.thinkingBudgetTokens ?? 8192) : undefined,
+                    resumeSessionId,
+                    autoLoadProjectSettings: useSdkManagedContinuity,
+                    liveTrail: this.currentLiveTrail ?? undefined,
+                    context: {
+                        requestApproval: (req) => this.awaitApproval(req),
+                        sessionApprovals: this.sessionApprovals,
+                        toolTrail: this.toolTrail,
+                        round,
+                        questId: quest,
+                        windowId,
+                        requestId,
+                    },
+                });
+            } catch (err) {
+                const errMsg = err instanceof Error ? (err.stack || err.message) : String(err);
+                this.currentLiveTrail?.endPromptWithError(errMsg);
+                this.currentLiveTrail = null;
+                throw err;
+            }
 
             // Persist the session id so the next call can resume it.
             // Only in sdk-managed mode — the other modes don't rely on
@@ -1053,6 +1089,12 @@ export class AnthropicHandler {
                 this.persistSessionHistory(TwoTierMemoryService.instance.currentQuest());
                 this.scheduleBackgroundCompactionAndExtraction([userMsg, assistantMsg], false);
             }
+            // Close the live-trail block for this turn.
+            this.currentLiveTrail?.endPrompt({
+                rounds: result.turnsUsed,
+                toolCalls: result.toolCallCount,
+            });
+            this.currentLiveTrail = null;
             return result;
         }
 
@@ -1134,6 +1176,18 @@ export class AnthropicHandler {
                 lastStopReason = response.stop_reason ?? undefined;
                 lastText = this.extractText(response.content) || lastText;
 
+                // Live-trail each content block from this response so
+                // the MD Browser shows thinking / text before we go
+                // back out to the tools (or finalize).
+                for (const block of response.content) {
+                    const b = block as { type?: string; text?: unknown; thinking?: unknown };
+                    if (b.type === 'thinking' && typeof b.thinking === 'string') {
+                        this.currentLiveTrail?.appendThinking(b.thinking);
+                    } else if (b.type === 'text' && typeof b.text === 'string') {
+                        this.currentLiveTrail?.appendAssistantText(b.text);
+                    }
+                }
+
                 if (response.stop_reason !== 'tool_use') {
                     return this.finalize(userContent, lastText, turn + 1, totalToolCalls, lastStopReason, windowId, requestId, quest, configuration, options.isolated === true);
                 }
@@ -1172,6 +1226,8 @@ export class AnthropicHandler {
                 ? `${lastText}\n\n---\n(request error after partial output)\n${errMsg}`
                 : `(no text produced — request errored before any assistant text)\n${errMsg}`;
             TrailService.instance.writeRawAnswer(ANTHROPIC_SUBSYSTEM, body, windowId, requestId, quest);
+            this.currentLiveTrail?.endPromptWithError(errMsg);
+            this.currentLiveTrail = null;
             throw err;
         }
 
@@ -1245,6 +1301,12 @@ export class AnthropicHandler {
             this.persistSessionHistory(TwoTierMemoryService.instance.currentQuest());
             this.scheduleBackgroundCompactionAndExtraction([userMsg, assistantMsg], false);
         }
+
+        // Close the live-trail block for this turn. `endPrompt` emits
+        // the ✅ DONE line with rounds + tool-call count so the user
+        // sees when the turn is complete.
+        this.currentLiveTrail?.endPrompt({ rounds: turnsUsed, toolCalls: toolCallCount });
+        this.currentLiveTrail = null;
 
         return { text, turnsUsed, toolCallCount, stopReason };
     }
@@ -1347,6 +1409,13 @@ export class AnthropicHandler {
 
         anthropicOutput.logToolRequest(block.name, input);
 
+        // Peek the key the ToolTrail will assign when we `add()` this
+        // call after execution — so the live-trail tool_use heading
+        // carries the replay key the user will see under
+        // `tomAi_readPastToolResult({ key })`.
+        const nextToolKey = this.toolTrail.peekNextKey();
+        this.currentLiveTrail?.beginToolCall(block.name, input, nextToolKey);
+
         const start = Date.now();
         let result = '';
         let error: string | undefined;
@@ -1383,6 +1452,10 @@ export class AnthropicHandler {
             durationMs,
             error,
         });
+
+        // Live-trail the result so the MD Browser shows the tool's
+        // output immediately after the tool_use block it goes with.
+        this.currentLiveTrail?.appendToolResult(result, result.length);
 
         return {
             type: 'tool_result',

@@ -173,6 +173,18 @@ export interface AgentSdkSendParams {
     /** Profile-level override: extended thinking budget (tokens). Forwarded to the SDK. */
     thinkingBudgetTokens?: number;
     /**
+     * Optional live-trail writer — when set, the transport emits
+     * thinking / tool_use / assistant text events into it as the
+     * stream arrives so the user can follow along in the MD Browser.
+     * Owned by the handler; no ownership semantics for this module.
+     */
+    liveTrail?: {
+        appendThinking(text: string): void;
+        appendAssistantText(text: string): void;
+        beginToolCall(toolName: string, input: unknown, replayKey: string): void;
+        appendToolResult(resultPreview: string, fullLength: number): void;
+    };
+    /**
      * When provided, passed as `resume` to the SDK so the agent continues a
      * previous session (Claude Code's own continuity mechanism). Typically
      * populated from the per-window session-id file when the configuration
@@ -515,12 +527,56 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
                     handleAssistantMessage(msg as SDKAssistantMessage, context);
                     lastText = extractAssistantText(msg as SDKAssistantMessage) || lastText;
                     totalToolCalls += countToolUses(msg as SDKAssistantMessage);
+                    // Live-trail each content block as it arrives.
+                    // thinking + text + tool_use get their own event
+                    // types; tool_result appears in the SDK's stream
+                    // as a synthetic user message (handled below).
+                    if (params.liveTrail) {
+                        const body = (msg as SDKAssistantMessage).message as { content?: unknown } | undefined;
+                        const blocks = Array.isArray(body?.content) ? (body?.content as unknown[]) : [];
+                        for (const blk of blocks) {
+                            if (!blk || typeof blk !== 'object') { continue; }
+                            const b = blk as { type?: string; text?: unknown; thinking?: unknown; name?: unknown; input?: unknown; id?: unknown };
+                            if (b.type === 'thinking' && typeof b.thinking === 'string') {
+                                params.liveTrail.appendThinking(b.thinking);
+                            } else if (b.type === 'text' && typeof b.text === 'string') {
+                                params.liveTrail.appendAssistantText(b.text);
+                            } else if (b.type === 'tool_use' && typeof b.name === 'string') {
+                                // Use the SDK tool_use id as the replay
+                                // key — the SDK's tool_result on the
+                                // synthetic user message will carry the
+                                // same id so the live-trail can correlate.
+                                const replayKey = typeof b.id === 'string' ? b.id : 'sdk';
+                                params.liveTrail.beginToolCall(b.name, b.input ?? {}, replayKey);
+                            }
+                        }
+                    }
                     break;
                 case 'user': {
-                    // Tool results appear as synthetic user messages; we
-                    // already logged the answer from inside the handler.
-                    // Nothing to do here — kept for completeness.
-                    void (msg as SDKUserMessage);
+                    // Tool results appear as synthetic user messages
+                    // whose `content` is an array of tool_result blocks.
+                    // Feed each into the live trail so the MD Browser
+                    // shows output immediately after the tool_use block
+                    // it matches.
+                    if (params.liveTrail) {
+                        const body = (msg as SDKUserMessage).message as { content?: unknown } | undefined;
+                        const blocks = Array.isArray(body?.content) ? (body?.content as unknown[]) : [];
+                        for (const blk of blocks) {
+                            if (!blk || typeof blk !== 'object') { continue; }
+                            const b = blk as { type?: string; content?: unknown };
+                            if (b.type !== 'tool_result') { continue; }
+                            const raw = b.content;
+                            let text = '';
+                            if (typeof raw === 'string') {
+                                text = raw;
+                            } else if (Array.isArray(raw)) {
+                                text = (raw as unknown[])
+                                    .map((part) => (part && typeof part === 'object' && typeof (part as { text?: unknown }).text === 'string' ? (part as { text: string }).text : ''))
+                                    .join('');
+                            }
+                            params.liveTrail.appendToolResult(text, text.length);
+                        }
+                    }
                     break;
                 }
                 case 'result': {

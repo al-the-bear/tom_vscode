@@ -1,307 +1,194 @@
-# Chat Log Custom Editor — design draft
+# Live Chat Trail — implementation plan
 
-A single markdown-based custom editor that renders live conversation logs for all four LLM-interaction surfaces (Local LLM, Anthropic, Tom AI Chat, AI Conversation), with transport-switching tabs, activity indicators, streaming updates, auto-scroll, copy-paste-able text, and prominent tool-call blocks.
+The goal: one rolling, continuously-updating markdown file per quest that shows what the Anthropic transports are doing right now — thinking blocks, tool calls, tool results, assistant text — as they happen. Opens in the existing MD Browser custom editor, which is extended to auto-reload the currently-open file when it changes on disk.
 
-## 1. Goal
+This document supersedes the earlier "full custom editor" design. That spec was broader (tabs for every transport, synthetic backing doc, custom event stream) and overshot the need; see §6 for the pieces of the original spec that are deferred.
 
-Today the user has no unified view of what an LLM is doing while it runs. Trail files exist (per-transport raw trail + summary `.prompts.md` / `.answers.md` under `_ai/`) but they are:
+## 1. User experience
 
-- Not updated live — they're written after the turn ends.
-- Not a rich chat render — the summary `.md` is a raw text dump.
-- Spread across four subsystems — switching requires opening different files.
+- **Open Live Trail** icon button in the Anthropic chat panel action bar, next to "Open session history". Click to open `_ai/quests/<quest>/live-trail.md` in the MD Browser.
+- The MD Browser re-renders every time the file changes on disk (new feature). Output appears progressively as the turn runs: user prompt → thinking → tool_use → tool_result → assistant text → done.
+- The file holds the **last 5 prompt blocks**. When a new prompt starts, the oldest block is removed from the top. File never grows unbounded.
 
-The **Chat Log custom editor** replaces this with a single VS Code custom editor that:
+## 2. File layout — `live-trail.md`
 
-- Renders the current session's conversation for a chosen transport in a structured form (user/assistant/tool roles clearly delineated).
-- Updates live as the model streams its reply.
-- Auto-scrolls to keep the latest content visible (until the user manually scrolls up, then stops).
-- Has tabs for each of the four transports and each tab shows an activity indicator when a turn is in flight.
-- Lets the user **copy-paste** any part of the rendered conversation (including tool invocations and results).
-- Visually distinguishes tool calls (syntax-highlighted JSON input + collapsible output preview) from regular model text.
+Stored at `_ai/quests/<quest>/live-trail.md`. One block per user prompt, newest at the bottom. Example end-state (outer fence uses tildes to avoid collision with the inner backtick fences the example contains):
 
-This is a **presentation layer** only. It does not own any conversation state — it subscribes to events from the existing handlers and renders them.
+~~~markdown
+<!-- tom-ai live-trail -->
 
-## 2. Why a new custom editor (not the MD browser)
+## 🚀 PROMPT 20260418_213045 [anthropic / sonnet-4-6-agent-sdk-mm]
 
-The existing MD browser custom editor ([markdownBrowser-handler.ts](tom_vscode_extension/src/handlers/markdownBrowser-handler.ts)) renders static `.md` files via `marked` + `mermaid`, with a reload button and picker. Differences that argue for a new editor:
+> User: "Rename the field `foo` to `bar` across the codebase and update the tests."
 
-| Concern | MD browser | Chat Log |
-| --- | --- | --- |
-| Content source | static file on disk | live event stream |
-| Updates | manual refresh button | streaming append, auto-render |
-| Auto-scroll | n/a | required while reply streams |
-| Tabs | n/a (one file per panel) | 4 transport tabs with activity indicators |
-| Tool-call rendering | generic markdown | dedicated block with collapsible output |
-| Edit | n/a (read-only viewer) | n/a but must support selection + copy |
-| Underlying model | `vscode.CustomTextEditor<TextDocument>` | `vscode.CustomEditor` with a **synthetic backing doc** (no file on disk) |
+### 🧠 thinking
 
-**Reuse from the MD browser:** the marked renderer setup, the codicon CSS link, the VS Code theme variable integration, the syntax highlighting approach. About 30–40% of the CSS is liftable. The outer structure (`getHtmlForWebview`, postMessage pattern, webview-side state machine) is built from scratch — the dynamic/streaming nature makes it easier to start fresh than to bolt streaming onto the static viewer.
+I'll start by searching for `foo` usages across the project…
 
-## 3. User-facing behaviour
+### 🔧 tomAi_findTextInFiles `[t12]`
 
-### 3.1 Opening
+```json
+{"pattern": "\\bfoo\\b", "maxMatches": 200}
+```
 
-- VS Code command `tomAi.editor.chatLog` — opens the editor in the active view column.
-- Or: a button in each chat panel's action bar (`codicon-output`) that opens the editor pre-selected to that transport's tab.
-- Or: via the chat-panel "Open Chat Log" button (to be added in a later change).
-
-### 3.2 Tabs
-
-A tab bar at the top of the editor with four tabs:
+<details><summary>📤 result (4821 chars) — preview</summary>
 
 ```text
-[ Local LLM •  ] [ Anthropic ○ ] [ Tom AI Chat ] [ AI Conversation ● ]
+src/widgets/foo_panel.dart:12:  final foo = …
+src/widgets/foo_panel.dart:18:  …foo.doStuff();
+…
 ```
 
-Per-tab state:
+</details>
 
-- **`•` (filled blue dot)** — a turn is currently in flight on this transport.
-- **`○` (hollow dot)** — no activity, but this transport has history.
-- **no dot** — no history yet this session.
-- **`●` (pulsing red dot)** — AI Conversation is actively cycling (both participants turning).
-- Clicking a tab switches the rendered log; tab state persists across switches.
+### 💬 assistant
 
-The active tab is highlighted with a VS Code-accent underline.
+Found 47 matches across 12 files. I'll edit them in one pass.
 
-### 3.3 Rendering model
+### 🔧 tomAi_multiEditFile `[t13]`
 
-Each conversation is an ordered list of **entries**. Entry types:
+```json
+{"path": "src/widgets/foo_panel.dart", "edits": [ …shortened… ]}
+```
 
-| Kind | Rendered as | Notes |
-| --- | --- | --- |
-| `system` | Collapsed box at the top, expandable | System prompt; never shown by default |
-| `user` | Left-aligned bubble with user icon | User's input text |
-| `assistantText` | Left-aligned bubble with model icon | Streams in; re-rendered as content arrives |
-| `assistantThinking` | Collapsed box labelled "Thinking…" | Only shown when the model emits thinking blocks; collapsed by default, 1-click expand |
-| `toolCall` | Distinct block: name + JSON input + output preview | See §3.4 |
-| `conversationTurn` | Shown in AI Conversation tab only — identifies which participant spoke | Alternating colour strip |
-| `status` | Small grey line: "Turn ended (12 tool calls, 4324 tokens)" | End-of-turn summary |
-| `error` | Red-bordered box | Handler-level errors |
-
-### 3.4 Tool-call blocks
-
-Each tool invocation renders as a collapsible block:
+<details><summary>📤 result (86 chars)</summary>
 
 ```text
-┌─ 🛠  tomAi_readFile ─────────────────────────────── [✓ 142 ms] ┐
-│ { "filePath": "src/extension.ts", "startLine": 1, "endLine": 50 }│
-│ ─────────────                                                    │
-│ (expand to see result — 1842 chars)                              │
-└──────────────────────────────────────────────────────────────────┘
+{"success": true, "editsApplied": 9}
 ```
 
-- **Header** — tool name, duration, exit status (`✓` or `✗`), approval state if gated.
-- **Input** — pretty-printed JSON, monospace, syntax-highlighted.
-- **Result** — collapsed by default with a preview line. Expand to see the full result text (or structured summary — see [llm_tools.md](tom_vscode_extension/doc/llm_tools.md) per-tool formatters). Truncation markers shown when > 10 KB.
-- **Copy** — a small copy icon per block copies `name(input) → result` as a markdown code block. The whole chat is also copy-paste-able as one selection.
+</details>
 
-### 3.5 Streaming
+### ✅ DONE (rounds=3, toolCalls=5, 12.4s)
+~~~
 
-- Text entries append chunks as they arrive. Re-rendering happens per chunk but uses a **diffing append** (only the new text is added to the DOM, not a full re-render) to keep streaming smooth and preserve user selection.
-- Auto-scroll sticks to the bottom as content arrives, **unless** the user has scrolled up more than ~50 px. If they have, a floating "↓ Jump to latest" pill appears at the bottom; clicking it re-anchors.
-- The active tab's activity dot animates while a chunk stream is in flight.
+Each block is delimited by a heading-level-2 `## 🚀 PROMPT <ts> [...]` marker so the rolling-window trimmer can cut cleanly on boundaries. The `<details>` / `<summary>` HTML elements around tool results render as collapsible blocks in the MD Browser (which uses `marked` and already tolerates inline HTML).
 
-### 3.6 Copy-paste
+### 2.1 Event grammar
 
-- All rendered content is selectable text. No fancy tricks — use normal flexbox/div layouts, avoid CSS `user-select: none`.
-- Pasted output is plain text with tool-call blocks collapsed to a single line: `tomAi_readFile({filePath: "..."}) → ...`
-- A "Copy whole log as markdown" button on the toolbar exports the full rendered conversation as a markdown file.
+| Emoji + heading | When | Body |
+| --- | --- | --- |
+| `## 🚀 PROMPT <ts> [<transport>/<config>]` | `sendMessage` start, right after we've resolved profile/configuration | blockquote of the raw user text (truncated to ~1000 chars) |
+| `### 🧠 thinking` | extended-thinking block received (direct path) or SDK emits a thinking event | plain text, one block per received thinking chunk |
+| `### 🔧 <toolName> [tN]` | tool_use block encountered; `tN` is the replay key from ToolTrail | fenced JSON of the tool input |
+| `<details>📤 result (<N> chars)</details>` | tool_result written | fenced preview (first ~800 chars); "…" when truncated |
+| `### 💬 assistant` | assistant text block completes (streaming concatenates until the next event arrives) | raw text, markdown-escaped if it'd otherwise break the outer markdown |
+| `### ✅ DONE (rounds=N, toolCalls=M, <N>ms)` | `finalize()` or the agent-SDK return | one-line summary |
+| `### ⚠️ ERROR` | try/catch in the new always-write-answer path fires | diagnostic text |
 
-### 3.7 Stop button
+A turn that never produces any assistant text (tool-only, cancelled, errored) still ends with either `✅ DONE` or `⚠️ ERROR` — never an open block.
 
-A `codicon-debug-stop` button in the top-right of the editor cancels the currently-running turn on the active tab. Wired to the same cancellation mechanism as the stop button in each chat panel (see the chat_log companion task). When no turn is running, the button is disabled (greyed out).
+## 3. Rolling window
 
-## 4. Technical design
+Every `## 🚀 PROMPT` header marks a block boundary. Before the writer appends a new PROMPT header, it:
 
-### 4.1 VS Code custom-editor vs webview-view
+1. Reads the current file.
+2. Counts `^## 🚀 PROMPT` lines.
+3. If count ≥ 5, drops everything from the top up to (and including) the line *before* the sixth-newest PROMPT header — so the file is left with blocks 2..5 and room for the new one at position 5.
+4. Writes the trimmed body back + the new PROMPT header.
 
-Use **`vscode.window.registerCustomEditorProvider`** with a **synthetic URI scheme** (`tomAiChatLog:///`). The editor isn't backed by a file on disk — the synthetic URI lets VS Code treat it as a tab like any other editor (movable, splittable), without persisting state to a file.
+Implementation detail: the trim is atomic (`writeFileSync` on a re-read-and-reassembled buffer). There is no concurrent writer in the normal flow — the Anthropic handler owns the live-trail file for its turn. If a second handler were to write at the same time (unlikely — only one send per window), the last-writer-wins semantics of `writeFileSync` are acceptable; we don't promise perfect concurrency.
 
-Alternative: plain webview panel (`createWebviewPanel`). Rejected because the custom-editor integration gives tab-drag, column-switching, and keyboard navigation for free.
+## 4. Writer — `src/services/live-trail.ts`
 
-### 4.2 State architecture
+New module. One exported class `LiveTrailWriter` with:
 
-Two sides:
-
-**Backend (`src/handlers/chatLog-handler.ts`)**
-- Module-level singleton `ChatLogStore` holding per-transport conversations:
-  ```ts
-  interface ChatLogStore {
-    sessions: Record<Transport, ChatLogSession>;
-    onDidUpdate: vscode.EventEmitter<{ transport: Transport; entry: ChatLogEntry; append?: boolean }>;
-  }
-  interface ChatLogSession {
-    entries: ChatLogEntry[];
-    activeTurn: { startedAt: number; pendingEntryId?: string } | null;
-  }
-  ```
-- Subscribes to per-transport event hooks:
-  - Anthropic: hooks in [anthropic-handler.ts](tom_vscode_extension/src/handlers/anthropic-handler.ts) emit `writeRawPrompt`, `writeRawAnswer`, `writeRawToolRequest`, `writeRawToolAnswer`, and thinking-block events.
-  - Local LLM: hooks in [localLlm-handler.ts](tom_vscode_extension/src/handlers/localLlm-handler.ts) at `logPrompt` / `logResponse` / `logToolRequest` / `logToolResult`.
-  - Tom AI Chat: hooks in [tomAiChat-handler.ts](tom_vscode_extension/src/handlers/tomAiChat-handler.ts) at its equivalent log points.
-  - AI Conversation: hooks in [aiConversation-handler.ts](tom_vscode_extension/src/handlers/aiConversation-handler.ts) at turn-start / turn-end + nested per-participant transport events.
-- Each open Chat Log editor subscribes to the emitter and receives incremental events.
-
-**Frontend (webview inside the editor)**
-- Renders a tab bar + content area.
-- Maintains per-tab `entries[]` in memory (initial state sent on webview ready).
-- Receives `{ type: 'append', transport, entry }` messages; either pushes or updates the last entry (for streaming append).
-- Tracks scroll position; sticks to bottom unless user scrolled up.
-
-### 4.3 Events
-
-Backend → webview:
-
-```ts
-type ChatLogMsg =
-  | { type: 'init'; sessions: Record<Transport, ChatLogSession>; activeTab: Transport }
-  | { type: 'append'; transport: Transport; entry: ChatLogEntry }
-  | { type: 'updateEntry'; transport: Transport; entryId: string; patch: Partial<ChatLogEntry> } // streaming chunk
-  | { type: 'turnStarted'; transport: Transport; at: number }
-  | { type: 'turnEnded'; transport: Transport; stats: TurnStats }
-  | { type: 'error'; transport: Transport; message: string };
-```
-
-Webview → backend:
-
-```ts
-type UiMsg =
-  | { type: 'ready' }
-  | { type: 'switchTab'; transport: Transport }
-  | { type: 'stopCurrent' }              // clicks the stop button
-  | { type: 'copyAsMarkdown'; transport: Transport }
-  | { type: 'clearHistory'; transport: Transport }
-  | { type: 'toggleSystemPrompt'; transport: Transport };
-```
-
-### 4.4 Entry streaming
-
-For `assistantText` entries, the backend holds one pending entry per turn:
-
-1. On first chunk: emit `{ type: 'append', entry: { id, kind: 'assistantText', text: chunk } }`.
-2. On subsequent chunks: emit `{ type: 'updateEntry', entryId, patch: { text: fullTextSoFar } }`.
-   - The webview diffs the incoming text against its stored copy and appends only the new suffix to the DOM.
-3. On turn end: emit `{ type: 'turnEnded' }` to clear the activity dot.
-
-For `toolCall` entries: emitted once when the tool is requested, then updated once with result when the call returns. Two updates, not streaming.
-
-### 4.5 Persistence
-
-- **In-memory only per session** — when VS Code reloads, the Chat Log starts empty for all transports.
-- Each transport's own trail file under `_ai/trail/…` remains the authoritative durable record. The Chat Log editor is a live view; re-opening it does not replay history.
-- Optional future: add a "Load previous session" button that reads the last trail summary files and rehydrates.
-
-### 4.6 Rendering library
-
-Use **vanilla DOM + marked** — same pattern as the MD browser. `marked.parse()` on markdown-formatted assistant text; plain DOM for tool-call blocks and UI chrome. No React / framework overhead. Streaming diff uses `textContent += suffix` on the last leaf node.
-
-### 4.7 Syntax highlighting
-
-For tool-call JSON input and code blocks inside assistant text:
-
-- Keep the existing mermaid + marked setup from the MD browser.
-- Add a minimal JSON highlighter (regex-based; ~30 lines) for the tool-call input blocks. Full Prism/highlight.js is overkill and bulky.
-
-### 4.8 Auto-scroll heuristic
-
-```ts
-const threshold = 50; // px from bottom
-function shouldStickToBottom(scrollerEl: HTMLElement): boolean {
-    return scrollerEl.scrollHeight - scrollerEl.scrollTop - scrollerEl.clientHeight < threshold;
+~~~ts
+class LiveTrailWriter {
+    constructor(questId: string);
+    /** Start a new prompt block. Trims to last 5 blocks first. */
+    beginPrompt(info: { transport: string; config: string; userText: string }): void;
+    /** Append a thinking chunk. Streaming-friendly — multiple calls fold into one heading. */
+    appendThinking(text: string): void;
+    /** A tool_use block was emitted; record the JSON input and the replay key. */
+    beginToolCall(toolName: string, input: unknown, replayKey: string): void;
+    /** A tool_result was written; append the preview body (will be collapsed in <details>). */
+    appendToolResult(resultPreview: string, fullLength: number): void;
+    /** Stream-friendly assistant text append. */
+    appendAssistantText(text: string): void;
+    /** Mark the block done with the per-turn summary. */
+    endPrompt(summary: { rounds: number; toolCalls: number; durationMs: number }): void;
+    /** Record an error (from the always-write-answer catch branches). */
+    endPromptWithError(message: string): void;
 }
-// Before append:
-const stick = shouldStickToBottom(log);
-// After DOM update:
-if (stick) { log.scrollTop = log.scrollHeight; }
-else { showJumpToLatestPill(); }
-```
+~~~
 
-User-initiated scroll-up hides the pill once they're within threshold again.
+All write operations are **append-or-rewrite** against the current file. Calls are synchronous `fs.writeFileSync` with atomic semantics. The writer is cheap to instantiate; the handler keeps one instance per turn.
 
-### 4.9 Tab activity indicator
+### 4.1 Trimming algorithm
 
-- A small `<span class="activity-dot">` next to each tab's label.
-- CSS class variants: `idle` (hollow dot), `active` (filled blue dot), `cycling` (pulsing red for AI Conversation).
-- Backend emits `turnStarted` / `turnEnded`; webview toggles class.
+- Match `^## 🚀 PROMPT ` lines via line-by-line scan (fast — files stay ≤ a few dozen kB).
+- If count ≥ 5 at `beginPrompt()` time, slice off lines [0 .. indexOf(5th-newest header) - 1].
+- Preserve a single file-header comment `<!-- tom-ai live-trail -->` on line 1 so the file is clearly identifiable.
 
-## 5. Required backend hooks (handler-side changes)
+## 5. Event hooks
 
-For each of the four transports, the handler must emit events to `ChatLogStore` at:
+### 5.1 Direct Anthropic transport — `anthropic-handler.ts`
 
-1. **Turn start** — when the user's message enters the dispatcher.
-2. **System prompt resolved** — one-shot event with the resolved system prompt (cached so expansion happens once per turn).
-3. **Tool request** — per-tool, before dispatch. Carries name + input.
-4. **Tool result** — per-tool, after dispatch. Carries result text + durationMs + error flag.
-5. **Assistant text chunk** — per streaming chunk from the model. If the handler doesn't support streaming (current Anthropic handler returns full text once), emit one chunk with the whole text.
-6. **Thinking block** — if the model emits thinking, one event per block.
-7. **Turn end** — with summary stats (round count, tool calls, tokens).
-8. **Error** — on handler failure.
+- In `sendMessage`, after computing `profile` + `configuration` but before the first `client.messages.create`: call `liveTrail.beginPrompt(...)`.
+- Inside the tool loop, after each `client.messages.create` returns:
+  - For each `thinking` block in `response.content`: `liveTrail.appendThinking(text)`.
+  - For each `text` block: `liveTrail.appendAssistantText(text)`.
+  - For each `tool_use` block (before `this.runTool()` runs): `liveTrail.beginToolCall(name, input, replayKeyFromToolTrail)`.
+  - After `this.runTool()`: `liveTrail.appendToolResult(preview, fullLength)`.
+- In `finalize()`, at the end: `liveTrail.endPrompt({rounds, toolCalls, durationMs})`.
+- In the catch branch added in the "always-write-answer" change: `liveTrail.endPromptWithError(errMsg)`.
 
-This is new work per handler. The existing trail-writing infrastructure already has the right hook points — see [llm_tools.md §4.6](tom_vscode_extension/doc/llm_tools.md) and the investigation notes in the Anthropic handler at line 430, 500–501, 575, 698, 723. The chat log store piggy-backs on those existing call sites.
+### 5.2 Agent SDK transport — `agent-sdk-transport.ts`
 
-**Per-transport caveats:**
+- `runAgentSdkQuery` accepts a `liveTrail?: LiveTrailWriter` on its params (passed through from the handler — the handler instantiates).
+- Inside the `for await (const msg of stream)` loop:
+  - `msg.type === 'assistant'`: iterate content blocks, call the right `append*` per block type (thinking / text / tool_use).
+  - The MCP `canUseTool` callback in `makeCanUseTool` already sees tool inputs — harder to hook tool results from there cleanly. Simpler path: keep using the `toolTrail.add` call in `canUseTool` and mirror that into the live trail from a new callback the writer registers.
+- On the `result` message: `endPrompt(...)`.
+- On `catch`: `endPromptWithError(...)`.
 
-- **Anthropic handler** — does not stream today. Emit a single chunk with the full assistant text after the API call returns. Streaming can be added later; the editor already supports chunked updates.
-- **Local LLM handler** — has streaming support via Ollama's streaming endpoint. Emit per-chunk events.
-- **Tom AI Chat** — VS Code LM API has streaming support (`LanguageModelChatResponse.stream`). Wire per-chunk.
-- **AI Conversation** — emit per-turn entries with a `participant: 'A' | 'B'` field in the entry so the renderer can colour-code the conversation.
+### 5.3 ToolTrail coupling
 
-## 6. Stop button wiring
+The replay key (`tN`) shown in the `[t14]` badges next to each 🔧 tool call comes from the existing `ToolTrail.add()` return value. We already expose `getActiveToolTrail()`; the writer either reads keys from the last-added entry after `toolTrail.add()` or accepts the key as an argument to `beginToolCall()`. The latter keeps dependencies one-way.
 
-The editor's stop button posts `{ type: 'stopCurrent' }`. The backend:
+## 6. MD Browser — auto-reload-on-change
 
-1. Identifies the active tab's transport.
-2. Looks up the in-flight `vscode.CancellationTokenSource` for that transport.
-3. Calls `.cancel()`.
-4. The handler exits its loop (existing cancellation checks are in place).
+New behaviour in `markdownBrowser-handler.ts`:
 
-Needs a singleton registry of active cancellation tokens keyed by transport — one per handler singleton.
+1. When the browser renders a file, store that file path on the active panel state.
+2. Create an `fs.FSWatcher` (or `vscode.workspace.createFileSystemWatcher`) on the current path. Dispose on file navigation or panel close.
+3. On change events, debounce by ~200 ms, then re-render the webview with the new content.
 
-## 7. File layout
+Debounce is important — writes happen per event and a naive re-render per write would flash. 200 ms is below the human perception threshold for a progress feed but above the rate at which the Anthropic loop writes events.
 
-```text
-src/handlers/chatLog-handler.ts       # ChatLogStore + CustomEditorProvider
-src/handlers/chatLog-renderer.ts      # buildHtml() — webview HTML/CSS/JS
-src/handlers/chatLog-events.ts        # ChatLogEntry types + event emitter
-test/chat-log-handler.spec.ts         # unit tests on event routing
-```
+One existing browser panel per window is reused (no duplicate panels). When the user navigates to a different file inside the browser, the watcher re-targets.
 
-Per-transport hook code lives in each handler file, calling `ChatLogStore.instance.emit(...)`. Handlers should not import the renderer — only the store/events module.
+## 7. Chat panel button
 
-## 8. Acceptance criteria
+New icon button in the Anthropic chat-panel action bar:
 
-- [ ] Command `tomAi.editor.chatLog` opens the editor in a new tab.
-- [ ] Four tabs visible at the top: Local LLM, Anthropic, Tom AI Chat, AI Conversation.
-- [ ] Tab switching preserves scroll position and selection for each tab.
-- [ ] Sending a prompt to any of the four transports causes the corresponding tab's activity dot to light up immediately.
-- [ ] Streaming replies append in real time without re-rendering the whole log.
-- [ ] Auto-scroll follows the latest content; scrolling up pauses it and shows "Jump to latest" pill.
-- [ ] Tool calls render as distinct blocks with name + input + collapsible result + duration badge.
-- [ ] Thinking blocks collapse by default and expand on click.
-- [ ] Selecting text across multiple entries copies as plain markdown.
-- [ ] Stop button cancels the in-flight turn on the active tab.
-- [ ] Editor works in split view (two Chat Log editors open at once, each with independent tab state).
-- [ ] Re-opening VS Code starts the editor empty (no disk persistence).
-- [ ] Editor theme follows VS Code light/dark without extra code.
+~~~html
+<button class="icon-btn" data-action="openLiveTrail" data-id="anthropic"
+    title="Open live trail — continuously-updating MD of the current and last 4 prompts">
+    <span class="codicon codicon-pulse"></span>
+</button>
+~~~
 
-## 9. Open questions
+Placed between "Open session history" and "Memory Panel". Action routes to a new `_openLiveTrailMarkdown()` method on the chat-panel handler that opens `_ai/quests/<quest>/live-trail.md` via `tomAi.openInMdBrowser`.
 
-1. **Multiple concurrent editors** — two Chat Log editors open in different columns. Do they share tab state or have independent tabs? (Recommendation: shared conversation state, independent active-tab state — each editor shows the same transport's full history, but each picks its own tab.)
-2. **Retention** — should the in-memory log be bounded (e.g. last 1000 entries per transport) to prevent memory bloat during long sessions?
-3. **Participant labelling for AI Conversation** — use profile name, position ("A"/"B"), or both? (Recommendation: both — "Participant A — Claude Sonnet 4.6".)
-4. **Export format** — markdown with YAML front matter (timestamp, transport), or raw markdown? (Recommendation: YAML front matter.)
-5. **Prompt-queue integration** — when the queue fires a prompt via a direct-transport (see [multi_transport_prompt_queue.md](tom_vscode_extension/doc/multi_transport_prompt_queue.md)), the chat log entry should mark it "(queued)" for the user to recognize it wasn't entered manually.
-6. **Embedded `.md` conversation files** — Tom AI Chat persists to a `.md` file today. Should the Chat Log editor mirror writes to that file, or stay purely in-memory? (Recommendation: stay in-memory; Tom AI Chat's `.md` is authoritative and the Chat Log is a live view.)
+## 8. What this ships and what it doesn't
 
-## 10. Out of scope (v1)
+**Ships (this change):**
+- Anthropic paths (direct + Agent SDK) emit events to `_ai/quests/<quest>/live-trail.md`.
+- Rolling 5-block window.
+- MD Browser auto-reloads the currently-open file on disk change (benefits every MD the browser displays, not just the live trail).
+- Chat-panel "Open Live Trail" button.
 
-- Editing entries after they're logged.
-- Rerun-from-here / fork-conversation UX.
-- Searching across the log (user can Ctrl+F the editor text).
-- Persisted session recovery across VS Code restarts.
-- Cross-transport conversation merge view.
-- Rendering images / vision outputs (no transport uses them today).
+**Deferred (original full-spec scope):**
+- Per-transport tabs in a single custom editor. The MD Browser isn't a tabbed surface; one file per quest is the unit here.
+- Local LLM + Tom AI Chat + AI Conversation live trails. Same pattern would work but requires distinct event hooks in each handler — separable follow-up.
+- Auto-scroll-to-bottom + "pause auto-scroll when user scrolled up" behaviour. The MD Browser re-renders from the top; for long blocks the user scrolls manually. A small improvement is to anchor the scroll position to the nearest `<a id="…">` anchor the writer inserts at block boundaries — left for v2 if the flashing on re-render becomes annoying.
+- Live streaming of text blocks *character-by-character* for the direct Anthropic path. The current plan appends in chunks at the granularity of what the non-streaming API returns (one text block per loop iteration); that's already ~100 ms granularity in practice.
 
-## 11. Effort
+## 9. Testing
 
-**Rough estimate: 4–5 days.** The renderer is ~2 days, the per-transport hooks are ~1 day (4 × ~2 h each), the cancellation registry and stop button is ~0.5 day, polish + theme integration ~1 day. The biggest unknown is the streaming implementation for Local LLM and Tom AI Chat — neither currently exposes a streaming API to external subscribers.
+- Start a new session, send a prompt that runs 2–3 tools. Open Live Trail during the turn — verify the file visibly updates without manual refresh.
+- Send five more prompts. Verify the file never holds more than five blocks (old ones drop off the top).
+- Cancel a turn mid-way. Verify the last block ends with `⚠️ ERROR` rather than a dangling `🧠 thinking`.
+- Rapid back-to-back sends. Verify no partial or interleaved content — the writer is synchronous, so each call completes before the next begins on the same handler.

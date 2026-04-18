@@ -122,6 +122,14 @@ export class ToolTrail {
         ].join('\n');
     }
 
+    /** The key that the next `add()` call will assign. Lets callers
+     *  reference an entry in a log line *before* the actual tool
+     *  execution completes (e.g. the live-trail emits the tool_use
+     *  event before runTool finishes). */
+    peekNextKey(): string {
+        return `t${this.nextKeyIndex}`;
+    }
+
     /** Lookup by key (for `tomAi_readPastToolResult`). */
     getByKey(key: string): ToolTrailEntry | undefined {
         return this.entries.find((e) => e.key === key);

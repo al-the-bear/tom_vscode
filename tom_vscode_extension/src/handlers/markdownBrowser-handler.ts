@@ -99,6 +99,7 @@ let activePanelHistory: NavigationHistory | undefined;
 let activePanelContext: vscode.ExtensionContext | undefined;
 let pendingInitialFile: string | undefined;
 let activeFileWatcher: vscode.FileSystemWatcher | undefined;
+let activeFileWatcherDebounce: ReturnType<typeof setTimeout> | undefined;
 
 // ============================================================================
 // Public API
@@ -155,6 +156,10 @@ export function openMarkdownBrowser(
                 activeFileWatcher.dispose();
                 activeFileWatcher = undefined;
             }
+            if (activeFileWatcherDebounce !== undefined) {
+                clearTimeout(activeFileWatcherDebounce);
+                activeFileWatcherDebounce = undefined;
+            }
             activePanel = undefined;
             activePanelHistory = undefined;
             activePanelContext = undefined;
@@ -175,15 +180,30 @@ function watchCurrentFile(absPath: string): void {
             activeFileWatcher.dispose();
             activeFileWatcher = undefined;
         }
+        if (activeFileWatcherDebounce !== undefined) {
+            clearTimeout(activeFileWatcherDebounce);
+            activeFileWatcherDebounce = undefined;
+        }
 
         const dir = path.dirname(absPath);
         const name = path.basename(absPath);
         const pattern = new vscode.RelativePattern(dir, name);
         activeFileWatcher = vscode.workspace.createFileSystemWatcher(pattern, true, false, true);
         activeFileWatcher.onDidChange(() => {
-            if (activePanelHistory?.current?.filePath === absPath) {
-                sendFileContent(absPath);
+            // Debounce so a burst of live-trail writes (begin/append/…)
+            // folds into one re-render instead of flashing the view
+            // 20+ times per turn. 200 ms is well below the human
+            // perception threshold for progress feeds but well above
+            // the rate at which the Anthropic tool loop writes events.
+            if (activeFileWatcherDebounce !== undefined) {
+                clearTimeout(activeFileWatcherDebounce);
             }
+            activeFileWatcherDebounce = setTimeout(() => {
+                activeFileWatcherDebounce = undefined;
+                if (activePanelHistory?.current?.filePath === absPath) {
+                    sendFileContent(absPath);
+                }
+            }, 200);
         });
     } catch (err) {
         debugLog(`[MdBrowser] watchCurrentFile error: ${err}`, 'ERROR', 'mdBrowser');

@@ -753,6 +753,14 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         // Browser custom editor.
                         await this._openSessionHistoryMarkdown();
                         break;
+                    case 'openLiveTrail':
+                        // Open `_ai/quests/<quest>/live-trail.md` — the
+                        // continuously-updating markdown written by
+                        // the LiveTrailWriter as an Anthropic turn
+                        // runs. The MD Browser auto-reloads as the
+                        // file is updated (debounced 200 ms).
+                        await this._openLiveTrailMarkdown();
+                        break;
                     case 'openStatusPage':
                         await vscode.commands.executeCommand('tomAi.statusPage');
                         break;
@@ -1861,6 +1869,31 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         if (!fs.existsSync(target)) {
             vscode.window.showInformationMessage(
                 `No session history yet for quest "${questId || 'default'}". The history file is written after the first completed turn (${target}).`,
+            );
+            return;
+        }
+        const uri = vscode.Uri.file(target);
+        await vscode.commands.executeCommand('tomAi.openInMdBrowser', uri);
+    }
+
+    /**
+     * Open `_ai/quests/<quest>/live-trail.md` in the MD Browser. The
+     * MD Browser's file watcher (debounced 200 ms) re-renders the
+     * webview as the Anthropic handler appends new events, so the
+     * user watches each thinking / tool_use / assistant chunk arrive.
+     * The file is created on the first send of the session — we
+     * tolerate it not existing yet with an info message.
+     */
+    private async _openLiveTrailMarkdown(): Promise<void> {
+        const questId = WsPaths.getWorkspaceQuestId() ?? TwoTierMemoryService.instance.currentQuest() ?? '';
+        // Resolve the quest folder the same way LiveTrailWriter does.
+        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+        const questsRoot = WsPaths.ai('quests') ?? path.join(wsRoot, WsPaths.aiFolder, 'quests');
+        const safeQuest = (questId || 'default').replace(/[^A-Za-z0-9_.-]/g, '_');
+        const target = path.join(questsRoot, safeQuest, 'live-trail.md');
+        if (!fs.existsSync(target)) {
+            vscode.window.showInformationMessage(
+                `No live trail yet for quest "${questId || 'default'}". The live trail is created on the first Anthropic send (${target}).`,
             );
             return;
         }
@@ -3318,6 +3351,7 @@ function getSectionContent(id) {
                 '<button class="icon-btn" data-action="openTrailRawFiles" data-id="anthropic" title="Open Raw Trail Files Viewer"><span class="codicon codicon-history"></span></button>' +
                 '<button class="icon-btn" data-action="openTrailSummaryViewer" data-id="anthropic" title="Open Trail Summary Viewer"><span class="codicon codicon-list-flat"></span></button>' +
                 '<button class="icon-btn" data-action="openSessionHistory" data-id="anthropic" title="Open session history — the rolling history.md from the quest folder, rendered in the MD Browser"><span class="codicon codicon-file-text"></span></button>' +
+                '<button class="icon-btn" data-action="openLiveTrail" data-id="anthropic" title="Open live trail — continuously-updating MD of the current + last 4 prompts (thinking, tool calls + results, assistant text); opens in the MD Browser which auto-reloads as the turn runs"><span class="codicon codicon-pulse"></span></button>' +
                 '<button class="icon-btn" data-action="openAnthropicMemory" data-id="anthropic" title="Memory Panel"><span class="codicon codicon-book"></span></button>' +
                 '<button class="icon-btn" data-action="clearAnthropicHistory" data-id="anthropic" title="Clear session history"><span class="codicon codicon-clear-all"></span></button>',
             afterToolbarHtml:
@@ -3589,6 +3623,7 @@ function handleAction(action, id, slot) {
         case 'openTrailRawFiles': vscode.postMessage({ type: 'openTrailRawFiles', section: id || '' }); break;
         case 'openTrailSummaryViewer': vscode.postMessage({ type: 'openTrailSummaryViewer', section: id || '' }); break;
         case 'openSessionHistory': vscode.postMessage({ type: 'openSessionHistory', section: id || '' }); break;
+        case 'openLiveTrail': vscode.postMessage({ type: 'openLiveTrail', section: id || '' }); break;
         case 'openConversationTrailViewer': vscode.postMessage({ type: 'openConversationTrailViewer' }); break;
         case 'openConversationMarkdown': vscode.postMessage({ type: 'openConversationMarkdown' }); break;
         case 'openConversationCompactTrail': vscode.postMessage({ type: 'openConversationCompactTrail' }); break;
