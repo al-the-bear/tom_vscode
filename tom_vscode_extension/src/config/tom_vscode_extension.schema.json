@@ -37,6 +37,11 @@
             "type": "object",
             "description": "History compaction settings (anthropic_sdk_integration.md §6, §10, §14).",
             "properties": {
+                "disabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Global kill switch. When true, the background compaction + memory extraction pass after every Anthropic turn is skipped entirely (both direct and Agent SDK transports). Use when you want the SDK to own conversation state by itself, or when the extra API call per turn isn't worth it."
+                },
                 "llmProvider": {
                     "type": "string",
                     "enum": ["localLlm", "anthropic"],

@@ -574,6 +574,7 @@ export class AnthropicHandler {
      * compaction, background memory extraction).
      */
     private getCompactionConfig(): {
+        disabled: boolean;
         llmProvider: 'localLlm' | 'anthropic';
         llmConfigId: string;
         compactionTemplateId?: string;
@@ -586,6 +587,7 @@ export class AnthropicHandler {
         archiveHistoryEveryTurn: boolean;
     } {
         const section = TomAiConfiguration.instance.getSection<{
+            disabled?: boolean;
             llmProvider?: 'localLlm' | 'anthropic';
             llmConfigId?: string;
             compactionTemplateId?: string;
@@ -598,6 +600,7 @@ export class AnthropicHandler {
             archiveHistoryEveryTurn?: boolean;
         }>('compaction') ?? {};
         return {
+            disabled: section.disabled === true,
             llmProvider: section.llmProvider === 'anthropic' ? 'anthropic' : 'localLlm',
             llmConfigId: section.llmConfigId ?? '',
             compactionTemplateId: section.compactionTemplateId,
@@ -1361,6 +1364,13 @@ export class AnthropicHandler {
         isolated: boolean,
     ): void {
         if (isolated) { return; }
+        // Global kill-switch. When `compaction.disabled` is set, skip both
+        // the summary compaction pass and the memory extraction pass —
+        // rawTurns still grows, history.json is still written, but we
+        // stop the extra API call and the memory-file writes that happen
+        // after every turn. Useful for SDK-managed profiles where the
+        // SDK already owns conversation state.
+        if (this.getCompactionConfig().disabled) { return; }
         const questId = TwoTierMemoryService.instance.currentQuest();
         // Compaction runs first; memory extraction reads `this.compactedSummary`
         // so it benefits from any just-written summary. Each pass is a
