@@ -51,6 +51,16 @@ import { TrailService } from '../services/trailService';
 export type QueuedPromptStatus = 'staged' | 'pending' | 'sending' | 'sent' | 'error';
 export type QueuedPromptType = 'normal' | 'timed' | 'reminder';
 
+/**
+ * Which backend a queued prompt goes through. `copilot` is the
+ * historical behaviour (answer-file polling); `anthropic` routes the
+ * prompt through AnthropicHandler.sendMessage, which itself forks
+ * into Direct / Agent SDK / VS Code LM / Local LLM based on the
+ * profile's selected configuration. See
+ * `doc/multi_transport_prompt_queue_revised.md` §2 decision 1.
+ */
+export type QueuedTransport = 'copilot' | 'anthropic';
+
 export interface QueuedFollowUpPrompt {
     id: string;
     originalText: string;
@@ -64,6 +74,11 @@ export interface QueuedFollowUpPrompt {
     repeatIndex?: number;         // How many times this follow-up has been sent (0-based counter)
     answerWaitMinutes?: number;
     createdAt: string;
+    // Multi-transport fields (design doc §4.1).
+    transport?: QueuedTransport;
+    anthropicProfileId?: string;
+    anthropicConfigId?: string;   // may reference an Anthropic config OR a Local LLM config
+    answerText?: string;          // captured text from a direct (anthropic) send
 }
 
 export interface QueuedPrePrompt {
@@ -78,6 +93,11 @@ export interface QueuedPrePrompt {
     reminderTimeoutMinutes?: number;
     reminderRepeat?: boolean;
     reminderEnabled?: boolean;
+    // Multi-transport fields (design doc §4.1).
+    transport?: QueuedTransport;
+    anthropicProfileId?: string;
+    anthropicConfigId?: string;
+    answerText?: string;
 }
 
 export interface QueuedPrompt {
@@ -111,6 +131,13 @@ export interface QueuedPrompt {
     templateRepeatCount?: number | string; // Repeat the entire template this many times
     templateRepeatIndex?: number;  // Current template repeat iteration (0-based)
     answerWaitMinutes?: number;   // If > 0, auto-advance after N minutes instead of waiting for answer file
+    // Multi-transport fields (design doc §4.1). Items without `transport`
+    // resolve to 'copilot' at dispatch time — byte-identical to the
+    // pre-multi-transport behaviour.
+    transport?: QueuedTransport;
+    anthropicProfileId?: string;
+    anthropicConfigId?: string;
+    answerText?: string;
 }
 
 // ============================================================================
