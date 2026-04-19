@@ -19,7 +19,6 @@ import {
     bridgeLog
 } from './handler_shared';
 import { DartBridgeClient } from '../vscode-bridge';
-import { expandHomePath } from '../utils/executableResolver';
 
 // ────────────────────────────────────────────────────────────────
 // Bridge Profile Types
@@ -49,7 +48,8 @@ export interface BridgeConfig {
 /**
  * Load bridge configuration from tom_vscode_extension.json.
  * Returns undefined if no bridge config section exists.
- * Supports `executable` reference and explicit `command` in profile entries.
+ * Each profile must reference an `executable` registered in the
+ * top-level `bridge.executables` map.
  */
 export function loadBridgeConfig(): BridgeConfig | undefined {
     const configPath = getConfigPath();
@@ -66,23 +66,15 @@ export function loadBridgeConfig(): BridgeConfig | undefined {
             for (const [key, val] of Object.entries(sec.profiles)) {
                 const p = val as any;
                 if (p && typeof p === 'object') {
-                    // Resolve command: prefer `executable` reference, then explicit `command`
-                    let command: string | undefined;
-                    
-                    if (typeof p.executable === 'string') {
-                        // New style: resolve from executables config
-                        command = resolveBridgeExecutable(key);
-                    }
-                    
-                    if (!command && typeof p.command === 'string') {
-                        command = expandHomePath(p.command);
-                    }
-                    
-                    if (!command) {
-                        // Skip profiles without valid command
+                    if (typeof p.executable !== 'string') {
+                        // Skip profiles that don't reference an executable.
                         continue;
                     }
-                    
+                    const command = resolveBridgeExecutable(key);
+                    if (!command) {
+                        continue;
+                    }
+
                     profiles[key] = {
                         label: typeof p.label === 'string' ? p.label : key,
                         command,

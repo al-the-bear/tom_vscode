@@ -12,7 +12,8 @@ import * as vscode from 'vscode';
 import { PromptQueueManager, QueuedPrompt, applyTemplateWrapping } from '../managers/promptQueueManager';
 import { ReminderSystem } from '../managers/reminderSystem';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
-import { loadSendToChatConfig, saveSendToChatConfig, PLACEHOLDER_HELP } from './handler_shared';
+import { loadSendToChatConfig, saveSendToChatConfig } from './handler_shared';
+import { PLACEHOLDER_HELP } from './promptTemplate';
 import { openGlobalTemplateEditor } from './globalTemplateEditor-handler';
 import { queueEntryStyles, queueEntryUtils, queueEntryRenderFunctions, queueEntryMessageHandlers } from './queueEntryComponent';
 
@@ -218,20 +219,22 @@ async function handleMessage(msg: any): Promise<void> {
           sendState();
           return;
         case 'previewItem': {
-            const { showPreviewPanel, expandPlaceholders } = await import('./handler_shared.js');
+            const { showPreviewPanel } = await import('./handler_shared.js');
+            const { expandTemplate } = await import('./promptTemplate.js');
             let previewContent = msg.text || '';
             const template = msg.template || '';
             const answerWrapper = msg.answerWrapper || false;
-            previewContent = await expandPlaceholders(previewContent);
+            previewContent = await expandTemplate(previewContent);
             previewContent = await applyTemplateWrapping(previewContent, template, answerWrapper);
             await showPreviewPanel('Queue Item Preview', previewContent);
             return;
         }
         case 'previewFollowUp': {
-          const { showPreviewPanel, expandPlaceholders } = await import('./handler_shared.js');
+          const { showPreviewPanel } = await import('./handler_shared.js');
+          const { expandTemplate } = await import('./promptTemplate.js');
           let previewContent = msg.text || '';
           const template = msg.template || '';
-          previewContent = await expandPlaceholders(previewContent);
+          previewContent = await expandTemplate(previewContent);
           previewContent = await applyTemplateWrapping(previewContent, template, true);
           await showPreviewPanel('Follow-up Prompt Preview', previewContent);
           return;

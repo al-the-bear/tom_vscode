@@ -97,28 +97,6 @@ export function resolveDotPath(
 // ============================================================================
 
 /**
- * Build the map of built-in placeholder values.
- * Delegates to the unified variable resolver and merges chat response values.
- *
- * @deprecated Prefer using `buildVariableMap()` from variableResolver directly.
- */
-function buildBuiltinValues(): Record<string, string> {
-    const values = buildVariableMap({ includeEditor: false });
-
-    // Merge chat response values (lazy load to avoid circular dependency)
-    const chatVals = _getChatResponseValues();
-    for (const [k, v] of Object.entries(chatVals)) {
-        const str = typeof v === 'string' ? v : (v !== null && v !== undefined ? JSON.stringify(v) : '');
-        // Only add if not already present from ChatVariablesStore
-        if (!(`chat.${k}` in values)) {
-            values[`chat.${k}`] = str;
-        }
-    }
-
-    return values;
-}
-
-/**
  * Add editor-dependent values to the map.
  * These are provided by the unified resolver via `buildVariableMap()`.
  */
@@ -234,8 +212,16 @@ export async function expandTemplate(
     template: string,
     options?: PromptTemplateOptions,
 ): Promise<string> {
-    // Build the values map
-    const values = buildBuiltinValues();
+    // Build the values map — unified variable resolver + chat response values.
+    const values = buildVariableMap({ includeEditor: false });
+    const chatVals = _getChatResponseValues();
+    for (const [k, v] of Object.entries(chatVals)) {
+        const str = typeof v === 'string' ? v : (v !== null && v !== undefined ? JSON.stringify(v) : '');
+        // Only add if not already present from ChatVariablesStore
+        if (!(`chat.${k}` in values)) {
+            values[`chat.${k}`] = str;
+        }
+    }
 
     const includeEditor = options?.includeEditorContext !== false;
     if (includeEditor) {

@@ -993,17 +993,17 @@ export async function handleStatusAction(action: string, message: any): Promise<
             const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
             if (!stcConfig.compaction) { stcConfig.compaction = {}; }
             const s = message.settings || {};
-            (stcConfig.compaction as { disabled?: boolean }).disabled = s.disabled === true;
+            stcConfig.compaction.disabled = s.disabled === true;
             stcConfig.compaction.llmProvider = s.llmProvider === 'anthropic' ? 'anthropic' : 'localLlm';
             stcConfig.compaction.llmConfigId = s.llmConfigId || '';
             stcConfig.compaction.compactionTemplateId = s.compactionTemplateId || '';
             stcConfig.compaction.memoryExtractionTemplateId = s.memoryExtractionTemplateId || '';
             stcConfig.compaction.compactionMaxRounds = Number.isFinite(s.compactionMaxRounds) ? s.compactionMaxRounds : 4;
             stcConfig.compaction.maxHistoryTokens = Number.isFinite(s.maxHistoryTokens) ? s.maxHistoryTokens : 8000;
-            (stcConfig.compaction as { fullTrailMaxTurns?: number }).fullTrailMaxTurns = Number.isFinite(s.fullTrailMaxTurns) ? s.fullTrailMaxTurns : 200;
-            (stcConfig.compaction as { runMemoryExtractionOnCompaction?: boolean }).runMemoryExtractionOnCompaction = s.runMemoryExtractionOnCompaction !== false;
-            (stcConfig.compaction as { rebuildFromLastNPrompts?: number }).rebuildFromLastNPrompts = Number.isFinite(s.rebuildFromLastNPrompts) ? s.rebuildFromLastNPrompts : 200;
-            (stcConfig.compaction as { archiveHistoryEveryTurn?: boolean }).archiveHistoryEveryTurn = s.archiveHistoryEveryTurn === true;
+            stcConfig.compaction.fullTrailMaxTurns = Number.isFinite(s.fullTrailMaxTurns) ? s.fullTrailMaxTurns : 200;
+            stcConfig.compaction.runMemoryExtractionOnCompaction = s.runMemoryExtractionOnCompaction !== false;
+            stcConfig.compaction.rebuildFromLastNPrompts = Number.isFinite(s.rebuildFromLastNPrompts) ? s.rebuildFromLastNPrompts : 200;
+            stcConfig.compaction.archiveHistoryEveryTurn = s.archiveHistoryEveryTurn === true;
             // Memory tool exposure + injection cap live under anthropic.memory
             // on disk (to match the handler that reads them) but are edited
             // in the Compaction panel now. The Anthropic Memory section has
@@ -1698,7 +1698,7 @@ export async function gatherStatusData(): Promise<StatusData> {
             maxHistoryTokens: sendToChatConfig?.compaction?.maxHistoryTokens ?? 8000,
             fullTrailMaxTurns: (sendToChatConfig?.compaction as { fullTrailMaxTurns?: number })?.fullTrailMaxTurns ?? 200,
             runMemoryExtractionOnCompaction: (sendToChatConfig?.compaction as { runMemoryExtractionOnCompaction?: boolean })?.runMemoryExtractionOnCompaction !== false,
-            rebuildFromLastNPrompts: (sendToChatConfig?.compaction as { rebuildFromLastNPrompts?: number })?.rebuildFromLastNPrompts ?? 200,
+            rebuildFromLastNPrompts: sendToChatConfig?.compaction?.rebuildFromLastNPrompts ?? 200,
             archiveHistoryEveryTurn: (sendToChatConfig?.compaction as { archiveHistoryEveryTurn?: boolean })?.archiveHistoryEveryTurn === true,
             toolTrailMaxResultChars: sendToChatConfig?.compaction?.toolTrailMaxResultChars ?? 500,
             backgroundExtractionEnabled: sendToChatConfig?.compaction?.backgroundExtractionEnabled === true,

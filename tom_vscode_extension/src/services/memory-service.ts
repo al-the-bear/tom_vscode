@@ -548,7 +548,7 @@ export function formatHistoryAsMarkdown(input: HistoryMarkdownInput): string {
     lines.push(`_Saved at ${savedAt}._`);
     lines.push('');
 
-    // --- Current shape: { compactedSummary, rawTurns } ---
+    // --- Canonical shape: { compactedSummary, rawTurns } ---
     if (messages && typeof messages === 'object' && !Array.isArray(messages)) {
         const obj = messages as { compactedSummary?: unknown; rawTurns?: unknown };
         const summary = typeof obj.compactedSummary === 'string' ? obj.compactedSummary : '';
@@ -579,22 +579,6 @@ export function formatHistoryAsMarkdown(input: HistoryMarkdownInput): string {
                 lines.push(m.content);
                 lines.push('');
             }
-        }
-        return lines.join('\n');
-    }
-
-    // --- Legacy flat array of ConversationMessage ---
-    if (Array.isArray(messages)) {
-        lines.push(`## Legacy flat history — ${messages.length} messages`);
-        lines.push('');
-        for (let i = 0; i < messages.length; i++) {
-            const m = messages[i] as { role?: unknown; content?: unknown };
-            const role = typeof m?.role === 'string' ? m.role : 'unknown';
-            const content = typeof m?.content === 'string' ? m.content : String(m?.content ?? '');
-            lines.push(`### [${i + 1}] ${role} — ${content.length} chars`);
-            lines.push('');
-            lines.push(content);
-            lines.push('');
         }
         return lines.join('\n');
     }

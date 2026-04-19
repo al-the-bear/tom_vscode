@@ -193,11 +193,6 @@ export class TomAiConfiguration {
             ...TomAiConfiguration.defaults,
             ...(parsed ?? {}),
         };
-
-        const { changed } = this.normalizeTrailPaths();
-        if (changed) {
-            void this.persistConfig();
-        }
     }
 
     async createDefaultConfig(): Promise<void> {
@@ -232,48 +227,6 @@ export class TomAiConfiguration {
         }
 
         FsUtils.safeWriteJson(filePath, this.config, 2);
-    }
-
-    private normalizeTrailPaths(): { changed: boolean } {
-        const trail = this.config['trail'];
-        if (!trail || typeof trail !== 'object') {
-            return { changed: false };
-        }
-
-        const trailRecord = trail as Record<string, unknown>;
-        const raw = trailRecord['raw'];
-        if (!raw || typeof raw !== 'object') {
-            return { changed: false };
-        }
-
-        const rawRecord = raw as Record<string, unknown>;
-        const paths = rawRecord['paths'];
-        if (!paths || typeof paths !== 'object') {
-            return { changed: false };
-        }
-
-        const pathRecord = paths as Record<string, unknown>;
-        let changed = false;
-
-        const normalizeOne = (key: 'localLlm' | 'copilot' | 'lmApi', canonical: string, legacySuffixes: string[]): void => {
-            const value = pathRecord[key];
-            if (typeof value !== 'string' || value.trim().length === 0) {
-                return;
-            }
-
-            const normalized = value.replace(/\\/g, '/').toLowerCase();
-            const isLegacy = legacySuffixes.some((suffix) => normalized === suffix || normalized.endsWith(`/${suffix}`));
-            if (isLegacy && value !== canonical) {
-                pathRecord[key] = canonical;
-                changed = true;
-            }
-        };
-
-        normalizeOne('localLlm', '${ai}/trail/localllm', ['_ai/local/trail']);
-        normalizeOne('copilot', '${ai}/trail/copilot', ['_ai/copilot/trail']);
-        normalizeOne('lmApi', '${ai}/trail/lm-api', ['_ai/tomai/trail']);
-
-        return { changed };
     }
 
     private resolveConfiguredPath(configuredPath: string): string {

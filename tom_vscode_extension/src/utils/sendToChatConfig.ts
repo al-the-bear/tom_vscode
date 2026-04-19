@@ -211,12 +211,17 @@ export interface SendToChatConfig {
      * template arrays consumed by the Global Template Editor.
      */
     compaction?: {
+        /**
+         * Global kill-switch. When true, suppresses the extra compaction +
+         * memory-extraction API call after every Anthropic turn. rawTurns
+         * and history.json are still written. Per-configuration
+         * `compactionOverride` can force on/off regardless of this flag.
+         */
+        disabled?: boolean;
         llmProvider?: 'localLlm' | 'anthropic';
         llmConfigId?: string;
         compactionTemplateId?: string;
         memoryExtractionTemplateId?: string;
-        /** @deprecated section-level tool picker; see per-template enabledTools instead. */
-        enabledTools?: string[];
         compactionMaxRounds?: number;
         maxHistoryTokens?: number;
         /** Cap on turns returned in 'full' history mode (runFull). */
@@ -304,10 +309,8 @@ export interface SendToChatConfig {
         executables?: { [name: string]: { [platform: string]: string } };
         profiles: { [name: string]: {
             label: string;
-            /** Executable name from `executables` config (preferred) */
+            /** Executable name from `executables` config. */
             executable?: string;
-            /** Direct command path (deprecated - use executable instead) */
-            command?: string;
             arguments?: string[];
         } };
     };

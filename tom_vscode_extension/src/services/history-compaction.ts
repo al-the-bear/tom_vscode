@@ -156,8 +156,6 @@ function estimateModelContextTokens(model?: string): number | undefined {
     if (!model) { return undefined; }
     // Claude 4.x: 200k native context across Opus / Sonnet / Haiku.
     if (/^claude-(opus|sonnet|haiku)-4-\d+/i.test(model)) { return 200_000; }
-    // Legacy Claude 3.x: same 200k.
-    if (/^claude-3/i.test(model)) { return 200_000; }
     return undefined;
 }
 

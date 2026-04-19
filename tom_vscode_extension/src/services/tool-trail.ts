@@ -55,9 +55,6 @@ export class ToolTrail {
         keepEntries?: number;
         previewChars?: number;
         maxResultChars?: number;
-        /** @deprecated — kept for config back-compat; superseded by keepEntries. */
-        keepRounds?: number;
-        /** @deprecated — kept for config back-compat; superseded by previewChars. */
     }) {
         this.keepEntries = options?.keepEntries ?? DEFAULT_KEEP_ENTRIES;
         this.previewChars = options?.previewChars ?? DEFAULT_PREVIEW_CHARS;
@@ -85,17 +82,6 @@ export class ToolTrail {
             this.entries.shift();
         }
         return full;
-    }
-
-    /**
-     * Legacy alias retained for the direct Anthropic handler's existing
-     * call-site: after each user turn it asks us to evict stale rounds.
-     * With the new flat-N-entries policy this is a no-op — `add()`
-     * already maintains the bound — but keeping the method stub avoids
-     * a cross-file refactor.
-     */
-    evictOldRounds(): void {
-        // No-op under the new keepEntries policy.
     }
 
     /**

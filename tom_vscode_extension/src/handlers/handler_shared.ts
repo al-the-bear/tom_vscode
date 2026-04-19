@@ -12,12 +12,7 @@ import * as os from 'os';
 
 import { DartBridgeClient } from '../vscode-bridge';
 import {
-    expandTemplate,
-    PLACEHOLDER_HELP as SHARED_PLACEHOLDER_HELP,
-} from './promptTemplate';
-import {
     resolveVariables,
-    PLACEHOLDER_HELP as VARIABLE_PLACEHOLDER_HELP,
 } from '../utils/variableResolver.js';
 import { WsPaths } from '../utils/workspacePaths';
 import {
@@ -633,28 +628,17 @@ export async function openInExternalApplication(filePath: string): Promise<boole
 
 /**
  * Resolve Tom AI Bridge executable from profile configuration.
- * Supports executable references and direct command paths.
- * 
+ *
  * @param profileName The profile name to resolve
  * @returns The resolved executable path, or undefined
  */
 export function resolveBridgeExecutable(profileName: string): string | undefined {
     const config = loadSendToChatConfig();
     const profile = config?.bridge?.profiles?.[profileName];
-    if (!profile) return undefined;
-    
-    // Prefer executable reference over direct command path
-    if (profile.executable) {
-        const ctx = buildConfigContext(config?.bridge?.binaryPath, getWorkspaceRoot(), _extensionPath);
-        return resolveNamedExecutable(profile.executable, config?.bridge?.executables, ctx);
-    }
-    
-    // Direct command path
-    if (profile.command) {
-        return expandHomePath(profile.command);
-    }
-    
-    return undefined;
+    if (!profile || !profile.executable) return undefined;
+
+    const ctx = buildConfigContext(config?.bridge?.binaryPath, getWorkspaceRoot(), _extensionPath);
+    return resolveNamedExecutable(profile.executable, config?.bridge?.executables, ctx);
 }
 
 /**
@@ -927,15 +911,6 @@ export function clearChatResponseValues(): void {
 // Placeholder Expansion (delegates to promptTemplate.ts)
 // ============================================================================
 
-/**
- * Expand placeholders in a template string.
- * Delegates to the unified promptTemplate module.
- * @deprecated Import `expandTemplate` from `./promptTemplate` directly.
- */
-export async function expandPlaceholders(template: string): Promise<string> {
-    return expandTemplate(template);
-}
-
 // ============================================================================
 // Preview Panel
 // ============================================================================
@@ -1003,8 +978,3 @@ function send() { vscode.postMessage({ type: 'send' }); }
     });
 }
 
-/** Placeholder help text for template editors */
-/**
- * @deprecated Import PLACEHOLDER_HELP from './promptTemplate' directly.
- */
-export const PLACEHOLDER_HELP = SHARED_PLACEHOLDER_HELP;

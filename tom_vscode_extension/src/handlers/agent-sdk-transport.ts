@@ -715,7 +715,6 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
         context.requestId,
         context.questId,
     );
-    context.toolTrail.evictOldRounds();
 
     return {
         text: lastText,

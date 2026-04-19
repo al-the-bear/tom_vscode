@@ -13,7 +13,8 @@ import { TimerEngine, TimedRequest, ScheduledTime } from '../managers/timerEngin
 import { applyTemplateWrapping } from '../managers/promptQueueManager';
 import { ReminderSystem } from '../managers/reminderSystem';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
-import { loadSendToChatConfig, saveSendToChatConfig, PLACEHOLDER_HELP } from './handler_shared';
+import { loadSendToChatConfig, saveSendToChatConfig } from './handler_shared';
+import { PLACEHOLDER_HELP } from './promptTemplate';
 import { openGlobalTemplateEditor } from './globalTemplateEditor-handler';
 
 // ============================================================================
@@ -148,13 +149,14 @@ async function handleMessage(msg: any): Promise<void> {
           return;
         }
         case 'previewEntry': {
-            const { showPreviewPanel, expandPlaceholders } = await import('./handler_shared.js');
+            const { showPreviewPanel } = await import('./handler_shared.js');
+            const { expandTemplate } = await import('./promptTemplate.js');
             let previewContent = msg.text || '';
             const template = msg.template || '';
             const answerWrapper = msg.answerWrapper || false;
-            
+
             // Use the exact same expansion logic as real prompt processing
-            previewContent = await expandPlaceholders(previewContent);
+            previewContent = await expandTemplate(previewContent);
             previewContent = await applyTemplateWrapping(previewContent, template, answerWrapper);
             
             await showPreviewPanel('Timed Request Preview', previewContent);

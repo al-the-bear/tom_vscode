@@ -18,11 +18,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { getConfigPath, SendToChatConfig, loadSendToChatConfig, saveSendToChatConfig, PLACEHOLDER_HELP, showPreviewPanel, getWorkspaceRoot, updateChatResponseValues, applyDefaultTemplate, getCopilotChatAnswerFolderAbsolute, DEFAULT_ANSWER_FILE_TEMPLATE, reportException, escapeHtml, openInExternalApplication, resolvePathVariables } from './handler_shared';
+import { getConfigPath, SendToChatConfig, loadSendToChatConfig, saveSendToChatConfig, showPreviewPanel, getWorkspaceRoot, updateChatResponseValues, applyDefaultTemplate, getCopilotChatAnswerFolderAbsolute, DEFAULT_ANSWER_FILE_TEMPLATE, reportException, escapeHtml, openInExternalApplication, resolvePathVariables } from './handler_shared';
 import { openGlobalTemplateEditor, TemplateCategory } from './globalTemplateEditor-handler';
 import { openReusablePromptEditor } from './reusablePromptEditor-handler';
 import { debugLog } from '../utils/debugLogger';
-import { expandTemplate } from './promptTemplate';
+import { expandTemplate, PLACEHOLDER_HELP } from './promptTemplate';
 import { getLocalLlmManager, ensureLocalLlmManager } from './localLlm-handler';
 import { getAiConversationManager } from './aiConversation-handler';
 import { interruptTomAiChatHandler } from './tomAiChat-handler';
@@ -260,32 +260,6 @@ export function getCopilotSummaryTrailPaths(): { questId: string; folder: string
         promptsPath: path.join(folder, `${questId}.copilot.prompts.md`),
         answersPath: path.join(folder, `${questId}.copilot.answers.md`),
     };
-}
-
-/** Migrate old trail files from _prompts.md/_answers.md to .prompts.md/.answers.md */
-const _migratedPaths = new Set<string>();
-function migrateTrailFiles(trailFolder: string, workspaceName: string): void {
-    const key = `${trailFolder}/${workspaceName}`;
-    if (_migratedPaths.has(key)) { return; }
-    _migratedPaths.add(key);
-    
-    const oldPrompts = path.join(trailFolder, `${workspaceName}_prompts.md`);
-    const newPrompts = path.join(trailFolder, `${workspaceName}.prompts.md`);
-    const oldAnswers = path.join(trailFolder, `${workspaceName}_answers.md`);
-    const newAnswers = path.join(trailFolder, `${workspaceName}.answers.md`);
-    
-    try {
-        if (fs.existsSync(oldPrompts) && !fs.existsSync(newPrompts)) {
-            fs.renameSync(oldPrompts, newPrompts);
-            debugLog(`[Trail] Migrated ${oldPrompts} → ${newPrompts}`, 'INFO', 'extension');
-        }
-        if (fs.existsSync(oldAnswers) && !fs.existsSync(newAnswers)) {
-            fs.renameSync(oldAnswers, newAnswers);
-            debugLog(`[Trail] Migrated ${oldAnswers} → ${newAnswers}`, 'INFO', 'extension');
-        }
-    } catch (e) {
-        console.error('[Trail] Migration error:', e);
-    }
 }
 
 /** Parse sequence number from first line of trail file */

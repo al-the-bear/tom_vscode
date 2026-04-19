@@ -71,7 +71,6 @@ export { telegramTestHandler, telegramToggleHandler, telegramConfigureHandler, d
 export { registerDsNotesViews } from './sidebarNotes-handler';
 export { registerChatPanel } from './chatPanel-handler';
 export { registerWsPanel } from './wsPanel-handler';
-export { registerQuestTodoPanel } from './questTodoPanel-handler';
 export { registerChatVariablesEditorCommand } from './chatVariablesEditor-handler';
 export { registerContextSettingsEditorCommand } from './contextSettingsEditor-handler';
 export { registerQueueEditorCommand } from './queueEditor-handler';

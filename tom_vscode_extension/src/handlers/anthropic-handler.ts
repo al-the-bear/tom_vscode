@@ -478,9 +478,7 @@ export class AnthropicHandler {
      * Seed the split state from the most recent
      * `_ai/quests/<quest>/history/<ts>.history.json` — called at the start
      * of the first `sendMessage()` for multi-session continuity. The
-     * snapshot stores `{ compactedSummary, rawTurns }`; legacy snapshots
-     * that stored a flat `ConversationMessage[]` still load (folded into
-     * rawTurns with an empty summary).
+     * snapshot stores `{ compactedSummary, rawTurns }`.
      *
      * When no snapshot exists, a trail-based rebuild (parsing the quest's
      * `<quest>.anthropic.prompts.md` + `.answers.md` files) is kicked off
@@ -494,7 +492,7 @@ export class AnthropicHandler {
         this.historySeeded = true;
         try {
             const raw = TwoTierMemoryService.instance.loadLatestHistorySnapshot<unknown>(questId);
-            // New shape: { compactedSummary: string, rawTurns: ConversationMessage[] }
+            // Canonical shape: { compactedSummary: string, rawTurns: ConversationMessage[] }
             if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
                 const obj = raw as { compactedSummary?: unknown; rawTurns?: unknown };
                 if (typeof obj.compactedSummary === 'string') {
@@ -503,11 +501,6 @@ export class AnthropicHandler {
                 if (Array.isArray(obj.rawTurns)) {
                     this.rawTurns = obj.rawTurns.filter(isConversationMessage);
                 }
-                return;
-            }
-            // Legacy shape: flat ConversationMessage[].
-            if (Array.isArray(raw) && raw.length > 0) {
-                this.rawTurns = raw.filter(isConversationMessage);
                 return;
             }
             // No snapshot — kick off trail-based rebuild if prompts.md/answers.md
@@ -1108,7 +1101,6 @@ export class AnthropicHandler {
                 { requestId, model: configuration.model },
                 quest,
             );
-            this.toolTrail.evictOldRounds();
 
             // The Agent SDK runs its own context compaction, but we still
             // append to rawTurns so continuity carries across
@@ -1325,7 +1317,6 @@ export class AnthropicHandler {
             { requestId, model: configuration.model },
             quest,
         );
-        this.toolTrail.evictOldRounds();
 
         // Accumulate this exchange into rawTurns, then schedule the
         // background compaction + memory extraction passes for the next

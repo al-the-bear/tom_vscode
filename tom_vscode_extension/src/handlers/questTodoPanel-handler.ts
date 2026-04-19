@@ -4025,12 +4025,3 @@ export class QuestTodoEmbeddedViewProvider implements vscode.WebviewViewProvider
     }
 }
 
-// ============================================================================
-// Legacy standalone registration (kept for backward compatibility but
-// no longer registered in package.json or extension.ts)
-// ============================================================================
-
-export function registerQuestTodoPanel(_context: vscode.ExtensionContext): void {
-    // No-op — Quest TODO is now embedded in the WS panel accordion.
-    // Kept to avoid breaking imports until all references are cleaned up.
-}
