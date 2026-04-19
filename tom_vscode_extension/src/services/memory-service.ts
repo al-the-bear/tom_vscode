@@ -421,21 +421,16 @@ export class TwoTierMemoryService {
     }
 
     // ------------------------------------------------------------------------
-    // Agent SDK session-id persistence (per VS Code window, per quest)
+    // Agent SDK session-id persistence (per quest, machine-local)
     // ------------------------------------------------------------------------
 
     /**
-     * Sessions live in `_ai/quests/<quest>/history/<windowId>_sessionid.json`
-     * rather than the main `history.json` because SDK sessions are tied to a
-     * single machine/installation — they can't move with git like the
-     * compacted history can. Separate file, same folder.
-     */
-    /**
-     * Fixed filename inside the quest's history folder. Not keyed on
-     * windowId anymore — one session id per quest, gitignored. Using
-     * a fixed path means the file is auto-recreated when missing and
-     * survives VS Code window restarts without every new session
-     * creating an orphaned file alongside.
+     * Fixed filename inside the quest's history folder: `default.session.json`.
+     * Gitignored because SDK sessions are tied to a single machine/install
+     * and can't move with git. A fixed path means the file is auto-recreated
+     * when missing and survives VS Code window restarts — earlier versions
+     * keyed on windowId, which defeated that goal (every reload produced an
+     * orphan file and lost continuity).
      */
     private agentSdkSessionFile(questId?: string): string {
         return path.join(this.historyFolder(questId), 'default.session.json');
@@ -471,17 +466,30 @@ export class TwoTierMemoryService {
     /**
      * Persist the session id returned by the Claude Code SDK.
      *
-     * Writes atomically via `<file>.tmp` + `rename` so a window reload
-     * or process kill mid-write leaves either the old file or the new
-     * file — never a zero-byte placeholder (the bug we hit before: the
-     * non-atomic writeFileSync can truncate first, and then interruption
-     * leaves an empty file, which on next load looks like a fresh session
-     * and forks a new Claude Code session per prompt).
+     * Skips the write entirely when the file already holds the same id
+     * — on the steady-state path (resume → SDK echoes same id → we'd
+     * save the same id back) the file is effectively immutable, and
+     * not rewriting it avoids VS Code watcher churn and reduces the
+     * chance of a mid-write interruption corrupting it.
+     *
+     * When it DOES need to write (first turn, forked session, stale
+     * stored id), it writes atomically via `<file>.tmp` + `rename` so
+     * a window reload or process kill mid-write leaves either the old
+     * file or the new file — never a zero-byte placeholder (the bug
+     * we hit before: a non-atomic writeFileSync can truncate first,
+     * and then interruption leaves an empty file, which on next load
+     * looks like a fresh session and forks a new Claude Code session
+     * per prompt).
      */
     saveAgentSdkSessionId(sessionId: string, questId?: string, model?: string): void {
         try {
             if (!sessionId || sessionId.length === 0) { return; }
             const file = this.agentSdkSessionFile(questId);
+            // Idempotent short-circuit: if the file already holds this
+            // exact id, leave it alone. Reuses loadAgentSdkSessionId
+            // so stale empty files also get cleaned up correctly.
+            const existing = this.loadAgentSdkSessionId(questId);
+            if (existing === sessionId) { return; }
             FsUtils.ensureDir(path.dirname(file));
             const tmp = `${file}.tmp`;
             fs.writeFileSync(
