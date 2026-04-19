@@ -32,6 +32,7 @@ import { runAgentSdkQuery } from './agent-sdk-transport';
 import * as anthropicOutput from './anthropic-output-channels';
 import { WsPaths } from '../utils/workspacePaths';
 import { resolveVariables } from '../utils/variableResolver';
+import { debugLog } from '../utils/debugLogger';
 
 // ============================================================================
 // Configuration shapes (subset — full schema in §14 of the spec)
@@ -459,9 +460,8 @@ export class AnthropicHandler {
         // send starts a brand-new conversation rather than resuming the
         // one we just cleared.
         try {
-            const windowId = vscode.env.sessionId;
             const quest = TwoTierMemoryService.instance.currentQuest();
-            TwoTierMemoryService.instance.clearAgentSdkSessionId(windowId, quest);
+            TwoTierMemoryService.instance.clearAgentSdkSessionId(quest);
         } catch { /* best-effort */ }
     }
 
@@ -1011,7 +1011,35 @@ export class AnthropicHandler {
             // having to configure settingSources manually.
             const useSdkManagedContinuity = effectiveHistoryMode === 'sdk-managed' && !options.isolated;
             const resumeSessionId = useSdkManagedContinuity
-                ? TwoTierMemoryService.instance.loadAgentSdkSessionId(windowId, quest)
+                ? TwoTierMemoryService.instance.loadAgentSdkSessionId(quest)
+                : undefined;
+            debugLog(
+                `[AgentSDK] continuity: quest=${quest} resume=${resumeSessionId ?? '(none — new session)'}`,
+                'INFO',
+                'anthropic',
+            );
+
+            // Early-save callback: persist the session id the instant the
+            // SDK's init message arrives, not after the stream completes.
+            // Without this, a user-cancelled or window-reload-killed
+            // stream leaves the on-disk id stale and the NEXT turn forks
+            // a brand-new Claude Code session (the symptom we chased —
+            // session selector filling up one-per-prompt).
+            const onSessionIdCaptured = useSdkManagedContinuity
+                ? (sid: string) => {
+                    TwoTierMemoryService.instance.saveAgentSdkSessionId(
+                        sid,
+                        quest,
+                        configuration.model,
+                    );
+                    if (sid !== resumeSessionId) {
+                        debugLog(
+                            `[AgentSDK] session id changed: ${resumeSessionId ?? '(new)'} -> ${sid}`,
+                            'INFO',
+                            'anthropic',
+                        );
+                    }
+                }
                 : undefined;
 
             let result: AnthropicSendResult & { sessionId?: string };
@@ -1026,6 +1054,7 @@ export class AnthropicHandler {
                     useBuiltInTools: profile.useBuiltInTools === true,
                     thinkingBudgetTokens: profile.thinkingEnabled ? (profile.thinkingBudgetTokens ?? 8192) : undefined,
                     resumeSessionId,
+                    onSessionIdCaptured,
                     autoLoadProjectSettings: useSdkManagedContinuity,
                     liveTrail: this.currentLiveTrail ?? undefined,
                     context: {
@@ -1045,12 +1074,11 @@ export class AnthropicHandler {
                 throw err;
             }
 
-            // Persist the session id so the next call can resume it.
-            // Only in sdk-managed mode — the other modes don't rely on
-            // SDK continuity and persisting would leak stale ids.
+            // Safety-net save — the early callback usually fired already,
+            // but if the stream somehow ended without ever carrying a
+            // session_id this catches the result-message fallback.
             if (useSdkManagedContinuity && result.sessionId) {
                 TwoTierMemoryService.instance.saveAgentSdkSessionId(
-                    windowId,
                     result.sessionId,
                     quest,
                     configuration.model,

@@ -194,6 +194,17 @@ export interface AgentSdkSendParams {
      */
     resumeSessionId?: string;
     /**
+     * Fires the instant the SDK's init `system` message arrives (or a
+     * later stream message if the init was missed). The handler uses
+     * this to persist the session id *early* — waiting until the end of
+     * the call was the old behavior, but a stream that gets cancelled
+     * (window reload, user abort) would then leave the sdk-managed
+     * session-id file stale and every subsequent prompt would fork a
+     * new Claude Code session. Saving early means we at worst lose the
+     * trailing turns of a cancelled stream, not the whole session.
+     */
+    onSessionIdCaptured?: (sessionId: string) => void;
+    /**
      * When true, automatically include `'project'` in `settingSources` if
      * a CLAUDE.md exists at the workspace root. This is how the SDK picks
      * up CLAUDE.md and the project-level settings file. Requested by the
@@ -480,6 +491,23 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
     let turnsUsed = 0;
     let capturedSessionId: string | undefined;
 
+    // Built-in tool tracking — when the profile opts into the Claude
+    // Code preset (Read, Write, Bash, Grep, …), the SDK executes those
+    // tools itself and we never hit the MCP wrapper that would normally
+    // write raw trail files. We still see every `tool_use` in assistant
+    // messages and the matching `tool_result` in synthetic user
+    // messages, so we mirror the MCP wrapper's side effects (raw
+    // trail + tool trail) from the stream. Keyed by tool_use.id so the
+    // paired result can look its request up.
+    interface PendingBuiltinCall {
+        name: string;
+        input: Record<string, unknown>;
+        inputSummary: string;
+        startedAt: number;
+    }
+    const pendingBuiltins = new Map<string, PendingBuiltinCall>();
+    const isMcpToolName = (name: string): boolean => name.startsWith('mcp__');
+
     try {
         // `cwd` anchors the SDK's filesystem lookups (CLAUDE.md,
         // `.claude/settings.json`, project-scoped settingSources, etc.)
@@ -515,66 +543,127 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
                 break;
             }
             // Every SDK message carries a session_id — capture the first
-            // non-empty one we see. On first send the SDK emits a new id
-            // (persist it); on resume it echoes the id we passed back
-            // (safe to re-persist — same value).
+            // non-empty one we see and forward it to the handler via the
+            // callback so the on-disk session-id file gets rewritten
+            // early in the turn. On first send the SDK emits a fresh
+            // id; on resume (with forkSession=false, the default) it
+            // echoes the id we passed. Either way, persist ASAP: a
+            // window reload that kills the stream must not invalidate
+            // the continuity we already have.
             const sid = (msg as { session_id?: unknown }).session_id;
             if (typeof sid === 'string' && sid.length > 0 && !capturedSessionId) {
                 capturedSessionId = sid;
+                try {
+                    params.onSessionIdCaptured?.(sid);
+                } catch { /* persistence is best-effort */ }
             }
             switch (msg.type) {
-                case 'assistant':
+                case 'assistant': {
                     handleAssistantMessage(msg as SDKAssistantMessage, context);
                     lastText = extractAssistantText(msg as SDKAssistantMessage) || lastText;
                     totalToolCalls += countToolUses(msg as SDKAssistantMessage);
-                    // Live-trail each content block as it arrives.
-                    // thinking + text + tool_use get their own event
-                    // types; tool_result appears in the SDK's stream
-                    // as a synthetic user message (handled below).
-                    if (params.liveTrail) {
-                        const body = (msg as SDKAssistantMessage).message as { content?: unknown } | undefined;
-                        const blocks = Array.isArray(body?.content) ? (body?.content as unknown[]) : [];
-                        for (const blk of blocks) {
-                            if (!blk || typeof blk !== 'object') { continue; }
-                            const b = blk as { type?: string; text?: unknown; thinking?: unknown; name?: unknown; input?: unknown; id?: unknown };
+
+                    const body = (msg as SDKAssistantMessage).message as { content?: unknown } | undefined;
+                    const blocks = Array.isArray(body?.content) ? (body?.content as unknown[]) : [];
+                    for (const blk of blocks) {
+                        if (!blk || typeof blk !== 'object') { continue; }
+                        const b = blk as { type?: string; text?: unknown; thinking?: unknown; name?: unknown; input?: unknown; id?: unknown };
+
+                        // Live-trail: emit thinking / text / tool_use
+                        // events in order. tool_result lives on the
+                        // synthetic user message and is handled below.
+                        if (params.liveTrail) {
                             if (b.type === 'thinking' && typeof b.thinking === 'string') {
                                 params.liveTrail.appendThinking(b.thinking);
                             } else if (b.type === 'text' && typeof b.text === 'string') {
                                 params.liveTrail.appendAssistantText(b.text);
                             } else if (b.type === 'tool_use' && typeof b.name === 'string') {
                                 // Use the SDK tool_use id as the replay
-                                // key — the SDK's tool_result on the
-                                // synthetic user message will carry the
-                                // same id so the live-trail can correlate.
+                                // key — the paired tool_result carries
+                                // the same id so the live trail can
+                                // correlate when it renders.
                                 const replayKey = typeof b.id === 'string' ? b.id : 'sdk';
                                 params.liveTrail.beginToolCall(b.name, b.input ?? {}, replayKey);
                             }
                         }
+
+                        // Raw trail + tool trail for BUILT-IN tool
+                        // calls. MCP tools (name starts with `mcp__`)
+                        // go through our own wrapper in buildMcpServer
+                        // which already writes these files; mirroring
+                        // them here would produce duplicates.
+                        if (b.type === 'tool_use' && typeof b.name === 'string' && typeof b.id === 'string' && !isMcpToolName(b.name)) {
+                            const input = (b.input && typeof b.input === 'object') ? (b.input as Record<string, unknown>) : {};
+                            const inputSummary = summarizeInput(input);
+                            pendingBuiltins.set(b.id, {
+                                name: b.name,
+                                input,
+                                inputSummary,
+                                startedAt: Date.now(),
+                            });
+                            TrailService.instance.writeRawToolRequest(
+                                ANTHROPIC_SUBSYSTEM,
+                                { id: b.id, name: b.name, input },
+                                context.windowId,
+                                context.questId,
+                            );
+                        }
                     }
                     break;
+                }
                 case 'user': {
                     // Tool results appear as synthetic user messages
                     // whose `content` is an array of tool_result blocks.
                     // Feed each into the live trail so the MD Browser
                     // shows output immediately after the tool_use block
-                    // it matches.
-                    if (params.liveTrail) {
-                        const body = (msg as SDKUserMessage).message as { content?: unknown } | undefined;
-                        const blocks = Array.isArray(body?.content) ? (body?.content as unknown[]) : [];
-                        for (const blk of blocks) {
-                            if (!blk || typeof blk !== 'object') { continue; }
-                            const b = blk as { type?: string; content?: unknown };
-                            if (b.type !== 'tool_result') { continue; }
-                            const raw = b.content;
-                            let text = '';
-                            if (typeof raw === 'string') {
-                                text = raw;
-                            } else if (Array.isArray(raw)) {
-                                text = (raw as unknown[])
-                                    .map((part) => (part && typeof part === 'object' && typeof (part as { text?: unknown }).text === 'string' ? (part as { text: string }).text : ''))
-                                    .join('');
-                            }
-                            params.liveTrail.appendToolResult(text, text.length);
+                    // it matches, AND close out any built-in pending
+                    // entry we opened on the assistant side.
+                    const body = (msg as SDKUserMessage).message as { content?: unknown } | undefined;
+                    const blocks = Array.isArray(body?.content) ? (body?.content as unknown[]) : [];
+                    for (const blk of blocks) {
+                        if (!blk || typeof blk !== 'object') { continue; }
+                        const b = blk as { type?: string; content?: unknown; tool_use_id?: unknown; is_error?: unknown };
+                        if (b.type !== 'tool_result') { continue; }
+
+                        const raw = b.content;
+                        let text = '';
+                        if (typeof raw === 'string') {
+                            text = raw;
+                        } else if (Array.isArray(raw)) {
+                            text = (raw as unknown[])
+                                .map((part) => (part && typeof part === 'object' && typeof (part as { text?: unknown }).text === 'string' ? (part as { text: string }).text : ''))
+                                .join('');
+                        }
+
+                        params.liveTrail?.appendToolResult(text, text.length);
+
+                        // Close out built-in tool call: write raw
+                        // answer + commit to toolTrail so the replay
+                        // key / past-tool-access tools can find it.
+                        const toolUseId = typeof b.tool_use_id === 'string' ? b.tool_use_id : undefined;
+                        if (toolUseId && pendingBuiltins.has(toolUseId)) {
+                            const pending = pendingBuiltins.get(toolUseId)!;
+                            pendingBuiltins.delete(toolUseId);
+                            const durationMs = Date.now() - pending.startedAt;
+                            const isError = b.is_error === true;
+                            const errorMsg = isError ? (text || 'tool reported error') : undefined;
+
+                            TrailService.instance.writeRawToolAnswer(
+                                ANTHROPIC_SUBSYSTEM,
+                                { id: toolUseId, name: pending.name, result: text, durationMs, error: errorMsg },
+                                context.windowId,
+                                context.questId,
+                            );
+
+                            context.toolTrail.add({
+                                timestamp: new Date().toISOString().slice(11, 19),
+                                round: context.round,
+                                toolName: pending.name,
+                                inputSummary: pending.inputSummary,
+                                result: text,
+                                durationMs,
+                                error: errorMsg,
+                            });
                         }
                     }
                     break;

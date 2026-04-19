@@ -430,16 +430,36 @@ export class TwoTierMemoryService {
      * single machine/installation — they can't move with git like the
      * compacted history can. Separate file, same folder.
      */
-    private agentSdkSessionFile(windowId: string, questId?: string): string {
-        const safe = windowId.replace(/[^A-Za-z0-9_-]/g, '_');
-        return path.join(this.historyFolder(questId), `${safe}_sessionid.json`);
+    /**
+     * Fixed filename inside the quest's history folder. Not keyed on
+     * windowId anymore — one session id per quest, gitignored. Using
+     * a fixed path means the file is auto-recreated when missing and
+     * survives VS Code window restarts without every new session
+     * creating an orphaned file alongside.
+     */
+    private agentSdkSessionFile(questId?: string): string {
+        return path.join(this.historyFolder(questId), 'default.session.json');
     }
 
-    /** Read the stored session id for (window, quest). Undefined when missing / unparseable. */
-    loadAgentSdkSessionId(windowId: string, questId?: string): string | undefined {
+    /**
+     * Read the stored session id for the quest. Undefined when missing
+     * or unparseable. Empty (0-byte) files are treated as missing AND unlinked
+     * so a subsequent save can rebuild cleanly — a stale empty file is
+     * usually the residue of a write that was interrupted by a window
+     * reload, and leaving it around would mask a good value from older
+     * turns that aren't the user's fault.
+     */
+    loadAgentSdkSessionId(questId?: string): string | undefined {
         try {
-            const file = this.agentSdkSessionFile(windowId, questId);
+            const file = this.agentSdkSessionFile(questId);
             if (!fs.existsSync(file)) { return undefined; }
+            try {
+                const stat = fs.statSync(file);
+                if (stat.size === 0) {
+                    try { fs.unlinkSync(file); } catch { /* best-effort */ }
+                    return undefined;
+                }
+            } catch { /* proceed to read */ }
             const raw = FsUtils.safeReadJson<{ sessionId?: unknown }>(file);
             const sid = raw?.sessionId;
             return typeof sid === 'string' && sid.length > 0 ? sid : undefined;
@@ -448,25 +468,37 @@ export class TwoTierMemoryService {
         }
     }
 
-    /** Persist the session id returned by the Claude Code SDK. */
-    saveAgentSdkSessionId(windowId: string, sessionId: string, questId?: string, model?: string): void {
+    /**
+     * Persist the session id returned by the Claude Code SDK.
+     *
+     * Writes atomically via `<file>.tmp` + `rename` so a window reload
+     * or process kill mid-write leaves either the old file or the new
+     * file — never a zero-byte placeholder (the bug we hit before: the
+     * non-atomic writeFileSync can truncate first, and then interruption
+     * leaves an empty file, which on next load looks like a fresh session
+     * and forks a new Claude Code session per prompt).
+     */
+    saveAgentSdkSessionId(sessionId: string, questId?: string, model?: string): void {
         try {
-            const file = this.agentSdkSessionFile(windowId, questId);
+            if (!sessionId || sessionId.length === 0) { return; }
+            const file = this.agentSdkSessionFile(questId);
             FsUtils.ensureDir(path.dirname(file));
+            const tmp = `${file}.tmp`;
             fs.writeFileSync(
-                file,
-                JSON.stringify({ sessionId, windowId, updatedAt: new Date().toISOString(), model: model ?? '' }, null, 2),
+                tmp,
+                JSON.stringify({ sessionId, updatedAt: new Date().toISOString(), model: model ?? '' }, null, 2),
                 'utf-8',
             );
+            fs.renameSync(tmp, file);
         } catch {
             // best-effort
         }
     }
 
     /** Remove the session-id file (used by clearSession). */
-    clearAgentSdkSessionId(windowId: string, questId?: string): void {
+    clearAgentSdkSessionId(questId?: string): void {
         try {
-            const file = this.agentSdkSessionFile(windowId, questId);
+            const file = this.agentSdkSessionFile(questId);
             if (fs.existsSync(file)) { fs.unlinkSync(file); }
         } catch {
             // best-effort
