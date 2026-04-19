@@ -73,6 +73,15 @@ export interface AnthropicConfiguration {
     transport?: AnthropicTransport;
     /** Spec §18.2 — Agent SDK specific options; ignored when `transport !== 'agentSdk'`. */
     agentSdk?: AnthropicAgentSdkOptions;
+    /**
+     * Per-configuration override for the global `compaction.disabled` flag.
+     *   'default' / undefined — use the status-page checkbox (global).
+     *   'on'                   — force compaction ON for this configuration,
+     *                            even when the global flag disables it.
+     *   'off'                  — force compaction OFF for this configuration,
+     *                            even when the global flag enables it.
+     */
+    compactionOverride?: 'default' | 'on' | 'off';
     isDefault?: boolean;
 }
 
@@ -1118,7 +1127,7 @@ export class AnthropicHandler {
                 // the files right after a send can show a stale
                 // user-only view.
                 this.persistSessionHistory(TwoTierMemoryService.instance.currentQuest());
-                this.scheduleBackgroundCompactionAndExtraction([userMsg, assistantMsg], false);
+                this.scheduleBackgroundCompactionAndExtraction([userMsg, assistantMsg], false, configuration);
             }
             // Close the live-trail block for this turn.
             this.currentLiveTrail?.endPrompt({
@@ -1330,7 +1339,7 @@ export class AnthropicHandler {
             // finishes) so a crash during compaction doesn't lose this
             // exchange.
             this.persistSessionHistory(TwoTierMemoryService.instance.currentQuest());
-            this.scheduleBackgroundCompactionAndExtraction([userMsg, assistantMsg], false);
+            this.scheduleBackgroundCompactionAndExtraction([userMsg, assistantMsg], false, configuration);
         }
 
         // Close the live-trail block for this turn. `endPrompt` emits
@@ -1362,15 +1371,22 @@ export class AnthropicHandler {
     private scheduleBackgroundCompactionAndExtraction(
         lastExchange: ConversationMessage[],
         isolated: boolean,
+        configuration?: AnthropicConfiguration,
     ): void {
         if (isolated) { return; }
-        // Global kill-switch. When `compaction.disabled` is set, skip both
-        // the summary compaction pass and the memory extraction pass —
-        // rawTurns still grows, history.json is still written, but we
-        // stop the extra API call and the memory-file writes that happen
-        // after every turn. Useful for SDK-managed profiles where the
-        // SDK already owns conversation state.
-        if (this.getCompactionConfig().disabled) { return; }
+        // Two-tier kill-switch:
+        //   1. Per-configuration override wins when set. `'on'` forces
+        //      compaction to run even if the global flag disables it;
+        //      `'off'` forces it to be skipped even if the global flag
+        //      enables it.
+        //   2. Otherwise (undefined / 'default') fall back to the global
+        //      `compaction.disabled` checkbox on the status page.
+        // In both cases, disabling only suppresses the extra compaction
+        // + memory-extraction API call; rawTurns and history.json still
+        // get written.
+        const override = configuration?.compactionOverride;
+        if (override === 'off') { return; }
+        if (override !== 'on' && this.getCompactionConfig().disabled) { return; }
         const questId = TwoTierMemoryService.instance.currentQuest();
         // Compaction runs first; memory extraction reads `this.compactedSummary`
         // so it benefits from any just-written summary. Each pass is a

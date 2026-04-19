@@ -223,6 +223,12 @@
                     },
                     "additionalProperties": false
                 },
+                "compactionOverride": {
+                    "type": "string",
+                    "enum": ["default", "on", "off"],
+                    "default": "default",
+                    "description": "Per-configuration override for the global 'Disable compaction & memory extraction' checkbox. 'default' uses the global flag; 'on' forces compaction ON for this configuration; 'off' forces compaction OFF."
+                },
                 "isDefault": { "type": "boolean", "default": false }
             }
         },

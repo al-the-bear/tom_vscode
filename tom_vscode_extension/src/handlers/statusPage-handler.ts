@@ -608,6 +608,20 @@ async function editOrCreateAnthropicConfiguration(configId: string | null): Prom
         }
     }
 
+    const existingCompactionOverride = (existing as { compactionOverride?: 'default' | 'on' | 'off' } | undefined)?.compactionOverride ?? 'default';
+    const compactionOverridePick = await vscode.window.showQuickPick(
+        [
+            { label: 'Default', description: 'Use the global "Disable compaction & memory extraction" checkbox on the status page', value: 'default' as const },
+            { label: 'On',      description: 'Force compaction + memory extraction ON for this configuration, even if globally disabled', value: 'on' as const },
+            { label: 'Off',     description: 'Force compaction + memory extraction OFF for this configuration, even if globally enabled', value: 'off' as const },
+        ],
+        {
+            placeHolder: `Compaction & memory extraction override (current: ${existingCompactionOverride})`,
+            ignoreFocusOut: true,
+        },
+    );
+    if (!compactionOverridePick) { return; }
+
     const defaultPick = await vscode.window.showQuickPick(
         [
             { label: 'No', value: false },
@@ -630,6 +644,9 @@ async function editOrCreateAnthropicConfiguration(configId: string | null): Prom
             memoryToolsEnabled: memoryToolsPick.value,
             isDefault: defaultPick.value,
             transport,
+            // Store only the non-default values to keep the JSON clean —
+            // 'default' is the same as "field absent" for the handler.
+            ...(compactionOverridePick.value === 'default' ? {} : { compactionOverride: compactionOverridePick.value }),
             ...(tempStr.trim() === '' ? {} : { temperature: parseFloat(tempStr) }),
             ...(transport === 'direct'
                 ? {

@@ -155,6 +155,13 @@ export interface SendToChatConfig {
                 settingSources?: Array<'user' | 'project' | 'local'>;
                 maxTurns?: number;
             };
+            /**
+             * Per-configuration override for `compaction.disabled`.
+             *   undefined / 'default' — use the global checkbox.
+             *   'on'  — force compaction ON (ignore global).
+             *   'off' — force compaction OFF (ignore global).
+             */
+            compactionOverride?: 'default' | 'on' | 'off';
             isDefault?: boolean;
         }>;
         profiles?: Array<{
