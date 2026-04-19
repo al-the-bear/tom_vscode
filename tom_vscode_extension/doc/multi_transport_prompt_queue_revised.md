@@ -2,11 +2,12 @@
 
 > **Revision note.** This file supersedes `multi_transport_prompt_queue.md`. All
 > code references have been re-anchored against the current tree (post-commit
-> `e80c8d4`, 2026-04-18). Tool names have been updated to match the shipped set
-> in `chat-enhancement-tools.ts`. Section §4.12 now extends the four separate
-> template tools instead of a hypothetical unified `tomAi_templates_manage`. The
-> Tom AI Chat dispatcher gap is called out explicitly (§4.2.1). Phase 2 (§9) is
-> unchanged in intent; only references were refreshed.
+> `483d349`, 2026-04-19). Tool names match the shipped set in
+> `chat-enhancement-tools.ts`. Section §4.12 extends the four separate template
+> tools instead of a hypothetical unified `tomAi_templates_manage`. The Tom AI
+> Chat dispatcher gap is called out explicitly (§4.2.1) and is still unresolved
+> as of this revision — `sendToTomAiChatHandler()` remains monolithic. Phase 2
+> (§9) is unchanged in intent; only references were refreshed.
 
 ## Scope and phases
 
@@ -27,8 +28,8 @@ Today the prompt queue only routes to **Copilot Chat**. Prompts are wrapped with
 
 Each transport writes its **own trail** already:
 
-- Anthropic: `TrailService.writeSummaryPrompt`/`writeSummaryAnswer` with `ANTHROPIC_SUBSYSTEM` — see [anthropic-handler.ts:1023-1026](../src/handlers/anthropic-handler.ts#L1023-L1026) and [:1200-1203](../src/handlers/anthropic-handler.ts#L1200-L1203). The literal lives at [anthropic-handler.ts:165](../src/handlers/anthropic-handler.ts#L165).
-- Local LLM: `logPrompt`/`logResponse` with `trailType = 'local'` — see [localLlm-handler.ts:1044](../src/handlers/localLlm-handler.ts#L1044) and [:1072](../src/handlers/localLlm-handler.ts#L1072).
+- Anthropic: `TrailService.writeSummaryPrompt`/`writeSummaryAnswer` with `ANTHROPIC_SUBSYSTEM` — see [anthropic-handler.ts:1097-1098](../src/handlers/anthropic-handler.ts#L1097-L1098) (Agent SDK branch) and [:1313-1314](../src/handlers/anthropic-handler.ts#L1313-L1314) (direct branch). The literal lives at [anthropic-handler.ts:176](../src/handlers/anthropic-handler.ts#L176).
+- Local LLM: `logPrompt`/`logResponse` with `trailType = 'local'` — see [localLlm-handler.ts:1201](../src/handlers/localLlm-handler.ts#L1201) and [:1072](../src/handlers/localLlm-handler.ts#L1072).
 
 So the queue does not need synthetic answer files — responses flow directly into the queue's state machine and the handler owns logging.
 
@@ -47,7 +48,7 @@ Parallel execution across transports is explicitly **not a goal** — a single o
    - **Polling loop** — skipped.
 5. **Queue-level default + per-item override.** The queue editor has dropdowns at the top selecting the default transport (+ profile/config as appropriate). Each item's add/edit form has a collapsible "Advanced" section to override just for that item.
 6. **Chat-panel buttons for queue-compatible transports.** Every queue-compatible chat panel (Copilot, Anthropic, Local LLM, Tom AI Chat) gets the same two action-bar buttons — "Add to Queue" and "Open Queue Editor" — pre-wired to set the right transport metadata when staging. The AI Conversation panel does not get these buttons (it orchestrates bot-to-bot exchanges, not user-initiated prompts).
-7. **Queue-dispatched direct items always force auto-approve-all.** Queue execution is unattended — if a tool call triggers the approval bar, the queue deadlocks. For `anthropic` items the dispatcher sets `toolApprovalMode = 'never'` unconditionally, regardless of the profile's configured value (the field's only two legal values after commit `805ee3f` are `'always'` / `'never'` — see [sendToChatConfig.ts:180](../src/utils/sendToChatConfig.ts#L180)). Local LLM's tool-approval equivalent is coerced the same way. The UI must make this explicit (see §4.7).
+7. **Queue-dispatched direct items always force auto-approve-all.** Queue execution is unattended — if a tool call triggers the approval bar, the queue deadlocks. For `anthropic` items the dispatcher sets `toolApprovalMode = 'never'` unconditionally, regardless of the profile's configured value (the field's only two legal values after commit `805ee3f` are `'always'` / `'never'` — see [sendToChatConfig.ts:187](../src/utils/sendToChatConfig.ts#L187)). Local LLM's tool-approval equivalent is coerced the same way. The UI must make this explicit (see §4.7).
 8. **Prompt templates are per-transport.** The four transports have four *different* template shapes today (see §4.12), so there is no shared template store to reuse. The template editor becomes per-transport (the transport picker switches which config key it edits), and the queue's template dropdown is filtered by the item's current transport. A *Default* template option (transport-agnostic body-only template) is stored in a small new shared pool.
 
 ## 3. Current state reference
@@ -64,22 +65,22 @@ Parallel execution across transports is explicitly **not a goal** — a single o
 | `workbench.action.chat.open` calls (pre / main / follow-up) | [lines 2043 / 2079 / 2118](../src/managers/promptQueueManager.ts#L2043) |
 | Reminder `chat.open` call | [line 859](../src/managers/promptQueueManager.ts#L859) |
 | Queue editor webview | [queueEditor-handler.ts](../src/handlers/queueEditor-handler.ts) (1429 lines) |
-| Reminder message routes | [queueEditor-handler.ts:196-205, 264, 282-285, 333-344](../src/handlers/queueEditor-handler.ts#L196) |
-| Auto-send toggle | [queueEditor-handler.ts:300](../src/handlers/queueEditor-handler.ts#L300) |
-| `answerWaitMinutes` message payload | [queueEditor-handler.ts:325, 387, 408](../src/handlers/queueEditor-handler.ts#L325) |
-| Anthropic entry point | [anthropic-handler.ts:849](../src/handlers/anthropic-handler.ts#L849) — `async sendMessage(options: AnthropicSendOptions): Promise<AnthropicSendResult>` |
-| `AnthropicSendOptions` / `AnthropicSendResult` | [line 141](../src/handlers/anthropic-handler.ts#L141) / [line 317](../src/handlers/anthropic-handler.ts#L317) |
-| `ANTHROPIC_SUBSYSTEM` literal | [anthropic-handler.ts:165](../src/handlers/anthropic-handler.ts#L165) |
+| Reminder message routes | [queueEditor-handler.ts:197-205, 268, 287-289, 347-350, 368-371, 391-394, 412-415](../src/handlers/queueEditor-handler.ts#L197) |
+| Auto-send toggle | [queueEditor-handler.ts:303](../src/handlers/queueEditor-handler.ts#L303) |
+| `answerWaitMinutes` message payload | [queueEditor-handler.ts:328, 390, 411](../src/handlers/queueEditor-handler.ts#L328) |
+| Anthropic entry point | [anthropic-handler.ts:868](../src/handlers/anthropic-handler.ts#L868) — `async sendMessage(options: AnthropicSendOptions): Promise<AnthropicSendResult>` |
+| `AnthropicSendOptions` / `AnthropicSendResult` | [line 152](../src/handlers/anthropic-handler.ts#L152) / [line 328](../src/handlers/anthropic-handler.ts#L328) |
+| `ANTHROPIC_SUBSYSTEM` literal | [anthropic-handler.ts:176](../src/handlers/anthropic-handler.ts#L176) |
 | Local LLM entry point | [localLlm-handler.ts:840](../src/handlers/localLlm-handler.ts#L840) — `public async ollamaGenerateWithTools(options, userPrompt): Promise<{ text, stats?, toolCallCount, turnsUsed }>` |
-| Local LLM trail writes | [localLlm-handler.ts:1044, 1072, 1290](../src/handlers/localLlm-handler.ts#L1044) |
-| Tom AI Chat entry point (monolithic) | [tomAiChat-handler.ts:694](../src/handlers/tomAiChat-handler.ts#L694) — `sendToTomAiChatHandler()` with no args and `void` return; internally uses `vscode.lm.selectChatModels` ([:547](../src/handlers/tomAiChat-handler.ts#L547)) and `model.sendRequest` ([:1064](../src/handlers/tomAiChat-handler.ts#L1064)). **No reusable single-shot `sendMessage(opts, text) → Promise<{text}>` exists yet.** See §4.2.1. |
+| Local LLM trail writes | [localLlm-handler.ts:1201](../src/handlers/localLlm-handler.ts#L1201) (prompt), [:947, 1072, 1290](../src/handlers/localLlm-handler.ts#L947) (response — per-round, final, direct) |
+| Tom AI Chat entry point (monolithic) | [tomAiChat-handler.ts:694](../src/handlers/tomAiChat-handler.ts#L694) — `sendToTomAiChatHandler()` with no args and `void` return; internally uses `vscode.lm.selectChatModels` ([:548 / :550 / :553](../src/handlers/tomAiChat-handler.ts#L548)) and `model.sendRequest` ([:1064](../src/handlers/tomAiChat-handler.ts#L1064)). **No reusable single-shot `sendMessage(opts, text) → Promise<{text}>` exists yet.** See §4.2.1. |
 | Tom AI Chat `ChatLogManager` | [tomAiChat-handler.ts:188](../src/handlers/tomAiChat-handler.ts#L188) |
-| Reusable per-section chat-panel markup factory | [chatPanel-handler.ts:3131](../src/handlers/chatPanel-handler.ts#L3131) — `getPromptEditorComponent(options)` (**not** a transport picker; it builds the whole panel toolbar). |
-| Panel section definitions | [chatPanel-handler.ts](../src/handlers/chatPanel-handler.ts): localLlm [:3160](../src/handlers/chatPanel-handler.ts#L3160), conversation (AI Conv) [:3180](../src/handlers/chatPanel-handler.ts#L3180), copilot [:3203](../src/handlers/chatPanel-handler.ts#L3203), tomAiChat [:3271](../src/handlers/chatPanel-handler.ts#L3271), anthropic [:3290](../src/handlers/chatPanel-handler.ts#L3290) |
-| Existing queue buttons (Copilot only) | [chatPanel-handler.ts:3222-3223](../src/handlers/chatPanel-handler.ts#L3222) |
-| `addToQueue` / `openQueueEditor` backend router | [chatPanel-handler.ts:701, 704](../src/handlers/chatPanel-handler.ts#L701) |
-| Webview-side `addToQueue` dispatcher | [chatPanel-handler.ts:3586](../src/handlers/chatPanel-handler.ts#L3586) |
-| `addCopilotToQueue()` (stages the item) | [chatPanel-handler.ts:4143](../src/handlers/chatPanel-handler.ts#L4143) |
+| Reusable per-section chat-panel markup factory | [chatPanel-handler.ts:3140](../src/handlers/chatPanel-handler.ts#L3140) — `getPromptEditorComponent(options)` (**not** a transport picker; it builds the whole panel toolbar). |
+| Panel section definitions | [chatPanel-handler.ts](../src/handlers/chatPanel-handler.ts): localLlm [:3170](../src/handlers/chatPanel-handler.ts#L3170), conversation (AI Conv) [:3190](../src/handlers/chatPanel-handler.ts#L3190), copilot [:3213](../src/handlers/chatPanel-handler.ts#L3213), tomAiChat [:3281](../src/handlers/chatPanel-handler.ts#L3281), anthropic [:3300](../src/handlers/chatPanel-handler.ts#L3300) |
+| Existing queue buttons (Copilot only) | [chatPanel-handler.ts:3231](../src/handlers/chatPanel-handler.ts#L3231) |
+| `addToQueue` / `openQueueEditor` backend router | [chatPanel-handler.ts:675, 678](../src/handlers/chatPanel-handler.ts#L675) |
+| Webview-side `addToQueue` dispatcher | [chatPanel-handler.ts:3596](../src/handlers/chatPanel-handler.ts#L3596) |
+| `addCopilotToQueue()` (stages the item) | [chatPanel-handler.ts:4154](../src/handlers/chatPanel-handler.ts#L4154) |
 
 ## 4. Required changes
 
@@ -143,7 +144,7 @@ return { mode: 'direct', answerText: result.text };
 
 #### 4.2.1 Tom AI Chat dispatcher refactor — **new work for Phase 1**
 
-There is no reusable "send one prompt and return the text" entry point for Tom AI Chat today. The existing `sendToTomAiChatHandler()` at [tomAiChat-handler.ts:694](../src/handlers/tomAiChat-handler.ts#L694) is a panel-only flow that: (1) reads the active editor, (2) persists via `ChatLogManager` ([:188](../src/handlers/tomAiChat-handler.ts#L188)), (3) calls `model.sendRequest` ([:1064](../src/handlers/tomAiChat-handler.ts#L1064)) and writes the response back into the `.md` file. It returns `void`.
+There is no reusable "send one prompt and return the text" entry point for Tom AI Chat today. The existing `sendToTomAiChatHandler()` at [tomAiChat-handler.ts:694](../src/handlers/tomAiChat-handler.ts#L694) is a panel-only flow that: (1) reads the active editor, (2) persists via `ChatLogManager` ([:188](../src/handlers/tomAiChat-handler.ts#L188)), (3) calls `model.sendRequest` ([:1064](../src/handlers/tomAiChat-handler.ts#L1064)) and writes the response back into the `.md` file. It returns `void`. Model selection uses `vscode.lm.selectChatModels` ([:548 / :550 / :553](../src/handlers/tomAiChat-handler.ts#L548) — three fallback variants).
 
 Phase 1 needs to extract a single-shot variant, e.g.:
 
@@ -195,8 +196,8 @@ Implementation: add an `isDirectTransport(item)` / `isDirectStage(item, stage)` 
 No queue-side changes — transports own it.
 
 - **Copilot**: unchanged. The answer file is the trail entry (and the existing `_ai/trail/copilot/` pipeline picks it up).
-- **Anthropic**: `sendMessage()` already calls `TrailService.writeSummaryPrompt/Answer` with `ANTHROPIC_SUBSYSTEM` at [anthropic-handler.ts:1023-1026](../src/handlers/anthropic-handler.ts#L1023-L1026) / [:1200-1203](../src/handlers/anthropic-handler.ts#L1200-L1203). The queue does nothing.
-- **Local LLM**: `ollamaGenerateWithTools` calls `logPrompt`/`logResponse` with `trailType = 'local'` at [:1044](../src/handlers/localLlm-handler.ts#L1044) and [:1072](../src/handlers/localLlm-handler.ts#L1072). The queue does nothing.
+- **Anthropic**: `sendMessage()` already calls `TrailService.writeSummaryPrompt/Answer` with `ANTHROPIC_SUBSYSTEM` at [anthropic-handler.ts:1097-1098](../src/handlers/anthropic-handler.ts#L1097-L1098) / [:1313-1314](../src/handlers/anthropic-handler.ts#L1313-L1314). The queue does nothing.
+- **Local LLM**: `ollamaGenerateWithTools` calls `logPrompt`/`logResponse` with `trailType = 'local'` at [:1201](../src/handlers/localLlm-handler.ts#L1201) and [:1072](../src/handlers/localLlm-handler.ts#L1072). The queue does nothing.
 - **Tom AI Chat**: confirm during §4.2.1 refactor that `sendTomAiChatOnce` preserves whatever trail hook the current `sendToTomAiChatHandler` emits.
 
 If the queue ever wants a cross-transport view, the existing trail viewer already subsystem-filters; no synthetic files required.
@@ -214,7 +215,7 @@ If the queue ever wants a cross-transport view, the existing trail viewer alread
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-The three conditional dropdowns render via a new shared helper `renderTransportPicker()` (see §4.11). This helper is a **sibling** of the existing `getPromptEditorComponent()` factory at [chatPanel-handler.ts:3131](../src/handlers/chatPanel-handler.ts#L3131), not an extraction of it — the existing factory builds whole per-section toolbars; the picker is a smaller focused component that produces the transport dropdown + conditional target dropdowns.
+The three conditional dropdowns render via a new shared helper `renderTransportPicker()` (see §4.11). This helper is a **sibling** of the existing `getPromptEditorComponent()` factory at [chatPanel-handler.ts:3140](../src/handlers/chatPanel-handler.ts#L3140), not an extraction of it — the existing factory builds whole per-section toolbars; the picker is a smaller focused component that produces the transport dropdown + conditional target dropdowns.
 
 **Per-item form — advanced section** (collapsed by default):
 
@@ -228,7 +229,7 @@ The three conditional dropdowns render via a new shared helper `renderTransportP
 
 - Default value `inherit` → the stage uses the queue-level transport.
 - Any explicit value overrides for this item/stage.
-- When transport ≠ copilot, **disable** the Reminder dropdown and `answerWaitMinutes` input (with a tooltip explaining why). Reminder bindings currently live at [queueEditor-handler.ts:196-205, 264, 282-285, 333-344](../src/handlers/queueEditor-handler.ts#L196); `answerWaitMinutes` at [:325, 387, 408](../src/handlers/queueEditor-handler.ts#L325).
+- When transport ≠ copilot, **disable** the Reminder dropdown and `answerWaitMinutes` input (with a tooltip explaining why). Reminder bindings currently live at [queueEditor-handler.ts:197-205, 268, 287-289, 347-350, 368-371, 391-394, 412-415](../src/handlers/queueEditor-handler.ts#L197); `answerWaitMinutes` at [:328, 390, 411](../src/handlers/queueEditor-handler.ts#L328).
 
 **Per-stage override** (pre-prompts and follow-ups): apply the same collapsible "Advanced" section inside each stage's editor. Default to inherit-from-item. Three levels of resolution: stage > item > queue default > `'copilot'`.
 
@@ -242,7 +243,7 @@ No checkbox to disable it. See §2 decision 7.
 
 ### 4.8 Chat panel action-bar buttons — `chatPanel-handler.ts`
 
-Today only the Copilot section has the queue buttons ([line 3222-3223](../src/handlers/chatPanel-handler.ts#L3222)):
+Today only the Copilot section has the queue buttons ([line 3231](../src/handlers/chatPanel-handler.ts#L3231)):
 
 ```html
 <button data-action="addToQueue"       data-id="copilot" …>
@@ -251,8 +252,8 @@ Today only the Copilot section has the queue buttons ([line 3222-3223](../src/ha
 
 **Changes:**
 
-1. Add the same two buttons to the **Anthropic** ([:3290](../src/handlers/chatPanel-handler.ts#L3290)), **Local LLM** ([:3160](../src/handlers/chatPanel-handler.ts#L3160)), and **Tom AI Chat** ([:3271](../src/handlers/chatPanel-handler.ts#L3271)) sections. Each keeps its `data-id` distinct (`"anthropic"`, `"localLlm"`, `"tomAiChat"`). The **AI Conversation** section ([:3180](../src/handlers/chatPanel-handler.ts#L3180), `sectionId: 'conversation'`) does **not** get queue buttons — it orchestrates bot-to-bot exchanges, not user-initiated prompts.
-2. In the `addToQueue` handler (currently `addCopilotToQueue()` at [:4143](../src/handlers/chatPanel-handler.ts#L4143), wired from the webview dispatcher at [:3586](../src/handlers/chatPanel-handler.ts#L3586)), dispatch by `data-id`. The staged queue item **must** carry the transport-specific metadata read from that panel's own dropdowns. This is non-trivial — the current Copilot button only needs `text` + `template`, but direct transports need the full target context:
+1. Add the same two buttons to the **Anthropic** ([:3300](../src/handlers/chatPanel-handler.ts#L3300)), **Local LLM** ([:3170](../src/handlers/chatPanel-handler.ts#L3170)), and **Tom AI Chat** ([:3281](../src/handlers/chatPanel-handler.ts#L3281)) sections. Each keeps its `data-id` distinct (`"anthropic"`, `"localLlm"`, `"tomAiChat"`). The **AI Conversation** section ([:3190](../src/handlers/chatPanel-handler.ts#L3190), `sectionId: 'conversation'`) does **not** get queue buttons — it orchestrates bot-to-bot exchanges, not user-initiated prompts.
+2. In the `addToQueue` handler (currently `addCopilotToQueue()` at [:4154](../src/handlers/chatPanel-handler.ts#L4154), wired from the webview dispatcher at [:3596](../src/handlers/chatPanel-handler.ts#L3596)), dispatch by `data-id`. The staged queue item **must** carry the transport-specific metadata read from that panel's own dropdowns. This is non-trivial — the current Copilot button only needs `text` + `template`, but direct transports need the full target context:
 
    | `data-id` | `transport` set | Extra payload (read from that panel's dropdowns) |
    | --- | --- | --- |
@@ -261,8 +262,8 @@ Today only the Copilot section has the queue buttons ([line 3222-3223](../src/ha
    | `localLlm` | `'localLlm'` | `localLlmConfigId`, `template` |
    | `tomAiChat` | `'tomAiChat'` | `tomAiChatConfigId`, `template` |
 
-3. The backend's queue-add router (`case 'addToQueue'` at [chatPanel-handler.ts:701](../src/handlers/chatPanel-handler.ts#L701)) must forward all five new fields into `PromptQueueManager.enqueue()` ([:1240](../src/managers/promptQueueManager.ts#L1240)) unchanged. A queue item staged from the Anthropic panel should never inherit the queue's default transport — the user clicked *that* panel's button precisely to pin the transport.
-4. `openQueueEditor` (`case 'openQueueEditor'` at [chatPanel-handler.ts:704](../src/handlers/chatPanel-handler.ts#L704)) is unchanged — it opens the same queue editor regardless of which panel's button was clicked.
+3. The backend's queue-add router (`case 'addToQueue'` at [chatPanel-handler.ts:675](../src/handlers/chatPanel-handler.ts#L675)) must forward all five new fields into `PromptQueueManager.enqueue()` ([:1240](../src/managers/promptQueueManager.ts#L1240)) unchanged. A queue item staged from the Anthropic panel should never inherit the queue's default transport — the user clicked *that* panel's button precisely to pin the transport.
+4. `openQueueEditor` (`case 'openQueueEditor'` at [chatPanel-handler.ts:678](../src/handlers/chatPanel-handler.ts#L678)) is unchanged — it opens the same queue editor regardless of which panel's button was clicked.
 
 ### 4.9 Tool surface — `chat-enhancement-tools.ts`
 
@@ -298,7 +299,7 @@ Removers (`tomAi_removeQueueItem` at [:1429](../src/tools/chat-enhancement-tools
 
 Queue state is persisted to `_ai/local/*.prompt-panel.yaml` via `panelYamlStore.ts`:
 
-- Path builder at [panelYamlStore.ts:67-72](../src/utils/panelYamlStore.ts#L67-L72): `workspace.<section>.prompt-panel.yaml`.
+- Path builder at [panelYamlStore.ts:68-72](../src/utils/panelYamlStore.ts#L68-L72): `workspace.<section>.prompt-panel.yaml`.
 - Read/write at [:151](../src/utils/panelYamlStore.ts#L151) / [:164](../src/utils/panelYamlStore.ts#L164).
 
 The new fields are additive optional → **no migration**. Existing queue items deserialise with `transport: undefined`, which resolves to `'copilot'` at dispatch time — identical to current behaviour.
@@ -311,7 +312,7 @@ The same set of transport dropdowns + profile/config dropdown combinations is ne
 - Queue editor — per-item / per-stage "Advanced" override
 - **Prompt template editor** (see §4.12)
 
-Rather than duplicate the markup + event handlers three times, add a new webview-side helper. **Important:** this is a *new* helper and lives alongside the existing `getPromptEditorComponent()` factory at [chatPanel-handler.ts:3131](../src/handlers/chatPanel-handler.ts#L3131). The existing factory composes full per-section panel toolbars (selector + manage buttons + action buttons + reusable prompt controls + panel slots). The new picker is smaller and focused:
+Rather than duplicate the markup + event handlers three times, add a new webview-side helper. **Important:** this is a *new* helper and lives alongside the existing `getPromptEditorComponent()` factory at [chatPanel-handler.ts:3140](../src/handlers/chatPanel-handler.ts#L3140). The existing factory composes full per-section panel toolbars (selector + manage buttons + action buttons + reusable prompt controls + panel slots). The new picker is smaller and focused:
 
 ```ts
 // shared between queueEditor-handler.ts, chatPanel-handler.ts, and templateEditor-handler.ts
@@ -336,7 +337,7 @@ renderTransportPicker(options: {
 **Conditional target pickers** (shown when `showTargets: true` and a non-inherit transport is selected):
 
 - Copilot → no target dropdowns (answer-file pipeline is fixed).
-- Anthropic → profile dropdown + config dropdown. Data is loaded via the existing `sendToChatConfig.anthropic.profiles` / `.configurations` arrays at [sendToChatConfig.ts:138-183](../src/utils/sendToChatConfig.ts#L138-L183).
+- Anthropic → profile dropdown + config dropdown. Data is loaded via the existing `sendToChatConfig.anthropic.configurations` ([sendToChatConfig.ts:138-166](../src/utils/sendToChatConfig.ts#L138-L166)) + `.profiles` ([:167-190](../src/utils/sendToChatConfig.ts#L167-L190)) arrays.
 - Local LLM → config dropdown only (source: `sendToChatConfig.localLlm.configurations` at [:59-76](../src/utils/sendToChatConfig.ts#L59-L76)).
 - Tom AI Chat → config dropdown only (source: `sendToChatConfig.tomAiChat` block at [:105-117](../src/utils/sendToChatConfig.ts#L105-L117); currently one implicit config — the dropdown will be single-option until more configs exist).
 
@@ -346,12 +347,12 @@ The picker emits a single `{ type: onChangeEvent, transport, anthropicProfileId?
 
 ### 4.12 Prompt template editor — per-transport templates
 
-Today the four template tools (list / create / update / delete) only touch the **Copilot** template store `config.copilot.templates` at [sendToChatConfig.ts:118-122](../src/utils/sendToChatConfig.ts#L118-L122) — see the hard-coded routing in `getPromptTemplates()` inside [chat-enhancement-tools.ts:1745-1749](../src/tools/chat-enhancement-tools.ts#L1745-L1749). With multi-transport queueing the editor must also reach the other three stores — which have **genuinely different shapes**:
+Today the four template tools (list / create / update / delete) only touch the **Copilot** template store `config.copilot.templates` at [sendToChatConfig.ts:118-122](../src/utils/sendToChatConfig.ts#L118-L122) — see the hard-coded routing in `getPromptTemplates()` inside [chat-enhancement-tools.ts:1743](../src/tools/chat-enhancement-tools.ts#L1743). With multi-transport queueing the editor must also reach the other three stores — which have **genuinely different shapes**:
 
 | Transport | Config key | Shape |
 | --- | --- | --- |
 | Copilot | `config.copilot.templates` ([:118-122](../src/utils/sendToChatConfig.ts#L118-L122)) | map `{ [name]: { template, showInMenu? } }` |
-| Anthropic | `config.anthropic.userMessageTemplates` ([:184-190](../src/utils/sendToChatConfig.ts#L184-L190)) | array `[{ id, name, description?, template, isDefault? }]` |
+| Anthropic | `config.anthropic.userMessageTemplates` ([:191-197](../src/utils/sendToChatConfig.ts#L191-L197)) | array `[{ id, name, description?, template, isDefault? }]` |
 | Tom AI Chat | `config.tomAiChat.templates` ([:107-116](../src/utils/sendToChatConfig.ts#L107-L116)) | map `{ [name]: { label, description?, contextInstructions?, systemPromptOverride?, toolsEnabled?, enabledTools? } }` — **not a plain body template**, structural system-prompt config |
 | Local LLM | per-profile `systemPrompt` + `resultTemplate` ([:27-28](../src/utils/sendToChatConfig.ts#L27-L28)) + `config.localLlm.defaultTemplate` ([:77](../src/utils/sendToChatConfig.ts#L77)) | **per-profile** attributes, no separate named store |
 | Default (new) | `config.sharedQueueTemplates` (new) | array `[{ id, name, description?, template }]` — transport-agnostic body text |
@@ -373,7 +374,7 @@ Today the four template tools (list / create / update / delete) only touch the *
 
 **Per-tool extension:**
 
-- `tomAi_listPromptTemplates` — add `transport?: 'copilot' | 'anthropic' | 'localLlm' | 'tomAiChat' | 'default'`. Without a `transport`, list only Copilot templates (current behaviour — see `getPromptTemplates()` at [:1745](../src/tools/chat-enhancement-tools.ts#L1745)). With a transport, return that store's templates, normalised into a common `{ id?, name, template, extras?: { …transport-specific fields } }` shape.
+- `tomAi_listPromptTemplates` — add `transport?: 'copilot' | 'anthropic' | 'localLlm' | 'tomAiChat' | 'default'`. Without a `transport`, list only Copilot templates (current behaviour — see `getPromptTemplates()` at [:1743](../src/tools/chat-enhancement-tools.ts#L1743)). With a transport, return that store's templates, normalised into a common `{ id?, name, template, extras?: { …transport-specific fields } }` shape.
 - `tomAi_createPromptTemplate` / `tomAi_updatePromptTemplate` / `tomAi_deletePromptTemplate` — same `transport?` field. For Local LLM, `create` returns an error steering the user to the profile editor; `update`/`delete` of a Local LLM `resultTemplate` is allowed and writes to the profile. For Tom AI Chat, accept the extra structural fields (`label`, `description`, `contextInstructions`, `systemPromptOverride`).
 
 ## 5. Edge cases and non-obvious bits
@@ -383,7 +384,7 @@ Today the four template tools (list / create / update / delete) only touch the *
 - **Direct pre-prompt output → next-stage context? (open question).** The doc deliberately does *not* pipe `pre.answerText` into the main item's prompt. If the user wants that, they should place a `${prePrompt[0].answer}` placeholder or similar in the main prompt. Alternatively, we could add an opt-in "chain answers" toggle on the item. Decision deferred — see Open Questions §6.1.
 - **`sendMaximum` on timed requests**: orthogonal to transport; still counted the same way.
 - **`templateRepeatCount`**: re-runs the entire (pre-prompts + main + follow-ups) group. Works identically per-transport. If transport is direct, the whole re-run is fast and synchronous.
-- **Anthropic `profile.toolApprovalMode`**: only valid values today are `'always' | 'never'` ([sendToChatConfig.ts:180](../src/utils/sendToChatConfig.ts#L180) — after commit `805ee3f`). Queue dispatch **always overrides** to `'never'` — see §2 decision 7 and §4.3. The profile's stored value applies only when the profile is used interactively from the chat panel.
+- **Anthropic `profile.toolApprovalMode`**: only valid values today are `'always' | 'never'` ([sendToChatConfig.ts:187](../src/utils/sendToChatConfig.ts#L187) — after commit `805ee3f`). Queue dispatch **always overrides** to `'never'` — see §2 decision 7 and §4.3. The profile's stored value applies only when the profile is used interactively from the chat panel.
 - **Template reference invalidated when transport changes.** A queue item's `template` name is meaningful only within one transport's store. If the user switches a queue item's transport (via the per-item Advanced picker) from Copilot to Anthropic, the previously-selected template name may not exist in `config.anthropic.userMessageTemplates`. **Handling**: on transport change inside the queue editor, clear the template selection and repopulate the dropdown from the new transport's store + Default store. Do **not** try to copy templates across stores automatically — too magical, and Tom AI Chat's shape doesn't even match the simple body-only model. A "Save a copy in the new transport's store" button on the item editor is a reasonable future add; out of scope for the first pass.
 - **Tom AI Chat and Local LLM template shapes don't round-trip.** Tom AI Chat templates carry structural fields (`systemPromptOverride`, `contextInstructions`) that have no meaning in the other stores; Local LLM templates are per-profile. The template editor must not offer to "convert" a template between stores — the user has to recreate it deliberately.
 - **Concurrency**: the queue is strictly sequential (one `sending` item at a time — see the `isEditableStatus` guard in `promptQueueManager.ts`). Direct transport doesn't change this.
@@ -520,7 +521,7 @@ Double-check findings from before Phase 2 design:
 
 ### 9.5 Migration / risk
 
-- **Persisted panel state** in `_ai/local/*.prompt-panel.yaml` (see [panelYamlStore.ts:67-72](../src/utils/panelYamlStore.ts#L67-L72)) — today there are per-panel YAMLs (`copilot`, `localLlm`, `tomAiChat`, `aiConversation`). After merge, Local LLM + Tom AI Chat state migrates into a single `llm.prompt-panel.yaml` (transport + config + view mode + history). Write a one-shot migration on first activation that reads the legacy files and seeds the new one, then leaves the old files in place as a backup.
+- **Persisted panel state** in `_ai/local/*.prompt-panel.yaml` (see [panelYamlStore.ts:68-72](../src/utils/panelYamlStore.ts#L68-L72)) — today there are per-panel YAMLs (`copilot`, `localLlm`, `tomAiChat`, `aiConversation`). After merge, Local LLM + Tom AI Chat state migrates into a single `llm.prompt-panel.yaml` (transport + config + view mode + history). Write a one-shot migration on first activation that reads the legacy files and seeds the new one, then leaves the old files in place as a backup.
 - **Template editor** — already per-transport from Phase 1 (§4.12). Phase 2 adds no new template work; the user-message-template store just becomes the default home for templates written from the merged LLM panel.
 - **Risk of dropped features** — audit each of the three panels for any transport-specific UI (e.g. Anthropic's "test API key" button, Local LLM's "reload models") and make sure every feature maps to the merged panel (conditional on transport).
 
