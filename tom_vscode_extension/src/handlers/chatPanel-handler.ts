@@ -3808,7 +3808,7 @@ function buildAnthropicStatusLine(historyMode) {
         historyMode = cfg && cfg.historyMode ? cfg.historyMode : '';
     }
     var parts = [];
-    if (modelName) parts.push(modelName + (cfgId ? '' : ' (profile default)'));
+    if (modelName) parts.push(modelName);
     if (historyMode) parts.push(historyMode);
     parts.push('last ' + anthropicLastToolCalls + ' tool calls');
     parts.push(anthropicSessionTurns + ' session turns');
