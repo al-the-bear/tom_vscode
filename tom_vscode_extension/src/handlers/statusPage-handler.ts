@@ -976,6 +976,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
             const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
             if (!stcConfig.compaction) { stcConfig.compaction = {}; }
             const s = message.settings || {};
+            (stcConfig.compaction as { disabled?: boolean }).disabled = s.disabled === true;
             stcConfig.compaction.llmProvider = s.llmProvider === 'anthropic' ? 'anthropic' : 'localLlm';
             stcConfig.compaction.llmConfigId = s.llmConfigId || '';
             stcConfig.compaction.compactionTemplateId = s.compactionTemplateId || '';
@@ -1417,6 +1418,9 @@ export interface StatusData {
     configErrors: string[];
     /** History compaction settings (anthropic_sdk_integration.md §10). */
     compaction: {
+        /** Global kill switch — skip the background compaction + memory
+         *  extraction pass after every Anthropic turn. Default false. */
+        disabled: boolean;
         llmProvider: 'localLlm' | 'anthropic';
         llmConfigId: string;
         compactionTemplateId: string;
@@ -1668,6 +1672,7 @@ export async function gatherStatusData(): Promise<StatusData> {
         })),
         configErrors: strictErrors,
         compaction: {
+            disabled: (sendToChatConfig?.compaction as { disabled?: boolean })?.disabled === true,
             llmProvider: (sendToChatConfig?.compaction?.llmProvider as 'localLlm' | 'anthropic') || 'localLlm',
             llmConfigId: sendToChatConfig?.compaction?.llmConfigId || '',
             compactionTemplateId: sendToChatConfig?.compaction?.compactionTemplateId || '',
@@ -2242,6 +2247,12 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
                 Settings for the LLM that compacts conversation history when it overflows the context window.
                 Used by both Local LLM and Anthropic chat panels.
             </p>
+            <div class="sp-settings-row">
+                <label title="Global kill switch. When checked, the background compaction + memory-extraction pass that normally runs after every Anthropic turn is skipped entirely (both direct and Agent SDK transports). rawTurns and history.json are still written; only the extra API call and memory-file updates are suppressed. Useful for SDK-managed profiles where the SDK owns conversation state on its own.">
+                    <input type="checkbox" id="sp-comp-disabled" ${status.compaction.disabled ? 'checked' : ''}>
+                    Disable compaction &amp; memory extraction
+                </label>
+            </div>
             <div class="sp-settings-row">
                 <label>Provider:</label>
                 <select id="sp-comp-llmProvider">
@@ -2830,6 +2841,7 @@ function attachStatusPanelListeners(skipEditorInit) {
                 msgData.setupId = el.getAttribute('data-setup-id');
             } else if (action === 'updateCompactionSettings' || action === 'runCompactionDryRun') {
                 msgData.settings = {
+                    disabled: (document.getElementById('sp-comp-disabled') || {}).checked === true,
                     llmProvider: (document.getElementById('sp-comp-llmProvider') || {}).value || 'localLlm',
                     llmConfigId: (document.getElementById('sp-comp-llmConfigId') || {}).value || '',
                     compactionTemplateId: (document.getElementById('sp-comp-compactionTemplateId') || {}).value || '',
