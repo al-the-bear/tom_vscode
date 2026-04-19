@@ -192,9 +192,29 @@
                 },
                 "transport": {
                     "type": "string",
-                    "enum": ["direct", "agentSdk"],
+                    "enum": ["direct", "agentSdk", "vscodeLm"],
                     "default": "direct",
-                    "description": "Backend selector (anthropic_sdk_integration.md §18). 'direct' uses @anthropic-ai/sdk with apiKeyEnvVar. 'agentSdk' routes through @anthropic-ai/claude-agent-sdk, inheriting auth from the host Claude Code install and delegating tool-use loop, prompt caching, and compaction to the SDK."
+                    "description": "Backend selector (anthropic_sdk_integration.md §18, multi_transport_prompt_queue_revised.md §4.2). 'direct' uses @anthropic-ai/sdk with apiKeyEnvVar. 'agentSdk' routes through @anthropic-ai/claude-agent-sdk, inheriting auth from the host Claude Code install and delegating tool-use loop, prompt caching, and compaction to the SDK. 'vscodeLm' routes through vscode.lm.selectChatModels/sendRequest — model is pinned at configure-time via the vscodeLm options below."
+                },
+                "vscodeLm": {
+                    "type": "object",
+                    "description": "VS Code LM API options; applies when transport === 'vscodeLm'. Model identity is pinned at configure-time.",
+                    "properties": {
+                        "vendor": {
+                            "type": "string",
+                            "description": "Provider vendor id (e.g. 'copilot')."
+                        },
+                        "family": {
+                            "type": "string",
+                            "description": "Model family (e.g. 'gpt-4o', 'claude-sonnet-4.5')."
+                        },
+                        "modelId": {
+                            "type": "string",
+                            "description": "Exact model id within the (vendor, family) pair. Picked at configure-time from vscode.lm.selectChatModels() results."
+                        }
+                    },
+                    "required": ["vendor", "family", "modelId"],
+                    "additionalProperties": false
                 },
                 "agentSdk": {
                     "type": "object",

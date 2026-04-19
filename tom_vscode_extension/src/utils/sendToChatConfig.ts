@@ -147,13 +147,26 @@ export interface SendToChatConfig {
             maxRounds?: number;
             memoryExtractionTemplateId?: string;
             promptCachingEnabled?: boolean;
-            /** Backend selector — anthropic_sdk_integration.md §18. */
-            transport?: 'direct' | 'agentSdk';
+            /** Backend selector — anthropic_sdk_integration.md §18 and
+             *  multi_transport_prompt_queue_revised.md §4.2. */
+            transport?: 'direct' | 'agentSdk' | 'vscodeLm';
             /** Agent SDK options; applies when transport === 'agentSdk'. */
             agentSdk?: {
                 permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
                 settingSources?: Array<'user' | 'project' | 'local'>;
                 maxTurns?: number;
+            };
+            /**
+             * VS Code LM options; applies when `transport === 'vscodeLm'`.
+             * Model identity is pinned at configure-time (the user picks a
+             * model from the list `vscode.lm.selectChatModels()` returns),
+             * so sends don't need to re-enumerate providers. See
+             * multi_transport_prompt_queue_revised.md §4.2.
+             */
+            vscodeLm?: {
+                vendor: string;        // e.g. 'copilot'
+                family: string;        // e.g. 'gpt-4o' or 'claude-sonnet-4.5'
+                modelId: string;       // exact id picked at configure-time
             };
             /**
              * Per-configuration override for `compaction.disabled`.

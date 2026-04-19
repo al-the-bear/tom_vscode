@@ -387,6 +387,7 @@ async function editOrCreateAnthropicConfiguration(configId: string | null): Prom
         [
             { label: 'Direct API', description: 'Uses @anthropic-ai/sdk and the apiKeyEnvVar env var', value: 'direct' as const },
             { label: 'Claude Agent SDK', description: 'Inherits auth from the host Claude Code install', value: 'agentSdk' as const },
+            { label: 'VS Code LM', description: 'Routes through vscode.lm.selectChatModels — no API key needed', value: 'vscodeLm' as const },
         ],
         {
             placeHolder: 'Transport',
@@ -397,30 +398,70 @@ async function editOrCreateAnthropicConfiguration(configId: string | null): Prom
     if (!transportChoice) { return; }
     const transport = transportChoice.value;
 
-    const modelPick = await vscode.window.showQuickPick(
-        [
-            { label: 'Sonnet 4.6', description: 'claude-sonnet-4-6 — fast, cost-efficient', value: 'claude-sonnet-4-6' },
-            { label: 'Opus 4.6', description: 'claude-opus-4-6 — deepest reasoning', value: 'claude-opus-4-6' },
-            { label: 'Haiku 4.5', description: 'claude-haiku-4-5 — fastest', value: 'claude-haiku-4-5' },
-            { label: 'Custom…', description: 'Enter a model id by hand', value: '__custom__' },
-        ],
-        {
-            placeHolder: 'Model',
-            title: 'Anthropic model',
+    // Model selection varies by transport:
+    //   - direct / agentSdk: pick a Claude model id (or custom).
+    //   - vscodeLm: pick a model from vscode.lm.selectChatModels() — we
+    //     store {vendor, family, modelId} in `vscodeLm` and mirror the
+    //     modelId into `model` for the summary display.
+    let newModel: string;
+    let vscodeLmOpts: { vendor: string; family: string; modelId: string } | undefined;
+
+    if (transport === 'vscodeLm') {
+        let models: vscode.LanguageModelChat[] = [];
+        try {
+            models = await vscode.lm.selectChatModels({});
+        } catch (err) {
+            vscode.window.showErrorMessage(`Failed to enumerate VS Code LM models: ${err instanceof Error ? err.message : String(err)}`);
+            return;
+        }
+        if (models.length === 0) {
+            vscode.window.showErrorMessage('No VS Code LM models are available. Install a chat provider (e.g. GitHub Copilot) and retry.');
+            return;
+        }
+        const modelPickItems = models.map((m) => ({
+            label: `${m.vendor} · ${m.family}`,
+            description: m.name || m.id,
+            detail: `id=${m.id}   maxTokens=${m.maxInputTokens ?? '?'}`,
+            value: m,
+        }));
+        const picked = await vscode.window.showQuickPick(modelPickItems, {
+            placeHolder: 'VS Code LM model',
+            title: 'Pick a VS Code LM model',
             ignoreFocusOut: true,
-        },
-    );
-    if (!modelPick) { return; }
-    let newModel = modelPick.value;
-    if (newModel === '__custom__') {
-        const customModel = await vscode.window.showInputBox({
-            prompt: 'Anthropic model id',
-            value: existing?.model ?? '',
-            placeHolder: 'claude-sonnet-4-6',
-            validateInput: (v) => v.trim().length === 0 ? 'Model id is required' : null,
         });
-        if (customModel === undefined) { return; }
-        newModel = customModel.trim();
+        if (!picked) { return; }
+        vscodeLmOpts = {
+            vendor: picked.value.vendor,
+            family: picked.value.family,
+            modelId: picked.value.id,
+        };
+        newModel = picked.value.id;
+    } else {
+        const modelPick = await vscode.window.showQuickPick(
+            [
+                { label: 'Sonnet 4.6', description: 'claude-sonnet-4-6 — fast, cost-efficient', value: 'claude-sonnet-4-6' },
+                { label: 'Opus 4.6', description: 'claude-opus-4-6 — deepest reasoning', value: 'claude-opus-4-6' },
+                { label: 'Haiku 4.5', description: 'claude-haiku-4-5 — fastest', value: 'claude-haiku-4-5' },
+                { label: 'Custom…', description: 'Enter a model id by hand', value: '__custom__' },
+            ],
+            {
+                placeHolder: 'Model',
+                title: 'Anthropic model',
+                ignoreFocusOut: true,
+            },
+        );
+        if (!modelPick) { return; }
+        newModel = modelPick.value;
+        if (newModel === '__custom__') {
+            const customModel = await vscode.window.showInputBox({
+                prompt: 'Anthropic model id',
+                value: existing?.model ?? '',
+                placeHolder: 'claude-sonnet-4-6',
+                validateInput: (v) => v.trim().length === 0 ? 'Model id is required' : null,
+            });
+            if (customModel === undefined) { return; }
+            newModel = customModel.trim();
+        }
     }
 
     const maxTokensStr = await vscode.window.showInputBox({
@@ -478,7 +519,42 @@ async function editOrCreateAnthropicConfiguration(configId: string | null): Prom
     let promptCachingEnabled = existing?.promptCachingEnabled === true;
     let agentSdkOpts: { permissionMode: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'; settingSources: Array<'user' | 'project' | 'local'>; maxTurns?: number } | undefined;
 
-    if (transport === 'direct') {
+    if (transport === 'vscodeLm') {
+        // VS Code LM: same history handling as Direct (our own compaction
+        // pipeline — the VS Code LM API doesn't give us SDK-managed
+        // sessions). Prompt caching doesn't apply (no cache_control
+        // headers on the VS Code LM API).
+        const historyPick = await vscode.window.showQuickPick(
+            [
+                { label: 'trim_and_summary', description: 'Running summary + last N raw turns (recommended)', value: 'trim_and_summary' },
+                { label: 'full', description: 'Every turn verbatim (capped by Full trail mode max turns)', value: 'full' },
+                { label: 'summary', description: 'Replace history with a 2-message summary every turn', value: 'summary' },
+            ],
+            {
+                placeHolder: 'History mode',
+                ignoreFocusOut: true,
+            },
+        );
+        if (!historyPick) { return; }
+        historyMode = historyPick.value;
+        if (historyMode === 'trim_and_summary' || historyMode === 'summary') {
+            const maxHistStr = await vscode.window.showInputBox({
+                prompt: 'Max history tokens (blank to omit)',
+                value: existing?.maxHistoryTokens !== undefined ? String(existing.maxHistoryTokens) : '16000',
+                validateInput: (v) => {
+                    if (v.trim() === '') { return null; }
+                    const n = parseInt(v, 10);
+                    if (!Number.isFinite(n) || n < 0) { return 'Enter a non-negative integer (or leave blank)'; }
+                    return null;
+                },
+            });
+            if (maxHistStr === undefined) { return; }
+            maxHistoryTokens = maxHistStr.trim() === '' ? undefined : parseInt(maxHistStr, 10);
+        } else {
+            maxHistoryTokens = undefined;
+        }
+        promptCachingEnabled = false;
+    } else if (transport === 'direct') {
         const historyPick = await vscode.window.showQuickPick(
             [
                 { label: 'trim_and_summary', description: 'Running summary + last N raw turns (recommended)', value: 'trim_and_summary' },
@@ -654,7 +730,13 @@ async function editOrCreateAnthropicConfiguration(configId: string | null): Prom
                     ...(maxHistoryTokens !== undefined ? { maxHistoryTokens } : {}),
                     promptCachingEnabled,
                 }
-                : { agentSdk: agentSdkOpts! }),
+                : transport === 'vscodeLm'
+                    ? {
+                        historyMode,
+                        ...(maxHistoryTokens !== undefined ? { maxHistoryTokens } : {}),
+                        vscodeLm: vscodeLmOpts!,
+                    }
+                    : { agentSdk: agentSdkOpts! }),
         };
 
     // If the user marked this one default, clear the flag on every other
@@ -1487,7 +1569,7 @@ export interface StatusData {
         id: string;
         name: string;
         model: string;
-        transport: 'direct' | 'agentSdk';
+        transport: 'direct' | 'agentSdk' | 'vscodeLm';
         permissionMode?: string;
         promptCachingEnabled: boolean;
         historyMode: string;
@@ -1503,6 +1585,10 @@ export interface StatusData {
         memoryToolsEnabled?: boolean;
         settingSources?: Array<'user' | 'project' | 'local'>;
         maxTurns?: number;
+        // VS Code LM fields; populated when transport === 'vscodeLm'.
+        vscodeLmVendor?: string;
+        vscodeLmFamily?: string;
+        vscodeLmModelId?: string;
     }>;
 }
 
@@ -1737,11 +1823,17 @@ export async function gatherStatusData(): Promise<StatusData> {
                     maxTurns?: number;
                 };
             };
+            const vscodeLm = (cc as { vscodeLm?: { vendor?: string; family?: string; modelId?: string } }).vscodeLm;
+            const transport = cc.transport === 'agentSdk'
+                ? 'agentSdk'
+                : cc.transport === 'vscodeLm'
+                    ? 'vscodeLm'
+                    : 'direct';
             return {
                 id: cc.id,
                 name: cc.name || cc.id,
                 model: cc.model || '',
-                transport: (cc.transport === 'agentSdk' ? 'agentSdk' : 'direct') as 'direct' | 'agentSdk',
+                transport: transport as 'direct' | 'agentSdk' | 'vscodeLm',
                 permissionMode: cc.agentSdk?.permissionMode,
                 promptCachingEnabled: cc.promptCachingEnabled === true,
                 historyMode: cc.historyMode || '',
@@ -1753,6 +1845,9 @@ export async function gatherStatusData(): Promise<StatusData> {
                 memoryToolsEnabled: cc.memoryToolsEnabled,
                 settingSources: cc.agentSdk?.settingSources,
                 maxTurns: cc.agentSdk?.maxTurns,
+                vscodeLmVendor: vscodeLm?.vendor,
+                vscodeLmFamily: vscodeLm?.family,
+                vscodeLmModelId: vscodeLm?.modelId,
             };
         }),
     };
@@ -2398,10 +2493,14 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
                         ${status.anthropicConfigurationsSummary.map(c => {
                             const transportBadge = c.transport === 'agentSdk'
                                 ? '<span style="background:#4a9eff;color:white;padding:2px 6px;border-radius:3px;font-size:10px">Agent SDK</span>'
-                                : '<span style="background:#888;color:white;padding:2px 6px;border-radius:3px;font-size:10px">Direct</span>';
+                                : c.transport === 'vscodeLm'
+                                    ? '<span style="background:#6b8e23;color:white;padding:2px 6px;border-radius:3px;font-size:10px">VS Code LM</span>'
+                                    : '<span style="background:#888;color:white;padding:2px 6px;border-radius:3px;font-size:10px">Direct</span>';
                             const cacheLabel = c.transport === 'agentSdk'
                                 ? '<span title="Managed by Agent SDK" style="color:var(--vscode-descriptionForeground)">SDK-managed</span>'
-                                : (c.promptCachingEnabled ? 'On' : 'Off');
+                                : c.transport === 'vscodeLm'
+                                    ? '<span title="Not applicable to VS Code LM API" style="color:var(--vscode-descriptionForeground)">—</span>'
+                                    : (c.promptCachingEnabled ? 'On' : 'Off');
                             const historyLabel = c.transport === 'agentSdk' && !c.historyMode
                                 ? '<span title="Managed by Agent SDK" style="color:var(--vscode-descriptionForeground)">SDK-managed</span>'
                                 : escapeHtmlContent(c.historyMode || '—');
