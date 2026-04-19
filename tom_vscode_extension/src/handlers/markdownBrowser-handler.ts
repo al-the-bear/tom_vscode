@@ -100,6 +100,12 @@ let activePanelContext: vscode.ExtensionContext | undefined;
 let pendingInitialFile: string | undefined;
 let activeFileWatcher: vscode.FileSystemWatcher | undefined;
 let activeFileWatcherDebounce: ReturnType<typeof setTimeout> | undefined;
+// Panel-scoped "live mode" — when true, sendFileContent includes a
+// liveMode=true flag so the webview auto-scrolls to the bottom on each
+// re-render (as long as the user hasn't scrolled up). Set by the
+// tomAi.openInMdBrowserLive command entry point; sticky for the panel
+// lifetime because auto-scroll is a no-op on static content.
+let activeLiveMode: boolean = false;
 
 // ============================================================================
 // Public API
@@ -112,16 +118,26 @@ let activeFileWatcherDebounce: ReturnType<typeof setTimeout> | undefined;
 export function openMarkdownBrowser(
     context: vscode.ExtensionContext,
     filePath: string,
+    options?: { liveMode?: boolean },
 ): void {
     try {
-        if (MD_BROWSER_DEBUG) debugLog(`[MdBrowser] openMarkdownBrowser file=${filePath}`, 'INFO', 'mdBrowser');
+        if (MD_BROWSER_DEBUG) debugLog(`[MdBrowser] openMarkdownBrowser file=${filePath} liveMode=${options?.liveMode === true}`, 'INFO', 'mdBrowser');
 
         if (activePanel) {
             // Reuse existing panel — navigate to new file
             activePanel.reveal(vscode.ViewColumn.Active);
+            // Upgrade (never downgrade) live mode: opening the live-trail
+            // via the Live button when the panel is already showing some
+            // static doc should flip the panel into live mode. But a
+            // subsequent static open shouldn't clear live mode.
+            if (options?.liveMode === true) {
+                activeLiveMode = true;
+            }
             navigateToFile(filePath, 'other');
             return;
         }
+
+        activeLiveMode = options?.liveMode === true;
 
         activePanelContext = context;
         activePanelHistory = new NavigationHistory();
@@ -164,6 +180,7 @@ export function openMarkdownBrowser(
             activePanelHistory = undefined;
             activePanelContext = undefined;
             pendingInitialFile = undefined;
+            activeLiveMode = false;
         });
 
         // Store the file path; webview will request it when ready
@@ -232,6 +249,27 @@ export function registerMarkdownBrowser(context: vscode.ExtensionContext): void 
                 debugLog(`[MdBrowser] command error: ${err}`, 'ERROR', 'mdBrowser');
             }
         }),
+        // Live variant — opens the panel with liveMode=true so the webview
+        // auto-scrolls to the bottom on re-render (unless the user has
+        // scrolled up). Intended for the chat panel's "Open Live Trail"
+        // button; regular document viewing should use the non-live command.
+        vscode.commands.registerCommand('tomAi.openInMdBrowserLive', (uri?: vscode.Uri) => {
+            try {
+                let filePath: string | undefined;
+                if (uri) {
+                    filePath = uri.fsPath;
+                } else {
+                    filePath = vscode.window.activeTextEditor?.document.uri.fsPath;
+                }
+                if (!filePath || !filePath.endsWith('.md')) {
+                    vscode.window.showWarningMessage('Please select a markdown (.md) file.');
+                    return;
+                }
+                openMarkdownBrowser(context, filePath, { liveMode: true });
+            } catch (err) {
+                debugLog(`[MdBrowser] command error: ${err}`, 'ERROR', 'mdBrowser');
+            }
+        }),
     );
 }
 
@@ -272,7 +310,7 @@ function sendFileContent(absPath: string, anchor?: string): void {
         const wsRoot = WsPaths.wsRoot || '';
         const relativePath = wsRoot ? path.relative(wsRoot, absPath) : path.basename(absPath);
 
-        activePanel.title = 'MD: ' + path.basename(absPath);
+        activePanel.title = (activeLiveMode ? 'MD (live): ' : 'MD: ') + path.basename(absPath);
         activePanel.webview.postMessage({
             type: 'mdContent',
             content,
@@ -280,6 +318,7 @@ function sendFileContent(absPath: string, anchor?: string): void {
             relativePath,
             fileName: path.basename(absPath),
             anchor,  // Pass anchor for scrolling after render
+            liveMode: activeLiveMode,
         });
     } catch (err) {
         debugLog(`[MdBrowser] sendFileContent error: ${err}`, 'ERROR', 'mdBrowser');
@@ -965,6 +1004,29 @@ function buildHtml(webview: vscode.Webview, context: vscode.ExtensionContext): s
             var filePathEl = document.getElementById('filePath');
 
             var currentFilePath = '';
+            // liveMode + follow-tail state.
+            //   liveMode: true when the panel was opened via
+            //     tomAi.openInMdBrowserLive — enables the auto-scroll-to-
+            //     bottom behavior below.
+            //   followTail: sticky flag. Starts true (initial render has
+            //     no prior scroll state); the user's scroll listener
+            //     flips it off when they scroll away from the bottom and
+            //     back on when they scroll back. Only when followTail
+            //     is on do we auto-scroll after a content update.
+            var liveMode = false;
+            var followTail = true;
+            var BOTTOM_THRESHOLD_PX = 48;
+
+            function isNearBottom() {
+                if (!contentArea) return true;
+                var distanceFromBottom = contentArea.scrollHeight - contentArea.clientHeight - contentArea.scrollTop;
+                return distanceFromBottom <= BOTTOM_THRESHOLD_PX;
+            }
+
+            function scrollToBottom() {
+                if (!contentArea) return;
+                contentArea.scrollTop = contentArea.scrollHeight;
+            }
 
             // ---- Document Picker Script ----
             ${pickerScript}
@@ -1097,21 +1159,53 @@ function buildHtml(webview: vscode.Webview, context: vscode.ExtensionContext): s
                             + '</div>';
                         filePathEl.textContent = 'Error';
                     } else {
-                        currentFilePath = msg.filePath || '';
+                        var prevFilePath = currentFilePath;
+                        var incomingFilePath = msg.filePath || '';
+                        var sameFile = !!prevFilePath && prevFilePath === incomingFilePath;
+                        var incomingLiveMode = msg.liveMode === true;
+
+                        // Sample follow-tail *before* we replace the DOM,
+                        // otherwise scrollTop is meaningless. We only trust
+                        // the sample when it's a re-render of the same
+                        // file — a navigation to a different file resets
+                        // followTail to true so the view starts at the
+                        // bottom (live) or top (normal) rather than
+                        // wherever the previous file happened to be.
+                        if (sameFile) {
+                            followTail = isNearBottom();
+                        } else {
+                            followTail = true;
+                        }
+
+                        liveMode = incomingLiveMode;
+                        currentFilePath = incomingFilePath;
                         filePathEl.textContent = msg.relativePath || msg.fileName || '';
                         contentArea.innerHTML = renderMarkdown(msg.content);
                         initMermaid();
                         interceptLinks();
-                        
+
                         // Handle anchor scrolling after content loads
                         if (msg.anchor) {
                             // Small delay to ensure DOM is ready
                             setTimeout(function() {
                                 scrollToAnchor(msg.anchor);
                             }, 50);
-                        } else {
+                        } else if (liveMode && followTail) {
+                            // Layout may not be final yet (Mermaid blocks
+                            // can resize the doc after they render). Wait
+                            // a frame so scrollHeight reflects the new
+                            // content, then pin to the bottom.
+                            requestAnimationFrame(function() {
+                                scrollToBottom();
+                            });
+                        } else if (!sameFile) {
+                            // Different file and not following: start at
+                            // the top, matching the previous behavior.
                             contentArea.scrollTop = 0;
                         }
+                        // Same-file re-render without live follow: leave
+                        // scrollTop alone so the user's reading position
+                        // is preserved.
                     }
                 } else if (msg.type === 'navState') {
                     backBtn.disabled = !msg.canGoBack;

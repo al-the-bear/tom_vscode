@@ -1898,7 +1898,9 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             return;
         }
         const uri = vscode.Uri.file(target);
-        await vscode.commands.executeCommand('tomAi.openInMdBrowser', uri);
+        // Use the live variant so the MD Browser auto-scrolls to the
+        // bottom on each re-render as events stream in.
+        await vscode.commands.executeCommand('tomAi.openInMdBrowserLive', uri);
     }
 
     private async _insertExpandedToChatFile(expanded: string, templateId: string = ''): Promise<void> {
