@@ -2238,47 +2238,17 @@ export class PromptQueueManager {
         // a module-level singleton and we don't want its module init to
         // pull in the Anthropic handler (which pulls in the SDK).
         const { AnthropicHandler } = await import('../handlers/anthropic-handler.js');
-        type AnthropicHandlerTypes = typeof import('../handlers/anthropic-handler.js');
-        type AnthropicProfile = AnthropicHandlerTypes['AnthropicHandler'] extends never ? never : import('../handlers/anthropic-handler.js').AnthropicProfile;
-        type AnthropicConfiguration = import('../handlers/anthropic-handler.js').AnthropicConfiguration;
-        const sendToChatConfig = loadSendToChatConfig();
-        const profiles = sendToChatConfig?.anthropic?.profiles;
-        const profile = (profiles?.find((p) => p?.id === resolved.anthropicProfileId)
-            ?? profiles?.find((p) => p?.isDefault === true)
-            ?? profiles?.[0]) as AnthropicProfile | undefined;
-        if (!profile) {
-            throw new Error(`No Anthropic profile available (requested id="${resolved.anthropicProfileId ?? ''}").`);
+        type AnthropicProfile = import('../handlers/anthropic-handler.js').AnthropicProfile;
+        const { resolveAnthropicTargets } = await import('../utils/resolveAnthropicTargets.js');
+        const resolvedTargets = resolveAnthropicTargets({
+            profileId: resolved.anthropicProfileId,
+            configId: resolved.anthropicConfigId,
+        });
+        if ('error' in resolvedTargets) {
+            throw new Error(resolvedTargets.error);
         }
-        const configId = resolved.anthropicConfigId ?? profile.configurationId;
-        let configuration = sendToChatConfig?.anthropic?.configurations?.find((c) => c?.id === configId) as AnthropicConfiguration | undefined;
-        if (!configuration) {
-            // Per spec §4.3, an Anthropic profile's configId may point at
-            // a Local LLM configuration. When the lookup misses the
-            // Anthropic store, fall back to the Local LLM store and
-            // synthesise an AnthropicConfiguration with transport =
-            // 'localLlm' so the handler can dispatch uniformly.
-            const localLlmConfigs = (sendToChatConfig as { localLlm?: { configurations?: Array<{ id?: string; name?: string; baseUrl?: string; model?: string; temperature?: number; keepAlive?: string }> } }).localLlm?.configurations;
-            const llm = localLlmConfigs?.find((c) => c?.id === configId);
-            if (llm && llm.id && llm.baseUrl && llm.model) {
-                configuration = {
-                    id: llm.id,
-                    name: llm.name || llm.id,
-                    model: llm.model,
-                    maxTokens: 8192,
-                    maxRounds: 1,
-                    transport: 'localLlm',
-                    localLlm: {
-                        baseUrl: llm.baseUrl,
-                        model: llm.model,
-                        temperature: typeof llm.temperature === 'number' ? llm.temperature : 0.5,
-                        keepAlive: llm.keepAlive,
-                    },
-                } as AnthropicConfiguration;
-            }
-        }
-        if (!configuration) {
-            throw new Error(`Configuration "${configId ?? ''}" not found in anthropic.configurations[] or localLlm.configurations[] (profile "${profile.id}").`);
-        }
+        const { profile, configuration } = resolvedTargets;
+
         const { ALL_SHARED_TOOLS } = await import('../tools/tool-executors.js');
         // Queue runs are unattended — force auto-approve to prevent
         // deadlock on the tool-approval bar (spec §2 decision 7).

@@ -352,8 +352,13 @@ async function handleMessage(msg: any): Promise<void> {
             let previewContent = msg.text || '';
             const template = msg.template || '';
             const answerWrapper = msg.answerWrapper || false;
+            // Spec §4.16 — preview applies the template from the same
+            // store a live dispatch would hit (copilot vs anthropic).
+            const transport: 'copilot' | 'anthropic' = msg.transport === 'anthropic' ? 'anthropic' : 'copilot';
             previewContent = await expandTemplate(previewContent);
-            previewContent = await applyTemplateWrapping(previewContent, template, answerWrapper);
+            // Anthropic items never apply the Copilot answer-wrapper.
+            const effectiveWrap = transport === 'copilot' ? answerWrapper : false;
+            previewContent = await applyTemplateWrapping(previewContent, template, effectiveWrap, transport);
             await showPreviewPanel('Queue Item Preview', previewContent);
             return;
         }
@@ -362,8 +367,10 @@ async function handleMessage(msg: any): Promise<void> {
           const { expandTemplate } = await import('./promptTemplate.js');
           let previewContent = msg.text || '';
           const template = msg.template || '';
+          const transport: 'copilot' | 'anthropic' = msg.transport === 'anthropic' ? 'anthropic' : 'copilot';
           previewContent = await expandTemplate(previewContent);
-          previewContent = await applyTemplateWrapping(previewContent, template, true);
+          // Anthropic follow-ups skip the Copilot answer-wrapper.
+          previewContent = await applyTemplateWrapping(previewContent, template, transport === 'copilot', transport);
           await showPreviewPanel('Follow-up Prompt Preview', previewContent);
           return;
         }

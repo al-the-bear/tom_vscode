@@ -709,7 +709,17 @@ function updateFollowUpField(id, followUpId, field, value) {
 function removePrePrompt(id, index) { vscode.postMessage({ type: 'removePrePrompt', id: id, index: index }); }
 function previewItem(id) {
   var item = currentItems.find(function(i) { return i.id === id; });
-  if (item) vscode.postMessage({ type: 'previewItem', id: id, text: item.originalText, template: item.template || '', answerWrapper: item.answerWrapper || false });
+  if (item) vscode.postMessage({
+    type: 'previewItem',
+    id: id,
+    text: item.originalText,
+    template: item.template || '',
+    answerWrapper: item.answerWrapper || false,
+    // Spec §4.16 — preview applies the template from the effective
+    // transport's store; include the item's pinned transport so the
+    // backend resolver hits the right store.
+    transport: item.transport || 'copilot',
+  });
 }
 function openEntryFile(id) {
   vscode.postMessage({ type: 'showEntryFile', id: id });
@@ -741,7 +751,15 @@ function previewFollowUp(id, followUpId) {
   var item = currentItems.find(function(i) { return i.id === id; });
   if (!item || !Array.isArray(item.followUps)) return;
   var follow = item.followUps.find(function(f) { return f.id === followUpId; });
-  if (follow) vscode.postMessage({ type: 'previewFollowUp', id: id, followUpId: followUpId, text: follow.originalText || '', template: follow.template || '' });
+  if (follow) vscode.postMessage({
+    type: 'previewFollowUp',
+    id: id,
+    followUpId: followUpId,
+    text: follow.originalText || '',
+    template: follow.template || '',
+    // Spec §4.16 — stage-level transport wins, falls back to item-level.
+    transport: follow.transport || item.transport || 'copilot',
+  });
 }
 `;
 }

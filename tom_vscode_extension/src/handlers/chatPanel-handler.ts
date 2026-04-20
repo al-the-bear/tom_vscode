@@ -1720,12 +1720,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     private async _handleSendAnthropic(text: string, profileId: string, modelId: string, configId: string, userMessageTemplateId?: string): Promise<void> {
         if (!text || !text.trim()) { return; }
         const config = loadSendToChatConfig();
-        const profiles: AnthropicProfile[] = Array.isArray(config?.anthropic?.profiles)
-            ? (config!.anthropic!.profiles! as AnthropicProfile[])
-            : [];
-        const configurations: AnthropicConfiguration[] = Array.isArray(config?.anthropic?.configurations)
-            ? (config!.anthropic!.configurations! as AnthropicConfiguration[])
-            : [];
         const userMessageTemplates: Array<{ id: string; template: string; isDefault?: boolean }> = Array.isArray(config?.anthropic?.userMessageTemplates)
             ? (config!.anthropic!.userMessageTemplates! as Array<{ id: string; template: string; isDefault?: boolean }>)
             : [];
@@ -1734,31 +1728,36 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             : userMessageTemplates.find((t) => t.isDefault)?.template)
             || undefined;
 
-        let profile = profiles.find((p) => p.id === profileId)
-            || profiles.find((p) => p.isDefault)
-            || profiles[0];
-        if (!profile) {
+        // Spec §4.3: profile's configurationId can resolve to either an
+        // Anthropic configuration or a Local LLM configuration. Use the
+        // shared resolver so this flow matches the queue dispatcher.
+        const { resolveAnthropicTargets } = await import('../utils/resolveAnthropicTargets.js');
+        const resolved = resolveAnthropicTargets({
+            profileId,
+            configId,
+            modelOverride: modelId || undefined,
+        });
+
+        let profile: AnthropicProfile;
+        let cfg: AnthropicConfiguration;
+        if ('error' in resolved) {
+            // Fall back to an inline (no-config) send when the user has
+            // explicitly picked a model via the model dropdown — preserves
+            // the legacy escape hatch for users who haven't defined a
+            // configuration yet. Otherwise surface the error to the webview.
+            if (!modelId) {
+                this._view?.webview.postMessage({
+                    type: 'anthropicError',
+                    message: resolved.error + ' — add a configuration on the Status Page or pick a model.',
+                });
+                return;
+            }
             profile = {
                 id: '__inline__',
                 name: '(inline)',
                 description: '',
                 systemPrompt: '',
             };
-        }
-
-        let cfg = configurations.find((c) => c.id === configId)
-            || (profile.configurationId ? configurations.find((c) => c.id === profile.configurationId) : undefined)
-            || configurations.find((c) => c.isDefault)
-            || configurations[0];
-
-        if (!cfg && !modelId) {
-            this._view?.webview.postMessage({
-                type: 'anthropicError',
-                message: 'No Anthropic configuration and no model selected. Add a configuration on the Status Page or pick a model.',
-            });
-            return;
-        }
-        if (!cfg) {
             cfg = {
                 id: '__inline__',
                 name: '(inline)',
@@ -1766,11 +1765,9 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 maxTokens: 8192,
                 maxRounds: 10,
             };
-        }
-        // The model dropdown takes precedence — the user may override the
-        // model on a per-send basis without editing the configuration.
-        if (modelId) {
-            cfg = { ...cfg, model: modelId };
+        } else {
+            profile = resolved.profile;
+            cfg = resolved.configuration;
         }
 
         // Tool resolution — profile is the single source of truth
