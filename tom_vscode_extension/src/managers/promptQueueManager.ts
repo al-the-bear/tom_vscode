@@ -2002,8 +2002,24 @@ export class PromptQueueManager {
         this._onDidChange.fire();
 
         try {
-            await this.dispatchNextStageForSendingItem(item);
-            logQueue(`Prompt ${item.id} sent, waiting for answer at ${this.getAnswerFilePathForRequestId(item.expectedRequestId)}`);
+            const hadMore = await this.dispatchNextStageForSendingItem(item);
+            // Anthropic items cascade synchronously through all their
+            // stages; when `dispatchNextStageForSendingItem` returns
+            // false the item has no more work. For Copilot items the
+            // answer-file polling loop drives progression — we just log
+            // and wait. Differentiate here so anthropic items actually
+            // transition to 'sent' instead of hanging at 'sending'.
+            const isAnthropicItem = this.resolveStageTransport(item).transport === 'anthropic';
+            if (!hadMore && isAnthropicItem) {
+                item.status = 'sent';
+                this.persist();
+                this._onDidChange.fire();
+                logQueue(`Prompt ${item.id} completed (anthropic transport — no polling)`);
+                // Advance to the next queued item.
+                void this.sendNext();
+            } else {
+                logQueue(`Prompt ${item.id} sent, waiting for answer at ${this.getAnswerFilePathForRequestId(item.expectedRequestId)}`);
+            }
         } catch (err) {
             item.status = 'error';
             item.error = String(err);
@@ -2037,6 +2053,90 @@ export class PromptQueueManager {
         return Math.max(1, resolveRepeatCount(repeatCountRaw));
     }
 
+    /**
+     * Resolve the effective transport for a given stage — stage-level
+     * transport wins over item-level, item-level over the default
+     * `'copilot'`. See multi_transport_prompt_queue_revised.md §2
+     * decision 1 and §4.5.
+     */
+    private resolveStageTransport(
+        item: QueuedPrompt,
+        stage?: { transport?: QueuedTransport; anthropicProfileId?: string; anthropicConfigId?: string },
+    ): { transport: QueuedTransport; anthropicProfileId?: string; anthropicConfigId?: string } {
+        if (stage?.transport) {
+            return {
+                transport: stage.transport,
+                anthropicProfileId: stage.anthropicProfileId ?? item.anthropicProfileId,
+                anthropicConfigId: stage.anthropicConfigId ?? item.anthropicConfigId,
+            };
+        }
+        return {
+            transport: item.transport ?? 'copilot',
+            anthropicProfileId: item.anthropicProfileId,
+            anthropicConfigId: item.anthropicConfigId,
+        };
+    }
+
+    /**
+     * Dispatch one stage's expanded text through the resolved transport.
+     * Copilot goes through `workbench.action.chat.open` as before (and
+     * the queue continues to poll for the answer file). Anthropic goes
+     * through `AnthropicHandler.sendMessage` with the profile's
+     * `toolApprovalMode` coerced to `'never'` (queue runs are unattended
+     * — see spec §2 decision 7); the returned text is captured into the
+     * target container's `answerText` field.
+     */
+    private async dispatchStage(
+        expandedText: string,
+        resolved: ReturnType<typeof this.resolveStageTransport>,
+        stageForAnswer: { answerText?: string } | undefined,
+    ): Promise<{ mode: 'polled' } | { mode: 'direct'; answerText: string }> {
+        if (resolved.transport === 'copilot') {
+            await vscode.commands.executeCommand('workbench.action.chat.open', { query: expandedText });
+            return { mode: 'polled' };
+        }
+
+        // anthropic path. Deferred imports because promptQueueManager is
+        // a module-level singleton and we don't want its module init to
+        // pull in the Anthropic handler (which pulls in the SDK).
+        const { AnthropicHandler } = await import('../handlers/anthropic-handler.js');
+        type AnthropicHandlerTypes = typeof import('../handlers/anthropic-handler.js');
+        type AnthropicProfile = AnthropicHandlerTypes['AnthropicHandler'] extends never ? never : import('../handlers/anthropic-handler.js').AnthropicProfile;
+        type AnthropicConfiguration = import('../handlers/anthropic-handler.js').AnthropicConfiguration;
+        const sendToChatConfig = loadSendToChatConfig();
+        const profiles = sendToChatConfig?.anthropic?.profiles;
+        const profile = (profiles?.find((p) => p?.id === resolved.anthropicProfileId)
+            ?? profiles?.find((p) => p?.isDefault === true)
+            ?? profiles?.[0]) as AnthropicProfile | undefined;
+        if (!profile) {
+            throw new Error(`No Anthropic profile available (requested id="${resolved.anthropicProfileId ?? ''}").`);
+        }
+        const configId = resolved.anthropicConfigId ?? profile.configurationId;
+        const configuration = sendToChatConfig?.anthropic?.configurations?.find((c) => c?.id === configId) as AnthropicConfiguration | undefined;
+        if (!configuration) {
+            throw new Error(`Anthropic configuration "${configId ?? ''}" not found (profile "${profile.id}").`);
+        }
+        const { ALL_SHARED_TOOLS } = await import('../tools/tool-executors.js');
+        // Queue runs are unattended — force auto-approve to prevent
+        // deadlock on the tool-approval bar (spec §2 decision 7).
+        const coercedProfile: AnthropicProfile = {
+            ...profile,
+            toolApprovalMode: 'never',
+        };
+
+        logQueue(`dispatchStage: anthropic profile=${profile.id} config=${configuration.id}`);
+        const result = await AnthropicHandler.instance.sendMessage({
+            userText: expandedText,
+            profile: coercedProfile,
+            configuration,
+            tools: ALL_SHARED_TOOLS,
+        });
+        if (stageForAnswer) {
+            stageForAnswer.answerText = result.text;
+        }
+        return { mode: 'direct', answerText: result.text };
+    }
+
     private async dispatchNextStageForSendingItem(item: QueuedPrompt): Promise<boolean> {
         // Stage 1: Pre-prompts with individual repeat support.
         // Each stage uses a stable numeric repeat target for normal loop control.
@@ -2052,25 +2152,42 @@ export class PromptQueueManager {
             }
             logQueue(`PP dispatch: repeatCount=${String(pp.repeatCount)}, resolved=${ppRepeatCount}, cachedResolved=${pp.resolvedRepeatCount}, sentCount=${ppSentCount}`);
             if (ppSentCount < ppRepeatCount) {
-                const prePromptExpanded = await this._buildExpandedText(pp.text, pp.template, true, {
-                    repeatCount: ppRepeatCount,
-                    repeatIndex: ppSentCount,
-                });
+                const resolved = this.resolveStageTransport(item, pp);
+                // Anthropic pre-prompts skip the answer-wrapper expansion;
+                // it's a Copilot-only construct (spec §4.7).
+                const prePromptExpanded = await this._buildExpandedText(
+                    pp.text,
+                    pp.template,
+                    resolved.transport === 'copilot',
+                    { repeatCount: ppRepeatCount, repeatIndex: ppSentCount },
+                );
                 pp.status = 'sent';
                 pp.repeatIndex = ppSentCount + 1;
                 item.expandedText = prePromptExpanded;
-                item.expectedRequestId = this._extractRequestIdFromExpandedPrompt(prePromptExpanded);
+                item.expectedRequestId = resolved.transport === 'copilot'
+                    ? this._extractRequestIdFromExpandedPrompt(prePromptExpanded)
+                    : undefined;
                 item.sentAt = new Date().toISOString();
                 item.reminderSentCount = 0;
                 item.lastReminderAt = undefined;
                 this.persist();
                 this._onDidChange.fire();
 
-                this.clearExpectedAnswerFiles(item.expectedRequestId);
-                await vscode.commands.executeCommand('workbench.action.chat.open', { query: prePromptExpanded });
+                if (resolved.transport === 'copilot') {
+                    this.clearExpectedAnswerFiles(item.expectedRequestId);
+                }
+                const dispatchResult = await this.dispatchStage(prePromptExpanded, resolved, pp);
                 this._onPromptSent.fire(item);
                 this.updateWindowStatus('prompt-sent');
-                logQueue(`Pre-prompt sent (${ppSentCount + 1}/${ppRepeatCount})`);
+                logQueue(`Pre-prompt sent (${ppSentCount + 1}/${ppRepeatCount}) via ${resolved.transport}`);
+                if (dispatchResult.mode === 'direct') {
+                    // Synchronous response — advance to the next stage
+                    // immediately instead of waiting for the polling
+                    // loop.
+                    this.persist();
+                    this._onDidChange.fire();
+                    return await this.dispatchNextStageForSendingItem(item);
+                }
                 return true;
             }
         }
@@ -2084,13 +2201,18 @@ export class PromptQueueManager {
             this._onDidChange.fire();
         }
         if (mainSentCount < mainRepeatCount) {
-            item.expandedText = await this._buildExpandedText(item.originalText, item.template, item.answerWrapper, {
+            const resolved = this.resolveStageTransport(item);
+            // Anthropic path skips the answerWrapper (Copilot-only).
+            const effectiveWrap = resolved.transport === 'copilot' ? item.answerWrapper : false;
+            item.expandedText = await this._buildExpandedText(item.originalText, item.template, effectiveWrap, {
                 repeatCount: mainRepeatCount,
                 repeatIndex: mainSentCount,
                 repeatPrefix: item.repeatPrefix,
                 repeatSuffix: item.repeatSuffix,
             });
-            const newRequestId = this._extractRequestIdFromExpandedPrompt(item.expandedText);
+            const newRequestId = resolved.transport === 'copilot'
+                ? this._extractRequestIdFromExpandedPrompt(item.expandedText)
+                : undefined;
             if (!item.requestId) {
                 item.requestId = newRequestId; // Preserve first request ID
             }
@@ -2102,11 +2224,18 @@ export class PromptQueueManager {
             this.persist();
             this._onDidChange.fire();
 
-            this.clearExpectedAnswerFiles(item.expectedRequestId);
-            await vscode.commands.executeCommand('workbench.action.chat.open', { query: item.expandedText });
+            if (resolved.transport === 'copilot') {
+                this.clearExpectedAnswerFiles(item.expectedRequestId);
+            }
+            const dispatchResult = await this.dispatchStage(item.expandedText, resolved, item);
             this._onPromptSent.fire(item);
             this.updateWindowStatus('prompt-sent');
-            logQueue(`Main prompt sent (${mainSentCount + 1}/${mainRepeatCount})`);
+            logQueue(`Main prompt sent (${mainSentCount + 1}/${mainRepeatCount}) via ${resolved.transport}`);
+            if (dispatchResult.mode === 'direct') {
+                this.persist();
+                this._onDidChange.fire();
+                return await this.dispatchNextStageForSendingItem(item);
+            }
             return true;
         }
 
@@ -2124,13 +2253,18 @@ export class PromptQueueManager {
             }
             logQueue(`FU dispatch: repeatCount=${String(nextFollowUp.repeatCount)}, resolved=${fuRepeatCount}, cachedResolved=${nextFollowUp.resolvedRepeatCount}, sentCount=${fuSentCount}`);
             if (fuSentCount < fuRepeatCount) {
-                const followUpExpanded = await this._buildExpandedText(nextFollowUp.originalText, nextFollowUp.template, true, {
-                    repeatCount: fuRepeatCount,
-                    repeatIndex: fuSentCount,
-                });
+                const resolved = this.resolveStageTransport(item, nextFollowUp);
+                const followUpExpanded = await this._buildExpandedText(
+                    nextFollowUp.originalText,
+                    nextFollowUp.template,
+                    resolved.transport === 'copilot',
+                    { repeatCount: fuRepeatCount, repeatIndex: fuSentCount },
+                );
                 nextFollowUp.repeatIndex = fuSentCount + 1;
                 item.expandedText = followUpExpanded;
-                item.expectedRequestId = this._extractRequestIdFromExpandedPrompt(followUpExpanded);
+                item.expectedRequestId = resolved.transport === 'copilot'
+                    ? this._extractRequestIdFromExpandedPrompt(followUpExpanded)
+                    : undefined;
                 // Advance to next follow-up only when all repeats for this one are done
                 if (nextFollowUp.repeatIndex >= fuRepeatCount) {
                     item.followUpIndex = currentFuIndex + 1;
@@ -2141,11 +2275,18 @@ export class PromptQueueManager {
                 this.persist();
                 this._onDidChange.fire();
 
-                this.clearExpectedAnswerFiles(item.expectedRequestId);
-                await vscode.commands.executeCommand('workbench.action.chat.open', { query: followUpExpanded });
+                if (resolved.transport === 'copilot') {
+                    this.clearExpectedAnswerFiles(item.expectedRequestId);
+                }
+                const dispatchResult = await this.dispatchStage(followUpExpanded, resolved, nextFollowUp);
                 this._onPromptSent.fire(item);
                 this.updateWindowStatus('prompt-sent');
-                logQueue(`Follow-up ${currentFuIndex + 1} sent (${fuSentCount + 1}/${fuRepeatCount})`);
+                logQueue(`Follow-up ${currentFuIndex + 1} sent (${fuSentCount + 1}/${fuRepeatCount}) via ${resolved.transport}`);
+                if (dispatchResult.mode === 'direct') {
+                    this.persist();
+                    this._onDidChange.fire();
+                    return await this.dispatchNextStageForSendingItem(item);
+                }
                 return true;
             }
             // All repeats done for this follow-up, advance to next
