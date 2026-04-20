@@ -2137,9 +2137,34 @@ export class PromptQueueManager {
             throw new Error(`No Anthropic profile available (requested id="${resolved.anthropicProfileId ?? ''}").`);
         }
         const configId = resolved.anthropicConfigId ?? profile.configurationId;
-        const configuration = sendToChatConfig?.anthropic?.configurations?.find((c) => c?.id === configId) as AnthropicConfiguration | undefined;
+        let configuration = sendToChatConfig?.anthropic?.configurations?.find((c) => c?.id === configId) as AnthropicConfiguration | undefined;
         if (!configuration) {
-            throw new Error(`Anthropic configuration "${configId ?? ''}" not found (profile "${profile.id}").`);
+            // Per spec §4.3, an Anthropic profile's configId may point at
+            // a Local LLM configuration. When the lookup misses the
+            // Anthropic store, fall back to the Local LLM store and
+            // synthesise an AnthropicConfiguration with transport =
+            // 'localLlm' so the handler can dispatch uniformly.
+            const localLlmConfigs = (sendToChatConfig as { localLlm?: { configurations?: Array<{ id?: string; name?: string; baseUrl?: string; model?: string; temperature?: number; keepAlive?: string }> } }).localLlm?.configurations;
+            const llm = localLlmConfigs?.find((c) => c?.id === configId);
+            if (llm && llm.id && llm.baseUrl && llm.model) {
+                configuration = {
+                    id: llm.id,
+                    name: llm.name || llm.id,
+                    model: llm.model,
+                    maxTokens: 8192,
+                    maxRounds: 1,
+                    transport: 'localLlm',
+                    localLlm: {
+                        baseUrl: llm.baseUrl,
+                        model: llm.model,
+                        temperature: typeof llm.temperature === 'number' ? llm.temperature : 0.5,
+                        keepAlive: llm.keepAlive,
+                    },
+                } as AnthropicConfiguration;
+            }
+        }
+        if (!configuration) {
+            throw new Error(`Configuration "${configId ?? ''}" not found in anthropic.configurations[] or localLlm.configurations[] (profile "${profile.id}").`);
         }
         const { ALL_SHARED_TOOLS } = await import('../tools/tool-executors.js');
         // Queue runs are unattended — force auto-approve to prevent

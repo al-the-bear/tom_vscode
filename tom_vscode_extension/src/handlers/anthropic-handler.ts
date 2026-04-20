@@ -45,7 +45,15 @@ import { debugLog } from '../utils/debugLogger';
  * Claude Code install and delegating the tool-use loop, prompt caching,
  * and context compaction to the SDK.
  */
-export type AnthropicTransport = 'direct' | 'agentSdk' | 'vscodeLm';
+/**
+ * `localLlm` is a **runtime-synthesised** transport used only when an
+ * Anthropic profile's configurationId resolves to an entry in
+ * `config.localLlm.configurations[]` (see spec §4.3). The caller
+ * (queue dispatcher / chat panel) fabricates an AnthropicConfiguration
+ * with `transport: 'localLlm'` and the `localLlm` fields populated, so
+ * the handler can dispatch uniformly. It is never written to disk.
+ */
+export type AnthropicTransport = 'direct' | 'agentSdk' | 'vscodeLm' | 'localLlm';
 
 /** Spec §18.2 — per-configuration Agent SDK knobs. */
 export interface AnthropicAgentSdkOptions {
@@ -84,6 +92,17 @@ export interface AnthropicConfiguration {
         vendor: string;
         family: string;
         modelId: string;
+    };
+    /**
+     * Synthesised payload for the `'localLlm'` transport — see spec §4.3.
+     * Never persisted to disk; populated by the dispatcher when the
+     * Anthropic profile's configurationId resolves to a Local LLM entry.
+     */
+    localLlm?: {
+        baseUrl: string;
+        model: string;
+        temperature: number;
+        keepAlive?: string;
     };
     /**
      * Per-configuration override for the global `compaction.disabled` flag.
@@ -1165,6 +1184,21 @@ export class AnthropicHandler {
             );
         }
 
+        // Local LLM transport — synthesised by the dispatcher when a
+        // Local LLM config is referenced from an Anthropic profile
+        // (spec §4.3). Single-shot leaf, same shape as vscodeLm.
+        if (transport === 'localLlm') {
+            return await this.sendViaLocalLlm(
+                options,
+                systemSegments,
+                userContent,
+                windowId,
+                requestId,
+                round,
+                quest,
+            );
+        }
+
         const client = this.getClient();
         if (!client) {
             throw new Error('Anthropic client not available — set the configured API key env var');
@@ -1372,6 +1406,84 @@ export class AnthropicHandler {
         } catch (err) {
             const errMsg = err instanceof Error ? (err.stack || err.message) : String(err);
             const body = `(VS Code LM request failed before completing)\n${errMsg}`;
+            TrailService.instance.writeRawAnswer(ANTHROPIC_SUBSYSTEM, body, windowId, requestId, quest);
+            this.currentLiveTrail?.endPromptWithError(errMsg);
+            this.currentLiveTrail = null;
+            throw err;
+        }
+    }
+
+    /**
+     * Local LLM leaf — single-shot (no tool loop in this initial cut,
+     * same constraint as sendViaVsCodeLm). Resolves the Local LLM HTTP
+     * call via `LocalLlmManager.callLocalLlmOnce` (extracted per spec
+     * §4.4a) and exits through the shared finalize() so trails + live-
+     * trail + rawTurns history match every other leaf. Local-LLM-backed
+     * anthropic profiles therefore trail under `_ai/trail/anthropic/*`
+     * rather than the Local LLM panel's own `_ai/trail/local/*` — the
+     * profile authored the request.
+     */
+    private async sendViaLocalLlm(
+        options: AnthropicSendOptions,
+        systemSegments: string[],
+        userContent: string,
+        windowId: string,
+        requestId: string,
+        round: number,
+        quest: string,
+    ): Promise<AnthropicSendResult> {
+        void round;
+        const { configuration, tools } = options;
+        const llm = configuration.localLlm;
+        if (!llm || !llm.baseUrl || !llm.model) {
+            throw new Error(
+                `Anthropic configuration "${configuration.id}" uses transport='localLlm' but the localLlm fields (baseUrl/model) are missing. Dispatcher should have synthesised them — check resolveStageTransport in the queue.`,
+            );
+        }
+
+        const systemPrompt = systemSegments.filter((s) => s).join('\n\n');
+        // Local LLM API takes separate system + user messages; pass them
+        // as the canonical chat-completions shape. The concatenation
+        // rule in spec §2.8 applies only when the underlying API has
+        // no such split — Ollama does.
+        const messages: Array<{ role: string; content: string }> = [];
+        if (systemPrompt) {
+            messages.push({ role: 'system', content: systemPrompt });
+        }
+        messages.push({ role: 'user', content: userContent });
+
+        try {
+            const { getLocalLlmManager } = await import('./localLlm-handler.js');
+            const localLlmManager = getLocalLlmManager();
+            if (!localLlmManager) {
+                throw new Error('Local LLM manager is not initialised — the Local LLM handler must be activated before a Local-LLM-backed Anthropic profile can send.');
+            }
+            const result = await localLlmManager.callLocalLlmOnce({
+                baseUrl: llm.baseUrl,
+                model: llm.model,
+                temperature: llm.temperature,
+                messages,
+                tools,
+                keepAlive: llm.keepAlive,
+                cancellationToken: options.cancellationToken,
+                onToken: (fragment: string) => this.currentLiveTrail?.appendAssistantText(fragment),
+            });
+            const lastText = result.text || '';
+            return this.finalize(
+                userContent,
+                lastText,
+                /* turnsUsed */ 1,
+                /* toolCallCount */ 0,
+                /* stopReason */ 'end_turn',
+                windowId,
+                requestId,
+                quest,
+                configuration,
+                options.isolated === true,
+            );
+        } catch (err) {
+            const errMsg = err instanceof Error ? (err.stack || err.message) : String(err);
+            const body = `(Local LLM request failed before completing)\n${errMsg}`;
             TrailService.instance.writeRawAnswer(ANTHROPIC_SUBSYSTEM, body, windowId, requestId, quest);
             this.currentLiveTrail?.endPromptWithError(errMsg);
             this.currentLiveTrail = null;
