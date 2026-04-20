@@ -1577,7 +1577,17 @@ export class PromptQueueManager {
         return this._items.find(i => i.requestId === requestId || i.expectedRequestId === requestId);
     }
 
-    addFollowUpPrompt(itemId: string, followUp: { originalText: string; template?: string; reminderTemplateId?: string; reminderTimeoutMinutes?: number; reminderRepeat?: boolean; reminderEnabled?: boolean }): QueuedFollowUpPrompt | undefined {
+    addFollowUpPrompt(itemId: string, followUp: {
+        originalText: string;
+        template?: string;
+        reminderTemplateId?: string;
+        reminderTimeoutMinutes?: number;
+        reminderRepeat?: boolean;
+        reminderEnabled?: boolean;
+        transport?: QueuedTransport;
+        anthropicProfileId?: string;
+        anthropicConfigId?: string;
+    }): QueuedFollowUpPrompt | undefined {
         const item = this._items.find(i => i.id === itemId);
         if (!item || !this.isEditableStatus(item.status)) { return undefined; }
         const text = (followUp.originalText || '').trim();
@@ -1591,6 +1601,9 @@ export class PromptQueueManager {
             reminderRepeat: !!followUp.reminderRepeat,
             reminderEnabled: !!followUp.reminderEnabled,
             createdAt: new Date().toISOString(),
+            transport: followUp.transport,
+            anthropicProfileId: followUp.anthropicProfileId,
+            anthropicConfigId: followUp.anthropicConfigId,
         };
         if (!item.followUps) { item.followUps = []; }
         item.followUps.push(entry);
@@ -1628,6 +1641,9 @@ export class PromptQueueManager {
         reminderTimeoutMinutes?: number;
         reminderRepeat?: boolean;
         reminderEnabled?: boolean;
+        transport?: QueuedTransport;
+        anthropicProfileId?: string;
+        anthropicConfigId?: string;
     }): boolean {
         const item = this._items.find(i => i.id === itemId);
         if (!item || !this.isEditableStatus(item.status)) { return false; }
@@ -1659,6 +1675,9 @@ export class PromptQueueManager {
         if (patch.reminderEnabled !== undefined) {
             follow.reminderEnabled = !!patch.reminderEnabled;
         }
+        if (patch.transport !== undefined) { follow.transport = patch.transport; }
+        if (patch.anthropicProfileId !== undefined) { follow.anthropicProfileId = patch.anthropicProfileId || undefined; }
+        if (patch.anthropicConfigId !== undefined) { follow.anthropicConfigId = patch.anthropicConfigId || undefined; }
         this.persist();
         this._onDidChange.fire();
         return true;
@@ -1681,11 +1700,22 @@ export class PromptQueueManager {
     // ----- pre-prompt management ---------------------------------------------
 
     /** Add a pre-prompt to a queue item. */
-    addPrePrompt(itemId: string, text: string, template?: string): boolean {
+    addPrePrompt(itemId: string, text: string, template?: string, opts?: {
+        transport?: QueuedTransport;
+        anthropicProfileId?: string;
+        anthropicConfigId?: string;
+    }): boolean {
         const item = this._items.find(i => i.id === itemId);
         if (!item || !this.isEditableStatus(item.status)) { return false; }
         if (!item.prePrompts) { item.prePrompts = []; }
-        item.prePrompts.push({ text, template, status: 'pending' });
+        item.prePrompts.push({
+            text,
+            template,
+            status: 'pending',
+            transport: opts?.transport,
+            anthropicProfileId: opts?.anthropicProfileId,
+            anthropicConfigId: opts?.anthropicConfigId,
+        });
         this.persist();
         this._onDidChange.fire();
         return true;
@@ -1701,6 +1731,9 @@ export class PromptQueueManager {
         reminderTimeoutMinutes?: number;
         reminderRepeat?: boolean;
         reminderEnabled?: boolean;
+        transport?: QueuedTransport;
+        anthropicProfileId?: string;
+        anthropicConfigId?: string;
     }): boolean {
         const item = this._items.find(i => i.id === itemId);
         if (!item || !this.isEditableStatus(item.status)) { return false; }
@@ -1717,6 +1750,9 @@ export class PromptQueueManager {
         if (patch.reminderTimeoutMinutes !== undefined) pp.reminderTimeoutMinutes = patch.reminderTimeoutMinutes;
         if (patch.reminderRepeat !== undefined) pp.reminderRepeat = patch.reminderRepeat;
         if (patch.reminderEnabled !== undefined) pp.reminderEnabled = patch.reminderEnabled;
+        if (patch.transport !== undefined) pp.transport = patch.transport;
+        if (patch.anthropicProfileId !== undefined) pp.anthropicProfileId = patch.anthropicProfileId || undefined;
+        if (patch.anthropicConfigId !== undefined) pp.anthropicConfigId = patch.anthropicConfigId || undefined;
         this.persist();
         this._onDidChange.fire();
         return true;

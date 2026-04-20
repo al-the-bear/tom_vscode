@@ -836,6 +836,9 @@ interface AddPrePromptInput {
     queueItemId: string;
     text: string;
     template?: string;
+    transport?: 'copilot' | 'anthropic';
+    anthropicProfileId?: string;
+    anthropicConfigId?: string;
 }
 
 async function executeAddPrePrompt(input: AddPrePromptInput): Promise<string> {
@@ -845,7 +848,11 @@ async function executeAddPrePrompt(input: AddPrePromptInput): Promise<string> {
         }
         const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
         const queue = PromptQueueManager.instance;
-        const ok = queue.addPrePrompt(input.queueItemId, input.text, input.template);
+        const ok = queue.addPrePrompt(input.queueItemId, input.text, input.template, {
+            transport: input.transport,
+            anthropicProfileId: input.anthropicProfileId,
+            anthropicConfigId: input.anthropicConfigId,
+        });
         if (!ok) {
             return 'Error: could not add pre-prompt (item not found or not editable).';
         }
@@ -866,7 +873,7 @@ export const ADD_PRE_PROMPT_TOOL: SharedToolDefinition<AddPrePromptInput> = {
     description:
         'Append a pre-prompt to an existing staged queue item. Pre-prompts are sent *before* the main prompt, in order, and each waits for its answer (or answerWaitMinutes) before the next runs. ' +
         'Use tomAi_updateQueuePrePrompt to add repeat count, answer-wait, or reminder settings after creation.',
-    tags: ['queue', 'pre-prompt', 'copilot', 'tom-ai-chat'],
+    tags: ['queue', 'pre-prompt', 'copilot', 'tom-ai-chat', 'anthropic'],
     readOnly: false,
     inputSchema: {
         type: 'object',
@@ -875,6 +882,10 @@ export const ADD_PRE_PROMPT_TOOL: SharedToolDefinition<AddPrePromptInput> = {
             queueItemId: { type: 'string' },
             text: { type: 'string' },
             template: { type: 'string' },
+            // Multi-transport (spec §4.13).
+            transport: { type: 'string', enum: ['copilot', 'anthropic'], description: 'Override transport for just this pre-prompt. Stage > item > queue default > copilot.' },
+            anthropicProfileId: { type: 'string' },
+            anthropicConfigId: { type: 'string' },
         },
     },
     execute: executeAddPrePrompt,
@@ -891,6 +902,9 @@ interface UpdatePrePromptInput {
     reminderTimeoutMinutes?: number;
     reminderRepeat?: boolean;
     reminderEnabled?: boolean;
+    transport?: 'copilot' | 'anthropic';
+    anthropicProfileId?: string;
+    anthropicConfigId?: string;
 }
 
 async function executeUpdatePrePrompt(input: UpdatePrePromptInput): Promise<string> {
@@ -909,6 +923,9 @@ async function executeUpdatePrePrompt(input: UpdatePrePromptInput): Promise<stri
             reminderTimeoutMinutes: input.reminderTimeoutMinutes,
             reminderRepeat: input.reminderRepeat,
             reminderEnabled: input.reminderEnabled,
+            transport: input.transport,
+            anthropicProfileId: input.anthropicProfileId,
+            anthropicConfigId: input.anthropicConfigId,
         });
         if (!ok) { return 'Error: could not update pre-prompt (item/index not found or item not editable).'; }
         return JSON.stringify({ success: true, queueItemId: input.queueItemId, index: input.index });
@@ -921,7 +938,7 @@ export const UPDATE_PRE_PROMPT_TOOL: SharedToolDefinition<UpdatePrePromptInput> 
     name: 'tomAi_updateQueuePrePrompt',
     displayName: 'Update Pre-Prompt',
     description: 'Patch fields on an existing pre-prompt (by queue-item id + zero-based index).',
-    tags: ['queue', 'pre-prompt', 'copilot', 'tom-ai-chat'],
+    tags: ['queue', 'pre-prompt', 'copilot', 'tom-ai-chat', 'anthropic'],
     readOnly: false,
     inputSchema: {
         type: 'object',
@@ -937,6 +954,10 @@ export const UPDATE_PRE_PROMPT_TOOL: SharedToolDefinition<UpdatePrePromptInput> 
             reminderTimeoutMinutes: { type: 'number' },
             reminderRepeat: { type: 'boolean' },
             reminderEnabled: { type: 'boolean' },
+            // Multi-transport (spec §4.13).
+            transport: { type: 'string', enum: ['copilot', 'anthropic'] },
+            anthropicProfileId: { type: 'string' },
+            anthropicConfigId: { type: 'string' },
         },
     },
     execute: executeUpdatePrePrompt,
@@ -1036,6 +1057,9 @@ interface AddFollowUpPromptInput {
     reminderTimeoutMinutes?: number;
     reminderRepeat?: boolean;
     reminderEnabled?: boolean;
+    transport?: 'copilot' | 'anthropic';
+    anthropicProfileId?: string;
+    anthropicConfigId?: string;
 }
 
 async function executeAddFollowUpPrompt(input: AddFollowUpPromptInput): Promise<string> {
@@ -1057,6 +1081,9 @@ async function executeAddFollowUpPrompt(input: AddFollowUpPromptInput): Promise<
             reminderTimeoutMinutes: input.reminderTimeoutMinutes,
             reminderRepeat: input.reminderRepeat,
             reminderEnabled: input.reminderEnabled,
+            transport: input.transport,
+            anthropicProfileId: input.anthropicProfileId,
+            anthropicConfigId: input.anthropicConfigId,
         });
 
         if (!follow) {
@@ -1069,7 +1096,7 @@ async function executeAddFollowUpPrompt(input: AddFollowUpPromptInput): Promise<
             queue.updateFollowUpPrompt(item.id, follow.id, {
                 repeatCount: input.repeatCount,
                 answerWaitMinutes: input.answerWaitMinutes,
-            } as any);
+            });
         }
 
         const updated = queue.getById(item.id);
@@ -1089,7 +1116,7 @@ export const ADD_FOLLOW_UP_PROMPT_TOOL: SharedToolDefinition<AddFollowUpPromptIn
     displayName: 'Add Follow-Up Prompt',
     description:
         'Add a follow-up prompt to an existing queue item. Supports per-follow-up repeatCount (number or chat-variable name), answerWaitMinutes, and reminder settings.',
-    tags: ['queue', 'follow-up', 'copilot', 'tom-ai-chat'],
+    tags: ['queue', 'follow-up', 'copilot', 'tom-ai-chat', 'anthropic'],
     readOnly: false,
     inputSchema: {
         type: 'object',
@@ -1105,6 +1132,10 @@ export const ADD_FOLLOW_UP_PROMPT_TOOL: SharedToolDefinition<AddFollowUpPromptIn
             reminderTimeoutMinutes: { type: 'number' },
             reminderRepeat: { type: 'boolean' },
             reminderEnabled: { type: 'boolean' },
+            // Multi-transport (spec §4.13).
+            transport: { type: 'string', enum: ['copilot', 'anthropic'], description: 'Override transport for this follow-up stage.' },
+            anthropicProfileId: { type: 'string' },
+            anthropicConfigId: { type: 'string' },
         },
     },
     execute: executeAddFollowUpPrompt,
@@ -1221,6 +1252,11 @@ async function executeQueueList(input: QueueListInput): Promise<string> {
                 followUpIndex: i.followUpIndex || 0,
                 followUpCount: i.followUps?.length ?? 0,
                 textPreview: String(i.originalText || '').slice(0, 160),
+                // Multi-transport fields (spec §4.13 output).
+                transport: i.transport || 'copilot',
+                anthropicProfileId: i.anthropicProfileId || null,
+                anthropicConfigId: i.anthropicConfigId || null,
+                answerText: i.answerText || null,
             }));
 
         return JSON.stringify({
@@ -1433,7 +1469,19 @@ async function executeQueueSendNow(input: QueueSendNowInput): Promise<string> {
         const queue = PromptQueueManager.instance;
         await queue.sendNow(input.queueItemId);
         const item = queue.getById(input.queueItemId);
-        return JSON.stringify({ success: true, id: input.queueItemId, status: item?.status || 'unknown' });
+        return JSON.stringify({
+            success: true,
+            id: input.queueItemId,
+            status: item?.status || 'unknown',
+            // Multi-transport (spec §4.13) — surface the resolved
+            // transport + anthropic target in the output so callers
+            // know which leaf this item will hit without a second
+            // tool call.
+            transport: item?.transport || 'copilot',
+            anthropicProfileId: item?.anthropicProfileId || null,
+            anthropicConfigId: item?.anthropicConfigId || null,
+            answerText: item?.answerText || null,
+        });
     } catch (err: any) {
         return `Error sending queue item: ${err.message ?? err}`;
     }
@@ -1442,8 +1490,8 @@ async function executeQueueSendNow(input: QueueSendNowInput): Promise<string> {
 export const QUEUE_SEND_NOW_TOOL: SharedToolDefinition<QueueSendNowInput> = {
     name: 'tomAi_sendQueueItem',
     displayName: 'Queue Send Now',
-    description: 'Send a staged/pending queue item immediately.',
-    tags: ['queue', 'copilot', 'tom-ai-chat'],
+    description: 'Send a staged/pending queue item immediately. Returns the resolved transport + anthropic target ids so callers can see which leaf was triggered.',
+    tags: ['queue', 'copilot', 'tom-ai-chat', 'anthropic'],
     readOnly: false,
     inputSchema: {
         type: 'object',
@@ -1497,6 +1545,9 @@ interface QueueUpdateFollowUpInput {
     reminderRepeat?: boolean;
     repeatCount?: number | string;
     answerWaitMinutes?: number;
+    transport?: 'copilot' | 'anthropic';
+    anthropicProfileId?: string;
+    anthropicConfigId?: string;
 }
 
 async function executeQueueUpdateFollowUp(input: QueueUpdateFollowUpInput): Promise<string> {
@@ -1512,6 +1563,9 @@ async function executeQueueUpdateFollowUp(input: QueueUpdateFollowUpInput): Prom
             reminderRepeat: input.reminderRepeat,
             repeatCount: input.repeatCount,
             answerWaitMinutes: input.answerWaitMinutes,
+            transport: input.transport,
+            anthropicProfileId: input.anthropicProfileId,
+            anthropicConfigId: input.anthropicConfigId,
         });
         if (!ok) {
             return 'Error: queue item or follow-up not found.';
@@ -1527,7 +1581,7 @@ export const QUEUE_UPDATE_FOLLOW_UP_TOOL: SharedToolDefinition<QueueUpdateFollow
     displayName: 'Queue Update Follow-Up',
     description:
         'Update fields on an existing follow-up prompt: text, template, reminder, repeatCount (number or chat-variable name), answerWaitMinutes.',
-    tags: ['queue', 'follow-up', 'copilot', 'tom-ai-chat'],
+    tags: ['queue', 'follow-up', 'copilot', 'tom-ai-chat', 'anthropic'],
     readOnly: false,
     inputSchema: {
         type: 'object',
@@ -1543,6 +1597,10 @@ export const QUEUE_UPDATE_FOLLOW_UP_TOOL: SharedToolDefinition<QueueUpdateFollow
             reminderRepeat: { type: 'boolean' },
             repeatCount: { description: 'Literal number or chat-variable name.' },
             answerWaitMinutes: { type: 'number' },
+            // Multi-transport (spec §4.13).
+            transport: { type: 'string', enum: ['copilot', 'anthropic'] },
+            anthropicProfileId: { type: 'string' },
+            anthropicConfigId: { type: 'string' },
         },
     },
     execute: executeQueueUpdateFollowUp,
