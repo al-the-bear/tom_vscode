@@ -418,12 +418,24 @@ async function editOrCreateAnthropicConfiguration(configId: string | null): Prom
             vscode.window.showErrorMessage('No VS Code LM models are available. Install a chat provider (e.g. GitHub Copilot) and retry.');
             return;
         }
-        const modelPickItems = models.map((m) => ({
-            label: `${m.vendor} · ${m.family}`,
-            description: m.name || m.id,
-            detail: `id=${m.id}   maxTokens=${m.maxInputTokens ?? '?'}`,
-            value: m,
-        }));
+        // When editing an existing vscodeLm configuration, mark the
+        // previously stored model as "(current)" so the user can tell
+        // at a glance what their current selection is and avoid
+        // accidentally changing it.
+        const existingVscodeLm = (existing as { vscodeLm?: { vendor?: string; family?: string; modelId?: string } } | undefined)?.vscodeLm;
+        const modelPickItems = models.map((m) => {
+            const isCurrent = existingVscodeLm
+                && existingVscodeLm.vendor === m.vendor
+                && existingVscodeLm.family === m.family
+                && existingVscodeLm.modelId === m.id;
+            return {
+                label: `${m.vendor} · ${m.family}`,
+                description: `${m.name || m.id}${isCurrent ? ' (current)' : ''}`,
+                detail: `id=${m.id}   maxTokens=${m.maxInputTokens ?? '?'}`,
+                value: m,
+                picked: !!isCurrent,
+            };
+        });
         const picked = await vscode.window.showQuickPick(modelPickItems, {
             placeHolder: 'VS Code LM model',
             title: 'Pick a VS Code LM model',

@@ -1363,6 +1363,15 @@ export class PromptQueueManager {
         anthropicConfigId?: string;
     }): Promise<QueuedPrompt> {
         const resolvedRepeatCount = resolveRepeatCount(opts.repeatCount);
+        // Spec §4.16 — pass the transport so template lookup hits the
+        // correct store. The initial expanded text is what the queue
+        // editor previews before the first dispatch; without this the
+        // anthropic template body would fail to apply and users would
+        // see the raw user text in the preview (even though the later
+        // dispatch-time recomputation in dispatchNextStageForSendingItem
+        // gets it right).
+        const resolveInitialTransport: QueuedTransport =
+            opts.transport ?? this._defaultTransport ?? 'copilot';
         const expanded = await this._buildExpandedText(
             opts.originalText,
             opts.template,
@@ -1373,6 +1382,7 @@ export class PromptQueueManager {
                 repeatPrefix: opts.repeatPrefix,
                 repeatSuffix: opts.repeatSuffix,
             },
+            resolveInitialTransport,
         );
 
         // Compute effective reminder template: provided value, or fall back to default
@@ -1487,12 +1497,16 @@ export class PromptQueueManager {
         const item = this._items.find(i => i.id === id);
         if (!item || !this.isEditableStatus(item.status)) { return; }
         item.originalText = newText;
+        // Pass the item's effective transport so template lookup hits
+        // the right store (spec §4.16). Falls back to the queue default
+        // when the item has no explicit transport set.
+        const effectiveTransport: QueuedTransport = item.transport ?? this._defaultTransport;
         item.expandedText = await this._buildExpandedText(newText, item.template, item.answerWrapper, {
             repeatCount: resolveRepeatCount(item.repeatCount),
             repeatIndex: item.repeatIndex,
             repeatPrefix: item.repeatPrefix,
             repeatSuffix: item.repeatSuffix,
-        });
+        }, effectiveTransport);
         this.persist();
         this._onDidChange.fire();
     }
@@ -1513,12 +1527,13 @@ export class PromptQueueManager {
 
         if (!changed) { return false; }
 
+        const effectiveTransport: QueuedTransport = item.transport ?? this._defaultTransport;
         item.expandedText = await this._buildExpandedText(item.originalText, item.template, item.answerWrapper, {
             repeatCount: resolveRepeatCount(item.repeatCount),
             repeatIndex: item.repeatIndex,
             repeatPrefix: item.repeatPrefix,
             repeatSuffix: item.repeatSuffix,
-        });
+        }, effectiveTransport);
         this.persist();
         this._onDidChange.fire();
         return true;
