@@ -39,6 +39,8 @@ import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
 import { SessionTodoStore } from '../managers/sessionTodoStore';
 import { QuestTodoEmbeddedViewProvider, setQuestTodosProvider, setSessionTodosProvider } from './questTodoPanel-handler';
 import { WsPaths } from '../utils/workspacePaths';
+import { NOTEPAD_BASE_STYLES } from './notepad/notepadStyles';
+import { NotepadFileStorage } from './notepad/notepadFileStorage';
 
 // View IDs
 const VIEW_IDS = {
@@ -75,120 +77,14 @@ const STORAGE_KEYS = {
 // Shared Styles
 // ============================================================================
 
+/**
+ * Kept as a thin wrapper so providers still using this function transparently
+ * get the shared styles extracted to `notepad/notepadStyles.ts` in Wave 2.1.
+ * Future provider migrations can import {@link NOTEPAD_BASE_STYLES} directly
+ * and drop this shim.
+ */
 function getBaseStyles(): string {
-    return `
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            padding: 8px;
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-            font-family: var(--vscode-font-family);
-            font-size: var(--vscode-font-size);
-            background-color: var(--vscode-panel-background);
-            color: var(--vscode-foreground);
-        }
-        .toolbar {
-            display: flex;
-            gap: 4px;
-            margin-bottom: 8px;
-            flex-shrink: 0;
-            flex-wrap: wrap;
-            align-items: center;
-        }
-        .toolbar-row {
-            display: flex;
-            gap: 4px;
-            width: 100%;
-            align-items: center;
-            margin-bottom: 4px;
-        }
-        .toolbar-row label {
-            font-size: 11px;
-            color: var(--vscode-descriptionForeground);
-            white-space: nowrap;
-        }
-        button, select {
-            padding: 4px 8px;
-            border: 1px solid var(--vscode-input-border);
-            background-color: var(--vscode-button-secondaryBackground);
-            color: var(--vscode-button-secondaryForeground);
-            cursor: pointer;
-            border-radius: 2px;
-            font-size: 12px;
-        }
-        button:hover { background-color: var(--vscode-button-secondaryHoverBackground); }
-        button.primary {
-            background-color: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-        }
-        button.primary:hover { background-color: var(--vscode-button-hoverBackground); }
-        button.danger { color: var(--vscode-errorForeground); }
-        button:disabled { opacity: 0.5; cursor: not-allowed; }
-        button.icon-btn {
-            padding: 4px 6px;
-            min-width: 24px;
-        }
-        select {
-            background-color: var(--vscode-dropdown-background);
-            color: var(--vscode-dropdown-foreground);
-            flex: 1;
-            min-width: 80px;
-        }
-        textarea {
-            flex: 1;
-            width: 100%;
-            resize: none;
-            border: 1px solid var(--vscode-input-border);
-            background-color: var(--vscode-input-background);
-            color: var(--vscode-input-foreground);
-            padding: 8px;
-            font-family: var(--vscode-editor-font-family, monospace);
-            font-size: var(--vscode-editor-font-size, 13px);
-            line-height: 1.4;
-            outline: none;
-        }
-        textarea:focus { border-color: var(--vscode-focusBorder); }
-        .status-bar {
-            font-size: 11px;
-            color: var(--vscode-descriptionForeground);
-            margin-top: 4px;
-            display: flex;
-            justify-content: space-between;
-        }
-        .empty-state {
-            flex: 1;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--vscode-descriptionForeground);
-            text-align: center;
-            padding: 20px;
-        }
-        .profile-info {
-            font-size: 11px;
-            color: var(--vscode-descriptionForeground);
-            padding: 4px 8px;
-            background: var(--vscode-textBlockQuote-background);
-            border-radius: 4px;
-            margin-bottom: 8px;
-            max-height: 60px;
-            overflow-y: auto;
-        }
-        .placeholder-help {
-            font-size: 11px;
-            color: var(--vscode-descriptionForeground);
-            margin-top: 8px;
-            padding: 8px;
-            background: var(--vscode-textBlockQuote-background);
-            border-radius: 4px;
-        }
-        .placeholder-help code {
-            background: var(--vscode-textCodeBlock-background);
-            padding: 1px 4px;
-            border-radius: 2px;
-        }
-    `;
+    return NOTEPAD_BASE_STYLES;
 }
 
 // ============================================================================
@@ -625,45 +521,20 @@ function questFolderExists(questId: string): boolean {
 
 class TomNotepadProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
-    private _content: string = '';
     private _templates: { key: string; label: string; template: string }[] = [];
     private _selectedTemplate: string = '__none__';
-    private _notesFilePath: string;
-    private _fileWatcher?: vscode.FileSystemWatcher;
-    private _disposables: vscode.Disposable[] = [];
-    private _ignoreNextFileChange: boolean = false;
-    private _lastSaveTime: number = 0;
+    private readonly _storage: NotepadFileStorage;
 
     constructor(private readonly _context: vscode.ExtensionContext) {
-        this._notesFilePath = GLOBAL_NOTES_PATH;
+        this._storage = new NotepadFileStorage(GLOBAL_NOTES_PATH);
         this._selectedTemplate = this._context.workspaceState.get<string>('tomAi.notes.tomNotepadTemplate') || '__none__';
-        this._ensureFileExists();
+        this._storage.ensureFile();
         this._loadTemplates();
-        this._loadContent();
+        this._storage.load();
     }
 
     dispose(): void {
-        this._disposables.forEach(d => d.dispose());
-    }
-
-    private _ensureFileExists(): void {
-        const dir = path.dirname(this._notesFilePath);
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
-        }
-        if (!fs.existsSync(this._notesFilePath)) {
-            fs.writeFileSync(this._notesFilePath, '', 'utf-8');
-        }
-    }
-
-    private _loadContent(): void {
-        try {
-            if (fs.existsSync(this._notesFilePath)) {
-                this._content = fs.readFileSync(this._notesFilePath, 'utf-8');
-            }
-        } catch {
-            this._content = '';
-        }
+        this._storage.dispose();
     }
 
     private _loadTemplates(): void {
@@ -673,49 +544,17 @@ class TomNotepadProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private _saveContent(): void {
-        try {
-            this._ensureFileExists();
-            this._ignoreNextFileChange = true;
-            this._lastSaveTime = Date.now();
-            fs.writeFileSync(this._notesFilePath, this._content, 'utf-8');
-        } catch (e) {
-            vscode.window.showErrorMessage(`Failed to save notes: ${e}`);
-        }
-    }
-
-    private _setupFileWatcher(): void {
-        const pattern = new vscode.RelativePattern(vscode.Uri.file(path.dirname(this._notesFilePath)), path.basename(this._notesFilePath));
-        this._fileWatcher = vscode.workspace.createFileSystemWatcher(pattern);
-
-        const handleFileChange = () => {
-            // Ignore if we just saved (within 1 second)
-            if (this._ignoreNextFileChange || Date.now() - this._lastSaveTime < 1000) {
-                this._ignoreNextFileChange = false;
-                return;
-            }
-            this._loadContent();
-            this._sendState();
-        };
-
-        this._disposables.push(
-            this._fileWatcher.onDidChange(handleFileChange),
-            this._fileWatcher.onDidCreate(handleFileChange),
-            this._fileWatcher
-        );
-    }
-
     resolveWebviewView(webviewView: vscode.WebviewView): void {
         this._view = webviewView;
         webviewView.webview.options = { enableScripts: true };
         webviewView.webview.html = this._getHtml();
 
-        this._setupFileWatcher();
+        this._storage.watch(() => this._sendState());
 
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
                 this._loadTemplates();
-                this._loadContent();
+                this._storage.load();
                 this._sendState();
             }
         });
@@ -726,8 +565,7 @@ class TomNotepadProvider implements vscode.WebviewViewProvider {
                     this._sendState();
                     break;
                 case 'updateContent':
-                    this._content = msg.content;
-                    this._saveContent();
+                    this._storage.save(msg.content);
                     break;
                 case 'sendToCopilot':
                     await this._sendToCopilot(msg.selectedText);
@@ -738,23 +576,22 @@ class TomNotepadProvider implements vscode.WebviewViewProvider {
                     this._sendState();
                     break;
                 case 'previewMarkdown':
-                    await showNotesMarkdownPreview(this._context, 'VS CODE NOTES Preview', this._content, this._notesFilePath);
+                    await showNotesMarkdownPreview(this._context, 'VS CODE NOTES Preview', this._storage.content, this._storage.path);
                     break;
                 case 'previewPrompt':
                     await showNotesPromptPreview(
                         'VS CODE NOTES Prompt Preview',
-                        pickNotesTextForSend(this._content, msg.selectedText),
+                        pickNotesTextForSend(this._storage.content, msg.selectedText),
                         this._selectedTemplate,
-                        this._notesFilePath,
+                        this._storage.path,
                     );
                     break;
                 case 'copy':
-                    await vscode.env.clipboard.writeText(this._content);
+                    await vscode.env.clipboard.writeText(this._storage.content);
                     vscode.window.showInformationMessage('Copied to clipboard');
                     break;
                 case 'clear':
-                    this._content = '';
-                    this._saveContent();
+                    this._storage.save('');
                     this._sendState();
                     break;
                 case 'openInEditor':
@@ -765,18 +602,18 @@ class TomNotepadProvider implements vscode.WebviewViewProvider {
     }
 
     private async _openInEditor(): Promise<void> {
-        this._ensureFileExists();
-        const doc = await vscode.workspace.openTextDocument(this._notesFilePath);
+        this._storage.ensureFile();
+        const doc = await vscode.workspace.openTextDocument(this._storage.path);
         await vscode.window.showTextDocument(doc);
     }
 
     private async _sendToCopilot(selectedText?: string): Promise<void> {
-        const textToSend = pickNotesTextForSend(this._content, selectedText);
+        const textToSend = pickNotesTextForSend(this._storage.content, selectedText);
         if (!textToSend.trim()) {
             vscode.window.showWarningMessage('Notepad is empty');
             return;
         }
-        const expanded = await applyCopilotTemplateToNotes(textToSend, this._selectedTemplate, this._notesFilePath);
+        const expanded = await applyCopilotTemplateToNotes(textToSend, this._selectedTemplate, this._storage.path);
         await vscode.commands.executeCommand('workbench.action.chat.open', { query: expanded });
     }
 
@@ -784,10 +621,10 @@ class TomNotepadProvider implements vscode.WebviewViewProvider {
         if (!this._view) { return; }
         this._view.webview.postMessage({
             type: 'state',
-            content: this._content,
+            content: this._storage.content,
             templates: this._templates,
             selectedTemplate: this._selectedTemplate,
-            notesFilePath: this._notesFilePath,
+            notesFilePath: this._storage.path,
         });
     }
 
