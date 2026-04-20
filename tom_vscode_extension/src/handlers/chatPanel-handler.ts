@@ -673,7 +673,17 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         await this._applyContext(message);
                         break;
                     case 'addToQueue':
-                        await this._handleAddToQueue(message.text, message.template, message.repeatCount, message.answerWaitMinutes);
+                        await this._handleAddToQueue(
+                            message.text,
+                            message.template,
+                            message.repeatCount,
+                            message.answerWaitMinutes,
+                            {
+                                transport: message.transport,
+                                anthropicProfileId: message.anthropicProfileId,
+                                anthropicConfigId: message.anthropicConfigId,
+                            },
+                        );
                         break;
                     case 'openQueueEditor':
                         await vscode.commands.executeCommand('tomAi.editor.promptQueue');
@@ -2408,24 +2418,45 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         this._sendReusablePrompts();
     }
 
-    private async _handleAddToQueue(text: string, template: string, repeatCount?: number, answerWaitMinutes?: number): Promise<void> {
+    private async _handleAddToQueue(
+        text: string,
+        template: string,
+        repeatCount?: number,
+        answerWaitMinutes?: number,
+        transportOpts?: {
+            transport?: 'copilot' | 'anthropic';
+            anthropicProfileId?: string;
+            anthropicConfigId?: string;
+        },
+    ): Promise<void> {
         try {
             const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
             const queue = PromptQueueManager.instance;
             if (queue) {
-                // Apply panel default template wrapping
-                const wrappedText = applyDefaultTemplate(text, 'copilot');
+                const transport = transportOpts?.transport ?? 'copilot';
+                // Apply panel default template wrapping for Copilot; the
+                // Anthropic path uses its own profile + user-message
+                // template, so no wrapping here.
+                const wrappedText = transport === 'copilot'
+                    ? applyDefaultTemplate(text, 'copilot')
+                    : text;
                 await queue.enqueue({
                     originalText: wrappedText,
                     template: template || undefined,
                     repeatCount: Math.max(0, Math.round(Number(repeatCount || 0))),
-                    templateRepeatCount: undefined, // Chat panel repeat count is for main prompt only
-                    answerWaitMinutes: answerWaitMinutes && answerWaitMinutes > 0 ? answerWaitMinutes : undefined,
+                    templateRepeatCount: undefined,
+                    // answerWait / reminder fields don't apply to anthropic
+                    // items (spec §4.7). Leave them undefined.
+                    answerWaitMinutes: transport === 'copilot' && answerWaitMinutes && answerWaitMinutes > 0
+                        ? answerWaitMinutes
+                        : undefined,
                     deferSend: true,
+                    transport: transport === 'anthropic' ? 'anthropic' : undefined,
+                    anthropicProfileId: transportOpts?.anthropicProfileId,
+                    anthropicConfigId: transportOpts?.anthropicConfigId,
                 });
                 const count = queue.items.length;
-                vscode.window.showInformationMessage(`Added to prompt queue (${count} items)`);
-                // Notify webview so it can clear text and show feedback
+                vscode.window.showInformationMessage(`Added to prompt queue (${count} items, ${transport})`);
                 this._view?.webview.postMessage({ type: 'queueAdded', count });
             } else {
                 vscode.window.showWarningMessage('Prompt queue not available');
@@ -3324,6 +3355,11 @@ function getSectionContent(id) {
                 '<button data-action="preview" data-id="anthropic" title="Preview expanded prompt">Preview</button>' +
                 '<button class="primary" id="anthropic-send-btn" data-action="send" data-id="anthropic" title="Send to Anthropic">Send to Anthropic</button>' +
                 '<button class="icon-btn" data-action="cancel" data-id="anthropic" title="Stop current Anthropic turn"><span class="codicon codicon-debug-stop"></span></button>' +
+                // Queue buttons — mirror the Copilot section (spec §4.11).
+                // Stages the prompt as a queued item with transport='anthropic'
+                // and pins the current profile / user-message template.
+                '<button class="icon-btn" data-action="addToQueue" data-id="anthropic" title="Save to Queue"><span class="codicon codicon-add"></span><span class="codicon codicon-list-ordered"></span></button>' +
+                '<button class="icon-btn" data-action="openQueueEditor" data-id="anthropic" title="Open Queue Editor"><span class="codicon codicon-inbox"></span></button>' +
                 '<button class="icon-btn" data-action="openTrailRawFiles" data-id="anthropic" title="Open Raw Trail Files Viewer"><span class="codicon codicon-history"></span></button>' +
                 '<button class="icon-btn" data-action="openTrailSummaryViewer" data-id="anthropic" title="Open Trail Summary Viewer"><span class="codicon codicon-list-flat"></span></button>' +
                 '<button class="icon-btn" data-action="openSessionHistory" data-id="anthropic" title="Open session history — the rolling history.md from the quest folder, rendered in the MD Browser"><span class="codicon codicon-file-text"></span></button>' +
@@ -3593,7 +3629,10 @@ function handleAction(action, id, slot) {
         case 'closeContextPopup': closeContextPopup(); break;
         case 'applyContext': applyContextPopup(); break;
         case 'cancel': vscode.postMessage({ type: 'cancel', section: id || '' }); break;
-        case 'addToQueue': addCopilotToQueue(); break;
+        case 'addToQueue':
+            if (id === 'anthropic') { addAnthropicToQueue(); }
+            else { addCopilotToQueue(); }
+            break;
         case 'openQueueEditor': vscode.postMessage({ type: 'openQueueEditor' }); break;
         case 'openTimedRequestsEditor': vscode.postMessage({ type: 'openTimedRequestsEditor' }); break;
         case 'openTrailRawFiles': vscode.postMessage({ type: 'openTrailRawFiles', section: id || '' }); break;
@@ -4164,6 +4203,26 @@ function addCopilotToQueue() {
     var answerWaitMinutes = Math.max(0, parseInt(String(waitEl ? waitEl.value : '0'), 10) || 0);
     var slot = ensureSlotState('copilot').activeSlot;
     vscode.postMessage({ type: 'addToQueue', text: text, template: template, repeatCount: repeatCount, answerWaitMinutes: answerWaitMinutes, slot: slot });
+}
+
+function addAnthropicToQueue() {
+    // Spec §4.11 — stage a queue item with transport='anthropic' and
+    // pin the active profile + user-message template from this panel's
+    // own dropdowns (never inherit from the queue default).
+    var text = document.getElementById('anthropic-text');
+    text = text ? text.value : '';
+    if (!text.trim()) return;
+    var profileEl = document.getElementById('anthropic-profile');
+    var profileId = profileEl ? profileEl.value : '';
+    var templateEl = document.getElementById('anthropic-userMessage');
+    var templateName = templateEl ? templateEl.value : '';
+    vscode.postMessage({
+        type: 'addToQueue',
+        text: text,
+        template: templateName,
+        transport: 'anthropic',
+        anthropicProfileId: profileId,
+    });
 }
 
 function openContextPopup() {

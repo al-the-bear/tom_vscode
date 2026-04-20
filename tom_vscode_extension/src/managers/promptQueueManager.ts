@@ -1321,6 +1321,10 @@ export class PromptQueueManager {
         answerWaitMinutes?: number;
         initialStatus?: 'staged' | 'pending';
         deferSend?: boolean;
+        // Multi-transport pin-through (spec §4.1).
+        transport?: QueuedTransport;
+        anthropicProfileId?: string;
+        anthropicConfigId?: string;
     }): Promise<QueuedPrompt> {
         const resolvedRepeatCount = resolveRepeatCount(opts.repeatCount);
         const expanded = await this._buildExpandedText(
@@ -1391,6 +1395,9 @@ export class PromptQueueManager {
             templateRepeatCount: opts.templateRepeatCount,
             templateRepeatIndex: Math.max(0, Math.round(opts.templateRepeatIndex || 0)),
             answerWaitMinutes: opts.answerWaitMinutes && opts.answerWaitMinutes > 0 ? opts.answerWaitMinutes : undefined,
+            transport: opts.transport,
+            anthropicProfileId: opts.anthropicProfileId,
+            anthropicConfigId: opts.anthropicConfigId,
         };
 
         logQueue(`Item enqueued: id=${item.id}, type=${item.type}, status=${item.status}, text=${promptPreview(item.originalText)}`);
