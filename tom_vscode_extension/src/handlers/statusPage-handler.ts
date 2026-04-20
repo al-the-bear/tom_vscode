@@ -32,7 +32,51 @@ import {
     AskBigBrotherConfig,
 } from '../tools/local-llm-tools-config';
 import { WsPaths } from '../utils/workspacePaths';
+import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 import { validateStrictAiConfiguration, SendToChatConfig } from '../utils/sendToChatConfig';
+
+/**
+ * Subset of the `anthropic` config section that the status page reads
+ * from the central {@link TomAiConfiguration} cache. Writes still go
+ * through `loadSendToChatConfig()` + `saveSendToChatConfig()` because
+ * those APIs do file I/O; reads prefer the cached singleton for
+ * uniform reload semantics (Wave 2.5 of the review refactoring plan).
+ */
+interface AnthropicSectionForStatusPage {
+    apiKeyEnvVar?: string;
+    configurations?: Array<{
+        id: string;
+        name?: string;
+        model?: string;
+        transport?: 'direct' | 'agentSdk' | 'vscodeLm';
+        maxTokens?: number;
+        maxRounds?: number;
+        temperature?: number;
+        maxHistoryTokens?: number;
+        memoryToolsEnabled?: boolean;
+        promptCachingEnabled?: boolean;
+        historyMode?: string;
+        isDefault?: boolean;
+        agentSdk?: {
+            permissionMode?: string;
+            settingSources?: Array<'user' | 'project' | 'local'>;
+            maxTurns?: number;
+        };
+        vscodeLm?: {
+            vendor?: string;
+            family?: string;
+            modelId?: string;
+        };
+    }>;
+    memory?: {
+        memoryToolsEnabled?: boolean;
+        maxInjectedTokens?: number;
+    };
+}
+
+function getAnthropicSection(): AnthropicSectionForStatusPage {
+    return TomAiConfiguration.instance.getSection<AnthropicSectionForStatusPage>('anthropic') ?? {};
+}
 import type { TimerScheduleSlot } from '../managers/timerEngine';
 import type { CommandlineEntry } from './commandline-handler';
 import {
@@ -875,8 +919,8 @@ async function runCompactionDryRun(settings: {
 }
 
 async function runTestAnthropicApiKey(): Promise<void> {
-    const stcConfig = loadSendToChatConfig();
-    const envVar = stcConfig?.anthropic?.apiKeyEnvVar || 'ANTHROPIC_API_KEY';
+    const anthropic = getAnthropicSection();
+    const envVar = anthropic.apiKeyEnvVar || 'ANTHROPIC_API_KEY';
     const present = !!process.env[envVar];
     if (!present) {
         vscode.window.showWarningMessage(
@@ -898,7 +942,7 @@ async function runTestAnthropicApiKey(): Promise<void> {
     // Only pick a Direct configuration for the API-key test — its model
     // must be a real Anthropic model id, which vscodeLm configs don't
     // carry (they store VS Code LM model ids there).
-    const firstConfig = stcConfig?.anthropic?.configurations?.find(
+    const firstConfig = anthropic.configurations?.find(
         (c) => c && (c.transport === 'direct' || c.transport === undefined),
     );
     const model = firstConfig?.model || fetchResult.models[0].id;
@@ -1823,67 +1867,56 @@ export async function gatherStatusData(): Promise<StatusData> {
             toolTrailMaxResultChars: sendToChatConfig?.compaction?.toolTrailMaxResultChars ?? 500,
             backgroundExtractionEnabled: sendToChatConfig?.compaction?.backgroundExtractionEnabled === true,
         },
-        anthropicMemory: {
-            memoryToolsEnabled: sendToChatConfig?.anthropic?.memory?.memoryToolsEnabled === true,
-            maxInjectedTokens: sendToChatConfig?.anthropic?.memory?.maxInjectedTokens ?? 3000,
-        },
+        anthropicMemory: (() => {
+            const anthropic = getAnthropicSection();
+            return {
+                memoryToolsEnabled: anthropic.memory?.memoryToolsEnabled === true,
+                maxInjectedTokens: anthropic.memory?.maxInjectedTokens ?? 3000,
+            };
+        })(),
         compactionTemplateChoices: (sendToChatConfig?.compaction?.templates || []).map((t) => ({
             id: t.id, name: t.name || t.id,
         })),
         memoryExtractionTemplateChoices: (sendToChatConfig?.compaction?.memoryExtractionTemplates || []).map((t) => ({
             id: t.id, name: t.name || t.id,
         })),
-        anthropicConfigurationChoices: (sendToChatConfig?.anthropic?.configurations || []).map((c) => ({
-            id: c.id, name: c.name || c.id,
-        })),
-        anthropicApiKeyEnvVar: sendToChatConfig?.anthropic?.apiKeyEnvVar || 'ANTHROPIC_API_KEY',
-        anthropicConfigurationsSummary: (sendToChatConfig?.anthropic?.configurations || []).map((c) => {
-            const cc = c as {
-                id: string;
-                name?: string;
-                model?: string;
-                transport?: string;
-                maxTokens?: number;
-                maxRounds?: number;
-                temperature?: number;
-                maxHistoryTokens?: number;
-                memoryToolsEnabled?: boolean;
-                promptCachingEnabled?: boolean;
-                historyMode?: string;
-                isDefault?: boolean;
-                agentSdk?: {
-                    permissionMode?: string;
-                    settingSources?: Array<'user' | 'project' | 'local'>;
-                    maxTurns?: number;
-                };
-            };
-            const vscodeLm = (cc as { vscodeLm?: { vendor?: string; family?: string; modelId?: string } }).vscodeLm;
-            const transport = cc.transport === 'agentSdk'
-                ? 'agentSdk'
-                : cc.transport === 'vscodeLm'
-                    ? 'vscodeLm'
-                    : 'direct';
+        ...(() => {
+            const anthropic = getAnthropicSection();
+            const configurations = anthropic.configurations ?? [];
             return {
-                id: cc.id,
-                name: cc.name || cc.id,
-                model: cc.model || '',
-                transport: transport as 'direct' | 'agentSdk' | 'vscodeLm',
-                permissionMode: cc.agentSdk?.permissionMode,
-                promptCachingEnabled: cc.promptCachingEnabled === true,
-                historyMode: cc.historyMode || '',
-                isDefault: cc.isDefault === true,
-                maxTokens: cc.maxTokens,
-                maxRounds: cc.maxRounds,
-                temperature: cc.temperature,
-                maxHistoryTokens: cc.maxHistoryTokens,
-                memoryToolsEnabled: cc.memoryToolsEnabled,
-                settingSources: cc.agentSdk?.settingSources,
-                maxTurns: cc.agentSdk?.maxTurns,
-                vscodeLmVendor: vscodeLm?.vendor,
-                vscodeLmFamily: vscodeLm?.family,
-                vscodeLmModelId: vscodeLm?.modelId,
+                anthropicConfigurationChoices: configurations.map((c) => ({
+                    id: c.id, name: c.name || c.id,
+                })),
+                anthropicApiKeyEnvVar: anthropic.apiKeyEnvVar || 'ANTHROPIC_API_KEY',
+                anthropicConfigurationsSummary: configurations.map((cc) => {
+                    const transport = cc.transport === 'agentSdk'
+                        ? 'agentSdk'
+                        : cc.transport === 'vscodeLm'
+                            ? 'vscodeLm'
+                            : 'direct';
+                    return {
+                        id: cc.id,
+                        name: cc.name || cc.id,
+                        model: cc.model || '',
+                        transport: transport as 'direct' | 'agentSdk' | 'vscodeLm',
+                        permissionMode: cc.agentSdk?.permissionMode,
+                        promptCachingEnabled: cc.promptCachingEnabled === true,
+                        historyMode: cc.historyMode || '',
+                        isDefault: cc.isDefault === true,
+                        maxTokens: cc.maxTokens,
+                        maxRounds: cc.maxRounds,
+                        temperature: cc.temperature,
+                        maxHistoryTokens: cc.maxHistoryTokens,
+                        memoryToolsEnabled: cc.memoryToolsEnabled,
+                        settingSources: cc.agentSdk?.settingSources,
+                        maxTurns: cc.agentSdk?.maxTurns,
+                        vscodeLmVendor: cc.vscodeLm?.vendor,
+                        vscodeLmFamily: cc.vscodeLm?.family,
+                        vscodeLmModelId: cc.vscodeLm?.modelId,
+                    };
+                }),
             };
-        }),
+        })(),
     };
 }
 
