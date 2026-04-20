@@ -881,20 +881,6 @@ export class AnthropicHandler {
         const { profile, configuration, tools, userText } = options;
         const transport = configuration.transport ?? 'direct';
 
-        // Guard for the vscodeLm transport. The schema / editor / persistence
-        // for this transport are in place (step 2 of the multi-transport
-        // queue spec), but the handler fork lands in step 4. Refuse to
-        // silently fall through the Direct branch with a VS Code LM model
-        // id (that would hit the Anthropic REST API with a garbage model
-        // and return a confusing error). Replace this throw with the real
-        // callVsCodeLmOnce branch in step 4.
-        if (transport === 'vscodeLm') {
-            throw new Error(
-                `Anthropic configuration "${configuration.id}" uses the vscodeLm transport, ` +
-                'which is not yet wired into the handler (spec §4.4 / step 4 pending).',
-            );
-        }
-
         const quest = WsPaths.getWorkspaceQuestId();
         const windowId = vscode.env.sessionId;
         const requestId = this.generateRequestId();
@@ -1156,6 +1142,29 @@ export class AnthropicHandler {
             return result;
         }
 
+        // VS Code LM transport — routes through vscode.lm.selectChatModels
+        // + model.sendRequest. Model identity is pinned at configure-time
+        // (see multi_transport_prompt_queue_revised.md §4.2), so we filter
+        // the cached provider list by {vendor, family, modelId} rather
+        // than re-enumerating on each send.
+        //
+        // Initial implementation is single-shot: we concatenate the
+        // system prompt + user text (VS Code LM's single-shot form has no
+        // system/user split — see spec §2.8) and collect the text
+        // response. Tool-use loop is a follow-up; until then queue items
+        // that require tool calls should stick to Direct / Agent SDK.
+        if (transport === 'vscodeLm') {
+            return await this.sendViaVsCodeLm(
+                options,
+                systemSegments,
+                userContent,
+                windowId,
+                requestId,
+                round,
+                quest,
+            );
+        }
+
         const client = this.getClient();
         if (!client) {
             throw new Error('Anthropic client not available — set the configured API key env var');
@@ -1290,6 +1299,84 @@ export class AnthropicHandler {
         }
 
         return this.finalize(userContent, lastText, configuration.maxRounds, totalToolCalls, lastStopReason, windowId, requestId, quest, configuration, options.isolated === true);
+    }
+
+    /**
+     * VS Code LM leaf — single-shot (no tool loop in this initial cut).
+     * Resolves the pinned model via `vscode.lm.selectChatModels`, sends
+     * `{systemPrompt}\n\n{userText}` as one user message (the VS Code LM
+     * single-shot form has no system/user split — see spec §2.8),
+     * collects the text, and exits through the shared `finalize()` path
+     * so the trail / live-trail / rawTurns appends match every other
+     * leaf. Intentionally no tool-use handling yet — queue items that
+     * need tools should stay on Direct / Agent SDK until the tool loop
+     * lands.
+     */
+    private async sendViaVsCodeLm(
+        options: AnthropicSendOptions,
+        systemSegments: string[],
+        userContent: string,
+        windowId: string,
+        requestId: string,
+        round: number,
+        quest: string,
+    ): Promise<AnthropicSendResult> {
+        const { configuration } = options;
+        const vscodeLm = configuration.vscodeLm;
+        if (!vscodeLm || !vscodeLm.modelId) {
+            throw new Error(
+                `Anthropic configuration "${configuration.id}" has transport='vscodeLm' but no vscodeLm.modelId set. Edit the configuration to pick a model.`,
+            );
+        }
+        // Keep the parameters we accept compatible with the other leaves
+        // even when this branch doesn't use them yet — `round` is the
+        // round id used by the tool trail; reserved for the tool-use
+        // extension. Referencing once silences the unused warning without
+        // changing runtime behaviour.
+        void round;
+
+        const models = await vscode.lm.selectChatModels({
+            vendor: vscodeLm.vendor,
+            family: vscodeLm.family,
+        });
+        const model = models.find((m) => m.id === vscodeLm.modelId) ?? models[0];
+        if (!model) {
+            throw new Error(
+                `VS Code LM model not available for vendor="${vscodeLm.vendor}" family="${vscodeLm.family}" modelId="${vscodeLm.modelId}". Install the provider or reopen VS Code and retry.`,
+            );
+        }
+
+        const systemPrompt = systemSegments.filter((s) => s).join('\n\n');
+        const combined = systemPrompt ? `${systemPrompt}\n\n${userContent}` : userContent;
+        const chatMessages = [vscode.LanguageModelChatMessage.User(combined)];
+
+        try {
+            const request = await model.sendRequest(chatMessages, {}, options.cancellationToken);
+            let lastText = '';
+            for await (const fragment of request.text) {
+                lastText += fragment;
+                this.currentLiveTrail?.appendAssistantText(fragment);
+            }
+            return this.finalize(
+                userContent,
+                lastText,
+                /* turnsUsed */ 1,
+                /* toolCallCount */ 0,
+                /* stopReason */ 'end_turn',
+                windowId,
+                requestId,
+                quest,
+                configuration,
+                options.isolated === true,
+            );
+        } catch (err) {
+            const errMsg = err instanceof Error ? (err.stack || err.message) : String(err);
+            const body = `(VS Code LM request failed before completing)\n${errMsg}`;
+            TrailService.instance.writeRawAnswer(ANTHROPIC_SUBSYSTEM, body, windowId, requestId, quest);
+            this.currentLiveTrail?.endPromptWithError(errMsg);
+            this.currentLiveTrail = null;
+            throw err;
+        }
     }
 
     /**
