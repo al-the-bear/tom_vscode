@@ -30,6 +30,7 @@ import { setMetadataValue } from './tomAiChat-utils';
 import { getAccordionStyles } from './accordionPanel';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
 import { WsPaths } from '../utils/workspacePaths';
+import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import { validateStrictAiConfiguration } from '../utils/sendToChatConfig';
 import { findNearestDetectedProject, scanWorkspaceProjectsByDetectors } from '../utils/projectDetector';
 import { TrailService } from '../services/trailService';
@@ -935,7 +936,12 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     }
 
     private _getActiveQuestId(): string {
-        return this._context.workspaceState.get<string>('chatVar_quest', '').trim();
+        try {
+            return ChatVariablesStore.instance.quest.trim();
+        } catch {
+            // Store not yet initialised (activation order edge case).
+            return '';
+        }
     }
 
     private _getPreferredQuestId(): string {
@@ -2469,12 +2475,10 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     private _sendContextSummary(): void {
         let parts: string[] = [];
         try {
-            // We need a sync approach — use workspace state cache  
-            const quest = this._context.workspaceState.get<string>('chatVar_quest', '');
-            const role = this._context.workspaceState.get<string>('chatVar_role', '');
-            if (quest) parts.push('Q:' + quest);
-            if (role) parts.push('R:' + role);
-        } catch { /* ignore */ }
+            const store = ChatVariablesStore.instance;
+            if (store.quest) parts.push('Q:' + store.quest);
+            if (store.role)  parts.push('R:' + store.role);
+        } catch { /* store not yet initialised */ }
         this._view?.webview.postMessage({
             type: 'contextSummary',
             text: parts.length > 0 ? parts.join(' | ') : ''

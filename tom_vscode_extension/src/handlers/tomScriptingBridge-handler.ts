@@ -899,7 +899,7 @@ export class TomScriptingBridgeHandler {
             }
 
             case 'workspace.getWindowIdVce': {
-                const windowId = this.ctx.workspaceState.get<string>('tomAi.windowId');
+                const windowId = vscode.env.sessionId;
                 return { windowId };
             }
 
@@ -979,7 +979,7 @@ export class TomScriptingBridgeHandler {
         const questIds = questTodo.listQuestIds();
         const projects = await scanWorkspaceProjectsByDetectors();
         const activeQuest = WsPaths.getWorkspaceQuestId();
-        const windowId = this.ctx.workspaceState.get<string>('tomAi.windowId');
+        const windowId = vscode.env.sessionId;
 
         return {
             name: vscode.workspace.name || path.basename(wsRoot),

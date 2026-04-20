@@ -16,6 +16,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getWorkspaceRoot, escapeHtml } from './handler_shared';
 import { WsPaths } from '../utils/workspacePaths';
+import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import { findNearestDetectedProject, scanWorkspaceProjectsByDetectors } from '../utils/projectDetector';
 import { getWorkspaceName } from '../utils/panelYamlStore';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
@@ -127,7 +128,11 @@ function _getGlobalPromptsDir(): string | null {
 }
 
 function _getActiveQuestId(): string {
-    return _context?.workspaceState?.get<string>('chatVar_quest', '').trim() || '';
+    try {
+        return ChatVariablesStore.instance.quest.trim();
+    } catch {
+        return '';
+    }
 }
 
 function _getPreferredQuestId(): string {
