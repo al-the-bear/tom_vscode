@@ -1264,6 +1264,10 @@ interface QueueUpdateItemInput {
     repeatSuffix?: string;
     templateRepeatCount?: number | string;
     answerWaitMinutes?: number;
+    // Multi-transport (spec §4.13).
+    transport?: 'copilot' | 'anthropic';
+    anthropicProfileId?: string;
+    anthropicConfigId?: string;
 }
 
 async function executeQueueUpdateItem(input: QueueUpdateItemInput): Promise<string> {
@@ -1316,6 +1320,18 @@ async function executeQueueUpdateItem(input: QueueUpdateItemInput): Promise<stri
             });
         }
 
+        if (
+            input.transport !== undefined ||
+            input.anthropicProfileId !== undefined ||
+            input.anthropicConfigId !== undefined
+        ) {
+            queue.updateItemTransport(input.queueItemId, {
+                transport: input.transport,
+                anthropicProfileId: input.anthropicProfileId,
+                anthropicConfigId: input.anthropicConfigId,
+            });
+        }
+
         const updated = queue.getById(input.queueItemId);
         return JSON.stringify({
             success: true,
@@ -1358,6 +1374,14 @@ export const QUEUE_UPDATE_ITEM_TOOL: SharedToolDefinition<QueueUpdateItemInput> 
             repeatSuffix: { type: 'string' },
             templateRepeatCount: { description: 'Template-level repeat count (literal number or chat-variable name).' },
             answerWaitMinutes: { type: 'number' },
+            // Multi-transport (spec §4.13).
+            transport: {
+                type: 'string',
+                enum: ['copilot', 'anthropic'],
+                description: 'Change queue transport for this item (editable while staged/pending only).',
+            },
+            anthropicProfileId: { type: 'string' },
+            anthropicConfigId: { type: 'string' },
         },
     },
     execute: executeQueueUpdateItem,
@@ -1757,9 +1781,14 @@ export const TIMED_SET_ENGINE_STATE_TOOL: SharedToolDefinition<TimedSetEngineSta
 };
 
 // Prompt templates (queue + timed requests) — one tool per operation.
-// Templates live in `config.copilot.templates`.
+// Per spec §4.16 the tools accept a `transport` field and route to the
+// matching store:
+//   copilot   → config.copilot.templates (map of { template, showInMenu? })
+//   anthropic → config.anthropic.userMessageTemplates (array of
+//               { id, name, description?, template, isDefault? })
 
 interface PromptTemplateEntry { template: string; showInMenu?: boolean }
+type TemplateTransport = 'copilot' | 'anthropic';
 
 function getPromptTemplates(): { config: NonNullable<ReturnType<typeof loadSendToChatConfig>>; map: Record<string, PromptTemplateEntry> } | string {
     const config = loadSendToChatConfig();
@@ -1769,17 +1798,53 @@ function getPromptTemplates(): { config: NonNullable<ReturnType<typeof loadSendT
     return { config, map: config.copilot.templates as Record<string, PromptTemplateEntry> };
 }
 
-export const LIST_PROMPT_TEMPLATES_TOOL: SharedToolDefinition<Record<string, never>> = {
+interface AnthropicUserMessageTemplate {
+    id: string;
+    name: string;
+    description?: string;
+    template: string;
+    isDefault?: boolean;
+}
+
+function getAnthropicTemplates(): { config: NonNullable<ReturnType<typeof loadSendToChatConfig>>; list: AnthropicUserMessageTemplate[] } | string {
+    const config = loadSendToChatConfig();
+    if (!config) { return 'Error: Send-to-chat config is not available.'; }
+    if (!config.anthropic) { config.anthropic = {}; }
+    if (!Array.isArray(config.anthropic.userMessageTemplates)) { config.anthropic.userMessageTemplates = []; }
+    return { config, list: config.anthropic.userMessageTemplates as AnthropicUserMessageTemplate[] };
+}
+
+export const LIST_PROMPT_TEMPLATES_TOOL: SharedToolDefinition<{ transport?: TemplateTransport }> = {
     name: 'tomAi_listPromptTemplates',
     displayName: 'List Prompt Templates',
-    description: 'List prompt templates used by the queue and timed requests (stored in copilot.templates).',
-    tags: ['templates', 'copilot', 'tom-ai-chat'],
+    description: 'List prompt templates used by the queue and timed requests. Pass transport=anthropic to list Anthropic user-message templates instead (see spec §4.16); default is copilot.',
+    tags: ['templates', 'copilot', 'tom-ai-chat', 'anthropic'],
     readOnly: true,
-    inputSchema: { type: 'object', properties: {} },
-    execute: async () => {
+    inputSchema: {
+        type: 'object',
+        properties: {
+            transport: { type: 'string', enum: ['copilot', 'anthropic'], description: 'Which template store to list. Default: copilot.' },
+        },
+    },
+    execute: async (input) => {
+        const transport: TemplateTransport = input?.transport === 'anthropic' ? 'anthropic' : 'copilot';
+        if (transport === 'anthropic') {
+            const r = getAnthropicTemplates();
+            if (typeof r === 'string') { return r; }
+            const entries = r.list.map((t) => ({
+                transport: 'anthropic',
+                id: t.id,
+                name: t.name,
+                description: t.description,
+                template: t.template,
+                isDefault: t.isDefault === true,
+            }));
+            return JSON.stringify({ count: entries.length, templates: entries }, null, 2);
+        }
         const r = getPromptTemplates();
         if (typeof r === 'string') { return r; }
         const entries = Object.entries(r.map).map(([name, value]) => ({
+            transport: 'copilot',
             name,
             template: value.template,
             showInMenu: value.showInMenu !== false,
@@ -1788,23 +1853,45 @@ export const LIST_PROMPT_TEMPLATES_TOOL: SharedToolDefinition<Record<string, nev
     },
 };
 
-export const CREATE_PROMPT_TEMPLATE_TOOL: SharedToolDefinition<{ name: string; template?: string; showInMenu?: boolean }> = {
+export const CREATE_PROMPT_TEMPLATE_TOOL: SharedToolDefinition<{ transport?: TemplateTransport; name: string; template?: string; showInMenu?: boolean; description?: string; id?: string; isDefault?: boolean }> = {
     name: 'tomAi_createPromptTemplate',
     displayName: 'Create Prompt Template',
-    description: 'Create a new prompt template.',
-    tags: ['templates', 'copilot', 'tom-ai-chat'],
+    description: 'Create a new prompt template. Pass transport=anthropic to add an Anthropic user-message template (spec §4.16); default is copilot.',
+    tags: ['templates', 'copilot', 'tom-ai-chat', 'anthropic'],
     readOnly: false,
     inputSchema: {
         type: 'object',
         required: ['name'],
         properties: {
+            transport: { type: 'string', enum: ['copilot', 'anthropic'], description: 'Target template store. Default: copilot.' },
             name: { type: 'string' },
             template: { type: 'string', description: 'Template body. Default: "${originalPrompt}".' },
-            showInMenu: { type: 'boolean', description: 'Default true.' },
+            showInMenu: { type: 'boolean', description: 'Copilot only — default true.' },
+            description: { type: 'string', description: 'Anthropic only — optional description.' },
+            id: { type: 'string', description: 'Anthropic only — template id (defaults to name).' },
+            isDefault: { type: 'boolean', description: 'Anthropic only — mark as the default template.' },
         },
     },
     execute: async (input) => {
         if (!input.name) { return 'Error: name is required.'; }
+        const transport: TemplateTransport = input?.transport === 'anthropic' ? 'anthropic' : 'copilot';
+        if (transport === 'anthropic') {
+            const r = getAnthropicTemplates();
+            if (typeof r === 'string') { return r; }
+            const id = input.id?.trim() || input.name.trim();
+            if (r.list.some((t) => t.id === id)) {
+                return `Error: anthropic template with id "${id}" already exists.`;
+            }
+            r.list.push({
+                id,
+                name: input.name,
+                description: input.description,
+                template: input.template || '${userMessage}',
+                isDefault: input.isDefault === true,
+            });
+            saveSendToChatConfig(r.config);
+            return JSON.stringify({ success: true, transport: 'anthropic', id, name: input.name });
+        }
         const r = getPromptTemplates();
         if (typeof r === 'string') { return r; }
         r.map[input.name] = {
@@ -1812,27 +1899,59 @@ export const CREATE_PROMPT_TEMPLATE_TOOL: SharedToolDefinition<{ name: string; t
             showInMenu: input.showInMenu !== false,
         };
         saveSendToChatConfig(r.config);
-        return JSON.stringify({ success: true, name: input.name });
+        return JSON.stringify({ success: true, transport: 'copilot', name: input.name });
     },
 };
 
-export const UPDATE_PROMPT_TEMPLATE_TOOL: SharedToolDefinition<{ name: string; newName?: string; template?: string; showInMenu?: boolean }> = {
+export const UPDATE_PROMPT_TEMPLATE_TOOL: SharedToolDefinition<{ transport?: TemplateTransport; name: string; newName?: string; template?: string; showInMenu?: boolean; description?: string; id?: string; newId?: string; isDefault?: boolean }> = {
     name: 'tomAi_updatePromptTemplate',
     displayName: 'Update Prompt Template',
-    description: 'Patch an existing prompt template. Optionally rename via newName.',
-    tags: ['templates', 'copilot', 'tom-ai-chat'],
+    description: 'Patch an existing prompt template. Pass transport=anthropic to touch the Anthropic user-message store (spec §4.16); default is copilot. Copilot templates are keyed by name; Anthropic templates by id.',
+    tags: ['templates', 'copilot', 'tom-ai-chat', 'anthropic'],
     readOnly: false,
     inputSchema: {
         type: 'object',
-        required: ['name'],
         properties: {
-            name: { type: 'string', description: 'Existing template name.' },
-            newName: { type: 'string', description: 'Optional rename target.' },
+            transport: { type: 'string', enum: ['copilot', 'anthropic'], description: 'Target template store. Default: copilot.' },
+            name: { type: 'string', description: 'Copilot: existing template name. Anthropic: new display name (optional).' },
+            newName: { type: 'string', description: 'Copilot only — rename target.' },
             template: { type: 'string' },
-            showInMenu: { type: 'boolean' },
+            showInMenu: { type: 'boolean', description: 'Copilot only.' },
+            description: { type: 'string', description: 'Anthropic only.' },
+            id: { type: 'string', description: 'Anthropic only — existing template id to patch.' },
+            newId: { type: 'string', description: 'Anthropic only — rename target id.' },
+            isDefault: { type: 'boolean', description: 'Anthropic only.' },
         },
     },
     execute: async (input) => {
+        const transport: TemplateTransport = input?.transport === 'anthropic' ? 'anthropic' : 'copilot';
+        if (transport === 'anthropic') {
+            const r = getAnthropicTemplates();
+            if (typeof r === 'string') { return r; }
+            const id = input.id || input.name;
+            const existing = r.list.find((t) => t.id === id);
+            if (!existing) {
+                return `Error: anthropic template with id "${id}" not found.`;
+            }
+            const targetId = input.newId?.trim() || existing.id;
+            if (targetId !== existing.id && r.list.some((t) => t.id === targetId)) {
+                return `Error: anthropic template with id "${targetId}" already exists.`;
+            }
+            existing.id = targetId;
+            if (input.name !== undefined) { existing.name = input.name; }
+            if (input.description !== undefined) { existing.description = input.description || undefined; }
+            if (input.template !== undefined) { existing.template = input.template; }
+            if (input.isDefault !== undefined) {
+                existing.isDefault = input.isDefault === true;
+                if (input.isDefault === true) {
+                    for (const other of r.list) {
+                        if (other !== existing) { other.isDefault = false; }
+                    }
+                }
+            }
+            saveSendToChatConfig(r.config);
+            return JSON.stringify({ success: true, transport: 'anthropic', id: targetId });
+        }
         const r = getPromptTemplates();
         if (typeof r === 'string') { return r; }
         if (!input.name || !r.map[input.name]) {
@@ -1846,28 +1965,43 @@ export const UPDATE_PROMPT_TEMPLATE_TOOL: SharedToolDefinition<{ name: string; n
             showInMenu: input.showInMenu !== undefined ? input.showInMenu : (old.showInMenu !== false),
         };
         saveSendToChatConfig(r.config);
-        return JSON.stringify({ success: true, name: targetName });
+        return JSON.stringify({ success: true, transport: 'copilot', name: targetName });
     },
 };
 
-export const DELETE_PROMPT_TEMPLATE_TOOL: SharedToolDefinition<{ name: string }> = {
+export const DELETE_PROMPT_TEMPLATE_TOOL: SharedToolDefinition<{ transport?: TemplateTransport; name?: string; id?: string }> = {
     name: 'tomAi_deletePromptTemplate',
     displayName: 'Delete Prompt Template',
-    description: 'Delete a prompt template by name.',
-    tags: ['templates', 'copilot', 'tom-ai-chat'],
+    description: 'Delete a prompt template. Pass transport=anthropic + id to remove an Anthropic user-message template; otherwise pass name for a Copilot template (spec §4.16).',
+    tags: ['templates', 'copilot', 'tom-ai-chat', 'anthropic'],
     readOnly: false,
     inputSchema: {
         type: 'object',
-        required: ['name'],
-        properties: { name: { type: 'string' } },
+        properties: {
+            transport: { type: 'string', enum: ['copilot', 'anthropic'], description: 'Target template store. Default: copilot.' },
+            name: { type: 'string', description: 'Copilot template name.' },
+            id: { type: 'string', description: 'Anthropic template id.' },
+        },
     },
     execute: async (input) => {
+        const transport: TemplateTransport = input?.transport === 'anthropic' ? 'anthropic' : 'copilot';
+        if (transport === 'anthropic') {
+            const r = getAnthropicTemplates();
+            if (typeof r === 'string') { return r; }
+            const id = input.id;
+            if (!id) { return 'Error: id is required for anthropic templates.'; }
+            const idx = r.list.findIndex((t) => t.id === id);
+            if (idx < 0) { return `Error: anthropic template with id "${id}" not found.`; }
+            r.list.splice(idx, 1);
+            saveSendToChatConfig(r.config);
+            return JSON.stringify({ success: true, transport: 'anthropic', id });
+        }
         const r = getPromptTemplates();
         if (typeof r === 'string') { return r; }
         if (!input.name || !r.map[input.name]) { return 'Error: template name required and must exist.'; }
         delete r.map[input.name];
         saveSendToChatConfig(r.config);
-        return JSON.stringify({ success: true, name: input.name });
+        return JSON.stringify({ success: true, transport: 'copilot', name: input.name });
     },
 };
 

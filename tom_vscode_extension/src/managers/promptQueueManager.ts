@@ -1488,6 +1488,33 @@ export class PromptQueueManager {
         return true;
     }
 
+    /**
+     * Patch the queued item's transport + anthropic target ids. Editable
+     * only while the item is in an editable status — once sending has
+     * started the dispatcher has already resolved the transport and a
+     * mid-flight change would desync the stage state.
+     */
+    updateItemTransport(id: string, patch: {
+        transport?: QueuedTransport;
+        anthropicProfileId?: string;
+        anthropicConfigId?: string;
+    }): void {
+        const item = this._items.find(i => i.id === id);
+        if (!item) { return; }
+        if (!this.isEditableStatus(item.status)) { return; }
+        if (patch.transport !== undefined) {
+            item.transport = patch.transport;
+        }
+        if (patch.anthropicProfileId !== undefined) {
+            item.anthropicProfileId = patch.anthropicProfileId || undefined;
+        }
+        if (patch.anthropicConfigId !== undefined) {
+            item.anthropicConfigId = patch.anthropicConfigId || undefined;
+        }
+        this.persist();
+        this._onDidChange.fire();
+    }
+
     updateItemReminder(id: string, patch: { reminderEnabled?: boolean; reminderTemplateId?: string; reminderTimeoutMinutes?: number; reminderRepeat?: boolean }): void {
         const item = this._items.find(i => i.id === id);
         if (!item) { return; }
