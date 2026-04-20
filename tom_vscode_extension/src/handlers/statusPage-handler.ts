@@ -1807,7 +1807,7 @@ export async function gatherStatusData(): Promise<StatusData> {
         })),
         configErrors: strictErrors,
         compaction: {
-            disabled: (sendToChatConfig?.compaction as { disabled?: boolean })?.disabled === true,
+            disabled: sendToChatConfig?.compaction?.disabled === true,
             llmProvider: (sendToChatConfig?.compaction?.llmProvider as 'localLlm' | 'anthropic') || 'localLlm',
             llmConfigId: sendToChatConfig?.compaction?.llmConfigId || '',
             compactionTemplateId: sendToChatConfig?.compaction?.compactionTemplateId || '',
