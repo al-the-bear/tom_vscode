@@ -877,7 +877,12 @@ async function runTestAnthropicApiKey(): Promise<void> {
         vscode.window.showWarningMessage('Anthropic API returned an empty model list — key may be valid but has no model access.');
         return;
     }
-    const firstConfig = stcConfig?.anthropic?.configurations?.find((c) => c?.transport !== 'agentSdk');
+    // Only pick a Direct configuration for the API-key test — its model
+    // must be a real Anthropic model id, which vscodeLm configs don't
+    // carry (they store VS Code LM model ids there).
+    const firstConfig = stcConfig?.anthropic?.configurations?.find(
+        (c) => c && (c.transport === 'direct' || c.transport === undefined),
+    );
     const model = firstConfig?.model || fetchResult.models[0].id;
     try {
         const reply = await handler.runInternalCall({

@@ -45,7 +45,7 @@ import { debugLog } from '../utils/debugLogger';
  * Claude Code install and delegating the tool-use loop, prompt caching,
  * and context compaction to the SDK.
  */
-export type AnthropicTransport = 'direct' | 'agentSdk';
+export type AnthropicTransport = 'direct' | 'agentSdk' | 'vscodeLm';
 
 /** Spec §18.2 — per-configuration Agent SDK knobs. */
 export interface AnthropicAgentSdkOptions {
@@ -73,6 +73,18 @@ export interface AnthropicConfiguration {
     transport?: AnthropicTransport;
     /** Spec §18.2 — Agent SDK specific options; ignored when `transport !== 'agentSdk'`. */
     agentSdk?: AnthropicAgentSdkOptions;
+    /**
+     * VS Code LM options; applies when `transport === 'vscodeLm'`. Model
+     * identity pinned at configure-time via the status-page picker (see
+     * multi_transport_prompt_queue_revised.md §4.2). Sends filter the
+     * cached `selectChatModels()` list by this tuple rather than
+     * re-enumerating providers.
+     */
+    vscodeLm?: {
+        vendor: string;
+        family: string;
+        modelId: string;
+    };
     /**
      * Per-configuration override for the global `compaction.disabled` flag.
      *   'default' / undefined — use the status-page checkbox (global).
@@ -185,7 +197,7 @@ export const ANTHROPIC_SUBSYSTEM = { type: 'anthropic' as const } satisfies impo
  */
 function buildPayloadDump(params: {
     requestId: string;
-    transport: 'direct' | 'agentSdk';
+    transport: AnthropicTransport;
     configuration: AnthropicConfiguration;
     profile: AnthropicProfile;
     systemPrompt: string;
@@ -868,6 +880,20 @@ export class AnthropicHandler {
     async sendMessage(options: AnthropicSendOptions): Promise<AnthropicSendResult> {
         const { profile, configuration, tools, userText } = options;
         const transport = configuration.transport ?? 'direct';
+
+        // Guard for the vscodeLm transport. The schema / editor / persistence
+        // for this transport are in place (step 2 of the multi-transport
+        // queue spec), but the handler fork lands in step 4. Refuse to
+        // silently fall through the Direct branch with a VS Code LM model
+        // id (that would hit the Anthropic REST API with a garbage model
+        // and return a confusing error). Replace this throw with the real
+        // callVsCodeLmOnce branch in step 4.
+        if (transport === 'vscodeLm') {
+            throw new Error(
+                `Anthropic configuration "${configuration.id}" uses the vscodeLm transport, ` +
+                'which is not yet wired into the handler (spec §4.4 / step 4 pending).',
+            );
+        }
 
         const quest = WsPaths.getWorkspaceQuestId();
         const windowId = vscode.env.sessionId;
