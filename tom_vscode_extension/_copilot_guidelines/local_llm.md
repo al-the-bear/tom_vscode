@@ -7,7 +7,7 @@ The **Local LLM** subpanel in `@CHAT` sends prompts to an Ollama-compatible HTTP
 - `tomAi.sendToLocalLlm` — send current selection / editor content.
 - `tomAi.sendToLocalLlm.standard` — default-template variant.
 - `tomAi.sendToLocalLlm.template` — pick a template interactively.
-- `tomAi.sendToLocalLlm.expand`, `tomAi.sendToLocalLlm.rewrite`, `tomAi.sendToLocalLlm.detailed`, `tomAi.sendToLocalLlm.annotated` — prompt-expansion shortcuts.
+- Profile-specific sends (`tomAi.sendToLocalLlm.<profileKey>`) — dynamically registered at activation from every profile in the Local LLM config. Not contributed through `package.json` — invoke via the palette (after typing the prefix) or via `tomAi.sendToLocalLlm.template` which shows the profile picker. The hard-coded `.expand` / `.rewrite` / `.detailed` / `.annotated` commands were removed in Wave 2.2 to unclutter the context menu; profiles with the same names still work because they're registered dynamically.
 - `tomAi.localLlm.switchModel` — change the active model.
 
 Chord menu: `Ctrl+Shift+L` opens the Local LLM menu.

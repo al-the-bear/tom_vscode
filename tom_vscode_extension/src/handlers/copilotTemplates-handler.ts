@@ -227,86 +227,21 @@ export class SendToChatAdvancedManager {
     }
 
     /**
-     * Register static commands for templates with showInMenu: true
-     * These are registered at extension activation and correspond to static menu entries in package.json
+     * Register the few static commands that back editor/context menu
+     * entries in package.json. The 6 per-template variants
+     * (trailReminder / todoExecution / codeReview / explain / addToTodo
+     * / fixMarkdown) were removed in Wave 2.2 — the template picker at
+     * `tomAi.sendToCopilot.template` handles all of them by name and
+     * keeps the command palette clutter-free. Templates with
+     * `showInMenu: true` are advertised through the quick-pick, not
+     * through dedicated command IDs.
      */
     private registerStaticMenuCommands(): void {
-        // Register the Trail Reminder command (static, defined in package.json)
-        const trailReminderCmd = vscode.commands.registerCommand('tomAi.sendToCopilot.trailReminder', async () => {
-            const template = this.templates['Trail Reminder'];
-            if (template) {
-                await this.sendToChat('Trail Reminder', template);
-            } else {
-                vscode.window.showWarningMessage('Trail Reminder template not found in configuration');
-            }
-        });
-        this.registeredCommands.push(trailReminderCmd);
-        this.context.subscriptions.push(trailReminderCmd);
-
-        // Register the TODO Execution command (static, defined in package.json)
-        const todoExecutionCmd = vscode.commands.registerCommand('tomAi.sendToCopilot.todoExecution', async () => {
-            const template = this.templates['TODO Execution'];
-            if (template) {
-                await this.sendToChat('TODO Execution', template);
-            } else {
-                vscode.window.showWarningMessage('TODO Execution template not found in configuration');
-            }
-        });
-        this.registeredCommands.push(todoExecutionCmd);
-        this.context.subscriptions.push(todoExecutionCmd);
-
-        // Register the Standard Template command (uses default from config, loaded dynamically)
         const standardTemplateCmd = vscode.commands.registerCommand('tomAi.sendToCopilot.standard', async () => {
             await this.sendWithDefaultTemplate();
         });
         this.registeredCommands.push(standardTemplateCmd);
         this.context.subscriptions.push(standardTemplateCmd);
-
-        // Register submenu commands for Code Review, Explain, Add to Todo
-        const codeReviewCmd = vscode.commands.registerCommand('tomAi.sendToCopilot.codeReview', async () => {
-            const template = this.templates['Code Review'];
-            if (template) {
-                await this.sendToChat('Code Review', template);
-            } else {
-                vscode.window.showWarningMessage('Code Review template not found in configuration');
-            }
-        });
-        this.registeredCommands.push(codeReviewCmd);
-        this.context.subscriptions.push(codeReviewCmd);
-
-        const explainCmd = vscode.commands.registerCommand('tomAi.sendToCopilot.explain', async () => {
-            const template = this.templates['Explain Code'];
-            if (template) {
-                await this.sendToChat('Explain Code', template);
-            } else {
-                vscode.window.showWarningMessage('Explain Code template not found in configuration');
-            }
-        });
-        this.registeredCommands.push(explainCmd);
-        this.context.subscriptions.push(explainCmd);
-
-        const addToTodoCmd = vscode.commands.registerCommand('tomAi.sendToCopilot.addToTodo', async () => {
-            const template = this.templates['Add to Todo'];
-            if (template) {
-                await this.sendToChat('Add to Todo', template);
-            } else {
-                vscode.window.showWarningMessage('Add to Todo template not found in configuration');
-            }
-        });
-        this.registeredCommands.push(addToTodoCmd);
-        this.context.subscriptions.push(addToTodoCmd);
-
-        // Register Fix Markdown here command
-        const fixMarkdownCmd = vscode.commands.registerCommand('tomAi.sendToCopilot.fixMarkdown', async () => {
-            const template = this.templates['Fix Markdown here'];
-            if (template) {
-                await this.sendToChat('Fix Markdown here', template);
-            } else {
-                vscode.window.showWarningMessage('Fix Markdown here template not found in configuration');
-            }
-        });
-        this.registeredCommands.push(fixMarkdownCmd);
-        this.context.subscriptions.push(fixMarkdownCmd);
 
         // Register Show Chat Answer Values command (command palette only)
         const showChatAnswerCmd = vscode.commands.registerCommand('tomAi.showAnswerValues', () => {

@@ -63,16 +63,6 @@
                 }
             ]
         },
-        "submenus": [
-            {
-                "id": "tomAi.sendToCopilotSubmenu",
-                "label": "Send to Copilot..."
-            },
-            {
-                "id": "tomAi.sendToLocalLlmSubmenu",
-                "label": "Send to Local LLM..."
-            }
-        ],
         "commands": [
             {
                 "command": "tomAi.sendToCopilot",
@@ -91,42 +81,6 @@
                 "title": "@T: Send to Copilot (Default Template)",
                 "category": "@Tom",
                 "shortTitle": "Send to Copilot (Default Template)"
-            },
-            {
-                "command": "tomAi.sendToCopilot.trailReminder",
-                "title": "@T: Send with Trail Reminder",
-                "category": "@Tom",
-                "shortTitle": "Send with Trail Reminder"
-            },
-            {
-                "command": "tomAi.sendToCopilot.todoExecution",
-                "title": "@T: TODO Execution",
-                "category": "@Tom",
-                "shortTitle": "TODO Execution"
-            },
-            {
-                "command": "tomAi.sendToCopilot.codeReview",
-                "title": "@T: Code Review",
-                "category": "@Tom",
-                "shortTitle": "Code Review"
-            },
-            {
-                "command": "tomAi.sendToCopilot.explain",
-                "title": "@T: Explain Code",
-                "category": "@Tom",
-                "shortTitle": "Explain Code"
-            },
-            {
-                "command": "tomAi.sendToCopilot.addToTodo",
-                "title": "@T: Add to Todo",
-                "category": "@Tom",
-                "shortTitle": "Add to Todo"
-            },
-            {
-                "command": "tomAi.sendToCopilot.fixMarkdown",
-                "title": "@T: Fix Markdown here",
-                "category": "@Tom",
-                "shortTitle": "Fix Markdown here"
             },
             {
                 "command": "tomAi.reloadConfig",
@@ -160,30 +114,6 @@
                 "title": "@T: Send to Local LLM (Default)",
                 "category": "@Tom",
                 "shortTitle": "Send to Local LLM (Default)"
-            },
-            {
-                "command": "tomAi.sendToLocalLlm.expand",
-                "title": "@T: Expand Prompt",
-                "category": "@Tom",
-                "shortTitle": "Expand Prompt"
-            },
-            {
-                "command": "tomAi.sendToLocalLlm.rewrite",
-                "title": "@T: Rewrite",
-                "category": "@Tom",
-                "shortTitle": "Rewrite"
-            },
-            {
-                "command": "tomAi.sendToLocalLlm.detailed",
-                "title": "@T: Detailed Expansion",
-                "category": "@Tom",
-                "shortTitle": "Detailed Expansion"
-            },
-            {
-                "command": "tomAi.sendToLocalLlm.annotated",
-                "title": "@T: Annotated Expansion",
-                "category": "@Tom",
-                "shortTitle": "Annotated Expansion"
             },
             {
                 "command": "tomAi.aiConversation.start",
@@ -745,10 +675,6 @@
             ],
             "editor/context": [
                 {
-                    "submenu": "tomAi.sendToCopilotSubmenu",
-                    "group": "copilot@0"
-                },
-                {
                     "command": "tomAi.sendToCopilot.standard",
                     "group": "copilot@1"
                 },
@@ -760,10 +686,6 @@
                     "command": "tomAi.sendToCopilot",
                     "when": "editorHasSelection",
                     "group": "copilot@3"
-                },
-                {
-                    "submenu": "tomAi.sendToLocalLlmSubmenu",
-                    "group": "localLlm@0"
                 },
                 {
                     "command": "tomAi.sendToLocalLlm.standard",
@@ -807,50 +729,6 @@
                     "command": "tomAi.openInMdBrowser",
                     "when": "resourceLangId == markdown",
                     "group": "tomAi@11"
-                }
-            ],
-            "tomAi.sendToCopilotSubmenu": [
-                {
-                    "command": "tomAi.sendToCopilot.trailReminder",
-                    "group": "standard@1"
-                },
-                {
-                    "command": "tomAi.sendToCopilot.todoExecution",
-                    "group": "standard@2"
-                },
-                {
-                    "command": "tomAi.sendToCopilot.codeReview",
-                    "group": "standard@3"
-                },
-                {
-                    "command": "tomAi.sendToCopilot.explain",
-                    "group": "standard@4"
-                },
-                {
-                    "command": "tomAi.sendToCopilot.addToTodo",
-                    "group": "standard@5"
-                },
-                {
-                    "command": "tomAi.sendToCopilot.fixMarkdown",
-                    "group": "standard@6"
-                }
-            ],
-            "tomAi.sendToLocalLlmSubmenu": [
-                {
-                    "command": "tomAi.sendToLocalLlm.expand",
-                    "group": "profiles@1"
-                },
-                {
-                    "command": "tomAi.sendToLocalLlm.rewrite",
-                    "group": "profiles@2"
-                },
-                {
-                    "command": "tomAi.sendToLocalLlm.detailed",
-                    "group": "profiles@3"
-                },
-                {
-                    "command": "tomAi.sendToLocalLlm.annotated",
-                    "group": "profiles@4"
                 }
             ]
         },
