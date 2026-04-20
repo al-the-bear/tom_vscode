@@ -615,6 +615,14 @@ export class PromptQueueManager {
         if (!sending || !sending.expectedRequestId) {
             return;
         }
+        // Defensive guard (spec §4.8): anthropic items must never match
+        // against Copilot answer files. The sending-item's expectedRequestId
+        // is blanked for anthropic stages in dispatchStage, but an item
+        // constructed by hand or revived from older state could still
+        // carry a stale id. Skip it here so it can't drive a false match.
+        if (this.resolveStageTransport(sending).transport === 'anthropic') {
+            return;
+        }
         const dir = this.answerDirectory;
         if (!fs.existsSync(dir)) {
             return;
@@ -692,6 +700,10 @@ export class PromptQueueManager {
     private isReminderEligible(item: QueuedPrompt): boolean {
         // Fix Issue 3 Bug A: respect reminderEnabled for ALL item types
         if (item.reminderEnabled === false) { return false; }
+        // Anthropic items don't wait on an answer file — the response is
+        // returned synchronously. Reminders are meaningless here
+        // (spec §4.7). Skip regardless of the flag.
+        if (this.resolveStageTransport(item).transport === 'anthropic') { return false; }
         if (item.type !== 'timed') { return true; }
 
         const followUps = item.followUps || [];
@@ -759,6 +771,12 @@ export class PromptQueueManager {
     private async checkResponseTimeouts(): Promise<void> {
         const sending = this._items.find(i => i.status === 'sending');
         if (!sending || !sending.sentAt) { return; }
+
+        // Anthropic items don't have an answer-file wait — the response
+        // is returned synchronously and the stage advances immediately.
+        // Skip both the answer-wait auto-advance and the reminder
+        // scheduling below for these items (spec §4.7).
+        if (this.resolveStageTransport(sending).transport === 'anthropic') { return; }
 
         // Answer-wait timer: auto-advance after N minutes without waiting for answer file.
         if (sending.answerWaitMinutes && sending.answerWaitMinutes > 0) {
