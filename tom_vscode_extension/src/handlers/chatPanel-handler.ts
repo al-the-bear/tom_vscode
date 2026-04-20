@@ -691,6 +691,9 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'openQueueEditor':
                         await vscode.commands.executeCommand('tomAi.editor.promptQueue');
                         break;
+                    case 'openQueueTemplatesEditor':
+                        await vscode.commands.executeCommand('tomAi.editor.queueTemplates');
+                        break;
                     case 'openContextSettingsEditor':
                         await vscode.commands.executeCommand('tomAi.editor.contextSettings');
                         break;
@@ -3324,41 +3327,22 @@ function getSectionContent(id) {
                 '<span id="copilot-answer-indicator" class="answer-indicator">Answer Ready</span>' +
                 '<button class="icon-btn" data-action="showAnswerViewer" data-id="copilot" title="View Answer"><span class="codicon codicon-eye"></span></button>' +
                 '<button class="icon-btn" data-action="extractAnswer" data-id="copilot" title="Extract to Markdown"><span class="codicon codicon-file-symlink-file"></span></button>' +
-                '</div>' +
-                '<div id="copilot-context-overlay" class="context-overlay" style="display:none;">' +
-            '<div id="copilot-context-popup" class="context-popup">' +
-            '<div class="context-popup-header"><span>Context & Settings</span><button class="icon-btn" data-action="closeContextPopup" title="Close"><span class="codicon codicon-close"></span></button></div>' +
-            '<div class="context-popup-body">' +
-            '<fieldset class="context-group"><legend>Context</legend>' +
-            '<div class="context-row"><label>Quest:</label><select id="ctx-quest"></select></div>' +
-            '<div class="context-row"><label>Role:</label><select id="ctx-role"></select></div>' +
-            '<div class="context-row"><label>Projects:</label><select id="ctx-projects" multiple size="3"></select></div>' +
-            '<div class="context-row"><label>Todo File:</label><select id="ctx-todoFile"></select></div>' +
-            '<div class="context-row"><label>Todo:</label><select id="ctx-todo"></select></div>' +
-            '</fieldset>' +
-            '<fieldset class="context-group"><legend>Auto-Hide</legend>' +
-            '<div class="context-row"><label>Auto-hide:</label><select id="copilot-autohide"><option value="0">Keep open</option><option value="1000">1s</option><option value="5000">5s</option><option value="10000">10s</option></select></div>' +
-            '</fieldset>' +
-            '<fieldset class="context-group"><legend>Quick Links</legend>' +
-            '<div class="context-links">' +
-            '<button class="link-btn" data-action="openStatusPage" title="Extension Status"><span class="codicon codicon-dashboard"></span> Status Page</button>' +
-            '<button class="link-btn" data-action="openGlobalTemplateEditor" title="Prompt Template Editor"><span class="codicon codicon-file-code"></span> Template Editor</button>' +
-            '<button class="link-btn" data-action="openReusablePromptEditor" title="Reusable Prompt Editor"><span class="codicon codicon-note"></span> Reusable Prompts</button>' +
-            '<button class="link-btn" data-action="openContextSettingsEditor" title="Context & Settings Editor"><span class="codicon codicon-settings-gear"></span> Context Editor</button>' +
-            '<button class="link-btn" data-action="openChatVariablesEditor" title="Chat Variables Editor"><span class="codicon codicon-symbol-key"></span> Chat Variables</button>' +
-            '<button class="link-btn" data-action="openTrailRawFiles" data-id="copilot" title="Raw Trail Files Viewer"><span class="codicon codicon-history"></span> Raw Trail Files Viewer</button>' +
-            '<button class="link-btn" data-action="openTrailSummaryViewer" data-id="copilot" title="Trail Summary Viewer"><span class="codicon codicon-list-flat"></span> Trail Summary Viewer</button>' +
-            '</div>' +
-            '</fieldset>' +
-            '</div>' +
-            '<div class="context-popup-footer"><button class="primary" data-action="applyContext">Apply</button><button data-action="closeContextPopup">Cancel</button></div>' +
-            '</div>' +
-            '</div>',
+                '</div>',
+            // Context + Settings overlay no longer lives in this section;
+            // it is rendered once at container level by render() so that
+            // collapsing the Copilot section does not hide the popup when
+            // another section invokes it.
             infoId: 'copilot-templateInfo',
             placeholder: 'Enter your prompt...',
             helpTitle: '',
             afterEditorHtml:
-                '<div class="status-bar"><span id="copilot-context-summary" class="context-summary"></span><span class="status-bar-actions"><button class="icon-btn" data-action="openChatVariablesEditor" title="Chat Variables Editor"><span class="codicon codicon-symbol-key"></span></button></span></div>',
+                '<div class="status-bar"><span id="copilot-context-summary" class="context-summary"></span>' +
+                '<span class="status-bar-actions">' +
+                '<button class="icon-btn" data-action="openChatVariablesEditor" title="Chat Variables Editor"><span class="codicon codicon-symbol-key"></span></button>' +
+                '<button class="icon-btn" data-action="openQueueEditor" data-id="copilot" title="Open Prompt Queue"><span class="codicon codicon-inbox"></span></button>' +
+                '<button class="icon-btn" data-action="openQueueTemplatesEditor" data-id="copilot" title="Open Queue Templates"><span class="codicon codicon-files"></span></button>' +
+                '<button class="icon-btn" data-action="openStatusPage" data-id="copilot" title="Open Extension Status Page"><span class="codicon codicon-dashboard"></span></button>' +
+                '</span></div>',
         }),
         tomAiChat: getPromptEditorComponent({
             sectionId: 'tomAiChat',
@@ -3444,6 +3428,9 @@ function getSectionContent(id) {
                 '<div class="status-bar"><span id="anthropic-status" class="context-summary"></span>' +
                 '<span class="status-bar-actions">' +
                 '<button class="icon-btn" data-action="openChatVariablesEditor" title="Chat Variables Editor"><span class="codicon codicon-symbol-key"></span></button>' +
+                '<button class="icon-btn" data-action="openQueueEditor" data-id="anthropic" title="Open Prompt Queue"><span class="codicon codicon-inbox"></span></button>' +
+                '<button class="icon-btn" data-action="openQueueTemplatesEditor" data-id="anthropic" title="Open Queue Templates"><span class="codicon codicon-files"></span></button>' +
+                '<button class="icon-btn" data-action="openStatusPage" data-id="anthropic" title="Open Extension Status Page"><span class="codicon codicon-dashboard"></span></button>' +
                 '<label style="margin-left:6px;">Available Models:</label>' +
                 '<select id="anthropic-model" style="max-width:240px;" title="Read-only list of models returned by the Anthropic API. The selected configuration controls which model is actually used."><option value="">(loading...)</option></select>' +
                 '<button class="icon-btn" data-action="refreshAnthropicModels" data-id="anthropic" title="Refresh models from API"><span class="codicon codicon-refresh"></span></button>' +
@@ -3480,6 +3467,39 @@ function render() {
             html += '<div class="header-collapsed" data-toggle="' + sec.id + '"><span class="arrow"><span class="codicon codicon-chevron-down"></span></span><span class="icon">' + sec.icon + '</span><span class="title">' + sec.title + '</span></div>';
             html += '<div class="section-content">' + getSectionContent(sec.id) + '</div></div>';
         });
+        // Shared Context & Settings overlay — rendered at container level
+        // (not inside any accordion section) so collapsing or switching
+        // sections never hides the popup. Same id as before so existing
+        // openContextPopup()/closeContextPopup() wiring still works.
+        html += '<div id="copilot-context-overlay" class="context-overlay" style="display:none;">' +
+            '<div id="copilot-context-popup" class="context-popup">' +
+            '<div class="context-popup-header"><span>Context & Settings</span><button class="icon-btn" data-action="closeContextPopup" title="Close"><span class="codicon codicon-close"></span></button></div>' +
+            '<div class="context-popup-body">' +
+            '<fieldset class="context-group"><legend>Context</legend>' +
+            '<div class="context-row"><label>Quest:</label><select id="ctx-quest"></select></div>' +
+            '<div class="context-row"><label>Role:</label><select id="ctx-role"></select></div>' +
+            '<div class="context-row"><label>Projects:</label><select id="ctx-projects" multiple size="3"></select></div>' +
+            '<div class="context-row"><label>Todo File:</label><select id="ctx-todoFile"></select></div>' +
+            '<div class="context-row"><label>Todo:</label><select id="ctx-todo"></select></div>' +
+            '</fieldset>' +
+            '<fieldset class="context-group"><legend>Auto-Hide</legend>' +
+            '<div class="context-row"><label>Auto-hide:</label><select id="copilot-autohide"><option value="0">Keep open</option><option value="1000">1s</option><option value="5000">5s</option><option value="10000">10s</option></select></div>' +
+            '</fieldset>' +
+            '<fieldset class="context-group"><legend>Quick Links</legend>' +
+            '<div class="context-links">' +
+            '<button class="link-btn" data-action="openStatusPage" title="Extension Status"><span class="codicon codicon-dashboard"></span> Status Page</button>' +
+            '<button class="link-btn" data-action="openGlobalTemplateEditor" title="Prompt Template Editor"><span class="codicon codicon-file-code"></span> Template Editor</button>' +
+            '<button class="link-btn" data-action="openReusablePromptEditor" title="Reusable Prompt Editor"><span class="codicon codicon-note"></span> Reusable Prompts</button>' +
+            '<button class="link-btn" data-action="openContextSettingsEditor" title="Context & Settings Editor"><span class="codicon codicon-settings-gear"></span> Context Editor</button>' +
+            '<button class="link-btn" data-action="openChatVariablesEditor" title="Chat Variables Editor"><span class="codicon codicon-symbol-key"></span> Chat Variables</button>' +
+            '<button class="link-btn" data-action="openTrailRawFiles" data-id="copilot" title="Raw Trail Files Viewer"><span class="codicon codicon-history"></span> Raw Trail Files Viewer</button>' +
+            '<button class="link-btn" data-action="openTrailSummaryViewer" data-id="copilot" title="Trail Summary Viewer"><span class="codicon codicon-list-flat"></span> Trail Summary Viewer</button>' +
+            '</div>' +
+            '</fieldset>' +
+            '</div>' +
+            '<div class="context-popup-footer"><button class="primary" data-action="applyContext">Apply</button><button data-action="closeContextPopup">Cancel</button></div>' +
+            '</div>' +
+            '</div>';
         container.innerHTML = html;
         _rendered = true;
         attachEventListeners();
