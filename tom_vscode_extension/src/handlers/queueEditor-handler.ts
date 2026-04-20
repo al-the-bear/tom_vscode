@@ -171,6 +171,74 @@ async function handleMessage(msg: any): Promise<void> {
           await vscode.commands.executeCommand('revealInExplorer', uri);
           return;
         }
+        case 'editItemTransport': {
+          // Spec §4.10 per-item Advanced override. QuickPick flow:
+          //   (1) Transport (Copilot | Anthropic)
+          //   (2) If Anthropic: profile (default = current item's
+          //       profile if any; otherwise the profile flagged
+          //       isDefault, otherwise first).
+          //   (3) If Anthropic: config (default = profile's
+          //       configurationId; lists Anthropic configs + Local
+          //       LLM configs with backing-type labels).
+          const id = typeof msg.id === 'string' ? msg.id : '';
+          if (!id) { return; }
+          const pqm = PromptQueueManager.instance;
+          const item = pqm.getById(id);
+          if (!item) { return; }
+          const transportPick = await vscode.window.showQuickPick(
+            [
+              { label: 'Copilot Chat', value: 'copilot' as const, description: 'Default. Answer-file polling flow.' },
+              { label: 'Anthropic', value: 'anthropic' as const, description: 'Routes through AnthropicHandler.sendMessage; auto-approves tool calls.' },
+            ],
+            { placeHolder: `Transport for queue item (current: ${item.transport || 'copilot'})`, ignoreFocusOut: true },
+          );
+          if (!transportPick) { return; }
+          if (transportPick.value === 'copilot') {
+            pqm.updateItemTransport(id, { transport: 'copilot', anthropicProfileId: '', anthropicConfigId: '' });
+            sendState();
+            return;
+          }
+          // Anthropic branch
+          const cfg = loadSendToChatConfig();
+          const profiles = (cfg?.anthropic?.profiles ?? []).filter((p) => !!p && typeof p.id === 'string');
+          if (profiles.length === 0) {
+            vscode.window.showWarningMessage('No Anthropic profiles defined. Create one in the Extension State Page first.');
+            return;
+          }
+          const profilePickItems = profiles.map((p) => ({
+            label: p.name || p.id,
+            description: p.id === item.anthropicProfileId ? '(current)' : p.isDefault ? '(default)' : '',
+            value: p.id,
+          }));
+          const profilePick = await vscode.window.showQuickPick(profilePickItems, {
+            placeHolder: 'Anthropic profile',
+            ignoreFocusOut: true,
+          });
+          if (!profilePick) { return; }
+          const anthropicConfigs = (cfg?.anthropic?.configurations ?? []).filter((c) => !!c && typeof c.id === 'string');
+          const localLlmConfigs = ((cfg as { localLlm?: { configurations?: Array<{ id?: string; name?: string }> } })?.localLlm?.configurations ?? []).filter((c) => !!c && typeof c.id === 'string');
+          const configPickItems = [
+            { label: '(profile default)', value: '', description: 'Fall back to the profile\'s configurationId.' },
+            ...anthropicConfigs.map((c) => {
+              const t = c.transport;
+              const prefix = t === 'agentSdk' ? '[agentSdk]' : t === 'vscodeLm' ? '[vscodeLm]' : '[direct]';
+              return { label: `${prefix} ${c.name || c.id}`, value: c.id, description: c.id };
+            }),
+            ...localLlmConfigs.map((c) => ({ label: `[localLlm] ${c.name || c.id}`, value: (c.id as string), description: c.id as string })),
+          ];
+          const configPick = await vscode.window.showQuickPick(configPickItems, {
+            placeHolder: 'Configuration (profile default picked when (profile default) chosen)',
+            ignoreFocusOut: true,
+          });
+          if (!configPick) { return; }
+          pqm.updateItemTransport(id, {
+            transport: 'anthropic',
+            anthropicProfileId: profilePick.value,
+            anthropicConfigId: configPick.value,
+          });
+          sendState();
+          return;
+        }
         case 'setDetailsExpanded': {
           const id = typeof msg.id === 'string' ? msg.id : '';
           if (!id) { return; }
@@ -340,18 +408,25 @@ async function handleMessage(msg: any): Promise<void> {
         case 'addPrompt':
             try {
                 console.log('[QueueEditor] addPrompt received, text length:', msg.text?.length);
+                const addTransport = msg.transport === 'anthropic' ? 'anthropic' as const : undefined;
                 await qm.enqueue({
                     originalText: msg.text || '',
                     template: msg.template,
-                    answerWrapper: msg.answerWrapper || false,
+                    // Copilot answer-wrapper is a Copilot-only construct
+                    // (spec §4.7). Anthropic items skip it.
+                    answerWrapper: addTransport === 'anthropic' ? false : (msg.answerWrapper || false),
                     reminderTemplateId: msg.reminderTemplateId,
                     reminderTimeoutMinutes: msg.reminderTimeoutMinutes,
-              reminderRepeat: !!msg.reminderRepeat,
-              reminderEnabled: !!msg.reminderEnabled,
-              repeatCount: (typeof msg.repeatCount === 'string' && !/^[0-9]+$/.test(msg.repeatCount)) ? msg.repeatCount : (typeof msg.repeatCount === 'number' || typeof msg.repeatCount === 'string' ? Math.max(0, Math.round(Number(msg.repeatCount) || 0)) : 0),
-              repeatPrefix: typeof msg.repeatPrefix === 'string' ? msg.repeatPrefix : undefined,
-              repeatSuffix: typeof msg.repeatSuffix === 'string' ? msg.repeatSuffix : undefined,
-              deferSend: true,
+                    reminderRepeat: !!msg.reminderRepeat,
+                    reminderEnabled: !!msg.reminderEnabled,
+                    repeatCount: (typeof msg.repeatCount === 'string' && !/^[0-9]+$/.test(msg.repeatCount)) ? msg.repeatCount : (typeof msg.repeatCount === 'number' || typeof msg.repeatCount === 'string' ? Math.max(0, Math.round(Number(msg.repeatCount) || 0)) : 0),
+                    repeatPrefix: typeof msg.repeatPrefix === 'string' ? msg.repeatPrefix : undefined,
+                    repeatSuffix: typeof msg.repeatSuffix === 'string' ? msg.repeatSuffix : undefined,
+                    deferSend: true,
+                    // Multi-transport fields (spec §4.10).
+                    transport: addTransport,
+                    anthropicProfileId: typeof msg.anthropicProfileId === 'string' && msg.anthropicProfileId ? msg.anthropicProfileId : undefined,
+                    anthropicConfigId: typeof msg.anthropicConfigId === 'string' && msg.anthropicConfigId ? msg.anthropicConfigId : undefined,
                 });
                 console.log('[QueueEditor] addPrompt enqueued successfully');
                 _panel?.webview.postMessage({ type: 'addSuccess' });
@@ -637,12 +712,30 @@ function buildState(): Record<string, unknown> {
     } catch { /* */ }
 
     let promptTemplates: string[] = [];
+    let anthropicProfiles: Array<{ id: string; name?: string }> = [];
+    let anthropicConfigs: Array<{ id: string; name?: string; transport?: string }> = [];
     try {
         const config = loadSendToChatConfig();
-      const templates = config?.copilot?.templates;
-      if (templates) {
-        promptTemplates = Object.keys(templates).filter(k => templates[k].showInMenu !== false);
+        const templates = config?.copilot?.templates;
+        if (templates) {
+            promptTemplates = Object.keys(templates).filter(k => templates[k].showInMenu !== false);
         }
+        // Anthropic profiles + configurations (spec §4.10). Also
+        // surface Local LLM configurations per §4.3 so the queue
+        // editor's config dropdown shows every option a profile
+        // could reference. Tagged by backing type so the rendered
+        // label stays unambiguous.
+        anthropicProfiles = (config?.anthropic?.profiles || [])
+            .filter((p) => !!p && typeof p.id === 'string')
+            .map((p) => ({ id: p.id, name: p.name }));
+        anthropicConfigs = [
+            ...((config?.anthropic?.configurations || [])
+                .filter((c) => !!c && typeof c.id === 'string')
+                .map((c) => ({ id: c.id, name: c.name, transport: c.transport || 'direct' }))),
+            ...(((config as { localLlm?: { configurations?: Array<{ id?: string; name?: string }> } }).localLlm?.configurations || [])
+                .filter((c) => !!c && typeof c.id === 'string')
+                .map((c) => ({ id: c.id as string, name: c.name, transport: 'localLlm' }))),
+        ];
     } catch { /* */ }
 
     return {
@@ -656,6 +749,8 @@ function buildState(): Record<string, unknown> {
         defaultReminderTemplateId,
         reminderTemplates: templates,
         promptTemplates,
+        anthropicProfiles,
+        anthropicConfigs,
       collapsedIds: Array.from(_collapsedItemIds),
         context: { quest, role, activeProjects },
     };
@@ -757,6 +852,25 @@ ${queueEntryStyles()}
   <div class="add-options">
     <label style="margin-right:6px;">Queue Repeats:</label>
     <input id="addRepeatCount" type="text" value="1" style="width:80px" title="Total number of times to send this prompt (number or variable name)"/>
+  </div>
+  <!-- Multi-transport picker (spec §4.10 / §4.15). Pins the staged
+       item to either Copilot (answer-file polling) or Anthropic
+       (direct AnthropicHandler.sendMessage dispatch). Profile id is
+       optional when Anthropic is selected — blank falls back to the
+       default profile. -->
+  <div class="add-options" id="addTransportRow">
+    <label style="margin-right:6px;">Transport:</label>
+    <select id="addTransport" onchange="onAddTransportChange()">
+      <option value="copilot">Copilot Chat</option>
+      <option value="anthropic">Anthropic</option>
+    </select>
+    <span id="addAnthropicTargets" style="display:none;">
+      <label style="margin-left:8px;">Profile:</label>
+      <select id="addAnthropicProfile"><option value="">(default profile)</option></select>
+      <label style="margin-left:8px;">Config:</label>
+      <select id="addAnthropicConfig"><option value="">(profile default)</option></select>
+      <span style="margin-left:8px;font-size:11px;color:var(--vscode-notificationsWarningIcon-foreground);">⚠️ Queue auto-approves all tool calls.</span>
+    </span>
   </div>
   <div class="add-options" style="display:block;">
     <label style="display:block;margin-bottom:4px;">Repeat Prefix (supports \${repeatNumber}, \${repeatIndex}, \${repeatCount})</label>
@@ -865,6 +979,11 @@ let responseTimeoutMinutes = __INITIAL__.responseTimeoutMinutes !== undefined ? 
 let defaultReminderTemplateId = __INITIAL__.defaultReminderTemplateId || '';
 let reminderTemplates = __INITIAL__.reminderTemplates || [];
 let promptTemplates = __INITIAL__.promptTemplates || [];
+// Multi-transport UI state (spec §4.10). Populated from the state
+// payload so the queue editor's Add form can show a profile +
+// config picker when Anthropic transport is selected.
+let anthropicProfiles = __INITIAL__.anthropicProfiles || [];
+let anthropicConfigs = __INITIAL__.anthropicConfigs || [];
 let currentContext = __INITIAL__.context || { quest: '', role: '', activeProjects: [] };
 let detailsExpanded = {};
 var editorMode = 'queue';
@@ -947,6 +1066,8 @@ window.addEventListener('message', e => {
       defaultReminderTemplateId = msg.defaultReminderTemplateId || '';
       reminderTemplates = msg.reminderTemplates || [];
       promptTemplates = msg.promptTemplates || [];
+      anthropicProfiles = msg.anthropicProfiles || [];
+      anthropicConfigs = msg.anthropicConfigs || [];
       currentContext = msg.context || { quest: '', role: '', activeProjects: [] };
       normalizeState();
       render();
@@ -1135,8 +1256,25 @@ function addPrompt() {
   if (inputRepeatSuffix && inputRepeatSuffix.value) {
     msg.repeatSuffix = inputRepeatSuffix.value;
   }
+  // Transport picker (spec §4.10). Anthropic items carry the pinned
+  // profile + config through staging; Copilot stays default.
+  var tSel = document.getElementById('addTransport');
+  if (tSel && tSel.value === 'anthropic') {
+    msg.transport = 'anthropic';
+    var pSel = document.getElementById('addAnthropicProfile');
+    var cSel = document.getElementById('addAnthropicConfig');
+    if (pSel && pSel.value) { msg.anthropicProfileId = pSel.value; }
+    if (cSel && cSel.value) { msg.anthropicConfigId = cSel.value; }
+  }
   vscode.postMessage(msg);
   ta.value = '';
+}
+
+function onAddTransportChange() {
+  var tSel = document.getElementById('addTransport');
+  var targets = document.getElementById('addAnthropicTargets');
+  if (!tSel || !targets) { return; }
+  targets.style.display = tSel.value === 'anthropic' ? '' : 'none';
 }
 
 function addReminderTemplate() {
@@ -1242,6 +1380,38 @@ function populateAddForm() {
     sel.value = prev;
   } else {
     sel.value = defaultReminderTemplateId || '';
+  }
+
+  // Populate Anthropic profile + config dropdowns in the add form
+  // (spec §4.10 queue-level default). The lists come through the
+  // 'state' message so the webview doesn't need to fetch them.
+  var profSel = document.getElementById('addAnthropicProfile');
+  if (profSel) {
+    var prevProf = profSel.value;
+    profSel.innerHTML = '<option value="">(default profile)</option>';
+    (anthropicProfiles || []).forEach(function(p) {
+      var opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = p.name ? (p.name + ' (' + p.id + ')') : p.id;
+      profSel.appendChild(opt);
+    });
+    if (prevProf) { profSel.value = prevProf; }
+  }
+  var cfgSel = document.getElementById('addAnthropicConfig');
+  if (cfgSel) {
+    var prevCfg = cfgSel.value;
+    cfgSel.innerHTML = '<option value="">(profile default)</option>';
+    (anthropicConfigs || []).forEach(function(c) {
+      var opt = document.createElement('option');
+      opt.value = c.id;
+      var prefix = '[direct]';
+      if (c.transport === 'agentSdk') { prefix = '[agentSdk]'; }
+      else if (c.transport === 'vscodeLm') { prefix = '[vscodeLm]'; }
+      else if (c.transport === 'localLlm') { prefix = '[localLlm]'; }
+      opt.textContent = prefix + ' ' + (c.name ? (c.name + ' (' + c.id + ')') : c.id);
+      cfgSel.appendChild(opt);
+    });
+    if (prevCfg) { cfgSel.value = prevCfg; }
   }
 }
 

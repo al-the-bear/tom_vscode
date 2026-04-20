@@ -326,6 +326,7 @@ function renderEntry(item, idx) {
           (isPending ? '<span class="codicon codicon-arrow-up" style="cursor:pointer;color:#000;" onclick="moveDown(\\'' + safeId + '\\')" title="Move up (away from send)"></span>' : '') +
           (isPending ? '<span class="codicon codicon-arrow-down" style="cursor:pointer;color:#000;" onclick="moveUp(\\'' + safeId + '\\')" title="Move down (closer to send)"></span>' : '') +
           (isSending ? '<span class="codicon ' + (reminderEnabled ? 'codicon-bell' : 'codicon-bell-slash') + '" style="cursor:pointer;color:' + (reminderEnabled ? '#000' : '#888') + ';" onclick="toggleReminder(\\'' + safeId + '\\', ' + !reminderEnabled + ')" title="' + (reminderEnabled ? 'Reminders ON - click to disable' : 'Reminders OFF - click to enable') + '"></span>' : '') +
+          ((isStaged || isPending) ? '<span class="codicon codicon-settings" style="cursor:pointer;color:#000;" onclick="editItemTransport(\\'' + safeId + '\\')" title="Change transport (Copilot / Anthropic + profile + config)"></span>' : '') +
           '<span class="codicon codicon-go-to-file" style="cursor:pointer;color:#000;" onclick="openEntryFile(\\'' + safeId + '\\')" title="Open YAML file"></span>' +
           '<span class="codicon codicon-trash" style="cursor:pointer;color:#000;" onclick="remove(\\'' + safeId + '\\')" title="Delete"></span>' +
           '</span>' +
@@ -666,6 +667,12 @@ function previewItem(id) {
 }
 function openEntryFile(id) {
   vscode.postMessage({ type: 'showEntryFile', id: id });
+}
+function editItemTransport(id) {
+  // Spec §4.10 — per-item Advanced override. The backend opens a
+  // QuickPick flow (transport → profile → config) and calls
+  // updateItemTransport when the user confirms.
+  vscode.postMessage({ type: 'editItemTransport', id: id });
 }
 function previewFollowUp(id, followUpId) {
   var item = currentItems.find(function(i) { return i.id === id; });
