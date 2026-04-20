@@ -172,34 +172,77 @@ async function handleMessage(msg: any): Promise<void> {
           await vscode.commands.executeCommand('revealInExplorer', uri);
           return;
         }
-        case 'editItemTransport': {
-          // Spec §4.10 per-item Advanced override. QuickPick flow:
-          //   (1) Transport (Copilot | Anthropic)
-          //   (2) If Anthropic: profile (default = current item's
-          //       profile if any; otherwise the profile flagged
-          //       isDefault, otherwise first).
-          //   (3) If Anthropic: config (default = profile's
-          //       configurationId; lists Anthropic configs + Local
-          //       LLM configs with backing-type labels).
+        case 'editItemTransport':
+        case 'editPrePromptTransport':
+        case 'editFollowUpTransport': {
+          // Spec §4.10 per-item + per-stage Advanced override. Same
+          // three-step QuickPick flow (transport → profile → config)
+          // regardless of scope; differs only in which manager method
+          // commits the result.
           const id = typeof msg.id === 'string' ? msg.id : '';
           if (!id) { return; }
           const pqm = PromptQueueManager.instance;
           const item = pqm.getById(id);
           if (!item) { return; }
+
+          // Resolve the current stage's transport + ids for "(current)"
+          // / "(default)" labelling.
+          let currentTransport: string = item.transport || 'copilot';
+          let currentProfile = item.anthropicProfileId;
+          let currentConfig = item.anthropicConfigId;
+          let scopeLabel = 'queue item';
+          if (msg.type === 'editPrePromptTransport') {
+            const ppIndex = typeof msg.index === 'number' ? msg.index : -1;
+            const pp = item.prePrompts?.[ppIndex];
+            if (!pp) { return; }
+            currentTransport = pp.transport || currentTransport;
+            currentProfile = pp.anthropicProfileId || currentProfile;
+            currentConfig = pp.anthropicConfigId || currentConfig;
+            scopeLabel = `pre-prompt #${ppIndex + 1}`;
+          } else if (msg.type === 'editFollowUpTransport') {
+            const followUpId = typeof msg.followUpId === 'string' ? msg.followUpId : '';
+            const fu = item.followUps?.find((f) => f.id === followUpId);
+            if (!fu) { return; }
+            currentTransport = fu.transport || currentTransport;
+            currentProfile = fu.anthropicProfileId || currentProfile;
+            currentConfig = fu.anthropicConfigId || currentConfig;
+            scopeLabel = `follow-up ${followUpId.slice(0, 8)}`;
+          }
+
           const transportPick = await vscode.window.showQuickPick(
             [
-              { label: 'Copilot Chat', value: 'copilot' as const, description: 'Default. Answer-file polling flow.' },
+              { label: 'Copilot Chat', value: 'copilot' as const, description: 'Answer-file polling flow.' },
               { label: 'Anthropic', value: 'anthropic' as const, description: 'Routes through AnthropicHandler.sendMessage; auto-approves tool calls.' },
+              ...(msg.type === 'editItemTransport'
+                ? []
+                : [{ label: 'Inherit from item', value: 'inherit' as const, description: 'Use the parent item\'s transport.' }]),
             ],
-            { placeHolder: `Transport for queue item (current: ${item.transport || 'copilot'})`, ignoreFocusOut: true },
+            { placeHolder: `Transport for ${scopeLabel} (current: ${currentTransport})`, ignoreFocusOut: true },
           );
           if (!transportPick) { return; }
-          if (transportPick.value === 'copilot') {
-            pqm.updateItemTransport(id, { transport: 'copilot', anthropicProfileId: '', anthropicConfigId: '' });
+
+          const applyUpdate = (transport: 'copilot' | 'anthropic' | undefined, profileId: string, configId: string): void => {
+            if (msg.type === 'editItemTransport') {
+              pqm.updateItemTransport(id, { transport, anthropicProfileId: profileId, anthropicConfigId: configId });
+            } else if (msg.type === 'editPrePromptTransport') {
+              const ppIndex = typeof msg.index === 'number' ? msg.index : -1;
+              pqm.updatePrePrompt(id, ppIndex, { transport, anthropicProfileId: profileId, anthropicConfigId: configId });
+            } else {
+              const followUpId = typeof msg.followUpId === 'string' ? msg.followUpId : '';
+              pqm.updateFollowUpPrompt(id, followUpId, { transport, anthropicProfileId: profileId, anthropicConfigId: configId });
+            }
             sendState();
+          };
+
+          if (transportPick.value === 'inherit') {
+            applyUpdate(undefined, '', '');
             return;
           }
-          // Anthropic branch
+          if (transportPick.value === 'copilot') {
+            applyUpdate('copilot', '', '');
+            return;
+          }
+
           const cfg = loadSendToChatConfig();
           const profiles = (cfg?.anthropic?.profiles ?? []).filter((p) => !!p && typeof p.id === 'string');
           if (profiles.length === 0) {
@@ -208,7 +251,7 @@ async function handleMessage(msg: any): Promise<void> {
           }
           const profilePickItems = profiles.map((p) => ({
             label: p.name || p.id,
-            description: p.id === item.anthropicProfileId ? '(current)' : p.isDefault ? '(default)' : '',
+            description: p.id === currentProfile ? '(current)' : p.isDefault ? '(default)' : '',
             value: p.id,
           }));
           const profilePick = await vscode.window.showQuickPick(profilePickItems, {
@@ -219,25 +262,20 @@ async function handleMessage(msg: any): Promise<void> {
           const anthropicConfigs = (cfg?.anthropic?.configurations ?? []).filter((c) => !!c && typeof c.id === 'string');
           const localLlmConfigs = ((cfg as { localLlm?: { configurations?: Array<{ id?: string; name?: string }> } })?.localLlm?.configurations ?? []).filter((c) => !!c && typeof c.id === 'string');
           const configPickItems = [
-            { label: '(profile default)', value: '', description: 'Fall back to the profile\'s configurationId.' },
+            { label: '(profile default)', value: '', description: currentConfig ? '' : '(current)' },
             ...anthropicConfigs.map((c) => {
               const t = c.transport;
               const prefix = t === 'agentSdk' ? '[agentSdk]' : t === 'vscodeLm' ? '[vscodeLm]' : '[direct]';
-              return { label: `${prefix} ${c.name || c.id}`, value: c.id, description: c.id };
+              return { label: `${prefix} ${c.name || c.id}`, value: c.id, description: c.id === currentConfig ? '(current)' : c.id };
             }),
-            ...localLlmConfigs.map((c) => ({ label: `[localLlm] ${c.name || c.id}`, value: (c.id as string), description: c.id as string })),
+            ...localLlmConfigs.map((c) => ({ label: `[localLlm] ${c.name || c.id}`, value: (c.id as string), description: c.id === currentConfig ? '(current)' : (c.id as string) })),
           ];
           const configPick = await vscode.window.showQuickPick(configPickItems, {
-            placeHolder: 'Configuration (profile default picked when (profile default) chosen)',
+            placeHolder: 'Configuration',
             ignoreFocusOut: true,
           });
           if (!configPick) { return; }
-          pqm.updateItemTransport(id, {
-            transport: 'anthropic',
-            anthropicProfileId: profilePick.value,
-            anthropicConfigId: configPick.value,
-          });
-          sendState();
+          applyUpdate('anthropic', profilePick.value, configPick.value);
           return;
         }
         case 'setDetailsExpanded': {

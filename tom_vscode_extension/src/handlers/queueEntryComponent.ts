@@ -398,8 +398,11 @@ function renderPrePrompts(item, status) {
     var ppNoReminderSelected = !ppHasExplicitReminder;
     return '<div class="preprompt-item' + (isActive ? ' is-active' : '') + '">' +
       '<div class="preprompt-item-head">' +
-        '<span>' + doneMark + 'Pre-prompt #' + (idx + 1) + (pp.template ? ' [' + escapeHtml(templateLabel) + ']' : '') + (ppRepeatLabel ? ' [PP ' + ppRepeatLabel + ppSkipBtn + ']' : '') + '</span>' +
+        '<span>' + doneMark + 'Pre-prompt #' + (idx + 1) + (pp.template ? ' [' + escapeHtml(templateLabel) + ']' : '') + (ppRepeatLabel ? ' [PP ' + ppRepeatLabel + ppSkipBtn + ']' : '') +
+        (pp.transport === 'anthropic' ? ' <span style="background:#4a9eff;color:#fff;padding:1px 4px;border-radius:3px;font-size:9px;">[anthropic' + (pp.anthropicProfileId ? ':' + escapeHtml(pp.anthropicProfileId) : '') + ']</span>' : '') +
+        '</span>' +
         '<span class="followup-tools">' +
+          (isEditable ? '<span class="codicon codicon-settings" style="cursor:pointer;" onclick="editPrePromptTransport(\\'' + safeItemId + '\\', ' + idx + ')" title="Change transport (stage override)"></span>' : '') +
           (isEditable ? '<span class="codicon codicon-trash" style="cursor:pointer;" onclick="removePrePrompt(\\'' + safeItemId + '\\', ' + idx + ')" title="Delete pre-prompt"></span>' : '') +
         '</span>' +
       '</div>' +
@@ -465,9 +468,12 @@ function renderFollowUps(item, status) {
     var fuAnswerWait = Math.max(0, parseInt(String(f.answerWaitMinutes || 0), 10) || 0);
     return '<div class="followup-item' + (isActive ? ' is-active' : '') + '">' +
       '<div class="followup-item-head">' +
-        '<span>' + doneMark + 'Follow-up #' + (idx + 1) + (f.template ? (' [' + escapeHtml(templateLabel) + ']') : '') + (fuRepeatLabel ? ' [FU ' + fuRepeatLabel + fuSkipBtn + ']' : '') + ' [AW]</span>' +
+        '<span>' + doneMark + 'Follow-up #' + (idx + 1) + (f.template ? (' [' + escapeHtml(templateLabel) + ']') : '') + (fuRepeatLabel ? ' [FU ' + fuRepeatLabel + fuSkipBtn + ']' : '') + ' [AW]' +
+        (f.transport === 'anthropic' ? ' <span style="background:#4a9eff;color:#fff;padding:1px 4px;border-radius:3px;font-size:9px;">[anthropic' + (f.anthropicProfileId ? ':' + escapeHtml(f.anthropicProfileId) : '') + ']</span>' : '') +
+        '</span>' +
         '<span class="followup-tools">' +
           '<span class="codicon codicon-eye" style="cursor:pointer;" onclick="previewFollowUp(\\'' + safeItemId + '\\', \\'' + safeFollowUpId + '\\')" title="Preview follow-up"></span>' +
+          (isEditable ? '<span class="codicon codicon-settings" style="cursor:pointer;" onclick="editFollowUpTransport(\\'' + safeItemId + '\\', \\'' + safeFollowUpId + '\\')" title="Change transport (stage override)"></span>' : '') +
           (isEditable ? '<span class="codicon codicon-trash" style="cursor:pointer;" onclick="removeFollowUp(\\'' + safeItemId + '\\', \\'' + safeFollowUpId + '\\')" title="Delete follow-up"></span>' : '') +
         '</span>' +
       '</div>' +
@@ -673,6 +679,14 @@ function editItemTransport(id) {
   // QuickPick flow (transport → profile → config) and calls
   // updateItemTransport when the user confirms.
   vscode.postMessage({ type: 'editItemTransport', id: id });
+}
+function editPrePromptTransport(id, index) {
+  // Spec §4.10 — per-stage Advanced override for a pre-prompt.
+  vscode.postMessage({ type: 'editPrePromptTransport', id: id, index: index });
+}
+function editFollowUpTransport(id, followUpId) {
+  // Spec §4.10 — per-stage Advanced override for a follow-up.
+  vscode.postMessage({ type: 'editFollowUpTransport', id: id, followUpId: followUpId });
 }
 function previewFollowUp(id, followUpId) {
   var item = currentItems.find(function(i) { return i.id === id; });
