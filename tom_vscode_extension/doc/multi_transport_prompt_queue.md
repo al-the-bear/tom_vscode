@@ -1,5 +1,14 @@
 # Multi-Transport Prompt Queue — design
 
+> **⚠️ Superseded.** This document is the original four-transport design
+> and is retained only for historical context. The live design is in
+> [`multi_transport_prompt_queue_revised.md`](./multi_transport_prompt_queue_revised.md),
+> which collapses the transport model to two entries (Copilot + Anthropic)
+> and folds VS Code LM / Local LLM in as Anthropic configuration types.
+> Any references below to Tom AI Chat or Local LLM as queue transports
+> are obsolete — those panels are explicitly out of scope of the
+> implemented design. Read the revised doc instead.
+
 ## Scope and phases
 
 This design is delivered in two phases. **Phase 2 is a separate follow-up** — don't mix it into the Phase 1 commits.
