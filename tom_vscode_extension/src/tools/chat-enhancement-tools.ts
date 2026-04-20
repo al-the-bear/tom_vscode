@@ -690,6 +690,10 @@ interface AddToPromptQueueInput {
     reminderTimeoutMinutes?: number;
     reminderRepeat?: boolean;
     reminderEnabled?: boolean;
+    // Multi-transport (spec §4.13).
+    transport?: 'copilot' | 'anthropic';
+    anthropicProfileId?: string;
+    anthropicConfigId?: string;
 }
 
 async function executeAddToPromptQueue(input: AddToPromptQueueInput): Promise<string> {
@@ -711,6 +715,9 @@ async function executeAddToPromptQueue(input: AddToPromptQueueInput): Promise<st
             reminderTimeoutMinutes: input.reminderTimeoutMinutes,
             reminderRepeat: input.reminderRepeat,
             reminderEnabled: input.reminderEnabled,
+            transport: input.transport,
+            anthropicProfileId: input.anthropicProfileId,
+            anthropicConfigId: input.anthropicConfigId,
             prePrompts: (input.prePrompts || []).map(p => ({
                 text: p.text,
                 template: p.template,
@@ -802,6 +809,20 @@ export const ADD_TO_PROMPT_QUEUE_TOOL: SharedToolDefinition<AddToPromptQueueInpu
             reminderTimeoutMinutes: { type: 'number' },
             reminderRepeat: { type: 'boolean' },
             reminderEnabled: { type: 'boolean' },
+            // Multi-transport (spec §4.13).
+            transport: {
+                type: 'string',
+                enum: ['copilot', 'anthropic'],
+                description: 'Queue transport for this item. Default: copilot. Anthropic routes through AnthropicHandler.sendMessage using the resolved profile+configuration and forces toolApprovalMode=never (queue is unattended).',
+            },
+            anthropicProfileId: {
+                type: 'string',
+                description: 'Anthropic profile id (required when transport=anthropic). Falls back to the default profile when omitted.',
+            },
+            anthropicConfigId: {
+                type: 'string',
+                description: 'Optional: override the profile\'s configuration. May reference an Anthropic config or (future) a Local LLM config id.',
+            },
         },
     },
     execute: executeAddToPromptQueue,
