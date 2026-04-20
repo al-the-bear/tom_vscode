@@ -1,6 +1,6 @@
 # File and Prompt Placeholders
 
-This reference documents placeholders used by prompt/template flows in the extension.
+This reference documents placeholders used by prompt/template flows in the extension. For the **maintainer-facing view** — which resolver runs where, what each capability level accepts — see the companion doc [placeholder_engine.md](placeholder_engine.md).
 
 ## Placeholder sources
 

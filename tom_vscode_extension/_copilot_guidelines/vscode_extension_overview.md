@@ -150,6 +150,7 @@ Bridge commands cover restart / profile switching / debug logging. CLI server an
 - [tom_status_page.md](tom_status_page.md) — @Tom configuration panel.
 - [extension_bridge.md](extension_bridge.md) — bridge subsystem.
 - [keybindings_and_commands.md](keybindings_and_commands.md) — shortcut + command reference.
-- [../doc/file_and_prompt_placeholders.md](../doc/file_and_prompt_placeholders.md) — placeholder reference.
+- [../doc/file_and_prompt_placeholders.md](../doc/file_and_prompt_placeholders.md) — placeholder reference for template authors.
+- [../doc/placeholder_engine.md](../doc/placeholder_engine.md) — placeholder engine map for maintainers (which syntax resolves where).
 - [../doc/anthropic_handler.md](../doc/anthropic_handler.md) — Anthropic handler deep-dive.
 - [../doc/chat_log_custom_editor.md](../doc/chat_log_custom_editor.md) — Markdown Browser + live trail.
