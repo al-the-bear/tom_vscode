@@ -5,11 +5,16 @@
  * is registered for every declared webview view ID. Instead of showing a
  * forever-spinning loading indicator, each panel displays a friendly
  * "not a TOM AI workspace" message with setup instructions.
+ *
+ * Extends {@link BaseWebviewProvider} for the common webview boilerplate
+ * (message routing, CSP nonce, base styles). Pilot adoption of the
+ * shared base class — see Wave 2.4 of the review refactoring plan.
  */
 
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import { BaseWebviewProvider } from '../utils/baseWebviewProvider';
 
 // All webview view IDs declared in package.json that need a provider in minimal mode
 const MINIMAL_VIEW_IDS = [
@@ -24,24 +29,19 @@ const MINIMAL_VIEW_IDS = [
     'tomAi.workspaceTodos',
 ];
 
-class MinimalModeViewProvider implements vscode.WebviewViewProvider {
+class MinimalModeViewProvider extends BaseWebviewProvider {
     constructor(
         private readonly _extensionUri: vscode.Uri,
-    ) {}
-
-    resolveWebviewView(
-        webviewView: vscode.WebviewView,
-        _context: vscode.WebviewViewResolveContext,
-        _token: vscode.CancellationToken,
-    ): void {
-        webviewView.webview.options = { enableScripts: true };
-        webviewView.webview.html = this._getHtml(webviewView.webview);
-
-        webviewView.webview.onDidReceiveMessage((msg) => {
-            if (msg.type === 'openSetupDoc') {
-                this._openSetupDoc();
-            }
+    ) {
+        super();
+        this.registerMessageHandler('openSetupDoc', async () => {
+            await this._openSetupDoc();
         });
+    }
+
+    protected onResolve(webview: vscode.Webview): void {
+        webview.options = { enableScripts: true };
+        webview.html = this._getHtml(webview);
     }
 
     private async _openSetupDoc(): Promise<void> {
@@ -57,97 +57,84 @@ class MinimalModeViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private _getHtml(_webview: vscode.Webview): string {
-        return '<!DOCTYPE html>\n'
-            + '<html lang="en">\n'
-            + '<head>\n'
-            + '  <meta charset="UTF-8">\n'
-            + '  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
-            + '  <meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; script-src \'unsafe-inline\';">\n'
-            + '  <title>Setup Required</title>\n'
-            + '  <style>\n'
-            + '    * { box-sizing: border-box; margin: 0; padding: 0; }\n'
-            + '    body {\n'
-            + '      font-family: var(--vscode-font-family);\n'
-            + '      font-size: var(--vscode-font-size);\n'
-            + '      color: var(--vscode-foreground);\n'
-            + '      background: var(--vscode-sideBar-background);\n'
-            + '      padding: 16px 12px;\n'
-            + '      display: flex;\n'
-            + '      flex-direction: column;\n'
-            + '      align-items: center;\n'
-            + '      text-align: center;\n'
-            + '    }\n'
-            + '    .icon {\n'
-            + '      font-size: 32px;\n'
-            + '      margin-bottom: 12px;\n'
-            + '      opacity: 0.6;\n'
-            + '    }\n'
-            + '    h3 {\n'
-            + '      font-size: 13px;\n'
-            + '      font-weight: 600;\n'
-            + '      margin-bottom: 8px;\n'
-            + '    }\n'
-            + '    p {\n'
-            + '      font-size: 12px;\n'
-            + '      color: var(--vscode-descriptionForeground);\n'
-            + '      line-height: 1.5;\n'
-            + '      margin-bottom: 12px;\n'
-            + '    }\n'
-            + '    code {\n'
-            + '      background: var(--vscode-textCodeBlock-background);\n'
-            + '      padding: 1px 4px;\n'
-            + '      border-radius: 3px;\n'
-            + '      font-size: 11px;\n'
-            + '    }\n'
-            + '    .steps {\n'
-            + '      text-align: left;\n'
-            + '      width: 100%;\n'
-            + '      font-size: 12px;\n'
-            + '      color: var(--vscode-descriptionForeground);\n'
-            + '      line-height: 1.6;\n'
-            + '      margin-bottom: 12px;\n'
-            + '    }\n'
-            + '    .steps li {\n'
-            + '      margin-bottom: 4px;\n'
-            + '      margin-left: 16px;\n'
-            + '    }\n'
-            + '    button {\n'
-            + '      background: var(--vscode-button-background);\n'
-            + '      color: var(--vscode-button-foreground);\n'
-            + '      border: none;\n'
-            + '      padding: 6px 14px;\n'
-            + '      border-radius: 2px;\n'
-            + '      cursor: pointer;\n'
-            + '      font-size: 12px;\n'
-            + '    }\n'
-            + '    button:hover {\n'
-            + '      background: var(--vscode-button-hoverBackground);\n'
-            + '    }\n'
-            + '  </style>\n'
-            + '</head>\n'
-            + '<body>\n'
-            + '  <div class="icon">&#9881;</div>\n'
-            + '  <h3>TOM AI Setup Required</h3>\n'
-            + '  <p>This workspace is not configured for TOM AI.<br>The extension is running in minimal mode.</p>\n'
-            + '  <ol class="steps">\n'
-            + '    <li>Create a <code>.tom/</code> folder in the workspace root</li>\n'
-            + '    <li>Add <code>.tom/tom_vscode_extension.json</code> config file</li>\n'
-            + '    <li>Reload the window</li>\n'
-            + '  </ol>\n'
-            + '  <button id="setupBtn">Open Setup Guide</button>\n'
-            + '  <script>\n'
-            + '    (function() {\n'
-            + '      var vscode = acquireVsCodeApi();\n'
-            + '      document.getElementById(\'setupBtn\').addEventListener(\'click\', function() {\n'
-            + '        vscode.postMessage({ type: \'openSetupDoc\' });\n'
-            + '      });\n'
-            + '    })();\n'
-            + '  </script>\n'
-            + '</body>\n'
-            + '</html>';
+    private _getHtml(webview: vscode.Webview): string {
+        const body = `
+  <div class="icon">&#9881;</div>
+  <h3>TOM AI Setup Required</h3>
+  <p>This workspace is not configured for TOM AI.<br>The extension is running in minimal mode.</p>
+  <ol class="steps">
+    <li>Create a <code>.tom/</code> folder in the workspace root</li>
+    <li>Add <code>.tom/tom_vscode_extension.json</code> config file</li>
+    <li>Reload the window</li>
+  </ol>
+  <button id="setupBtn">Open Setup Guide</button>`;
+
+        const script = `
+(function() {
+  var vscode = acquireVsCodeApi();
+  document.getElementById('setupBtn').addEventListener('click', function() {
+    vscode.postMessage({ type: 'openSetupDoc' });
+  });
+})();`;
+
+        // The base helper wires up CSP + base styles. We replace the body
+        // styles with a centered-layout variant tuned for the empty-state card.
+        return this.getBaseHtml(webview, body, script).replace(
+            /<style>[\s\S]*?<\/style>/,
+            `<style>${this.getBaseStyles()}${extraStyles}</style>`,
+        );
     }
 }
+
+const extraStyles = `
+body {
+    padding: 16px 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    background: var(--vscode-sideBar-background);
+}
+.icon {
+    font-size: 32px;
+    margin-bottom: 12px;
+    opacity: 0.6;
+}
+h3 {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+p {
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground);
+    line-height: 1.5;
+    margin-bottom: 12px;
+}
+code {
+    background: var(--vscode-textCodeBlock-background);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 11px;
+}
+.steps {
+    text-align: left;
+    width: 100%;
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground);
+    line-height: 1.6;
+    margin-bottom: 12px;
+}
+.steps li {
+    margin-bottom: 4px;
+    margin-left: 16px;
+}
+button {
+    padding: 6px 14px;
+    border-radius: 2px;
+    font-size: 12px;
+}
+`;
 
 /**
  * Register placeholder webview providers for all panel view IDs in minimal mode.
@@ -160,4 +147,6 @@ export function registerMinimalModePanels(context: vscode.ExtensionContext): voi
             vscode.window.registerWebviewViewProvider(viewId, provider),
         );
     }
+    // Tie the provider's lifetime to the extension so disposables clear.
+    context.subscriptions.push(provider);
 }
