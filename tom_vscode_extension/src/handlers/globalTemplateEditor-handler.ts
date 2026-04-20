@@ -6,13 +6,23 @@
  * left column with template list, right column with multi-field editor.
  *
  * Categories:
- *   1. Copilot Templates       — config.copilot.templates
- *   2. Reminder Templates      — config.reminders.templates
- *   3. Tom AI Chat Templates   — config.tomAiChat.templates
- *   4. AI Conversation Profiles— config.aiConversation.profiles
- *   5. Local LLM Profiles      — config.localLlm.profiles
- *   6. Timed Requests          — config.timedRequests
- *   7. Self-Talk Profiles      — config.aiConversation.selfTalk
+ *   1. Copilot Templates             — config.copilot.templates
+ *   2. Reminder Templates            — config.reminders.templates
+ *   3. Tom AI Chat Templates         — config.tomAiChat.templates
+ *   4. AI Conversation Profiles      — config.aiConversation.profiles
+ *   5. Local LLM Profiles            — config.localLlm.profiles
+ *   6. Timed Requests                — config.timedRequests
+ *   7. Self-Talk Profiles            — config.aiConversation.selfTalk
+ *   8. Anthropic — Profiles          — config.anthropic.profiles
+ *   9. Anthropic — User Message      — config.anthropic.userMessageTemplates
+ *
+ * The category dropdown at the top of the editor is the user-facing
+ * per-transport switcher mandated by multi_transport_prompt_queue_revised.md
+ * §4.16 — `Copilot` + `Anthropic — User Message` are the two template
+ * stores the queue reads from (routed through the `transport` field on
+ * the prompt-template tools). No separate `renderTransportPicker`
+ * control is mounted here because this dropdown already does the job
+ * and covers the larger set of stores the editor manages.
  */
 
 import * as vscode from 'vscode';
