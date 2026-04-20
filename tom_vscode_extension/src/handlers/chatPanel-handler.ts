@@ -547,6 +547,9 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'refreshAnthropicModels':
                         await this._sendAnthropicModels();
                         break;
+                    case 'refreshVsCodeLmModels':
+                        await this._sendVsCodeLmModels();
+                        break;
                     case 'clearAnthropicHistory':
                         AnthropicHandler.instance.clearSession();
                         break;
@@ -1827,6 +1830,34 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             models: result.models,
             ...(result.error ? { error: result.error } : {}),
         });
+    }
+
+    /**
+     * Populate the informational VS Code LM model dropdown on the
+     * Anthropic panel (spec §4.12). Called on Refresh click. Purely
+     * informational — selection does not retarget sends.
+     */
+    private async _sendVsCodeLmModels(): Promise<void> {
+        try {
+            const models = await vscode.lm.selectChatModels({});
+            const entries = models.map((m) => ({
+                id: m.id,
+                vendor: m.vendor,
+                family: m.family,
+                name: m.name,
+                label: `${m.vendor} · ${m.family} — ${m.name || m.id}`,
+            }));
+            this._view?.webview.postMessage({
+                type: 'vscodeLmModels',
+                models: entries,
+            });
+        } catch (err) {
+            this._view?.webview.postMessage({
+                type: 'vscodeLmModels',
+                models: [],
+                error: err instanceof Error ? err.message : String(err),
+            });
+        }
     }
 
     private async _openAnthropicSummaryTrail(): Promise<void> {
@@ -3395,6 +3426,13 @@ function getSectionContent(id) {
                 '<label style="margin-left:6px;">Available Models:</label>' +
                 '<select id="anthropic-model" style="max-width:240px;" title="Read-only list of models returned by the Anthropic API. The selected configuration controls which model is actually used."><option value="">(loading...)</option></select>' +
                 '<button class="icon-btn" data-action="refreshAnthropicModels" data-id="anthropic" title="Refresh models from API"><span class="codicon codicon-refresh"></span></button>' +
+                // VS Code LM model dropdown (informational — spec §4.12).
+                // Populated lazily on Refresh click, or when a vscodeLm
+                // configuration is active. Selection does NOT retarget
+                // sends; the configuration\'s stored modelId drives sends.
+                '<label style="margin-left:6px;">VS Code LM Models:</label>' +
+                '<select id="anthropic-vscodelm-models" style="max-width:240px;" title="Read-only list of models available via vscode.lm.selectChatModels(). Informational — the active vscodeLm configuration\'s stored modelId drives sends. Click Refresh to repopulate."><option value="">(click refresh)</option></select>' +
+                '<button class="icon-btn" data-action="refreshVsCodeLmModels" data-id="anthropic" title="Refresh VS Code LM model list"><span class="codicon codicon-refresh"></span></button>' +
                 '</span></div>',
         })
     };
@@ -3650,6 +3688,7 @@ function handleAction(action, id, slot) {
         case 'openReusablePromptEditor': vscode.postMessage({ type: 'openReusablePromptEditor' }); break;
         case 'openContextSettingsEditor': vscode.postMessage({ type: 'openContextSettingsEditor' }); break;
         case 'refreshAnthropicModels': vscode.postMessage({ type: 'refreshAnthropicModels' }); break;
+        case 'refreshVsCodeLmModels': vscode.postMessage({ type: 'refreshVsCodeLmModels' }); break;
         case 'clearAnthropicHistory': vscode.postMessage({ type: 'clearAnthropicHistory' }); _anthropicSessionDeny = {}; anthropicSessionTurns = 0; anthropicLastToolCalls = 0; setAnthropicStatus('History cleared'); break;
         case 'openAnthropicMemory': vscode.postMessage({ type: 'openAnthropicMemory' }); break;
         case 'anthropicApprovalApprove': resolveAnthropicApproval(true, false); break;
@@ -4006,6 +4045,23 @@ window.addEventListener('message', function(e) {
             setAnthropicStatus('');
         }
         populateAnthropicModels();
+    } else if (msg.type === 'vscodeLmModels') {
+        // Informational — populate the VS Code LM dropdown (spec §4.12).
+        // Does NOT retarget sends; the configuration's stored modelId
+        // drives sends.
+        var vlmSelect = document.getElementById('anthropic-vscodelm-models');
+        if (vlmSelect) {
+            var vlmList = msg.models || [];
+            if (vlmList.length === 0) {
+                var emptyMsg = msg.error ? ('(error: ' + msg.error + ')') : '(no models)';
+                vlmSelect.innerHTML = '<option value="">' + emptyMsg + '</option>';
+            } else {
+                vlmSelect.innerHTML = '<option value="">(' + vlmList.length + ' models available)</option>' +
+                    vlmList.map(function(m) {
+                        return '<option value="' + m.id + '">' + m.label + '</option>';
+                    }).join('');
+            }
+        }
     } else if (msg.type === 'anthropicApiKeyStatus') {
         anthropicApiKeyOk = !!msg.ok;
         updateAnthropicApiKeyDot();
