@@ -294,12 +294,25 @@ function renderEntry(item, idx) {
 
   /* --- Status bar (queue mode) or simple header (template mode) --- */
   var headerHtml = '';
+  /* Transport badge — spec §4.10 visible indicator that this item
+   * routes through anthropic instead of the default Copilot flow.
+   * Shown only for non-copilot items so the default state stays
+   * uncluttered. Profile id is included when set so users can tell
+   * multi-profile queues apart at a glance.
+   */
+  var transportBadge = '';
+  if (item.transport === 'anthropic') {
+    var pid = typeof item.anthropicProfileId === 'string' && item.anthropicProfileId
+      ? ':' + item.anthropicProfileId : '';
+    transportBadge = '  <span style="background:#4a9eff;color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;" title="Queue item dispatches through AnthropicHandler.sendMessage (auto-approve forced). Profile: ' +
+      escapeHtml(item.anthropicProfileId || '(default)') + '">[anthropic' + escapeHtml(pid) + ']</span>';
+  }
   if (editorMode === 'queue') {
     headerHtml = '<div class="item-header">' +
       '<div class="status-bar ' + statusBarCls + '">' +
         '<span class="status-left">' +
           '<span class="codicon ' + (expanded ? 'codicon-chevron-down' : 'codicon-chevron-right') + '" style="cursor:pointer;color:#000;" onclick="toggleDetails(\\'' + safeId + '\\')" title="Toggle details"></span>' +
-          statusLabel + repeatProgress + tplRepeatProgress +
+          statusLabel + repeatProgress + tplRepeatProgress + transportBadge +
           (item.template && item.template !== '(None)' && item.template !== '__answer_file__' ? '  [' + escapeHtml(item.template) + ']' : '') +
           (item.template && item.template !== '(None)' ? '  [AW]' : '') +
           '<span class="status-icons">' +
