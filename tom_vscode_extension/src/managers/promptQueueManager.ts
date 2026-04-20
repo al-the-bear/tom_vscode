@@ -387,10 +387,19 @@ export class PromptQueueManager {
         answerWrapper?: boolean,
         repetition?: { repeatCount?: number; repeatIndex?: number; repeatPrefix?: string; repeatSuffix?: string },
         transport: QueuedTransport = 'copilot',
+        templateRepetition?: { templateRepeatCount?: number; templateRepeatIndex?: number },
     ): Promise<string> {
         const repeatCount = Math.max(0, Math.round(repetition?.repeatCount || 0));
         const repeatIndex = Math.max(0, Math.round(repetition?.repeatIndex || 0));
         const repeatNumber = repeatIndex + 1;
+        // Outer (template-level) repetition — same semantics as the inner
+        // repeat, but counts how many times this item's entire PP/main/FU
+        // sequence has been replayed. Zero when the item isn't part of a
+        // template-repeat cycle, in which case the placeholders still
+        // resolve to `0` / `1` rather than leaking `${...}` into prompts.
+        const templateRepeatCount = Math.max(0, Math.round(templateRepetition?.templateRepeatCount || 0));
+        const templateRepeatIndex = Math.max(0, Math.round(templateRepetition?.templateRepeatIndex || 0));
+        const templateRepeatNumber = templateRepeatIndex + 1;
         const withAffixes = applyRepetitionAffixes({
             originalText,
             repeatCount,
@@ -402,6 +411,7 @@ export class PromptQueueManager {
         // Resolve repeat affix placeholders via the standard variable resolver.
         // repeatIndex is 0-based, repeatNumber is 1-based (repeatIndex + 1).
         // Supported syntax for repeat placeholders is ${repeatNumber}, ${repeatIndex}, ${repeatCount}.
+        // Outer (template-repeat) variants use the templateRepeat* prefix.
         // Mustache placeholders are intentionally not supported for repeat affixes.
         const withResolvedAffixes = resolveVariables(withAffixes, {
             includeEditor: false,
@@ -411,6 +421,9 @@ export class PromptQueueManager {
                 repeatCount: String(repeatCount),
                 repeatIndex: String(repeatIndex),
                 repeatNumber: String(repeatNumber),
+                templateRepeatCount: String(templateRepeatCount),
+                templateRepeatIndex: String(templateRepeatIndex),
+                templateRepeatNumber: String(templateRepeatNumber),
             },
         });
 
@@ -1397,6 +1410,10 @@ export class PromptQueueManager {
                 repeatSuffix: opts.repeatSuffix,
             },
             resolveInitialTransport,
+            {
+                templateRepeatCount: resolveRepeatCount(opts.templateRepeatCount),
+                templateRepeatIndex: opts.templateRepeatIndex,
+            },
         );
 
         // Compute effective reminder template: provided value, or fall back to default
@@ -1520,7 +1537,10 @@ export class PromptQueueManager {
             repeatIndex: item.repeatIndex,
             repeatPrefix: item.repeatPrefix,
             repeatSuffix: item.repeatSuffix,
-        }, effectiveTransport);
+        }, effectiveTransport, {
+            templateRepeatCount: resolveRepeatCount(item.templateRepeatCount),
+            templateRepeatIndex: item.templateRepeatIndex,
+        });
         this.persist();
         this._onDidChange.fire();
     }
@@ -1547,7 +1567,10 @@ export class PromptQueueManager {
             repeatIndex: item.repeatIndex,
             repeatPrefix: item.repeatPrefix,
             repeatSuffix: item.repeatSuffix,
-        }, effectiveTransport);
+        }, effectiveTransport, {
+            templateRepeatCount: resolveRepeatCount(item.templateRepeatCount),
+            templateRepeatIndex: item.templateRepeatIndex,
+        });
         this.persist();
         this._onDidChange.fire();
         return true;
@@ -2325,6 +2348,10 @@ export class PromptQueueManager {
                     resolved.transport === 'copilot',
                     { repeatCount: ppRepeatCount, repeatIndex: ppSentCount },
                     resolved.transport,
+                    {
+                        templateRepeatCount: resolveRepeatCount(item.templateRepeatCount),
+                        templateRepeatIndex: item.templateRepeatIndex,
+                    },
                 );
                 pp.status = 'sent';
                 pp.repeatIndex = ppSentCount + 1;
@@ -2380,6 +2407,10 @@ export class PromptQueueManager {
                     repeatSuffix: item.repeatSuffix,
                 },
                 resolved.transport,
+                {
+                    templateRepeatCount: resolveRepeatCount(item.templateRepeatCount),
+                    templateRepeatIndex: item.templateRepeatIndex,
+                },
             );
             const newRequestId = resolved.transport === 'copilot'
                 ? this._extractRequestIdFromExpandedPrompt(item.expandedText)
@@ -2431,6 +2462,10 @@ export class PromptQueueManager {
                     resolved.transport === 'copilot',
                     { repeatCount: fuRepeatCount, repeatIndex: fuSentCount },
                     resolved.transport,
+                    {
+                        templateRepeatCount: resolveRepeatCount(item.templateRepeatCount),
+                        templateRepeatIndex: item.templateRepeatIndex,
+                    },
                 );
                 nextFollowUp.repeatIndex = fuSentCount + 1;
                 item.expandedText = followUpExpanded;

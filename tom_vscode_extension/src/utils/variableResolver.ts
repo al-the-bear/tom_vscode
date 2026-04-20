@@ -1209,6 +1209,18 @@ Use <code>#key=description</code> notation in prompts to request specific respon
 <code>\${contextInfo}</code> – All context settings as a formatted JSON code block ("not set" for empty values)<br>
 <code>\${contextAndVariables}</code> – Both context info and chat variables blocks combined<br>
 <br>
+<em>Prompt Repetition (inner — current prompt/pre-prompt/follow-up only):</em><br>
+<code>\${repeatCount}</code> – Total repeats configured for this stage (resolves from chat variables when configured as a name)<br>
+<code>\${repeatIndex}</code> – 0-based index of the current repeat (0 on first send)<br>
+<code>\${repeatNumber}</code> – 1-based counter of the current repeat (<code>\${repeatIndex} + 1</code>); use this in human-facing text like "Run 3 of 5"<br>
+These also resolve inside <code>repeatPrefix</code> / <code>repeatSuffix</code> affixes.<br>
+<br>
+<em>Template Repetition (outer — whole pre-prompt → main → follow-up sequence):</em><br>
+<code>\${templateRepeatCount}</code> – Total times the full template will replay<br>
+<code>\${templateRepeatIndex}</code> – 0-based index of the current template replay<br>
+<code>\${templateRepeatNumber}</code> – 1-based counter of the current template replay<br>
+All three resolve to <code>0</code> / <code>1</code> when the item isn't part of a template-repeat cycle, so it's safe to reference them unconditionally.<br>
+<br>
 <em>File-Injection (inlines file contents; empty when the file does not exist):</em><br>
 <code>\${role-description}</code> – <code>_ai/roles/\${role}/role.md</code><br>
 <code>\${quest-description}</code> – <code>_ai/quests/\${quest}/overview.\${quest}.md</code><br>
