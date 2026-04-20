@@ -176,11 +176,15 @@ async function handleMessage(msg: any): Promise<void> {
           // Spec §4.10 header-row queue-level default. Persists to
           // queue-settings.yaml so the setting survives reloads; new
           // items without an explicit transport inherit it at
-          // dispatch time.
+          // dispatch time. The template here is transport-scoped
+          // (anthropic user-message template id or copilot template
+          // name) and gets stamped onto items when a queue template
+          // is dispatched into the queue.
           const transport = (msg.transport === 'anthropic' ? 'anthropic' : 'copilot') as 'copilot' | 'anthropic';
           const pid = typeof msg.anthropicProfileId === 'string' ? msg.anthropicProfileId : '';
-          const cid = typeof msg.anthropicConfigId === 'string' ? msg.anthropicConfigId : '';
-          PromptQueueManager.instance.setDefaultTransport(transport, pid, cid);
+          const tplId = typeof msg.messageTemplateId === 'string' ? msg.messageTemplateId : '';
+          PromptQueueManager.instance.setDefaultTransport(transport, pid);
+          PromptQueueManager.instance.setDefaultMessageTemplate(tplId);
           sendState();
           return;
         }
@@ -476,9 +480,16 @@ async function handleMessage(msg: any): Promise<void> {
             try {
                 console.log('[QueueEditor] addPrompt received, text length:', msg.text?.length);
                 const addTransport = msg.transport === 'anthropic' ? 'anthropic' as const : undefined;
+                // Add-to-Queue form now carries the message template
+                // via `messageTemplateId` (from the transport picker).
+                // Keep the legacy `template` field as a fallback in case
+                // some caller still sends it.
+                const addTemplate = (typeof msg.messageTemplateId === 'string' && msg.messageTemplateId)
+                    ? msg.messageTemplateId
+                    : msg.template;
                 await qm.enqueue({
                     originalText: msg.text || '',
-                    template: msg.template,
+                    template: addTemplate,
                     // Copilot answer-wrapper is a Copilot-only construct
                     // (spec §4.7). Anthropic items skip it.
                     answerWrapper: addTransport === 'anthropic' ? false : (msg.answerWrapper || false),
@@ -750,7 +761,7 @@ function buildState(): Record<string, unknown> {
     let templates: { id: string; name: string }[] = [];
     let queueDefaultTransport: 'copilot' | 'anthropic' = 'copilot';
     let queueDefaultAnthropicProfileId = '';
-    let queueDefaultAnthropicConfigId = '';
+    let queueDefaultMessageTemplateId = '';
 
     try {
         const qm = PromptQueueManager.instance;
@@ -763,7 +774,7 @@ function buildState(): Record<string, unknown> {
         defaultReminderTemplateId = qm.defaultReminderTemplateId;
         queueDefaultTransport = qm.defaultTransport;
         queueDefaultAnthropicProfileId = qm.defaultAnthropicProfileId || '';
-        queueDefaultAnthropicConfigId = qm.defaultAnthropicConfigId || '';
+        queueDefaultMessageTemplateId = qm.defaultMessageTemplateId || '';
         console.log('[QueueEditor] buildState: items count =', items.length);
     } catch (e) {
         console.error('[QueueEditor] buildState: PromptQueueManager not ready:', e);
@@ -839,7 +850,7 @@ function buildState(): Record<string, unknown> {
         // Queue-level default transport (spec §4.10 header row).
         queueDefaultTransport,
         queueDefaultAnthropicProfileId,
-        queueDefaultAnthropicConfigId,
+        queueDefaultMessageTemplateId,
         collapsedIds: Array.from(_collapsedItemIds),
         context: { quest, role, activeProjects },
     };
@@ -1088,7 +1099,7 @@ let anthropicConfigs = __INITIAL__.anthropicConfigs || [];
 let anthropicUserMessageTemplates = __INITIAL__.anthropicUserMessageTemplates || [];
 let queueDefaultTransport = __INITIAL__.queueDefaultTransport || 'copilot';
 let queueDefaultAnthropicProfileId = __INITIAL__.queueDefaultAnthropicProfileId || '';
-let queueDefaultAnthropicConfigId = __INITIAL__.queueDefaultAnthropicConfigId || '';
+let queueDefaultMessageTemplateId = __INITIAL__.queueDefaultMessageTemplateId || '';
 let currentContext = __INITIAL__.context || { quest: '', role: '', activeProjects: [] };
 let detailsExpanded = {};
 var editorMode = 'queue';
@@ -1178,7 +1189,7 @@ window.addEventListener('message', e => {
       anthropicUserMessageTemplates = msg.anthropicUserMessageTemplates || [];
       queueDefaultTransport = msg.queueDefaultTransport || 'copilot';
       queueDefaultAnthropicProfileId = msg.queueDefaultAnthropicProfileId || '';
-      queueDefaultAnthropicConfigId = msg.queueDefaultAnthropicConfigId || '';
+      queueDefaultMessageTemplateId = msg.queueDefaultMessageTemplateId || '';
       currentContext = msg.context || { quest: '', role: '', activeProjects: [] };
       normalizeState();
       render();
@@ -1368,14 +1379,19 @@ function addPrompt() {
     msg.repeatSuffix = inputRepeatSuffix.value;
   }
   // Transport picker (spec §4.10 / §4.15). Read from the shared helper's
-  // generated selects (IDs: {prefix}-transport-t / -profile / -config).
+  // generated selects. The Config dropdown was replaced by a per-
+  // transport Template dropdown (anthropic user-msg OR copilot msg).
   var tSel = document.getElementById('addForm-transport-t');
   if (tSel && tSel.value === 'anthropic') {
     msg.transport = 'anthropic';
     var pSel = document.getElementById('addForm-transport-profile');
-    var cSel = document.getElementById('addForm-transport-config');
+    var tplA = document.getElementById('addForm-transport-tpl-anthropic');
     if (pSel && pSel.value) { msg.anthropicProfileId = pSel.value; }
-    if (cSel && cSel.value) { msg.anthropicConfigId = cSel.value; }
+    if (tplA && tplA.value) { msg.messageTemplateId = tplA.value; }
+  } else if (tSel && tSel.value === 'copilot') {
+    msg.transport = 'copilot';
+    var tplC = document.getElementById('addForm-transport-tpl-copilot');
+    if (tplC && tplC.value) { msg.messageTemplateId = tplC.value; }
   }
   vscode.postMessage(msg);
   ta.value = '';
@@ -1504,35 +1520,56 @@ function populateAddForm() {
         pSel.value = prev;
       }
     }
-    var cSel = document.getElementById(prefix + '-transport-config');
-    if (cSel) {
-      var prevCfg = cSel.value;
-      cSel.innerHTML = '<option value="">(profile default)</option>';
-      (anthropicConfigs || []).forEach(function(c) {
+    // Per-transport template dropdowns: the picker renders two
+    // selects (anthropic user-message and copilot) and shows the one
+    // matching the current transport. Repopulate both here from the
+    // live config payload so switching transport finds a fresh list.
+    var tplAnth = document.getElementById(prefix + '-transport-tpl-anthropic');
+    if (tplAnth) {
+      var prevTplA = tplAnth.value;
+      tplAnth.innerHTML = '<option value="">(none)</option>';
+      (anthropicUserMessageTemplates || []).forEach(function(t) {
+        if (!t || !t.id) { return; }
         var opt = document.createElement('option');
-        opt.value = c.id;
-        var cfgPrefix = '[direct]';
-        if (c.transport === 'agentSdk') { cfgPrefix = '[agentSdk]'; }
-        else if (c.transport === 'vscodeLm') { cfgPrefix = '[vscodeLm]'; }
-        else if (c.transport === 'localLlm') { cfgPrefix = '[localLlm]'; }
-        opt.textContent = cfgPrefix + ' ' + (c.name ? (c.name + ' (' + c.id + ')') : c.id);
-        cSel.appendChild(opt);
+        opt.value = t.id;
+        opt.textContent = t.name ? (t.name + ' (' + t.id + ')') : t.id;
+        tplAnth.appendChild(opt);
       });
-      if (prefix === 'queueDefault' && queueDefaultAnthropicConfigId) {
-        cSel.value = queueDefaultAnthropicConfigId;
-      } else if (prevCfg) {
-        cSel.value = prevCfg;
+      if (prefix === 'queueDefault' && queueDefaultTransport === 'anthropic' && queueDefaultMessageTemplateId) {
+        tplAnth.value = queueDefaultMessageTemplateId;
+      } else if (prevTplA) {
+        tplAnth.value = prevTplA;
+      }
+    }
+    var tplCop = document.getElementById(prefix + '-transport-tpl-copilot');
+    if (tplCop) {
+      var prevTplC = tplCop.value;
+      tplCop.innerHTML = '<option value="">(none)</option>';
+      (promptTemplates || []).forEach(function(name) {
+        var opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        tplCop.appendChild(opt);
+      });
+      if (prefix === 'queueDefault' && queueDefaultTransport === 'copilot' && queueDefaultMessageTemplateId) {
+        tplCop.value = queueDefaultMessageTemplateId;
+      } else if (prevTplC) {
+        tplCop.value = prevTplC;
       }
     }
     var tSelX = document.getElementById(prefix + '-transport-t');
     var targetsX = document.getElementById(prefix + '-transport-targets');
+    var pWrapX = document.getElementById(prefix + '-transport-profile-wrap');
     if (tSelX) {
       if (prefix === 'queueDefault') {
         tSelX.value = queueDefaultTransport;
       }
-      if (targetsX) {
-        targetsX.style.display = tSelX.value === 'anthropic' ? '' : 'none';
-      }
+      var isA = tSelX.value === 'anthropic';
+      var isC = tSelX.value === 'copilot';
+      if (targetsX) { targetsX.style.display = (isA || isC) ? '' : 'none'; }
+      if (pWrapX) { pWrapX.style.display = isA ? '' : 'none'; }
+      if (tplAnth) { tplAnth.style.display = isA ? '' : 'none'; }
+      if (tplCop) { tplCop.style.display = isC ? '' : 'none'; }
     }
   });
   // Remove the old single-prefix population below — still kept as a

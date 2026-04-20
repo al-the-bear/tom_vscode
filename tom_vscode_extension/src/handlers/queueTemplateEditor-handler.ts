@@ -519,6 +519,30 @@ async function queueFromTemplate(msg: any): Promise<void> {
       delete main.execution;
     }
 
+    // Stamp the queue-level transport + message template onto every
+    // main prompt in the batch at dispatch time. The queue template
+    // editor no longer stores per-item templates — they all inherit
+    // from the prompt queue's current picker selection the moment
+    // the template is queued. Reminders stay on the item (they are
+    // Copilot-only and the queue-template editor still edits them).
+    try {
+      const queueModule = await import('../managers/promptQueueManager.js');
+      const qm = queueModule.PromptQueueManager.instance;
+      const queueTransport: 'copilot' | 'anthropic' = qm?.defaultTransport === 'anthropic' ? 'anthropic' : 'copilot';
+      const queueTemplate = qm?.defaultMessageTemplateId || '';
+      const queueProfile = qm?.defaultAnthropicProfileId || '';
+      for (const p of prompts) {
+        if (!p || p.type !== 'main') { continue; }
+        p['template'] = queueTemplate;
+        p['transport'] = queueTransport;
+        if (queueTransport === 'anthropic') {
+          p['anthropic-profile-id'] = queueProfile || undefined;
+        } else {
+          delete p['anthropic-profile-id'];
+        }
+      }
+    } catch { /* queue manager not ready — leave template as stored */ }
+
     // Fresh queue entry identity/status while preserving additional metadata.
     doc.meta = doc.meta || ({ id: generateId() } as QueueMetaYaml);
     doc.meta.id = generateId();

@@ -265,6 +265,9 @@ function renderEntry(item, idx) {
     // Spec §4.16 — template dropdown filters by the item's effective
     // transport. Anthropic items pull from the anthropic user-message
     // templates store; Copilot items stay on the Copilot store.
+    // Queue-template editor (editorMode='template') no longer exposes
+    // a per-item template — all main prompts inherit the queue-level
+    // template at queue-dispatch time. Reminder dropdown stays.
     var mpIsAnthropic = item.transport === 'anthropic';
     var mpTplOptions = mpIsAnthropic
       ? (anthropicUserMessageTemplates || []).map(function(t) {
@@ -273,12 +276,17 @@ function renderEntry(item, idx) {
       : (promptTemplates || []).map(function(name) {
           return '<option value="' + escapeHtml(name) + '"' + ((item.template || '') === name ? ' selected' : '') + '>' + escapeHtml(formatPromptTemplateName(name)) + '</option>';
         }).join('');
+    var showTemplateSelect = editorMode !== 'template';
+    var templateSelectHtml = showTemplateSelect
+      ? ('<label style="font-size:0.85em;font-weight:600;">Template:</label>' +
+         '<select onchange="updateItemTemplate(\\'' + safeId + '\\', this.value)">' +
+           '<option value="">(None)</option>' +
+           mpTplOptions +
+         '</select>')
+      : '';
     templateRow = '<div class="template-row">' +
-      '<label style="font-size:0.85em;font-weight:600;">Template:</label>' +
-      '<select onchange="updateItemTemplate(\\'' + safeId + '\\', this.value)">' +
-        '<option value="">(None)</option>' +
-        mpTplOptions +
-      '</select>' +
+      templateSelectHtml +
+      '<label style="font-size:0.85em;font-weight:600;margin-left:' + (showTemplateSelect ? '0' : '0') + ';">Reminder:</label>' +
       '<select onchange="updateItemReminder(\\'' + safeId + '\\', \\'template\\', this.value)">' +
         '<option value=""' + (!noReminderSelected && !item.reminderTemplateId ? ' selected' : '') + '>Global Default</option>' +
         '<option value="__none__"' + (noReminderSelected ? ' selected' : '') + '>No reminder</option>' +
@@ -442,20 +450,24 @@ function renderPrePrompts(item, status) {
         '</span>' +
       '</div>' +
       (isEditable
-        ? '<textarea onchange="updatePrePromptField(\\'' + safeItemId + '\\', ' + idx + ', \\'text\\', this.value)">' + escapeHtml(pp.text || '') + '</textarea>' +
+        ? (function() {
+            var ppShowTpl = editorMode !== 'template';
+            var ppTplHtml = ppShowTpl
+              ? ('<label style="font-size:0.85em;font-weight:600;">Template:</label>' +
+                 '<select onchange="updatePrePromptField(\\'' + safeItemId + '\\', ' + idx + ', \\'template\\', this.value)">' +
+                   '<option value="">(None)</option>' +
+                   ((pp.transport || item.transport) === 'anthropic'
+                     ? (anthropicUserMessageTemplates || []).map(function(t) {
+                         return '<option value="' + escapeHtml(t.id) + '"' + ((pp.template || '') === t.id ? ' selected' : '') + '>' + escapeHtml(t.name || t.id) + '</option>';
+                       }).join('')
+                     : (promptTemplates || []).map(function(name) {
+                         return '<option value="' + escapeHtml(name) + '"' + ((pp.template || '') === name ? ' selected' : '') + '>' + escapeHtml(formatPromptTemplateName(name)) + '</option>';
+                       }).join('')) +
+                 '</select>')
+              : '';
+            return '<textarea onchange="updatePrePromptField(\\'' + safeItemId + '\\', ' + idx + ', \\'text\\', this.value)">' + escapeHtml(pp.text || '') + '</textarea>' +
           '<div class="template-row">' +
-            '<label style="font-size:0.85em;font-weight:600;">Template:</label>' +
-            // Spec §4.16 — filter by effective transport (stage > item).
-            '<select onchange="updatePrePromptField(\\'' + safeItemId + '\\', ' + idx + ', \\'template\\', this.value)">' +
-              '<option value="">(None)</option>' +
-              ((pp.transport || item.transport) === 'anthropic'
-                ? (anthropicUserMessageTemplates || []).map(function(t) {
-                    return '<option value="' + escapeHtml(t.id) + '"' + ((pp.template || '') === t.id ? ' selected' : '') + '>' + escapeHtml(t.name || t.id) + '</option>';
-                  }).join('')
-                : (promptTemplates || []).map(function(name) {
-                    return '<option value="' + escapeHtml(name) + '"' + ((pp.template || '') === name ? ' selected' : '') + '>' + escapeHtml(formatPromptTemplateName(name)) + '</option>';
-                  }).join('')) +
-            '</select>' +
+            ppTplHtml +
             '<select onchange="updatePrePromptField(\\'' + safeItemId + '\\', ' + idx + ', \\'reminderTemplateId\\', this.value)">' +
               '<option value=""' + (!ppNoReminderSelected && !pp.reminderTemplateId ? ' selected' : '') + '>Global Default</option>' +
               '<option value="__none__"' + (ppNoReminderSelected ? ' selected' : '') + '>No reminder</option>' +
@@ -467,7 +479,8 @@ function renderPrePrompts(item, status) {
             '<input type="text" value="' + escapeHtml(ppRepeatCountDisplay) + '" style="width:40px" placeholder="1" title="Number or variable name" onchange="updatePrePromptField(\\'' + safeItemId + '\\', ' + idx + ', \\'repeatCount\\', this.value)">' +
             '<span style="font-size:0.8em;opacity:0.85;margin-left:8px;">Answer Wait:</span>' +
             '<input type="number" min="0" step="1" value="' + ppAnswerWait + '" style="width:33px" title="Minutes to wait" onchange="updatePrePromptField(\\'' + safeItemId + '\\', ' + idx + ', \\'answerWaitMinutes\\', this.value)">' +
-          '</div>'
+          '</div>';
+          })()
         : '<div class="preprompt-content" style="margin:4px 0; white-space:pre-wrap;">' + escapeHtml(pp.text || '') + '</div>') +
     '</div>';
   }).join('');
@@ -518,17 +531,21 @@ function renderFollowUps(item, status) {
         '</span>' +
       '</div>' +
       (isEditable
-        ? '<textarea onchange="updateFollowUp(\\'' + safeItemId + '\\', \\'' + safeFollowUpId + '\\', this.value)">' + escapeHtml(f.originalText || '') + '</textarea>' +
+        ? (function() {
+            var fuShowTpl = editorMode !== 'template';
+            var fuTplHtml = fuShowTpl
+              ? ('<span style="font-size:0.8em;opacity:0.85;">Template:</span>' +
+                 '<select onchange="updateFollowUpTemplate(\\'' + safeItemId + '\\', \\'' + safeFollowUpId + '\\', this.value)">' +
+                   '<option value="">(None)</option>' +
+                   ((f.transport || item.transport) === 'anthropic'
+                     ? (anthropicUserMessageTemplates || []).map(function(t){ return '<option value="' + escapeHtml(t.id) + '"' + ((f.template || '') === t.id ? ' selected' : '') + '>' + escapeHtml(t.name || t.id) + '</option>'; }).join('')
+                     : (promptTemplates || []).map(function(name){ return '<option value="' + escapeHtml(name) + '"' + ((f.template || '') === name ? ' selected' : '') + '>' + escapeHtml(formatPromptTemplateName(name)) + '</option>'; }).join('')) +
+                 '</select>')
+              : '';
+            return '<textarea onchange="updateFollowUp(\\'' + safeItemId + '\\', \\'' + safeFollowUpId + '\\', this.value)">' + escapeHtml(f.originalText || '') + '</textarea>' +
           '<div class="followup-actions">' +
             '<div class="followup-row">' +
-              '<span style="font-size:0.8em;opacity:0.85;">Template:</span>' +
-              // Spec §4.16 — filter by effective transport (stage > item).
-              '<select onchange="updateFollowUpTemplate(\\'' + safeItemId + '\\', \\'' + safeFollowUpId + '\\', this.value)">' +
-                '<option value="">(None)</option>' +
-                ((f.transport || item.transport) === 'anthropic'
-                  ? (anthropicUserMessageTemplates || []).map(function(t){ return '<option value="' + escapeHtml(t.id) + '"' + ((f.template || '') === t.id ? ' selected' : '') + '>' + escapeHtml(t.name || t.id) + '</option>'; }).join('')
-                  : (promptTemplates || []).map(function(name){ return '<option value="' + escapeHtml(name) + '"' + ((f.template || '') === name ? ' selected' : '') + '>' + escapeHtml(formatPromptTemplateName(name)) + '</option>'; }).join('')) +
-              '</select>' +
+              fuTplHtml +
               '<select onchange="updateFollowUpReminder(\\'' + safeItemId + '\\', \\'' + safeFollowUpId + '\\', \\'template\\', this.value)">' +
                 '<option value=""' + (!noReminderSelected && !f.reminderTemplateId ? ' selected' : '') + '>Global Default</option>' +
                 '<option value="__none__"' + (noReminderSelected ? ' selected' : '') + '>No reminder</option>' +
@@ -541,7 +558,8 @@ function renderFollowUps(item, status) {
               '<span style="font-size:0.8em;opacity:0.85;margin-left:8px;">Answer Wait:</span>' +
               '<input type="number" min="0" step="1" value="' + fuAnswerWait + '" style="width:33px" title="Minutes to wait" onchange="updateFollowUpField(\\'' + safeItemId + '\\', \\'' + safeFollowUpId + '\\', \\'answerWaitMinutes\\', this.value)">' +
             '</div>' +
-          '</div>'
+          '</div>';
+          })()
         : '<div class="followup-content" style="margin:4px 0; white-space:pre-wrap;">' + escapeHtml(f.originalText || '') + '</div>') +
     '</div>';
   }).join('');

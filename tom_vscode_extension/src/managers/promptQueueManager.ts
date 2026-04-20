@@ -289,6 +289,20 @@ export class PromptQueueManager {
     private _defaultTransport: QueuedTransport = 'copilot';
     private _defaultAnthropicProfileId: string | undefined;
     private _defaultAnthropicConfigId: string | undefined;
+    /**
+     * Queue-level default message-wrapping template. Applies to:
+     *   - queue-template dispatches: `queueFromTemplate` stamps this
+     *     onto each main prompt at queue time so all prompts in a
+     *     batch share the same wrapping.
+     *   - items that lack an explicit `template`: `resolveTemplateString`
+     *     falls back to this before giving up.
+     * Semantics depend on the current transport:
+     *   - copilot   → a key into config.copilot.templates
+     *   - anthropic → an anthropic.userMessageTemplates[].id
+     * Stored as a single string; the caller disambiguates based on
+     * the item's or queue's transport at use time.
+     */
+    private _defaultMessageTemplateId: string | undefined;
     private _autoContinueTimer?: ReturnType<typeof setTimeout>;
     private _answerWatcher?: fs.FSWatcher;
     private _timeoutWatcher?: ReturnType<typeof setInterval>;
@@ -2554,6 +2568,7 @@ export class PromptQueueManager {
             'default-transport': this._defaultTransport,
             'default-anthropic-profile-id': this._defaultAnthropicProfileId,
             'default-anthropic-config-id': this._defaultAnthropicConfigId,
+            'default-message-template-id': this._defaultMessageTemplateId,
         });
     }
 
@@ -2588,6 +2603,9 @@ export class PromptQueueManager {
             if (typeof settings['default-anthropic-config-id'] === 'string') {
                 this._defaultAnthropicConfigId = settings['default-anthropic-config-id'] || undefined;
             }
+            if (typeof settings['default-message-template-id'] === 'string') {
+                this._defaultMessageTemplateId = settings['default-message-template-id'] || undefined;
+            }
             console.log('[PromptQueueManager] restoreSettings:', {
                 timeout: this._responseFileTimeoutMinutes,
                 defaultTemplate: this._defaultReminderTemplateId,
@@ -2606,6 +2624,7 @@ export class PromptQueueManager {
     get defaultTransport(): QueuedTransport { return this._defaultTransport; }
     get defaultAnthropicProfileId(): string | undefined { return this._defaultAnthropicProfileId; }
     get defaultAnthropicConfigId(): string | undefined { return this._defaultAnthropicConfigId; }
+    get defaultMessageTemplateId(): string | undefined { return this._defaultMessageTemplateId; }
     setDefaultTransport(
         transport: QueuedTransport,
         anthropicProfileId?: string,
@@ -2613,7 +2632,21 @@ export class PromptQueueManager {
     ): void {
         this._defaultTransport = transport;
         this._defaultAnthropicProfileId = anthropicProfileId?.trim() || undefined;
+        // Config is now derived from the profile; the UI no longer
+        // surfaces it. Accept but ignore an explicit value so legacy
+        // callers don't fail the signature.
         this._defaultAnthropicConfigId = anthropicConfigId?.trim() || undefined;
+        this.persistSettings();
+        this._onDidChange.fire();
+    }
+    /**
+     * Update the queue-level default message-wrapping template. The
+     * semantics are transport-scoped — pass an anthropic user-message
+     * template id when defaultTransport is 'anthropic', a copilot
+     * template name when it's 'copilot'. Passing '' clears it.
+     */
+    setDefaultMessageTemplate(templateId?: string): void {
+        this._defaultMessageTemplateId = templateId?.trim() || undefined;
         this.persistSettings();
         this._onDidChange.fire();
     }

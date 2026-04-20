@@ -232,6 +232,13 @@ export interface QueueSettings {
     'default-transport'?: 'copilot' | 'anthropic';
     'default-anthropic-profile-id'?: string;
     'default-anthropic-config-id'?: string;
+    /**
+     * Queue-level default message-wrapping template. Transport-scoped
+     * semantics: copilot template name for copilot, userMessageTemplate
+     * id for anthropic. Stamped onto main prompts when a queue template
+     * is dispatched into the queue.
+     */
+    'default-message-template-id'?: string;
 }
 
 export function getQueueSettingsScopeKey(questId?: string): string {
