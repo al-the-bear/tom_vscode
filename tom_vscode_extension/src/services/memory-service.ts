@@ -548,10 +548,11 @@ export interface HistoryMarkdownInput {
 /**
  * Render a persisted session history payload as human-readable Markdown.
  *
- * Supports both the current shape (`{ compactedSummary, rawTurns }`)
- * and the legacy flat-array shape. Unknown payloads are dumped as a
- * JSON code block so the file is still something you can open and
- * read without a parser in the middle.
+ * Handles the canonical shape (`{ compactedSummary, rawTurns }`) with
+ * nicely formatted sections; anything else falls through to a raw-JSON
+ * code block so the file is still openable without a parser in the
+ * middle. The legacy flat `ConversationMessage[]` shape no longer has
+ * a first-class branch — it renders as JSON via the fallback.
  *
  * Written next to every `history.json` (see `persistHistorySnapshot`)
  * so the "Open session history" button in the chat panels has a

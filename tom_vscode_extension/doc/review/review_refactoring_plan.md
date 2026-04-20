@@ -106,46 +106,37 @@ None of these are bugs. They are accumulated complexity that taxes every future 
 
 Ordered by wave. Each item lists: **owning document(s)**, **files touched**, **concrete steps**, **risk**, **rollback**. Waves are independent — you can pause between waves without leaving the tree in a broken state.
 
-### Wave 0 — Deprecation sweep (prerequisite)
+### Wave 0 — Deprecation sweep (prerequisite) — **mostly pre-merged**
 
-Owns: [deprecation.md](deprecation.md) §1–4. Low risk, high clarity win. Execute in the five-commit sequence from [deprecation.md §6](deprecation.md#6-suggested-commit-split).
+Owns: [deprecation.md](deprecation.md) §1–4. A comprehensive grep of the current `main` tip (post-execution of this wave, 2026-04-20) against every item in the deprecation doc found that **all of §1.1–1.9, §3.1–3.2, §4.1 were already implemented** by prior cleanup commits before this plan started. Only two items had residual work.
 
-**Commit 0.A — Typed `compaction.disabled`**
+Status matrix after Wave 0:
 
-- Add `disabled?: boolean` to the `compaction` interface in [sendToChatConfig.ts:213-264](../../src/utils/sendToChatConfig.ts#L213).
-- Remove the `as { disabled?: boolean }` cast at [statusPage-handler.ts:996](../../src/handlers/statusPage-handler.ts#L996).
-- Remove the mutation casts at [statusPage-handler.ts:1003-1006](../../src/handlers/statusPage-handler.ts#L1003).
-- Simplify the read at [anthropic-handler.ts:612](../../src/handlers/anthropic-handler.ts#L612).
-- **Verification:** `npx tsc --noEmit`.
+| Item | Review doc | Status |
+| --- | --- | --- |
+| 1.1 `compaction.enabledTools` | deprecation §1.1 | ✅ Already removed |
+| 1.2 `bridge.profiles[].command` | deprecation §1.2 | ✅ Already removed |
+| 1.3 `ToolTrail` deprecated ctor params | deprecation §1.3 | ✅ Already removed |
+| 1.4 `ToolTrail.evictOldRounds()` | deprecation §1.4 | ✅ Already removed |
+| 1.5 `expandPlaceholders` wrapper | deprecation §1.5 | ✅ Already removed |
+| 1.6 `PLACEHOLDER_HELP` re-export | deprecation §1.6 | ✅ Already removed |
+| 1.7 `buildBuiltinValues()` | deprecation §1.7 | ✅ Already removed |
+| 1.8 `registerQuestTodoPanel()` stub | deprecation §1.8 | ✅ Already removed |
+| 1.9 Claude 3.x context fallback | deprecation §1.9 | ✅ Already removed |
+| 2.1 Remaining `compaction.disabled` cast | deprecation §2.1 | ✅ **Commit 0.A** — single remaining cast at `statusPage-handler.ts:1810` dropped |
+| 3.1 `normalizeOne()` legacy trail paths | deprecation §3.1 | ✅ Already removed |
+| 3.2 `${workspaceName}_prompts.md` rename shim | deprecation §3.2 | ✅ Already removed |
+| 4.1 Legacy flat `ConversationMessage[]` deserialise | deprecation §4.1 | ✅ Already removed from `seedHistoryFromSnapshot` |
+| 4.2 Flat-array history rendering in memory-service | deprecation §4.2 | ⚠️ **Commit 0.F** — fallback renders as raw JSON instead of a first-class section; stale doc comment updated to match reality |
 
-**Commit 0.B — Drop trivially dead APIs**
+Commits actually needed from this wave:
 
-- `compaction.enabledTools`: delete field at [sendToChatConfig.ts:218-219](../../src/utils/sendToChatConfig.ts#L218).
-- `bridge.profiles[].command`: delete fallback reader at [sendToChatConfig.ts:309-310](../../src/utils/sendToChatConfig.ts#L309); grep for `.command ??` to catch incidental reads.
-- `ToolTrail` constructor deprecated params: remove from [tool-trail.ts:58-60](../../src/services/tool-trail.ts#L58); update all `new ToolTrail(` call sites.
-- `ToolTrail.evictOldRounds()`: remove from [tool-trail.ts:91-99](../../src/services/tool-trail.ts#L91); remove callers.
-- `buildBuiltinValues()`: delete at [promptTemplate.ts:103-118](../../src/handlers/promptTemplate.ts#L103).
-- `registerQuestTodoPanel()` stub: remove at [questTodoPanel-handler.ts](../../src/handlers/questTodoPanel-handler.ts) plus activation call in `extension.ts`.
-- Claude 3.x context-window fallback: delete at [history-compaction.ts:159-160](../../src/services/history-compaction.ts#L159).
-- **Verification:** `npx tsc --noEmit` and run [src/utils/__tests__/queueLogger.test.ts](../../src/utils/__tests__/queueLogger.test.ts), [src/managers/__tests__/](../../src/managers/__tests__/) manually via the testkit workflow.
+- **Commit 0.A** — drop residual `compaction.disabled` cast at [statusPage-handler.ts:1810](../../src/handlers/statusPage-handler.ts#L1810). **Merged as [3483928](https://github.com/al-the-bear/tom_vscode/commit/3483928).**
+- **Commit 0.F** — clean up the misleading doc comment at [memory-service.ts:552](../../src/services/memory-service.ts#L552) that still claimed "supports the legacy flat-array shape" when the code in fact routes that shape through the raw-JSON fallback. Folded into this commit.
 
-**Commit 0.C — Replace `expandPlaceholders` / `PLACEHOLDER_HELP` re-exports**
+**Outcome:** Wave 0 is complete. Start Wave 1 directly — no further deprecation work required before tackling placeholder unification and the layering fix.
 
-- Update callers listed in [deprecation.md §1.5](deprecation.md#15-expandplaceholders-wrapper-in-handler_shared) and §1.6 to import from the canonical modules.
-- Delete the re-exports at [handler_shared.ts:933-937](../../src/handlers/handler_shared.ts#L933) and [handler_shared.ts:1008-1010](../../src/handlers/handler_shared.ts#L1008).
-- This commit prepares for **Wave 1 — Placeholder unification**.
-
-**Commit 0.D — Trail path migration + filename shim**
-
-- One-shot on-activation migration for legacy trail path shapes ([tomAiConfiguration.ts:258-275](../../src/utils/tomAiConfiguration.ts#L258)).
-- Keep the `${workspaceName}_prompts.md` → `${workspaceName}.prompts.md` rename shim at [chatPanel-handler.ts:272-289](../../src/handlers/chatPanel-handler.ts#L272) for one more cycle.
-
-**Commit 0.E — History-shape cleanup (OPTIONAL, risky)**
-
-- Only after auditing every workspace's `_ai/local/**/history.json` for the legacy flat shape ([anthropic-handler.ts:508-511](../../src/handlers/anthropic-handler.ts#L508), [memory-service.ts:586-599](../../src/services/memory-service.ts#L586)).
-- If any workspace still has flat-shape history, load-and-resave each before deletion.
-
-**Rollback for Wave 0:** git revert per-commit; none of these changes cross API boundaries.
+**Rollback:** git revert per-commit; none of these changes cross API boundaries.
 
 ---
 
@@ -426,11 +417,12 @@ Convert the remaining `section === 'anthropic'` branches (trail-viewer routing, 
 
 | Wave | Item | Owns review section | Files | Risk | Effort |
 | --- | --- | --- | --- | --- | --- |
-| 0.A | Typed `compaction.disabled` | deprecation §2.1 | 2 | Low | < 1 h |
-| 0.B | Drop trivially dead APIs | deprecation §1.1–1.9 | 6 | Low | 2 h |
-| 0.C | Replace `expandPlaceholders` re-exports | deprecation §1.5, 1.6 | 6 | Low | 2 h |
-| 0.D | Trail path migration | deprecation §3.1, 3.2 | 2 | Low | 2 h |
-| 0.E | History-shape cleanup | deprecation §4.1, 4.2 | 2 | High | audit-gated |
+| 0.A | Drop `compaction.disabled` cast | deprecation §2.1 | 1 | Low | done (3483928) |
+| 0.B | Trivially dead APIs | deprecation §1.1–1.9 | — | — | pre-merged before plan |
+| 0.C | `expandPlaceholders` re-exports | deprecation §1.5, 1.6 | — | — | pre-merged before plan |
+| 0.D | Trail path migration | deprecation §3.1, 3.2 | — | — | pre-merged before plan |
+| 0.E | History-shape cleanup | deprecation §4.1, 4.2 | — | — | pre-merged before plan |
+| 0.F | Stale history-shape doc comment | deprecation §4.2 | 1 | Trivial | done |
 | 1.1 | Fix `ANTHROPIC_SUBSYSTEM` layering | result §4 deferred | 4 | Trivial | 30 min |
 | 1.2 | Unify reminder help constant | result Medium 2 | 3 | Low | 1 h |
 | 1.3 | Unify trail path token resolution | result §2 deferred | 3 | Medium | 3 h |
