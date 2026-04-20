@@ -23,6 +23,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { WsPaths } from '../utils/workspacePaths';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
+import { resolveTrailPath } from '../services/trailPathResolver';
 import { openInExternalApplication } from './handler_shared';
 import { readWorkspaceTodos } from '../managers/questTodoManager.js';
 import { selectTodoInBottomPanel } from './questTodoPanel-handler.js';
@@ -576,23 +577,12 @@ function isSummaryTrailFile(filePath: string): boolean {
     return lower.endsWith('.prompts.md') || lower.endsWith('.answers.md');
 }
 
-function resolveTrailPathTokens(inputPath: string): string {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
-    const aiFolder = vscode.workspace.getConfiguration('tomAi').get<string>('aiFolder') || '_ai';
-    const replaced = inputPath
-        .replace(/\$\{workspaceFolder\}/g, workspaceRoot)
-        .replace(/\$\{ai\}/g, path.join(workspaceRoot, aiFolder))
-        .replace(/\$\{home\}/g, os.homedir())
-        .replace(/\$\{username\}/g, process.env.USER ?? process.env.USERNAME ?? 'user')
-        // Strip ${quest} and ${subsystem} tokens - trail viewer discovers these dynamically
-        .replace(/\/?\$\{quest\}/g, '')
-        .replace(/\/?\$\{subsystem\}/g, '');
-
-    if (path.isAbsolute(replaced)) {
-        return replaced;
-    }
-    return path.join(workspaceRoot, replaced);
-}
+// Historical note: this module used to carry its own mini path resolver
+// (workspaceFolder / ai / home / username plus a quest+subsystem strip
+// pass). It has been replaced by the shared resolveTrailPath() helper
+// in services/trailPathResolver.ts — which delegates to the canonical
+// resolveVariables() plus the optional strip mode below. Search for
+// `resolveTrailPath(..., { mode: 'strip' })` to find the call site.
 
 /** Get the trail ROOT folder (e.g., _ai/trail) for the viewer to discover subsystems/quests */
 function getTrailRootFolder(): string {
@@ -605,7 +595,7 @@ function getTrailRootFolder(): string {
     if (typeof configured === 'string' && configured.trim().length > 0) {
         // The configured path is like ${ai}/trail/copilot/${quest}
         // We want ${ai}/trail
-        const resolved = resolveTrailPathTokens(configured);
+        const resolved = resolveTrailPath(configured, {}, { mode: 'strip' });
         // Walk up from the resolved path to find the trail root (parent of subsystem folders)
         // The resolved path would be like /workspace/_ai/trail/copilot
         const parts = resolved.split(path.sep);

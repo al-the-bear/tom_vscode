@@ -270,6 +270,11 @@ export class WsPaths {
             homeTomFolder:       HOME_TOM_FOLDER,
             // Absolute paths
             aiPath:              ws ? path.join(ws, aiFolder) : '',
+            // Alias for ${aiPath} — `${ai}` was the token used by the
+            // legacy trail-path resolvers (pre-unification); keeping it
+            // as an alias means existing trail patterns in user config
+            // files keep resolving without a migration step.
+            ai:                  ws ? path.join(ws, aiFolder) : '',
             guidelinesPath:      ws ? path.join(ws, GUIDELINES_FOLDER) : '',
             metadataPath:        ws ? path.join(ws, TOM_METADATA_FOLDER) : '',
             questsPath:          ws ? path.join(ws, aiFolder, 'quests') : '',

@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import { FsUtils } from '../utils/fsUtils';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 import { WsPaths } from '../utils/workspacePaths';
+import { resolveTrailPath } from './trailPathResolver';
 
 export type TrailSubsystem =
     | { type: 'localLlm'; configName: string }
@@ -188,7 +189,7 @@ export class TrailService {
     getSubsystemPath(subsystem: TrailSubsystem, questId?: string): string {
         const base = this.resolveRawBasePath(subsystem);
         const quest = questId || WsPaths.getWorkspaceQuestId();
-        return this.resolvePathTokens(base, {
+        return resolveTrailPath(base, {
             subsystem: this.getSubsystemName(subsystem),
             quest,
         });
@@ -304,31 +305,10 @@ export class TrailService {
             return undefined;
         }
 
-        return this.resolvePathTokens(pattern, {
+        return resolveTrailPath(pattern, {
             subsystem: this.getSubsystemName(subsystem),
             quest: questId ?? 'default',
         });
-    }
-
-    private resolvePathTokens(input: string, vars: Record<string, string>): string {
-        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
-        // Use WsPaths.aiFolder so the configured folder name (e.g. '_ai') is
-        // read from the same central place as everywhere else in the extension.
-        const aiFolder = WsPaths.aiFolder;
-
-        const replaced = input
-            .replace(/\$\{workspaceFolder\}/g, workspaceRoot)
-            .replace(/\$\{ai\}/g, path.join(workspaceRoot, aiFolder))
-            .replace(/\$\{username\}/g, process.env.USER ?? process.env.USERNAME ?? 'user')
-            .replace(/\$\{home\}/g, process.env.HOME ?? '')
-            .replace(/\$\{quest\}/g, vars.quest ?? 'default')
-            .replace(/\$\{subsystem\}/g, vars.subsystem ?? 'copilot');
-
-        if (path.isAbsolute(replaced)) {
-            return replaced;
-        }
-
-        return path.join(workspaceRoot, replaced);
     }
 
     private prependEntry(filePath: string, entry: string): void {
