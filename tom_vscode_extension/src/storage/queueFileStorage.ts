@@ -217,6 +217,13 @@ export interface QueueSettings {
     'auto-pause-enabled'?: boolean;
     'auto-continue-enabled'?: boolean;
     'reload-prompt-by-scope'?: Record<string, QueueReloadAfterReloadSetting>;
+    // Queue-level default transport for newly-staged items
+    // (multi_transport_prompt_queue_revised.md §4.10). Per-item and per-
+    // stage overrides win over this default; items with their own
+    // transport value ignore it at dispatch time.
+    'default-transport'?: 'copilot' | 'anthropic';
+    'default-anthropic-profile-id'?: string;
+    'default-anthropic-config-id'?: string;
 }
 
 export function getQueueSettingsScopeKey(questId?: string): string {

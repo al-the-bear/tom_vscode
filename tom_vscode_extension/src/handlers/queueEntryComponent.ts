@@ -355,6 +355,28 @@ function renderEntry(item, idx) {
     reminderRow = '';
   }
 
+  /* Anthropic answerText inline preview (spec §4.10). Displayed only
+   * when the item produced direct text (anthropic transport). The
+   * authoritative trail is the Anthropic trail file; this is the
+   * practical at-a-glance view. Truncated to 600 chars by default
+   * with a toggle to expand to full. */
+  var answerBlock = '';
+  if (typeof item.answerText === 'string' && item.answerText.length > 0) {
+    var ansId = 'ans-' + safeId;
+    var fullText = item.answerText;
+    var truncated = fullText.length > 600 ? fullText.slice(0, 600) + '…' : fullText;
+    answerBlock = '<div class="answer-preview" style="margin-top:6px;padding:6px 8px;border-left:3px solid #4a9eff;background:rgba(74,158,255,0.06);font-size:0.85em;">' +
+      '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">' +
+        '<strong style="color:#4a9eff;">Answer</strong>' +
+        '<span style="opacity:0.7;font-size:10px;">' + fullText.length + ' chars</span>' +
+        (fullText.length > 600 ? '<button class="ctx-btn-icon" style="margin-left:auto;" onclick="toggleAnswerExpand(\\'' + ansId + '\\')" title="Expand / collapse">↕</button>' : '') +
+      '</div>' +
+      '<div id="' + ansId + '" data-full="' + escapeHtml(fullText) + '" data-truncated="' + escapeHtml(truncated) + '" data-expanded="false" style="white-space:pre-wrap;max-height:200px;overflow:auto;">' +
+        escapeHtml(truncated) +
+      '</div>' +
+    '</div>';
+  }
+
   return '<div class="queue-item ' + cls.join(' ') + '">' +
     headerHtml +
     '<div class="' + (expanded ? '' : 'details-hidden') + '">' +
@@ -365,6 +387,7 @@ function renderEntry(item, idx) {
     reminderRow +
     renderPrePrompts(item, safeStatus) +
     renderFollowUps(item, safeStatus) +
+    answerBlock +
     (item.error ? '<div style="color:var(--vscode-charts-red);font-size:0.8em;margin-top:4px;">Error: ' + escapeHtml(item.error) + '</div>' : '') +
     '</div>' +
   '</div>';
@@ -687,6 +710,15 @@ function editPrePromptTransport(id, index) {
 function editFollowUpTransport(id, followUpId) {
   // Spec §4.10 — per-stage Advanced override for a follow-up.
   vscode.postMessage({ type: 'editFollowUpTransport', id: id, followUpId: followUpId });
+}
+function toggleAnswerExpand(ansId) {
+  // Spec §4.10 — expand/collapse the inline answerText preview.
+  var el = document.getElementById(ansId);
+  if (!el) { return; }
+  var isExpanded = el.getAttribute('data-expanded') === 'true';
+  el.textContent = isExpanded ? el.getAttribute('data-truncated') : el.getAttribute('data-full');
+  el.setAttribute('data-expanded', isExpanded ? 'false' : 'true');
+  el.style.maxHeight = isExpanded ? '200px' : 'none';
 }
 function previewFollowUp(id, followUpId) {
   var item = currentItems.find(function(i) { return i.id === id; });

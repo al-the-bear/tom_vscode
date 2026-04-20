@@ -254,6 +254,11 @@ export class PromptQueueManager {
     private _autoContinueEnabled = false;
     private _responseFileTimeoutMinutes = 60;
     private _defaultReminderTemplateId: string | undefined;
+    // Queue-level default transport (spec §4.10). New items that don't
+    // pin a transport inherit this at enqueue-time.
+    private _defaultTransport: QueuedTransport = 'copilot';
+    private _defaultAnthropicProfileId: string | undefined;
+    private _defaultAnthropicConfigId: string | undefined;
     private _autoContinueTimer?: ReturnType<typeof setTimeout>;
     private _answerWatcher?: fs.FSWatcher;
     private _timeoutWatcher?: ReturnType<typeof setInterval>;
@@ -1502,13 +1507,17 @@ export class PromptQueueManager {
         const item = this._items.find(i => i.id === id);
         if (!item) { return; }
         if (!this.isEditableStatus(item.status)) { return; }
-        if (patch.transport !== undefined) {
+        // `'key' in patch` lets us differentiate "field omitted" (no
+        // change) from "field present but undefined" (clear the
+        // override — semantic used by the queue editor's Inherit
+        // option at stage + item level).
+        if ('transport' in patch) {
             item.transport = patch.transport;
         }
-        if (patch.anthropicProfileId !== undefined) {
+        if ('anthropicProfileId' in patch) {
             item.anthropicProfileId = patch.anthropicProfileId || undefined;
         }
-        if (patch.anthropicConfigId !== undefined) {
+        if ('anthropicConfigId' in patch) {
             item.anthropicConfigId = patch.anthropicConfigId || undefined;
         }
         this.persist();
@@ -1675,9 +1684,10 @@ export class PromptQueueManager {
         if (patch.reminderEnabled !== undefined) {
             follow.reminderEnabled = !!patch.reminderEnabled;
         }
-        if (patch.transport !== undefined) { follow.transport = patch.transport; }
-        if (patch.anthropicProfileId !== undefined) { follow.anthropicProfileId = patch.anthropicProfileId || undefined; }
-        if (patch.anthropicConfigId !== undefined) { follow.anthropicConfigId = patch.anthropicConfigId || undefined; }
+        // `'key' in patch` → differentiate "no change" from "clear".
+        if ('transport' in patch) { follow.transport = patch.transport; }
+        if ('anthropicProfileId' in patch) { follow.anthropicProfileId = patch.anthropicProfileId || undefined; }
+        if ('anthropicConfigId' in patch) { follow.anthropicConfigId = patch.anthropicConfigId || undefined; }
         this.persist();
         this._onDidChange.fire();
         return true;
@@ -1750,9 +1760,10 @@ export class PromptQueueManager {
         if (patch.reminderTimeoutMinutes !== undefined) pp.reminderTimeoutMinutes = patch.reminderTimeoutMinutes;
         if (patch.reminderRepeat !== undefined) pp.reminderRepeat = patch.reminderRepeat;
         if (patch.reminderEnabled !== undefined) pp.reminderEnabled = patch.reminderEnabled;
-        if (patch.transport !== undefined) pp.transport = patch.transport;
-        if (patch.anthropicProfileId !== undefined) pp.anthropicProfileId = patch.anthropicProfileId || undefined;
-        if (patch.anthropicConfigId !== undefined) pp.anthropicConfigId = patch.anthropicConfigId || undefined;
+        // `'key' in patch` → differentiate "no change" from "clear".
+        if ('transport' in patch) { pp.transport = patch.transport; }
+        if ('anthropicProfileId' in patch) { pp.anthropicProfileId = patch.anthropicProfileId || undefined; }
+        if ('anthropicConfigId' in patch) { pp.anthropicConfigId = patch.anthropicConfigId || undefined; }
         this.persist();
         this._onDidChange.fire();
         return true;
@@ -2143,9 +2154,10 @@ export class PromptQueueManager {
 
     /**
      * Resolve the effective transport for a given stage — stage-level
-     * transport wins over item-level, item-level over the default
-     * `'copilot'`. See multi_transport_prompt_queue_revised.md §2
-     * decision 1 and §4.5.
+     * transport wins over item-level, item-level over the queue-level
+     * default, queue default over the hard-coded 'copilot'. See
+     * multi_transport_prompt_queue_revised.md §2 decision 1 and §4.5.
+     * §4.10 adds the queue-default tier between item and hardcoded.
      */
     private resolveStageTransport(
         item: QueuedPrompt,
@@ -2154,14 +2166,21 @@ export class PromptQueueManager {
         if (stage?.transport) {
             return {
                 transport: stage.transport,
-                anthropicProfileId: stage.anthropicProfileId ?? item.anthropicProfileId,
-                anthropicConfigId: stage.anthropicConfigId ?? item.anthropicConfigId,
+                anthropicProfileId: stage.anthropicProfileId ?? item.anthropicProfileId ?? this._defaultAnthropicProfileId,
+                anthropicConfigId: stage.anthropicConfigId ?? item.anthropicConfigId ?? this._defaultAnthropicConfigId,
+            };
+        }
+        if (item.transport) {
+            return {
+                transport: item.transport,
+                anthropicProfileId: item.anthropicProfileId ?? this._defaultAnthropicProfileId,
+                anthropicConfigId: item.anthropicConfigId ?? this._defaultAnthropicConfigId,
             };
         }
         return {
-            transport: item.transport ?? 'copilot',
-            anthropicProfileId: item.anthropicProfileId,
-            anthropicConfigId: item.anthropicConfigId,
+            transport: this._defaultTransport,
+            anthropicProfileId: this._defaultAnthropicProfileId,
+            anthropicConfigId: this._defaultAnthropicConfigId,
         };
     }
 
@@ -2505,6 +2524,10 @@ export class PromptQueueManager {
             'auto-start-enabled': this._autoStartEnabled,
             'auto-pause-enabled': this._autoPauseEnabled,
             'auto-continue-enabled': this._autoContinueEnabled,
+            // Queue-level default transport (spec §4.10).
+            'default-transport': this._defaultTransport,
+            'default-anthropic-profile-id': this._defaultAnthropicProfileId,
+            'default-anthropic-config-id': this._defaultAnthropicConfigId,
         });
     }
 
@@ -2530,12 +2553,43 @@ export class PromptQueueManager {
             if (typeof settings['auto-continue-enabled'] === 'boolean') {
                 this._autoContinueEnabled = settings['auto-continue-enabled'];
             }
+            if (settings['default-transport'] === 'copilot' || settings['default-transport'] === 'anthropic') {
+                this._defaultTransport = settings['default-transport'];
+            }
+            if (typeof settings['default-anthropic-profile-id'] === 'string') {
+                this._defaultAnthropicProfileId = settings['default-anthropic-profile-id'] || undefined;
+            }
+            if (typeof settings['default-anthropic-config-id'] === 'string') {
+                this._defaultAnthropicConfigId = settings['default-anthropic-config-id'] || undefined;
+            }
             console.log('[PromptQueueManager] restoreSettings:', {
                 timeout: this._responseFileTimeoutMinutes,
                 defaultTemplate: this._defaultReminderTemplateId,
                 autoSend: this._autoSendEnabled,
+                defaultTransport: this._defaultTransport,
             });
         }
+    }
+
+    /**
+     * Queue-level default transport + anthropic target ids. New items
+     * without an explicit transport inherit from this default at dispatch
+     * time (spec §4.10). The defaults also drive what the Add form in
+     * the queue editor pre-selects.
+     */
+    get defaultTransport(): QueuedTransport { return this._defaultTransport; }
+    get defaultAnthropicProfileId(): string | undefined { return this._defaultAnthropicProfileId; }
+    get defaultAnthropicConfigId(): string | undefined { return this._defaultAnthropicConfigId; }
+    setDefaultTransport(
+        transport: QueuedTransport,
+        anthropicProfileId?: string,
+        anthropicConfigId?: string,
+    ): void {
+        this._defaultTransport = transport;
+        this._defaultAnthropicProfileId = anthropicProfileId?.trim() || undefined;
+        this._defaultAnthropicConfigId = anthropicConfigId?.trim() || undefined;
+        this.persistSettings();
+        this._onDidChange.fire();
     }
 
     /** Reload state from disk (called by file watcher). */

@@ -849,6 +849,9 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     name: c.name || c.id,
                     isDefault: c.isDefault === true,
                     model: typeof c.model === 'string' ? c.model : '',
+                    // Spec §4.12 — needed by the webview to decide when
+                    // to show the VS Code LM model dropdown row.
+                    transport: typeof c.transport === 'string' ? c.transport : 'direct',
                 }))
             : [];
         const anthropicUserMessageTemplates = Array.isArray(config?.anthropic?.userMessageTemplates)
@@ -3427,12 +3430,17 @@ function getSectionContent(id) {
                 '<select id="anthropic-model" style="max-width:240px;" title="Read-only list of models returned by the Anthropic API. The selected configuration controls which model is actually used."><option value="">(loading...)</option></select>' +
                 '<button class="icon-btn" data-action="refreshAnthropicModels" data-id="anthropic" title="Refresh models from API"><span class="codicon codicon-refresh"></span></button>' +
                 // VS Code LM model dropdown (informational — spec §4.12).
-                // Populated lazily on Refresh click, or when a vscodeLm
-                // configuration is active. Selection does NOT retarget
-                // sends; the configuration\'s stored modelId drives sends.
-                '<label style="margin-left:6px;">VS Code LM Models:</label>' +
-                '<select id="anthropic-vscodelm-models" style="max-width:240px;" title="Read-only list of models available via vscode.lm.selectChatModels(). Informational — the active vscodeLm configuration\'s stored modelId drives sends. Click Refresh to repopulate."><option value="">(click refresh)</option></select>' +
-                '<button class="icon-btn" data-action="refreshVsCodeLmModels" data-id="anthropic" title="Refresh VS Code LM model list"><span class="codicon codicon-refresh"></span></button>' +
+                // Wrapped in a span that\'s hidden by default; the webview
+                // toggles visibility based on the active configuration\'s
+                // transport (shown only when transport === "vscodeLm").
+                // Populated lazily on Refresh click. Selection does NOT
+                // retarget sends; the configuration\'s stored modelId drives
+                // sends.
+                '<span id="anthropic-vscodelm-row" style="display:none;">' +
+                  '<label style="margin-left:6px;">VS Code LM Models:</label>' +
+                  '<select id="anthropic-vscodelm-models" style="max-width:240px;" title="Read-only list of models available via vscode.lm.selectChatModels(). Informational — the active vscodeLm configuration\'s stored modelId drives sends. Click Refresh to repopulate."><option value="">(click refresh)</option></select>' +
+                  '<button class="icon-btn" data-action="refreshVsCodeLmModels" data-id="anthropic" title="Refresh VS Code LM model list"><span class="codicon codicon-refresh"></span></button>' +
+                '</span>' +
                 '</span></div>',
         })
     };
@@ -3775,11 +3783,33 @@ function populateDropdowns() {
         anthropicProfileSel._anthropicStatusBound = true;
         anthropicProfileSel.addEventListener('change', function() {
             setAnthropicStatus(buildAnthropicStatusLine());
+            updateVsCodeLmRowVisibility();
         });
     }
+    updateVsCodeLmRowVisibility();
     ['localLlm', 'conversation', 'copilot', 'tomAiChat', 'anthropic'].forEach(function(sectionId) {
         populateReusablePromptSelectors(sectionId);
     });
+}
+
+// Spec §4.12 — the VS Code LM model dropdown on the Anthropic panel is
+// shown only when the active profile's resolved configuration is of
+// type 'vscodeLm'. For Direct / Agent SDK / Local-LLM-backed configs
+// the row is hidden so the informational list doesn't clutter the bar.
+function updateVsCodeLmRowVisibility() {
+    var row = document.getElementById('anthropic-vscodelm-row');
+    if (!row) { return; }
+    var profSel = document.getElementById('anthropic-profile');
+    var profileId = profSel ? profSel.value : '';
+    var profileEntry = (anthropicProfileEntries || []).find(function(p) { return p && p.id === profileId; });
+    var configId = profileEntry ? profileEntry.configurationId : '';
+    var cfg = (anthropicConfigurations || []).find(function(c) { return c && c.id === configId; });
+    if (!cfg) {
+        // Fall back to isDefault config when the profile doesn't pin one
+        cfg = (anthropicConfigurations || []).find(function(c) { return c && c.isDefault; });
+    }
+    var isVsCodeLm = cfg && cfg.transport === 'vscodeLm';
+    row.style.display = isVsCodeLm ? '' : 'none';
 }
 
 function populateAnthropicModels() {

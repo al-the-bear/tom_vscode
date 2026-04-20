@@ -172,6 +172,18 @@ async function handleMessage(msg: any): Promise<void> {
           await vscode.commands.executeCommand('revealInExplorer', uri);
           return;
         }
+        case 'setQueueDefaultTransport': {
+          // Spec §4.10 header-row queue-level default. Persists to
+          // queue-settings.yaml so the setting survives reloads; new
+          // items without an explicit transport inherit it at
+          // dispatch time.
+          const transport = (msg.transport === 'anthropic' ? 'anthropic' : 'copilot') as 'copilot' | 'anthropic';
+          const pid = typeof msg.anthropicProfileId === 'string' ? msg.anthropicProfileId : '';
+          const cid = typeof msg.anthropicConfigId === 'string' ? msg.anthropicConfigId : '';
+          PromptQueueManager.instance.setDefaultTransport(transport, pid, cid);
+          sendState();
+          return;
+        }
         case 'editItemTransport':
         case 'editPrePromptTransport':
         case 'editFollowUpTransport': {
@@ -213,8 +225,11 @@ async function handleMessage(msg: any): Promise<void> {
             [
               { label: 'Copilot Chat', value: 'copilot' as const, description: 'Answer-file polling flow.' },
               { label: 'Anthropic', value: 'anthropic' as const, description: 'Routes through AnthropicHandler.sendMessage; auto-approves tool calls.' },
+              // Spec §4.15 inherit semantics:
+              //   queue-item context  → "Inherit (queue default)"
+              //   queue-stage context → "Inherit (item)"
               ...(msg.type === 'editItemTransport'
-                ? []
+                ? [{ label: 'Inherit (queue default)', value: 'inherit' as const, description: 'Use whatever the queue-level default transport is.' }]
                 : [{ label: 'Inherit from item', value: 'inherit' as const, description: 'Use the parent item\'s transport.' }]),
             ],
             { placeHolder: `Transport for ${scopeLabel} (current: ${currentTransport})`, ignoreFocusOut: true },
@@ -720,6 +735,9 @@ function buildState(): Record<string, unknown> {
   let responseTimeoutMinutes = 60;
   let defaultReminderTemplateId: string | undefined;
     let templates: { id: string; name: string }[] = [];
+    let queueDefaultTransport: 'copilot' | 'anthropic' = 'copilot';
+    let queueDefaultAnthropicProfileId = '';
+    let queueDefaultAnthropicConfigId = '';
 
     try {
         const qm = PromptQueueManager.instance;
@@ -730,6 +748,9 @@ function buildState(): Record<string, unknown> {
         autoContinue = qm.autoContinueEnabled;
         responseTimeoutMinutes = qm.responseFileTimeoutMinutes;
         defaultReminderTemplateId = qm.defaultReminderTemplateId;
+        queueDefaultTransport = qm.defaultTransport;
+        queueDefaultAnthropicProfileId = qm.defaultAnthropicProfileId || '';
+        queueDefaultAnthropicConfigId = qm.defaultAnthropicConfigId || '';
         console.log('[QueueEditor] buildState: items count =', items.length);
     } catch (e) {
         console.error('[QueueEditor] buildState: PromptQueueManager not ready:', e);
@@ -790,7 +811,23 @@ function buildState(): Record<string, unknown> {
         promptTemplates,
         anthropicProfiles,
         anthropicConfigs,
-      collapsedIds: Array.from(_collapsedItemIds),
+        // Anthropic user-message templates — surfaced so the queue
+        // editor's add-form can offer them when the effective
+        // transport is Anthropic (spec §4.16 template filter).
+        anthropicUserMessageTemplates: (() => {
+            try {
+                const cfg = loadSendToChatConfig();
+                const arr = (cfg?.anthropic?.userMessageTemplates || []).filter(
+                    (t) => !!t && typeof t.id === 'string',
+                );
+                return arr.map((t) => ({ id: t.id, name: t.name || t.id }));
+            } catch { return []; }
+        })(),
+        // Queue-level default transport (spec §4.10 header row).
+        queueDefaultTransport,
+        queueDefaultAnthropicProfileId,
+        queueDefaultAnthropicConfigId,
+        collapsedIds: Array.from(_collapsedItemIds),
         context: { quest, role, activeProjects },
     };
 }
@@ -828,6 +865,21 @@ ${queueEntryStyles()}
   <button class="ctx-btn-icon" onclick="openContextSettings()" title="Context &amp; Settings"><span class="codicon codicon-tools"></span></button>
   <button class="ctx-btn-icon" onclick="openTemplateEditor()" title="Prompt Templates"><span class="codicon codicon-file-code"></span></button>
   <button class="ctx-btn-icon" onclick="openQueueTemplates()" title="Queue Templates"><span class="codicon codicon-symbol-file"></span></button>
+</div>
+<!-- Queue-level default transport (spec §4.10 header row). Persists
+     in the queue-settings YAML; new items without an explicit transport
+     inherit this at dispatch. Per-item / per-stage overrides still win.
+     Initial value is a neutral 'copilot' — populateAddForm syncs it
+     to the real queueDefaultTransport once the state payload arrives. -->
+<div class="context-bar" style="border-top:1px solid var(--vscode-panel-border);padding-top:6px;">
+  ${renderTransportPicker({
+    idPrefix: 'queueDefault',
+    context: 'queue-default',
+    value: { transport: 'copilot' },
+    showTargets: true,
+    onChangeEvent: 'setQueueDefaultTransport',
+    inline: true,
+  })}
 </div>
 <div class="toolbar">
   <button class="ctx-btn-icon" onclick="toggleAddForm()" title="Add to Queue"><span class="codicon codicon-add"></span></button>
@@ -1020,6 +1072,10 @@ let promptTemplates = __INITIAL__.promptTemplates || [];
 // config picker when Anthropic transport is selected.
 let anthropicProfiles = __INITIAL__.anthropicProfiles || [];
 let anthropicConfigs = __INITIAL__.anthropicConfigs || [];
+let anthropicUserMessageTemplates = __INITIAL__.anthropicUserMessageTemplates || [];
+let queueDefaultTransport = __INITIAL__.queueDefaultTransport || 'copilot';
+let queueDefaultAnthropicProfileId = __INITIAL__.queueDefaultAnthropicProfileId || '';
+let queueDefaultAnthropicConfigId = __INITIAL__.queueDefaultAnthropicConfigId || '';
 let currentContext = __INITIAL__.context || { quest: '', role: '', activeProjects: [] };
 let detailsExpanded = {};
 var editorMode = 'queue';
@@ -1106,6 +1162,10 @@ window.addEventListener('message', e => {
       promptTemplates = msg.promptTemplates || [];
       anthropicProfiles = msg.anthropicProfiles || [];
       anthropicConfigs = msg.anthropicConfigs || [];
+      anthropicUserMessageTemplates = msg.anthropicUserMessageTemplates || [];
+      queueDefaultTransport = msg.queueDefaultTransport || 'copilot';
+      queueDefaultAnthropicProfileId = msg.queueDefaultAnthropicProfileId || '';
+      queueDefaultAnthropicConfigId = msg.queueDefaultAnthropicConfigId || '';
       currentContext = msg.context || { quest: '', role: '', activeProjects: [] };
       normalizeState();
       render();
@@ -1371,18 +1431,14 @@ function cancelAdd() {
 }
 
 function populateAddForm() {
-  // Populate prompt template dropdown
+  // Populate prompt template dropdown. Spec §4.16: when the effective
+  // transport for this new item is Anthropic, filter the list to the
+  // Anthropic user-message templates store; otherwise show the
+  // Copilot templates. Changing the transport in the add form clears
+  // the selection (see wireAddFormTemplateFilter below).
   const tplSel = document.getElementById('addTemplate');
   if (tplSel) {
-    const prevTpl = tplSel.value;
-    tplSel.innerHTML = '<option value="">(None)</option>';
-    promptTemplates.forEach(function(name) {
-      const opt = document.createElement('option');
-      opt.value = name;
-      opt.textContent = formatPromptTemplateName(name);
-      tplSel.appendChild(opt);
-    });
-    if (prevTpl) { tplSel.value = prevTpl; }
+    populateAddFormTemplateList();
   }
   const toolbarSel = document.getElementById('toolbarReminderTemplate');
   if (toolbarSel) {
@@ -1413,13 +1469,62 @@ function populateAddForm() {
     sel.value = defaultReminderTemplateId || '';
   }
 
-  // Populate the Anthropic profile + config dropdowns inside the
-  // shared renderTransportPicker output (spec §4.10 queue-level
-  // default). The helper emits selects with IDs of the form
-  // addForm-transport-profile and addForm-transport-config; we
-  // only fill them with real options once the state message delivers
-  // the config snapshot — the helper itself can't call back into the
-  // extension host to load config state from the server side.
+  // Populate the Anthropic profile + config dropdowns inside every
+  // renderTransportPicker instance on the page (spec §4.10 queue-level
+  // default + add-form override). Helpers emit selects with IDs of
+  // the form {prefix}-transport-profile and {prefix}-transport-config.
+  var PICKER_PREFIXES = ['queueDefault', 'addForm'];
+  PICKER_PREFIXES.forEach(function(prefix) {
+    var pSel = document.getElementById(prefix + '-transport-profile');
+    if (pSel) {
+      var prev = pSel.value;
+      pSel.innerHTML = '<option value="">(default profile)</option>';
+      (anthropicProfiles || []).forEach(function(p) {
+        var opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.name ? (p.name + ' (' + p.id + ')') : p.id;
+        pSel.appendChild(opt);
+      });
+      if (prefix === 'queueDefault' && queueDefaultAnthropicProfileId) {
+        pSel.value = queueDefaultAnthropicProfileId;
+      } else if (prev) {
+        pSel.value = prev;
+      }
+    }
+    var cSel = document.getElementById(prefix + '-transport-config');
+    if (cSel) {
+      var prevCfg = cSel.value;
+      cSel.innerHTML = '<option value="">(profile default)</option>';
+      (anthropicConfigs || []).forEach(function(c) {
+        var opt = document.createElement('option');
+        opt.value = c.id;
+        var cfgPrefix = '[direct]';
+        if (c.transport === 'agentSdk') { cfgPrefix = '[agentSdk]'; }
+        else if (c.transport === 'vscodeLm') { cfgPrefix = '[vscodeLm]'; }
+        else if (c.transport === 'localLlm') { cfgPrefix = '[localLlm]'; }
+        opt.textContent = cfgPrefix + ' ' + (c.name ? (c.name + ' (' + c.id + ')') : c.id);
+        cSel.appendChild(opt);
+      });
+      if (prefix === 'queueDefault' && queueDefaultAnthropicConfigId) {
+        cSel.value = queueDefaultAnthropicConfigId;
+      } else if (prevCfg) {
+        cSel.value = prevCfg;
+      }
+    }
+    var tSelX = document.getElementById(prefix + '-transport-t');
+    var targetsX = document.getElementById(prefix + '-transport-targets');
+    if (tSelX) {
+      if (prefix === 'queueDefault') {
+        tSelX.value = queueDefaultTransport;
+      }
+      if (targetsX) {
+        targetsX.style.display = tSelX.value === 'anthropic' ? '' : 'none';
+      }
+    }
+  });
+  // Remove the old single-prefix population below — still kept as a
+  // fallback when the loop above didn't find the element (shouldn't
+  // happen, but harmless).
   var profSel = document.getElementById('addForm-transport-profile');
   if (profSel) {
     var prevProf = profSel.value;
@@ -1448,10 +1553,11 @@ function populateAddForm() {
     });
     if (prevCfg) { cfgSel.value = prevCfg; }
   }
-  // Spec §4.7 — disable reminder / answerWait fields when Anthropic
-  // is selected. The transport picker helper also fires its
-  // onChangeEvent postMessage, but we react directly here so the
-  // disable toggles on initial render too (for an Anthropic default).
+  // Spec §4.7 + §4.16 — when the add-form's transport flips to
+  // Anthropic, (a) disable reminder / answerWait (Copilot-only
+  // constructs) and (b) repopulate the template dropdown from the
+  // Anthropic user-message templates store, blanking the current
+  // selection (spec §5 edge case).
   var tSel = document.getElementById('addForm-transport-t');
   if (tSel) {
     var apply = function() {
@@ -1466,10 +1572,43 @@ function populateAddForm() {
         remTimeout.disabled = isAnthropic;
         remTimeout.title = isAnthropic ? 'Disabled — anthropic items advance synchronously.' : '';
       }
+      populateAddFormTemplateList();
     };
     tSel.addEventListener('change', apply);
     apply();
   }
+}
+
+function populateAddFormTemplateList() {
+  // Spec §4.16: queue-editor add-form template dropdown filters by
+  // the effective transport. Copilot → config.copilot.templates
+  // (via promptTemplates state), Anthropic →
+  // config.anthropic.userMessageTemplates. Selection is blanked on
+  // every repopulate so the user sees a clean picker matching the
+  // transport they just picked (spec §5 edge case).
+  var tplSel = document.getElementById('addTemplate');
+  if (!tplSel) { return; }
+  var tSel = document.getElementById('addForm-transport-t');
+  var transport = tSel ? tSel.value : 'copilot';
+  var isAnthropic = transport === 'anthropic';
+  tplSel.innerHTML = '<option value="">(None)</option>';
+  if (isAnthropic) {
+    (anthropicUserMessageTemplates || []).forEach(function(t) {
+      var opt = document.createElement('option');
+      opt.value = t.id;
+      opt.textContent = t.name || t.id;
+      tplSel.appendChild(opt);
+    });
+  } else {
+    (promptTemplates || []).forEach(function(name) {
+      var opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = formatPromptTemplateName(name);
+      tplSel.appendChild(opt);
+    });
+  }
+  // Blank the selection (spec §5) so users can't accidentally
+  // submit with a template name that lives in a different store.
 }
 
 // Fallback: also request state via message in case embedded state was stale
