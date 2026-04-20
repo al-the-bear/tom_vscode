@@ -240,39 +240,55 @@ Owns: [deprecation.md](deprecation.md) §1–4. Low risk, high clarity win. Exec
 
 ### Wave 2 — Consolidation (medium ROI)
 
-#### 2.1 Introduce `GenericNotepadProvider`
+#### 2.1 De-duplicate the notepad providers via shared helpers + thin wrappers
 
 **Owner:** [review_result.md High 1](review_result.md#high-1-notepadpanel-provider-duplication-is-very-high-and-should-be-consolidated), [review_result.md Consolidation §](review_result.md#actions-panels-editors-consolidation-opportunities).
-**Risk:** medium — ten providers, ten flavours of HTML/message handling. Migrate in pairs.
+**Risk:** medium — ten providers, ten flavours of HTML / message handling / external-data glue. Migrate in small steps so regressions stay small.
+
+**Strategy (refined):** do not try to fold all ten providers into one monolithic `GenericNotepadProvider`. The providers differ too much in their *data* behavior (Copilot watches answer files, Local LLM talks to Ollama, Quest Notes reads quest markdown, Tom AI Chat owns a model loop). Instead:
+
+- **Extract the duplicated pieces into shared helpers / mixins** — HTML shell + CSS, message envelope, draft persistence, toolbar rendering, storage adapters, template picker glue.
+- **Keep one thin `*NotepadProvider` wrapper per data domain** that composes the shared pieces and contributes its own data-specific adapter.
+
+After this, each wrapper should be a few hundred lines of glue, not a copy of the same 300-line shell.
 
 **Steps:**
 
-1. **Build the shell.** Create `src/handlers/notepad/genericNotepadProvider.ts` with a `WebviewViewProvider` implementation driven by a `NotepadProfile` config:
-   ```ts
-   interface NotepadProfile {
-     id: string;                          // stable view id
-     storage: 'file' | 'workspaceState' | 'queue';
-     storagePath?: string;                // when file
-     stateKey?: string;                   // when workspaceState
-     template?: string;                   // default chat template
-     sendTarget?: 'copilot' | 'localLlm' | 'conversation' | 'tomAiChat' | 'anthropic';
-     toolbarActions: NotepadAction[];     // Send / Queue / Clear / Copy / …
-     titleIcon: string;                   // codicon id
-   }
-   ```
-2. **Start with the two smallest / most similar** — `TomNotepadProvider` (global notes) and `NotesNotepadProvider`. Extract their HTML builders into shared fragments; prove the shell handles both.
-3. **Migrate in pairs**, verifying each with a manual smoke test before the next: Copilot ↔ LocalLlm; Conversation ↔ TomAiChat; Workspace ↔ Guidelines; QuestNotes ↔ SessionTodos.
-4. **Keep provider-specific extras out of the shell.** Special-case logic (Copilot's 4-slot answer file, TomAiChat's model picker) stays in a per-profile adapter hook; the shell does the layout.
-5. Once all ten are migrated, delete the old classes from [sidebarNotes-handler.ts](../../src/handlers/sidebarNotes-handler.ts). The file should drop from 3,375 lines to something like 400 lines of registration + profile data.
+1. **Inventory duplication.** Walk the 10 providers and tag shared blocks. Candidates observed from code structure:
+   - HTML head + CSS + codicon linkage.
+   - Toolbar rendering (Send / Queue / Clear / Copy / template picker).
+   - `onDidReceiveMessage` routing skeleton (types: `ready`, `save`, `send`, `pickTemplate`, `selectSlot`, …).
+   - Draft persistence (`workspaceState` or per-window YAML).
+   - Template expansion before send.
+   - Copy-to-clipboard + open-external behavior.
+2. **Extract into `src/handlers/notepad/` module:**
+   - `notepadHtmlShell.ts` — `renderNotepadHtml({ id, title, icon, toolbar, initialContent })`.
+   - `notepadMessageRouter.ts` — common message handling skeleton with extension points.
+   - `notepadStorage.ts` — draft get/set for the three storage backends (`file`, `workspaceState`, `queue`).
+   - `notepadToolbar.ts` — declarative toolbar action rendering.
+   - `notepadTemplatePicker.ts` — shared template picker and expansion call.
+   - Domain-specific pieces stay where they are (Copilot answer-file watcher, Ollama client, etc.).
+3. **Migrate in pairs**, verifying each with a manual smoke test before the next:
+   - Pass A: `TomNotepadProvider` + `NotesNotepadProvider` (simplest; pure draft storage).
+   - Pass B: `WorkspaceNotepadProvider` + `GuidelinesNotepadProvider` (read external files).
+   - Pass C: `QuestNotesProvider` + `SessionTodosProvider` (quest/session scoped).
+   - Pass D: `CopilotNotepadProvider` + `LocalLlmNotepadProvider` (send targets).
+   - Pass E: `ConversationNotepadProvider` + `TomAiChatNotepadProvider` (model-owning).
+4. **Do NOT merge classes that don't have equivalent behavior.** If a provider needs genuinely unique UI (Copilot's 4 answer slots; TomAiChat's inline model picker), keep it local to that provider — compose, don't unify.
+5. Once all ten wrappers use the shared helpers, split [sidebarNotes-handler.ts](../../src/handlers/sidebarNotes-handler.ts) into per-domain files under `src/handlers/notepad/` so no single file owns all ten. Target: each wrapper in its own 200–400-line file; the shared helpers in 4–5 tight modules.
 
-**Done when:** `grep "class.*NotepadProvider" src/handlers/` returns zero matches except `GenericNotepadProvider` itself.
+**Done when:**
 
-**Rollback strategy:** commit per migrated provider; if a regression appears, revert just that provider's commit.
+- The shared helper modules exist and carry the HTML/message/storage/template code.
+- `grep "class.*NotepadProvider\|class.*NotesProvider\|class.*TodosProvider" src/handlers/` returns exactly 10 matches, each in its own file, each under ~400 lines.
+- The combined line count across `src/handlers/notepad/*.ts` is substantially under the current 3,375 lines of [sidebarNotes-handler.ts](../../src/handlers/sidebarNotes-handler.ts) (target: ≤ 2,000 lines total).
+
+**Rollback strategy:** commit per migrated provider; if a regression appears, revert just that provider's commit. The shared helpers land in their own commit *before* the first migration, so the helpers themselves never need to be reverted alongside a provider.
 
 #### 2.2 Parameterise Copilot + Local LLM command variants
 
 **Owner:** [review_result.md Medium 1](review_result.md#medium-1-actioncommand-surface-is-oversized-and-duplicates-intent), [extension_elements.md §Command Catalog](extension_elements.md#command-catalog).
-**Risk:** low — command IDs touched, but all registration / UI lookups live in-tree.
+**Risk:** low — all keybindings are extension defaults, so removing the old command IDs is safe. Update `package.json` keybindings in the same commit and users lose nothing.
 
 **Current:** 6 `tomAi.sendToCopilot.*` variants + 4 `tomAi.sendToLocalLlm.*` prompt-expansion variants = 10 nearly identical commands.
 
@@ -284,11 +300,13 @@ Owns: [deprecation.md](deprecation.md) §1–4. Low risk, high clarity win. Exec
 **Steps:**
 
 1. Add the two quick-pick commands to [copilotTemplates-handler.ts](../../src/handlers/copilotTemplates-handler.ts) and the Local LLM handler.
-2. Keep the 10 existing command IDs **registered but aliased** for one release — they become thin wrappers that dispatch to the quick-pick with a pre-selected item. This preserves user keybindings.
-3. Remove them from `package.json`'s `contributes.menus.editor/context` submenus (users see the single picker instead).
-4. In the next release, delete the 10 command IDs.
+2. Delete the 10 `tomAi.sendToCopilot.<variant>` / `tomAi.sendToLocalLlm.<variant>` command IDs from `package.json` `contributes.commands`.
+3. Remove the matching entries from `package.json` `contributes.menus.editor/context` submenus (`tomAi.sendToCopilotSubmenu` / `tomAi.sendToLocalLlmSubmenu`). Keep the submenus themselves only if they house anything else — otherwise drop the submenu entries too.
+4. Update `package.json` `contributes.keybindings` to re-point any binding that still references a removed ID at the new quick-pick command.
+5. Remove the handler registrations in [copilotTemplates-handler.ts](../../src/handlers/copilotTemplates-handler.ts) and the Local LLM handler.
+6. Update [doc/quick_reference.md](../quick_reference.md) and [doc/user_guide.md](../user_guide.md) to describe the new picker flow.
 
-**Done when:** the editor context menu shows two entries ("Send to Copilot…", "Send to Local LLM…") instead of twelve.
+**Done when:** the editor context menu shows two entries ("Send to Copilot…", "Send to Local LLM…") instead of twelve, and `package.json` `contributes.commands` is shorter by 10 entries.
 
 #### 2.3 `TemplateAwareEditorShell` for queue / timed / template editors
 
@@ -343,25 +361,33 @@ Owns: [deprecation.md](deprecation.md) §1–4. Low risk, high clarity win. Exec
 **Proposed layout:**
 
 ```text
-~/.tom/vscode/tom_vscode_extension.user.yaml      user-global preferences
-.tom/tom_vscode_extension.workspace.yaml          workspace-local config
-VS Code workspaceState                             UI ephemeral only
-VS Code secrets API                                credentials
+<user-config-root>/.tom/vscode/tom_vscode_extension.user.yaml   user-global preferences
+<workspace>/.tom/tom_vscode_extension.workspace.yaml            workspace-local config
+VS Code workspaceState                                           UI ephemeral only
+Environment variables                                            secrets (token values)
 ```
+
+Where `<user-config-root>` resolves via `os.homedir()`:
+
+- **Linux / macOS:** `$HOME` → `~/.tom/vscode/tom_vscode_extension.user.yaml`.
+- **Windows:** `%USERPROFILE%` (e.g. `C:\Users\<name>`) → `C:\Users\<name>\.tom\vscode\tom_vscode_extension.user.yaml`.
+
+`os.homedir()` already returns the correct value on both platforms, so the code path is uniform — but path joins must use `path.join`, never a hard-coded `/` separator, and any docs example showing `~/.tom/` must be accompanied by the Windows form.
 
 **Merge order:** `defaults < user-global < workspace-local < runtime overrides`.
 
 **Steps:**
 
-1. Add `TomAiConfiguration.loadUserGlobal()` reading `~/.tom/vscode/tom_vscode_extension.user.yaml` (create the file lazily).
+1. Add `TomAiConfiguration.loadUserGlobal()` reading `<homedir>/.tom/vscode/tom_vscode_extension.user.yaml`. Build the path with `path.join(os.homedir(), '.tom', 'vscode', 'tom_vscode_extension.user.yaml')`. Create the file lazily with sensible defaults.
 2. Classify every contributed setting ([configuration_structure.md §A](configuration_structure.md#a-contributed-vs-code-settings-27)):
    - **User-global** candidates: `userName`, Ollama URL, bridge binary paths, favorites, preferred profile defaults.
    - **Workspace-local**: `aiFolder`, queue/trail/notes/todo patterns, quest IDs, context approach.
-   - **Settings-only (keep as-is)**: the 27 VS Code settings that are truly preferences (`autoRunOnSave`, `trail.enabled`, `copilot.showNotifications`, etc.).
+   - **Settings-only (keep as-is)**: the VS Code settings that are truly preferences (`autoRunOnSave`, `trail.enabled`, `copilot.showNotifications`, etc.).
 3. Update [tomAiConfiguration.ts](../../src/utils/tomAiConfiguration.ts) to layer the reads and expose the merged view through `getSection()`.
-4. Move Telegram tokens + any API keys to [vscode.secrets](https://code.visualstudio.com/api/references/vscode-api#SecretStorage). Currently they live in `configuration_structure.md` as file-backed — that's a security issue.
-5. Add a versioned migration hook — on activation, if the user's config lacks a `schema_version`, run the one-shot migration that moves the user-global keys from workspace config to the new file.
-6. Document in [_copilot_guidelines/implementation.md](../../_copilot_guidelines/implementation.md).
+4. Add a versioned migration hook — on activation, if the user's config lacks a `schema_version`, run the one-shot migration that moves the user-global keys from workspace config to the new file.
+5. Document in [_copilot_guidelines/implementation.md](../../_copilot_guidelines/implementation.md), including the Windows path form.
+
+**Secrets stay where they are.** The Telegram token is not stored in any config file — the config only holds the *name* of the environment variable, and the token is read from `process.env` at runtime. This is already the right model and does not need to change.
 
 **Risk mitigation:** stage this across two releases — release N introduces the user-global file and reads from both; release N+1 removes the workspace fallback for user-global keys.
 
@@ -421,15 +447,15 @@ Convert the remaining `section === 'anthropic'` branches (trail-viewer routing, 
 
 ---
 
-## 5. Open questions
+## 5. Decisions (resolved)
 
-Ahead of starting Wave 1, I'd want confirmation on:
+Answers to the open questions from the initial plan:
 
-1. **Commit strategy.** Merge each item as its own commit, or group per-wave? The deprecation doc suggested five commits for Wave 0 — I recommend keeping that granularity because each is easy to revert.
-2. **User-global config location (Wave 3.1).** `~/.tom/vscode/tom_vscode_extension.user.yaml` follows the repo's existing `~/.tom/` pattern. Sanity-check whether you want that or something closer to VS Code's own user config path.
-3. **Scope of notepad consolidation (Wave 2.1).** The 10 providers differ materially in how they handle external data (quest notes read from disk; Copilot reads answer files; Local LLM talks to Ollama; Tom AI Chat owns a full model loop). Some may belong better as thin wrappers around `GenericNotepadProvider` rather than unified into it. A quick spike on the first two migrations will answer this.
-4. **Command-variant aliasing window (Wave 2.2).** Keep the 10 old command IDs for one release? Two? If users have bound keyboard shortcuts, removing IDs breaks their setup.
-5. **Telegram token migration (Wave 3.1).** Moving tokens to `vscode.secrets` is the right thing but users will re-enter them. Flag this prominently in the release notes.
+1. **Commit strategy — keep per-item granularity.** Each numbered item above commits independently (Wave 0 keeps the five-commit split from [deprecation.md §6](deprecation.md#6-suggested-commit-split); Waves 1–3 commit per row in the summary table). Makes revert surgical and keeps history bisectable.
+2. **User-global config location — `<homedir>/.tom/vscode/tom_vscode_extension.user.yaml`, cross-platform.** See Wave 3.1 for the resolved Windows / Linux / macOS form. All path joins use `path.join(os.homedir(), ...)` — never a hard-coded `/` separator. Docs must show both forms.
+3. **Notepad consolidation scope — shared helpers + thin wrappers, not a monolithic provider.** See revised Wave 2.1. Extract the duplicated HTML / message / storage / toolbar / template code into shared modules; keep one wrapper per data domain so Copilot's answer-file logic, Ollama's client, quest-note readers, etc. stay local to their provider. Goal is less duplication, not fewer classes.
+4. **Command-variant keybindings — extension defaults only, safe to remove.** All 10 command IDs in Wave 2.2 are bound to extension-default keybindings. Update `package.json` `contributes.keybindings` in the same commit that deletes the commands; no user-binding breakage possible. No aliasing window needed.
+5. **Telegram token — stays in an environment variable.** The config file holds only the env-var name; the token value is read from `process.env` at runtime. Already the correct model. No migration, no `vscode.secrets` move, nothing for users to re-enter. (Plan previously over-scoped this; corrected in Wave 3.1.)
 
 ## 6. References
 
