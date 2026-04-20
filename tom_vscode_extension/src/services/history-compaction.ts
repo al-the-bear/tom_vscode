@@ -218,6 +218,39 @@ function expandTemplate(template: string, extraVars: Record<string, string>): st
     return resolveVariables(template, { values: extraVars, enableJsExpressions: true });
 }
 
+/**
+ * Upper bounds for template variables that grow unbounded over a long-
+ * running session. The memory-extraction pass injects the full memory
+ * file + the full compacted summary, and both can blow past a 24 GB
+ * VRAM budget on local LLMs once a quest has been running a while.
+ * Keep the most recent portion of each (memory's recent entries are
+ * what matter for dedup decisions; old entries have already been
+ * seen and recorded).
+ *
+ * Values are intentionally conservative defaults — make them config
+ * knobs later if a user hits them. 8 KB each ≈ 2 K tokens, fine for
+ * even a 4 K-ctx model and still large enough to be useful.
+ */
+const MAX_EXISTING_MEMORY_CHARS = 8000;
+const MAX_COMPACTED_SUMMARY_CHARS = 8000;
+
+/**
+ * Keep only the tail (most recent content) when the string exceeds
+ * `maxChars`. Prefix with a short marker so the LLM sees that it was
+ * given a partial view and doesn't conclude from missing content that
+ * something has been forgotten.
+ */
+function tailBounded(text: string, maxChars: number, kind: string): string {
+    if (!text || text.length <= maxChars) { return text || ''; }
+    const keep = text.slice(-maxChars);
+    // Trim to the start of the next line so bullets aren't chopped in
+    // half — the LLM's parser gets confused by half-lines more than
+    // by a frank truncation marker.
+    const nl = keep.indexOf('\n');
+    const body = nl > 0 ? keep.slice(nl + 1) : keep;
+    return `[…${kind} truncated: showing last ${body.length} of ${text.length} chars…]\n${body}`;
+}
+
 // ============================================================================
 // LLM dispatch — internal, no tool loop, no trail write
 // ============================================================================
@@ -515,11 +548,24 @@ async function runLlmExtract(
             const memoryFilePath = memorySvc.filePath(scope, tpl.targetFile, options.questId);
             const userPrompt = expandTemplate(tpl.template, {
                 recentHistory: recentHistoryText,
-                existingMemory: existing,
+                existingMemory: tailBounded(existing, MAX_EXISTING_MEMORY_CHARS, 'existing memory'),
                 memoryFilePath,
                 memoryScope: scope,
             });
-            const extracted = (await runCompactionCall(options, 'You extract key facts for memory.', userPrompt, 'memory')).trim();
+            const rawExtracted = (await runCompactionCall(options, 'You extract key facts for memory.', userPrompt, 'memory')).trim();
+            // Same bullet-only filter as in runIncrementalMemoryExtraction —
+            // the llm_extract rebuild path uses a different template,
+            // but the "empty OR bullets only" output contract is the
+            // same, so prose slips through here too.
+            const extracted = rawExtracted
+                .split(/\r?\n/)
+                .map((ln) => ln.trim())
+                .filter((ln) => /^[-*+]\s+\S/.test(ln))
+                .join('\n')
+                .trim();
+            if (!extracted && rawExtracted) {
+                logCompactionWarn(`memory extraction produced non-bullet prose — discarded (template=${tpl.id}, first120=${rawExtracted.slice(0, 120).replace(/\n/g, ' ')})`);
+            }
             const memoryTemplateName = loadSendToChatConfig()?.compaction?.memoryExtractionTemplates?.find((t) => t.id === tpl.id)?.name;
             const memoryModel = options.llmProvider === 'anthropic'
                 ? loadSendToChatConfig()?.anthropic?.configurations?.find((c) => c.id === options.llmConfigId)?.model
@@ -637,8 +683,8 @@ export async function runIncrementalMemoryExtraction(params: {
     const memoryFilePath = memorySvc.filePath(scope, tpl.targetFile, params.questId);
     const userPrompt = expandTemplate(tpl.template, {
         lastTurn: formatHistoryForTemplate(params.lastTurn),
-        compactedSummary: params.compactedSummary,
-        existingMemory: existing,
+        compactedSummary: tailBounded(params.compactedSummary, MAX_COMPACTED_SUMMARY_CHARS, 'compacted summary'),
+        existingMemory: tailBounded(existing, MAX_EXISTING_MEMORY_CHARS, 'existing memory'),
         memoryFilePath,
         memoryScope: scope,
     });
@@ -650,14 +696,30 @@ export async function runIncrementalMemoryExtraction(params: {
         questId: params.questId,
         source: 'every-turn',
     };
-    const extracted = (await runCompactionCall(
+    const rawExtracted = (await runCompactionCall(
         options,
         'You extract durable facts worth remembering.',
         userPrompt,
         'memory',
     )).trim();
+    // Defensive post-filter: the prompt instructs the model to emit
+    // ONLY bullet lines or an empty response, but some models (esp.
+    // smaller local ones) still produce prose like "Nothing new
+    // worth remembering." Drop every line that isn't a markdown
+    // bullet so that kind of output never makes it into the memory
+    // file. If the filter empties the output, treat as empty.
+    const extracted = rawExtracted
+        .split(/\r?\n/)
+        .map((ln) => ln.trim())
+        .filter((ln) => /^[-*+]\s+\S/.test(ln))
+        .join('\n')
+        .trim();
     if (!extracted) {
-        logCompactionWarn(`memory extraction returned empty output (template=${tpl.id})`);
+        if (rawExtracted) {
+            logCompactionWarn(`memory extraction produced non-bullet prose — discarded (template=${tpl.id}, first120=${rawExtracted.slice(0, 120).replace(/\n/g, ' ')})`);
+        } else {
+            logCompactionWarn(`memory extraction returned empty output (template=${tpl.id})`);
+        }
         return;
     }
     const model = params.llmProvider === 'anthropic'
