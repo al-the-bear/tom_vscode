@@ -1863,7 +1863,9 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
      */
     private async _sendVsCodeLmModels(): Promise<void> {
         try {
+            const started = Date.now();
             const models = await vscode.lm.selectChatModels({});
+            const elapsedMs = Date.now() - started;
             const entries = models.map((m) => ({
                 id: m.id,
                 vendor: m.vendor,
@@ -1871,15 +1873,38 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 name: m.name,
                 label: `${m.vendor} · ${m.family} — ${m.name || m.id}`,
             }));
+            debugLog(
+                `[VsCodeLm] selectChatModels returned ${entries.length} model(s) in ${elapsedMs}ms`,
+                'INFO',
+                'chatPanel',
+            );
+            // Empty result usually means Copilot hasn't finished booting
+            // or the user isn't signed in. Include an informational hint
+            // so the dropdown empty-state is actionable; the webview
+            // picks this up and renders a human-readable message.
+            let hint: string | undefined;
+            if (entries.length === 0) {
+                const copilotExt = vscode.extensions.getExtension('GitHub.copilot-chat')
+                    ?? vscode.extensions.getExtension('GitHub.copilot');
+                hint = copilotExt
+                    ? (copilotExt.isActive
+                        ? 'no models — sign into GitHub Copilot or wait for models to load'
+                        : 'Copilot extension inactive — open Copilot Chat once to activate')
+                    : 'GitHub Copilot not installed';
+                debugLog(`[VsCodeLm] empty result; hint: ${hint}`, 'WARN', 'chatPanel');
+            }
             this._view?.webview.postMessage({
                 type: 'vscodeLmModels',
                 models: entries,
+                hint,
             });
         } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            debugLog(`[VsCodeLm] selectChatModels threw: ${msg}`, 'ERROR', 'chatPanel');
             this._view?.webview.postMessage({
                 type: 'vscodeLmModels',
                 models: [],
-                error: err instanceof Error ? err.message : String(err),
+                error: msg,
             });
         }
     }
@@ -4108,8 +4133,21 @@ window.addEventListener('message', function(e) {
         if (vlmSelect) {
             var vlmList = msg.models || [];
             if (vlmList.length === 0) {
-                var emptyMsg = msg.error ? ('(error: ' + msg.error + ')') : '(no models)';
+                var emptyMsg = msg.error
+                    ? ('(error: ' + msg.error + ')')
+                    : ('(' + (msg.hint || 'no models') + ')');
                 vlmSelect.innerHTML = '<option value="">' + emptyMsg + '</option>';
+                // One-shot retry — Copilot often takes a few seconds to
+                // finish activating after VS Code startup. The first
+                // query can legitimately return 0 models; try again
+                // after a short delay instead of leaving the user with
+                // an empty dropdown that requires a manual refresh.
+                if (!msg.error && !window._anthropicVsCodeLmRetried) {
+                    window._anthropicVsCodeLmRetried = true;
+                    setTimeout(function() {
+                        vscode.postMessage({ type: 'refreshVsCodeLmModels' });
+                    }, 3000);
+                }
             } else {
                 vlmSelect.innerHTML = '<option value="">(' + vlmList.length + ' models available)</option>' +
                     vlmList.map(function(m) {
