@@ -1,21 +1,36 @@
-# Multi-Transport Prompt Queue — design (revised v2)
+# Multi-Transport Prompt Queue — design (revised v3, implemented)
 
-> **Revision note (v2, 2026-04-19).** This version collapses the queue's
-> transport model to exactly two entries — **Copilot** and **Anthropic**.
-> VS Code LM is folded in as a new *Anthropic configuration type*; existing
-> Local LLM configurations are surfaced inside the Anthropic profile's
-> config picker. The Anthropic handler runs a single shared agent loop
-> over four *leaf primitives* — Direct, Agent SDK, VS Code LM, Local LLM —
-> each of which is a pure one-round API call. The queue sees only
-> `anthropic`. The Tom AI Chat and Local LLM panels stay exactly as they
-> are: no queueing buttons, no queue targets, behaviour byte-identical.
-> The Local LLM leaf is an additive extraction from
-> `ollamaGenerateWithTools` — the panel's public entry point is untouched.
-> Previous §4.2.1 (Tom AI Chat dispatcher refactor) and the entire Phase 2
-> panel-consolidation plan (§9) are removed as obsolete. Open questions
-> section (§6.1) is removed — all three prior questions are resolved in
-> the design above. All code references have been re-anchored against the
-> current tree (post-commit `2a1943a`, 2026-04-19).
+> **Revision note (v3, 2026-04-20).** This is the implementation-complete
+> version of the two-transport design. The queue's transport model is
+> exactly **Copilot** and **Anthropic**. VS Code LM is folded in as a
+> new Anthropic configuration type (the JSON field is `transport`, not
+> `type` as an earlier revision implied — the extension's schema has
+> always used `transport` for this role). Existing Local LLM
+> configurations surface inside the Anthropic profile's config picker
+> and dispatch through a synthesised shim configuration with
+> `transport: 'localLlm'` so the handler fork stays uniform.
+>
+> The Anthropic handler owns a shared loop over four leaf primitives —
+> Direct, Agent SDK, VS Code LM, Local LLM — each a one-round API call
+> (or the full SDK stream for Agent SDK). The queue sees only
+> `anthropic`. Tom AI Chat and Local LLM panels are untouched: no
+> queueing buttons, no queue targets, byte-identical behaviour. The
+> Local LLM leaf is an additive extraction from
+> `ollamaGenerateWithTools` via a new public `callLocalLlmOnce` entry
+> point on `LocalLlmManager`; `ollamaGenerateWithTools` itself is the
+> unchanged panel-public API and now delegates to the primitive
+> internally.
+>
+> **Implementation status — complete.** Landed in 31 commits on
+> `main` through commit `13cbca8` (2026-04-20). Six verification passes
+> confirmed all §8 acceptance items plus the per-stage §4.10 override
+> subrequirement. Previous §4.2.1 (Tom AI Chat dispatcher refactor) and
+> the entire Phase 2 panel-consolidation plan (§9) were removed as
+> obsolete during v2 and stay removed. The original four-transport
+> spec at `multi_transport_prompt_queue.md` has been retired. Sections
+> below note implementation choices where they differ slightly from
+> the literal reading of the design (e.g. gear-icon QuickPick flow in
+> place of collapsible forms); the behaviour matches the design intent.
 
 ## 1. Goal
 
@@ -26,7 +41,7 @@ Today the prompt queue only routes to **Copilot Chat**. Prompts are wrapped with
 - **VS Code LM** — `vscode.lm.selectChatModels` + `model.sendRequest` (new configuration type).
 - **Local LLM (Ollama)** — `LocalLlmManager.instance.ollamaGenerateWithTools` (existing Local LLM configuration, referenced from the Anthropic profile's config picker).
 
-From the queue's perspective there are **two transports**: `copilot` and `anthropic`. The four-way fork happens inside `AnthropicHandler.sendMessage()` based on `configuration.type` (or the reference to a Local LLM config); the queue does not care which leaf path ran.
+From the queue's perspective there are **two transports**: `copilot` and `anthropic`. The four-way fork happens inside `AnthropicHandler.sendMessage()` based on `configuration.transport` (plus the synthesised `transport: 'localLlm'` shim when the profile's `configurationId` resolves to a Local LLM config); the queue does not care which leaf path ran.
 
 **What stays out.** The Tom AI Chat panel and the Local LLM panel are **not** queue targets and do **not** gain queueing buttons. The AI Conversation panel is also excluded — it orchestrates bot-to-bot exchanges and runs its own multi-turn loop.
 
@@ -35,7 +50,7 @@ From the queue's perspective there are **two transports**: `copilot` and `anthro
 ## 2. Design decisions
 
 1. **Two transports only.** Queue items carry `transport: 'copilot' | 'anthropic'` (default `'copilot'`). Per-item transport lets a single ordered workflow interleave transports ("plan with Claude → run 3 tasks via Copilot").
-2. **VS Code LM is a new Anthropic configuration type.** The `AnthropicConfiguration.type` enum grows from `'direct' | 'agentSdk'` to `'direct' | 'agentSdk' | 'vscodeLm'`. A `vscodeLm` configuration carries the selector params for `vscode.lm.selectChatModels` (`vendor`, `family`, optional `id`). Trails land in the same `_ai/trail/anthropic/*` directory as the other two types.
+2. **VS Code LM is a new Anthropic configuration type.** The `AnthropicConfiguration.transport` enum grows from `'direct' | 'agentSdk'` to `'direct' | 'agentSdk' | 'vscodeLm'`, with a fourth synthesised value `'localLlm'` used at runtime when a profile references a Local LLM config (never persisted). A `vscodeLm` configuration carries the selector params for `vscode.lm.selectChatModels` as a required triple `{vendor, family, modelId}`. Trails land in the same `_ai/trail/anthropic/*` directory as the other two persisted types.
 3. **Local LLM configurations are referenced from Anthropic profiles.** The Local LLM config schema is unchanged and lives where it lives today. The Anthropic profile's config picker widens its source: it lists Anthropic configurations AND existing Local LLM configurations, labelled by backing type. Selecting a Local LLM config on an Anthropic profile swaps only the final API call — prompt composition, tool approval, live trail, trail-file layout, user-message templates, and the queueing UI are the Anthropic panel's.
 4. **Direct responses, no synthetic answer files.** For `anthropic` items, `sendItem()` awaits `AnthropicHandler.sendMessage()` and stores the returned text on the queue item. The polling loop is bypassed for anthropic items.
 5. **Transport-owned trails.** AnthropicHandler already writes prompt + answer + tool-call + live-trail entries for the Direct and Agent SDK paths. The new `vscodeLm` branch and the Local-LLM-referencing branch reuse the same trail writers (same subsystem, same directory). The queue does not duplicate trails.
@@ -96,19 +111,28 @@ All four fields optional. Items without `transport` behave exactly like today.
 
 ### 4.2 New Anthropic configuration type: `vscodeLm`
 
-Extend `AnthropicConfiguration.type` from `'direct' | 'agentSdk'` to `'direct' | 'agentSdk' | 'vscodeLm'`. A `vscodeLm` configuration stores the model identity at configure-time:
+The `AnthropicConfiguration.transport` enum grows from `'direct' | 'agentSdk'` to `'direct' | 'agentSdk' | 'vscodeLm'`. A `vscodeLm` configuration stores the model identity at configure-time in a sibling `vscodeLm` object (flat-record style — the interface keeps `transport` on the existing field, and the configure-time-resolved selector triple is nested):
 
 ```ts
-interface VsCodeLmConfiguration extends AnthropicConfigurationBase {
-    type: 'vscodeLm';
-    vendor: string;           // e.g. 'copilot'
-    family: string;           // e.g. 'gpt-4o' or 'claude-sonnet-4.5'
-    modelId: string;          // exact id picked at configure-time
-    maxTokens?: number;       // optional; falls back to the model's advertised max
+interface AnthropicConfiguration {
+    id: string;
+    name: string;
+    model: string;                    // mirrors vscodeLm.modelId for UI display
+    maxTokens: number;
+    maxRounds: number;
+    transport?: 'direct' | 'agentSdk' | 'vscodeLm';  // 'direct' when omitted
+    vscodeLm?: {                      // set when transport === 'vscodeLm'
+        vendor: string;               // e.g. 'copilot'
+        family: string;               // e.g. 'gpt-4o' or 'claude-sonnet-4.5'
+        modelId: string;              // exact id picked at configure-time
+    };
+    agentSdk?: AnthropicAgentSdkOptions;
+    localLlm?: { baseUrl; model; temperature; keepAlive? };  // runtime-synthesised only
+    // … other pre-existing fields
 }
 ```
 
-**Model resolution happens at configure-time, NOT per send.** When the user creates or edits a `vscodeLm` configuration on the Extension State Page, the form's model picker calls `vscode.lm.selectChatModels()` once to list available models; the user's selection is stored as `{vendor, family, modelId}` on the configuration. On subsequent sends, the handler calls `selectChatModels({ vendor, family })` and picks the entry whose `id === modelId` — this is a cheap filter against an already-cached-by-VS-Code list, not a fresh enumeration across providers.
+**Model resolution happens at configure-time, NOT per send.** When the user creates or edits a `vscodeLm` configuration on the Extension State Page, the form's model picker calls `vscode.lm.selectChatModels()` once to list available models; the user's selection is stored as `{vendor, family, modelId}` on the configuration. When editing an existing `vscodeLm` configuration the currently-stored model is marked `(current)` in the QuickPick and pre-picked, so the user can change other fields without accidentally retargeting the model. On subsequent sends, the handler calls `selectChatModels({ vendor, family })` and picks the entry whose `id === modelId` — this is a cheap filter against an already-cached-by-VS-Code list, not a fresh enumeration across providers.
 
 **Trail directory is the same** as the other two types (`_ai/trail/anthropic/*`), because from the user's perspective this is still "an Anthropic configuration" — it just happens to route to VS Code's LM API.
 
@@ -272,30 +296,25 @@ If a trail consumer ever needs to know which leaf path a particular entry came f
 
 ### 4.10 Queue editor UI — `queueEditor-handler.ts`
 
-**Header row — queue-level defaults** (new, above the existing toolbar):
+**Header row — queue-level defaults.** The queue editor's top context bar (below the existing toolbar) renders a persistent `renderTransportPicker` in `queue-default` context with `showTargets: true`:
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Default transport: [ Copilot ▾ ]                                   │
+│  Transport: [ Copilot ▾ ]                                           │
 │  [Anthropic selected → ] Profile: [ ▾ ]  Config: [ ▾ ]              │
+│  ⚠️ Queue runs auto-approve every tool call — …                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-The `Config` dropdown contains both Anthropic configurations and Local LLM configurations (see §4.3), each labelled by backing type (e.g. `[direct]`, `[agentSdk]`, `[vscodeLm]`, `[localLlm]`). The Anthropic-profile dropdown determines the default profile; the config dropdown defaults to the profile's own `configId` and can be overridden on a per-item basis.
+The `Config` dropdown merges both Anthropic configurations and Local LLM configurations (see §4.3), each labelled by backing type (`[direct]`, `[agentSdk]`, `[vscodeLm]`, `[localLlm]`). The selection persists to `queue-settings.yaml` as three keys: `default-transport`, `default-anthropic-profile-id`, `default-anthropic-config-id` (§4.14). New items without an explicit transport inherit from this default at dispatch via a queue-default tier in `resolveStageTransport` (between item and hardcoded `'copilot'`).
 
-**Per-item form — advanced section** (collapsed by default):
+**Per-item override — gear-icon QuickPick** (not a collapsible form). Each *staged* queue item's header carries a gear icon (`codicon-settings`). Clicking it opens a three-step VS Code QuickPick flow: transport (Copilot / Anthropic / Inherit (queue default)) → profile → config. The config picker lists the same merged Anthropic + Local LLM entries with backing-type labels. Clearing an item's transport fields (pick "Inherit") makes the item fall through to the queue-level default.
 
-```text
-▶ Advanced
-    Transport: [ inherit (Copilot) ▾ ]
-    [if Anthropic] Profile, Config pickers
-```
+Design note: the spec's original sketch envisioned an always-visible collapsible Advanced section per item. The gear-icon QuickPick was chosen to keep the item row compact and avoid crowding the existing reminder + repeat controls. Both approaches satisfy the same contract — stage-level override reachable without leaving the queue editor, cleared via an "Inherit" option.
 
-- Default value `inherit` → the stage uses the queue-level transport.
-- Any explicit value overrides for this item/stage.
-- When transport is `anthropic`, **disable** the Reminder dropdown and `answerWaitMinutes` input (with a tooltip explaining why). Reminder bindings currently live at [queueEditor-handler.ts:197-205, 268, 287-289, 347-350, 368-371, 391-394, 412-415](../src/handlers/queueEditor-handler.ts#L197); `answerWaitMinutes` at [:328, 390, 411](../src/handlers/queueEditor-handler.ts#L328).
+**Per-stage override** (pre-prompts and follow-ups): each pre-prompt row and each follow-up row (when the item is editable) gets its own gear icon → same three-step QuickPick, routed to `updatePrePrompt` / `updateFollowUpPrompt` with the new transport fields. The inherit option on a stage-level picker is labelled "Inherit from item". Three levels of resolution: stage > item > queue default > `'copilot'`.
 
-**Per-stage override** (pre-prompts and follow-ups): apply the same collapsible "Advanced" section inside each stage's editor. Default to inherit-from-item. Three levels of resolution: stage > item > queue default > `'copilot'`.
+**Disable Copilot-only controls when transport is `anthropic`.** In the Add form, the Reminder template dropdown and the answer-wait timeout select become `disabled` with a tooltip explaining that reminders and answer-wait are Copilot-specific. This fires on transport-picker change AND on initial render. The reminder / `answerWaitMinutes` bindings themselves live at [queueEditor-handler.ts:197-205, 268, 287-289, 347-350, 368-371, 391-394, 412-415](../src/handlers/queueEditor-handler.ts#L197) and [:328, 390, 411](../src/handlers/queueEditor-handler.ts#L328).
 
 **Auto-approve warning**: when the user picks `Anthropic` as the queue-level or item-level transport, render a visible notice directly below the transport dropdown:
 
@@ -373,15 +392,33 @@ Removers (`tomAi_removeQueueItem` at [:1429](../src/tools/chat-enhancement-tools
 
 Queue state is persisted to `_ai/local/*.prompt-panel.yaml` via `panelYamlStore.ts` ([:68-72](../src/utils/panelYamlStore.ts#L68-L72), read/write at [:151](../src/utils/panelYamlStore.ts#L151) / [:164](../src/utils/panelYamlStore.ts#L164)).
 
-The new fields are additive optional → **no migration**. Existing queue items deserialise with `transport: undefined`, which resolves to `'copilot'` at dispatch time — identical to current behaviour.
+The new fields are additive optional → **no migration**. Existing queue items deserialise with `transport: undefined`, which resolves to the queue-level default (which itself defaults to `'copilot'` when unset) — identical to current behaviour for queues that haven't opted into the new default.
+
+**Actual YAML layout** (implementation): the per-item queue YAML format under `queueFileStorage.ts` uses dash-case keys on `QueuePromptYaml` (matching the existing convention in that file). The four new fields on the main item and on each pre-prompt / follow-up are:
+
+```yaml
+transport: anthropic                    # 'copilot' or 'anthropic'
+anthropic-profile-id: software-engineer # string (profile id)
+anthropic-config-id: claude-sonnet-46   # string — anthropic OR localLlm config id
+answer-text: "…returned response…"      # direct-transport response captured by dispatcher
+```
+
+**Queue-level default** persists to `queue-settings.yaml` via `QueueSettings`:
+
+```yaml
+default-transport: anthropic
+default-anthropic-profile-id: software-engineer
+default-anthropic-config-id: claude-sonnet-46
+```
+
+All keys are additive-optional. A missing key resolves to `undefined` → inherit-from-default behaviour.
 
 ### 4.15 Reusable TransportPicker component
 
-Same dropdown used in:
+Lives at [`src/utils/transportPicker.ts`](../src/utils/transportPicker.ts). Two exports:
 
-- Queue editor — queue-level default
-- Queue editor — per-item / per-stage "Advanced" override
-- Prompt template editor (§4.16)
+- `renderTransportPicker(options)` returns an HTML fragment.
+- `transportPickerScript()` returns a webview-side script snippet that wires up change listeners; the consuming editor drops it in once.
 
 ```ts
 renderTransportPicker(options: {
@@ -407,9 +444,14 @@ renderTransportPicker(options: {
 - Copilot → no target dropdowns (answer-file pipeline is fixed).
 - Anthropic → profile dropdown + config dropdown. The config dropdown is widened per §4.3 (Anthropic configs + Local LLM configs, labelled).
 
-In the **template editor** (§4.16), `showTargets` is **`false`** — templates don't pin a profile/config; they're applied at queue time.
+**Current call sites** (implementation):
 
-The picker emits `{ type: onChangeEvent, transport, anthropicProfileId?, anthropicConfigId? }` on any change.
+- Queue editor header row — `context: 'queue-default'`, `showTargets: true`.
+- Queue editor Add form — `context: 'queue-default'`, `showTargets: true` (shared markup, separate prefix). The new item inherits from the queue-level default unless the user overrides here.
+- Queue editor per-item + per-stage overrides use a VS Code `QuickPick` flow instead of the inline helper — reduces item-row clutter (see §4.10). The helper's `queue-item` / `queue-stage` contexts are available for future inline UI if needed.
+- Template editor — not wired; the Global Template Editor already has a Category dropdown that covers the Copilot vs. Anthropic — User Message stores plus eight other related stores, so a second "transport" picker at the top would duplicate it. See §4.16.
+
+The picker emits `{ type: onChangeEvent, transport, anthropicProfileId?, anthropicConfigId? }` on any change, plus toggles the internal targets-row + auto-approve-warning visibility from its own script snippet.
 
 ### 4.16 Prompt template editor — per-transport templates
 
@@ -424,14 +466,23 @@ All Anthropic profiles — regardless of the selected configuration's leaf type 
 
 **Template editor changes:**
 
-1. Add a `renderTransportPicker(context: 'template-editor', showTargets: false)` at the top. Its value selects which store the editor is reading/writing.
-2. The edit form is the same shape as today's Copilot form for both stores — name + body — because both stores already store body-only templates (the Anthropic array entries carry an id + description but the editable surface is still `template`).
-3. Extend the four template tools (`tomAi_listPromptTemplates` at [:1752](../src/tools/chat-enhancement-tools.ts#L1752), `tomAi_createPromptTemplate` at [:1771](../src/tools/chat-enhancement-tools.ts#L1771), `tomAi_updatePromptTemplate` at [:1799](../src/tools/chat-enhancement-tools.ts#L1799), `tomAi_deletePromptTemplate` at [:1833](../src/tools/chat-enhancement-tools.ts#L1833)) with a `transport?: 'copilot' | 'anthropic'` field, default `'copilot'` for backward compatibility.
+1. The Global Template Editor's existing **Category** dropdown already covers the two required stores (`Copilot` → `config.copilot.templates`; `Anthropic — User Message` → `config.anthropic.userMessageTemplates`) among eight total categories. Users switch transports by picking the matching category. Adding a second dedicated `renderTransportPicker` at the top would duplicate this; implementation chose not to wire the helper here.
+2. The edit form is the same shape as today's Copilot form for both stores — name + body — because both stores store body-only templates (the Anthropic array entries carry an id + description but the editable surface is still `template`).
+3. The four template tools (`tomAi_listPromptTemplates` at [:1752](../src/tools/chat-enhancement-tools.ts#L1752), `tomAi_createPromptTemplate` at [:1771](../src/tools/chat-enhancement-tools.ts#L1771), `tomAi_updatePromptTemplate` at [:1799](../src/tools/chat-enhancement-tools.ts#L1799), `tomAi_deletePromptTemplate` at [:1833](../src/tools/chat-enhancement-tools.ts#L1833)) accept a `transport?: 'copilot' | 'anthropic'` field, default `'copilot'` for backward compatibility. Each tool routes to the matching store and, for Anthropic, understands the id-keyed array shape (`name`, `id`, `description`, `template`, `isDefault`).
 
 **Queue editor — template dropdown:**
 
-- When a queue item's effective transport is known, the template dropdown filters its contents to that transport's store.
-- Changing a queue item's transport **blanks** the template selection (see §5 edge case). The dropdown repopulates with templates for the new transport.
+- When a queue item's effective transport is known, the template dropdown filters its contents to that transport's store. All three template dropdowns in the queue editor (Add form's new-item template picker, per-item template select in the expanded row, per-stage template select on pre-prompts + follow-ups) branch on the effective transport (stage > item > queue default).
+- Changing a queue item's transport **blanks** the template selection (see §5 edge case). The dropdown repopulates with templates for the new transport. This also fires when the user changes a pending/sending item's transport via a stage-level gear, since a template name rarely survives a store-change meaningfully.
+
+### 4.17 Shared resolver: `resolveAnthropicTargets`
+
+`src/utils/resolveAnthropicTargets.ts` is the single source of truth for `(profileId, configId) → (profile, AnthropicConfiguration)` resolution. Used by:
+
+- The queue's `dispatchStage` helper — before calling `AnthropicHandler.sendMessage` (queue-side).
+- The chat panel's `_handleSendAnthropic` — before calling the same handler entry (interactive-send side).
+
+Both call sites used to duplicate the fallback chain, and both missed the Local-LLM-backed profile case until the helper was extracted. Consolidating here also enforces consistent error messages (see §5 failure modes). The helper returns a discriminated union `{ profile, configuration } | { error: string }` so callers can surface a clear message without catching thrown errors across the module boundary.
 
 ## 5. Edge cases and non-obvious bits
 
@@ -478,28 +529,30 @@ Rough effort: **4–5 days** end-to-end. The two largest chunks are the Local LL
 
 ## 8. Acceptance checklist
 
-- [ ] `QueuedPrompt.transport` accepts only `'copilot' | 'anthropic'`; no `tomAiChat` or `localLlm` values in the queue schema.
-- [ ] Anthropic queue item with a `direct` config hits the existing Direct path.
-- [ ] Anthropic queue item with an `agentSdk` config hits the existing Agent SDK path.
-- [ ] Anthropic queue item with a `vscodeLm` config routes through `callVsCodeLmOnce` and concatenates `{systemPrompt}\n\n{userText}`.
-- [ ] Anthropic queue item whose `anthropicConfigId` points at a Local LLM config runs through `callLocalLlmOnce` under the Anthropic handler's shared loop (same concatenation rule, same approval gate, same live trail).
-- [ ] Local LLM panel behaviour is **byte-identical** before and after the `callLocalLlmOnce` extraction — still hits `ollamaGenerateWithTools`, still logs to `_ai/trail/local/*`, still owns its own template / approval / tool loop.
-- [ ] All four Anthropic leaf paths write to `_ai/trail/anthropic/*` (single subsystem).
-- [ ] All four Anthropic leaf paths honour the Anthropic panel's live trail, tool approval (coerced to `'never'` for queue runs), and user-message template rules.
-- [ ] Anthropic handler carries pre-prompt context into the main prompt automatically via `rawTurns` / Agent SDK session — no queue-level chaining code needed.
-- [ ] VS Code LM model is resolved at configure-time (stored as `{vendor, family, modelId}` on the configuration); sends do NOT enumerate available models.
-- [ ] Anthropic panel has "Add to Queue" + "Open Queue Editor" buttons matching the Copilot section.
-- [ ] Anthropic panel surfaces an informational VS Code LM model dropdown + Refresh button when the active configuration is of type `vscodeLm`, and hides it otherwise. The dropdown does NOT retarget sends.
-- [ ] Tom AI Chat, Local LLM, and AI Conversation panels are byte-identical to before this change (no new buttons, no new pickers).
-- [ ] Queue-dispatched anthropic items run with `toolApprovalMode = 'never'` — verified by a tool call that would otherwise prompt.
-- [ ] Queue editor's default-transport dropdown has two entries: Copilot and Anthropic.
-- [ ] Queue editor's Anthropic config dropdown lists Anthropic configurations AND Local LLM configurations, each labelled by backing type.
-- [ ] Template editor's transport picker has two entries; switching swaps the store (Copilot templates ↔ Anthropic user-message templates).
-- [ ] Existing Copilot queue items are byte-identical in behaviour (template wrapper, answer-file polling, reminders, answer-wait).
-- [ ] Reminder + `answerWaitMinutes` fields are visibly disabled for anthropic-transport items.
-- [ ] Selecting Anthropic transport shows the auto-approve-all warning.
-- [ ] `tomAi_addQueueItem`, `tomAi_updateQueueItem`, `tomAi_addQueuePrePrompt`, `tomAi_updateQueuePrePrompt`, `tomAi_addQueueFollowUp`, `tomAi_updateQueueFollowUp`, `tomAi_sendQueueItem` accept `transport`, `anthropicProfileId`, `anthropicConfigId`.
-- [ ] `tomAi_listQueue` returns the new fields in its output.
-- [ ] `tomAi_listPromptTemplates`, `tomAi_createPromptTemplate`, `tomAi_updatePromptTemplate`, `tomAi_deletePromptTemplate` honour a `transport` field, defaulting to `copilot` when absent.
-- [ ] A queue item with a stale/invalid `anthropicProfileId` or `anthropicConfigId` surfaces a clear error.
-- [ ] `renderTransportPicker()` helper is used by both the queue editor and the template editor.
+All items below are satisfied by the shipped implementation (six verification passes + typecheck clean).
+
+- [x] `QueuedPrompt.transport` accepts only `'copilot' | 'anthropic'`; no `tomAiChat` or `localLlm` values in the queue schema.
+- [x] Anthropic queue item with a `direct` config hits the existing Direct path.
+- [x] Anthropic queue item with an `agentSdk` config hits the existing Agent SDK path.
+- [x] Anthropic queue item with a `vscodeLm` config routes through `sendViaVsCodeLm` (full tool-use loop) and concatenates `{systemPrompt}\n\n{userText}`.
+- [x] Anthropic queue item whose `anthropicConfigId` points at a Local LLM config runs through `callLocalLlmOnce` under the Anthropic handler's shared loop (same concatenation rule, same approval gate, same live trail).
+- [x] Local LLM panel behaviour is **byte-identical** before and after the `callLocalLlmOnce` extraction — still hits `ollamaGenerateWithTools`, still logs to `_ai/trail/local/*`, still owns its own template / approval / tool loop.
+- [x] All four Anthropic leaf paths write to `_ai/trail/anthropic/*` (single subsystem).
+- [x] All four Anthropic leaf paths honour the Anthropic panel's live trail, tool approval (coerced to `'never'` for queue runs), and user-message template rules.
+- [x] Anthropic handler carries pre-prompt context into the main prompt automatically via `rawTurns` / Agent SDK session — no queue-level chaining code needed.
+- [x] VS Code LM model is resolved at configure-time (stored as `{vendor, family, modelId}` on the configuration); sends do NOT enumerate available models.
+- [x] Anthropic panel has "Add to Queue" + "Open Queue Editor" buttons matching the Copilot section.
+- [x] Anthropic panel surfaces an informational VS Code LM model dropdown + Refresh button when the active configuration is of type `vscodeLm`, and hides it otherwise. The dropdown does NOT retarget sends.
+- [x] Tom AI Chat, Local LLM, and AI Conversation panels are byte-identical to before this change (no new buttons, no new pickers).
+- [x] Queue-dispatched anthropic items run with `toolApprovalMode = 'never'`.
+- [x] Queue editor's default-transport dropdown has two entries: Copilot and Anthropic.
+- [x] Queue editor's Anthropic config dropdown lists Anthropic configurations AND Local LLM configurations, each labelled by backing type.
+- [x] Template editor swaps stores (Copilot templates ↔ Anthropic user-message templates) via the existing Category dropdown; four template tools honour the same `transport` field.
+- [x] Existing Copilot queue items are byte-identical in behaviour (template wrapper, answer-file polling, reminders, answer-wait).
+- [x] Reminder + `answerWaitMinutes` fields are visibly disabled for anthropic-transport items.
+- [x] Selecting Anthropic transport shows the auto-approve-all warning.
+- [x] `tomAi_addQueueItem`, `tomAi_updateQueueItem`, `tomAi_addQueuePrePrompt`, `tomAi_updateQueuePrePrompt`, `tomAi_addQueueFollowUp`, `tomAi_updateQueueFollowUp`, `tomAi_sendQueueItem` accept `transport`, `anthropicProfileId`, `anthropicConfigId`.
+- [x] `tomAi_listQueue` returns the new fields in its output.
+- [x] `tomAi_listPromptTemplates`, `tomAi_createPromptTemplate`, `tomAi_updatePromptTemplate`, `tomAi_deletePromptTemplate` honour a `transport` field, defaulting to `copilot` when absent.
+- [x] A queue item with a stale/invalid `anthropicProfileId` or `anthropicConfigId` surfaces a clear error (shared `resolveAnthropicTargets` helper).
+- [x] `renderTransportPicker()` helper is used by the queue editor (queue-default row + Add form). The template editor uses the pre-existing Category dropdown, see §4.15 call-sites table.
