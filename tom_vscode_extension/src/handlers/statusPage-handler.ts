@@ -802,6 +802,8 @@ async function runCompactionDryRun(settings: {
     memoryExtractionTemplateId?: string;
     compactionMaxRounds?: number;
     maxHistoryTokens?: number;
+    historyMaxChars?: number;
+    memoryMaxChars?: number;
 }): Promise<void> {
     const mode = await vscode.window.showQuickPick(
         [
@@ -835,6 +837,8 @@ async function runCompactionDryRun(settings: {
         return;
     }
     const maxHistoryTokens = Number.isFinite(settings.maxHistoryTokens) ? settings.maxHistoryTokens : saved.maxHistoryTokens ?? 8000;
+    const historyMaxChars = Number.isFinite(settings.historyMaxChars) ? settings.historyMaxChars : saved.historyMaxChars ?? 24000;
+    const memoryMaxChars = Number.isFinite(settings.memoryMaxChars) ? settings.memoryMaxChars : saved.memoryMaxChars ?? 8000;
     const compactionMaxRounds = Number.isFinite(settings.compactionMaxRounds) ? settings.compactionMaxRounds : saved.compactionMaxRounds ?? 1;
 
     showCompactionChannel();
@@ -842,7 +846,7 @@ async function runCompactionDryRun(settings: {
         `mode=${mode.value}`,
         `provider=${llmProvider}  config=${llmConfigId}`,
         `history=${history.length} messages (${liveHistory.length > 0 ? 'from live session' : 'synthetic'})`,
-        `maxHistoryTokens=${maxHistoryTokens}  maxRounds=${compactionMaxRounds}`,
+        `maxHistoryTokens=${maxHistoryTokens}  historyMaxChars=${historyMaxChars}  memoryMaxChars=${memoryMaxChars}  maxRounds=${compactionMaxRounds}`,
         `quest=${questId || '(none)'}`,
     ]);
 
@@ -855,6 +859,8 @@ async function runCompactionDryRun(settings: {
             memoryTemplateId: String(settings.memoryExtractionTemplateId || saved.memoryExtractionTemplateId || ''),
             compactionMaxRounds,
             maxHistoryTokens,
+            historyMaxChars,
+            memoryMaxChars,
             questId: questId || undefined,
             source: 'dry-run',
             onProgress: (m) => logRunBanner('progress', [m]),
@@ -1099,6 +1105,8 @@ export async function handleStatusAction(action: string, message: any): Promise<
             stcConfig.compaction.memoryExtractionTemplateId = s.memoryExtractionTemplateId || '';
             stcConfig.compaction.compactionMaxRounds = Number.isFinite(s.compactionMaxRounds) ? s.compactionMaxRounds : 4;
             stcConfig.compaction.maxHistoryTokens = Number.isFinite(s.maxHistoryTokens) ? s.maxHistoryTokens : 8000;
+            stcConfig.compaction.historyMaxChars = Number.isFinite(s.historyMaxChars) ? s.historyMaxChars : 24000;
+            stcConfig.compaction.memoryMaxChars = Number.isFinite(s.memoryMaxChars) ? s.memoryMaxChars : 8000;
             stcConfig.compaction.fullTrailMaxTurns = Number.isFinite(s.fullTrailMaxTurns) ? s.fullTrailMaxTurns : 200;
             stcConfig.compaction.runMemoryExtractionOnCompaction = s.runMemoryExtractionOnCompaction !== false;
             stcConfig.compaction.rebuildFromLastNPrompts = Number.isFinite(s.rebuildFromLastNPrompts) ? s.rebuildFromLastNPrompts : 200;
@@ -1545,6 +1553,13 @@ export interface StatusData {
         compactionMaxRounds: number;
         /** Target size of the compacted-history summary (tokens). */
         maxHistoryTokens: number;
+        /** Hard cap on history content injected into compaction + memory-
+         *  extraction prompts (chars). Also surfaced to the compaction
+         *  template as ${historyMaxChars}. */
+        historyMaxChars: number;
+        /** Hard cap on existing memory injected into the memory-extraction
+         *  prompt (chars). */
+        memoryMaxChars: number;
         /** Turn cap for `full` mode so it can't grow unbounded. */
         fullTrailMaxTurns: number;
         toolTrailMaxResultChars: number;
@@ -1799,6 +1814,8 @@ export async function gatherStatusData(): Promise<StatusData> {
             memoryExtractionTemplateId: sendToChatConfig?.compaction?.memoryExtractionTemplateId || '',
             compactionMaxRounds: sendToChatConfig?.compaction?.compactionMaxRounds ?? 4,
             maxHistoryTokens: sendToChatConfig?.compaction?.maxHistoryTokens ?? 8000,
+            historyMaxChars: sendToChatConfig?.compaction?.historyMaxChars ?? 24000,
+            memoryMaxChars: sendToChatConfig?.compaction?.memoryMaxChars ?? 8000,
             fullTrailMaxTurns: (sendToChatConfig?.compaction as { fullTrailMaxTurns?: number })?.fullTrailMaxTurns ?? 200,
             runMemoryExtractionOnCompaction: (sendToChatConfig?.compaction as { runMemoryExtractionOnCompaction?: boolean })?.runMemoryExtractionOnCompaction !== false,
             rebuildFromLastNPrompts: sendToChatConfig?.compaction?.rebuildFromLastNPrompts ?? 200,
@@ -2425,6 +2442,12 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
                 <input type="number" id="sp-comp-maxHistoryTokens" value="${status.compaction.maxHistoryTokens}" min="1000" style="width:90px">
             </div>
             <div class="sp-settings-row">
+                <label title="Hard char cap on history content (compacted summary + related context) injected into the compaction and memory-extraction prompts. Also exposed to the compaction template as \${historyMaxChars} so the LLM steers output toward this size. 24000 is a safe default for MoE local models; bump up for high-context cloud configs.">History max chars:</label>
+                <input type="number" id="sp-comp-historyMaxChars" value="${status.compaction.historyMaxChars}" min="1000" style="width:90px">
+                <label title="Hard char cap on existing memory content injected into the memory-extraction prompt. Older entries beyond this size are dropped from the file tail (entries are prepended newest-first, so truncation removes the oldest).">Memory max chars:</label>
+                <input type="number" id="sp-comp-memoryMaxChars" value="${status.compaction.memoryMaxChars}" min="1000" style="width:90px">
+            </div>
+            <div class="sp-settings-row">
                 <label title="Hard cap on the number of turns returned in 'full' history mode, so a runaway session cannot blow the context window when the user has chosen not to compact.">Full trail mode max turns:</label>
                 <input type="number" id="sp-comp-fullTrailMaxTurns" value="${status.compaction.fullTrailMaxTurns}" min="2" max="1000" style="width:70px">
                 <label title="Run memory extraction on every completed turn. Input is the last turn + the current compacted summary + existing memory. Uncheck to skip extraction entirely.">Run memory extraction:</label>
@@ -2981,6 +3004,8 @@ function attachStatusPanelListeners(skipEditorInit) {
                     memoryExtractionTemplateId: (document.getElementById('sp-comp-memoryExtractionTemplateId') || {}).value || '',
                     compactionMaxRounds: parseInt((document.getElementById('sp-comp-maxRounds') || {}).value || '4'),
                     maxHistoryTokens: parseInt((document.getElementById('sp-comp-maxHistoryTokens') || {}).value || '8000'),
+                    historyMaxChars: parseInt((document.getElementById('sp-comp-historyMaxChars') || {}).value || '24000'),
+                    memoryMaxChars: parseInt((document.getElementById('sp-comp-memoryMaxChars') || {}).value || '8000'),
                     fullTrailMaxTurns: parseInt((document.getElementById('sp-comp-fullTrailMaxTurns') || {}).value || '200'),
                     runMemoryExtractionOnCompaction: (document.getElementById('sp-comp-runMemoryExtractionOnCompaction') || {}).value !== 'false',
                     rebuildFromLastNPrompts: parseInt((document.getElementById('sp-comp-rebuildFromLastNPrompts') || {}).value || '200'),

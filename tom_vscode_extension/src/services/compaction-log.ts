@@ -134,7 +134,7 @@ export function logMemoryExtraction(info: MemoryExtractionInfo): void {
     );
 }
 
-export function logMemoryWrite(file: string, bytes: number, mode: 'append' | 'write'): void {
+export function logMemoryWrite(file: string, bytes: number, mode: 'append' | 'prepend' | 'write'): void {
     channel().appendLine(`[${ts()}]   memory ${mode}     ${file}  (${bytes} bytes)`);
 }
 

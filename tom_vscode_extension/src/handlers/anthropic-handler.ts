@@ -624,6 +624,8 @@ export class AnthropicHandler {
         memoryExtractionTemplateId?: string;
         compactionMaxRounds: number;
         maxHistoryTokens: number;
+        historyMaxChars: number;
+        memoryMaxChars: number;
         fullTrailMaxTurns: number;
         runMemoryExtractionOnCompaction: boolean;
         rebuildFromLastNPrompts: number;
@@ -637,6 +639,8 @@ export class AnthropicHandler {
             memoryExtractionTemplateId?: string;
             compactionMaxRounds?: number;
             maxHistoryTokens?: number;
+            historyMaxChars?: number;
+            memoryMaxChars?: number;
             fullTrailMaxTurns?: number;
             runMemoryExtractionOnCompaction?: boolean;
             rebuildFromLastNPrompts?: number;
@@ -650,6 +654,8 @@ export class AnthropicHandler {
             memoryExtractionTemplateId: section.memoryExtractionTemplateId,
             compactionMaxRounds: Number.isFinite(section.compactionMaxRounds) ? (section.compactionMaxRounds as number) : 4,
             maxHistoryTokens: Number.isFinite(section.maxHistoryTokens) ? (section.maxHistoryTokens as number) : 8000,
+            historyMaxChars: Number.isFinite(section.historyMaxChars) ? (section.historyMaxChars as number) : 24000,
+            memoryMaxChars: Number.isFinite(section.memoryMaxChars) ? (section.memoryMaxChars as number) : 8000,
             fullTrailMaxTurns: Number.isFinite(section.fullTrailMaxTurns) ? (section.fullTrailMaxTurns as number) : 200,
             runMemoryExtractionOnCompaction: section.runMemoryExtractionOnCompaction !== false,
             rebuildFromLastNPrompts: Number.isFinite(section.rebuildFromLastNPrompts) ? (section.rebuildFromLastNPrompts as number) : 200,
@@ -686,6 +692,7 @@ export class AnthropicHandler {
                     llmConfigId: cfg.llmConfigId,
                     compactionTemplateId: cfg.compactionTemplateId,
                     maxHistoryTokens: cfg.maxHistoryTokens,
+                    historyMaxChars: cfg.historyMaxChars,
                     questId,
                 });
                 if (typeof newSummary === 'string' && newSummary.trim().length > 0) {
@@ -728,6 +735,8 @@ export class AnthropicHandler {
                     llmProvider: cfg.llmProvider,
                     llmConfigId: cfg.llmConfigId,
                     memoryTemplateId: cfg.memoryExtractionTemplateId,
+                    historyMaxChars: cfg.historyMaxChars,
+                    memoryMaxChars: cfg.memoryMaxChars,
                     questId,
                 });
             } catch {
@@ -776,6 +785,7 @@ export class AnthropicHandler {
                             llmConfigId: cfg.llmConfigId,
                             compactionTemplateId: cfg.compactionTemplateId,
                             maxHistoryTokens: cfg.maxHistoryTokens,
+                            historyMaxChars: cfg.historyMaxChars,
                             questId,
                         });
                         if (typeof summary === 'string') { this.compactedSummary = summary.trim(); }

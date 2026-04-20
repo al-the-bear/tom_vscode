@@ -84,6 +84,15 @@ export interface CompactionOptions {
     mode: HistoryMode;
     /** Target token ceiling for the returned history (trim_and_summary). */
     maxHistoryTokens?: number;
+    /** Hard cap on the character size of history content injected into
+     *  the compaction + memory-extraction prompts. Also exposed to the
+     *  compaction template as `${historyMaxChars}` so the LLM targets
+     *  output within this size (important for MoE models where headroom
+     *  above the working summary matters). Default 24000 when absent. */
+    historyMaxChars?: number;
+    /** Hard cap on the character size of existing memory content
+     *  injected into the memory-extraction prompt. Default 8000. */
+    memoryMaxChars?: number;
     /** Raw turn cap — how many user+assistant rounds are kept raw in the
      *  returned history. Applies to both `trim_and_summary` and as the
      *  trailing-tail size in future compaction strategies. */
@@ -231,8 +240,13 @@ function expandTemplate(template: string, extraVars: Record<string, string>): st
  * knobs later if a user hits them. 8 KB each ≈ 2 K tokens, fine for
  * even a 4 K-ctx model and still large enough to be useful.
  */
-const MAX_EXISTING_MEMORY_CHARS = 8000;
-const MAX_COMPACTED_SUMMARY_CHARS = 8000;
+// Fallback values when the compaction section doesn't supply them.
+// Kept separate from the schema defaults so the service works even when
+// loaded without config (e.g. unit tests). The config flow threads the
+// current values in via CompactionOptions.historyMaxChars /
+// .memoryMaxChars, which take precedence.
+const DEFAULT_HISTORY_MAX_CHARS = 24000;
+const DEFAULT_MEMORY_MAX_CHARS = 8000;
 
 /**
  * Keep only the tail (most recent content) when the string exceeds
@@ -249,6 +263,23 @@ function tailBounded(text: string, maxChars: number, kind: string): string {
     const nl = keep.indexOf('\n');
     const body = nl > 0 ? keep.slice(nl + 1) : keep;
     return `[…${kind} truncated: showing last ${body.length} of ${text.length} chars…]\n${body}`;
+}
+
+/**
+ * Keep only the head (first `maxChars`) of a string. Used for memory
+ * files: entries are prepended (newest on top), so trimming the TAIL
+ * drops the oldest entries — the intended behaviour. Mirrors
+ * `tailBounded`'s "trim to a line boundary" hygiene so bullet lines
+ * aren't chopped mid-entry.
+ */
+function headBounded(text: string, maxChars: number, kind: string): string {
+    if (!text || text.length <= maxChars) { return text || ''; }
+    const keep = text.slice(0, maxChars);
+    // Trim back to the end of the last complete line so a bullet or
+    // heading isn't cut in half.
+    const nl = keep.lastIndexOf('\n');
+    const body = nl > 0 ? keep.slice(0, nl) : keep;
+    return `${body}\n[…${kind} truncated: showing first ${body.length} of ${text.length} chars (older entries dropped)…]`;
 }
 
 // ============================================================================
@@ -546,11 +577,15 @@ async function runLlmExtract(
             const existing = memorySvc.read(scope, tpl.targetFile, options.questId);
             const recentHistoryText = formatHistoryForTemplate(latest);
             const memoryFilePath = memorySvc.filePath(scope, tpl.targetFile, options.questId);
+            const memoryCap = options.memoryMaxChars ?? DEFAULT_MEMORY_MAX_CHARS;
+            const historyCap = options.historyMaxChars ?? DEFAULT_HISTORY_MAX_CHARS;
             const userPrompt = expandTemplate(tpl.template, {
                 recentHistory: recentHistoryText,
-                existingMemory: tailBounded(existing, MAX_EXISTING_MEMORY_CHARS, 'existing memory'),
+                existingMemory: headBounded(existing, memoryCap, 'existing memory'),
                 memoryFilePath,
                 memoryScope: scope,
+                historyMaxChars: String(historyCap),
+                memoryMaxChars: String(memoryCap),
             });
             const rawExtracted = (await runCompactionCall(options, 'You extract key facts for memory.', userPrompt, 'memory')).trim();
             // Same bullet-only filter as in runIncrementalMemoryExtraction —
@@ -583,13 +618,13 @@ async function runLlmExtract(
             });
             if (extracted) {
                 if (tpl.scope === 'both') {
-                    memorySvc.append('quest', tpl.targetFile, extracted, options.questId);
-                    memorySvc.append('shared', tpl.targetFile, extracted, options.questId);
-                    logMemoryWrite(`quest:${tpl.targetFile}`, Buffer.byteLength(extracted, 'utf8'), 'append');
-                    logMemoryWrite(`shared:${tpl.targetFile}`, Buffer.byteLength(extracted, 'utf8'), 'append');
+                    memorySvc.prepend('quest', tpl.targetFile, extracted, options.questId);
+                    memorySvc.prepend('shared', tpl.targetFile, extracted, options.questId);
+                    logMemoryWrite(`quest:${tpl.targetFile}`, Buffer.byteLength(extracted, 'utf8'), 'prepend');
+                    logMemoryWrite(`shared:${tpl.targetFile}`, Buffer.byteLength(extracted, 'utf8'), 'prepend');
                 } else {
-                    memorySvc.append(scope, tpl.targetFile, extracted, options.questId);
-                    logMemoryWrite(`${scope}:${tpl.targetFile}`, Buffer.byteLength(extracted, 'utf8'), 'append');
+                    memorySvc.prepend(scope, tpl.targetFile, extracted, options.questId);
+                    logMemoryWrite(`${scope}:${tpl.targetFile}`, Buffer.byteLength(extracted, 'utf8'), 'prepend');
                 }
             } else {
                 logCompactionWarn(`memory extraction returned empty output (template=${tpl.id})`);
@@ -624,7 +659,8 @@ async function runLlmExtract(
  *
  * Template placeholders: `${existingSummary}`, `${lastTurn}`,
  * `${maxHistoryTokens}`, `${maxHistorySize}` (char target = tokens × 4),
- * `${lastTurnCharCount}`.
+ * `${historyMaxChars}` (hard cap on injected history size — use this
+ * to steer the LLM toward a summary that fits), `${lastTurnCharCount}`.
  */
 export async function runIncrementalCompaction(params: {
     existingSummary: string;
@@ -633,18 +669,26 @@ export async function runIncrementalCompaction(params: {
     llmConfigId: string;
     compactionTemplateId?: string;
     maxHistoryTokens?: number;
+    historyMaxChars?: number;
     questId?: string;
 }): Promise<string> {
     const tpl = resolveCompactionTemplate(params.compactionTemplateId);
     if (!tpl) { return params.existingSummary; }
     const budget = params.maxHistoryTokens ?? 8000;
+    const historyCap = params.historyMaxChars ?? DEFAULT_HISTORY_MAX_CHARS;
     const lastTurnText = formatHistoryForTemplate(params.lastTurn);
+    // Trim the existing summary before feeding it back in — on a long
+    // session, the summary itself can outgrow the MoE model's working
+    // context. Prefer the newest portion (tail) since that's the part
+    // that integrates with the new turn.
+    const boundedExisting = tailBounded(params.existingSummary, historyCap, 'existing summary');
     const userPrompt = expandTemplate(tpl.template, {
-        existingSummary: params.existingSummary || '(empty — this is the first turn of the session)',
+        existingSummary: boundedExisting || '(empty — this is the first turn of the session)',
         lastTurn: lastTurnText,
         lastTurnCharCount: String(params.lastTurn.reduce((n, m) => n + (m.content?.length ?? 0), 0)),
         maxHistorySize: String(budget * CHARS_PER_TOKEN),
         maxHistoryTokens: String(budget),
+        historyMaxChars: String(historyCap),
     });
     const options: CompactionOptions = {
         mode: 'trim_and_summary',
@@ -652,6 +696,7 @@ export async function runIncrementalCompaction(params: {
         llmConfigId: params.llmConfigId,
         compactionTemplateId: params.compactionTemplateId,
         maxHistoryTokens: budget,
+        historyMaxChars: historyCap,
         questId: params.questId,
         source: 'every-turn',
     };
@@ -673,6 +718,8 @@ export async function runIncrementalMemoryExtraction(params: {
     llmProvider: CompactionLlmProvider;
     llmConfigId: string;
     memoryTemplateId?: string;
+    historyMaxChars?: number;
+    memoryMaxChars?: number;
     questId?: string;
 }): Promise<void> {
     const tpl = resolveMemoryExtractionTemplate(params.memoryTemplateId);
@@ -681,12 +728,20 @@ export async function runIncrementalMemoryExtraction(params: {
     const scope = tpl.scope === 'shared' ? 'shared' : 'quest';
     const existing = memorySvc.read(scope, tpl.targetFile, params.questId);
     const memoryFilePath = memorySvc.filePath(scope, tpl.targetFile, params.questId);
+    const historyCap = params.historyMaxChars ?? DEFAULT_HISTORY_MAX_CHARS;
+    const memoryCap = params.memoryMaxChars ?? DEFAULT_MEMORY_MAX_CHARS;
     const userPrompt = expandTemplate(tpl.template, {
         lastTurn: formatHistoryForTemplate(params.lastTurn),
-        compactedSummary: tailBounded(params.compactedSummary, MAX_COMPACTED_SUMMARY_CHARS, 'compacted summary'),
-        existingMemory: tailBounded(existing, MAX_EXISTING_MEMORY_CHARS, 'existing memory'),
+        compactedSummary: tailBounded(params.compactedSummary, historyCap, 'compacted summary'),
+        // Memory files are prepended newest-first, so keeping the HEAD
+        // preserves the newest entries — the opposite of the tail-keep
+        // behaviour we use for summaries. Older entries at the bottom
+        // of the file fall off cleanly when the cap is exceeded.
+        existingMemory: headBounded(existing, memoryCap, 'existing memory'),
         memoryFilePath,
         memoryScope: scope,
+        historyMaxChars: String(historyCap),
+        memoryMaxChars: String(memoryCap),
     });
     const options: CompactionOptions = {
         mode: 'trim_and_summary',
@@ -736,14 +791,17 @@ export async function runIncrementalMemoryExtraction(params: {
         outputChars: extracted.length,
         questId: params.questId,
     });
+    // Prepend newest entries on top of the memory file. Combined with
+    // headBounded at read-time, older entries at the bottom fall off
+    // cleanly when the file outgrows memoryMaxChars.
     if (tpl.scope === 'both') {
-        memorySvc.append('quest', tpl.targetFile, extracted, params.questId);
-        memorySvc.append('shared', tpl.targetFile, extracted, params.questId);
-        logMemoryWrite(`quest:${tpl.targetFile}`, Buffer.byteLength(extracted, 'utf8'), 'append');
-        logMemoryWrite(`shared:${tpl.targetFile}`, Buffer.byteLength(extracted, 'utf8'), 'append');
+        memorySvc.prepend('quest', tpl.targetFile, extracted, params.questId);
+        memorySvc.prepend('shared', tpl.targetFile, extracted, params.questId);
+        logMemoryWrite(`quest:${tpl.targetFile}`, Buffer.byteLength(extracted, 'utf8'), 'prepend');
+        logMemoryWrite(`shared:${tpl.targetFile}`, Buffer.byteLength(extracted, 'utf8'), 'prepend');
     } else {
-        memorySvc.append(scope, tpl.targetFile, extracted, params.questId);
-        logMemoryWrite(`${scope}:${tpl.targetFile}`, Buffer.byteLength(extracted, 'utf8'), 'append');
+        memorySvc.prepend(scope, tpl.targetFile, extracted, params.questId);
+        logMemoryWrite(`${scope}:${tpl.targetFile}`, Buffer.byteLength(extracted, 'utf8'), 'prepend');
     }
 }
 

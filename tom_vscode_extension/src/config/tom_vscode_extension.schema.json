@@ -81,6 +81,18 @@
                     "default": 8000,
                     "description": "Token budget for trim_and_summary modes."
                 },
+                "historyMaxChars": {
+                    "type": "integer",
+                    "minimum": 1000,
+                    "default": 24000,
+                    "description": "Maximum character size of the history (compacted summary + raw turns) injected into the compaction and memory-extraction prompts. Exposed as ${historyMaxChars} to the compaction template so the LLM targets output within this size."
+                },
+                "memoryMaxChars": {
+                    "type": "integer",
+                    "minimum": 1000,
+                    "default": 8000,
+                    "description": "Maximum character size of the existing memory file content injected into the memory-extraction prompt. Older entries beyond this cap are dropped before the LLM sees them."
+                },
                 "toolTrailMaxResultChars": {
                     "type": "integer",
                     "minimum": 100,

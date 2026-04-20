@@ -237,6 +237,11 @@ export interface SendToChatConfig {
         memoryExtractionTemplateId?: string;
         compactionMaxRounds?: number;
         maxHistoryTokens?: number;
+        /** Max chars of history content injected into compaction + memory-extraction
+         *  prompts; also exposed as ${historyMaxChars} in the compaction template. */
+        historyMaxChars?: number;
+        /** Max chars of existing memory injected into the memory-extraction prompt. */
+        memoryMaxChars?: number;
         /** Cap on turns returned in 'full' history mode (runFull). */
         fullTrailMaxTurns?: number;
         toolTrailMaxResultChars?: number;

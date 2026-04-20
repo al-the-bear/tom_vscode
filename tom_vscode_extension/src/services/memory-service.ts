@@ -111,6 +111,23 @@ export class TwoTierMemoryService {
     }
 
     /**
+     * Prepend `content` to the top of `file`. Used for memory files so
+     * the newest entries sit on top and the oldest fall off the bottom
+     * when the file is head-bounded at inject time. Separates the new
+     * content and the existing content with a single blank line.
+     */
+    prepend(scope: MemoryScope, file: string, content: string, questId?: string): void {
+        const existing = this.read(scope, file, questId);
+        const trimmedNew = content.trimEnd();
+        if (!existing) {
+            this.write(scope, file, `${trimmedNew}\n`, questId);
+            return;
+        }
+        const head = existing.startsWith('\n') ? existing.trimStart() : existing;
+        this.write(scope, file, `${trimmedNew}\n\n${head}`, questId);
+    }
+
+    /**
      * Replace the content block under a named markdown heading. If the
      * heading is absent, the block is appended at the end under a new
      * heading. Only the innermost matching heading level is considered.
