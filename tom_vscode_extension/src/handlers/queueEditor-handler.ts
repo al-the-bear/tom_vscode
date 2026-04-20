@@ -238,13 +238,19 @@ async function handleMessage(msg: any): Promise<void> {
 
           const applyUpdate = (transport: 'copilot' | 'anthropic' | undefined, profileId: string, configId: string): void => {
             if (msg.type === 'editItemTransport') {
+              // Spec §5 edge case — template names only resolve inside
+              // one transport's store. Changing the item's transport
+              // invalidates the cached template reference, so clear it
+              // along with the transport so the user picks a new one
+              // from the right store next time.
               pqm.updateItemTransport(id, { transport, anthropicProfileId: profileId, anthropicConfigId: configId });
+              pqm.updateItemTemplateAndWrapper(id, { template: '' }).catch(() => { /* best-effort */ });
             } else if (msg.type === 'editPrePromptTransport') {
               const ppIndex = typeof msg.index === 'number' ? msg.index : -1;
-              pqm.updatePrePrompt(id, ppIndex, { transport, anthropicProfileId: profileId, anthropicConfigId: configId });
+              pqm.updatePrePrompt(id, ppIndex, { transport, anthropicProfileId: profileId, anthropicConfigId: configId, template: '' });
             } else {
               const followUpId = typeof msg.followUpId === 'string' ? msg.followUpId : '';
-              pqm.updateFollowUpPrompt(id, followUpId, { transport, anthropicProfileId: profileId, anthropicConfigId: configId });
+              pqm.updateFollowUpPrompt(id, followUpId, { transport, anthropicProfileId: profileId, anthropicConfigId: configId, template: '' });
             }
             sendState();
           };
