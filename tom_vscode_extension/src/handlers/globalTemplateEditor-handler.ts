@@ -339,14 +339,32 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
         case 'anthropicProfiles': {
             const profile = (config.anthropic?.profiles || []).find(p => p.id === itemId);
             if (!profile) break;
-            // Configuration dropdown — options come from the user's
-            // anthropic.configurations[] list, plus a blank entry that
-            // means "inherit the default".
+            // Configuration dropdown — per multi_transport_prompt_queue_revised.md
+            // §4.3, sources from both anthropic.configurations[] and
+            // localLlm.configurations[] so a profile can reference either
+            // kind. Labels are prefixed by backing type so the user can
+            // tell them apart.
+            const labelType = (t?: string): string => {
+                if (t === 'agentSdk') { return '[agentSdk]'; }
+                if (t === 'vscodeLm') { return '[vscodeLm]'; }
+                return '[direct]';
+            };
+            const anthropicConfigOpts = (config.anthropic?.configurations || [])
+                .filter((c) => c && typeof c.id === 'string')
+                .map((c) => ({
+                    value: c.id,
+                    label: `${labelType(c.transport)} ${c.name ? `${c.name} (${c.id})` : c.id}`,
+                }));
+            const localLlmConfigOpts = ((config as { localLlm?: { configurations?: Array<{ id?: string; name?: string }> } }).localLlm?.configurations || [])
+                .filter((c) => c && typeof c.id === 'string')
+                .map((c) => ({
+                    value: c.id as string,
+                    label: `[localLlm] ${c.name ? `${c.name} (${c.id})` : c.id}`,
+                }));
             const configurationOptions = [
                 { value: '', label: '(inherit default)' },
-                ...((config.anthropic?.configurations || [])
-                    .filter((c) => c && typeof c.id === 'string')
-                    .map((c) => ({ value: c.id, label: c.name ? `${c.name} (${c.id})` : c.id }))),
+                ...anthropicConfigOpts,
+                ...localLlmConfigOpts,
             ];
             // Tool picker options — every tool the extension knows about,
             // whether or not the configuration already enables it. Empty
