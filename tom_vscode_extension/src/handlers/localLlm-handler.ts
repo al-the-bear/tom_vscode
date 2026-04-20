@@ -827,6 +827,43 @@ export class LocalLlmManager {
     }
 
     /**
+     * Single-round Ollama API call — the "call API" primitive extracted per
+     * multi_transport_prompt_queue_revised.md §4.4a. Takes already-composed
+     * messages and a `SharedToolDefinition[]` (converted to Ollama's tool
+     * schema inside), calls `/api/chat` once, returns one model response.
+     * NO tool loop, NO approval gate, NO template handling — those live
+     * one layer up (in `ollamaGenerateWithTools` for the Local LLM panel's
+     * own flow, or in `AnthropicHandler` when a Local-LLM-backed Anthropic
+     * profile is being driven through the shared agent loop).
+     *
+     * Intentionally additive: `ollamaGenerateWithTools` is unchanged
+     * publicly and delegates here for its HTTP call so panel behaviour
+     * stays byte-identical.
+     */
+    public async callLocalLlmOnce(opts: {
+        baseUrl: string;
+        model: string;
+        temperature: number;
+        messages: Array<{ role: string; content?: string; tool_calls?: OllamaToolCall[] }>;
+        tools: SharedToolDefinition[];
+        keepAlive?: string;
+        onToken?: (token: string) => void;
+        cancellationToken?: vscode.CancellationToken;
+    }): Promise<{ text: string; stats?: OllamaStats; toolCalls?: OllamaToolCall[] }> {
+        const ollamaTools = toOllamaTools(opts.tools, () => true);
+        return this.ollamaChat(
+            opts.baseUrl,
+            opts.model,
+            opts.messages,
+            opts.temperature,
+            opts.onToken,
+            opts.cancellationToken,
+            opts.keepAlive,
+            ollamaTools.length > 0 ? ollamaTools : undefined,
+        );
+    }
+
+    /**
      * Run an Ollama chat with automatic tool-call loop.
      *
      * When the model requests tool calls, the tools are executed and results
@@ -927,14 +964,22 @@ export class LocalLlmManager {
                 }]);
             }
 
-            // On the very last round, don't offer tools — force a text-only response
-            const roundTools = remaining <= 1 ? [] : ollamaTools;
+            // On the very last round, don't offer tools — force a text-only
+            // response. Route through callLocalLlmOnce so the panel's loop
+            // exercises the exact same primitive the Anthropic handler's
+            // Local LLM leaf uses (see §4.4a) — keeps behaviour aligned.
+            const roundTools: SharedToolDefinition[] = remaining <= 1 ? [] : tools;
 
-            const result = await this.ollamaChat(
-                baseUrl, model, messages, temperature,
-                onToken, cancellationToken, keepAlive,
-                roundTools.length > 0 ? roundTools : undefined,
-            );
+            const result = await this.callLocalLlmOnce({
+                baseUrl,
+                model,
+                messages,
+                temperature,
+                tools: roundTools,
+                onToken,
+                cancellationToken,
+                keepAlive,
+            });
 
             // No tool calls → model produced a final text response
             if (!result.toolCalls || result.toolCalls.length === 0) {
