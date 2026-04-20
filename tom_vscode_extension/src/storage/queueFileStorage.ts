@@ -109,6 +109,14 @@ export interface QueuePromptYaml {
     'case-reminder-ref'?: QueuePromptRef;
     metadata?: Record<string, unknown>;
     execution?: QueueExecutionState;
+    // Multi-transport fields — multi_transport_prompt_queue_revised.md
+    // §4.1 / §4.14. Additive-optional so existing queue YAMLs load
+    // unchanged (absent fields resolve to `undefined` → queue default
+    // → 'copilot' → byte-identical prior behaviour).
+    transport?: 'copilot' | 'anthropic';
+    'anthropic-profile-id'?: string;
+    'anthropic-config-id'?: string;
+    'answer-text'?: string;
 }
 
 /** File-level metadata block. Allows arbitrary additional properties. */

@@ -2711,6 +2711,14 @@ export class PromptQueueManager {
                 templateRepeatCount: typeof main['template-repeat-count'] === 'string' ? main['template-repeat-count'] : (main['template-repeat-count'] ? Math.max(0, Math.round(Number(main['template-repeat-count']))) : undefined),
                 templateRepeatIndex: main['template-repeat-index'] ? Math.max(0, Math.round(Number(main['template-repeat-index']))) : undefined,
                 answerWaitMinutes: main['answer-wait-minutes'] && Number(main['answer-wait-minutes']) > 0 ? Number(main['answer-wait-minutes']) : undefined,
+                // Multi-transport — absence means "inherit queue default"
+                // at dispatch time; existing YAMLs without these fields
+                // continue to resolve to 'copilot' so the round-trip is
+                // byte-identical for pre-spec queues (spec §4.14).
+                transport: main.transport === 'anthropic' ? 'anthropic' : (main.transport === 'copilot' ? 'copilot' : undefined),
+                anthropicProfileId: main['anthropic-profile-id'] || undefined,
+                anthropicConfigId: main['anthropic-config-id'] || undefined,
+                answerText: main['answer-text'] || undefined,
             };
 
             // Pre-prompts: resolve refs from the prompt-queue
@@ -2731,6 +2739,11 @@ export class PromptQueueManager {
                         reminderTimeoutMinutes: pp?.reminder?.['timeout-minutes'],
                         reminderRepeat: pp?.reminder?.repeat,
                         reminderEnabled: pp?.reminder?.enabled,
+                        // Multi-transport (spec §4.14).
+                        transport: pp?.transport === 'anthropic' ? 'anthropic' : (pp?.transport === 'copilot' ? 'copilot' : undefined),
+                        anthropicProfileId: pp?.['anthropic-profile-id'] || undefined,
+                        anthropicConfigId: pp?.['anthropic-config-id'] || undefined,
+                        answerText: pp?.['answer-text'] || undefined,
                     };
                 });
             }
@@ -2754,6 +2767,11 @@ export class PromptQueueManager {
                         reminderRepeat: fu?.reminder?.repeat,
                         reminderEnabled: fu?.reminder?.enabled,
                         createdAt: (fu?.metadata?.created as string) || (meta.created as string) || new Date().toISOString(),
+                        // Multi-transport (spec §4.14).
+                        transport: fu?.transport === 'anthropic' ? 'anthropic' : (fu?.transport === 'copilot' ? 'copilot' : undefined),
+                        anthropicProfileId: fu?.['anthropic-profile-id'] || undefined,
+                        anthropicConfigId: fu?.['anthropic-config-id'] || undefined,
+                        answerText: fu?.['answer-text'] || undefined,
                     };
                 });
             } else {
@@ -2785,6 +2803,12 @@ export class PromptQueueManager {
             'template-repeat-count': item.templateRepeatCount,
             'template-repeat-index': item.templateRepeatIndex,
             'answer-wait-minutes': item.answerWaitMinutes,
+            // Multi-transport round-trip (spec §4.14). Omit fields when
+            // they're falsy so the YAML stays clean for Copilot items.
+            ...(item.transport ? { transport: item.transport } : {}),
+            ...(item.anthropicProfileId ? { 'anthropic-profile-id': item.anthropicProfileId } : {}),
+            ...(item.anthropicConfigId ? { 'anthropic-config-id': item.anthropicConfigId } : {}),
+            ...(item.answerText ? { 'answer-text': item.answerText } : {}),
         };
 
         // Reminder config: persist explicit no-reminder state (reminderEnabled === false)
@@ -2841,6 +2865,11 @@ export class PromptQueueManager {
                         'sent-at': pp.status === 'sent' ? new Date().toISOString() : null,
                         error: pp.status === 'error' ? 'pre-prompt failed' : null,
                     } : undefined,
+                    // Multi-transport round-trip (spec §4.14).
+                    ...(pp.transport ? { transport: pp.transport } : {}),
+                    ...(pp.anthropicProfileId ? { 'anthropic-profile-id': pp.anthropicProfileId } : {}),
+                    ...(pp.anthropicConfigId ? { 'anthropic-config-id': pp.anthropicConfigId } : {}),
+                    ...(pp.answerText ? { 'answer-text': pp.answerText } : {}),
                 };
                 const hasPpReminderConfig =
                     pp.reminderEnabled !== undefined ||
@@ -2876,6 +2905,11 @@ export class PromptQueueManager {
                     'repeat-index': fu.repeatIndex || 0,
                     'answer-wait-minutes': fu.answerWaitMinutes,
                     metadata: { created: fu.createdAt },
+                    // Multi-transport round-trip (spec §4.14).
+                    ...(fu.transport ? { transport: fu.transport } : {}),
+                    ...(fu.anthropicProfileId ? { 'anthropic-profile-id': fu.anthropicProfileId } : {}),
+                    ...(fu.anthropicConfigId ? { 'anthropic-config-id': fu.anthropicConfigId } : {}),
+                    ...(fu.answerText ? { 'answer-text': fu.answerText } : {}),
                 };
                 const hasFollowUpReminderConfig =
                     fu.reminderEnabled !== undefined ||
