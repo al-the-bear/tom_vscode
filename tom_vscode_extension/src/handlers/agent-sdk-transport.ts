@@ -123,7 +123,7 @@ import type {
     AnthropicSendResult,
     AnthropicToolApprovalRequest,
 } from './anthropic-handler';
-import { ANTHROPIC_SUBSYSTEM } from './anthropic-handler';
+import { ANTHROPIC_SUBSYSTEM } from '../services/trailSubsystems';
 
 // ============================================================================
 // Context — provided by AnthropicHandler.sendMessage when it delegates here

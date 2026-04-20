@@ -18,6 +18,7 @@ import {
     toAnthropicTools,
 } from '../tools/shared-tool-registry';
 import { TrailService } from '../services/trailService';
+import { ANTHROPIC_SUBSYSTEM } from '../services/trailSubsystems';
 import { ToolTrail, setActiveToolTrail } from '../services/tool-trail';
 import { LiveTrailWriter } from '../services/live-trail';
 import { runWithToolContext } from '../services/tool-execution-context';
@@ -203,8 +204,6 @@ export interface AnthropicSendOptions {
     isolated?: boolean;
 }
 
-/** Reusable TrailSubsystem literal — avoids `ANTHROPIC_SUBSYSTEM` scattered across calls. */
-export const ANTHROPIC_SUBSYSTEM = { type: 'anthropic' as const } satisfies import('../services/trailService').TrailSubsystem;
 
 /**
  * Build the full-payload markdown dump (system + tools + rolling history +

@@ -31,7 +31,7 @@ import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 import { resolveVariables } from '../utils/variableResolver';
 import { TwoTierMemoryService } from './memory-service';
 import { TrailService } from './trailService';
-import { ANTHROPIC_SUBSYSTEM } from '../handlers/anthropic-handler';
+import { ANTHROPIC_SUBSYSTEM } from './trailSubsystems';
 import {
     logCompactionStart,
     logCompactionEnd,
