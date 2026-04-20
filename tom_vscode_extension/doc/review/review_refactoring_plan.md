@@ -340,6 +340,8 @@ After this, each wrapper should be a few hundred lines of glue, not a copy of th
 
 **Wave 2 expected duration:** 1–2 weeks, bulk of it on 2.1. Items 2.2 / 2.4 / 2.5 are small and can run in parallel.
 
+**Wave 2 status as of the current tip:** items 2.2 / 2.4 (pilot) / 2.5 complete in single commits; 2.1 bootstrapped (helpers extracted, TomNotepadProvider migrated as the shell-shape proof). **Remaining 9 notepad providers migrate pair-by-pair in follow-up sessions**, each smoke-test-gated per the plan's own "revert a single pair" safety note. Recommended next pair from the audit: **WorkspaceNotepadProvider + QuestNotesProvider** (same disk-file + template pattern as the already-migrated Tom — should be a near-mechanical repeat using `NotepadFileStorage`). 2.3 (`TemplateAwareEditorShell`) stays deferred.
+
 ---
 
 ### Wave 3 — Architecture (lowest ROI, highest impact — schedule deliberately)
@@ -415,27 +417,28 @@ Convert the remaining `section === 'anthropic'` branches (trail-viewer routing, 
 
 ## 4. Summary table
 
-| Wave | Item | Owns review section | Files | Risk | Effort |
+| Wave | Item | Owns review section | Files | Risk | Status |
 | --- | --- | --- | --- | --- | --- |
-| 0.A | Drop `compaction.disabled` cast | deprecation §2.1 | 1 | Low | done (3483928) |
-| 0.B | Trivially dead APIs | deprecation §1.1–1.9 | — | — | pre-merged before plan |
-| 0.C | `expandPlaceholders` re-exports | deprecation §1.5, 1.6 | — | — | pre-merged before plan |
-| 0.D | Trail path migration | deprecation §3.1, 3.2 | — | — | pre-merged before plan |
-| 0.E | History-shape cleanup | deprecation §4.1, 4.2 | — | — | pre-merged before plan |
-| 0.F | Stale history-shape doc comment | deprecation §4.2 | 1 | Trivial | done |
-| 1.1 | Fix `ANTHROPIC_SUBSYSTEM` layering | result §4 deferred | 4 | Trivial | 30 min |
-| 1.2 | Unify reminder help constant | result Medium 2 | 3 | Low | 1 h |
-| 1.3 | Unify trail path token resolution | result §2 deferred | 3 | Medium | 3 h |
-| 1.4 | Retire `chatVar_*` + `tomAi.windowId` | result High 3, config_structure §233 | 3 | Low | 2 h |
-| 1.5 | Placeholder engine doc | result High 2 | 2 new + refs | Low | 3 h |
-| 2.1 | `GenericNotepadProvider` | result High 1 | 1 (3.4k lines) | Medium | 3–5 days |
-| 2.2 | Parameterise command variants | result Medium 1 | 3 | Low | 1 day |
-| 2.3 | `TemplateAwareEditorShell` | result Consolidation | 3 | Medium | 2–3 days |
-| 2.4 | Wire `BaseWebviewProvider` | result Medium 3 | 4+ | Low | 1 day |
-| 2.5 | Statuspage → `TomAiConfiguration` | result §1 deferred | 1 | Low | 3 h |
-| 3.1 | Two-file config | result config recs, config_structure | many | Medium | 1–2 weeks |
-| 3.2 | Extract domain logic from handlers | result Medium 4 | 4 big handlers | Medium | 3–4 weeks |
-| 3.3 | Chat-provider registry | result §3 deferred | 1 | Low | follow-up |
+| 0.A | Drop `compaction.disabled` cast | deprecation §2.1 | 1 | Low | ✅ done (3483928) |
+| 0.B | Trivially dead APIs | deprecation §1.1–1.9 | — | — | ✅ pre-merged |
+| 0.C | `expandPlaceholders` re-exports | deprecation §1.5, 1.6 | — | — | ✅ pre-merged |
+| 0.D | Trail path migration | deprecation §3.1, 3.2 | — | — | ✅ pre-merged |
+| 0.E | History-shape cleanup | deprecation §4.1, 4.2 | — | — | ✅ pre-merged |
+| 0.F | Stale history-shape doc comment | deprecation §4.2 | 1 | Trivial | ✅ done (0cd4a5d) |
+| 1.1 | Fix `ANTHROPIC_SUBSYSTEM` layering | result §4 deferred | 4 | Trivial | ✅ done (bade06d) |
+| 1.2 | Unify reminder help constant | result Medium 2 | 3 | Low | ✅ done (32c14d7) |
+| 1.3 | Unify trail path token resolution | result §2 deferred | 3 | Medium | ✅ done (9ddc94d) |
+| 1.4 | Retire `chatVar_*` + `tomAi.windowId` | result High 3, config_structure §233 | 3 | Low | ✅ done (b85f484) |
+| 1.5 | Placeholder engine doc | result High 2 | 2 new + refs | Low | ✅ done (71dc946) |
+| 2.5 | Statuspage → `TomAiConfiguration` | result §1 deferred | 1 | Low | ✅ done (f8955cb) |
+| 2.2 | Parameterise command variants | result Medium 1 | 3 | Low | ✅ done (074c07e) |
+| 2.4 | Wire `BaseWebviewProvider` (pilot) | result Medium 3 | 1 (+ base) | Low | ✅ done (5155930) |
+| 2.1 | Notepad helpers + TomNotepad migration | result High 1 | 3 | Medium | ✅ done (77f503e) |
+| 2.1 | Notepad — remaining 9 providers | result High 1 | 1 | Medium | 🔄 in progress (per-pair commits) |
+| 2.3 | `TemplateAwareEditorShell` | result Consolidation | 3 | Medium | ⏸ deferred per plan |
+| 3.1 | Two-file config | result config recs, config_structure | many | Medium | ⏸ pending |
+| 3.2 | Extract domain logic from handlers | result Medium 4 | 4 big handlers | Medium | ⏸ pending |
+| 3.3 | Chat-provider registry | result §3 deferred | 1 | Low | ⏸ pending |
 
 ---
 
