@@ -249,6 +249,16 @@ function buildPayloadDump(params: {
         lines.push(`- useBuiltInTools: ${params.useBuiltInTools === true}`);
         lines.push(`- agentSdk.permissionMode: ${configuration.agentSdk?.permissionMode ?? 'default'}`);
         lines.push(`- agentSdk.settingSources: ${(configuration.agentSdk?.settingSources ?? []).join(', ') || '(isolation mode)'}`);
+    } else if (transport === 'vscodeLm') {
+        lines.push(`- vscodeLm.vendor: \`${configuration.vscodeLm?.vendor ?? '(unset)'}\``);
+        lines.push(`- vscodeLm.family: \`${configuration.vscodeLm?.family ?? '(unset)'}\``);
+        lines.push(`- vscodeLm.modelId: \`${configuration.vscodeLm?.modelId ?? '(unset)'}\``);
+    } else if (transport === 'localLlm') {
+        lines.push(`- localLlm.baseUrl: \`${configuration.localLlm?.baseUrl ?? '(unset)'}\``);
+        lines.push(`- localLlm.model: \`${configuration.localLlm?.model ?? '(unset)'}\``);
+        if (configuration.localLlm?.keepAlive) {
+            lines.push(`- localLlm.keepAlive: \`${configuration.localLlm.keepAlive}\``);
+        }
     }
     lines.push(`- toolApprovalMode: ${profile.toolApprovalMode ?? 'always'}`);
     lines.push('');
@@ -1165,13 +1175,11 @@ export class AnthropicHandler {
         // + model.sendRequest. Model identity is pinned at configure-time
         // (see multi_transport_prompt_queue_revised.md §4.2), so we filter
         // the cached provider list by {vendor, family, modelId} rather
-        // than re-enumerating on each send.
-        //
-        // Initial implementation is single-shot: we concatenate the
-        // system prompt + user text (VS Code LM's single-shot form has no
-        // system/user split — see spec §2.8) and collect the text
-        // response. Tool-use loop is a follow-up; until then queue items
-        // that require tool calls should stick to Direct / Agent SDK.
+        // than re-enumerating on each send. The dedicated send method
+        // implements the full tool-use loop matching the Direct branch's
+        // behaviour; VS Code LM's `LanguageModelToolCallPart` /
+        // `LanguageModelToolResultPart` are translated to Anthropic
+        // ToolUseBlock / tool_result shapes inside.
         if (transport === 'vscodeLm') {
             return await this.sendViaVsCodeLm(
                 options,

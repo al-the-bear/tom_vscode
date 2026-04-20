@@ -854,6 +854,27 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     transport: typeof c.transport === 'string' ? c.transport : 'direct',
                 }))
             : [];
+        // Spec §4.3 — the Anthropic profile's configurationId may also
+        // point at a Local LLM configuration. Surface those to the
+        // webview (with transport='localLlm' so the status-line +
+        // VS Code LM dropdown logic can tell them apart) so things like
+        // buildAnthropicStatusLine() show the correct model for
+        // Local-LLM-backed profiles.
+        const localLlmConfigsForAnthropicPanel = Array.isArray((config as { localLlm?: { configurations?: Array<{ id?: string; name?: string; model?: string }> } })?.localLlm?.configurations)
+            ? (config as { localLlm: { configurations: Array<{ id?: string; name?: string; model?: string }> } }).localLlm.configurations
+                .filter((c) => c && typeof c.id === 'string')
+                .map((c) => ({
+                    id: c.id as string,
+                    name: c.name || (c.id as string),
+                    isDefault: false,
+                    model: typeof c.model === 'string' ? c.model : '',
+                    transport: 'localLlm' as const,
+                }))
+            : [];
+        // Concatenate so the webview sees a single merged list. The
+        // status-line + VS Code LM dropdown check the `transport` field
+        // to decide behaviour per entry.
+        anthropicConfigurations.push(...localLlmConfigsForAnthropicPanel);
         const anthropicUserMessageTemplates = Array.isArray(config?.anthropic?.userMessageTemplates)
             ? config!.anthropic!.userMessageTemplates!
                 .filter((t: any) => t && typeof t.id === 'string')
