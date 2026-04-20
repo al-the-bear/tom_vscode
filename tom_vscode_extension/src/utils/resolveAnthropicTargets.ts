@@ -59,6 +59,7 @@ export function resolveAnthropicTargets(
     }
 
     const configId = req.configId ?? profile.configurationId;
+    const explicitConfigRequested = Boolean(configId);
     let configuration = (cfg?.anthropic?.configurations ?? [])
         .find((c) => c?.id === configId) as AnthropicConfiguration | undefined;
 
@@ -91,15 +92,25 @@ export function resolveAnthropicTargets(
         }
     }
 
+    // Spec §5 failure mode — if a configId was explicitly requested
+    // (via req or pinned on the profile) and the lookup missed both
+    // stores, surface a clear error rather than silently falling back
+    // to the default config. The default-fallback path is reserved
+    // for the "no configId at all" case.
+    if (!configuration && explicitConfigRequested) {
+        return { error: `Configuration "${configId ?? ''}" not found in anthropic.configurations[] or localLlm.configurations[] (profile "${profile.id}").` };
+    }
+
     if (!configuration) {
-        // Final fallback: default Anthropic config (respecting isDefault).
+        // No configId was requested — fall back to the default Anthropic
+        // config (respecting isDefault).
         configuration = (cfg?.anthropic?.configurations ?? [])
             .find((c) => c?.isDefault === true) as AnthropicConfiguration | undefined
             ?? (cfg?.anthropic?.configurations ?? [])[0] as AnthropicConfiguration | undefined;
     }
 
     if (!configuration) {
-        return { error: `Configuration "${configId ?? ''}" not found in anthropic.configurations[] or localLlm.configurations[] (profile "${profile.id}").` };
+        return { error: `No Anthropic configuration available (profile "${profile.id}" has no configurationId and there's no default).` };
     }
 
     // Honour the modelOverride ONLY for non-Local-LLM configurations;
