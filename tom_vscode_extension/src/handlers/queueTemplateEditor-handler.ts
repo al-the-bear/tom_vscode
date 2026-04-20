@@ -520,19 +520,22 @@ async function queueFromTemplate(msg: any): Promise<void> {
     }
 
     // Stamp the queue-level transport + message template onto every
-    // main prompt in the batch at dispatch time. The queue template
-    // editor no longer stores per-item templates — they all inherit
-    // from the prompt queue's current picker selection the moment
-    // the template is queued. Reminders stay on the item (they are
-    // Copilot-only and the queue-template editor still edits them).
+    // prompt in the batch at dispatch time — main prompts AND their
+    // pre- and follow-up stages. The queue template editor no longer
+    // stores per-item templates; they all inherit from the prompt
+    // queue's current picker selection the moment the template is
+    // queued. Gate / decision flow-control nodes are skipped (they
+    // don't render as prompts). Reminders stay on the item (Copilot-
+    // only; still edited in the queue-template editor).
     try {
       const queueModule = await import('../managers/promptQueueManager.js');
       const qm = queueModule.PromptQueueManager.instance;
       const queueTransport: 'copilot' | 'anthropic' = qm?.defaultTransport === 'anthropic' ? 'anthropic' : 'copilot';
       const queueTemplate = qm?.defaultMessageTemplateId || '';
       const queueProfile = qm?.defaultAnthropicProfileId || '';
+      const STAMPED_TYPES = new Set(['main', 'preprompt', 'followup']);
       for (const p of prompts) {
-        if (!p || p.type !== 'main') { continue; }
+        if (!p || !STAMPED_TYPES.has(p.type)) { continue; }
         p['template'] = queueTemplate;
         p['transport'] = queueTransport;
         if (queueTransport === 'anthropic') {
