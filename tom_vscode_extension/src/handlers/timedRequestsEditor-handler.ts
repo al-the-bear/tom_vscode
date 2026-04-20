@@ -11,10 +11,9 @@
 import * as vscode from 'vscode';
 import { TimerEngine, TimedRequest, ScheduledTime } from '../managers/timerEngine';
 import { applyTemplateWrapping } from '../managers/promptQueueManager';
-import { ReminderSystem } from '../managers/reminderSystem';
+import { ReminderSystem, REMINDER_PLACEHOLDER_HELP } from '../managers/reminderSystem';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import { loadSendToChatConfig, saveSendToChatConfig } from './handler_shared';
-import { PLACEHOLDER_HELP } from './promptTemplate';
 import { openGlobalTemplateEditor } from './globalTemplateEditor-handler';
 
 // ============================================================================
@@ -243,24 +242,7 @@ async function handleMessage(msg: any): Promise<void> {
     }
 }
 
-const REMINDER_TEMPLATE_HELP =
-  `${PLACEHOLDER_HELP}<br><br><strong>Reminder-only placeholders:</strong><br>` +
-  `<code>\${timeoutMinutes}</code> – timeout for this reminder in minutes<br>` +
-  `<code>\${waitingMinutes}</code> – elapsed wait time since prompt/follow-up was sent<br>` +
-  `<code>\${originalPrompt}</code> – original prompt text (or active follow-up text)<br>` +
-  `<code>\${followUpIndex}</code> – 1-based current follow-up index (0 before first follow-up)<br>` +
-  `<code>\${followUpTotal}</code> – total configured follow-up prompts<br>` +
-  `<code>\${sentAt}</code> – sent timestamp in ISO format<br>` +
-  `<code>\${followUpText}</code> – active follow-up text<br>` +
-  `<code>\${promptId}</code> – queue item ID<br>` +
-  `<code>\${promptType}</code> – queue item type<br>` +
-  `<code>\${status}</code> – queue item status<br>` +
-  `<code>\${template}</code> – active template label<br>` +
-  `<code>\${requestId}</code> – extracted request ID<br>` +
-  `<code>\${expectedRequestId}</code> – currently expected request ID<br>` +
-  `<code>\${createdAt}</code> – queue item creation timestamp<br>` +
-  `<code>\${reminderSentCount}</code> – number of reminders already sent<br>` +
-  `<code>\${queueLength}</code> – total queue length`;
+const REMINDER_TEMPLATE_HELP = REMINDER_PLACEHOLDER_HELP;
 
 async function addReminderTemplate(): Promise<void> {
   if (_ctx) {

@@ -20,9 +20,47 @@ import { logQueue } from '../utils/queueLogger';
 export interface ReminderTemplate {
     id: string;
     name: string;
-    prompt: string;      // Template text with ${variables}
+    /**
+     * Template text using `{{tokenName}}` (mustache) syntax. The reminder
+     * runtime does not invoke the canonical placeholder resolver — it
+     * applies a fixed list of chain-replaces. See
+     * {@link REMINDER_PLACEHOLDER_HELP} for the set of supported tokens.
+     */
+    prompt: string;
     isDefault: boolean;
 }
+
+/**
+ * Source-of-truth help text for reminder-template authors. Kept close to
+ * the chain-replace call site below so the help and the replacements
+ * cannot drift: every token listed here has a matching `.replace(...)` in
+ * {@link ReminderSystem.checkAndGenerateReminder} and vice versa.
+ *
+ * Use this constant from the queue editor and timed-requests editor — do
+ * not author a second copy. The reminder runtime intentionally does not
+ * use the canonical placeholder resolver; the global `PLACEHOLDER_HELP`
+ * tokens (`${workspaceFolder}`, etc.) are NOT available here.
+ */
+export const REMINDER_PLACEHOLDER_HELP =
+    `<strong>Reminder-template placeholders (mustache syntax):</strong><br>` +
+    `<code>{{timeoutMinutes}}</code> – timeout for this reminder in minutes<br>` +
+    `<code>{{waitingMinutes}}</code> – elapsed wait time since prompt/follow-up was sent<br>` +
+    `<code>{{originalPrompt}}</code> – original prompt text (or active follow-up text, truncated to 200 chars)<br>` +
+    `<code>{{followUpIndex}}</code> – 1-based current follow-up index (0 before first follow-up)<br>` +
+    `<code>{{followUpTotal}}</code> – total configured follow-up prompts<br>` +
+    `<code>{{sentAt}}</code> – sent timestamp in ISO format<br>` +
+    `<code>{{followUpText}}</code> – active follow-up text<br>` +
+    `<code>{{promptId}}</code> – queue item ID<br>` +
+    `<code>{{promptType}}</code> – queue item type<br>` +
+    `<code>{{status}}</code> – queue item status<br>` +
+    `<code>{{template}}</code> – active template label<br>` +
+    `<code>{{requestId}}</code> – extracted request ID<br>` +
+    `<code>{{expectedRequestId}}</code> – currently expected request ID<br>` +
+    `<code>{{createdAt}}</code> – queue item creation timestamp<br>` +
+    `<code>{{reminderSentCount}}</code> – number of reminders already sent<br>` +
+    `<code>{{queueLength}}</code> – total queue length<br><br>` +
+    `<em>Reminder templates bypass the global <code>\${...}</code> resolver — ` +
+    `only the tokens above are replaced.</em>`;
 
 export interface ReminderConfig {
     enabled: boolean;
