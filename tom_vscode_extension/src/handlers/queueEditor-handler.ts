@@ -16,6 +16,7 @@ import { loadSendToChatConfig, saveSendToChatConfig } from './handler_shared';
 import { PLACEHOLDER_HELP } from './promptTemplate';
 import { openGlobalTemplateEditor } from './globalTemplateEditor-handler';
 import { queueEntryStyles, queueEntryUtils, queueEntryRenderFunctions, queueEntryMessageHandlers } from './queueEntryComponent';
+import { renderTransportPicker, transportPickerScript } from '../utils/transportPicker';
 
 // ============================================================================
 // State
@@ -857,20 +858,17 @@ ${queueEntryStyles()}
        item to either Copilot (answer-file polling) or Anthropic
        (direct AnthropicHandler.sendMessage dispatch). Profile id is
        optional when Anthropic is selected — blank falls back to the
-       default profile. -->
+       default profile. Uses the shared renderTransportPicker helper
+       so the queue editor's Add form and any other consumer produce
+       identical markup + webview wiring. -->
   <div class="add-options" id="addTransportRow">
-    <label style="margin-right:6px;">Transport:</label>
-    <select id="addTransport" onchange="onAddTransportChange()">
-      <option value="copilot">Copilot Chat</option>
-      <option value="anthropic">Anthropic</option>
-    </select>
-    <span id="addAnthropicTargets" style="display:none;">
-      <label style="margin-left:8px;">Profile:</label>
-      <select id="addAnthropicProfile"><option value="">(default profile)</option></select>
-      <label style="margin-left:8px;">Config:</label>
-      <select id="addAnthropicConfig"><option value="">(profile default)</option></select>
-      <span style="margin-left:8px;font-size:11px;color:var(--vscode-notificationsWarningIcon-foreground);">⚠️ Queue auto-approves all tool calls.</span>
-    </span>
+    ${renderTransportPicker({
+      idPrefix: 'addForm',
+      context: 'queue-default',
+      value: { transport: 'copilot' },
+      showTargets: true,
+      onChangeEvent: 'addFormTransportChanged',
+    })}
   </div>
   <div class="add-options" style="display:block;">
     <label style="display:block;margin-bottom:4px;">Repeat Prefix (supports \${repeatNumber}, \${repeatIndex}, \${repeatCount})</label>
@@ -1032,6 +1030,8 @@ function normalizeState() {
 ${queueEntryUtils()}
 ${queueEntryRenderFunctions()}
 ${queueEntryMessageHandlers()}
+/* ---- Shared: TransportPicker script (spec §4.15) ---- */
+${transportPickerScript()}
 
 function showFatalError(context, err) {
   const list = document.getElementById('queueList');
@@ -1256,25 +1256,18 @@ function addPrompt() {
   if (inputRepeatSuffix && inputRepeatSuffix.value) {
     msg.repeatSuffix = inputRepeatSuffix.value;
   }
-  // Transport picker (spec §4.10). Anthropic items carry the pinned
-  // profile + config through staging; Copilot stays default.
-  var tSel = document.getElementById('addTransport');
+  // Transport picker (spec §4.10 / §4.15). Read from the shared helper's
+  // generated selects (IDs: {prefix}-transport-t / -profile / -config).
+  var tSel = document.getElementById('addForm-transport-t');
   if (tSel && tSel.value === 'anthropic') {
     msg.transport = 'anthropic';
-    var pSel = document.getElementById('addAnthropicProfile');
-    var cSel = document.getElementById('addAnthropicConfig');
+    var pSel = document.getElementById('addForm-transport-profile');
+    var cSel = document.getElementById('addForm-transport-config');
     if (pSel && pSel.value) { msg.anthropicProfileId = pSel.value; }
     if (cSel && cSel.value) { msg.anthropicConfigId = cSel.value; }
   }
   vscode.postMessage(msg);
   ta.value = '';
-}
-
-function onAddTransportChange() {
-  var tSel = document.getElementById('addTransport');
-  var targets = document.getElementById('addAnthropicTargets');
-  if (!tSel || !targets) { return; }
-  targets.style.display = tSel.value === 'anthropic' ? '' : 'none';
 }
 
 function addReminderTemplate() {
@@ -1382,10 +1375,14 @@ function populateAddForm() {
     sel.value = defaultReminderTemplateId || '';
   }
 
-  // Populate Anthropic profile + config dropdowns in the add form
-  // (spec §4.10 queue-level default). The lists come through the
-  // 'state' message so the webview doesn't need to fetch them.
-  var profSel = document.getElementById('addAnthropicProfile');
+  // Populate the Anthropic profile + config dropdowns inside the
+  // shared renderTransportPicker output (spec §4.10 queue-level
+  // default). The helper emits selects with IDs of the form
+  // addForm-transport-profile and addForm-transport-config; we
+  // only fill them with real options once the state message delivers
+  // the config snapshot — the helper itself can't call back into the
+  // extension host to load config state from the server side.
+  var profSel = document.getElementById('addForm-transport-profile');
   if (profSel) {
     var prevProf = profSel.value;
     profSel.innerHTML = '<option value="">(default profile)</option>';
@@ -1397,7 +1394,7 @@ function populateAddForm() {
     });
     if (prevProf) { profSel.value = prevProf; }
   }
-  var cfgSel = document.getElementById('addAnthropicConfig');
+  var cfgSel = document.getElementById('addForm-transport-config');
   if (cfgSel) {
     var prevCfg = cfgSel.value;
     cfgSel.innerHTML = '<option value="">(profile default)</option>';
@@ -1412,6 +1409,28 @@ function populateAddForm() {
       cfgSel.appendChild(opt);
     });
     if (prevCfg) { cfgSel.value = prevCfg; }
+  }
+  // Spec §4.7 — disable reminder / answerWait fields when Anthropic
+  // is selected. The transport picker helper also fires its
+  // onChangeEvent postMessage, but we react directly here so the
+  // disable toggles on initial render too (for an Anthropic default).
+  var tSel = document.getElementById('addForm-transport-t');
+  if (tSel) {
+    var apply = function() {
+      var isAnthropic = tSel.value === 'anthropic';
+      var remTpl = document.getElementById('addReminderTemplate');
+      var remTimeout = document.getElementById('addReminderTimeout');
+      if (remTpl) {
+        remTpl.disabled = isAnthropic;
+        remTpl.title = isAnthropic ? 'Disabled — reminders apply only to Copilot queue items.' : '';
+      }
+      if (remTimeout) {
+        remTimeout.disabled = isAnthropic;
+        remTimeout.title = isAnthropic ? 'Disabled — anthropic items advance synchronously.' : '';
+      }
+    };
+    tSel.addEventListener('change', apply);
+    apply();
   }
 }
 
