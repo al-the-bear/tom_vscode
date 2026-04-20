@@ -1336,15 +1336,20 @@ export class AnthropicHandler {
     }
 
     /**
-     * VS Code LM leaf — single-shot (no tool loop in this initial cut).
-     * Resolves the pinned model via `vscode.lm.selectChatModels`, sends
-     * `{systemPrompt}\n\n{userText}` as one user message (the VS Code LM
-     * single-shot form has no system/user split — see spec §2.8),
-     * collects the text, and exits through the shared `finalize()` path
-     * so the trail / live-trail / rawTurns appends match every other
-     * leaf. Intentionally no tool-use handling yet — queue items that
-     * need tools should stay on Direct / Agent SDK until the tool loop
-     * lands.
+     * VS Code LM leaf — full tool-use loop. Resolves the pinned model
+     * via `vscode.lm.selectChatModels` filtered by the configuration's
+     * stored `{vendor, family, modelId}` tuple, iterates
+     * `model.sendRequest` until the model stops producing
+     * `LanguageModelToolCallPart` entries or `configuration.maxRounds`
+     * is exhausted. Every tool call funnels through `runTool` so the
+     * Anthropic approval gate, trail writers, and live-trail hooks
+     * observe identical events regardless of which leaf produced them.
+     * Exits through shared `finalize()` so trails / live-trail /
+     * rawTurns history match every other leaf (spec §4.4).
+     *
+     * Prompt shape: per spec §2.8, the first turn concatenates
+     * `{systemPrompt}\n\n{userContent}` into a single User message
+     * because VS Code LM's single-shot form has no system/user split.
      */
     private async sendViaVsCodeLm(
         options: AnthropicSendOptions,
@@ -1355,19 +1360,13 @@ export class AnthropicHandler {
         round: number,
         quest: string,
     ): Promise<AnthropicSendResult> {
-        const { configuration } = options;
+        const { configuration, tools } = options;
         const vscodeLm = configuration.vscodeLm;
         if (!vscodeLm || !vscodeLm.modelId) {
             throw new Error(
                 `Anthropic configuration "${configuration.id}" has transport='vscodeLm' but no vscodeLm.modelId set. Edit the configuration to pick a model.`,
             );
         }
-        // Keep the parameters we accept compatible with the other leaves
-        // even when this branch doesn't use them yet — `round` is the
-        // round id used by the tool trail; reserved for the tool-use
-        // extension. Referencing once silences the unused warning without
-        // changing runtime behaviour.
-        void round;
 
         const models = await vscode.lm.selectChatModels({
             vendor: vscodeLm.vendor,
@@ -1381,22 +1380,144 @@ export class AnthropicHandler {
         }
 
         const systemPrompt = systemSegments.filter((s) => s).join('\n\n');
+
+        // Build initial chat history. Prior turns come in as plain
+        // User/Assistant messages — we deliberately don't carry over
+        // tool_call/tool_result parts from past turns (VS Code LM
+        // requires paired callIds inside the same conversation, and
+        // we don't retain enough state to reconstruct those).
+        const chatMessages: vscode.LanguageModelChatMessage[] = [];
+        if (!options.isolated) {
+            for (const turn of this.rawTurns) {
+                if (turn.role === 'assistant') {
+                    chatMessages.push(vscode.LanguageModelChatMessage.Assistant(turn.content));
+                } else {
+                    chatMessages.push(vscode.LanguageModelChatMessage.User(turn.content));
+                }
+            }
+            if (this.compactedSummary) {
+                chatMessages.push(vscode.LanguageModelChatMessage.User(
+                    `## Additional context (compacted from earlier turns)\n\n${this.compactedSummary}`,
+                ));
+                chatMessages.push(vscode.LanguageModelChatMessage.Assistant('Understood — continuing with this context in mind.'));
+            }
+        }
+        // The spec §2.8 concatenation applies to the CURRENT user
+        // prompt: system prompt + user text joined by a blank line.
         const combined = systemPrompt ? `${systemPrompt}\n\n${userContent}` : userContent;
-        const chatMessages = [vscode.LanguageModelChatMessage.User(combined)];
+        chatMessages.push(vscode.LanguageModelChatMessage.User(combined));
+
+        // Convert SharedToolDefinition[] → LanguageModelChatTool[].
+        const lmTools: vscode.LanguageModelChatTool[] = tools.map((t) => ({
+            name: t.name,
+            description: t.description,
+            inputSchema: t.inputSchema ?? { type: 'object', properties: {} },
+        }));
+
+        let totalToolCalls = 0;
+        let lastText = '';
+        let lastStopReason: string | undefined;
 
         try {
-            const request = await model.sendRequest(chatMessages, {}, options.cancellationToken);
-            let lastText = '';
-            for await (const fragment of request.text) {
-                lastText += fragment;
-                this.currentLiveTrail?.appendAssistantText(fragment);
+            for (let turn = 0; turn < configuration.maxRounds; turn++) {
+                if (options.cancellationToken?.isCancellationRequested) {
+                    break;
+                }
+                // Suppress tools on the last round so the model produces
+                // a final text answer instead of a hung tool_call we
+                // can't service.
+                const remaining = configuration.maxRounds - turn;
+                const requestOptions: vscode.LanguageModelChatRequestOptions = remaining <= 1
+                    ? {}
+                    : { tools: lmTools };
+
+                const request = await model.sendRequest(chatMessages, requestOptions, options.cancellationToken);
+
+                // Collect both text parts and tool_call parts from the
+                // streamed response into parallel arrays so we can (a)
+                // append them to the Assistant message for the next
+                // round, and (b) act on tool_calls afterwards.
+                const assistantParts: Array<vscode.LanguageModelTextPart | vscode.LanguageModelToolCallPart> = [];
+                const toolCalls: vscode.LanguageModelToolCallPart[] = [];
+                let turnText = '';
+                for await (const part of request.stream) {
+                    if (part instanceof vscode.LanguageModelTextPart) {
+                        turnText += part.value;
+                        assistantParts.push(part);
+                        this.currentLiveTrail?.appendAssistantText(part.value);
+                    } else if (part instanceof vscode.LanguageModelToolCallPart) {
+                        assistantParts.push(part);
+                        toolCalls.push(part);
+                    }
+                    // Other part types (if any) are ignored silently.
+                }
+                if (turnText) { lastText = turnText; }
+
+                if (toolCalls.length === 0) {
+                    lastStopReason = 'end_turn';
+                    return this.finalize(
+                        userContent,
+                        lastText,
+                        turn + 1,
+                        totalToolCalls,
+                        lastStopReason,
+                        windowId,
+                        requestId,
+                        quest,
+                        configuration,
+                        options.isolated === true,
+                    );
+                }
+
+                // Append the assistant turn so the next round has
+                // the matching tool_call parts in history.
+                chatMessages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
+
+                // Execute each tool via runTool; build a User message
+                // with the paired LanguageModelToolResultPart entries.
+                const toolResultParts: vscode.LanguageModelToolResultPart[] = [];
+                for (const tc of toolCalls) {
+                    totalToolCalls++;
+                    const toolUseBlock = {
+                        type: 'tool_use' as const,
+                        id: tc.callId,
+                        name: tc.name,
+                        input: (tc.input as Record<string, unknown>) ?? {},
+                        caller: { type: 'direct' as const },
+                    } as unknown as Extract<AnthropicContentBlock, { type: 'tool_use' }>;
+                    const toolResultBlock = await this.runTool(
+                        toolUseBlock,
+                        tools,
+                        configuration,
+                        options,
+                        round,
+                        quest,
+                        windowId,
+                        requestId,
+                    );
+                    const resultText = typeof toolResultBlock.content === 'string'
+                        ? toolResultBlock.content
+                        : Array.isArray(toolResultBlock.content)
+                            ? toolResultBlock.content
+                                .map((p) => (p && typeof p === 'object' && 'type' in p && p.type === 'text' && 'text' in p ? String(p.text) : ''))
+                                .join('')
+                            : '';
+                    toolResultParts.push(new vscode.LanguageModelToolResultPart(
+                        tc.callId,
+                        [new vscode.LanguageModelTextPart(resultText)],
+                    ));
+                }
+                chatMessages.push(vscode.LanguageModelChatMessage.User(toolResultParts));
             }
+
+            // Exhausted maxRounds.
+            lastStopReason = 'max_tokens';
             return this.finalize(
                 userContent,
                 lastText,
-                /* turnsUsed */ 1,
-                /* toolCallCount */ 0,
-                /* stopReason */ 'end_turn',
+                configuration.maxRounds,
+                totalToolCalls,
+                lastStopReason,
                 windowId,
                 requestId,
                 quest,
@@ -1405,7 +1526,9 @@ export class AnthropicHandler {
             );
         } catch (err) {
             const errMsg = err instanceof Error ? (err.stack || err.message) : String(err);
-            const body = `(VS Code LM request failed before completing)\n${errMsg}`;
+            const body = lastText
+                ? `${lastText}\n\n---\n(VS Code LM request errored after partial output)\n${errMsg}`
+                : `(VS Code LM request failed before completing)\n${errMsg}`;
             TrailService.instance.writeRawAnswer(ANTHROPIC_SUBSYSTEM, body, windowId, requestId, quest);
             this.currentLiveTrail?.endPromptWithError(errMsg);
             this.currentLiveTrail = null;
@@ -1414,14 +1537,17 @@ export class AnthropicHandler {
     }
 
     /**
-     * Local LLM leaf — single-shot (no tool loop in this initial cut,
-     * same constraint as sendViaVsCodeLm). Resolves the Local LLM HTTP
+     * Local LLM leaf — full tool-use loop. Resolves the Local LLM HTTP
      * call via `LocalLlmManager.callLocalLlmOnce` (extracted per spec
-     * §4.4a) and exits through the shared finalize() so trails + live-
-     * trail + rawTurns history match every other leaf. Local-LLM-backed
-     * anthropic profiles therefore trail under `_ai/trail/anthropic/*`
-     * rather than the Local LLM panel's own `_ai/trail/local/*` — the
-     * profile authored the request.
+     * §4.4a) in a loop until the model stops producing tool calls or
+     * `configuration.maxRounds` is exhausted. Every tool call goes
+     * through `runTool` so the Anthropic approval gate, trail writers,
+     * and live-trail hooks see identical events regardless of which
+     * leaf produced them. Exits through shared `finalize()` so trails
+     * + rawTurns history match every other leaf — Local-LLM-backed
+     * profiles therefore trail under `_ai/trail/anthropic/*` not the
+     * Local LLM panel's own `_ai/trail/local/*` (the profile authored
+     * the request).
      */
     private async sendViaLocalLlm(
         options: AnthropicSendOptions,
@@ -1432,7 +1558,6 @@ export class AnthropicHandler {
         round: number,
         quest: string,
     ): Promise<AnthropicSendResult> {
-        void round;
         const { configuration, tools } = options;
         const llm = configuration.localLlm;
         if (!llm || !llm.baseUrl || !llm.model) {
@@ -1446,35 +1571,138 @@ export class AnthropicHandler {
         // as the canonical chat-completions shape. The concatenation
         // rule in spec §2.8 applies only when the underlying API has
         // no such split — Ollama does.
-        const messages: Array<{ role: string; content: string }> = [];
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        type OllamaToolCallMsg = { function: { name: string; arguments: Record<string, unknown> } };
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        interface OllamaMsg { role: string; content?: string; tool_calls?: OllamaToolCallMsg[] }
+        const messages: OllamaMsg[] = [];
         if (systemPrompt) {
             messages.push({ role: 'system', content: systemPrompt });
         }
+        // Prior turn history so the model has context across sends (spec
+        // §2.8 / §5 — handler already owns continuity via rawTurns +
+        // compactedSummary). Isolated sub-agent runs skip history.
+        if (!options.isolated) {
+            for (const turn of this.rawTurns) {
+                messages.push({
+                    role: turn.role === 'system' ? 'user' : turn.role,
+                    content: turn.content,
+                });
+            }
+            if (this.compactedSummary) {
+                messages.push({
+                    role: 'user',
+                    content: `## Additional context (compacted from earlier turns)\n\n${this.compactedSummary}`,
+                });
+                messages.push({ role: 'assistant', content: 'Understood — continuing with this context in mind.' });
+            }
+        }
         messages.push({ role: 'user', content: userContent });
 
+        const { getLocalLlmManager } = await import('./localLlm-handler.js');
+        const localLlmManager = getLocalLlmManager();
+        if (!localLlmManager) {
+            throw new Error('Local LLM manager is not initialised — the Local LLM handler must be activated before a Local-LLM-backed Anthropic profile can send.');
+        }
+
+        let totalToolCalls = 0;
+        let lastText = '';
+        let lastStopReason: string | undefined;
+
         try {
-            const { getLocalLlmManager } = await import('./localLlm-handler.js');
-            const localLlmManager = getLocalLlmManager();
-            if (!localLlmManager) {
-                throw new Error('Local LLM manager is not initialised — the Local LLM handler must be activated before a Local-LLM-backed Anthropic profile can send.');
+            for (let turn = 0; turn < configuration.maxRounds; turn++) {
+                if (options.cancellationToken?.isCancellationRequested) {
+                    break;
+                }
+                // Only offer tools when we still have budget for another
+                // round — otherwise force the model to produce a text
+                // answer instead of a hung tool_calls reply we can't
+                // service. Matches the Local LLM panel's own loop.
+                const remaining = configuration.maxRounds - turn;
+                const effectiveTools = remaining <= 1 ? [] : tools;
+
+                const result = await localLlmManager.callLocalLlmOnce({
+                    baseUrl: llm.baseUrl,
+                    model: llm.model,
+                    temperature: llm.temperature,
+                    messages,
+                    tools: effectiveTools,
+                    keepAlive: llm.keepAlive,
+                    cancellationToken: options.cancellationToken,
+                    onToken: (fragment: string) => this.currentLiveTrail?.appendAssistantText(fragment),
+                });
+                lastText = result.text || lastText;
+
+                if (!result.toolCalls || result.toolCalls.length === 0) {
+                    lastStopReason = 'end_turn';
+                    return this.finalize(
+                        userContent,
+                        lastText,
+                        turn + 1,
+                        totalToolCalls,
+                        lastStopReason,
+                        windowId,
+                        requestId,
+                        quest,
+                        configuration,
+                        options.isolated === true,
+                    );
+                }
+
+                // Append assistant turn with tool_calls so Ollama sees the
+                // conversation shape the next round expects.
+                messages.push({
+                    role: 'assistant',
+                    content: result.text || '',
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
+                    tool_calls: result.toolCalls,
+                });
+
+                // Execute each tool through the Anthropic approval gate
+                // so the user's approval rules + trail writers apply
+                // identically across leaves.
+                for (const tc of result.toolCalls) {
+                    totalToolCalls++;
+                    const toolUseId = `local_${requestId}_${totalToolCalls}`;
+                    const toolUseBlock = {
+                        type: 'tool_use' as const,
+                        id: toolUseId,
+                        name: tc.function.name,
+                        input: tc.function.arguments ?? {},
+                        caller: { type: 'direct' as const },
+                    } as unknown as Extract<AnthropicContentBlock, { type: 'tool_use' }>;
+                    const toolResultBlock = await this.runTool(
+                        toolUseBlock,
+                        tools,
+                        configuration,
+                        options,
+                        round,
+                        quest,
+                        windowId,
+                        requestId,
+                    );
+                    // runTool returns content as a string (see its
+                    // implementation — the synthesised result block's
+                    // `content` is always the tool's string output).
+                    const resultText = typeof toolResultBlock.content === 'string'
+                        ? toolResultBlock.content
+                        : Array.isArray(toolResultBlock.content)
+                            ? toolResultBlock.content
+                                .map((p) => (p && typeof p === 'object' && 'type' in p && p.type === 'text' && 'text' in p ? String(p.text) : ''))
+                                .join('')
+                            : '';
+                    messages.push({ role: 'tool', content: resultText });
+                }
             }
-            const result = await localLlmManager.callLocalLlmOnce({
-                baseUrl: llm.baseUrl,
-                model: llm.model,
-                temperature: llm.temperature,
-                messages,
-                tools,
-                keepAlive: llm.keepAlive,
-                cancellationToken: options.cancellationToken,
-                onToken: (fragment: string) => this.currentLiveTrail?.appendAssistantText(fragment),
-            });
-            const lastText = result.text || '';
+
+            // Exhausted maxRounds — finalize with whatever text we have.
+            lastStopReason = 'max_tokens';
             return this.finalize(
                 userContent,
                 lastText,
-                /* turnsUsed */ 1,
-                /* toolCallCount */ 0,
-                /* stopReason */ 'end_turn',
+                configuration.maxRounds,
+                totalToolCalls,
+                lastStopReason,
                 windowId,
                 requestId,
                 quest,
@@ -1483,7 +1711,9 @@ export class AnthropicHandler {
             );
         } catch (err) {
             const errMsg = err instanceof Error ? (err.stack || err.message) : String(err);
-            const body = `(Local LLM request failed before completing)\n${errMsg}`;
+            const body = lastText
+                ? `${lastText}\n\n---\n(Local LLM request errored after partial output)\n${errMsg}`
+                : `(Local LLM request failed before completing)\n${errMsg}`;
             TrailService.instance.writeRawAnswer(ANTHROPIC_SUBSYSTEM, body, windowId, requestId, quest);
             this.currentLiveTrail?.endPromptWithError(errMsg);
             this.currentLiveTrail = null;
