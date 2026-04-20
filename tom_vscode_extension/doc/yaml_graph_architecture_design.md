@@ -11,7 +11,7 @@ Responsibilities:
 - import graph modules dynamically,
 - create engine + registry,
 - register graph types from package graph-types folder,
-- register `yamlGraph.editor` provider.
+- register the `tomAi.yamlGraphEditor` custom editor provider.
 
 ## 2. Provider stack
 

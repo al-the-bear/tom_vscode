@@ -4,50 +4,75 @@
 
 The plugin runtime consists of:
 
-- VS Code extension host (`src/extension.ts`),
-- TypeScript handler modules (`src/handlers/*`),
-- bridge client integration (`vscode-bridge`),
-- AI tooling registration (`src/tools/*`),
-- webview managers for panel/editor UX,
-- stateful managers for queue, timer, and reminder processing (`src/managers/*`),
-- dedicated output channels for queue and timed request observability (`src/utils/queueLogger.ts`),
-- shared UI components for queue/template editors (`src/handlers/queueEntryComponent.ts`),
+- VS Code extension host ([src/extension.ts](../src/extension.ts)),
+- handler modules under [src/handlers/](../src/handlers/) — UI entry points + webview providers,
+- services under [src/services/](../src/services/) — persistence (trail, history, memory, tool trail, live trail),
+- managers under [src/managers/](../src/managers/) — volatile session state (queue, timer, reminder, chat variables, session todos),
+- tool implementations under [src/tools/](../src/tools/) — everything exposed to AI models,
+- bridge client integration ([vscode-bridge](../src/utils/vscode-bridge.ts) + handler),
+- Agent SDK transport ([agent-sdk-transport.ts](../src/handlers/agent-sdk-transport.ts)) over `@anthropic-ai/claude-agent-sdk`,
+- shared webview components (accordion, tabs, queue entry), and
 - optional external packages (`yaml-graph-core`, `yaml-graph-vscode`).
+
+## Layering rules
+
+```text
+handlers/     UI entry points; command + webview wiring, approval UI
+  ↓ may call
+managers/     session-scoped state (queue, reminders, chat variables)
+services/     persistence (trails, history, memory, tool trail)
+tools/        pure dispatch + service reads; tool-use contract to the model
+utils/        config, schema, path + variable resolution
+```
+
+- Handlers own VS Code UI coupling. No service module imports a `vscode.webview*` surface.
+- Services own I/O. Tools read them; handlers ask tools to dispatch.
+- `tools/` does not import `handlers/`. `services/` does not import `handlers/` or `tools/`.
 
 ## Activation flow
 
 During activation, the extension:
 
-1. initializes bridge client,
-2. registers commands, key systems, and webviews,
-3. initializes stores (chat variables, session todos, queue/timer/reminder),
-4. registers Tom AI tools and variable resolvers,
-5. registers custom editors (YAML graph and quest todo),
-6. starts queue watchdog and timed request timer engine,
+1. initializes the bridge client (fail-soft),
+2. registers commands, key systems, and webviews (`@CHAT`, `@WS`, `@TOM` sidebar views),
+3. initializes stores (chat variables, session todos, queue, timer, reminder),
+4. registers shared tools + variable resolvers,
+5. registers custom editors (YAML graph, quest todo, markdown browser, trail viewer),
+6. starts queue watchdog and timed-request timer engine,
 7. writes window state file for multi-window status tracking.
 
 ## Panel architecture
 
-- Bottom panel `@CHAT` (`tomAi.chatPanel`) is the AI operations panel with per-section action bars (R/W fields for Copilot).
-- Bottom panel `@WS` (`tomAi.wsPanel`) is the workspace/ops panel with guidelines/docs/quest browsers.
-- Explorer views expose notes, todo sidebars, and the Window Status panel.
-- Markdown Browser is a standalone webview panel with link resolver, file watching, and navigation history.
+- **`@CHAT`** (`tomAi.chatPanel`) — five chat subpanels (Anthropic, Tom AI Chat, AI Conversation, Copilot, Local LLM) with per-subpanel action bars. See [tom_ai_chat.md](tom_ai_chat.md) and [tom_ai_bottom_panel.md](tom_ai_bottom_panel.md).
+- **`@WS`** (`tomAi.wsPanel`) — workspace / ops panel with guidelines, docs, quest, logs, settings, issues, tests.
+- **`@TOM`** sidebar — tree views for notes, todos, todo log, window status.
+- **Markdown Browser** (`tomAi.markdownBrowser`) — standalone custom editor with link resolver, debounced file watcher, navigation history, and live-mode follow-tail (used by the "Open Live Trail" chat-panel button).
 
 ## Data and state
 
-Primary stateful services:
+Primary session / state managers:
 
-- `ChatVariablesStore` — chat variable resolution for templates
-- `WindowSessionTodoStore` — per-window session todos
-- `PromptQueueManager` — queue processing with file-per-entry storage, answer detection, watchdog, repeat/affix logic, and automation settings (auto-send, auto-start, auto-pause, auto-continue)
-- `TimerEngine` — timed request scheduling with interval/scheduled modes, sendMaximum, and global schedule slots
-- `ReminderSystem` — reminder generation for pending queue items
+- `ChatVariablesStore` — chat variable resolution for templates.
+- `WindowSessionTodoStore` — per-window session todos.
+- `PromptQueueManager` — file-per-entry queue, answer detection, watchdog, repeat/affix, automation settings.
+- `TimerEngine` — timed request scheduling (interval + scheduled modes, `sendMaximum`, global schedule slots).
+- `ReminderSystem` — reminder generation for pending queue items.
 
-These services are initialized once and shared across command handlers.
+Persistence services:
 
-## Queue storage architecture
+- `TrailService` — raw trail file writer (prompt / payload / answer / tool-request / tool-answer per turn).
+- `LiveTrailWriter` — rolling 5-block markdown at `_ai/quests/<quest>/live-trail.md`.
+- `ToolTrail` — in-memory ring buffer (40 entries) with replay keys `t1`, `t2`, … used by past-tool-access tools.
+- `TwoTierMemoryService` — shared + quest memory with placeholder expansion. Also owns the Agent SDK session id file (`default.session.json`, atomic write, idempotent).
+- `history-compaction.ts` — `trim_and_summary` / `full` / `summary` / `llm_extract` modes for direct-transport history.
 
-Queue entries are stored as individual YAML files (`q_<id>.yaml`) with hostname prefix for cross-workspace safety. Queue settings persist in `queue-settings.yaml`. File watchers enable cross-window sync. A background watchdog (60s interval) and polling fallback (30s interval) ensure answer detection reliability.
+## Anthropic handler + transports
+
+[anthropic-handler.ts](../src/handlers/anthropic-handler.ts) is the core multi-transport entry. Profiles select model + transport (`direct` / `agentSdk` / `vscodeLm`) + history mode (`sdk-managed` / `full` / `summary` / `trim_and_summary` / `llm_extract`). The Agent SDK path routes tool use through an MCP server (`mcp__tom-ai__*`) with an in-extension approval gate bridged via `canUseTool`. SDK-managed mode persists the session id to `_ai/quests/<quest>/history/default.session.json` (gitignored) and resumes each turn in place. See [../doc/anthropic_handler.md](../doc/anthropic_handler.md).
+
+## Queue storage
+
+Queue entries are stored as individual YAML files (`q_<id>.yaml`) with a hostname prefix for cross-workspace safety. Queue settings persist in `queue-settings.yaml`. File watchers enable cross-window sync. A background watchdog (60s interval) and polling fallback (30s) ensure answer detection reliability.
 
 ## Communication boundaries
 
@@ -58,11 +83,12 @@ Queue entries are stored as individual YAML files (`q_<id>.yaml`) with hostname 
 
 ## Output channels
 
-Dedicated channels for prompt queue and timed requests provide structured logging with ISO timestamps. See [user_guide.md](../doc/user_guide.md#8-output-channels) for the full channel list.
+Dedicated channels for prompt queue, timed requests, bridge, tool log, conversation log, AI chat log, Local LLM log, and debug. See [user_guide.md](../doc/user_guide.md#8-output-channels) for the full list.
 
 ## Fault tolerance
 
-- Critical optional features use soft-fail behavior (for example dynamic imports in YAML graph registration), so core extension activation can still succeed.
+- Optional features use soft-fail behavior — missing dependencies must degrade, not crash, activation.
 - Queue watchdog auto-restarts file watchers and detects stalled items.
-- Answer detection uses multiple fallback strategies: file watcher, polling, requestId-based matching.
-- "No reminder" (`__none__` template) correctly suppresses reminder generation.
+- Answer detection uses file watcher + polling + requestId-based matching.
+- Session-id file write is atomic (`.tmp` + rename) and idempotent (short-circuits when the on-disk value already matches).
+- Empty session-id files are unlinked on load so a corrupted write self-heals.

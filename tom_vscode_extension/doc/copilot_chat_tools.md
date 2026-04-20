@@ -1,14 +1,18 @@
-# Copilot Chat and Ask-AI Tools
+# Copilot Chat and Tom AI Tools
 
-This document describes the currently implemented AI tooling exposed by the extension.
+Reference for the tooling surface exposed by the extension. For the full per-subpanel experience, see [user_guide.md](user_guide.md).
 
 ## Scope
 
-The extension integrates three AI paths:
+The extension integrates **five** chat subsystems, all accessible from the `@CHAT` panel:
 
-- Copilot Chat send/templating flows.
-- Tom AI Chat tools (`registerTomAiChatTools`).
-- Local LLM and escalation helpers (including Ask-AI style queries).
+- **Anthropic** — direct Anthropic SDK or Agent SDK ([anthropic_handler.md](anthropic_handler.md)).
+- **Tom AI Chat** — Anthropic handler with a narrower UI, same profile + tool surface.
+- **AI Conversation** — multi-turn chat (not queue-compatible).
+- **Copilot** — VS Code Copilot Chat via the answer-file mechanism.
+- **Local LLM** — Ollama-compatible HTTP backend.
+
+This page covers the Copilot-facing commands + tooling. For Anthropic / Tom AI Chat specifics, see [../\_copilot\_guidelines/tom\_ai\_chat.md](../_copilot_guidelines/tom_ai_chat.md) and [anthropic_handler.md](anthropic_handler.md).
 
 ## Copilot Chat Workflows
 
@@ -19,7 +23,7 @@ Main commands:
 - `tomAi.sendToCopilot.template`
 - `tomAi.reloadConfig`
 
-Unified Notepad (`@CHAT`) also supports Copilot prompt slots, template selection, answer-file polling, and response value extraction.
+The `@CHAT` panel's Copilot subpanel supports prompt slots (up to 4), template selection, answer-file polling, and response-value extraction.
 
 ### CHAT Action Bar
 
@@ -54,33 +58,26 @@ The timer engine fires prompts on schedule:
 
 See [user_guide.md](user_guide.md#5-timed-requests) for full timer documentation.
 
-## Ask-AI / Escalation Tooling
+## Tom AI Chat + Anthropic Tool Surface
 
-Ask-AI capabilities are now documented here and no longer in a separate guideline file.
-
-Runtime initialization:
-
-- `initializeToolDescriptions()`
-- `initializeEscalationTools()`
-- `registerTomAiChatTools(context)`
-
-These tools are available to Tom AI Chat workflows and include model-assisted escalation helpers for broader-context queries.
-
-## Tom AI Chat Tools
-
-Tom AI Chat command surface:
+Both subpanels share the Anthropic handler's tool registry. Command surface (Tom AI Chat):
 
 - `tomAi.tomAiChat.start`
 - `tomAi.tomAiChat.send`
 - `tomAi.tomAiChat.interrupt`
 
-Tool categories include:
+Tool categories (all live under `src/tools/`):
 
-- workspace file and text search,
-- file and notebook editing,
-- command/terminal execution,
-- diagnostics and task flow helpers,
-- optional integrations (GitHub PR, Flutter, Dart tooling daemon, web fetch/search).
+- **File I/O** — `tomAi_readFile`, `tomAi_createFile`, `tomAi_editFile`, `tomAi_multiEditFile` (writes go through the approval gate).
+- **Search** — `tomAi_findFiles`, `tomAi_findTextInFiles`, `tomAi_listDirectory`.
+- **Guidelines + memory** — `tomAi_read*Guideline`, `tomAi_list*Guideline`, `tomAi_search*Guideline`, `tomAi_memory_*`.
+- **Past-tool-access** — `tomAi_listPastToolCalls`, `tomAi_searchPastToolResults`, `tomAi_readPastToolResult` (replay keys `t1`, `t2`, …).
+- **Execution** — `tomAi_runCommand`, `tomAi_runVscodeCommand` (approval-gated).
+- **User surface** — `tomAi_notifyUser` (approval-gated).
+- **Diagnostics + editor context** — `tomAi_getErrors`, editor-context helpers.
+- **Integrations** — GitHub PR, git, issue, language-service, web fetch / search.
+
+On the Agent SDK transport, tools are exposed via an MCP server; names carry the `mcp__tom-ai__` prefix when surfaced to `canUseTool`. Built-in Claude Code preset tools (Read/Write/Bash/Grep/…) can be enabled per profile via `useBuiltInTools: true`; their tool_use + tool_result blocks are mirrored into the raw and tool trails from the stream.
 
 ## Chat Variables and Context
 

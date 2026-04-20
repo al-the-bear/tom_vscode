@@ -48,14 +48,11 @@
 
 ## Core AI Commands
 
-- `tomAi.sendToCopilot`
-- `tomAi.sendToCopilot.standard`
-- `tomAi.sendToCopilot.template`
-- `tomAi.tomAiChat.start`
-- `tomAi.tomAiChat.send`
-- `tomAi.tomAiChat.interrupt`
-- `tomAi.sendToLocalLlm`
-- `tomAi.sendToLocalLlm.template`
+- `tomAi.sendToCopilot`, `tomAi.sendToCopilot.standard`, `tomAi.sendToCopilot.template`
+- `tomAi.tomAiChat.start`, `tomAi.tomAiChat.send`, `tomAi.tomAiChat.interrupt`
+- `tomAi.sendToLocalLlm`, `tomAi.sendToLocalLlm.template`
+- `tomAi.aiConversation.start`, `tomAi.aiConversation.stop`, `tomAi.aiConversation.continue`, `tomAi.aiConversation.add`, `tomAi.aiConversation.status`
+- `tomAi.openInMdBrowser`, `tomAi.openInMdBrowserLive` (follow-tail mode for the live trail)
 
 ## Bridge and Runtime Commands
 
@@ -85,7 +82,7 @@
 | Panel | View Type | Opened Via |
 | --- | --- | --- |
 | Status Page | `tomStatusPage` | `tomAi.statusPage` |
-| Markdown Browser | `tomAi.markdownBrowser` | `tomAi.openInMdBrowser` |
+| Markdown Browser | `tomAi.markdownBrowser` | `tomAi.openInMdBrowser` (static) or `tomAi.openInMdBrowserLive` (follow-tail) |
 | Prompt Trail Viewer | `tomAi.trailViewer` | `tomAi.editor.rawTrailViewer` |
 | Prompt Queue | `tomAi.queueEditor` | `tomAi.editor.promptQueue` |
 | Timed Requests | `tomAi.timedRequestsEditor` | `tomAi.editor.timedRequests` |
@@ -101,10 +98,11 @@
 
 | Section | Icon | Description |
 | --- | --- | --- |
-| Local LLM | `codicon-robot` | Send prompts to local Ollama model |
-| AI Conversation | `codicon-comment-discussion` | Multi-turn AI conversation |
+| Anthropic | `codicon-hubot` | Anthropic SDK / Agent SDK with profile picker, Open Live Trail button, Session History, Memory, Clear Session |
+| Tom AI Chat | `codicon-comment-discussion-sparkle` | Tom AI chat interface (shares Anthropic handler) |
+| AI Conversation | `codicon-comment-discussion` | Multi-turn AI conversation (not queue-compatible) |
 | Copilot | `codicon-copilot` | Copilot integration with R/W action bar |
-| Tom AI Chat | `codicon-comment-discussion-sparkle` | Tom AI chat interface |
+| Local LLM | `codicon-robot` | Send prompts to local Ollama model |
 
 #### Copilot Action Bar Fields
 
@@ -198,6 +196,17 @@ Open: `Ctrl+Shift+7` or `@T: Open Timed Requests`
 ## Window Status Panel
 
 Explorer sidebar view showing all open @Tom windows with per-subsystem status:
+
 - **Orange**: Prompt sent, awaiting answer
 - **Green**: Answer received
 - Auto-refreshes every 3 seconds from `_ai/local/*.window-state.json`
+
+## Trails on Disk
+
+| Surface | Path | Written by | Notes |
+| --- | --- | --- | --- |
+| Raw trail | `_ai/trail/<subsystem>/<quest>/` | `TrailService` | `*_prompt_*.userprompt.md`, `*_payload_*.payload.md`, `*_answer_*.answer.json`, `*_toolrequest_*.json`, `*_toolanswer_*.json` |
+| Live trail | `_ai/quests/<quest>/live-trail.md` | `LiveTrailWriter` | Rolling window: last 5 prompt blocks. Stream thinking / tool_use / tool_result / assistant text |
+| Session history | `_ai/quests/<quest>/history/history.json` + `history.md` | `trim_and_summary` compaction | Direct transport only |
+| SDK session id | `_ai/quests/<quest>/history/default.session.json` | Agent SDK handler | SDK-managed mode only. Gitignored. Idempotent — only rewritten on change |
+| Tool trail | in-memory (`tool-trail.ts`) | `AnthropicHandler` | Ring buffer 40 entries; replay keys `t1`, `t2`, … queryable via `tomAi_*PastToolCall*` tools |

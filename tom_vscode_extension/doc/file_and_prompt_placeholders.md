@@ -20,7 +20,8 @@ Primary categories:
 | `${vs-code-workspace-folder}` | Absolute path to the workspace root folder. | `/Users/.../tom_agent_container` |
 | `${workspaceFolder}` | Same as `vs-code-workspace-folder` (VS Code standard) | `/Users/.../tom_agent_container` |
 | `${workspace}` | Workspace display name from VS Code | `vscode_extension` |
-| `${userMessage}` | Raw user input. Resolves to the typed text inside `anthropicUserMessage` templates (anthropic_sdk_integration.md §7.3); empty string in every other template context. | `Refactor the auth middleware to drop the legacy session shim.` |
+| `${userMessage}` | Raw user input. Resolves to the typed text inside the profile's user-message template; empty string in every other template context. See [anthropic_handler.md](anthropic_handler.md). | `Refactor the auth middleware to drop the legacy session shim.` |
+| `${wrappedPrompt}` | The user message **after** the profile's user-message template has expanded. Resolves only inside a profile's `userPromptWrapper`; empty elsewhere. Lets a profile add a caching-stable outer envelope (memory, instructions) around a memory-aware inner template without the outer envelope invalidating the prompt cache when memory changes. | (result of user-message template applied to the raw input) |
 
 ## Additional Placeholder Categories
 

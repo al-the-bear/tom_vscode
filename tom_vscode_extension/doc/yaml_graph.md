@@ -2,7 +2,7 @@
 
 ## Current Status
 
-The YAML Graph editor is implemented and registered as a custom text editor (`yamlGraph.editor`) during extension activation.
+The YAML Graph editor is implemented and registered as a custom text editor (`tomAi.yamlGraphEditor`) during extension activation.
 
 Supported file patterns:
 

@@ -4,7 +4,7 @@ This document describes the implemented editing flow in the custom YAML Graph ed
 
 ## Editor Runtime
 
-The extension registers `yamlGraph.editor` as a `CustomTextEditorProvider` for:
+The extension registers `tomAi.yamlGraphEditor` as a `CustomTextEditorProvider` for:
 
 - `*.flow.yaml`
 - `*.state.yaml`

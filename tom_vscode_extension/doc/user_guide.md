@@ -8,8 +8,10 @@ The extension combines VS Code automation, bridge-based scripting, Copilot workf
 
 Current bottom panel layout:
 
-- `@CHAT` (`tomAi.chatPanel`): Local LLM, AI Conversation, Copilot, Tom AI Chat.
+- `@CHAT` (`tomAi.chatPanel`): five subpanels — **Anthropic**, **Tom AI Chat**, **AI Conversation**, **Copilot**, **Local LLM**. Shared features: prompt queue side panel, document picker, live-trail button (Anthropic), session-history button, memory/config buttons, accordion/pin/rotate layout.
 - `@WS` (`tomAi.wsPanel`): Guidelines, Documentation, Logs, Settings, Issues, Tests, Quest TODO.
+
+AI Conversation is the only subpanel that is **not** queue-compatible — each AI Conversation turn runs as an ad-hoc chat.
 
 ### Guidelines Panel
 
@@ -23,12 +25,13 @@ The Guidelines panel in @WS provides a document browser for copilot guidelines. 
 
 The Markdown Browser is a standalone webview panel for reading markdown documents with full navigation:
 
-- **Open via**: `@T: Open in Markdown Browser` command or link clicks in Guidelines panel
+- **Open via**: `@T: Open in Markdown Browser` command, `@T: Open in Markdown Browser (Live)` for follow-tail mode, or link clicks in Guidelines panel
 - **Document picker**: Grouped by Guidelines, Workspace Docs, Notes, Roles, Quests, Copilot Instructions, and Projects
 - **Quest dropdown**: Secondary dropdown to filter quest documents when in quest context
 - **Link resolver**: Clickable `.md` links navigate within the browser; special link types include `quest:`, `issue:`, `todo:`, and `test:` protocols; non-`.md` files open in the VS Code editor; external URLs open in the system browser
 - **Line number support**: Links with `#L10` or `#L10-L20` fragments open source files at the specified line
-- **Auto-reload**: File watcher monitors the currently viewed file and auto-reloads content on external changes
+- **Auto-reload**: File watcher (debounced ~200 ms) monitors the currently viewed file and re-renders on external changes; scroll position is preserved across same-file re-renders in normal mode
+- **Live mode (follow-tail)**: Opened via the "Open Live Trail" button in the Anthropic subpanel or the Live command. Auto-scrolls to the bottom on each re-render as events stream in; pauses when the user scrolls up and resumes when they return to the bottom
 - **Anchor navigation**: Heading anchors allow direct scrolling to specific sections
 - **Navigation history**: Back/forward buttons with up to 100 entries
 - **Breadcrumb navigation**: Shows current document path
@@ -48,6 +51,18 @@ The Window Status panel is an Explorer sidebar view showing the state of all ope
 Explorer adds note and todo views: VS Code Notes, Quest Notes, Quest Todos, Session Todos, TODO Log, Workspace Notes, Workspace Todos, Window Status.
 
 ## 3) Sending prompts
+
+### Anthropic
+
+The Anthropic subpanel in `@CHAT` is the primary AI chat surface. Every turn picks a **profile** that bundles model + transport + history mode + user-message template.
+
+Curated profiles (9 total): **Sonnet 4.6**, **Opus 4.7**, and **Opus 4.6**, each in three flavors:
+
+- **Direct** — raw Anthropic SDK. History injected via `trim_and_summary` compaction. Memory placeholders (`${memory}`, `${memory-shared}`, `${memory-quest}`) expanded before send.
+- **Agent SDK T&S** — routes through `@anthropic-ai/claude-agent-sdk` but still uses in-extension history compaction. Memory pulled via `tomAi_memory_*` tools on demand.
+- **Agent SDK SDK-MM** — Agent SDK with SDK-managed continuity. Session id persists in `_ai/quests/<quest>/history/default.session.json` (gitignored) so the next turn resumes in place. Works with Claude Code's session selector.
+
+Switches + actions on the action bar: profile picker, model picker (filters to profile-compatible models), **Open Live Trail** (MD Browser in follow-tail mode), **Session History** (opens `history.md`), **Memory**, **Clear Session**, **Config**.
 
 ### Copilot
 
@@ -76,7 +91,7 @@ Use:
 - `@T: Send Tom AI Chat Prompt`
 - `@T: Interrupt Tom AI Chat`
 
-Tom AI Chat tools are initialized during activation and support workspace operations, editing actions, diagnostics, and integrations.
+Tom AI Chat shares the Anthropic handler (profiles, tool trail, approval gate, raw trail) but has its own subpanel UI and tool-surface tuning. The tool trail's past-tool-access tools (`tomAi_listPastToolCalls`, `tomAi_searchPastToolResults`, `tomAi_readPastToolResult`) let the model recall prior tool output by replay key (`t1`, `t2`, …) across turns.
 
 ### Local LLM (Ollama)
 
@@ -242,17 +257,27 @@ The extension provides dedicated output channels for observability:
 
 Queue and timed request channels include ISO timestamps on every log line and can be enabled/disabled at runtime.
 
-## 9) YAML graph editing
+## 9) Trails and history
+
+The Anthropic + Tom AI Chat subsystems write three kinds of trail:
+
+- **Raw trail** — `_ai/trail/anthropic/<quest>/` (and per-subsystem siblings). Every turn produces `<ts>_prompt_<rid>.userprompt.md`, `<ts>_payload_<rid>.payload.md`, `<ts>_answer_<rid>.answer.json`, plus `<ts>_toolrequest_*.json` / `<ts>_toolanswer_*.json` for each tool call. Inspect via the Raw Trail Viewer editor.
+- **Live trail** — `_ai/quests/<quest>/live-trail.md`. Rolling-window markdown (last 5 prompt blocks). Streams thinking / tool_use / tool_result / assistant-text events as they arrive. Best viewed via the **Open Live Trail** button (MD Browser in live mode follow-tails the file).
+- **Session history** — `_ai/quests/<quest>/history/history.json` (+ `history.md` rendering). Rolling compacted context used by `trim_and_summary` on the direct transport. SDK-managed mode uses `default.session.json` instead.
+
+Clear the session (reset history + tool trail + SDK session id) via the subpanel's Clear button or `@T: Clear Anthropic Session`.
+
+## 10) YAML graph editing
 
 Open `*.flow.yaml`, `*.state.yaml`, or `*.er.yaml` files.
 
 The custom editor requires a numeric `meta.graph-version` and renders Mermaid output based on registered graph types.
 
-## 10) Keyboard productivity
+## 11) Keyboard productivity
 
 See [quick_reference.md](quick_reference.md) and [../_copilot_guidelines/keybindings_and_commands.md](../_copilot_guidelines/keybindings_and_commands.md).
 
-## 11) Reinstall and reload
+## 12) Reinstall and reload
 
 If extension changes do not appear:
 
