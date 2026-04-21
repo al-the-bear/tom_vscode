@@ -11,6 +11,13 @@
  *
  * Opens as a WebviewPanel (not tied to a specific document) so it can
  * navigate freely between files.
+ *
+ * Panel lifecycle:
+ *  - `tomAi.openInMdBrowserLive` — reuses a single live-panel singleton so
+ *    the live-trail always updates in the same window.
+ *  - `tomAi.openInMdBrowser` (context menu) — always creates a NEW panel so
+ *    the existing live-trail window (or any other open browser) is never
+ *    disturbed.
  */
 
 import * as vscode from 'vscode';
@@ -91,58 +98,37 @@ class NavigationHistory {
 }
 
 // ============================================================================
-// Panel Singleton
-// ============================================================================
-
-let activePanel: vscode.WebviewPanel | undefined;
-let activePanelHistory: NavigationHistory | undefined;
-let activePanelContext: vscode.ExtensionContext | undefined;
-let pendingInitialFile: string | undefined;
-let activeFileWatcher: vscode.FileSystemWatcher | undefined;
-let activeFileWatcherDebounce: ReturnType<typeof setTimeout> | undefined;
-// Panel-scoped "live mode" — when true, sendFileContent includes a
-// liveMode=true flag so the webview auto-scrolls to the bottom on each
-// re-render (as long as the user hasn't scrolled up). Set by the
-// tomAi.openInMdBrowserLive command entry point; sticky for the panel
-// lifetime because auto-scroll is a no-op on static content.
-let activeLiveMode: boolean = false;
-
-// ============================================================================
-// Public API
+// Per-panel state class
 // ============================================================================
 
 /**
- * Open the Markdown Browser for a given file.
- * If the browser is already open, navigates to the file.
+ * Encapsulates all mutable state for a single MD Browser WebviewPanel.
+ * Multiple instances may be alive simultaneously (e.g. one live-trail panel
+ * plus several static browser panels opened from the context menu).
  */
-export function openMarkdownBrowser(
-    context: vscode.ExtensionContext,
-    filePath: string,
-    options?: { liveMode?: boolean },
-): void {
-    try {
-        if (MD_BROWSER_DEBUG) debugLog(`[MdBrowser] openMarkdownBrowser file=${filePath} liveMode=${options?.liveMode === true}`, 'INFO', 'mdBrowser');
+class MdBrowserPanel {
+    private readonly _panel: vscode.WebviewPanel;
+    private readonly _history: NavigationHistory;
+    private readonly _context: vscode.ExtensionContext;
+    private _liveMode: boolean;
+    private _pendingInitialFile?: string;
+    private _fileWatcher?: vscode.FileSystemWatcher;
+    private _fileWatcherDebounce?: ReturnType<typeof setTimeout>;
+    private readonly _onDisposeCallback: () => void;
 
-        if (activePanel) {
-            // Reuse existing panel — navigate to new file
-            activePanel.reveal(vscode.ViewColumn.Active);
-            // Upgrade (never downgrade) live mode: opening the live-trail
-            // via the Live button when the panel is already showing some
-            // static doc should flip the panel into live mode. But a
-            // subsequent static open shouldn't clear live mode.
-            if (options?.liveMode === true) {
-                activeLiveMode = true;
-            }
-            navigateToFile(filePath, 'other');
-            return;
-        }
+    constructor(
+        context: vscode.ExtensionContext,
+        filePath: string,
+        liveMode: boolean,
+        onDispose: () => void,
+    ) {
+        this._context = context;
+        this._liveMode = liveMode;
+        this._history = new NavigationHistory();
+        this._pendingInitialFile = filePath;
+        this._onDisposeCallback = onDispose;
 
-        activeLiveMode = options?.liveMode === true;
-
-        activePanelContext = context;
-        activePanelHistory = new NavigationHistory();
-
-        activePanel = vscode.window.createWebviewPanel(
+        this._panel = vscode.window.createWebviewPanel(
             PANEL_VIEW_TYPE,
             PANEL_TITLE,
             vscode.ViewColumn.Active,
@@ -159,79 +145,531 @@ export function openMarkdownBrowser(
             },
         );
 
-        activePanel.webview.html = buildHtml(activePanel.webview, context);
+        this._panel.webview.html = buildHtml(this._panel.webview, context);
 
-        activePanel.webview.onDidReceiveMessage(
-            (msg) => handleMessage(msg),
+        this._panel.webview.onDidReceiveMessage(
+            (msg) => void this._handleMessage(msg),
             undefined,
             context.subscriptions,
         );
 
-        activePanel.onDidDispose(() => {
-            if (activeFileWatcher) {
-                activeFileWatcher.dispose();
-                activeFileWatcher = undefined;
+        this._panel.onDidDispose(() => this._onDispose());
+    }
+
+    // ---- Public API --------------------------------------------------------
+
+    reveal(): void {
+        this._panel.reveal(vscode.ViewColumn.Active);
+    }
+
+    /** Upgrade to live mode (never downgrade). */
+    upgradeLiveMode(): void {
+        this._liveMode = true;
+    }
+
+    navigateTo(filePath: string): void {
+        this._navigateToFile(filePath, 'other');
+    }
+
+    // ---- Lifecycle ---------------------------------------------------------
+
+    private _onDispose(): void {
+        if (this._fileWatcher) {
+            this._fileWatcher.dispose();
+            this._fileWatcher = undefined;
+        }
+        if (this._fileWatcherDebounce !== undefined) {
+            clearTimeout(this._fileWatcherDebounce);
+            this._fileWatcherDebounce = undefined;
+        }
+        this._onDisposeCallback();
+    }
+
+    // ---- Navigation --------------------------------------------------------
+
+    private _navigateToFile(filePath: string, group: string, anchor?: string): void {
+        try {
+            if (MD_BROWSER_DEBUG) debugLog(`[MdBrowser] navigateToFile path=${filePath} group=${group} anchor=${anchor || 'none'}`, 'INFO', 'mdBrowser');
+
+            const absPath = resolveFilePath(filePath);
+            if (!absPath || !fs.existsSync(absPath)) {
+                this._panel.webview.postMessage({ type: 'mdContent', content: '', error: 'File not found: ' + filePath });
+                return;
             }
-            if (activeFileWatcherDebounce !== undefined) {
-                clearTimeout(activeFileWatcherDebounce);
-                activeFileWatcherDebounce = undefined;
+
+            // If it's not a markdown file, open in editor instead
+            if (!absPath.toLowerCase().endsWith('.md')) {
+                vscode.window.showTextDocument(vscode.Uri.file(absPath), { viewColumn: vscode.ViewColumn.Beside });
+                return;
             }
-            activePanel = undefined;
-            activePanelHistory = undefined;
-            activePanelContext = undefined;
-            pendingInitialFile = undefined;
-            activeLiveMode = false;
+
+            this._history.push({ filePath: absPath, group });
+            this._sendFileContent(absPath, anchor);
+            this._watchCurrentFile(absPath);
+            this._sendNavState();
+        } catch (err) {
+            debugLog(`[MdBrowser] navigateToFile error: ${err}`, 'ERROR', 'mdBrowser');
+        }
+    }
+
+    private _sendFileContent(absPath: string, anchor?: string): void {
+        try {
+            const content = fs.readFileSync(absPath, 'utf-8');
+            const wsRoot = WsPaths.wsRoot || '';
+            const relativePath = wsRoot ? path.relative(wsRoot, absPath) : path.basename(absPath);
+
+            this._panel.title = (this._liveMode ? 'MD (live): ' : 'MD: ') + path.basename(absPath);
+            this._panel.webview.postMessage({
+                type: 'mdContent',
+                content,
+                filePath: absPath,
+                relativePath,
+                fileName: path.basename(absPath),
+                anchor,
+                liveMode: this._liveMode,
+            });
+        } catch (err) {
+            debugLog(`[MdBrowser] sendFileContent error: ${err}`, 'ERROR', 'mdBrowser');
+            this._panel.webview.postMessage({ type: 'mdContent', content: '', error: String(err) });
+        }
+    }
+
+    private _sendNavState(): void {
+        this._panel.webview.postMessage({
+            type: 'navState',
+            canGoBack: this._history.canGoBack,
+            canGoForward: this._history.canGoForward,
         });
+    }
 
-        // Store the file path; webview will request it when ready
-        pendingInitialFile = filePath;
+    private _watchCurrentFile(absPath: string): void {
+        try {
+            if (this._fileWatcher) {
+                this._fileWatcher.dispose();
+                this._fileWatcher = undefined;
+            }
+            if (this._fileWatcherDebounce !== undefined) {
+                clearTimeout(this._fileWatcherDebounce);
+                this._fileWatcherDebounce = undefined;
+            }
 
+            const dir = path.dirname(absPath);
+            const name = path.basename(absPath);
+            const pattern = new vscode.RelativePattern(dir, name);
+            this._fileWatcher = vscode.workspace.createFileSystemWatcher(pattern, true, false, true);
+            this._fileWatcher.onDidChange(() => {
+                if (this._fileWatcherDebounce !== undefined) {
+                    clearTimeout(this._fileWatcherDebounce);
+                }
+                this._fileWatcherDebounce = setTimeout(() => {
+                    this._fileWatcherDebounce = undefined;
+                    if (this._history.current?.filePath === absPath) {
+                        this._sendFileContent(absPath);
+                    }
+                }, 200);
+            });
+        } catch (err) {
+            debugLog(`[MdBrowser] watchCurrentFile error: ${err}`, 'ERROR', 'mdBrowser');
+        }
+    }
+
+    // ---- Document picker helpers -------------------------------------------
+
+    private _sendGroups(): void {
+        try {
+            const wsRoot = WsPaths.wsRoot;
+            if (!wsRoot) return;
+
+            const groups: DocPickerGroup[] = [];
+            const projects: { id: string; label: string }[] = [];
+
+            const guidelinesDir = WsPaths.guidelines();
+            if (guidelinesDir && fs.existsSync(guidelinesDir)) {
+                groups.push({ id: 'global', label: 'Guidelines' });
+            }
+
+            const wsDocDir = path.join(wsRoot, 'doc');
+            const wsDocDir2 = path.join(wsRoot, '_doc');
+            if (fs.existsSync(wsDocDir) || fs.existsSync(wsDocDir2)) {
+                groups.push({ id: 'workspace', label: 'Workspace Docs' });
+            }
+
+            const notesDir = WsPaths.ai('notes');
+            if (notesDir && fs.existsSync(notesDir)) {
+                groups.push({ id: 'notes', label: 'Notes' });
+            }
+
+            const rolesDir = WsPaths.ai('roles');
+            if (rolesDir && fs.existsSync(rolesDir)) {
+                groups.push({ id: 'roles', label: 'Roles' });
+            }
+
+            const questsDir = WsPaths.ai('quests');
+            const quests: { id: string; label: string }[] = [];
+            if (questsDir && fs.existsSync(questsDir)) {
+                groups.push({ id: 'quests', label: 'Quests' });
+                const entries = fs.readdirSync(questsDir, { withFileTypes: true });
+                for (const entry of entries) {
+                    if (entry.isDirectory()) {
+                        quests.push({ id: 'quest:' + entry.name, label: entry.name });
+                    }
+                }
+                quests.sort((a, b) => a.label.localeCompare(b.label));
+            }
+
+            const copilotInstr = WsPaths.github('copilot-instructions.md');
+            if (copilotInstr && fs.existsSync(copilotInstr)) {
+                groups.push({ id: 'copilot-instructions', label: 'Copilot Instructions' });
+            }
+
+            detectProjects(wsRoot).forEach(proj => {
+                const projGuidelinesDir = path.join(wsRoot, proj.relPath, '_copilot_guidelines');
+                const projDocDir = path.join(wsRoot, proj.relPath, 'doc');
+                if (fs.existsSync(projGuidelinesDir)) {
+                    projects.push({ id: 'project:' + proj.relPath, label: proj.name + ' (guidelines)' });
+                }
+                if (fs.existsSync(projDocDir)) {
+                    projects.push({ id: 'docproject:' + proj.relPath, label: proj.name + ' (docs)' });
+                }
+            });
+
+            if (projects.length > 0) {
+                groups.push({ id: 'project', label: 'Projects' });
+            }
+
+            groups.push({ id: 'other', label: 'Other file:' });
+
+            this._panel.webview.postMessage({
+                type: PICKER_PREFIX + 'Groups',
+                groups,
+                projects,
+                quests,
+            });
+        } catch (err) {
+            debugLog(`[MdBrowser] sendGroups error: ${err}`, 'ERROR', 'mdBrowser');
+        }
+    }
+
+    private _sendFilesForGroup(group: string): void {
+        try {
+            const dir = resolveGroupDir(group);
+            if (!dir || !fs.existsSync(dir)) {
+                this._panel.webview.postMessage({ type: PICKER_PREFIX + 'Files', files: [] });
+                return;
+            }
+
+            const files = listMdFiles(dir);
+            this._panel.webview.postMessage({
+                type: PICKER_PREFIX + 'Files',
+                files,
+            });
+        } catch (err) {
+            debugLog(`[MdBrowser] sendFilesForGroup error: ${err}`, 'ERROR', 'mdBrowser');
+        }
+    }
+
+    // ---- Special link handling ---------------------------------------------
+
+    private _handleSpecialLink(resolved: ResolvedLink): void {
+        switch (resolved.type) {
+            case 'issue':
+                vscode.window.showInformationMessage(`Issue link: ${resolved.identifier}`);
+                break;
+
+            case 'todo':
+                if (resolved.identifier) {
+                    const parts = resolved.identifier.split('/');
+                    if (parts.length >= 2) {
+                        const questId = parts[0];
+                        const todoId = parts.slice(1).join('/');
+                        vscode.commands.executeCommand('tomAi.showTodo', questId, todoId);
+                    }
+                }
+                break;
+
+            case 'trail':
+                if (resolved.identifier) {
+                    vscode.window.showInformationMessage(`Trail link: ${resolved.identifier}`);
+                }
+                break;
+
+            case 'quest':
+                // Navigate to quest overview within this panel
+                if (resolved.filePath) {
+                    this._navigateToFile(resolved.filePath, 'other');
+                } else if (resolved.identifier) {
+                    vscode.commands.executeCommand('tomAi.showQuest', resolved.identifier);
+                }
+                break;
+
+            case 'test':
+                if (resolved.identifier) {
+                    const [filePath, testName] = resolved.identifier.split('::');
+                    if (testName) {
+                        vscode.window.showInformationMessage(`Test link: ${filePath} :: ${testName}`);
+                    } else {
+                        const wsRoot = WsPaths.wsRoot;
+                        if (wsRoot) {
+                            const fullPath = path.join(wsRoot, filePath);
+                            if (fs.existsSync(fullPath)) {
+                                vscode.window.showTextDocument(vscode.Uri.file(fullPath), { viewColumn: vscode.ViewColumn.Beside });
+                            }
+                        }
+                    }
+                }
+                break;
+
+            default:
+                if (resolved.identifier) {
+                    vscode.window.showInformationMessage(`Special link: ${resolved.type}:${resolved.identifier}`);
+                }
+        }
+    }
+
+    // ---- Message handler ---------------------------------------------------
+
+    private async _handleMessage(msg: any): Promise<void> {
+        try {
+            if (MD_BROWSER_DEBUG) debugLog(`[MdBrowser] handleMessage type=${msg?.type}`, 'INFO', 'mdBrowser');
+
+            switch (msg?.type) {
+                case 'webviewReady':
+                    this._sendGroups();
+                    if (this._pendingInitialFile) {
+                        this._navigateToFile(this._pendingInitialFile, 'other');
+                        this._pendingInitialFile = undefined;
+                    }
+                    break;
+
+                case PICKER_PREFIX + 'GetGroups':
+                    this._sendGroups();
+                    break;
+
+                case PICKER_PREFIX + 'GetFiles':
+                    this._sendFilesForGroup(String(msg.group || ''));
+                    break;
+
+                case PICKER_PREFIX + 'LoadFile': {
+                    const group = String(msg.group || '');
+                    const file = String(msg.file || '');
+                    if (group === 'other') {
+                        this._navigateToFile(file, group);
+                    } else {
+                        const dir = resolveGroupDir(group);
+                        if (dir) {
+                            this._navigateToFile(path.join(dir, file), group);
+                        }
+                    }
+                    break;
+                }
+
+                case PICKER_PREFIX + 'BrowseFile': {
+                    const uris = await vscode.window.showOpenDialog({
+                        canSelectFiles: true,
+                        canSelectFolders: false,
+                        canSelectMany: false,
+                        filters: { 'Markdown': ['md'], 'All Files': ['*'] },
+                        defaultUri: WsPaths.wsRoot ? vscode.Uri.file(WsPaths.wsRoot) : undefined,
+                    });
+                    if (uris && uris.length > 0) {
+                        const filePath = uris[0].fsPath;
+                        const wsRoot = WsPaths.wsRoot || '';
+                        const relPath = wsRoot ? path.relative(wsRoot, filePath) : filePath;
+                        this._panel.webview.postMessage({
+                            type: PICKER_PREFIX + 'BrowsedFile',
+                            file: relPath,
+                        });
+                        this._navigateToFile(filePath, 'other');
+                    }
+                    break;
+                }
+
+                case 'goBack': {
+                    const back = this._history.goBack();
+                    if (back) {
+                        this._sendFileContent(back.filePath);
+                        this._sendNavState();
+                    }
+                    break;
+                }
+
+                case 'goForward': {
+                    const fwd = this._history.goForward();
+                    if (fwd) {
+                        this._sendFileContent(fwd.filePath);
+                        this._sendNavState();
+                    }
+                    break;
+                }
+
+                case 'navigateLink': {
+                    const linkHref = String(msg.href || '');
+                    const currentFile = this._history.current?.filePath || '';
+                    if (!linkHref) break;
+
+                    const context: LinkContext = {
+                        currentFilePath: currentFile,
+                        workspaceRoot: WsPaths.wsRoot,
+                    };
+
+                    const resolved = resolveLink(linkHref, context);
+                    if (MD_BROWSER_DEBUG) {
+                        debugLog(`[MdBrowser] resolveLink href=${linkHref} => type=${resolved.type} action=${resolved.action}`, 'INFO', 'mdBrowser');
+                    }
+
+                    switch (resolved.action) {
+                        case 'scroll-to-anchor':
+                            this._panel.webview.postMessage({
+                                type: 'scrollToAnchor',
+                                anchor: resolved.anchor,
+                            });
+                            break;
+
+                        case 'navigate-md':
+                            if (resolved.filePath) {
+                                this._navigateToFile(resolved.filePath, 'other');
+                            }
+                            break;
+
+                        case 'navigate-md-anchor':
+                            if (resolved.filePath) {
+                                this._navigateToFile(resolved.filePath, 'other', resolved.anchor);
+                            }
+                            break;
+
+                        case 'open-in-editor':
+                            if (resolved.filePath) {
+                                vscode.window.showTextDocument(
+                                    vscode.Uri.file(resolved.filePath),
+                                    { viewColumn: vscode.ViewColumn.Beside },
+                                );
+                            }
+                            break;
+
+                        case 'open-in-editor-line':
+                            if (resolved.filePath) {
+                                const lineNumber = resolved.lineNumber || 1;
+                                vscode.window.showTextDocument(
+                                    vscode.Uri.file(resolved.filePath),
+                                    {
+                                        viewColumn: vscode.ViewColumn.Beside,
+                                        selection: new vscode.Range(lineNumber - 1, 0, lineNumber - 1, 0),
+                                    },
+                                );
+                            }
+                            break;
+
+                        case 'open-external':
+                            if (resolved.identifier) {
+                                vscode.env.openExternal(vscode.Uri.parse(resolved.identifier));
+                            }
+                            break;
+
+                        case 'run-command':
+                            this._handleSpecialLink(resolved);
+                            break;
+
+                        case 'error':
+                            vscode.window.showWarningMessage(resolved.error || 'Link could not be resolved');
+                            break;
+                    }
+                    break;
+                }
+
+                case 'openInEditor': {
+                    const current = this._history.current;
+                    if (current && fs.existsSync(current.filePath)) {
+                        vscode.window.showTextDocument(
+                            vscode.Uri.file(current.filePath),
+                            { viewColumn: vscode.ViewColumn.Beside },
+                        );
+                    }
+                    break;
+                }
+
+                case 'openExternal': {
+                    const current = this._history.current;
+                    if (current && fs.existsSync(current.filePath)) {
+                        openInExternalApplication(current.filePath);
+                    }
+                    break;
+                }
+
+                case 'reload': {
+                    const current = this._history.current;
+                    if (current && fs.existsSync(current.filePath)) {
+                        this._sendFileContent(current.filePath);
+                    } else {
+                        this._panel.webview.postMessage({
+                            type: 'mdContent', content: '', error: 'No file to reload.',
+                        });
+                    }
+                    break;
+                }
+            }
+        } catch (err) {
+            debugLog(`[MdBrowser] handleMessage error: ${err}`, 'ERROR', 'mdBrowser');
+        }
+    }
+}
+
+// ============================================================================
+// Panel singletons
+// ============================================================================
+
+/**
+ * Singleton for the live-trail panel (`tomAi.openInMdBrowserLive`).
+ * Reused on every live-open so the trail always updates in the same window.
+ */
+let livePanelInstance: MdBrowserPanel | undefined;
+
+// ============================================================================
+// Public API
+// ============================================================================
+
+/**
+ * Open the Markdown Browser for a given file.
+ *
+ * - liveMode: true  → reuses the live-panel singleton (auto-scroll).
+ * - liveMode: false (default) → always creates a NEW panel so the caller
+ *   never disturbs any existing browser window.
+ */
+export function openMarkdownBrowser(
+    context: vscode.ExtensionContext,
+    filePath: string,
+    options?: { liveMode?: boolean },
+): void {
+    try {
+        if (MD_BROWSER_DEBUG) debugLog(`[MdBrowser] openMarkdownBrowser file=${filePath} liveMode=${options?.liveMode === true}`, 'INFO', 'mdBrowser');
+
+        if (options?.liveMode === true) {
+            // --- Live panel: reuse singleton ---
+            if (livePanelInstance) {
+                livePanelInstance.reveal();
+                livePanelInstance.upgradeLiveMode();
+                livePanelInstance.navigateTo(filePath);
+                return;
+            }
+            livePanelInstance = new MdBrowserPanel(context, filePath, true, () => {
+                livePanelInstance = undefined;
+            });
+        } else {
+            // --- Static panel: always open a fresh window ---
+            new MdBrowserPanel(context, filePath, false, () => {
+                // No singleton to clear — the panel is self-contained.
+            });
+        }
     } catch (err) {
         debugLog(`[MdBrowser] openMarkdownBrowser error: ${err}`, 'ERROR', 'mdBrowser');
     }
 }
 
-function watchCurrentFile(absPath: string): void {
-    try {
-        if (activeFileWatcher) {
-            activeFileWatcher.dispose();
-            activeFileWatcher = undefined;
-        }
-        if (activeFileWatcherDebounce !== undefined) {
-            clearTimeout(activeFileWatcherDebounce);
-            activeFileWatcherDebounce = undefined;
-        }
-
-        const dir = path.dirname(absPath);
-        const name = path.basename(absPath);
-        const pattern = new vscode.RelativePattern(dir, name);
-        activeFileWatcher = vscode.workspace.createFileSystemWatcher(pattern, true, false, true);
-        activeFileWatcher.onDidChange(() => {
-            // Debounce so a burst of live-trail writes (begin/append/…)
-            // folds into one re-render instead of flashing the view
-            // 20+ times per turn. 200 ms is well below the human
-            // perception threshold for progress feeds but well above
-            // the rate at which the Anthropic tool loop writes events.
-            if (activeFileWatcherDebounce !== undefined) {
-                clearTimeout(activeFileWatcherDebounce);
-            }
-            activeFileWatcherDebounce = setTimeout(() => {
-                activeFileWatcherDebounce = undefined;
-                if (activePanelHistory?.current?.filePath === absPath) {
-                    sendFileContent(absPath);
-                }
-            }, 200);
-        });
-    } catch (err) {
-        debugLog(`[MdBrowser] watchCurrentFile error: ${err}`, 'ERROR', 'mdBrowser');
-    }
-}
-
 /**
- * Register the "@T: Open in MD Browser" command.
+ * Register the "@T: Open in MD Browser" command and the live variant.
  */
 export function registerMarkdownBrowser(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
+        // Context-menu / palette: always opens a NEW browser window.
         vscode.commands.registerCommand('tomAi.openInMdBrowser', (uri?: vscode.Uri) => {
             try {
                 let filePath: string | undefined;
@@ -274,189 +712,21 @@ export function registerMarkdownBrowser(context: vscode.ExtensionContext): void 
 }
 
 // ============================================================================
-// Navigation
+// Utility / pure functions (no per-panel state)
 // ============================================================================
-
-function navigateToFile(filePath: string, group: string, anchor?: string): void {
-    try {
-        if (!activePanel || !activePanelHistory) return;
-        if (MD_BROWSER_DEBUG) debugLog(`[MdBrowser] navigateToFile path=${filePath} group=${group} anchor=${anchor || 'none'}`, 'INFO', 'mdBrowser');
-
-        const absPath = resolveFilePath(filePath);
-        if (!absPath || !fs.existsSync(absPath)) {
-            activePanel.webview.postMessage({ type: 'mdContent', content: '', error: 'File not found: ' + filePath });
-            return;
-        }
-
-        // If it's not a markdown file, open in editor instead
-        if (!absPath.toLowerCase().endsWith('.md')) {
-            vscode.window.showTextDocument(vscode.Uri.file(absPath), { viewColumn: vscode.ViewColumn.Beside });
-            return;
-        }
-
-        activePanelHistory.push({ filePath: absPath, group });
-        sendFileContent(absPath, anchor);
-        watchCurrentFile(absPath);
-        sendNavState();
-    } catch (err) {
-        debugLog(`[MdBrowser] navigateToFile error: ${err}`, 'ERROR', 'mdBrowser');
-    }
-}
-
-function sendFileContent(absPath: string, anchor?: string): void {
-    try {
-        if (!activePanel) return;
-        const content = fs.readFileSync(absPath, 'utf-8');
-        const wsRoot = WsPaths.wsRoot || '';
-        const relativePath = wsRoot ? path.relative(wsRoot, absPath) : path.basename(absPath);
-
-        activePanel.title = (activeLiveMode ? 'MD (live): ' : 'MD: ') + path.basename(absPath);
-        activePanel.webview.postMessage({
-            type: 'mdContent',
-            content,
-            filePath: absPath,
-            relativePath,
-            fileName: path.basename(absPath),
-            anchor,  // Pass anchor for scrolling after render
-            liveMode: activeLiveMode,
-        });
-    } catch (err) {
-        debugLog(`[MdBrowser] sendFileContent error: ${err}`, 'ERROR', 'mdBrowser');
-        activePanel?.webview.postMessage({ type: 'mdContent', content: '', error: String(err) });
-    }
-}
-
-function sendNavState(): void {
-    if (!activePanel || !activePanelHistory) return;
-    activePanel.webview.postMessage({
-        type: 'navState',
-        canGoBack: activePanelHistory.canGoBack,
-        canGoForward: activePanelHistory.canGoForward,
-    });
-}
 
 function resolveFilePath(filePath: string): string | undefined {
     try {
         const wsRoot = WsPaths.wsRoot;
         if (!wsRoot) return undefined;
 
-        // Absolute path
         if (path.isAbsolute(filePath)) {
             return filePath;
         }
 
-        // Relative to workspace root
         return path.join(wsRoot, filePath);
     } catch {
         return undefined;
-    }
-}
-
-// ============================================================================
-// Document Picker Groups (reuses same categories as @WS Documentation)
-// ============================================================================
-
-function sendGroups(): void {
-    if (!activePanel) return;
-    try {
-        const wsRoot = WsPaths.wsRoot;
-        if (!wsRoot) return;
-
-        const groups: DocPickerGroup[] = [];
-        const projects: { id: string; label: string }[] = [];
-
-        // Guidelines groups
-        const guidelinesDir = WsPaths.guidelines();
-        if (guidelinesDir && fs.existsSync(guidelinesDir)) {
-            groups.push({ id: 'global', label: 'Guidelines' });
-        }
-
-        // Documentation groups
-        const wsDocDir = path.join(wsRoot, 'doc');
-        const wsDocDir2 = path.join(wsRoot, '_doc');
-        if (fs.existsSync(wsDocDir) || fs.existsSync(wsDocDir2)) {
-            groups.push({ id: 'workspace', label: 'Workspace Docs' });
-        }
-
-        // Notes
-        const notesDir = WsPaths.ai('notes');
-        if (notesDir && fs.existsSync(notesDir)) {
-            groups.push({ id: 'notes', label: 'Notes' });
-        }
-
-        // Roles
-        const rolesDir = WsPaths.ai('roles');
-        if (rolesDir && fs.existsSync(rolesDir)) {
-            groups.push({ id: 'roles', label: 'Roles' });
-        }
-
-        // Quests
-        const questsDir = WsPaths.ai('quests');
-        const quests: { id: string; label: string }[] = [];
-        if (questsDir && fs.existsSync(questsDir)) {
-            groups.push({ id: 'quests', label: 'Quests' });
-            // Collect quest subfolders
-            const entries = fs.readdirSync(questsDir, { withFileTypes: true });
-            for (const entry of entries) {
-                if (entry.isDirectory()) {
-                    quests.push({ id: 'quest:' + entry.name, label: entry.name });
-                }
-            }
-            quests.sort((a, b) => a.label.localeCompare(b.label));
-        }
-
-        // Copilot instructions
-        const copilotInstr = WsPaths.github('copilot-instructions.md');
-        if (copilotInstr && fs.existsSync(copilotInstr)) {
-            groups.push({ id: 'copilot-instructions', label: 'Copilot Instructions' });
-        }
-
-        // Detect projects with guidelines or docs
-        detectProjects(wsRoot).forEach(proj => {
-            const projGuidelinesDir = path.join(wsRoot, proj.relPath, '_copilot_guidelines');
-            const projDocDir = path.join(wsRoot, proj.relPath, 'doc');
-            if (fs.existsSync(projGuidelinesDir)) {
-                projects.push({ id: 'project:' + proj.relPath, label: proj.name + ' (guidelines)' });
-            }
-            if (fs.existsSync(projDocDir)) {
-                projects.push({ id: 'docproject:' + proj.relPath, label: proj.name + ' (docs)' });
-            }
-        });
-
-        if (projects.length > 0) {
-            groups.push({ id: 'project', label: 'Projects' });
-        }
-
-        // Other file
-        groups.push({ id: 'other', label: 'Other file:' });
-
-        activePanel.webview.postMessage({
-            type: PICKER_PREFIX + 'Groups',
-            groups,
-            projects,
-            quests,
-        });
-    } catch (err) {
-        debugLog(`[MdBrowser] sendGroups error: ${err}`, 'ERROR', 'mdBrowser');
-    }
-}
-
-function sendFilesForGroup(group: string): void {
-    if (!activePanel) return;
-    try {
-        const dir = resolveGroupDir(group);
-        if (!dir || !fs.existsSync(dir)) {
-            activePanel.webview.postMessage({ type: PICKER_PREFIX + 'Files', files: [] });
-            return;
-        }
-
-        const files = listMdFiles(dir);
-        activePanel.webview.postMessage({
-            type: PICKER_PREFIX + 'Files',
-            files,
-        });
-    } catch (err) {
-        debugLog(`[MdBrowser] sendFilesForGroup error: ${err}`, 'ERROR', 'mdBrowser');
     }
 }
 
@@ -536,268 +806,6 @@ function detectProjects(wsRoot: string): Array<{ name: string; relPath: string }
         return results.sort((a, b) => a.name.localeCompare(b.name));
     } catch {
         return [];
-    }
-}
-
-// ============================================================================
-// Special Link Handling
-// ============================================================================
-
-/**
- * Handle special link types (issue, todo, trail, quest, test).
- * These are extensible — new types can be added via registerLinkHandler().
- */
-function handleSpecialLink(resolved: ResolvedLink): void {
-    switch (resolved.type) {
-        case 'issue':
-            // TODO: Integrate with GitHub/GitLab issue viewer
-            vscode.window.showInformationMessage(`Issue link: ${resolved.identifier}`);
-            break;
-
-        case 'todo':
-            // TODO: Open todo in todo editor
-            if (resolved.identifier) {
-                const parts = resolved.identifier.split('/');
-                if (parts.length >= 2) {
-                    const questId = parts[0];
-                    const todoId = parts.slice(1).join('/');
-                    vscode.commands.executeCommand('tomAi.showTodo', questId, todoId);
-                }
-            }
-            break;
-
-        case 'trail':
-            // TODO: Open trail entry in trail viewer
-            if (resolved.identifier) {
-                vscode.window.showInformationMessage(`Trail link: ${resolved.identifier}`);
-            }
-            break;
-
-        case 'quest':
-            // Navigate to quest overview if resolved, otherwise show quest picker
-            if (resolved.filePath) {
-                navigateToFile(resolved.filePath, 'other');
-            } else if (resolved.identifier) {
-                vscode.commands.executeCommand('tomAi.showQuest', resolved.identifier);
-            }
-            break;
-
-        case 'test':
-            // TODO: Run or navigate to test
-            if (resolved.identifier) {
-                const [filePath, testName] = resolved.identifier.split('::');
-                if (testName) {
-                    vscode.window.showInformationMessage(`Test link: ${filePath} :: ${testName}`);
-                } else {
-                    // Just open the test file
-                    const wsRoot = WsPaths.wsRoot;
-                    if (wsRoot) {
-                        const fullPath = path.join(wsRoot, filePath);
-                        if (fs.existsSync(fullPath)) {
-                            vscode.window.showTextDocument(vscode.Uri.file(fullPath), { viewColumn: vscode.ViewColumn.Beside });
-                        }
-                    }
-                }
-            }
-            break;
-
-        default:
-            if (resolved.identifier) {
-                vscode.window.showInformationMessage(`Special link: ${resolved.type}:${resolved.identifier}`);
-            }
-    }
-}
-
-// ============================================================================
-// Message handling
-// ============================================================================
-
-async function handleMessage(msg: any): Promise<void> {
-    try {
-        if (MD_BROWSER_DEBUG) debugLog(`[MdBrowser] handleMessage type=${msg?.type}`, 'INFO', 'mdBrowser');
-
-        switch (msg?.type) {
-            case 'webviewReady':
-                // Webview has finished initializing — send initial content
-                sendGroups();
-                if (pendingInitialFile) {
-                    navigateToFile(pendingInitialFile, 'other');
-                    pendingInitialFile = undefined;
-                }
-                break;
-
-            case PICKER_PREFIX + 'GetGroups':
-                sendGroups();
-                break;
-
-            case PICKER_PREFIX + 'GetFiles':
-                sendFilesForGroup(String(msg.group || ''));
-                break;
-
-            case PICKER_PREFIX + 'LoadFile': {
-                const group = String(msg.group || '');
-                const file = String(msg.file || '');
-                if (group === 'other') {
-                    navigateToFile(file, group);
-                } else {
-                    const dir = resolveGroupDir(group);
-                    if (dir) {
-                        navigateToFile(path.join(dir, file), group);
-                    }
-                }
-                break;
-            }
-
-            case PICKER_PREFIX + 'BrowseFile': {
-                const uris = await vscode.window.showOpenDialog({
-                    canSelectFiles: true,
-                    canSelectFolders: false,
-                    canSelectMany: false,
-                    filters: { 'Markdown': ['md'], 'All Files': ['*'] },
-                    defaultUri: WsPaths.wsRoot ? vscode.Uri.file(WsPaths.wsRoot) : undefined,
-                });
-                if (uris && uris.length > 0) {
-                    const filePath = uris[0].fsPath;
-                    const wsRoot = WsPaths.wsRoot || '';
-                    const relPath = wsRoot ? path.relative(wsRoot, filePath) : filePath;
-                    activePanel?.webview.postMessage({
-                        type: PICKER_PREFIX + 'BrowsedFile',
-                        file: relPath,
-                    });
-                    navigateToFile(filePath, 'other');
-                }
-                break;
-            }
-
-            case 'goBack': {
-                if (!activePanelHistory) break;
-                const back = activePanelHistory.goBack();
-                if (back) {
-                    sendFileContent(back.filePath);
-                    sendNavState();
-                }
-                break;
-            }
-
-            case 'goForward': {
-                if (!activePanelHistory) break;
-                const fwd = activePanelHistory.goForward();
-                if (fwd) {
-                    sendFileContent(fwd.filePath);
-                    sendNavState();
-                }
-                break;
-            }
-
-            case 'navigateLink': {
-                const linkHref = String(msg.href || '');
-                const currentFile = activePanelHistory?.current?.filePath || '';
-                if (!linkHref) break;
-
-                const context: LinkContext = {
-                    currentFilePath: currentFile,
-                    workspaceRoot: WsPaths.wsRoot,
-                };
-
-                const resolved = resolveLink(linkHref, context);
-                if (MD_BROWSER_DEBUG) {
-                    debugLog(`[MdBrowser] resolveLink href=${linkHref} => type=${resolved.type} action=${resolved.action}`, 'INFO', 'mdBrowser');
-                }
-
-                switch (resolved.action) {
-                    case 'scroll-to-anchor':
-                        // Tell webview to scroll to anchor
-                        activePanel?.webview.postMessage({
-                            type: 'scrollToAnchor',
-                            anchor: resolved.anchor,
-                        });
-                        break;
-
-                    case 'navigate-md':
-                        if (resolved.filePath) {
-                            navigateToFile(resolved.filePath, 'other');
-                        }
-                        break;
-
-                    case 'navigate-md-anchor':
-                        if (resolved.filePath) {
-                            navigateToFile(resolved.filePath, 'other', resolved.anchor);
-                        }
-                        break;
-
-                    case 'open-in-editor':
-                        if (resolved.filePath) {
-                            vscode.window.showTextDocument(
-                                vscode.Uri.file(resolved.filePath),
-                                { viewColumn: vscode.ViewColumn.Beside },
-                            );
-                        }
-                        break;
-
-                    case 'open-in-editor-line':
-                        if (resolved.filePath) {
-                            const lineNumber = resolved.lineNumber || 1;
-                            vscode.window.showTextDocument(
-                                vscode.Uri.file(resolved.filePath),
-                                {
-                                    viewColumn: vscode.ViewColumn.Beside,
-                                    selection: new vscode.Range(lineNumber - 1, 0, lineNumber - 1, 0),
-                                },
-                            );
-                        }
-                        break;
-
-                    case 'open-external':
-                        if (resolved.identifier) {
-                            vscode.env.openExternal(vscode.Uri.parse(resolved.identifier));
-                        }
-                        break;
-
-                    case 'run-command':
-                        // Handle special link types (issue, todo, trail, quest, test)
-                        handleSpecialLink(resolved);
-                        break;
-
-                    case 'error':
-                        vscode.window.showWarningMessage(resolved.error || 'Link could not be resolved');
-                        break;
-                }
-                break;
-            }
-
-            case 'openInEditor': {
-                const current = activePanelHistory?.current;
-                if (current && fs.existsSync(current.filePath)) {
-                    vscode.window.showTextDocument(
-                        vscode.Uri.file(current.filePath),
-                        { viewColumn: vscode.ViewColumn.Beside },
-                    );
-                }
-                break;
-            }
-
-            case 'openExternal': {
-                const current = activePanelHistory?.current;
-                if (current && fs.existsSync(current.filePath)) {
-                    openInExternalApplication(current.filePath);
-                }
-                break;
-            }
-
-            case 'reload': {
-                const current = activePanelHistory?.current;
-                if (current && fs.existsSync(current.filePath)) {
-                    sendFileContent(current.filePath);
-                } else if (activePanel) {
-                    activePanel.webview.postMessage({
-                        type: 'mdContent', content: '', error: 'No file to reload.',
-                    });
-                }
-                break;
-            }
-        }
-    } catch (err) {
-        debugLog(`[MdBrowser] handleMessage error: ${err}`, 'ERROR', 'mdBrowser');
     }
 }
 
@@ -1071,17 +1079,17 @@ function buildHtml(webview: vscode.Webview, context: vscode.ExtensionContext): s
             // ---- Anchor Scrolling ----
             function scrollToAnchor(anchor) {
                 if (!anchor || !contentArea) return false;
-                
+
                 // Try finding element by ID first (standard anchor)
                 var target = document.getElementById(anchor);
-                
+
                 // If not found, try common heading ID patterns generated by marked.js
                 if (!target) {
                     // marked.js generates IDs by lowercasing and replacing spaces/special chars
                     var normalizedAnchor = anchor.toLowerCase().replace(/[^\\w\\s-]/g, '').replace(/\\s+/g, '-');
                     target = document.getElementById(normalizedAnchor);
                 }
-                
+
                 // Try finding by heading text content
                 if (!target) {
                     var headings = contentArea.querySelectorAll('h1, h2, h3, h4, h5, h6');
@@ -1095,7 +1103,7 @@ function buildHtml(webview: vscode.Webview, context: vscode.ExtensionContext): s
                         }
                     }
                 }
-                
+
                 if (target) {
                     target.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     // Add a brief highlight effect
