@@ -1,0 +1,81 @@
+# ============================================================================
+# Tom VS Code Extension — USER-GLOBAL configuration sample
+# ============================================================================
+#
+# Copy this file to:
+#   Linux / macOS : ~/.tom/vscode/tom_vscode_extension.user.yaml
+#   Windows       : %USERPROFILE%\.tom\vscode\tom_vscode_extension.user.yaml
+#
+# …then rename by dropping the `.sample` infix. The extension auto-detects
+# the file on the next window reload.
+#
+# ----------------------------------------------------------------------------
+# What this file is for
+# ----------------------------------------------------------------------------
+#
+# Values that stay the same across every workspace on this machine:
+#   - user identity (userName)
+#   - preferred model / profile defaults
+#   - Ollama URL (if non-default)
+#   - bridge binary paths
+#   - favorites + reusable personal templates
+#
+# These values are OPTIONAL — leaving this file absent keeps the current
+# "everything in the workspace config" behavior unchanged. When the file
+# IS present, its sections are layered UNDER the workspace config:
+#
+#   defaults < user-global (this file) < workspace <.tom/*.json|yaml>
+#
+# Per-section semantics: a section set in the workspace file wins
+# outright for that section. A section absent in the workspace file
+# falls through to the value in this file. That's why this file is
+# safe to create even when your workspace config already holds every-
+# thing — the user-global file is only consulted for gaps, so it
+# effectively adds "default-if-the-workspace-doesn't-override" behavior.
+#
+# ----------------------------------------------------------------------------
+# Example content — every section below is optional
+# ----------------------------------------------------------------------------
+
+# User identity. Used as a chat variable (${chat.userName}) and as a
+# default author label for trail / todo metadata.
+userName: 'Alice'
+
+# Local LLM cross-workspace defaults. Only the Ollama URL is typically
+# worth overriding here — model / profile choices tend to be workspace-
+# specific.
+localLlm:
+  ollamaUrl: 'http://localhost:11434'
+
+# Copilot cross-workspace defaults — user preference for showing the
+# answer-file-ready notification.
+copilot:
+  showNotifications: true
+
+# Bridge binary resolution. If you keep a custom build of
+# `tom_ai_bridge` on this machine, pin its path here so every
+# workspace picks it up without per-project configuration.
+bridge:
+  binaryPath: ''  # e.g. '~/bin/tom_ai_bridge'
+  # Platform-specific overrides — only fill in what you use.
+  executables: {}
+
+# Favorites that follow you across workspaces.
+favorites: []
+
+# Reusable personal prompt templates. Duplicates of the workspace
+# config's `copilot.templates` / `tomAiChat.templates` that you always
+# want available — the workspace-level copy still wins when a key is
+# present in both.
+#
+# copilot:
+#   templates:
+#     daily_review:
+#       label: 'Daily review'
+#       template: 'Summarise what I worked on yesterday: ${selection}'
+#
+# tomAiChat:
+#   templates:
+#     deep_dive:
+#       label: 'Deep dive'
+#       description: 'Investigate an unfamiliar area of the codebase'

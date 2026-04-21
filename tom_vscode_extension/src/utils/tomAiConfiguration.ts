@@ -38,10 +38,47 @@ export interface TomAiConfigDefaults {
     favorites: FavoriteEntry[];
 }
 
+/**
+ * User-global preferences file — overlaid on top of the workspace
+ * config for values that are the same across every workspace on this
+ * machine (user identity, preferred model/profile defaults, Ollama
+ * URL, bridge binary paths, reusable personal templates).
+ *
+ * Resolution: `<homedir>/.tom/vscode/tom_vscode_extension.user.yaml`.
+ * Path built via `path.join(os.homedir(), ...)` so it resolves to
+ * `~/.tom/vscode/...` on Linux/macOS and `%USERPROFILE%\.tom\vscode\...`
+ * on Windows without any extra handling.
+ *
+ * **Fallback-compatible by design** — if the file is missing, the
+ * extension falls back to the existing single-file workspace config
+ * and behaves exactly as before. Section keys present in the workspace
+ * config still "win" (workspace > user-global); the user-global file
+ * only contributes keys that the workspace config does not define.
+ * This shape means the current "everything in one file" workspace
+ * setup keeps working without migration.
+ *
+ * A documented `*.sample.yaml` file at the same path ships as part of
+ * the extension examples — users rename it to `.yaml` to activate the
+ * overlay. See `doc/example_user_config.yaml` for the reference copy.
+ */
+const USER_GLOBAL_CONFIG_REL = path.join('.tom', 'vscode', 'tom_vscode_extension.user.yaml');
+
+function userGlobalConfigPath(): string {
+    return path.join(os.homedir(), USER_GLOBAL_CONFIG_REL);
+}
+
 export class TomAiConfiguration {
     private static _instance: TomAiConfiguration | undefined;
     private readonly context: vscode.ExtensionContext;
     private config: Record<string, unknown> = {};
+    /**
+     * Raw user-global overlay as parsed from
+     * `<homedir>/.tom/vscode/tom_vscode_extension.user.yaml`. Empty
+     * object when the file is absent. Kept separate from `config` so
+     * the overlay is re-applied on every workspace reload without
+     * conflating the two sources on disk.
+     */
+    private userGlobal: Record<string, unknown> = {};
 
     static init(context: vscode.ExtensionContext): void {
         if (!TomAiConfiguration._instance) {
@@ -176,23 +213,62 @@ export class TomAiConfiguration {
     }
 
     reload(): void {
+        this.userGlobal = this.loadUserGlobal();
+
         const filePath = this.configPath;
         if (!FsUtils.fileExists(filePath)) {
-            this.config = { ...TomAiConfiguration.defaults };
+            this.config = this.mergeConfig({});
             return;
         }
 
         const raw = FsUtils.safeReadFile(filePath);
         if (!raw) {
-            this.config = { ...TomAiConfiguration.defaults };
+            this.config = this.mergeConfig({});
             return;
         }
 
-        const parsed = this.parseConfig(raw, filePath);
-        this.config = {
-            ...TomAiConfiguration.defaults,
-            ...(parsed ?? {}),
-        };
+        const parsed = this.parseConfig(raw, filePath) ?? {};
+        this.config = this.mergeConfig(parsed);
+    }
+
+    /**
+     * Layer the three sources — `defaults < user-global < workspace` —
+     * at the section level. Per-section values from the workspace
+     * config win because they reflect an explicit choice for *this*
+     * project; the user-global file only contributes sections the
+     * workspace config leaves unset. This keeps the existing
+     * single-file workspace setup working as-is: everything in one
+     * workspace file behaves identically whether the user-global file
+     * is present or not.
+     */
+    private mergeConfig(workspace: Record<string, unknown>): Record<string, unknown> {
+        const merged: Record<string, unknown> = { ...TomAiConfiguration.defaults };
+        for (const [key, value] of Object.entries(this.userGlobal)) {
+            if (value !== undefined) { merged[key] = value; }
+        }
+        for (const [key, value] of Object.entries(workspace)) {
+            if (value !== undefined) { merged[key] = value; }
+        }
+        return merged;
+    }
+
+    /** Read the user-global overlay file. Returns `{}` when absent. */
+    private loadUserGlobal(): Record<string, unknown> {
+        const filePath = userGlobalConfigPath();
+        if (!FsUtils.fileExists(filePath)) { return {}; }
+        const raw = FsUtils.safeReadFile(filePath);
+        if (!raw) { return {}; }
+        return this.parseConfig(raw, filePath) ?? {};
+    }
+
+    /** Absolute path to the user-global overlay file (whether it exists or not). */
+    get userGlobalConfigPath(): string {
+        return userGlobalConfigPath();
+    }
+
+    /** `true` iff the user-global overlay file is present on disk. */
+    hasUserGlobalConfig(): boolean {
+        return FsUtils.fileExists(userGlobalConfigPath());
     }
 
     async createDefaultConfig(): Promise<void> {
