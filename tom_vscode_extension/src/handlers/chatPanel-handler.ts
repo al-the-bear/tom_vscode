@@ -39,6 +39,7 @@ import { writeWindowState } from './windowStatusPanel-handler.js';
 import { AnthropicHandler, AnthropicProfile, AnthropicConfiguration } from './anthropic-handler';
 import { ALL_SHARED_TOOLS } from '../tools/tool-executors';
 import { SharedToolDefinition } from '../tools/shared-tool-registry';
+import { chatProviders } from './chat/chatProviderRegistry';
 
 // ============================================================================
 // Answer File Utilities (for Copilot answer file feature)
@@ -315,6 +316,22 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         this._autoHideDelay = context.workspaceState.get('tomAi.copilot.autoHideDelay', 0);
         this._keepContentAfterSend = context.workspaceState.get('copilotKeepContent', false);
         this._setupAnswerFileWatcher();
+        this._registerChatProviders();
+    }
+
+    /**
+     * Wave 3.3 — register per-section providers so message handlers
+     * can look up section-specific behaviour through a map instead
+     * of branching on `section === 'anthropic'`. Only the Anthropic
+     * provider has a non-default trail-summary route today; other
+     * sections fall through to the default path because their hook
+     * is absent.
+     */
+    private _registerChatProviders(): void {
+        chatProviders.clear();
+        chatProviders.register('anthropic', {
+            openTrailSummary: () => this._openAnthropicSummaryTrail(),
+        });
     }
 
     private _setupAnswerFileWatcher(): void {
@@ -625,13 +642,19 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     // openTrailSummaryViewer = Trail Summary Viewer (the per-file
                     // TrailEditorProvider custom editor over the concatenated
                     // *.prompts.md / *.answers.md files in _ai/quests/).
-                    case 'openTrailSummaryViewer':
-                        if (message.section === 'anthropic') {
-                            await this._openAnthropicSummaryTrail();
+                    case 'openTrailSummaryViewer': {
+                        // Wave 3.3 — route through the chat-provider
+                        // registry. Anthropic registers its own trail
+                        // summary opener; every other section falls
+                        // through to the shared default.
+                        const provider = chatProviders.get(message.section);
+                        if (provider?.openTrailSummary) {
+                            await provider.openTrailSummary();
                         } else {
                             await this._openTrailFiles();
                         }
                         break;
+                    }
                     case 'openSessionHistory':
                         // Open `_ai/quests/<quest>/history/history.md` (the
                         // rolling markdown version of the session history
