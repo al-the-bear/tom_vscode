@@ -322,16 +322,90 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     /**
      * Wave 3.3 — register per-section providers so message handlers
      * can look up section-specific behaviour through a map instead
-     * of branching on `section === 'anthropic'`. Only the Anthropic
-     * provider has a non-default trail-summary route today; other
-     * sections fall through to the default path because their hook
-     * is absent.
+     * of branching on `section === 'anthropic'`. Hooks are optional
+     * and the handler falls back to sensible defaults where a hook
+     * isn't registered.
      */
     private _registerChatProviders(): void {
         chatProviders.clear();
+
+        // Anthropic — the richest section: own trail-summary, own
+        // cancel primitive (CTS), own reusable-send entry, and
+        // extra draft fields (model / config / userMessageTemplate)
+        // that other sections don't carry.
         chatProviders.register('anthropic', {
             openTrailSummary: () => this._openAnthropicSummaryTrail(),
+            cancelInFlight: () => {
+                this._activeCts.get('anthropic')?.cancel();
+            },
+            sendReusablePrompt: async (content, state) => {
+                await this._handleSendAnthropic(
+                    content,
+                    state?.profile as string || '',
+                    state?.model as string || '',
+                    state?.config as string || '',
+                    state?.userMessageTemplate as string || '',
+                );
+            },
+            persistDraftExtras: (d) => ({
+                model: (d.model as string) || '',
+                config: (d.config as string) || '',
+                userMessageTemplate: (d.userMessageTemplate as string) || '',
+            }),
+            hydrateDraft: (raw) => ({
+                model: (raw.model as string) || '',
+                config: (raw.config as string) || '',
+                userMessageTemplate: (raw.userMessageTemplate as string) || '',
+            }),
+            deleteProfile: async (profileId) => {
+                const config = loadSendToChatConfig();
+                if (!config || !Array.isArray(config.anthropic?.profiles)) { return false; }
+                const before = config.anthropic!.profiles!.length;
+                config.anthropic!.profiles = config.anthropic!.profiles!.filter((p: any) => p?.id !== profileId);
+                if (config.anthropic!.profiles!.length === before) { return false; }
+                return !!saveSendToChatConfig(config);
+            },
         });
+
+        // Local LLM — just the cancel hook (own CTS like Anthropic).
+        chatProviders.register('localLlm', {
+            cancelInFlight: () => {
+                this._activeCts.get('localLlm')?.cancel();
+            },
+            deleteProfile: async (profileId) => {
+                const config = loadSendToChatConfig();
+                if (!config?.localLlm?.profiles?.[profileId]) { return false; }
+                delete config.localLlm.profiles[profileId];
+                return !!saveSendToChatConfig(config);
+            },
+        });
+
+        // Tom AI Chat — handler owns its own CTS internally; cancel
+        // hook calls the module-level interrupt.
+        chatProviders.register('tomAiChat', {
+            cancelInFlight: () => {
+                interruptTomAiChatHandler();
+            },
+        });
+
+        // AI Conversation — halt through the conversation manager.
+        chatProviders.register('conversation', {
+            cancelInFlight: () => {
+                getAiConversationManager()?.haltConversation('Halted via chat panel stop button');
+            },
+            deleteProfile: async (profileId) => {
+                const config = loadSendToChatConfig();
+                if (!config?.aiConversation?.profiles?.[profileId]) { return false; }
+                delete config.aiConversation.profiles[profileId];
+                return !!saveSendToChatConfig(config);
+            },
+        });
+
+        // Copilot — no non-default hooks today, but the registration
+        // keeps the section discoverable and documents that it uses
+        // the default fallbacks (send-via-Copilot, no extras, no
+        // cancel primitive — Copilot writes to a file and waits).
+        chatProviders.register('copilot', {});
     }
 
     private _setupAnswerFileWatcher(): void {
@@ -1197,16 +1271,11 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         }
         // Route by originating section so the Send icon behaves like typing
         // the reusable prompt into the section's textarea and clicking Send
-        // (spec: user expectation). Unknown / legacy sections fall back to
-        // Copilot for backwards compatibility.
-        if (section === 'anthropic') {
-            await this._handleSendAnthropic(
-                content,
-                anthropicState?.profile || '',
-                anthropicState?.model || '',
-                anthropicState?.config || '',
-                anthropicState?.userMessageTemplate || '',
-            );
+        // (spec: user expectation). Sections without a `sendReusablePrompt`
+        // hook fall back to Copilot for backwards compatibility.
+        const provider = chatProviders.get(section);
+        if (provider?.sendReusablePrompt) {
+            await provider.sendReusablePrompt(content, anthropicState as Record<string, unknown>);
             return;
         }
         await this._handleSendCopilot(content, '__answer_file__', 1);
@@ -1583,30 +1652,15 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     }
 
     /**
-     * Cancel the in-flight turn on the given section. Each section dispatches
-     * to its own cancellation primitive:
-     *  - anthropic / localLlm → cancel the CTS we created before calling the handler
-     *  - tomAiChat            → interruptTomAiChatHandler() (handler owns its own CTS)
-     *  - conversation         → haltConversation() on the AI conversation manager
+     * Cancel the in-flight turn on the given section. Cancel
+     * primitives vary per section (CTS, module-level interrupt,
+     * conversation manager halt) so each section contributes its
+     * own `cancelInFlight` hook to the chat-provider registry. A
+     * section without a registered hook is a no-op.
      */
     private _handleCancel(section: string): void {
         debugLog(`[ChatPanel] cancel requested for section=${section}`, 'INFO', 'extension');
-        if (section === 'anthropic' || section === 'localLlm') {
-            const cts = this._activeCts.get(section);
-            if (cts) {
-                cts.cancel();
-            }
-            return;
-        }
-        if (section === 'tomAiChat') {
-            interruptTomAiChatHandler();
-            return;
-        }
-        if (section === 'conversation') {
-            const mgr = getAiConversationManager();
-            mgr?.haltConversation('Halted via chat panel stop button');
-            return;
-        }
+        chatProviders.get(section)?.cancelInFlight?.();
     }
 
     private async _handleSendTomAiChat(text: string, template: string): Promise<void> {
@@ -2551,10 +2605,12 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         activeSlot: d.activeSlot || 1,
                         slots: d.slots || {},
                     };
-                    if (section === 'anthropic') {
-                        base.model = d.model || '';
-                        base.config = d.config || '';
-                        base.userMessageTemplate = d.userMessageTemplate || '';
+                    // Section-specific extras come from the provider
+                    // registry so adding a sixth section doesn't need
+                    // an edit here.
+                    const extras = chatProviders.get(section)?.persistDraftExtras?.(d as Record<string, unknown>);
+                    if (extras) {
+                        Object.assign(base, extras);
                     }
                     await writePromptPanelYaml(section, base);
                 })
@@ -2574,23 +2630,20 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 model?: string; config?: string; userMessageTemplate?: string;
             }> = {};
             for (const section of sections) {
-                const data = await readPromptPanelYaml<{
-                    text?: string; profile?: string; llmConfig?: string; aiSetup?: string;
-                    activeSlot?: number; slots?: Record<string, string>;
-                    model?: string; config?: string; userMessageTemplate?: string;
-                }>(section);
+                const data = await readPromptPanelYaml<Record<string, unknown>>(section);
                 if (data) {
-                    loaded[section] = {
-                        text: data.text || '',
-                        profile: data.profile || '',
-                        llmConfig: data.llmConfig || '',
-                        aiSetup: data.aiSetup || '',
-                        activeSlot: data.activeSlot || 1,
-                        slots: data.slots || {},
-                        model: data.model || '',
-                        config: data.config || '',
-                        userMessageTemplate: data.userMessageTemplate || '',
+                    const base = {
+                        text: (data.text as string) || '',
+                        profile: (data.profile as string) || '',
+                        llmConfig: (data.llmConfig as string) || '',
+                        aiSetup: (data.aiSetup as string) || '',
+                        activeSlot: (data.activeSlot as number) || 1,
+                        slots: (data.slots as Record<string, string>) || {},
                     };
+                    // Providers contribute the extra fields they
+                    // persisted in _saveDrafts (mirrored shape).
+                    const extras = chatProviders.get(section)?.hydrateDraft?.(data) ?? {};
+                    loaded[section] = { ...base, ...extras };
                 }
             }
 
@@ -2754,20 +2807,14 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         );
         if (confirm !== 'Delete') { return; }
 
-        const config = loadSendToChatConfig();
-        if (!config) { return; }
-
-        if (section === 'localLlm' && config.localLlm?.profiles?.[name]) {
-            delete config.localLlm.profiles[name];
-        } else if (section === 'conversation' && config.aiConversation?.profiles?.[name]) {
-            delete config.aiConversation.profiles[name];
-        } else if (section === 'anthropic' && Array.isArray(config.anthropic?.profiles)) {
-            const before = config.anthropic!.profiles!.length;
-            config.anthropic!.profiles = config.anthropic!.profiles!.filter((p: any) => p?.id !== name);
-            if (config.anthropic!.profiles!.length === before) { return; }
-        } else { return; }
-
-        if (saveSendToChatConfig(config)) {
+        // Each section knows how to delete its own profile — the
+        // provider registry dispatches to the right shape (object
+        // map for localLlm / conversation, array for anthropic).
+        // Sections without a deleteProfile hook are a no-op here.
+        const provider = chatProviders.get(section);
+        if (!provider?.deleteProfile) { return; }
+        const deleted = await provider.deleteProfile(name);
+        if (deleted) {
             this._sendProfiles();
             vscode.window.showInformationMessage('Profile deleted');
         }

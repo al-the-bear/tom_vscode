@@ -27,14 +27,71 @@
 export type ChatSection = 'anthropic' | 'tomAiChat' | 'conversation' | 'copilot' | 'localLlm';
 
 /**
+ * Shape of the persisted prompt-panel draft for a section. Sections
+ * share the common core (text, profile, llmConfig, aiSetup,
+ * activeSlot, slots) and may contribute additional per-section
+ * fields via the `extras` hook below. Typed loosely as a record so
+ * new fields don't require a cross-file TS change.
+ */
+export interface ChatDraftState {
+    text?: string;
+    profile?: string;
+    template?: string;
+    llmConfig?: string;
+    aiSetup?: string;
+    activeSlot?: number;
+    slots?: Record<string, string>;
+    [extra: string]: unknown;
+}
+
+/**
  * Hooks a chat provider can contribute. All optional — the handler
  * falls back to a default behaviour when a hook is not registered.
- * Every hook is async so handlers can await VS Code API calls
- * uniformly.
+ * Every hook is async or pure; the handler awaits them uniformly.
  */
 export interface ChatProvider {
     /** Open the "Trail Summary Viewer" (per-file `.prompts.md` / `.answers.md`). */
     openTrailSummary?: () => Promise<void>;
+
+    /**
+     * Cancel the in-flight turn for this section. Default behaviour
+     * for sections without a hook is a no-op, so registering the
+     * hook is the cancel contract.
+     */
+    cancelInFlight?: () => void;
+
+    /**
+     * Send a reusable prompt's expanded contents through this
+     * section's normal send path — used by the "play" icon next to
+     * reusable-prompt entries. Default for sections without a hook
+     * is "send via Copilot" (the review's backwards-compat choice).
+     */
+    sendReusablePrompt?: (content: string, state: ChatDraftState | undefined) => Promise<void>;
+
+    /**
+     * Extract section-specific fields from the in-memory webview
+     * draft for persistence. Called by `_saveDrafts()` — the return
+     * value is merged into the base YAML payload (alongside text /
+     * profile / activeSlot / slots). Return `{}` when the section
+     * has no extras.
+     */
+    persistDraftExtras?: (draft: ChatDraftState) => Record<string, unknown>;
+
+    /**
+     * Shape a loaded draft for this section's consumer. Called by
+     * `_loadDrafts()` — receives the raw parsed YAML, returns the
+     * fields the webview should see. Default behaviour is to pass
+     * through the common keys.
+     */
+    hydrateDraft?: (raw: Record<string, unknown>) => ChatDraftState;
+
+    /**
+     * Delete a profile / configuration for this section. Default
+     * behaviour is "unknown section — no-op". Registered hook
+     * returns true when a delete happened so the caller can refresh
+     * state; false when there was nothing to delete.
+     */
+    deleteProfile?: (profileId: string) => Promise<boolean>;
 }
 
 /**
