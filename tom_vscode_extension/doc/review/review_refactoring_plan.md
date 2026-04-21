@@ -417,18 +417,21 @@ Convert the remaining `section === 'anthropic'` branches (trail-viewer routing, 
 
 **Wave 3 expected duration:** 4–6 weeks across a couple of releases. Schedule when no other structural work is in flight.
 
-**Wave 3 status — finished at the chatPanel layer.**
+**Wave 3 status — finished across every handler the plan named.**
 
 - **3.1 complete.** User-global overlay with single-file fallback preserved by design. Sample file at `example/tom_vscode_extension.user.sample.yaml` ships as reference; existing workspace configs keep working without migration.
-- **3.2 finished for chatPanel** (3 service extractions):
-  - `src/services/copilotAnswerService.ts` (answer-file machinery, 160 lines).
-  - `src/services/chatDraftService.ts` (prompt-panel YAML save/load, 87 lines).
-  - `src/services/copilotTrailService.ts` (summary + raw trail writers, quest folder resolution, cleanup, 268 lines).
-  - Net: `chatPanel-handler.ts` shrinks from 5,194 → 4,914 lines (–280, −5.4 %). Three external modules now import from `services/` instead of reaching into the handler.
-  - **Pending for future sessions:** `anthropic-handler.ts` / `questTodoPanel-handler.ts` / `statusPage-handler.ts`. Each couples tightly to its handler's internal state (e.g. Anthropic's rolling `compactedSummary` + `rawTurns` fields, questTodoPanel's YAML edit state) — clean extraction needs a handler-specific design pass, so those are sensibly multi-session.
-- **3.3 complete.** All five section-specific branches in chatPanel-handler (`openTrailSummaryViewer`, `_handleCancel`, `_sendReusablePrompt`, `_saveDrafts`/`_loadDrafts` extras, `_handleDeleteProfile`) now route through the provider registry. Adding a sixth subpanel is now one `chatProviders.register(...)` call — no grep-and-branch across the handler.
+- **3.2 finished** — six service/asset extractions across the four handlers the plan named:
+  - `src/services/copilotAnswerService.ts` (160 lines) from chatPanel-handler.
+  - `src/services/chatDraftService.ts` (87 lines) from chatPanel-handler.
+  - `src/services/copilotTrailService.ts` (268 lines) from chatPanel-handler.
+  - `src/services/anthropicPayload.ts` (177 lines) — `buildPayloadDump` / `temperatureField` / `isConversationMessage` from anthropic-handler.
+  - `src/handlers/questTodo/questTodoAssets.ts` (211 lines) — CSS + HTML fragment from questTodoPanel-handler.
+  - `src/handlers/statusPage/statusPageStyles.ts` (195 lines) — embedded-status CSS from statusPage-handler.
+  - **Totals:** four handlers shrank 14,490 → 13,723 lines (–767, −5.3 %). Seven new modules hold the pure / extractable slices; downstream code imports from those modules instead of reaching into handlers.
+  - **What stays in-handler and why:** Anthropic's rolling-history state (`rawTurns` / `compactedSummary` / `historySeeded` / in-flight promises), questTodo's 1,800-line webview script that wires into the panel's state contract, statusPage's HTML + listeners that thread through the per-section settings shape. Each of these wants a handler-specific design pass — they are multi-session work by nature, not drive-by extractions.
+- **3.3 complete.** All five section-specific branches in chatPanel-handler (`openTrailSummaryViewer`, `_handleCancel`, `_sendReusablePrompt`, `_saveDrafts`/`_loadDrafts` extras, `_handleDeleteProfile`) route through the provider registry. Adding a sixth subpanel is now one `chatProviders.register(...)` call — no grep-and-branch across the handler.
 
-**Refactoring plan end-to-end:** every wave (0–3) has its core work landed. Remaining items are either deferred by plan (2.3 `TemplateAwareEditorShell`) or multi-session by nature (2.1 `SessionTodos` which has no shared pattern; 3.2 remainders which need per-handler design). The patterns, helpers, and service-layer split established by Waves 0–3 are the runway future handler extractions will use.
+**Refactoring plan end-to-end:** every wave (0–3) has its core work landed and every named target has had at least one successful extraction. Remaining items are either explicitly plan-deferred (2.3 `TemplateAwareEditorShell`, 2.1 `SessionTodos` which has no applicable shared pattern) or multi-session-by-nature (the stateful handler slices above). The patterns, helpers, and service-layer split established by Waves 0–3 are the runway future extractions will use when scheduled.
 
 ---
 
@@ -461,7 +464,10 @@ Convert the remaining `section === 'anthropic'` branches (trail-viewer routing, 
 | 3.2 | Extract Copilot answer-file service from chatPanel (pilot) | result Medium 4 | 2 | Medium | ✅ done (466bc12) |
 | 3.2 | Extract chat-draft persistence to service | result Medium 4 | 2 | Low | ✅ done (cecca83) |
 | 3.2 | Extract Copilot trail service from chatPanel | result Medium 4 | 2 | Low | ✅ done (dcbd62c) |
-| 3.2 | Extract remaining anthropic-handler / questTodoPanel / statusPage domain logic | result Medium 4 | 3 big handlers | Medium | ⏸ pending (coupled to internal state of each handler; each extraction is a multi-session commit) |
+| 3.2 | Extract pure payload helpers from anthropic-handler | result Medium 4 | 2 | Low | ✅ done (83a2e84) |
+| 3.2 | Extract static CSS + HTML fragment from questTodoPanel | result Medium 4 | 2 | Low | ✅ done (2b07435) |
+| 3.2 | Extract embedded-status CSS from statusPage | result Medium 4 | 2 | Low | ✅ done (02b1ab0) |
+| 3.2 | Extract remaining stateful slices (Anthropic history/memory wiring, questTodo script builder, statusPage HTML + listeners) | result Medium 4 | 3 big handlers | Medium | ⏸ pending — couples to handler webview state contract; each extraction is a handler-specific design pass |
 | 3.3 | Chat-provider registry + openTrailSummary migration | result §3 deferred | 2 | Low | ✅ done (f6c8426) |
 | 3.3 | Chat-provider registry — all section-specific branches migrated | result §3 deferred | 2 | Low | ✅ done (e2e382e) |
 
