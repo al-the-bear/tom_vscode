@@ -931,29 +931,25 @@ class CopilotNotepadProvider implements vscode.WebviewViewProvider {
 // Local LLM Notepad (uses localLlm.profiles)
 // ============================================================================
 
+const LOCAL_LLM_CONFIG_KEY = 'tomAi.localLlm.selectedConfig';
+
 class LocalLlmNotepadProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
     private _profiles: { key: string; label: string; description?: string; systemPrompt?: string }[] = [];
-    private _selectedProfile: string = '';
     private _llmConfigs: { id: string; name: string; description: string; ollamaUrl?: string; model?: string }[] = [];
-    private _selectedLlmConfig: string = '';
-    private _draft: string = '';
+    private readonly _store: NotepadDraftStore;
 
     constructor(private readonly _context: vscode.ExtensionContext) {
-        this._loadDraft();
+        this._store = new NotepadDraftStore(
+            _context,
+            STORAGE_KEYS.localLlmDraft,
+            [STORAGE_KEYS.localLlmProfile, LOCAL_LLM_CONFIG_KEY],
+        );
     }
 
-    private _loadDraft(): void {
-        this._draft = this._context.workspaceState.get<string>(STORAGE_KEYS.localLlmDraft) || '';
-        this._selectedProfile = this._context.workspaceState.get<string>(STORAGE_KEYS.localLlmProfile) || '';
-        this._selectedLlmConfig = this._context.workspaceState.get<string>('tomAi.localLlm.selectedConfig') || '';
-    }
-
-    private async _saveDraft(): Promise<void> {
-        await this._context.workspaceState.update(STORAGE_KEYS.localLlmDraft, this._draft);
-        await this._context.workspaceState.update(STORAGE_KEYS.localLlmProfile, this._selectedProfile);
-        await this._context.workspaceState.update('tomAi.localLlm.selectedConfig', this._selectedLlmConfig);
-    }
+    private get _draft(): string { return this._store.draft; }
+    private get _selectedProfile(): string { return this._store.getSelection(STORAGE_KEYS.localLlmProfile); }
+    private get _selectedLlmConfig(): string { return this._store.getSelection(LOCAL_LLM_CONFIG_KEY); }
 
     private _loadLlmConfigs(): void {
         const config = loadSendToChatConfig();
@@ -982,10 +978,10 @@ class LocalLlmNotepadProvider implements vscode.WebviewViewProvider {
         }
         if (!this._selectedLlmConfig && this._llmConfigs.length > 0) {
             // Find config with isDefault or use first
-            const defaultConfig = Array.isArray(config?.localLlm?.configurations) 
+            const defaultConfig = Array.isArray(config?.localLlm?.configurations)
                 ? config.localLlm.configurations.find((c: any) => c.isDefault)?.id
                 : undefined;
-            this._selectedLlmConfig = defaultConfig || this._llmConfigs[0].id;
+            void this._store.setSelection(LOCAL_LLM_CONFIG_KEY, defaultConfig || this._llmConfigs[0].id);
         }
     }
 
@@ -1005,7 +1001,7 @@ class LocalLlmNotepadProvider implements vscode.WebviewViewProvider {
             }
         }
         if (!this._selectedProfile && this._profiles.length > 0) {
-            this._selectedProfile = this._profiles[0].key;
+            void this._store.setSelection(STORAGE_KEYS.localLlmProfile, this._profiles[0].key);
         }
     }
 
@@ -1031,18 +1027,15 @@ class LocalLlmNotepadProvider implements vscode.WebviewViewProvider {
                     this._sendState();
                     break;
                 case 'selectLlmConfig':
-                    this._selectedLlmConfig = msg.id;
-                    await this._saveDraft();
+                    await this._store.setSelection(LOCAL_LLM_CONFIG_KEY, msg.id);
                     this._sendState();
                     break;
                 case 'selectProfile':
-                    this._selectedProfile = msg.key;
-                    await this._saveDraft();
+                    await this._store.setSelection(STORAGE_KEYS.localLlmProfile, msg.key);
                     this._sendState();
                     break;
                 case 'updateDraft':
-                    this._draft = msg.content;
-                    await this._saveDraft();
+                    await this._store.save(msg.content);
                     break;
                 case 'preview':
                     await this._preview();
@@ -1193,8 +1186,7 @@ class LocalLlmNotepadProvider implements vscode.WebviewViewProvider {
             delete config.localLlm.profiles[this._selectedProfile];
             if (saveSendToChatConfig(config)) {
                 this._loadProfiles();
-                this._selectedProfile = this._profiles[0]?.key || '';
-                await this._saveDraft();
+                await this._store.setSelection(STORAGE_KEYS.localLlmProfile, this._profiles[0]?.key || '');
                 this._sendState();
                 vscode.window.showInformationMessage('Profile deleted');
             }
@@ -1298,31 +1290,27 @@ class LocalLlmNotepadProvider implements vscode.WebviewViewProvider {
 // Conversation Notepad (uses aiConversation.profiles)
 // ============================================================================
 
+const CONVERSATION_SETUP_KEY = 'tomAi.aiConversation.selectedSetup';
+
 class ConversationNotepadProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
     private _profiles: { key: string; label: string; description?: string; maxTurns?: number; initialPromptTemplate?: string }[] = [];
-    private _selectedProfile: string = '';
-    private _draft: string = '';
     // AI Conversation Setup selection
     private _aiSetups: { id: string; name: string; description: string; llmConfigA: string; llmConfigB: string; maxTurns?: number; historyMode?: string; trailSummarizationTemperature?: number }[] = [];
-    private _selectedAiSetup: string = '';
     private _conversationMode: 'ollama-copilot' | 'ollama-ollama' = 'ollama-copilot';
+    private readonly _store: NotepadDraftStore;
 
     constructor(private readonly _context: vscode.ExtensionContext) {
-        this._loadDraft();
+        this._store = new NotepadDraftStore(
+            _context,
+            STORAGE_KEYS.conversationDraft,
+            [STORAGE_KEYS.conversationProfile, CONVERSATION_SETUP_KEY],
+        );
     }
 
-    private _loadDraft(): void {
-        this._draft = this._context.workspaceState.get<string>(STORAGE_KEYS.conversationDraft) || '';
-        this._selectedProfile = this._context.workspaceState.get<string>(STORAGE_KEYS.conversationProfile) || '';
-        this._selectedAiSetup = this._context.workspaceState.get<string>('tomAi.aiConversation.selectedSetup') || '';
-    }
-
-    private async _saveDraft(): Promise<void> {
-        await this._context.workspaceState.update(STORAGE_KEYS.conversationDraft, this._draft);
-        await this._context.workspaceState.update(STORAGE_KEYS.conversationProfile, this._selectedProfile);
-        await this._context.workspaceState.update('tomAi.aiConversation.selectedSetup', this._selectedAiSetup);
-    }
+    private get _draft(): string { return this._store.draft; }
+    private get _selectedProfile(): string { return this._store.getSelection(STORAGE_KEYS.conversationProfile); }
+    private get _selectedAiSetup(): string { return this._store.getSelection(CONVERSATION_SETUP_KEY); }
 
     private _loadAiSetups(): void {
         const config = loadSendToChatConfig();
@@ -1360,7 +1348,7 @@ class ConversationNotepadProvider implements vscode.WebviewViewProvider {
             const defaultSetup = Array.isArray(config?.aiConversation?.setups)
                 ? config.aiConversation.setups.find((s: any) => s.isDefault)?.id
                 : undefined;
-            this._selectedAiSetup = defaultSetup || this._aiSetups[0].id;
+            void this._store.setSelection(CONVERSATION_SETUP_KEY, defaultSetup || this._aiSetups[0].id);
         }
     }
 
@@ -1381,14 +1369,14 @@ class ConversationNotepadProvider implements vscode.WebviewViewProvider {
             }
         }
         if (!this._selectedProfile && this._profiles.length > 0) {
-            this._selectedProfile = this._profiles[0].key;
+            void this._store.setSelection(STORAGE_KEYS.conversationProfile, this._profiles[0].key);
         }
     }
 
     resolveWebviewView(webviewView: vscode.WebviewView): void {
         this._view = webviewView;
         webviewView.webview.options = { enableScripts: true };
-        
+
         this._loadProfiles();
         this._loadAiSetups();
         webviewView.webview.html = this._getHtml();
@@ -1407,18 +1395,15 @@ class ConversationNotepadProvider implements vscode.WebviewViewProvider {
                     this._sendState();
                     break;
                 case 'selectProfile':
-                    this._selectedProfile = msg.key;
-                    await this._saveDraft();
+                    await this._store.setSelection(STORAGE_KEYS.conversationProfile, msg.key);
                     this._sendState();
                     break;
                 case 'selectAiSetup':
-                    this._selectedAiSetup = msg.id;
-                    await this._saveDraft();
+                    await this._store.setSelection(CONVERSATION_SETUP_KEY, msg.id);
                     this._sendState();
                     break;
                 case 'updateDraft':
-                    this._draft = msg.content;
-                    await this._saveDraft();
+                    await this._store.save(msg.content);
                     break;
                 case 'preview':
                     await this._preview();
@@ -1555,8 +1540,7 @@ class ConversationNotepadProvider implements vscode.WebviewViewProvider {
             delete config.aiConversation.profiles[this._selectedProfile];
             if (saveSendToChatConfig(config)) {
                 this._loadProfiles();
-                this._selectedProfile = this._profiles[0]?.key || '';
-                await this._saveDraft();
+                await this._store.setSelection(STORAGE_KEYS.conversationProfile, this._profiles[0]?.key || '');
                 this._sendState();
                 vscode.window.showInformationMessage('Profile deleted');
             }
