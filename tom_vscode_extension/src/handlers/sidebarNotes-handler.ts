@@ -41,6 +41,7 @@ import { QuestTodoEmbeddedViewProvider, setQuestTodosProvider, setSessionTodosPr
 import { WsPaths } from '../utils/workspacePaths';
 import { NOTEPAD_BASE_STYLES } from './notepad/notepadStyles';
 import { NotepadFileStorage } from './notepad/notepadFileStorage';
+import { NotepadFolderStorage, NotepadFolderItem } from './notepad/notepadFolderStorage';
 
 // View IDs
 const VIEW_IDS = {
@@ -1991,95 +1992,38 @@ const NOTES_FOLDER = WsPaths.aiRelative('notes');
 
 class NotesNotepadProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
-    private _notes: NoteItem[] = [];
     private _activeNoteId: string | null = null;
-    private _notesFolder: string | null = null;
-    private _fileWatcher?: vscode.FileSystemWatcher;
-    private _disposables: vscode.Disposable[] = [];
+    private readonly _folder: NotepadFolderStorage | null;
 
     constructor(private readonly _context: vscode.ExtensionContext) {
-        this._initNotesFolder();
-        this._loadNotes();
-        // Remember active note ID
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (workspaceFolder) {
+            this._folder = new NotepadFolderStorage({
+                folderPath: path.join(workspaceFolder.uri.fsPath, NOTES_FOLDER),
+                include: (f) => f.endsWith('.md'),
+                workspaceGlob: `${NOTES_FOLDER}/*.md`,
+                onChange: (changedPath) => {
+                    if (this._activeNoteId && changedPath.endsWith(this._activeNoteId)) {
+                        this._sendState();
+                    }
+                },
+                onListChanged: () => this._sendState(),
+            });
+            this._folder.ensureFolder();
+            this._folder.load();
+        } else {
+            this._folder = null;
+        }
         this._activeNoteId = this._context.workspaceState.get<string>('tomAi.notes.activeNoteFile') || null;
     }
 
     dispose(): void {
-        this._disposables.forEach(d => d.dispose());
+        this._folder?.dispose();
     }
 
-    private _initNotesFolder(): void {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (workspaceFolder) {
-            this._notesFolder = path.join(workspaceFolder.uri.fsPath, NOTES_FOLDER);
-            // Create folder if it doesn't exist
-            if (!fs.existsSync(this._notesFolder)) {
-                fs.mkdirSync(this._notesFolder, { recursive: true });
-            }
-        }
-    }
-
-    private _setupFileWatcher(): void {
-        if (!this._notesFolder) { return; }
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) { return; }
-
-        const pattern = new vscode.RelativePattern(workspaceFolder, `${NOTES_FOLDER}/*.md`);
-        this._fileWatcher = vscode.workspace.createFileSystemWatcher(pattern);
-
-        const reload = () => {
-            this._loadNotes();
-            this._sendState();
-        };
-
-        this._disposables.push(
-            this._fileWatcher.onDidCreate(reload),
-            this._fileWatcher.onDidDelete(reload),
-            this._fileWatcher.onDidChange((uri) => {
-                if (this._activeNoteId && uri.fsPath.endsWith(this._activeNoteId)) {
-                    this._sendState();
-                }
-            }),
-            this._fileWatcher
-        );
-    }
-
-    private _loadNotes(): void {
-        if (!this._notesFolder) { return; }
-        try {
-            const files = fs.readdirSync(this._notesFolder)
-                .filter(f => f.endsWith('.md'))
-                .sort();
-            this._notes = files.map(f => ({
-                id: f,
-                title: f.replace(/\.md$/, ''),
-                filePath: path.join(this._notesFolder!, f),
-                content: ''
-            }));
-        } catch {
-            this._notes = [];
-        }
-    }
-
-    private _loadNoteContent(noteId: string): string {
-        const note = this._notes.find(n => n.id === noteId);
-        if (!note) { return ''; }
-        try {
-            return fs.readFileSync(note.filePath, 'utf-8');
-        } catch {
-            return '';
-        }
-    }
-
-    private _saveNoteContent(noteId: string, content: string): void {
-        const note = this._notes.find(n => n.id === noteId);
-        if (!note) { return; }
-        try {
-            fs.writeFileSync(note.filePath, content, 'utf-8');
-            note.content = content;
-        } catch (e) {
-            vscode.window.showErrorMessage(`Failed to save note: ${e}`);
-        }
+    private _findItem(id: string | null): NotepadFolderItem | undefined {
+        if (!id || !this._folder) { return undefined; }
+        return this._folder.items.find(n => n.name === id);
     }
 
     resolveWebviewView(webviewView: vscode.WebviewView): void {
@@ -2087,11 +2031,11 @@ class NotesNotepadProvider implements vscode.WebviewViewProvider {
         webviewView.webview.options = { enableScripts: true };
         webviewView.webview.html = this._getHtml();
 
-        this._setupFileWatcher();
+        this._folder?.watch();
 
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
-                this._loadNotes();
+                this._folder?.load();
                 this._sendState();
             }
         });
@@ -2112,20 +2056,29 @@ class NotesNotepadProvider implements vscode.WebviewViewProvider {
                 case 'deleteNote':
                     await this._deleteNote(msg.id);
                     break;
-                case 'updateContent':
-                    if (this._activeNoteId) {
-                        this._saveNoteContent(this._activeNoteId, msg.content);
+                case 'updateContent': {
+                    const item = this._findItem(this._activeNoteId);
+                    if (item && this._folder) {
+                        try {
+                            this._folder.writeContent(item.path, msg.content);
+                        } catch (e) {
+                            vscode.window.showErrorMessage(`Failed to save note: ${e}`);
+                        }
                     }
                     break;
+                }
                 case 'openInEditor':
                     await this._openInEditor();
                     break;
                 case 'previewMarkdown': {
-                    if (this._activeNoteId) {
-                        const note = this._notes.find(n => n.id === this._activeNoteId);
-                        if (note) {
-                            await showNotesMarkdownPreview(this._context, `Documentation Preview: ${note.title}`, this._loadNoteContent(this._activeNoteId), note.filePath);
-                        }
+                    const item = this._findItem(this._activeNoteId);
+                    if (item && this._folder) {
+                        await showNotesMarkdownPreview(
+                            this._context,
+                            `Documentation Preview: ${item.name.replace(/\.md$/, '')}`,
+                            this._folder.readContent(item.path),
+                            item.path,
+                        );
                     }
                     break;
                 }
@@ -2150,41 +2103,32 @@ class NotesNotepadProvider implements vscode.WebviewViewProvider {
     }
 
     private async _addNote(fileName: string): Promise<void> {
-        if (!this._notesFolder) { return; }
-        const filePath = path.join(this._notesFolder, `${fileName}.md`);
-        
-        if (fs.existsSync(filePath)) {
+        if (!this._folder) { return; }
+        const created = this._folder.createFile(`${fileName}.md`, '');
+        if (!created) {
             vscode.window.showWarningMessage(`Note "${fileName}.md" already exists`);
             return;
         }
-        
-        try {
-            fs.writeFileSync(filePath, '', 'utf-8');
-            this._loadNotes();
-            this._activeNoteId = `${fileName}.md`;
-            await this._context.workspaceState.update('tomAi.notes.activeNoteFile', this._activeNoteId);
-            this._sendState();
-        } catch (e) {
-            vscode.window.showErrorMessage(`Failed to create note: ${e}`);
-        }
+        this._activeNoteId = `${fileName}.md`;
+        await this._context.workspaceState.update('tomAi.notes.activeNoteFile', this._activeNoteId);
+        this._sendState();
     }
 
     private async _deleteNote(id: string): Promise<void> {
-        const note = this._notes.find(n => n.id === id);
-        if (!note) { return; }
-        
+        const item = this._findItem(id);
+        if (!item || !this._folder) { return; }
+
         const confirm = await vscode.window.showWarningMessage(
-            `Delete note "${note.title}"? This will delete the file.`,
+            `Delete note "${item.name.replace(/\.md$/, '')}"? This will delete the file.`,
             { modal: true },
             'Delete'
         );
         if (confirm !== 'Delete') { return; }
-        
+
         try {
-            fs.unlinkSync(note.filePath);
-            this._loadNotes();
+            this._folder.deleteFile(item.path);
             if (this._activeNoteId === id) {
-                this._activeNoteId = this._notes.length > 0 ? this._notes[0].id : null;
+                this._activeNoteId = this._folder.items[0]?.name ?? null;
                 await this._context.workspaceState.update('tomAi.notes.activeNoteFile', this._activeNoteId);
             }
             this._sendState();
@@ -2194,20 +2138,20 @@ class NotesNotepadProvider implements vscode.WebviewViewProvider {
     }
 
     private async _openInEditor(): Promise<void> {
-        if (!this._activeNoteId) { return; }
-        const note = this._notes.find(n => n.id === this._activeNoteId);
-        if (!note) { return; }
-        
-        const doc = await vscode.workspace.openTextDocument(note.filePath);
+        const item = this._findItem(this._activeNoteId);
+        if (!item) { return; }
+        const doc = await vscode.workspace.openTextDocument(item.path);
         await vscode.window.showTextDocument(doc);
     }
 
     private _sendState(): void {
         if (!this._view) { return; }
-        const content = this._activeNoteId ? this._loadNoteContent(this._activeNoteId) : '';
+        const items = this._folder?.items ?? [];
+        const activeItem = this._findItem(this._activeNoteId);
+        const content = activeItem && this._folder ? this._folder.readContent(activeItem.path) : '';
         this._view.webview.postMessage({
             type: 'state',
-            notes: this._notes.map(n => ({ id: n.id, title: n.title })),
+            notes: items.map(n => ({ id: n.name, title: n.name.replace(/\.md$/, '') })),
             activeNoteId: this._activeNoteId,
             content
         });
@@ -2291,16 +2235,47 @@ class NotesNotepadProvider implements vscode.WebviewViewProvider {
 
 class GuidelinesNotepadProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
-    private _files: { path: string; name: string }[] = [];
     private _activeFilePath: string | null = null;
     private _content: string = '';
-    private _fileWatcher?: vscode.FileSystemWatcher;
-    private _disposables: vscode.Disposable[] = [];
+    private readonly _folder: NotepadFolderStorage | null;
 
-    constructor(private readonly _context: vscode.ExtensionContext) {}
+    constructor(private readonly _context: vscode.ExtensionContext) {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (workspaceFolder) {
+            const guidelinesDir = WsPaths.guidelines() || path.join(workspaceFolder.uri.fsPath, '_copilot_guidelines');
+            this._folder = new NotepadFolderStorage({
+                folderPath: guidelinesDir,
+                include: (f) => f.endsWith('.md'),
+                // Pin copilot-instructions.md at the top, exactly like the
+                // old implementation did manually. The icon prefix lets
+                // users visually distinguish it from regular guidelines.
+                pinned: () => {
+                    const root = workspaceFolder.uri.fsPath;
+                    const instructionsPath = WsPaths.github('copilot-instructions.md')
+                        || path.join(root, '.github', 'copilot-instructions.md');
+                    return fs.existsSync(instructionsPath)
+                        ? [{ path: instructionsPath, name: '📋 copilot-instructions.md' }]
+                        : [];
+                },
+                workspaceGlob: `${WsPaths.guidelinesFolder}/**/*.md`,
+                onChange: (changedPath) => {
+                    if (changedPath === this._activeFilePath) {
+                        this._loadContent();
+                        this._sendState();
+                    }
+                },
+                onListChanged: () => {
+                    this._ensureActiveFile();
+                    this._sendState();
+                },
+            });
+        } else {
+            this._folder = null;
+        }
+    }
 
     dispose(): void {
-        this._disposables.forEach(d => d.dispose());
+        this._folder?.dispose();
     }
 
     resolveWebviewView(webviewView: vscode.WebviewView): void {
@@ -2308,11 +2283,12 @@ class GuidelinesNotepadProvider implements vscode.WebviewViewProvider {
         webviewView.webview.options = { enableScripts: true };
         webviewView.webview.html = this._getHtml();
 
-        this._setupFileWatcher();
+        this._folder?.watch();
 
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
-                this._loadFiles();
+                this._folder?.load();
+                this._ensureActiveFile();
                 this._sendState();
             }
         });
@@ -2320,7 +2296,8 @@ class GuidelinesNotepadProvider implements vscode.WebviewViewProvider {
         webviewView.webview.onDidReceiveMessage(async (msg) => {
             switch (msg.type) {
                 case 'ready':
-                    this._loadFiles();
+                    this._folder?.load();
+                    this._ensureActiveFile();
                     this._sendState();
                     break;
                 case 'selectFile':
@@ -2346,85 +2323,37 @@ class GuidelinesNotepadProvider implements vscode.WebviewViewProvider {
                     }
                     break;
                 case 'reload':
-                    this._loadFiles();
+                    this._folder?.load();
+                    this._ensureActiveFile();
                     this._sendState();
                     break;
             }
         });
     }
 
-    private _setupFileWatcher(): void {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) { return; }
-
-        const pattern = new vscode.RelativePattern(workspaceFolder, `${WsPaths.guidelinesFolder}/**/*.md`);
-        this._fileWatcher = vscode.workspace.createFileSystemWatcher(pattern);
-
-        const reload = () => {
-            this._loadFiles();
-            this._sendState();
-        };
-
-        this._disposables.push(
-            this._fileWatcher.onDidCreate(reload),
-            this._fileWatcher.onDidDelete(reload),
-            this._fileWatcher.onDidChange((uri) => {
-                if (uri.fsPath === this._activeFilePath) {
-                    this._loadContent();
-                    this._sendState();
-                }
-            }),
-            this._fileWatcher
-        );
-    }
-
-    private _loadFiles(): void {
-        this._files = [];
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) { return; }
-
-        const rootPath = workspaceFolder.uri.fsPath;
-
-        const instructionsPath = WsPaths.github('copilot-instructions.md') || path.join(rootPath, '.github', 'copilot-instructions.md');
-        if (fs.existsSync(instructionsPath)) {
-            this._files.push({ path: instructionsPath, name: '📋 copilot-instructions.md' });
+    private _ensureActiveFile(): void {
+        const items = this._folder?.items ?? [];
+        if (items.length > 0 && !this._activeFilePath) {
+            this._activeFilePath = items[0].path;
+            this._loadContent();
         }
-
-        const guidelinesDir = WsPaths.guidelines() || path.join(rootPath, '_copilot_guidelines');
-        if (fs.existsSync(guidelinesDir)) {
-            const files = fs.readdirSync(guidelinesDir).filter(f => f.endsWith('.md')).sort();
-            for (const file of files) {
-                const filePath = path.join(guidelinesDir, file);
-                if (fs.statSync(filePath).isFile()) {
-                    this._files.push({ path: filePath, name: file });
-                }
-            }
-        }
-
-        if (this._files.length > 0 && !this._activeFilePath) {
-            this._activeFilePath = this._files[0].path;
-        }
-        this._loadContent();
     }
 
     private _loadContent(): void {
-        if (this._activeFilePath && fs.existsSync(this._activeFilePath)) {
-            this._content = fs.readFileSync(this._activeFilePath, 'utf-8');
-        } else {
-            this._content = '';
-        }
+        this._content = this._folder && this._activeFilePath
+            ? this._folder.readContent(this._activeFilePath)
+            : '';
     }
 
     private async _saveContent(content: string): Promise<void> {
-        if (this._activeFilePath) {
-            fs.writeFileSync(this._activeFilePath, content, 'utf-8');
+        if (this._activeFilePath && this._folder) {
+            this._folder.writeContent(this._activeFilePath, content);
             this._content = content;
         }
     }
 
     private async _addFile(): Promise<void> {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) { return; }
+        if (!this._folder) { return; }
 
         const name = await vscode.window.showInputBox({
             prompt: 'Guideline file name',
@@ -2435,29 +2364,22 @@ class GuidelinesNotepadProvider implements vscode.WebviewViewProvider {
         let fileName = name.trim();
         if (!fileName.endsWith('.md')) { fileName += '.md'; }
 
-        const guidelinesDir = WsPaths.guidelines() || path.join(workspaceFolder.uri.fsPath, '_copilot_guidelines');
-        if (!fs.existsSync(guidelinesDir)) {
-            fs.mkdirSync(guidelinesDir, { recursive: true });
-        }
-
-        const filePath = path.join(guidelinesDir, fileName);
-        if (fs.existsSync(filePath)) {
+        const title = fileName.replace('.md', '').replace(/_/g, ' ');
+        const created = this._folder.createFile(fileName, `# ${title}\n\n`);
+        if (!created) {
             vscode.window.showErrorMessage(`File ${fileName} already exists`);
             return;
         }
 
-        const title = fileName.replace('.md', '').replace(/_/g, ' ');
-        fs.writeFileSync(filePath, `# ${title}\n\n`, 'utf-8');
-        
-        this._loadFiles();
-        this._activeFilePath = filePath;
+        this._activeFilePath = created;
         this._loadContent();
         this._sendState();
         vscode.window.showInformationMessage(`Created ${fileName}`);
     }
 
     private async _deleteFile(filePath: string): Promise<void> {
-        const file = this._files.find(f => f.path === filePath);
+        const items = this._folder?.items ?? [];
+        const file = items.find(f => f.path === filePath);
         if (!file || file.name.includes('copilot-instructions.md')) {
             vscode.window.showErrorMessage('Cannot delete this file');
             return;
@@ -2470,11 +2392,7 @@ class GuidelinesNotepadProvider implements vscode.WebviewViewProvider {
         );
         if (confirm !== 'Delete') { return; }
 
-        if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
-        }
-        
-        this._loadFiles();
+        this._folder?.deleteFile(filePath);
         this._sendState();
         vscode.window.showInformationMessage('File deleted');
     }
@@ -2490,7 +2408,7 @@ class GuidelinesNotepadProvider implements vscode.WebviewViewProvider {
         if (!this._view) { return; }
         this._view.webview.postMessage({
             type: 'state',
-            files: this._files,
+            files: this._folder?.items ?? [],
             activeFilePath: this._activeFilePath,
             content: this._content
         });
