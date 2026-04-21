@@ -42,6 +42,7 @@ import { WsPaths } from '../utils/workspacePaths';
 import { NOTEPAD_BASE_STYLES } from './notepad/notepadStyles';
 import { NotepadFileStorage } from './notepad/notepadFileStorage';
 import { NotepadFolderStorage, NotepadFolderItem } from './notepad/notepadFolderStorage';
+import { NotepadDraftStore } from './notepad/notepadDraftStore';
 
 // View IDs
 const VIEW_IDS = {
@@ -712,34 +713,30 @@ class TomNotepadProvider implements vscode.WebviewViewProvider {
 class CopilotNotepadProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
     private _templates: { key: string; label: string; template: string }[] = [];
-    private _selectedTemplate: string = '';
-    private _draft: string = '';
+    private readonly _store: NotepadDraftStore;
 
     constructor(private readonly _context: vscode.ExtensionContext) {
-        this._loadDraft();
+        this._store = new NotepadDraftStore(
+            _context,
+            STORAGE_KEYS.copilotDraft,
+            [STORAGE_KEYS.copilotTemplate],
+        );
     }
 
-    private _loadDraft(): void {
-        this._draft = this._context.workspaceState.get<string>(STORAGE_KEYS.copilotDraft) || '';
-        this._selectedTemplate = this._context.workspaceState.get<string>(STORAGE_KEYS.copilotTemplate) || '';
-    }
-
-    private async _saveDraft(): Promise<void> {
-        await this._context.workspaceState.update(STORAGE_KEYS.copilotDraft, this._draft);
-        await this._context.workspaceState.update(STORAGE_KEYS.copilotTemplate, this._selectedTemplate);
-    }
+    private get _draft(): string { return this._store.draft; }
+    private get _selectedTemplate(): string { return this._store.getSelection(STORAGE_KEYS.copilotTemplate); }
 
     private _loadTemplates(): void {
         this._templates = getCopilotTemplateOptions();
         if (!this._selectedTemplate && this._templates.length > 0) {
-            this._selectedTemplate = this._templates[0].key;
+            void this._store.setSelection(STORAGE_KEYS.copilotTemplate, this._templates[0].key);
         }
     }
 
     resolveWebviewView(webviewView: vscode.WebviewView): void {
         this._view = webviewView;
         webviewView.webview.options = { enableScripts: true };
-        
+
         this._loadTemplates();
         webviewView.webview.html = this._getHtml();
 
@@ -756,13 +753,11 @@ class CopilotNotepadProvider implements vscode.WebviewViewProvider {
                     this._sendState();
                     break;
                 case 'selectTemplate':
-                    this._selectedTemplate = msg.key;
-                    await this._saveDraft();
+                    await this._store.setSelection(STORAGE_KEYS.copilotTemplate, msg.key);
                     this._sendState();
                     break;
                 case 'updateDraft':
-                    this._draft = msg.content;
-                    await this._saveDraft();
+                    await this._store.save(msg.content);
                     break;
                 case 'preview':
                     await this._preview();
@@ -798,7 +793,7 @@ class CopilotNotepadProvider implements vscode.WebviewViewProvider {
     private async _preview(): Promise<void> {
         const template = this._templates.find(t => t.key === this._selectedTemplate);
         const templateStr = template?.template || '${originalPrompt}';
-        
+
         // Build preview showing template structure + draft
         let previewContent = '';
         if (template && template.key !== '__none__') {
@@ -806,7 +801,7 @@ class CopilotNotepadProvider implements vscode.WebviewViewProvider {
         } else {
             previewContent = this._draft;
         }
-        
+
         const expanded = await expandPlaceholders(previewContent);
         await showPreviewPanel('Copilot', expanded, async (text) => {
             await vscode.commands.executeCommand('workbench.action.chat.open', { query: text });
@@ -818,7 +813,7 @@ class CopilotNotepadProvider implements vscode.WebviewViewProvider {
         const templateStr = template?.template || '${originalPrompt}';
         const full = templateStr.replace(/\$\{originalPrompt\}/g, this._draft);
         const expanded = await expandPlaceholders(full);
-        
+
         // Trail: Log prompt being sent to Copilot
         loadTrailConfig();
         logPrompt('copilot', 'github_copilot', expanded, undefined, {
@@ -826,7 +821,7 @@ class CopilotNotepadProvider implements vscode.WebviewViewProvider {
             templateKey: this._selectedTemplate || null,
             draftLength: this._draft.length,
         });
-        
+
         await vscode.commands.executeCommand('workbench.action.chat.open', { query: expanded });
     }
 
@@ -853,8 +848,7 @@ class CopilotNotepadProvider implements vscode.WebviewViewProvider {
             delete config.copilot.templates[this._selectedTemplate];
             if (saveSendToChatConfig(config)) {
                 this._loadTemplates();
-                this._selectedTemplate = this._templates[0]?.key || '';
-                await this._saveDraft();
+                await this._store.setSelection(STORAGE_KEYS.copilotTemplate, this._templates[0]?.key || '');
                 this._sendState();
                 vscode.window.showInformationMessage('Template deleted');
             }
@@ -1672,30 +1666,26 @@ class ConversationNotepadProvider implements vscode.WebviewViewProvider {
 class TomAiChatNotepadProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
     private _templates: { key: string; label: string; description?: string; contextInstructions?: string }[] = [];
-    private _selectedTemplate: string = '';
-    private _draft: string = '';
+    private readonly _store: NotepadDraftStore;
 
     constructor(private readonly _context: vscode.ExtensionContext) {
-        this._loadDraft();
+        this._store = new NotepadDraftStore(
+            _context,
+            STORAGE_KEYS.tomAiChatDraft,
+            [STORAGE_KEYS.tomAiChatTemplate],
+        );
     }
 
-    private _loadDraft(): void {
-        this._draft = this._context.workspaceState.get<string>(STORAGE_KEYS.tomAiChatDraft) || '';
-        this._selectedTemplate = this._context.workspaceState.get<string>(STORAGE_KEYS.tomAiChatTemplate) || '';
-    }
-
-    private async _saveDraft(): Promise<void> {
-        await this._context.workspaceState.update(STORAGE_KEYS.tomAiChatDraft, this._draft);
-        await this._context.workspaceState.update(STORAGE_KEYS.tomAiChatTemplate, this._selectedTemplate);
-    }
+    private get _draft(): string { return this._store.draft; }
+    private get _selectedTemplate(): string { return this._store.getSelection(STORAGE_KEYS.tomAiChatTemplate); }
 
     private _loadTemplates(): void {
         const config = loadSendToChatConfig();
         this._templates = [];
-        
+
         // Add "(None)" option for raw prompt
         this._templates.push({ key: '__none__', label: '(None)', description: 'Send prompt as-is', contextInstructions: '' });
-        
+
         if (config?.tomAiChat?.templates) {
             for (const [key, value] of Object.entries(config.tomAiChat.templates)) {
                 this._templates.push({
@@ -1706,7 +1696,7 @@ class TomAiChatNotepadProvider implements vscode.WebviewViewProvider {
                 });
             }
         }
-        
+
         if (this._templates.length === 1) {
             // Only "(None)" exists, add defaults
             this._templates.push(
@@ -1715,16 +1705,16 @@ class TomAiChatNotepadProvider implements vscode.WebviewViewProvider {
                 { key: 'debug', label: 'Debug', description: 'Debug an issue', contextInstructions: 'Focus on finding root cause and fixing the issue.' }
             );
         }
-        
+
         if (!this._selectedTemplate && this._templates.length > 0) {
-            this._selectedTemplate = this._templates[0].key;
+            void this._store.setSelection(STORAGE_KEYS.tomAiChatTemplate, this._templates[0].key);
         }
     }
 
     resolveWebviewView(webviewView: vscode.WebviewView): void {
         this._view = webviewView;
         webviewView.webview.options = { enableScripts: true };
-        
+
         this._loadTemplates();
         webviewView.webview.html = this._getHtml();
 
@@ -1741,13 +1731,11 @@ class TomAiChatNotepadProvider implements vscode.WebviewViewProvider {
                     this._sendState();
                     break;
                 case 'selectTemplate':
-                    this._selectedTemplate = msg.key;
-                    await this._saveDraft();
+                    await this._store.setSelection(STORAGE_KEYS.tomAiChatTemplate, msg.key);
                     this._sendState();
                     break;
                 case 'updateDraft':
-                    this._draft = msg.content;
-                    await this._saveDraft();
+                    await this._store.save(msg.content);
                     break;
                 case 'preview':
                     await this._preview();
@@ -1894,8 +1882,7 @@ _________ CHAT chat_${timestamp} ____________
             delete config.tomAiChat.templates[this._selectedTemplate];
             if (saveSendToChatConfig(config)) {
                 this._loadTemplates();
-                this._selectedTemplate = this._templates[0]?.key || '';
-                await this._saveDraft();
+                await this._store.setSelection(STORAGE_KEYS.tomAiChatTemplate, this._templates[0]?.key || '');
                 this._sendState();
                 vscode.window.showInformationMessage('Template deleted');
             }
