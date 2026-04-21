@@ -42,130 +42,25 @@ import { SharedToolDefinition } from '../tools/shared-tool-registry';
 
 // ============================================================================
 // Answer File Utilities (for Copilot answer file feature)
+//
+// Extracted to `../services/copilotAnswerService.ts` as part of Wave 3.2.
+// Imports below keep the short in-file names used throughout this
+// handler unchanged so existing call sites stay readable.
 // ============================================================================
 
-/** Get a short window identifier: first 8 chars of sessionId + first 8 of machineId. */
-function getWindowId(): string {
-    const session = vscode.env.sessionId.substring(0, 8);
-    const machine = vscode.env.machineId.substring(0, 8);
-    return `${session}_${machine}`;
-}
-
-/** Get the answer file path for the current window. */
-function getAnswerFilePath(): string {
-    const folder = getCopilotChatAnswerFolderAbsolute();
-    return path.join(folder, `${getWindowId()}_answer.json`);
-}
-
-function isAnswerJsonFilename(filename: string | null | undefined): boolean {
-    if (!filename) {
-        return false;
-    }
-    return filename.endsWith('_answer.json');
-}
-
-/** Generate a UUID-based request identifier (8-char hex prefix + 8-char hex suffix). */
-function generateRequestId(): string {
-    // Use short UUID format: xxxxxxxx_xxxxxxxx (16 hex chars)
-    const hex = () => Math.random().toString(16).substring(2, 10);
-    return `${hex()}_${hex()}`;
-}
-
-/** Check if answer file exists. */
-function answerFileExists(): boolean {
-    return fs.existsSync(getAnswerFilePath());
-}
-
-/** Delete the answer file. */
-function deleteAnswerFile(): void {
-    const filePath = getAnswerFilePath();
-    const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-    }
-    if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-    }
-}
-
-/** Read and parse the answer file. Returns undefined if not found/invalid. */
-function readAnswerFile(): { requestId: string; generatedMarkdown: string; comments?: string; references?: string[]; requestedAttachments?: string[]; responseValues?: Record<string, string> } | undefined {
-    const filePath = getAnswerFilePath();
-    if (!fs.existsSync(filePath)) return undefined;
-    try {
-        const content = fs.readFileSync(filePath, 'utf-8');
-        return JSON.parse(content);
-    } catch {
-        return undefined;
-    }
-}
-
-/** Get the copilot answers markdown file path. */
-function getCopilotAnswersMdPath(): string {
-    const config = loadSendToChatConfig();
-    const wsRoot = getWorkspaceRoot();
-    const basePath = config?.copilot?.answerFolder || WsPaths.aiRelative('copilot');
-    const fullBase = wsRoot ? path.join(wsRoot, basePath) : WsPaths.home('copilotAnswers');
-    return path.join(fullBase, getWindowId(), 'copilot-answer.md');
-}
-
-/** Get the copilot prompts markdown file path. */
-function getCopilotPromptsPath(): string {
-    const config = loadSendToChatConfig();
-    const wsRoot = getWorkspaceRoot();
-    const basePath = config?.copilot?.answerFolder || WsPaths.aiRelative('copilot');
-    const fullBase = wsRoot ? path.join(wsRoot, basePath) : WsPaths.home('copilotPrompts');
-    return path.join(fullBase, getWindowId(), 'copilot-prompts.md');
-}
-
-/** Get the copilot answers markdown file path. */
-function getCopilotAnswersPath(): string {
-    const config = loadSendToChatConfig();
-    const wsRoot = getWorkspaceRoot();
-    const basePath = config?.copilot?.answerFolder || WsPaths.aiRelative('copilot');
-    const fullBase = wsRoot ? path.join(wsRoot, basePath) : WsPaths.home('copilotAnswers');
-    return path.join(fullBase, getWindowId(), 'copilot-answers.md');
-}
-
-/** Log a prompt to the copilot-prompts.md file (prepended at top). */
-function logCopilotPrompt(prompt: string, template: string): void {
-    const promptsPath = getCopilotPromptsPath();
-    const dir = path.dirname(promptsPath);
-    
-    // Ensure directory exists
-    if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-    }
-    
-    // Format the entry
-    const timestamp = new Date().toISOString();
-    const templateLabel = template || '(none)';
-    const entry = `## ${timestamp}\n\n**Template:** ${templateLabel}\n\n${prompt}\n\n`;
-    
-    // Read existing file or create new
-    let existingContent = '';
-    if (fs.existsSync(promptsPath)) {
-        existingContent = fs.readFileSync(promptsPath, 'utf-8');
-    }
-    
-    // Prepend to file (after header if exists)
-    let newContent: string;
-    if (existingContent.startsWith('# ')) {
-        // Find end of first line (header)
-        const headerEnd = existingContent.indexOf('\n');
-        if (headerEnd > 0) {
-            newContent = existingContent.substring(0, headerEnd + 1) + '\n' + entry + existingContent.substring(headerEnd + 1);
-        } else {
-            newContent = existingContent + '\n\n' + entry;
-        }
-    } else if (existingContent.trim()) {
-        newContent = entry + existingContent;
-    } else {
-        newContent = '# Copilot Prompts\n\n' + entry;
-    }
-    
-    fs.writeFileSync(promptsPath, newContent, 'utf-8');
-}
+import {
+    getWindowId,
+    getAnswerFilePath,
+    isAnswerJsonFilename,
+    generateRequestId,
+    answerFileExists,
+    deleteAnswerFile,
+    readAnswerFile,
+    getCopilotAnswersMdPath,
+    getCopilotPromptsPath,
+    getCopilotAnswersPath,
+    logCopilotPrompt,
+} from '../services/copilotAnswerService';
 
 // ============================================================================
 // Trail Logging System
