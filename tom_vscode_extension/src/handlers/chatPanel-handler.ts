@@ -66,225 +66,38 @@ import {
 
 // ============================================================================
 // Trail Logging System
+//
+// Extracted to `../services/copilotTrailService.ts` as part of Wave 3.2.
+// Re-exports preserve the external surface (todoLogPanel imports
+// `getTrailFolder` / `getCopilotSummaryTrailPaths` from this module).
 // ============================================================================
 
-/** Configurable max trail entries before cleanup (reads from config, default 1000) */
-function getMaxTrailEntries(): number {
-    const config = loadSendToChatConfig();
-    return config?.trail?.maxEntries ?? 1000;
-}
+import {
+    getTrailFolder,
+    getIndividualTrailFolder,
+    getTrailFilePrefix,
+    getCopilotSummaryTrailPaths,
+    getWorkspaceName,
+    writePromptTrail,
+    writeAnswerTrail,
+    getTrailFileTimestamp,
+    getReadableTimestamp,
+    getMaxTrailEntries,
+    getTrailCleanupDays,
+    parseSequenceFromFile,
+    trimTrailFile,
+    cleanupOldTrailFiles,
+} from '../services/copilotTrailService';
 
-/** Configurable trail cleanup days (reads from config, default 2) */
-function getTrailCleanupDays(): number {
-    const config = loadSendToChatConfig();
-    return config?.trail?.cleanupDays ?? 2;
-}
-
-/** Track last cleanup date to only cleanup once per day */
-let lastCleanupDate: string | null = null;
-
-/** Generate ISO-based timestamp for individual trail file names (YYYYMMDD_HHMMSSmmm) */
-function getTrailFileTimestamp(): string {
-    const now = new Date();
-    const date = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
-    const time = `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}${String(now.getMilliseconds()).padStart(3, '0')}`;
-    return `${date}_${time}`;
-}
-
-/** Generate human-readable timestamp for trail entries */
-function getReadableTimestamp(): string {
-    return new Date().toISOString();
-}
-
-/** Get the workspace file name without extension, or 'default' if none */
-function getWorkspaceName(): string {
-    const workspaceFile = vscode.workspace.workspaceFile;
-    if (workspaceFile && workspaceFile.fsPath.endsWith('.code-workspace')) {
-        const basename = path.basename(workspaceFile.fsPath);
-        return basename.replace('.code-workspace', '');
-    }
-    return 'default';
-}
-
-/** Detect the active quest from the open .code-workspace file.
- *  Returns the quest ID if the workspace name matches a quest folder in _ai/quests/, otherwise null. */
-function detectQuestFromWorkspace(): string | null {
-    const wsName = getWorkspaceName();
-    if (wsName === 'default') return null;
-    const wsRoot = getWorkspaceRoot();
-    if (!wsRoot) return null;
-    const questFolder = WsPaths.ai('quests', wsName) || path.join(wsRoot, '_ai', 'quests', wsName);
-    if (fs.existsSync(questFolder)) {
-        return wsName;
-    }
-    return null;
-}
-
-/** Get the trail folder path — uses quest directory for consolidated trail files when a quest .code-workspace is open, falls back to _ai/trail */
-export function getTrailFolder(): string {
-    const wsRoot = getWorkspaceRoot();
-    if (!wsRoot) return '';
-    const questId = detectQuestFromWorkspace();
-    if (questId) {
-        const questFolder = WsPaths.ai('quests', questId) || path.join(wsRoot, '_ai', 'quests', questId);
-        return questFolder;
-    }
-    return WsPaths.ai('trail') || path.join(wsRoot, '_ai', 'trail');
-}
-
-/** Get the folder for individual trail files (userprompt.md, answer.json) — always _ai/trail */
-export function getIndividualTrailFolder(): string {
-    const wsRoot = getWorkspaceRoot();
-    if (!wsRoot) return '';
-    return WsPaths.ai('trail') || path.join(wsRoot, '_ai', 'trail');
-}
-
-/** Get the trail file name prefix — quest ID from .code-workspace */
-export function getTrailFilePrefix(): string {
-    return WsPaths.getWorkspaceQuestId();
-}
-
-export function getCopilotSummaryTrailPaths(): { questId: string; folder: string; promptsPath: string; answersPath: string } | null {
-    const wsRoot = getWorkspaceRoot();
-    if (!wsRoot) {
-        return null;
-    }
-
-    const questId = WsPaths.getWorkspaceQuestId();
-    const folder = WsPaths.ai('quests', questId) || path.join(wsRoot, '_ai', 'quests', questId);
-    return {
-        questId,
-        folder,
-        promptsPath: path.join(folder, `${questId}.copilot.prompts.md`),
-        answersPath: path.join(folder, `${questId}.copilot.answers.md`),
-    };
-}
-
-/** Parse sequence number from first line of trail file */
-function parseSequenceFromFile(filePath: string): number {
-    if (!fs.existsSync(filePath)) { return 0; }
-    try {
-        const content = fs.readFileSync(filePath, 'utf-8');
-        if (!content.trim()) { return 0; }
-        // Extract sequence number from first line: "=== PROMPT|ANSWER <ID> <TIMESTAMP> <SEQ> ==="
-        const firstLine = content.split('\n')[0];
-        const match = firstLine.match(/===\s+(?:PROMPT|ANSWER)\s+\S+\s+\S+\s+(\d+)\s+===/);
-        return match ? parseInt(match[1], 10) : 0;
-    } catch { return 0; }
-}
-
-/** Remove oldest entry from trail file if over max entries */
-function trimTrailFile(filePath: string, maxEntries: number): void {
-    if (!fs.existsSync(filePath)) { return; }
-    try {
-        const content = fs.readFileSync(filePath, 'utf-8');
-        const firstLine = content.split('\n')[0];
-        const match = firstLine.match(/===\s+(?:PROMPT|ANSWER)\s+\S+\s+\S+\s+(\d+)\s+===/);
-        const currentSeq = match ? parseInt(match[1], 10) : 0;
-        
-        if (currentSeq <= maxEntries) { return; }
-        
-        // Find and remove the last entry (oldest, at bottom)
-        // Entries start with "=== PROMPT" or "=== ANSWER"
-        const lines = content.split('\n');
-        let lastEntryStart = -1;
-        for (let i = lines.length - 1; i >= 0; i--) {
-            if (lines[i].match(/^===\s+(?:PROMPT|ANSWER)/)) {
-                lastEntryStart = i;
-                break;
-            }
-        }
-        
-        if (lastEntryStart > 0) {
-            // Remove from lastEntryStart to end
-            const trimmed = lines.slice(0, lastEntryStart).join('\n').trimEnd() + '\n';
-            fs.writeFileSync(filePath, trimmed, 'utf-8');
-        }
-    } catch (e) {
-        console.error('[Trail] Failed to trim trail file:', e);
-    }
-}
-
-/** Clean up old individual trail files (older than today - 2 days) */
-function cleanupOldTrailFiles(trailFolder: string): void {
-    const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    if (lastCleanupDate === today) { return; } // Already cleaned today
-    lastCleanupDate = today;
-    
-    try {
-        if (!fs.existsSync(trailFolder)) { return; }
-        
-        const cutoffDate = new Date();
-        cutoffDate.setDate(cutoffDate.getDate() - getTrailCleanupDays());
-        const cutoffStr = `${cutoffDate.getFullYear()}${String(cutoffDate.getMonth() + 1).padStart(2, '0')}${String(cutoffDate.getDate()).padStart(2, '0')}`;
-        
-        const files = fs.readdirSync(trailFolder);
-        for (const file of files) {
-            // Match both old pattern (YYYYMMDD_HHMMSS_copilot.*) and new pattern (YYYYMMDD_HHMMSSmmm_prompt_*|YYYYMMDD_HHMMSSmmm_answer_*)
-            const match = file.match(/^(\d{8})_\d{6,9}(?:_copilot\.|_(?:prompt|answer)_)/);
-            if (match) {
-                const fileDate = match[1];
-                if (fileDate < cutoffStr) {
-                    const filePath = path.join(trailFolder, file);
-                    fs.unlinkSync(filePath);
-                }
-            }
-        }
-    } catch (e) {
-        console.error('[Trail] Failed to cleanup old files:', e);
-    }
-}
-
-/** Write to consolidated prompt trail file */
-function writePromptTrail(originalPrompt: string, templateName: string, isAnswerWrapper: boolean, expandedPrompt: string, overrideRequestId?: string): void {
-    const trailService = TrailService.instance;
-    const requestId = overrideRequestId || generateRequestId();
-
-    const summaryPrompt =
-        `${originalPrompt}\n\n` +
-        `TEMPLATE: ${templateName || '(none)'}\n` +
-        `ANSWER-WRAPPER: ${isAnswerWrapper ? 'yes' : 'no'}\n` +
-        `REQUEST-ID: ${requestId}`;
-    trailService.writeSummaryPrompt({ type: 'copilot' }, summaryPrompt, getCopilotSummaryTrailPaths()?.questId);
-
-    const questId = WsPaths.getWorkspaceQuestId();
-    void trailService.writeRawPrompt({ type: 'copilot' }, expandedPrompt, getWindowId(), requestId, questId);
-
-    // Update window status panel — prompt sent
-    try {
-        const quest = WsPaths.getWorkspaceQuestId();
-        writeWindowState(getWindowId(), getWorkspaceName(), quest, 'copilot', 'prompt-sent');
-    } catch (e) {
-        debugLog(`[Trail] Failed to update window state on prompt: ${e}`, 'WARN', 'windowStatus');
-    }
-}
-
-/** Write to consolidated answer trail file */
-function writeAnswerTrail(answer: { requestId: string; generatedMarkdown: string; comments?: string; references?: string[]; requestedAttachments?: string[]; responseValues?: Record<string, string> }): void {
-    const trailService = TrailService.instance;
-    trailService.writeSummaryAnswer(
-        { type: 'copilot' },
-        answer.generatedMarkdown,
-        {
-            requestId: answer.requestId,
-            comments: answer.comments,
-            references: answer.references,
-            requestedAttachments: answer.requestedAttachments,
-            responseValues: answer.responseValues,
-        },
-        getCopilotSummaryTrailPaths()?.questId,
-    );
-
-    void trailService.writeRawAnswer({ type: 'copilot' }, answer.generatedMarkdown, getWindowId(), answer.requestId, getCopilotSummaryTrailPaths()?.questId);
-
-    // Update window status panel — answer received
-    try {
-        const quest = WsPaths.getWorkspaceQuestId();
-        writeWindowState(getWindowId(), getWorkspaceName(), quest, 'copilot', 'answer-received');
-    } catch (e) {
-        debugLog(`[Trail] Failed to update window state on answer: ${e}`, 'WARN', 'windowStatus');
-    }
-}
+// Re-export the trail helpers that external modules (todoLogPanel,
+// windowStatusPanel) import from this module today. Keeps their
+// imports working without a cross-file rename.
+export {
+    getTrailFolder,
+    getIndividualTrailFolder,
+    getTrailFilePrefix,
+    getCopilotSummaryTrailPaths,
+};
 
 const VIEW_ID = 'tomAi.chatPanel';
 
