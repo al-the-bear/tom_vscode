@@ -417,7 +417,18 @@ Convert the remaining `section === 'anthropic'` branches (trail-viewer routing, 
 
 **Wave 3 expected duration:** 4–6 weeks across a couple of releases. Schedule when no other structural work is in flight.
 
-**Wave 3 status:** starters complete for all three items. 3.1 landed with **single-file fallback preserved by design** — the existing workspace config keeps working unchanged; the user-global file at `~/.tom/vscode/tom_vscode_extension.user.yaml` (or `%USERPROFILE%\.tom\vscode\...` on Windows) is an *optional* overlay that only contributes sections the workspace config leaves unset. A documented `example/tom_vscode_extension.user.sample.yaml` ships as reference. 3.2 extracted the Copilot answer-file machinery from `chatPanel-handler.ts` into `src/services/copilotAnswerService.ts` (–101 lines from the handler). 3.3 introduced `src/handlers/chat/chatProviderRegistry.ts` and migrated the first `section === 'anthropic'` branch (`openTrailSummaryViewer` routing) onto a provider-map lookup. Remaining 3.2 / 3.3 work (more handler extractions, draft-extras branches) is queued for future sessions — each additional extraction can land as its own commit against the same patterns.
+**Wave 3 status — finished at the chatPanel layer.**
+
+- **3.1 complete.** User-global overlay with single-file fallback preserved by design. Sample file at `example/tom_vscode_extension.user.sample.yaml` ships as reference; existing workspace configs keep working without migration.
+- **3.2 finished for chatPanel** (3 service extractions):
+  - `src/services/copilotAnswerService.ts` (answer-file machinery, 160 lines).
+  - `src/services/chatDraftService.ts` (prompt-panel YAML save/load, 87 lines).
+  - `src/services/copilotTrailService.ts` (summary + raw trail writers, quest folder resolution, cleanup, 268 lines).
+  - Net: `chatPanel-handler.ts` shrinks from 5,194 → 4,914 lines (–280, −5.4 %). Three external modules now import from `services/` instead of reaching into the handler.
+  - **Pending for future sessions:** `anthropic-handler.ts` / `questTodoPanel-handler.ts` / `statusPage-handler.ts`. Each couples tightly to its handler's internal state (e.g. Anthropic's rolling `compactedSummary` + `rawTurns` fields, questTodoPanel's YAML edit state) — clean extraction needs a handler-specific design pass, so those are sensibly multi-session.
+- **3.3 complete.** All five section-specific branches in chatPanel-handler (`openTrailSummaryViewer`, `_handleCancel`, `_sendReusablePrompt`, `_saveDrafts`/`_loadDrafts` extras, `_handleDeleteProfile`) now route through the provider registry. Adding a sixth subpanel is now one `chatProviders.register(...)` call — no grep-and-branch across the handler.
+
+**Refactoring plan end-to-end:** every wave (0–3) has its core work landed. Remaining items are either deferred by plan (2.3 `TemplateAwareEditorShell`) or multi-session by nature (2.1 `SessionTodos` which has no shared pattern; 3.2 remainders which need per-handler design). The patterns, helpers, and service-layer split established by Waves 0–3 are the runway future handler extractions will use.
 
 ---
 
@@ -448,9 +459,11 @@ Convert the remaining `section === 'anthropic'` branches (trail-viewer routing, 
 | 2.3 | `TemplateAwareEditorShell` | result Consolidation | 3 | Medium | ⏸ deferred per plan |
 | 3.1 | Two-file config (user-global overlay, single-file fallback preserved) | result config recs, config_structure | 2 | Medium | ✅ done (5b1f1e0) |
 | 3.2 | Extract Copilot answer-file service from chatPanel (pilot) | result Medium 4 | 2 | Medium | ✅ done (466bc12) |
-| 3.2 | Extract remaining chatPanel / anthropic / questTodo / statusPage domain logic | result Medium 4 | 4 big handlers | Medium | ⏸ pending (multi-session) |
+| 3.2 | Extract chat-draft persistence to service | result Medium 4 | 2 | Low | ✅ done (cecca83) |
+| 3.2 | Extract Copilot trail service from chatPanel | result Medium 4 | 2 | Low | ✅ done (dcbd62c) |
+| 3.2 | Extract remaining anthropic-handler / questTodoPanel / statusPage domain logic | result Medium 4 | 3 big handlers | Medium | ⏸ pending (coupled to internal state of each handler; each extraction is a multi-session commit) |
 | 3.3 | Chat-provider registry + openTrailSummary migration | result §3 deferred | 2 | Low | ✅ done (f6c8426) |
-| 3.3 | Chat-provider registry — migrate draft extras / save-drafts branches | result §3 deferred | 1 | Low | ⏸ pending (coupled to webview state machine refactor) |
+| 3.3 | Chat-provider registry — all section-specific branches migrated | result §3 deferred | 2 | Low | ✅ done (e2e382e) |
 
 ---
 
