@@ -39,7 +39,8 @@ import { writeWindowState } from './windowStatusPanel-handler.js';
 import { AnthropicHandler, AnthropicProfile, AnthropicConfiguration } from './anthropic-handler';
 import { ALL_SHARED_TOOLS } from '../tools/tool-executors';
 import { SharedToolDefinition } from '../tools/shared-tool-registry';
-import { chatProviders } from './chat/chatProviderRegistry';
+import { chatProviders, ChatDraftState } from './chat/chatProviderRegistry';
+import { saveChatDrafts, loadChatDrafts } from '../services/chatDraftService';
 
 // ============================================================================
 // Answer File Utilities (for Copilot answer file feature)
@@ -2585,76 +2586,13 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private async _saveDrafts(drafts: Record<string, {
-        text?: string; profile?: string; llmConfig?: string; aiSetup?: string;
-        activeSlot?: number; slots?: Record<string, string>;
-        // Anthropic-specific extras
-        model?: string; config?: string; userMessageTemplate?: string;
-    }>): Promise<void> {
-        try {
-            const { writePromptPanelYaml } = await import('../utils/panelYamlStore.js');
-            const sections = ['localLlm', 'conversation', 'copilot', 'tomAiChat', 'anthropic'];
-            await Promise.all(
-                sections.map(async (section) => {
-                    const d = drafts[section] || {};
-                    const base: Record<string, unknown> = {
-                        text: d.text || '',
-                        profile: d.profile || '',
-                        llmConfig: d.llmConfig || '',
-                        aiSetup: d.aiSetup || '',
-                        activeSlot: d.activeSlot || 1,
-                        slots: d.slots || {},
-                    };
-                    // Section-specific extras come from the provider
-                    // registry so adding a sixth section doesn't need
-                    // an edit here.
-                    const extras = chatProviders.get(section)?.persistDraftExtras?.(d as Record<string, unknown>);
-                    if (extras) {
-                        Object.assign(base, extras);
-                    }
-                    await writePromptPanelYaml(section, base);
-                })
-            );
-        } catch (e) {
-            console.error('[chatPanel] Failed to save drafts:', e);
-        }
+    private async _saveDrafts(drafts: Record<string, ChatDraftState>): Promise<void> {
+        await saveChatDrafts(drafts);
     }
 
     private async _loadDrafts(): Promise<void> {
-        try {
-            const { readPromptPanelYaml } = await import('../utils/panelYamlStore.js');
-            const sections = ['localLlm', 'conversation', 'copilot', 'tomAiChat', 'anthropic'];
-            const loaded: Record<string, {
-                text?: string; profile?: string; llmConfig?: string; aiSetup?: string;
-                activeSlot?: number; slots?: Record<string, string>;
-                model?: string; config?: string; userMessageTemplate?: string;
-            }> = {};
-            for (const section of sections) {
-                const data = await readPromptPanelYaml<Record<string, unknown>>(section);
-                if (data) {
-                    const base = {
-                        text: (data.text as string) || '',
-                        profile: (data.profile as string) || '',
-                        llmConfig: (data.llmConfig as string) || '',
-                        aiSetup: (data.aiSetup as string) || '',
-                        activeSlot: (data.activeSlot as number) || 1,
-                        slots: (data.slots as Record<string, string>) || {},
-                    };
-                    // Providers contribute the extra fields they
-                    // persisted in _saveDrafts (mirrored shape).
-                    const extras = chatProviders.get(section)?.hydrateDraft?.(data) ?? {};
-                    loaded[section] = { ...base, ...extras };
-                }
-            }
-
-            if (Object.keys(loaded).length > 0) {
-                this._view?.webview.postMessage({ type: 'draftsLoaded', sections: loaded });
-                return;
-            }
-            this._view?.webview.postMessage({ type: 'draftsLoaded', sections: {} });
-        } catch {
-            this._view?.webview.postMessage({ type: 'draftsLoaded', sections: {} });
-        }
+        const loaded = await loadChatDrafts();
+        this._view?.webview.postMessage({ type: 'draftsLoaded', sections: loaded });
     }
 
     private async _showPanelsFile(): Promise<void> {
