@@ -23,6 +23,8 @@ Type: TypeScript extension
 - [tom_ai_chat.md](tom_ai_chat.md)
 - [tom_ai_bottom_panel.md](tom_ai_bottom_panel.md)
 - [tom_status_page.md](tom_status_page.md)
+- [anthropic_chat.md](anthropic_chat.md)
+- [prompt_queue_timed_templates.md](prompt_queue_timed_templates.md)
 - [local_llm.md](local_llm.md)
 - [explorer_notes.md](explorer_notes.md)
 - [bottom_panel_accordion.md](bottom_panel_accordion.md)
