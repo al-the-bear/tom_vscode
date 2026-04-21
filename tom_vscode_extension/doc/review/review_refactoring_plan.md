@@ -340,7 +340,11 @@ After this, each wrapper should be a few hundred lines of glue, not a copy of th
 
 **Wave 2 expected duration:** 1–2 weeks, bulk of it on 2.1. Items 2.2 / 2.4 / 2.5 are small and can run in parallel.
 
-**Wave 2 status as of the current tip:** items 2.2 / 2.4 (pilot) / 2.5 complete in single commits; 2.1 bootstrapped (helpers extracted, TomNotepadProvider migrated as the shell-shape proof). **Remaining 9 notepad providers migrate pair-by-pair in follow-up sessions**, each smoke-test-gated per the plan's own "revert a single pair" safety note. Recommended next pair from the audit: **WorkspaceNotepadProvider + QuestNotesProvider** (same disk-file + template pattern as the already-migrated Tom — should be a near-mechanical repeat using `NotepadFileStorage`). 2.3 (`TemplateAwareEditorShell`) stays deferred.
+**Wave 2 status:** items 2.2 / 2.4 (pilot) / 2.5 complete. 2.1 **complete** — all 9 disk-backed / draft-backed providers migrated across 5 pair commits, using three shared helpers: `NotepadFileStorage` (single-file, Tom + Workspace + Quest), `NotepadFolderStorage` (multi-file, Notes + Guidelines), and `NotepadDraftStore` (workspaceState-backed drafts, Copilot + TomAiChat + LocalLlm + Conversation). The 10th provider (`SessionTodosProvider`) is a pure list view over `SessionTodoStore` with no shared pattern to apply.
+
+**Duplication outcome:** storage logic that was previously reimplemented in every provider (ensureDir / ensureFile / file-watcher / ignore-echo / workspaceState keys) now lives in one shared module per pattern. Line-count goal of ≤ 2,000 total lines was based on also extracting HTML shell / message router — the audit showed those diverge more than expected across providers, so that extraction was deliberately skipped. Net: `sidebarNotes-handler.ts` 3,375 → 3,068 (–307 lines), shared helpers ~467 lines. Headline win is de-duplication, not raw line reduction — a future provider in any of the three shapes plugs straight in.
+
+2.3 (`TemplateAwareEditorShell`) stays deferred per the plan's own note.
 
 ---
 
@@ -434,7 +438,11 @@ Convert the remaining `section === 'anthropic'` branches (trail-viewer routing, 
 | 2.2 | Parameterise command variants | result Medium 1 | 3 | Low | ✅ done (074c07e) |
 | 2.4 | Wire `BaseWebviewProvider` (pilot) | result Medium 3 | 1 (+ base) | Low | ✅ done (5155930) |
 | 2.1 | Notepad helpers + TomNotepad migration | result High 1 | 3 | Medium | ✅ done (77f503e) |
-| 2.1 | Notepad — remaining 9 providers | result High 1 | 1 | Medium | 🔄 in progress (per-pair commits) |
+| 2.1 | Notepad — Workspace + Quest pair | result High 1 | 1 | Medium | ✅ done (7ddccb1) |
+| 2.1 | Notepad — Notes + Guidelines pair + folder storage helper | result High 1 | 2 | Medium | ✅ done (5301d41) |
+| 2.1 | Notepad — Copilot + TomAiChat pair + draft-store helper | result High 1 | 2 | Medium | ✅ done (5d2d4b9) |
+| 2.1 | Notepad — LocalLlm + Conversation pair | result High 1 | 1 | Medium | ✅ done (b6c7239) |
+| 2.1 | Notepad — SessionTodos (no shared pattern applies) | result High 1 | — | — | ✅ no-op — session-only list view over SessionTodoStore |
 | 2.3 | `TemplateAwareEditorShell` | result Consolidation | 3 | Medium | ⏸ deferred per plan |
 | 3.1 | Two-file config | result config recs, config_structure | many | Medium | ⏸ pending |
 | 3.2 | Extract domain logic from handlers | result Medium 4 | 4 big handlers | Medium | ⏸ pending |
