@@ -213,127 +213,11 @@ export interface AnthropicSendOptions {
  * shape of history went out — the per-turn raw trail already has the full
  * text for each exchange, and the request ids correlate.
  */
-function buildPayloadDump(params: {
-    requestId: string;
-    transport: AnthropicTransport;
-    configuration: AnthropicConfiguration;
-    profile: AnthropicProfile;
-    systemPrompt: string;
-    tools: SharedToolDefinition[];
-    history: ConversationMessage[];
-    userContent: string;
-    effectiveCaching: boolean;
-    thinkingBudgetTokens?: number;
-    useBuiltInTools?: boolean;
-    compactedSummary?: string;
-}): string {
-    const { requestId, transport, configuration, profile, systemPrompt, tools, history, userContent, compactedSummary } = params;
-    const lines: string[] = [];
-
-    lines.push('# Anthropic API payload');
-    lines.push('');
-    lines.push(`- requestId: \`${requestId}\``);
-    lines.push(`- transport: \`${transport}\``);
-    lines.push(`- profile: \`${profile.id}\` (${profile.name})`);
-    lines.push(`- configuration: \`${configuration.id}\` → model \`${configuration.model}\``);
-    lines.push(`- maxTokens: ${configuration.maxTokens}, maxRounds: ${configuration.maxRounds}`);
-    if (typeof configuration.temperature === 'number') {
-        lines.push(`- temperature: ${configuration.temperature}`);
-    }
-    lines.push(`- promptCachingEnabled (effective): ${params.effectiveCaching}`);
-    if (params.thinkingBudgetTokens !== undefined) {
-        lines.push(`- thinking.budget_tokens: ${params.thinkingBudgetTokens}`);
-    }
-    if (transport === 'agentSdk') {
-        lines.push(`- useBuiltInTools: ${params.useBuiltInTools === true}`);
-        lines.push(`- agentSdk.permissionMode: ${configuration.agentSdk?.permissionMode ?? 'default'}`);
-        lines.push(`- agentSdk.settingSources: ${(configuration.agentSdk?.settingSources ?? []).join(', ') || '(isolation mode)'}`);
-    } else if (transport === 'vscodeLm') {
-        lines.push(`- vscodeLm.vendor: \`${configuration.vscodeLm?.vendor ?? '(unset)'}\``);
-        lines.push(`- vscodeLm.family: \`${configuration.vscodeLm?.family ?? '(unset)'}\``);
-        lines.push(`- vscodeLm.modelId: \`${configuration.vscodeLm?.modelId ?? '(unset)'}\``);
-    } else if (transport === 'localLlm') {
-        lines.push(`- localLlm.baseUrl: \`${configuration.localLlm?.baseUrl ?? '(unset)'}\``);
-        lines.push(`- localLlm.model: \`${configuration.localLlm?.model ?? '(unset)'}\``);
-        if (configuration.localLlm?.keepAlive) {
-            lines.push(`- localLlm.keepAlive: \`${configuration.localLlm.keepAlive}\``);
-        }
-    }
-    lines.push(`- toolApprovalMode: ${profile.toolApprovalMode ?? 'always'}`);
-    lines.push('');
-
-    lines.push(`## System prompt (${systemPrompt.length} chars)`);
-    lines.push('');
-    lines.push('```text');
-    lines.push(systemPrompt);
-    lines.push('```');
-    lines.push('');
-
-    lines.push(`## Tools (${tools.length})`);
-    lines.push('');
-    if (tools.length === 0) {
-        lines.push('_(none)_');
-    } else {
-        for (const t of tools) {
-            lines.push(`- \`${t.name}\``);
-        }
-    }
-    lines.push('');
-
-    lines.push(`## Raw turns (${history.length} messages — sent verbatim)`);
-    lines.push('');
-    if (history.length === 0) {
-        lines.push('_(empty — first turn of the session or just after a clear)_');
-    } else {
-        for (let i = 0; i < history.length; i++) {
-            const m = history[i];
-            const content = typeof m.content === 'string' ? m.content : String(m.content ?? '');
-            const head = content.slice(0, 200).replace(/\s+/g, ' ').trim();
-            const tail = content.length > 200 ? ' …' : '';
-            lines.push(`- **[${i}] ${m.role}** — ${content.length} chars`);
-            lines.push(`  > ${head}${tail}`);
-        }
-    }
-    lines.push('');
-
-    // The compacted summary is injected into the wire payload *after* the
-    // raw turns and *before* the current user message. Show the actual
-    // content here (it tends to be a few KB — small enough not to
-    // dominate the file, and this is the only place the reconstructed
-    // summary is visible).
-    lines.push(`## Compacted summary (${(compactedSummary ?? '').length} chars — injected after raw turns)`);
-    lines.push('');
-    if (!compactedSummary) {
-        lines.push('_(empty — no turns have been compacted yet, or session was just cleared)_');
-    } else {
-        lines.push('```text');
-        lines.push(compactedSummary);
-        lines.push('```');
-    }
-    lines.push('');
-
-    lines.push(`## Current user message (${userContent.length} chars)`);
-    lines.push('');
-    lines.push('```text');
-    lines.push(userContent);
-    lines.push('```');
-    lines.push('');
-
-    return lines.join('\n');
-}
-
-/**
- * Decide whether to send a `temperature` parameter to the API. Omit it when
- * it is undefined OR equal to the server default (1.0). Some newer models
- * (e.g. claude-opus-4-7) return 400 "Temperature is deprecated for this
- * model" if it is sent at all — and the server default already matches
- * what callers get when omitting, so this is safe across every model. Any
- * explicit non-1 value (e.g. 0.3, 0.5) is forwarded unchanged.
- */
-export function temperatureField(temperature: number | undefined): { temperature?: number } {
-    if (typeof temperature !== 'number' || temperature === 1) { return {}; }
-    return { temperature };
-}
+// Pure payload / parameter helpers live in `../services/anthropicPayload.ts`.
+// `temperatureField` is re-exported here because external callers (tests,
+// trail utilities) import it from this module by name.
+import { buildPayloadDump, temperatureField, isConversationMessage } from '../services/anthropicPayload';
+export { temperatureField };
 
 /**
  * Extension tools that duplicate Claude Code's built-in preset. When a
@@ -357,13 +241,9 @@ export const DUPLICATES_OF_CLAUDE_CODE_BUILTINS: ReadonlySet<string> = new Set([
     'tomAi_webSearch',
 ]);
 
-function isConversationMessage(m: unknown): m is ConversationMessage {
-    return !!m && typeof m === 'object' &&
-        ((m as ConversationMessage).role === 'user' ||
-         (m as ConversationMessage).role === 'assistant' ||
-         (m as ConversationMessage).role === 'system') &&
-        typeof (m as ConversationMessage).content === 'string';
-}
+// `isConversationMessage` lives in `../services/anthropicPayload.ts`
+// (imported at the top of the file alongside buildPayloadDump /
+// temperatureField).
 
 export interface AnthropicSendResult {
     text: string;
