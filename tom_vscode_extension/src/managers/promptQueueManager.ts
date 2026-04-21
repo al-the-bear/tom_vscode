@@ -304,6 +304,7 @@ export class PromptQueueManager {
      */
     private _defaultMessageTemplateId: string | undefined;
     private _autoContinueTimer?: ReturnType<typeof setTimeout>;
+    private _reloadDebounceTimer?: ReturnType<typeof setTimeout>;
     private _answerWatcher?: fs.FSWatcher;
     private _timeoutWatcher?: ReturnType<typeof setInterval>;
     private _healthCheckTimer?: ReturnType<typeof setInterval>;
@@ -482,6 +483,10 @@ export class PromptQueueManager {
         if (this._autoContinueTimer) {
             clearTimeout(this._autoContinueTimer);
             this._autoContinueTimer = undefined;
+        }
+        if (this._reloadDebounceTimer) {
+            clearTimeout(this._reloadDebounceTimer);
+            this._reloadDebounceTimer = undefined;
         }
         if (this._timeoutWatcher) {
             clearInterval(this._timeoutWatcher);
@@ -2193,7 +2198,15 @@ export class PromptQueueManager {
             // transition to 'sent' instead of hanging at 'sending'.
             const isAnthropicItem = this.resolveStageTransport(item).transport === 'anthropic';
             if (!hadMore && isAnthropicItem) {
-                item.status = 'sent';
+                // Re-look up the live item by ID: if _reloadFromDisk() ran
+                // during the async dispatch (despite the guard above, a
+                // reload could still have happened in an earlier tick before
+                // the guard was reached), the original `item` reference may
+                // no longer be the object stored in _items.  Updating a
+                // discarded object would leave _items showing 'sending' and
+                // stall the queue permanently.
+                const liveItem = this._items.find(i => i.id === item.id) ?? item;
+                liveItem.status = 'sent';
                 this.persist();
                 this._onDidChange.fire();
                 logQueue(`Prompt ${item.id} completed (anthropic transport — no polling)`);
@@ -2203,8 +2216,9 @@ export class PromptQueueManager {
                 logQueue(`Prompt ${item.id} sent, waiting for answer at ${this.getAnswerFilePathForRequestId(item.expectedRequestId)}`);
             }
         } catch (err) {
-            item.status = 'error';
-            item.error = String(err);
+            const liveItem = this._items.find(i => i.id === item.id) ?? item;
+            liveItem.status = 'error';
+            liveItem.error = String(err);
             logQueueError(`sendItem(${item.id})`, err);
             this.persist();
             this._onDidChange.fire();
@@ -2688,9 +2702,28 @@ export class PromptQueueManager {
 
     /** Reload state from disk (called by file watcher). */
     private _reloadFromDisk(): void {
-        const entries = readAllEntries();
-        this._loadFromEntryFiles(entries);
-        this._onDidChange.fire();
+        // Debounce rapid bursts of file events (one persist() call writes
+        // multiple files, each of which fires its own watcher event).
+        if (this._reloadDebounceTimer) {
+            clearTimeout(this._reloadDebounceTimer);
+        }
+        this._reloadDebounceTimer = setTimeout(() => {
+            this._reloadDebounceTimer = undefined;
+            // Never replace in-memory state while an item is actively
+            // sending.  During an Anthropic dispatch the in-memory objects
+            // are authoritative: status updates (pending→sending→sent) flow
+            // through the live references held by sendItem().  A reload here
+            // would swap those objects out from under the async chain, so
+            // the final item.status = 'sent' assignment would update a
+            // discarded object and the queue would stall permanently.
+            if (this._items.some(i => i.status === 'sending')) {
+                debugLog('[PromptQueueManager] Queue files changed but skipping reload — item is currently sending', 'DEBUG', 'queue');
+                return;
+            }
+            const entries = readAllEntries();
+            this._loadFromEntryFiles(entries);
+            this._onDidChange.fire();
+        }, 300);
     }
 
     /** Load queue items from entry files into memory. */
