@@ -417,6 +417,8 @@ Convert the remaining `section === 'anthropic'` branches (trail-viewer routing, 
 
 **Wave 3 expected duration:** 4–6 weeks across a couple of releases. Schedule when no other structural work is in flight.
 
+**Wave 3 status:** starters complete for all three items. 3.1 landed with **single-file fallback preserved by design** — the existing workspace config keeps working unchanged; the user-global file at `~/.tom/vscode/tom_vscode_extension.user.yaml` (or `%USERPROFILE%\.tom\vscode\...` on Windows) is an *optional* overlay that only contributes sections the workspace config leaves unset. A documented `example/tom_vscode_extension.user.sample.yaml` ships as reference. 3.2 extracted the Copilot answer-file machinery from `chatPanel-handler.ts` into `src/services/copilotAnswerService.ts` (–101 lines from the handler). 3.3 introduced `src/handlers/chat/chatProviderRegistry.ts` and migrated the first `section === 'anthropic'` branch (`openTrailSummaryViewer` routing) onto a provider-map lookup. Remaining 3.2 / 3.3 work (more handler extractions, draft-extras branches) is queued for future sessions — each additional extraction can land as its own commit against the same patterns.
+
 ---
 
 ## 4. Summary table
@@ -444,9 +446,11 @@ Convert the remaining `section === 'anthropic'` branches (trail-viewer routing, 
 | 2.1 | Notepad — LocalLlm + Conversation pair | result High 1 | 1 | Medium | ✅ done (b6c7239) |
 | 2.1 | Notepad — SessionTodos (no shared pattern applies) | result High 1 | — | — | ✅ no-op — session-only list view over SessionTodoStore |
 | 2.3 | `TemplateAwareEditorShell` | result Consolidation | 3 | Medium | ⏸ deferred per plan |
-| 3.1 | Two-file config | result config recs, config_structure | many | Medium | ⏸ pending |
-| 3.2 | Extract domain logic from handlers | result Medium 4 | 4 big handlers | Medium | ⏸ pending |
-| 3.3 | Chat-provider registry | result §3 deferred | 1 | Low | ⏸ pending |
+| 3.1 | Two-file config (user-global overlay, single-file fallback preserved) | result config recs, config_structure | 2 | Medium | ✅ done (5b1f1e0) |
+| 3.2 | Extract Copilot answer-file service from chatPanel (pilot) | result Medium 4 | 2 | Medium | ✅ done (466bc12) |
+| 3.2 | Extract remaining chatPanel / anthropic / questTodo / statusPage domain logic | result Medium 4 | 4 big handlers | Medium | ⏸ pending (multi-session) |
+| 3.3 | Chat-provider registry + openTrailSummary migration | result §3 deferred | 2 | Low | ✅ done (f6c8426) |
+| 3.3 | Chat-provider registry — migrate draft extras / save-drafts branches | result §3 deferred | 1 | Low | ⏸ pending (coupled to webview state machine refactor) |
 
 ---
 
