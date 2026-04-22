@@ -85,27 +85,80 @@ export class ToolTrail {
     }
 
     /**
-     * Render the trail as the injected block for the outgoing prompt.
-     * Each line:
+     * Render the trail as a compact YAML-style block that can be expanded
+     * via the `${toolHistory}` placeholder in a profile's system prompt
+     * (or user-message template). Emits the most recent `limit` entries;
+     * older entries stay in the ring buffer so `readPastToolResult` can
+     * still reach them by key.
      *
-     *   HH:MM:SS  [key]  R<round>  toolName(inputSummary) → preview
+     * Format (readable block YAML, no mid-entry cut-off — the per-entry
+     * preview is placed inside a `|-` block scalar so line breaks in
+     * the result are preserved instead of wrapping the host line):
      *
-     * Returns `""` when there are no entries so callers can omit the
-     * block entirely.
+     *   # Tool history — last N calls. Use tomAi_readPastToolResult({ key: "tX" }) for full bodies.
+     *   - key: t14
+     *     t: 14:32:07
+     *     round: 3
+     *     tool: tomAi_openFile
+     *     input: {path: src/foo.ts}
+     *     preview: |-
+     *       first N chars of the result,
+     *       line breaks preserved
+     *
+     * Returns `""` when the buffer is empty so the placeholder disappears
+     * cleanly on the first turn of a session.
      */
-    toSummaryString(): string {
+    toSummaryString(limit: number = 25): string {
         if (this.entries.length === 0) {
             return '';
         }
-        const lines = this.entries.map((e) => {
-            const status = e.error ? `ERROR: ${e.error}` : this.preview(e.result);
-            const compactStatus = status.replace(/\s+/g, ' ').trim();
-            return `${e.timestamp} [${e.key}] R${e.round} ${e.toolName}(${e.inputSummary}) → ${compactStatus}`;
-        });
-        return [
-            `[Tool history — last ${this.entries.length} calls; read full bodies via tomAi_readPastToolResult({ key })]`,
-            ...lines,
-        ].join('\n');
+        const slice = limit > 0 && this.entries.length > limit
+            ? this.entries.slice(-limit)
+            : this.entries;
+        const blocks: string[] = [
+            `# Tool history — last ${slice.length} of ${this.entries.length} calls. ` +
+            `Use tomAi_readPastToolResult({ key: "tX" }) for full bodies.`,
+        ];
+        for (const e of slice) {
+            const previewBody = e.error ? `ERROR: ${e.error}` : this.preview(e.result);
+            blocks.push(
+                `- key: ${e.key}\n` +
+                `  t: ${e.timestamp}\n` +
+                `  round: ${e.round}\n` +
+                `  tool: ${e.toolName}\n` +
+                `  input: ${this.yamlInlineScalar(e.inputSummary)}\n` +
+                `  preview: |-\n` +
+                this.yamlIndentBlock(previewBody, 4),
+            );
+        }
+        return blocks.join('\n');
+    }
+
+    /** Quote an inline scalar only when it needs it — `{...}` / leading-space
+     *  strings become double-quoted; plain strings stay unquoted for
+     *  readability. Newlines are collapsed to a single space. */
+    private yamlInlineScalar(s: string): string {
+        const oneLine = (s ?? '').replace(/\s+/g, ' ').trim();
+        if (oneLine === '') { return '""'; }
+        // Quote when the value starts with a character that would otherwise
+        // parse as a flow mapping/sequence or reserved YAML indicator.
+        if (/^[\s\-?:,\[\]\{\}#&*!|>%@`'"]/.test(oneLine) || oneLine.includes(': ')) {
+            return `"${oneLine.replace(/"/g, '\\"')}"`;
+        }
+        return oneLine;
+    }
+
+    /** Indent every line of `body` by `spaces` — no trailing empty line so
+     *  the outer join doesn't insert a stray blank between entries. */
+    private yamlIndentBlock(body: string, spaces: number): string {
+        const pad = ' '.repeat(spaces);
+        const lines = (body ?? '').split(/\r?\n/);
+        // Drop trailing empty entries so `|-` chomps cleanly.
+        while (lines.length > 0 && lines[lines.length - 1] === '') {
+            lines.pop();
+        }
+        if (lines.length === 0) { return `${pad}\n`; }
+        return lines.map((l) => `${pad}${l}`).join('\n') + '\n';
     }
 
     /** The key that the next `add()` call will assign. Lets callers

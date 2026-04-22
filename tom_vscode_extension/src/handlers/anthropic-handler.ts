@@ -834,11 +834,20 @@ export class AnthropicHandler {
         const { cleaned: keywordCleanedText } = this.applyKeywordTriggers(userText, quest);
         const effectiveUserText = keywordCleanedText.trim() || userText;
 
+        // Tool history for the `${toolHistory}` placeholder. Skipped on the
+        // Agent SDK transport — the SDK carries its own tool context
+        // forward via session resumption, so our injected block would be
+        // redundant. An empty string resolves the placeholder to nothing
+        // so profiles that mention `${toolHistory}` still work on SDK.
+        const toolHistoryText = transport === 'agentSdk'
+            ? ''
+            : this.toolTrail.toSummaryString();
+
         // Agent SDK path: no memory injection into the system prompt (§18.4).
         // The agent pulls memory via `tomAi_memory_*` tools on demand.
         const systemSegments = transport === 'agentSdk'
             ? [profile.systemPrompt ?? ''].filter((s): s is string => !!s)
-            : this.buildSystemSegments(profile, quest);
+            : this.buildSystemSegments(profile, quest, { toolHistory: toolHistoryText });
         const systemPrompt = systemSegments.filter((s) => s).join('\n\n');
         // Effective history mode for this call. Agent SDK configs may use
         // 'sdk-managed' (SDK session resumption); 'full' / 'trim_and_summary'
@@ -860,14 +869,22 @@ export class AnthropicHandler {
         const shouldExposeOurHistory = effectiveHistoryMode !== 'sdk-managed' && !options.isolated;
         const expandedUser = this.buildUserMessage(
             { ...options, userText: effectiveUserText },
-            shouldExposeOurHistory
-                ? { compactedSummary: this.compactedSummary, rawTurns: this.rawTurns }
-                : undefined,
+            {
+                ...(shouldExposeOurHistory
+                    ? { compactedSummary: this.compactedSummary, rawTurns: this.rawTurns }
+                    : {}),
+                toolHistory: toolHistoryText,
+            },
         );
-        const trailLinePrefix = this.toolTrail.toSummaryString();
-        const userContent = trailLinePrefix
-            ? `${trailLinePrefix}\n\n${expandedUser}`
-            : expandedUser;
+        // `userContent` previously carried an unconditional `${toolHistory}`
+        // prefix built inline here. That block now lives behind a
+        // `${toolHistory}` placeholder in the profile system prompt /
+        // user-message template, so the raw user text is no longer
+        // decorated before it reaches the model. The `.prompts.md`
+        // summary trail (written from finalize) uses `effectiveUserText`
+        // directly so it reflects only what the user typed — no
+        // injections, templates, or prefixes.
+        const userContent = expandedUser;
 
         // First live-trail event for this turn — shows up in the
         // MD Browser as soon as the send button is clicked.
@@ -1024,7 +1041,10 @@ export class AnthropicHandler {
             // finalize(), but the SDK branch returns early so we write them
             // here. Without this the Prompt Summary Viewer never sees
             // agentSdk prompts (only the raw files get the write above).
-            TrailService.instance.writeSummaryPrompt(ANTHROPIC_SUBSYSTEM, userContent, quest);
+            // Log the raw user text (no template / tool-history injection)
+            // so the summary trail matches what the user typed — same
+            // rule finalize() uses.
+            TrailService.instance.writeSummaryPrompt(ANTHROPIC_SUBSYSTEM, effectiveUserText, quest);
             TrailService.instance.writeSummaryAnswer(
                 ANTHROPIC_SUBSYSTEM,
                 result.text,
@@ -1078,6 +1098,7 @@ export class AnthropicHandler {
                 requestId,
                 round,
                 quest,
+                effectiveUserText,
             );
         }
 
@@ -1093,6 +1114,7 @@ export class AnthropicHandler {
                 requestId,
                 round,
                 quest,
+                effectiveUserText,
             );
         }
 
@@ -1187,7 +1209,7 @@ export class AnthropicHandler {
                 }
 
                 if (response.stop_reason !== 'tool_use') {
-                    return this.finalize(userContent, lastText, turn + 1, totalToolCalls, lastStopReason, windowId, requestId, quest, configuration, options.isolated === true);
+                    return this.finalize(userContent, lastText, turn + 1, totalToolCalls, lastStopReason, windowId, requestId, quest, configuration, options.isolated === true, effectiveUserText);
                 }
 
                 messages.push({ role: 'assistant', content: response.content });
@@ -1229,7 +1251,7 @@ export class AnthropicHandler {
             throw err;
         }
 
-        return this.finalize(userContent, lastText, configuration.maxRounds, totalToolCalls, lastStopReason, windowId, requestId, quest, configuration, options.isolated === true);
+        return this.finalize(userContent, lastText, configuration.maxRounds, totalToolCalls, lastStopReason, windowId, requestId, quest, configuration, options.isolated === true, effectiveUserText);
     }
 
     /**
@@ -1256,6 +1278,7 @@ export class AnthropicHandler {
         requestId: string,
         round: number,
         quest: string,
+        effectiveUserText: string,
     ): Promise<AnthropicSendResult> {
         const { configuration, tools } = options;
         const vscodeLm = configuration.vscodeLm;
@@ -1363,6 +1386,7 @@ export class AnthropicHandler {
                         quest,
                         configuration,
                         options.isolated === true,
+                        effectiveUserText,
                     );
                 }
 
@@ -1420,6 +1444,7 @@ export class AnthropicHandler {
                 quest,
                 configuration,
                 options.isolated === true,
+                effectiveUserText,
             );
         } catch (err) {
             const errMsg = err instanceof Error ? (err.stack || err.message) : String(err);
@@ -1454,6 +1479,7 @@ export class AnthropicHandler {
         requestId: string,
         round: number,
         quest: string,
+        effectiveUserText: string,
     ): Promise<AnthropicSendResult> {
         const { configuration, tools } = options;
         const llm = configuration.localLlm;
@@ -1543,6 +1569,7 @@ export class AnthropicHandler {
                         quest,
                         configuration,
                         options.isolated === true,
+                        effectiveUserText,
                     );
                 }
 
@@ -1605,6 +1632,7 @@ export class AnthropicHandler {
                 quest,
                 configuration,
                 options.isolated === true,
+                effectiveUserText,
             );
         } catch (err) {
             const errMsg = err instanceof Error ? (err.stack || err.message) : String(err);
@@ -1636,7 +1664,17 @@ export class AnthropicHandler {
         quest: string,
         configuration: AnthropicConfiguration,
         isolated: boolean = false,
+        /**
+         * Raw user text for the summary prompt trail. Must be the user's
+         * pure input — no template expansion, no tool-history block, no
+         * userPromptWrapper. The `.userprompt.md` raw trail keeps the
+         * fully-decorated `userContent` (audit record of what the model
+         * saw); the summary `.anthropic.prompts.md` records only what the
+         * user typed. Falls back to `userContent` for legacy callers.
+         */
+        rawUserText?: string,
     ): AnthropicSendResult {
+        const userTextForSummary = rawUserText ?? userContent;
         // Never write a truly empty answer body to the trail — either
         // the text the model produced, or a short diagnostic line so
         // the `.answer.json` file is always informative.
@@ -1662,7 +1700,10 @@ export class AnthropicHandler {
         // Also write the compact summary trail (_ai/quests/{quest}/{quest}.anthropic.prompts.md
         // and .answers.md) so the Raw Trail Files Viewer (per-file view) can open it. Same
         // pattern copilot uses via writeSummaryPrompt + writeSummaryAnswer.
-        TrailService.instance.writeSummaryPrompt(ANTHROPIC_SUBSYSTEM, userContent, quest);
+        // Use `userTextForSummary` (raw user input, template-free) not
+        // `userContent` (decorated wire payload) so the summary trail
+        // reflects only what the user typed.
+        TrailService.instance.writeSummaryPrompt(ANTHROPIC_SUBSYSTEM, userTextForSummary, quest);
         TrailService.instance.writeSummaryAnswer(
             ANTHROPIC_SUBSYSTEM,
             text,
@@ -1882,15 +1923,28 @@ export class AnthropicHandler {
      * everything up to and including it becomes a cache checkpoint (per spec
      * §5.2 / §16: "the memory injection block after Phase 3").
      */
-    private buildSystemSegments(profile: AnthropicProfile, _questId?: string): string[] {
+    private buildSystemSegments(
+        profile: AnthropicProfile,
+        _questId?: string,
+        extras?: { toolHistory?: string },
+    ): string[] {
         // Memory injection is no longer automatic. Drop `${memory}`,
         // `${memory-shared}`, or `${memory-quest}` into the profile's
         // system prompt (or a user-message template — usually better
         // for prompt caching) to include a memory block. The placeholder
         // resolver reads anthropic.memory.maxInjectedTokens for the
         // char budget.
+        //
+        // `${toolHistory}` is resolved from the caller's `extras` — it's
+        // the compact YAML-style rendering of the last ~25 tool calls in
+        // the ring buffer. Empty on Agent SDK (the SDK manages its own
+        // tool context) and on the first turn of a session.
         const segments: string[] = [];
-        const base = resolveVariables(profile.systemPrompt ?? '');
+        const base = resolveVariables(profile.systemPrompt ?? '', {
+            values: {
+                toolHistory: extras?.toolHistory ?? '',
+            },
+        });
         if (base) { segments.push(base); }
         return segments;
     }
@@ -1985,13 +2039,14 @@ export class AnthropicHandler {
      */
     private buildUserMessage(
         options: AnthropicSendOptions,
-        extras?: { compactedSummary?: string; rawTurns?: ConversationMessage[] },
+        extras?: { compactedSummary?: string; rawTurns?: ConversationMessage[]; toolHistory?: string },
     ): string {
         const compactedSummary = extras?.compactedSummary ?? '';
         const rawTurns = extras?.rawTurns ?? [];
         const rawTurnsFormatted = rawTurns
             .map((m) => `[${m.role}] ${typeof m.content === 'string' ? m.content : String(m.content ?? '')}`)
             .join('\n\n');
+        const toolHistory = extras?.toolHistory ?? '';
 
         // Stage 1: expand userMessageTemplate (if any) around the raw
         // user text via ${userMessage}. When no template is set, the
@@ -2004,6 +2059,7 @@ export class AnthropicHandler {
                     compactedSummary,
                     rawTurns: rawTurnsFormatted,
                     rawTurnCount: String(rawTurns.length),
+                    toolHistory,
                 },
             })
             : options.userText;
@@ -2025,6 +2081,7 @@ export class AnthropicHandler {
                 compactedSummary,
                 rawTurns: rawTurnsFormatted,
                 rawTurnCount: String(rawTurns.length),
+                toolHistory,
             },
         });
     }
