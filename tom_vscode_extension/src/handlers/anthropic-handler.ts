@@ -874,9 +874,13 @@ export class AnthropicHandler {
 
         // Agent SDK path: no memory injection into the system prompt (§18.4).
         // The agent pulls memory via `tomAi_memory_*` tools on demand.
-        const systemSegments = transport === 'agentSdk'
-            ? [profile.systemPrompt ?? ''].filter((s): s is string => !!s)
-            : this.buildSystemSegments(profile, quest, { toolHistory: toolHistoryText });
+        // Both transports still route through `buildSystemSegments` so the
+        // profile's `${…}` and `${{…}}` placeholders are resolved before the
+        // prompt is sent (and before it is written to the raw `.userprompt.md`
+        // trail). `toolHistoryText` is already `''` on Agent SDK so the
+        // `${toolHistory}` block stays empty there — matching the previous
+        // behaviour, just with variable resolution turned back on.
+        const systemSegments = this.buildSystemSegments(profile, quest, { toolHistory: toolHistoryText });
         const systemPrompt = systemSegments.filter((s) => s).join('\n\n');
         // Effective history mode for this call. Agent SDK configs may use
         // 'sdk-managed' (SDK session resumption); 'full' / 'trim_and_summary'
