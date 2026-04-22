@@ -706,6 +706,31 @@ export class AnthropicHandler {
     }
 
     /**
+     * Reject every outstanding tool-approval awaiter as `approved=false`.
+     * Called from the Stop button path so cancelling the turn also
+     * unblocks any `runTool` that's currently sitting on an approval
+     * promise — without this, the CTS cancel only aborts the API call,
+     * while the tool loop stays pinned inside `awaitApproval` forever.
+     *
+     * Idempotent — safe to call when no approvals are in flight.
+     */
+    abortPendingApprovals(): number {
+        if (this.pendingApprovals.size === 0) {
+            return 0;
+        }
+        const entries = Array.from(this.pendingApprovals.values());
+        this.pendingApprovals.clear();
+        for (const entry of entries) {
+            try {
+                entry.resolve(false);
+            } catch {
+                // defensive — a resolver throwing shouldn't stop the rest
+            }
+        }
+        return entries.length;
+    }
+
+    /**
      * Emit `onApprovalNeeded` and return a Promise that resolves when
      * `handleApprovalResponse(toolUseId, ...)` is called. Phase 4 wires
      * the chat panel as the listener; before then, callers must register

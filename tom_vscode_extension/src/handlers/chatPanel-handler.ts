@@ -150,7 +150,31 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         chatProviders.register('anthropic', {
             openTrailSummary: () => this._openAnthropicSummaryTrail(),
             cancelInFlight: () => {
-                this._activeCts.get('anthropic')?.cancel();
+                // Three-part cancel:
+                //   1) CTS.cancel() — tells the SDK / VS Code LM / Local LLM
+                //      stream to abort their network I/O.
+                //   2) abortPendingApprovals() — rejects any approval
+                //      awaiter so a runTool sitting on the approval bar
+                //      unblocks and exits the loop (without this, the
+                //      network-cancel wakes the send, but the tool loop
+                //      remains pinned inside awaitApproval forever).
+                //   3) anthropicError ping — forces the webview to reset
+                //      `anthropicSending=false` and re-enable the Send
+                //      button, even in the idle case where there was
+                //      nothing in-flight to abort.
+                const cts = this._activeCts.get('anthropic');
+                const hadInFlight = !!cts;
+                cts?.cancel();
+                const rejected = AnthropicHandler.instance.abortPendingApprovals();
+                const reason = hadInFlight
+                    ? (rejected > 0
+                        ? `Cancelled by user (${rejected} pending approval${rejected === 1 ? '' : 's'} rejected)`
+                        : 'Cancelled by user')
+                    : 'Cancelled by user (nothing in flight — resetting UI)';
+                this._view?.webview.postMessage({
+                    type: 'anthropicError',
+                    message: reason,
+                });
             },
             sendReusablePrompt: async (content, state) => {
                 await this._handleSendAnthropic(
