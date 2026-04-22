@@ -299,13 +299,17 @@ export class AnthropicHandler {
     private compactedSummary: string = '';
     private rawTurns: ConversationMessage[] = [];
     /**
-     * Active live-trail writer for the turn currently being processed.
-     * Created at the top of `sendMessage`; consulted by `runTool` to
-     * emit tool_use / tool_result events; cleared (to null) when the
-     * turn exits. A null value means "no writer — trail writes are
-     * no-ops", which matches what isolated sub-agent calls want.
+     * Live-trail writers are **per-`sendMessage` call**, not a field on the
+     * singleton. The top of `sendMessage` creates a local `liveTrail` and
+     * threads it through to `sendViaVsCodeLm`, `sendViaLocalLlm`,
+     * `runTool`, and `finalize`. Isolated sub-agent calls pass `null` so
+     * their intermediate work doesn't hit the parent turn's trail file.
+     *
+     * Why not a field: sub-agent calls and concurrent sends (chat panel +
+     * queue dispatch on the same singleton) used to stomp a shared field,
+     * leaving the outer turn's writes silently no-op'd — the classic
+     * "live-trail disconnect" symptom.
      */
-    private currentLiveTrail: LiveTrailWriter | null = null;
     private historySeeded = false;
 
     /**
@@ -811,11 +815,11 @@ export class AnthropicHandler {
         // `_ai/quests/<quest>/live-trail.md` as the turn runs so the
         // user can watch in the MD Browser. Isolated sub-agent runs
         // don't get a writer — their intermediate work shouldn't
-        // clutter the parent quest's trail. The writer is cheap to
-        // instantiate; we hold it on the handler for the duration of
-        // the turn so `runTool` can emit tool events without having to
-        // thread the reference through every call.
-        this.currentLiveTrail = options.isolated ? null : new LiveTrailWriter(quest);
+        // clutter the parent quest's trail. The writer is a local to
+        // this call (never a field on the singleton) so nested calls —
+        // sub-agents, concurrent chat-panel vs queue dispatch — can't
+        // stomp it and make the parent turn's writes no-ops.
+        const liveTrail: LiveTrailWriter | null = options.isolated ? null : new LiveTrailWriter(quest);
 
         // Await any background work from the previous turn before we
         // build the wire payload. This emits status events the chat
@@ -888,7 +892,7 @@ export class AnthropicHandler {
 
         // First live-trail event for this turn — shows up in the
         // MD Browser as soon as the send button is clicked.
-        this.currentLiveTrail?.beginPrompt({
+        liveTrail?.beginPrompt({
             transport,
             config: configuration.id,
             userText: effectiveUserText,
@@ -1008,7 +1012,7 @@ export class AnthropicHandler {
                     resumeSessionId,
                     onSessionIdCaptured,
                     autoLoadProjectSettings: useSdkManagedContinuity,
-                    liveTrail: this.currentLiveTrail ?? undefined,
+                    liveTrail: liveTrail ?? undefined,
                     context: {
                         requestApproval: (req) => this.awaitApproval(req),
                         sessionApprovals: this.sessionApprovals,
@@ -1021,8 +1025,7 @@ export class AnthropicHandler {
                 });
             } catch (err) {
                 const errMsg = err instanceof Error ? (err.stack || err.message) : String(err);
-                this.currentLiveTrail?.endPromptWithError(errMsg);
-                this.currentLiveTrail = null;
+                liveTrail?.endPromptWithError(errMsg);
                 throw err;
             }
 
@@ -1072,11 +1075,10 @@ export class AnthropicHandler {
                 this.scheduleBackgroundCompactionAndExtraction([userMsg, assistantMsg], false, configuration);
             }
             // Close the live-trail block for this turn.
-            this.currentLiveTrail?.endPrompt({
+            liveTrail?.endPrompt({
                 rounds: result.turnsUsed,
                 toolCalls: result.toolCallCount,
             });
-            this.currentLiveTrail = null;
             return result;
         }
 
@@ -1099,6 +1101,7 @@ export class AnthropicHandler {
                 round,
                 quest,
                 effectiveUserText,
+                liveTrail,
             );
         }
 
@@ -1115,6 +1118,7 @@ export class AnthropicHandler {
                 round,
                 quest,
                 effectiveUserText,
+                liveTrail,
             );
         }
 
@@ -1202,14 +1206,14 @@ export class AnthropicHandler {
                 for (const block of response.content) {
                     const b = block as { type?: string; text?: unknown; thinking?: unknown };
                     if (b.type === 'thinking' && typeof b.thinking === 'string') {
-                        this.currentLiveTrail?.appendThinking(b.thinking);
+                        liveTrail?.appendThinking(b.thinking);
                     } else if (b.type === 'text' && typeof b.text === 'string') {
-                        this.currentLiveTrail?.appendAssistantText(b.text);
+                        liveTrail?.appendAssistantText(b.text);
                     }
                 }
 
                 if (response.stop_reason !== 'tool_use') {
-                    return this.finalize(userContent, lastText, turn + 1, totalToolCalls, lastStopReason, windowId, requestId, quest, configuration, options.isolated === true, effectiveUserText);
+                    return this.finalize(userContent, lastText, turn + 1, totalToolCalls, lastStopReason, windowId, requestId, quest, configuration, options.isolated === true, effectiveUserText, liveTrail);
                 }
 
                 messages.push({ role: 'assistant', content: response.content });
@@ -1229,6 +1233,7 @@ export class AnthropicHandler {
                         quest,
                         windowId,
                         requestId,
+                        liveTrail,
                     );
                     toolResults.push(toolResultBlock);
                 }
@@ -1246,12 +1251,11 @@ export class AnthropicHandler {
                 ? `${lastText}\n\n---\n(request error after partial output)\n${errMsg}`
                 : `(no text produced — request errored before any assistant text)\n${errMsg}`;
             TrailService.instance.writeRawAnswer(ANTHROPIC_SUBSYSTEM, body, windowId, requestId, quest);
-            this.currentLiveTrail?.endPromptWithError(errMsg);
-            this.currentLiveTrail = null;
+            liveTrail?.endPromptWithError(errMsg);
             throw err;
         }
 
-        return this.finalize(userContent, lastText, configuration.maxRounds, totalToolCalls, lastStopReason, windowId, requestId, quest, configuration, options.isolated === true, effectiveUserText);
+        return this.finalize(userContent, lastText, configuration.maxRounds, totalToolCalls, lastStopReason, windowId, requestId, quest, configuration, options.isolated === true, effectiveUserText, liveTrail);
     }
 
     /**
@@ -1279,6 +1283,7 @@ export class AnthropicHandler {
         round: number,
         quest: string,
         effectiveUserText: string,
+        liveTrail: LiveTrailWriter | null,
     ): Promise<AnthropicSendResult> {
         const { configuration, tools } = options;
         const vscodeLm = configuration.vscodeLm;
@@ -1364,7 +1369,7 @@ export class AnthropicHandler {
                     if (part instanceof vscode.LanguageModelTextPart) {
                         turnText += part.value;
                         assistantParts.push(part);
-                        this.currentLiveTrail?.appendAssistantText(part.value);
+                        liveTrail?.appendAssistantText(part.value);
                     } else if (part instanceof vscode.LanguageModelToolCallPart) {
                         assistantParts.push(part);
                         toolCalls.push(part);
@@ -1387,6 +1392,7 @@ export class AnthropicHandler {
                         configuration,
                         options.isolated === true,
                         effectiveUserText,
+                        liveTrail,
                     );
                 }
 
@@ -1415,6 +1421,7 @@ export class AnthropicHandler {
                         quest,
                         windowId,
                         requestId,
+                        liveTrail,
                     );
                     const resultText = typeof toolResultBlock.content === 'string'
                         ? toolResultBlock.content
@@ -1445,6 +1452,7 @@ export class AnthropicHandler {
                 configuration,
                 options.isolated === true,
                 effectiveUserText,
+                liveTrail,
             );
         } catch (err) {
             const errMsg = err instanceof Error ? (err.stack || err.message) : String(err);
@@ -1452,8 +1460,7 @@ export class AnthropicHandler {
                 ? `${lastText}\n\n---\n(VS Code LM request errored after partial output)\n${errMsg}`
                 : `(VS Code LM request failed before completing)\n${errMsg}`;
             TrailService.instance.writeRawAnswer(ANTHROPIC_SUBSYSTEM, body, windowId, requestId, quest);
-            this.currentLiveTrail?.endPromptWithError(errMsg);
-            this.currentLiveTrail = null;
+            liveTrail?.endPromptWithError(errMsg);
             throw err;
         }
     }
@@ -1480,6 +1487,7 @@ export class AnthropicHandler {
         round: number,
         quest: string,
         effectiveUserText: string,
+        liveTrail: LiveTrailWriter | null,
     ): Promise<AnthropicSendResult> {
         const { configuration, tools } = options;
         const llm = configuration.localLlm;
@@ -1552,7 +1560,7 @@ export class AnthropicHandler {
                     tools: effectiveTools,
                     keepAlive: llm.keepAlive,
                     cancellationToken: options.cancellationToken,
-                    onToken: (fragment: string) => this.currentLiveTrail?.appendAssistantText(fragment),
+                    onToken: (fragment: string) => liveTrail?.appendAssistantText(fragment),
                 });
                 lastText = result.text || lastText;
 
@@ -1570,6 +1578,7 @@ export class AnthropicHandler {
                         configuration,
                         options.isolated === true,
                         effectiveUserText,
+                        liveTrail,
                     );
                 }
 
@@ -1604,6 +1613,7 @@ export class AnthropicHandler {
                         quest,
                         windowId,
                         requestId,
+                        liveTrail,
                     );
                     // runTool returns content as a string (see its
                     // implementation — the synthesised result block's
@@ -1633,6 +1643,7 @@ export class AnthropicHandler {
                 configuration,
                 options.isolated === true,
                 effectiveUserText,
+                liveTrail,
             );
         } catch (err) {
             const errMsg = err instanceof Error ? (err.stack || err.message) : String(err);
@@ -1640,8 +1651,7 @@ export class AnthropicHandler {
                 ? `${lastText}\n\n---\n(Local LLM request errored after partial output)\n${errMsg}`
                 : `(Local LLM request failed before completing)\n${errMsg}`;
             TrailService.instance.writeRawAnswer(ANTHROPIC_SUBSYSTEM, body, windowId, requestId, quest);
-            this.currentLiveTrail?.endPromptWithError(errMsg);
-            this.currentLiveTrail = null;
+            liveTrail?.endPromptWithError(errMsg);
             throw err;
         }
     }
@@ -1673,6 +1683,14 @@ export class AnthropicHandler {
          * user typed. Falls back to `userContent` for legacy callers.
          */
         rawUserText?: string,
+        /**
+         * Per-call live-trail writer for this send. `null` when the send
+         * is isolated (sub-agent run) — in that case nothing is written
+         * to the parent quest's live-trail.md. Threaded through from
+         * sendMessage so sub-agent runs never stomp on the parent's
+         * writer.
+         */
+        liveTrail?: LiveTrailWriter | null,
     ): AnthropicSendResult {
         const userTextForSummary = rawUserText ?? userContent;
         // Never write a truly empty answer body to the trail — either
@@ -1729,8 +1747,7 @@ export class AnthropicHandler {
         // Close the live-trail block for this turn. `endPrompt` emits
         // the ✅ DONE line with rounds + tool-call count so the user
         // sees when the turn is complete.
-        this.currentLiveTrail?.endPrompt({ rounds: turnsUsed, toolCalls: toolCallCount });
-        this.currentLiveTrail = null;
+        liveTrail?.endPrompt({ rounds: turnsUsed, toolCalls: toolCallCount });
 
         return { text, turnsUsed, toolCallCount, stopReason };
     }
@@ -1806,6 +1823,7 @@ export class AnthropicHandler {
         quest: string,
         windowId: string,
         requestId: string,
+        liveTrail: LiveTrailWriter | null,
     ): Promise<AnthropicToolResultBlockParam> {
         const def = tools.find((t) => t.name === block.name);
         const input = (block.input ?? {}) as Record<string, unknown>;
@@ -1852,7 +1870,7 @@ export class AnthropicHandler {
         // carries the replay key the user will see under
         // `tomAi_readPastToolResult({ key })`.
         const nextToolKey = this.toolTrail.peekNextKey();
-        this.currentLiveTrail?.beginToolCall(block.name, input, nextToolKey);
+        liveTrail?.beginToolCall(block.name, input, nextToolKey);
 
         const start = Date.now();
         let result = '';
@@ -1893,7 +1911,7 @@ export class AnthropicHandler {
 
         // Live-trail the result so the MD Browser shows the tool's
         // output immediately after the tool_use block it goes with.
-        this.currentLiveTrail?.appendToolResult(result, result.length);
+        liveTrail?.appendToolResult(result, result.length);
 
         return {
             type: 'tool_result',
