@@ -32,6 +32,7 @@ import {
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
 import { applyRepetitionAffixes, computeRepeatDecision, convertStagedToPending, shouldAutoPauseOnEmpty } from '../utils/queueStep3Utils';
+import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
 import { resolveVariables } from '../utils/variableResolver.js';
 import {
     buildAnswerFilePath,
@@ -2749,10 +2750,10 @@ export class PromptQueueManager {
         this._loadFromEntryFiles(entries);
         console.log('[PromptQueueManager] restore: loaded', this._items.length, 'items from queue files');
 
-        // Reset any "sending" items back to pending (crash recovery)
-        for (const item of this._items) {
-            if (item.status === 'sending') { item.status = 'pending'; }
-        }
+        // Crash recovery is applied inside _loadFromEntryFiles so it runs
+        // for both initial activation and subsequent file-watcher reloads.
+        // lastDispatched is preserved so the Resend button can replay the
+        // interrupted stage after a VS Code crash or window reload.
 
         // Restore queue-level settings
         this.restoreSettings();
@@ -2941,6 +2942,47 @@ export class PromptQueueManager {
                 this._fileNameMap.set(item.id, entry.fileName);
             }
         }
+
+        // Crash recovery — runs for both initial activation and file-watcher
+        // reloads. Any `sending` entry on disk implies a prior crash/reload
+        // (callers guarantee no in-memory item is actively sending when we
+        // get here: restore() runs at construction with empty in-memory
+        // state; _reloadFromDisk() bails early if any in-memory item is
+        // sending). Resetting to `pending` here re-exposes the Resend icon
+        // in the queue editor (hidden while isSending) so the user can
+        // replay the interrupted stage via `item.lastDispatched`, which is
+        // preserved on purpose.
+        const recovered = this._applyCrashRecovery();
+        if (recovered > 0) {
+            // Align disk with the recovered in-memory state so a subsequent
+            // watcher event doesn't reintroduce the stale `sending` status.
+            this._persistToFiles();
+        }
+    }
+
+    /**
+     * Reset any items still marked `sending` to `pending`. Called from
+     * `_loadFromEntryFiles` — see that method for the invariant that
+     * guarantees we aren't stomping an in-flight send.
+     *
+     * Preserves `lastDispatched` (the Resend button depends on it) and
+     * `warning` (the last known interruption cause is still meaningful
+     * to the user). Clears transient send-tracking fields so the item
+     * looks like a fresh `pending` item from the dispatcher's POV.
+     *
+     * Returns the count of items reset.
+     */
+    private _applyCrashRecovery(): number {
+        // Snapshot ids that will be recovered so we can log each one
+        // (applyCrashRecovery is pure and only returns the count).
+        const toRecover = this._items
+            .filter(item => item.status === 'sending')
+            .map(item => ({ id: item.id, hasLastDispatched: !!item.lastDispatched }));
+        const count = applyCrashRecovery(this._items);
+        for (const info of toRecover) {
+            logQueue(`Crash recovery: reset item ${info.id} from 'sending' to 'pending' (Resend available via item.lastDispatched=${info.hasLastDispatched ? 'yes' : 'no'})`);
+        }
+        return count;
     }
 
     /** Persist all items to individual entry files. */
