@@ -1503,6 +1503,50 @@ export const QUEUE_SEND_NOW_TOOL: SharedToolDefinition<QueueSendNowInput> = {
     execute: executeQueueSendNow,
 };
 
+interface QueueResendLastPromptInput {
+    queueItemId: string;
+}
+
+async function executeQueueResendLastPrompt(input: QueueResendLastPromptInput): Promise<string> {
+    try {
+        const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
+        const queue = PromptQueueManager.instance;
+        await queue.resendLastPrompt(input.queueItemId);
+        const item = queue.getById(input.queueItemId);
+        return JSON.stringify({
+            success: true,
+            id: input.queueItemId,
+            status: item?.status || 'unknown',
+            transport: item?.transport || 'copilot',
+            anthropicProfileId: item?.anthropicProfileId || null,
+            anthropicConfigId: item?.anthropicConfigId || null,
+            lastDispatched: item?.lastDispatched || null,
+            warning: item?.warning || null,
+        });
+    } catch (err: any) {
+        return `Error resending queue item: ${err.message ?? err}`;
+    }
+}
+
+export const QUEUE_RESEND_TOOL: SharedToolDefinition<QueueResendLastPromptInput> = {
+    name: 'tomAi_resendQueueItem',
+    displayName: 'Queue Resend Last Prompt',
+    description:
+        'Re-send the last dispatched pre-prompt / main / follow-up of a queue item without touching repetition counters. ' +
+        'Use to recover from rate-limit, quota-exceeded, overload, or interrupted responses without losing loop state. ' +
+        'The item must have a recorded last-dispatched entry (i.e. it was previously sent).',
+    tags: ['queue', 'copilot', 'tom-ai-chat', 'anthropic'],
+    readOnly: false,
+    inputSchema: {
+        type: 'object',
+        required: ['queueItemId'],
+        properties: {
+            queueItemId: { type: 'string' },
+        },
+    },
+    execute: executeQueueResendLastPrompt,
+};
+
 interface QueueRemoveItemInput {
     queueItemId: string;
 }
@@ -2464,6 +2508,7 @@ export const CHAT_ENHANCEMENT_TOOLS: SharedToolDefinition<any>[] = [
     UPDATE_PRE_PROMPT_TOOL,
     REMOVE_PRE_PROMPT_TOOL,
     SEND_QUEUED_PROMPT_TOOL,
+    QUEUE_RESEND_TOOL,
     ADD_TIMED_REQUEST_TOOL,
     QUEUE_LIST_TOOL,
     QUEUE_UPDATE_ITEM_TOOL,

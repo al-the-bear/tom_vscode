@@ -20,8 +20,17 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { WsPaths } from '../utils/workspacePaths';
+import { InterruptionKind, interruptionLabel } from '../utils/anthropicErrorClassifier';
 
 const HEADER_COMMENT = '<!-- tom-ai live-trail -->';
+/** Per-kind marker used by `endPromptWithInterruption` — all yellow family. */
+const INTERRUPTION_EMOJI: Record<InterruptionKind, string> = {
+    rate_limit: '🟡',
+    quota_exceeded: '🛑',
+    overloaded: '⚡',
+    cancelled: '⏹️',
+    interrupted: '⏸️',
+};
 /** `## 🚀 PROMPT …` line marker used for block boundaries. */
 const PROMPT_HEADER_PREFIX = '## 🚀 PROMPT ';
 /** How many past prompt blocks to keep before the current one. */
@@ -157,6 +166,30 @@ export class LiveTrailWriter {
     endPromptWithError(message: string): void {
         try {
             this.append(`\n\n### ⚠️ ERROR\n\n\`\`\`text\n${this.clip(message, 2000)}\n\`\`\`\n`);
+            this.currentlyInAssistantText = false;
+            this.currentlyInThinking = false;
+        } catch { /* swallowed */ }
+    }
+
+    /**
+     * Close the current prompt block with a **yellow interruption banner**
+     * instead of the red `### ⚠️ ERROR` — used for rate-limit / quota /
+     * overload / cancellation / mid-stream interruption cases that the
+     * user can recover from by resending.
+     *
+     * Each kind gets its own emoji so a glance at the live-trail file tells
+     * the user what happened without having to read the message body.
+     */
+    endPromptWithInterruption(kind: InterruptionKind, message: string): void {
+        try {
+            const emoji = INTERRUPTION_EMOJI[kind] ?? '🟡';
+            const label = interruptionLabel(kind).toUpperCase();
+            this.append(
+                `\n\n### ${emoji} ${label}\n\n` +
+                '```text\n' +
+                this.clip(message, 2000) + '\n' +
+                '```\n',
+            );
             this.currentlyInAssistantText = false;
             this.currentlyInThinking = false;
         } catch { /* swallowed */ }

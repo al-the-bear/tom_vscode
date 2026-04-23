@@ -92,6 +92,15 @@ export function queueEntryStyles(): string {
   .followup-item.is-active { border-color: var(--vscode-focusBorder, #007acc); }
   .followup-item.is-active .followup-item-head { opacity: 1; font-weight: 700; }
   .followup-item.is-active .followup-content { font-weight: 700; }
+  /* Yellow interruption chip — rate-limit / quota / overload / cancelled /
+     mid-stream interrupt. Distinct from the red .queue-item.error border so
+     the user can tell a recoverable send apart from a hard failure. */
+  .queue-item.warned { border-left: 3px solid var(--vscode-inputValidation-warningBorder, #e9a700); }
+  .warning-chip { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px;
+    padding: 4px 8px; border-radius: 4px; font-size: 0.8em; font-weight: 600;
+    background: rgba(233, 167, 0, 0.15); color: var(--vscode-inputValidation-warningBorder, #e9a700);
+    border: 1px solid rgba(233, 167, 0, 0.35); }
+  .warning-chip .codicon { font-size: 13px; }
   `;
 }
 
@@ -193,6 +202,9 @@ function renderEntry(item, idx) {
   var typeIconClass = item.type === 'timed' ? 'codicon-watch' : item.type === 'reminder' ? 'codicon-bell' : 'codicon-comment';
   var cls = [safeStatus];
   if (item.type === 'reminder') cls.push('reminder');
+  // Yellow left border for items carrying an interruption warning
+  // (rate limit / quota / overloaded / cancelled / interrupted).
+  if (item.warning && item.warning.kind) cls.push('warned');
   var time = item.createdAt ? new Date(item.createdAt).toLocaleTimeString() : '';
   var sentTime = item.sentAt ? new Date(item.sentAt).toLocaleTimeString() : '';
   var isPending = safeStatus === 'pending';
@@ -340,6 +352,14 @@ function renderEntry(item, idx) {
           (isSent ? '<span class="codicon codicon-arrow-left" style="cursor:pointer;color:#000;" onclick="setItemStatus(\\'' + safeId + '\\', \\'staged\\')" title="Stage again"></span>' : '') +
           ((isPending || isStaged) ? '<span class="codicon codicon-play" style="cursor:pointer;color:#000;" onclick="sendNow(\\'' + safeId + '\\')" title="Send Now"></span>' : '') +
           (isSending ? '<span class="codicon codicon-play" style="cursor:pointer;color:#000;" onclick="continueSending(\\'' + safeId + '\\')" title="Continue"></span>' : '') +
+          // Resend last dispatch — available once there is a recorded
+          // lastDispatched (i.e. at least one stage has been sent) and
+          // the item isn't currently in-flight. Re-sends the exact
+          // expanded text byte-for-byte; repetition counters are not
+          // touched, so the queue continues from where it was.
+          (item.lastDispatched && !isSending
+            ? '<span class="codicon codicon-refresh" style="cursor:pointer;color:#000;" onclick="resendLastPrompt(\\'' + safeId + '\\')" title="Resend last prompt (keeps repetition counters)"></span>'
+            : '') +
           (isPending ? '<span class="codicon codicon-arrow-up" style="cursor:pointer;color:#000;" onclick="moveDown(\\'' + safeId + '\\')" title="Move up (away from send)"></span>' : '') +
           (isPending ? '<span class="codicon codicon-arrow-down" style="cursor:pointer;color:#000;" onclick="moveUp(\\'' + safeId + '\\')" title="Move down (closer to send)"></span>' : '') +
           (isSending ? '<span class="codicon ' + (reminderEnabled ? 'codicon-bell' : 'codicon-bell-slash') + '" style="cursor:pointer;color:' + (reminderEnabled ? '#000' : '#888') + ';" onclick="toggleReminder(\\'' + safeId + '\\', ' + !reminderEnabled + ')" title="' + (reminderEnabled ? 'Reminders ON - click to disable' : 'Reminders OFF - click to enable') + '"></span>' : '') +
@@ -408,9 +428,28 @@ function renderEntry(item, idx) {
     renderPrePrompts(item, safeStatus) +
     renderFollowUps(item, safeStatus) +
     answerBlock +
+    // Yellow interruption chip — explains why the send didn't complete.
+    (item.warning && item.warning.kind
+      ? '<div class="warning-chip" title="' + escapeHtml(item.warning.at || '') + '">'
+        + '<span class="codicon codicon-warning"></span>'
+        + '<span><strong>' + escapeHtml(warningKindLabel(item.warning.kind)) + ':</strong> '
+        + escapeHtml(item.warning.message || '')
+        + '</span></div>'
+      : '') +
     (item.error ? '<div style="color:var(--vscode-charts-red);font-size:0.8em;margin-top:4px;">Error: ' + escapeHtml(item.error) + '</div>' : '') +
     '</div>' +
   '</div>';
+}
+
+function warningKindLabel(kind) {
+  switch (kind) {
+    case 'rate_limit': return 'Rate limit';
+    case 'quota_exceeded': return 'Quota exceeded';
+    case 'overloaded': return 'Overloaded';
+    case 'cancelled': return 'Cancelled';
+    case 'interrupted': return 'Interrupted';
+    default: return 'Warning';
+  }
 }
 
 function renderPrePrompts(item, status) {

@@ -21,6 +21,7 @@ import { TrailService } from '../services/trailService';
 import { ANTHROPIC_SUBSYSTEM } from '../services/trailSubsystems';
 import { ToolTrail, setActiveToolTrail } from '../services/tool-trail';
 import { LiveTrailWriter } from '../services/live-trail';
+import { classifyAnthropicError, Interruption } from '../utils/anthropicErrorClassifier';
 import { runWithToolContext } from '../services/tool-execution-context';
 import {
     compactHistory,
@@ -244,6 +245,48 @@ export const DUPLICATES_OF_CLAUDE_CODE_BUILTINS: ReadonlySet<string> = new Set([
 // `isConversationMessage` lives in `../services/anthropicPayload.ts`
 // (imported at the top of the file alongside buildPayloadDump /
 // temperatureField).
+
+/**
+ * Shared leaf-catch tail: classify the thrown error, write the right
+ * live-trail marker (`endPromptWithInterruption` for rate-limit / quota
+ * / overload / cancellation / mid-stream interruption; `endPromptWithError`
+ * for everything else), and stamp classification metadata onto the thrown
+ * value so the outer queue/chat layer can decorate its UI without having
+ * to re-classify. The err is rethrown unchanged by the caller.
+ */
+function closeLiveTrailForThrown(liveTrail: LiveTrailWriter | null | undefined, err: unknown, rawMessage: string): Interruption | null {
+    const classified = classifyAnthropicError(err);
+    if (classified) {
+        liveTrail?.endPromptWithInterruption(classified.kind, classified.message);
+        try {
+            // Stash on the error object so the queue layer can read it
+            // without re-running the classifier on a possibly-mutated
+            // stack. Non-enumerable so it doesn't leak into JSON dumps
+            // of the error body.
+            Object.defineProperty(err as object, '__tomAnthropicInterruption', {
+                value: classified,
+                enumerable: false,
+                configurable: true,
+            });
+        } catch { /* best-effort */ }
+    } else {
+        liveTrail?.endPromptWithError(rawMessage);
+    }
+    return classified;
+}
+
+/**
+ * Read a previously-stamped Interruption off a thrown error. Returns
+ * `null` when the error was not one of the classified kinds.
+ */
+export function getAttachedInterruption(err: unknown): Interruption | null {
+    if (!err || typeof err !== 'object') { return null; }
+    const attached = (err as { __tomAnthropicInterruption?: unknown }).__tomAnthropicInterruption;
+    if (attached && typeof attached === 'object' && 'kind' in attached && 'message' in attached) {
+        return attached as Interruption;
+    }
+    return null;
+}
 
 export interface AnthropicSendResult {
     text: string;
@@ -1054,7 +1097,7 @@ export class AnthropicHandler {
                 });
             } catch (err) {
                 const errMsg = err instanceof Error ? (err.stack || err.message) : String(err);
-                liveTrail?.endPromptWithError(errMsg);
+                closeLiveTrailForThrown(liveTrail, err, errMsg);
                 throw err;
             }
 
@@ -1280,7 +1323,7 @@ export class AnthropicHandler {
                 ? `${lastText}\n\n---\n(request error after partial output)\n${errMsg}`
                 : `(no text produced — request errored before any assistant text)\n${errMsg}`;
             TrailService.instance.writeRawAnswer(ANTHROPIC_SUBSYSTEM, body, windowId, requestId, quest);
-            liveTrail?.endPromptWithError(errMsg);
+            closeLiveTrailForThrown(liveTrail, err, errMsg);
             throw err;
         }
 
@@ -1489,7 +1532,7 @@ export class AnthropicHandler {
                 ? `${lastText}\n\n---\n(VS Code LM request errored after partial output)\n${errMsg}`
                 : `(VS Code LM request failed before completing)\n${errMsg}`;
             TrailService.instance.writeRawAnswer(ANTHROPIC_SUBSYSTEM, body, windowId, requestId, quest);
-            liveTrail?.endPromptWithError(errMsg);
+            closeLiveTrailForThrown(liveTrail, err, errMsg);
             throw err;
         }
     }
@@ -1680,7 +1723,7 @@ export class AnthropicHandler {
                 ? `${lastText}\n\n---\n(Local LLM request errored after partial output)\n${errMsg}`
                 : `(Local LLM request failed before completing)\n${errMsg}`;
             TrailService.instance.writeRawAnswer(ANTHROPIC_SUBSYSTEM, body, windowId, requestId, quest);
-            liveTrail?.endPromptWithError(errMsg);
+            closeLiveTrailForThrown(liveTrail, err, errMsg);
             throw err;
         }
     }

@@ -52,6 +52,41 @@ export type QueuedPromptStatus = 'staged' | 'pending' | 'sending' | 'sent' | 'er
 export type QueuedPromptType = 'normal' | 'timed' | 'reminder';
 
 /**
+ * Snapshot of the last prompt dispatched on a queue item — pre-prompt,
+ * main, or follow-up. Written **right before** every `dispatchStage` call
+ * so the Resend button can re-send the exact same expanded text without
+ * touching repetition counters. See multi_transport_prompt_queue_revised.md.
+ */
+export interface LastDispatchedInfo {
+    kind: 'prePrompt' | 'main' | 'followUp';
+    /** Index into `item.prePrompts` when kind === 'prePrompt'. */
+    prePromptIndex?: number;
+    /** Index into `item.followUps` when kind === 'followUp'. */
+    followUpIndex?: number;
+    /** Byte-identical expanded text — what `dispatchStage` was called with. */
+    expandedText: string;
+    transport: QueuedTransport;
+    anthropicProfileId?: string;
+    anthropicConfigId?: string;
+    /** ISO timestamp of the last dispatch. Updated on each resend. */
+    dispatchedAt: string;
+}
+
+/** Classified interruption kinds — mirrors `anthropicErrorClassifier.InterruptionKind`. */
+export type QueueWarningKind = 'rate_limit' | 'quota_exceeded' | 'overloaded' | 'cancelled' | 'interrupted';
+
+/**
+ * Yellow interruption banner on a queue item. Recorded when a dispatch
+ * throws with a classified cause so the webview can render a chip and
+ * the user can decide whether to resend.
+ */
+export interface QueueItemWarning {
+    kind: QueueWarningKind;
+    message: string;
+    at: string;
+}
+
+/**
  * Which backend a queued prompt goes through. `copilot` is the
  * historical behaviour (answer-file polling); `anthropic` routes the
  * prompt through AnthropicHandler.sendMessage, which itself forks
@@ -138,6 +173,19 @@ export interface QueuedPrompt {
     anthropicProfileId?: string;
     anthropicConfigId?: string;
     answerText?: string;
+    /**
+     * Snapshot of the last prompt actually dispatched for this item —
+     * stamped right before each `dispatchStage` call. Consumed by
+     * `resendLastPrompt()` to re-send without touching repetition counters.
+     */
+    lastDispatched?: LastDispatchedInfo;
+    /**
+     * Classified interruption warning (rate-limit / quota / overload /
+     * cancelled / mid-stream interrupted). Renders as a yellow chip in
+     * the queue editor; cleared on the next successful dispatch or on
+     * resend.
+     */
+    warning?: QueueItemWarning;
 }
 
 // ============================================================================
@@ -2184,6 +2232,8 @@ export class PromptQueueManager {
         item.reminderSentCount = 0;
         item.lastReminderAt = undefined;
         item.error = undefined;
+        item.warning = undefined;
+        item.lastDispatched = undefined;
         item.status = 'sending';
         this.persist();
         this._onDidChange.fire();
@@ -2219,7 +2269,117 @@ export class PromptQueueManager {
             const liveItem = this._items.find(i => i.id === item.id) ?? item;
             liveItem.status = 'error';
             liveItem.error = String(err);
+            // If the Anthropic leaf stamped an Interruption onto the
+            // thrown error, surface it as a yellow warning chip so the
+            // user can tell a recoverable rate-limit / quota / cancel
+            // apart from a hard protocol failure.
+            const intr = readInterruptionFromError(err);
+            if (intr) {
+                liveItem.warning = { kind: intr.kind, message: intr.message, at: new Date().toISOString() };
+            }
             logQueueError(`sendItem(${item.id})`, err);
+            this.persist();
+            this._onDidChange.fire();
+        }
+    }
+
+    /**
+     * Resend the most recent dispatch on a queue item — the exact
+     * expanded text that `dispatchStage` was last called with, routed
+     * through the same transport / profile / configuration. Repetition
+     * counters are **not** touched; they were already incremented for
+     * the stage the resend replays, so after the resend
+     * `dispatchNextStageForSendingItem` advances naturally to the next
+     * stage (anthropic) or the copilot answer-file poll loop arms for
+     * the next answer.
+     *
+     * Used by (a) the Resend icon in the queue editor webview and
+     * (b) the `tomAi_resendQueueItem` tool. Throws when there is no
+     * recorded `lastDispatched` (never sent) or when another item is
+     * currently `sending` (serialisation invariant — see sendNext).
+     */
+    async resendLastPrompt(id: string): Promise<void> {
+        const item = this._items.find(i => i.id === id);
+        if (!item) {
+            throw new Error(`Queue item ${id} not found`);
+        }
+        const last = item.lastDispatched;
+        if (!last) {
+            throw new Error(`Queue item ${id} has no previously-dispatched prompt to resend`);
+        }
+        if (this._items.some(i => i.status === 'sending')) {
+            throw new Error('Another queue item is currently sending; wait for it to finish before resending');
+        }
+
+        logQueue(`Resending last ${last.kind} prompt for item ${item.id} via ${last.transport}`);
+
+        // Clear prior failure markers so the UI reflects the in-flight resend.
+        item.error = undefined;
+        item.warning = undefined;
+        item.status = 'sending';
+        item.sentAt = new Date().toISOString();
+        item.reminderSentCount = 0;
+        item.lastReminderAt = undefined;
+        this.persist();
+        this._onDidChange.fire();
+
+        // Resolve the container that should absorb the returned answer
+        // text — same contract as the dispatch loop.
+        const container: { answerText?: string } | undefined =
+            last.kind === 'prePrompt' && last.prePromptIndex !== undefined
+                ? item.prePrompts?.[last.prePromptIndex]
+                : last.kind === 'followUp' && last.followUpIndex !== undefined
+                    ? item.followUps?.[last.followUpIndex]
+                    : last.kind === 'main'
+                        ? item
+                        : undefined;
+
+        const resolved = {
+            transport: last.transport,
+            anthropicProfileId: last.anthropicProfileId,
+            anthropicConfigId: last.anthropicConfigId,
+        };
+
+        try {
+            if (last.transport === 'copilot') {
+                this.clearExpectedAnswerFiles(item.expectedRequestId);
+            }
+            const dispatchResult = await this.dispatchStage(last.expandedText, resolved, container);
+            // Refresh the timestamp so the user can see the resend happened.
+            item.lastDispatched = { ...last, dispatchedAt: new Date().toISOString() };
+            this._onPromptSent.fire(item);
+            this.updateWindowStatus('prompt-sent');
+            this.persist();
+            this._onDidChange.fire();
+
+            if (dispatchResult.mode === 'direct') {
+                // Anthropic — counters for the resent stage were already
+                // incremented by the original send, so the next dispatch
+                // advances to the *next* stage. Mirrors the tail of sendItem.
+                const hadMore = await this.dispatchNextStageForSendingItem(item);
+                const liveItem = this._items.find(i => i.id === item.id) ?? item;
+                if (!hadMore) {
+                    liveItem.status = 'sent';
+                    this.persist();
+                    this._onDidChange.fire();
+                    void this.sendNext();
+                }
+            } else {
+                // Copilot — already executed workbench.action.chat.open;
+                // the answer-file poll loop is armed for the expected
+                // request id. Keep item.status = 'sending' so the poll
+                // loop sees it; it'll transition to 'sent' when the
+                // answer file appears (or to 'error' on timeout).
+            }
+        } catch (err) {
+            const liveItem = this._items.find(i => i.id === item.id) ?? item;
+            liveItem.status = 'error';
+            liveItem.error = String(err);
+            const intr = readInterruptionFromError(err);
+            if (intr) {
+                liveItem.warning = { kind: intr.kind, message: intr.message, at: new Date().toISOString() };
+            }
+            logQueueError(`resendLastPrompt(${item.id})`, err);
             this.persist();
             this._onDidChange.fire();
         }
@@ -2382,6 +2542,16 @@ export class PromptQueueManager {
                 if (resolved.transport === 'copilot') {
                     this.clearExpectedAnswerFiles(item.expectedRequestId);
                 }
+                // Snapshot what we're about to send so Resend can replay it.
+                item.lastDispatched = {
+                    kind: 'prePrompt',
+                    prePromptIndex: ppIndex,
+                    expandedText: prePromptExpanded,
+                    transport: resolved.transport,
+                    anthropicProfileId: resolved.anthropicProfileId,
+                    anthropicConfigId: resolved.anthropicConfigId,
+                    dispatchedAt: new Date().toISOString(),
+                };
                 const dispatchResult = await this.dispatchStage(prePromptExpanded, resolved, pp);
                 this._onPromptSent.fire(item);
                 this.updateWindowStatus('prompt-sent');
@@ -2443,6 +2613,15 @@ export class PromptQueueManager {
             if (resolved.transport === 'copilot') {
                 this.clearExpectedAnswerFiles(item.expectedRequestId);
             }
+            // Snapshot what we're about to send so Resend can replay it.
+            item.lastDispatched = {
+                kind: 'main',
+                expandedText: item.expandedText,
+                transport: resolved.transport,
+                anthropicProfileId: resolved.anthropicProfileId,
+                anthropicConfigId: resolved.anthropicConfigId,
+                dispatchedAt: new Date().toISOString(),
+            };
             const dispatchResult = await this.dispatchStage(item.expandedText, resolved, item);
             this._onPromptSent.fire(item);
             this.updateWindowStatus('prompt-sent');
@@ -2499,6 +2678,16 @@ export class PromptQueueManager {
                 if (resolved.transport === 'copilot') {
                     this.clearExpectedAnswerFiles(item.expectedRequestId);
                 }
+                // Snapshot what we're about to send so Resend can replay it.
+                item.lastDispatched = {
+                    kind: 'followUp',
+                    followUpIndex: currentFuIndex,
+                    expandedText: followUpExpanded,
+                    transport: resolved.transport,
+                    anthropicProfileId: resolved.anthropicProfileId,
+                    anthropicConfigId: resolved.anthropicConfigId,
+                    dispatchedAt: new Date().toISOString(),
+                };
                 const dispatchResult = await this.dispatchStage(followUpExpanded, resolved, nextFollowUp);
                 this._onPromptSent.fire(item);
                 this.updateWindowStatus('prompt-sent');
@@ -2837,6 +3026,29 @@ export class PromptQueueManager {
                 answerText: main['answer-text'] || undefined,
             };
 
+            // Resend metadata + warning chip — persisted under execution.
+            const ld = main.execution?.['last-dispatched'];
+            if (ld && typeof ld === 'object' && typeof ld['expanded-text'] === 'string') {
+                prompt.lastDispatched = {
+                    kind: ld.kind,
+                    prePromptIndex: typeof ld['pre-prompt-index'] === 'number' ? ld['pre-prompt-index'] : undefined,
+                    followUpIndex: typeof ld['follow-up-index'] === 'number' ? ld['follow-up-index'] : undefined,
+                    expandedText: ld['expanded-text'],
+                    transport: ld.transport,
+                    anthropicProfileId: ld['anthropic-profile-id'] || undefined,
+                    anthropicConfigId: ld['anthropic-config-id'] || undefined,
+                    dispatchedAt: ld['dispatched-at'] || new Date().toISOString(),
+                };
+            }
+            const warn = main.execution?.warning;
+            if (warn && typeof warn === 'object' && typeof warn.kind === 'string' && typeof warn.message === 'string') {
+                prompt.warning = {
+                    kind: warn.kind,
+                    message: warn.message,
+                    at: warn.at || new Date().toISOString(),
+                };
+            }
+
             // Pre-prompts: resolve refs from the prompt-queue
             const preRefs = main['pre-prompt-refs'] || [];
             if (preRefs.length > 0) {
@@ -2950,13 +3162,36 @@ export class PromptQueueManager {
         }
 
         // Execution state
-        if (item.requestId || item.expectedRequestId || item.sentAt || item.error || (item.followUpIndex && item.followUpIndex > 0)) {
+        if (
+            item.requestId || item.expectedRequestId || item.sentAt || item.error
+            || (item.followUpIndex && item.followUpIndex > 0)
+            || item.lastDispatched || item.warning
+        ) {
             mainPrompt.execution = {
                 'request-id': item.requestId || null,
                 'expected-request-id': item.expectedRequestId || null,
                 'sent-at': item.sentAt || null,
                 error: item.error || null,
                 'follow-up-index': item.followUpIndex || 0,
+                ...(item.lastDispatched ? {
+                    'last-dispatched': {
+                        kind: item.lastDispatched.kind,
+                        ...(item.lastDispatched.prePromptIndex !== undefined ? { 'pre-prompt-index': item.lastDispatched.prePromptIndex } : {}),
+                        ...(item.lastDispatched.followUpIndex !== undefined ? { 'follow-up-index': item.lastDispatched.followUpIndex } : {}),
+                        'expanded-text': item.lastDispatched.expandedText,
+                        transport: item.lastDispatched.transport,
+                        ...(item.lastDispatched.anthropicProfileId ? { 'anthropic-profile-id': item.lastDispatched.anthropicProfileId } : {}),
+                        ...(item.lastDispatched.anthropicConfigId ? { 'anthropic-config-id': item.lastDispatched.anthropicConfigId } : {}),
+                        'dispatched-at': item.lastDispatched.dispatchedAt,
+                    },
+                } : {}),
+                ...(item.warning ? {
+                    warning: {
+                        kind: item.warning.kind,
+                        message: item.warning.message,
+                        at: item.warning.at,
+                    },
+                } : {}),
             };
         }
 
@@ -3114,4 +3349,29 @@ function getWindowStatusWorkspaceName(): string {
         return folder.name;
     }
     return 'workspace';
+}
+
+/**
+ * Read the Interruption the Anthropic handler's leaf catch blocks stamp
+ * onto thrown errors (non-enumerable `__tomAnthropicInterruption`
+ * property; see `closeLiveTrailForThrown` in anthropic-handler.ts).
+ * Returns `null` for unclassified errors so the caller can leave the
+ * queue item's `warning` unset.
+ *
+ * Kept as a free function rather than importing `getAttachedInterruption`
+ * from the anthropic-handler module so the queue manager doesn't pull
+ * the entire Anthropic SDK into its cold-start import graph.
+ */
+function readInterruptionFromError(err: unknown): { kind: QueueWarningKind; message: string } | null {
+    if (!err || typeof err !== 'object') { return null; }
+    const attached = (err as { __tomAnthropicInterruption?: unknown }).__tomAnthropicInterruption;
+    if (attached && typeof attached === 'object' && 'kind' in attached && 'message' in attached) {
+        const kind = (attached as { kind: unknown }).kind;
+        const message = (attached as { message: unknown }).message;
+        if (typeof kind === 'string' && typeof message === 'string'
+            && (kind === 'rate_limit' || kind === 'quota_exceeded' || kind === 'overloaded' || kind === 'cancelled' || kind === 'interrupted')) {
+            return { kind, message };
+        }
+    }
+    return null;
 }

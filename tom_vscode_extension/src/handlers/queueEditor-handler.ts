@@ -402,6 +402,15 @@ async function handleMessage(msg: any): Promise<void> {
         case 'continueSending':
           await qm.continueSending(msg.id);
           break;
+        case 'resendLastPrompt':
+          try {
+            await qm.resendLastPrompt(msg.id);
+          } catch (err) {
+            vscode.window.showWarningMessage(
+              `Resend failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+          break;
         case 'toggleReminder':
             qm.updateItemReminder(msg.id, { reminderEnabled: msg.enabled });
             break;
@@ -1321,6 +1330,7 @@ function moveUp(id) { vscode.postMessage({ type: 'moveUp', id }); }
 function moveDown(id) { vscode.postMessage({ type: 'moveDown', id }); }
 function sendNow(id) { vscode.postMessage({ type: 'sendNow', id }); }
 function continueSending(id) { vscode.postMessage({ type: 'continueSending', id }); }
+function resendLastPrompt(id) { vscode.postMessage({ type: 'resendLastPrompt', id }); }
 function toggleReminder(id, enabled) { vscode.postMessage({ type: 'toggleReminder', id, enabled }); }
 function openTemplateEditor() { vscode.postMessage({ type: 'openTemplateEditor' }); }
 function openQueueTemplates() { vscode.postMessage({ type: 'openQueueTemplates' }); }

@@ -74,6 +74,36 @@ export interface QueueExecutionState {
     'sent-at'?: string | null;
     error?: string | null;
     'follow-up-index'?: number;
+    /**
+     * Snapshot of the last prompt that was actually dispatched by the queue
+     * runner (pre-prompt / main / follow-up). Written right before every
+     * `dispatchStage` call so the Resend button can re-send the exact same
+     * expanded text without touching repetition counters. Cleared only
+     * when the item is re-staged / re-sent from scratch.
+     */
+    'last-dispatched'?: {
+        kind: 'prePrompt' | 'main' | 'followUp';
+        /** Zero-based index into `pre-prompt-refs` when kind === 'prePrompt'. */
+        'pre-prompt-index'?: number;
+        /** Zero-based index into `follow-up-refs` when kind === 'followUp'. */
+        'follow-up-index'?: number;
+        'expanded-text': string;
+        transport: 'copilot' | 'anthropic';
+        'anthropic-profile-id'?: string;
+        'anthropic-config-id'?: string;
+        'dispatched-at': string;
+    };
+    /**
+     * Yellow interruption banner. Recorded when a dispatch fails with a
+     * classified cause (rate_limit / quota_exceeded / overloaded / cancelled
+     * / interrupted) so the webview can render a chip and the user can
+     * decide whether to resend.
+     */
+    warning?: {
+        kind: 'rate_limit' | 'quota_exceeded' | 'overloaded' | 'cancelled' | 'interrupted';
+        message: string;
+        at: string;
+    };
 }
 
 /** Reference to another prompt (string ID or external file ref). */
