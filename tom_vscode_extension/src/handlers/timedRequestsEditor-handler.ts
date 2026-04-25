@@ -437,7 +437,14 @@ function getHtml(codiconsUri: string, safeStateJson: string): string {
   .status-bar.completed { background: #9e9e9e; }
   label { font-size: 0.85em; font-weight: 600; display: block; margin: 6px 0 2px; }
   textarea { width: 100%; min-height: 40px; resize: vertical; font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--border); padding: 4px; box-sizing: border-box; }
-  input[type="number"], input[type="time"], input[type="date"] { background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--border); padding: 3px 6px; font-size: 0.9em; }
+  input[type="number"], input[type="text"].time-input, input[type="text"].date-input { background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--border); padding: 3px 6px; font-size: 0.9em; }
+  input[type="text"].time-input { width: 5em; font-variant-numeric: tabular-nums; }
+  input[type="text"].date-input { width: 8em; }
+  .weekdays-row { display: flex; gap: 1px; align-items: center; }
+  .weekdays-row label { font-size: 0.72em; font-weight: normal; margin: 0; display: flex; flex-direction: column; align-items: center; gap: 1px; cursor: pointer; padding: 0 3px; min-width: 20px; }
+  .weekdays-row label input[type="checkbox"] { margin: 0; cursor: pointer; }
+  .save-times-btn { margin-top: 5px; padding: 2px 10px; font-size: 0.82em; cursor: pointer; border: 1px solid var(--border); background: var(--btnBg); color: var(--btnFg); border-radius: 3px; }
+  .time-input-error { border-color: var(--vscode-inputValidation-errorBorder, #f85149) !important; }
   select { background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--border); padding: 3px 6px; }
   .schedule-row { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; margin: 4px 0; }
   .schedule-times { margin-left: 12px; }
@@ -694,6 +701,9 @@ try {
   populateAddFormDropdowns();
   window.__timedRequestsEditorBooted = true;
 } catch (err) {
+  const _bootErrMsg = err && err.message ? err.message : String(err);
+  const _bootErrStack = err && err.stack ? err.stack : '';
+  window.__timedBootError = _bootErrMsg + (_bootErrStack ? '\\n' + _bootErrStack : '');
   console.error('[TimedRequestsEditor] Initial render error:', err);
   showFatalError('initial', err);
   window.__timedRequestsEditorBooted = false;
@@ -826,6 +836,52 @@ function clearAddFeedback() {
 }
 
 /* ---- Rendering ---- */
+
+/* Focus preservation across innerHTML rebuilds.
+ *
+ * Every edit in an entry row (text, time, date, select, checkbox, …)
+ * fires an updateEntry message to the extension, which persists the
+ * change and emits onDidChange; the handler pushes a fresh state
+ * message, which lands here and triggers a full render() that wipes
+ * entriesList.innerHTML. Without focus preservation the input the
+ * user was typing into gets destroyed mid-keystroke — catastrophic
+ * for <input type="time"> / <input type="date"> where each segment
+ * completion also fires change, so the user sees focus ripped away
+ * after typing just two digits (see issue "focus loss on scheduled
+ * time/date inputs").
+ *
+ * Each editable control carries a stable data-focus-id so we can
+ * identify the focused element across rebuilds. captureFocusSnapshot
+ * reads the id (and selection range, where the browser exposes it);
+ * restoreFocusSnapshot re-queries by id after the rebuild and
+ * restores focus + selection. */
+function captureFocusSnapshot() {
+  const list = document.getElementById('entriesList');
+  const active = document.activeElement;
+  if (!list || !active || !list.contains(active)) return null;
+  const focusId = active.getAttribute && active.getAttribute('data-focus-id');
+  if (!focusId) return null;
+  let selStart = null, selEnd = null;
+  try {
+    if (typeof active.selectionStart === 'number') {
+      selStart = active.selectionStart;
+      selEnd = active.selectionEnd;
+    }
+  } catch (e) { /* some inputs (type="date"/"time"/"number") throw on selection reads */ }
+  return { focusId: focusId, selStart: selStart, selEnd: selEnd };
+}
+
+function restoreFocusSnapshot(snap) {
+  if (!snap) return;
+  const sel = '[data-focus-id="' + (window.CSS && CSS.escape ? CSS.escape(snap.focusId) : snap.focusId.replace(/"/g, '\\\\"')) + '"]';
+  const el = document.querySelector(sel);
+  if (!el) return;
+  try { el.focus(); } catch (e) { return; }
+  if (snap.selStart !== null && snap.selStart !== undefined) {
+    try { el.setSelectionRange(snap.selStart, snap.selEnd); } catch (e) { /* ignore */ }
+  }
+}
+
 function render() {
   /* Timer toggle button */
   const timerBtn = document.getElementById('timerToggleBtn');
@@ -841,6 +897,8 @@ function render() {
     return;
   }
 
+  const focusSnap = captureFocusSnapshot();
+
   /* Reversed display: newest at top, oldest at bottom */
   const displayEntries = [...entries].reverse();
   list.innerHTML = displayEntries.map((entry, displayIndex) => {
@@ -850,7 +908,12 @@ function render() {
       : (entry.enabled ? 'active' : 'paused');
     const expanded = detailsExpanded[entryId] !== false;
     const isInterval = entry.scheduleMode === 'interval';
-    const isEditable = safeStatus === 'paused';
+    // Active entries are now editable in-place (see TimerEngine.updateEntry
+    // rewrite): the tick loop rereads fresh state on every iteration so
+    // edits are safe mid-run, and the previous "active is locked" UX made
+    // scheduled entries impossible to configure without a pause/resume
+    // round-trip. Completed entries stay locked.
+    const isEditable = safeStatus !== 'completed';
     const disabledAttr = isEditable ? '' : ' disabled';
     const lastSent = entry.lastSentAt ? new Date(entry.lastSentAt).toLocaleString() : 'Never';
     const hasAnswerWrapper = entry.answerWrapper || entry.template === '__answer_file__';
@@ -858,13 +921,36 @@ function render() {
 
     let scheduledTimesHtml = '';
     if (!isInterval && entry.scheduledTimes) {
-      scheduledTimesHtml = entry.scheduledTimes.map((st, ti) =>
-        '<div class="time-row">' +
-          '<input type="time" value="' + esc(st.time) + '"' + disabledAttr + ' onchange="updateScheduledTime(\\'' + entry.id + '\\',' + ti + ',\\'time\\',this.value)"/>' +
-          '<input type="date" value="' + esc(st.date || '') + '"' + disabledAttr + ' onchange="updateScheduledTime(\\'' + entry.id + '\\',' + ti + ',\\'date\\',this.value)" title="Leave empty for recurring"/>' +
+      // Day-of-week definitions in Mon→Sun display order (0=Sun,1=Mon…6=Sat)
+      const dayDefs = [{d:1,lbl:'M'},{d:2,lbl:'Tu'},{d:3,lbl:'W'},{d:4,lbl:'Th'},{d:5,lbl:'F'},{d:6,lbl:'Sa'},{d:0,lbl:'Su'}];
+      scheduledTimesHtml = entry.scheduledTimes.map(function(st, ti) {
+        // Absent weekdays means "all days" (legacy: fire every day)
+        const wds = Array.isArray(st.weekdays) ? st.weekdays : [0,1,2,3,4,5,6];
+        const wdHtml = '<span class="weekdays-row">' +
+          dayDefs.map(function(df) {
+            const chk = wds.indexOf(df.d) >= 0 ? ' checked' : '';
+            return '<label>' + df.lbl + '<input type="checkbox"' + chk + disabledAttr +
+              ' data-entry-id="' + esc(entry.id) + '" data-time-idx="' + ti + '" data-day="' + df.d + '"/></label>';
+          }).join('') +
+          '</span>';
+        return '<div class="time-row">' +
+          '<input type="text" class="time-input" placeholder="HH:MM"' +
+            ' data-focus-id="sched-time-' + entry.id + '-' + ti + '"' +
+            ' value="' + esc(st.time) + '"' + disabledAttr +
+            ' data-entry-id="' + esc(entry.id) + '" data-time-idx="' + ti + '"' +
+            ' title="24-hour time, e.g. 09:00"/>' +
+          '<input type="text" class="date-input" placeholder="dd.mm.yyyy"' +
+            ' data-focus-id="sched-date-' + entry.id + '-' + ti + '"' +
+            ' value="' + esc(isoToDdMmYyyy(st.date || '')) + '"' + disabledAttr +
+            ' data-entry-id="' + esc(entry.id) + '" data-time-idx="' + ti + '"' +
+            ' title="Leave empty for recurring; dd.mm.yyyy for one-shot"/>' +
+          wdHtml +
           '<button class="ctx-btn-icon"' + disabledAttr + ' onclick="removeScheduledTime(\\'' + entry.id + '\\',' + ti + ')" title="Remove"><span class="codicon codicon-close"></span></button>' +
-        '</div>'
-      ).join('') +
+        '</div>';
+      }).join('') +
+      (entry.scheduledTimes.length > 0
+        ? '<button class="save-times-btn"' + disabledAttr + ' onclick="saveScheduledTimes(\\'' + entry.id + '\\')">💾 Save Times</button>'
+        : '') +
       '<button class="ctx-btn-icon" style="font-size:0.8em;margin-top:2px;"' + disabledAttr + ' onclick="addScheduledTime(\\'' + entry.id + '\\')"><span class="codicon codicon-add"></span> Add Time</button>';
     }
 
@@ -956,6 +1042,7 @@ function render() {
       '</div>' +
     '</div>';
   }).join('');
+  restoreFocusSnapshot(focusSnap);
 }
 
 function toggleDetails(entryId) {
@@ -987,6 +1074,32 @@ function expandAll() {
 }
 
 function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+/** Convert stored ISO date (YYYY-MM-DD) to display format (dd.mm.yyyy). Returns '' for empty/invalid. */
+function isoToDdMmYyyy(iso) {
+  if (!iso || iso.length !== 10) return '';
+  var parts = iso.split('-');
+  if (parts.length !== 3) return '';
+  return parts[2] + '.' + parts[1] + '.' + parts[0];
+}
+
+/** Convert dd.mm.yyyy input back to ISO (YYYY-MM-DD) for storage. Returns '' for empty/invalid. */
+function ddMmYyyyToIso(s) {
+  if (!s) return '';
+  var parts = s.trim().split('.');
+  if (parts.length !== 3) return '';
+  var day   = parts[0].padStart(2, '0');
+  var month = parts[1].padStart(2, '0');
+  var year  = parts[2];
+  if (day.length !== 2 || month.length !== 2 || year.length !== 4) return '';
+  return year + '-' + month + '-' + day;
+}
+
+/** Called from the date text input's onblur. Converts dd.mm.yyyy → ISO before storing. */
+function updateScheduledDate(entryId, timeIdx, displayValue) {
+  var iso = ddMmYyyyToIso(displayValue);
+  updateScheduledTime(entryId, timeIdx, 'date', iso);
+}
 
 function escapeJsSingleQuoted(s) {
   const value = String(s || '');
@@ -1036,7 +1149,8 @@ function updateScheduledTime(entryId, timeIdx, field, value) {
 function addScheduledTime(entryId) {
   const entry = entries.find(e => e.id === entryId);
   if (!entry) return;
-  const times = [...(entry.scheduledTimes || []), { time: '09:00' }];
+  // Default: weekdays Mon–Fri checked, Sat/Sun unchecked
+  const times = [...(entry.scheduledTimes || []), { time: '09:00', weekdays: [1,2,3,4,5] }];
   updateField(entryId, 'scheduledTimes', times);
 }
 
@@ -1045,6 +1159,67 @@ function removeScheduledTime(entryId, timeIdx) {
   if (!entry || !entry.scheduledTimes) return;
   const times = entry.scheduledTimes.filter((_, i) => i !== timeIdx);
   updateField(entryId, 'scheduledTimes', times);
+}
+
+/** Validate HH:MM 24-hour format.  Returns the trimmed string on success, '' on failure. */
+function validateHhmm(s) {
+  var t = (s || '').trim();
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(t) ? t : '';
+}
+
+/**
+ * Collect all time / date / weekday values from the DOM for one entry's
+ * scheduled-times section, validate, and send a single updateEntry message.
+ * This is the only path that persists scheduled-time edits — inputs have no
+ * onblur/onchange handlers.  After the backend saves, onDidChange fires,
+ * sendState() pushes a fresh state, and the webview re-renders from the
+ * authoritative stored values ("what is shown is what is stored").
+ */
+function saveScheduledTimes(entryId) {
+  var entry = entries.find(function(e) { return e.id === entryId; });
+  if (!entry || !entry.scheduledTimes) { return; }
+
+  var errors = [];
+  var updatedTimes = entry.scheduledTimes.map(function(st, ti) {
+    var timeEl  = document.querySelector('[data-entry-id="' + entryId + '"][data-time-idx="' + ti + '"].time-input');
+    var dateEl  = document.querySelector('[data-entry-id="' + entryId + '"][data-time-idx="' + ti + '"].date-input');
+    var wdEls   = document.querySelectorAll('[data-entry-id="' + entryId + '"][data-time-idx="' + ti + '"][data-day]');
+
+    // Clear previous error highlight
+    if (timeEl) { timeEl.classList.remove('time-input-error'); }
+
+    var rawTime = timeEl ? timeEl.value : st.time;
+    var time = validateHhmm(rawTime);
+    if (!time) {
+      errors.push('Row ' + (ti + 1) + ': "' + rawTime + '" is not a valid HH:MM time (24-hour).');
+      if (timeEl) { timeEl.classList.add('time-input-error'); }
+      time = st.time; // keep old value so object is valid even if we abort
+    }
+
+    var dateDisplay = dateEl ? dateEl.value.trim() : '';
+    var isoDate = dateDisplay ? ddMmYyyyToIso(dateDisplay) : '';
+    if (dateDisplay && !isoDate) {
+      errors.push('Row ' + (ti + 1) + ': "' + dateDisplay + '" is not a valid dd.mm.yyyy date.');
+    }
+
+    var weekdays = [];
+    wdEls.forEach(function(el) {
+      if (el.checked) { weekdays.push(parseInt(el.getAttribute('data-day'), 10)); }
+    });
+
+    var result = { time: time };
+    if (isoDate) { result.date = isoDate; }
+    // 7 checked = all days = omit field (backwards-compat, fires every day)
+    if (weekdays.length > 0 && weekdays.length < 7) { result.weekdays = weekdays; }
+    return result;
+  });
+
+  if (errors.length) {
+    alert('Please fix the following before saving:\\n\\n' + errors.join('\\n'));
+    return;
+  }
+
+  updateField(entryId, 'scheduledTimes', updatedTimes);
 }
 
 function updateEntryTemplate(entryId, value) {
@@ -1204,10 +1379,12 @@ vscode.postMessage({ type: 'getState' });
     if (!debugPre) {
       return;
     }
+    const bootError = window.__timedBootError || '';
     const info = [
       'panel=timed',
       'fallbackActive=true',
       'mainBootFlag=' + String(!!window.__timedRequestsEditorBooted),
+      bootError ? ('bootError=' + bootError) : 'bootError=(none)',
       'activatedAt=' + diagnostics.activatedAt,
       'url=' + String(location && location.href ? location.href : ''),
       diagnostics.lastStateSummary ? ('lastState=' + diagnostics.lastStateSummary) : 'lastState=(none)',
