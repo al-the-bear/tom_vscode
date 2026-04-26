@@ -2052,6 +2052,11 @@ export class PromptQueueManager {
         const fromStatus = item.status;
         // Allow interrupting a sending item back to staged.
         if (item.status === 'sending' && status === 'staged') {
+            // Cancel any in-flight Anthropic dispatch for this item so
+            // the handler stops executing even when setStatus is called
+            // directly (e.g. from the queue editor's "set to staged"
+            // action, not through stopActiveItem).
+            this._cancelActiveDispatch();
             if (item.prePrompts && item.prePrompts.length > 0) {
                 for (const pp of item.prePrompts) {
                     pp.status = 'pending';
@@ -2088,18 +2093,53 @@ export class PromptQueueManager {
     }
 
     /**
+     * Cancel the in-flight Anthropic dispatch, if any.
+     *
+     * Cancels `_activeAnthropicCts` (idempotent — safe to call when
+     * nothing is running or when already cancelled) and releases any
+     * pending approval-bar awaiters.  The CTS is NOT cleared here;
+     * it is disposed and unset by `dispatchStage`'s `finally` block
+     * once the handler call returns.
+     *
+     * Copilot dispatches have no CTS — they return immediately and
+     * the queue polls for an answer file.  Calling this method for a
+     * Copilot-transport item is a no-op and safe.
+     */
+    private _cancelActiveDispatch(): void {
+        const cts = this._activeAnthropicCts;
+        if (cts) {
+            try {
+                cts.cancel();
+            } catch (err) {
+                logQueue(`cancelActiveDispatch: CTS cancel failed: ${err instanceof Error ? err.message : String(err)}`);
+            }
+        }
+        // Release approval awaiters. Best-effort dynamic import so
+        // the queue manager doesn't pull in the Anthropic SDK at
+        // module load. If the import fails we fall through.
+        void (async () => {
+            try {
+                const { AnthropicHandler } = await import('../handlers/anthropic-handler.js');
+                AnthropicHandler.instance.abortPendingApprovals();
+            } catch (err) {
+                logQueue(`cancelActiveDispatch: abortPendingApprovals skipped: ${err instanceof Error ? err.message : String(err)}`);
+            }
+        })();
+    }
+
+    /**
      * Stop whichever queue item is currently `sending` and revert it
      * to `staged`.
      *
      * Behaviour:
-     *  - Cancels the active Anthropic dispatch (if any) via the
-     *    queue-scoped `CancellationTokenSource`. The handler's round
-     *    loop checks the token between rounds and aborts cleanly.
+     *  - Uses `_activeAnthropicCts` as ground truth for whether an
+     *    Anthropic dispatch is actually executing, independent of the
+     *    item's status field.  If the CTS is set, the call is
+     *    cancelled even when no item shows `status === 'sending'`
+     *    (e.g. a status-race that left the item in a stale state
+     *    while the handler is still mid-flight).
      *  - Releases any approval-bar awaiters via
-     *    `AnthropicHandler.abortPendingApprovals()` (best-effort —
-     *    queue runs coerce `toolApprovalMode` to `'never'`, so this is
-     *    rarely live, but the chat panel can have its own approvals
-     *    pending in parallel and we mirror its behaviour for parity).
+     *    `AnthropicHandler.abortPendingApprovals()`.
      *  - Reverts the item to `staged` via `setStatus`, which clears
      *    `requestId`/`expectedRequestId`/`sentAt`/`reminderSentCount`,
      *    flips any `sent` pre-prompts back to `pending`, and removes
@@ -2111,46 +2151,37 @@ export class PromptQueueManager {
      * status-only operation; the polling loop notices the status
      * change at its next tick and stops looking for the answer.
      *
-     * Returns `true` if a sending item was found and stopped,
-     * `false` if there was nothing to stop.
+     * Returns `true` if a sending item was found and/or an active
+     * dispatch was cancelled; `false` if there was nothing to stop.
      */
     stopActiveItem(): boolean {
         const sending = this._items.find(i => i.status === 'sending');
-        if (!sending) {
-            logQueue('stopActiveItem: no sending item to stop');
+        const hasActiveCts = !!this._activeAnthropicCts;
+
+        if (!sending && !hasActiveCts) {
+            logQueue('stopActiveItem: no sending item and no active dispatch to stop');
             return false;
         }
-        logQueue(`stopActiveItem: stopping ${sending.id}`);
 
-        // Cancel the in-flight Anthropic dispatch if there is one.
-        // Copilot dispatches don't keep a CTS — the network round
-        // trip already returned by the time we're "sending", and
-        // we're just polling for the answer file.
-        const cts = this._activeAnthropicCts;
-        if (cts) {
-            try {
-                cts.cancel();
-            } catch (err) {
-                logQueue(`stopActiveItem: CTS cancel failed: ${err instanceof Error ? err.message : String(err)}`);
-            }
+        // Cancel the in-flight Anthropic dispatch regardless of item
+        // status — the CTS is the authoritative signal that the handler
+        // is actually executing.
+        this._cancelActiveDispatch();
+
+        if (!sending) {
+            // The handler was mid-flight but the item's status had
+            // already drifted out of 'sending' (race / stale state).
+            // Cancellation is done; nothing to revert status-wise.
+            logQueue('stopActiveItem: cancelled active dispatch (item was no longer in sending state)');
+            return true;
         }
 
-        // Release approval awaiters. Best-effort dynamic import so
-        // the queue manager doesn't pull in the Anthropic SDK at
-        // module load. If the import fails we fall through — the
-        // status revert below is the load-bearing part.
-        void (async () => {
-            try {
-                const { AnthropicHandler } = await import('../handlers/anthropic-handler.js');
-                AnthropicHandler.instance.abortPendingApprovals();
-            } catch (err) {
-                logQueue(`stopActiveItem: abortPendingApprovals skipped: ${err instanceof Error ? err.message : String(err)}`);
-            }
-        })();
-
-        // Revert item to staged. setStatus already handles the full
-        // reset (pre-prompts → pending, requestId cleared, reminders
+        logQueue(`stopActiveItem: stopping ${sending.id}`);
+        // Revert item to staged. setStatus handles the full reset
+        // (pre-prompts → pending, requestId cleared, reminders
         // removed, persist + onDidChange + window status update).
+        // It also calls _cancelActiveDispatch() again — harmless
+        // because cancel on an already-cancelled token is a no-op.
         return this.setStatus(sending.id, 'staged');
     }
 
