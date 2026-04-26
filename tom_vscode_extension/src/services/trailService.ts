@@ -28,6 +28,8 @@ export interface TrailMetadata {
 interface RawTrailConfig {
     enabled?: boolean;
     maxEntries?: number;
+    /** Maximum number of raw individual trail files per directory before the oldest are deleted. Default: 1000. */
+    maxRawFiles?: number;
     stripThinking?: boolean;
     paths?: {
         localLlm?: string;
@@ -234,6 +236,7 @@ export class TrailService {
         } else {
             fs.writeFileSync(filePath, safeContent, 'utf-8');
         }
+        this.pruneRawTrailDir(base, raw.maxRawFiles ?? 1000);
     }
 
     private getRawConfig(): RawTrailConfig {
@@ -242,6 +245,7 @@ export class TrailService {
         return {
             enabled: raw.enabled !== false,
             maxEntries: typeof raw.maxEntries === 'number' && raw.maxEntries > 0 ? raw.maxEntries : 1000,
+            maxRawFiles: typeof raw.maxRawFiles === 'number' && raw.maxRawFiles > 0 ? raw.maxRawFiles : 1000,
             stripThinking: raw.stripThinking === true,
             paths: {
                 localLlm: raw.paths?.localLlm ?? '${ai}/trail/localllm/${quest}',
@@ -327,6 +331,33 @@ export class TrailService {
             return match ? parseInt(match[1], 10) : 0;
         } catch {
             return 0;
+        }
+    }
+
+    /**
+     * Delete the oldest raw trail files in `dir` so that the total count of
+     * files (prompt, answer, payload, tool_request, tool_answer — all types
+     * combined) does not exceed `maxFiles`. Only plain files are counted;
+     * sub-directories (e.g. `compaction/`, `memory/`) are ignored and pruned
+     * independently when their own `writeRaw` calls run.
+     *
+     * Files are sorted lexicographically; because every filename begins with a
+     * `YYYYMMDD_HHMMSSmmm` timestamp prefix this is equivalent to oldest-first.
+     */
+    private pruneRawTrailDir(dir: string, maxFiles: number): void {
+        try {
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            const files = entries
+                .filter(e => e.isFile())
+                .map(e => e.name)
+                .sort();                          // lexicographic = chronological
+            const excess = files.length - maxFiles;
+            if (excess <= 0) { return; }
+            for (let i = 0; i < excess; i++) {
+                try { fs.unlinkSync(path.join(dir, files[i])); } catch { /* ignore */ }
+            }
+        } catch {
+            // directory may not exist yet or transient read error — silently skip
         }
     }
 

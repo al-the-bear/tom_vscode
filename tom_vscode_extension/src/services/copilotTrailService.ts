@@ -31,15 +31,6 @@ export function getMaxTrailEntries(): number {
     return config?.trail?.maxEntries ?? 1000;
 }
 
-/** Retention in days for individual raw trail files; config-driven. */
-export function getTrailCleanupDays(): number {
-    const config = loadSendToChatConfig();
-    return config?.trail?.cleanupDays ?? 2;
-}
-
-/** Date-only "has-this-been-cleaned-today?" gate for cleanupOldTrailFiles. */
-let lastCleanupDate: string | null = null;
-
 /** `YYYYMMDD_HHMMSSmmm` used in raw trail file names. */
 export function getTrailFileTimestamp(): string {
     const now = new Date();
@@ -170,37 +161,6 @@ export function trimTrailFile(filePath: string, maxEntries: number): void {
     }
 }
 
-/**
- * Delete raw per-request trail files older than
- * `getTrailCleanupDays()` days. Gated by `lastCleanupDate` so the
- * scan runs at most once per day regardless of how many writes
- * trigger it.
- */
-export function cleanupOldTrailFiles(trailFolder: string): void {
-    const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    if (lastCleanupDate === today) { return; }
-    lastCleanupDate = today;
-
-    try {
-        if (!fs.existsSync(trailFolder)) { return; }
-        const cutoffDate = new Date();
-        cutoffDate.setDate(cutoffDate.getDate() - getTrailCleanupDays());
-        const cutoffStr = `${cutoffDate.getFullYear()}${String(cutoffDate.getMonth() + 1).padStart(2, '0')}${String(cutoffDate.getDate()).padStart(2, '0')}`;
-
-        const files = fs.readdirSync(trailFolder);
-        for (const file of files) {
-            const match = file.match(/^(\d{8})_\d{6,9}(?:_copilot\.|_(?:prompt|answer)_)/);
-            if (match) {
-                const fileDate = match[1];
-                if (fileDate < cutoffStr) {
-                    fs.unlinkSync(path.join(trailFolder, file));
-                }
-            }
-        }
-    } catch (e) {
-        console.error('[CopilotTrail] Failed to cleanup old files:', e);
-    }
-}
 
 /**
  * Write a prompt to the Copilot summary trail + raw trail, and

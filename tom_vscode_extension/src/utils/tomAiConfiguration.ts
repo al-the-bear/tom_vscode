@@ -11,7 +11,6 @@ import {
     BRIDGE_RESTART_DELAY,
     REMINDER_CHECK_INTERVAL,
     REMINDER_DEFAULT_TIMEOUT,
-    TRAIL_DEFAULT_CLEANUP_DAYS,
     TRAIL_DEFAULT_MAX_ENTRIES,
 } from './constants';
 
@@ -112,7 +111,7 @@ export class TomAiConfiguration {
             trail: {
                 raw: {
                     enabled: true,
-                    cleanupDays: TRAIL_DEFAULT_CLEANUP_DAYS,
+                    maxRawFiles: 1000,
                     maxEntries: TRAIL_DEFAULT_MAX_ENTRIES,
                     stripThinking: true,
                     paths: {

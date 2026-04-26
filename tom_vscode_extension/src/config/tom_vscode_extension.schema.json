@@ -157,7 +157,8 @@
             "description": "Raw trail subsystem configuration (anthropic_sdk_integration.md §4, §14).",
             "properties": {
                 "enabled": { "type": "boolean", "default": true },
-                "maxEntries": { "type": "integer", "minimum": 1, "default": 1000 },
+                "maxEntries": { "type": "integer", "minimum": 1, "default": 1000, "description": "Max entries in consolidated summary trail files (prompts.md / answers.md) before oldest are trimmed." },
+                "maxRawFiles": { "type": "integer", "minimum": 1, "default": 1000, "description": "Max total raw trail files (prompt, answer, payload, tool_request, tool_answer combined) per quest directory. Oldest files are deleted when the limit is exceeded." },
                 "stripThinking": { "type": "boolean", "default": false },
                 "paths": {
                     "type": "object",

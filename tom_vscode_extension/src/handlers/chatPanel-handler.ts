@@ -83,10 +83,8 @@ import {
     getTrailFileTimestamp,
     getReadableTimestamp,
     getMaxTrailEntries,
-    getTrailCleanupDays,
     parseSequenceFromFile,
     trimTrailFile,
-    cleanupOldTrailFiles,
 } from '../services/copilotTrailService';
 
 // Re-export the trail helpers that external modules (todoLogPanel,

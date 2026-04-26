@@ -122,9 +122,9 @@ export interface SendToChatConfig {
     };
 
     trail?: {
-        /** Trail cleanup: days to keep individual trail files (default: 2) */
-        cleanupDays?: number;
-        /** Trail cleanup: max entries in consolidated trail files before trimming (default: 1000) */
+        /** Max total raw trail files per quest directory before oldest are deleted (default: 1000). */
+        maxRawFiles?: number;
+        /** Max entries in consolidated summary trail files before trimming (default: 1000). */
         maxEntries?: number;
     };
 

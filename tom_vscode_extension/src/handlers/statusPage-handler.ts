@@ -1061,7 +1061,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
         case 'updateTrailSettings': {
             const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
             if (!stcConfig.trail) { stcConfig.trail = {}; }
-            if (message.cleanupDays !== undefined) { stcConfig.trail.cleanupDays = message.cleanupDays; }
+            if (message.maxRawFiles !== undefined) { stcConfig.trail.maxRawFiles = message.maxRawFiles; }
             if (message.maxEntries !== undefined) { stcConfig.trail.maxEntries = message.maxEntries; }
             saveSendToChatConfig(stcConfig);
             vscode.window.showInformationMessage('Trail settings updated');
@@ -1170,7 +1170,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
             stcConfig.compaction.toolTrailMaxResultChars = Number.isFinite(s.toolTrailMaxResultChars) ? s.toolTrailMaxResultChars : 500;
             stcConfig.compaction.backgroundExtractionEnabled = s.backgroundExtractionEnabled === true;
             if (!stcConfig.trail) { stcConfig.trail = {}; }
-            if (Number.isFinite(s.trailCleanupDays)) { stcConfig.trail.cleanupDays = s.trailCleanupDays; }
+            if (Number.isFinite(s.trailMaxRawFiles)) { stcConfig.trail.maxRawFiles = s.trailMaxRawFiles; }
             saveSendToChatConfig(stcConfig);
             vscode.window.showInformationMessage('Compaction settings saved');
             break;
@@ -1528,7 +1528,7 @@ export interface StatusData {
     };
     trail: {
         enabled: boolean;
-        cleanupDays: number;
+        maxRawFiles: number;
         maxEntries: number;
     };
     telegram: {
@@ -1753,7 +1753,7 @@ export async function gatherStatusData(): Promise<StatusData> {
         },
         trail: {
             enabled: isTrailEnabled(),
-            cleanupDays: sendToChatConfig?.trail?.cleanupDays ?? 2,
+            maxRawFiles: sendToChatConfig?.trail?.maxRawFiles ?? 1000,
             maxEntries: sendToChatConfig?.trail?.maxEntries ?? 1000,
         },
         telegram: {
@@ -2182,8 +2182,8 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
             <button class="sp-btn ${!status.trail.enabled ? 'primary' : ''}" data-status-action="setTrailOff">Off</button>
         </div>
         <div class="sp-settings-row">
-            <label>Cleanup (days):</label>
-            <input type="number" id="sp-trailCleanupDays" value="${status.trail.cleanupDays}" min="1" max="365">
+            <label>Max raw files per folder:</label>
+            <input type="number" id="sp-trailMaxRawFiles" value="${status.trail.maxRawFiles}" min="10" max="100000">
             <label>Max (entries per trail file):</label>
             <input type="number" id="sp-trailMaxEntries" value="${status.trail.maxEntries}" min="10" max="100000">
             <button class="sp-btn" data-status-action="updateTrailSettings">Save</button>
@@ -2510,8 +2510,8 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
             <div class="sp-settings-row">
                 <label>Tool trail max chars:</label>
                 <input type="number" id="sp-comp-toolTrailMaxResultChars" value="${status.compaction.toolTrailMaxResultChars}" min="100" style="width:90px">
-                <label>Trail cleanup days:</label>
-                <input type="number" id="sp-comp-trailCleanupDays" value="${status.trail.cleanupDays}" min="1" max="365" style="width:60px">
+                <label>Trail max raw files:</label>
+                <input type="number" id="sp-comp-trailMaxRawFiles" value="${status.trail.maxRawFiles}" min="10" max="100000" style="width:80px">
             </div>
             <div class="sp-settings-row">
                 <label>Background extraction:</label>
@@ -2773,7 +2773,7 @@ function attachStatusPanelListeners(skipEditorInit) {
             var msgData = { type: 'statusAction', action: action };
             
             if (action === 'updateTrailSettings') {
-                msgData.cleanupDays = parseInt((document.getElementById('sp-trailCleanupDays') || {}).value || '2');
+                msgData.maxRawFiles = parseInt((document.getElementById('sp-trailMaxRawFiles') || {}).value || '1000');
                 msgData.maxEntries = parseInt((document.getElementById('sp-trailMaxEntries') || {}).value || '1000');
             } else if (action === 'saveReloadPromptAfterReload') {
                 msgData.enabled = !!((document.getElementById('sp-reloadPromptEnabled') || {}).checked);
@@ -2872,7 +2872,7 @@ function attachStatusPanelListeners(skipEditorInit) {
                     memoryToolsEnabled: (document.getElementById('sp-mem-memoryToolsEnabled') || {}).value === 'true',
                     memoryMaxInjectedTokens: parseInt((document.getElementById('sp-mem-maxInjectedTokens') || {}).value || '3000'),
                     toolTrailMaxResultChars: parseInt((document.getElementById('sp-comp-toolTrailMaxResultChars') || {}).value || '500'),
-                    trailCleanupDays: parseInt((document.getElementById('sp-comp-trailCleanupDays') || {}).value || '2'),
+                    trailMaxRawFiles: parseInt((document.getElementById('sp-comp-trailMaxRawFiles') || {}).value || '1000'),
                     backgroundExtractionEnabled: (document.getElementById('sp-comp-backgroundExtractionEnabled') || {}).value === 'true'
                 };
             } else if (action === 'editCompactionTemplate') {

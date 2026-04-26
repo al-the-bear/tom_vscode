@@ -978,6 +978,13 @@ export class AnthropicHandler {
             quest,
         );
 
+        // Write the summary-prompt entry here — before any API call —
+        // so the trail has a paired prompt even when the turn is
+        // interrupted via the Stop button or errors out mid-stream.
+        // The summary-answer counterpart is written at each exit point
+        // (finalize / agentSdk success / catch blocks).
+        TrailService.instance.writeSummaryPrompt(ANTHROPIC_SUBSYSTEM, effectiveUserText, quest);
+
         // Full-payload log: the `.userprompt.md` only has system + user;
         // this captures tools, rolling history, caching/thinking flags, and
         // transport-specific settings so the user can audit exactly what
@@ -1097,6 +1104,13 @@ export class AnthropicHandler {
                 });
             } catch (err) {
                 const errMsg = err instanceof Error ? (err.stack || err.message) : String(err);
+                const wasInterrupted = options.cancellationToken?.isCancellationRequested === true;
+                TrailService.instance.writeSummaryAnswer(
+                    ANTHROPIC_SUBSYSTEM,
+                    wasInterrupted ? '(interrupted)' : `(error: ${err instanceof Error ? err.message : String(err)})`,
+                    { requestId, model: configuration.model },
+                    quest,
+                );
                 closeLiveTrailForThrown(liveTrail, err, errMsg);
                 throw err;
             }
@@ -1112,14 +1126,10 @@ export class AnthropicHandler {
                 );
             }
 
-            // Summary trails: the direct-Anthropic path writes them via
-            // finalize(), but the SDK branch returns early so we write them
-            // here. Without this the Prompt Summary Viewer never sees
-            // agentSdk prompts (only the raw files get the write above).
-            // Log the raw user text (no template / tool-history injection)
-            // so the summary trail matches what the user typed — same
-            // rule finalize() uses.
-            TrailService.instance.writeSummaryPrompt(ANTHROPIC_SUBSYSTEM, effectiveUserText, quest);
+            // Summary answer: the prompt was already written at the top of
+            // sendMessage() before the API call, so only the answer is
+            // needed here. The SDK branch returns early (doesn't go through
+            // finalize()), so we write the answer explicitly.
             TrailService.instance.writeSummaryAnswer(
                 ANTHROPIC_SUBSYSTEM,
                 result.text,
@@ -1323,6 +1333,11 @@ export class AnthropicHandler {
                 ? `${lastText}\n\n---\n(request error after partial output)\n${errMsg}`
                 : `(no text produced — request errored before any assistant text)\n${errMsg}`;
             TrailService.instance.writeRawAnswer(ANTHROPIC_SUBSYSTEM, body, windowId, requestId, quest);
+            const wasInterrupted = options.cancellationToken?.isCancellationRequested === true;
+            const summaryAnswer = wasInterrupted
+                ? (lastText ? `${lastText}\n\n(interrupted)` : '(interrupted)')
+                : (lastText ? `${lastText}\n\n(error: ${err instanceof Error ? err.message : String(err)})` : `(error: ${err instanceof Error ? err.message : String(err)})`);
+            TrailService.instance.writeSummaryAnswer(ANTHROPIC_SUBSYSTEM, summaryAnswer, { requestId, model: configuration.model }, quest);
             closeLiveTrailForThrown(liveTrail, err, errMsg);
             throw err;
         }
@@ -1532,6 +1547,11 @@ export class AnthropicHandler {
                 ? `${lastText}\n\n---\n(VS Code LM request errored after partial output)\n${errMsg}`
                 : `(VS Code LM request failed before completing)\n${errMsg}`;
             TrailService.instance.writeRawAnswer(ANTHROPIC_SUBSYSTEM, body, windowId, requestId, quest);
+            const wasInterrupted = options.cancellationToken?.isCancellationRequested === true;
+            const summaryAnswer = wasInterrupted
+                ? (lastText ? `${lastText}\n\n(interrupted)` : '(interrupted)')
+                : (lastText ? `${lastText}\n\n(error: ${err instanceof Error ? err.message : String(err)})` : `(error: ${err instanceof Error ? err.message : String(err)})`);
+            TrailService.instance.writeSummaryAnswer(ANTHROPIC_SUBSYSTEM, summaryAnswer, { requestId, model: configuration.model }, quest);
             closeLiveTrailForThrown(liveTrail, err, errMsg);
             throw err;
         }
@@ -1723,6 +1743,11 @@ export class AnthropicHandler {
                 ? `${lastText}\n\n---\n(Local LLM request errored after partial output)\n${errMsg}`
                 : `(Local LLM request failed before completing)\n${errMsg}`;
             TrailService.instance.writeRawAnswer(ANTHROPIC_SUBSYSTEM, body, windowId, requestId, quest);
+            const wasInterrupted = options.cancellationToken?.isCancellationRequested === true;
+            const summaryAnswer = wasInterrupted
+                ? (lastText ? `${lastText}\n\n(interrupted)` : '(interrupted)')
+                : (lastText ? `${lastText}\n\n(error: ${err instanceof Error ? err.message : String(err)})` : `(error: ${err instanceof Error ? err.message : String(err)})`);
+            TrailService.instance.writeSummaryAnswer(ANTHROPIC_SUBSYSTEM, summaryAnswer, { requestId, model: configuration.model }, quest);
             closeLiveTrailForThrown(liveTrail, err, errMsg);
             throw err;
         }
@@ -1787,13 +1812,9 @@ export class AnthropicHandler {
             stopReason,
         });
 
-        // Also write the compact summary trail (_ai/quests/{quest}/{quest}.anthropic.prompts.md
-        // and .answers.md) so the Raw Trail Files Viewer (per-file view) can open it. Same
-        // pattern copilot uses via writeSummaryPrompt + writeSummaryAnswer.
-        // Use `userTextForSummary` (raw user input, template-free) not
-        // `userContent` (decorated wire payload) so the summary trail
-        // reflects only what the user typed.
-        TrailService.instance.writeSummaryPrompt(ANTHROPIC_SUBSYSTEM, userTextForSummary, quest);
+        // Write the summary answer. The matching prompt entry was already
+        // written at the top of sendMessage() before the API call, so only
+        // the answer half is needed here.
         TrailService.instance.writeSummaryAnswer(
             ANTHROPIC_SUBSYSTEM,
             text,
