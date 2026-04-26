@@ -32,7 +32,7 @@ Build and install from source:
 ```bash
 npm install
 npm run compile
-bash reinstall_for_testing.sh
+bash install_extension.sh
 ```
 
 Or install a VSIX package:

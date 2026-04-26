@@ -55,7 +55,7 @@ From the queue's perspective there are **two transports**: `copilot` and `anthro
 4. **Direct responses, no synthetic answer files.** For `anthropic` items, `sendItem()` awaits `AnthropicHandler.sendMessage()` and stores the returned text on the queue item. The polling loop is bypassed for anthropic items.
 5. **Transport-owned trails.** AnthropicHandler already writes prompt + answer + tool-call + live-trail entries for the Direct and Agent SDK paths. The new `vscodeLm` branch and the Local-LLM-referencing branch reuse the same trail writers (same subsystem, same directory). The queue does not duplicate trails.
 6. **Anthropic-only features dropped for direct transport**: answer-wrapper template, reminders, `answerWaitMinutes`, `expectedRequestId`, polling loop. All Copilot-specific.
-7. **Queue-dispatched anthropic items force auto-approve-all.** Queue execution is unattended — any tool call that triggers the approval bar would deadlock the queue. The dispatcher sets `toolApprovalMode = 'never'` regardless of the profile's stored value. The field's only legal values are `'always' | 'never'` — see [sendToChatConfig.ts:187](../src/utils/sendToChatConfig.ts#L187). The UI must surface this (see §4.10).
+7. **Queue-dispatched anthropic items force auto-approve-all.** Queue execution is unattended — any tool call that triggers the approval bar would deadlock the queue. The dispatcher sets `toolApprovalMode = 'never'` regardless of the profile's stored value. The field's only legal values are `'always' | 'never'` — see [sendToChatConfig.ts:200](../src/utils/sendToChatConfig.ts#L200). The UI must surface this (see §4.10).
 8. **Shared prompt composition, APIs that don't separate system/user get concatenated.** The Anthropic panel's rules apply to every leaf path: profile system prompt + user-message template + user prompt = final composed prompt. When the leaf API (VS Code LM, Local LLM) doesn't take a separate `system` field, the handler concatenates `{systemPrompt}\n\n{userText}` before the call. Direct and Agent SDK keep using the structured fields they already take.
 9. **Two template stores, full stop.** Copilot keeps `config.copilot.templates`; all Anthropic profiles — no matter which configuration type — share `config.anthropic.userMessageTemplates`. No new "shared" store, no per-configuration-type templates.
 10. **Only the Anthropic and Copilot panels carry queue buttons.** Copilot already has them. **This phase adds the same two buttons to the Anthropic panel.** Tom AI Chat, Local LLM, and AI Conversation panels are untouched.
@@ -64,33 +64,46 @@ From the queue's perspective there are **two transports**: `copilot` and `anthro
 
 | Concern | Where |
 | --- | --- |
-| Queue manager | [promptQueueManager.ts](../src/managers/promptQueueManager.ts) (2621 lines) |
-| `QueuedFollowUpPrompt` / `QueuedPrePrompt` / `QueuedPrompt` interfaces | [lines 54 / 69 / 83](../src/managers/promptQueueManager.ts#L54) |
-| `_buildExpandedText()` (template + answer-wrapper expansion) | [line 308](../src/managers/promptQueueManager.ts#L308) |
-| `pollForExpectedAnswer()` answer-file polling loop | [line 583](../src/managers/promptQueueManager.ts#L583) (kicked off at lines 538, 580) |
-| `enqueue()` | [line 1240](../src/managers/promptQueueManager.ts#L1240) |
-| `continueSending()` | [line 1670](../src/managers/promptQueueManager.ts#L1670) |
-| `sendItem()` — main dispatch | [line 1945](../src/managers/promptQueueManager.ts#L1945) |
-| `workbench.action.chat.open` calls (pre / main / follow-up) | [lines 2043 / 2079 / 2118](../src/managers/promptQueueManager.ts#L2043) |
-| Queue editor webview | [queueEditor-handler.ts](../src/handlers/queueEditor-handler.ts) (1429 lines) |
-| Reminder bindings | [queueEditor-handler.ts:197-205, 268, 287-289, 347-350, 368-371, 391-394, 412-415](../src/handlers/queueEditor-handler.ts#L197) |
-| `answerWaitMinutes` message payload | [queueEditor-handler.ts:328, 390, 411](../src/handlers/queueEditor-handler.ts#L328) |
-| Anthropic entry point | [anthropic-handler.ts:868](../src/handlers/anthropic-handler.ts#L868) — `async sendMessage(options: AnthropicSendOptions): Promise<AnthropicSendResult>` |
-| Anthropic direct branch | [anthropic-handler.ts:1313-1314](../src/handlers/anthropic-handler.ts#L1313-L1314) |
-| Anthropic Agent SDK branch | [anthropic-handler.ts:1019-1098](../src/handlers/anthropic-handler.ts#L1019-L1098) |
-| `AnthropicSendOptions` / `AnthropicSendResult` | [line 152](../src/handlers/anthropic-handler.ts#L152) / [line 328](../src/handlers/anthropic-handler.ts#L328) |
-| `AnthropicConfiguration` schema | [anthropic-handler.ts:60+](../src/handlers/anthropic-handler.ts#L60) and `sendToChatConfig.ts` |
-| `ANTHROPIC_SUBSYSTEM` literal | [anthropic-handler.ts:176](../src/handlers/anthropic-handler.ts#L176) |
-| Local LLM entry point | [localLlm-handler.ts:840](../src/handlers/localLlm-handler.ts#L840) — `public async ollamaGenerateWithTools(options, userPrompt): Promise<{ text, stats?, toolCallCount, turnsUsed }>` |
-| Local LLM configurations | [sendToChatConfig.ts:59-76](../src/utils/sendToChatConfig.ts#L59-L76) |
-| Anthropic configurations | [sendToChatConfig.ts:138-166](../src/utils/sendToChatConfig.ts#L138-L166) |
-| Anthropic profiles | [sendToChatConfig.ts:167-190](../src/utils/sendToChatConfig.ts#L167-L190) |
-| Anthropic user-message templates | [sendToChatConfig.ts:191-197](../src/utils/sendToChatConfig.ts#L191-L197) |
-| Panel section definitions | [chatPanel-handler.ts](../src/handlers/chatPanel-handler.ts): localLlm [:3170](../src/handlers/chatPanel-handler.ts#L3170), conversation (AI Conv) [:3190](../src/handlers/chatPanel-handler.ts#L3190), copilot [:3213](../src/handlers/chatPanel-handler.ts#L3213), tomAiChat [:3281](../src/handlers/chatPanel-handler.ts#L3281), anthropic [:3300](../src/handlers/chatPanel-handler.ts#L3300) |
-| Existing queue buttons (Copilot only) | [chatPanel-handler.ts:3231](../src/handlers/chatPanel-handler.ts#L3231) |
-| `addToQueue` / `openQueueEditor` backend router | [chatPanel-handler.ts:675, 678](../src/handlers/chatPanel-handler.ts#L675) |
-| Webview-side `addToQueue` dispatcher | [chatPanel-handler.ts:3596](../src/handlers/chatPanel-handler.ts#L3596) |
-| `addCopilotToQueue()` (stages the item) | [chatPanel-handler.ts:4154](../src/handlers/chatPanel-handler.ts#L4154) |
+| Queue manager | [promptQueueManager.ts](../src/managers/promptQueueManager.ts) (3485 lines) |
+| `QueuedTransport` type (`'copilot' \| 'anthropic'`) | [line 98](../src/managers/promptQueueManager.ts#L98) |
+| `QueuedFollowUpPrompt` / `QueuedPrePrompt` / `QueuedPrompt` interfaces | [lines 100 / 120 / 139](../src/managers/promptQueueManager.ts#L100) |
+| `_buildExpandedText()` (template + answer-wrapper expansion) | [line 434](../src/managers/promptQueueManager.ts#L434) |
+| `pollForExpectedAnswer()` answer-file polling loop | [line 727](../src/managers/promptQueueManager.ts#L727) (called from `sendItem` / `continueSending`) |
+| `enqueue()` | [line 1402](../src/managers/promptQueueManager.ts#L1402) |
+| `continueSending()` | [line 1933](../src/managers/promptQueueManager.ts#L1933) |
+| `sendItem()` — main dispatch | [line 2208](../src/managers/promptQueueManager.ts#L2208) |
+| `resolveStageTransport()` — stage › item › queue default › `'copilot'` | [line 2486](../src/managers/promptQueueManager.ts#L2486) |
+| `dispatchStage()` — central dispatch for both transports | [line 2520](../src/managers/promptQueueManager.ts#L2520) |
+| `workbench.action.chat.open` (Copilot branch inside `dispatchStage`) | [line 2526](../src/managers/promptQueueManager.ts#L2526) |
+| Queue editor webview | [queueEditor-handler.ts](../src/handlers/queueEditor-handler.ts) (1863 lines) |
+| Reminder toggle / update bindings | [queueEditor-handler.ts:414-415, 432-434](../src/handlers/queueEditor-handler.ts#L414) |
+| `toggleAutoSend` | [queueEditor-handler.ts:468](../src/handlers/queueEditor-handler.ts#L468) |
+| `answerWaitMinutes` message payload | [queueEditor-handler.ts:494, 570, 591](../src/handlers/queueEditor-handler.ts#L494) |
+| `AnthropicTransport` leaf enum (`'direct' \| 'agentSdk' \| 'vscodeLm' \| 'localLlm'`) | [anthropic-handler.ts:58](../src/handlers/anthropic-handler.ts#L58) |
+| `AnthropicSendOptions` / `AnthropicSendResult` | [line 185](../src/handlers/anthropic-handler.ts#L185) / [line 291](../src/handlers/anthropic-handler.ts#L291) |
+| `AnthropicHandler` class | [anthropic-handler.ts:321](../src/handlers/anthropic-handler.ts#L321) |
+| `sendMessage()` entry point | [anthropic-handler.ts:870](../src/handlers/anthropic-handler.ts#L870) — `async sendMessage(options: AnthropicSendOptions): Promise<AnthropicSendResult>` |
+| Anthropic Agent SDK branch | [anthropic-handler.ts:1073](../src/handlers/anthropic-handler.ts#L1073) |
+| Anthropic Direct branch | [anthropic-handler.ts:1350](../src/handlers/anthropic-handler.ts#L1350) |
+| VS Code LM branch (`vscodeLm`) | [anthropic-handler.ts:1361](../src/handlers/anthropic-handler.ts#L1361) |
+| Local LLM branch (synthesised shim) | [anthropic-handler.ts:1542](../src/handlers/anthropic-handler.ts#L1542) (calls `callLocalLlmOnce` at [:1627](../src/handlers/anthropic-handler.ts#L1627)) |
+| Trail writes (`writeSummaryPrompt` / `writeSummaryAnswer`) | [anthropic-handler.ts:1122-1124](../src/handlers/anthropic-handler.ts#L1122), [:1796-1798](../src/handlers/anthropic-handler.ts#L1796) |
+| `ANTHROPIC_SUBSYSTEM` literal | [services/trailSubsystems.ts:16](../src/services/trailSubsystems.ts#L16) (imported at [anthropic-handler.ts:21](../src/handlers/anthropic-handler.ts#L21)) |
+| `callLocalLlmOnce()` — new single-round HTTP primitive | [localLlm-handler.ts:843](../src/handlers/localLlm-handler.ts#L843) |
+| `ollamaGenerateWithTools()` — panel entry point (delegates to `callLocalLlmOnce`) | [localLlm-handler.ts:~960](../src/handlers/localLlm-handler.ts) |
+| `resolveAnthropicTargets()` — shared profile + config resolver | [utils/resolveAnthropicTargets.ts:49](../src/utils/resolveAnthropicTargets.ts#L49) |
+| Local LLM configurations (`sendToChatConfig`) | [sendToChatConfig.ts:59-76](../src/utils/sendToChatConfig.ts#L59-L76) |
+| Anthropic configurations (`transport` enum + `vscodeLm` block) | [sendToChatConfig.ts:138-175](../src/utils/sendToChatConfig.ts#L138-L175) |
+| Anthropic profiles (`toolApprovalMode`) | [sendToChatConfig.ts:176-203](../src/utils/sendToChatConfig.ts#L176-L203) |
+| Anthropic user-message templates | [sendToChatConfig.ts:204-212](../src/utils/sendToChatConfig.ts#L204-L212) |
+| `getPromptEditorComponent` factory (per-section panel toolbar) | [chatPanel-handler.ts:2995](../src/handlers/chatPanel-handler.ts#L2995) |
+| Panel section definitions | [chatPanel-handler.ts](../src/handlers/chatPanel-handler.ts): localLlm [:3024](../src/handlers/chatPanel-handler.ts#L3024), conversation (AI Conv) [:3044](../src/handlers/chatPanel-handler.ts#L3044), copilot [:3067](../src/handlers/chatPanel-handler.ts#L3067), tomAiChat [:3116](../src/handlers/chatPanel-handler.ts#L3116), anthropic [:3135](../src/handlers/chatPanel-handler.ts#L3135) |
+| Copilot queue buttons | [chatPanel-handler.ts:3086-3087](../src/handlers/chatPanel-handler.ts#L3086) |
+| Anthropic queue buttons **(implemented)** | [chatPanel-handler.ts:3166-3167](../src/handlers/chatPanel-handler.ts#L3166) |
+| `addToQueue` / `openQueueEditor` backend router | [chatPanel-handler.ts:503, 516](../src/handlers/chatPanel-handler.ts#L503) |
+| Webview-side `addToQueue` dispatcher | [chatPanel-handler.ts:3486-3488](../src/handlers/chatPanel-handler.ts#L3486) |
+| `addCopilotToQueue()` | [chatPanel-handler.ts:4086](../src/handlers/chatPanel-handler.ts#L4086) |
+| `addAnthropicToQueue()` **(implemented)** | [chatPanel-handler.ts:4101](../src/handlers/chatPanel-handler.ts#L4101) |
 
 ## 4. Required changes
 
@@ -200,7 +213,7 @@ All three self-looped leaves (Direct / VS Code LM / Local LLM) share the same to
 
 ### 4.4a Local LLM extraction — additive, panel behaviour unchanged
 
-Today `LocalLlmManager.instance.ollamaGenerateWithTools` at [localLlm-handler.ts:840](../src/handlers/localLlm-handler.ts#L840) bakes everything into one call: prompt composition, tool loop, approval, logging, the Ollama HTTP call. The Anthropic handler's Local LLM leaf needs only the **HTTP call** part.
+Today `LocalLlmManager.instance.ollamaGenerateWithTools` (panel entry point, ~line 960) bakes everything into one call: prompt composition, tool loop, approval, logging, the Ollama HTTP call. The Anthropic handler's Local LLM leaf needs only the **HTTP call** part. The extracted primitive `callLocalLlmOnce` lives at [localLlm-handler.ts:843](../src/handlers/localLlm-handler.ts#L843).
 
 **Refactor:**
 
@@ -258,11 +271,11 @@ return { mode: 'direct', answerText: result.text };
 
 ### 4.6 `sendItem()` refactor
 
-- Before calling `dispatchStage()`, **conditionally expand** the text. `_buildExpandedText()` at [promptQueueManager.ts:308](../src/managers/promptQueueManager.ts#L308) already handles the Copilot answer-wrapper case — split its behaviour:
+- Before calling `dispatchStage()`, **conditionally expand** the text. `_buildExpandedText()` at [promptQueueManager.ts:434](../src/managers/promptQueueManager.ts#L434) already handles the Copilot answer-wrapper case — split its behaviour:
   - Copilot: current behaviour (apply template + answer wrapper → `expandedText`).
   - Anthropic: apply the named template if any, **skip** `__answer_file__` wrapping and skip the `answerWrapper` boolean (both are Copilot-only constructs).
 - After `dispatchStage()`:
-  - `{ mode: 'polled' }`: record `expectedRequestId` and let the existing poll loop drive `continueSending()` at [:1670](../src/managers/promptQueueManager.ts#L1670).
+  - `{ mode: 'polled' }`: record `expectedRequestId` and let the existing poll loop drive `continueSending()` at [:1933](../src/managers/promptQueueManager.ts#L1933).
   - `{ mode: 'direct' }`: store `answerText` on the item/stage (reuse the existing `prePrompts[i].status = 'sent'` / follow-up `repeatIndex++` machinery), then call `continueSending()` synchronously.
 - On anthropic-transport failure: set item status `'error'` and surface the error message.
 - The dispatcher **always** coerces `toolApprovalMode = 'never'` for anthropic items (see §2 decision 7) — regardless of whether the leaf path is Direct, Agent SDK, VS Code LM, or Local LLM.
@@ -273,9 +286,9 @@ When `transport === 'anthropic'`, the queue bypasses:
 
 | Feature | Copilot behaviour | Anthropic behaviour |
 | --- | --- | --- |
-| `answerWrapper` + `__answer_file__` template | applied at `_buildExpandedText` ([:308](../src/managers/promptQueueManager.ts#L308)) | **not applied** |
+| `answerWrapper` + `__answer_file__` template | applied at `_buildExpandedText` ([:434](../src/managers/promptQueueManager.ts#L434)) | **not applied** |
 | `expectedRequestId` extraction | required | skipped |
-| Answer-file polling | `pollForExpectedAnswer()` ([:583](../src/managers/promptQueueManager.ts#L583)) watches directory | **not started** for this item |
+| Answer-file polling | `pollForExpectedAnswer()` ([:727](../src/managers/promptQueueManager.ts#L727)) watches directory | **not started** for this item |
 | Reminders (`reminderEnabled`, `reminderTemplateId`, …) | enqueue reminder prompts on timeout | **ignored** (UI warns) |
 | `answerWaitMinutes` auto-advance | triggers after N min without answer | **ignored** (response is synchronous) |
 
@@ -314,7 +327,7 @@ Design note: the spec's original sketch envisioned an always-visible collapsible
 
 **Per-stage override** (pre-prompts and follow-ups): each pre-prompt row and each follow-up row (when the item is editable) gets its own gear icon → same three-step QuickPick, routed to `updatePrePrompt` / `updateFollowUpPrompt` with the new transport fields. The inherit option on a stage-level picker is labelled "Inherit from item". Three levels of resolution: stage > item > queue default > `'copilot'`.
 
-**Disable Copilot-only controls when transport is `anthropic`.** In the Add form, the Reminder template dropdown and the answer-wait timeout select become `disabled` with a tooltip explaining that reminders and answer-wait are Copilot-specific. This fires on transport-picker change AND on initial render. The reminder / `answerWaitMinutes` bindings themselves live at [queueEditor-handler.ts:197-205, 268, 287-289, 347-350, 368-371, 391-394, 412-415](../src/handlers/queueEditor-handler.ts#L197) and [:328, 390, 411](../src/handlers/queueEditor-handler.ts#L328).
+**Disable Copilot-only controls when transport is `anthropic`.** In the Add form, the Reminder template dropdown and the answer-wait timeout select become `disabled` with a tooltip explaining that reminders and answer-wait are Copilot-specific. This fires on transport-picker change AND on initial render. The reminder toggle / update bindings live at [queueEditor-handler.ts:414-415, 432-434](../src/handlers/queueEditor-handler.ts#L414); `toggleAutoSend` at [:468](../src/handlers/queueEditor-handler.ts#L468); `answerWaitMinutes` payload at [:494, 570, 591](../src/handlers/queueEditor-handler.ts#L494).
 
 **Auto-approve warning**: when the user picks `Anthropic` as the queue-level or item-level transport, render a visible notice directly below the transport dropdown:
 
@@ -326,25 +339,25 @@ No checkbox to disable it. See §2 decision 7.
 
 ### 4.11 Anthropic panel — queueing buttons
 
-The Copilot section already carries the queue buttons at [chatPanel-handler.ts:3231](../src/handlers/chatPanel-handler.ts#L3231):
+The Copilot section already carries the queue buttons at [chatPanel-handler.ts:3086-3087](../src/handlers/chatPanel-handler.ts#L3086):
 
 ```html
 <button data-action="addToQueue"       data-id="copilot" …>
 <button data-action="openQueueEditor"  data-id="copilot" …>
 ```
 
-**Change:** add the same two buttons to the **Anthropic** section at [:3300](../src/handlers/chatPanel-handler.ts#L3300), with `data-id="anthropic"`. That is the entire per-panel scope of this phase. Tom AI Chat ([:3281](../src/handlers/chatPanel-handler.ts#L3281)), Local LLM ([:3170](../src/handlers/chatPanel-handler.ts#L3170)), and AI Conversation ([:3190](../src/handlers/chatPanel-handler.ts#L3190)) sections are unchanged.
+**Change:** the same two buttons have been added to the **Anthropic** section at [:3166-3167](../src/handlers/chatPanel-handler.ts#L3166), with `data-id="anthropic"`. That is the entire per-panel scope of this phase. Tom AI Chat ([:3116](../src/handlers/chatPanel-handler.ts#L3116)), Local LLM ([:3024](../src/handlers/chatPanel-handler.ts#L3024)), and AI Conversation ([:3044](../src/handlers/chatPanel-handler.ts#L3044)) sections are unchanged.
 
-In the `addToQueue` handler (currently `addCopilotToQueue()` at [:4154](../src/handlers/chatPanel-handler.ts#L4154), wired from the webview dispatcher at [:3596](../src/handlers/chatPanel-handler.ts#L3596)), dispatch by `data-id`. The staged queue item carries the target metadata read from that panel's own dropdowns:
+In the `addToQueue` handler (`addCopilotToQueue()` at [:4086](../src/handlers/chatPanel-handler.ts#L4086), `addAnthropicToQueue()` at [:4101](../src/handlers/chatPanel-handler.ts#L4101), wired from the webview dispatcher at [:3486-3488](../src/handlers/chatPanel-handler.ts#L3486)), dispatch by `data-id`. The staged queue item carries the target metadata read from that panel's own dropdowns:
 
 | `data-id` | `transport` set | Payload (read from that panel's dropdowns) |
 | --- | --- | --- |
 | `copilot` | `'copilot'` | `template`, `answerWrapper`, `repeatCount`, `answerWaitMinutes` (current) |
 | `anthropic` | `'anthropic'` | `anthropicProfileId`, `anthropicConfigId`, `template` |
 
-The backend's queue-add router (`case 'addToQueue'` at [:675](../src/handlers/chatPanel-handler.ts#L675)) forwards all new fields into `PromptQueueManager.enqueue()` ([:1240](../src/managers/promptQueueManager.ts#L1240)) unchanged. A queue item staged from the Anthropic panel **must** pin its transport — it should never inherit the queue's default.
+The backend's queue-add router (`case 'addToQueue'` at [:503](../src/handlers/chatPanel-handler.ts#L503)) forwards all new fields into `PromptQueueManager.enqueue()` ([:1402](../src/managers/promptQueueManager.ts#L1402)) unchanged. A queue item staged from the Anthropic panel **must** pin its transport — it should never inherit the queue's default.
 
-`openQueueEditor` (`case 'openQueueEditor'` at [:678](../src/handlers/chatPanel-handler.ts#L678)) is unchanged — opens the same queue editor regardless of which panel's button was clicked.
+`openQueueEditor` (`case 'openQueueEditor'` at [:516](../src/handlers/chatPanel-handler.ts#L516)) is unchanged — opens the same queue editor regardless of which panel's button was clicked.
 
 ### 4.12 Anthropic panel — VS Code LM model dropdown (informational)
 
@@ -368,13 +381,13 @@ Extend the input schemas of the queue add/update tools with the new fields:
 
 | Tool | Line | Purpose |
 | --- | --- | --- |
-| `tomAi_addQueueItem` | [:778](../src/tools/chat-enhancement-tools.ts#L778) | stage a main prompt |
-| `tomAi_updateQueueItem` | [:1316](../src/tools/chat-enhancement-tools.ts#L1316) | patch fields of an existing item |
-| `tomAi_sendQueueItem` | [:1398](../src/tools/chat-enhancement-tools.ts#L1398) | force-send a specific item |
-| `tomAi_addQueuePrePrompt` | [:843](../src/tools/chat-enhancement-tools.ts#L843) | add a pre-prompt stage |
-| `tomAi_updateQueuePrePrompt` | [:900](../src/tools/chat-enhancement-tools.ts#L900) | patch a pre-prompt |
-| `tomAi_addQueueFollowUp` | [:1067](../src/tools/chat-enhancement-tools.ts#L1067) | add a follow-up stage |
-| `tomAi_updateQueueFollowUp` | [:1481](../src/tools/chat-enhancement-tools.ts#L1481) | patch a follow-up |
+| `tomAi_addQueueItem` | [:785](../src/tools/chat-enhancement-tools.ts#L785) | stage a main prompt |
+| `tomAi_updateQueueItem` | [:1389](../src/tools/chat-enhancement-tools.ts#L1389) | patch fields of an existing item |
+| `tomAi_sendQueueItem` | [:1491](../src/tools/chat-enhancement-tools.ts#L1491) | force-send a specific item |
+| `tomAi_addQueuePrePrompt` | [:871](../src/tools/chat-enhancement-tools.ts#L871) | add a pre-prompt stage |
+| `tomAi_updateQueuePrePrompt` | [:938](../src/tools/chat-enhancement-tools.ts#L938) | patch a pre-prompt |
+| `tomAi_addQueueFollowUp` | [:1115](../src/tools/chat-enhancement-tools.ts#L1115) | add a follow-up stage |
+| `tomAi_updateQueueFollowUp` | [:1624](../src/tools/chat-enhancement-tools.ts#L1624) | patch a follow-up |
 
 New fields:
 
@@ -384,9 +397,9 @@ anthropicProfileId?: string;
 anthropicConfigId?: string;
 ```
 
-Read-only tools that list queue state (`tomAi_listQueue` at [:1218](../src/tools/chat-enhancement-tools.ts#L1218), `tomAi_setQueueItemStatus` at [:1365](../src/tools/chat-enhancement-tools.ts#L1365), `tomAi_sendQueuedPrompt` at [:986](../src/tools/chat-enhancement-tools.ts#L986)) surface the new fields in output.
+Read-only tools that list queue state (`tomAi_listQueue` at [:1275](../src/tools/chat-enhancement-tools.ts#L1275), `tomAi_setQueueItemStatus` at [:1446](../src/tools/chat-enhancement-tools.ts#L1446), `tomAi_sendQueuedPrompt` at [:1028](../src/tools/chat-enhancement-tools.ts#L1028)) surface the new fields in output.
 
-Removers (`tomAi_removeQueueItem` at [:1429](../src/tools/chat-enhancement-tools.ts#L1429), `tomAi_removeQueuePrePrompt` at [:939](../src/tools/chat-enhancement-tools.ts#L939), `tomAi_removeQueueFollowUp` at [:1526](../src/tools/chat-enhancement-tools.ts#L1526)) are unchanged.
+Removers (`tomAi_removeQueueItem` at [:1566](../src/tools/chat-enhancement-tools.ts#L1566), `tomAi_removeQueuePrePrompt` at [:981](../src/tools/chat-enhancement-tools.ts#L981), `tomAi_removeQueueFollowUp` at [:1673](../src/tools/chat-enhancement-tools.ts#L1673)) are unchanged.
 
 ### 4.14 Persistence / compatibility
 
@@ -460,7 +473,7 @@ Two template stores, each retaining its existing shape:
 | Transport | Config key | Shape |
 | --- | --- | --- |
 | Copilot | `config.copilot.templates` ([:118-122](../src/utils/sendToChatConfig.ts#L118-L122)) | map `{ [name]: { template, showInMenu? } }` |
-| Anthropic | `config.anthropic.userMessageTemplates` ([:191-197](../src/utils/sendToChatConfig.ts#L191-L197)) | array `[{ id, name, description?, template, isDefault? }]` |
+| Anthropic | `config.anthropic.userMessageTemplates` ([:204-212](../src/utils/sendToChatConfig.ts#L204-L212)) | array `[{ id, name, description?, template, isDefault? }]` |
 
 All Anthropic profiles — regardless of the selected configuration's leaf type — share the Anthropic store. VS Code LM and Local-LLM-backed configurations **do not get their own template stores**; they reuse the Anthropic ones.
 
@@ -468,7 +481,7 @@ All Anthropic profiles — regardless of the selected configuration's leaf type 
 
 1. The Global Template Editor's existing **Category** dropdown already covers the two required stores (`Copilot` → `config.copilot.templates`; `Anthropic — User Message` → `config.anthropic.userMessageTemplates`) among eight total categories. Users switch transports by picking the matching category. Adding a second dedicated `renderTransportPicker` at the top would duplicate this; implementation chose not to wire the helper here.
 2. The edit form is the same shape as today's Copilot form for both stores — name + body — because both stores store body-only templates (the Anthropic array entries carry an id + description but the editable surface is still `template`).
-3. The four template tools (`tomAi_listPromptTemplates` at [:1752](../src/tools/chat-enhancement-tools.ts#L1752), `tomAi_createPromptTemplate` at [:1771](../src/tools/chat-enhancement-tools.ts#L1771), `tomAi_updatePromptTemplate` at [:1799](../src/tools/chat-enhancement-tools.ts#L1799), `tomAi_deletePromptTemplate` at [:1833](../src/tools/chat-enhancement-tools.ts#L1833)) accept a `transport?: 'copilot' | 'anthropic'` field, default `'copilot'` for backward compatibility. Each tool routes to the matching store and, for Anthropic, understands the id-keyed array shape (`name`, `id`, `description`, `template`, `isDefault`).
+3. The four template tools (`tomAi_listPromptTemplates` at [:1920](../src/tools/chat-enhancement-tools.ts#L1920), `tomAi_createPromptTemplate` at [:1959](../src/tools/chat-enhancement-tools.ts#L1959), `tomAi_updatePromptTemplate` at [:2009](../src/tools/chat-enhancement-tools.ts#L2009), `tomAi_deletePromptTemplate` at [:2075](../src/tools/chat-enhancement-tools.ts#L2075)) accept a `transport?: 'copilot' | 'anthropic'` field, default `'copilot'` for backward compatibility. Each tool routes to the matching store and, for Anthropic, understands the id-keyed array shape (`name`, `id`, `description`, `template`, `isDefault`).
 
 **Queue editor — template dropdown:**
 
@@ -486,7 +499,7 @@ Both call sites used to duplicate the fallback chain, and both missed the Local-
 
 ## 5. Edge cases and non-obvious bits
 
-- **Template expansion placeholders** (`${repeatNumber}`, `${repeatIndex}`, chat variables): handled at expand-time inside `_buildExpandedText` at [promptQueueManager.ts:308](../src/managers/promptQueueManager.ts#L308) — unchanged. Chat-variable-driven `repeatCount` keeps working identically on both transports.
+- **Template expansion placeholders** (`${repeatNumber}`, `${repeatIndex}`, chat variables): handled at expand-time inside `_buildExpandedText` at [promptQueueManager.ts:434](../src/managers/promptQueueManager.ts#L434) — unchanged. Chat-variable-driven `repeatCount` keeps working identically on both transports.
 - **Pre-prompts with anthropic transport**: each pre-prompt awaits its own direct call. Because direct calls are synchronous, the pre-prompt chain runs back-to-back without polling gaps. This is much faster than the Copilot flow, which waits 30-second poll intervals between stages. May surprise users — consider documenting in the queue editor's help text.
 - **Pre-prompt context carries automatically** (anthropic transport). The Anthropic handler already preserves turn history across calls: Direct / VS Code LM / Local LLM leaves use `rawTurns` + `compactedSummary` (appended on every non-isolated `sendMessage`), and the Agent SDK leaf uses its own session continuity via `default.session.json`. A pre-prompt's answer is therefore visible to the main prompt without any queue-level chaining or placeholder machinery — the user just writes pre-prompt and main prompt naturally, and the handler stitches them into one conversation. This is symmetric with how Copilot pre-prompts behave (Copilot carries session state via `workbench.action.chat.open`). No action needed at the queue layer.
 - **Template reference invalidated when transport changes.** Template names are meaningful only within one transport's store. Switching a queue item's transport in the editor clears its template selection and repopulates from the new transport's store. Do **not** auto-copy templates across stores — the two shapes overlap but aren't identical, and silent conversion is too magical.
@@ -551,8 +564,8 @@ All items below are satisfied by the shipped implementation (six verification pa
 - [x] Existing Copilot queue items are byte-identical in behaviour (template wrapper, answer-file polling, reminders, answer-wait).
 - [x] Reminder + `answerWaitMinutes` fields are visibly disabled for anthropic-transport items.
 - [x] Selecting Anthropic transport shows the auto-approve-all warning.
-- [x] `tomAi_addQueueItem`, `tomAi_updateQueueItem`, `tomAi_addQueuePrePrompt`, `tomAi_updateQueuePrePrompt`, `tomAi_addQueueFollowUp`, `tomAi_updateQueueFollowUp`, `tomAi_sendQueueItem` accept `transport`, `anthropicProfileId`, `anthropicConfigId`.
-- [x] `tomAi_listQueue` returns the new fields in its output.
-- [x] `tomAi_listPromptTemplates`, `tomAi_createPromptTemplate`, `tomAi_updatePromptTemplate`, `tomAi_deletePromptTemplate` honour a `transport` field, defaulting to `copilot` when absent.
+- [x] `tomAi_addQueueItem` ([:785](../src/tools/chat-enhancement-tools.ts#L785)), `tomAi_updateQueueItem` ([:1389](../src/tools/chat-enhancement-tools.ts#L1389)), `tomAi_addQueuePrePrompt` ([:871](../src/tools/chat-enhancement-tools.ts#L871)), `tomAi_updateQueuePrePrompt` ([:938](../src/tools/chat-enhancement-tools.ts#L938)), `tomAi_addQueueFollowUp` ([:1115](../src/tools/chat-enhancement-tools.ts#L1115)), `tomAi_updateQueueFollowUp` ([:1624](../src/tools/chat-enhancement-tools.ts#L1624)), `tomAi_sendQueueItem` ([:1491](../src/tools/chat-enhancement-tools.ts#L1491)) accept `transport`, `anthropicProfileId`, `anthropicConfigId`.
+- [x] `tomAi_listQueue` ([:1275](../src/tools/chat-enhancement-tools.ts#L1275)) returns the new fields in its output.
+- [x] `tomAi_listPromptTemplates` ([:1920](../src/tools/chat-enhancement-tools.ts#L1920)), `tomAi_createPromptTemplate` ([:1959](../src/tools/chat-enhancement-tools.ts#L1959)), `tomAi_updatePromptTemplate` ([:2009](../src/tools/chat-enhancement-tools.ts#L2009)), `tomAi_deletePromptTemplate` ([:2075](../src/tools/chat-enhancement-tools.ts#L2075)) honour a `transport` field, defaulting to `copilot` when absent.
 - [x] A queue item with a stale/invalid `anthropicProfileId` or `anthropicConfigId` surfaces a clear error (shared `resolveAnthropicTargets` helper).
 - [x] `renderTransportPicker()` helper is used by the queue editor (queue-default row + Add form). The template editor uses the pre-existing Category dropdown, see §4.15 call-sites table.

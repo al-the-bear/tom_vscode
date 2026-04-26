@@ -440,11 +440,30 @@ async function handleMessage(msg: any): Promise<void> {
         case 'clearSent':
             qm.clearByStatus('sent');
             break;
+        case 'clearErrors':
+            qm.clearByStatus('error');
+            break;
         case 'clearAll':
             qm.clearAll();
             break;
         case 'sendAllStaged':
             qm.sendAllStaged();
+            break;
+        case 'retryAllErrors':
+            try {
+                const summary = await qm.retryAllErrors();
+                if (summary.resent === 0 && summary.requeued === 0) {
+                    vscode.window.showInformationMessage('No error-state items to retry.');
+                } else {
+                    vscode.window.showInformationMessage(
+                        `Retrying ${summary.resent + summary.requeued} error item(s): ${summary.resent} resent, ${summary.requeued} requeued.`,
+                    );
+                }
+            } catch (err) {
+                vscode.window.showWarningMessage(
+                    `Retry all failed: ${err instanceof Error ? err.message : String(err)}`,
+                );
+            }
             break;
         case 'toggleAutoSend':
             qm.autoSendEnabled = !qm.autoSendEnabled;
@@ -904,6 +923,8 @@ ${queueEntryStyles()}
   <button class="ctx-btn-icon" id="autoContinueBtn" onclick="toggleAutoContinue()" title="Auto-Continue (resume repetitions after reload)"><span class="codicon codicon-sync"></span></button>
   <button class="ctx-btn-icon" onclick="restartQueue()" title="Restart Queue (reset stuck items)"><span class="codicon codicon-debug-restart"></span></button>
   <button onclick="sendAllStaged()">Send All Staged</button>
+  <button onclick="retryAllErrors()" title="Resend every item currently in error state — the first errored item takes the sending slot, the rest are requeued in place">Retry All Errors</button>
+  <button onclick="clearErrors()" title="Remove every item currently in error state">Delete Errors</button>
   <button onclick="clearSent()">Clear Sent</button>
   <button onclick="clearAll()">Clear All</button>
   <label style="font-size:0.85em;opacity:0.85;">Answer Timeout:</label>
@@ -1325,6 +1346,8 @@ function setDefaultReminderTemplate(templateId) {
 function setItemStatus(id, status) { vscode.postMessage({ type: 'setItemStatus', id, status }); }
 function clearSent() { vscode.postMessage({ type: 'clearSent' }); }
 function clearAll() { vscode.postMessage({ type: 'clearAll' }); }
+function retryAllErrors() { vscode.postMessage({ type: 'retryAllErrors' }); }
+function clearErrors() { vscode.postMessage({ type: 'clearErrors' }); }
 function remove(id) { vscode.postMessage({ type: 'remove', id }); }
 function moveUp(id) { vscode.postMessage({ type: 'moveUp', id }); }
 function moveDown(id) { vscode.postMessage({ type: 'moveDown', id }); }

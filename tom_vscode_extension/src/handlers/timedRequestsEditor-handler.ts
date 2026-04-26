@@ -205,6 +205,9 @@ async function handleMessage(msg: any): Promise<void> {
                     originalText: msg.text || '',
                     scheduleMode: msg.scheduleMode || 'interval',
                     intervalMinutes: msg.intervalMinutes ?? 30,
+                    intervalWeekdays: Array.isArray(msg.intervalWeekdays)
+                        ? msg.intervalWeekdays.filter((d: unknown) => typeof d === 'number' && d >= 0 && d <= 6)
+                        : [],
                     sendMaximum: Number.isFinite(msg.sendMaximum) ? Math.max(0, Math.round(msg.sendMaximum)) : 0,
                     answerWaitMinutes: Number.isFinite(msg.answerWaitMinutes) ? Math.max(0, Math.round(msg.answerWaitMinutes)) : 0,
                     scheduledTimes: msg.scheduledTimes ?? [],
@@ -229,6 +232,21 @@ async function handleMessage(msg: any): Promise<void> {
         case 'removeEntry':
             te.removeEntry(msg.id);
             break;
+        case 'confirmRemoveEntry': {
+            const id = typeof msg.id === 'string' ? msg.id : '';
+            if (!id) { break; }
+            const rawSnippet = typeof msg.snippet === 'string' ? msg.snippet : '';
+            const snippet = rawSnippet.length > 0 ? `"${rawSnippet}..."` : id;
+            const answer = await vscode.window.showWarningMessage(
+                `Delete timed request?\n\n${snippet}`,
+                { modal: true },
+                'Delete',
+            );
+            if (answer === 'Delete') {
+                te.removeEntry(id);
+            }
+            break;
+        }
         case 'toggleTimer':
             te.timerActivated = !te.timerActivated;
             sendState();
@@ -443,7 +461,6 @@ function getHtml(codiconsUri: string, safeStateJson: string): string {
   .weekdays-row { display: flex; gap: 1px; align-items: center; }
   .weekdays-row label { font-size: 0.72em; font-weight: normal; margin: 0; display: flex; flex-direction: column; align-items: center; gap: 1px; cursor: pointer; padding: 0 3px; min-width: 20px; }
   .weekdays-row label input[type="checkbox"] { margin: 0; cursor: pointer; }
-  .save-times-btn { margin-top: 5px; padding: 2px 10px; font-size: 0.82em; cursor: pointer; border: 1px solid var(--border); background: var(--btnBg); color: var(--btnFg); border-radius: 3px; }
   .time-input-error { border-color: var(--vscode-inputValidation-errorBorder, #f85149) !important; }
   select { background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--border); padding: 3px 6px; }
   .schedule-row { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; margin: 4px 0; }
@@ -501,13 +518,28 @@ function getHtml(codiconsUri: string, safeStateJson: string): string {
   </div>
   <label>Schedule Mode</label>
   <div class="schedule-row">
-    <label style="display:inline;"><input type="radio" name="addScheduleMode" value="interval" checked/> Interval</label>
-    <label style="display:inline;"><input type="radio" name="addScheduleMode" value="scheduled"/> Scheduled Times</label>
+    <label style="display:inline;"><input type="radio" name="addScheduleMode" value="interval" checked
+      onchange="document.getElementById('addIntervalRow').style.display='';document.getElementById('addIntervalWeekdaysRow').style.display='';"/> Interval</label>
+    <label style="display:inline;"><input type="radio" name="addScheduleMode" value="scheduled"
+      onchange="document.getElementById('addIntervalRow').style.display='none';document.getElementById('addIntervalWeekdaysRow').style.display='none';"/> Scheduled Times</label>
   </div>
   <div id="addIntervalRow" class="schedule-row">
     <span>Every</span> <input type="number" id="addInterval" min="1" value="30" style="width:60px"/> <span>minutes</span>
     <span style="margin-left:8px;">Send max:</span> <input type="number" id="addSendMaximum" min="0" value="0" style="width:60px" title="0 = unlimited"/>
     <span style="margin-left:8px;">Answer wait:</span> <input type="number" id="addAnswerWait" min="0" value="0" style="width:60px" title="Minutes to wait before auto-advancing (0 = wait for answer file)"/>
+  </div>
+  <div id="addIntervalWeekdaysRow" class="schedule-row" style="align-items:center;">
+    <span style="font-size:0.85em;white-space:nowrap;">Days:</span>
+    <span class="weekdays-row">
+      <label>M<input type="checkbox" data-day="1" checked/></label>
+      <label>Tu<input type="checkbox" data-day="2" checked/></label>
+      <label>W<input type="checkbox" data-day="3" checked/></label>
+      <label>Th<input type="checkbox" data-day="4" checked/></label>
+      <label>F<input type="checkbox" data-day="5" checked/></label>
+      <label>Sa<input type="checkbox" data-day="6" checked/></label>
+      <label>Su<input type="checkbox" data-day="0" checked/></label>
+    </span>
+    <span style="font-size:0.75em;opacity:0.6;margin-left:4px;">(all = any day)</span>
   </div>
   <label>Reminder</label>
   <div class="schedule-row">
@@ -806,6 +838,14 @@ function submitNewEntry() {
   const repeatCount = Math.max(1, parseInt(String(document.getElementById('addRepeatCount').value || '1'), 10) || 1);
   const repeatPrefix = document.getElementById('addRepeatPrefix').value || '';
   const repeatSuffix = document.getElementById('addRepeatSuffix').value || '';
+  var intervalWeekdays = [];
+  if (scheduleMode === 'interval') {
+    var wdInputs = document.querySelectorAll('#addIntervalWeekdaysRow input[type="checkbox"]');
+    var checkedDays = [];
+    wdInputs.forEach(function(el) { if (el.checked) { checkedDays.push(parseInt(el.getAttribute('data-day'), 10)); } });
+    // All 7 days selected → no filter (store as empty array)
+    intervalWeekdays = checkedDays.length >= 7 ? [] : checkedDays;
+  }
 
   if (!text) {
     showAddFeedback('Please enter a prompt', 'error');
@@ -816,6 +856,7 @@ function submitNewEntry() {
   vscode.postMessage({
     type: 'addEntry',
     text, template, answerWrapper, scheduleMode, intervalMinutes, sendMaximum, answerWaitMinutes,
+    intervalWeekdays,
     scheduledTimes: [],
     reminderEnabled, reminderTemplateId, reminderTimeoutMinutes,
     repeatCount, repeatPrefix, repeatSuffix,
@@ -930,7 +971,8 @@ function render() {
           dayDefs.map(function(df) {
             const chk = wds.indexOf(df.d) >= 0 ? ' checked' : '';
             return '<label>' + df.lbl + '<input type="checkbox"' + chk + disabledAttr +
-              ' data-entry-id="' + esc(entry.id) + '" data-time-idx="' + ti + '" data-day="' + df.d + '"/></label>';
+              ' data-entry-id="' + esc(entry.id) + '" data-time-idx="' + ti + '" data-day="' + df.d + '"' +
+              ' onchange="commitScheduledWeekdays(\\'' + entry.id + '\\',' + ti + ')"/></label>';
           }).join('') +
           '</span>';
         return '<div class="time-row">' +
@@ -938,21 +980,38 @@ function render() {
             ' data-focus-id="sched-time-' + entry.id + '-' + ti + '"' +
             ' value="' + esc(st.time) + '"' + disabledAttr +
             ' data-entry-id="' + esc(entry.id) + '" data-time-idx="' + ti + '"' +
+            ' oninput="validateTimeInputLive(this)"' +
+            ' onkeydown="if(event.key===\\'Enter\\'){this.blur();}"' +
+            ' onblur="commitScheduledTime(\\'' + entry.id + '\\',' + ti + ',this.value)"' +
             ' title="24-hour time, e.g. 09:00"/>' +
           '<input type="text" class="date-input" placeholder="dd.mm.yyyy"' +
             ' data-focus-id="sched-date-' + entry.id + '-' + ti + '"' +
             ' value="' + esc(isoToDdMmYyyy(st.date || '')) + '"' + disabledAttr +
             ' data-entry-id="' + esc(entry.id) + '" data-time-idx="' + ti + '"' +
+            ' onkeydown="if(event.key===\\'Enter\\'){this.blur();}"' +
+            ' onblur="updateScheduledDate(\\'' + entry.id + '\\',' + ti + ',this.value)"' +
             ' title="Leave empty for recurring; dd.mm.yyyy for one-shot"/>' +
           wdHtml +
           '<button class="ctx-btn-icon"' + disabledAttr + ' onclick="removeScheduledTime(\\'' + entry.id + '\\',' + ti + ')" title="Remove"><span class="codicon codicon-close"></span></button>' +
         '</div>';
       }).join('') +
-      (entry.scheduledTimes.length > 0
-        ? '<button class="save-times-btn"' + disabledAttr + ' onclick="saveScheduledTimes(\\'' + entry.id + '\\')">💾 Save Times</button>'
-        : '') +
       '<button class="ctx-btn-icon" style="font-size:0.8em;margin-top:2px;"' + disabledAttr + ' onclick="addScheduledTime(\\'' + entry.id + '\\')"><span class="codicon codicon-add"></span> Add Time</button>';
     }
+
+    // Interval weekday row — rendered only when isInterval is true
+    const dayDefsIv = [{d:1,lbl:'M'},{d:2,lbl:'Tu'},{d:3,lbl:'W'},{d:4,lbl:'Th'},{d:5,lbl:'F'},{d:6,lbl:'Sa'},{d:0,lbl:'Su'}];
+    const iWds = Array.isArray(entry.intervalWeekdays) ? entry.intervalWeekdays : [];
+    const intervalWdHtml = '<div class="schedule-row" style="margin-top:3px;align-items:center;">' +
+      '<span style="font-size:0.85em;white-space:nowrap;">Days:</span>' +
+      '<span class="weekdays-row">' +
+      dayDefsIv.map(function(df) {
+        var chkd = (iWds.length === 0 || iWds.indexOf(df.d) >= 0) ? ' checked' : '';
+        return '<label>' + df.lbl + '<input type="checkbox"' + chkd + disabledAttr +
+          ' onchange="updateIntervalWeekday(\\'' + entry.id + '\\',' + df.d + ',this.checked)"/></label>';
+      }).join('') +
+      '</span>' +
+      '<span style="font-size:0.75em;opacity:0.6;margin-left:4px;">(all&nbsp;=&nbsp;any&nbsp;day)</span>' +
+      '</div>';
 
     const reminderOpts = reminderTemplates.map(t =>
       '<option value="' + t.id + '"' + (entry.reminderTemplateId === t.id ? ' selected' : '') + '>' + esc(t.name) + '</option>'
@@ -1007,7 +1066,8 @@ function render() {
               '<span style="margin-left:8px;">Send max:</span> <input type="number" min="0" value="' + (Math.max(0, parseInt(String(entry.sendMaximum || 0), 10) || 0)) + '" style="width:60px"' + disabledAttr + ' onchange="updateField(\\'' + entry.id + '\\',\\'sendMaximum\\',Math.max(0,parseInt(this.value||\\'0\\',10)||0))" title="0 = unlimited"/>' +
               '<span style="margin-left:8px;">Wait:</span> <input type="number" min="0" value="' + (Math.max(0, parseInt(String(entry.answerWaitMinutes || 0), 10) || 0)) + '" style="width:60px"' + disabledAttr + ' onchange="updateField(\\'' + entry.id + '\\',\\'answerWaitMinutes\\',Math.max(0,parseInt(this.value||\\'0\\',10)||0))" title="Minutes to wait before auto-advancing (0 = wait for answer file)"/>' +
               (entry.sentCount ? '<span class="meta" style="margin-left:8px;">(sent ' + entry.sentCount + ')</span>' : '') +
-              '</div>'
+              '</div>' +
+              intervalWdHtml
             : '<div class="schedule-times">' + scheduledTimesHtml + '</div>') +
         '</div>' +
         '<div class="entry-section">' +
@@ -1124,11 +1184,11 @@ function enableAll() { vscode.postMessage({ type: 'enableAll' }); }
 function disableAll() { vscode.postMessage({ type: 'disableAll' }); }
 function removeEntry(id) { vscode.postMessage({ type: 'removeEntry', id }); }
 function confirmDelete(id) {
+  // VS Code webviews don't support window.confirm(); ask the extension host
+  // to show a native modal and perform the delete on confirmation.
   const entry = entries.find(e => e.id === id);
   const snippet = entry ? entry.originalText.substring(0, 50) : id;
-  if (confirm('Delete timed request?\\n\\n"' + snippet + '..."')) {
-    removeEntry(id);
-  }
+  vscode.postMessage({ type: 'confirmRemoveEntry', id, snippet });
 }
 function toggleEnabled(id, checked) { updateField(id, 'enabled', checked); }
 
@@ -1146,6 +1206,22 @@ function updateScheduledTime(entryId, timeIdx, field, value) {
   updateField(entryId, 'scheduledTimes', times);
 }
 
+function updateIntervalWeekday(entryId, day, checked) {
+  var entry = entries.find(function(e) { return e.id === entryId; });
+  if (!entry) { return; }
+  // Empty intervalWeekdays means "all days"; expand to full set before toggling
+  var wds = (Array.isArray(entry.intervalWeekdays) && entry.intervalWeekdays.length > 0)
+    ? entry.intervalWeekdays.slice()
+    : [0, 1, 2, 3, 4, 5, 6];
+  if (checked) {
+    if (wds.indexOf(day) < 0) { wds.push(day); }
+  } else {
+    wds = wds.filter(function(d) { return d !== day; });
+  }
+  // All 7 days selected → store empty array (no filter, any day)
+  updateField(entryId, 'intervalWeekdays', wds.length >= 7 ? [] : wds);
+}
+
 function addScheduledTime(entryId) {
   const entry = entries.find(e => e.id === entryId);
   if (!entry) return;
@@ -1161,65 +1237,108 @@ function removeScheduledTime(entryId, timeIdx) {
   updateField(entryId, 'scheduledTimes', times);
 }
 
-/** Validate HH:MM 24-hour format.  Returns the trimmed string on success, '' on failure. */
+/**
+ * Validate 24-hour time. Accepts H:MM or HH:MM (0–23 hours, 00–59 minutes).
+ * Returns canonical HH:MM on success, '' on failure.
+ *
+ * Hand-rolled instead of a single regex so the rejection of edge cases
+ * is explicit: multiple colons, signs ('+', '-'), decimal points, embedded
+ * whitespace, and the parseInt('1e3', 10) = 1 trap all return '' here.
+ *
+ * IMPORTANT: this function lives inside the getHtml() backtick template
+ * literal. Regex escapes must be doubled — \\d in source compiles to \d in
+ * the rendered webview JS, which is what the regex engine needs. Writing
+ * \d directly produces a regex that matches the literal letter "d", because
+ * the TS template literal silently drops the backslash for unknown escapes.
+ * Same gotcha as commits 669be9f and d79e289.
+ */
 function validateHhmm(s) {
   var t = (s || '').trim();
-  return /^([01]\d|2[0-3]):[0-5]\d$/.test(t) ? t : '';
+  if (!t) { return ''; }
+  var colon = t.indexOf(':');
+  if (colon < 1 || colon !== t.lastIndexOf(':')) { return ''; }
+  var hStr = t.slice(0, colon);
+  var mStr = t.slice(colon + 1);
+  // Reject anything other than digits in either segment (avoids '+', '-', '.', whitespace, NaN-from-parseInt).
+  if (!/^\\d+$/.test(hStr) || mStr.length !== 2 || !/^\\d+$/.test(mStr)) { return ''; }
+  var h = Number(hStr), m = Number(mStr);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) { return ''; }
+  if (h < 0 || h > 23 || m < 0 || m > 59) { return ''; }
+  return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
 }
 
 /**
- * Collect all time / date / weekday values from the DOM for one entry's
- * scheduled-times section, validate, and send a single updateEntry message.
- * This is the only path that persists scheduled-time edits — inputs have no
- * onblur/onchange handlers.  After the backend saves, onDidChange fires,
- * sendState() pushes a fresh state, and the webview re-renders from the
- * authoritative stored values ("what is shown is what is stored").
+ * Live-feedback validator for the time text input.  Toggles the
+ * "time-input-error" class as the user types — does NOT save.  Empty
+ * input is treated as "no error yet" so the field doesn't flash red
+ * immediately after focus.
  */
-function saveScheduledTimes(entryId) {
+function validateTimeInputLive(el) {
+  if (!el) { return; }
+  var raw = (el.value || '').trim();
+  if (raw === '') {
+    el.classList.remove('time-input-error');
+    return;
+  }
+  if (validateHhmm(raw)) {
+    el.classList.remove('time-input-error');
+  } else {
+    el.classList.add('time-input-error');
+  }
+}
+
+/**
+ * Commit a single scheduled-time HH:MM value on input blur.  Validates
+ * the user's text, normalises it to canonical HH:MM, and sends a
+ * targeted updateEntry patch via updateScheduledTime so backend state
+ * stays in sync row-by-row instead of relying on a batch Save button.
+ *
+ * If validation fails, restore the last-known-good value from the
+ * cached entries array, mark the field with the error class, and alert
+ * the user — no backend round-trip happens.
+ */
+function commitScheduledTime(entryId, timeIdx, displayValue) {
   var entry = entries.find(function(e) { return e.id === entryId; });
-  if (!entry || !entry.scheduledTimes) { return; }
+  if (!entry || !entry.scheduledTimes || !entry.scheduledTimes[timeIdx]) { return; }
+  var st = entry.scheduledTimes[timeIdx];
+  var canonical = validateHhmm(displayValue);
+  var el = document.querySelector('[data-entry-id="' + entryId + '"][data-time-idx="' + timeIdx + '"].time-input');
 
-  var errors = [];
-  var updatedTimes = entry.scheduledTimes.map(function(st, ti) {
-    var timeEl  = document.querySelector('[data-entry-id="' + entryId + '"][data-time-idx="' + ti + '"].time-input');
-    var dateEl  = document.querySelector('[data-entry-id="' + entryId + '"][data-time-idx="' + ti + '"].date-input');
-    var wdEls   = document.querySelectorAll('[data-entry-id="' + entryId + '"][data-time-idx="' + ti + '"][data-day]');
-
-    // Clear previous error highlight
-    if (timeEl) { timeEl.classList.remove('time-input-error'); }
-
-    var rawTime = timeEl ? timeEl.value : st.time;
-    var time = validateHhmm(rawTime);
-    if (!time) {
-      errors.push('Row ' + (ti + 1) + ': "' + rawTime + '" is not a valid HH:MM time (24-hour).');
-      if (timeEl) { timeEl.classList.add('time-input-error'); }
-      time = st.time; // keep old value so object is valid even if we abort
+  if (!canonical) {
+    // Invalid input — flag the field, alert, revert displayed value to stored one.
+    if (el) {
+      el.classList.add('time-input-error');
+      el.value = st.time || '';
     }
-
-    var dateDisplay = dateEl ? dateEl.value.trim() : '';
-    var isoDate = dateDisplay ? ddMmYyyyToIso(dateDisplay) : '';
-    if (dateDisplay && !isoDate) {
-      errors.push('Row ' + (ti + 1) + ': "' + dateDisplay + '" is not a valid dd.mm.yyyy date.');
-    }
-
-    var weekdays = [];
-    wdEls.forEach(function(el) {
-      if (el.checked) { weekdays.push(parseInt(el.getAttribute('data-day'), 10)); }
-    });
-
-    var result = { time: time };
-    if (isoDate) { result.date = isoDate; }
-    // 7 checked = all days = omit field (backwards-compat, fires every day)
-    if (weekdays.length > 0 && weekdays.length < 7) { result.weekdays = weekdays; }
-    return result;
-  });
-
-  if (errors.length) {
-    alert('Please fix the following before saving:\\n\\n' + errors.join('\\n'));
+    alert('"' + displayValue + '" is not a valid 24-hour HH:MM time. Reverted to ' + (st.time || '(empty)') + '.');
     return;
   }
 
-  updateField(entryId, 'scheduledTimes', updatedTimes);
+  // Valid — clear any error class, update display to canonical form, persist.
+  if (el) {
+    el.classList.remove('time-input-error');
+    if (el.value !== canonical) { el.value = canonical; }
+  }
+  if (canonical !== st.time) {
+    updateScheduledTime(entryId, timeIdx, 'time', canonical);
+  }
+}
+
+/**
+ * Commit weekday checkbox state for a single scheduled-time row on
+ * change.  Reads the current DOM state of all data-day checkboxes for
+ * this row and persists via updateScheduledTime.  7 checked = "all
+ * days" → store empty/absent (legacy: fires every day).
+ */
+function commitScheduledWeekdays(entryId, timeIdx) {
+  var wdEls = document.querySelectorAll('[data-entry-id="' + entryId + '"][data-time-idx="' + timeIdx + '"][data-day]');
+  var weekdays = [];
+  wdEls.forEach(function(el) {
+    if (el.checked) { weekdays.push(parseInt(el.getAttribute('data-day'), 10)); }
+  });
+  // 7 checked = all days = clear the field
+  var value = (weekdays.length > 0 && weekdays.length < 7) ? weekdays : undefined;
+  updateScheduledTime(entryId, timeIdx, 'weekdays', value);
 }
 
 function updateEntryTemplate(entryId, value) {

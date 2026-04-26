@@ -45,7 +45,7 @@
       "cwd": "/Users/alexiskyaw/Desktop/Code/tom2"
     },
     {
-      "command": "./reinstall_for_testing.sh",
+      "command": "./install_extension.sh",
       "description": "Reinstall + reload window",
       "cwd": "/Users/alexiskyaw/Desktop/Code/tom2/xternal/tom_module_vscode/tom_vscode_extension",
       "postActions": [

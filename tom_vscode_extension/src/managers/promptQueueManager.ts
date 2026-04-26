@@ -2386,6 +2386,72 @@ export class PromptQueueManager {
         }
     }
 
+    /**
+     * Bulk-retry every queue item currently in `error` state. Mirrors
+     * the per-item Resend icon, but scoped to the whole queue so the
+     * user can recover from a batch-wide interruption (rate-limit,
+     * quota, overload) with a single click.
+     *
+     * Strategy:
+     *   - The first error item with a recorded `lastDispatched` is
+     *     resent via `resendLastPrompt` — that call takes the single
+     *     sending slot and drives the item through the remainder of
+     *     its stages (anthropic) or arms the copilot poll loop.
+     *   - All other error items are flipped back to `pending`,
+     *     clearing their error/warning markers. Queue order is
+     *     preserved. When the first resend completes, `sendNext()`
+     *     (called at the tail of `resendLastPrompt` for direct mode,
+     *     or from the answer-file poll loop for copilot mode) picks
+     *     the next pending item — so retries cascade even when
+     *     auto-send is off.
+     *   - Items without `lastDispatched` (defensive — shouldn't
+     *     normally happen, since error implies a prior dispatch) are
+     *     also reset to `pending`.
+     *
+     * Throws when another item is currently `sending` — same
+     * serialisation invariant as `resendLastPrompt`.
+     *
+     * Returns `{ resent, requeued }`: `resent` is 1 when the lead
+     * error item was re-dispatched, 0 otherwise; `requeued` counts
+     * the remaining error items that were flipped to `pending`.
+     */
+    async retryAllErrors(): Promise<{ resent: number; requeued: number }> {
+        if (this._items.some(i => i.status === 'sending')) {
+            throw new Error('Another queue item is currently sending; wait for it to finish before retrying errors');
+        }
+        const errorItems = this._items.filter(i => i.status === 'error');
+        if (errorItems.length === 0) {
+            return { resent: 0, requeued: 0 };
+        }
+
+        // Pick the first error item with a recorded dispatch — it
+        // becomes the lead resend. Everything else falls through to
+        // the pending-reset branch.
+        const lead = errorItems.find(i => i.lastDispatched);
+
+        let requeued = 0;
+        for (const item of errorItems) {
+            if (item === lead) { continue; }
+            item.error = undefined;
+            item.warning = undefined;
+            item.status = 'pending';
+            requeued += 1;
+        }
+        this.persist();
+        this._onDidChange.fire();
+        logQueue(`retryAllErrors: ${errorItems.length} error item(s); lead=${lead?.id ?? 'none'} requeued=${requeued}`);
+
+        if (!lead) {
+            // No dispatchable lead — kick the queue so the first
+            // requeued item goes out even if auto-send is off.
+            void this.sendNext();
+            return { resent: 0, requeued };
+        }
+
+        await this.resendLastPrompt(lead.id);
+        return { resent: 1, requeued };
+    }
+
     private resolveStableRepeatCount(
         repeatCountRaw: number | string | undefined,
         cachedResolved: number | undefined,

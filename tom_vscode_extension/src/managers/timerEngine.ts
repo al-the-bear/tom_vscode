@@ -18,8 +18,10 @@ import { logTimed, logTimedError } from '../utils/queueLogger';
 // ============================================================================
 
 export interface ScheduledTime {
-    time: string;   // "HH:MM"
-    date?: string;  // "YYYY-MM-DD" — one-shot if present
+    time: string;      // "HH:MM"
+    date?: string;     // "YYYY-MM-DD" — one-shot if present
+    /** Day-of-week filter: 0=Sun,1=Mon,...,6=Sat. Absent or empty means every day. */
+    weekdays?: number[];
 }
 
 export type TimedRequestStatus = 'active' | 'paused' | 'completed';
@@ -43,6 +45,8 @@ export interface TimedRequest {
     sendMaximum?: number;
     sentCount?: number;
     answerWaitMinutes?: number;
+    /** Day-of-week filter for interval mode: 0=Sun, 1=Mon … 6=Sat. Absent or empty = fire on any day. */
+    intervalWeekdays?: number[];
     lastSentAt?: string;
     status: TimedRequestStatus;
 }
@@ -150,25 +154,18 @@ export class TimerEngine {
         const e = this._entries.find(x => x.id === id);
         if (!e) { return; }
 
-        // Editing rules:
-        // - ACTIVE entries are locked; only pausing (enabled=false) is allowed.
-        // - COMPLETED entries are locked.
-        // - PAUSED entries are fully editable.
-        if (e.status === 'active') {
-            if (patch.enabled === false) {
-                e.enabled = false;
-                e.status = 'paused';
-                const removed = this.removeQueuedTimedItems(e.id);
-                logTimed(`Entry updated: '${e.originalText.substring(0, 40)}' [paused]`);
-                if (removed > 0) {
-                    logTimed(`Removed ${removed} pending/staged timed queue item(s) for paused entry ${e.id.substring(0, 8)}`);
-                }
-                this.saveEntries();
-                this._onDidChange.fire();
-            }
-            return;
-        }
-
+        // Editing rules (revised — active is no longer locked):
+        // - COMPLETED entries stay locked (fully immutable; use the
+        //   enable toggle to re-open the entry, which flips it back to
+        //   active / paused).
+        // - ACTIVE and PAUSED entries are fully editable. The tick
+        //   loop rereads fresh state on every iteration, so edits are
+        //   safe mid-run. The previous "active is locked" rule forced
+        //   users to pause before adding a scheduled time, which made
+        //   new scheduled entries (initial scheduledTimes=[]) impossible
+        //   to configure without a pause/resume round-trip, and
+        //   silently dropped any patch that wasn't `enabled=false` —
+        //   including any scheduled-time edits that did sneak through.
         if (e.status === 'completed') {
             return;
         }
@@ -277,6 +274,10 @@ export class TimerEngine {
 
     private checkInterval(entry: TimedRequest, now: Date): boolean {
         if (!entry.intervalMinutes || entry.intervalMinutes < 1) { return false; }
+        // Day-of-week filter: absent or empty array means fire every day
+        if (entry.intervalWeekdays && entry.intervalWeekdays.length > 0) {
+            if (!entry.intervalWeekdays.includes(now.getDay())) { return false; }
+        }
         if (!entry.lastSentAt) { return true; } // Never fired → fire now
         const last = new Date(entry.lastSentAt).getTime();
         return (now.getTime() - last) >= entry.intervalMinutes * 60_000;
@@ -289,10 +290,16 @@ export class TimerEngine {
         const nowMM = String(now.getMinutes()).padStart(2, '0');
         const nowTime = `${nowHH}:${nowMM}`;
         const nowDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        const nowDay = now.getDay(); // 0=Sun..6=Sat
 
         for (const st of entry.scheduledTimes) {
             // Check if this time matches (within 1-minute window via exact HH:MM)
             if (st.time !== nowTime) { continue; }
+
+            // If weekdays are specified, only fire on matching days of the week
+            if (st.weekdays && st.weekdays.length > 0) {
+                if (!st.weekdays.includes(nowDay)) { continue; }
+            }
 
             // If date-specific, check date match
             if (st.date && st.date !== nowDate) { continue; }
@@ -375,9 +382,14 @@ export class TimerEngine {
             return;
         }
 
-        // Skip if this timed entry already has a pending item in the queue
+        // Skip if this timed entry already has an in-flight item in the queue.
+        // Checking pending + sending + staged prevents the same entry from being
+        // double-enqueued while its previous item is still processing.  Different
+        // entries each do their own independent check, so they never block each other.
         const hasPending = queue.items.some(
-            i => i.type === 'timed' && i.status === 'pending' && i.template === `timed:${entry.id}`
+            i => i.type === 'timed' &&
+            (i.status === 'pending' || i.status === 'sending' || i.status === 'staged') &&
+            i.template === `timed:${entry.id}`
         );
         if (hasPending) {
             logTimed(`Entry '${entry.originalText.substring(0, 40)}' skipped: already pending in queue`);
@@ -511,6 +523,9 @@ export class TimerEngine {
                     }
                     if (typeof entry.repeatSuffix !== 'string') {
                         entry.repeatSuffix = '';
+                    }
+                    if (!Array.isArray(entry.intervalWeekdays)) {
+                        entry.intervalWeekdays = [];
                     }
                 }
                 console.log('[TimerEngine] loadEntries: loaded', this._entries.length, 'entries from YAML');
