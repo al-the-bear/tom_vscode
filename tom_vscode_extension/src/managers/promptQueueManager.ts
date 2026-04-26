@@ -44,6 +44,7 @@ import {
 } from '../utils/queueStep4Utils';
 import { writeWindowState } from '../handlers/windowStatusPanel-handler';
 import { TrailService } from '../services/trailService';
+import { WsPaths } from '../utils/workspacePaths';
 
 // ============================================================================
 // Types
@@ -1129,7 +1130,7 @@ export class PromptQueueManager {
                     ? `An answer file without generatedMarkdown was received.\n\nsource: ${filePath}\n\n\`\`\`json\n${rawAnswerContent}\n\`\`\``
                     : `An answer file event was received, but no readable content was available.\n\nsource: ${filePath}`;
                 const trailText = generatedMarkdown.trim().length > 0 ? generatedMarkdown : fallbackText;
-                const quest = await_import_ChatVariablesStore()?.quest || undefined;
+                const quest = await_import_ChatVariablesStore()?.quest || WsPaths.getWorkspaceQuestId();
 
                 TrailService.instance.writeRawAnswer({ type: 'copilot' }, trailText, getWindowStatusWindowId(), resolvedAnswerRequestId, quest);
                 TrailService.instance.writeSummaryAnswer(

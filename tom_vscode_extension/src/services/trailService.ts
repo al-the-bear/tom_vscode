@@ -307,7 +307,7 @@ export class TrailService {
 
         return resolveTrailPath(pattern, {
             subsystem: this.getSubsystemName(subsystem),
-            quest: questId ?? 'default',
+            quest: questId || WsPaths.getWorkspaceQuestId(),
         });
     }
 
