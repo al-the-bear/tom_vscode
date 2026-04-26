@@ -44,10 +44,8 @@ When testing changes to the bridge or extension, use the dedicated reinstallatio
 
 ```bash
 cd /Users/alexiskyaw/Desktop/Code/tom2/tom_vscode_extension
-./reinstall_for_testing.sh
+./install_extension.sh
 ```
-
-**Do NOT use** `install_tom_vscode_extension.sh` from the workspace root - use `reinstall_for_testing.sh` instead.
 
 After reinstallation, the user must manually reload VS Code:
 - `Cmd+Shift+P` → `Developer: Reload Window`

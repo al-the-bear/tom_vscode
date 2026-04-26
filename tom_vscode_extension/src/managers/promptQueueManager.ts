@@ -363,6 +363,15 @@ export class PromptQueueManager {
     private _processing = false;
     private _processingAnswerFile = false;
 
+    /**
+     * Cancellation source for the in-flight Anthropic dispatch, if any.
+     * Created in `dispatchStage` immediately before `sendMessage`,
+     * disposed in the matching `finally`. The Stop button in the queue
+     * editor triggers `stopActiveItem()`, which cancels this CTS so the
+     * Anthropic round loop bails out at its next checkpoint.
+     */
+    private _activeAnthropicCts?: vscode.CancellationTokenSource;
+
     /** Maps QueuedPrompt.id → entry filename on disk. */
     private _fileNameMap = new Map<string, string>();
     /** Disposable for queue file change listener. */
@@ -2077,6 +2086,73 @@ export class PromptQueueManager {
         return true;
     }
 
+    /**
+     * Stop whichever queue item is currently `sending` and revert it
+     * to `staged`.
+     *
+     * Behaviour:
+     *  - Cancels the active Anthropic dispatch (if any) via the
+     *    queue-scoped `CancellationTokenSource`. The handler's round
+     *    loop checks the token between rounds and aborts cleanly.
+     *  - Releases any approval-bar awaiters via
+     *    `AnthropicHandler.abortPendingApprovals()` (best-effort —
+     *    queue runs coerce `toolApprovalMode` to `'never'`, so this is
+     *    rarely live, but the chat panel can have its own approvals
+     *    pending in parallel and we mirror its behaviour for parity).
+     *  - Reverts the item to `staged` via `setStatus`, which clears
+     *    `requestId`/`expectedRequestId`/`sentAt`/`reminderSentCount`,
+     *    flips any `sent` pre-prompts back to `pending`, and removes
+     *    pending reminders.
+     *
+     * Copilot-transport items have no in-flight network call to
+     * cancel — the queue dispatched the prompt to the chat panel and
+     * is polling for the answer file. Stopping in that mode is a
+     * status-only operation; the polling loop notices the status
+     * change at its next tick and stops looking for the answer.
+     *
+     * Returns `true` if a sending item was found and stopped,
+     * `false` if there was nothing to stop.
+     */
+    stopActiveItem(): boolean {
+        const sending = this._items.find(i => i.status === 'sending');
+        if (!sending) {
+            logQueue('stopActiveItem: no sending item to stop');
+            return false;
+        }
+        logQueue(`stopActiveItem: stopping ${sending.id}`);
+
+        // Cancel the in-flight Anthropic dispatch if there is one.
+        // Copilot dispatches don't keep a CTS — the network round
+        // trip already returned by the time we're "sending", and
+        // we're just polling for the answer file.
+        const cts = this._activeAnthropicCts;
+        if (cts) {
+            try {
+                cts.cancel();
+            } catch (err) {
+                logQueue(`stopActiveItem: CTS cancel failed: ${err instanceof Error ? err.message : String(err)}`);
+            }
+        }
+
+        // Release approval awaiters. Best-effort dynamic import so
+        // the queue manager doesn't pull in the Anthropic SDK at
+        // module load. If the import fails we fall through — the
+        // status revert below is the load-bearing part.
+        void (async () => {
+            try {
+                const { AnthropicHandler } = await import('../handlers/anthropic-handler.js');
+                AnthropicHandler.instance.abortPendingApprovals();
+            } catch (err) {
+                logQueue(`stopActiveItem: abortPendingApprovals skipped: ${err instanceof Error ? err.message : String(err)}`);
+            }
+        })();
+
+        // Revert item to staged. setStatus already handles the full
+        // reset (pre-prompts → pending, requestId cleared, reminders
+        // removed, persist + onDidChange + window status update).
+        return this.setStatus(sending.id, 'staged');
+    }
+
     sendAllStaged(): number {
         const changed = convertStagedToPending(this._items);
         if (changed === 0) { return 0; }
@@ -2551,16 +2627,29 @@ export class PromptQueueManager {
         };
 
         logQueue(`dispatchStage: anthropic profile=${profile.id} config=${configuration.id}`);
-        const result = await AnthropicHandler.instance.sendMessage({
-            userText: expandedText,
-            profile: coercedProfile,
-            configuration,
-            tools: ALL_SHARED_TOOLS,
-        });
-        if (stageForAnswer) {
-            stageForAnswer.answerText = result.text;
+        // CTS scope: created here so the Stop button (`stopActiveItem`)
+        // can cancel the in-flight round loop. Disposed in `finally` so
+        // a stale token never lingers across dispatches.
+        const cts = new vscode.CancellationTokenSource();
+        this._activeAnthropicCts = cts;
+        try {
+            const result = await AnthropicHandler.instance.sendMessage({
+                userText: expandedText,
+                profile: coercedProfile,
+                configuration,
+                tools: ALL_SHARED_TOOLS,
+                cancellationToken: cts.token,
+            });
+            if (stageForAnswer) {
+                stageForAnswer.answerText = result.text;
+            }
+            return { mode: 'direct', answerText: result.text };
+        } finally {
+            if (this._activeAnthropicCts === cts) {
+                this._activeAnthropicCts = undefined;
+            }
+            cts.dispose();
         }
-        return { mode: 'direct', answerText: result.text };
     }
 
     private async dispatchNextStageForSendingItem(item: QueuedPrompt): Promise<boolean> {

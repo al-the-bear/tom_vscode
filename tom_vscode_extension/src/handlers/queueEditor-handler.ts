@@ -485,6 +485,14 @@ async function handleMessage(msg: any): Promise<void> {
             qm.restartQueue();
             sendState();
             break;
+        case 'stopActiveItem': {
+            const stopped = qm.stopActiveItem();
+            if (!stopped) {
+                vscode.window.showInformationMessage('No prompt is currently running.');
+            }
+            sendState();
+            break;
+        }
         case 'updateItemRepeat':
           qm.updateRepeat(msg.id, {
             repeatCount: msg.repeatCount,
@@ -922,6 +930,7 @@ ${queueEntryStyles()}
   <button class="ctx-btn-icon" id="autoPauseBtn" onclick="toggleAutoPause()" title="Auto-Pause (pause when queue empties)"><span class="codicon codicon-debug-pause"></span></button>
   <button class="ctx-btn-icon" id="autoContinueBtn" onclick="toggleAutoContinue()" title="Auto-Continue (resume repetitions after reload)"><span class="codicon codicon-sync"></span></button>
   <button class="ctx-btn-icon" onclick="restartQueue()" title="Restart Queue (reset stuck items)"><span class="codicon codicon-debug-restart"></span></button>
+  <button class="ctx-btn-icon" id="stopActiveBtn" onclick="stopActiveItem()" title="Stop currently running prompt (revert to staged)"><span class="codicon codicon-debug-stop"></span></button>
   <button onclick="sendAllStaged()">Send All Staged</button>
   <button onclick="retryAllErrors()" title="Resend every item currently in error state — the first errored item takes the sending slot, the rest are requeued in place">Retry All Errors</button>
   <button onclick="clearErrors()" title="Remove every item currently in error state">Delete Errors</button>
@@ -1283,6 +1292,17 @@ function render() {
   const pending = currentItems.filter(i => i.status === 'pending').length;
   const sending = currentItems.filter(i => i.status === 'sending').length;
   const sent = currentItems.filter(i => i.status === 'sent').length;
+
+  const stopBtn = document.getElementById('stopActiveBtn');
+  if (stopBtn) {
+    const hasSending = sending > 0;
+    stopBtn.disabled = !hasSending;
+    stopBtn.style.opacity = hasSending ? '1' : '0.4';
+    stopBtn.style.cursor = hasSending ? 'pointer' : 'not-allowed';
+    stopBtn.title = hasSending
+      ? 'Stop currently running prompt (revert to staged)'
+      : 'Stop — no prompt is currently running';
+  }
   document.getElementById('countLabel').textContent =
     'Sending: ' + sending + '  |  Pending: ' + pending + '  |  Staged: ' + staged + '  |  Sent: ' + sent + '  |  Timeout: ' + (responseTimeoutMinutes || 60) + 'm';
 
@@ -1332,6 +1352,7 @@ function toggleAutoStart() { vscode.postMessage({ type: 'toggleAutoStart' }); }
 function toggleAutoPause() { vscode.postMessage({ type: 'toggleAutoPause' }); }
 function toggleAutoContinue() { vscode.postMessage({ type: 'toggleAutoContinue' }); }
 function restartQueue() { vscode.postMessage({ type: 'restartQueue' }); }
+function stopActiveItem() { vscode.postMessage({ type: 'stopActiveItem' }); }
 function sendAllStaged() { vscode.postMessage({ type: 'sendAllStaged' }); }
 function setResponseTimeout(minutes) { vscode.postMessage({ type: 'setResponseTimeout', minutes: parseInt(minutes || '60', 10) || 60 }); }
 function setDefaultReminderTemplate(templateId) {
