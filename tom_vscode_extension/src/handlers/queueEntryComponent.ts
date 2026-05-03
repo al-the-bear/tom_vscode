@@ -32,7 +32,8 @@ export function queueEntryStyles(): string {
   .queue-list { display: flex; flex-direction: column; gap: 8px; }
   .queue-item { border: 1px solid var(--border); border-radius: 4px; padding: 8px; position: relative; }
   .queue-item.sending { border-left: 3px solid var(--vscode-inputValidation-infoBorder, #007acc); }
-  .queue-item.sent { opacity: 0.55; }
+  /* Sent items: dim only the header bar so the answer + content stay readable. */
+  .queue-item.sent > .item-header { opacity: 0.55; }
   .queue-item.error { border-left: 3px solid var(--vscode-inputValidation-errorBorder, #f44); }
   .queue-item.reminder { border-left: 3px solid orange; }
   .item-header { display: flex; align-items: center; margin-bottom: 4px; }
@@ -52,6 +53,9 @@ export function queueEntryStyles(): string {
   .ctx-btn { padding: 3px 10px; border: 1px solid var(--border); background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); cursor: pointer; border-radius: 3px; font-size: 0.8em; white-space: nowrap; }
   .ctx-btn-icon { padding: 2px 4px; border: none; background: transparent; color: var(--fg); cursor: pointer; border-radius: 3px; font-size: 0.85em; opacity: 0.7; }
   .ctx-btn-icon:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground); }
+  /* Answer expand/collapse toggle: full opacity, with hover affordance. */
+  .answer-toggle-icon { opacity: 1 !important; padding: 2px 4px; border-radius: 3px; }
+  .answer-toggle-icon:hover { background: var(--vscode-toolbar-hoverBackground); }
   .add-form { border: 1px solid var(--border); border-radius: 4px; padding: 10px; margin-bottom: 10px; display: none; }
   .add-form.visible { display: block; }
   .add-form label { font-size: 0.85em; font-weight: 600; display: block; margin: 6px 0 2px; }
@@ -211,6 +215,7 @@ function renderEntry(item, idx) {
   var isStaged = safeStatus === 'staged';
   var isSending = safeStatus === 'sending';
   var isSent = safeStatus === 'sent';
+  var isError = safeStatus === 'error';
   var reminderEnabled = item.reminderEnabled !== false;
   var isEditable = editorMode === 'template' || isStaged;
   var isMainPromptActive = safeStatus === 'sending' && !!item.requestId && (item.followUpIndex || 0) === 0;
@@ -352,16 +357,31 @@ function renderEntry(item, idx) {
           (isSent ? '<span class="codicon codicon-arrow-left" style="cursor:pointer;color:#000;" onclick="setItemStatus(\\'' + safeId + '\\', \\'staged\\')" title="Stage again"></span>' : '') +
           ((isPending || isStaged) ? '<span class="codicon codicon-play" style="cursor:pointer;color:#000;" onclick="sendNow(\\'' + safeId + '\\')" title="Send Now"></span>' : '') +
           (isSending ? '<span class="codicon codicon-play" style="cursor:pointer;color:#000;" onclick="continueSending(\\'' + safeId + '\\')" title="Continue"></span>' : '') +
+          // Error items get a "Set to Pending" button instead of a
+          // resend control. The error transition flipped auto-send
+          // off, so the user has explicitly opted out of further
+          // sends — a direct resend would contradict that. This
+          // button just flips the item back to pending and never
+          // sends, even when auto-send is later re-enabled by the
+          // user via the queue toggle. The codicon-history icon
+          // reads as 'back in line / waiting' and is deliberately
+          // distinct from the refresh icon used for the non-error
+          // Resend button below.
+          (isError
+            ? '<span class="codicon codicon-history" style="cursor:pointer;color:#000;" onclick="resetToPending(\\'' + safeId + '\\')" title="Set to Pending (does not send — re-enable auto-send to resume the queue)"></span>'
+            : '') +
           // Resend last dispatch — available once there is a recorded
           // lastDispatched (i.e. at least one stage has been sent) and
-          // the item isn't currently in-flight. Re-sends the exact
-          // expanded text byte-for-byte; repetition counters are not
-          // touched, so the queue continues from where it was.
-          (item.lastDispatched && !isSending
+          // the item isn't currently in-flight or errored. Re-sends
+          // the exact expanded text byte-for-byte; repetition
+          // counters are not touched, so the queue continues from
+          // where it was.
+          (item.lastDispatched && !isSending && !isError
             ? '<span class="codicon codicon-refresh" style="cursor:pointer;color:#000;" onclick="resendLastPrompt(\\'' + safeId + '\\')" title="Resend last prompt (keeps repetition counters)"></span>'
             : '') +
           (isPending ? '<span class="codicon codicon-arrow-up" style="cursor:pointer;color:#000;" onclick="moveDown(\\'' + safeId + '\\')" title="Move up (away from send)"></span>' : '') +
           (isPending ? '<span class="codicon codicon-arrow-down" style="cursor:pointer;color:#000;" onclick="moveUp(\\'' + safeId + '\\')" title="Move down (closer to send)"></span>' : '') +
+          (isPending ? '<span class="codicon codicon-arrow-circle-up" style="cursor:pointer;color:#000;" onclick="moveToFront(\\'' + safeId + '\\')" title="Send next (move to front of pending queue)"></span>' : '') +
           (isSending ? '<span class="codicon ' + (reminderEnabled ? 'codicon-bell' : 'codicon-bell-slash') + '" style="cursor:pointer;color:' + (reminderEnabled ? '#000' : '#888') + ';" onclick="toggleReminder(\\'' + safeId + '\\', ' + !reminderEnabled + ')" title="' + (reminderEnabled ? 'Reminders ON - click to disable' : 'Reminders OFF - click to enable') + '"></span>' : '') +
           // Staged-only: once an item is pending or sending, the
           // manager rejects transport updates (isEditableStatus). Hide
@@ -409,7 +429,7 @@ function renderEntry(item, idx) {
       '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">' +
         '<strong style="color:#4a9eff;">Answer</strong>' +
         '<span style="opacity:0.7;font-size:10px;">' + fullText.length + ' chars</span>' +
-        (fullText.length > 600 ? '<button class="ctx-btn-icon" style="margin-left:auto;" onclick="toggleAnswerExpand(\\'' + ansId + '\\')" title="Expand / collapse">↕</button>' : '') +
+        (fullText.length > 600 ? '<span id="' + ansId + '-toggle" class="codicon codicon-chevron-down answer-toggle-icon" style="margin-left:auto;cursor:pointer;color:var(--fg);opacity:1;" onclick="toggleAnswerExpand(\\'' + ansId + '\\')" title="Expand / collapse"></span>' : '') +
       '</div>' +
       '<div id="' + ansId + '" data-full="' + escapeHtml(fullText) + '" data-truncated="' + escapeHtml(truncated) + '" data-expanded="false" style="white-space:pre-wrap;max-height:200px;overflow:auto;">' +
         escapeHtml(truncated) +
@@ -806,6 +826,13 @@ function toggleAnswerExpand(ansId) {
   el.textContent = isExpanded ? el.getAttribute('data-truncated') : el.getAttribute('data-full');
   el.setAttribute('data-expanded', isExpanded ? 'false' : 'true');
   el.style.maxHeight = isExpanded ? '200px' : 'none';
+  // Flip the toggle chevron so the icon mirrors the state.
+  var toggle = document.getElementById(ansId + '-toggle');
+  if (toggle) {
+    toggle.classList.remove('codicon-chevron-down');
+    toggle.classList.remove('codicon-chevron-up');
+    toggle.classList.add(isExpanded ? 'codicon-chevron-down' : 'codicon-chevron-up');
+  }
 }
 function previewFollowUp(id, followUpId) {
   var item = currentItems.find(function(i) { return i.id === id; });

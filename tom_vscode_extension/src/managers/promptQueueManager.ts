@@ -33,6 +33,7 @@ import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
 import { applyRepetitionAffixes, computeRepeatDecision, convertStagedToPending, shouldAutoPauseOnEmpty } from '../utils/queueStep3Utils';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
+import { applyErrorTransition, applyResetToPending } from '../utils/queueErrorTransitions';
 import { resolveVariables } from '../utils/variableResolver.js';
 import {
     buildAnswerFilePath,
@@ -1235,11 +1236,7 @@ export class PromptQueueManager {
                 }
             }
         } catch (err) {
-            sending.status = 'error';
-            sending.error = String(err);
-            logQueueError(`onAnswerFileChanged(${sending.id})`, err);
-            this.persist();
-            this._onDidChange.fire();
+            this._markItemError(sending, err, `onAnswerFileChanged(${sending.id})`);
         }
         } finally {
             this._processingAnswerFile = false;
@@ -1572,10 +1569,30 @@ export class PromptQueueManager {
         this._onDidChange.fire();
     }
 
-    /** Move item up (index - 1) or down (index + 1). */
-    move(id: string, direction: 'up' | 'down'): void {
+    /**
+     * Move item up (index - 1), down (index + 1), or to the front of the pending
+     * queue (`'front'`).
+     *
+     * `'front'` only applies to pending items: it relocates the item to the index
+     * of the first *other* pending item, so it becomes the next one `sendNext()`
+     * will dispatch (sendNext picks the first item with status === 'pending').
+     */
+    move(id: string, direction: 'up' | 'down' | 'front'): void {
         const idx = this._items.findIndex(i => i.id === id);
         if (idx < 0) { return; }
+
+        if (direction === 'front') {
+            const item = this._items[idx];
+            if (item.status !== 'pending') { return; }
+            const firstPendingIdx = this._items.findIndex(i => i.status === 'pending' && i.id !== id);
+            if (firstPendingIdx < 0 || firstPendingIdx >= idx) { return; }
+            this._items.splice(idx, 1);
+            this._items.splice(firstPendingIdx, 0, item);
+            this.persist();
+            this._onDidChange.fire();
+            return;
+        }
+
         const swap = direction === 'up' ? idx - 1 : idx + 1;
         if (swap < 0 || swap >= this._items.length) { return; }
         [this._items[idx], this._items[swap]] = [this._items[swap], this._items[idx]];
@@ -1952,14 +1969,19 @@ export class PromptQueueManager {
         logQueue(`Manual continue requested for sending item ${sending.id}`);
         this.updateWindowStatus('answer-received');
 
+        // Cancel any in-flight Anthropic dispatch for this item before advancing.
+        // Without this, the next stage/item is dispatched while the original handler
+        // is still running, and the late answer triggers a duplicate send.
+        // For Copilot transport this is a documented no-op (no CTS in flight).
+        // The CTS lifecycle guard in dispatchStage (`if (this._activeAnthropicCts === cts)`)
+        // ensures the cancelled handler's `finally` will not clobber the freshly-set
+        // CTS for the next stage's dispatch.
+        this._cancelActiveDispatch();
+
         try {
             return await this.advanceSendingItemWithoutAnswer(sending, 'manual-continue');
         } catch (err) {
-            sending.status = 'error';
-            sending.error = String(err);
-            logQueueError(`continueSending(${sending.id})`, err);
-            this.persist();
-            this._onDidChange.fire();
+            this._markItemError(sending, err, `continueSending(${sending.id})`);
             return false;
         }
     }
@@ -2376,19 +2398,11 @@ export class PromptQueueManager {
             }
         } catch (err) {
             const liveItem = this._items.find(i => i.id === item.id) ?? item;
-            liveItem.status = 'error';
-            liveItem.error = String(err);
             // If the Anthropic leaf stamped an Interruption onto the
             // thrown error, surface it as a yellow warning chip so the
             // user can tell a recoverable rate-limit / quota / cancel
             // apart from a hard protocol failure.
-            const intr = readInterruptionFromError(err);
-            if (intr) {
-                liveItem.warning = { kind: intr.kind, message: intr.message, at: new Date().toISOString() };
-            }
-            logQueueError(`sendItem(${item.id})`, err);
-            this.persist();
-            this._onDidChange.fire();
+            this._markItemError(liveItem, err, `sendItem(${item.id})`, readInterruptionFromError(err));
         }
     }
 
@@ -2482,16 +2496,77 @@ export class PromptQueueManager {
             }
         } catch (err) {
             const liveItem = this._items.find(i => i.id === item.id) ?? item;
-            liveItem.status = 'error';
-            liveItem.error = String(err);
-            const intr = readInterruptionFromError(err);
-            if (intr) {
-                liveItem.warning = { kind: intr.kind, message: intr.message, at: new Date().toISOString() };
-            }
-            logQueueError(`resendLastPrompt(${item.id})`, err);
-            this.persist();
-            this._onDidChange.fire();
+            this._markItemError(liveItem, err, `resendLastPrompt(${item.id})`, readInterruptionFromError(err));
         }
+    }
+
+    /**
+     * Promote a queue item to `error`. Centralises the four catch
+     * sites (sendItem / resendLastPrompt / continueSending /
+     * onAnswerFileChanged) so they all:
+     *   - stamp `error` and (when classifiable) `warning`,
+     *   - log the error,
+     *   - flip the queue's auto-send flag off so a single failure
+     *     doesn't burn quota by cascading through the next pending
+     *     items (which usually fail for the same root cause —
+     *     rate-limit, quota, overload, network outage),
+     *   - persist and fire the change event exactly once.
+     *
+     * Idempotent: a second call on an already-errored item refreshes
+     * the error/warning markers but doesn't re-trip the auto-send
+     * brake. The user re-enables auto-send when they're ready (via
+     * the toggle, by clicking Send, or via Retry All Errors).
+     */
+    private _markItemError(
+        item: QueuedPrompt,
+        err: unknown,
+        scope: string,
+        interruption?: { kind: QueueWarningKind; message: string } | null,
+    ): void {
+        const result = applyErrorTransition(item, err, { interruption: interruption ?? null });
+        logQueueError(scope, err);
+
+        if (result.shouldDisableAutoSend && this._autoSendEnabled) {
+            this._autoSendEnabled = false;
+            this.persistSettings();
+            logQueue(`Auto-send disabled by error on item ${item.id} (${scope})`);
+        }
+
+        this.persist();
+        this._onDidChange.fire();
+    }
+
+    /**
+     * Reset an error item back to `pending` *without* sending it.
+     * Used by the per-item "Set to Pending" button in the queue
+     * editor — the user has reviewed the failure and wants the
+     * prompt to wait its turn again. Auto-send is *not* touched: the
+     * error transition already flipped it off, and pressing this
+     * button is deliberately a soft action ("queue this for later",
+     * not "send now"). Even when the user has separately re-enabled
+     * auto-send, this method does not call `sendNext()` — the
+     * pending item will be picked up by the next normal dispatch
+     * cycle, not by the click itself. The user re-enables auto-send
+     * via the queue toggle when they're ready.
+     *
+     * No-op (returns false) on items whose status is not `error`, so
+     * an accidental webview message can't downgrade an in-flight
+     * item.
+     */
+    resetItemToPending(id: string): boolean {
+        const item = this._items.find(i => i.id === id);
+        if (!item) {
+            throw new Error(`Queue item ${id} not found`);
+        }
+        const ok = applyResetToPending(item);
+        if (!ok) {
+            logQueue(`resetItemToPending(${id}): no-op (status was ${item.status})`);
+            return false;
+        }
+        logQueue(`resetItemToPending(${id}): error → pending`);
+        this.persist();
+        this._onDidChange.fire();
+        return true;
     }
 
     /**
@@ -2540,11 +2615,23 @@ export class PromptQueueManager {
         let requeued = 0;
         for (const item of errorItems) {
             if (item === lead) { continue; }
-            item.error = undefined;
-            item.warning = undefined;
-            item.status = 'pending';
+            applyResetToPending(item);
             requeued += 1;
         }
+
+        // The error transitions that produced these failures will
+        // have flipped auto-send off — see `_markItemError`. The user
+        // clicking "Retry All Errors" is an explicit opt-in to a
+        // cascade, so re-enable auto-send before kicking the queue;
+        // otherwise the lead resend would complete and the answer-
+        // file poll loop / sendNext call would refuse to start the
+        // next pending item.
+        if (!this._autoSendEnabled) {
+            this._autoSendEnabled = true;
+            this.persistSettings();
+            logQueue('retryAllErrors: re-enabled auto-send for the retry cascade');
+        }
+
         this.persist();
         this._onDidChange.fire();
         logQueue(`retryAllErrors: ${errorItems.length} error item(s); lead=${lead?.id ?? 'none'} requeued=${requeued}`);

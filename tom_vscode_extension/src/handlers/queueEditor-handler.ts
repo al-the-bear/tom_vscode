@@ -396,6 +396,9 @@ async function handleMessage(msg: any): Promise<void> {
         case 'moveDown':
             qm.move(msg.id, 'down');
             break;
+        case 'moveToFront':
+            qm.move(msg.id, 'front');
+            break;
         case 'sendNow':
             await qm.sendNow(msg.id);
             break;
@@ -408,6 +411,19 @@ async function handleMessage(msg: any): Promise<void> {
           } catch (err) {
             vscode.window.showWarningMessage(
               `Resend failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+          break;
+        case 'resetToPending':
+          // Soft action on an error item: flip back to `pending`
+          // without sending. Auto-send stays off (the error transition
+          // already disabled it); the user re-enables it explicitly
+          // when they're ready to drain the queue.
+          try {
+            qm.resetItemToPending(msg.id);
+          } catch (err) {
+            vscode.window.showWarningMessage(
+              `Reset to pending failed: ${err instanceof Error ? err.message : String(err)}`,
             );
           }
           break;
@@ -1372,9 +1388,11 @@ function clearErrors() { vscode.postMessage({ type: 'clearErrors' }); }
 function remove(id) { vscode.postMessage({ type: 'remove', id }); }
 function moveUp(id) { vscode.postMessage({ type: 'moveUp', id }); }
 function moveDown(id) { vscode.postMessage({ type: 'moveDown', id }); }
+function moveToFront(id) { vscode.postMessage({ type: 'moveToFront', id }); }
 function sendNow(id) { vscode.postMessage({ type: 'sendNow', id }); }
 function continueSending(id) { vscode.postMessage({ type: 'continueSending', id }); }
 function resendLastPrompt(id) { vscode.postMessage({ type: 'resendLastPrompt', id }); }
+function resetToPending(id) { vscode.postMessage({ type: 'resetToPending', id }); }
 function toggleReminder(id, enabled) { vscode.postMessage({ type: 'toggleReminder', id, enabled }); }
 function openTemplateEditor() { vscode.postMessage({ type: 'openTemplateEditor' }); }
 function openQueueTemplates() { vscode.postMessage({ type: 'openQueueTemplates' }); }

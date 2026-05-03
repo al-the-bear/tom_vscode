@@ -3156,8 +3156,11 @@ function getSectionContent(id) {
             manageButtons: '',
             actionButtons:
                 '<button data-action="preview" data-id="anthropic" title="Preview expanded prompt">Preview</button>' +
-                '<button class="primary" id="anthropic-send-btn" data-action="send" data-id="anthropic" title="Send to Anthropic">Send to Anthropic</button>' +
+                '<button class="icon-btn primary" id="anthropic-send-btn" data-action="send" data-id="anthropic" title="Send to Anthropic"><span class="codicon codicon-send"></span></button>' +
                 '<button class="icon-btn" data-action="cancel" data-id="anthropic" title="Stop current Anthropic turn"><span class="codicon codicon-debug-stop"></span></button>' +
+                // Queue-only repeat count — applied when staging via "Save to Queue";
+                // ignored by the inline send button.
+                '<label class="checkbox-label compact-keep" title="Queue repeats (used when adding to queue)"><span style="opacity:0.8;">R</span><input type="text" id="anthropic-repeat-count" value="1" style="width:24px"></label>' +
                 // Queue buttons — mirror the Copilot section (spec §4.11).
                 // Stages the prompt as a queued item with transport='anthropic'
                 // and pins the current profile / user-message template.
@@ -4107,10 +4110,14 @@ function addAnthropicToQueue() {
     var profileId = profileEl ? profileEl.value : '';
     var templateEl = document.getElementById('anthropic-userMessage');
     var templateName = templateEl ? templateEl.value : '';
+    var repeatEl = document.getElementById('anthropic-repeat-count');
+    var repeatVal = repeatEl ? repeatEl.value : '1';
+    var repeatCount = Math.max(1, parseInt(String(repeatVal || '1'), 10) || 1);
     vscode.postMessage({
         type: 'addToQueue',
         text: text,
         template: templateName,
+        repeatCount: repeatCount,
         transport: 'anthropic',
         anthropicProfileId: profileId,
     });
