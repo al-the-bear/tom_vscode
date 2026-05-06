@@ -3658,9 +3658,17 @@ function updateClaudeCliDot() {
 function updateAnthropicSendButton() {
     var btn = document.getElementById('anthropic-send-btn');
     if (!btn) return;
-    // Empty config value means "Profile default" — still valid to send.
-    // Disable only on missing API key or in-flight request.
-    btn.disabled = !!(anthropicSending || !anthropicApiKeyOk);
+    // Disable only while a request is in flight. The API-key dot still
+    // shows env-var status, but we don't gate the button on it: the
+    // ANTHROPIC_API_KEY env var is only relevant for transport='direct'.
+    // Agent SDK / VS Code LM / Local LLM transports don't read it at
+    // all, and the env var is often invisible to GUI-launched VS Code
+    // on macOS even when the underlying SDK works fine. If a 'direct'
+    // send actually needs the key and it's missing, getClient() throws
+    // 'Anthropic client not available — set the configured API key env
+    // var', which the catch in _handleSendAnthropic forwards as an
+    // anthropicError message and the webview shows in the status line.
+    btn.disabled = !!anthropicSending;
 }
 
 function setAnthropicStatus(text) {
