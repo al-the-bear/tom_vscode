@@ -107,6 +107,8 @@ export interface LlmConfiguration {
     id: string;
     name: string;
     ollamaUrl: string;
+    /** Backend protocol; defaults to `'ollama'`. `'openai'` targets vLLM / llama.cpp / LM Studio. */
+    apiStyle?: 'ollama' | 'openai';
     model: string;
     temperature: number;
     stripThinkingTags: boolean;
@@ -119,7 +121,7 @@ export interface LlmConfiguration {
     historyMode?: 'full' | 'last' | 'summary' | 'trim_and_summary';
     /** List of enabled tool names for this configuration */
     enabledTools: string[];
-    /** Ollama keep_alive parameter (e.g., '5m', '30m') */
+    /** Ollama keep_alive parameter (e.g., '5m', '30m'). Ignored for `apiStyle: 'openai'`. */
     keepAlive?: string;
 }
 
@@ -1423,6 +1425,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
                 id: config.id,
                 name: config.name,
                 ollamaUrl: config.ollamaUrl,
+                apiStyle: config.apiStyle === 'openai' ? 'openai' : 'ollama',
                 model: config.model,
                 temperature: config.temperature,
                 stripThinkingTags: config.stripThinkingTags,
@@ -1826,6 +1829,7 @@ export async function gatherStatusData(): Promise<StatusData> {
             id: v?.id || '',
             name: v?.name || v?.id || '',
             ollamaUrl: v?.ollamaUrl || '',
+            apiStyle: (v?.apiStyle === 'openai' || v?.apiStyle === 'ollama') ? v.apiStyle : 'ollama',
             model: v?.model || '',
             temperature: typeof v?.temperature === 'number' ? v.temperature : 0,
             stripThinkingTags: v?.stripThinkingTags === true,
@@ -2011,6 +2015,11 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
             <div class="sp-settings-row">
                 <label>URL:</label>
                 <input type="text" data-field="ollamaUrl" value="${cfg.ollamaUrl}" style="flex:2">
+                <label>API:</label>
+                <select data-field="apiStyle" title="Ollama: GET /api/tags + POST /api/chat. OpenAI: GET /v1/models + POST /v1/chat/completions (vLLM, LM Studio, llama.cpp)">
+                    <option value="ollama"${(cfg.apiStyle ?? 'ollama') === 'ollama' ? ' selected' : ''}>Ollama</option>
+                    <option value="openai"${cfg.apiStyle === 'openai' ? ' selected' : ''}>OpenAI/vLLM</option>
+                </select>
                 <label>Model:</label>
                 <input type="text" data-field="model" value="${cfg.model}" style="flex:1">
             </div>
@@ -3606,7 +3615,7 @@ function renderLlmConfigurations() {
                 '<input type="text" class="sp-config-id" value="' + id + '" data-field="id" placeholder="ID" readonly>' +
                 '<button class="sp-btn small danger" data-status-action="deleteLlmConfiguration" data-config-id="' + id + '">🗑️</button>' +
             '</div>' +
-            '<div class="sp-settings-row"><label>URL:</label><input type="text" data-field="ollamaUrl" value="' + (cfg.ollamaUrl || 'http://localhost:11434') + '" style="flex:2"><label>Model:</label><input type="text" data-field="model" value="' + (cfg.model || 'qwen3:8b') + '" style="flex:1"></div>' +
+            '<div class="sp-settings-row"><label>URL:</label><input type="text" data-field="ollamaUrl" value="' + (cfg.ollamaUrl || 'http://localhost:11434') + '" style="flex:2"><label>API:</label><select data-field="apiStyle" title="Ollama: /api/chat. OpenAI: /v1/chat/completions (vLLM, LM Studio, llama.cpp)"><option value="ollama" ' + ((cfg.apiStyle || 'ollama') === 'ollama' ? 'selected' : '') + '>Ollama</option><option value="openai" ' + (cfg.apiStyle === 'openai' ? 'selected' : '') + '>OpenAI/vLLM</option></select><label>Model:</label><input type="text" data-field="model" value="' + (cfg.model || 'qwen3:8b') + '" style="flex:1"></div>' +
             '<div class="sp-settings-row"><label>Temp:</label><input type="number" data-field="temperature" value="' + (cfg.temperature ?? 0.4) + '" step="0.1" min="0" max="2"><label>Trail Tokens:</label><input type="number" data-field="trailMaximumTokens" value="' + (cfg.trailMaximumTokens ?? 8000) + '" step="1000" min="1000"></div>' +
             '<div class="sp-settings-row"><label>Sum Temp:</label><input type="number" data-field="trailSummarizationTemperature" value="' + (cfg.trailSummarizationTemperature ?? 0.3) + '" step="0.1" min="0" max="2"><label>Keep Alive:</label><input type="text" data-field="keepAlive" value="' + (cfg.keepAlive || '5m') + '"><label>History:</label><select data-field="historyMode"><option value="full" ' + (cfg.historyMode === 'full' ? 'selected' : '') + '>Full</option><option value="last" ' + (cfg.historyMode === 'last' ? 'selected' : '') + '>Last</option><option value="summary" ' + (cfg.historyMode === 'summary' ? 'selected' : '') + '>Summary</option><option value="trim_and_summary" ' + ((!cfg.historyMode || cfg.historyMode === 'trim_and_summary') ? 'selected' : '') + '>Trim+Summary</option></select></div>' +
             '<div class="sp-settings-row"><label>Answer Folder:</label><input type="text" data-field="answerFolder" value="' + (cfg.answerFolder || '') + '" style="flex:2"><label>Log Folder:</label><input type="text" data-field="logFolder" value="' + (cfg.logFolder || '') + '" style="flex:2"></div>' +
@@ -3625,6 +3634,7 @@ function addLlmConfiguration() {
         id: id,
         name: 'New Configuration',
         ollamaUrl: 'http://localhost:11434',
+        apiStyle: 'ollama',
         model: 'qwen3:8b',
         temperature: 0.4,
         stripThinkingTags: true,
@@ -3656,6 +3666,7 @@ function collectLlmConfigurationsData() {
             id: configId,
             name: card.querySelector('[data-field="name"]')?.value || '',
             ollamaUrl: card.querySelector('[data-field="ollamaUrl"]')?.value || '',
+            apiStyle: card.querySelector('[data-field="apiStyle"]')?.value || 'ollama',
             model: card.querySelector('[data-field="model"]')?.value || '',
             temperature: parseFloat(card.querySelector('[data-field="temperature"]')?.value || 'NaN'),
             stripThinkingTags: card.querySelector('[data-field="stripThinkingTags"]')?.value === 'true',

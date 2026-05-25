@@ -60,6 +60,8 @@ export interface SendToChatConfig {
             id: string;
             name: string;
             ollamaUrl?: string;
+            /** Backend protocol; defaults to `'ollama'`. Set to `'openai'` for vLLM, LM Studio, llama.cpp, etc. */
+            apiStyle?: 'ollama' | 'openai';
             model?: string;
             temperature?: number;
             stripThinkingTags?: boolean;

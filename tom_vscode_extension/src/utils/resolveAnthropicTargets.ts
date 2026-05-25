@@ -65,16 +65,21 @@ export function resolveAnthropicTargets(
 
     if (!configuration) {
         // Fall back to Local LLM configurations per spec §4.3.
+        // On-disk field is `ollamaUrl` (kept for back-compat even when the
+        // endpoint is OpenAI-style); we accept legacy `baseUrl` as alias.
         const localLlmConfigs = (cfg as { localLlm?: { configurations?: Array<{
             id?: string;
             name?: string;
+            ollamaUrl?: string;
             baseUrl?: string;
+            apiStyle?: 'ollama' | 'openai';
             model?: string;
             temperature?: number;
             keepAlive?: string;
         }> } })?.localLlm?.configurations;
         const llm = localLlmConfigs?.find((c) => c?.id === configId);
-        if (llm && llm.id && llm.baseUrl && llm.model) {
+        const llmBaseUrl = llm?.ollamaUrl ?? llm?.baseUrl;
+        if (llm && llm.id && llmBaseUrl && llm.model) {
             configuration = {
                 id: llm.id,
                 name: llm.name || llm.id,
@@ -83,10 +88,11 @@ export function resolveAnthropicTargets(
                 maxRounds: 1,
                 transport: 'localLlm',
                 localLlm: {
-                    baseUrl: llm.baseUrl,
+                    baseUrl: llmBaseUrl,
                     model: llm.model,
                     temperature: typeof llm.temperature === 'number' ? llm.temperature : 0.5,
                     keepAlive: llm.keepAlive,
+                    apiStyle: llm.apiStyle,
                 },
             } as AnthropicConfiguration;
         }

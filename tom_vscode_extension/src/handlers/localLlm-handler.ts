@@ -43,9 +43,11 @@ import {
 
 /** A named model configuration. */
 export interface ModelConfig {
-    /** Ollama server URL */
+    /** Server URL (Ollama or OpenAI-compatible per `apiStyle`). */
     ollamaUrl: string;
-    /** Model name as known by Ollama (e.g. qwen3:8b) */
+    /** Backend protocol; defaults to `'ollama'`. See {@link LocalLlmApiStyle}. */
+    apiStyle?: LocalLlmApiStyle;
+    /** Model name as known by the backend. */
     model: string;
     /** Sampling temperature.  0 = deterministic, 2 = very random. */
     temperature: number;
@@ -55,9 +57,12 @@ export interface ModelConfig {
     description?: string;
     /** If true this is the default model when no model is specified. */
     isDefault?: boolean;
-    /** Ollama keep_alive duration (e.g. "5m", "1h", "0", "-1"). Default: "5m". */
+    /** Ollama keep_alive duration (e.g. "5m", "1h", "0", "-1"). Default: "5m". Ignored for OpenAI-style endpoints. */
     keepAlive?: string;
 }
+
+/** Backend API protocol spoken by the endpoint. */
+export type LocalLlmApiStyle = 'ollama' | 'openai';
 
 /** An LLM configuration entity under `localLlm.configurations`. */
 export interface LlmConfiguration {
@@ -65,9 +70,15 @@ export interface LlmConfiguration {
     id: string;
     /** Human-readable name. */
     name: string;
-    /** Ollama server URL. */
+    /** Server URL. Kept as `ollamaUrl` for backwards compatibility; used for OpenAI-compatible endpoints (vLLM, llama.cpp, etc.) as well when `apiStyle` is `'openai'`. */
     ollamaUrl: string;
-    /** Model name as known by Ollama (e.g. qwen3:8b). */
+    /**
+     * Backend protocol. `'ollama'` calls `/api/chat` and `/api/tags` (default).
+     * `'openai'` calls `/v1/chat/completions` and `/v1/models` (vLLM, LM Studio,
+     * llama.cpp server, any OpenAI-compatible host).
+     */
+    apiStyle?: LocalLlmApiStyle;
+    /** Model name as known by the backend (e.g. `qwen3:8b` for Ollama, `gemma4-26b-a4b` for vLLM). */
     model: string;
     /** Sampling temperature.  0 = deterministic, 2 = very random. */
     temperature: number;
@@ -83,7 +94,7 @@ export interface LlmConfiguration {
     enabledTools: string[];
     /** If true this is the default configuration. */
     isDefault?: boolean;
-    /** Ollama keep_alive duration (e.g. "5m", "1h", "0", "-1"). Default: "5m". */
+    /** Ollama keep_alive duration (e.g. "5m", "1h", "0", "-1"). Default: "5m". Ignored by OpenAI-style endpoints. */
     keepAlive?: string;
 }
 
@@ -411,6 +422,7 @@ export class LocalLlmManager {
                             id: lc.id,
                             name: typeof lc.name === 'string' ? lc.name : lc.id,
                             ollamaUrl: typeof lc.ollamaUrl === 'string' ? lc.ollamaUrl : config.ollamaUrl,
+                            apiStyle: (lc.apiStyle === 'openai' || lc.apiStyle === 'ollama') ? lc.apiStyle : undefined,
                             model: typeof lc.model === 'string' ? lc.model : config.model,
                             temperature: typeof lc.temperature === 'number' ? lc.temperature : config.temperature,
                             stripThinkingTags: typeof lc.stripThinkingTags === 'boolean' ? lc.stripThinkingTags : config.stripThinkingTags,
@@ -468,6 +480,7 @@ export class LocalLlmManager {
                     key: llmConfig.id,
                     mc: {
                         ollamaUrl: llmConfig.ollamaUrl,
+                        apiStyle: llmConfig.apiStyle,
                         model: llmConfig.model,
                         temperature: llmConfig.temperature,
                         stripThinkingTags: llmConfig.stripThinkingTags,
@@ -486,6 +499,7 @@ export class LocalLlmManager {
                     key: defaultLlm.id,
                     mc: {
                         ollamaUrl: defaultLlm.ollamaUrl,
+                        apiStyle: defaultLlm.apiStyle,
                         model: defaultLlm.model,
                         temperature: defaultLlm.temperature,
                         stripThinkingTags: defaultLlm.stripThinkingTags,
@@ -629,11 +643,17 @@ export class LocalLlmManager {
     // Ollama API
     // -----------------------------------------------------------------------
 
-    private async isOllamaRunning(baseUrl: string): Promise<boolean> {
+    /**
+     * Reachability check. For Ollama (default) GETs `/` and expects HTTP 200.
+     * For OpenAI-style backends (vLLM, llama.cpp, LM Studio) GETs `/v1/models`
+     * since they typically return 404 on `/`.
+     */
+    private async isOllamaRunning(baseUrl: string, apiStyle: LocalLlmApiStyle = 'ollama'): Promise<boolean> {
         return new Promise((resolve) => {
-            const url = new URL(baseUrl);
+            const probePath = apiStyle === 'openai' ? '/v1/models' : '/';
+            const u = new URL(probePath, baseUrl);
             const req = http.request(
-                { hostname: url.hostname, port: url.port, path: '/', method: 'GET', timeout: 3000 },
+                { hostname: u.hostname, port: u.port, path: u.pathname, method: 'GET', timeout: 3000 },
                 (res) => { resolve(res.statusCode === 200); },
             );
             req.on('error', () => resolve(false));
@@ -642,10 +662,16 @@ export class LocalLlmManager {
         });
     }
 
-    /** Check if a specific model is currently loaded in Ollama via GET /api/ps. */
-    private async isModelLoaded(baseUrl: string, modelName: string): Promise<boolean> {
+    /**
+     * Check if a specific model is "loaded" on the backend.
+     * Ollama: GET `/api/ps` (currently-loaded models — accurate gauge of warm-state).
+     * OpenAI: GET `/v1/models` (exposed-models list — not the same as "warm",
+     * but the best proxy on backends that don't surface a residency endpoint).
+     */
+    private async isModelLoaded(baseUrl: string, modelName: string, apiStyle: LocalLlmApiStyle = 'ollama'): Promise<boolean> {
+        const probePath = apiStyle === 'openai' ? '/v1/models' : '/api/ps';
         return new Promise((resolve) => {
-            const u = new URL('/api/ps', baseUrl);
+            const u = new URL(probePath, baseUrl);
             const req = http.request(
                 { hostname: u.hostname, port: u.port, path: u.pathname, method: 'GET', timeout: 3000 },
                 (res) => {
@@ -654,8 +680,11 @@ export class LocalLlmManager {
                     res.on('end', () => {
                         try {
                             const parsed = JSON.parse(body);
-                            const loaded = (parsed.models ?? []).some(
-                                (m: any) => (m.name ?? m.model ?? '') === modelName,
+                            const list = apiStyle === 'openai'
+                                ? (parsed.data ?? [])
+                                : (parsed.models ?? []);
+                            const loaded = list.some(
+                                (m: any) => (m.id ?? m.name ?? m.model ?? '') === modelName,
                             );
                             resolve(loaded);
                         } catch {
@@ -681,11 +710,16 @@ export class LocalLlmManager {
         cancellationToken?: vscode.CancellationToken,
         keepAlive?: string,
         tools?: OllamaTool[],
+        apiStyle: LocalLlmApiStyle = 'ollama',
     ): Promise<{ text: string; stats?: OllamaStats; toolCalls?: OllamaToolCall[] }> {
-        return this.ollamaChat(baseUrl, model, [
+        const messages = [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
-        ], temperature, onToken, cancellationToken, keepAlive, tools);
+        ];
+        if (apiStyle === 'openai') {
+            return this.openaiChat(baseUrl, model, messages, temperature, onToken, cancellationToken, tools);
+        }
+        return this.ollamaChat(baseUrl, model, messages, temperature, onToken, cancellationToken, keepAlive, tools);
     }
 
     /**
@@ -827,6 +861,145 @@ export class LocalLlmManager {
     }
 
     /**
+     * OpenAI-compatible chat completion (vLLM, llama.cpp server, LM Studio,
+     * any /v1/chat/completions endpoint). Signature mirrors {@link ollamaChat}
+     * so callers can branch on apiStyle without restructuring. Uses
+     * non-streaming mode (stream: false) — simpler tool-call shape, no
+     * incremental token UI but the queue/anthropic loops don't depend on it.
+     */
+    private async openaiChat(
+        baseUrl: string,
+        model: string,
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        messages: Array<{ role: string; content?: string; tool_calls?: OllamaToolCall[] }>,
+        temperature: number,
+        onToken?: (token: string) => void,
+        cancellationToken?: vscode.CancellationToken,
+        tools?: OllamaTool[],
+    ): Promise<{ text: string; stats?: OllamaStats; toolCalls?: OllamaToolCall[] }> {
+        return new Promise((resolve, reject) => {
+            const url = new URL('/v1/chat/completions', baseUrl);
+            // The Ollama wire shape matches OpenAI's tool-call shape closely
+            // but with two gaps the OpenAI spec demands: (1) each tool_call
+            // entry must have an `id`, and (2) each `role:'tool'` response
+            // message must carry a matching `tool_call_id`. Ollama omits both.
+            // We synthesise them here in a single forward pass: assign deterministic
+            // ids to assistant tool_calls, then queue them so subsequent
+            // `role:'tool'` messages (which the upper-layer loop appends in
+            // emission order) can pop the next id off the front.
+            // eslint-disable-next-line @typescript-eslint/naming-convention
+            type OaMsg = { role: string; content: string; tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }>; tool_call_id?: string };
+            const pendingIds: string[] = [];
+            let callCounter = 0;
+            const oaMessages: OaMsg[] = messages.map((m) => {
+                if (m.tool_calls && m.tool_calls.length > 0) {
+                    const calls = m.tool_calls.map((tc) => {
+                        const id = (tc as { id?: string }).id ?? `call_${callCounter++}`;
+                        pendingIds.push(id);
+                        return {
+                            id,
+                            type: 'function' as const,
+                            function: {
+                                name: tc.function.name,
+                                arguments: typeof tc.function.arguments === 'string'
+                                    ? tc.function.arguments
+                                    : JSON.stringify(tc.function.arguments ?? {}),
+                            },
+                        };
+                    });
+                    return { role: m.role, content: m.content ?? '', tool_calls: calls };
+                }
+                if (m.role === 'tool') {
+                    const toolCallId = (m as { tool_call_id?: string }).tool_call_id ?? pendingIds.shift() ?? `call_${callCounter++}`;
+                    return { role: 'tool', content: m.content ?? '', tool_call_id: toolCallId };
+                }
+                return { role: m.role, content: m.content ?? '' };
+            });
+            const body = JSON.stringify({
+                model,
+                messages: oaMessages,
+                temperature,
+                stream: false,
+                ...(tools && tools.length > 0 ? { tools } : {}),
+            });
+
+            const req = http.request(
+                {
+                    hostname: url.hostname,
+                    port: url.port,
+                    path: url.pathname,
+                    method: 'POST',
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
+                    headers: { 'Content-Type': 'application/json' },
+                },
+                (res) => {
+                    let buf = '';
+                    res.on('data', (chunk: Buffer) => { buf += chunk.toString(); });
+                    res.on('end', () => {
+                        if (res.statusCode && res.statusCode >= 400) {
+                            let errorMsg = `OpenAI-compatible HTTP ${res.statusCode}`;
+                            try {
+                                const parsed = JSON.parse(buf);
+                                if (parsed.error?.message) { errorMsg = parsed.error.message; }
+                                else if (parsed.detail) { errorMsg = typeof parsed.detail === 'string' ? parsed.detail : JSON.stringify(parsed.detail); }
+                            } catch { /* use default */ }
+                            reject(new Error(errorMsg));
+                            return;
+                        }
+                        try {
+                            const parsed = JSON.parse(buf);
+                            const choice = parsed.choices?.[0];
+                            const text: string = choice?.message?.content ?? '';
+                            if (text && onToken) { onToken(text); }
+                            // eslint-disable-next-line @typescript-eslint/naming-convention
+                            const rawTcs: any[] = choice?.message?.tool_calls ?? [];
+                            const toolCalls: OllamaToolCall[] | undefined = rawTcs.length > 0
+                                ? rawTcs.map((tc) => {
+                                    let args: Record<string, unknown> = {};
+                                    const raw = tc?.function?.arguments;
+                                    if (typeof raw === 'string') {
+                                        try { args = JSON.parse(raw); } catch { args = { _raw: raw }; }
+                                    } else if (raw && typeof raw === 'object') {
+                                        args = raw as Record<string, unknown>;
+                                    }
+                                    return {
+                                        id: tc?.id,
+                                        function: { name: tc?.function?.name ?? '', arguments: args },
+                                    } as OllamaToolCall;
+                                })
+                                : undefined;
+                            const usage = parsed.usage ?? {};
+                            const stats: OllamaStats | undefined = usage
+                                ? {
+                                    promptTokens: usage.prompt_tokens ?? 0,
+                                    completionTokens: usage.completion_tokens ?? 0,
+                                    totalDurationMs: 0,
+                                    loadDurationMs: 0,
+                                }
+                                : undefined;
+                            resolve({ text, stats, toolCalls });
+                        } catch (err) {
+                            reject(err instanceof Error ? err : new Error(String(err)));
+                        }
+                    });
+                    res.on('error', reject);
+                },
+            );
+
+            if (cancellationToken) {
+                cancellationToken.onCancellationRequested(() => {
+                    req.destroy();
+                    reject(new Error('Cancelled'));
+                });
+            }
+
+            req.on('error', reject);
+            req.write(body);
+            req.end();
+        });
+    }
+
+    /**
      * Single-round Ollama API call — the "call API" primitive extracted per
      * multi_transport_prompt_queue_revised.md §4.4a. Takes already-composed
      * messages and a `SharedToolDefinition[]` (converted to Ollama's tool
@@ -849,8 +1022,21 @@ export class LocalLlmManager {
         keepAlive?: string;
         onToken?: (token: string) => void;
         cancellationToken?: vscode.CancellationToken;
+        /** Backend protocol. Defaults to `'ollama'`. */
+        apiStyle?: LocalLlmApiStyle;
     }): Promise<{ text: string; stats?: OllamaStats; toolCalls?: OllamaToolCall[] }> {
         const ollamaTools = toOllamaTools(opts.tools, () => true);
+        if (opts.apiStyle === 'openai') {
+            return this.openaiChat(
+                opts.baseUrl,
+                opts.model,
+                opts.messages,
+                opts.temperature,
+                opts.onToken,
+                opts.cancellationToken,
+                ollamaTools.length > 0 ? ollamaTools : undefined,
+            );
+        }
         return this.ollamaChat(
             opts.baseUrl,
             opts.model,
@@ -890,10 +1076,12 @@ export class LocalLlmManager {
         trailType?: TrailType;
         /** Optional conversation history to prepend. */
         history?: Array<{ role: string; content: string }>;
+        /** Backend protocol; defaults to `'ollama'`. */
+        apiStyle?: LocalLlmApiStyle;
     }): Promise<{ text: string; stats?: OllamaStats; toolCallCount: number; turnsUsed: number }> {
         const {
             baseUrl, model, systemPrompt, userPrompt, temperature,
-            tools, onToken, onToolCall, cancellationToken, keepAlive,
+            tools, onToken, onToolCall, cancellationToken, keepAlive, apiStyle,
         } = options;
         const maxRounds = options.maxRounds ?? 20;
         const trailType = options.trailType ?? 'local';
@@ -979,6 +1167,7 @@ export class LocalLlmManager {
                 onToken,
                 cancellationToken,
                 keepAlive,
+                apiStyle,
             });
 
             // No tool calls → model produced a final text response
@@ -1079,10 +1268,11 @@ export class LocalLlmManager {
         const strip = options.stripThinkingTags ?? mc.stripThinkingTags;
         const trailType = options.trailType ?? 'local';
 
-        // Check Ollama is running
-        const running = await this.isOllamaRunning(mc.ollamaUrl);
+        // Check the endpoint is reachable (Ollama GET /, OpenAI GET /v1/models)
+        const running = await this.isOllamaRunning(mc.ollamaUrl, mc.apiStyle);
         if (!running) {
-            throw new Error(`Ollama is not running at ${mc.ollamaUrl}`);
+            const label = mc.apiStyle === 'openai' ? 'OpenAI-compatible endpoint' : 'Ollama';
+            throw new Error(`${label} is not running at ${mc.ollamaUrl}`);
         }
 
         // Trail: Log prompt before sending to Ollama
@@ -1100,6 +1290,7 @@ export class LocalLlmManager {
         const result = await this.ollamaGenerateWithTools({
             baseUrl: mc.ollamaUrl,
             model: mc.model,
+            apiStyle: mc.apiStyle,
             systemPrompt: options.systemPrompt,
             userPrompt: options.userPrompt,
             temperature: temp,
@@ -1201,9 +1392,10 @@ export class LocalLlmManager {
         this.logChannel.appendLine(`[process] History mode: ${effectiveHistoryMode} | History enabled: ${this.historyEnabled} | History length: ${this.conversationHistory.length}`);
 
         try {
-            // Check Ollama
-            const running = await this.isOllamaRunning(mc.ollamaUrl);
+            // Check the endpoint is reachable (apiStyle-aware)
+            const running = await this.isOllamaRunning(mc.ollamaUrl, mc.apiStyle);
             if (!running) {
+                const label = mc.apiStyle === 'openai' ? 'OpenAI-compatible endpoint' : 'Ollama';
                 return {
                     success: false,
                     result: '',
@@ -1212,7 +1404,7 @@ export class LocalLlmManager {
                     thinkTagContent: '',
                     profile: effectiveProfileKey,
                     modelConfig: resolvedModelKey,
-                    error: `Ollama is not running at ${mc.ollamaUrl}`,
+                    error: `${label} is not running at ${mc.ollamaUrl}`,
                 };
             }
 
@@ -1300,6 +1492,7 @@ export class LocalLlmManager {
             const result = await this.ollamaGenerateWithTools({
                 baseUrl: mc.ollamaUrl,
                 model: mc.model,
+                apiStyle: mc.apiStyle,
                 systemPrompt: resolvedSystemPrompt,
                 userPrompt: prompt,
                 temperature: effectiveTemperature,
@@ -1770,21 +1963,30 @@ export class LocalLlmManager {
         const { mc } = this.resolveModelConfig(config, profile, selectedModelKey ?? undefined);
 
         try {
-            // Check Ollama
-            const running = await this.isOllamaRunning(mc.ollamaUrl);
+            // Check the endpoint is reachable (apiStyle-aware)
+            const running = await this.isOllamaRunning(mc.ollamaUrl, mc.apiStyle);
             if (!running) {
-                const action = await vscode.window.showErrorMessage(
-                    `Ollama is not running at ${mc.ollamaUrl}. Start it with: brew services start ollama`,
-                    'Copy Command',
-                );
-                if (action === 'Copy Command') {
-                    await vscode.env.clipboard.writeText('brew services start ollama');
+                const isOpenAi = mc.apiStyle === 'openai';
+                const label = isOpenAi ? 'OpenAI-compatible endpoint' : 'Ollama';
+                if (isOpenAi) {
+                    await vscode.window.showErrorMessage(`${label} is not reachable at ${mc.ollamaUrl} (probed GET /v1/models).`);
+                } else {
+                    const action = await vscode.window.showErrorMessage(
+                        `Ollama is not running at ${mc.ollamaUrl}. Start it with: brew services start ollama`,
+                        'Copy Command',
+                    );
+                    if (action === 'Copy Command') {
+                        await vscode.env.clipboard.writeText('brew services start ollama');
+                    }
                 }
                 return;
             }
 
-            // Check if model is loaded — if not, pre-load with distinct progress
-            const modelLoaded = await this.isModelLoaded(mc.ollamaUrl, mc.model);
+            // Check if model is loaded — if not, pre-load with distinct progress.
+            // OpenAI-style endpoints don't expose a residency endpoint, so the
+            // check degrades to "model is listed in /v1/models" — true once the
+            // server is up, which makes the pre-load step a no-op there.
+            const modelLoaded = await this.isModelLoaded(mc.ollamaUrl, mc.model, mc.apiStyle);
             if (!modelLoaded) {
                 let preloadCancelled = false;
                 await vscode.window.withProgress(
@@ -1798,6 +2000,7 @@ export class LocalLlmManager {
                             await this.ollamaGenerate(
                                 mc.ollamaUrl, mc.model, 'Respond with OK.', 'OK', 0,
                                 undefined, token, mc.keepAlive,
+                                undefined, mc.apiStyle,
                             );
                         } catch (err: any) {
                             if (err.message === 'Cancelled') { preloadCancelled = true; }

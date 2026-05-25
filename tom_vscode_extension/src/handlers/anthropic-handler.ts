@@ -105,6 +105,8 @@ export interface AnthropicConfiguration {
         model: string;
         temperature: number;
         keepAlive?: string;
+        /** Backend protocol; `'ollama'` (default) or `'openai'` for vLLM-like endpoints. */
+        apiStyle?: 'ollama' | 'openai';
     };
     /**
      * Per-configuration override for the global `compaction.disabled` flag.
@@ -1651,6 +1653,7 @@ export class AnthropicHandler {
                     messages,
                     tools: effectiveTools,
                     keepAlive: llm.keepAlive,
+                    apiStyle: llm.apiStyle,
                     cancellationToken: options.cancellationToken,
                     onToken: (fragment: string) => liveTrail?.appendAssistantText(fragment),
                 });
