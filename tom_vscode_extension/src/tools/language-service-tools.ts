@@ -1,16 +1,29 @@
 /**
- * Language-service tools — symbol search, navigation, refactor, rename.
+ * Language-service tools — refactor + rename + code actions.
  *
- * All tools here talk to VS Code's language servers via `executeCommand`. A
- * module-level **code-action registry** caches `vscode.CodeAction` objects
- * returned by `tomAi_getCodeActionsCached` so `tomAi_applyCodeAction` can
- * apply them by id. Entries expire after 5 minutes.
+ * Navigation tools (`findSymbol`, `gotoDefinition`, `findReferences`)
+ * were carved out into `language-navigation.ts` by the entry #10
+ * coverage refactor — they're vscode-free and live there with their
+ * own tests. The four tools left here all need to touch
+ * `vscode.workspace.applyEdit` / `vscode.commands` / the in-memory
+ * code-action registry; they'll get their own coverage pass under
+ * entry #11.
+ *
+ * The module-level **code-action registry** caches `vscode.CodeAction`
+ * objects returned by `tomAi_getCodeActionsCached` so
+ * `tomAi_applyCodeAction` can apply them by id. Entries expire
+ * after 5 minutes.
  */
 
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { SharedToolDefinition } from './shared-tool-registry';
+import {
+    FIND_SYMBOL_TOOL,
+    GOTO_DEFINITION_TOOL,
+    FIND_REFERENCES_TOOL,
+} from './language-navigation';
 
 function wsRoot(): string | undefined {
     return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -79,169 +92,11 @@ function lookupCodeAction(id: string): CachedCodeAction | undefined {
     return entry;
 }
 
-// ---------------------------------------------------------------------------
-// tomAi_findSymbol
-// ---------------------------------------------------------------------------
-
-interface FindSymbolInput { query: string; maxResults?: number }
-
-async function executeFindSymbol(input: FindSymbolInput): Promise<string> {
-    if (!input.query) { return JSON.stringify({ error: 'query is required' }); }
-    const max = Math.max(1, input.maxResults ?? 100);
-    try {
-        const symbols = await vscode.commands.executeCommand<vscode.SymbolInformation[]>(
-            'vscode.executeWorkspaceSymbolProvider',
-            input.query,
-        );
-        const items = (symbols ?? []).slice(0, max).map((s) => ({
-            name: s.name,
-            kind: vscode.SymbolKind[s.kind],
-            containerName: s.containerName,
-            file: toRelative(s.location.uri),
-            line: s.location.range.start.line,
-            character: s.location.range.start.character,
-        }));
-        return JSON.stringify({
-            query: input.query,
-            count: items.length,
-            truncated: (symbols?.length ?? 0) > items.length,
-            symbols: items,
-        }, null, 2);
-    } catch (err: any) {
-        return JSON.stringify({ error: `Symbol search failed: ${err?.message ?? err}` });
-    }
-}
-
-export const FIND_SYMBOL_TOOL: SharedToolDefinition<FindSymbolInput> = {
-    name: 'tomAi_findSymbol',
-    displayName: 'Find Symbol',
-    description:
-        'Workspace-wide symbol search (LSP) — find classes, functions, methods matching a query string.',
-    tags: ['symbols', 'navigation', 'tom-ai-chat'],
-    readOnly: true,
-    inputSchema: {
-        type: 'object',
-        required: ['query'],
-        properties: {
-            query: { type: 'string', description: 'Symbol name or substring to search for.' },
-            maxResults: { type: 'number', description: 'Max results. Default 100.' },
-        },
-    },
-    execute: executeFindSymbol,
-};
-
-// ---------------------------------------------------------------------------
-// tomAi_gotoDefinition
-// ---------------------------------------------------------------------------
-
-interface GotoDefinitionInput { filePath: string; line: number; character: number }
-
-async function executeGotoDefinition(input: GotoDefinitionInput): Promise<string> {
-    const resolved = await resolveDocumentForPosition(input.filePath, input.line, input.character);
-    if ('error' in resolved) { return JSON.stringify({ error: resolved.error }); }
-    try {
-        const locs = await vscode.commands.executeCommand<
-            Array<vscode.Location | vscode.LocationLink>
-        >('vscode.executeDefinitionProvider', resolved.uri, resolved.position);
-        const items = (locs ?? []).map((l) => {
-            const loc = l as vscode.Location;
-            const link = l as vscode.LocationLink;
-            const uri = loc.uri ?? link.targetUri;
-            const range = loc.range ?? link.targetRange;
-            return {
-                file: toRelative(uri),
-                absolutePath: uri.fsPath,
-                startLine: range.start.line,
-                startCharacter: range.start.character,
-                endLine: range.end.line,
-                endCharacter: range.end.character,
-            };
-        });
-        return JSON.stringify({ count: items.length, definitions: items }, null, 2);
-    } catch (err: any) {
-        return JSON.stringify({ error: `Goto definition failed: ${err?.message ?? err}` });
-    }
-}
-
-export const GOTO_DEFINITION_TOOL: SharedToolDefinition<GotoDefinitionInput> = {
-    name: 'tomAi_gotoDefinition',
-    displayName: 'Go To Definition',
-    description:
-        'Resolve the definition(s) of the symbol at a given file/line/character via the language server.',
-    tags: ['symbols', 'navigation', 'tom-ai-chat'],
-    readOnly: true,
-    inputSchema: {
-        type: 'object',
-        required: ['filePath', 'line', 'character'],
-        properties: {
-            filePath: { type: 'string', description: 'File containing the symbol.' },
-            line: { type: 'number', description: 'Zero-based line number.' },
-            character: { type: 'number', description: 'Zero-based column.' },
-        },
-    },
-    execute: executeGotoDefinition,
-};
-
-// ---------------------------------------------------------------------------
-// tomAi_findReferences
-// ---------------------------------------------------------------------------
-
-interface FindReferencesInput {
-    filePath: string;
-    line: number;
-    character: number;
-    includeDeclaration?: boolean;
-    maxResults?: number;
-}
-
-async function executeFindReferences(input: FindReferencesInput): Promise<string> {
-    const resolved = await resolveDocumentForPosition(input.filePath, input.line, input.character);
-    if ('error' in resolved) { return JSON.stringify({ error: resolved.error }); }
-    const max = Math.max(1, input.maxResults ?? 500);
-    try {
-        const locs = await vscode.commands.executeCommand<vscode.Location[]>(
-            'vscode.executeReferenceProvider',
-            resolved.uri,
-            resolved.position,
-        );
-        const items = (locs ?? []).slice(0, max).map((l) => ({
-            file: toRelative(l.uri),
-            absolutePath: l.uri.fsPath,
-            startLine: l.range.start.line,
-            startCharacter: l.range.start.character,
-            endLine: l.range.end.line,
-            endCharacter: l.range.end.character,
-        }));
-        return JSON.stringify({
-            count: items.length,
-            truncated: (locs?.length ?? 0) > items.length,
-            references: items,
-        }, null, 2);
-    } catch (err: any) {
-        return JSON.stringify({ error: `Find references failed: ${err?.message ?? err}` });
-    }
-}
-
-export const FIND_REFERENCES_TOOL: SharedToolDefinition<FindReferencesInput> = {
-    name: 'tomAi_findReferences',
-    displayName: 'Find References',
-    description:
-        'Find all references to the symbol at a given file/line/character via the language server.',
-    tags: ['symbols', 'navigation', 'tom-ai-chat'],
-    readOnly: true,
-    inputSchema: {
-        type: 'object',
-        required: ['filePath', 'line', 'character'],
-        properties: {
-            filePath: { type: 'string', description: 'File containing the symbol.' },
-            line: { type: 'number', description: 'Zero-based line number.' },
-            character: { type: 'number', description: 'Zero-based column.' },
-            includeDeclaration: { type: 'boolean', description: 'Include the declaration itself. Default true.' },
-            maxResults: { type: 'number', description: 'Max references returned. Default 500.' },
-        },
-    },
-    execute: executeFindReferences,
-};
+// Navigation tools (findSymbol / gotoDefinition / findReferences) live in
+// `language-navigation.ts` after the entry #10 refactor. They're spread
+// into LANGUAGE_SERVICE_TOOLS below so the registration surface is
+// unchanged; the consts are re-exported for any direct importers.
+export { FIND_SYMBOL_TOOL, GOTO_DEFINITION_TOOL, FIND_REFERENCES_TOOL };
 
 // ---------------------------------------------------------------------------
 // tomAi_getCodeActions (preview only, no cache)

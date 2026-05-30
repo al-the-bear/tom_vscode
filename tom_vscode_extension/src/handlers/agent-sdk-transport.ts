@@ -533,6 +533,45 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
         if (params.resumeSessionId && params.resumeSessionId.length > 0) {
             queryOptions.resume = params.resumeSessionId;
         }
+
+        // Dump what we hand to the Agent SDK to the per-quest
+        // `last_request_agentsdk.json`. Once per user prompt — the SDK
+        // owns the turn loop internally, so the dump captures what we
+        // sent into the SDK (prompt + options), not what the SDK then
+        // sends to Anthropic on each internal tool round.
+        try {
+            const { writeLastRequest, quickStats } = await import('../services/lastRequestDump.js');
+            const safeOptions = {
+                model: queryOptions.model,
+                systemPrompt: queryOptions.systemPrompt,
+                appendSystemPrompt: queryOptions.appendSystemPrompt,
+                maxTurns: queryOptions.maxTurns,
+                permissionMode: queryOptions.permissionMode,
+                allowedTools: toolsOption,
+                settingSources: queryOptions.settingSources,
+                cwd: queryOptions.cwd,
+                resume: queryOptions.resume,
+                forkSession: (queryOptions as { forkSession?: unknown }).forkSession,
+                // mcpServers / canUseTool / abortController are
+                // intentionally omitted — they're runtime callables/
+                // controllers, not serialisable state.
+                mcpServersConfigured: Object.keys(queryOptions.mcpServers ?? {}),
+            };
+            writeLastRequest({
+                timestamp: new Date().toISOString(),
+                subsystem: 'anthropic-agentsdk',
+                endpoint: '@anthropic-ai/claude-agent-sdk · sdk.query',
+                configId: configuration.id,
+                model: configuration.model,
+                stats: quickStats({ systemPrompt: typeof safeOptions.systemPrompt === 'string' ? safeOptions.systemPrompt : undefined }),
+                body: {
+                    prompt: userText,
+                    options: safeOptions,
+                    ...(params.resumeSessionId ? { resumingSessionId: params.resumeSessionId } : {}),
+                },
+            }, context.questId);
+        } catch { /* best-effort */ }
+
         const stream = sdk.query({
             prompt: userText,
             options: queryOptions as Parameters<typeof sdk.query>[0]['options'],

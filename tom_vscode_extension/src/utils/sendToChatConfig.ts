@@ -37,6 +37,33 @@ export interface SendToChatConfig {
             historyMode?: string;
             stripThinkingTags?: boolean | null;
             isDefault?: boolean;
+            /**
+             * Suffix for the per-profile history snapshot files in
+             * `_ai/quests/<quest>/history/`. When set, the manager
+             * reads/writes `history-<historySuffix>.{json,md}` instead
+             * of the canonical `history.{json,md}` pair. Leaves the
+             * Anthropic handler's snapshot untouched so the two panels
+             * can run in parallel without clobbering each other.
+             */
+            historySuffix?: string;
+            /**
+             * Suffix for the per-profile memory file. When set, the
+             * `${memory}` placeholder injects only `facts-<memorySuffix>.md`
+             * from each scope (shared + current quest). Default
+             * (omitted): inject every file in the scope, matching the
+             * legacy Anthropic-side behaviour.
+             */
+            memorySuffix?: string;
+            /**
+             * When true, append `\n\n## Memory\n\n${memory}` to the
+             * resolved system prompt automatically so the profile
+             * doesn't have to spell out the placeholder. Mirrors
+             * `AnthropicProfile.autoInjectMemory`. When false / unset,
+             * memory is only injected when the profile references
+             * `${memory}` / `${memory-shared}` / `${memory-quest}`
+             * explicitly.
+             */
+            autoInjectMemory?: boolean;
         } };
         /** Default Ollama URL for LLM calls */
         ollamaUrl?: string;
@@ -75,6 +102,24 @@ export interface SendToChatConfig {
             enabledTools?: string[];
             isDefault?: boolean;
             keepAlive?: string;
+            /** Max tool-call rounds when driving an Anthropic profile. Default 10. */
+            maxRounds?: number;
+            /** Max response tokens (`maxTokens` on the synthesised AnthropicConfiguration). Default 8192. */
+            maxTokens?: number;
+            /** Master switch: when `false`, no `tools` array is sent (required for vLLM without tool-call parser). Default `true`. */
+            toolsEnabled?: boolean;
+            /** Per-configuration override for `compaction.historyMaxChars` (chars). */
+            historyMaxChars?: number;
+            /** Per-configuration override for `compaction.memoryMaxChars` (chars). */
+            memoryMaxChars?: number;
+            /** Per-configuration override for `compaction.rawTurnsKept` (raw turn-pair count). */
+            rawTurnsKept?: number;
+            /** Per-configuration override for `compaction.toolTrailMaxResultChars`. */
+            toolTrailMaxResultChars?: number;
+            /** Per-configuration override for `compaction.toolTrailKeepRounds`. */
+            toolTrailKeepRounds?: number;
+            /** Per-configuration override for `compaction.maxHistoryTokens` token safety cap. */
+            maxHistoryTokens?: number;
         }>;
         defaultTemplate?: string;
     };
@@ -177,6 +222,16 @@ export interface SendToChatConfig {
              *   'off' — force compaction OFF (ignore global).
              */
             compactionOverride?: 'default' | 'on' | 'off';
+            /** Per-configuration override for `compaction.historyMaxChars` (chars). */
+            historyMaxChars?: number;
+            /** Per-configuration override for `compaction.memoryMaxChars` (chars). */
+            memoryMaxChars?: number;
+            /** Per-configuration override for `compaction.rawTurnsKept` (raw turn-pair count). */
+            rawTurnsKept?: number;
+            /** Per-configuration override for `compaction.toolTrailMaxResultChars`. */
+            toolTrailMaxResultChars?: number;
+            /** Per-configuration override for `compaction.toolTrailKeepRounds`. */
+            toolTrailKeepRounds?: number;
             isDefault?: boolean;
         }>;
         profiles?: Array<{
@@ -201,6 +256,8 @@ export interface SendToChatConfig {
             promptCachingEnabled?: boolean;
             toolApprovalMode?: 'always' | 'never';
             useBuiltInTools?: boolean;
+            /** When true, auto-append `${memory}` to the resolved system prompt. */
+            autoInjectMemory?: boolean;
             isDefault?: boolean;
         }>;
         userMessageTemplates?: Array<{
@@ -248,6 +305,10 @@ export interface SendToChatConfig {
         fullTrailMaxTurns?: number;
         toolTrailMaxResultChars?: number;
         toolTrailKeepRounds?: number;
+        /** Number of recent user/assistant turn pairs (2 messages each) kept verbatim in
+         *  the prompt before incremental compaction folds them into the running summary.
+         *  Per-configuration `rawTurnsKept` takes precedence. */
+        rawTurnsKept?: number;
         backgroundExtractionEnabled?: boolean;
         /** Whether memory extraction runs after every compaction pass. */
         runMemoryExtractionOnCompaction?: boolean;

@@ -894,17 +894,26 @@ function resolveMemoryPlaceholder(
             if (typeof v === 'number' && Number.isFinite(v) && v >= 0) { budgetTokens = v; }
         } catch { /* fallback stays */ }
         const quest = values['quest'] || values['chat.quest'] || '';
+        // Profile-supplied memory suffix (e.g. 'gemma4'). When present,
+        // restricts injection to files named `facts-<suffix>.md` in each
+        // scope. Passed in via `values.memorySuffix` by the LocalLlm /
+        // Anthropic handler at send time; legacy callers omit it and get
+        // the unfiltered "every file in scope" behaviour.
+        const memorySuffix = values['memorySuffix'] || undefined;
         // When a subset is requested, shrink the injection to only that
         // scope's files by re-rendering manually — `injectForSystemPrompt`
         // always emits both scopes. Cheaper than parameterising the
         // service for a rarely-used path.
         if (key === 'memory') {
-            return svc.injectForSystemPrompt(budgetTokens, quest || undefined).text;
+            return svc.injectForSystemPrompt(budgetTokens, quest || undefined, memorySuffix).text;
         }
         const charBudget = Math.max(0, budgetTokens * 4);
         const scope: 'shared' | 'quest' = key === 'memory-shared' ? 'shared' : 'quest';
         const entries = svc.listWithMeta(scope, quest || undefined);
-        const ordered = scope === 'quest' ? entries.sort((a, b) => b.mtime - a.mtime) : entries;
+        const filtered = memorySuffix
+            ? entries.filter((e) => e.file === `facts-${memorySuffix}.md`)
+            : entries;
+        const ordered = scope === 'quest' ? filtered.sort((a, b) => b.mtime - a.mtime) : filtered;
         const blocks: string[] = [];
         let used = 0;
         for (const e of ordered) {
@@ -1238,6 +1247,22 @@ All three resolve to <code>0</code> / <code>1</code> when the item isn't part of
 <em>Path variables support sub-properties:</em><br>
 <code>\${KEY.name}</code> – Filename/basename without extension<br>
 <code>\${KEY.extension}</code> – File extension including dot<br>
+<br>
+<em>Compaction &amp; Tool Trail (see <code>doc/llm_configuration.md</code>):</em><br>
+The following placeholders are populated by the handler that drives the request. They are <strong>not</strong> automatically present in every template — they resolve to the empty string outside the contexts noted below.<br>
+<br>
+<code>\${compactedSummary}</code> – The running session summary produced by incremental <code>trim_and_summary</code> compaction. Resolves inside the Anthropic profile's <code>userPromptWrapper</code> field. (On the wire, the summary is also injected automatically as a synthetic user/assistant pair between <code>rawTurns</code> and the current prompt, so you usually do <em>not</em> need to reference it explicitly.)<br>
+<code>\${rawTurns}</code> – The most recent verbatim user/assistant turns kept inline, formatted as one block. Resolves inside the Anthropic profile's <code>userPromptWrapper</code>.<br>
+<code>\${rawTurnCount}</code> – Number of raw turn messages currently kept (≤ <code>rawTurnsKept × 2</code>). Useful for guarding the surrounding markup, e.g. <code>\${{ Number(vars["rawTurnCount"]) &gt; 0 ? "## Raw turns…" : "" }}</code>.<br>
+<code>\${toolHistory}</code> – Compact YAML rendering of the last ~25 tool calls in the session ring buffer (key, time, round, tool, input, preview). Resolves inside the Anthropic profile's <code>systemPrompt</code> and inside user-message templates. Empty on the Agent SDK transport and on the first turn. Each line names a replay <code>key</code> that the model can pass to <code>tomAi_readPastToolResult({"key":"tX"})</code> to recover the full body.<br>
+<br>
+<em>Compaction-only placeholders</em> (resolve only inside the <code>compaction.templates[*].template</code> field — see the History Compaction editor for the inline help):<br>
+<code>\${existingSummary}</code>, <code>\${lastTurn}</code>, <code>\${lastTurnCharCount}</code>, <code>\${maxHistoryTokens}</code>, <code>\${maxHistorySize}</code>, <code>\${historyMaxChars}</code>.<br>
+<br>
+<em>Memory-extraction-only placeholders</em> (resolve only inside the <code>compaction.memoryExtractionTemplates[*].template</code> field — see the Memory Extraction editor):<br>
+<code>\${lastTurn}</code>, <code>\${compactedSummary}</code>, <code>\${existingMemory}</code>, <code>\${memoryFilePath}</code>, <code>\${memoryScope}</code>, <code>\${historyMaxChars}</code>, <code>\${memoryMaxChars}</code>.<br>
+<br>
+<em>Tool-trail retention contract:</em> within a single user turn, the most recent <code>toolTrailKeepRounds</code> tool rounds keep their (truncated to <code>toolTrailMaxResultChars</code>) bodies inline. Older rounds are replaced with a stub naming the replay key. Full bodies are persisted under <code>_ai/trail/&lt;subsystem&gt;/&lt;quest&gt;/tool_results/&lt;key&gt;.json</code> and are recoverable via <code>tomAi_readPastToolResult({"key":"tX"})</code>.<br>
 <br>
 <em>Inline JavaScript:</em><br>
 <code>\${{expression}}</code> – Evaluate a single JS expression at resolution time. The result is stringified and spliced into the template.<br>

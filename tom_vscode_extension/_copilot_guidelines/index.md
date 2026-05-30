@@ -32,6 +32,7 @@ Type: TypeScript extension
 - [reinstall_extension.md](reinstall_extension.md)
 - [restart_debugging_flow.backup.md](restart_debugging_flow.backup.md)
 - [ai_conversation.md](ai_conversation.md)
+- [tool_testing.md](tool_testing.md)
 
 ## User-facing docs
 

@@ -122,6 +122,27 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
      * Only one entry per section (the panels are strictly sequential).
      */
     private _activeCts: Map<string, vscode.CancellationTokenSource> = new Map();
+    /**
+     * Profile key of the most recent LocalLLM send. Recorded by
+     * `_handleSendLocalLlm` so the Trail Summary Viewer button can
+     * resolve the right per-profile trail folder. The LocalLLM trail
+     * subsystem is sharded by profile (`_ai/trail/localllm/<quest>-<profile>/`),
+     * so "open the summary trail" needs to know which profile.
+     * `undefined` when the user has not sent anything in this window.
+     */
+    private _lastLocalLlmProfileKey: string | undefined = undefined;
+    /**
+     * One-shot guard for the LocalLLM status-update subscription. We
+     * subscribe lazily on first send rather than in the panel
+     * constructor because `_registerChatProviders` runs **before**
+     * `extension.ts` finishes initialising the LocalLlmManager
+     * singleton. Calling `ensureLocalLlmManager` from the constructor
+     * auto-creates a transient instance, which extension.ts then
+     * stomps via `setLocalLlmManager(...)`, leaving the transient
+     * instance's output channels orphaned in the Output dropdown
+     * (the user's "two of each channel" complaint).
+     */
+    private _localLlmStatusSubscribed: boolean = false;
 
     constructor(context: vscode.ExtensionContext) {
         this._context = context;
@@ -203,11 +224,32 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             },
         });
 
-        // Local LLM — just the cancel hook (own CTS like Anthropic).
+        // Local LLM — cancel + summary-trail opener (the summary-viewer
+        // dispatcher in the `openTrailSummaryViewer` message branch
+        // routes here when section='localLlm'; otherwise it falls
+        // through to the Copilot default which would open the wrong
+        // trail).
         chatProviders.register('localLlm', {
             cancelInFlight: () => {
-                this._activeCts.get('localLlm')?.cancel();
+                const cts = this._activeCts.get('localLlm');
+                if (!cts) {
+                    // Nothing in flight — surface this so the click
+                    // doesn't look like a no-op. The status reverts
+                    // when the user next sends.
+                    this._view?.webview.postMessage({ type: 'localLlmStatus', text: 'Nothing to cancel' });
+                    return;
+                }
+                // Immediate UI feedback. The actual cancellation
+                // propagates through the cancellation token to
+                // `openaiChat`/`ollamaChat`, which destroy the socket
+                // and reject with "Cancelled". `_handleSendLocalLlm`'s
+                // catch block then writes the final "Cancelled" status
+                // (or "Error: …" if the cancellation happened too late
+                // to interrupt a tool-execution step).
+                this._view?.webview.postMessage({ type: 'localLlmStatus', text: 'Cancelling…' });
+                cts.cancel();
             },
+            openTrailSummary: () => this._openLocalLlmSummaryTrail(),
             deleteProfile: async (profileId) => {
                 const config = loadSendToChatConfig();
                 if (!config?.localLlm?.profiles?.[profileId]) { return false; }
@@ -215,6 +257,13 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 return !!saveSendToChatConfig(config);
             },
         });
+        // NB: subscription to `localLlmManager.onStatusUpdate` happens
+        // lazily inside `_handleSendLocalLlm` (guarded by
+        // `_localLlmStatusSubscribed`). Subscribing here would force
+        // `ensureLocalLlmManager` to auto-create a transient instance
+        // before extension.ts finished setting the singleton — that
+        // transient instance's output channels would then be orphaned
+        // in the Output dropdown (the "two of each channel" complaint).
 
         // Tom AI Chat — handler owns its own CTS internally; cancel
         // hook calls the module-level interrupt.
@@ -573,12 +622,17 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         await this._openSessionHistoryMarkdown();
                         break;
                     case 'openLiveTrail':
-                        // Open `_ai/quests/<quest>/live-trail.md` — the
-                        // continuously-updating markdown written by
-                        // the LiveTrailWriter as an Anthropic turn
-                        // runs. The MD Browser auto-reloads as the
-                        // file is updated (debounced 200 ms).
-                        await this._openLiveTrailMarkdown();
+                        // Open the continuously-updating live-trail
+                        // markdown for the section that triggered the
+                        // button. The MD Browser auto-reloads on every
+                        // write (debounced 200 ms).
+                        //
+                        //   anthropic → `_ai/quests/<quest>/live-trail.md`
+                        //   localLlm  → `_ai/quests/<quest>/live-trail-localLLM.md`
+                        //
+                        // Both files are appended to during the
+                        // respective transport's turn.
+                        await this._openLiveTrailMarkdown(String(message.section || ''));
                         break;
                     case 'openStatusPage':
                         await vscode.commands.executeCommand('tomAi.statusPage');
@@ -1245,6 +1299,18 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             vscode.window.showErrorMessage('Local LLM not available - extension not fully initialized. Please try again.');
             return;
         }
+        // Lazy one-shot subscription to background-status events.
+        // By now `extension.ts` has finished initialising the
+        // singleton, so the manager we get here is the canonical one
+        // and its output channels are the ones the user sees.
+        if (!this._localLlmStatusSubscribed) {
+            this._localLlmStatusSubscribed = true;
+            this._context.subscriptions.push(
+                manager.onStatusUpdate((text: string) => {
+                    this._view?.webview.postMessage({ type: 'localLlmStatus', text });
+                }),
+            );
+        }
 
         const config = loadSendToChatConfig();
         const strictErrors = validateStrictAiConfiguration(config);
@@ -1258,6 +1324,12 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         const defaultWrapped = applyDefaultTemplate(text, 'localLlm');
         const expanded = await expandTemplate(defaultWrapped);
         const profileKey = profile === '__none__' ? null : profile;
+        // Remember the profile this send used so the per-panel Trail
+        // Summary Viewer button can resolve the matching folder
+        // (`_ai/trail/localllm/<quest>-<profile>/`). Falls back to a
+        // sentinel so we can still try a sensible default when the
+        // user never picked a profile.
+        this._lastLocalLlmProfileKey = profileKey ?? 'default';
         let llmConfigKey = llmConfig && llmConfig !== '__default__' ? llmConfig : null;
         const profileLabel = profile === '__none__' ? 'None' : profile;
         debugLog(`[ChatPanel] _handleSendLocalLlm: llmConfig from webview='${llmConfig}' → llmConfigKey='${llmConfigKey}'`, 'INFO', 'extension');
@@ -1283,9 +1355,25 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         const externalCts = new vscode.CancellationTokenSource();
         this._activeCts.set('localLlm', externalCts);
 
+        // Helper for the live panel status line. Cheap and centralised
+        // so every phase update reads the same way.
+        const setStatus = (text: string): void => {
+            this._view?.webview.postMessage({ type: 'localLlmStatus', text });
+        };
+
+        const sendStart = Date.now();
+        let roundsSeen = 0;
+        let toolCallsSeen = 0;
         try {
-            // Check if model needs loading (use the resolved model name)
-            const modelLoaded = await manager.checkModelLoaded(modelName);
+            setStatus(`Checking ${modelName}…`);
+            // Check if model needs loading (use the resolved model
+            // name + the same config key so checkModelLoaded probes the
+            // correct endpoint for the configuration's apiStyle —
+            // /v1/models for vLLM, /api/ps for Ollama. Without the key
+            // the probe always fell back to /api/ps and 404'd on
+            // OpenAI-compat servers.)
+            const modelLoaded = await manager.checkModelLoaded(modelName, llmConfigKey ?? undefined);
+            setStatus(modelLoaded ? `Sending to ${modelName}…` : `Loading ${modelName}…`);
 
             const result = await vscode.window.withProgress(
                 {
@@ -1301,9 +1389,10 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         // Model is loading as part of generate — update status once process starts
                         // The loading happens at the start of the Ollama call
                         const checkInterval = setInterval(async () => {
-                            const loaded = await manager.checkModelLoaded();
+                            const loaded = await manager.checkModelLoaded(modelName, llmConfigKey ?? undefined);
                             if (loaded) {
                                 progress.report({ message: `Processing prompt with ${modelName}...` });
+                                setStatus(`Processing with ${modelName}…`);
                                 clearInterval(checkInterval);
                             }
                         }, 2000);
@@ -1311,22 +1400,46 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     } else {
                         // Model already loaded, go straight to processing
                         progress.report({ message: `Processing prompt with ${modelName}...` });
+                        setStatus(`Processing with ${modelName}…`);
                     }
-                    return manager.process(expanded, profileKey, llmConfigKey, undefined, externalCts.token);
+                    // Per-tool-call callback drives the live status line
+                    // so the panel reflects each round the model triggers.
+                    // `manager.process()` calls this AFTER the tool
+                    // returns, so the format is "Round R - <tool>: ok"
+                    // (the model is about to start round R+1).
+                    const onToolCall = (toolName: string, _args: Record<string, unknown>, _result: string): void => {
+                        toolCallsSeen += 1;
+                        roundsSeen += 1;
+                        setStatus(`Round ${roundsSeen} — tool ${toolName} done (calls so far: ${toolCallsSeen})`);
+                    };
+                    return manager.process(expanded, profileKey, llmConfigKey, undefined, externalCts.token, onToolCall);
                 }
             );
-            
+
             if (result.success) {
+                const durSec = ((Date.now() - sendStart) / 1000).toFixed(1);
+                const turns = (result as { turnsUsed?: number }).turnsUsed ?? roundsSeen;
+                const toolCount = (result as { toolCallCount?: number }).toolCallCount ?? toolCallsSeen;
+                setStatus(`Done — ${turns} round${turns === 1 ? '' : 's'}, ${toolCount} tool call${toolCount === 1 ? '' : 's'} (${durSec}s)`);
                 await this._appendToTrail(expanded, result.result, profileLabel, llmConfigKey);
                 await this._showTrail(llmConfigKey);
             } else {
                 const errorMsg = result.error || 'Unknown error';
+                setStatus(`Error: ${errorMsg}`);
                 debugLog(`[ChatPanel] Local LLM error (config=${llmConfigKey}, model=${modelName}): ${errorMsg}`, 'ERROR', 'extension');
                 vscode.window.showErrorMessage(`Local LLM error: ${errorMsg}`);
             }
         } catch (e) {
+            const message = e instanceof Error ? e.message : String(e);
+            // Treat user-initiated cancellation distinctly so the
+            // status line doesn't read like a crash.
+            if (externalCts.token.isCancellationRequested) {
+                setStatus('Cancelled');
+            } else {
+                setStatus(`Error: ${message}`);
+            }
             debugLog(`[ChatPanel] Local LLM failed (config=${llmConfigKey}, model=${modelName}): ${e}`, 'ERROR', 'extension');
-            vscode.window.showErrorMessage(`Local LLM failed: ${e}`);
+            vscode.window.showErrorMessage(`Local LLM failed: ${message}`);
         } finally {
             if (this._activeCts.get('localLlm') === externalCts) {
                 this._activeCts.delete('localLlm');
@@ -1735,6 +1848,41 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     }
 
     /**
+     * Open the Trail Summary Viewer for the most-recently-used Local
+     * LLM profile. Mirrors `_openAnthropicSummaryTrail`, but the
+     * LocalLLM subsystem is sharded by profile name — there's one
+     * summary trail per profile — so we use `_lastLocalLlmProfileKey`
+     * (recorded by `_handleSendLocalLlm`) to pick the right one. When
+     * the user hasn't sent anything yet this session, we surface that
+     * fact in the info message rather than silently opening nothing.
+     */
+    private async _openLocalLlmSummaryTrail(): Promise<void> {
+        const questId = WsPaths.getWorkspaceQuestId();
+        const profileKey = this._lastLocalLlmProfileKey;
+        if (!profileKey) {
+            vscode.window.showInformationMessage(
+                'No Local LLM summary trail yet — send a prompt first. The trail is sharded by profile; the viewer opens the trail for the profile you last sent with.',
+            );
+            return;
+        }
+        // Subsystem `configName` is the profile name run through the
+        // same sanitizer the trail logger uses (see
+        // `mapTypeToSubsystem` in trailLogging). Keep the two in sync
+        // or the lookup misses.
+        const configName = profileKey.replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-{2,}/g, '-');
+        const subsystem = { type: 'localLlm' as const, configName };
+        const summaryPath = TrailService.instance.getSummaryFilePath('prompts', subsystem, questId);
+        if (!summaryPath || !fs.existsSync(summaryPath)) {
+            vscode.window.showInformationMessage(
+                `No Local LLM summary trail yet for profile "${profileKey}". Send a prompt with this profile first, or use the Raw Trail Files Viewer to browse other profiles.`,
+            );
+            return;
+        }
+        const uri = vscode.Uri.file(summaryPath);
+        await vscode.commands.executeCommand('vscode.openWith', uri, 'tomAi.trailViewer');
+    }
+
+    /**
      * Open the rolling session history (the markdown version written next
      * to history.json on every turn by TwoTierMemoryService.persistHistorySnapshot)
      * in the MD Browser custom editor. When the file is missing we
@@ -1755,23 +1903,30 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     }
 
     /**
-     * Open `_ai/quests/<quest>/live-trail.md` in the MD Browser. The
+     * Open the section's live-trail markdown in the MD Browser. The
      * MD Browser's file watcher (debounced 200 ms) re-renders the
-     * webview as the Anthropic handler appends new events, so the
-     * user watches each thinking / tool_use / assistant chunk arrive.
+     * webview as the handler appends new events, so the user watches
+     * each thinking / tool_use / assistant chunk arrive.
+     *
+     *   section='anthropic' → `live-trail.md`         (default)
+     *   section='localLlm'  → `live-trail-localLLM.md`
+     *
      * The file is created on the first send of the session — we
-     * tolerate it not existing yet with an info message.
+     * tolerate it not existing yet with an info message that names
+     * the relevant transport.
      */
-    private async _openLiveTrailMarkdown(): Promise<void> {
+    private async _openLiveTrailMarkdown(section: string = 'anthropic'): Promise<void> {
         const questId = WsPaths.getWorkspaceQuestId() ?? TwoTierMemoryService.instance.currentQuest() ?? '';
         // Resolve the quest folder the same way LiveTrailWriter does.
         const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
         const questsRoot = WsPaths.ai('quests') ?? path.join(wsRoot, WsPaths.aiFolder, 'quests');
         const safeQuest = (questId || 'default').replace(/[^A-Za-z0-9_.-]/g, '_');
-        const target = path.join(questsRoot, safeQuest, 'live-trail.md');
+        const fileName = section === 'localLlm' ? 'live-trail-localLLM.md' : 'live-trail.md';
+        const transportLabel = section === 'localLlm' ? 'Local LLM' : 'Anthropic';
+        const target = path.join(questsRoot, safeQuest, fileName);
         if (!fs.existsSync(target)) {
             vscode.window.showInformationMessage(
-                `No live trail yet for quest "${questId || 'default'}". The live trail is created on the first Anthropic send (${target}).`,
+                `No ${transportLabel} live trail yet for quest "${questId || 'default'}". The file is created on the first ${transportLabel} send (${target}).`,
             );
             return;
         }
@@ -3024,7 +3179,17 @@ function getSectionContent(id) {
             selectorKind: 'profile',
             selectorLabel: 'Profile',
             selectorOptions: '<option value="">(None)</option>',
-            secondarySelectorHtml: '<label>LLM Config:</label><select id="localLlm-llmConfig" style="width:70%"></select>',
+            // Inline edit-profile pencil sits right after the profile
+            // dropdown, mirroring the Anthropic panel layout. Routes
+            // through the same editProfile action as the existing
+            // pencil in manageButtons (_handleEditProfile resolves
+            // section=localLlm to the localLlm template category and
+            // opens the Global Template Editor on the selected item).
+            // (Comments deliberately backtick-free: this whole function
+            // is embedded inside the _getScript() template literal.)
+            secondarySelectorHtml:
+                '<button class="icon-btn" data-action="editProfile" data-id="localLlm" title="Edit Local LLM profile (system prompt)"><span class="codicon codicon-edit"></span></button>' +
+                '<label>LLM Config:</label><select id="localLlm-llmConfig" style="width:70%"></select>',
             manageButtons:
                 '<button class="icon-btn" data-action="addProfile" data-id="localLlm" title="Add Profile"><span class="codicon codicon-add"></span></button>' +
                 '<button class="icon-btn" data-action="editProfile" data-id="localLlm" title="Edit Profile"><span class="codicon codicon-edit"></span></button>' +
@@ -3033,11 +3198,36 @@ function getSectionContent(id) {
                 '<button data-action="preview" data-id="localLlm" title="Preview expanded prompt">Preview</button>' +
                 '<button class="primary" data-action="send" data-id="localLlm" title="Send prompt to Local LLM">Send to LLM</button>' +
                 '<button class="icon-btn" data-action="cancel" data-id="localLlm" title="Stop current Local LLM turn"><span class="codicon codicon-debug-stop"></span></button>' +
-                '<button class="icon-btn" data-action="trail" data-id="localLlm" title="Open Trail File"><span class="codicon codicon-list-flat"></span></button>' +
+                // Mirrors the Anthropic panels Raw Trail + Summary
+                // viewer buttons. The Raw viewer (history icon) shows
+                // every prompt/payload/tool-request/tool-answer file in
+                // the localllm trail bucket; the Summary viewer
+                // (list-flat icon) opens the consolidated
+                // <quest>-<profile>.prompts.md / .answers.md pair for
+                // the profile of the most recent LocalLLM send.
+                '<button class="icon-btn" data-action="openTrailRawFiles" data-id="localLlm" title="Open Raw Trail Files Viewer"><span class="codicon codicon-history"></span></button>' +
+                '<button class="icon-btn" data-action="openTrailSummaryViewer" data-id="localLlm" title="Open Trail Summary Viewer (last-used Local LLM profile)"><span class="codicon codicon-list-flat"></span></button>' +
+                // Mirror of the Anthropic panels live-trail button.
+                // Opens the per-quest live-trail-localLLM.md (parallel
+                // to Anthropics live-trail.md) in the MD Browser so the
+                // user can watch thinking + tool calls + the final
+                // answer stream into the file as the LocalLLM turn
+                // runs. The MD Browser file-watcher re-renders on every
+                // write (debounced 200 ms).
+                '<button class="icon-btn" data-action="openLiveTrail" data-id="localLlm" title="Open live trail — continuously-updating MD of the current + last 4 LocalLLM prompts (thinking, tool calls + results, assistant text); opens in the MD Browser which auto-reloads as the turn runs"><span class="codicon codicon-pulse"></span></button>' +
                 '<button class="icon-btn" data-action="clearText" data-id="localLlm" title="Clear text"><span class="codicon codicon-clear-all"></span></button>',
             infoId: 'localLlm-profileInfo',
             placeholder: 'Enter your prompt for the local LLM...',
             helpTitle: '',
+            // Live status line below the textarea. Mirrors the
+            // anthropic-status span and is updated via the
+            // localLlmStatus webview message. Empty by default; shows
+            // phase strings like "Sending to <model>...", "Round 3 -
+            // tool <name> done", "Done - 4 rounds, 2 tool calls (1.2s)",
+            // or "Error: ...". (Comment deliberately backtick-free:
+            // this whole function lives inside the _getScript() template
+            // literal.)
+            afterEditorHtml: '<div class="status-bar"><span id="localLlm-status" class="context-summary"></span></div>',
         }),
         conversation: getPromptEditorComponent({
             sectionId: 'conversation',
@@ -3676,6 +3866,11 @@ function setAnthropicStatus(text) {
     if (el) el.textContent = text || '';
 }
 
+function setLocalLlmStatus(text) {
+    var el = document.getElementById('localLlm-status');
+    if (el) el.textContent = text || '';
+}
+
 function buildAnthropicStatusLine(historyMode) {
     // Resolve the effective configuration the same way _handleSendAnthropic
     // does: profile.configurationId → isDefault → first. Configuration
@@ -3920,6 +4115,15 @@ window.addEventListener('message', function(e) {
         // session turn count), not a stale "waiting…" entry.
         if (anthropicSending && typeof msg.text === 'string' && msg.text.length > 0) {
             setAnthropicStatus(msg.text);
+        }
+    } else if (msg.type === 'localLlmStatus') {
+        // Live status line for the Local LLM panel. Mirrors the
+        // anthropicStatus channel. Unlike that one we always apply —
+        // there is no parallel "result already drew its own line"
+        // race because _handleSendLocalLlm only emits this from
+        // discrete phase changes (start / tool round / done / error).
+        if (typeof msg.text === 'string') {
+            setLocalLlmStatus(msg.text);
         }
     } else if (msg.type === 'anthropicResult') {
         anthropicSending = false;

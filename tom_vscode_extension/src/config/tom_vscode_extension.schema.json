@@ -96,14 +96,20 @@
                 "toolTrailMaxResultChars": {
                     "type": "integer",
                     "minimum": 100,
-                    "default": 500,
-                    "description": "Per tool-result truncation when included in the tool trail summary."
+                    "default": 1000,
+                    "description": "Per tool-result truncation when injected back into the model's prompt. Applies to both Local LLM and Anthropic tool loops. Full bodies are persisted via TrailService and recoverable through `tomAi_readPastToolResult({key})`. Per-configuration overrides take precedence."
                 },
                 "toolTrailKeepRounds": {
                     "type": "integer",
-                    "minimum": 1,
+                    "minimum": 0,
                     "default": 2,
-                    "description": "Number of recent rounds kept full in the tool trail."
+                    "description": "Number of most-recent tool-result blocks kept in-message (truncated to toolTrailMaxResultChars each). Older tool_result blocks are replaced with a stub naming the key (e.g. `[Past tool call t14 — tomAi_readFile(...) — 61823 chars. Use tomAi_readPastToolResult({key:'t14'}) to retrieve.]`). Per-configuration overrides take precedence."
+                },
+                "rawTurnsKept": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "default": 4,
+                    "description": "Number of most-recent user/assistant turn pairs (2 messages each) kept verbatim in the prompt. Overflow is folded into the incremental compacted summary via the active compaction template. Together with maxHistoryTokens — turns is primary, tokens is the safety cap. Per-configuration overrides take precedence."
                 },
                 "backgroundExtractionEnabled": {
                     "type": "boolean",
@@ -196,6 +202,11 @@
                     "default": "last"
                 },
                 "maxHistoryTokens": { "type": "integer", "minimum": 0 },
+                "historyMaxChars": { "type": "integer", "minimum": 1000, "description": "Per-configuration override for compaction.historyMaxChars." },
+                "memoryMaxChars": { "type": "integer", "minimum": 1000, "description": "Per-configuration override for compaction.memoryMaxChars." },
+                "rawTurnsKept": { "type": "integer", "minimum": 0, "description": "Per-configuration override for compaction.rawTurnsKept (raw turn pairs kept inline)." },
+                "toolTrailMaxResultChars": { "type": "integer", "minimum": 100, "description": "Per-configuration override for compaction.toolTrailMaxResultChars." },
+                "toolTrailKeepRounds": { "type": "integer", "minimum": 0, "description": "Per-configuration override for compaction.toolTrailKeepRounds." },
                 "maxRounds": { "type": "integer", "minimum": 1, "default": 10 },
                 "memoryExtractionTemplateId": { "type": "string" },
                 "promptCachingEnabled": {
@@ -308,6 +319,11 @@
                     "type": "boolean",
                     "default": false,
                     "description": "Agent SDK transport only: expose Claude Code's built-in tool preset (Read, Write, Edit, Glob, Grep, Bash, WebFetch, etc.) and automatically suppress extension tools that duplicate them. No effect on the direct Anthropic SDK."
+                },
+                "autoInjectMemory": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "When true, append a `## Memory\\n\\n${memory}` section to the resolved system prompt automatically. When false (default), memory is only injected when the profile explicitly references `${memory}` / `${memory-shared}` / `${memory-quest}` in its System Prompt, User Prompt Wrapper, or user-message template. Note: recursive expansion may still inline memory through file-injection placeholders like `${quest-description}` if those files contain memory tokens — audit those files separately."
                 },
                 "isDefault": { "type": "boolean" }
             }

@@ -118,11 +118,31 @@ export interface LlmConfiguration {
     trailSummarizationPrompt?: string;
     answerFolder?: string;
     logFolder?: string;
-    historyMode?: 'full' | 'last' | 'summary' | 'trim_and_summary';
+    historyMode?: 'none' | 'last' | 'all' | 'full' | 'summary' | 'trim_and_summary' | 'llm_extract';
     /** List of enabled tool names for this configuration */
     enabledTools: string[];
     /** Ollama keep_alive parameter (e.g., '5m', '30m'). Ignored for `apiStyle: 'openai'`. */
     keepAlive?: string;
+    /** Max tool-call rounds when driving an Anthropic profile. Default 10. */
+    maxRounds?: number;
+    /** Max response tokens. Default 8192. */
+    maxTokens?: number;
+    /** Master tool-use switch. When `false`, the dispatcher sends no `tools` array (required for vLLM/llama.cpp servers without a tool-call parser). Default `true`. */
+    toolsEnabled?: boolean;
+    /** Whether this configuration is the default LLM configuration picked when no specific id is requested. */
+    isDefault?: boolean;
+    /** Per-configuration override for `compaction.rawTurnsKept` (raw user/assistant turn pairs kept verbatim before the rest is folded into the summary). */
+    rawTurnsKept?: number;
+    /** Per-configuration override for `compaction.maxHistoryTokens` (compactor token budget / safety cap). */
+    maxHistoryTokens?: number;
+    /** Per-configuration override for `compaction.historyMaxChars` (hard char cap on `${existingSummary}` / `${compactedSummary}` injection). */
+    historyMaxChars?: number;
+    /** Per-configuration override for `compaction.memoryMaxChars` (hard char cap on `${existingMemory}` injection). */
+    memoryMaxChars?: number;
+    /** Per-configuration override for `compaction.toolTrailMaxResultChars` (per-tool-result inline truncation). */
+    toolTrailMaxResultChars?: number;
+    /** Per-configuration override for `compaction.toolTrailKeepRounds` (number of recent tool rounds kept inline). */
+    toolTrailKeepRounds?: number;
 }
 
 /**
@@ -1169,7 +1189,27 @@ export async function handleStatusAction(action: string, message: any): Promise<
             if (Number.isFinite(s.memoryMaxInjectedTokens)) {
                 stcConfig.anthropic.memory.maxInjectedTokens = s.memoryMaxInjectedTokens;
             }
-            stcConfig.compaction.toolTrailMaxResultChars = Number.isFinite(s.toolTrailMaxResultChars) ? s.toolTrailMaxResultChars : 500;
+            // Cross-config defaults (anthropic_sdk_integration.md §10). Empty
+            // string in either field clears the override so the per-pass
+            // `compaction.*` values apply.
+            if (typeof s.memoryDefaultExtractionTemplateId === 'string') {
+                if (s.memoryDefaultExtractionTemplateId.length > 0) {
+                    stcConfig.anthropic.memory.memoryExtractionTemplateId = s.memoryDefaultExtractionTemplateId;
+                } else {
+                    delete stcConfig.anthropic.memory.memoryExtractionTemplateId;
+                }
+            }
+            if (typeof s.memoryAutoExtractMode === 'string') {
+                const m = s.memoryAutoExtractMode as 'never' | 'summary' | 'trim_and_summary' | 'llm_extract' | 'all' | '';
+                if (m === '') {
+                    delete stcConfig.anthropic.memory.autoExtractMode;
+                } else {
+                    stcConfig.anthropic.memory.autoExtractMode = m;
+                }
+            }
+            stcConfig.compaction.toolTrailMaxResultChars = Number.isFinite(s.toolTrailMaxResultChars) ? s.toolTrailMaxResultChars : 1000;
+            stcConfig.compaction.toolTrailKeepRounds = Number.isFinite(s.toolTrailKeepRounds) ? s.toolTrailKeepRounds : 2;
+            stcConfig.compaction.rawTurnsKept = Number.isFinite(s.rawTurnsKept) ? s.rawTurnsKept : 4;
             stcConfig.compaction.backgroundExtractionEnabled = s.backgroundExtractionEnabled === true;
             if (!stcConfig.trail) { stcConfig.trail = {}; }
             if (Number.isFinite(s.trailMaxRawFiles)) { stcConfig.trail.maxRawFiles = s.trailMaxRawFiles; }
@@ -1438,7 +1478,39 @@ export async function handleStatusAction(action: string, message: any): Promise<
                 historyMode: config.historyMode,
                 enabledTools: config.enabledTools,
                 keepAlive: config.keepAlive,
+                maxRounds: typeof config.maxRounds === 'number' && Number.isFinite(config.maxRounds) ? config.maxRounds : undefined,
+                maxTokens: typeof config.maxTokens === 'number' && Number.isFinite(config.maxTokens) ? config.maxTokens : undefined,
+                toolsEnabled: typeof config.toolsEnabled === 'boolean' ? config.toolsEnabled : undefined,
+                isDefault: config.isDefault === true ? true : undefined,
+                // Per-configuration compaction overrides — only persist when
+                // explicitly set so an empty field stays "inherit from
+                // compaction-level default" rather than getting pinned to 0.
+                rawTurnsKept: typeof config.rawTurnsKept === 'number' && Number.isFinite(config.rawTurnsKept) ? config.rawTurnsKept : undefined,
+                maxHistoryTokens: typeof config.maxHistoryTokens === 'number' && Number.isFinite(config.maxHistoryTokens) ? config.maxHistoryTokens : undefined,
+                historyMaxChars: typeof config.historyMaxChars === 'number' && Number.isFinite(config.historyMaxChars) ? config.historyMaxChars : undefined,
+                memoryMaxChars: typeof config.memoryMaxChars === 'number' && Number.isFinite(config.memoryMaxChars) ? config.memoryMaxChars : undefined,
+                toolTrailMaxResultChars: typeof config.toolTrailMaxResultChars === 'number' && Number.isFinite(config.toolTrailMaxResultChars) ? config.toolTrailMaxResultChars : undefined,
+                toolTrailKeepRounds: typeof config.toolTrailKeepRounds === 'number' && Number.isFinite(config.toolTrailKeepRounds) ? config.toolTrailKeepRounds : undefined,
             }));
+            // Enforce exclusive isDefault — only one configuration may be
+            // marked default. If several arrived with isDefault === true
+            // (e.g. the user checked a new one without unchecking the
+            // previous), keep the LAST one set and clear the rest. The
+            // "last wins" rule matches what the user just clicked.
+            const list = cfg.localLlm.configurations;
+            const lastDefaultIdx = (() => {
+                for (let i = list.length - 1; i >= 0; i--) {
+                    if ((list[i] as { isDefault?: boolean }).isDefault === true) {
+                        return i;
+                    }
+                }
+                return -1;
+            })();
+            if (lastDefaultIdx >= 0) {
+                for (let i = 0; i < list.length; i++) {
+                    (list[i] as { isDefault?: boolean }).isDefault = i === lastDefaultIdx ? true : undefined;
+                }
+            }
             saveConfig(cfg);
             vscode.window.showInformationMessage('LLM Configurations saved');
             break;
@@ -1609,7 +1681,14 @@ export interface StatusData {
         memoryMaxChars: number;
         /** Turn cap for `full` mode so it can't grow unbounded. */
         fullTrailMaxTurns: number;
+        /** Per-tool-result inline truncation cap (chars). */
         toolTrailMaxResultChars: number;
+        /** Number of most-recent tool rounds kept inline (with truncation);
+         *  older rounds collapse to a stub naming the replay key. */
+        toolTrailKeepRounds: number;
+        /** Number of recent user/assistant turn PAIRS kept verbatim before
+         *  overflow folds into the running compacted summary. */
+        rawTurnsKept: number;
         backgroundExtractionEnabled: boolean;
         /** When true, memory extraction runs after every compaction call
          *  (checkbox in the status page). Default true. */
@@ -1635,6 +1714,11 @@ export interface StatusData {
     anthropicMemory: {
         memoryToolsEnabled: boolean;
         maxInjectedTokens: number;
+        /** Cross-config default memory-extraction template id (anthropic.memory.memoryExtractionTemplateId).
+         *  Per-pass override lives in `compaction.memoryExtractionTemplateId`. */
+        memoryExtractionTemplateId: string;
+        /** Which history modes trigger background memory extraction after each turn. */
+        autoExtractMode: '' | 'never' | 'summary' | 'trim_and_summary' | 'llm_extract' | 'all';
     };
     /** Templates available for the compaction `<select>` controls. */
     compactionTemplateChoices: Array<{ id: string; name: string }>;
@@ -1842,6 +1926,9 @@ export async function gatherStatusData(): Promise<StatusData> {
             historyMode: typeof v?.historyMode === 'string' ? v.historyMode : '',
             enabledTools: Array.isArray(v?.enabledTools) ? v.enabledTools : [],
             keepAlive: typeof v?.keepAlive === 'string' ? v.keepAlive : '',
+            maxRounds: typeof v?.maxRounds === 'number' ? v.maxRounds : 10,
+            maxTokens: typeof v?.maxTokens === 'number' ? v.maxTokens : 8192,
+            toolsEnabled: typeof v?.toolsEnabled === 'boolean' ? v.toolsEnabled : true,
         })),
         setups: setups.map((v: any) => ({
             id: v?.id || '',
@@ -1868,14 +1955,24 @@ export async function gatherStatusData(): Promise<StatusData> {
             runMemoryExtractionOnCompaction: (sendToChatConfig?.compaction as { runMemoryExtractionOnCompaction?: boolean })?.runMemoryExtractionOnCompaction !== false,
             rebuildFromLastNPrompts: sendToChatConfig?.compaction?.rebuildFromLastNPrompts ?? 200,
             archiveHistoryEveryTurn: (sendToChatConfig?.compaction as { archiveHistoryEveryTurn?: boolean })?.archiveHistoryEveryTurn === true,
-            toolTrailMaxResultChars: sendToChatConfig?.compaction?.toolTrailMaxResultChars ?? 500,
+            toolTrailMaxResultChars: sendToChatConfig?.compaction?.toolTrailMaxResultChars ?? 1000,
+            toolTrailKeepRounds: sendToChatConfig?.compaction?.toolTrailKeepRounds ?? 2,
+            rawTurnsKept: sendToChatConfig?.compaction?.rawTurnsKept ?? 4,
             backgroundExtractionEnabled: sendToChatConfig?.compaction?.backgroundExtractionEnabled === true,
         },
         anthropicMemory: (() => {
             const anthropic = getAnthropicSection();
+            const mem = (anthropic.memory ?? {}) as {
+                memoryToolsEnabled?: boolean;
+                maxInjectedTokens?: number;
+                memoryExtractionTemplateId?: string;
+                autoExtractMode?: 'never' | 'summary' | 'trim_and_summary' | 'llm_extract' | 'all';
+            };
             return {
-                memoryToolsEnabled: anthropic.memory?.memoryToolsEnabled === true,
-                maxInjectedTokens: anthropic.memory?.maxInjectedTokens ?? 3000,
+                memoryToolsEnabled: mem.memoryToolsEnabled === true,
+                maxInjectedTokens: mem.maxInjectedTokens ?? 3000,
+                memoryExtractionTemplateId: mem.memoryExtractionTemplateId ?? '',
+                autoExtractMode: (mem.autoExtractMode ?? '') as '' | 'never' | 'summary' | 'trim_and_summary' | 'llm_extract' | 'all',
             };
         })(),
         compactionTemplateChoices: (sendToChatConfig?.compaction?.templates || []).map((t) => ({
@@ -2028,19 +2125,52 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
                 <input type="number" data-field="temperature" value="${cfg.temperature}" step="0.1" min="0" max="2">
                 <label>Trail Tokens:</label>
                 <input type="number" data-field="trailMaximumTokens" value="${cfg.trailMaximumTokens}" step="1000" min="1000">
+                <label title="Maximum response tokens (maxTokens on the synthesised AnthropicConfiguration).">Max Tokens:</label>
+                <input type="number" data-field="maxTokens" value="${cfg.maxTokens ?? 8192}" step="1024" min="256">
+            </div>
+            <div class="sp-settings-row">
+                <label title="Maximum tool-call rounds before the model is forced to produce a text answer. Set to >= 2 for any tool use.">Max Rounds:</label>
+                <input type="number" data-field="maxRounds" value="${cfg.maxRounds ?? 10}" step="1" min="1">
+                <label title="When OFF, no tools array is sent. Required for vLLM / llama.cpp servers launched without --enable-auto-tool-choice + --tool-call-parser.">Tools:</label>
+                <select data-field="toolsEnabled">
+                    <option value="true"${cfg.toolsEnabled !== false ? ' selected' : ''}>Enabled</option>
+                    <option value="false"${cfg.toolsEnabled === false ? ' selected' : ''}>Disabled</option>
+                </select>
             </div>
             <div class="sp-settings-row">
                 <label>Sum Temp:</label>
                 <input type="number" data-field="trailSummarizationTemperature" value="${cfg.trailSummarizationTemperature}" step="0.1" min="0" max="2">
                 <label>Keep Alive:</label>
                 <input type="text" data-field="keepAlive" value="${cfg.keepAlive || '5m'}" placeholder="5m">
-                <label>History:</label>
+                <label title="How the conversation history is shaped before each send. 'trim_and_summary' (recommended) keeps the most-recent rawTurnsKept pairs verbatim and folds older overflow into the running compactedSummary.">History:</label>
                 <select data-field="historyMode">
-                    <option value="full" ${cfg.historyMode === 'full' ? 'selected' : ''}>Full</option>
-                    <option value="last" ${cfg.historyMode === 'last' ? 'selected' : ''}>Last</option>
-                    <option value="summary" ${cfg.historyMode === 'summary' ? 'selected' : ''}>Summary</option>
-                    <option value="trim_and_summary" ${cfg.historyMode === 'trim_and_summary' || !cfg.historyMode ? 'selected' : ''}>Trim+Summary</option>
+                    <option value="none" ${cfg.historyMode === 'none' ? 'selected' : ''}>None (no history)</option>
+                    <option value="last" ${cfg.historyMode === 'last' ? 'selected' : ''}>Last (most recent pair)</option>
+                    <option value="full" ${cfg.historyMode === 'full' ? 'selected' : ''}>Full (capped by fullTrailMaxTurns)</option>
+                    <option value="summary" ${cfg.historyMode === 'summary' ? 'selected' : ''}>Summary (batch)</option>
+                    <option value="trim_and_summary" ${cfg.historyMode === 'trim_and_summary' || !cfg.historyMode ? 'selected' : ''}>Trim+Summary (incremental)</option>
+                    <option value="llm_extract" ${cfg.historyMode === 'llm_extract' ? 'selected' : ''}>LLM Extract (memory)</option>
                 </select>
+            </div>
+            <div class="sp-settings-row">
+                <label title="Per-configuration override for compaction.rawTurnsKept. Number of recent user/assistant turn pairs (2 messages each) kept verbatim. Overflow is folded into the compacted summary. Leave 0/empty to inherit the compaction-level default.">Raw turn pairs:</label>
+                <input type="number" data-field="rawTurnsKept" value="${cfg.rawTurnsKept ?? ''}" placeholder="(inherit)" min="0" max="500" style="width:80px">
+                <label title="Per-configuration override for compaction.maxHistoryTokens. Token budget for the compacted summary. Empty = inherit.">Max history tokens:</label>
+                <input type="number" data-field="maxHistoryTokens" value="${cfg.maxHistoryTokens ?? ''}" placeholder="(inherit)" min="0" step="500" style="width:90px">
+            </div>
+            <div class="sp-settings-row">
+                <label title="Per-configuration override for compaction.historyMaxChars. Hard char cap on \${existingSummary} / \${compactedSummary} injection into the compactor prompt. Empty = inherit.">History max chars:</label>
+                <input type="number" data-field="historyMaxChars" value="${cfg.historyMaxChars ?? ''}" placeholder="(inherit)" min="0" step="1000" style="width:90px">
+                <label title="Per-configuration override for compaction.memoryMaxChars. Hard char cap on \${existingMemory} injection into the memory-extraction prompt. Empty = inherit.">Memory max chars:</label>
+                <input type="number" data-field="memoryMaxChars" value="${cfg.memoryMaxChars ?? ''}" placeholder="(inherit)" min="0" step="1000" style="width:90px">
+            </div>
+            <div class="sp-settings-row">
+                <label title="Per-configuration override for compaction.toolTrailMaxResultChars. Each tool_result block kept inline is truncated to this many chars; the full body remains recoverable via tomAi_readPastToolResult. Empty = inherit.">Tool result max chars:</label>
+                <input type="number" data-field="toolTrailMaxResultChars" value="${cfg.toolTrailMaxResultChars ?? ''}" placeholder="(inherit)" min="0" step="100" style="width:90px">
+                <label title="Per-configuration override for compaction.toolTrailKeepRounds. Most-recent N tool rounds keep (truncated) bodies inline; older rounds become a one-line stub naming the replay key. Empty = inherit.">Tool keep rounds:</label>
+                <input type="number" data-field="toolTrailKeepRounds" value="${cfg.toolTrailKeepRounds ?? ''}" placeholder="(inherit)" min="0" max="50" style="width:80px">
+                <label title="When checked, this configuration is picked when no specific id is requested.">Default:</label>
+                <input type="checkbox" data-field="isDefault" ${cfg.isDefault ? 'checked' : ''}>
             </div>
             <div class="sp-settings-row">
                 <label>Answer Folder:</label>
@@ -2478,10 +2608,16 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
                  per-template (see the "Tools" row inside each template's
                  editor). The section-level picker has been removed. -->
             <div class="sp-settings-row">
-                <label title="Number of raw user+assistant rounds sent verbatim with every request, alongside the compacted summary. Higher = more fidelity on recent turns, more tokens used.">Raw rounds kept:</label>
-                <input type="number" id="sp-comp-maxRounds" value="${status.compaction.compactionMaxRounds}" min="1" max="20" style="width:60px">
+                <label title="Raw user+assistant turn PAIRS kept verbatim alongside the compacted summary. Overflow gets folded into the running summary via the configured compaction template every turn the budget is exceeded. Per-LLM-configuration override available on each LLM configuration card.">Raw turn pairs kept:</label>
+                <input type="number" id="sp-comp-rawTurnsKept" value="${status.compaction.rawTurnsKept}" min="0" max="500" style="width:80px">
                 <label title="Target size of the compacted-history summary in tokens. Summaries aim for roughly this size; the compaction template should reference \${maxHistoryTokens} / \${maxHistorySize}.">Compacted history max tokens:</label>
                 <input type="number" id="sp-comp-maxHistoryTokens" value="${status.compaction.maxHistoryTokens}" min="1000" style="width:90px">
+            </div>
+            <div class="sp-settings-row">
+                <label title="Maximum tool-call rounds the COMPACTOR LLM may run within one compaction pass. Most templates need 1; the few that use tools (memory read, file lookup) can use a few. NOT related to the main chat's tool loop or the raw-history cap.">Compaction tool rounds:</label>
+                <input type="number" id="sp-comp-maxRounds" value="${status.compaction.compactionMaxRounds}" min="1" max="40" style="width:60px">
+                <label title="Most-recent N tool rounds kept inline (each truncated to Tool result max chars). Older rounds are replaced with a one-line stub naming the replay key; full bodies remain recoverable via tomAi_readPastToolResult.">Tool keep rounds:</label>
+                <input type="number" id="sp-comp-toolTrailKeepRounds" value="${status.compaction.toolTrailKeepRounds}" min="0" max="50" style="width:80px">
             </div>
             <div class="sp-settings-row">
                 <label title="Hard char cap on history content (compacted summary + related context) injected into the compaction and memory-extraction prompts. Also exposed to the compaction template as \${historyMaxChars} so the LLM steers output toward this size. 24000 is a safe default for MoE local models; bump up for high-context cloud configs.">History max chars:</label>
@@ -2515,6 +2651,24 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
                 </select>
                 <label title="Upper bound on memory content injected into the Anthropic system prompt at send time. Only applies when the memory tools are disabled (otherwise the agent reads memory on demand via tools, so no injection happens).">Memory max injected tokens:</label>
                 <input type="number" id="sp-mem-maxInjectedTokens" value="${status.anthropicMemory.maxInjectedTokens}" min="0" max="32000" style="width:90px">
+            </div>
+            <div class="sp-settings-row">
+                <label title="Anthropic-side cross-config DEFAULT for the memory-extraction template (anthropic.memory.memoryExtractionTemplateId). Per-pass override lives in compaction.memoryExtractionTemplateId above; this is the fallback used when an Anthropic configuration doesn't override it.">Default memory extraction template:</label>
+                <select id="sp-mem-memoryExtractionTemplateId">
+                    <option value="">(inherit compaction default)</option>
+                    ${status.memoryExtractionTemplateChoices.map(t => `<option value="${t.id}" ${t.id === status.anthropicMemory.memoryExtractionTemplateId ? 'selected' : ''}>${escapeHtmlContent(t.name)}</option>`).join('')}
+                </select>
+            </div>
+            <div class="sp-settings-row">
+                <label title="Which history modes trigger background memory extraction after each Anthropic turn. 'all' fires extraction on every turn regardless of mode; 'never' disables it entirely; the named modes trigger only when the active configuration's historyMode matches.">Auto-extract on history mode:</label>
+                <select id="sp-mem-autoExtractMode">
+                    <option value="" ${!status.anthropicMemory.autoExtractMode ? 'selected' : ''}>(default — all)</option>
+                    <option value="never" ${status.anthropicMemory.autoExtractMode === 'never' ? 'selected' : ''}>Never</option>
+                    <option value="summary" ${status.anthropicMemory.autoExtractMode === 'summary' ? 'selected' : ''}>Only on Summary mode</option>
+                    <option value="trim_and_summary" ${status.anthropicMemory.autoExtractMode === 'trim_and_summary' ? 'selected' : ''}>Only on Trim+Summary mode</option>
+                    <option value="llm_extract" ${status.anthropicMemory.autoExtractMode === 'llm_extract' ? 'selected' : ''}>Only on LLM Extract mode</option>
+                    <option value="all" ${status.anthropicMemory.autoExtractMode === 'all' ? 'selected' : ''}>All modes</option>
+                </select>
             </div>
             <div class="sp-settings-row">
                 <label>Tool trail max chars:</label>
@@ -2880,7 +3034,11 @@ function attachStatusPanelListeners(skipEditorInit) {
                     archiveHistoryEveryTurn: (document.getElementById('sp-comp-archiveHistoryEveryTurn') || {}).value === 'true',
                     memoryToolsEnabled: (document.getElementById('sp-mem-memoryToolsEnabled') || {}).value === 'true',
                     memoryMaxInjectedTokens: parseInt((document.getElementById('sp-mem-maxInjectedTokens') || {}).value || '3000'),
-                    toolTrailMaxResultChars: parseInt((document.getElementById('sp-comp-toolTrailMaxResultChars') || {}).value || '500'),
+                    memoryDefaultExtractionTemplateId: (document.getElementById('sp-mem-memoryExtractionTemplateId') || {}).value || '',
+                    memoryAutoExtractMode: (document.getElementById('sp-mem-autoExtractMode') || {}).value || '',
+                    toolTrailMaxResultChars: parseInt((document.getElementById('sp-comp-toolTrailMaxResultChars') || {}).value || '1000'),
+                    toolTrailKeepRounds: parseInt((document.getElementById('sp-comp-toolTrailKeepRounds') || {}).value || '2'),
+                    rawTurnsKept: parseInt((document.getElementById('sp-comp-rawTurnsKept') || {}).value || '4'),
                     trailMaxRawFiles: parseInt((document.getElementById('sp-comp-trailMaxRawFiles') || {}).value || '1000'),
                     backgroundExtractionEnabled: (document.getElementById('sp-comp-backgroundExtractionEnabled') || {}).value === 'true'
                 };
@@ -3616,8 +3774,12 @@ function renderLlmConfigurations() {
                 '<button class="sp-btn small danger" data-status-action="deleteLlmConfiguration" data-config-id="' + id + '">🗑️</button>' +
             '</div>' +
             '<div class="sp-settings-row"><label>URL:</label><input type="text" data-field="ollamaUrl" value="' + (cfg.ollamaUrl || 'http://localhost:11434') + '" style="flex:2"><label>API:</label><select data-field="apiStyle" title="Ollama: /api/chat. OpenAI: /v1/chat/completions (vLLM, LM Studio, llama.cpp)"><option value="ollama" ' + ((cfg.apiStyle || 'ollama') === 'ollama' ? 'selected' : '') + '>Ollama</option><option value="openai" ' + (cfg.apiStyle === 'openai' ? 'selected' : '') + '>OpenAI/vLLM</option></select><label>Model:</label><input type="text" data-field="model" value="' + (cfg.model || 'qwen3:8b') + '" style="flex:1"></div>' +
-            '<div class="sp-settings-row"><label>Temp:</label><input type="number" data-field="temperature" value="' + (cfg.temperature ?? 0.4) + '" step="0.1" min="0" max="2"><label>Trail Tokens:</label><input type="number" data-field="trailMaximumTokens" value="' + (cfg.trailMaximumTokens ?? 8000) + '" step="1000" min="1000"></div>' +
-            '<div class="sp-settings-row"><label>Sum Temp:</label><input type="number" data-field="trailSummarizationTemperature" value="' + (cfg.trailSummarizationTemperature ?? 0.3) + '" step="0.1" min="0" max="2"><label>Keep Alive:</label><input type="text" data-field="keepAlive" value="' + (cfg.keepAlive || '5m') + '"><label>History:</label><select data-field="historyMode"><option value="full" ' + (cfg.historyMode === 'full' ? 'selected' : '') + '>Full</option><option value="last" ' + (cfg.historyMode === 'last' ? 'selected' : '') + '>Last</option><option value="summary" ' + (cfg.historyMode === 'summary' ? 'selected' : '') + '>Summary</option><option value="trim_and_summary" ' + ((!cfg.historyMode || cfg.historyMode === 'trim_and_summary') ? 'selected' : '') + '>Trim+Summary</option></select></div>' +
+            '<div class="sp-settings-row"><label>Temp:</label><input type="number" data-field="temperature" value="' + (cfg.temperature ?? 0.4) + '" step="0.1" min="0" max="2"><label>Trail Tokens:</label><input type="number" data-field="trailMaximumTokens" value="' + (cfg.trailMaximumTokens ?? 8000) + '" step="1000" min="1000"><label title="Maximum response tokens (maxTokens on the synthesised AnthropicConfiguration).">Max Tokens:</label><input type="number" data-field="maxTokens" value="' + (cfg.maxTokens ?? 8192) + '" step="1024" min="256"></div>' +
+            '<div class="sp-settings-row"><label title="Maximum tool-call rounds before the model is forced to produce a text answer. Set to >= 2 for any tool use.">Max Rounds:</label><input type="number" data-field="maxRounds" value="' + (cfg.maxRounds ?? 10) + '" step="1" min="1"><label title="When OFF, no tools array is sent. Required for vLLM / llama.cpp servers launched without --enable-auto-tool-choice + --tool-call-parser.">Tools:</label><select data-field="toolsEnabled"><option value="true" ' + (cfg.toolsEnabled !== false ? 'selected' : '') + '>Enabled</option><option value="false" ' + (cfg.toolsEnabled === false ? 'selected' : '') + '>Disabled</option></select></div>' +
+            '<div class="sp-settings-row"><label>Sum Temp:</label><input type="number" data-field="trailSummarizationTemperature" value="' + (cfg.trailSummarizationTemperature ?? 0.3) + '" step="0.1" min="0" max="2"><label>Keep Alive:</label><input type="text" data-field="keepAlive" value="' + (cfg.keepAlive || '5m') + '"><label>History:</label><select data-field="historyMode"><option value="none" ' + (cfg.historyMode === 'none' ? 'selected' : '') + '>None (no history)</option><option value="last" ' + (cfg.historyMode === 'last' ? 'selected' : '') + '>Last (most recent pair)</option><option value="full" ' + (cfg.historyMode === 'full' ? 'selected' : '') + '>Full (capped)</option><option value="summary" ' + (cfg.historyMode === 'summary' ? 'selected' : '') + '>Summary (batch)</option><option value="trim_and_summary" ' + ((!cfg.historyMode || cfg.historyMode === 'trim_and_summary') ? 'selected' : '') + '>Trim+Summary (incremental)</option><option value="llm_extract" ' + (cfg.historyMode === 'llm_extract' ? 'selected' : '') + '>LLM Extract</option></select></div>' +
+            '<div class="sp-settings-row"><label title="Per-configuration override for compaction.rawTurnsKept. Empty = inherit.">Raw turn pairs:</label><input type="number" data-field="rawTurnsKept" value="' + (cfg.rawTurnsKept ?? '') + '" placeholder="(inherit)" min="0" max="500" style="width:80px"><label title="Per-configuration override for compaction.maxHistoryTokens. Empty = inherit.">Max history tokens:</label><input type="number" data-field="maxHistoryTokens" value="' + (cfg.maxHistoryTokens ?? '') + '" placeholder="(inherit)" min="0" step="500" style="width:90px"></div>' +
+            '<div class="sp-settings-row"><label title="Per-configuration override for compaction.historyMaxChars. Empty = inherit.">History max chars:</label><input type="number" data-field="historyMaxChars" value="' + (cfg.historyMaxChars ?? '') + '" placeholder="(inherit)" min="0" step="1000" style="width:90px"><label title="Per-configuration override for compaction.memoryMaxChars. Empty = inherit.">Memory max chars:</label><input type="number" data-field="memoryMaxChars" value="' + (cfg.memoryMaxChars ?? '') + '" placeholder="(inherit)" min="0" step="1000" style="width:90px"></div>' +
+            '<div class="sp-settings-row"><label title="Per-configuration override for compaction.toolTrailMaxResultChars. Empty = inherit.">Tool result max chars:</label><input type="number" data-field="toolTrailMaxResultChars" value="' + (cfg.toolTrailMaxResultChars ?? '') + '" placeholder="(inherit)" min="0" step="100" style="width:90px"><label title="Per-configuration override for compaction.toolTrailKeepRounds. Empty = inherit.">Tool keep rounds:</label><input type="number" data-field="toolTrailKeepRounds" value="' + (cfg.toolTrailKeepRounds ?? '') + '" placeholder="(inherit)" min="0" max="50" style="width:80px"><label title="When checked, this configuration is the default LLM configuration.">Default:</label><input type="checkbox" data-field="isDefault" ' + (cfg.isDefault ? 'checked' : '') + '></div>' +
             '<div class="sp-settings-row"><label>Answer Folder:</label><input type="text" data-field="answerFolder" value="' + (cfg.answerFolder || '') + '" style="flex:2"><label>Log Folder:</label><input type="text" data-field="logFolder" value="' + (cfg.logFolder || '') + '" style="flex:2"></div>' +
             '<div class="sp-settings-row"><label>Summary Prompt:</label><textarea data-field="trailSummarizationPrompt" rows="3" style="flex:1">' + summaryPrompt + '</textarea></div>' +
             '<div class="sp-settings-row"><label>Strip Think:</label><select data-field="stripThinkingTags"><option value="true" ' + (cfg.stripThinkingTags ? 'selected' : '') + '>Yes</option><option value="false" ' + (!cfg.stripThinkingTags ? 'selected' : '') + '>No</option></select><label>Rm Template:</label><select data-field="removePromptTemplateFromTrail"><option value="true" ' + (cfg.removePromptTemplateFromTrail ? 'selected' : '') + '>Yes</option><option value="false" ' + (!cfg.removePromptTemplateFromTrail ? 'selected' : '') + '>No</option></select></div>' +
@@ -3626,6 +3788,18 @@ function renderLlmConfigurations() {
     }).join('');
 
     attachStatusPanelListeners(true);
+    // Enforce exclusive isDefault on the client side too — ticking one
+    // card unchecks the others immediately so the visual state matches
+    // what the server will persist on save.
+    document.querySelectorAll('.sp-llmconfig-card [data-field="isDefault"]').forEach(function(cb) {
+        cb.addEventListener('change', function(ev) {
+            if (ev.target.checked) {
+                document.querySelectorAll('.sp-llmconfig-card [data-field="isDefault"]').forEach(function(other) {
+                    if (other !== ev.target) { other.checked = false; }
+                });
+            }
+        });
+    });
 }
 
 function addLlmConfiguration() {
@@ -3646,6 +3820,9 @@ function addLlmConfiguration() {
         logFolder: '',
         historyMode: 'trim_and_summary',
         keepAlive: '5m',
+        maxRounds: 10,
+        maxTokens: 8192,
+        toolsEnabled: true,
         enabledTools: ['tomAi_readFile', 'tomAi_listDirectory', 'tomAi_findFiles', 'tomAi_findTextInFiles', 'tomAi_fetchWebpage', 'tomAi_webSearch', 'tomAi_getErrors', 'tomAi_readGlobalGuideline', 'tomAi_listGlobalGuidelines', 'tomAi_askBigBrother', 'tomAi_askCopilot']
     };
     __llmConfigs.push(cfg);
@@ -3655,6 +3832,17 @@ function addLlmConfiguration() {
 function saveLlmConfigurations() {
     var configurations = collectLlmConfigurationsData();
     vscode.postMessage({ type: 'statusAction', action: 'saveLlmConfigurations', configurations: configurations });
+}
+
+// Parse an optional integer from a form input value. Returns undefined for
+// empty strings / NaN so the saved config inherits the compaction-level
+// fallback instead of pinning the field to 0.
+function _parseOptionalInt(s) {
+    if (s === undefined || s === null) return undefined;
+    var trimmed = String(s).trim();
+    if (trimmed === '') return undefined;
+    var n = parseInt(trimmed, 10);
+    return Number.isFinite(n) ? n : undefined;
 }
 
 function collectLlmConfigurationsData() {
@@ -3678,6 +3866,17 @@ function collectLlmConfigurationsData() {
             logFolder: card.querySelector('[data-field="logFolder"]')?.value || '',
             historyMode: card.querySelector('[data-field="historyMode"]')?.value || '',
             keepAlive: card.querySelector('[data-field="keepAlive"]')?.value || '',
+            maxRounds: parseInt(card.querySelector('[data-field="maxRounds"]')?.value || 'NaN'),
+            maxTokens: parseInt(card.querySelector('[data-field="maxTokens"]')?.value || 'NaN'),
+            toolsEnabled: card.querySelector('[data-field="toolsEnabled"]')?.value === 'true',
+            isDefault: card.querySelector('[data-field="isDefault"]')?.checked === true,
+            // Per-configuration compaction overrides. Empty string → undefined (inherit).
+            rawTurnsKept: _parseOptionalInt(card.querySelector('[data-field="rawTurnsKept"]')?.value),
+            maxHistoryTokens: _parseOptionalInt(card.querySelector('[data-field="maxHistoryTokens"]')?.value),
+            historyMaxChars: _parseOptionalInt(card.querySelector('[data-field="historyMaxChars"]')?.value),
+            memoryMaxChars: _parseOptionalInt(card.querySelector('[data-field="memoryMaxChars"]')?.value),
+            toolTrailMaxResultChars: _parseOptionalInt(card.querySelector('[data-field="toolTrailMaxResultChars"]')?.value),
+            toolTrailKeepRounds: _parseOptionalInt(card.querySelector('[data-field="toolTrailKeepRounds"]')?.value),
             enabledTools: []
         };
         // Collect enabled tools

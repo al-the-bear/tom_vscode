@@ -618,10 +618,19 @@ class MdBrowserPanel {
 // ============================================================================
 
 /**
- * Singleton for the live-trail panel (`tomAi.openInMdBrowserLive`).
- * Reused on every live-open so the trail always updates in the same window.
+ * Live-panel instances keyed by **absolute file path**.
+ *
+ * The previous implementation was a single module-level instance, which
+ * meant the second `openInMdBrowserLive` call (e.g. opening the LocalLLM
+ * live trail while the Anthropic live trail was already open) reused
+ * the same panel and navigated it away from the first file. With this
+ * map, each distinct file gets its own panel — so the user can watch
+ * both trails side by side — and reopening the same file just reveals
+ * the panel that's already showing it. The dispose callback (passed to
+ * the panel constructor) deletes the map entry so a fresh open after a
+ * close creates a new panel.
  */
-let livePanelInstance: MdBrowserPanel | undefined;
+const livePanelInstances = new Map<string, MdBrowserPanel>();
 
 // ============================================================================
 // Public API
@@ -643,16 +652,32 @@ export function openMarkdownBrowser(
         if (MD_BROWSER_DEBUG) debugLog(`[MdBrowser] openMarkdownBrowser file=${filePath} liveMode=${options?.liveMode === true}`, 'INFO', 'mdBrowser');
 
         if (options?.liveMode === true) {
-            // --- Live panel: reuse singleton ---
-            if (livePanelInstance) {
-                livePanelInstance.reveal();
-                livePanelInstance.upgradeLiveMode();
-                livePanelInstance.navigateTo(filePath);
+            // --- Live panel: one panel per file path ---
+            // Normalise the key so e.g. trailing-slash quirks or
+            // case-insensitive filesystems can't accidentally produce
+            // two map entries for the same file.
+            const key = path.resolve(filePath);
+            const existing = livePanelInstances.get(key);
+            if (existing) {
+                existing.reveal();
+                existing.upgradeLiveMode();
+                // Same file already showing — re-issue navigateTo
+                // defensively so the panel rebinds its watcher in case
+                // the file was deleted + recreated between opens.
+                existing.navigateTo(filePath);
                 return;
             }
-            livePanelInstance = new MdBrowserPanel(context, filePath, true, () => {
-                livePanelInstance = undefined;
+            const fresh = new MdBrowserPanel(context, filePath, true, () => {
+                // Only clear the entry if it still points at this
+                // panel — guards against a race where the user closes
+                // panel A while panel B for the same file was being
+                // created (shouldn't happen with our flow, but
+                // defensive against a future refactor).
+                if (livePanelInstances.get(key) === fresh) {
+                    livePanelInstances.delete(key);
+                }
             });
+            livePanelInstances.set(key, fresh);
         } else {
             // --- Static panel: always open a fresh window ---
             new MdBrowserPanel(context, filePath, false, () => {

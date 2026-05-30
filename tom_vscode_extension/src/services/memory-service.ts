@@ -235,8 +235,14 @@ export class TwoTierMemoryService {
      * Build a memory block for the system prompt, respecting a token
      * budget. Shared memory is included first (priority per §5.2);
      * quest memory files fill the remaining budget newest-first.
+     *
+     * When `suffix` is provided (e.g. 'gemma4'), the file selection is
+     * restricted to `facts-<suffix>.md` only — used by LocalLLM profiles
+     * that want their own isolated memory bucket without sharing files
+     * with other profiles. Default (suffix omitted) preserves the
+     * legacy "inject every file in scope" behaviour.
      */
-    injectForSystemPrompt(maxTokens: number = DEFAULT_MAX_INJECTED_TOKENS, questId?: string): MemoryInjection {
+    injectForSystemPrompt(maxTokens: number = DEFAULT_MAX_INJECTED_TOKENS, questId?: string, suffix?: string): MemoryInjection {
         const budget = Math.max(0, maxTokens);
         const charBudget = budget * CHARS_PER_TOKEN;
         const pieces: string[] = [];
@@ -245,6 +251,12 @@ export class TwoTierMemoryService {
 
         const orderedShared = this.listWithMeta('shared', questId);
         const orderedQuest = this.listWithMeta('quest', questId).sort((a, b) => b.mtime - a.mtime);
+        // When a suffix is set, ignore everything except the exact
+        // `facts-<suffix>.md` file in each scope. We don't broaden to
+        // any `*-<suffix>.md` because the user spec was precise.
+        const filter = suffix
+            ? (e: MemoryListEntry) => e.file === `facts-${suffix}.md`
+            : () => true;
 
         const add = (entry: MemoryListEntry): boolean => {
             const body = this.read(entry.scope, entry.file, questId).trim();
@@ -261,8 +273,8 @@ export class TwoTierMemoryService {
             return true;
         };
 
-        for (const entry of orderedShared) { add(entry); }
-        for (const entry of orderedQuest) { add(entry); }
+        for (const entry of orderedShared.filter(filter)) { add(entry); }
+        for (const entry of orderedQuest.filter(filter)) { add(entry); }
 
         const text = pieces.length > 0
             ? `## Memory\n\n${pieces.join('\n')}`
@@ -315,7 +327,7 @@ export class TwoTierMemoryService {
      * Quietly no-ops on I/O error — persistence failure must never
      * affect the user-visible turn result.
      */
-    persistHistorySnapshot(messages: unknown, questId?: string, archive: boolean = false): string | undefined {
+    persistHistorySnapshot(messages: unknown, questId?: string, archive: boolean = false, suffix?: string): string | undefined {
         try {
             const folder = this.historyFolder(questId);
             FsUtils.ensureDir(folder);
@@ -327,15 +339,19 @@ export class TwoTierMemoryService {
                 savedAt,
                 questId: questId || this.currentQuest() || 'default',
             });
-            // Single rolling pair.
-            const canonicalJson = path.join(folder, 'history.json');
-            const canonicalMd = path.join(folder, 'history.md');
+            // Single rolling pair. When a suffix is provided, write to
+            // `history-<suffix>.{json,md}` in the same folder so each
+            // profile can own its own conversation thread without
+            // clobbering the canonical pair (used by Anthropic).
+            const base = suffix ? `history-${suffix}` : 'history';
+            const canonicalJson = path.join(folder, `${base}.json`);
+            const canonicalMd = path.join(folder, `${base}.md`);
             fs.writeFileSync(canonicalJson, jsonContent, 'utf-8');
             fs.writeFileSync(canonicalMd, mdContent, 'utf-8');
             if (archive) {
                 const stamp = this.timestampNow();
-                const archiveJson = path.join(folder, `${stamp}.history.json`);
-                const archiveMd = path.join(folder, `${stamp}.history.md`);
+                const archiveJson = path.join(folder, `${stamp}.${base}.json`);
+                const archiveMd = path.join(folder, `${stamp}.${base}.md`);
                 fs.writeFileSync(archiveJson, jsonContent, 'utf-8');
                 fs.writeFileSync(archiveMd, mdContent, 'utf-8');
             }
@@ -352,21 +368,27 @@ export class TwoTierMemoryService {
      * canonical file was deleted manually). Returns the raw messages
      * payload, or `undefined` when no snapshot can be read.
      */
-    loadLatestHistorySnapshot<T = unknown>(questId?: string): T | undefined {
+    loadLatestHistorySnapshot<T = unknown>(questId?: string, suffix?: string): T | undefined {
         try {
             const folder = this.historyFolder(questId);
             if (!fs.existsSync(folder)) {
                 return undefined;
             }
-            // 1. Prefer the rolling `history.json`.
-            const canonical = path.join(folder, 'history.json');
+            const base = suffix ? `history-${suffix}` : 'history';
+            const canonicalName = `${base}.json`;
+            // 1. Prefer the rolling `<base>.json`.
+            const canonical = path.join(folder, canonicalName);
             if (fs.existsSync(canonical)) {
                 const raw = FsUtils.safeReadJson<{ messages?: T }>(canonical);
                 if (raw?.messages !== undefined) { return raw.messages; }
             }
-            // 2. Fall back to the most recent archive file, if any.
+            // 2. Fall back to the most recent archive file MATCHING this
+            //    suffix (`<ts>.<base>.json`). Cross-suffix files are
+            //    ignored so a profile never resurrects another profile's
+            //    snapshot when the canonical file is gone.
+            const archiveTail = `.${base}.json`;
             const entries = fs.readdirSync(folder)
-                .filter((n) => n !== 'history.json' && n.endsWith('.history.json'))
+                .filter((n) => n !== canonicalName && n.endsWith(archiveTail))
                 .map((n) => ({ n, mtime: fs.statSync(path.join(folder, n)).mtimeMs }))
                 .sort((a, b) => b.mtime - a.mtime);
             if (entries.length === 0) {

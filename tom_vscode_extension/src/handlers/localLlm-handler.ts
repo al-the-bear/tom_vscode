@@ -31,11 +31,24 @@ import {
 } from '../tools/shared-tool-registry';
 import { READ_ONLY_TOOLS, ALL_SHARED_TOOLS } from '../tools/tool-executors';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
+import { withRetryBudget } from '../utils/retryWithBudget';
 import {
     logPrompt, logResponse, logToolRequest, logToolResult,
     logContinuationPrompt, isTrailEnabled, loadTrailConfig,
     type TrailType,
 } from '../services/trailLogging';
+import { ToolTrail, setActiveToolTrail } from '../services/tool-trail';
+import { writeToolResult } from '../services/tool-result-store';
+import { TwoTierMemoryService } from '../services/memory-service';
+import { LiveTrailWriter } from '../services/live-trail';
+
+/**
+ * Canonical Local LLM live-trail file name. Lives in the quest folder
+ * next to the Anthropic-side `live-trail.md` so both transports update
+ * parallel trails without clobbering each other. Centralised constant so
+ * the panel's Open button can resolve the same path the handler writes.
+ */
+export const LOCAL_LLM_LIVE_TRAIL_FILENAME = 'live-trail-localLLM.md';
 
 // ============================================================================
 // Interfaces
@@ -96,6 +109,29 @@ export interface LlmConfiguration {
     isDefault?: boolean;
     /** Ollama keep_alive duration (e.g. "5m", "1h", "0", "-1"). Default: "5m". Ignored by OpenAI-style endpoints. */
     keepAlive?: string;
+    /**
+     * Maximum tool-call rounds when this configuration drives an Anthropic
+     * profile (`transport: 'localLlm'`). Defaults to 10 in
+     * `resolveAnthropicTargets` when unset. The local-LLM leaf strips tools
+     * on the final round to force a text answer, so set this >= 2 to allow
+     * any tool use at all.
+     */
+    maxRounds?: number;
+    /**
+     * Master switch for tool use through this configuration. When `false`,
+     * the dispatcher omits the `tools` array entirely. This is the right
+     * setting for OpenAI-compatible endpoints (vLLM, llama.cpp, LM Studio)
+     * launched without tool-call-parser support — sending `tools` triggers
+     * a server-side `"auto" tool choice requires --enable-auto-tool-choice
+     * and --tool-call-parser to be set` rejection. Defaults to `true`.
+     */
+    toolsEnabled?: boolean;
+    /**
+     * History injection mode when this configuration backs an Anthropic
+     * profile. See `sendViaLocalLlm` for the per-mode behaviour. Defaults
+     * to `'last'` for synthesised Local-LLM configs (small-context-friendly).
+     */
+    historyMode?: 'last' | 'all' | 'full' | 'summary' | 'trim_and_summary' | 'llm_extract';
 }
 
 /** A named expansion profile. */
@@ -118,6 +154,28 @@ export interface ExpanderProfile {
     maxRounds?: number;
     /** Override history mode (null → inherit top-level). */
     historyMode?: LocalLlmHistoryMode | null;
+    /** Profile-level tool subset; honored when toolsEnabled === false. */
+    enabledTools?: string[];
+    /** Strip <think>…</think> blocks from the model's response. */
+    stripThinkingTags?: boolean;
+    /**
+     * Suffix for the per-profile history snapshot files in
+     * `_ai/quests/<quest>/history/`. When set, the manager reads/writes
+     * `history-<historySuffix>.{json,md}` instead of the canonical
+     * `history.{json,md}` pair so each profile can own its own
+     * conversation thread.
+     */
+    historySuffix?: string;
+    /**
+     * Suffix for the per-profile memory file. When set, the `${memory}`
+     * placeholder injects only `facts-<memorySuffix>.md` from each scope.
+     */
+    memorySuffix?: string;
+    /**
+     * When true, append `\n\n## Memory\n\n${memory}` to the resolved
+     * system prompt automatically. Mirrors `AnthropicProfile.autoInjectMemory`.
+     */
+    autoInjectMemory?: boolean;
 }
 
 /** History mode for Local LLM. */
@@ -263,18 +321,82 @@ export interface LocalLlmMessage {
 export class LocalLlmManager {
     private context: vscode.ExtensionContext;
     private registeredCommands: vscode.Disposable[] = [];
+    /**
+     * "Tom AI Local LLM" output channel — **conversation-shaped**
+     * log. Headers per turn + user prompt + per-round tool calls +
+     * final assistant text. The plain-text analogue of `live-trail-localLLM.md`.
+     * Use for "what did the model actually say / do".
+     */
     private outputChannel: vscode.OutputChannel;
+    /**
+     * "Tom AI Local Log" output channel — **technical diagnostics**.
+     * HTTP POSTs (URL + apiStyle), compaction / memory-extraction
+     * progress + outcomes, retry countdowns, errors. Use for "why is
+     * vLLM returning N", "did compaction run", "how big did the
+     * summary get". Lines are tagged `[openaiChat]`, `[ollamaChat]`,
+     * `[process]`, `[history]`, `[memory]` so the source is obvious.
+     */
     private logChannel: vscode.OutputChannel;
     /** Conversation history for Local LLM sessions. */
     private conversationHistory: LocalLlmMessage[] = [];
-    /** Whether history mode is enabled. */
+    /** Vestigial runtime kill-switch — historically gated all history
+     *  injection. Defaults to `false`; the gating sites have moved to
+     *  `effectiveHistoryMode !== 'none'` (the authoritative opt-out) so
+     *  this field no longer affects behaviour. Kept so `setHistoryEnabled`
+     *  / `isHistoryEnabled` callers still compile; remove once no one
+     *  reads them. */
     private historyEnabled: boolean = false;
+    /** Running summary of folded-out raw turns (incremental compaction).
+     *  Mirrors `AnthropicHandler.compactedSummary` so the same template
+     *  contract (`${existingSummary}` + `${lastTurn}`) works on both
+     *  paths. Updated post-turn by `runCompactionInBackground`. */
+    private compactedSummary: string = '';
+    /** Raw user/assistant turn pairs kept verbatim in the next prompt.
+     *  Trimmed to `rawTurnsKept * 2` messages after every compaction
+     *  pass — older entries are baked into `compactedSummary`. */
+    private rawTurns: LocalLlmMessage[] = [];
+    /** In-memory ring buffer of tool calls + results (this session).
+     *  Registered as the module-level active trail when a Local LLM
+     *  call is in flight so `tomAi_readPastToolResult` resolves keys
+     *  issued from the Local LLM path. */
+    private readonly toolTrail: ToolTrail;
+    /** Map from synthetic Ollama tool_call_id to the ToolTrail key
+     *  assigned for that call. Used by the retention-policy walker to
+     *  replace older `tool` messages with stubs referencing the same key
+     *  the model already saw in earlier rounds. */
+    private toolCallIdToKey: Map<string, string> = new Map();
+    /** Counter used to synthesise stable per-call ids when Ollama / vLLM
+     *  doesn't supply one. */
+    private toolCallCounter = 0;
+    /**
+     * Status emitter for background events the panel can't observe
+     * directly. Fires for compaction / memory-extraction retry
+     * countdowns after the foreground send has returned. The chat
+     * panel subscribes once and forwards each event to the webview as
+     * a `localLlmStatus` message. Mirrors `AnthropicHandler._onStatusUpdate`.
+     */
+    private readonly _onStatusUpdate = new vscode.EventEmitter<string>();
+    readonly onStatusUpdate: vscode.Event<string> = this._onStatusUpdate.event;
+    /** Tracks which `(quest, historySuffix)` pair the in-memory
+     *  `compactedSummary` + `rawTurns` were seeded from. When the next
+     *  call's pair changes, we re-seed from disk so switching profiles
+     *  (or quests) mid-session doesn't bleed one thread's history into
+     *  another. `undefined` = never seeded. */
+    private seededFor: string | undefined;
 
     constructor(context: vscode.ExtensionContext) {
         this.context = context;
         this.outputChannel = vscode.window.createOutputChannel('Tom AI Local LLM');
         this.logChannel = vscode.window.createOutputChannel('Tom AI Local Log');
         context.subscriptions.push(this.outputChannel, this.logChannel);
+        this.toolTrail = new ToolTrail();
+        this.toolTrail.setPersistHook((entry) => {
+            try {
+                writeToolResult('localLlm', entry, WsPaths.getWorkspaceQuestId());
+            } catch {
+                // best-effort
+            }
+        });
     }
 
     dispose(): void {
@@ -307,7 +429,284 @@ export class LocalLlmManager {
     /** Clear conversation history. */
     clearHistory(): void {
         this.conversationHistory = [];
+        this.compactedSummary = '';
+        this.rawTurns = [];
+        this.toolTrail.clear();
+        this.toolCallIdToKey.clear();
+        // Reset seed tracking so the next call rebuilds from disk
+        // rather than treating the now-empty in-memory state as
+        // authoritative.
+        this.seededFor = undefined;
         this.logChannel.appendLine('[History] Cleared');
+    }
+
+    /**
+     * Seed `compactedSummary` + `rawTurns` from
+     * `_ai/quests/<quest>/history/<base>.json` (where `<base>` is
+     * `history-<suffix>` when a profile supplies a `historySuffix`,
+     * otherwise `history`). Mirrors `AnthropicHandler.seedHistoryFromSnapshot`
+     * so both panels share the same on-disk schema and the rolling
+     * pair can be read across panels when no suffix is set.
+     *
+     * Re-seeds whenever the `(quest, suffix)` pair changes vs. the
+     * previous call — switching profiles mid-session pulls the right
+     * thread back from disk instead of carrying the prior one over.
+     * Per-call trim is applied by the caller (`process()`) so the
+     * in-memory invariant respects the active configuration's cap.
+     */
+    private seedHistoryFromSnapshot(questId: string, suffix?: string): void {
+        const key = `${questId || ''}::${suffix ?? ''}`;
+        if (this.seededFor === key) {
+            return;
+        }
+        this.seededFor = key;
+        try {
+            const raw = TwoTierMemoryService.instance.loadLatestHistorySnapshot<unknown>(questId, suffix);
+            if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+                const obj = raw as { compactedSummary?: unknown; rawTurns?: unknown };
+                this.compactedSummary = typeof obj.compactedSummary === 'string' ? obj.compactedSummary : '';
+                this.rawTurns = Array.isArray(obj.rawTurns)
+                    ? (obj.rawTurns as Array<{ role?: unknown; content?: unknown }>)
+                        .filter((m): m is LocalLlmMessage =>
+                            !!m &&
+                            (m.role === 'user' || m.role === 'assistant' || m.role === 'system') &&
+                            typeof m.content === 'string')
+                    : [];
+                this.logChannel.appendLine(
+                    `[history] Seeded from ${suffix ? `history-${suffix}.json` : 'history.json'}` +
+                    ` — summary=${this.compactedSummary.length}c, rawTurns=${this.rawTurns.length}`,
+                );
+            } else {
+                // No snapshot or unexpected shape — start clean so a
+                // stale in-memory state from a prior profile doesn't
+                // bleed through.
+                this.compactedSummary = '';
+                this.rawTurns = [];
+            }
+        } catch (e) {
+            // Best-effort: failure to read the snapshot leaves state
+            // empty rather than throwing — the next persist will write
+            // a fresh file.
+            this.compactedSummary = '';
+            this.rawTurns = [];
+            this.logChannel.appendLine(`[history] seedHistoryFromSnapshot failed: ${String(e)}`);
+        }
+    }
+
+    /**
+     * Write `{ compactedSummary, rawTurns }` to the per-profile history
+     * snapshot, using `historySuffix` to pick the file basename. Always
+     * a write of the canonical (non-archived) pair — archival is
+     * Anthropic-side functionality not yet replicated here.
+     *
+     * Quietly no-ops on error — persistence failure must never affect
+     * the user-visible turn result.
+     */
+    private persistSessionHistory(questId: string | undefined, suffix?: string): void {
+        try {
+            const written = TwoTierMemoryService.instance.persistHistorySnapshot(
+                { compactedSummary: this.compactedSummary, rawTurns: this.rawTurns },
+                questId,
+                false,
+                suffix,
+            );
+            this.logChannel.appendLine(
+                `[history] Persisted snapshot → ${written ?? '(unknown path)'}` +
+                ` (suffix=${suffix ?? '(none)'}, summary=${this.compactedSummary.length}c, rawTurns=${this.rawTurns.length})`,
+            );
+        } catch (e) {
+            this.logChannel.appendLine(`[history] persistSessionHistory failed: ${String(e)}`);
+        }
+    }
+
+    /**
+     * Enforce the rawTurns cap independent of compaction. The cap is
+     * derived **purely** from the active `rawTurnsKept` setting (per
+     * the LLM configuration profile's per-config override, or the
+     * global `compaction.rawTurnsKept`, or its default 4). No hard
+     * floor is imposed — `rawTurnsKept = 0` honestly means "no raw
+     * turns kept, rely entirely on `compactedSummary`", and `1` means
+     * one user/assistant pair = 2 messages.
+     *
+     * Without this trim invariant, a profile with no compaction LLM
+     * configured would grow `rawTurns` unboundedly and every snapshot
+     * would carry the whole transcript. Mirrors the invariant on
+     * `AnthropicHandler.rawTurns`.
+     */
+    private trimRawTurns(rawTurnsKept: number): void {
+        const cap = Math.max(0, rawTurnsKept) * 2;
+        if (this.rawTurns.length > cap) {
+            this.rawTurns = cap === 0 ? [] : this.rawTurns.slice(-cap);
+        }
+    }
+
+    /**
+     * Resolve effective per-call caps from compaction + the active
+     * configuration (per-config overrides win). Mirrors the Anthropic
+     * side so the same template contract applies on both transports.
+     */
+    private resolveEffectiveLocalLlmCaps(mc: ModelConfig | LlmConfiguration | undefined): {
+        historyMaxChars: number;
+        memoryMaxChars: number;
+        rawTurnsKept: number;
+        toolTrailMaxResultChars: number;
+        toolTrailKeepRounds: number;
+        maxHistoryTokens: number;
+    } {
+        const cfg = (loadSendToChatConfig() as { compaction?: Record<string, unknown> })?.compaction ?? {};
+        const def = (key: string, fallback: number): number => {
+            const v = (cfg as Record<string, unknown>)[key];
+            return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+        };
+        const c = (mc ?? {}) as Record<string, unknown>;
+        const pick = (key: string, compactionKey: string, fallback: number): number => {
+            const v = c[key];
+            if (typeof v === 'number' && Number.isFinite(v)) { return v; }
+            return def(compactionKey, fallback);
+        };
+        return {
+            historyMaxChars: pick('historyMaxChars', 'historyMaxChars', 24000),
+            memoryMaxChars: pick('memoryMaxChars', 'memoryMaxChars', 8000),
+            rawTurnsKept: pick('rawTurnsKept', 'rawTurnsKept', 4),
+            toolTrailMaxResultChars: pick('toolTrailMaxResultChars', 'toolTrailMaxResultChars', 1000),
+            toolTrailKeepRounds: pick('toolTrailKeepRounds', 'toolTrailKeepRounds', 2),
+            maxHistoryTokens: pick('maxHistoryTokens', 'maxHistoryTokens', 8000),
+        };
+    }
+
+    /**
+     * Fold overflow raw turns into the running compactedSummary using
+     * the configured compaction template (`${existingSummary}` +
+     * `${lastTurn}`). The summary stays detailed (template targets
+     * ~`maxHistorySize` chars) and integrates the dropped turns so the
+     * next prompt doesn't lose context.
+     */
+    private async foldOverflowIntoSummary(
+        overflow: LocalLlmMessage[],
+        mc: ModelConfig | LlmConfiguration,
+        eCaps: ReturnType<LocalLlmManager['resolveEffectiveLocalLlmCaps']>,
+    ): Promise<void> {
+        try {
+            const compactionCfg = (loadSendToChatConfig() as { compaction?: Record<string, unknown> })?.compaction ?? {};
+            const { runIncrementalCompaction } = await import('../services/history-compaction.js');
+            const lastTurn = overflow.map(m => ({
+                role: m.role as 'user' | 'assistant' | 'system',
+                content: m.content,
+            }));
+            const provider = (compactionCfg.llmProvider as 'localLlm' | 'anthropic') ?? 'localLlm';
+            const llmConfigId = (compactionCfg.llmConfigId as string) ?? (mc as { id?: string }).id ?? 'default';
+            const existingSummaryLen = this.compactedSummary.length;
+            const lastTurnChars = lastTurn.reduce((sum, m) => sum + (m.content?.length ?? 0), 0);
+            // Detailed entry log so the user can see compaction firing
+            // even when `onProgress` retry events aren't emitted (the
+            // happy path is silent on the wire — the only progress
+            // notifications come from the retry wrapper).
+            this.logChannel.appendLine(
+                `[history] Performing history compaction ` +
+                `(provider=${provider}, llmConfigId=${llmConfigId}, ` +
+                `lastTurnChars=${lastTurnChars}, existingSummaryChars=${existingSummaryLen}, ` +
+                `templateId=${compactionCfg.compactionTemplateId ?? '(default)'}, ` +
+                `historyMaxChars=${eCaps.historyMaxChars}, maxHistoryTokens=${eCaps.maxHistoryTokens})…`,
+            );
+            const newSummary = await runIncrementalCompaction({
+                existingSummary: this.compactedSummary,
+                lastTurn,
+                llmProvider: provider,
+                llmConfigId,
+                compactionTemplateId: compactionCfg.compactionTemplateId as string | undefined,
+                maxHistoryTokens: eCaps.maxHistoryTokens,
+                historyMaxChars: eCaps.historyMaxChars,
+                questId: WsPaths.getWorkspaceQuestId(),
+                // Surface retry countdowns to the LocalLLM panel via
+                // the status emitter AND mirror to the logChannel so a
+                // diagnostic trail is available even without the
+                // status bar open. The chat panel subscribes once and
+                // forwards each event to the webview's status bar.
+                onProgress: (msg) => {
+                    this._onStatusUpdate.fire(msg);
+                    this.logChannel.appendLine(`[history] ${msg}`);
+                },
+            });
+            if (typeof newSummary === 'string' && newSummary.trim().length > 0) {
+                this.compactedSummary = newSummary.trim();
+                this.logChannel.appendLine(
+                    `[history] Compaction succeeded — new compactedSummary size: ${this.compactedSummary.length} chars ` +
+                    `(was ${existingSummaryLen}, delta=${this.compactedSummary.length - existingSummaryLen})`,
+                );
+            } else {
+                this.logChannel.appendLine(`[history] Compaction returned empty / no-op — keeping existing summary (${existingSummaryLen} chars)`);
+            }
+        } catch (e) {
+            this.logChannel.appendLine(`[history] foldOverflowIntoSummary failed: ${String(e)}`);
+        }
+    }
+
+    /**
+     * Walk back through `messages[]` and replace the content of any
+     * `role: 'tool'` message that's older than `toolTrailKeepRounds`
+     * tool rounds with the ToolTrail stub. The most-recent rounds keep
+     * their bodies but are truncated to `toolTrailMaxResultChars` so
+     * even fresh results don't snowball.
+     *
+     * A "tool round" here = one contiguous run of `role: 'tool'`
+     * messages following one `role: 'assistant'` with tool_calls.
+     */
+    private applyLocalLlmToolTrailPolicy(
+        messages: Array<{ role: string; content?: string; tool_calls?: OllamaToolCall[]; tool_call_id?: string }>,
+    ): void {
+        // Resolve the active configuration once. We look up by the
+        // current default config — per-call overrides are applied on
+        // the message contents directly, so the trail's own state can
+        // be set from compaction-level fallback here.
+        const config = loadSendToChatConfig() as { localLlm?: { configurations?: Array<Record<string, unknown>> } };
+        const def = (config.localLlm?.configurations ?? []).find((c) => c.isDefault) ?? (config.localLlm?.configurations ?? [])[0];
+        const caps = this.resolveEffectiveLocalLlmCaps(def as unknown as LlmConfiguration | undefined);
+        this.toolTrail.inlineMaxChars = Math.max(100, caps.toolTrailMaxResultChars);
+        this.toolTrail.keepRounds = Math.max(0, caps.toolTrailKeepRounds);
+
+        // Walk newest-first. A "tool round" boundary is each
+        // `role: 'assistant'` message that has `tool_calls`. Count
+        // boundaries to find which rounds are inside the inline window.
+        // For each `role: 'tool'` message we encounter on the way down,
+        // we know its round = (boundaries encountered so far + 1 once
+        // we hit the next assistant-with-tool_calls).
+        let roundsSeen = 0;
+        for (let i = messages.length - 1; i >= 0; i--) {
+            const msg = messages[i];
+            if (msg.role === 'assistant' && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
+                // Boundary — the tool messages we just walked over belong
+                // to round `roundsSeen + 1` counting from the end.
+                roundsSeen += 1;
+                continue;
+            }
+            if (msg.role !== 'tool') {
+                continue;
+            }
+            const callId = msg.tool_call_id;
+            const key = callId ? this.toolCallIdToKey.get(callId) : undefined;
+            const entry = key ? this.toolTrail.getByKey(key) : undefined;
+            // `roundsSeen` is the number of completed rounds AFTER this
+            // tool message. The tool message itself is part of round
+            // (roundsSeen + 1) from the end — but the boundary increment
+            // happens on the assistant message that comes BEFORE it
+            // (newer in message order). So a tool message walked while
+            // `roundsSeen === N` is N rounds back from the newest tool
+            // round.
+            const isInsideInlineWindow = roundsSeen < this.toolTrail.keepRounds;
+            const currentText = typeof msg.content === 'string' ? msg.content : '';
+            if (isInsideInlineWindow) {
+                if (entry) {
+                    msg.content = this.toolTrail.truncateInline(entry.key, entry.toolName, entry.inputSummary, currentText);
+                } else if (currentText.length > this.toolTrail.inlineMaxChars) {
+                    msg.content = currentText.slice(0, this.toolTrail.inlineMaxChars) +
+                        `\n[…truncated to ${this.toolTrail.inlineMaxChars} chars of ${currentText.length}; no ToolTrail key available]`;
+                }
+            } else {
+                msg.content = entry
+                    ? this.toolTrail.renderStub(entry)
+                    : `[Past tool call (id=${callId ?? 'unknown'}) — full body persisted on disk under _ai/trail/localllm/<quest>/tool_results/. No active key.]`;
+            }
+        }
     }
 
     /** Get current conversation history. */
@@ -398,6 +797,12 @@ export class LocalLlmManager {
                 for (const [key, val] of Object.entries(sec.profiles)) {
                     const p = val as any;
                     if (p && typeof p === 'object') {
+                        // NB: every profile field consumed downstream
+                        // must be copied through here — `loadConfig` is
+                        // the only path from on-disk JSON to the
+                        // in-memory profile object. A missed field
+                        // silently no-ops at the call site (this was
+                        // the root cause of the historySuffix bug).
                         config.profiles[key] = {
                             label: typeof p.label === 'string' ? p.label : key,
                             systemPrompt: typeof p.systemPrompt === 'string' ? p.systemPrompt : null,
@@ -406,8 +811,15 @@ export class LocalLlmManager {
                             modelConfig: typeof p.modelConfig === 'string' ? p.modelConfig : null,
                             isDefault: p.isDefault === true,
                             toolsEnabled: typeof p.toolsEnabled === 'boolean' ? p.toolsEnabled : undefined,
+                            enabledTools: Array.isArray(p.enabledTools)
+                                ? (p.enabledTools as unknown[]).filter((t): t is string => typeof t === 'string')
+                                : undefined,
                             maxRounds: typeof p.maxRounds === 'number' ? p.maxRounds : undefined,
                             historyMode: typeof p.historyMode === 'string' ? p.historyMode as LocalLlmHistoryMode : undefined,
+                            stripThinkingTags: typeof p.stripThinkingTags === 'boolean' ? p.stripThinkingTags : undefined,
+                            historySuffix: typeof p.historySuffix === 'string' && p.historySuffix.length > 0 ? p.historySuffix : undefined,
+                            memorySuffix: typeof p.memorySuffix === 'string' && p.memorySuffix.length > 0 ? p.memorySuffix : undefined,
+                            autoInjectMemory: p.autoInjectMemory === true,
                         };
                     }
                 }
@@ -432,6 +844,11 @@ export class LocalLlmManager {
                             enabledTools: Array.isArray(lc.enabledTools) ? lc.enabledTools.filter((t: any) => typeof t === 'string') : [],
                             isDefault: lc.isDefault === true,
                             keepAlive: typeof lc.keepAlive === 'string' ? lc.keepAlive : undefined,
+                            maxRounds: typeof lc.maxRounds === 'number' ? lc.maxRounds : undefined,
+                            toolsEnabled: typeof lc.toolsEnabled === 'boolean' ? lc.toolsEnabled : undefined,
+                            historyMode: typeof lc.historyMode === 'string'
+                                ? lc.historyMode as LlmConfiguration['historyMode']
+                                : undefined,
                         });
                     }
                 }
@@ -739,7 +1156,40 @@ export class LocalLlmManager {
     ): Promise<{ text: string; stats?: OllamaStats; toolCalls?: OllamaToolCall[] }> {
         return new Promise((resolve, reject) => {
             const url = new URL('/api/chat', baseUrl);
-            const body = JSON.stringify({
+            // Diagnostic log so a /api/chat 404 in the vLLM server log
+            // can be traced back to a specific code path. If the user
+            // ever sees this URL hit a server that only speaks OpenAI,
+            // the line in "Tom AI Local Log" will name the offender.
+            this.logChannel.appendLine(`[ollamaChat] POST ${url.toString()} (apiStyle=ollama)`);
+            // Capture a stack so we can identify the offending caller
+            // when /api/chat lands on a vLLM URL by mistake. Only
+            // emitted when the hostname doesn't look local — keeps
+            // the channel quiet for legitimate Ollama servers.
+            if (!/^(localhost|127\.|0\.0\.0\.0)/.test(url.hostname)) {
+                const stack = new Error().stack ?? '(no stack)';
+                this.logChannel.appendLine(`[ollamaChat] WARNING: /api/chat against non-local host '${url.hostname}'. Stack:\n${stack}`);
+            }
+            const ollamaStartedAt = Date.now();
+            // Single-settle guards + outcome logging so a failure
+            // shows ✗ <url> → <status> after Nms in the log channel.
+            let ollamaSettled = false;
+            const ollamaSafeResolve = (value: { text: string; stats?: OllamaStats; toolCalls?: OllamaToolCall[] }): void => {
+                if (ollamaSettled) { return; }
+                ollamaSettled = true;
+                this.logChannel.appendLine(
+                    `[ollamaChat] ✓ ${url.toString()} → ${value.text.length} chars + ${value.toolCalls?.length ?? 0} tool_call(s) after ${Date.now() - ollamaStartedAt}ms`,
+                );
+                resolve(value);
+            };
+            const ollamaSafeReject = (err: Error): void => {
+                if (ollamaSettled) { return; }
+                ollamaSettled = true;
+                this.logChannel.appendLine(
+                    `[ollamaChat] ✗ ${url.toString()} → ${err.message} after ${Date.now() - ollamaStartedAt}ms`,
+                );
+                reject(err);
+            };
+            const requestBody = {
                 model,
                 messages,
                 stream: true,
@@ -747,7 +1197,8 @@ export class LocalLlmManager {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 ...(keepAlive !== undefined ? { keep_alive: keepAlive } : {}),
                 ...(tools && tools.length > 0 ? { tools } : {}),
-            });
+            };
+            const body = JSON.stringify(requestBody);
 
             const req = http.request(
                 {
@@ -767,17 +1218,23 @@ export class LocalLlmManager {
 
                     // Check for HTTP-level errors (e.g. 404 model not found)
                     if (res.statusCode && res.statusCode >= 400) {
+                        const status = res.statusCode;
                         let errorBody = '';
                         res.on('data', (chunk: Buffer) => { errorBody += chunk.toString(); });
                         res.on('end', () => {
-                            let errorMsg = `Ollama HTTP ${res.statusCode}`;
+                            let errorMsg = `Ollama HTTP ${status}`;
                             try {
                                 const parsed = JSON.parse(errorBody);
                                 if (parsed.error) { errorMsg = parsed.error; }
                             } catch { /* use default message */ }
-                            reject(new Error(errorMsg));
+                            // Attach the statusCode so callers (e.g. the
+                            // compaction retry wrapper) can branch on it
+                            // without parsing the message.
+                            const err = new Error(errorMsg) as Error & { statusCode?: number };
+                            err.statusCode = status;
+                            ollamaSafeReject(err);
                         });
-                        res.on('error', reject);
+                        res.on('error', (e) => ollamaSafeReject(e instanceof Error ? e : new Error(String(e))));
                         return;
                     }
 
@@ -838,23 +1295,23 @@ export class LocalLlmManager {
                         }
                         // If Ollama returned an error in the stream, reject with it
                         if (ollamaError && !fullResponse.trim()) {
-                            reject(new Error(ollamaError));
+                            ollamaSafeReject(new Error(ollamaError));
                         } else {
-                            resolve({ text: fullResponse, stats, toolCalls });
+                            ollamaSafeResolve({ text: fullResponse, stats, toolCalls });
                         }
                     });
-                    res.on('error', reject);
+                    res.on('error', (e) => ollamaSafeReject(e instanceof Error ? e : new Error(String(e))));
                 },
             );
 
             if (cancellationToken) {
                 cancellationToken.onCancellationRequested(() => {
                     req.destroy();
-                    reject(new Error('Cancelled'));
+                    ollamaSafeReject(new Error('Cancelled'));
                 });
             }
 
-            req.on('error', reject);
+            req.on('error', (e) => ollamaSafeReject(e instanceof Error ? e : new Error(String(e))));
             req.write(body);
             req.end();
         });
@@ -863,9 +1320,21 @@ export class LocalLlmManager {
     /**
      * OpenAI-compatible chat completion (vLLM, llama.cpp server, LM Studio,
      * any /v1/chat/completions endpoint). Signature mirrors {@link ollamaChat}
-     * so callers can branch on apiStyle without restructuring. Uses
-     * non-streaming mode (stream: false) — simpler tool-call shape, no
-     * incremental token UI but the queue/anthropic loops don't depend on it.
+     * so callers can branch on apiStyle without restructuring.
+     *
+     * **Streaming (SSE).** Sends `stream: true` and parses Server-Sent
+     * Events incrementally so `onToken` fires per content delta (used by
+     * the live-trail writer to show the answer arriving). `stream_options.
+     * include_usage` asks the server to emit a final non-content chunk
+     * with `usage: {...}` so we still get prompt/completion token counts
+     * — vLLM and llama.cpp honour this; servers that ignore the option
+     * just don't get stats.
+     *
+     * Tool calls in OpenAI streaming arrive as **fragments keyed by `index`**.
+     * The first fragment for an index carries the `name` and `id`; subsequent
+     * fragments append to `arguments` as a streaming JSON string. We
+     * accumulate them in `partialTools[]` and only parse the JSON once the
+     * stream ends.
      */
     private async openaiChat(
         baseUrl: string,
@@ -879,6 +1348,35 @@ export class LocalLlmManager {
     ): Promise<{ text: string; stats?: OllamaStats; toolCalls?: OllamaToolCall[] }> {
         return new Promise((resolve, reject) => {
             const url = new URL('/v1/chat/completions', baseUrl);
+            this.logChannel.appendLine(`[openaiChat] POST ${url.toString()} (apiStyle=openai, stream=true)`);
+            const startedAt = Date.now();
+            // Double-settle guards. We deliberately do NOT install an
+            // idle-stream watchdog here — local LLMs (especially large
+            // MoE models like Gemma 4 26B) can legitimately think for
+            // minutes between data chunks, especially after they
+            // recover from a transient backend hiccup. The only valid
+            // stop signal is the user clicking the stop button, which
+            // trips `cancellationToken.onCancellationRequested` below.
+            // safeResolve / safeReject also log the outcome so every
+            // call has a paired ✓/✗ line in logChannel — easier to
+            // correlate with the vLLM access log than entry-only logs.
+            let settled = false;
+            const safeResolve = (value: { text: string; stats?: OllamaStats; toolCalls?: OllamaToolCall[] }): void => {
+                if (settled) { return; }
+                settled = true;
+                const elapsed = Date.now() - startedAt;
+                const toolCount = value.toolCalls?.length ?? 0;
+                this.logChannel.appendLine(`[openaiChat] ✓ ${url.toString()} → ${value.text.length} chars + ${toolCount} tool_call(s) after ${elapsed}ms`);
+                resolve(value);
+            };
+            const safeReject = (err: Error): void => {
+                if (settled) { return; }
+                settled = true;
+                const elapsed = Date.now() - startedAt;
+                const status = (err as Error & { statusCode?: number }).statusCode;
+                this.logChannel.appendLine(`[openaiChat] ✗ ${url.toString()} → ${status ?? 'no-status'} after ${elapsed}ms: ${err.message}`);
+                reject(err);
+            };
             // The Ollama wire shape matches OpenAI's tool-call shape closely
             // but with two gaps the OpenAI spec demands: (1) each tool_call
             // entry must have an `id`, and (2) each `role:'tool'` response
@@ -915,13 +1413,16 @@ export class LocalLlmManager {
                 }
                 return { role: m.role, content: m.content ?? '' };
             });
-            const body = JSON.stringify({
+            const requestBody = {
                 model,
                 messages: oaMessages,
                 temperature,
-                stream: false,
+                stream: true,
+                // eslint-disable-next-line @typescript-eslint/naming-convention
+                stream_options: { include_usage: true },
                 ...(tools && tools.length > 0 ? { tools } : {}),
-            });
+            };
+            const body = JSON.stringify(requestBody);
 
             const req = http.request(
                 {
@@ -929,71 +1430,179 @@ export class LocalLlmManager {
                     port: url.port,
                     path: url.pathname,
                     method: 'POST',
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        // eslint-disable-next-line @typescript-eslint/naming-convention
+                        'Content-Type': 'application/json',
+                        // eslint-disable-next-line @typescript-eslint/naming-convention
+                        Accept: 'text/event-stream',
+                    },
                 },
                 (res) => {
-                    let buf = '';
-                    res.on('data', (chunk: Buffer) => { buf += chunk.toString(); });
-                    res.on('end', () => {
-                        if (res.statusCode && res.statusCode >= 400) {
-                            let errorMsg = `OpenAI-compatible HTTP ${res.statusCode}`;
+                    // HTTP error: drain the body once so we can include the
+                    // server's error message in the rejection.
+                    if (res.statusCode && res.statusCode >= 400) {
+                        // Tag the status onto the rejection so the
+                        // compaction retry wrapper (and any other
+                        // caller that branches on retryable status)
+                        // can read it directly without parsing.
+                        const status = res.statusCode;
+                        let errorBody = '';
+                        res.on('data', (chunk: Buffer) => { errorBody += chunk.toString(); });
+                        res.on('end', () => {
+                            let errorMsg = `OpenAI-compatible HTTP ${status}`;
                             try {
-                                const parsed = JSON.parse(buf);
+                                const parsed = JSON.parse(errorBody);
                                 if (parsed.error?.message) { errorMsg = parsed.error.message; }
                                 else if (parsed.detail) { errorMsg = typeof parsed.detail === 'string' ? parsed.detail : JSON.stringify(parsed.detail); }
                             } catch { /* use default */ }
-                            reject(new Error(errorMsg));
+                            const err = new Error(errorMsg) as Error & { statusCode?: number };
+                            err.statusCode = status;
+                            safeReject(err);
+                        });
+                        res.on('error', (err) => safeReject(err instanceof Error ? err : new Error(String(err))));
+                        return;
+                    }
+
+                    let buffer = '';
+                    let fullText = '';
+                    let stats: OllamaStats | undefined;
+                    // Partial tool calls indexed by the `index` field on each
+                    // delta — name + id arrive once on the first fragment,
+                    // arguments stream in concatenated string fragments.
+                    type PartialTool = { id?: string; name: string; args: string };
+                    const partialTools: PartialTool[] = [];
+                    let sawDone = false;
+
+                    const handleEvent = (eventData: string): void => {
+                        if (eventData === '[DONE]') {
+                            sawDone = true;
                             return;
                         }
-                        try {
-                            const parsed = JSON.parse(buf);
-                            const choice = parsed.choices?.[0];
-                            const text: string = choice?.message?.content ?? '';
-                            if (text && onToken) { onToken(text); }
-                            // eslint-disable-next-line @typescript-eslint/naming-convention
-                            const rawTcs: any[] = choice?.message?.tool_calls ?? [];
-                            const toolCalls: OllamaToolCall[] | undefined = rawTcs.length > 0
-                                ? rawTcs.map((tc) => {
-                                    let args: Record<string, unknown> = {};
-                                    const raw = tc?.function?.arguments;
-                                    if (typeof raw === 'string') {
-                                        try { args = JSON.parse(raw); } catch { args = { _raw: raw }; }
-                                    } else if (raw && typeof raw === 'object') {
-                                        args = raw as Record<string, unknown>;
-                                    }
-                                    return {
-                                        id: tc?.id,
-                                        function: { name: tc?.function?.name ?? '', arguments: args },
-                                    } as OllamaToolCall;
-                                })
-                                : undefined;
-                            const usage = parsed.usage ?? {};
-                            const stats: OllamaStats | undefined = usage
-                                ? {
-                                    promptTokens: usage.prompt_tokens ?? 0,
-                                    completionTokens: usage.completion_tokens ?? 0,
-                                    totalDurationMs: 0,
-                                    loadDurationMs: 0,
+                        let parsed: any;
+                        try { parsed = JSON.parse(eventData); }
+                        catch { return; /* malformed/partial — skip */ }
+                        // Usage frames have no `choices` — they arrive after
+                        // the last content chunk when stream_options.include_usage
+                        // is set.
+                        if (parsed?.usage) {
+                            const u = parsed.usage;
+                            stats = {
+                                promptTokens: u.prompt_tokens ?? 0,
+                                completionTokens: u.completion_tokens ?? 0,
+                                totalDurationMs: 0,
+                                loadDurationMs: 0,
+                            };
+                        }
+                        const choice = parsed?.choices?.[0];
+                        if (!choice) { return; }
+                        const delta = choice.delta ?? {};
+                        if (typeof delta.content === 'string' && delta.content.length > 0) {
+                            fullText += delta.content;
+                            try { onToken?.(delta.content); } catch { /* listener errors must not abort the stream */ }
+                        }
+                        const tcDelta = delta.tool_calls;
+                        if (Array.isArray(tcDelta)) {
+                            for (const frag of tcDelta) {
+                                const idx = typeof frag.index === 'number' ? frag.index : 0;
+                                if (!partialTools[idx]) {
+                                    partialTools[idx] = { id: undefined, name: '', args: '' };
                                 }
-                                : undefined;
-                            resolve({ text, stats, toolCalls });
-                        } catch (err) {
-                            reject(err instanceof Error ? err : new Error(String(err)));
+                                const slot = partialTools[idx];
+                                if (typeof frag.id === 'string' && frag.id.length > 0) { slot.id = frag.id; }
+                                const fnName = frag.function?.name;
+                                if (typeof fnName === 'string' && fnName.length > 0) { slot.name = fnName; }
+                                const fnArgs = frag.function?.arguments;
+                                if (typeof fnArgs === 'string') { slot.args += fnArgs; }
+                            }
+                        }
+                    };
+
+                    res.setEncoding('utf-8');
+                    res.on('data', (chunk: string) => {
+                        buffer += chunk;
+                        // SSE event boundary: two consecutive newlines.
+                        // We split on either `\n\n` or `\r\n\r\n` to be
+                        // forgiving of intermediaries that rewrite line
+                        // endings. Each event is a block of `field: value`
+                        // lines; we only care about `data:` here.
+                        let sepIdx: number;
+                        // eslint-disable-next-line no-constant-condition
+                        while (true) {
+                            const idxLf = buffer.indexOf('\n\n');
+                            const idxCrLf = buffer.indexOf('\r\n\r\n');
+                            if (idxLf === -1 && idxCrLf === -1) { break; }
+                            // Prefer whichever comes first
+                            if (idxCrLf !== -1 && (idxLf === -1 || idxCrLf < idxLf)) {
+                                sepIdx = idxCrLf;
+                                const block = buffer.slice(0, sepIdx);
+                                buffer = buffer.slice(sepIdx + 4);
+                                processBlock(block);
+                            } else {
+                                sepIdx = idxLf;
+                                const block = buffer.slice(0, sepIdx);
+                                buffer = buffer.slice(sepIdx + 2);
+                                processBlock(block);
+                            }
                         }
                     });
-                    res.on('error', reject);
+
+                    const processBlock = (block: string): void => {
+                        const dataLines: string[] = [];
+                        for (const line of block.split(/\r?\n/)) {
+                            if (line.startsWith('data:')) {
+                                dataLines.push(line.slice(5).trimStart());
+                            }
+                            // We ignore `event:` / `id:` / comment lines —
+                            // OpenAI-compat servers only use `data:`.
+                        }
+                        if (dataLines.length > 0) {
+                            // Multi-line data fields are joined with newlines
+                            // per the SSE spec; in practice OpenAI/vLLM
+                            // always send one `data:` per event.
+                            handleEvent(dataLines.join('\n'));
+                        }
+                    };
+
+                    res.on('end', () => {
+                        // Drain anything left in the buffer (some servers
+                        // omit the trailing blank line before closing).
+                        if (buffer.trim().length > 0) { processBlock(buffer); }
+
+                        const toolCalls: OllamaToolCall[] | undefined = partialTools.length > 0
+                            ? partialTools
+                                .filter((t): t is PartialTool => !!t && (t.name.length > 0 || t.args.length > 0))
+                                .map((t) => {
+                                    let args: Record<string, unknown> = {};
+                                    if (t.args) {
+                                        try { args = JSON.parse(t.args); } catch { args = { _raw: t.args }; }
+                                    }
+                                    return {
+                                        id: t.id,
+                                        function: { name: t.name, arguments: args },
+                                    } as OllamaToolCall;
+                                })
+                            : undefined;
+                        // A clean stream end without [DONE] is unusual but
+                        // not fatal — the body we've accumulated is still
+                        // the answer. Log so it's visible if a server
+                        // misbehaves.
+                        if (!sawDone && fullText.length === 0 && (!toolCalls || toolCalls.length === 0)) {
+                            return safeReject(new Error('OpenAI stream ended without any content or tool calls'));
+                        }
+                        safeResolve({ text: fullText, stats, toolCalls });
+                    });
+                    res.on('error', (err) => safeReject(err instanceof Error ? err : new Error(String(err))));
                 },
             );
 
             if (cancellationToken) {
                 cancellationToken.onCancellationRequested(() => {
                     req.destroy();
-                    reject(new Error('Cancelled'));
+                    safeReject(new Error('Cancelled'));
                 });
             }
 
-            req.on('error', reject);
+            req.on('error', (err) => safeReject(err instanceof Error ? err : new Error(String(err))));
             req.write(body);
             req.end();
         });
@@ -1024,29 +1633,50 @@ export class LocalLlmManager {
         cancellationToken?: vscode.CancellationToken;
         /** Backend protocol. Defaults to `'ollama'`. */
         apiStyle?: LocalLlmApiStyle;
+        /**
+         * Status callback fired before each retry on a busy backend (HTTP
+         * 429 / 503 / 529 / textual hints). The string is meant for direct
+         * UI display. Plumbed to the Anthropic panel's status line by
+         * `sendViaLocalLlm` so the user can watch the retry budget tick down.
+         */
+        onRetryStatus?: (message: string) => void;
+        /**
+         * Total cumulative wait time (ms) the retry loop is allowed before
+         * giving up. Defaults to 10 minutes. Applies uniformly to both
+         * Ollama and OpenAI/vLLM paths; the same backoff policy keeps
+         * behaviour predictable across backends.
+         */
+        retryTotalWaitMs?: number;
     }): Promise<{ text: string; stats?: OllamaStats; toolCalls?: OllamaToolCall[] }> {
         const ollamaTools = toOllamaTools(opts.tools, () => true);
-        if (opts.apiStyle === 'openai') {
-            return this.openaiChat(
-                opts.baseUrl,
-                opts.model,
-                opts.messages,
-                opts.temperature,
-                opts.onToken,
-                opts.cancellationToken,
-                ollamaTools.length > 0 ? ollamaTools : undefined,
-            );
-        }
-        return this.ollamaChat(
-            opts.baseUrl,
-            opts.model,
-            opts.messages,
-            opts.temperature,
-            opts.onToken,
-            opts.cancellationToken,
-            opts.keepAlive,
-            ollamaTools.length > 0 ? ollamaTools : undefined,
-        );
+        const totalWaitMs = opts.retryTotalWaitMs ?? 10 * 60 * 1000;
+        const label = opts.apiStyle === 'openai' ? 'OpenAI/vLLM busy' : 'Ollama busy';
+        return withRetryBudget({
+            call: () => opts.apiStyle === 'openai'
+                ? this.openaiChat(
+                    opts.baseUrl,
+                    opts.model,
+                    opts.messages,
+                    opts.temperature,
+                    opts.onToken,
+                    opts.cancellationToken,
+                    ollamaTools.length > 0 ? ollamaTools : undefined,
+                )
+                : this.ollamaChat(
+                    opts.baseUrl,
+                    opts.model,
+                    opts.messages,
+                    opts.temperature,
+                    opts.onToken,
+                    opts.cancellationToken,
+                    opts.keepAlive,
+                    ollamaTools.length > 0 ? ollamaTools : undefined,
+                ),
+            totalWaitMs,
+            backendLabel: label,
+            cancellationToken: opts.cancellationToken,
+            onRetryStatus: opts.onRetryStatus,
+        });
     }
 
     /**
@@ -1078,15 +1708,44 @@ export class LocalLlmManager {
         history?: Array<{ role: string; content: string }>;
         /** Backend protocol; defaults to `'ollama'`. */
         apiStyle?: LocalLlmApiStyle;
+        /**
+         * Optional live-trail writer. When provided, `beginToolCall`
+         * fires before each tool invocation and `appendToolResult`
+         * after, so the panel's Open Live Trail button can stream the
+         * tool loop as it runs. Caller owns the prompt-start / prompt-end
+         * events.
+         */
+        liveTrail?: LiveTrailWriter | null;
     }): Promise<{ text: string; stats?: OllamaStats; toolCallCount: number; turnsUsed: number }> {
         const {
             baseUrl, model, systemPrompt, userPrompt, temperature,
-            tools, onToken, onToolCall, cancellationToken, keepAlive, apiStyle,
+            tools, onToken: callerOnToken, onToolCall, cancellationToken, keepAlive, apiStyle, liveTrail,
         } = options;
+        // When a live-trail writer is provided, wrap the caller's
+        // `onToken` so each streamed content delta is also folded into
+        // the live-trail's current `### 💬 assistant` heading. The
+        // writer's `currentlyInAssistantText` flag keeps subsequent
+        // chunks under the same heading; a `beginToolCall` event in
+        // between resets the flag so the next text chunk starts a new
+        // heading after the tool result.
+        const onToken = liveTrail
+            ? (tok: string): void => {
+                try { callerOnToken?.(tok); } catch { /* upstream listener errors must not abort the stream */ }
+                try { liveTrail.appendAssistantText(tok); } catch { /* trail writes must never affect the turn */ }
+            }
+            : callerOnToken;
         const maxRounds = options.maxRounds ?? 20;
         const trailType = options.trailType ?? 'local';
         const history = options.history ?? [];
         const ollamaTools = toOllamaTools(tools, () => true); // send all provided tools
+
+        // Register this manager's ToolTrail as the session-wide active
+        // one so `tomAi_readPastToolResult` resolves keys issued from the
+        // Local LLM path (and any inflight tool can call back into the
+        // trail). Reset the call-id → key map per invocation so old
+        // sessions don't leak.
+        setActiveToolTrail(this.toolTrail);
+        this.toolCallIdToKey.clear();
 
         // Log tool registrations and prompts
         this.logChannel.appendLine('═══════════════════════════════════════════════════');
@@ -1110,7 +1769,7 @@ export class LocalLlmManager {
 
         // Build initial message history
         // eslint-disable-next-line @typescript-eslint/naming-convention
-        const messages: Array<{ role: string; content?: string; tool_calls?: OllamaToolCall[] }> = [
+        const messages: Array<{ role: string; content?: string; tool_calls?: OllamaToolCall[]; tool_call_id?: string }> = [
             { role: 'system', content: systemPrompt },
         ];
 
@@ -1124,6 +1783,31 @@ export class LocalLlmManager {
 
         // Current user prompt
         messages.push({ role: 'user', content: userPrompt });
+
+        // Dump the initial assembled request (system + history +
+        // current user prompt + tools) to the per-quest
+        // `last_request.json`. This is the snapshot the user wanted —
+        // fires once per user message, NOT on each tool-loop iteration,
+        // so the file always reflects what the model first saw for the
+        // current prompt rather than mid-loop tool churn.
+        try {
+            const { writeLastRequest, quickStats } = await import('../services/lastRequestDump.js');
+            writeLastRequest({
+                timestamp: new Date().toISOString(),
+                subsystem: 'localllm',
+                endpoint: `${apiStyle === 'openai' ? 'POST /v1/chat/completions' : 'POST /api/chat'} (${baseUrl})`,
+                model,
+                stats: quickStats({ messages, tools: ollamaTools, systemPrompt }),
+                body: {
+                    model,
+                    apiStyle: apiStyle ?? 'ollama',
+                    temperature,
+                    keepAlive,
+                    messages,
+                    ...(ollamaTools.length > 0 ? { tools: ollamaTools } : {}),
+                },
+            }, WsPaths.getWorkspaceQuestId());
+        } catch { /* best-effort */ }
 
         let totalToolCalls = 0;
 
@@ -1184,29 +1868,80 @@ export class LocalLlmManager {
                 toolNames: result.toolCalls.map(tc => tc.function.name),
             });
 
-            // Append assistant message with tool_calls
+            // Append assistant message with tool_calls. Stamp a synthetic
+            // tool_call_id on every call so we can pair the tool result
+            // back to its ToolTrail key when applying the retention
+            // policy. Ollama/vLLM responses sometimes lack ids, which
+            // would otherwise break the stub mapping.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const stampedCalls = result.toolCalls.map((tc: any) => {
+                if (!tc.id || typeof tc.id !== 'string' || tc.id.length === 0) {
+                    tc.id = `lcall_${this.toolCallCounter++}`;
+                }
+                return tc;
+            });
             messages.push({
                 role: 'assistant',
                 content: result.text || undefined,
                 // eslint-disable-next-line @typescript-eslint/naming-convention
-                tool_calls: result.toolCalls,
+                tool_calls: stampedCalls,
             });
 
             // Execute each tool and append results
-            for (const tc of result.toolCalls) {
+            for (const tc of stampedCalls) {
                 totalToolCalls++;
 
                 // Trail: Log tool request
                 logToolRequest(trailType, tc.function.name, tc.function.arguments);
 
-                const toolResult = await executeToolCall(tools, tc);
+                const tStart = Date.now();
+                let toolResult = '';
+                let toolError: string | undefined;
+                // The replay key is assigned AFTER `executeToolCall` so
+                // we emit the live-trail heading with a provisional `?`
+                // placeholder if it's needed earlier, but the Anthropic
+                // side passes the real key here — replicate that shape
+                // by computing the input summary first and recording the
+                // ToolTrail entry after execution, then back-fill the
+                // live-trail with the same key. For now we pre-compute
+                // the heading with the synthetic call id so the user
+                // sees the tool call appear immediately, then the
+                // result fills in below.
+                liveTrail?.beginToolCall(tc.function.name, tc.function.arguments, tc.id);
+                try {
+                    toolResult = await executeToolCall(tools, tc);
+                } catch (err) {
+                    toolError = err instanceof Error ? err.message : String(err);
+                    toolResult = `Error: ${toolError}`;
+                }
+                const tDur = Date.now() - tStart;
                 onToolCall?.(tc.function.name, tc.function.arguments, toolResult);
+                liveTrail?.appendToolResult(toolResult, toolResult.length);
 
                 // Trail: Log tool result
                 logToolResult(trailType, tc.function.name, toolResult);
 
+                // Record in the ToolTrail (in-memory ring + disk store)
+                // so this call is recoverable by key via
+                // `tomAi_readPastToolResult` after the retention policy
+                // replaces the inline body with a stub.
+                const inputSummary = (() => {
+                    try { return JSON.stringify(tc.function.arguments).slice(0, 200); }
+                    catch { return ''; }
+                })();
+                const addedEntry = this.toolTrail.add({
+                    timestamp: new Date().toISOString().slice(11, 19),
+                    round: round + 1,
+                    toolName: tc.function.name,
+                    inputSummary,
+                    result: toolResult,
+                    durationMs: tDur,
+                    error: toolError,
+                });
+                this.toolCallIdToKey.set(tc.id, addedEntry.key);
+
                 // Log tool call to log channel
-                this.logChannel.appendLine(`[Round ${round + 1}] Tool #${totalToolCalls}: ${tc.function.name}`);
+                this.logChannel.appendLine(`[Round ${round + 1}] Tool #${totalToolCalls} key=${addedEntry.key}: ${tc.function.name}`);
                 this.logChannel.appendLine(`  Args: ${JSON.stringify(tc.function.arguments)}`);
                 const shortResult = toolResult.length > 300 ? toolResult.substring(0, 297) + '...' : toolResult;
                 this.logChannel.appendLine(`  Result (${toolResult.length} chars): ${shortResult}`);
@@ -1214,8 +1949,17 @@ export class LocalLlmManager {
                 messages.push({
                     role: 'tool',
                     content: toolResult,
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
+                    tool_call_id: tc.id,
                 });
             }
+
+            // Apply the tool-trail retention policy after each tool
+            // round. Newest `toolTrailKeepRounds` rounds keep their
+            // (truncated) bodies; older rounds collapse to a one-line
+            // stub naming the replay key. Full bodies live on disk under
+            // `_ai/trail/localllm/<quest>/tool_results/<key>.json`.
+            this.applyLocalLlmToolTrailPolicy(messages);
         }
 
         // Max rounds exceeded — return whatever text we have
@@ -1317,12 +2061,27 @@ export class LocalLlmManager {
         return { text: cleaned, rawText: result.text, thinkContent, stats: result.stats, toolCallCount: result.toolCallCount, turnsUsed: result.turnsUsed };
     }
 
-    /** Check if a specific model is loaded in Ollama. Uses configured URL if no baseUrl given. */
-    public async checkModelLoaded(modelName?: string, baseUrl?: string): Promise<boolean> {
+    /**
+     * Check if a specific model is loaded.
+     *
+     * Resolves the `(url, apiStyle)` pair from the requested model
+     * config key (or the default) so the probe hits the right endpoint:
+     *
+     *   apiStyle='ollama' → GET /api/ps (warm-model list)
+     *   apiStyle='openai' → GET /v1/models (exposed-model list)
+     *
+     * The previous version ignored `apiStyle` and always probed
+     * `/api/ps`, which returns 404 on vLLM / llama.cpp / LM Studio. That
+     * made the panel's "Loading <model>..." progress notification stick
+     * forever because the poll never observed "loaded".
+     */
+    public async checkModelLoaded(modelName?: string, llmConfigKey?: string): Promise<boolean> {
         const config = this.loadConfig();
-        const name = modelName ?? config.model;
-        const url = baseUrl ?? config.ollamaUrl;
-        return this.isModelLoaded(url, name);
+        const { mc } = this.resolveModelConfig(config, undefined, llmConfigKey);
+        const name = modelName ?? mc.model ?? config.model;
+        const url = mc.ollamaUrl ?? config.ollamaUrl;
+        const apiStyle = (mc as { apiStyle?: 'ollama' | 'openai' }).apiStyle ?? 'ollama';
+        return this.isModelLoaded(url, name, apiStyle);
     }
 
     /** Get the resolved model name for a given config key (or default). */
@@ -1366,13 +2125,50 @@ export class LocalLlmManager {
         const effectiveModelKey = modelConfigKey ?? profile?.modelConfig ?? this.getDefaultModelKey(config);
         const { key: resolvedModelKey, mc } = this.resolveModelConfig(config, profile, effectiveModelKey ?? undefined);
 
-        const effectiveSystemPrompt = profile?.systemPrompt ?? config.systemPrompt;
+        // Per-profile knobs that govern memory + history wiring.
+        // historySuffix → which snapshot file we read/write.
+        // memorySuffix  → which `facts-<suffix>.md` file the ${memory}
+        //                 placeholder injects (else: all memory files).
+        // autoInjectMemory → when true, append `\n\n## Memory\n\n${memory}`
+        //                    to the system prompt source before
+        //                    placeholder resolution so the profile
+        //                    doesn't have to spell the placeholder out.
+        const historySuffix = profile?.historySuffix;
+        const memorySuffix = profile?.memorySuffix;
+        const autoInjectMemory = profile?.autoInjectMemory === true;
+
+        // Seed in-memory history from disk on first send for this
+        // (quest, suffix) pair so the LocalLLM panel behaves like the
+        // Anthropic panel: history survives reloads, and switching
+        // between profiles with different suffixes loads the right
+        // thread. Per-call trim immediately after caps the array per
+        // the active configuration so a legacy oversized snapshot
+        // can't blow out the next request.
+        const questForHistory = WsPaths.getWorkspaceQuestId();
+        this.seedHistoryFromSnapshot(questForHistory, historySuffix);
+        const seedCaps = this.resolveEffectiveLocalLlmCaps(mc);
+        this.trimRawTurns(seedCaps.rawTurnsKept);
+
+        const rawSystemPrompt = profile?.systemPrompt ?? config.systemPrompt;
+        // Auto-inject: identical contract to AnthropicHandler — append
+        // a `## Memory` heading + `${memory}` placeholder so the
+        // resolver below substitutes the real memory block. Resolution
+        // honours `memorySuffix` via `preValues`.
+        const effectiveSystemPrompt = autoInjectMemory
+            ? `${rawSystemPrompt ?? ''}\n\n## Memory\n\n\${memory}`
+            : rawSystemPrompt;
         const effectiveResultTemplate = profile?.resultTemplate ?? config.resultTemplate;
         const effectiveTemperature = profile?.temperature ?? mc.temperature;
 
         // Resolve ${instructions} content from .tom/local-instructions/
         const instructionsContent = this.resolveInstructionsContent(mc.model);
-        const instructionsExtra = { instructions: instructionsContent };
+        // Bundle the profile-derived knobs into the placeholder values
+        // so the `${memory}` resolver in utils/variableResolver.ts can
+        // pick up `memorySuffix` without a per-call API parameter.
+        const instructionsExtra: Record<string, string> = { instructions: instructionsContent };
+        if (memorySuffix) {
+            instructionsExtra.memorySuffix = memorySuffix;
+        }
 
         // Pre-values for system prompt placeholder resolution
         const preValues = this.buildPlaceholderValues(
@@ -1391,6 +2187,10 @@ export class LocalLlmManager {
         const effectiveHistoryMode = profile?.historyMode ?? config.historyMode;
         this.logChannel.appendLine(`[process] History mode: ${effectiveHistoryMode} | History enabled: ${this.historyEnabled} | History length: ${this.conversationHistory.length}`);
 
+        // Hoisted so the outer `catch` can close the trail block with
+        // a visible ERROR marker. Assigned inside the try once the
+        // reachability check passes.
+        let liveTrail: LiveTrailWriter | null = null;
         try {
             // Check the endpoint is reachable (apiStyle-aware)
             const running = await this.isOllamaRunning(mc.ollamaUrl, mc.apiStyle);
@@ -1447,9 +2247,28 @@ export class LocalLlmManager {
                 historyEnabled: this.historyEnabled,
             });
 
-            // Build history for Ollama based on mode
+            // Build history for Ollama based on mode. We support five
+            // modes (anthropic_sdk_integration.md §6):
+            //   none / last       — degenerate fast paths
+            //   full              — every prior turn (capped by
+            //                       compaction.fullTrailMaxTurns in the
+            //                       compactor)
+            //   trim_and_summary  — incremental: kept raw turns +
+            //                       running compactedSummary prepended
+            //                       as a synthetic exchange. Mirrors the
+            //                       Anthropic handler so both share the
+            //                       `${existingSummary}` / `${lastTurn}`
+            //                       compaction template contract.
+            //   summary / llm_extract — delegate to compactHistory()
+            const eCaps = this.resolveEffectiveLocalLlmCaps(mc);
             let historyForOllama: Array<{ role: string; content: string }> = [];
-            if (this.historyEnabled && effectiveHistoryMode !== 'none' && this.conversationHistory.length > 0) {
+            // History is gated solely on `effectiveHistoryMode`. A profile
+            // (or top-level config) that opts out sets it to 'none';
+            // anything else means "inject what the mode prescribes". The
+            // legacy `this.historyEnabled` runtime kill-switch is no
+            // longer consulted — no caller flips it and the gate left
+            // the entire history feature dark by default.
+            if (effectiveHistoryMode !== 'none') {
                 if (effectiveHistoryMode === 'full') {
                     historyForOllama = this.getHistoryAsMessages();
                 } else if (effectiveHistoryMode === 'last') {
@@ -1458,25 +2277,46 @@ export class LocalLlmManager {
                     const lastAssistant = hist.slice().reverse().find(m => m.role === 'assistant');
                     if (lastUser) { historyForOllama.push({ role: 'user', content: lastUser.content }); }
                     if (lastAssistant) { historyForOllama.push({ role: 'assistant', content: lastAssistant.content }); }
+                } else if (effectiveHistoryMode === 'trim_and_summary') {
+                    // Incremental: prepend a synthetic user/assistant pair
+                    // carrying `compactedSummary`, then the most recent
+                    // `rawTurnsKept * 2` raw messages from `rawTurns`.
+                    if (this.compactedSummary) {
+                        historyForOllama.push({
+                            role: 'user',
+                            content: `## Additional context (compacted from earlier turns)\n\n${this.compactedSummary}`,
+                        });
+                        historyForOllama.push({
+                            role: 'assistant',
+                            content: 'Understood — continuing with this context in mind.',
+                        });
+                    }
+                    const keep = Math.max(0, eCaps.rawTurnsKept) * 2;
+                    const rawSlice = keep > 0 ? this.rawTurns.slice(-keep) : [];
+                    for (const m of rawSlice) {
+                        historyForOllama.push({ role: m.role, content: m.content });
+                    }
                 } else {
-                    // 'summary' / 'trim_and_summary' / 'llm_extract' — delegate
-                    // to the shared compactor (anthropic_sdk_integration §6).
+                    // 'summary' / 'llm_extract' — delegate to shared
+                    // compactor for a one-shot rewrite.
                     try {
                         const { compactHistory } = await import('../services/history-compaction.js');
-                        const compactionCfg = (loadSendToChatConfig() as any)?.compaction ?? {};
+                        const compactionCfg = (loadSendToChatConfig() as { compaction?: Record<string, unknown> })?.compaction ?? {};
                         const input = this.getHistoryAsMessages().map(m => ({
                             role: (m.role === 'system' ? 'user' : m.role) as 'user' | 'assistant' | 'system',
                             content: m.content,
                         }));
                         const compacted = await compactHistory(input, {
-                            mode: effectiveHistoryMode as any,
-                            maxHistoryTokens: compactionCfg.maxHistoryTokens,
-                            maxRounds: 1,
-                            llmProvider: compactionCfg.llmProvider ?? 'localLlm',
-                            llmConfigId: compactionCfg.llmConfigId ?? (mc as any).id ?? 'default',
-                            compactionTemplateId: compactionCfg.compactionTemplateId,
-                            memoryTemplateId: compactionCfg.memoryExtractionTemplateId,
-                            compactionMaxRounds: compactionCfg.compactionMaxRounds ?? 1,
+                            mode: effectiveHistoryMode as 'summary' | 'llm_extract',
+                            maxHistoryTokens: eCaps.maxHistoryTokens,
+                            historyMaxChars: eCaps.historyMaxChars,
+                            memoryMaxChars: eCaps.memoryMaxChars,
+                            maxRounds: Math.max(1, eCaps.rawTurnsKept),
+                            llmProvider: (compactionCfg.llmProvider as 'localLlm' | 'anthropic') ?? 'localLlm',
+                            llmConfigId: (compactionCfg.llmConfigId as string) ?? (mc as { id?: string }).id ?? 'default',
+                            compactionTemplateId: compactionCfg.compactionTemplateId as string | undefined,
+                            memoryTemplateId: compactionCfg.memoryExtractionTemplateId as string | undefined,
+                            compactionMaxRounds: (compactionCfg.compactionMaxRounds as number | undefined) ?? 1,
                         });
                         historyForOllama = compacted.map(m => ({ role: m.role, content: m.content }));
                     } catch (e) {
@@ -1484,10 +2324,23 @@ export class LocalLlmManager {
                         historyForOllama = this.getHistoryAsMessages();
                     }
                 }
-                this.logChannel.appendLine(`[process] Passing ${historyForOllama.length} history message(s) to Ollama`);
+                this.logChannel.appendLine(`[process] Passing ${historyForOllama.length} history message(s) to Ollama (mode=${effectiveHistoryMode}, summaryChars=${this.compactedSummary.length}, rawTurns=${this.rawTurns.length})`);
             }
 
             this.logChannel.appendLine(`[process] All tools enabled: ${allToolsEnabled} | Tools count: ${toolsToUse.length}`);
+
+            // Per-call live-trail writer — appends a fresh `## 🚀 PROMPT`
+            // block + tool calls / results / final text to
+            // `_ai/quests/<quest>/live-trail-localLLM.md`. Parallel to the
+            // Anthropic `live-trail.md` so the user can follow both
+            // transports side by side. Local to this call (never a field
+            // on the singleton) so concurrent invocations don't stomp.
+            liveTrail = new LiveTrailWriter(questForHistory, LOCAL_LLM_LIVE_TRAIL_FILENAME);
+            liveTrail.beginPrompt({
+                transport: 'localLlm',
+                config: `${effectiveProfileKey} / ${resolvedModelKey}`,
+                userText: prompt,
+            });
 
             const result = await this.ollamaGenerateWithTools({
                 baseUrl: mc.ollamaUrl,
@@ -1502,6 +2355,7 @@ export class LocalLlmManager {
                 maxRounds: effectiveMaxRounds,
                 onToolCall,
                 history: historyForOllama,
+                liveTrail,
             });
             const rawResponse = result.text;
             const stats = result.stats;
@@ -1509,6 +2363,7 @@ export class LocalLlmManager {
             const turnsUsed = result.turnsUsed;
 
             if (!rawResponse.trim()) {
+                liveTrail.endPromptWithError('Ollama returned an empty response');
                 return {
                     success: false,
                     result: '',
@@ -1523,6 +2378,23 @@ export class LocalLlmManager {
 
             // Process think tags
             const { cleaned, thinkContent } = this.processThinkTags(rawResponse, mc.stripThinkingTags);
+
+            // Live-trail close: tokens already streamed in real time via
+            // the onToken wrapper inside `ollamaGenerateWithTools`, so
+            // the `### 💬 assistant` heading and body are already in the
+            // file. `<think>…</think>` content is part of that stream
+            // (the model emits it inline), so we deliberately do NOT
+            // call `appendThinking(thinkContent)` here — that would
+            // duplicate text already in the file. `endPrompt` closes
+            // the block with the rounds / tool-call / duration summary.
+            // `thinkContent` is still used downstream for the
+            // `${thinkTagInfo}` placeholder.
+            void cleaned;
+            void thinkContent;
+            liveTrail.endPrompt({
+                rounds: turnsUsed ?? 0,
+                toolCalls: toolCallCount ?? 0,
+            });
 
             // Trail: Log final response
             logResponse('local', 'ollama', rawResponse, true, {
@@ -1543,11 +2415,51 @@ export class LocalLlmManager {
             );
             const finalText = this.resolvePlaceholders(effectiveResultTemplate, postValues);
 
-            // Update conversation history if history mode is enabled
-            if (this.historyEnabled && effectiveHistoryMode !== 'none') {
+            // Record the just-completed exchange. Same gate as the
+            // history-injection block above: `effectiveHistoryMode !== 'none'`
+            // is the single source of truth.
+            if (effectiveHistoryMode !== 'none') {
                 this.addToHistory('user', prompt);
                 this.addToHistory('assistant', cleaned);
                 this.logChannel.appendLine(`[process] Added exchange to history. Total: ${this.conversationHistory.length} messages`);
+
+                // Maintain the incremental compactedSummary + rawTurns
+                // pair used by `trim_and_summary` mode. Once raw turns
+                // grow past `rawTurnsKept * 2`, fold the overflow into
+                // the running summary via the configured compaction
+                // template (`${existingSummary}` + `${lastTurn}`).
+                if (effectiveHistoryMode === 'trim_and_summary') {
+                    this.rawTurns.push({ role: 'user', content: prompt });
+                    this.rawTurns.push({ role: 'assistant', content: cleaned });
+                    const cap = Math.max(0, eCaps.rawTurnsKept) * 2;
+                    if (this.rawTurns.length > cap) {
+                        // Slice out what's about to be dropped so we
+                        // can fold it into the running summary before
+                        // trimming. `cap === 0` is a legitimate setting
+                        // ("rely entirely on `compactedSummary`"); in
+                        // that case every just-pushed message becomes
+                        // overflow and `rawTurns` ends up empty.
+                        const overflow = cap === 0
+                            ? this.rawTurns.slice()
+                            : this.rawTurns.slice(0, this.rawTurns.length - cap);
+                        // Shared trim helper — keeps seed/push/compaction
+                        // identical (mirrors AnthropicHandler).
+                        this.trimRawTurns(eCaps.rawTurnsKept);
+                        // Fire and forget — failure to fold leaves the
+                        // raw turns trimmed but the summary stale, which
+                        // self-heals on the next turn.
+                        void this.foldOverflowIntoSummary(overflow, mc, eCaps);
+                    }
+                }
+
+                // Persist the per-profile snapshot to disk so the
+                // history survives a window reload — matches the
+                // Anthropic handler's behaviour. The Anthropic panel
+                // uses the canonical `history.{json,md}`; LocalLLM
+                // profiles use their own `history-<historySuffix>.{json,md}`
+                // when `historySuffix` is set, otherwise share the
+                // canonical pair.
+                this.persistSessionHistory(questForHistory, historySuffix);
             }
 
             return {
@@ -1564,6 +2476,12 @@ export class LocalLlmManager {
                 maxTurns: effectiveMaxRounds,
             };
         } catch (err: any) {
+            // Close the live-trail block with a visible ERROR marker
+            // so the user sees in the file *why* the trail stopped
+            // mid-stream. No-op when the writer was never initialised
+            // (reachability check failed before assignment).
+            const message = err?.message ?? String(err);
+            liveTrail?.endPromptWithError(message);
             return {
                 success: false,
                 result: '',
@@ -1572,7 +2490,7 @@ export class LocalLlmManager {
                 thinkTagContent: '',
                 profile: effectiveProfileKey,
                 modelConfig: resolvedModelKey,
-                error: err.message ?? String(err),
+                error: message,
             };
         }
     }

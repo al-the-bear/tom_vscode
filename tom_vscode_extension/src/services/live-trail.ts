@@ -59,11 +59,25 @@ export class LiveTrailWriter {
     /** Same idea for `### 🧠 thinking` streaming. */
     private currentlyInThinking = false;
 
-    constructor(questId: string) {
+    /**
+     * @param questId    The quest folder name to target.
+     * @param fileName   Markdown filename inside the quest's folder. Defaults
+     *                   to `'live-trail.md'` (the Anthropic-side canonical
+     *                   file). The Local LLM path passes
+     *                   `'live-trail-localLLM.md'` so the two transports
+     *                   write parallel trails in the same folder without
+     *                   stomping on each other.
+     */
+    constructor(questId: string, fileName: string = 'live-trail.md') {
         const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
         const questsRoot = WsPaths.ai('quests') ?? path.join(wsRoot, WsPaths.aiFolder, 'quests');
         const safeQuest = (questId || 'default').replace(/[^A-Za-z0-9_.-]/g, '_');
-        this.filePath = path.join(questsRoot, safeQuest, 'live-trail.md');
+        // Sanitize the filename the same way the quest segment is sanitized
+        // — defensive: callers pass a literal string, but accepting a
+        // user-supplied value via a future API would otherwise let a
+        // malicious filename escape the quest folder.
+        const safeName = fileName.replace(/[^A-Za-z0-9_.-]/g, '_') || 'live-trail.md';
+        this.filePath = path.join(questsRoot, safeQuest, safeName);
     }
 
     /** Absolute path the writer is targeting — useful for the chat panel's Open button. */

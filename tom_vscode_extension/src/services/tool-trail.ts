@@ -43,6 +43,8 @@ export interface ToolTrailEntry {
 const DEFAULT_KEEP_ENTRIES = 40;
 const DEFAULT_PREVIEW_CHARS = 500;
 const DEFAULT_MAX_RESULT_CHARS = 100_000; // hard cap per entry so a runaway tool result can't blow memory
+const DEFAULT_KEEP_ROUNDS = 2;            // tool-result blocks kept inline; older replaced with stub
+const DEFAULT_INLINE_MAX_CHARS = 1000;    // truncation applied to the inline-kept tool_result content
 
 export class ToolTrail {
     private entries: ToolTrailEntry[] = [];
@@ -50,15 +52,62 @@ export class ToolTrail {
     readonly keepEntries: number;
     readonly previewChars: number;
     readonly maxResultChars: number;
+    /** Number of most-recent tool_result blocks kept inline (full text up to
+     *  `inlineMaxChars`). Older ones are replaced with `renderStubByKey()`.
+     *  Set from `compaction.toolTrailKeepRounds` (or the per-configuration
+     *  override). */
+    keepRounds: number;
+    /** Per-result inline truncation cap. Set from
+     *  `compaction.toolTrailMaxResultChars` (or per-config override). */
+    inlineMaxChars: number;
 
     constructor(options?: {
         keepEntries?: number;
         previewChars?: number;
         maxResultChars?: number;
+        keepRounds?: number;
+        inlineMaxChars?: number;
     }) {
         this.keepEntries = options?.keepEntries ?? DEFAULT_KEEP_ENTRIES;
         this.previewChars = options?.previewChars ?? DEFAULT_PREVIEW_CHARS;
         this.maxResultChars = options?.maxResultChars ?? DEFAULT_MAX_RESULT_CHARS;
+        this.keepRounds = options?.keepRounds ?? DEFAULT_KEEP_ROUNDS;
+        this.inlineMaxChars = options?.inlineMaxChars ?? DEFAULT_INLINE_MAX_CHARS;
+    }
+
+    /** Apply the configured inline cap to a single tool result, prefixing
+     *  with a `[Truncated…]` marker that names the replay key so the model
+     *  can fetch the full body via `tomAi_readPastToolResult({key})`. */
+    truncateInline(key: string, toolName: string, inputSummary: string, result: string): string {
+        if (!result) { return result; }
+        if (result.length <= this.inlineMaxChars) { return result; }
+        const head = result.slice(0, this.inlineMaxChars);
+        return (
+            `[Truncated inline view: ${this.inlineMaxChars}/${result.length} chars. ` +
+            `Full result available via tomAi_readPastToolResult({"key":"${key}"}). ` +
+            `Tool: ${toolName}(${inputSummary})]\n${head}`
+        );
+    }
+
+    /** Render a one-line stub used to replace older tool_result content when
+     *  the round is dropped from the inline window. The model still sees the
+     *  `<tool_use, tool_result>` pairing (so the API stays valid) but the
+     *  content is just a pointer. */
+    renderStubByKey(key: string): string {
+        const e = this.getByKey(key);
+        if (!e) {
+            return `[Past tool call ${key} — full body not retained. Use tomAi_listPastToolCalls to enumerate available keys.]`;
+        }
+        const status = e.error ? `ERROR: ${e.error}` : `${(e.result ?? '').length} chars`;
+        return (
+            `[Past tool call ${e.key} — ${e.toolName}(${e.inputSummary}) — ${status}. ` +
+            `Use tomAi_readPastToolResult({"key":"${e.key}"}) to retrieve the full result.]`
+        );
+    }
+
+    /** Convenience overload for callers that have the entry already. */
+    renderStub(entry: ToolTrailEntry): string {
+        return this.renderStubByKey(entry.key);
     }
 
     /**
@@ -81,7 +130,26 @@ export class ToolTrail {
         while (this.entries.length > this.keepEntries) {
             this.entries.shift();
         }
+        // Persist to disk so the entry stays reachable by key after eviction
+        // or window reload. The hook is set by the handler at construction
+        // time so this module stays decoupled from quest/subsystem details.
+        if (this.persistHook) {
+            try {
+                this.persistHook(full);
+            } catch {
+                // best-effort; ring buffer remains primary
+            }
+        }
         return full;
+    }
+
+    /** Hook installed by the owning handler so `add()` can durably persist
+     *  every entry without the ToolTrail caring about subsystem / quest.
+     *  Set via `setPersistHook(fn)` after construction. */
+    private persistHook?: (entry: ToolTrailEntry) => void;
+
+    setPersistHook(hook: (entry: ToolTrailEntry) => void): void {
+        this.persistHook = hook;
     }
 
     /**

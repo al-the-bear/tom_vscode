@@ -30,6 +30,8 @@ import { loadSendToChatConfig, saveSendToChatConfig, SendToChatConfig } from '..
 import { PLACEHOLDER_HELP } from './promptTemplate';
 import { escapeHtml } from './handler_shared';
 import { AVAILABLE_LLM_TOOLS } from '../utils/constants';
+import { categorizeTools } from '../utils/toolCategories';
+import { READ_ONLY_TOOLS } from '../tools/tool-executors';
 
 // ============================================================================
 // Types
@@ -211,8 +213,8 @@ function _getItemsForCategory(config: SendToChatConfig, category: TemplateCatego
     }
 }
 
-function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory, itemId: string): { fields: Array<{ name: string; label: string; type: 'text' | 'textarea' | 'checkbox' | 'number' | 'select' | 'multi-checkbox'; value: string; readonly?: boolean; help?: string; options?: Array<{ value: string; label: string }>; disabledWhen?: { field: string; equals: string } }>; } {
-    const fields: Array<{ name: string; label: string; type: 'text' | 'textarea' | 'checkbox' | 'number' | 'select' | 'multi-checkbox'; value: string; readonly?: boolean; help?: string; options?: Array<{ value: string; label: string }>; disabledWhen?: { field: string; equals: string } }> = [];
+function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory, itemId: string): { fields: Array<{ name: string; label: string; type: 'text' | 'textarea' | 'checkbox' | 'number' | 'select' | 'multi-checkbox'; value: string; readonly?: boolean; help?: string; options?: Array<{ value: string; label: string; readOnly?: boolean }>; optionGroups?: Array<{ category: string; tools: Array<{ value: string; label: string; readOnly?: boolean }> }>; disabledWhen?: { field: string; equals: string } }>; } {
+    const fields: Array<{ name: string; label: string; type: 'text' | 'textarea' | 'checkbox' | 'number' | 'select' | 'multi-checkbox'; value: string; readonly?: boolean; help?: string; options?: Array<{ value: string; label: string; readOnly?: boolean }>; optionGroups?: Array<{ category: string; tools: Array<{ value: string; label: string; readOnly?: boolean }> }>; disabledWhen?: { field: string; equals: string } }> = [];
 
     switch (category) {
         case 'copilot': {
@@ -306,6 +308,11 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                 ? (profile.enabledTools as string[])
                 : [];
             const llmAllToolsEnabled = profile.toolsEnabled !== false && llmProfileEnabledTools.length === 0;
+            const llmExtras = profile as {
+                historySuffix?: string;
+                memorySuffix?: string;
+                autoInjectMemory?: boolean;
+            };
             fields.push(
                 { name: 'name', label: 'Profile Key', type: 'text', value: itemId },
                 { name: 'label', label: 'Display Label', type: 'text', value: profile.label || '' },
@@ -315,6 +322,9 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                 { name: 'modelConfig', label: 'Model Config', type: 'text', value: profile.modelConfig || '' },
                 { name: 'allToolsEnabled', label: 'All Tools Enabled', type: 'checkbox', value: String(llmAllToolsEnabled), help: 'When checked, <strong>every</strong> tool the extension knows about (all of <code>ALL_SHARED_TOOLS</code>) is exposed to the model. Uncheck to pick a profile-specific subset below — empty subset then means no tools.' },
                 { name: 'enabledTools', label: 'Tools', type: 'multi-checkbox', value: JSON.stringify(llmProfileEnabledTools), options: llmToolOptions, disabledWhen: { field: 'allToolsEnabled', equals: 'true' }, help: 'Profile-level tool subset. Active only when "All Tools Enabled" is off.' },
+                { name: 'historySuffix', label: 'History Suffix', type: 'text', value: llmExtras.historySuffix || '', help: 'Optional suffix for the per-profile history snapshot. When set, the manager reads/writes <code>history-&lt;suffix&gt;.{json,md}</code> in <code>_ai/quests/&lt;quest&gt;/history/</code> instead of the canonical <code>history.{json,md}</code>. Leave empty to share the snapshot with other unsuffixed profiles (including the Anthropic panel).' },
+                { name: 'memorySuffix', label: 'Memory Suffix', type: 'text', value: llmExtras.memorySuffix || '', help: 'Optional suffix for per-profile memory. When set, the <code>${memory}</code> placeholder injects only <code>facts-&lt;suffix&gt;.md</code> from each scope (shared + current quest). Leave empty to inject every memory file in the scope, matching the Anthropic-side default.' },
+                { name: 'autoInjectMemory', label: 'Auto-inject Memory', type: 'checkbox', value: String(llmExtras.autoInjectMemory === true), help: 'When checked, append a <code>## Memory</code> section with <code>${memory}</code> to the resolved system prompt automatically. When unchecked (default), memory is only included when the System Prompt or Result Template explicitly references <code>${memory}</code> / <code>${memory-shared}</code> / <code>${memory-quest}</code>.' },
                 { name: 'isDefault', label: 'Is Default', type: 'checkbox', value: String(profile.isDefault === true) },
                 { name: 'stripThinkingTags', label: 'Strip Thinking Tags', type: 'checkbox', value: String(profile.stripThinkingTags === true) },
             );
@@ -380,6 +390,12 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
             // whether or not the configuration already enables it. Empty
             // selection + allToolsEnabled=false means "no tools".
             const toolOptions = AVAILABLE_LLM_TOOLS.map((tool) => ({ value: tool, label: tool }));
+            // Categorised view of the same tools — used by the webview's
+            // grouped multi-checkbox renderer for per-group bulk-select
+            // buttons. `readOnly` flags are seeded from the tool registry
+            // so the "Select Read-Only" button can target them directly.
+            const readOnlyToolNames = new Set(READ_ONLY_TOOLS.map((t) => t.name));
+            const toolOptionGroups = categorizeTools(AVAILABLE_LLM_TOOLS, readOnlyToolNames);
             // Profile-level enabledTools override. We stash the list as
             // JSON in the field value so the multi-checkbox renderer can
             // pre-select the right rows without a second hidden field.
@@ -398,6 +414,7 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                 promptCachingEnabled?: boolean;
                 toolApprovalMode?: 'always' | 'never';
                 useBuiltInTools?: boolean;
+                autoInjectMemory?: boolean;
             };
             const approvalMode: 'always' | 'never' = p.toolApprovalMode === 'never' ? 'never' : 'always';
             const promptCachingDefaultOn = p.promptCachingEnabled !== false;
@@ -409,14 +426,17 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                 { name: 'userPromptWrapper', label: 'User Prompt Wrapper', type: 'textarea', value: (profile as { userPromptWrapper?: string }).userPromptWrapper || '', help: 'Profile-level wrapper applied <strong>after</strong> the user-message template has expanded — meant for "system-like" injections kept at the user-prompt layer so the system prompt can stay byte-identical across turns (prompt-caching friendly).<br><br><strong>Must contain <code>${wrappedPrompt}</code></strong> where the user-message-template result should appear. Also has access to <code>${compactedSummary}</code>, <code>${rawTurns}</code>, <code>${rawTurnCount}</code>, and the full workspace placeholder set (<code>${memory}</code>, <code>${instructions}</code>, <code>${role-description}</code>, …).<br><br>Leave empty to skip this wrapping stage.<br><br>Expansion order:<br>1. raw user text<br>2. User Message Template wraps it (<code>${userMessage}</code>) → <code>wrappedPrompt</code><br>3. this wrapper wraps <code>wrappedPrompt</code> → final message sent to Anthropic.' },
                 { name: 'configurationId', label: 'Configuration', type: 'select', value: profile.configurationId || '', options: configurationOptions, help: 'Which <code>anthropic.configurations[]</code> entry this profile uses. "(inherit default)" falls back to the configuration marked <code>isDefault</code>.' },
                 { name: 'allToolsEnabled', label: 'All Tools Enabled', type: 'checkbox', value: String(allToolsEnabled), help: 'When checked, <strong>every</strong> tool the extension knows about (all of <code>ALL_SHARED_TOOLS</code>) is exposed to the model. Uncheck to pick a profile-specific subset below.' },
-                { name: 'enabledTools', label: 'Tools', type: 'multi-checkbox', value: JSON.stringify(profileEnabledTools), options: toolOptions, disabledWhen: { field: 'allToolsEnabled', equals: 'true' }, help: 'Profile-level tool subset. Active only when "All Tools Enabled" is off. Empty subset → no tools.' },
+                { name: 'enabledTools', label: 'Tools', type: 'multi-checkbox', value: JSON.stringify(profileEnabledTools), options: toolOptions, optionGroups: toolOptionGroups, disabledWhen: { field: 'allToolsEnabled', equals: 'true' }, help: 'Profile-level tool subset. Active only when "All Tools Enabled" is off. Empty subset → no tools. Use the global toolbar (Select All / None / Read-Only) or per-group buttons for bulk picks.' },
                 { name: 'thinkingEnabled', label: 'Extended Thinking', type: 'checkbox', value: String(p.thinkingEnabled === true), help: 'Enable Claude extended thinking. Sends <code>thinking: { type: "enabled", budget_tokens }</code> on the direct SDK; forwarded to the Agent SDK where supported.' },
                 { name: 'thinkingBudgetTokens', label: 'Thinking Budget (tokens)', type: 'number', value: String(p.thinkingBudgetTokens ?? 8192), help: 'Token budget for extended thinking. Minimum 1024. Ignored when Extended Thinking is off.', disabledWhen: { field: 'thinkingEnabled', equals: 'false' } },
                 { name: 'promptCachingEnabled', label: 'Prompt Caching', type: 'checkbox', value: String(promptCachingDefaultOn), help: 'Enable prompt caching for this profile. Overrides <code>configuration.promptCachingEnabled</code>. Defaults to on.' },
                 { name: 'toolApprovalMode', label: 'Tool Approval', type: 'select', value: approvalMode, options: [{ value: 'always', label: 'Always — prompt before every write tool call' }, { value: 'never', label: 'Never — skip the approval gate (dangerous)' }], help: 'Approval gate for write tool calls. <strong>Always</strong> shows the approval bar; the user can elevate a single approval to the full session via the "Allow All (session)" button at the bar. <strong>Never</strong> skips the gate entirely (on the Agent SDK it also forces <code>permissionMode=bypassPermissions</code>).' },
                 { name: 'useBuiltInTools', label: 'Use Built-In Agent SDK Tools', type: 'checkbox', value: String(p.useBuiltInTools === true), help: 'Agent SDK transport only: expose Claude Code\'s built-in tool preset (Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch, TodoWrite, …) and automatically suppress extension tools that duplicate them. No effect on the direct Anthropic SDK.' },
-                { name: 'maxRounds', label: 'Max Rounds', type: 'number', value: String(profile.maxRounds ?? '') },
+                { name: 'autoInjectMemory', label: 'Auto-inject Memory', type: 'checkbox', value: String(p.autoInjectMemory === true), help: 'When checked, append a <code>## Memory</code> section with <code>${memory}</code> to the resolved system prompt automatically. When unchecked (default), memory is only included when the profile explicitly references <code>${memory}</code> / <code>${memory-shared}</code> / <code>${memory-quest}</code> in its System Prompt, User Prompt Wrapper, or user-message template.<br><br><strong>Caveat:</strong> file-injection placeholders (<code>${role-description}</code>, <code>${quest-description}</code>, <code>${guidelines-*}</code>) recursively expand any <code>${memory*}</code> tokens that appear inside the injected file. Leaving this off does NOT prevent that. Audit those files if you want zero memory in the prompt.' },
+                { name: 'maxRounds', label: 'Max Rounds', type: 'number', value: String(profile.maxRounds ?? ''), help: 'Override <code>configuration.maxRounds</code> for this profile. Leave empty to inherit.' },
+                { name: 'maxTokens', label: 'Max Tokens', type: 'number', value: String((profile as { maxTokens?: number }).maxTokens ?? ''), help: 'Override <code>configuration.maxTokens</code> for this profile. Leave empty to inherit.' },
                 { name: 'historyMode', label: 'History Mode', type: 'text', value: profile.historyMode ?? '', help: 'one of: none, full, last, summary, trim_and_summary, llm_extract — leave empty to inherit from configuration' },
+                { name: 'retryMaxTotalWaitMinutes', label: 'Retry Budget (min)', type: 'number', value: String((profile as { retryMaxTotalWaitMinutes?: number }).retryMaxTotalWaitMinutes ?? ''), help: 'Maximum total minutes the retry-on-busy loop is allowed to wait after the first transient error (HTTP 429 / 503 / 529 / rate-limit / overloaded). Applies uniformly to Anthropic, Ollama, and vLLM. Defaults to 10. Use 240 (4h) to survive Claude session-limit resets.' },
                 { name: 'isDefault', label: 'Is Default', type: 'checkbox', value: String(profile.isDefault === true) },
             );
             break;
@@ -447,9 +467,10 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                     + '<code>${existingSummary}</code> – the compacted summary as it stood at the end of the previous turn (or the string <em>"(empty …)"</em> on the first turn / in batch modes)<br>'
                     + '<code>${lastTurn}</code> – the new content to integrate (one user/assistant pair in incremental mode; the whole overflow slice in batch modes)<br>'
                     + '<code>${lastTurnCharCount}</code> – character count of <code>${lastTurn}</code><br>'
-                    + '<code>${maxHistoryTokens}</code> – target token budget for the summary (from the Compaction Max History Tokens setting)<br>'
+                    + '<code>${maxHistoryTokens}</code> – target token budget for the summary (from the Compaction Max History Tokens setting, or per-configuration override)<br>'
                     + '<code>${maxHistorySize}</code> – same budget expressed in characters (<code>maxHistoryTokens × 4</code>) — use this to steer the LLM\'s verbosity<br>'
-                    + '<code>${historyMaxChars}</code> – hard char cap the summary should fit within, from the History Max Chars setting (e.g. 24000). Mention this in the prompt so the LLM keeps the output within budget, especially on MoE / local models with limited working context<br>' },
+                    + '<code>${historyMaxChars}</code> – hard char cap the summary should fit within, from the History Max Chars setting (e.g. 24000). Mention this in the prompt so the LLM keeps the output within budget, especially on MoE / local models with limited working context<br>'
+                    + '<br><strong>How this template is invoked:</strong> on every turn whose <code>rawTurns</code> overflow <code>rawTurnsKept × 2</code> messages, the handler folds the oldest overflow into <code>${existingSummary}</code> by calling this template with the overflow as <code>${lastTurn}</code>. The output replaces <code>compactedSummary</code> for the next turn.<br>' },
                 { name: 'targetMode', label: 'Target Mode', type: 'text', value: tpl.targetMode || 'all', help: 'summary, trim_and_summary, llm_extract, or all' },
                 { name: 'allToolsEnabled', label: 'All Tools Enabled', type: 'checkbox', value: String(compAllEnabled), help: 'When checked, the compaction call exposes every tool in <code>ALL_SHARED_TOOLS</code>. Uncheck to pick a template-specific subset.' },
                 { name: 'enabledTools', label: 'Tools', type: 'multi-checkbox', value: JSON.stringify(compEnabled), options: compToolOptions, disabledWhen: { field: 'allToolsEnabled', equals: 'true' }, help: 'Tool subset the compaction LLM may call. Only read-only tools are useful for a summary pass — <code>tomAi_readFile</code>, <code>tomAi_listMemory</code>, <code>tomAi_readMemory</code>, <code>tomAi_listGlobalGuidelines</code>, etc.' },
@@ -672,6 +693,10 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
                     llmEnabled = parsed.filter((t): t is string => typeof t === 'string');
                 }
             } catch { llmEnabled = undefined; }
+            const trimOrUndef = (s: string | undefined): string | undefined => {
+                const v = (s ?? '').trim();
+                return v.length > 0 ? v : undefined;
+            };
             profiles[newName] = {
                 ...(profiles[itemId] || profiles[newName] || {}),
                 label: values.label || newName,
@@ -683,6 +708,12 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
                 enabledTools: llmAll ? undefined : (llmEnabled ?? []),
                 isDefault: values.isDefault === 'true',
                 stripThinkingTags: values.stripThinkingTags === 'true',
+                // Persist as `undefined` when empty so the JSON stays
+                // clean (no "historySuffix": "" noise) and downstream
+                // reads with `?? defaults` keep behaving correctly.
+                historySuffix: trimOrUndef(values.historySuffix),
+                memorySuffix: trimOrUndef(values.memorySuffix),
+                autoInjectMemory: values.autoInjectMemory === 'true',
             };
             break;
         }
@@ -726,6 +757,7 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
             const promptCachingEnabled = values.promptCachingEnabled !== 'false'; // default on
             const toolApprovalMode: 'always' | 'never' = values.toolApprovalMode === 'never' ? 'never' : 'always';
             const useBuiltInTools = values.useBuiltInTools === 'true';
+            const autoInjectMemory = values.autoInjectMemory === 'true';
             const userPromptWrapper = (values.userPromptWrapper || '').trim();
             const next = {
                 id: itemId,
@@ -741,8 +773,13 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
                 promptCachingEnabled,
                 toolApprovalMode,
                 useBuiltInTools,
+                autoInjectMemory,
                 maxRounds: values.maxRounds ? parseInt(values.maxRounds, 10) : undefined,
+                maxTokens: values.maxTokens ? parseInt(values.maxTokens, 10) : undefined,
                 historyMode: values.historyMode || null,
+                retryMaxTotalWaitMinutes: values.retryMaxTotalWaitMinutes
+                    ? parseInt(values.retryMaxTotalWaitMinutes, 10)
+                    : undefined,
                 isDefault: values.isDefault === 'true',
             };
             if (idx >= 0) {
@@ -1754,13 +1791,38 @@ function renderFields(fields) {
             if (!Array.isArray(checked)) { checked = []; }
             var disabledWhen = f.disabledWhen || null;
             var disabledAttr = disabledWhen ? ' data-disabled-when-field="' + escapeAttr(disabledWhen.field) + '" data-disabled-when-equals="' + escapeAttr(disabledWhen.equals) + '"' : '';
-            var rows = (f.options || []).map(function(o) {
+            function renderMultiCheckOption(o) {
                 var id = 'field_' + f.name + '__' + o.value.replace(/[^a-zA-Z0-9_-]/g, '_');
                 var isChecked = checked.indexOf(o.value) >= 0;
+                var roAttr = o.readOnly ? ' data-readonly="true"' : '';
                 return '<label class="multi-checkbox-row" style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;font-weight:normal">' +
-                    '<input type="checkbox" class="field-multi-option" data-field="' + f.name + '" value="' + escapeAttr(o.value) + '" id="' + id + '"' + (isChecked ? ' checked' : '') + '>' +
+                    '<input type="checkbox" class="field-multi-option" data-field="' + f.name + '" value="' + escapeAttr(o.value) + '" id="' + id + '"' + roAttr + (isChecked ? ' checked' : '') + '>' +
                     escapeText(o.label) + '</label>';
-            }).join('');
+            }
+            if (Array.isArray(f.optionGroups) && f.optionGroups.length > 0) {
+                // Grouped layout: global toolbar + per-group bulk buttons.
+                // Buttons emit native click events that are picked up by the
+                // delegated listener wired after innerHTML is set (see below).
+                var globalBar = '<div class="multi-checkbox-toolbar" style="margin-bottom:6px;padding:4px 0;border-bottom:1px solid var(--vscode-panel-border,#444);display:flex;gap:6px;flex-wrap:wrap">' +
+                    '<button type="button" class="mc-btn-all">Select All</button>' +
+                    '<button type="button" class="mc-btn-none">Select None</button>' +
+                    '<button type="button" class="mc-btn-readonly">Select Read-Only</button>' +
+                    '</div>';
+                var groupsHtml = f.optionGroups.map(function(grp) {
+                    var groupRows = (grp.tools || []).map(renderMultiCheckOption).join('');
+                    return '<div class="multi-checkbox-group-section" data-group-name="' + escapeAttr(grp.category) + '" style="margin-bottom:8px">' +
+                        '<div class="multi-checkbox-group-header" style="display:flex;align-items:center;gap:8px;margin-bottom:2px;font-weight:600">' +
+                            '<span>' + escapeText(grp.category) + '</span>' +
+                            '<button type="button" class="mc-group-all" data-group="' + escapeAttr(grp.category) + '" style="font-size:0.85em">all</button>' +
+                            '<button type="button" class="mc-group-none" data-group="' + escapeAttr(grp.category) + '" style="font-size:0.85em">none</button>' +
+                        '</div>' +
+                        '<div class="multi-checkbox-group" style="display:flex;flex-wrap:wrap;padding:2px 0 2px 12px">' + groupRows + '</div>' +
+                    '</div>';
+                }).join('');
+                return '<div class="field multi-checkbox-field grouped" data-field-name="' + f.name + '"' + disabledAttr + '>' + labelHtml +
+                    globalBar + groupsHtml + '</div>';
+            }
+            var rows = (f.options || []).map(renderMultiCheckOption).join('');
             return '<div class="field multi-checkbox-field" data-field-name="' + f.name + '"' + disabledAttr + '>' + labelHtml +
                 '<div class="multi-checkbox-group" style="display:flex;flex-wrap:wrap;padding:4px 0">' + rows + '</div></div>';
         }
@@ -1803,6 +1865,37 @@ function renderFields(fields) {
         el.addEventListener('change', applyMultiCheckboxDisabled);
     });
     applyMultiCheckboxDisabled();
+
+    // Bulk-select buttons on grouped multi-checkbox fields. Three globals
+    // (Select All / None / Read-Only) plus per-group all / none. Read-Only
+    // selects every checkbox flagged data-readonly="true" and unchecks
+    // the rest. Click handlers are delegated on the field root so groups
+    // added later still work.
+    editorArea.querySelectorAll('.multi-checkbox-field.grouped').forEach(function(field) {
+        field.addEventListener('click', function(e) {
+            var target = e.target;
+            if (!target || target.tagName !== 'BUTTON') return;
+            var checks = field.querySelectorAll('input.field-multi-option');
+            if (target.classList.contains('mc-btn-all')) {
+                checks.forEach(function(c) { c.checked = true; });
+            } else if (target.classList.contains('mc-btn-none')) {
+                checks.forEach(function(c) { c.checked = false; });
+            } else if (target.classList.contains('mc-btn-readonly')) {
+                checks.forEach(function(c) { c.checked = c.getAttribute('data-readonly') === 'true'; });
+            } else if (target.classList.contains('mc-group-all') || target.classList.contains('mc-group-none')) {
+                var groupName = target.getAttribute('data-group');
+                var sections = field.querySelectorAll('.multi-checkbox-group-section');
+                var on = target.classList.contains('mc-group-all');
+                sections.forEach(function(s) {
+                    if (s.getAttribute('data-group-name') !== groupName) return;
+                    s.querySelectorAll('input.field-multi-option').forEach(function(c) { c.checked = on; });
+                });
+            } else {
+                return;
+            }
+            e.preventDefault();
+        });
+    });
 }
 
 function saveCurrentItem() {

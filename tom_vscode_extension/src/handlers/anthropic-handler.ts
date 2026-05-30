@@ -19,9 +19,10 @@ import {
 } from '../tools/shared-tool-registry';
 import { TrailService } from '../services/trailService';
 import { ANTHROPIC_SUBSYSTEM } from '../services/trailSubsystems';
-import { ToolTrail, setActiveToolTrail } from '../services/tool-trail';
+import { ToolTrail, setActiveToolTrail, type ToolTrailEntry } from '../services/tool-trail';
 import { LiveTrailWriter } from '../services/live-trail';
 import { classifyAnthropicError, Interruption } from '../utils/anthropicErrorClassifier';
+import { withRetryBudget } from '../utils/retryWithBudget';
 import { runWithToolContext } from '../services/tool-execution-context';
 import {
     compactHistory,
@@ -107,6 +108,16 @@ export interface AnthropicConfiguration {
         keepAlive?: string;
         /** Backend protocol; `'ollama'` (default) or `'openai'` for vLLM-like endpoints. */
         apiStyle?: 'ollama' | 'openai';
+        /**
+         * Master switch for tool use through this Local-LLM-backed Anthropic
+         * profile. When `false`, the dispatcher never sends a `tools` array
+         * to the backend regardless of profile-level tool settings. This is
+         * the right setting for vLLM / LM Studio / llama.cpp servers that
+         * were launched without `--enable-auto-tool-choice` and a
+         * `--tool-call-parser`; they reject any request that includes
+         * `tools` otherwise. Defaults to `true`.
+         */
+        toolsEnabled?: boolean;
     };
     /**
      * Per-configuration override for the global `compaction.disabled` flag.
@@ -139,6 +150,24 @@ export interface AnthropicProfile {
     enabledTools?: string[];
     maxRounds?: number;
     historyMode?: string | null;
+    /**
+     * Max response tokens override. When set (and > 0), overrides
+     * `AnthropicConfiguration.maxTokens` for this profile. Useful when
+     * the same backend configuration is shared across personas with
+     * different verbosity needs.
+     */
+    maxTokens?: number;
+    /**
+     * Maximum total wait time (in minutes) for the retry-on-busy loop.
+     * Applies uniformly to all backends (Anthropic direct SDK, Ollama,
+     * OpenAI/vLLM). The retry loop uses exponential backoff capped at
+     * 5 minutes and keeps retrying transient errors (429 / 503 / 529 /
+     * "rate limit" / "overloaded" / "service unavailable") until the
+     * cumulative elapsed time since the first failure exceeds this
+     * budget. Defaults to 10 minutes when unset. Set to 240 (4 hours)
+     * on profiles you expect to survive Claude session-limit resets.
+     */
+    retryMaxTotalWaitMinutes?: number;
     isDefault?: boolean;
     /** Extended thinking — sends `thinking: { type: 'enabled', budget_tokens }`. */
     thinkingEnabled?: boolean;
@@ -161,6 +190,19 @@ export interface AnthropicProfile {
      * direct Anthropic SDK path.
      */
     useBuiltInTools?: boolean;
+    /**
+     * When true, append a `${memory}` block to the resolved system prompt
+     * automatically, so the user doesn't have to add the placeholder by
+     * hand. Default `false` — memory is only included when the profile's
+     * `systemPrompt` / `userPromptWrapper` / `userMessageTemplate`
+     * explicitly references `${memory}` / `${memory-shared}` / `${memory-quest}`.
+     *
+     * Note: file-injection placeholders (`${role-description}` /
+     * `${quest-description}`) recursively expand any `${memory*}` tokens
+     * that happen to appear inside the injected file. Set this to `false`
+     * AND audit those files if you want zero memory in the prompt.
+     */
+    autoInjectMemory?: boolean;
     /**
      * Profile-level wrapper applied *after* the `userMessageTemplate`
      * has expanded. Meant for "system-like" injections the profile wants
@@ -336,10 +378,15 @@ export class AnthropicHandler {
      *     and seeded from disk on the first send. Sent to the model as a
      *     synthetic user/assistant pair positioned *after* the raw turns
      *     (so the most recent complete-fidelity turns come first).
-     *   - `rawTurns` — user/assistant messages kept verbatim, trimmed to
-     *     the last `compactionMaxRounds * 2` messages after each
-     *     compaction pass so older turns are never duplicated in the wire
-     *     payload (they live in the summary already).
+     *   - `rawTurns` — user/assistant messages kept verbatim. Invariant:
+     *     `rawTurns.length <= rawTurnsKept * 2` at all times. The cap is
+     *     enforced at every mutation point — on seed from disk, after
+     *     each post-send append, and after compaction — so the array
+     *     stays bounded regardless of whether compaction is configured
+     *     or runs successfully. Older turns are folded into
+     *     `compactedSummary` when compaction is enabled; when it isn't,
+     *     they are simply dropped (the trail files remain as the
+     *     authoritative archive).
      */
     private compactedSummary: string = '';
     private rawTurns: ConversationMessage[] = [];
@@ -414,6 +461,19 @@ export class AnthropicHandler {
         // / `readPastToolResult` tools can reach it without a circular
         // import on the handler module.
         setActiveToolTrail(this.toolTrail);
+        // Persist every tool result to disk under the per-quest store so
+        // older entries — replaced inline with a stub once the round drops
+        // out of `toolTrailKeepRounds` — remain readable via
+        // `tomAi_readPastToolResult`. Import lazily to avoid cycles.
+        this.toolTrail.setPersistHook((entry) => {
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                const { writeToolResult } = require('../services/tool-result-store');
+                writeToolResult('anthropic', entry, WsPaths.getWorkspaceQuestId());
+            } catch {
+                // best-effort — disk persistence is not on the critical path
+            }
+        });
         // Eager init per spec §17 Step 1.8; falls back to lazy creation in
         // `getClient()` if the env var was unset at activation time.
         try {
@@ -469,6 +529,13 @@ export class AnthropicHandler {
                 }
                 if (Array.isArray(obj.rawTurns)) {
                     this.rawTurns = obj.rawTurns.filter(isConversationMessage);
+                    // Don't trim here — the per-call configuration cap
+                    // may be higher than the global default and we don't
+                    // know it yet. sendMessage applies trimRawTurns()
+                    // with `resolveEffectiveCaps(configuration).rawTurnsKept`
+                    // immediately after seeding, so a legacy snapshot
+                    // with hundreds of turns gets bounded before any
+                    // wire payload is built.
                 }
                 return;
             }
@@ -554,6 +621,9 @@ export class AnthropicHandler {
         maxHistoryTokens: number;
         historyMaxChars: number;
         memoryMaxChars: number;
+        rawTurnsKept: number;
+        toolTrailMaxResultChars: number;
+        toolTrailKeepRounds: number;
         fullTrailMaxTurns: number;
         runMemoryExtractionOnCompaction: boolean;
         rebuildFromLastNPrompts: number;
@@ -569,6 +639,9 @@ export class AnthropicHandler {
             maxHistoryTokens?: number;
             historyMaxChars?: number;
             memoryMaxChars?: number;
+            rawTurnsKept?: number;
+            toolTrailMaxResultChars?: number;
+            toolTrailKeepRounds?: number;
             fullTrailMaxTurns?: number;
             runMemoryExtractionOnCompaction?: boolean;
             rebuildFromLastNPrompts?: number;
@@ -584,11 +657,155 @@ export class AnthropicHandler {
             maxHistoryTokens: Number.isFinite(section.maxHistoryTokens) ? (section.maxHistoryTokens as number) : 8000,
             historyMaxChars: Number.isFinite(section.historyMaxChars) ? (section.historyMaxChars as number) : 24000,
             memoryMaxChars: Number.isFinite(section.memoryMaxChars) ? (section.memoryMaxChars as number) : 8000,
+            rawTurnsKept: Number.isFinite(section.rawTurnsKept) ? (section.rawTurnsKept as number) : 4,
+            toolTrailMaxResultChars: Number.isFinite(section.toolTrailMaxResultChars) ? (section.toolTrailMaxResultChars as number) : 1000,
+            toolTrailKeepRounds: Number.isFinite(section.toolTrailKeepRounds) ? (section.toolTrailKeepRounds as number) : 2,
             fullTrailMaxTurns: Number.isFinite(section.fullTrailMaxTurns) ? (section.fullTrailMaxTurns as number) : 200,
             runMemoryExtractionOnCompaction: section.runMemoryExtractionOnCompaction !== false,
             rebuildFromLastNPrompts: Number.isFinite(section.rebuildFromLastNPrompts) ? (section.rebuildFromLastNPrompts as number) : 200,
             archiveHistoryEveryTurn: section.archiveHistoryEveryTurn === true,
         };
+    }
+
+    /**
+     * Resolve the effective tool-trail / history caps for a given
+     * configuration. Per-configuration `historyMaxChars` / `memoryMaxChars`
+     * / `rawTurnsKept` / `toolTrailMaxResultChars` / `toolTrailKeepRounds`
+     * win over the compaction-section fallback so a single workspace can
+     * tune different models (200k Opus vs 128k local) without forking the
+     * whole compaction block.
+     */
+    private resolveEffectiveCaps(configuration: AnthropicConfiguration): {
+        historyMaxChars: number;
+        memoryMaxChars: number;
+        rawTurnsKept: number;
+        toolTrailMaxResultChars: number;
+        toolTrailKeepRounds: number;
+        maxHistoryTokens: number;
+    } {
+        const cfg = this.getCompactionConfig();
+        const c = configuration as unknown as {
+            historyMaxChars?: number;
+            memoryMaxChars?: number;
+            rawTurnsKept?: number;
+            toolTrailMaxResultChars?: number;
+            toolTrailKeepRounds?: number;
+            maxHistoryTokens?: number;
+        };
+        return {
+            historyMaxChars: Number.isFinite(c.historyMaxChars) ? (c.historyMaxChars as number) : cfg.historyMaxChars,
+            memoryMaxChars: Number.isFinite(c.memoryMaxChars) ? (c.memoryMaxChars as number) : cfg.memoryMaxChars,
+            rawTurnsKept: Number.isFinite(c.rawTurnsKept) ? (c.rawTurnsKept as number) : cfg.rawTurnsKept,
+            toolTrailMaxResultChars: Number.isFinite(c.toolTrailMaxResultChars) ? (c.toolTrailMaxResultChars as number) : cfg.toolTrailMaxResultChars,
+            toolTrailKeepRounds: Number.isFinite(c.toolTrailKeepRounds) ? (c.toolTrailKeepRounds as number) : cfg.toolTrailKeepRounds,
+            maxHistoryTokens: Number.isFinite(c.maxHistoryTokens) ? (c.maxHistoryTokens as number) : cfg.maxHistoryTokens,
+        };
+    }
+
+    /**
+     * Walk back through `messages[]` and replace any tool_result block
+     * older than `keepRounds` rounds with a short stub that names the
+     * replay key. The pairing of tool_use / tool_result blocks is
+     * preserved (Anthropic's API rejects unpaired blocks); only the
+     * `content` of tool_result is shortened.
+     *
+     * Each `user` message in `messages[]` that contains tool_result blocks
+     * corresponds to one round; we count those from the end and start
+     * stubbing once the per-round counter exceeds `keepRounds`.
+     */
+    private applyToolTrailRetentionPolicy(
+        messages: AnthropicMessageParam[],
+        caps: { toolTrailKeepRounds: number; toolTrailMaxResultChars: number },
+    ): void {
+        const tt = this.toolTrail;
+        tt.inlineMaxChars = Math.max(100, caps.toolTrailMaxResultChars);
+        tt.keepRounds = Math.max(0, caps.toolTrailKeepRounds);
+
+        // Walk newest-first, counting tool_result-bearing user turns.
+        let roundsSeen = 0;
+        for (let i = messages.length - 1; i >= 0; i--) {
+            const msg = messages[i];
+            if (msg.role !== 'user' || !Array.isArray(msg.content)) {
+                continue;
+            }
+            const blocks = msg.content as unknown as Array<Record<string, unknown>>;
+            const hasToolResult = blocks.some((b) => b.type === 'tool_result');
+            if (!hasToolResult) {
+                continue;
+            }
+            roundsSeen += 1;
+            if (roundsSeen <= tt.keepRounds) {
+                // Inside the inline window — truncate the body but keep
+                // it readable. The `truncateInline` marker tells the model
+                // where to fetch the rest.
+                for (const block of blocks) {
+                    if (block.type !== 'tool_result') { continue; }
+                    const id = String(block.tool_use_id ?? '');
+                    const content = block.content;
+                    const text = typeof content === 'string' ? content : this.flattenContentToString(content);
+                    const entry = this.toolTrail.listEntries().find((e) => this.entryMatchesToolUseId(e, id));
+                    if (!entry) { continue; }
+                    block.content = tt.truncateInline(entry.key, entry.toolName, entry.inputSummary, text);
+                }
+            } else {
+                // Beyond the inline window — replace with a stub. The
+                // tool_result block stays (so tool_use stays paired), the
+                // content shrinks to a one-line pointer.
+                for (const block of blocks) {
+                    if (block.type !== 'tool_result') { continue; }
+                    const id = String(block.tool_use_id ?? '');
+                    const entry = this.toolTrail.listEntries().find((e) => this.entryMatchesToolUseId(e, id));
+                    block.content = entry
+                        ? tt.renderStub(entry)
+                        : `[Past tool call (id=${id}) — full body persisted at _ai/trail/anthropic/<quest>/tool_results/. Use tomAi_listPastToolCalls to enumerate.]`;
+                }
+            }
+        }
+    }
+
+    private flattenContentToString(content: unknown): string {
+        if (typeof content === 'string') { return content; }
+        if (Array.isArray(content)) {
+            return content
+                .map((p) => (typeof p === 'string' ? p : typeof (p as { text?: unknown }).text === 'string' ? (p as { text: string }).text : ''))
+                .join('');
+        }
+        return '';
+    }
+
+    /** Map an Anthropic `tool_use_id` to a ToolTrail entry. The handler
+     *  stamps each entry's `inputSummary` with the same source so we have
+     *  no direct id column; rely on insertion order — the most recent
+     *  entry with a matching tool name is the correct one. Falls back to
+     *  string search of inputSummary as a guard against duplicates. */
+    private toolUseIdToKey: Map<string, string> = new Map();
+
+    private entryMatchesToolUseId(entry: ToolTrailEntry, toolUseId: string): boolean {
+        const mapped = this.toolUseIdToKey.get(toolUseId);
+        return mapped !== undefined && mapped === entry.key;
+    }
+
+    /**
+     * Enforce the rawTurns cap: keep the most recent `rawTurnsKept * 2`
+     * messages. The cap is derived **purely** from the active
+     * `rawTurnsKept` setting (per-configuration override → global
+     * `compaction.rawTurnsKept` → default 4); no hard floor is
+     * imposed. `rawTurnsKept = 0` honestly means "no raw turns kept,
+     * rely entirely on `compactedSummary`".
+     *
+     * Called at every mutation point (seed, push, compaction) so the
+     * array stays bounded even when compaction is disabled or
+     * unconfigured. A previous version only trimmed inside
+     * `runCompactionInBackground`, which returns early when
+     * `compaction.llmConfigId` is unset — that path let `rawTurns`
+     * grow unbounded across sessions (snapshot on disk reached 285
+     * messages, payload reached 289).
+     */
+    private trimRawTurns(rawTurnsKept: number): void {
+        const cap = Math.max(0, rawTurnsKept) * 2;
+        if (this.rawTurns.length > cap) {
+            this.rawTurns = cap === 0 ? [] : this.rawTurns.slice(-cap);
+        }
     }
 
     /**
@@ -604,11 +821,18 @@ export class AnthropicHandler {
     private runCompactionInBackground(
         lastExchange: ConversationMessage[],
         questId: string | undefined,
+        configuration?: AnthropicConfiguration,
     ): Promise<void> {
         const cfg = this.getCompactionConfig();
         if (!cfg.llmConfigId) {
             return Promise.resolve();
         }
+        // Per-configuration override wins for char/turn caps so a 200k
+        // Opus profile can use bigger budgets than a 128k local backend
+        // without having to fork the global compaction block.
+        const caps = configuration
+            ? this.resolveEffectiveCaps(configuration)
+            : { maxHistoryTokens: cfg.maxHistoryTokens, historyMaxChars: cfg.historyMaxChars, memoryMaxChars: cfg.memoryMaxChars, rawTurnsKept: cfg.rawTurnsKept, toolTrailMaxResultChars: cfg.toolTrailMaxResultChars, toolTrailKeepRounds: cfg.toolTrailKeepRounds };
         return (async () => {
             try {
                 const existingSummary = this.compactedSummary;
@@ -619,20 +843,24 @@ export class AnthropicHandler {
                     llmProvider: cfg.llmProvider,
                     llmConfigId: cfg.llmConfigId,
                     compactionTemplateId: cfg.compactionTemplateId,
-                    maxHistoryTokens: cfg.maxHistoryTokens,
-                    historyMaxChars: cfg.historyMaxChars,
+                    maxHistoryTokens: caps.maxHistoryTokens,
+                    historyMaxChars: caps.historyMaxChars,
                     questId,
+                    // Surface retry countdowns ("compaction: HTTP 503
+                    // — retry 3/9 in 30s…") to the Anthropic panel's
+                    // status line via the existing emitter.
+                    onProgress: (msg) => this._onStatusUpdate.fire(msg),
                 });
                 if (typeof newSummary === 'string' && newSummary.trim().length > 0) {
                     this.compactedSummary = newSummary.trim();
                 }
-                // Trim raw turns so we only keep the last `maxRounds * 2`
-                // messages in memory. Older turns are already baked into
-                // `compactedSummary`.
-                const keep = Math.max(2, cfg.compactionMaxRounds * 2);
-                if (this.rawTurns.length > keep) {
-                    this.rawTurns = this.rawTurns.slice(-keep);
-                }
+                // Trim raw turns to the configured rawTurnsKept (pairs ×
+                // 2 messages each). Older turns are already baked into
+                // `compactedSummary`. The seed / push paths apply the
+                // same cap; this call is for the case where compaction
+                // appended to the summary and we want the persisted
+                // snapshot to reflect the post-compaction shape.
+                this.trimRawTurns(caps.rawTurnsKept);
                 this.persistSessionHistory(questId);
             } catch {
                 // best-effort; a failed compaction is recoverable on the next turn
@@ -649,11 +877,15 @@ export class AnthropicHandler {
     private runMemoryExtractionInBackground(
         lastExchange: ConversationMessage[],
         questId: string | undefined,
+        configuration?: AnthropicConfiguration,
     ): Promise<void> {
         const cfg = this.getCompactionConfig();
         if (!cfg.runMemoryExtractionOnCompaction || !cfg.llmConfigId) {
             return Promise.resolve();
         }
+        const caps = configuration
+            ? this.resolveEffectiveCaps(configuration)
+            : { historyMaxChars: cfg.historyMaxChars, memoryMaxChars: cfg.memoryMaxChars };
         return (async () => {
             try {
                 const { runIncrementalMemoryExtraction } = await import('../services/history-compaction.js');
@@ -663,9 +895,11 @@ export class AnthropicHandler {
                     llmProvider: cfg.llmProvider,
                     llmConfigId: cfg.llmConfigId,
                     memoryTemplateId: cfg.memoryExtractionTemplateId,
-                    historyMaxChars: cfg.historyMaxChars,
-                    memoryMaxChars: cfg.memoryMaxChars,
+                    historyMaxChars: caps.historyMaxChars,
+                    memoryMaxChars: caps.memoryMaxChars,
                     questId,
+                    // Same retry-status surface as compaction (above).
+                    onProgress: (msg) => this._onStatusUpdate.fire(msg),
                 });
             } catch {
                 // best-effort
@@ -690,8 +924,10 @@ export class AnthropicHandler {
                 return;
             }
             // Keep the last N turns raw; any extra gets folded into the
-            // summary so the next turn's payload stays small.
-            const rawLimit = Math.max(2, cfg.compactionMaxRounds * 2);
+            // summary so the next turn's payload stays small. Cap is
+            // derived purely from `compactionMaxRounds` (no hard floor)
+            // so 0 means "fold every recovered turn into the summary".
+            const rawLimit = Math.max(0, cfg.compactionMaxRounds) * 2;
             const flat: ConversationMessage[] = [];
             for (const pair of exchanges) {
                 if (pair.user) { flat.push({ role: 'user', content: pair.user }); }
@@ -715,6 +951,7 @@ export class AnthropicHandler {
                             maxHistoryTokens: cfg.maxHistoryTokens,
                             historyMaxChars: cfg.historyMaxChars,
                             questId,
+                            onProgress: (msg) => this._onStatusUpdate.fire(msg),
                         });
                         if (typeof summary === 'string') { this.compactedSummary = summary.trim(); }
                     } catch {
@@ -870,7 +1107,35 @@ export class AnthropicHandler {
 
     /** Main entry point — send a message and run the tool-call loop to completion. */
     async sendMessage(options: AnthropicSendOptions): Promise<AnthropicSendResult> {
-        const { profile, configuration, tools, userText } = options;
+        const { profile, tools, userText } = options;
+        // Profile overrides configuration when set (non-null / non-empty /
+        // positive). The profile carries persona-level runtime preferences
+        // (verbosity via maxTokens, tool-loop depth via maxRounds, context
+        // injection style via historyMode); the configuration carries
+        // backend identity (model / URL / capacity defaults). Per-field
+        // precedence is "profile wins if filled in, otherwise inherit".
+        // The sendVia* leaves read these via `options.configuration` and
+        // local `configuration`, so we shadow both here in one place.
+        const rawConfiguration = options.configuration;
+        const overrides: Partial<AnthropicConfiguration> = {};
+        if (typeof profile.maxRounds === 'number' && profile.maxRounds > 0) {
+            overrides.maxRounds = profile.maxRounds;
+        }
+        if (typeof (profile as { maxTokens?: number }).maxTokens === 'number'
+            && (profile as { maxTokens?: number }).maxTokens! > 0) {
+            overrides.maxTokens = (profile as { maxTokens?: number }).maxTokens!;
+        }
+        const profileHistoryMode = profile.historyMode;
+        if (profileHistoryMode !== null && profileHistoryMode !== undefined
+            && (typeof profileHistoryMode !== 'string' || profileHistoryMode.length > 0)) {
+            overrides.historyMode = profileHistoryMode as AnthropicConfiguration['historyMode'];
+        }
+        const configuration: AnthropicConfiguration = Object.keys(overrides).length > 0
+            ? { ...rawConfiguration, ...overrides } as AnthropicConfiguration
+            : rawConfiguration;
+        if (configuration !== rawConfiguration) {
+            options = { ...options, configuration };
+        }
         const transport = configuration.transport ?? 'direct';
 
         const quest = WsPaths.getWorkspaceQuestId();
@@ -880,6 +1145,11 @@ export class AnthropicHandler {
         const round = this.roundCounter;
 
         this.seedHistoryFromSnapshot(quest);
+        // Per-call cap applies on top of the seed's global-default trim,
+        // so a configuration with a higher per-config `rawTurnsKept`
+        // doesn't get clamped by the global default just because the
+        // snapshot was loaded under it. Cheap no-op when already in bounds.
+        this.trimRawTurns(this.resolveEffectiveCaps(configuration).rawTurnsKept);
 
         // Live trail writer — appends step-by-step events to
         // `_ai/quests/<quest>/live-trail.md` as the turn runs so the
@@ -1149,6 +1419,10 @@ export class AnthropicHandler {
                 const userMsg: ConversationMessage = { role: 'user', content: userContent };
                 const assistantMsg: ConversationMessage = { role: 'assistant', content: result.text };
                 this.rawTurns.push(userMsg, assistantMsg);
+                // Re-trim before persist so the snapshot on disk matches
+                // the in-memory invariant. Independent of compaction —
+                // necessary when compaction is disabled / unconfigured.
+                this.trimRawTurns(this.resolveEffectiveCaps(configuration).rawTurnsKept);
                 // Persist the raw-turn append immediately (same as the
                 // direct-transport finalize()). Without this, the
                 // history.json / history.md files only get the new turn
@@ -1265,13 +1539,22 @@ export class AnthropicHandler {
         let lastText = '';
         let lastStopReason: string | undefined;
 
+        // Dump the initial assembled request (system + compactedSummary
+        // pair + rawTurns + current user) to `_ai/trail/anthropic/<quest>/
+        // last_request.json`. Fires once per user prompt — NOT on each
+        // tool round — so the file reflects what the model first saw,
+        // not mid-loop tool churn.
         try {
-            for (let turn = 0; turn < configuration.maxRounds; turn++) {
-                if (options.cancellationToken?.isCancellationRequested) {
-                    break;
-                }
-
-                const response = await client.messages.create({
+            const { writeLastRequest, quickStats } = await import('../services/lastRequestDump.js');
+            writeLastRequest({
+                timestamp: new Date().toISOString(),
+                subsystem: 'anthropic',
+                endpoint: 'client.messages.create (direct SDK)',
+                configId: configuration.id,
+                model: configuration.model,
+                profile: profile.id,
+                stats: quickStats({ messages, tools: anthropicTools }),
+                body: {
                     model: configuration.model,
                     max_tokens: configuration.maxTokens,
                     ...temperatureField(configuration.temperature),
@@ -1279,6 +1562,31 @@ export class AnthropicHandler {
                     system: systemParam,
                     ...(anthropicTools.length > 0 ? { tools: anthropicTools } : {}),
                     messages,
+                },
+            }, quest);
+        } catch { /* best-effort */ }
+
+        try {
+            for (let turn = 0; turn < configuration.maxRounds; turn++) {
+                if (options.cancellationToken?.isCancellationRequested) {
+                    break;
+                }
+
+                const createParams = {
+                    model: configuration.model,
+                    max_tokens: configuration.maxTokens,
+                    ...temperatureField(configuration.temperature),
+                    ...(thinkingBlock ? { thinking: thinkingBlock } : {}),
+                    system: systemParam,
+                    ...(anthropicTools.length > 0 ? { tools: anthropicTools } : {}),
+                    messages,
+                };
+                const response = await withRetryBudget({
+                    call: () => client.messages.create(createParams),
+                    totalWaitMs: (profile.retryMaxTotalWaitMinutes ?? 10) * 60 * 1000,
+                    backendLabel: 'Anthropic API busy',
+                    cancellationToken: options.cancellationToken,
+                    onRetryStatus: (text: string) => this._onStatusUpdate.fire(text),
                 });
 
                 lastStopReason = response.stop_reason ?? undefined;
@@ -1323,6 +1631,16 @@ export class AnthropicHandler {
                 }
 
                 messages.push({ role: 'user', content: toolResults });
+
+                // Apply the configured tool-trail retention policy: the
+                // most-recent `toolTrailKeepRounds` rounds keep their
+                // (truncated) bodies inline; older rounds get a stub that
+                // names the replay key. This is what actually shrinks the
+                // outgoing prompt — full bodies live on disk under
+                // `_ai/trail/anthropic/<quest>/tool_results/<key>.json`
+                // and are recoverable via tomAi_readPastToolResult.
+                const caps = this.resolveEffectiveCaps(configuration);
+                this.applyToolTrailRetentionPolicy(messages, caps);
             }
         } catch (err) {
             // Guarantee the raw answer file exists even when the API
@@ -1431,6 +1749,45 @@ export class AnthropicHandler {
         let totalToolCalls = 0;
         let lastText = '';
         let lastStopReason: string | undefined;
+
+        // Dump the initial vscodeLm payload once per user prompt.
+        // `chatMessages` is a live SDK array of LanguageModelChatMessage
+        // instances; we serialise a JSON-friendly view so the file is
+        // re-openable later.
+        try {
+            const { writeLastRequest, quickStats } = await import('../services/lastRequestDump.js');
+            const serialisedMessages = chatMessages.map((cm) => {
+                const content = (cm as { content?: unknown }).content;
+                const parts = Array.isArray(content)
+                    ? content.map((p) => {
+                        if (p instanceof vscode.LanguageModelTextPart) {
+                            return { type: 'text', text: p.value };
+                        }
+                        if (p instanceof vscode.LanguageModelToolCallPart) {
+                            return { type: 'tool_call', name: p.name, callId: p.callId, input: p.input };
+                        }
+                        if (p instanceof vscode.LanguageModelToolResultPart) {
+                            return { type: 'tool_result', callId: p.callId, content: p.content };
+                        }
+                        return { type: 'unknown' };
+                    })
+                    : content;
+                return { role: cm.role, parts };
+            });
+            writeLastRequest({
+                timestamp: new Date().toISOString(),
+                subsystem: 'anthropic-vscodelm',
+                endpoint: 'model.sendRequest',
+                configId: configuration.id,
+                model: configuration.model,
+                stats: quickStats({ messages: serialisedMessages as unknown as Array<{ role?: string; content?: unknown }>, tools: lmTools, systemPrompt }),
+                body: {
+                    model: { id: model.id, vendor: model.vendor, family: model.family },
+                    messages: serialisedMessages,
+                    tools: lmTools,
+                },
+            }, quest);
+        } catch { /* best-effort */ }
 
         try {
             for (let turn = 0; turn < configuration.maxRounds; turn++) {
@@ -1607,14 +1964,33 @@ export class AnthropicHandler {
         // Prior turn history so the model has context across sends (spec
         // §2.8 / §5 — handler already owns continuity via rawTurns +
         // compactedSummary). Isolated sub-agent runs skip history.
+        //
+        // historyMode selects what gets forwarded — Local LLMs typically have
+        // far smaller context windows than Anthropic, so blindly dumping
+        // every rawTurn easily blows past the limit (vLLM rejects with
+        // "maximum context length is N tokens" before the model runs).
+        //   'last'              → just the most recent user+assistant pair
+        //                         (default for synthesised localLlm configs)
+        //   'summary'           → only the compactedSummary (no rawTurns)
+        //   'trim_and_summary'  → rawTurns + summary (Anthropic default)
+        //   'full' / 'all'      → everything verbatim
+        //   anything else / unset → 'last'
         if (!options.isolated) {
-            for (const turn of this.rawTurns) {
-                messages.push({
-                    role: turn.role === 'system' ? 'user' : turn.role,
-                    content: turn.content,
-                });
+            const historyMode = (configuration.historyMode as string | undefined) ?? 'last';
+            const includeRaw = historyMode === 'full' || historyMode === 'all' || historyMode === 'trim_and_summary' || historyMode === 'last';
+            const includeSummary = (historyMode === 'summary' || historyMode === 'trim_and_summary' || historyMode === 'full' || historyMode === 'all') && Boolean(this.compactedSummary);
+            const rawSlice = historyMode === 'last'
+                ? this.rawTurns.slice(-2)
+                : this.rawTurns;
+            if (includeRaw) {
+                for (const turn of rawSlice) {
+                    messages.push({
+                        role: turn.role === 'system' ? 'user' : turn.role,
+                        content: turn.content,
+                    });
+                }
             }
-            if (this.compactedSummary) {
+            if (includeSummary) {
                 messages.push({
                     role: 'user',
                     content: `## Additional context (compacted from earlier turns)\n\n${this.compactedSummary}`,
@@ -1634,6 +2010,32 @@ export class AnthropicHandler {
         let lastText = '';
         let lastStopReason: string | undefined;
 
+        // Dump the initial assembled Local-LLM request once per user
+        // prompt. This is the path Anthropic profiles take when their
+        // configuration has `transport: 'localLlm'` (e.g. Gemma routed
+        // through vLLM via an Anthropic profile). Goes to the localllm
+        // trail bucket because the wire endpoint is the local model.
+        try {
+            const { writeLastRequest, quickStats } = await import('../services/lastRequestDump.js');
+            writeLastRequest({
+                timestamp: new Date().toISOString(),
+                subsystem: 'localllm',
+                endpoint: `${llm.apiStyle === 'openai' ? 'POST /v1/chat/completions' : 'POST /api/chat'} (${llm.baseUrl}) — via Anthropic profile`,
+                configId: configuration.id,
+                model: llm.model,
+                profile: options.profile.id,
+                stats: quickStats({ messages, tools, systemPrompt }),
+                body: {
+                    model: llm.model,
+                    apiStyle: llm.apiStyle ?? 'ollama',
+                    temperature: llm.temperature,
+                    keepAlive: llm.keepAlive,
+                    messages,
+                    ...(llm.toolsEnabled !== false && tools.length > 0 ? { tools: tools.map((t) => t.name) } : {}),
+                },
+            }, quest);
+        } catch { /* best-effort */ }
+
         try {
             for (let turn = 0; turn < configuration.maxRounds; turn++) {
                 if (options.cancellationToken?.isCancellationRequested) {
@@ -1643,8 +2045,17 @@ export class AnthropicHandler {
                 // round — otherwise force the model to produce a text
                 // answer instead of a hung tool_calls reply we can't
                 // service. Matches the Local LLM panel's own loop.
+                //
+                // Also: a Local LLM config can opt out of tool use entirely
+                // (`localLlm.toolsEnabled === false`). This is required for
+                // OpenAI-compatible servers (vLLM, LM Studio, llama.cpp)
+                // that weren't launched with a tool-call parser — they
+                // reject any request that includes a `tools` array with
+                // `"auto" tool choice requires --enable-auto-tool-choice
+                // and --tool-call-parser to be set`.
                 const remaining = configuration.maxRounds - turn;
-                const effectiveTools = remaining <= 1 ? [] : tools;
+                const toolsEnabledForLeaf = llm.toolsEnabled !== false;
+                const effectiveTools = (toolsEnabledForLeaf && remaining > 1) ? tools : [];
 
                 const result = await localLlmManager.callLocalLlmOnce({
                     baseUrl: llm.baseUrl,
@@ -1656,6 +2067,14 @@ export class AnthropicHandler {
                     apiStyle: llm.apiStyle,
                     cancellationToken: options.cancellationToken,
                     onToken: (fragment: string) => liveTrail?.appendAssistantText(fragment),
+                    // Profile carries the retry budget (in minutes); the
+                    // Local LLM dispatcher converts to ms. Same field, same
+                    // semantics as the Anthropic direct path.
+                    retryTotalWaitMs: (options.profile.retryMaxTotalWaitMinutes ?? 10) * 60 * 1000,
+                    // Forward backend-busy retry waits to the chat panel
+                    // status line (`AnthropicHandler._onStatusUpdate` is the
+                    // existing channel the panel already subscribes to).
+                    onRetryStatus: (text: string) => this._onStatusUpdate.fire(text),
                 });
                 lastText = result.text || lastText;
 
@@ -1833,6 +2252,10 @@ export class AnthropicHandler {
             const userMsg: ConversationMessage = { role: 'user', content: userContent };
             const assistantMsg: ConversationMessage = { role: 'assistant', content: text };
             this.rawTurns.push(userMsg, assistantMsg);
+            // Re-trim before persist so the snapshot on disk matches
+            // the in-memory invariant. Independent of compaction —
+            // necessary when compaction is disabled / unconfigured.
+            this.trimRawTurns(this.resolveEffectiveCaps(configuration).rawTurnsKept);
             // Persist the raw-turn append *now* (before compaction
             // finishes) so a crash during compaction doesn't lose this
             // exchange.
@@ -1889,7 +2312,7 @@ export class AnthropicHandler {
         // so it benefits from any just-written summary. Each pass is a
         // separate promise so sendMessage can await them independently
         // and emit precise status updates.
-        this.compactionInFlight = this.runCompactionInBackground(lastExchange, questId)
+        this.compactionInFlight = this.runCompactionInBackground(lastExchange, questId, configuration)
             .finally(() => { this.compactionInFlight = null; });
         this.memoryExtractionInFlight = (async () => {
             try {
@@ -1899,7 +2322,7 @@ export class AnthropicHandler {
                 if (this.compactionInFlight) {
                     try { await this.compactionInFlight; } catch { /* already handled */ }
                 }
-                await this.runMemoryExtractionInBackground(lastExchange, questId);
+                await this.runMemoryExtractionInBackground(lastExchange, questId, configuration);
             } catch {
                 // swallowed
             }
@@ -1995,7 +2418,7 @@ export class AnthropicHandler {
 
         anthropicOutput.logToolResult(block.name, input, result, durationMs, error);
 
-        this.toolTrail.add({
+        const addedEntry = this.toolTrail.add({
             timestamp: new Date().toISOString().slice(11, 19),
             round,
             toolName: block.name,
@@ -2004,6 +2427,10 @@ export class AnthropicHandler {
             durationMs,
             error,
         });
+        // Map the Anthropic tool_use id to the ToolTrail key so the
+        // retention-policy walker (which only sees `tool_use_id` on the
+        // tool_result block) can produce the right stub later.
+        this.toolUseIdToKey.set(block.id, addedEntry.key);
 
         // Live-trail the result so the MD Browser shows the tool's
         // output immediately after the tool_use block it goes with.
@@ -2042,19 +2469,25 @@ export class AnthropicHandler {
         _questId?: string,
         extras?: { toolHistory?: string },
     ): string[] {
-        // Memory injection is no longer automatic. Drop `${memory}`,
-        // `${memory-shared}`, or `${memory-quest}` into the profile's
-        // system prompt (or a user-message template — usually better
-        // for prompt caching) to include a memory block. The placeholder
-        // resolver reads anthropic.memory.maxInjectedTokens for the
-        // char budget.
+        // Memory injection is opt-in. By default the profile must
+        // reference `${memory}` / `${memory-shared}` / `${memory-quest}`
+        // explicitly in its `systemPrompt` (or a user-message template /
+        // userPromptWrapper) to include a memory block.
+        //
+        // When `profile.autoInjectMemory === true`, we append `${memory}`
+        // to the system prompt before placeholder resolution so the user
+        // doesn't have to remember to add it. The placeholder resolver
+        // reads `anthropic.memory.maxInjectedTokens` for the char budget.
         //
         // `${toolHistory}` is resolved from the caller's `extras` — it's
         // the compact YAML-style rendering of the last ~25 tool calls in
         // the ring buffer. Empty on Agent SDK (the SDK manages its own
         // tool context) and on the first turn of a session.
+        const promptSource = profile.autoInjectMemory === true
+            ? `${profile.systemPrompt ?? ''}\n\n## Memory\n\n\${memory}`
+            : (profile.systemPrompt ?? '');
         const segments: string[] = [];
-        const base = resolveVariables(profile.systemPrompt ?? '', {
+        const base = resolveVariables(promptSource, {
             values: {
                 toolHistory: extras?.toolHistory ?? '',
             },

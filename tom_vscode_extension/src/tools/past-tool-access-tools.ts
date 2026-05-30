@@ -20,6 +20,7 @@
 
 import { SharedToolDefinition } from './shared-tool-registry';
 import { getActiveToolTrail, type ToolTrailEntry } from '../services/tool-trail';
+import { readToolResultAnySubsystem } from '../services/tool-result-store';
 
 // ============================================================================
 // tomAi_listPastToolCalls
@@ -193,18 +194,45 @@ interface ReadPastToolResultInput {
 }
 
 async function executeReadPastToolResult(input: ReadPastToolResultInput): Promise<string> {
-    const trail = getActiveToolTrail();
-    if (!trail) {
-        return 'No ToolTrail active — past tool results are available only during an Anthropic session.';
-    }
     const key = (input.key ?? '').trim();
     if (!key) { return 'Error: `key` is required.'; }
-    const e = trail.getByKey(key);
+
+    // 1. Prefer the active in-memory ring buffer (most recent + fastest).
+    const trail = getActiveToolTrail();
+    let e: ToolTrailEntry | undefined = trail?.getByKey(key);
+    let source: 'memory' | 'disk' = 'memory';
+
+    // 2. Fall back to disk: the tool-result store keeps every result by
+    //    key across the quest, surviving ring-buffer eviction and window
+    //    reloads. This is what makes the toolTrailKeepRounds policy
+    //    workable — older inline blocks are stubbed out, the model fetches
+    //    the body via this tool, and the body has to actually be there.
     if (!e) {
-        return `No past tool result with key "${key}". Use tomAi_listPastToolCalls to enumerate the keys currently in scope.`;
+        const fromDisk = readToolResultAnySubsystem(key);
+        if (fromDisk) {
+            e = {
+                key: fromDisk.entry.key,
+                timestamp: fromDisk.entry.timestamp,
+                round: fromDisk.entry.round,
+                toolName: fromDisk.entry.toolName,
+                inputSummary: fromDisk.entry.inputSummary,
+                result: fromDisk.entry.result,
+                durationMs: fromDisk.entry.durationMs,
+                error: fromDisk.entry.error,
+            };
+            source = 'disk';
+        }
     }
+
+    if (!e) {
+        const trailNote = trail
+            ? 'Use tomAi_listPastToolCalls to enumerate the keys currently in scope.'
+            : 'No ToolTrail active — pass an exact key from a stub like "Past tool call tX" in the conversation.';
+        return `No past tool result with key "${key}". ${trailNote}`;
+    }
+
     const lines: string[] = [];
-    lines.push(`Key: ${e.key}  |  Round: R${e.round}  |  Time: ${e.timestamp}  |  Duration: ${e.durationMs}ms`);
+    lines.push(`Key: ${e.key}  |  Round: R${e.round}  |  Time: ${e.timestamp}  |  Duration: ${e.durationMs}ms  |  Source: ${source}`);
     lines.push(`Tool: ${e.toolName}(${e.inputSummary})`);
     if (e.error) {
         lines.push(`Error: ${e.error}`);
@@ -220,7 +248,7 @@ export const READ_PAST_TOOL_RESULT_TOOL: SharedToolDefinition<ReadPastToolResult
     name: 'tomAi_readPastToolResult',
     displayName: 'Past Tools — Read',
     description:
-        'Return the full result body for a past tool call by its replay key (e.g. `t14`). Keys appear in the injected "[Tool history …]" block at the top of the user prompt and in `tomAi_listPastToolCalls` / `tomAi_searchPastToolResults` output.',
+        'Return the full result body for a past tool call by its replay key (e.g. `t14`). Reads from the in-memory ring buffer first, then falls back to the per-quest disk store under `_ai/trail/<subsystem>/<quest>/tool_results/<key>.json` — so keys printed in stub blocks (`[Past tool call tX — ... Use tomAi_readPastToolResult({"key":"tX"})]`) remain resolvable after the ring buffer evicts them or the window reloads.',
     tags: ['past-tool-access', 'session'],
     readOnly: true,
     requiresApproval: false,

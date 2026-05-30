@@ -286,16 +286,97 @@ function headBounded(text: string, maxChars: number, kind: string): string {
 // LLM dispatch — internal, no tool loop, no trail write
 // ============================================================================
 
+/**
+ * Retry schedule for compaction + memory-extraction calls when the
+ * backend reports a server-busy status (HTTP 5xx, 429, 529). The user
+ * spec: wait 10s, then 20s, ..., up to 90s — nine retries total, the
+ * last one fired 90s after the previous attempt. Total maximum wall
+ * time before giving up: 10+20+…+90 = 450s ≈ 7.5 min.
+ *
+ * Tuned for vLLM specifically (it rejects concurrent prompts with 5xx
+ * while a generation is in flight), but the same backoff is friendly
+ * to Ollama and Anthropic rate-limit / overload paths.
+ */
+const COMPACTION_RETRY_WAITS_MS = [10, 20, 30, 40, 50, 60, 70, 80, 90].map((s) => s * 1000);
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Decide whether an HTTP status warrants a retry. Server errors (5xx)
+ * and rate-limit / overload signals (429, 529) are retryable; 4xx
+ * client errors aren't — they won't recover by waiting.
+ */
+function isRetryableStatus(status: number): boolean {
+    return (status >= 500 && status < 600) || status === 429 || status === 529;
+}
+
+/**
+ * Best-effort status-code extraction. Covers:
+ *   - our own thrown errors with `.statusCode` (set by runOllamaCompaction)
+ *   - the Anthropic SDK's `.status` (lowercase) on APIError
+ *   - any error message containing a recognisable "HTTP NNN" / "status NNN"
+ *     pattern (covers wrapped errors from withRetryBudget and other layers
+ *     that flatten the original error into a string)
+ */
+function extractStatusCode(err: unknown): number | undefined {
+    if (!err || typeof err !== 'object') { return undefined; }
+    const anyErr = err as { statusCode?: unknown; status?: unknown; message?: unknown };
+    if (typeof anyErr.statusCode === 'number') { return anyErr.statusCode; }
+    if (typeof anyErr.status === 'number') { return anyErr.status; }
+    if (typeof anyErr.message === 'string') {
+        const m = /(?:HTTP|status(?:\s*code)?)[^\d]{0,5}(\d{3})/i.exec(anyErr.message);
+        if (m) { return parseInt(m[1], 10); }
+    }
+    return undefined;
+}
+
+/**
+ * Wrap a one-shot compaction / memory-extraction call with the
+ * COMPACTION_RETRY_WAITS_MS schedule. Each retry decision is reported
+ * via `onProgress` so both chat panels' status bars can show the
+ * countdown ("memory: HTTP 503 — retry 3/9 in 30s…"). Non-retryable
+ * errors propagate immediately so a misconfigured request fails fast
+ * instead of stalling for 7.5 minutes.
+ */
+async function withCompactionRetry<T>(
+    label: 'compaction' | 'memory',
+    onProgress: ((msg: string) => void) | undefined,
+    fn: () => Promise<T>,
+): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+        try {
+            return await fn();
+        } catch (err) {
+            const status = extractStatusCode(err);
+            const retryable = status !== undefined && isRetryableStatus(status);
+            if (!retryable || attempt >= COMPACTION_RETRY_WAITS_MS.length) {
+                throw err;
+            }
+            const waitMs = COMPACTION_RETRY_WAITS_MS[attempt];
+            const waitS = Math.round(waitMs / 1000);
+            const retryNumber = attempt + 1;
+            const totalRetries = COMPACTION_RETRY_WAITS_MS.length;
+            onProgress?.(`${label}: HTTP ${status} — retry ${retryNumber}/${totalRetries} in ${waitS}s…`);
+            logCompactionWarn(`${label} call returned HTTP ${status}; retry ${retryNumber}/${totalRetries} after ${waitS}s`);
+            await sleep(waitMs);
+        }
+    }
+}
+
 async function runCompactionCall(
     options: CompactionOptions,
     systemPrompt: string,
     userPrompt: string,
     trailCategory: 'compaction' | 'memory' = 'compaction',
 ): Promise<string> {
-    if (options.llmProvider === 'anthropic') {
-        return runAnthropicCompaction(options, systemPrompt, userPrompt, trailCategory);
-    }
-    return runOllamaCompaction(options, systemPrompt, userPrompt, trailCategory);
+    return withCompactionRetry(trailCategory, options.onProgress, async () => {
+        if (options.llmProvider === 'anthropic') {
+            return runAnthropicCompaction(options, systemPrompt, userPrompt, trailCategory);
+        }
+        return runOllamaCompaction(options, systemPrompt, userPrompt, trailCategory);
+    });
 }
 
 async function runAnthropicCompaction(
@@ -376,16 +457,50 @@ async function runOllamaCompaction(
         questId,
     );
 
-    const body = JSON.stringify({
-        model: localCfg.model,
-        messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt },
-        ],
-        stream: false,
-        options: { temperature: localCfg.temperature ?? 0.3 },
-    });
-    const url = new URL(localCfg.ollamaUrl.replace(/\/$/, '') + '/api/chat');
+    // Honour the configuration's `apiStyle` so a vLLM / llama.cpp /
+    // LM Studio backend gets the OpenAI-compatible endpoint (`/v1/chat/completions`
+    // with the flat body shape) instead of Ollama's `/api/chat` (with the
+    // `options: { temperature }` wrapper). Without this branch the
+    // compaction call against a vLLM URL fires at `/api/chat` and gets a
+    // 404 every time, causing every overflow turn to silently fail to
+    // fold into the summary.
+    const apiStyle = (localCfg as { apiStyle?: 'ollama' | 'openai' }).apiStyle ?? 'ollama';
+    const messages = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+    ];
+    const body = JSON.stringify(
+        apiStyle === 'openai'
+            ? {
+                model: localCfg.model,
+                messages,
+                stream: false,
+                temperature: localCfg.temperature ?? 0.3,
+            }
+            : {
+                model: localCfg.model,
+                messages,
+                stream: false,
+                options: { temperature: localCfg.temperature ?? 0.3 },
+            },
+    );
+    const url = new URL(
+        localCfg.ollamaUrl.replace(/\/$/, '') +
+            (apiStyle === 'openai' ? '/v1/chat/completions' : '/api/chat'),
+    );
+    // Surface the resolved destination so the chat panel's logChannel
+    // shows exactly which endpoint the compaction request hits. This
+    // is the missing piece the user asked about: without it, a 404 in
+    // the vLLM log had no corresponding entry in "Tom AI Local Log"
+    // because runOllamaCompaction never went through the
+    // `[ollamaChat] POST …` log line in localLlm-handler.
+    options.onProgress?.(
+        `[runOllamaCompaction] POST ${url.toString()} ` +
+        `(apiStyle=${apiStyle}, llmConfigId=${localCfg.id ?? '?'}, ` +
+        `model=${localCfg.model}, bodyBytes=${Buffer.byteLength(body)}, ` +
+        `category=${trailCategory})`,
+    );
+    const startedAt = Date.now();
     const lib = url.protocol === 'https:' ? https : http;
     const result = await new Promise<string>((resolve, reject) => {
         const req = lib.request(
@@ -404,20 +519,62 @@ async function runOllamaCompaction(
                 res.on('data', (c) => chunks.push(Buffer.from(c)));
                 res.on('end', () => {
                     const text = Buffer.concat(chunks).toString('utf8');
+                    const elapsed = Date.now() - startedAt;
                     if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
-                        reject(new Error(`Ollama compaction HTTP ${res.statusCode}: ${text.slice(0, 200)}`));
+                        const label = apiStyle === 'openai' ? 'OpenAI/vLLM' : 'Ollama';
+                        // Tag the error with `.statusCode` so the
+                        // `withCompactionRetry` wrapper can decide
+                        // whether the failure is retryable (5xx / 429
+                        // → yes, 4xx → no). Without this, vLLM 503s
+                        // would surface as a hard error on the first
+                        // request, defeating the schedule.
+                        const err = new Error(`${label} compaction HTTP ${res.statusCode}: ${text.slice(0, 200)}`) as Error & { statusCode?: number };
+                        if (typeof res.statusCode === 'number') {
+                            err.statusCode = res.statusCode;
+                        }
+                        // Mirror the failure to onProgress so it shows
+                        // up in the log channel directly (the throw
+                        // path eventually surfaces in the caller's
+                        // catch, but only as a one-liner; this gives
+                        // the user the URL, status, body preview and
+                        // duration in one place at fail time).
+                        options.onProgress?.(
+                            `[runOllamaCompaction] ✗ ${url.toString()} → HTTP ${res.statusCode} after ${elapsed}ms` +
+                            ` — body[0..200]: ${text.slice(0, 200).replace(/\n/g, ' ')}`,
+                        );
+                        reject(err);
                         return;
                     }
                     try {
-                        const json = JSON.parse(text) as { message?: { content?: string } };
-                        resolve(json.message?.content ?? '');
+                        // Ollama: `{ message: { content } }`.
+                        // OpenAI: `{ choices: [{ message: { content } }] }`.
+                        const json = JSON.parse(text) as {
+                            message?: { content?: string };
+                            choices?: Array<{ message?: { content?: string } }>;
+                        };
+                        const content = apiStyle === 'openai'
+                            ? json.choices?.[0]?.message?.content ?? ''
+                            : json.message?.content ?? '';
+                        options.onProgress?.(
+                            `[runOllamaCompaction] ✓ ${url.toString()} → HTTP ${res.statusCode} after ${elapsed}ms` +
+                            ` — returned ${content.length} chars`,
+                        );
+                        resolve(content);
                     } catch (e) {
-                        reject(new Error(`Ollama compaction JSON parse: ${(e as Error).message}`));
+                        options.onProgress?.(
+                            `[runOllamaCompaction] ✗ ${url.toString()} → JSON parse failure after ${elapsed}ms: ${(e as Error).message}`,
+                        );
+                        reject(new Error(`Compaction JSON parse: ${(e as Error).message}`));
                     }
                 });
             },
         );
-        req.on('error', reject);
+        req.on('error', (e) => {
+            options.onProgress?.(
+                `[runOllamaCompaction] ✗ ${url.toString()} → socket error after ${Date.now() - startedAt}ms: ${e.message}`,
+            );
+            reject(e);
+        });
         req.write(body);
         req.end();
     });
@@ -671,6 +828,13 @@ export async function runIncrementalCompaction(params: {
     maxHistoryTokens?: number;
     historyMaxChars?: number;
     questId?: string;
+    /**
+     * Progress callback. Receives retry-countdown strings (e.g.
+     * "compaction: HTTP 503 — retry 3/9 in 30s…") and any other
+     * status the dispatcher chooses to surface. Pipe into the chat
+     * panel's status bar so the user can watch the backoff tick.
+     */
+    onProgress?: (msg: string) => void;
 }): Promise<string> {
     const tpl = resolveCompactionTemplate(params.compactionTemplateId);
     if (!tpl) { return params.existingSummary; }
@@ -699,6 +863,7 @@ export async function runIncrementalCompaction(params: {
         historyMaxChars: historyCap,
         questId: params.questId,
         source: 'every-turn',
+        onProgress: params.onProgress,
     };
     return (await runCompactionCall(options, 'You compact conversation history.', userPrompt)).trim();
 }
@@ -721,6 +886,8 @@ export async function runIncrementalMemoryExtraction(params: {
     historyMaxChars?: number;
     memoryMaxChars?: number;
     questId?: string;
+    /** Progress callback (retry countdowns etc.) — see runIncrementalCompaction. */
+    onProgress?: (msg: string) => void;
 }): Promise<void> {
     const tpl = resolveMemoryExtractionTemplate(params.memoryTemplateId);
     if (!tpl) { return; }
@@ -750,7 +917,18 @@ export async function runIncrementalMemoryExtraction(params: {
         memoryTemplateId: params.memoryTemplateId,
         questId: params.questId,
         source: 'every-turn',
+        onProgress: params.onProgress,
     };
+    // Diagnostic: surface entry conditions on the caller's progress
+    // channel so the logChannel (LocalLLM) or status emitter (Anthropic)
+    // shows that memory extraction actually fired with full context.
+    params.onProgress?.(
+        `Performing memory extraction ` +
+        `(provider=${params.llmProvider}, llmConfigId=${params.llmConfigId}, ` +
+        `template=${tpl.id}, scope=${tpl.scope}, targetFile=${tpl.targetFile}, ` +
+        `lastTurnChars=${params.lastTurn.reduce((n, m) => n + (m.content?.length ?? 0), 0)}, ` +
+        `existingMemoryChars=${existing.length}, compactedSummaryChars=${params.compactedSummary.length})…`,
+    );
     const rawExtracted = (await runCompactionCall(
         options,
         'You extract durable facts worth remembering.',
@@ -803,6 +981,11 @@ export async function runIncrementalMemoryExtraction(params: {
         memorySvc.prepend(scope, tpl.targetFile, extracted, params.questId);
         logMemoryWrite(`${scope}:${tpl.targetFile}`, Buffer.byteLength(extracted, 'utf8'), 'prepend');
     }
+    const bulletCount = extracted.split(/\r?\n/).filter((l) => l.trim().length > 0).length;
+    params.onProgress?.(
+        `Memory extraction succeeded — ${bulletCount} bullet${bulletCount === 1 ? '' : 's'}, ${extracted.length} chars ` +
+        `prepended to ${tpl.scope === 'both' ? 'both' : scope}:${tpl.targetFile}`,
+    );
 }
 
 // ============================================================================

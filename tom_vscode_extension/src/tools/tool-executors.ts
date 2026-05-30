@@ -63,334 +63,111 @@ function isInsideWorkspace(resolvedPath: string): boolean {
 // READ-ONLY executors
 // ============================================================================
 
-// --- read_file ---------------------------------------------------------------
+// --- File primitives -----------------------------------------------
+//
+// Definitions, input shapes, and pure impls live in `file-primitives.ts`.
+// Here we just clone the tool def with a live executor that injects
+// `getWorkspaceRoot()` (and the vscode-backed walker for findFiles, so
+// production keeps benefiting from VS Code's `search.exclude` integration).
+// `findTextInFiles` uses the file-primitives Node-native scanner — the
+// old `grep` shell-out had an unfixed injection vulnerability
+// (`searchText` was regex-escaped but never shell-escaped).
 
-export interface ReadFileInput {
-    filePath: string;
-    startLine?: number;
-    endLine?: number;
-}
+import {
+    READ_FILE_TOOL as READ_FILE_DEF,
+    LIST_DIRECTORY_TOOL as LIST_DIRECTORY_DEF,
+    FIND_FILES_TOOL as FIND_FILES_DEF,
+    FIND_TEXT_IN_FILES_TOOL as FIND_TEXT_IN_FILES_DEF,
+    ReadFileInput,
+    ListDirectoryInput,
+    FindFilesInput,
+    FindTextInFilesInput,
+    readFileImpl,
+    listDirectoryImpl,
+    findFilesImpl,
+    findTextInFilesImpl,
+} from './file-primitives';
 
-async function executeReadFile(input: ReadFileInput): Promise<string> {
-    const resolved = resolvePath(input.filePath);
-    if (!isInsideWorkspace(resolved)) {
-        return `Error: path is outside workspace.`;
-    }
-    if (!fs.existsSync(resolved)) {
-        return `File not found: ${resolved}`;
-    }
-    const content = fs.readFileSync(resolved, 'utf8');
-    const lines = content.split('\n');
-    const start = (input.startLine ?? 1) - 1;
-    const end = input.endLine ?? lines.length;
-    return lines.slice(start, end).join('\n');
-}
+export type { ReadFileInput, ListDirectoryInput, FindFilesInput, FindTextInFilesInput };
 
 export const READ_FILE_TOOL: SharedToolDefinition<ReadFileInput> = {
-    name: 'tomAi_readFile',
-    displayName: 'Read File',
-    description: 'Read the contents of a file. Optionally specify line range.',
-    tags: ['files', 'tom-ai-chat'],
-    readOnly: true,
-    inputSchema: {
-        type: 'object',
-        properties: {
-            filePath: { type: 'string', description: 'Path to the file to read (relative to workspace root or absolute).' },
-            startLine: { type: 'number', description: 'Optional 1-based start line number.' },
-            endLine: { type: 'number', description: 'Optional 1-based end line number.' },
-        },
-        required: ['filePath'],
-    },
-    execute: executeReadFile,
+    ...READ_FILE_DEF,
+    execute: (input) => readFileImpl(getWorkspaceRoot(), input),
 };
-
-// --- list_directory ----------------------------------------------------------
-
-export interface ListDirectoryInput { dirPath: string }
-
-async function executeListDirectory(input: ListDirectoryInput): Promise<string> {
-    const resolved = resolvePath(input.dirPath);
-    if (!isInsideWorkspace(resolved)) {
-        return `Error: path is outside workspace.`;
-    }
-    if (!fs.existsSync(resolved)) {
-        return `Directory not found: ${resolved}`;
-    }
-    const entries = fs.readdirSync(resolved, { withFileTypes: true });
-    return entries.map(e => `${e.name}${e.isDirectory() ? '/' : ''}`).join('\n');
-}
 
 export const LIST_DIRECTORY_TOOL: SharedToolDefinition<ListDirectoryInput> = {
-    name: 'tomAi_listDirectory',
-    displayName: 'List Directory',
-    description: 'List the contents of a directory. Directories have a trailing slash.',
-    tags: ['files', 'tom-ai-chat'],
-    readOnly: true,
-    inputSchema: {
-        type: 'object',
-        properties: {
-            dirPath: { type: 'string', description: 'Path to the directory to list.' },
-        },
-        required: ['dirPath'],
-    },
-    execute: executeListDirectory,
+    ...LIST_DIRECTORY_DEF,
+    execute: (input) => listDirectoryImpl(getWorkspaceRoot(), input),
 };
-
-// --- find_files --------------------------------------------------------------
-
-export interface FindFilesInput { pattern: string; maxResults?: number }
-
-async function executeFindFiles(input: FindFilesInput): Promise<string> {
-    const limit = input.maxResults ?? 100;
-    try {
-        const files = await vscode.workspace.findFiles(input.pattern, '**/node_modules/**', limit);
-        const paths = files.map(f => vscode.workspace.asRelativePath(f));
-        return paths.length > 0 ? paths.join('\n') : `No files found matching: ${input.pattern}`;
-    } catch (error) {
-        return `Error finding files: ${error}`;
-    }
-}
 
 export const FIND_FILES_TOOL: SharedToolDefinition<FindFilesInput> = {
-    name: 'tomAi_findFiles',
-    displayName: 'Find Files',
-    description: 'Find files matching a glob pattern in the workspace.',
-    tags: ['files', 'search', 'tom-ai-chat'],
-    readOnly: true,
-    inputSchema: {
-        type: 'object',
-        properties: {
-            pattern: { type: 'string', description: "Glob pattern to match files, e.g. '**/*.ts' or 'src/**/*.dart'" },
-            maxResults: { type: 'number', description: 'Maximum number of results to return. Default 100.' },
+    ...FIND_FILES_DEF,
+    execute: (input) => findFilesImpl({
+        wsRoot: getWorkspaceRoot(),
+        walk: async (pattern, exclude, limit) => {
+            const files = await vscode.workspace.findFiles(pattern, exclude, limit);
+            return files.map((f) => vscode.workspace.asRelativePath(f));
         },
-        required: ['pattern'],
-    },
-    execute: executeFindFiles,
+    }, input),
 };
-
-// --- find_text_in_files ------------------------------------------------------
-
-export interface FindTextInFilesInput {
-    searchText: string;
-    filePattern?: string;
-    isRegex?: boolean;
-    maxResults?: number;
-}
-
-async function executeFindTextInFiles(input: FindTextInFilesInput): Promise<string> {
-    const workspaceRoot = getWorkspaceRoot();
-    const limit = input.maxResults ?? 50;
-    const grepPattern = input.isRegex ? input.searchText : input.searchText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const includePattern = input.filePattern ?? '*';
-    try {
-        const { stdout } = await execAsync(
-            `grep -rn --include="${includePattern}" -E "${grepPattern}" . 2>/dev/null | head -${limit}`,
-            { cwd: workspaceRoot, maxBuffer: 1024 * 1024 },
-        );
-        return stdout.trim() || `No matches found for: ${input.searchText}`;
-    } catch (error: any) {
-        if (error.code === 1) { return `No matches found for: ${input.searchText}`; }
-        return `Error searching: ${error.message}`;
-    }
-}
 
 export const FIND_TEXT_IN_FILES_TOOL: SharedToolDefinition<FindTextInFilesInput> = {
-    name: 'tomAi_findTextInFiles',
-    displayName: 'Find Text in Files',
-    description: 'Search for text in files using grep. Returns matching lines with file paths and line numbers.',
-    tags: ['files', 'search', 'tom-ai-chat'],
-    readOnly: true,
-    inputSchema: {
-        type: 'object',
-        properties: {
-            searchText: { type: 'string', description: 'The text or regex pattern to search for.' },
-            filePattern: { type: 'string', description: "Optional glob pattern to filter files, e.g. '*.dart'" },
-            isRegex: { type: 'boolean', description: 'Whether searchText is a regex pattern. Default false.' },
-            maxResults: { type: 'number', description: 'Maximum number of matching lines to return. Default 50.' },
-        },
-        required: ['searchText'],
-    },
-    execute: executeFindTextInFiles,
+    ...FIND_TEXT_IN_FILES_DEF,
+    execute: (input) => findTextInFilesImpl({ wsRoot: getWorkspaceRoot() }, input),
 };
 
-// --- fetch_webpage -----------------------------------------------------------
+// --- Web tools (fetch + search) ---------------------------------------------
+//
+// Definitions + impls live in `web-tools.ts` (vscode-free, no shell).
+// The previous `executeFetchWebpage` interpolated the user URL into a
+// `curl` shell command — a critical shell-injection vector. The
+// rewrite uses Node's http/https directly so there is no shell on the
+// path. `webSearch` now goes through a `SearchProvider` interface so
+// tests don't have to hit DDG.
 
-export interface FetchWebpageInput { url: string }
+import {
+    FETCH_WEBPAGE_TOOL as FETCH_WEBPAGE_DEF,
+    WEB_SEARCH_TOOL as WEB_SEARCH_DEF,
+    FetchWebpageInput,
+    WebSearchInput,
+    fetchWebpageImpl,
+    webSearchImpl,
+    buildDuckDuckGoLiteProvider,
+} from './web-tools';
 
-async function executeFetchWebpage(input: FetchWebpageInput): Promise<string> {
-    try {
-        const { stdout } = await execAsync(
-            `curl -sL --max-time 15 "${input.url}" | head -c 50000`,
-            { maxBuffer: 1024 * 1024 },
-        );
-        return stdout || '(empty response)';
-    } catch (error: any) {
-        return `Error fetching URL: ${error.message}`;
-    }
-}
+export type { FetchWebpageInput, WebSearchInput };
 
 export const FETCH_WEBPAGE_TOOL: SharedToolDefinition<FetchWebpageInput> = {
-    name: 'tomAi_fetchWebpage',
-    displayName: 'Fetch Webpage',
-    description: 'Fetch the content of a URL. Returns the raw HTML. Useful for reading documentation or web resources.',
-    tags: ['web', 'tom-ai-chat'],
-    readOnly: true,
-    inputSchema: {
-        type: 'object',
-        properties: {
-            url: { type: 'string', description: 'The URL to fetch.' },
-        },
-        required: ['url'],
-    },
-    execute: executeFetchWebpage,
+    ...FETCH_WEBPAGE_DEF,
+    execute: (input) => fetchWebpageImpl({}, input),
 };
 
-// --- web_search (new) --------------------------------------------------------
-
-export interface WebSearchInput { query: string; maxResults?: number }
-
-/**
- * Web search via DuckDuckGo Lite. No API key required.
- * Parses the HTML result page and extracts titles + URLs.
- */
-async function executeWebSearch(input: WebSearchInput): Promise<string> {
-    const maxResults = input.maxResults ?? 8;
-
-    return new Promise<string>((resolve) => {
-        const postData = `q=${encodeURIComponent(input.query)}`;
-
-        const req = https.request(
-            {
-                hostname: 'lite.duckduckgo.com',
-                path: '/lite/',
-                method: 'POST',
-                headers: {
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    'Content-Length': Buffer.byteLength(postData),
-                },
-                timeout: 15000,
-            },
-            (res) => {
-                let body = '';
-                res.on('data', (c: Buffer) => { body += c.toString(); });
-                res.on('end', () => {
-                    try {
-                        const results = parseDuckDuckGoLite(body, maxResults);
-                        if (results.length === 0) {
-                            resolve(`No results found for: ${input.query}`);
-                        } else {
-                            resolve(results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`).join('\n\n'));
-                        }
-                    } catch {
-                        resolve(`Error parsing search results for: ${input.query}`);
-                    }
-                });
-                res.on('error', (e) => resolve(`Error: ${e.message}`));
-            },
-        );
-        req.on('error', (e) => resolve(`Error: ${e.message}`));
-        req.on('timeout', () => { req.destroy(); resolve('Error: search request timed out'); });
-        req.write(postData);
-        req.end();
-    });
-}
-
-interface SearchResult { title: string; url: string; snippet: string }
-
-/**
- * Parse DuckDuckGo Lite HTML response.
- * The lite page uses simple HTML tables with result links and snippets.
- */
-function parseDuckDuckGoLite(html: string, max: number): SearchResult[] {
-    const results: SearchResult[] = [];
-
-    // DDG Lite puts results in table rows. Links are in <a> tags with class "result-link".
-    // Snippets follow in nearby <td> with class "result-snippet".
-    const linkRegex = /<a[^>]+class="result-link"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
-    const snippetRegex = /<td[^>]*class="result-snippet"[^>]*>([\s\S]*?)<\/td>/gi;
-
-    const links: { url: string; title: string }[] = [];
-    let m: RegExpExecArray | null;
-
-    while ((m = linkRegex.exec(html)) !== null) {
-        const url = m[1].trim();
-        const title = m[2].replace(/<[^>]*>/g, '').trim();
-        if (url && title) { links.push({ url, title }); }
-    }
-
-    const snippets: string[] = [];
-    while ((m = snippetRegex.exec(html)) !== null) {
-        snippets.push(m[1].replace(/<[^>]*>/g, '').trim());
-    }
-
-    for (let i = 0; i < Math.min(links.length, max); i++) {
-        results.push({
-            title: links[i].title,
-            url: links[i].url,
-            snippet: snippets[i] ?? '',
-        });
-    }
-
-    return results;
-}
+// Production search provider is constructed once at module load; the
+// impl re-uses it for every call. Switching engines later is a single
+// line — point this at a different factory.
+const productionSearchProvider = buildDuckDuckGoLiteProvider();
 
 export const WEB_SEARCH_TOOL: SharedToolDefinition<WebSearchInput> = {
-    name: 'tomAi_webSearch',
-    displayName: 'Web Search',
-    description: 'Search the web using DuckDuckGo. Returns titles, URLs, and snippets of the top results. Use this to research topics, find documentation, or discover solutions.',
-    tags: ['web', 'search', 'tom-ai-chat'],
-    readOnly: true,
-    inputSchema: {
-        type: 'object',
-        properties: {
-            query: { type: 'string', description: 'The search query.' },
-            maxResults: { type: 'number', description: 'Maximum number of results to return. Default 8.' },
-        },
-        required: ['query'],
-    },
-    execute: executeWebSearch,
+    ...WEB_SEARCH_DEF,
+    execute: (input) => webSearchImpl({ provider: productionSearchProvider }, input),
 };
 
-// --- get_errors --------------------------------------------------------------
+// --- get_errors (relocated to diagnostics-tools.ts) -------------------------
+//
+// The legacy text-format diagnostics tool now lives alongside its sibling
+// `tomAi_getProblems` in `diagnostics-tools.ts`. The two share a narrow
+// `DiagnosticsSource` dep; live deps are installed by the DIAGNOSTICS_TOOLS
+// wiring block further down. Re-exported here for ALL_SHARED_TOOLS-via-name
+// references (the bare `GET_ERRORS_TOOL` token is no longer in the array;
+// the DIAGNOSTICS_TOOLS spread carries both).
 
-export interface GetErrorsInput { filePath?: string }
+import {
+    GET_ERRORS_TOOL as GET_ERRORS_DEF,
+    GetErrorsInput,
+} from './diagnostics-tools';
 
-async function executeGetErrors(input: GetErrorsInput): Promise<string> {
-    let diagnostics: [vscode.Uri, readonly vscode.Diagnostic[]][];
-    if (input.filePath) {
-        const resolved = resolvePath(input.filePath);
-        const uri = vscode.Uri.file(resolved);
-        diagnostics = [[uri, vscode.languages.getDiagnostics(uri)]];
-    } else {
-        diagnostics = vscode.languages.getDiagnostics();
-    }
-    const errors: string[] = [];
-    for (const [uri, diags] of diagnostics) {
-        for (const d of diags) {
-            if (d.severity !== vscode.DiagnosticSeverity.Error && d.severity !== vscode.DiagnosticSeverity.Warning) { continue; }
-            const sev = d.severity === vscode.DiagnosticSeverity.Error ? '❌' : '⚠️';
-            errors.push(`${sev} ${vscode.workspace.asRelativePath(uri)}:${d.range.start.line + 1}: ${d.message}`);
-        }
-    }
-    return errors.length > 0 ? errors.slice(0, 100).join('\n') : 'No errors or warnings found.';
-}
-
-export const GET_ERRORS_TOOL: SharedToolDefinition<GetErrorsInput> = {
-    name: 'tomAi_getErrors',
-    displayName: 'Get Errors',
-    description: 'Get errors and warnings from VS Code diagnostics.',
-    tags: ['diagnostics', 'tom-ai-chat'],
-    readOnly: true,
-    inputSchema: {
-        type: 'object',
-        properties: {
-            filePath: { type: 'string', description: 'Optional file path to get errors for. If not specified, returns all errors.' },
-        },
-    },
-    execute: executeGetErrors,
-};
+export type { GetErrorsInput };
+export const GET_ERRORS_TOOL = GET_ERRORS_DEF;
 
 // Guideline tools — global (`_copilot_guidelines/`) + project
 // (`{project}/_copilot_guidelines/`) — plus initializeToolDescriptions()
@@ -400,244 +177,98 @@ export const GET_ERRORS_TOOL: SharedToolDefinition<GetErrorsInput> = {
 // WRITE executors (VS Code LM only — never sent to Ollama by default)
 // ============================================================================
 
-// --- create_file -------------------------------------------------------------
+// --- File mutations ----------------------------------------------------------
+//
+// Definitions, input shapes, and pure impls live in `file-mutations.ts`.
+// Here we just clone each tool def with a live executor that injects
+// `getWorkspaceRoot()`. Same pattern as the file primitives above; see
+// `file-mutations.ts` for the safer-by-default redesign (createFile
+// no longer silently overwrites, editFile requires unique match by
+// default, multiEditFile is atomic by default, moveFile handles EXDEV).
 
-export interface CreateFileInput { filePath: string; content: string }
+import {
+    CREATE_FILE_TOOL as CREATE_FILE_DEF,
+    EDIT_FILE_TOOL as EDIT_FILE_DEF,
+    MULTI_EDIT_FILE_TOOL as MULTI_EDIT_FILE_DEF,
+    DELETE_FILE_TOOL as DELETE_FILE_DEF,
+    MOVE_FILE_TOOL as MOVE_FILE_DEF,
+    CreateFileInput,
+    EditFileInput,
+    MultiEditFileInput,
+    DeleteFileInput,
+    MoveFileInput,
+    createFileImpl,
+    editFileImpl,
+    multiEditFileImpl,
+    deleteFileImpl,
+    moveFileImpl,
+} from './file-mutations';
 
-async function executeCreateFile(input: CreateFileInput): Promise<string> {
-    const resolved = resolvePath(input.filePath);
-    const dir = path.dirname(resolved);
-    if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
-    fs.writeFileSync(resolved, input.content, 'utf8');
-    return `Created file: ${resolved}`;
-}
+export type { CreateFileInput, EditFileInput, MultiEditFileInput, DeleteFileInput, MoveFileInput };
 
 export const CREATE_FILE_TOOL: SharedToolDefinition<CreateFileInput> = {
-    name: 'tomAi_createFile',
-    displayName: 'Create File',
-    description: 'Create a new file with the specified content. Creates parent directories if needed.',
-    tags: ['files', 'tom-ai-chat'],
-    readOnly: false,
-    inputSchema: {
-        type: 'object',
-        properties: {
-            filePath: { type: 'string', description: 'The path to the file to create. Can be absolute or relative to workspace root.' },
-            content: { type: 'string', description: 'The content to write to the file.' },
-        },
-        required: ['filePath', 'content'],
-    },
-    execute: executeCreateFile,
+    ...CREATE_FILE_DEF,
+    execute: (input) => createFileImpl(getWorkspaceRoot(), input),
 };
-
-// --- edit_file ---------------------------------------------------------------
-
-export interface EditFileInput { filePath: string; oldText: string; newText: string }
-
-async function executeEditFile(input: EditFileInput): Promise<string> {
-    const resolved = resolvePath(input.filePath);
-    if (!fs.existsSync(resolved)) { return `File not found: ${resolved}`; }
-    const content = fs.readFileSync(resolved, 'utf8');
-    if (!content.includes(input.oldText)) { return 'Text not found in file. Make sure oldText matches exactly.'; }
-    fs.writeFileSync(resolved, content.replace(input.oldText, input.newText), 'utf8');
-    return `Edited file: ${resolved}`;
-}
 
 export const EDIT_FILE_TOOL: SharedToolDefinition<EditFileInput> = {
-    name: 'tomAi_editFile',
-    displayName: 'Edit File',
-    description: 'Edit a file by replacing oldText with newText. The oldText must match exactly.',
-    tags: ['files', 'tom-ai-chat'],
-    readOnly: false,
-    inputSchema: {
-        type: 'object',
-        properties: {
-            filePath: { type: 'string', description: 'The path to the file to edit.' },
-            oldText: { type: 'string', description: 'The exact text to find and replace.' },
-            newText: { type: 'string', description: 'The text to replace oldText with.' },
-        },
-        required: ['filePath', 'oldText', 'newText'],
-    },
-    execute: executeEditFile,
+    ...EDIT_FILE_DEF,
+    execute: (input) => editFileImpl(getWorkspaceRoot(), input),
 };
 
-// --- multi_edit_file ---------------------------------------------------------
-
-export interface MultiEditFileInput { edits: Array<{ filePath: string; oldText: string; newText: string }> }
-
-async function executeMultiEditFile(input: MultiEditFileInput): Promise<string> {
-    const results: string[] = [];
-    for (const edit of input.edits) {
-        const resolved = resolvePath(edit.filePath);
-        if (!fs.existsSync(resolved)) { results.push(`❌ File not found: ${resolved}`); continue; }
-        const content = fs.readFileSync(resolved, 'utf8');
-        if (!content.includes(edit.oldText)) { results.push(`❌ Text not found in: ${resolved}`); continue; }
-        fs.writeFileSync(resolved, content.replace(edit.oldText, edit.newText), 'utf8');
-        results.push(`✅ Edited: ${resolved}`);
-    }
-    return results.join('\n');
-}
-
 export const MULTI_EDIT_FILE_TOOL: SharedToolDefinition<MultiEditFileInput> = {
-    name: 'tomAi_multiEditFile',
-    displayName: 'Multi Edit File',
-    description: 'Apply multiple find/replace edits across one or more files.',
-    tags: ['files', 'tom-ai-chat'],
-    readOnly: false,
-    inputSchema: {
-        type: 'object',
-        properties: {
-            edits: {
-                type: 'array', description: 'Array of edit operations to apply.',
-                items: {
-                    type: 'object',
-                    properties: {
-                        filePath: { type: 'string' },
-                        oldText: { type: 'string' },
-                        newText: { type: 'string' },
-                    },
-                    required: ['filePath', 'oldText', 'newText'],
-                },
-            },
-        },
-        required: ['edits'],
-    },
-    execute: executeMultiEditFile,
+    ...MULTI_EDIT_FILE_DEF,
+    execute: (input) => multiEditFileImpl(getWorkspaceRoot(), input),
 };
 
 // --- run_command --------------------------------------------------------------
+//
+// Definition + impl live in `run-command.ts`. Here we just clone the def
+// with a live executor that injects `getWorkspaceRoot()`. See run-command.ts
+// for the rewrite (explicit timeout/exit-code/truncation, SIGTERM→SIGKILL
+// kill escalation, 10 MB buffer cap).
 
-export interface RunCommandInput { command: string; cwd?: string }
+import { RUN_COMMAND_TOOL as RUN_COMMAND_DEF, RunCommandInput, runCommandImpl } from './run-command';
 
-async function executeRunCommand(input: RunCommandInput): Promise<string> {
-    const cwd = input.cwd ? resolvePath(input.cwd) : getWorkspaceRoot();
-    try {
-        const { stdout, stderr } = await execAsync(input.command, { cwd, maxBuffer: 1024 * 1024 });
-        return stdout || stderr || '(no output)';
-    } catch (error: any) {
-        return `Error: ${error.message}\n${error.stderr || ''}`;
-    }
-}
+export type { RunCommandInput };
 
 export const RUN_COMMAND_TOOL: SharedToolDefinition<RunCommandInput> = {
-    name: 'tomAi_runCommand',
-    displayName: 'Run Command',
-    description: 'Run a shell command and return the output.',
-    tags: ['terminal', 'tom-ai-chat'],
-    readOnly: false,
-    inputSchema: {
-        type: 'object',
-        properties: {
-            command: { type: 'string', description: 'The shell command to run.' },
-            cwd: { type: 'string', description: 'Optional working directory for the command.' },
-        },
-        required: ['command'],
-    },
-    execute: executeRunCommand,
+    ...RUN_COMMAND_DEF,
+    execute: (input) => runCommandImpl({ wsRoot: getWorkspaceRoot() }, input),
 };
 
 // --- run_vscode_command ------------------------------------------------------
+//
+// Relocated to `vscode-command-tools.ts` alongside its sibling tools
+// (runVscodeCommandTyped, listCommands, openFile) so all four share one
+// vscode-free impl + one set of tests. Re-exported here for the existing
+// ALL_SHARED_TOOLS spread; live executor is installed by the
+// VSCODE_COMMAND_TOOLS wiring block below.
 
-export interface RunVscodeCommandInput { command: string; args?: unknown[] }
+import {
+    RUN_VSCODE_COMMAND_TOOL as RUN_VSCODE_COMMAND_DEF,
+    RunVscodeCommandInput,
+} from './vscode-command-tools';
 
-async function executeRunVscodeCommand(input: RunVscodeCommandInput): Promise<string> {
-    try {
-        const result = await vscode.commands.executeCommand(input.command, ...(input.args ?? []));
-        return `Command executed: ${input.command}\nResult: ${JSON.stringify(result) ?? '(no result)'}`;
-    } catch (error) {
-        return `Error executing command: ${error}`;
-    }
-}
-
-export const RUN_VSCODE_COMMAND_TOOL: SharedToolDefinition<RunVscodeCommandInput> = {
-    name: 'tomAi_runVscodeCommand',
-    displayName: 'Run VS Code Command',
-    description: 'Execute a VS Code command by ID.',
-    tags: ['vscode', 'tom-ai-chat'],
-    readOnly: false,
-    inputSchema: {
-        type: 'object',
-        properties: {
-            command: { type: 'string', description: 'The VS Code command ID to execute.' },
-            args: { type: 'array', description: 'Optional arguments to pass to the command.', items: { type: 'string' } },
-        },
-        required: ['command'],
-    },
-    execute: executeRunVscodeCommand,
-};
+export type { RunVscodeCommandInput };
+export const RUN_VSCODE_COMMAND_TOOL = RUN_VSCODE_COMMAND_DEF;
 
 // Git tools (tomAi_gitRead, tomAi_gitShow, tomAi_gitWrite) live in `./git-tools.ts`.
 
-// --- delete_file -------------------------------------------------------------
-
-export interface DeleteFileInput { path: string }
-
-async function executeDeleteFile(input: DeleteFileInput): Promise<string> {
-    if (!input?.path) { return 'Error: path is required.'; }
-    const resolved = resolvePath(input.path);
-    if (!isInsideWorkspace(resolved)) {
-        return `Error: path is outside workspace.`;
-    }
-    try {
-        await fs.promises.unlink(resolved);
-        return `Deleted: ${resolved}`;
-    } catch (error: any) {
-        return `Error: ${error?.message ?? String(error)}`;
-    }
-}
+// delete_file and move_file are defined alongside the other mutation
+// primitives near the top of this file (imported from `file-mutations.ts`).
+// They live here so they're co-located with their `requiresApproval` siblings
+// and the ALL_SHARED_TOOLS array, but the implementation is in the carved-out
+// module for testability.
 
 export const DELETE_FILE_TOOL: SharedToolDefinition<DeleteFileInput> = {
-    name: 'tomAi_deleteFile',
-    displayName: 'Delete File',
-    description: 'Delete a file from the workspace. Requires user approval.',
-    tags: ['files', 'tom-ai-chat'],
-    readOnly: false,
-    requiresApproval: true,
-    inputSchema: {
-        type: 'object',
-        properties: {
-            path: { type: 'string', description: 'Workspace-relative or absolute path of the file to delete.' },
-        },
-        required: ['path'],
-    },
-    execute: executeDeleteFile,
+    ...DELETE_FILE_DEF,
+    execute: (input) => deleteFileImpl(getWorkspaceRoot(), input),
 };
 
-// --- move_file ---------------------------------------------------------------
-
-export interface MoveFileInput { from: string; to: string }
-
-async function executeMoveFile(input: MoveFileInput): Promise<string> {
-    if (!input?.from || !input?.to) { return 'Error: from and to are required.'; }
-    const fromResolved = resolvePath(input.from);
-    const toResolved = resolvePath(input.to);
-    if (!isInsideWorkspace(fromResolved) || !isInsideWorkspace(toResolved)) {
-        return `Error: paths must be inside the workspace.`;
-    }
-    try {
-        await fs.promises.mkdir(path.dirname(toResolved), { recursive: true });
-        await fs.promises.rename(fromResolved, toResolved);
-        return `Moved: ${fromResolved} → ${toResolved}`;
-    } catch (error: any) {
-        return `Error: ${error?.message ?? String(error)}`;
-    }
-}
-
 export const MOVE_FILE_TOOL: SharedToolDefinition<MoveFileInput> = {
-    name: 'tomAi_moveFile',
-    displayName: 'Move/Rename File',
-    description: 'Move or rename a file within the workspace. Requires user approval.',
-    tags: ['files', 'tom-ai-chat'],
-    readOnly: false,
-    requiresApproval: true,
-    inputSchema: {
-        type: 'object',
-        properties: {
-            from: { type: 'string', description: 'Source path (workspace-relative or absolute).' },
-            to: { type: 'string', description: 'Destination path (workspace-relative or absolute).' },
-        },
-        required: ['from', 'to'],
-    },
-    execute: executeMoveFile,
+    ...MOVE_FILE_DEF,
+    execute: (input) => moveFileImpl(getWorkspaceRoot(), input),
 };
 
 // ============================================================================
@@ -1598,15 +1229,524 @@ export const MEMORY_LIST_TOOL: SharedToolDefinition<MemoryListInput> = {
 // ============================================================================
 
 import { CHAT_ENHANCEMENT_TOOLS } from './chat-enhancement-tools';
-import { EDITOR_CONTEXT_TOOLS } from './editor-context-tools';
-import { DIAGNOSTICS_TOOLS } from './diagnostics-tools';
+import {
+    EDITOR_CONTEXT_TOOLS,
+    GET_WORKSPACE_INFO_TOOL as GET_WORKSPACE_INFO_DEF,
+    GET_ACTIVE_EDITOR_TOOL as GET_ACTIVE_EDITOR_DEF,
+    GET_OPEN_EDITORS_TOOL as GET_OPEN_EDITORS_DEF,
+    GetWorkspaceInfoInput,
+    GetActiveEditorInput,
+    GetOpenEditorsInput,
+    type EditorSnapshot,
+    type TabKind,
+    type TabSnapshot,
+    type WorkspaceInfoSnapshot,
+    getActiveEditorImpl,
+    getOpenEditorsImpl,
+    getWorkspaceInfoImpl,
+} from './editor-context-tools';
+import { execFile } from 'child_process';
+import { WsPaths as EditorWsPaths } from '../utils/workspacePaths';
+
+const editorExecFileAsync = promisify(execFile);
+
+// --- Live deps for the editor-context tools. The bridges live here so the
+//     impl file stays vscode-free + testable.
+
+async function buildLiveWorkspaceInfoSnapshot(opts: { includeGit: boolean }): Promise<WorkspaceInfoSnapshot> {
+    const wsFile = vscode.workspace.workspaceFile?.fsPath ?? '';
+    const wsName = vscode.workspace.name ?? '';
+    const folders = (vscode.workspace.workspaceFolders ?? []).map((f) => ({ name: f.name, fsPath: f.uri.fsPath }));
+    const questId = EditorWsPaths.getWorkspaceQuestId();
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+
+    let projects: WorkspaceInfoSnapshot['projects'] = null;
+    let projectsSource: string | null = null;
+    if (root) {
+        try {
+            const masterPath = EditorWsPaths.metadata('tom_master.yaml');
+            if (masterPath && fs.existsSync(masterPath)) {
+                const yaml = await import('yaml');
+                const doc = yaml.parse(fs.readFileSync(masterPath, 'utf8'));
+                if (doc?.projects && Array.isArray(doc.projects)) {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    projects = (doc.projects as Array<Record<string, any>>).map((p) => ({
+                        id: String(p.id ?? p.name ?? ''),
+                        name: String(p.name ?? p.id ?? ''),
+                        path: p.path ? String(p.path) : undefined,
+                        type: p.type ? String(p.type) : undefined,
+                    }));
+                    projectsSource = masterPath;
+                }
+            }
+        } catch { /* leave projects null, projectsSource null */ }
+    }
+
+    let git: WorkspaceInfoSnapshot['git'] = null;
+    if (opts.includeGit && root) {
+        const runGit = async (args: string[]): Promise<string> => {
+            try {
+                const { stdout } = await editorExecFileAsync('git', args, { cwd: root, timeout: 3000 });
+                return stdout.trim();
+            } catch { return ''; }
+        };
+        const [branch, commit, statusOut, remote] = await Promise.all([
+            runGit(['rev-parse', '--abbrev-ref', 'HEAD']),
+            runGit(['rev-parse', '--short', 'HEAD']),
+            runGit(['status', '--porcelain']),
+            runGit(['remote', 'get-url', 'origin']),
+        ]);
+        // If every git call failed, this is not a git repo at all → null.
+        if (branch || commit || statusOut || remote) {
+            git = {
+                branch: branch || undefined,
+                commit: commit || undefined,
+                dirty: statusOut.length > 0,
+                remote: remote || undefined,
+            };
+        }
+    }
+
+    return {
+        workspaceName: wsName,
+        workspaceFile: wsFile,
+        workspaceFolders: folders,
+        questId,
+        projects,
+        projectsSource,
+        git,
+    };
+}
+
+function vscodeRangeTo1Based(start: vscode.Position, end: vscode.Position) {
+    return {
+        startLine: start.line + 1,
+        startCharacter: start.character + 1,
+        endLine: end.line + 1,
+        endCharacter: end.character + 1,
+    };
+}
+
+function liveActiveEditorSnapshot(opts: { includeSelectionText: boolean; maxSelectionChars: number }): EditorSnapshot | null {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) { return null; }
+    const doc = editor.document;
+    const sel = editor.selection;
+    const wsRoot = getWorkspaceRoot();
+    const rel = vscode.workspace.asRelativePath(doc.uri);
+    let selectionText: string | undefined;
+    if (opts.includeSelectionText) {
+        const text = doc.getText(sel);
+        selectionText = text.length > opts.maxSelectionChars
+            ? text.slice(0, opts.maxSelectionChars) + '…'
+            : text;
+    }
+    const visible = editor.visibleRanges[0];
+    return {
+        file: wsRoot ? rel : doc.uri.fsPath,
+        absolutePath: doc.uri.fsPath,
+        scheme: doc.uri.scheme,
+        language: doc.languageId,
+        lineCount: doc.lineCount,
+        dirty: doc.isDirty,
+        untitled: doc.isUntitled,
+        selection: {
+            ...vscodeRangeTo1Based(sel.start, sel.end),
+            isEmpty: sel.isEmpty,
+            text: selectionText,
+        },
+        cursor: { line: sel.active.line + 1, character: sel.active.character + 1 },
+        visibleRange: visible
+            ? { startLine: visible.start.line + 1, endLine: visible.end.line + 1 }
+            : null,
+    };
+}
+
+function liveOpenEditorsSnapshot(): TabSnapshot[] {
+    const groups = vscode.window.tabGroups.all;
+    return groups.flatMap((g) =>
+        g.tabs.map((t) => {
+            const { file, absolutePath, kind } = describeTab(t.input);
+            return {
+                group: g.viewColumn,
+                label: t.label,
+                file: file ? (vscode.workspace.asRelativePath(vscode.Uri.file(absolutePath!))) : null,
+                absolutePath,
+                kind,
+                active: t.isActive,
+                dirty: t.isDirty,
+                pinned: t.isPinned,
+                preview: t.isPreview,
+            };
+        }),
+    );
+}
+
+function describeTab(input: unknown): { file: boolean; absolutePath: string | null; kind: TabKind } {
+    if (input instanceof vscode.TabInputText) {
+        return { file: true, absolutePath: input.uri.fsPath, kind: 'text' };
+    }
+    if (input instanceof vscode.TabInputTextDiff) {
+        return { file: true, absolutePath: input.modified.fsPath, kind: 'text-diff' };
+    }
+    if (input instanceof vscode.TabInputNotebook) {
+        return { file: true, absolutePath: input.uri.fsPath, kind: 'notebook' };
+    }
+    if (input instanceof vscode.TabInputNotebookDiff) {
+        return { file: true, absolutePath: input.modified.fsPath, kind: 'notebook-diff' };
+    }
+    if (input instanceof vscode.TabInputCustom) {
+        return { file: true, absolutePath: input.uri.fsPath, kind: 'custom' };
+    }
+    if (input instanceof vscode.TabInputWebview) {
+        return { file: false, absolutePath: null, kind: 'webview' };
+    }
+    if (input instanceof vscode.TabInputTerminal) {
+        return { file: false, absolutePath: null, kind: 'terminal' };
+    }
+    return { file: false, absolutePath: null, kind: 'unknown' };
+}
+
+// Install live executors on the three imported defs.
+(GET_WORKSPACE_INFO_DEF as { execute: (input: GetWorkspaceInfoInput) => Promise<string> }).execute =
+    (input) => getWorkspaceInfoImpl({ source: { snapshot: (o) => buildLiveWorkspaceInfoSnapshot(o) } }, input);
+(GET_ACTIVE_EDITOR_DEF as { execute: (input: GetActiveEditorInput) => Promise<string> }).execute =
+    (input) => getActiveEditorImpl({ source: { snapshot: liveActiveEditorSnapshot } }, input);
+(GET_OPEN_EDITORS_DEF as { execute: (input: GetOpenEditorsInput) => Promise<string> }).execute =
+    (input) => getOpenEditorsImpl({ source: { snapshot: liveOpenEditorsSnapshot } }, input);
+import {
+    DIAGNOSTICS_TOOLS,
+    GET_ERRORS_TOOL as GET_ERRORS_DEF_INSTALL,
+    GET_PROBLEMS_TOOL as GET_PROBLEMS_DEF,
+    GetProblemsInput,
+    type DiagnosticInfo,
+    type DiagnosticsSource,
+    type DiagnosticSeverityName,
+    getErrorsImpl,
+    getProblemsImpl,
+} from './diagnostics-tools';
+
+// --- Live DiagnosticsSource bridging vscode.languages.getDiagnostics → DiagnosticInfo[].
+
+function vscodeSeverityToName(s: vscode.DiagnosticSeverity): DiagnosticSeverityName {
+    switch (s) {
+        case vscode.DiagnosticSeverity.Error: return 'error';
+        case vscode.DiagnosticSeverity.Warning: return 'warning';
+        case vscode.DiagnosticSeverity.Information: return 'information';
+        case vscode.DiagnosticSeverity.Hint: return 'hint';
+        default: return 'hint';
+    }
+}
+
+function diagToInfo(uri: vscode.Uri, d: vscode.Diagnostic): DiagnosticInfo {
+    const rel = vscode.workspace.asRelativePath(uri);
+    return {
+        file: rel,
+        absolutePath: uri.fsPath,
+        severity: vscodeSeverityToName(d.severity),
+        line: d.range.start.line,
+        character: d.range.start.character,
+        endLine: d.range.end.line,
+        endCharacter: d.range.end.character,
+        message: d.message,
+        source: d.source,
+        code: typeof d.code === 'object' && d.code !== null && 'value' in d.code
+            ? ((d.code as { value: string | number }).value)
+            : (d.code as string | number | undefined),
+    };
+}
+
+const liveDiagnosticsSource: DiagnosticsSource = {
+    getAll(): DiagnosticInfo[] {
+        const out: DiagnosticInfo[] = [];
+        for (const [uri, diags] of vscode.languages.getDiagnostics()) {
+            for (const d of diags) { out.push(diagToInfo(uri, d)); }
+        }
+        return out;
+    },
+    getForFile(absPath: string): DiagnosticInfo[] {
+        const uri = vscode.Uri.file(absPath);
+        return vscode.languages.getDiagnostics(uri).map((d) => diagToInfo(uri, d));
+    },
+};
+
+(GET_ERRORS_DEF_INSTALL as { execute: (input: import('./diagnostics-tools').GetErrorsInput) => Promise<string> }).execute =
+    (input) => getErrorsImpl({ source: liveDiagnosticsSource, wsRoot: getWorkspaceRoot() }, input);
+(GET_PROBLEMS_DEF as { execute: (input: GetProblemsInput) => Promise<string> }).execute =
+    (input) => getProblemsImpl({ source: liveDiagnosticsSource, wsRoot: getWorkspaceRoot() }, input);
 import { LANGUAGE_SERVICE_TOOLS } from './language-service-tools';
+import {
+    FIND_SYMBOL_TOOL as FIND_SYMBOL_DEF,
+    GOTO_DEFINITION_TOOL as GOTO_DEFINITION_DEF,
+    FIND_REFERENCES_TOOL as FIND_REFERENCES_DEF,
+    FindSymbolInput,
+    GotoDefinitionInput,
+    FindReferencesInput,
+    type LanguageNavigator,
+    type LocationInfo,
+    type SymbolInfo,
+    findReferencesImpl,
+    findSymbolImpl,
+    gotoDefinitionImpl,
+} from './language-navigation';
+
+// --- Live LanguageNavigator bridging vscode.commands.executeXxxProvider →
+//     SymbolInfo[] / LocationInfo[]. 0-based throughout (the impl handles
+//     the 1-based ↔ 0-based conversion at its own boundary).
+
+function vscodeLocationsToInfo(uri: vscode.Uri, range: vscode.Range): LocationInfo {
+    return {
+        file: vscode.workspace.asRelativePath(uri),
+        absolutePath: uri.fsPath,
+        startLine: range.start.line,
+        startCharacter: range.start.character,
+        endLine: range.end.line,
+        endCharacter: range.end.character,
+    };
+}
+
+const liveLanguageNavigator: LanguageNavigator = {
+    resolveFile(filePath: string): string | null {
+        const abs = path.isAbsolute(filePath) ? filePath : path.join(getWorkspaceRoot() || process.cwd(), filePath);
+        return fs.existsSync(abs) ? abs : null;
+    },
+    async findSymbol(query: string): Promise<SymbolInfo[]> {
+        const symbols = await vscode.commands.executeCommand<vscode.SymbolInformation[]>(
+            'vscode.executeWorkspaceSymbolProvider',
+            query,
+        );
+        return (symbols ?? []).map((s) => ({
+            name: s.name,
+            kind: vscode.SymbolKind[s.kind],
+            containerName: s.containerName || undefined,
+            file: vscode.workspace.asRelativePath(s.location.uri),
+            absolutePath: s.location.uri.fsPath,
+            line: s.location.range.start.line,
+            character: s.location.range.start.character,
+        }));
+    },
+    async gotoDefinition(absPath, line, character): Promise<LocationInfo[]> {
+        const uri = vscode.Uri.file(absPath);
+        await vscode.workspace.openTextDocument(uri);   // hint the language server
+        const pos = new vscode.Position(line, character);
+        const locs = await vscode.commands.executeCommand<Array<vscode.Location | vscode.LocationLink>>(
+            'vscode.executeDefinitionProvider', uri, pos,
+        );
+        return (locs ?? []).map((l) => {
+            const loc = l as vscode.Location;
+            const link = l as vscode.LocationLink;
+            const u = loc.uri ?? link.targetUri;
+            const range = loc.range ?? link.targetRange;
+            return vscodeLocationsToInfo(u, range);
+        });
+    },
+    async findReferences(absPath, line, character): Promise<LocationInfo[]> {
+        const uri = vscode.Uri.file(absPath);
+        await vscode.workspace.openTextDocument(uri);
+        const pos = new vscode.Position(line, character);
+        const locs = await vscode.commands.executeCommand<vscode.Location[]>(
+            'vscode.executeReferenceProvider', uri, pos,
+        );
+        return (locs ?? []).map((l) => vscodeLocationsToInfo(l.uri, l.range));
+    },
+};
+
+// Install live executors on the three nav defs.
+(FIND_SYMBOL_DEF as { execute: (input: FindSymbolInput) => Promise<string> }).execute =
+    (input) => findSymbolImpl(liveLanguageNavigator, input);
+(GOTO_DEFINITION_DEF as { execute: (input: GotoDefinitionInput) => Promise<string> }).execute =
+    (input) => gotoDefinitionImpl(liveLanguageNavigator, input);
+(FIND_REFERENCES_DEF as { execute: (input: FindReferencesInput) => Promise<string> }).execute =
+    (input) => findReferencesImpl(liveLanguageNavigator, input);
 import { GUIDELINE_TOOLS } from './guideline-tools';
-import { VSCODE_COMMAND_TOOLS } from './vscode-command-tools';
+import {
+    VSCODE_COMMAND_TOOLS,
+    RUN_VSCODE_COMMAND_TYPED_TOOL as RUN_VSCODE_COMMAND_TYPED_DEF,
+    LIST_COMMANDS_TOOL as LIST_COMMANDS_DEF,
+    OPEN_FILE_TOOL as OPEN_FILE_DEF,
+    ListCommandsInput,
+    OpenFileInput,
+    type CommandRunner,
+    type FileOpener,
+    type OpenFileShowOptions,
+    listCommandsImpl,
+    openFileImpl,
+    runVscodeCommandImpl,
+} from './vscode-command-tools';
+
+// --- Live deps bridging vscode.commands / vscode.window to the narrow
+//     interfaces in vscode-command-tools.ts (kept vscode-free for tests).
+
+const liveCommandRunner: CommandRunner = {
+    async executeCommand(commandId, args) {
+        return vscode.commands.executeCommand(commandId, ...args);
+    },
+    async listCommands(filterInternal) {
+        return vscode.commands.getCommands(filterInternal);
+    },
+};
+
+const liveFileOpener: FileOpener = {
+    get wsRoot() { return getWorkspaceRoot(); },
+    exists(absPath) {
+        try { return fs.existsSync(absPath); } catch { return false; }
+    },
+    async openInEditor(absPath, opts: OpenFileShowOptions) {
+        try {
+            const uri = vscode.Uri.file(absPath);
+            const doc = await vscode.workspace.openTextDocument(uri);
+            const showOptions: vscode.TextDocumentShowOptions = {
+                preview: opts.preview,
+                preserveFocus: opts.preserveFocus,
+                viewColumn: opts.viewColumn as vscode.ViewColumn | undefined,
+            };
+            if (opts.selection) {
+                showOptions.selection = new vscode.Range(
+                    new vscode.Position(opts.selection.startLine, opts.selection.startCol),
+                    new vscode.Position(opts.selection.endLine, opts.selection.endCol),
+                );
+            }
+            await vscode.window.showTextDocument(doc, showOptions);
+            return { ok: true as const, languageId: doc.languageId, lineCount: doc.lineCount };
+        } catch (err) {
+            return { ok: false as const, reason: (err as Error).message };
+        }
+    },
+};
+
+// Install live executors on the imported defs. RUN_VSCODE_COMMAND_DEF
+// was re-exported above so this installs for both names that point at it.
+(RUN_VSCODE_COMMAND_DEF as { execute: (input: RunVscodeCommandInput) => Promise<string> }).execute =
+    (input) => runVscodeCommandImpl(liveCommandRunner, input);
+(RUN_VSCODE_COMMAND_TYPED_DEF as { execute: (input: RunVscodeCommandInput) => Promise<string> }).execute =
+    (input) => runVscodeCommandImpl(liveCommandRunner, input);
+(LIST_COMMANDS_DEF as { execute: (input: ListCommandsInput) => Promise<string> }).execute =
+    (input) => listCommandsImpl(liveCommandRunner, input);
+(OPEN_FILE_DEF as { execute: (input: OpenFileInput) => Promise<string> }).execute =
+    (input) => openFileImpl(liveFileOpener, input);
 import { USER_INTERACTION_TOOLS } from './user-interaction-tools';
 import { WORKSPACE_EDIT_TOOLS } from './workspace-edit-tools';
-import { TASK_DEBUG_TOOLS } from './task-debug-tools';
-import { PROCESS_TOOLS } from './process-tools';
+import {
+    TASK_DEBUG_TOOLS,
+    RUN_TASK_TOOL as RUN_TASK_DEF,
+    RUN_DEBUG_CONFIG_TOOL as RUN_DEBUG_CONFIG_DEF,
+    RunTaskInput,
+    RunDebugConfigInput,
+    runTaskImpl,
+    runDebugConfigImpl,
+    TaskRunner,
+    DebugRunner,
+    TaskInfo,
+} from './task-debug-tools';
+
+// --- Live bridges from vscode.tasks / vscode.debug to the narrow dep
+//     interfaces in task-debug-tools.ts (kept vscode-free for testability).
+
+const liveTaskRunner: TaskRunner = {
+    async listTasks(): Promise<TaskInfo[]> {
+        const tasks = await vscode.tasks.fetchTasks();
+        return tasks.map(taskToInfo);
+    },
+    async runTask(info, { waitForExit, timeoutMs }) {
+        // Re-fetch and find the matching task by name + scope hint.
+        // We can't pass our `TaskInfo` back to vscode.tasks.executeTask;
+        // we need the real `vscode.Task`. Re-fetching is cheap and
+        // ensures we operate on a fresh definition.
+        const tasks = await vscode.tasks.fetchTasks();
+        const task = tasks.find((t) => taskToInfo(t).name === info.name && taskToInfo(t).scopeName === info.scopeName)
+                  ?? tasks.find((t) => t.name === info.name);
+        if (!task) { throw new Error(`Task "${info.name}" disappeared between list and run.`); }
+        const execution = await vscode.tasks.executeTask(task);
+        if (!waitForExit) { return { started: true as const }; }
+        return new Promise<{ exitCode: number | null; timedOut: boolean }>((resolve) => {
+            const timer = setTimeout(() => {
+                disposable.dispose();
+                resolve({ exitCode: null, timedOut: true });
+            }, timeoutMs);
+            const disposable = vscode.tasks.onDidEndTaskProcess((e) => {
+                if (e.execution === execution) {
+                    clearTimeout(timer);
+                    disposable.dispose();
+                    resolve({ exitCode: e.exitCode ?? null, timedOut: false });
+                }
+            });
+        });
+    },
+};
+
+function taskToInfo(t: vscode.Task): TaskInfo {
+    let scopeName: string | undefined;
+    if (t.scope && typeof t.scope === 'object' && 'name' in t.scope) {
+        scopeName = (t.scope as { name: string }).name;
+    } else if (t.scope === vscode.TaskScope.Workspace) {
+        scopeName = 'Workspace';
+    } else if (t.scope === vscode.TaskScope.Global) {
+        scopeName = 'Global';
+    }
+    return { name: t.name, source: t.source, type: t.definition?.type, scopeName };
+}
+
+const liveDebugRunner: DebugRunner = {
+    listFolders(): string[] {
+        return (vscode.workspace.workspaceFolders ?? []).map((f) => f.name);
+    },
+    async startDebug(configName, folderName, { waitForExit, timeoutMs }) {
+        const folders = vscode.workspace.workspaceFolders ?? [];
+        const folder = folderName ? folders.find((f) => f.name === folderName) : folders[0];
+        let started: boolean;
+        try {
+            started = await vscode.debug.startDebugging(folder, configName);
+        } catch (err) {
+            return { started: false as const, reason: (err as Error).message };
+        }
+        if (!started) {
+            return { started: false as const, reason: 'vscode.debug.startDebugging returned false (config not found or validation failed)' };
+        }
+        if (!waitForExit) { return { started: true as const, sessionName: null, timedOut: false }; }
+        return new Promise<{ started: true; sessionName: string | null; timedOut: boolean }>((resolve) => {
+            const timer = setTimeout(() => {
+                disposable.dispose();
+                resolve({ started: true as const, sessionName: null, timedOut: true });
+            }, timeoutMs);
+            const disposable = vscode.debug.onDidTerminateDebugSession((session) => {
+                if (session.configuration.name === configName) {
+                    clearTimeout(timer);
+                    disposable.dispose();
+                    resolve({ started: true as const, sessionName: session.name, timedOut: false });
+                }
+            });
+        });
+    },
+};
+
+// Install live executors on the imported defs.
+(RUN_TASK_DEF as { execute: (input: RunTaskInput) => Promise<string> }).execute =
+    (input) => runTaskImpl(liveTaskRunner, input);
+(RUN_DEBUG_CONFIG_DEF as { execute: (input: RunDebugConfigInput) => Promise<string> }).execute =
+    (input) => runDebugConfigImpl(liveDebugRunner, input);
+import {
+    PROCESS_TOOLS,
+    RUN_COMMAND_STREAM_TOOL as RUN_COMMAND_STREAM_DEF,
+    READ_COMMAND_OUTPUT_TOOL as READ_COMMAND_OUTPUT_DEF,
+    KILL_COMMAND_TOOL as KILL_COMMAND_DEF,
+    RunCommandStreamInput,
+    ReadCommandOutputInput,
+    KillCommandInput,
+    runCommandStreamImpl,
+    readCommandOutputImpl,
+    killCommandImpl,
+} from './process-tools';
+
+// Install the live `execute()` closures on the process-tool defs at
+// module load (so the PROCESS_TOOLS spread below picks them up).
+// process-tools.ts is vscode-free for testability, so the closures
+// that grab `vscode.workspace.workspaceFolders` have to be wired here.
+(RUN_COMMAND_STREAM_DEF as { execute: (input: RunCommandStreamInput) => Promise<string> }).execute =
+    (input) => runCommandStreamImpl({ wsRoot: getWorkspaceRoot() }, input);
+(READ_COMMAND_OUTPUT_DEF as { execute: (input: ReadCommandOutputInput) => Promise<string> }).execute =
+    (input) => readCommandOutputImpl({}, input);
+(KILL_COMMAND_DEF as { execute: (input: KillCommandInput) => Promise<string> }).execute =
+    (input) => killCommandImpl({}, input);
 import { GIT_TOOLS } from './git-tools';
 import { PLANNING_TOOLS } from './planning-tools';
 import { NOTEBOOK_TOOLS } from './notebook-tools';
@@ -1615,6 +1755,7 @@ import { ISSUE_TOOLS } from './issue-tools';
 import { TEST_TOOLS } from './test-tools';
 import { CONVERSATION_RESULT_TOOLS } from './conversation-result-tools';
 import { PAST_TOOL_ACCESS_TOOLS } from './past-tool-access-tools';
+import { PROMPT_HISTORY_TOOLS } from './prompt-history-tools';
 
 // Re-export initializeToolDescriptions so existing consumers continue to work
 // without needing to update their import paths.
@@ -1639,14 +1780,15 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
     MULTI_EDIT_FILE_TOOL,
     DELETE_FILE_TOOL,
     MOVE_FILE_TOOL,
-    // Shell (one-shot) and VS Code command (string args)
+    // Shell (one-shot). `RUN_VSCODE_COMMAND_TOOL` is no longer listed
+    // here — it's part of VSCODE_COMMAND_TOOLS below since the entry #6
+    // refactor consolidated the four vscode-command tools into one file.
     RUN_COMMAND_TOOL,
-    RUN_VSCODE_COMMAND_TOOL,
     // Web
     FETCH_WEBPAGE_TOOL,
     WEB_SEARCH_TOOL,
-    // Diagnostics (legacy)
-    GET_ERRORS_TOOL,
+    // Diagnostics tools (getErrors + getProblems) live in DIAGNOSTICS_TOOLS
+    // below — relocated from this file by the entry #8 refactor.
     // Ask-AI delegation bridges
     ASK_BIG_BROTHER_TOOL,
     ASK_COPILOT_TOOL,
@@ -1681,6 +1823,7 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
     ...TEST_TOOLS,              // Tests subpanel (testkit): parallel to ISSUE_TOOLS against testkit repos
     ...CONVERSATION_RESULT_TOOLS, // AI Conversation outcome document — read/write result file
     ...PAST_TOOL_ACCESS_TOOLS,    // listPastToolCalls, searchPastToolResults, readPastToolResult
+    ...PROMPT_HISTORY_TOOLS,      // listPromptPairs, getPromptPair — read past prompt+answer pairs from summary trail
 ];
 
 /**
