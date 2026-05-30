@@ -117,6 +117,16 @@ export function applyErrorTransition(
     };
 }
 
+export interface ResetToPendingLastDispatched {
+    kind: 'prePrompt' | 'main' | 'followUp';
+    prePromptIndex?: number;
+    followUpIndex?: number;
+}
+
+export interface ResetToPendingStage {
+    repeatIndex?: number;
+}
+
 export interface ResetToPendingItem {
     status?: string;
     error?: string;
@@ -126,10 +136,16 @@ export interface ResetToPendingItem {
     reminderSentCount?: number;
     lastReminderAt?: string | undefined;
     sentAt?: string;
-    // `lastDispatched` is intentionally not listed here so callers
-    // can pass through the full QueuedPrompt without us erasing it —
-    // the user may still want to use the Resend button after they
-    // re-enable auto-send and the item gets picked up again.
+    /**
+     * Snapshot of the last dispatch — preserved across the reset so
+     * the Resend button still works. Read here only so we can
+     * decrement the matching counter (see below).
+     */
+    lastDispatched?: ResetToPendingLastDispatched;
+    /** Per-stage `repeatIndex` counters mutated to roll back the errored rep. */
+    repeatIndex?: number;
+    prePrompts?: ResetToPendingStage[];
+    followUps?: ResetToPendingStage[];
 }
 
 /**
@@ -142,6 +158,20 @@ export interface ResetToPendingItem {
  * so the dispatcher treats the item like a fresh pending entry.
  * Deliberately preserves `lastDispatched` — the Resend button still
  * works on the reset item once the queue is sending again.
+ *
+ * **Rolls back the errored repetition counter.** The dispatch loop
+ * bumps `repeatIndex` *before* awaiting the actual send — that's so
+ * the rep number is visible to `lastDispatched` / status formatters
+ * during the dispatch. When the dispatch then throws, the counter
+ * still says "rep N+1 was sent" even though the send failed. If we
+ * left it that way, a reset-then-auto-send (the natural user flow
+ * for "queue this for later, then drain") would skip rep N+1 and
+ * jump to N+2 — silently dropping the rep the user wanted to retry.
+ * Decrementing here brings the counter back in line with what was
+ * actually delivered. `resendLastPrompt` deliberately replays
+ * `lastDispatched.expandedText` (the errored rep's frozen text)
+ * *without* touching counters, so that path stays correct: re-fire
+ * rep N+1, then the loop advances naturally to N+2.
  *
  * Auto-send is **not** touched. The error transition already turned
  * it off; pressing Reset is the user signalling "queue this for
@@ -159,7 +189,69 @@ export function applyResetToPending(item: ResetToPendingItem): boolean {
     item.reminderSentCount = 0;
     item.lastReminderAt = undefined;
     item.sentAt = undefined;
+
+    // Roll back the counter for the stage that was in flight when
+    // the error fired — see the doc comment for the rationale.
+    const last = item.lastDispatched;
+    if (last) {
+        if (last.kind === 'main') {
+            item.repeatIndex = Math.max(0, (item.repeatIndex ?? 0) - 1);
+        } else if (last.kind === 'prePrompt' && typeof last.prePromptIndex === 'number' && Array.isArray(item.prePrompts)) {
+            const pp = item.prePrompts[last.prePromptIndex];
+            if (pp) { pp.repeatIndex = Math.max(0, (pp.repeatIndex ?? 0) - 1); }
+        } else if (last.kind === 'followUp' && typeof last.followUpIndex === 'number' && Array.isArray(item.followUps)) {
+            const fu = item.followUps[last.followUpIndex];
+            if (fu) { fu.repeatIndex = Math.max(0, (fu.repeatIndex ?? 0) - 1); }
+        }
+    }
     return true;
+}
+
+/**
+ * Truthy iff a queue item has at least one stage / repetition
+ * dispatched on file. Drives two related decisions:
+ *
+ *   - The **pause gate** in `dispatchNextStageForSendingItem`: when
+ *     auto-send is OFF and an in-flight item has progress, refuse to
+ *     start the next repetition (the current rep finishes naturally).
+ *     The first dispatch is allowed even with auto-send off so the
+ *     user's explicit `sendNow` action isn't blocked.
+ *   - The **fresh-vs-resume gate** in `sendItem`: items with prior
+ *     progress (paused mid-flight, error-reset, or post-crash-recovery)
+ *     keep their cursors; truly-fresh items get the full counter
+ *     reset.
+ *
+ * Mirrors the per-stage counter scheme:
+ *
+ *   - any pre-prompt `repeatIndex > 0`,
+ *   - main `repeatIndex > 0`,
+ *   - any follow-up `repeatIndex > 0`,
+ *   - or `followUpIndex > 0` (advanced past a fully-replayed follow-up).
+ *
+ * Extracted as a pure function so the gate / resume logic can be
+ * unit-tested without instantiating PromptQueueManager.
+ */
+export interface InFlightProgressItem {
+    repeatIndex?: number;
+    followUpIndex?: number;
+    prePrompts?: Array<{ repeatIndex?: number }>;
+    followUps?: Array<{ repeatIndex?: number }>;
+}
+
+export function itemHasInFlightProgress(item: InFlightProgressItem): boolean {
+    if ((item.repeatIndex ?? 0) > 0) { return true; }
+    if ((item.followUpIndex ?? 0) > 0) { return true; }
+    if (Array.isArray(item.prePrompts)) {
+        for (const pp of item.prePrompts) {
+            if ((pp?.repeatIndex ?? 0) > 0) { return true; }
+        }
+    }
+    if (Array.isArray(item.followUps)) {
+        for (const fu of item.followUps) {
+            if ((fu?.repeatIndex ?? 0) > 0) { return true; }
+        }
+    }
+    return false;
 }
 
 function stringifyError(err: unknown): string {

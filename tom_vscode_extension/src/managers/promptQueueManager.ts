@@ -33,7 +33,7 @@ import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
 import { applyRepetitionAffixes, computeRepeatDecision, convertStagedToPending, shouldAutoPauseOnEmpty } from '../utils/queueStep3Utils';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
-import { applyErrorTransition, applyResetToPending } from '../utils/queueErrorTransitions';
+import { applyErrorTransition, applyResetToPending, itemHasInFlightProgress } from '../utils/queueErrorTransitions';
 import { resolveVariables } from '../utils/variableResolver.js';
 import {
     buildAnswerFilePath,
@@ -53,6 +53,24 @@ import { WsPaths } from '../utils/workspacePaths';
 
 export type QueuedPromptStatus = 'staged' | 'pending' | 'sending' | 'sent' | 'error';
 export type QueuedPromptType = 'normal' | 'timed' | 'reminder';
+
+/**
+ * Outcome of one `dispatchNextStageForSendingItem` invocation. Drives
+ * the three branches every caller has to differentiate:
+ *
+ *   - `'dispatched'` — a stage / repetition went out. Callers leave
+ *     the item alone (Copilot: the answer-file watcher continues;
+ *     Anthropic: the dispatch loop already recursed inline).
+ *   - `'done'`       — all stages + all repetitions are complete.
+ *     Callers mark the item `'sent'` and advance the queue.
+ *   - `'paused'`     — auto-send is OFF AND this item has at least
+ *     one prior dispatch on record. The in-flight repetition (if
+ *     any) finishes naturally, but no further repetition starts.
+ *     Callers MUST leave the item in `'sending'` so the webview
+ *     can render "SENDING (PAUSED)" and `set autoSendEnabled(true)`
+ *     knows where to resume.
+ */
+export type DispatchOutcome = 'dispatched' | 'done' | 'paused';
 
 /**
  * Snapshot of the last prompt dispatched on a queue item — pre-prompt,
@@ -913,8 +931,12 @@ export class PromptQueueManager {
             if (elapsedMs >= waitMs) {
                 logQueue(`Answer-wait timer expired for ${sending.id}: ${sending.answerWaitMinutes}min elapsed — auto-advancing`);
                 try {
-                    const hasNextStage = await this.dispatchNextStageForSendingItem(sending);
-                    if (!hasNextStage) {
+                    const outcome = await this.dispatchNextStageForSendingItem(sending);
+                    if (outcome === 'paused') {
+                        logQueue(`Answer-wait advance paused for ${sending.id}: auto-send off, item kept in 'sending' for resume`);
+                        return;
+                    }
+                    if (outcome === 'done') {
                         sending.status = 'sent';
                         sending.expectedRequestId = undefined;
                         sending.reminderSentCount = 0;
@@ -1160,8 +1182,14 @@ export class PromptQueueManager {
         this.updateWindowStatus('answer-received');
 
         try {
-            const hasNextStage = await this.dispatchNextStageForSendingItem(sending);
-            if (!hasNextStage) {
+            const outcome = await this.dispatchNextStageForSendingItem(sending);
+            if (outcome === 'paused') {
+                logQueue(`Answer-file advance paused for ${sending.id}: auto-send off, item kept in 'sending' for resume`);
+                this.persist();
+                this._onDidChange.fire();
+                return;
+            }
+            if (outcome === 'done') {
                 logQueue(`Marking item ${sending.id} as sent — status: sending → sent`);
                 debugLog(`[PromptQueueManager] Marking item ${sending.id} as sent`, 'INFO', 'queue');
                 sending.status = 'sent';
@@ -1333,9 +1361,69 @@ export class PromptQueueManager {
         this.persistSettings();
         this._onDidChange.fire();
 
-        // If enabling auto-send and there are pending items not currently sending, start processing
-        if (v && this._items.some(i => i.status === 'pending') && !this._items.some(i => i.status === 'sending')) {
+        if (!v) {
+            // Pausing has no immediate effect — the pause gate in
+            // `dispatchNextStageForSendingItem` catches the next
+            // repetition; any in-flight rep finishes naturally.
+            return;
+        }
+
+        // Re-enabling auto-send. Resume an item that was paused
+        // mid-flight (status === 'sending' with prior progress)
+        // before falling through to `sendNext` for the next pending
+        // item. The in-flight dispatch — if any — already finished
+        // and returned 'paused', so calling
+        // `dispatchNextStageForSendingItem` again here advances to
+        // the next un-dispatched repetition.
+        const resuming = this._items.find(i =>
+            i.status === 'sending' && this._itemHasInFlightProgress(i),
+        );
+        if (resuming) {
+            logQueue(`Auto-send re-enabled: resuming paused item ${resuming.id} (mp.idx=${resuming.repeatIndex ?? 0}, fu.idx=${resuming.followUpIndex ?? 0})`);
+            void this._resumePausedSendingItem(resuming);
+            return;
+        }
+
+        // No paused item to resume — start the next pending item.
+        if (this._items.some(i => i.status === 'pending') && !this._items.some(i => i.status === 'sending')) {
             void this.sendNext();
+        }
+    }
+
+    /**
+     * Continue a paused 'sending' item from where the pause gate
+     * stopped it. The item's counters already reflect the last
+     * dispatched repetition; we just re-enter the dispatch loop so
+     * the next repetition (or stage, or follow-up) goes out.
+     *
+     * Mirrors the tail of `sendItem` for outcome bookkeeping:
+     *
+     *   - `'paused'`     — somehow paused again (e.g. user toggled
+     *     off in the same tick); leave item alone.
+     *   - `'done'`       — for Anthropic, mark sent + advance queue.
+     *     For Copilot, the answer-file watcher will already have
+     *     fired this branch.
+     *   - `'dispatched'` — Copilot: wait for the next answer file.
+     */
+    private async _resumePausedSendingItem(item: QueuedPrompt): Promise<void> {
+        try {
+            const outcome = await this.dispatchNextStageForSendingItem(item);
+            const isAnthropicItem = this.resolveStageTransport(item).transport === 'anthropic';
+            if (outcome === 'paused') {
+                logQueue(`_resumePausedSendingItem(${item.id}): re-paused`);
+            } else if (outcome === 'done' && isAnthropicItem) {
+                const liveItem = this._items.find(i => i.id === item.id) ?? item;
+                liveItem.status = 'sent';
+                this.persist();
+                this._onDidChange.fire();
+                logQueue(`Resumed item ${item.id} completed (anthropic transport — no polling)`);
+                void this.sendNext();
+            } else {
+                logQueue(`Resumed item ${item.id} sent, waiting for answer at ${this.getAnswerFilePathForRequestId(item.expectedRequestId)}`);
+            }
+        } catch (err) {
+            const liveItem = this._items.find(i => i.id === item.id) ?? item;
+            this._markItemError(liveItem, err, `_resumePausedSendingItem(${item.id})`, readInterruptionFromError(err));
         }
     }
 
@@ -1987,8 +2075,14 @@ export class PromptQueueManager {
     }
 
     private async advanceSendingItemWithoutAnswer(sending: QueuedPrompt, reason: string): Promise<boolean> {
-        const hasNextStage = await this.dispatchNextStageForSendingItem(sending);
-        if (hasNextStage) {
+        const outcome = await this.dispatchNextStageForSendingItem(sending);
+        if (outcome === 'paused') {
+            logQueue(`advanceSendingItemWithoutAnswer paused for ${sending.id} (${reason}): auto-send off, item kept in 'sending' for resume`);
+            this.persist();
+            this._onDidChange.fire();
+            return true;
+        }
+        if (outcome === 'dispatched') {
             logQueue(`Advanced sending item ${sending.id} to next stage (${reason})`);
             return true;
         }
@@ -2337,48 +2431,70 @@ export class PromptQueueManager {
 
     private async sendItem(item: QueuedPrompt): Promise<void> {
         if (item.status === 'sending') { return; }
-        logQueue(`Sending prompt ${item.id} to Copilot — text=${promptPreview(item.originalText)}`);
 
-        // Reset run state before first dispatch of this item.
-        if (item.prePrompts && item.prePrompts.length > 0) {
-            for (let idx = 0; idx < item.prePrompts.length; idx++) {
-                const pp = item.prePrompts[idx];
-                pp.status = 'pending';
-                pp.repeatIndex = 0;
-                pp.resolvedRepeatCount = undefined;
+        // **Resume vs fresh-start gate.** Items that carry prior
+        // dispatch counters (paused mid-flight, reset from error
+        // via `applyResetToPending`, or post-reload after crash
+        // recovery flipped them back to 'pending') keep their
+        // cursors so the dispatcher picks up at the next
+        // un-dispatched repetition. Fresh items (never sent or
+        // explicitly reset to staged) get the full reset.
+        const hasProgress = this._itemHasInFlightProgress(item);
+        if (hasProgress) {
+            logQueue(`Resuming prompt ${item.id} from prior progress (mp.idx=${item.repeatIndex ?? 0}, fu.idx=${item.followUpIndex ?? 0}) — text=${promptPreview(item.originalText)}`);
+            // Clear only the transient error markers so the
+            // resumed dispatch isn't shadowed by them. `lastDispatched`
+            // and counters survive so the user can still Resend the
+            // last stage if needed.
+            item.error = undefined;
+            item.warning = undefined;
+        } else {
+            logQueue(`Sending prompt ${item.id} to Copilot — text=${promptPreview(item.originalText)}`);
+            // Fresh start: reset run state before first dispatch.
+            if (item.prePrompts && item.prePrompts.length > 0) {
+                for (let idx = 0; idx < item.prePrompts.length; idx++) {
+                    const pp = item.prePrompts[idx];
+                    pp.status = 'pending';
+                    pp.repeatIndex = 0;
+                    pp.resolvedRepeatCount = undefined;
+                }
             }
-        }
-        if (item.followUps && item.followUps.length > 0) {
-            for (let idx = 0; idx < item.followUps.length; idx++) {
-                const fu = item.followUps[idx];
-                fu.repeatIndex = 0;
-                fu.resolvedRepeatCount = undefined;
+            if (item.followUps && item.followUps.length > 0) {
+                for (let idx = 0; idx < item.followUps.length; idx++) {
+                    const fu = item.followUps[idx];
+                    fu.repeatIndex = 0;
+                    fu.resolvedRepeatCount = undefined;
+                }
             }
+            item.repeatIndex = 0;
+            item.resolvedRepeatCount = undefined;
+            item.requestId = undefined;
+            item.expectedRequestId = undefined;
+            item.followUpIndex = 0;
+            item.reminderSentCount = 0;
+            item.lastReminderAt = undefined;
+            item.error = undefined;
+            item.warning = undefined;
+            item.lastDispatched = undefined;
         }
-        item.repeatIndex = 0;
-        item.resolvedRepeatCount = undefined;
-        item.requestId = undefined;
-        item.expectedRequestId = undefined;
-        item.followUpIndex = 0;
-        item.reminderSentCount = 0;
-        item.lastReminderAt = undefined;
-        item.error = undefined;
-        item.warning = undefined;
-        item.lastDispatched = undefined;
         item.status = 'sending';
         this.persist();
         this._onDidChange.fire();
 
         try {
-            const hadMore = await this.dispatchNextStageForSendingItem(item);
+            const outcome = await this.dispatchNextStageForSendingItem(item);
             // Anthropic items cascade synchronously through all their
-            // stages; when `dispatchNextStageForSendingItem` returns
-            // false the item has no more work. For Copilot items the
-            // answer-file polling loop drives progression — we just log
-            // and wait. Differentiate here so anthropic items actually
-            // transition to 'sent' instead of hanging at 'sending'.
+            // stages; on 'done' the item is finished. For Copilot
+            // items the answer-file polling loop drives progression
+            // — we just log and wait. Differentiate here so
+            // anthropic items actually transition to 'sent' instead
+            // of hanging at 'sending'. On 'paused' the item stays in
+            // 'sending' so the UI shows "SENDING (PAUSED)" and
+            // `set autoSendEnabled(true)` knows where to resume.
             const isAnthropicItem = this.resolveStageTransport(item).transport === 'anthropic';
-            if (!hadMore && isAnthropicItem) {
+            if (outcome === 'paused') {
+                logQueue(`sendItem(${item.id}): paused — held in 'sending' for resume`);
+            } else if (outcome === 'done' && isAnthropicItem) {
                 // Re-look up the live item by ID: if _reloadFromDisk() ran
                 // during the async dispatch (despite the guard above, a
                 // reload could still have happened in an earlier tick before
@@ -2479,13 +2595,15 @@ export class PromptQueueManager {
                 // Anthropic — counters for the resent stage were already
                 // incremented by the original send, so the next dispatch
                 // advances to the *next* stage. Mirrors the tail of sendItem.
-                const hadMore = await this.dispatchNextStageForSendingItem(item);
+                const outcome = await this.dispatchNextStageForSendingItem(item);
                 const liveItem = this._items.find(i => i.id === item.id) ?? item;
-                if (!hadMore) {
+                if (outcome === 'done') {
                     liveItem.status = 'sent';
                     this.persist();
                     this._onDidChange.fire();
                     void this.sendNext();
+                } else if (outcome === 'paused') {
+                    logQueue(`resendLastPrompt(${item.id}): paused after resending the failed rep — held in 'sending' for resume`);
                 }
             } else {
                 // Copilot — already executed workbench.action.chat.open;
@@ -2771,7 +2889,34 @@ export class PromptQueueManager {
         }
     }
 
-    private async dispatchNextStageForSendingItem(item: QueuedPrompt): Promise<boolean> {
+    /**
+     * Delegates to the shared `itemHasInFlightProgress` helper in
+     * `queueErrorTransitions.ts` — kept as a thin private wrapper so
+     * call sites in this file stay readable. See the helper's doc
+     * comment for the contract.
+     */
+    private _itemHasInFlightProgress(item: QueuedPrompt): boolean {
+        return itemHasInFlightProgress(item);
+    }
+
+    /**
+     * See `DispatchOutcome` for the return-value contract. Callers
+     * that interpret the result wrongly (e.g. marking the item
+     * `'sent'` on `'paused'`) will leak the in-flight cursor and
+     * break the resume semantics — keep them in sync with this
+     * comment and `_itemHasInFlightProgress`.
+     */
+    private async dispatchNextStageForSendingItem(item: QueuedPrompt): Promise<DispatchOutcome> {
+        // Pause gate. Refuse to dispatch the *next* repetition of an
+        // already-in-flight item while auto-send is off. The first
+        // dispatch (when no counter has been bumped yet) always
+        // proceeds — that's how the user explicitly Sends a single
+        // item via sendNow without having to flip auto-send on.
+        if (!this._autoSendEnabled && this._itemHasInFlightProgress(item)) {
+            logQueue(`dispatchNext: auto-send paused, leaving item ${item.id} in 'sending' with progress preserved`);
+            return 'paused';
+        }
+
         // Stage 1: Pre-prompts with individual repeat support.
         // Each stage uses a stable numeric repeat target for normal loop control.
         const prePrompts = item.prePrompts || [];
@@ -2834,12 +2979,13 @@ export class PromptQueueManager {
                 if (dispatchResult.mode === 'direct') {
                     // Synchronous response — advance to the next stage
                     // immediately instead of waiting for the polling
-                    // loop.
+                    // loop. The recursive call will hit the pause gate
+                    // first thing, so pause-mid-flight propagates up.
                     this.persist();
                     this._onDidChange.fire();
                     return await this.dispatchNextStageForSendingItem(item);
                 }
-                return true;
+                return 'dispatched';
             }
         }
 
@@ -2906,7 +3052,7 @@ export class PromptQueueManager {
                 this._onDidChange.fire();
                 return await this.dispatchNextStageForSendingItem(item);
             }
-            return true;
+            return 'dispatched';
         }
 
         // Stage 3: Follow-ups with individual repeat support.
@@ -2972,15 +3118,17 @@ export class PromptQueueManager {
                     this._onDidChange.fire();
                     return await this.dispatchNextStageForSendingItem(item);
                 }
-                return true;
+                return 'dispatched';
             }
-            // All repeats done for this follow-up, advance to next
+            // All repeats done for this follow-up, advance to next.
+            // The recursive call hits the pause gate first, so pause
+            // between follow-ups behaves like pause between reps.
             item.followUpIndex = currentFuIndex + 1;
             return this.dispatchNextStageForSendingItem(item);
         }
 
         // No more stages left.
-        return false;
+        return 'done';
     }
 
     private clearExpectedAnswerFiles(expectedRequestId?: string): void {

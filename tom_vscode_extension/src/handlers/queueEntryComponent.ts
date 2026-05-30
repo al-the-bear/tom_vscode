@@ -221,6 +221,14 @@ function renderEntry(item, idx) {
   var isMainPromptActive = safeStatus === 'sending' && !!item.requestId && (item.followUpIndex || 0) === 0;
   var statusBarCls = item.type === 'reminder' ? 'reminder' : safeStatus;
   var statusLabel = safeStatus.toUpperCase();
+  // "SENDING (PAUSED)" — only meaningful in the queue editor (the
+  // template editor doesn't define \`autoSend\`). The in-flight rep
+  // has finished or will finish naturally; the pause gate refuses to
+  // start the *next* one. Clicking auto-send resumes from the
+  // persisted counter.
+  if (isSending && typeof autoSend !== 'undefined' && autoSend === false) {
+    statusLabel = 'SENDING (PAUSED)';
+  }
 
   var followUps = Array.isArray(item.followUps) ? item.followUps : [];
   var sentFollowUps = item.followUpIndex || 0;

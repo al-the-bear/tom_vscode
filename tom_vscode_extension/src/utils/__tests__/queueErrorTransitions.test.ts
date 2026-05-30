@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
     applyErrorTransition,
     applyResetToPending,
+    itemHasInFlightProgress,
 } from '../queueErrorTransitions.js';
 
 describe('applyErrorTransition', () => {
@@ -150,5 +151,137 @@ describe('applyResetToPending', () => {
         assert.equal(first, true);
         assert.equal(second, false);
         assert.equal(item.status, 'pending');
+    });
+});
+
+describe('applyResetToPending — errored-rep counter rollback', () => {
+    test('main-stage error rolls back item.repeatIndex by one (so reset+auto-send retries the errored rep)', () => {
+        // Dispatch loop bumped repeatIndex from 2 → 3 right before
+        // the failing send. After reset, the user expects auto-send to
+        // re-try rep 3, not silently jump to rep 4.
+        const item: any = {
+            status: 'error',
+            error: 'boom',
+            repeatIndex: 3,
+            lastDispatched: { kind: 'main', expandedText: 'rep-3-text', transport: 'anthropic', dispatchedAt: '' },
+        };
+        applyResetToPending(item);
+        assert.equal(item.repeatIndex, 2, 'counter rolled back so the next dispatch fires rep 3 again');
+    });
+
+    test('pre-prompt error rolls back the right prePrompts[i].repeatIndex', () => {
+        const item: any = {
+            status: 'error',
+            error: 'boom',
+            prePrompts: [
+                { repeatIndex: 1 },
+                { repeatIndex: 2 },   // errored on rep 2 of this pre-prompt
+            ],
+            lastDispatched: { kind: 'prePrompt', prePromptIndex: 1, expandedText: '', transport: 'copilot', dispatchedAt: '' },
+        };
+        applyResetToPending(item);
+        assert.equal(item.prePrompts[0].repeatIndex, 1, 'other pre-prompts untouched');
+        assert.equal(item.prePrompts[1].repeatIndex, 1, 'errored pre-prompt rolled back from 2 → 1');
+    });
+
+    test('follow-up error rolls back the right followUps[i].repeatIndex', () => {
+        const item: any = {
+            status: 'error',
+            error: 'boom',
+            followUps: [
+                { repeatIndex: 1 },
+                { repeatIndex: 4 },
+            ],
+            lastDispatched: { kind: 'followUp', followUpIndex: 1, expandedText: '', transport: 'copilot', dispatchedAt: '' },
+        };
+        applyResetToPending(item);
+        assert.equal(item.followUps[0].repeatIndex, 1);
+        assert.equal(item.followUps[1].repeatIndex, 3, 'errored follow-up rolled back from 4 → 3');
+    });
+
+    test('rollback clamps at zero (defensive — should never underflow in practice)', () => {
+        const item: any = {
+            status: 'error',
+            error: 'boom',
+            repeatIndex: 0,   // already 0
+            lastDispatched: { kind: 'main', expandedText: '', transport: 'copilot', dispatchedAt: '' },
+        };
+        applyResetToPending(item);
+        assert.equal(item.repeatIndex, 0);
+    });
+
+    test('no rollback when item has no lastDispatched (defensive — should never happen for real errors)', () => {
+        const item: any = { status: 'error', repeatIndex: 3 };
+        applyResetToPending(item);
+        assert.equal(item.repeatIndex, 3);
+    });
+
+    test('rollback uses 0-default when repeatIndex is undefined', () => {
+        const item: any = {
+            status: 'error',
+            error: 'boom',
+            lastDispatched: { kind: 'main', expandedText: '', transport: 'copilot', dispatchedAt: '' },
+        };
+        applyResetToPending(item);
+        assert.equal(item.repeatIndex, 0);
+    });
+
+    test('prePromptIndex out of bounds is a no-op', () => {
+        const item: any = {
+            status: 'error',
+            error: 'boom',
+            prePrompts: [{ repeatIndex: 2 }],
+            lastDispatched: { kind: 'prePrompt', prePromptIndex: 99, expandedText: '', transport: 'copilot', dispatchedAt: '' },
+        };
+        applyResetToPending(item);
+        // No throw, no mutation of the existing pre-prompt.
+        assert.equal(item.prePrompts[0].repeatIndex, 2);
+    });
+});
+
+describe('itemHasInFlightProgress — fresh-vs-resume gate predicate', () => {
+    test('fresh item with no counters → false', () => {
+        assert.equal(itemHasInFlightProgress({}), false);
+        assert.equal(itemHasInFlightProgress({ repeatIndex: 0 }), false);
+        assert.equal(itemHasInFlightProgress({ followUpIndex: 0 }), false);
+        assert.equal(itemHasInFlightProgress({ prePrompts: [], followUps: [] }), false);
+    });
+
+    test('main repeatIndex > 0 → true', () => {
+        assert.equal(itemHasInFlightProgress({ repeatIndex: 1 }), true);
+        assert.equal(itemHasInFlightProgress({ repeatIndex: 17 }), true);
+    });
+
+    test('followUpIndex > 0 → true (advanced past a fully-replayed follow-up)', () => {
+        assert.equal(itemHasInFlightProgress({ followUpIndex: 1 }), true);
+    });
+
+    test('any pre-prompt repeatIndex > 0 → true', () => {
+        assert.equal(itemHasInFlightProgress({ prePrompts: [{ repeatIndex: 0 }, { repeatIndex: 2 }] }), true);
+        assert.equal(itemHasInFlightProgress({ prePrompts: [{ repeatIndex: 1 }] }), true);
+    });
+
+    test('any follow-up repeatIndex > 0 → true', () => {
+        assert.equal(itemHasInFlightProgress({ followUps: [{ repeatIndex: 0 }, { repeatIndex: 3 }] }), true);
+        assert.equal(itemHasInFlightProgress({ followUps: [{ repeatIndex: 1 }] }), true);
+    });
+
+    test('undefined counters treated as 0', () => {
+        assert.equal(itemHasInFlightProgress({ prePrompts: [{}], followUps: [{}] }), false);
+    });
+
+    test('paused-mid-flight scenario: main rep 3 of 5 already dispatched → true', () => {
+        // Real-world state: user paused after rep 3 of 5 completed; auto-send
+        // off; item still 'sending'; gate predicate must say "has progress"
+        // so the pause check in `dispatchNextStageForSendingItem` triggers.
+        assert.equal(itemHasInFlightProgress({ repeatIndex: 3 }), true);
+    });
+
+    test('error-reset scenario after counter rollback: rep 3 errored, counter rolled back to 2 → still true', () => {
+        // After `applyResetToPending` decrements the errored rep's counter,
+        // the item still carries progress from prior successful reps. The
+        // gate must keep treating it as a resume so `sendItem` preserves
+        // the counters instead of resetting them.
+        assert.equal(itemHasInFlightProgress({ repeatIndex: 2 }), true);
     });
 });
