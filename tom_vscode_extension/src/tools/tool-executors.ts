@@ -285,551 +285,360 @@ export function getActiveTodoManager(): ChatTodoSessionManager | null {
     return activeTodoManager;
 }
 
-export interface ManageTodoInput {
-    operation: 'list' | 'add' | 'update' | 'remove' | 'clear';
-    id?: number;
-    title?: string;
-    description?: string;
-    status?: 'not-started' | 'in-progress' | 'completed';
-    filterStatus?: 'not-started' | 'in-progress' | 'completed';
-}
+// manageTodo bridged to cross-cutting-todo-tools.ts (the legacy chat-session
+// todo manager — kept for back-compat with prompts that depend on it).
 
-async function executeManageTodo(input: ManageTodoInput): Promise<string> {
-    const todoManager = activeTodoManager;
-    if (!todoManager) {
-        return 'Error: No active todo manager. This tool only works during Tom AI Chat sessions.';
-    }
-    let result: TodoOperationResult;
-    switch (input.operation) {
-        case 'list': result = await todoManager.list(input.filterStatus); break;
-        case 'add':
-            if (!input.title) { return 'Error: "title" is required for add operation.'; }
-            result = await todoManager.add(input.title, input.description || '');
-            break;
-        case 'update':
-            if (input.id === undefined) { return 'Error: "id" is required for update operation.'; }
-            result = await todoManager.update(input.id, { title: input.title, description: input.description, status: input.status });
-            break;
-        case 'remove':
-            if (input.id === undefined) { return 'Error: "id" is required for remove operation.'; }
-            result = await todoManager.remove(input.id);
-            break;
-        case 'clear': result = await todoManager.clear(); break;
-        default: return `Error: Unknown operation "${input.operation}". Use: list, add, update, remove, or clear.`;
-    }
-    const lines: string[] = [result.message, ''];
-    if (result.todos && result.todos.length > 0) {
-        lines.push('**Current Todos:**');
-        for (const todo of result.todos) {
-            const icon = todo.status === 'completed' ? '✅' : todo.status === 'in-progress' ? '🔄' : '⬜';
-            lines.push(`${icon} **#${todo.id}** ${todo.title} _(${todo.status})_`);
-            if (todo.description) { lines.push(`   ${todo.description}`); }
-        }
-    } else if (result.todos && result.todos.length === 0) {
-        lines.push('No todos.');
-    }
-    return lines.join('\n');
-}
+import {
+    MANAGE_TODO_TOOL as MANAGE_TODO_DEF,
+    ManageTodoInput,
+    type ChatTodoSession,
+    type ChatTodoSessionResolver,
+    type LegacyChatTodoItem,
+    type LegacyTodoResult,
+    manageTodoImpl,
+} from './cross-cutting-todo-tools';
+
+export type { ManageTodoInput };
+
+const liveChatTodoSessionResolver: ChatTodoSessionResolver = {
+    current(): ChatTodoSession | null {
+        if (!activeTodoManager) { return null; }
+        const mgr = activeTodoManager;
+        return {
+            async list(filter): Promise<LegacyTodoResult> {
+                const r = await mgr.list(filter);
+                return { message: r.message, todos: r.todos as LegacyChatTodoItem[] | undefined };
+            },
+            async add(title, description): Promise<LegacyTodoResult> {
+                const r = await mgr.add(title, description);
+                return { message: r.message, todos: r.todos as LegacyChatTodoItem[] | undefined };
+            },
+            async update(id, updates): Promise<LegacyTodoResult> {
+                const r = await mgr.update(id, updates);
+                return { message: r.message, todos: r.todos as LegacyChatTodoItem[] | undefined };
+            },
+            async remove(id): Promise<LegacyTodoResult> {
+                const r = await mgr.remove(id);
+                return { message: r.message, todos: r.todos as LegacyChatTodoItem[] | undefined };
+            },
+            async clear(): Promise<LegacyTodoResult> {
+                const r = await mgr.clear();
+                return { message: r.message, todos: r.todos as LegacyChatTodoItem[] | undefined };
+            },
+        };
+    },
+};
 
 export const MANAGE_TODO_TOOL: SharedToolDefinition<ManageTodoInput> = {
-    name: 'tomAi_manageTodo',
-    displayName: 'Manage Todo List',
-    description:
-        "Optional: Manage a persistent todo list for complex multi-step tasks. Skip for simple tasks. Operations: 'list' (view todos), 'add' (create with title/description), 'update' (change status/title/description by id), 'remove' (delete by id), 'clear' (remove all). Status values: not-started, in-progress, completed. Use when you have 3+ distinct steps to track.",
-    tags: ['todo', 'task-management', 'tom-ai-chat'],
-    readOnly: false,
-    inputSchema: {
-        type: 'object',
-        required: ['operation'],
-        properties: {
-            operation: { type: 'string', enum: ['list', 'add', 'update', 'remove', 'clear'], description: 'The operation to perform.' },
-            id: { type: 'number', description: "Todo ID. Required for 'update' and 'remove'." },
-            title: { type: 'string', description: "Short headline for the todo. Required for 'add', optional for 'update'." },
-            description: { type: 'string', description: 'Detailed description. Optional.' },
-            status: { type: 'string', enum: ['not-started', 'in-progress', 'completed'], description: "Todo status. Used with 'update'." },
-            filterStatus: { type: 'string', enum: ['not-started', 'in-progress', 'completed'], description: "Filter by status when using 'list'." },
-        },
-    },
-    execute: executeManageTodo,
+    ...MANAGE_TODO_DEF,
+    execute: (input) => manageTodoImpl(liveChatTodoSessionResolver, input),
 };
 
 // ============================================================================
-// Ask Big Brother — query VS Code language models from local LLM
+// Ask Big Brother — relocated to `ask-big-brother-tool.ts` (vscode-free
+// impl + narrow LanguageModelBridge dep) by the entry #25 coverage refactor.
+// The live bridge below wires vscode.lm.* + the local-llm-tools-config into
+// the interface; the orchestration (model selection chain, tool loop bounds,
+// timeout unwinding, summarisation gating) lives in the impl file.
 // ============================================================================
 
-export interface AskBigBrotherInput {
-    operation: 'list' | 'query';
-    modelId?: string;
-    prompt?: string;
-    enableTools?: boolean;
-    maxIterations?: number;
-}
+import {
+    ASK_BIG_BROTHER_TOOL as ASK_BIG_BROTHER_DEF,
+    AskBigBrotherInput as BBInput,
+    type LanguageModelBridge as BBBridge,
+    type BigBrotherModel as BBModel,
+    type BigBrotherToolDef as BBToolDef,
+    type BigBrotherConfig as BBConfig,
+    type ChatTurn as BBChatTurn,
+    type ResponsePart as BBResponsePart,
+    type CancelSignal as BBSignal,
+    askBigBrotherImpl,
+} from './ask-big-brother-tool';
 
-/**
- * Cache for available models (refreshed on each list operation)
- */
-let cachedModels: Array<{
-    id: string;
-    name: string;
-    vendor: string;
-    family: string;
-    maxInputTokens: number;
-}> = [];
+export type AskBigBrotherInput = BBInput;
 
-/**
- * Convert tool result to text (simplified version for Big Brother tool)
- */
+// Live LanguageModelBridge — wraps vscode.lm.* + local-llm-tools-config.
+// Heavy: each `query` operation spends a long-lived timeout window
+// streaming text + tool-call parts from a real model. The impl in
+// `ask-big-brother-tool.ts` orchestrates the loop; this bridge is just
+// the wire-up.
+
 function toolResultToTextBigBrother(result: vscode.LanguageModelToolResult): string {
     const config = loadLocalLlmToolsConfig();
     const maxChars = config.askBigBrother.maxToolResultChars;
-    
     const parts: string[] = [];
     for (const part of result.content) {
         if (part instanceof vscode.LanguageModelTextPart) {
             parts.push(part.value);
         } else if (typeof part === 'object' && part !== null) {
             if ('value' in part) {
-                parts.push(String(part.value));
+                parts.push(String((part as { value: unknown }).value));
             } else {
                 parts.push(JSON.stringify(part));
             }
         }
     }
     const text = parts.join('\n');
-    if (text.length > maxChars) {
-        return text.substring(0, maxChars) + '\n... [truncated]';
-    }
+    if (text.length > maxChars) { return text.substring(0, maxChars) + '\n... [truncated]'; }
     return text;
 }
 
-async function executeAskBigBrother(input: AskBigBrotherInput): Promise<string> {
-    // Lazy-init: enrich tool description with model list on first use
-    await ensureLocalLlmBridgeToolsInitialized();
-
-    const config = loadLocalLlmToolsConfig();
-    
-    // Check if tool is enabled
-    if (!config.askBigBrother.enabled) {
-        return 'Error: Ask Big Brother tool is disabled. Enable it in the status page settings.';
-    }
-    
-    if (input.operation === 'list') {
-        const modelList = await generateModelList();
-        return modelList + '\n\n' + config.askBigBrother.modelRecommendations;
-    }
-
-    if (input.operation === 'query') {
-        if (!input.prompt) {
-            return 'Error: "prompt" is required for query operation.';
-        }
-
-        try {
-            // Select model based on modelId or default from config
-            const targetModel = input.modelId || config.askBigBrother.defaultModel;
-            let models: vscode.LanguageModelChat[];
-            
-            // Try exact ID match first
-            models = await vscode.lm.selectChatModels({ id: targetModel });
-            
-            // Try family match
-            if (models.length === 0) {
-                models = await vscode.lm.selectChatModels({ family: targetModel });
-            }
-            
-            // Try partial name match
-            if (models.length === 0) {
-                const allModels = await vscode.lm.selectChatModels();
-                models = allModels.filter(m => 
-                    m.name.toLowerCase().includes(targetModel.toLowerCase()) ||
-                    m.id.toLowerCase().includes(targetModel.toLowerCase())
-                );
-            }
-
-            if (models.length === 0) {
-                return `No model found matching "${targetModel}". Use operation "list" to see available models.`;
-            }
-
-            const model = models[0];
-            const questId = WsPaths.getWorkspaceQuestId();
-
-            logPrompt('tomai', model.id, input.prompt, undefined, {
-                questId,
-                model: model.id,
-                source: 'localLlmTool',
-                tool: 'tomAi_askBigBrother',
-                enableTools: input.enableTools,
-            });
-            
-            const tokenSource = new vscode.CancellationTokenSource();
-            const enableTools = input.enableTools ?? config.askBigBrother.enableToolsByDefault;
-            const timeoutMs = config.askBigBrother.responseTimeout;
-            const timeoutId = setTimeout(() => tokenSource.cancel(), timeoutMs);
-            
-            try {
-                // Prepare tools if enabled
-                let tools: vscode.LanguageModelChatTool[] = [];
-                if (enableTools) {
-                    tools = Array.from(vscode.lm.tools) as vscode.LanguageModelChatTool[];
-                }
-                
-                const maxIter = enableTools ? (input.maxIterations ?? config.askBigBrother.maxIterations) : 1;
-                let finalResponse = '';
-                
-                // Build conversation history with proper message types
-                const messages: vscode.LanguageModelChatMessage[] = [
-                    vscode.LanguageModelChatMessage.User(input.prompt),
-                ];
-
-                for (let iteration = 1; iteration <= maxIter; iteration++) {
-                    if (tokenSource.token.isCancellationRequested) {
-                        break;
-                    }
-                    
-                    const requestOptions = tools.length > 0 ? { tools } : {};
-                    const response = await model.sendRequest(messages, requestOptions, tokenSource.token);
-                    
-                    let iterationText = '';
-                    const toolCalls: vscode.LanguageModelToolCallPart[] = [];
-                    
-                    for await (const part of response.stream) {
-                        if (part instanceof vscode.LanguageModelTextPart) {
-                            iterationText += part.value;
-                        } else if (part instanceof vscode.LanguageModelToolCallPart) {
-                            toolCalls.push(part);
-                        }
-                    }
-                    
-                    // No tool calls - we're done
-                    if (toolCalls.length === 0) {
-                        finalResponse = iterationText.trim();
-                        break;
-                    }
-                    
-                    // Build Assistant message from text + tool calls
-                    const assistantParts: (vscode.LanguageModelTextPart | vscode.LanguageModelToolCallPart)[] = [];
-                    if (iterationText) {
-                        assistantParts.push(new vscode.LanguageModelTextPart(iterationText));
-                    }
-                    assistantParts.push(...toolCalls);
-                    messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
-
-                    // Execute tool calls and build proper LanguageModelToolResultPart messages
-                    const toolResultParts: vscode.LanguageModelToolResultPart[] = [];
-                    for (const call of toolCalls) {
-                        try {
-                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                            const toolInvocationOptions: any = {
-                                input: call.input as object,
-                                toolInvocationToken: undefined
-                            };
-                            const toolResult = await vscode.lm.invokeTool(call.name, toolInvocationOptions);
-                            const resultText = toolResultToTextBigBrother(toolResult);
-                            toolResultParts.push(
-                                new vscode.LanguageModelToolResultPart(call.callId, [
-                                    new vscode.LanguageModelTextPart(resultText),
-                                ])
-                            );
-                        } catch (error) {
-                            toolResultParts.push(
-                                new vscode.LanguageModelToolResultPart(call.callId, [
-                                    new vscode.LanguageModelTextPart(`Tool ${call.name} error: ${error}`),
-                                ])
-                            );
-                        }
-                    }
-                    
-                    messages.push(vscode.LanguageModelChatMessage.User(toolResultParts));
-                }
-                
-                clearTimeout(timeoutId);
-                
-                // Optionally summarize long responses
-                if (config.askBigBrother.summarizationEnabled && 
-                    finalResponse.length > config.askBigBrother.maxResponseChars) {
-                    try {
-                        finalResponse = await summarizeResponse(finalResponse, config);
-                    } catch {
-                        // Keep original if summarization fails
-                    }
-                }
-                
-                const toolsNote = enableTools ? ' (with tools)' : '';
-                logResponse('tomai', model.id, finalResponse, true, {
-                    questId,
-                    model: model.id,
-                    source: 'localLlmTool',
-                    tool: 'tomAi_askBigBrother',
-                    enableTools,
-                });
-                return `**Response from ${model.name}${toolsNote}:**\n\n${finalResponse}`;
-            } catch (error: unknown) {
-                clearTimeout(timeoutId);
-                if (error instanceof vscode.LanguageModelError) {
-                    return `Model error (${error.code}): ${error.message}`;
-                }
-                throw error;
-            }
-        } catch (error) {
-            return `Error querying model: ${error}`;
-        }
-    }
-
-    return `Unknown operation: ${input.operation}. Use "list" or "query".`;
+function toBBModel(m: vscode.LanguageModelChat): BBModel {
+    return { id: m.id, name: m.name, family: m.family, vendor: m.vendor, maxInputTokens: m.maxInputTokens };
 }
 
-/**
- * Summarize a long response using the configured summarization model
- */
-async function summarizeResponse(response: string, config: ReturnType<typeof loadLocalLlmToolsConfig>): Promise<string> {
+async function bbSummarise(text: string): Promise<string> {
+    const config = loadLocalLlmToolsConfig();
     const summaryConfig = config.askBigBrother;
-    
     let models = await vscode.lm.selectChatModels({ family: summaryConfig.summarizationModel });
-    if (models.length === 0) {
-        models = await vscode.lm.selectChatModels({ id: summaryConfig.summarizationModel });
-    }
-    if (models.length === 0) {
-        return response; // No summarization model available
-    }
-    
-    const prompt = summaryConfig.summarizationPromptTemplate.replace('${response}', response);
+    if (models.length === 0) { models = await vscode.lm.selectChatModels({ id: summaryConfig.summarizationModel }); }
+    if (models.length === 0) { return text; }
+    const prompt = summaryConfig.summarizationPromptTemplate.replace('${response}', text);
     const messages = [vscode.LanguageModelChatMessage.User(prompt)];
-    
     const tokenSource = new vscode.CancellationTokenSource();
     const timeoutId = setTimeout(() => tokenSource.cancel(), 30000);
-    
     try {
         const result = await models[0].sendRequest(messages, {}, tokenSource.token);
         let summary = '';
-        for await (const chunk of result.text) {
-            summary += chunk;
-        }
-        clearTimeout(timeoutId);
-        return `[Summarized from ${response.length} chars]\n\n${summary.trim()}`;
+        for await (const chunk of result.text) { summary += chunk; }
+        return `[Summarized from ${text.length} chars]\n\n${summary.trim()}`;
     } finally {
         clearTimeout(timeoutId);
     }
 }
 
-export const ASK_BIG_BROTHER_TOOL: SharedToolDefinition<AskBigBrotherInput> = {
-    name: 'tomAi_askBigBrother',
-    displayName: 'Ask Big Brother',
-    description: `Query VS Code language models (GitHub Copilot, Claude, GPT-4, etc.) from your local LLM. This is your fallback bridge for complex questions.
-
-**Operations:**
-- "list": Get available models with recommendations
-- "query": Send a prompt to a model (specify modelId or use default)
-
-**Tool Support:**
-Set enableTools=true to let the model use VS Code tools to gather information before responding.
-
-**When to use:**
-- Complex reasoning, architecture decisions, code analysis
-- Questions requiring broader knowledge than your training
-- Verification of your answers on critical topics`,
-    tags: ['ai', 'llm', 'local-llm', 'local-llm-bridge'],
-    readOnly: true,
-    inputSchema: {
-        type: 'object',
-        required: ['operation'],
-        properties: {
-            operation: { 
-                type: 'string', 
-                enum: ['list', 'query'], 
-                description: '"list" to see available models, "query" to ask a model.' 
-            },
-            modelId: { 
-                type: 'string', 
-                description: 'Model ID, family, or name to query. If omitted, uses configured default.' 
-            },
-            prompt: { 
-                type: 'string', 
-                description: 'The question or prompt to send to the model. Required for "query" operation.' 
-            },
-            enableTools: {
-                type: 'boolean',
-                description: 'Enable VS Code tools for the model. Default: from config.'
-            },
-            maxIterations: {
-                type: 'number',
-                description: 'Maximum tool iterations when enableTools=true. Default: from config.'
-            },
-        },
+const liveBigBrotherBridge: BBBridge = {
+    async listAllModels(): Promise<BBModel[]> {
+        const all = await vscode.lm.selectChatModels();
+        return all.map(toBBModel);
     },
+    async selectModels(filter): Promise<BBModel[]> {
+        const all = await vscode.lm.selectChatModels(filter);
+        return all.map(toBBModel);
+    },
+    listAvailableTools(): BBToolDef[] {
+        return Array.from(vscode.lm.tools).map((t) => ({
+            name: t.name,
+            description: t.description,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            inputSchema: (t as any).inputSchema,
+        }));
+    },
+    async sendRequest(modelId, messages, tools, signal): Promise<BBResponsePart[]> {
+        const models = await vscode.lm.selectChatModels({ id: modelId });
+        if (models.length === 0) { throw new Error(`Model ${modelId} disappeared between selection and send.`); }
+        const model = models[0];
+        const lmMessages: vscode.LanguageModelChatMessage[] = messages.map((m): vscode.LanguageModelChatMessage => {
+            if (m.role === 'user') { return vscode.LanguageModelChatMessage.User(m.content); }
+            if (m.role === 'assistant') {
+                const parts: (vscode.LanguageModelTextPart | vscode.LanguageModelToolCallPart)[] = [];
+                for (const p of m.parts) {
+                    if (p.kind === 'text') { parts.push(new vscode.LanguageModelTextPart(p.text)); }
+                    else { parts.push(new vscode.LanguageModelToolCallPart(p.callId, p.name, p.input)); }
+                }
+                return vscode.LanguageModelChatMessage.Assistant(parts);
+            }
+            // tool_result
+            const resultParts = m.results.map((r) =>
+                new vscode.LanguageModelToolResultPart(r.callId, [new vscode.LanguageModelTextPart(r.text)]),
+            );
+            return vscode.LanguageModelChatMessage.User(resultParts);
+        });
+        const requestOptions = tools.length > 0
+            ? { tools: tools as unknown as vscode.LanguageModelChatTool[] }
+            : {};
+        const tokenSource = new vscode.CancellationTokenSource();
+        const pollId = setInterval(() => { if (signal.cancelled) { tokenSource.cancel(); } }, 100);
+        try {
+            const response = await model.sendRequest(lmMessages, requestOptions, tokenSource.token);
+            const out: BBResponsePart[] = [];
+            for await (const part of response.stream) {
+                if (part instanceof vscode.LanguageModelTextPart) {
+                    out.push({ kind: 'text', text: part.value });
+                } else if (part instanceof vscode.LanguageModelToolCallPart) {
+                    out.push({ kind: 'tool_call', callId: part.callId, name: part.name, input: part.input as object });
+                }
+            }
+            return out;
+        } finally {
+            clearInterval(pollId);
+        }
+    },
+    async invokeTool(name, input): Promise<string> {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const toolInvocationOptions: any = { input: input as object, toolInvocationToken: undefined };
+        const toolResult = await vscode.lm.invokeTool(name, toolInvocationOptions);
+        return toolResultToTextBigBrother(toolResult);
+    },
+    summarise: bbSummarise,
+    getConfig(): BBConfig {
+        const c = loadLocalLlmToolsConfig().askBigBrother;
+        return {
+            enabled: c.enabled,
+            defaultModel: c.defaultModel,
+            enableToolsByDefault: c.enableToolsByDefault,
+            maxIterations: c.maxIterations,
+            responseTimeoutMs: c.responseTimeout,
+            summarisation: {
+                enabled: c.summarizationEnabled,
+                thresholdChars: c.maxResponseChars,
+            },
+            modelRecommendations: c.modelRecommendations,
+        };
+    },
+};
+
+async function executeAskBigBrother(input: AskBigBrotherInput): Promise<string> {
+    await ensureLocalLlmBridgeToolsInitialized();
+    const questId = WsPaths.getWorkspaceQuestId();
+    if (input.operation === 'query' && input.prompt) {
+        logPrompt('tomai', input.modelId || 'default', input.prompt, undefined, {
+            questId,
+            source: 'localLlmTool',
+            tool: 'tomAi_askBigBrother',
+            enableTools: input.enableTools,
+        });
+    }
+    const config = loadLocalLlmToolsConfig();
+    const signal: BBSignal = { cancelled: false };
+    const timer = setTimeout(() => { signal.cancelled = true; }, config.askBigBrother.responseTimeout);
+    try {
+        const raw = await askBigBrotherImpl(liveBigBrotherBridge, input, signal);
+        if (input.operation === 'query') {
+            try {
+                const parsed = JSON.parse(raw) as { response?: string; model?: { id?: string } };
+                if (parsed.response) {
+                    logResponse('tomai', parsed.model?.id || 'default', parsed.response, true, {
+                        questId,
+                        source: 'localLlmTool',
+                        tool: 'tomAi_askBigBrother',
+                        enableTools: input.enableTools,
+                    });
+                }
+            } catch { /* ignore log-only parse failure */ }
+        }
+        return raw;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+export const ASK_BIG_BROTHER_TOOL: SharedToolDefinition<AskBigBrotherInput> = {
+    ...ASK_BIG_BROTHER_DEF,
     execute: executeAskBigBrother,
 };
 
+
 // ============================================================================
-// Ask Copilot — send to Copilot Chat window and wait for answer file
+// Ask Copilot — relocated to `ask-copilot-tool.ts` (vscode-free impl +
+// narrow CopilotChatOpener / AnswerFileSink / TemplateExpander deps) by
+// the entry #25 coverage refactor.  The live bridge below wires
+// vscode.commands.executeCommand, fs, and the template expander.
 // ============================================================================
 
-export interface AskCopilotInput {
-    prompt: string;
-    waitForAnswer?: boolean;
-    timeoutMs?: number;
+import {
+    ASK_COPILOT_TOOL as ASK_COPILOT_DEF,
+    AskCopilotInput,
+    type CopilotConfigSnapshot,
+    type CopilotChatOpener,
+    type AnswerFileSink,
+    type TemplateExpander,
+    type AskCopilotDeps,
+    askCopilotImpl,
+} from './ask-copilot-tool';
+
+export type { AskCopilotInput };
+
+function liveCopilotConfig(): CopilotConfigSnapshot {
+    const config = loadLocalLlmToolsConfig();
+    const sendToChatConfig = loadSendToChatConfig();
+    const copilotTemplates = sendToChatConfig?.copilot?.templates;
+    const answerFileTpl = copilotTemplates?.['__answer_file__'];
+    const selectedId = config.askCopilot.promptTemplate;
+    const selectedBody = selectedId && selectedId !== '__none__' && selectedId !== '__answer_file__'
+        ? copilotTemplates?.[selectedId]?.template
+        : undefined;
+    return {
+        enabled: config.askCopilot.enabled,
+        answerFileTimeoutMs: config.askCopilot.answerFileTimeout,
+        pollIntervalMs: config.askCopilot.pollInterval,
+        answerFolder: config.askCopilot.answerFolder,
+        answerFilename: `${vscode.env.sessionId}_${vscode.env.machineId}_answer.json`,
+        selectedTemplateId: selectedId || '__none__',
+        selectedTemplateBody: selectedBody,
+        answerFileTemplate: answerFileTpl?.template || DEFAULT_ANSWER_FILE_TEMPLATE,
+    };
 }
 
-async function executeAskCopilot(input: AskCopilotInput): Promise<string> {
-    const config = loadLocalLlmToolsConfig();
-    const questId = WsPaths.getWorkspaceQuestId();
-    
-    // Check if tool is enabled
-    if (!config.askCopilot.enabled) {
-        return 'Error: Ask Copilot tool is disabled. Enable it in the status page settings.';
-    }
-    
-    const workspaceRoot = getWorkspaceRoot();
-    if (!workspaceRoot) {
-        return 'Error: No workspace folder open.';
-    }
-    
-    const waitForAnswer = input.waitForAnswer ?? true;
-    const timeoutMs = input.timeoutMs ?? config.askCopilot.answerFileTimeout;
+function answerFilePath(config: CopilotConfigSnapshot): string {
+    const wsRoot = getWorkspaceRoot();
+    return path.join(wsRoot, config.answerFolder, config.answerFilename);
+}
 
+const liveCopilotChatOpener: CopilotChatOpener = {
+    async open(query) {
+        await vscode.commands.executeCommand('workbench.action.chat.open', { query });
+    },
+};
+
+function buildLiveAnswerFileSink(config: CopilotConfigSnapshot): AnswerFileSink {
+    const absPath = answerFilePath(config);
+    const folder = path.dirname(absPath);
+    return {
+        absolutePath() { return absPath; },
+        clear() {
+            if (!fs.existsSync(folder)) { fs.mkdirSync(folder, { recursive: true }); }
+            if (fs.existsSync(absPath)) { fs.unlinkSync(absPath); }
+        },
+        read() {
+            if (!fs.existsSync(absPath)) { return null; }
+            const content = fs.readFileSync(absPath, 'utf-8').trim();
+            return content ? content : null;
+        },
+    };
+}
+
+const liveTemplateExpander: TemplateExpander = {
+    expand(template, values) {
+        return expandTemplate(template, { values });
+    },
+};
+
+async function executeAskCopilot(input: AskCopilotInput): Promise<string> {
+    const config = liveCopilotConfig();
+    if (!getWorkspaceRoot()) {
+        return JSON.stringify({ ok: false, error: 'No workspace folder open.' });
+    }
+    const questId = WsPaths.getWorkspaceQuestId();
     logPrompt('copilot', 'github_copilot', input.prompt, undefined, {
         questId,
         source: 'localLlmTool',
         tool: 'tomAi_askCopilot',
     });
-    
-    // Load send-to-chat config for templates
-    const sendToChatConfig = loadSendToChatConfig();
-    const selectedTemplate = config.askCopilot.promptTemplate;
-    const copilotTemplates = sendToChatConfig?.copilot?.templates;
-    
-    // Get answer file template (always used)
-    const answerFileTpl = copilotTemplates?.['__answer_file__'];
-    const answerFileTemplate = answerFileTpl?.template || DEFAULT_ANSWER_FILE_TEMPLATE;
-    
-    let expanded: string;
-    
-    if (selectedTemplate && selectedTemplate !== '__answer_file__' && selectedTemplate !== '__none__') {
-        // Has a selected template: expand template with prompt, then wrap with answer file
-        const templateObj = copilotTemplates?.[selectedTemplate];
-        if (templateObj?.template) {
-            const templateExpanded = await expandTemplate(templateObj.template, { values: { originalPrompt: input.prompt } });
-            expanded = await expandTemplate(answerFileTemplate, { values: { originalPrompt: templateExpanded } });
-        } else {
-            // Template not found, fall back to answer wrapper directly
-            expanded = await expandTemplate(answerFileTemplate, { values: { originalPrompt: input.prompt } });
-        }
-    } else {
-        // No template or answer wrapper template: wrap directly with answer file
-        expanded = await expandTemplate(answerFileTemplate, { values: { originalPrompt: input.prompt } });
-    }
-    
-    // Clear answer file before sending
-    const answerFolder = path.join(workspaceRoot, config.askCopilot.answerFolder);
-    const sessionId = vscode.env.sessionId;
-    const machineId = vscode.env.machineId;
-    const answerFilePath = path.join(answerFolder, `${sessionId}_${machineId}_answer.json`);
-    
-    if (!fs.existsSync(answerFolder)) {
-        fs.mkdirSync(answerFolder, { recursive: true });
-    }
-    if (fs.existsSync(answerFilePath)) {
-        fs.unlinkSync(answerFilePath);
-    }
-    
-    // Send to Copilot Chat
+    const deps: AskCopilotDeps = {
+        config: () => config,
+        opener: liveCopilotChatOpener,
+        sink: buildLiveAnswerFileSink(config),
+        expander: liveTemplateExpander,
+        onResponseValues(values) { updateChatResponseValues(values); },
+    };
+    const raw = await askCopilotImpl(deps, input);
     try {
-        await vscode.commands.executeCommand('workbench.action.chat.open', {
-            query: expanded
-        });
-    } catch (error) {
-        return `Error opening Copilot Chat: ${error}`;
-    }
-    
-    if (!waitForAnswer) {
-        return 'Prompt sent to Copilot Chat. Not waiting for answer file.';
-    }
-    
-    // Wait for answer file
-    const pollInterval = config.askCopilot.pollInterval;
-    const startTime = Date.now();
-    
-    while (Date.now() - startTime < timeoutMs) {
-        await new Promise(resolve => setTimeout(resolve, pollInterval));
-        
-        if (fs.existsSync(answerFilePath)) {
-            try {
-                const content = fs.readFileSync(answerFilePath, 'utf-8').trim();
-                if (content) {
-                    // Try to parse as JSON
-                    try {
-                        const parsed = JSON.parse(content);
-                        // Propagate responseValues to shared store
-                        if (parsed.responseValues && typeof parsed.responseValues === 'object') {
-                            updateChatResponseValues(parsed.responseValues);
-                        }
-                        if (parsed.response) {
-                            logResponse('copilot', 'github_copilot', String(parsed.response), true, {
-                                questId,
-                                source: 'localLlmTool',
-                                tool: 'tomAi_askCopilot',
-                                requestId: parsed.requestId,
-                            });
-                            return `**Copilot Response:**\n\n${parsed.response}`;
-                        }
-                        logResponse('copilot', 'github_copilot', JSON.stringify(parsed, null, 2), true, {
-                            questId,
-                            source: 'localLlmTool',
-                            tool: 'tomAi_askCopilot',
-                            requestId: parsed.requestId,
-                        });
-                        return `**Copilot Response:**\n\n${JSON.stringify(parsed, null, 2)}`;
-                    } catch {
-                        // Plain text fallback
-                        logResponse('copilot', 'github_copilot', content, true, {
-                            questId,
-                            source: 'localLlmTool',
-                            tool: 'tomAi_askCopilot',
-                        });
-                        return `**Copilot Response:**\n\n${content}`;
-                    }
-                }
-            } catch (error) {
-                return `Error reading answer file: ${error}`;
-            }
+        const parsed = JSON.parse(raw) as { response?: string; requestId?: string };
+        if (parsed.response) {
+            logResponse('copilot', 'github_copilot', parsed.response, true, {
+                questId,
+                source: 'localLlmTool',
+                tool: 'tomAi_askCopilot',
+                requestId: parsed.requestId,
+            });
         }
-    }
-    
-    return `Timeout waiting for Copilot response after ${timeoutMs / 1000}s. The answer file was not created. Copilot may still be processing - check the chat window.`;
+    } catch { /* ignore log-only parse failure */ }
+    return raw;
 }
 
 export const ASK_COPILOT_TOOL: SharedToolDefinition<AskCopilotInput> = {
-    name: 'tomAi_askCopilot',
-    displayName: 'Ask Copilot',
-    description: `Send a question to GitHub Copilot via the chat window and wait for a response via answer file.
-
-**How it works:**
-- Opens Copilot Chat with your prompt
-- Watches for an answer file written by Copilot
-- Returns the response content
-
-**When to use:**
-- Questions that benefit from Copilot's full context (open files, workspace)
-- Tasks where Copilot can use its native tools (edit files, run commands)
-- Complex coding tasks requiring iterative refinement`,
-    tags: ['ai', 'copilot', 'local-llm', 'local-llm-bridge'],
-    readOnly: true,
-    inputSchema: {
-        type: 'object',
-        required: ['prompt'],
-        properties: {
-            prompt: { 
-                type: 'string', 
-                description: 'Your question for Copilot.' 
-            },
-            waitForAnswer: { 
-                type: 'boolean', 
-                description: 'Whether to wait for answer file. Default: true.' 
-            },
-            timeoutMs: { 
-                type: 'number', 
-                description: 'Max time to wait for answer in milliseconds. Default: from config.' 
-            },
-        },
-    },
+    ...ASK_COPILOT_DEF,
     execute: executeAskCopilot,
 };
 
@@ -868,360 +677,128 @@ async function ensureLocalLlmBridgeToolsInitialized(): Promise<void> {
 }
 
 // ============================================================================
-// Chat variable tools (spec §8.5)
+// Chat variable tools (spec §8.5) — relocated to `chatvar-tools.ts` by the
+// entry #14 coverage refactor.
 // ============================================================================
 
-const BUILT_IN_CHATVAR_KEYS = new Set(['quest', 'role', 'activeProjects', 'todo', 'todoFile']);
+import {
+    READ_CHATVAR_TOOL as READ_CHATVAR_DEF,
+    WRITE_CHATVAR_TOOL as WRITE_CHATVAR_DEF,
+    BUILT_IN_CHATVAR_KEYS,
+    ChatvarReadInput,
+    ChatvarWriteInput,
+    type ChatVariablesAccess,
+    type ChatVariablesPublicSnapshot,
+    readChatVariableImpl,
+    writeChatVariableImpl,
+} from './chatvar-tools';
 
-export interface ChatvarReadInput { key?: string }
+export type { ChatvarReadInput, ChatvarWriteInput };
 
-async function executeChatvarRead(input: ChatvarReadInput): Promise<string> {
-    try {
-        const store = ChatVariablesStore.instance;
-        if (input.key) {
-            // Spec §8.5: custom values are addressable both as
-            // `${custom.myKey}` and `${myKey}`. Mirror that here so the
-            // model can pass either form.
-            const key = input.key.startsWith('custom.')
-                ? input.key.slice('custom.'.length)
-                : input.key;
-            const raw = store.getRaw(key);
-            return JSON.stringify(raw, null, 2);
-        }
-        // Spec §8.5 output shape — change log is intentionally omitted.
-        const snap = store.snapshot();
-        return JSON.stringify({
-            quest: snap.quest,
-            role: snap.role,
-            activeProjects: snap.activeProjects,
-            todo: snap.todo,
-            todoFile: snap.todoFile,
-            custom: snap.custom,
-        }, null, 2);
-    } catch (e) {
-        return `Error: ${e instanceof Error ? e.message : String(e)}`;
-    }
-}
+// Live access bridge — wraps the singleton store, resolves the tool
+// context (source + requestId) just before the `setCustomBulk` call
+// per spec §8.5 so the change log records which handler triggered
+// each write.
+const liveChatvarAccess: ChatVariablesAccess = {
+    getRaw(key) { return ChatVariablesStore.instance.getRaw(key); },
+    has(key): boolean {
+        if (BUILT_IN_CHATVAR_KEYS.has(key)) { return true; }
+        const custom = ChatVariablesStore.instance.snapshot().custom;
+        return Object.prototype.hasOwnProperty.call(custom, key);
+    },
+    snapshot(): ChatVariablesPublicSnapshot {
+        const s = ChatVariablesStore.instance.snapshot();
+        return {
+            quest: s.quest,
+            role: s.role,
+            activeProjects: s.activeProjects,
+            todo: s.todo,
+            todoFile: s.todoFile,
+            custom: s.custom,
+        };
+    },
+    setCustomBulk(values) {
+        const ctx = getCurrentToolContext();
+        const source = ctx?.source ?? 'anthropic';
+        ChatVariablesStore.instance.setCustomBulk(values, source, ctx?.requestId);
+    },
+};
 
 export const CHATVAR_READ_TOOL: SharedToolDefinition<ChatvarReadInput> = {
-    name: 'tomAi_readChatVariable',
-    displayName: 'Chat Variable — Read',
-    description: 'Read the current chat variables. Omit `key` to return all variables (built-ins + custom.*). Pass a `key` to return just that variable\'s current value.',
-    tags: ['chat-variables', 'tom-ai-chat'],
-    readOnly: true,
-    requiresApproval: false,
-    inputSchema: {
-        type: 'object',
-        properties: {
-            key: { type: 'string', description: 'Optional variable name (built-in or custom). Omit to return everything.' },
-        },
-    },
-    execute: executeChatvarRead,
+    ...READ_CHATVAR_DEF,
+    execute: (input) => readChatVariableImpl(liveChatvarAccess, input),
 };
-
-export interface ChatvarWriteInput {
-    variables: Record<string, string>;
-}
-
-async function executeChatvarWrite(input: ChatvarWriteInput): Promise<string> {
-    try {
-        const store = ChatVariablesStore.instance;
-        const entries = Object.entries(input.variables ?? {});
-        const rejected: string[] = [];
-        const accepted: Record<string, string> = {};
-
-        for (const [rawKey, rawValue] of entries) {
-            // Normalise: strip any accidental "custom." prefix the model may send.
-            const key = rawKey.startsWith('custom.') ? rawKey.slice('custom.'.length) : rawKey;
-            if (!key) {
-                rejected.push(`"${rawKey}" (empty name)`);
-                continue;
-            }
-            if (BUILT_IN_CHATVAR_KEYS.has(key)) {
-                rejected.push(key);
-                continue;
-            }
-            accepted[key] = typeof rawValue === 'string' ? rawValue : String(rawValue ?? '');
-        }
-
-        if (Object.keys(accepted).length > 0) {
-            // Spec §8.5: log with the calling handler's source and request
-            // ID when available. Falls back to 'anthropic' when called
-            // without an ambient context (e.g. manual invocation).
-            const ctx = getCurrentToolContext();
-            const source = ctx?.source ?? 'anthropic';
-            store.setCustomBulk(accepted, source, ctx?.requestId);
-        }
-
-        const parts: string[] = [];
-        if (Object.keys(accepted).length > 0) {
-            parts.push(`Updated: ${Object.keys(accepted).map(k => `custom.${k}`).join(', ')}`);
-        }
-        if (rejected.length > 0) {
-            parts.push(`Rejected (built-in or invalid): ${rejected.join(', ')}`);
-        }
-        if (parts.length === 0) {
-            parts.push('No variables provided.');
-        }
-        return parts.join('\n');
-    } catch (e) {
-        return `Error: ${e instanceof Error ? e.message : String(e)}`;
-    }
-}
 
 export const CHATVAR_WRITE_TOOL: SharedToolDefinition<ChatvarWriteInput> = {
-    name: 'tomAi_writeChatVariable',
-    displayName: 'Chat Variable — Write',
-    description: 'Update one or more custom chat variables. Keys are stored under the `custom.*` namespace. Built-in keys (quest, role, activeProjects, todo, todoFile) are rejected — those are user-only fields. Every change is visible live in the Chat Variables Editor.',
-    tags: ['chat-variables', 'tom-ai-chat'],
-    readOnly: false,
-    // Intentionally false: spec §8.5 — the Chat Variables panel shows every
-    // write in real time, so the approval dialog would be redundant friction.
-    requiresApproval: false,
-    inputSchema: {
-        type: 'object',
-        properties: {
-            variables: {
-                type: 'object',
-                description: 'Map of variable names to string values. Plain names only — the tool prepends "custom." automatically. Built-in names are rejected.',
-                additionalProperties: { type: 'string' },
-            },
-        },
-        required: ['variables'],
-    },
-    execute: executeChatvarWrite,
+    ...WRITE_CHATVAR_DEF,
+    execute: (input) => writeChatVariableImpl(liveChatvarAccess, input),
 };
 
 // ============================================================================
-// Memory tools (spec §8.2)
+// Memory tools (spec §8.2) — relocated to `memory-tools.ts` by the entry #12
+// coverage refactor. The `parseWriteScope` / `parseReadScope` helpers moved
+// there too (the originals here are dropped).
 // ============================================================================
 
-function parseWriteScope(scope: unknown): MemoryScope {
-    return scope === 'shared' ? 'shared' : 'quest';
-}
+// --- Memory tools (5) -------------------------------------------------------
+//
+// Defs + impls live in `memory-tools.ts` (vscode-free, narrow `MemoryStore`
+// dep). The bridge below wires the production `TwoTierMemoryService.instance`
+// to that interface so the impls work against the real fs-backed store.
 
-function parseReadScope(scope: unknown): MemoryReadScope {
-    if (scope === 'shared' || scope === 'all') {
-        return scope;
-    }
-    return 'quest';
-}
+import {
+    SAVE_MEMORY_TOOL as SAVE_MEMORY_DEF,
+    UPDATE_MEMORY_TOOL as UPDATE_MEMORY_DEF,
+    FORGET_MEMORY_TOOL as FORGET_MEMORY_DEF,
+    READ_MEMORY_TOOL as READ_MEMORY_DEF,
+    LIST_MEMORY_TOOL as LIST_MEMORY_DEF,
+    MemorySaveInput,
+    MemoryUpdateInput,
+    MemoryForgetInput,
+    MemoryReadInput,
+    MemoryListInput,
+    type MemoryScope as ToolMemoryScope,
+    type MemoryStore,
+    saveMemoryImpl,
+    updateMemoryImpl,
+    forgetMemoryImpl,
+    readMemoryImpl,
+    listMemoryImpl,
+} from './memory-tools';
 
-export interface MemorySaveInput {
-    scope?: 'quest' | 'shared';
-    file?: string;
-    content: string;
-    heading?: string;
-}
+export type { MemorySaveInput, MemoryUpdateInput, MemoryForgetInput, MemoryReadInput, MemoryListInput };
 
-async function executeMemorySave(input: MemorySaveInput): Promise<string> {
-    try {
-        const svc = TwoTierMemoryService.instance;
-        const scope = parseWriteScope(input.scope);
-        const file = (input.file || 'facts.md').trim() || 'facts.md';
-        if (!input.content || !input.content.trim()) {
-            return 'Error: content is empty.';
-        }
-        if (input.heading) {
-            svc.replaceSection(scope, file, input.heading, input.content);
-            return `Memory (${scope}/${file}) — section "${input.heading}" replaced.`;
-        }
-        svc.append(scope, file, input.content);
-        return `Memory (${scope}/${file}) — appended ${input.content.length} chars.`;
-    } catch (e) {
-        return `Error: ${e instanceof Error ? e.message : String(e)}`;
-    }
-}
+const liveMemoryStore: MemoryStore = {
+    list(scope: ToolMemoryScope): string[] { return TwoTierMemoryService.instance.list(scope); },
+    read(scope: ToolMemoryScope, file: string): string { return TwoTierMemoryService.instance.read(scope, file); },
+    append(scope: ToolMemoryScope, file: string, content: string): void {
+        TwoTierMemoryService.instance.append(scope, file, content);
+    },
+    replaceSection(scope: ToolMemoryScope, file: string, heading: string, content: string): void {
+        TwoTierMemoryService.instance.replaceSection(scope, file, heading, content);
+    },
+    delete(scope: ToolMemoryScope, file: string): void { TwoTierMemoryService.instance.delete(scope, file); },
+};
 
 export const MEMORY_SAVE_TOOL: SharedToolDefinition<MemorySaveInput> = {
-    name: 'tomAi_saveMemory',
-    displayName: 'Memory — Save',
-    description: 'Append a fact to a memory file (or replace a named markdown section when `heading` is provided). Default file is `facts.md`. Scope is `quest` (default) or `shared`.',
-    tags: ['memory', 'tom-ai-chat'],
-    readOnly: false,
-    requiresApproval: true,
-    inputSchema: {
-        type: 'object',
-        properties: {
-            scope: { type: 'string', enum: ['quest', 'shared'], description: 'Memory tier — quest (default) or shared.' },
-            file: { type: 'string', description: 'Memory file name within the scope (default: facts.md).' },
-            content: { type: 'string', description: 'Fact or section body to persist.' },
-            heading: { type: 'string', description: 'Optional markdown heading to replace. Omit to append at end.' },
-        },
-        required: ['content'],
-    },
-    execute: executeMemorySave,
+    ...SAVE_MEMORY_DEF,
+    execute: (input) => saveMemoryImpl(liveMemoryStore, input),
 };
-
-export interface MemoryUpdateInput {
-    scope?: 'quest' | 'shared';
-    file: string;
-    heading: string;
-    content: string;
-}
-
-async function executeMemoryUpdate(input: MemoryUpdateInput): Promise<string> {
-    try {
-        const svc = TwoTierMemoryService.instance;
-        const scope = parseWriteScope(input.scope);
-        if (!input.file || !input.heading) {
-            return 'Error: file and heading are required.';
-        }
-        svc.replaceSection(scope, input.file, input.heading, input.content ?? '');
-        return `Memory (${scope}/${input.file}) — section "${input.heading}" updated.`;
-    } catch (e) {
-        return `Error: ${e instanceof Error ? e.message : String(e)}`;
-    }
-}
-
 export const MEMORY_UPDATE_TOOL: SharedToolDefinition<MemoryUpdateInput> = {
-    name: 'tomAi_updateMemory',
-    displayName: 'Memory — Update section',
-    description: 'Replace the content under a named markdown heading in a memory file. If the heading does not exist yet it is appended.',
-    tags: ['memory', 'tom-ai-chat'],
-    readOnly: false,
-    requiresApproval: true,
-    inputSchema: {
-        type: 'object',
-        properties: {
-            scope: { type: 'string', enum: ['quest', 'shared'] },
-            file: { type: 'string', description: 'Memory file name within the scope.' },
-            heading: { type: 'string', description: 'Markdown heading text to target (without the leading #).' },
-            content: { type: 'string', description: 'New content for the section.' },
-        },
-        required: ['file', 'heading', 'content'],
-    },
-    execute: executeMemoryUpdate,
+    ...UPDATE_MEMORY_DEF,
+    execute: (input) => updateMemoryImpl(liveMemoryStore, input),
 };
-
-export interface MemoryForgetInput {
-    scope?: 'quest' | 'shared';
-    file: string;
-    heading?: string;
-}
-
-async function executeMemoryForget(input: MemoryForgetInput): Promise<string> {
-    try {
-        const svc = TwoTierMemoryService.instance;
-        const scope = parseWriteScope(input.scope);
-        if (!input.file) {
-            return 'Error: file is required.';
-        }
-        if (input.heading) {
-            svc.replaceSection(scope, input.file, input.heading, '');
-            return `Memory (${scope}/${input.file}) — section "${input.heading}" cleared.`;
-        }
-        svc.delete(scope, input.file);
-        return `Memory (${scope}/${input.file}) — file deleted.`;
-    } catch (e) {
-        return `Error: ${e instanceof Error ? e.message : String(e)}`;
-    }
-}
-
 export const MEMORY_FORGET_TOOL: SharedToolDefinition<MemoryForgetInput> = {
-    name: 'tomAi_forgetMemory',
-    displayName: 'Memory — Forget',
-    description: 'Delete an entire memory file, or clear the content under a named markdown heading when `heading` is provided.',
-    tags: ['memory', 'tom-ai-chat'],
-    readOnly: false,
-    requiresApproval: true,
-    inputSchema: {
-        type: 'object',
-        properties: {
-            scope: { type: 'string', enum: ['quest', 'shared'] },
-            file: { type: 'string', description: 'Memory file name within the scope.' },
-            heading: { type: 'string', description: 'Optional heading to clear instead of deleting the whole file.' },
-        },
-        required: ['file'],
-    },
-    execute: executeMemoryForget,
+    ...FORGET_MEMORY_DEF,
+    execute: (input) => forgetMemoryImpl(liveMemoryStore, input),
 };
-
-export interface MemoryReadInput {
-    scope?: 'quest' | 'shared' | 'all';
-    file?: string;
-}
-
-async function executeMemoryRead(input: MemoryReadInput): Promise<string> {
-    try {
-        const svc = TwoTierMemoryService.instance;
-        const scope = parseReadScope(input.scope);
-        if (input.file) {
-            if (scope === 'all') {
-                const shared = svc.read('shared', input.file);
-                const quest = svc.read('quest', input.file);
-                const parts: string[] = [];
-                if (shared) parts.push(`### shared/${input.file}\n${shared.trimEnd()}`);
-                if (quest)  parts.push(`### quest/${input.file}\n${quest.trimEnd()}`);
-                return parts.length > 0 ? parts.join('\n\n') : '(empty)';
-            }
-            const body = svc.read(scope, input.file);
-            return body ? body : '(empty)';
-        }
-        const body = svc.readAll(scope);
-        return body || '(no memory files in scope)';
-    } catch (e) {
-        return `Error: ${e instanceof Error ? e.message : String(e)}`;
-    }
-}
-
 export const MEMORY_READ_TOOL: SharedToolDefinition<MemoryReadInput> = {
-    name: 'tomAi_readMemory',
-    displayName: 'Memory — Read',
-    description: 'Read memory contents. Omit `file` to get the concatenated contents of all files in the scope. Scope is `quest` (default), `shared`, or `all`.',
-    tags: ['memory', 'tom-ai-chat'],
-    readOnly: true,
-    requiresApproval: false,
-    inputSchema: {
-        type: 'object',
-        properties: {
-            scope: { type: 'string', enum: ['quest', 'shared', 'all'] },
-            file: { type: 'string', description: 'Optional file name within the scope.' },
-        },
-    },
-    execute: executeMemoryRead,
+    ...READ_MEMORY_DEF,
+    execute: (input) => readMemoryImpl(liveMemoryStore, input),
 };
-
-export interface MemoryListInput {
-    scope?: 'quest' | 'shared' | 'all';
-}
-
-async function executeMemoryList(input: MemoryListInput): Promise<string> {
-    try {
-        const svc = TwoTierMemoryService.instance;
-        const scope = parseReadScope(input.scope);
-        const scopes: MemoryScope[] = scope === 'all' ? ['shared', 'quest'] : [scope];
-        const lines: string[] = [];
-        for (const tier of scopes) {
-            const files = svc.list(tier);
-            if (files.length === 0) {
-                lines.push(`(${tier}) (empty)`);
-            } else {
-                for (const f of files) {
-                    lines.push(`${tier}/${f}`);
-                }
-            }
-        }
-        return lines.join('\n');
-    } catch (e) {
-        return `Error: ${e instanceof Error ? e.message : String(e)}`;
-    }
-}
-
 export const MEMORY_LIST_TOOL: SharedToolDefinition<MemoryListInput> = {
-    name: 'tomAi_listMemory',
-    displayName: 'Memory — List',
-    description: 'List memory files in the given scope. Scope is `quest` (default), `shared`, or `all`.',
-    tags: ['memory', 'tom-ai-chat'],
-    readOnly: true,
-    requiresApproval: false,
-    inputSchema: {
-        type: 'object',
-        properties: {
-            scope: { type: 'string', enum: ['quest', 'shared', 'all'] },
-        },
-    },
-    execute: executeMemoryList,
+    ...LIST_MEMORY_DEF,
+    execute: (input) => listMemoryImpl(liveMemoryStore, input),
 };
 
 // ============================================================================
@@ -1625,7 +1202,197 @@ const liveFileOpener: FileOpener = {
 (OPEN_FILE_DEF as { execute: (input: OpenFileInput) => Promise<string> }).execute =
     (input) => openFileImpl(liveFileOpener, input);
 import { USER_INTERACTION_TOOLS } from './user-interaction-tools';
-import { WORKSPACE_EDIT_TOOLS } from './workspace-edit-tools';
+import {
+    WORKSPACE_EDIT_TOOLS,
+    APPLY_EDIT_TOOL as APPLY_EDIT_DEF,
+    ApplyEditInput,
+    type WorkspaceEditService,
+    type ResolvedApplyEditOp,
+    applyEditImpl,
+    relativeIfInWs,
+} from './workspace-edit-tools';
+import {
+    GET_CODE_ACTIONS_TOOL as GET_CODE_ACTIONS_DEF,
+    GET_CODE_ACTIONS_CACHED_TOOL as GET_CODE_ACTIONS_CACHED_DEF,
+    APPLY_CODE_ACTION_TOOL as APPLY_CODE_ACTION_DEF,
+    GetCodeActionsInput,
+    GetCodeActionsCachedInput,
+    ApplyCodeActionInput,
+    type CodeActionService,
+    type CodeActionRange0Based,
+    type ListedCodeAction,
+    type ApplyActionResult,
+    getCodeActionsImpl,
+    getCodeActionsCachedImpl,
+    applyCodeActionImpl,
+} from './code-action-tools';
+import {
+    RENAME_TOOL as RENAME_DEF,
+    RenameInput,
+    type RenameService,
+    type RenameProviderResult,
+    renameImpl,
+} from './rename-tool';
+
+// --- Live CodeActionService bridging vscode.commands.executeCodeActionProvider
+//     + vscode.workspace.applyEdit / executeCommand for action.command.
+
+const liveCodeActionService: CodeActionService = {
+    resolveFile(filePath: string): string | null {
+        const abs = path.isAbsolute(filePath) ? filePath : path.join(getWorkspaceRoot() || process.cwd(), filePath);
+        return fs.existsSync(abs) ? abs : null;
+    },
+    async list(absPath: string, range: CodeActionRange0Based, only?: string): Promise<ListedCodeAction[]> {
+        const uri = vscode.Uri.file(absPath);
+        await vscode.workspace.openTextDocument(uri);
+        const vsRange = new vscode.Range(
+            new vscode.Position(range.startLine, range.startCharacter),
+            new vscode.Position(range.endLine, range.endCharacter),
+        );
+        const actions = await vscode.commands.executeCommand<vscode.CodeAction[]>(
+            'vscode.executeCodeActionProvider', uri, vsRange, only,
+        );
+        return (actions ?? []).map((a) => ({
+            snapshot: {
+                title: a.title,
+                kind: a.kind?.value,
+                isPreferred: a.isPreferred,
+                hasEdit: !!a.edit,
+                hasCommand: !!a.command,
+                commandId: a.command?.command,
+                diagnosticsCount: a.diagnostics?.length ?? 0,
+            },
+            token: a,    // The opaque token IS the CodeAction itself.
+        }));
+    },
+    async apply(token: unknown): Promise<ApplyActionResult> {
+        const action = token as vscode.CodeAction;
+        let editApplied: boolean | null = null;
+        if (action.edit) {
+            editApplied = await vscode.workspace.applyEdit(action.edit);
+        }
+        let commandResult: unknown = null;
+        if (action.command) {
+            commandResult = await vscode.commands.executeCommand(
+                action.command.command, ...(action.command.arguments ?? []),
+            ) ?? null;
+        }
+        return { editApplied, commandResult };
+    },
+};
+
+// --- Live RenameService bridging executeDocumentRenameProvider + applyEdit.
+
+const liveRenameService: RenameService = {
+    resolveFile(filePath: string): string | null {
+        const abs = path.isAbsolute(filePath) ? filePath : path.join(getWorkspaceRoot() || process.cwd(), filePath);
+        return fs.existsSync(abs) ? abs : null;
+    },
+    async rename(absPath: string, line: number, character: number, newName: string): Promise<RenameProviderResult> {
+        const uri = vscode.Uri.file(absPath);
+        await vscode.workspace.openTextDocument(uri);
+        const pos = new vscode.Position(line, character);
+        let edit: vscode.WorkspaceEdit | undefined;
+        try {
+            edit = await vscode.commands.executeCommand<vscode.WorkspaceEdit>(
+                'vscode.executeDocumentRenameProvider', uri, pos, newName,
+            );
+        } catch (err) {
+            // Some language servers throw on "no rename provider here";
+            // treat that case as no-provider rather than propagating.
+            const msg = (err as Error).message;
+            if (/no rename provider|cannot rename/i.test(msg)) {
+                return { kind: 'no-provider' as const };
+            }
+            throw err;
+        }
+        if (!edit) { return { kind: 'no-provider' as const }; }
+        const size = (edit as unknown as { size: number }).size;
+        if (typeof size !== 'number' || size === 0) { return { kind: 'no-edits' as const }; }
+        const applied = await vscode.workspace.applyEdit(edit);
+        if (!applied) { return { kind: 'no-edits' as const }; }
+        const affected: string[] = [];
+        const root = getWorkspaceRoot();
+        for (const [u] of (edit as unknown as { entries(): Iterable<[vscode.Uri, unknown]> }).entries()) {
+            const rel = root ? path.relative(root, u.fsPath) : u.fsPath;
+            affected.push(rel.startsWith('..') ? u.fsPath : rel);
+        }
+        return { kind: 'ok' as const, affectedFiles: affected };
+    },
+};
+
+// --- Live WorkspaceEditService bridging vscode.WorkspaceEdit + applyEdit.
+
+const liveWorkspaceEditService: WorkspaceEditService = {
+    get wsRoot() { return getWorkspaceRoot(); },
+    async applyOps(ops: ResolvedApplyEditOp[]): Promise<{ applied: boolean; affectedFiles: string[] }> {
+        const edit = new vscode.WorkspaceEdit();
+        const affected = new Set<string>();
+        const rootForRel = getWorkspaceRoot();
+        for (const op of ops) {
+            switch (op.op) {
+                case 'createFile':
+                    edit.createFile(vscode.Uri.file(op.absPath!), {
+                        overwrite: op.overwrite,
+                        ignoreIfExists: op.ignoreIfExists,
+                    });
+                    affected.add(relativeIfInWs(op.absPath!, rootForRel));
+                    break;
+                case 'deleteFile':
+                    edit.deleteFile(vscode.Uri.file(op.absPath!), {
+                        ignoreIfNotExists: op.ignoreIfNotExists,
+                    });
+                    affected.add(relativeIfInWs(op.absPath!, rootForRel));
+                    break;
+                case 'renameFile':
+                    edit.renameFile(
+                        vscode.Uri.file(op.fromAbs!),
+                        vscode.Uri.file(op.toAbs!),
+                        { overwrite: op.overwrite, ignoreIfExists: op.ignoreIfExists },
+                    );
+                    affected.add(relativeIfInWs(op.fromAbs!, rootForRel));
+                    affected.add(relativeIfInWs(op.toAbs!, rootForRel));
+                    break;
+                case 'insert':
+                    edit.insert(
+                        vscode.Uri.file(op.absPath!),
+                        new vscode.Position(op.position!.line, op.position!.character),
+                        op.text!,
+                    );
+                    affected.add(relativeIfInWs(op.absPath!, rootForRel));
+                    break;
+                case 'delete':
+                    edit.delete(vscode.Uri.file(op.absPath!), new vscode.Range(
+                        new vscode.Position(op.range!.startLine, op.range!.startCharacter),
+                        new vscode.Position(op.range!.endLine, op.range!.endCharacter),
+                    ));
+                    affected.add(relativeIfInWs(op.absPath!, rootForRel));
+                    break;
+                case 'replace':
+                    edit.replace(vscode.Uri.file(op.absPath!), new vscode.Range(
+                        new vscode.Position(op.range!.startLine, op.range!.startCharacter),
+                        new vscode.Position(op.range!.endLine, op.range!.endCharacter),
+                    ), op.text!);
+                    affected.add(relativeIfInWs(op.absPath!, rootForRel));
+                    break;
+            }
+        }
+        const applied = await vscode.workspace.applyEdit(edit);
+        return { applied, affectedFiles: Array.from(affected) };
+    },
+};
+
+// Install live executors on the imported defs.
+(GET_CODE_ACTIONS_DEF as { execute: (input: GetCodeActionsInput) => Promise<string> }).execute =
+    (input) => getCodeActionsImpl(liveCodeActionService, input);
+(GET_CODE_ACTIONS_CACHED_DEF as { execute: (input: GetCodeActionsCachedInput) => Promise<string> }).execute =
+    (input) => getCodeActionsCachedImpl(liveCodeActionService, input);
+(APPLY_CODE_ACTION_DEF as { execute: (input: ApplyCodeActionInput) => Promise<string> }).execute =
+    (input) => applyCodeActionImpl(liveCodeActionService, input);
+(RENAME_DEF as { execute: (input: RenameInput) => Promise<string> }).execute =
+    (input) => renameImpl(liveRenameService, input);
+(APPLY_EDIT_DEF as { execute: (input: ApplyEditInput) => Promise<string> }).execute =
+    (input) => applyEditImpl(liveWorkspaceEditService, input);
 import {
     TASK_DEBUG_TOOLS,
     RUN_TASK_TOOL as RUN_TASK_DEF,

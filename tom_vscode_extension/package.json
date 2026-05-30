@@ -2806,7 +2806,7 @@
         "compile": "tsc -p ./ && mkdir -p out/config && cp src/config/*.json out/config/",
         "watch": "tsc -watch -p ./",
         "pretest": "npm run compile",
-        "test:tools": "node --test out/tools/__tests__/*.test.js",
+        "test:tools": "node --test --test-concurrency=1 out/tools/__tests__/*.test.js",
         "test": "npm run test:tools && npm run audit:tools",
         "audit:tools": "node scripts/audit-tool-coverage.cjs",
         "lint": "eslint src --ext ts"

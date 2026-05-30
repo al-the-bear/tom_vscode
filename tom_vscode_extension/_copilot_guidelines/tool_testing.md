@@ -111,6 +111,14 @@ To clear stale rows (e.g., after renaming a tool), delete the report file
 before running the tests. `withTiming` also exports `resetTimings()` and
 `getTimings()` for tests of the helper itself.
 
+**Why `npm run test:tools` passes `--test-concurrency=1`**: when `node --test`
+runs files in parallel, each process does a read-then-write on the shared
+`tool_timings.md` — under contention the last writer wins and earlier
+entries can be lost. Forcing sequential execution eliminates the race at
+the cost of ~2-3× longer total runtime (acceptable until the suite gets
+much bigger). The proper fix is append-only logging + a final consolidator;
+deferred for now since the sequential workaround is one flag.
+
 ### `_fixtures.ts`
 
 Four builders, all return `{ root, cleanup() }` (and `mkQuestFolder` also
