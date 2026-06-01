@@ -637,6 +637,28 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'openStatusPage':
                         await vscode.commands.executeCommand('tomAi.statusPage');
                         break;
+                    case 'recreateHistoryFromTrail': {
+                        // Force the chunked trail-rebuild path even when an
+                        // in-memory snapshot already exists. The handler's
+                        // status-update stream surfaces per-chunk progress
+                        // on the Anthropic panel's status line.
+                        const { AnthropicHandler } = await import('./anthropic-handler.js');
+                        void AnthropicHandler.instance.recreateHistoryFromTrail();
+                        vscode.window.showInformationMessage('Recreating history.json from the trail files in chunks…');
+                        break;
+                    }
+                    case 'recreateMemoryFromTrail': {
+                        // Walk the trail in chunks of `runEveryNRounds −
+                        // rawTurnsKept` rounds and run memory extraction
+                        // per chunk. The memory-extraction template
+                        // dedupes against `${existingMemory}`, so a
+                        // rebuild against the current memory file is
+                        // idempotent.
+                        const { AnthropicHandler } = await import('./anthropic-handler.js');
+                        void AnthropicHandler.instance.recreateMemoryFromTrail();
+                        vscode.window.showInformationMessage('Recreating quest memory from the trail files in chunks…');
+                        break;
+                    }
                     case 'openGlobalTemplateEditor':
                         await vscode.commands.executeCommand('tomAi.editor.promptTemplates');
                         break;
@@ -3391,6 +3413,8 @@ function getSectionContent(id) {
                 '<button class="icon-btn" data-action="openQueueEditor" data-id="anthropic" title="Open Prompt Queue"><span class="codicon codicon-inbox"></span></button>' +
                 '<button class="icon-btn" data-action="openQueueTemplatesEditor" data-id="anthropic" title="Open Queue Templates"><span class="codicon codicon-files"></span></button>' +
                 '<button class="icon-btn" data-action="openStatusPage" data-id="anthropic" title="Open Extension Status Page"><span class="codicon codicon-dashboard"></span></button>' +
+                '<button class="icon-btn" data-action="recreateHistoryFromTrail" data-id="anthropic" title="Recreate history.json from the prompt/answer trail files. Uses the &quot;Rebuild from last N prompts&quot; window from the Compaction settings and folds rounds in chunks of &quot;Run every N rounds − Raw turn pairs kept&quot;."><span class="codicon codicon-history"></span></button>' +
+                '<button class="icon-btn" data-action="recreateMemoryFromTrail" data-id="anthropic" title="Recreate quest memory from the prompt/answer trail files. Same windowing as Recreate History; the memory-extraction template is responsible for deduping against existing memory."><span class="codicon codicon-database"></span></button>' +
                 '<label style="margin-left:6px;">Available Models:</label>' +
                 '<select id="anthropic-model" style="max-width:240px;" title="Read-only list of models returned by the Anthropic API. The selected configuration controls which model is actually used."><option value="">(loading...)</option></select>' +
                 '<button class="icon-btn" data-action="refreshAnthropicModels" data-id="anthropic" title="Refresh models from API"><span class="codicon codicon-refresh"></span></button>' +
@@ -3691,6 +3715,8 @@ function handleAction(action, id, slot) {
         case 'saveAsTimedRequest': { var trText = document.getElementById('copilot-text'); trText = trText ? trText.value : ''; if (!trText.trim()) return; var trTpl = document.getElementById('copilot-template'); trTpl = trTpl ? trTpl.value : ''; vscode.postMessage({ type: 'saveAsTimedRequest', text: trText, template: trTpl }); break; }
         case 'openChatVariablesEditor': vscode.postMessage({ type: 'openChatVariablesEditor' }); break;
         case 'openStatusPage': vscode.postMessage({ type: 'openStatusPage' }); break;
+        case 'recreateHistoryFromTrail': vscode.postMessage({ type: 'recreateHistoryFromTrail' }); break;
+        case 'recreateMemoryFromTrail': vscode.postMessage({ type: 'recreateMemoryFromTrail' }); break;
         case 'openGlobalTemplateEditor': vscode.postMessage({ type: 'openGlobalTemplateEditor' }); break;
         case 'openReusablePromptEditor': vscode.postMessage({ type: 'openReusablePromptEditor' }); break;
         case 'openContextSettingsEditor': vscode.postMessage({ type: 'openContextSettingsEditor' }); break;

@@ -964,6 +964,110 @@ export class AnthropicHandler {
      * rawTurns array, and runs one compaction pass over older entries so
      * the compactedSummary starts non-empty.
      */
+    /**
+     * Recreate `history.json` (and the per-machine
+     * `compaction_rounds.json` accumulator) from the quest's trail
+     * files. Public entry point for the "Recreate History" button on
+     * the Anthropic chat panel; forces the chunked trail-rebuild path
+     * regardless of whether a snapshot already exists.
+     *
+     * The user-facing semantics: replay the conversation history into
+     * compactedSummary + accumulator-tail as if compaction had been
+     * running every `runEveryNRounds` rounds all along. Existing
+     * snapshot is overwritten on completion.
+     *
+     * Sharing with the auto-seed path: both eventually run
+     * `rebuildHistoryFromTrail()`. The button just clears the
+     * `historySeeded` latch first so the rebuild fires even when a
+     * snapshot is already in memory.
+     */
+    async recreateHistoryFromTrail(questId?: string): Promise<void> {
+        const quest = questId ?? TwoTierMemoryService.instance.currentQuest();
+        // Drop the in-memory latch so the next sendMessage doesn't
+        // skip rebuild ("already seeded"). Also drop the in-memory
+        // state itself so a partial rebuild can't end up in a hybrid
+        // state mixing fresh trail data with stale snapshot data.
+        this.historySeeded = false;
+        this.compactedSummary = '';
+        this.rawTurns = [];
+        await this.rebuildHistoryFromTrail(quest);
+        this.historySeeded = true;
+    }
+
+    /**
+     * Recreate the quest memory file from the trail. Public entry
+     * point for the "Recreate Memory" button. Walks the trail in
+     * chunks of `runEveryNRounds − rawTurnsKept` rounds — the same
+     * chunk size used by live compaction — and runs memory extraction
+     * on each chunk, letting the extractor see the rolling
+     * `compactedSummary` so per-chunk decisions are informed by the
+     * accumulated session state.
+     *
+     * Existing memory is NOT cleared first. The memory-extraction
+     * template is required to read `${existingMemory}` and skip
+     * already-recorded facts, so a rebuild against current memory is
+     * idempotent (new facts get appended; duplicates are suppressed
+     * by the model).
+     */
+    async recreateMemoryFromTrail(questId?: string): Promise<void> {
+        const quest = questId ?? TwoTierMemoryService.instance.currentQuest();
+        const cfg = this.getCompactionConfig();
+        if (!cfg.llmConfigId) {
+            this._onStatusUpdate.fire('Memory rebuild skipped — no compaction LLM configured');
+            return;
+        }
+        try {
+            const limit = Math.max(1, cfg.rebuildFromLastNPrompts);
+            const { loadLastNTrailExchanges, runIncrementalMemoryExtraction } = await import('../services/history-compaction.js');
+            const exchanges = loadLastNTrailExchanges(quest, limit);
+            if (exchanges.length === 0) {
+                this._onStatusUpdate.fire('Memory rebuild: no trail entries to fold');
+                return;
+            }
+            const rawTail = Math.max(0, cfg.rawTurnsKept);
+            const chunkSize = Math.max(1, cfg.runEveryNRounds - rawTail);
+            // Walk all exchanges including the tail — for memory
+            // extraction the "tail" distinction doesn't apply (live
+            // operation only spares the tail from compaction, not
+            // from extraction). Drop only those exchanges that fall
+            // inside the very last partial chunk if they're smaller
+            // than `rawTurnsKept`; otherwise extract on them too.
+            const totalChunks = Math.ceil(exchanges.length / chunkSize);
+            for (let i = 0, c = 1; i < exchanges.length; i += chunkSize, c++) {
+                const chunk = exchanges.slice(i, i + chunkSize);
+                const chunkMessages: ConversationMessage[] = [];
+                for (const pair of chunk) {
+                    if (pair.user) { chunkMessages.push({ role: 'user', content: pair.user }); }
+                    if (pair.assistant) { chunkMessages.push({ role: 'assistant', content: pair.assistant }); }
+                }
+                if (chunkMessages.length === 0) { continue; }
+                this._onStatusUpdate.fire(
+                    `Rebuild memory: extracting chunk ${c}/${totalChunks} (${chunk.length} round${chunk.length === 1 ? '' : 's'})…`,
+                );
+                try {
+                    await runIncrementalMemoryExtraction({
+                        lastTurn: chunkMessages,
+                        compactedSummary: this.compactedSummary,
+                        llmProvider: cfg.llmProvider,
+                        llmConfigId: cfg.llmConfigId,
+                        memoryTemplateId: cfg.memoryExtractionTemplateId,
+                        historyMaxChars: cfg.historyMaxChars,
+                        memoryMaxChars: cfg.memoryMaxChars,
+                        questId: quest,
+                        onProgress: (msg) => this._onStatusUpdate.fire(msg),
+                    });
+                } catch {
+                    // Per-chunk failure: continue with the next chunk
+                    // — the rebuild is incremental, so a partial result
+                    // is still better than abort.
+                }
+            }
+            this._onStatusUpdate.fire('Memory rebuild complete');
+        } catch {
+            this._onStatusUpdate.fire('Memory rebuild failed');
+        }
+    }
+
     private async rebuildHistoryFromTrail(questId: string): Promise<void> {
         try {
             const cfg = this.getCompactionConfig();
@@ -973,28 +1077,52 @@ export class AnthropicHandler {
             if (exchanges.length === 0) {
                 return;
             }
-            // Keep the last N turns raw; any extra gets folded into the
-            // summary so the next turn's payload stays small. Cap is
-            // derived purely from `compactionMaxRounds` (no hard floor)
-            // so 0 means "fold every recovered turn into the summary".
-            const rawLimit = Math.max(0, cfg.compactionMaxRounds) * 2;
-            const flat: ConversationMessage[] = [];
-            for (const pair of exchanges) {
-                if (pair.user) { flat.push({ role: 'user', content: pair.user }); }
-                if (pair.assistant) { flat.push({ role: 'assistant', content: pair.assistant }); }
-            }
-            if (flat.length <= rawLimit) {
-                this.rawTurns = flat;
-            } else {
-                this.rawTurns = flat.slice(-rawLimit);
-                // Fold the older prefix into the summary.
-                const older = flat.slice(0, flat.length - rawLimit);
-                if (older.length > 0 && cfg.llmConfigId) {
+
+            // Chunked rebuild — mirror live operation's every-N-rounds
+            // cadence so the seeded summary is the same shape it would
+            // have been if compaction had run incrementally. Reserve the
+            // last `rawTurnsKept` exchanges as the accumulator tail;
+            // everything before that is the prefix to fold. Chunk size
+            // is `runEveryNRounds − rawTurnsKept` — the same number of
+            // rounds that get folded per live compaction pass.
+            const rawTail = Math.max(0, cfg.rawTurnsKept);
+            const chunkSize = Math.max(1, cfg.runEveryNRounds - rawTail);
+            const prefixEnd = Math.max(0, exchanges.length - rawTail);
+            const prefix = exchanges.slice(0, prefixEnd);
+            const tail = exchanges.slice(prefixEnd);
+
+            const pairToMessages = (pair: { user?: string; assistant?: string }): ConversationMessage[] => {
+                const out: ConversationMessage[] = [];
+                if (pair.user) { out.push({ role: 'user', content: pair.user }); }
+                if (pair.assistant) { out.push({ role: 'assistant', content: pair.assistant }); }
+                return out;
+            };
+
+            // Build the accumulator tail (the last rawTurnsKept rounds).
+            const tailFlat: ConversationMessage[] = [];
+            for (const pair of tail) { tailFlat.push(...pairToMessages(pair)); }
+
+            // Fold the prefix in chunks, oldest → newest, into a rolling
+            // summary. If no compactor is configured, fall back to the
+            // pre-round-based behaviour: take the last runEveryNRounds
+            // exchanges as raw + drop the rest.
+            let runningSummary = '';
+            const canCompact = prefix.length > 0 && cfg.llmConfigId.length > 0;
+            if (canCompact) {
+                const { runIncrementalCompaction } = await import('../services/history-compaction.js');
+                const totalChunks = Math.ceil(prefix.length / chunkSize);
+                for (let i = 0, c = 1; i < prefix.length; i += chunkSize, c++) {
+                    const chunk = prefix.slice(i, i + chunkSize);
+                    const chunkMessages: ConversationMessage[] = [];
+                    for (const pair of chunk) { chunkMessages.push(...pairToMessages(pair)); }
+                    if (chunkMessages.length === 0) { continue; }
+                    this._onStatusUpdate.fire(
+                        `Rebuild history: folding chunk ${c}/${totalChunks} (${chunk.length} round${chunk.length === 1 ? '' : 's'})…`,
+                    );
                     try {
-                        const { runIncrementalCompaction } = await import('../services/history-compaction.js');
                         const summary = await runIncrementalCompaction({
-                            existingSummary: '',
-                            lastTurn: older,
+                            existingSummary: runningSummary,
+                            lastTurn: chunkMessages,
                             llmProvider: cfg.llmProvider,
                             llmConfigId: cfg.llmConfigId,
                             compactionTemplateId: cfg.compactionTemplateId,
@@ -1003,13 +1131,31 @@ export class AnthropicHandler {
                             questId,
                             onProgress: (msg) => this._onStatusUpdate.fire(msg),
                         });
-                        if (typeof summary === 'string') { this.compactedSummary = summary.trim(); }
+                        if (typeof summary === 'string' && summary.trim().length > 0) {
+                            runningSummary = summary.trim();
+                        }
                     } catch {
-                        // leave compactedSummary empty
+                        // Per-chunk failure: keep whatever summary we have
+                        // so far and continue with the next chunk. A run
+                        // of failures yields a partial summary; the next
+                        // live compaction pass will pick up where this
+                        // left off.
                     }
                 }
+                this.compactedSummary = runningSummary;
+                this.rawTurns = tailFlat;
+            } else {
+                // No compactor configured — flatten the prefix's tail
+                // into rawTurns so at least the most recent exchanges
+                // are restored verbatim, then leave the summary empty.
+                const allFlat: ConversationMessage[] = [];
+                for (const pair of [...prefix, ...tail]) { allFlat.push(...pairToMessages(pair)); }
+                const cap = cfg.runEveryNRounds * 2;
+                this.rawTurns = allFlat.length > cap ? allFlat.slice(-cap) : allFlat;
             }
+
             this.persistSessionHistory(questId);
+            this.persistCompactionRounds(questId);
         } catch {
             // best-effort — empty history is a safe fallback
         }
