@@ -111,6 +111,12 @@
                     "default": 4,
                     "description": "Number of most-recent user/assistant turn pairs (2 messages each) kept verbatim in the prompt. Overflow is folded into the incremental compacted summary via the active compaction template. Together with maxHistoryTokens — turns is primary, tokens is the safety cap. Per-configuration overrides take precedence."
                 },
+                "runEveryNRounds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "default": 15,
+                    "description": "Round-based trigger for compaction + memory extraction. A round = one completed user→assistant exchange. The uncompacted-rounds accumulator (compaction_rounds.json, sibling of history.json, NOT versioned) grows by one round per turn; when it reaches this threshold compaction fires, folds the oldest (length - rawTurnsKept) rounds into the running summary, and shrinks back to rawTurnsKept. Memory extraction runs in the same pass. Also the chunk size when rebuilding history from trail files. Single knob; both subsystems share the cadence so the prompt prefix stays cache-stable for runEveryNRounds−1 turns at a time."
+                },
                 "backgroundExtractionEnabled": {
                     "type": "boolean",
                     "default": true,

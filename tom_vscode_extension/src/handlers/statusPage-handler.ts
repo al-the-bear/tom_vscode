@@ -1189,16 +1189,11 @@ export async function handleStatusAction(action: string, message: any): Promise<
             if (Number.isFinite(s.memoryMaxInjectedTokens)) {
                 stcConfig.anthropic.memory.maxInjectedTokens = s.memoryMaxInjectedTokens;
             }
-            // Cross-config defaults (anthropic_sdk_integration.md §10). Empty
-            // string in either field clears the override so the per-pass
-            // `compaction.*` values apply.
-            if (typeof s.memoryDefaultExtractionTemplateId === 'string') {
-                if (s.memoryDefaultExtractionTemplateId.length > 0) {
-                    stcConfig.anthropic.memory.memoryExtractionTemplateId = s.memoryDefaultExtractionTemplateId;
-                } else {
-                    delete stcConfig.anthropic.memory.memoryExtractionTemplateId;
-                }
-            }
+            // The duplicate "Default memory extraction template" dropdown was
+            // removed (the History Compaction section's first dropdown is the
+            // single source of truth, writing to compaction.memoryExtractionTemplateId).
+            // We no longer mirror that choice into anthropic.memory.* — consumers
+            // read compaction.memoryExtractionTemplateId directly.
             if (typeof s.memoryAutoExtractMode === 'string') {
                 const m = s.memoryAutoExtractMode as 'never' | 'summary' | 'trim_and_summary' | 'llm_extract' | 'all' | '';
                 if (m === '') {
@@ -1210,6 +1205,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
             stcConfig.compaction.toolTrailMaxResultChars = Number.isFinite(s.toolTrailMaxResultChars) ? s.toolTrailMaxResultChars : 1000;
             stcConfig.compaction.toolTrailKeepRounds = Number.isFinite(s.toolTrailKeepRounds) ? s.toolTrailKeepRounds : 2;
             stcConfig.compaction.rawTurnsKept = Number.isFinite(s.rawTurnsKept) ? s.rawTurnsKept : 4;
+            stcConfig.compaction.runEveryNRounds = Number.isFinite(s.runEveryNRounds) && s.runEveryNRounds >= 1 ? s.runEveryNRounds : 15;
             stcConfig.compaction.backgroundExtractionEnabled = s.backgroundExtractionEnabled === true;
             if (!stcConfig.trail) { stcConfig.trail = {}; }
             if (Number.isFinite(s.trailMaxRawFiles)) { stcConfig.trail.maxRawFiles = s.trailMaxRawFiles; }
@@ -1689,6 +1685,10 @@ export interface StatusData {
         /** Number of recent user/assistant turn PAIRS kept verbatim before
          *  overflow folds into the running compacted summary. */
         rawTurnsKept: number;
+        /** Round-based trigger for compaction + memory extraction (default 15).
+         *  Shared by both subsystems so the cache prefix stays stable between
+         *  compactions. Also the chunk size for trail-based rebuild. */
+        runEveryNRounds: number;
         backgroundExtractionEnabled: boolean;
         /** When true, memory extraction runs after every compaction call
          *  (checkbox in the status page). Default true. */
@@ -1714,9 +1714,6 @@ export interface StatusData {
     anthropicMemory: {
         memoryToolsEnabled: boolean;
         maxInjectedTokens: number;
-        /** Cross-config default memory-extraction template id (anthropic.memory.memoryExtractionTemplateId).
-         *  Per-pass override lives in `compaction.memoryExtractionTemplateId`. */
-        memoryExtractionTemplateId: string;
         /** Which history modes trigger background memory extraction after each turn. */
         autoExtractMode: '' | 'never' | 'summary' | 'trim_and_summary' | 'llm_extract' | 'all';
     };
@@ -1958,6 +1955,7 @@ export async function gatherStatusData(): Promise<StatusData> {
             toolTrailMaxResultChars: sendToChatConfig?.compaction?.toolTrailMaxResultChars ?? 1000,
             toolTrailKeepRounds: sendToChatConfig?.compaction?.toolTrailKeepRounds ?? 2,
             rawTurnsKept: sendToChatConfig?.compaction?.rawTurnsKept ?? 4,
+            runEveryNRounds: (sendToChatConfig?.compaction as { runEveryNRounds?: number })?.runEveryNRounds ?? 15,
             backgroundExtractionEnabled: sendToChatConfig?.compaction?.backgroundExtractionEnabled === true,
         },
         anthropicMemory: (() => {
@@ -1965,13 +1963,11 @@ export async function gatherStatusData(): Promise<StatusData> {
             const mem = (anthropic.memory ?? {}) as {
                 memoryToolsEnabled?: boolean;
                 maxInjectedTokens?: number;
-                memoryExtractionTemplateId?: string;
                 autoExtractMode?: 'never' | 'summary' | 'trim_and_summary' | 'llm_extract' | 'all';
             };
             return {
                 memoryToolsEnabled: mem.memoryToolsEnabled === true,
                 maxInjectedTokens: mem.maxInjectedTokens ?? 3000,
-                memoryExtractionTemplateId: mem.memoryExtractionTemplateId ?? '',
                 autoExtractMode: (mem.autoExtractMode ?? '') as '' | 'never' | 'summary' | 'trim_and_summary' | 'llm_extract' | 'all',
             };
         })(),
@@ -2610,6 +2606,8 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
             <div class="sp-settings-row">
                 <label title="Raw user+assistant turn PAIRS kept verbatim alongside the compacted summary. Overflow gets folded into the running summary via the configured compaction template every turn the budget is exceeded. Per-LLM-configuration override available on each LLM configuration card.">Raw turn pairs kept:</label>
                 <input type="number" id="sp-comp-rawTurnsKept" value="${status.compaction.rawTurnsKept}" min="0" max="500" style="width:80px">
+                <label title="Round-based trigger for compaction + memory extraction. A round = one completed user→assistant exchange. The uncompacted-rounds accumulator (compaction_rounds.json, sibling of history.json, NOT versioned) grows by one round per turn; on hitting this threshold compaction fires, folds the oldest (length − rawTurnsKept) rounds into the running summary, then shrinks back to rawTurnsKept. Memory extraction runs in the same pass. Same value is the chunk size when rebuilding history/memory from the trail. Single knob — both subsystems share it so the prompt prefix (system + compactedSummary) stays cache-stable between compactions.">Run every N rounds:</label>
+                <input type="number" id="sp-comp-runEveryNRounds" value="${status.compaction.runEveryNRounds}" min="1" max="500" style="width:60px">
                 <label title="Target size of the compacted-history summary in tokens. Summaries aim for roughly this size; the compaction template should reference \${maxHistoryTokens} / \${maxHistorySize}.">Compacted history max tokens:</label>
                 <input type="number" id="sp-comp-maxHistoryTokens" value="${status.compaction.maxHistoryTokens}" min="1000" style="width:90px">
             </div>
@@ -2651,13 +2649,6 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
                 </select>
                 <label title="Upper bound on memory content injected into the Anthropic system prompt at send time. Only applies when the memory tools are disabled (otherwise the agent reads memory on demand via tools, so no injection happens).">Memory max injected tokens:</label>
                 <input type="number" id="sp-mem-maxInjectedTokens" value="${status.anthropicMemory.maxInjectedTokens}" min="0" max="32000" style="width:90px">
-            </div>
-            <div class="sp-settings-row">
-                <label title="Anthropic-side cross-config DEFAULT for the memory-extraction template (anthropic.memory.memoryExtractionTemplateId). Per-pass override lives in compaction.memoryExtractionTemplateId above; this is the fallback used when an Anthropic configuration doesn't override it.">Default memory extraction template:</label>
-                <select id="sp-mem-memoryExtractionTemplateId">
-                    <option value="">(inherit compaction default)</option>
-                    ${status.memoryExtractionTemplateChoices.map(t => `<option value="${t.id}" ${t.id === status.anthropicMemory.memoryExtractionTemplateId ? 'selected' : ''}>${escapeHtmlContent(t.name)}</option>`).join('')}
-                </select>
             </div>
             <div class="sp-settings-row">
                 <label title="Which history modes trigger background memory extraction after each Anthropic turn. 'all' fires extraction on every turn regardless of mode; 'never' disables it entirely; the named modes trigger only when the active configuration's historyMode matches.">Auto-extract on history mode:</label>
@@ -3034,11 +3025,11 @@ function attachStatusPanelListeners(skipEditorInit) {
                     archiveHistoryEveryTurn: (document.getElementById('sp-comp-archiveHistoryEveryTurn') || {}).value === 'true',
                     memoryToolsEnabled: (document.getElementById('sp-mem-memoryToolsEnabled') || {}).value === 'true',
                     memoryMaxInjectedTokens: parseInt((document.getElementById('sp-mem-maxInjectedTokens') || {}).value || '3000'),
-                    memoryDefaultExtractionTemplateId: (document.getElementById('sp-mem-memoryExtractionTemplateId') || {}).value || '',
                     memoryAutoExtractMode: (document.getElementById('sp-mem-autoExtractMode') || {}).value || '',
                     toolTrailMaxResultChars: parseInt((document.getElementById('sp-comp-toolTrailMaxResultChars') || {}).value || '1000'),
                     toolTrailKeepRounds: parseInt((document.getElementById('sp-comp-toolTrailKeepRounds') || {}).value || '2'),
                     rawTurnsKept: parseInt((document.getElementById('sp-comp-rawTurnsKept') || {}).value || '4'),
+                    runEveryNRounds: parseInt((document.getElementById('sp-comp-runEveryNRounds') || {}).value || '15'),
                     trailMaxRawFiles: parseInt((document.getElementById('sp-comp-trailMaxRawFiles') || {}).value || '1000'),
                     backgroundExtractionEnabled: (document.getElementById('sp-comp-backgroundExtractionEnabled') || {}).value === 'true'
                 };
@@ -3047,9 +3038,9 @@ function attachStatusPanelListeners(skipEditorInit) {
             } else if (action === 'deleteCompactionTemplate') {
                 msgData.itemId = (document.getElementById('sp-comp-compactionTemplateId') || {}).value || '';
             } else if (action === 'editMemoryExtractionTemplate') {
-                msgData.itemId = (document.getElementById('sp-comp-memoryExtractionTemplateId') || document.getElementById('sp-mem-memoryExtractionTemplateId') || {}).value || '';
+                msgData.itemId = (document.getElementById('sp-comp-memoryExtractionTemplateId') || {}).value || '';
             } else if (action === 'deleteMemoryExtractionTemplate') {
-                msgData.itemId = (document.getElementById('sp-comp-memoryExtractionTemplateId') || document.getElementById('sp-mem-memoryExtractionTemplateId') || {}).value || '';
+                msgData.itemId = (document.getElementById('sp-comp-memoryExtractionTemplateId') || {}).value || '';
             }
             
             vscode.postMessage(msgData);

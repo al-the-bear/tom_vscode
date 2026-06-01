@@ -309,6 +309,24 @@ export interface SendToChatConfig {
          *  the prompt before incremental compaction folds them into the running summary.
          *  Per-configuration `rawTurnsKept` takes precedence. */
         rawTurnsKept?: number;
+        /**
+         * Round-based trigger for compaction + memory extraction. A "round"
+         * is one completed user→assistant exchange. The uncompacted accumulator
+         * (`compaction_rounds.json`, sibling of `history.json`) grows by one
+         * round per turn; when it reaches this threshold compaction fires,
+         * folds the oldest `length - rawTurnsKept` rounds into the running
+         * summary, and shrinks back to `rawTurnsKept`. Memory extraction runs
+         * in the same pass (controlled by `runMemoryExtractionOnCompaction`).
+         *
+         * Default 15. Used for both history compaction and memory extraction
+         * so they share a single cadence — the prompt prefix (system +
+         * compactedSummary) stays cache-stable for N-1 turns at a time.
+         *
+         * Also used as the chunk size when rebuilding history from trail
+         * files: the trail is processed in groups of this many rounds so the
+         * rebuilt summary mirrors what live operation would have produced.
+         */
+        runEveryNRounds?: number;
         backgroundExtractionEnabled?: boolean;
         /** Whether memory extraction runs after every compaction pass. */
         runMemoryExtractionOnCompaction?: boolean;

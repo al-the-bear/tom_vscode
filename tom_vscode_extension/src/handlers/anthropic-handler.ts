@@ -30,6 +30,12 @@ import {
     HistoryMode,
 } from '../services/history-compaction';
 import { TwoTierMemoryService } from '../services/memory-service';
+import {
+    loadCompactionRounds,
+    rawTurnsToRounds,
+    roundsToRawTurns,
+    saveCompactionRounds,
+} from '../services/compaction-rounds';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 import { runAgentSdkQuery } from './agent-sdk-transport';
 import * as anthropicOutput from './anthropic-output-channels';
@@ -500,7 +506,30 @@ export class AnthropicHandler {
         try {
             const quest = TwoTierMemoryService.instance.currentQuest();
             TwoTierMemoryService.instance.clearAgentSdkSessionId(quest);
+            // Also drop the uncompacted-rounds accumulator so the next
+            // turn starts from a clean slate. The file is per-machine
+            // (gitignored); see services/compaction-rounds.ts.
+            saveCompactionRounds([], quest);
         } catch { /* best-effort */ }
+    }
+
+    /**
+     * Mirror `this.rawTurns` into the per-machine accumulator file
+     * (`_ai/quests/<quest>/history/compaction_rounds.json`). The
+     * accumulator is the same content as the `rawTurns` half of
+     * `history.json`, just grouped into `[user, assistant]` rounds
+     * and stored in a gitignored file so per-machine cadence survives
+     * git pulls. Called from every site that mutates `rawTurns`
+     * alongside `persistSessionHistory()`.
+     */
+    private persistCompactionRounds(questId?: string): void {
+        try {
+            const rounds = rawTurnsToRounds(this.rawTurns);
+            saveCompactionRounds(rounds, questId);
+        } catch {
+            // best-effort — accumulator can be rebuilt from history.json
+            // or the trail files if the write fails
+        }
     }
 
     /**
@@ -536,6 +565,17 @@ export class AnthropicHandler {
                     // immediately after seeding, so a legacy snapshot
                     // with hundreds of turns gets bounded before any
                     // wire payload is built.
+                }
+                // Prefer the per-machine accumulator (compaction_rounds.json)
+                // over the rawTurns half of the shared history.json. The
+                // accumulator is the local truth; history.json's rawTurns
+                // is a snapshot from whichever machine last persisted it,
+                // and may be stale on a multi-machine setup. The
+                // compactedSummary above always wins from history.json
+                // because that's the shared summary both machines agree on.
+                const accumulator = loadCompactionRounds(questId);
+                if (accumulator && accumulator.rounds.length > 0) {
+                    this.rawTurns = roundsToRawTurns(accumulator.rounds).filter(isConversationMessage);
                 }
                 return;
             }
@@ -622,6 +662,7 @@ export class AnthropicHandler {
         historyMaxChars: number;
         memoryMaxChars: number;
         rawTurnsKept: number;
+        runEveryNRounds: number;
         toolTrailMaxResultChars: number;
         toolTrailKeepRounds: number;
         fullTrailMaxTurns: number;
@@ -640,6 +681,7 @@ export class AnthropicHandler {
             historyMaxChars?: number;
             memoryMaxChars?: number;
             rawTurnsKept?: number;
+            runEveryNRounds?: number;
             toolTrailMaxResultChars?: number;
             toolTrailKeepRounds?: number;
             fullTrailMaxTurns?: number;
@@ -658,6 +700,7 @@ export class AnthropicHandler {
             historyMaxChars: Number.isFinite(section.historyMaxChars) ? (section.historyMaxChars as number) : 24000,
             memoryMaxChars: Number.isFinite(section.memoryMaxChars) ? (section.memoryMaxChars as number) : 8000,
             rawTurnsKept: Number.isFinite(section.rawTurnsKept) ? (section.rawTurnsKept as number) : 4,
+            runEveryNRounds: Number.isFinite(section.runEveryNRounds) ? Math.max(1, section.runEveryNRounds as number) : 15,
             toolTrailMaxResultChars: Number.isFinite(section.toolTrailMaxResultChars) ? (section.toolTrailMaxResultChars as number) : 1000,
             toolTrailKeepRounds: Number.isFinite(section.toolTrailKeepRounds) ? (section.toolTrailKeepRounds as number) : 2,
             fullTrailMaxTurns: Number.isFinite(section.fullTrailMaxTurns) ? (section.fullTrailMaxTurns as number) : 200,
@@ -854,14 +897,21 @@ export class AnthropicHandler {
                 if (typeof newSummary === 'string' && newSummary.trim().length > 0) {
                     this.compactedSummary = newSummary.trim();
                 }
-                // Trim raw turns to the configured rawTurnsKept (pairs ×
-                // 2 messages each). Older turns are already baked into
-                // `compactedSummary`. The seed / push paths apply the
-                // same cap; this call is for the case where compaction
-                // appended to the summary and we want the persisted
-                // snapshot to reflect the post-compaction shape.
+                // Compaction succeeded — the overflow batch (the rounds
+                // we just folded) is now baked into `compactedSummary`,
+                // so shrink the accumulator back to its post-compaction
+                // tail size (`rawTurnsKept`). The next `runEveryNRounds
+                // − rawTurnsKept` turns will repopulate the accumulator
+                // before the next firing.
                 this.trimRawTurns(caps.rawTurnsKept);
                 this.persistSessionHistory(questId);
+                // Re-write the accumulator file so the on-disk view
+                // matches the shrunk in-memory state. Without this,
+                // a restart between compaction and the next turn would
+                // restore the pre-compaction accumulator and double-count
+                // those rounds on the wire (they'd appear both in the
+                // updated summary and as raw turns again).
+                this.persistCompactionRounds(questId);
             } catch {
                 // best-effort; a failed compaction is recoverable on the next turn
             }
@@ -1145,11 +1195,15 @@ export class AnthropicHandler {
         const round = this.roundCounter;
 
         this.seedHistoryFromSnapshot(quest);
-        // Per-call cap applies on top of the seed's global-default trim,
-        // so a configuration with a higher per-config `rawTurnsKept`
-        // doesn't get clamped by the global default just because the
-        // snapshot was loaded under it. Cheap no-op when already in bounds.
-        this.trimRawTurns(this.resolveEffectiveCaps(configuration).rawTurnsKept);
+        // Per-call cap applies on top of the seed's global-default trim.
+        // Under the round-based model the cap is `runEveryNRounds` (the
+        // accumulator ceiling), NOT `rawTurnsKept` — `rawTurnsKept` is
+        // only the post-compaction tail. Trimming to `rawTurnsKept` here
+        // would wipe out the uncompacted accumulator on every send.
+        // Cheap no-op when already in bounds. Legacy snapshots with more
+        // than `runEveryNRounds * 2` messages get clipped (older content
+        // is recoverable from the trail files via the rebuild path).
+        this.trimRawTurns(this.getCompactionConfig().runEveryNRounds);
 
         // Live trail writer — appends step-by-step events to
         // `_ai/quests/<quest>/live-trail.md` as the turn runs so the
@@ -1419,17 +1473,17 @@ export class AnthropicHandler {
                 const userMsg: ConversationMessage = { role: 'user', content: userContent };
                 const assistantMsg: ConversationMessage = { role: 'assistant', content: result.text };
                 this.rawTurns.push(userMsg, assistantMsg);
-                // Re-trim before persist so the snapshot on disk matches
-                // the in-memory invariant. Independent of compaction —
-                // necessary when compaction is disabled / unconfigured.
-                this.trimRawTurns(this.resolveEffectiveCaps(configuration).rawTurnsKept);
-                // Persist the raw-turn append immediately (same as the
-                // direct-transport finalize()). Without this, the
-                // history.json / history.md files only get the new turn
-                // once background compaction completes, so inspecting
-                // the files right after a send can show a stale
-                // user-only view.
-                this.persistSessionHistory(TwoTierMemoryService.instance.currentQuest());
+                // Trim to the round-batch ceiling (runEveryNRounds), not
+                // the post-compaction tail (rawTurnsKept). Compaction only
+                // fires every runEveryNRounds rounds; until then the
+                // accumulator must keep all rounds inline so the model
+                // sees them on each call. After a successful compaction
+                // pass we shrink back to `rawTurnsKept` inside
+                // `runCompactionInBackground`.
+                this.trimRawTurns(this.getCompactionConfig().runEveryNRounds);
+                const questId = TwoTierMemoryService.instance.currentQuest();
+                this.persistSessionHistory(questId);
+                this.persistCompactionRounds(questId);
                 this.scheduleBackgroundCompactionAndExtraction([userMsg, assistantMsg], false, configuration);
             }
             // Close the live-trail block for this turn.
@@ -2252,14 +2306,15 @@ export class AnthropicHandler {
             const userMsg: ConversationMessage = { role: 'user', content: userContent };
             const assistantMsg: ConversationMessage = { role: 'assistant', content: text };
             this.rawTurns.push(userMsg, assistantMsg);
-            // Re-trim before persist so the snapshot on disk matches
-            // the in-memory invariant. Independent of compaction —
-            // necessary when compaction is disabled / unconfigured.
-            this.trimRawTurns(this.resolveEffectiveCaps(configuration).rawTurnsKept);
-            // Persist the raw-turn append *now* (before compaction
-            // finishes) so a crash during compaction doesn't lose this
-            // exchange.
-            this.persistSessionHistory(TwoTierMemoryService.instance.currentQuest());
+            // Trim to the round-batch ceiling (runEveryNRounds), not the
+            // post-compaction tail. See the matching comment in the
+            // Agent-SDK branch above for the rationale — every-N-rounds
+            // compaction needs the accumulator to hold up to
+            // runEveryNRounds rounds verbatim before it fires.
+            this.trimRawTurns(this.getCompactionConfig().runEveryNRounds);
+            const questId = TwoTierMemoryService.instance.currentQuest();
+            this.persistSessionHistory(questId);
+            this.persistCompactionRounds(questId);
             this.scheduleBackgroundCompactionAndExtraction([userMsg, assistantMsg], false, configuration);
         }
 
@@ -2306,13 +2361,34 @@ export class AnthropicHandler {
         // get written.
         const override = configuration?.compactionOverride;
         if (override === 'off') { return; }
-        if (override !== 'on' && this.getCompactionConfig().disabled) { return; }
+        const cfg = this.getCompactionConfig();
+        if (override !== 'on' && cfg.disabled) { return; }
+        // Round-based trigger (spec — `compaction.runEveryNRounds`).
+        // Compaction + memory extraction now fire only once every N
+        // completed rounds, not on every turn. Between firings the
+        // prompt prefix (system + compactedSummary) stays cache-stable
+        // — every new turn just appends to the accumulator. When the
+        // threshold is hit, the OVERFLOW (oldest `roundCount −
+        // rawTurnsKept` rounds) is folded into the summary in one
+        // batch, then the accumulator shrinks back to `rawTurnsKept`.
+        const caps = configuration
+            ? this.resolveEffectiveCaps(configuration)
+            : { rawTurnsKept: cfg.rawTurnsKept };
+        const roundCount = Math.floor(this.rawTurns.length / 2);
+        if (roundCount < cfg.runEveryNRounds || roundCount <= caps.rawTurnsKept) {
+            // Threshold not reached, or no overflow to fold yet — `lastExchange`
+            // is held in the accumulator and will be folded with the rest of
+            // the batch when the next firing comes around.
+            return;
+        }
+        const overflowMessageCount = (roundCount - caps.rawTurnsKept) * 2;
+        const batch = this.rawTurns.slice(0, overflowMessageCount);
         const questId = TwoTierMemoryService.instance.currentQuest();
         // Compaction runs first; memory extraction reads `this.compactedSummary`
         // so it benefits from any just-written summary. Each pass is a
         // separate promise so sendMessage can await them independently
         // and emit precise status updates.
-        this.compactionInFlight = this.runCompactionInBackground(lastExchange, questId, configuration)
+        this.compactionInFlight = this.runCompactionInBackground(batch, questId, configuration)
             .finally(() => { this.compactionInFlight = null; });
         this.memoryExtractionInFlight = (async () => {
             try {
@@ -2322,11 +2398,17 @@ export class AnthropicHandler {
                 if (this.compactionInFlight) {
                     try { await this.compactionInFlight; } catch { /* already handled */ }
                 }
-                await this.runMemoryExtractionInBackground(lastExchange, questId, configuration);
+                await this.runMemoryExtractionInBackground(batch, questId, configuration);
             } catch {
                 // swallowed
             }
         })().finally(() => { this.memoryExtractionInFlight = null; });
+        // Silence the unused-param warning — `lastExchange` is preserved
+        // in the signature for callers that still pass the just-completed
+        // round (useful for future per-exchange instrumentation), but the
+        // scheduler now derives the actual batch from `this.rawTurns` so
+        // accumulated rounds across previous turns are folded together.
+        void lastExchange;
     }
 
     // ------------------------------------------------------------------------
