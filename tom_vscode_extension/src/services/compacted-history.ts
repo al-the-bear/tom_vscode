@@ -102,15 +102,22 @@ export function parseBlocks(text: string): Block[] {
         const created = attrs.created;
         if (!created) { i++; continue; }
         const modified = attrs.modified ?? created;
-        // Collect body lines until the matching close marker (or EOF).
+        // Collect body lines until the matching close marker (or EOF). Also
+        // stop at the NEXT open marker: a botched git merge can drop a single
+        // close marker, and without this guard every following block would be
+        // swallowed into one body. Stopping here lets the parser re-sync.
         const body: string[] = [];
         i++;
-        while (i < lines.length && !BLOCK_CLOSE_RE.test(lines[i])) {
+        while (i < lines.length
+            && !BLOCK_CLOSE_RE.test(lines[i])
+            && !BLOCK_OPEN_RE.test(lines[i])) {
             body.push(lines[i]);
             i++;
         }
-        // Skip the close marker line if we found one.
-        if (i < lines.length) { i++; }
+        // Consume the close marker if that is what stopped us. A stray open
+        // marker is left in place so the outer loop re-parses it as the start
+        // of the next block.
+        if (i < lines.length && BLOCK_CLOSE_RE.test(lines[i])) { i++; }
         blocks.push({
             created,
             modified,
@@ -154,6 +161,12 @@ export function serialiseBlocks(blocks: Block[]): string {
  *
  * Tie-break when `modified` is also equal: the input's later entry wins
  * (stable behaviour for caller-controlled ordering).
+ *
+ * Assumption: `created` is a unique block identity. Two genuinely distinct
+ * blocks created in the same millisecond on two machines would collapse to
+ * one here and lose a body. With millisecond precision and the per-machine
+ * compaction cadence (blocks are created seconds-to-minutes apart, not
+ * sub-millisecond) this collision is effectively impossible in practice.
  */
 export function dedupAndSort(blocks: Block[]): Block[] {
     const byCreated = new Map<string, Block>();

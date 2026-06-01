@@ -95,6 +95,26 @@ describe('compacted-history.parseBlocks / serialiseBlocks', () => {
         const reparsed = parseBlocks(serialiseBlocks(blocks));
         assert.equal(reparsed[0].body, 'first paragraph\n\nsecond paragraph');
     });
+
+    test('re-syncs at the next open marker when a close marker is missing', () => {
+        // Simulates a botched git merge that dropped the first block's
+        // close marker. Without self-healing the second block would be
+        // swallowed into the first block's body and lost as a distinct block.
+        const text = [
+            '<!-- tom:block created="2026-01-01T00:00:00.000Z" -->',
+            'first body',
+            // <-- close marker for block 1 is MISSING here
+            '<!-- tom:block created="2026-01-02T00:00:00.000Z" -->',
+            'second body',
+            '<!-- /tom:block -->',
+        ].join('\n');
+        const parsed = parseBlocks(text);
+        assert.equal(parsed.length, 2);
+        assert.equal(parsed[0].created, '2026-01-01T00:00:00.000Z');
+        assert.equal(parsed[0].body, 'first body');
+        assert.equal(parsed[1].created, '2026-01-02T00:00:00.000Z');
+        assert.equal(parsed[1].body, 'second body');
+    });
 });
 
 describe('compacted-history.dedupAndSort', () => {
