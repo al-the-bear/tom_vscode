@@ -129,6 +129,56 @@ for PLAT_SPEC in "darwin-arm64:" "darwin-x64:" "linux-x64:" "linux-arm64:" "win3
 done
 echo "  Bundled $TOTAL_BUNDLED binaries across 5 platforms"
 
+# ── Ensure Claude Agent SDK native CLI binary for THIS host ──────────────────
+# Since SDK >=0.2.13x the Claude CLI ships as a platform-specific native binary
+# via optional deps (@anthropic-ai/claude-agent-sdk-<platform>) rather than a
+# bundled cli.js. `vsce package` only includes what is physically present in
+# node_modules, so a vsix is portable only for the host it was built on. We
+# build and install on the same machine, so we only ensure the host binary is
+# present. Older SDKs that still bundle cli.js need nothing. Missing it yields:
+#   "Native CLI binary for <platform>-<arch> not found ..."
+echo ""
+echo "📦 Ensuring Claude Agent SDK native CLI binary for this host..."
+SDK_PKG_DIR="$SCRIPT_DIR/node_modules/@anthropic-ai/claude-agent-sdk"
+if [ -f "$SDK_PKG_DIR/cli.js" ]; then
+    echo "  ✔ SDK bundles cli.js — no per-platform binary needed"
+elif [ -d "$SDK_PKG_DIR" ]; then
+    # Map the running host to the SDK's platform package suffix.
+    case "$(uname -s)" in
+        Linux)  SDK_OS="linux" ;;
+        Darwin) SDK_OS="darwin" ;;
+        *)      SDK_OS="unknown" ;;
+    esac
+    case "$(uname -m)" in
+        x86_64|amd64)   SDK_ARCH="x64" ;;
+        arm64|aarch64)  SDK_ARCH="arm64" ;;
+        *)              SDK_ARCH="unknown" ;;
+    esac
+    HOST_PLAT="$SDK_OS-$SDK_ARCH"
+    # musl libc (e.g. Alpine) uses a distinct binary package.
+    if [ "$SDK_OS" = "linux" ] && ldd --version 2>&1 | grep -qi musl; then
+        HOST_PLAT="$HOST_PLAT-musl"
+    fi
+    SDK_VER="$(node -p "require('$SDK_PKG_DIR/package.json').version")"
+    HOST_PKG="@anthropic-ai/claude-agent-sdk-$HOST_PLAT"
+    if [ -d "$SCRIPT_DIR/node_modules/@anthropic-ai/claude-agent-sdk-$HOST_PLAT" ]; then
+        echo "  ✔ $HOST_PKG already present"
+    else
+        echo "  ⬇  installing $HOST_PKG@$SDK_VER ..."
+        # --no-save / --no-package-lock keep the committed manifests untouched;
+        # we only need the binary physically in node_modules for packaging.
+        if npm install --no-save --no-package-lock "$HOST_PKG@$SDK_VER"; then
+            echo "  ✔ $HOST_PKG@$SDK_VER"
+        else
+            echo "  ❌ Failed to install $HOST_PKG@$SDK_VER"
+            echo "     The packaged extension will fail at runtime on this host."
+            exit 1
+        fi
+    fi
+else
+    echo "  ⚠️  @anthropic-ai/claude-agent-sdk not found in node_modules — run 'npm install' first"
+fi
+
 # Package as VSIX
 echo ""
 echo "📦 Packaging extension as VSIX..."

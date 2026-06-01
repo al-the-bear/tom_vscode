@@ -166,6 +166,46 @@ if ($CodeCli) {
         Write-Host "Bundled $TotalBundled binaries across $($Platforms.Count) platforms"
         Write-Host ""
 
+        # ── Ensure Claude Agent SDK native CLI binary for THIS host ──────────
+        # Since SDK >=0.2.13x the Claude CLI ships as a platform-specific native
+        # binary via optional deps (@anthropic-ai/claude-agent-sdk-<platform>)
+        # rather than a bundled cli.js. `vsce package` only includes what is
+        # physically present in node_modules, so a vsix is portable only for the
+        # host it was built on. We build and install on the same machine, so we
+        # only ensure the host binary is present. Older SDKs that still bundle
+        # cli.js need nothing. Missing it yields at runtime:
+        #   "Native CLI binary for <platform>-<arch> not found ..."
+        Write-Host "Ensuring Claude Agent SDK native CLI binary for this host..."
+        $SdkPkgDir = Join-Path $ExtensionDir 'node_modules/@anthropic-ai/claude-agent-sdk'
+        if (Test-Path (Join-Path $SdkPkgDir 'cli.js')) {
+            Write-Host "  SDK bundles cli.js - no per-platform binary needed"
+        } elseif (Test-Path $SdkPkgDir) {
+            $arch = switch ($env:PROCESSOR_ARCHITECTURE) {
+                'ARM64' { 'arm64' }
+                default { 'x64' }
+            }
+            $HostPlat = "win32-$arch"
+            $SdkPkgJson = ($SdkPkgDir -replace '\\', '/') + '/package.json'
+            $SdkVer = (node -p "require('$SdkPkgJson').version")
+            $HostPkg = "@anthropic-ai/claude-agent-sdk-$HostPlat"
+            $HostPkgDir = Join-Path $ExtensionDir "node_modules/@anthropic-ai/claude-agent-sdk-$HostPlat"
+            if (Test-Path $HostPkgDir) {
+                Write-Host "  $HostPkg already present"
+            } else {
+                Write-Host "  Installing $HostPkg@$SdkVer ..."
+                # --no-save / --no-package-lock keep the committed manifests
+                # untouched; we only need the binary in node_modules to package.
+                npm install --no-save --no-package-lock "$HostPkg@$SdkVer"
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Error "Failed to install $HostPkg@$SdkVer - the packaged extension would fail at runtime on this host."
+                    exit 1
+                }
+            }
+        } else {
+            Write-Warning "@anthropic-ai/claude-agent-sdk not found in node_modules - run 'npm install' first"
+        }
+        Write-Host ""
+
         cmd /c vsce package --allow-missing-repository --skip-license --baseContentUrl https://github.com/al-the-bear/tom/blob/main/tom_dartscript_extension
         
         if ($LASTEXITCODE -eq 0) {
