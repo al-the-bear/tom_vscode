@@ -56,6 +56,16 @@ fi
 
 echo ""
 
+# Install / update dependencies (incl. the host-platform Claude Agent SDK
+# native CLI binary, which ships as an optional dependency).
+echo "📦 Installing npm dependencies..."
+npm install
+
+if [ $? -ne 0 ]; then
+    echo "❌ npm install failed"
+    exit 1
+fi
+
 # Compile TypeScript
 echo "📦 Compiling TypeScript..."
 npm run compile
