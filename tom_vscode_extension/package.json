@@ -265,6 +265,11 @@
                 "category": "@Tom"
             },
             {
+                "command": "tomAi.migrate.compactionFormat",
+                "title": "@T: Migrate compaction format (block-format + single-line memory)",
+                "category": "@Tom"
+            },
+            {
                 "command": "tomAi.openConfig",
                 "title": "@T: Open Config",
                 "category": "@Tom"
@@ -2807,7 +2812,8 @@
         "watch": "tsc -watch -p ./",
         "pretest": "npm run compile",
         "test:tools": "node --test --test-concurrency=1 out/tools/__tests__/*.test.js",
-        "test": "npm run test:tools && npm run audit:tools",
+        "test:services": "node --test --test-concurrency=1 out/services/__tests__/*.test.js",
+        "test": "npm run test:tools && npm run test:services && npm run audit:tools",
         "audit:tools": "node scripts/audit-tool-coverage.cjs",
         "lint": "eslint src --ext ts"
     },

@@ -955,6 +955,36 @@ function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
+    // One-shot migration: legacy `history.json` + free-form memory
+    // bullets → block-format `compacted_history.md` + single-line
+    // memory entries. Idempotent — re-running after a partial pass is
+    // safe.
+    const migrateCompactionFormatCmd = vscode.commands.registerCommand(
+        'tomAi.migrate.compactionFormat',
+        async () => {
+            const { migrateCompactionFormat } = await import('./services/compaction-migration.js');
+            const out = vscode.window.createOutputChannel('Tom AI: Compaction Migration');
+            out.show(true);
+            out.appendLine('Tom AI: starting compaction-format migration…');
+            const report = migrateCompactionFormat({
+                onProgress: (msg: string) => out.appendLine(msg),
+            });
+            const summary =
+                `Tom AI migration complete — ` +
+                `${report.questsMigrated}/${report.questsScanned} quest(s) migrated, ` +
+                `${report.memoryFilesMigrated}/${report.memoryFilesScanned} memory file(s) migrated.`;
+            out.appendLine('---');
+            out.appendLine(summary);
+            if (report.questsFailed > 0 || report.memoryFilesFailed > 0) {
+                vscode.window.showWarningMessage(
+                    `${summary} ${report.questsFailed} quest + ${report.memoryFilesFailed} memory failure(s) — see "Tom AI: Compaction Migration" output channel.`,
+                );
+            } else {
+                vscode.window.showInformationMessage(summary);
+            }
+        }
+    );
+
     // Add all commands to subscriptions
     context.subscriptions.push(
         sendToChatCmd,
@@ -991,7 +1021,8 @@ function registerCommands(context: vscode.ExtensionContext) {
         showStatusPageCmd,
         focusTomSidebarCmd,
         openInMdViewerCmd,
-        openExtensionSettingsCmd
+        openExtensionSettingsCmd,
+        migrateCompactionFormatCmd
     );
 }
 

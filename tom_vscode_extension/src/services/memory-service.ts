@@ -14,6 +14,7 @@
  */
 
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { FsUtils } from '../utils/fsUtils';
@@ -44,6 +45,113 @@ const DEFAULT_MAX_INJECTED_TOKENS = 3000;
 // budgeting doesn't need to be exact — the server tokeniser is the final
 // authority anyway.
 const CHARS_PER_TOKEN = 4;
+
+// ============================================================================
+// Single-line bullet format (block-format redesign)
+// ============================================================================
+
+/**
+ * Memory entries now live as one-line bullets carrying their own
+ * provenance:
+ *
+ *   `- <iso-ts> [<host>] <text>`
+ *
+ * The leading `- ` keeps every entry a valid markdown bullet so files
+ * still render cleanly when opened directly in an editor. The
+ * timestamp + host make merging across machines lossless — two
+ * machines extracting the same fact at different times produce two
+ * lines whose `(ts, text)` keys differ, so the union via dedup picks
+ * up both. Same machine extracting the same fact at the same iso
+ * second is deduped on read.
+ *
+ * Legacy lines (anything without the leading-timestamp prefix) are
+ * stripped on read. The migration command (one-shot) grandfathers
+ * legacy content into the new format by stamping each unstamped line
+ * with the file's mtime + the `[legacy]` host marker.
+ */
+export interface MemoryEntry {
+    /** ISO-8601 timestamp the entry was first written. */
+    ts: string;
+    /** Host that produced the entry; `os.hostname()` at write time, or `legacy` for migrated content. */
+    host: string;
+    /** Entry text — already stripped of the `- <ts> [<host>] ` prefix. */
+    text: string;
+}
+
+const ENTRY_RE = /^-\s+(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2}))\s+\[([^\]]*)\]\s+(.+)$/;
+
+/**
+ * Parse a memory file body into typed entries.
+ *
+ * Drops every line that doesn't match the `- <iso> [<host>] <text>`
+ * shape. Headings, blank lines, and legacy bullets without timestamps
+ * are filtered out — the migration command is responsible for
+ * grandfathering legacy lines before any normal write triggers this
+ * read.
+ */
+export function parseMemoryEntries(body: string): MemoryEntry[] {
+    if (!body) { return []; }
+    const out: MemoryEntry[] = [];
+    for (const line of body.split(/\r?\n/)) {
+        const m = ENTRY_RE.exec(line);
+        if (!m) { continue; }
+        out.push({ ts: m[1], host: m[2], text: m[3].trim() });
+    }
+    return out;
+}
+
+/**
+ * Serialise entries to disk format — one bullet per line, newest first
+ * (so head-bounded reads at compaction time preserve the freshest
+ * entries). The output always ends with a single trailing newline so
+ * the file is POSIX-clean.
+ */
+export function serialiseMemoryEntries(entries: MemoryEntry[]): string {
+    if (entries.length === 0) { return ''; }
+    return entries
+        .map((e) => `- ${e.ts} [${e.host}] ${e.text}`)
+        .join('\n') + '\n';
+}
+
+/**
+ * Dedup by `(ts, text)` then sort newest-first. Stable for tied
+ * timestamps (entries with identical `ts` retain input order). When
+ * two machines write the same fact at the same iso second under
+ * different hosts, both entries survive — they share `(ts, text)` only
+ * if both `ts` and `text` are byte-identical.
+ */
+export function dedupAndSortEntries(entries: MemoryEntry[]): MemoryEntry[] {
+    const seen = new Map<string, MemoryEntry>();
+    for (const e of entries) {
+        const key = `${e.ts}${e.text}`;
+        if (!seen.has(key)) {
+            seen.set(key, e);
+        }
+    }
+    // Newest first. localeCompare on ISO-8601 is lexicographic = chronological.
+    return Array.from(seen.values()).sort((a, b) => b.ts.localeCompare(a.ts));
+}
+
+/**
+ * Strip the canonical prefix from a candidate entry line, returning
+ * just the text. If the line is plain text (no prefix), it's returned
+ * unchanged so callers can stamp it themselves.
+ */
+export function entryTextFromLine(line: string): string {
+    const m = ENTRY_RE.exec(line);
+    return m ? m[3].trim() : line.trim().replace(/^[-*+]\s+/, '').trim();
+}
+
+const HOST_NAME = (() => {
+    try {
+        return os.hostname() || 'unknown';
+    } catch {
+        return 'unknown';
+    }
+})();
+
+/** Internal-use helper for tests: the host stamp this process writes with. */
+export function currentMemoryHost(): string { return HOST_NAME; }
 
 export class TwoTierMemoryService {
     private static _instance: TwoTierMemoryService | undefined;
@@ -111,20 +219,72 @@ export class TwoTierMemoryService {
     }
 
     /**
-     * Prepend `content` to the top of `file`. Used for memory files so
-     * the newest entries sit on top and the oldest fall off the bottom
-     * when the file is head-bounded at inject time. Separates the new
-     * content and the existing content with a single blank line.
+     * Add new memory entries to `file`. Used for memory files so the
+     * newest entries sit on top and the oldest fall off the bottom
+     * when the file is head-bounded at inject time.
+     *
+     * **Format change (block-format redesign)**: entries are now
+     * persisted as single-line bullets carrying their own timestamp +
+     * host:
+     *
+     *     `- 2026-06-01T08:45:07.182Z [mbp.local] User prefers terse commits.`
+     *
+     * Each line in `content` becomes one entry, stamped with the
+     * current time + `os.hostname()`. Lines already in canonical form
+     * (carry a leading-timestamp prefix) are taken at face value — the
+     * caller has already done the stamping (e.g. the migration command
+     * stamping legacy lines with the file mtime). On write the full
+     * file is re-serialised in canonical form: existing legacy lines
+     * (those without timestamps) are stripped, all entries are
+     * deduped by `(ts, text)`, and the result is sorted newest-first.
+     *
+     * Name kept as `prepend` for back-compat; semantics are now
+     * "merge-and-sort" rather than literal prepend, but the on-disk
+     * visual ordering (newest at top) is preserved.
      */
     prepend(scope: MemoryScope, file: string, content: string, questId?: string): void {
-        const existing = this.read(scope, file, questId);
-        const trimmedNew = content.trimEnd();
-        if (!existing) {
-            this.write(scope, file, `${trimmedNew}\n`, questId);
-            return;
+        const stamped = this.stampNewLines(content);
+        const existing = parseMemoryEntries(this.read(scope, file, questId));
+        const combined = dedupAndSortEntries([...stamped, ...existing]);
+        this.write(scope, file, serialiseMemoryEntries(combined), questId);
+    }
+
+    /**
+     * Append entries that are already in canonical form (one bullet per
+     * line carrying their own `<ts>` + `[<host>]`). The migration
+     * command uses this to inject grandfathered legacy lines without
+     * re-stamping them. Same dedup/sort treatment as `prepend`.
+     */
+    prependStamped(scope: MemoryScope, file: string, lines: string[], questId?: string): void {
+        const fresh = parseMemoryEntries(lines.join('\n'));
+        const existing = parseMemoryEntries(this.read(scope, file, questId));
+        const combined = dedupAndSortEntries([...fresh, ...existing]);
+        this.write(scope, file, serialiseMemoryEntries(combined), questId);
+    }
+
+    /**
+     * Turn a multi-line `content` blob into stamped entries. Lines that
+     * already carry a canonical prefix are accepted verbatim (parsed
+     * back into typed entries); plain bullet lines get a fresh `(now,
+     * host)` stamp; blank lines are dropped.
+     */
+    private stampNewLines(content: string): MemoryEntry[] {
+        const now = new Date().toISOString();
+        const out: MemoryEntry[] = [];
+        for (const raw of content.split(/\r?\n/)) {
+            const line = raw.trim();
+            if (!line) { continue; }
+            const m = ENTRY_RE.exec(line);
+            if (m) {
+                out.push({ ts: m[1], host: m[2], text: m[3].trim() });
+                continue;
+            }
+            // Plain bullet (or unmarked text) — stamp it.
+            const text = line.replace(/^[-*+]\s+/, '').trim();
+            if (!text) { continue; }
+            out.push({ ts: now, host: HOST_NAME, text });
         }
-        const head = existing.startsWith('\n') ? existing.trimStart() : existing;
-        this.write(scope, file, `${trimmedNew}\n\n${head}`, questId);
+        return out;
     }
 
     /**

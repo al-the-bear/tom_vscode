@@ -814,13 +814,33 @@ async function runLlmExtract(
  * empty string on failure). Callers assign it to their session state
  * atomically.
  *
- * Template placeholders: `${existingSummary}`, `${lastTurn}`,
- * `${maxHistoryTokens}`, `${maxHistorySize}` (char target = tokens × 4),
- * `${historyMaxChars}` (hard cap on injected history size — use this
- * to steer the LLM toward a summary that fits), `${lastTurnCharCount}`.
+ * Template placeholders:
+ *   - `${existingBlocks}`     — block-formatted prior state (with
+ *                               `created` stamps preserved, `modified`
+ *                               stamps stripped). Preferred for the
+ *                               new block-based template.
+ *   - `${existingSummary}`    — backward-compatibility view: the
+ *                               concatenated bodies of `existingBlocks`
+ *                               without markers. Kept so legacy
+ *                               templates (`default-compaction` before
+ *                               the redesign) still resolve.
+ *   - `${lastTurn}`           — formatted user/assistant pair(s).
+ *   - `${lastTurnCharCount}`  — length of `lastTurn` text.
+ *   - `${maxHistoryTokens}`   — target output budget in tokens.
+ *   - `${maxHistorySize}`     — char target = tokens × 4.
+ *   - `${historyMaxChars}`    — hard cap on injected history size.
+ *
+ * On `existingBlocks`:
+ *   - When `params.existingBlocks` is a non-empty string the caller
+ *     has already serialised the blocks for LLM display. Used by the
+ *     new block-based template.
+ *   - When omitted, the old `existingSummary` text is wrapped in a
+ *     single synthetic block so legacy callers keep working.
  */
 export async function runIncrementalCompaction(params: {
     existingSummary: string;
+    /** LLM-facing serialised view of existing blocks (no `modified` stamps). */
+    existingBlocks?: string;
     lastTurn: ConversationMessage[];
     llmProvider: CompactionLlmProvider;
     llmConfigId: string;
@@ -846,8 +866,10 @@ export async function runIncrementalCompaction(params: {
     // context. Prefer the newest portion (tail) since that's the part
     // that integrates with the new turn.
     const boundedExisting = tailBounded(params.existingSummary, historyCap, 'existing summary');
+    const boundedBlocks = tailBounded(params.existingBlocks ?? '', historyCap, 'existing blocks');
     const userPrompt = expandTemplate(tpl.template, {
         existingSummary: boundedExisting || '(empty — this is the first turn of the session)',
+        existingBlocks: boundedBlocks || '(empty — no prior blocks; emit the first block(s) for this session)',
         lastTurn: lastTurnText,
         lastTurnCharCount: String(params.lastTurn.reduce((n, m) => n + (m.content?.length ?? 0), 0)),
         maxHistorySize: String(budget * CHARS_PER_TOKEN),
