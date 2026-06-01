@@ -659,6 +659,19 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         vscode.window.showInformationMessage('Recreating quest memory from the trail files in chunks…');
                         break;
                     }
+                    case 'openQuestHistoryInMdBrowser':
+                        // Routes through the same helper as the legacy
+                        // "Open Session History" entry point — both end
+                        // up at `_ai/quests/<quest>/history/history.md`
+                        // in a fresh MD Browser panel.
+                        await this._openSessionHistoryMarkdown();
+                        break;
+                    case 'openQuestMemoryInMdBrowser':
+                        await this._openMemoryMarkdown('quest');
+                        break;
+                    case 'openSharedMemoryInMdBrowser':
+                        await this._openMemoryMarkdown('shared');
+                        break;
                     case 'openGlobalTemplateEditor':
                         await vscode.commands.executeCommand('tomAi.editor.promptTemplates');
                         break;
@@ -1917,6 +1930,29 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         if (!fs.existsSync(target)) {
             vscode.window.showInformationMessage(
                 `No session history yet for quest "${questId || 'default'}". The history file is written after the first completed turn (${target}).`,
+            );
+            return;
+        }
+        const uri = vscode.Uri.file(target);
+        await vscode.commands.executeCommand('tomAi.openInMdBrowser', uri);
+    }
+
+    /**
+     * Open the canonical memory file for `scope` in the MD Browser.
+     * Both quest-scoped and shared-scoped memory live as `facts.md`
+     * inside `_ai/memory/<scope>/` (see TwoTierMemoryService's
+     * `scopeFolder()` + `filePath()`); the default memory-extraction
+     * template writes there. When the file is missing we surface an
+     * informational notice naming the path the next extraction pass
+     * would create — same pattern as `_openSessionHistoryMarkdown`.
+     */
+    private async _openMemoryMarkdown(scope: 'quest' | 'shared'): Promise<void> {
+        const questId = WsPaths.getWorkspaceQuestId() ?? TwoTierMemoryService.instance.currentQuest() ?? '';
+        const target = TwoTierMemoryService.instance.filePath(scope, 'facts.md', questId || undefined);
+        const scopeLabel = scope === 'shared' ? 'shared' : `quest "${questId || 'default'}"`;
+        if (!fs.existsSync(target)) {
+            vscode.window.showInformationMessage(
+                `No ${scopeLabel} memory yet. The file is written after the first memory-extraction pass that finds something memory-worthy (${target}).`,
             );
             return;
         }
@@ -3415,6 +3451,9 @@ function getSectionContent(id) {
                 '<button class="icon-btn" data-action="openStatusPage" data-id="anthropic" title="Open Extension Status Page"><span class="codicon codicon-dashboard"></span></button>' +
                 '<button class="icon-btn" data-action="recreateHistoryFromTrail" data-id="anthropic" title="Recreate history.json from the prompt/answer trail files. Uses the &quot;Rebuild from last N prompts&quot; window from the Compaction settings and folds rounds in chunks of &quot;Run every N rounds − Raw turn pairs kept&quot;."><span class="codicon codicon-history"></span></button>' +
                 '<button class="icon-btn" data-action="recreateMemoryFromTrail" data-id="anthropic" title="Recreate quest memory from the prompt/answer trail files. Same windowing as Recreate History; the memory-extraction template is responsible for deduping against existing memory."><span class="codicon codicon-database"></span></button>' +
+                '<button class="icon-btn" data-action="openQuestHistoryInMdBrowser" data-id="anthropic" title="Open quest history (history.md) in the MD Browser"><span class="codicon codicon-book"></span></button>' +
+                '<button class="icon-btn" data-action="openQuestMemoryInMdBrowser" data-id="anthropic" title="Open quest memory (facts.md for the active quest) in the MD Browser"><span class="codicon codicon-notebook"></span></button>' +
+                '<button class="icon-btn" data-action="openSharedMemoryInMdBrowser" data-id="anthropic" title="Open shared memory (facts.md in the workspace-wide _ai/memory/shared/) in the MD Browser"><span class="codicon codicon-library"></span></button>' +
                 '<label style="margin-left:6px;">Available Models:</label>' +
                 '<select id="anthropic-model" style="max-width:240px;" title="Read-only list of models returned by the Anthropic API. The selected configuration controls which model is actually used."><option value="">(loading...)</option></select>' +
                 '<button class="icon-btn" data-action="refreshAnthropicModels" data-id="anthropic" title="Refresh models from API"><span class="codicon codicon-refresh"></span></button>' +
@@ -3717,6 +3756,9 @@ function handleAction(action, id, slot) {
         case 'openStatusPage': vscode.postMessage({ type: 'openStatusPage' }); break;
         case 'recreateHistoryFromTrail': vscode.postMessage({ type: 'recreateHistoryFromTrail' }); break;
         case 'recreateMemoryFromTrail': vscode.postMessage({ type: 'recreateMemoryFromTrail' }); break;
+        case 'openQuestHistoryInMdBrowser': vscode.postMessage({ type: 'openQuestHistoryInMdBrowser' }); break;
+        case 'openQuestMemoryInMdBrowser': vscode.postMessage({ type: 'openQuestMemoryInMdBrowser' }); break;
+        case 'openSharedMemoryInMdBrowser': vscode.postMessage({ type: 'openSharedMemoryInMdBrowser' }); break;
         case 'openGlobalTemplateEditor': vscode.postMessage({ type: 'openGlobalTemplateEditor' }); break;
         case 'openReusablePromptEditor': vscode.postMessage({ type: 'openReusablePromptEditor' }); break;
         case 'openContextSettingsEditor': vscode.postMessage({ type: 'openContextSettingsEditor' }); break;
