@@ -241,17 +241,35 @@ function renderEntry(item, idx) {
   var safeId = escapeJsSingleQuoted(item.id);
   var currentRepeatNumber = repeatCount > 0 ? Math.min(repeatIndex + 1, repeatCount) : 0;
 
-  // Main prompt repeat progress: "MP 1/3 (varName)" with input + skip button when sending/staged
+  // Main prompt repeat progress: "MP 1/3 (varName)" with input + skip button when sending/staged.
+  // For staged/pending, also expose the start-rep-number as an input so the
+  // user can skip ahead (or replay) a specific rep without round-tripping
+  // through a tools call. Value is 1-based to match the displayed format
+  // (currentRepeatNumber = repeatIndex + 1); the JS wrapper translates back
+  // to the 0-based repeatIndex.
   var mainRepeatLabel = formatRepeatLabel(repeatCountRaw, item.repeatIndex, item.resolvedRepeatCount);
   var repeatProgress = '';
+  var mpStartNumber = Math.max(1, repeatIndex + 1);
   if (mainRepeatLabel || isSending || isStaged || isPending) {
-    if (mainRepeatLabel) {
-      repeatProgress = '  [MP ' + mainRepeatLabel;
+    if (isStaged || isPending) {
+      // Replace the static "current rep number" portion of the label with
+      // an editable input. The label was only synthesised above for the
+      // non-editable path, so we re-render the count-side manually here.
+      repeatProgress = '  [MP <input type="text" value="' + mpStartNumber
+        + '" style="width:28px" title="Main-prompt start rep number — 1-based; the next dispatch will fire this rep" placeholder="1"'
+        + ' onclick="event.stopPropagation()" onkeydown="submitRepeatStartIndexFromStatus(event, \\'' + safeId + '\\', this)">/'
+        + '<input type="text" value="' + escapeHtml(repeatCountDisplay)
+        + '" style="width:38px" title="Update main prompt repeat count (Enter)" placeholder="1 or var" onclick="event.stopPropagation()"'
+        + ' onkeydown="submitRepeatCountFromStatus(event, \\'' + safeId + '\\', ' + repeatIndex + ', this)">';
     } else {
-      repeatProgress = '  [MP ';
-    }
-    if (isSending || isStaged || isPending) {
-      repeatProgress += ' <input type="text" value="' + escapeHtml(repeatCountDisplay) + '" style="width:38px" title="Update main prompt repeat count (Enter)" placeholder="1 or var" onclick="event.stopPropagation()" onkeydown="submitRepeatCountFromStatus(event, \\'' + safeId + '\\', ' + repeatIndex + ', this)">';
+      if (mainRepeatLabel) {
+        repeatProgress = '  [MP ' + mainRepeatLabel;
+      } else {
+        repeatProgress = '  [MP ';
+      }
+      if (isSending) {
+        repeatProgress += ' <input type="text" value="' + escapeHtml(repeatCountDisplay) + '" style="width:38px" title="Update main prompt repeat count (Enter)" placeholder="1 or var" onclick="event.stopPropagation()" onkeydown="submitRepeatCountFromStatus(event, \\'' + safeId + '\\', ' + repeatIndex + ', this)">';
+      }
     }
     if (isSending && mainRepeatLabel) {
       repeatProgress += ' <span class="codicon codicon-debug-step-over" style="cursor:pointer;font-size:11px;" onclick="event.stopPropagation();continueSending(\\'' + safeId + '\\')" title="Skip to next iteration"></span>';
@@ -268,10 +286,21 @@ function renderEntry(item, idx) {
   var tplRepeatProgress = '';
   var tplCurrent = Math.max(0, tplRepeatIndex);
   var tplTotal = tplRepeatIsVar ? '?' : String(Math.max(1, tplRepeatCount));
-  if (isSending || isStaged || isPending) {
+  if (isStaged || isPending) {
+    // Expose the template start index as an editable input. The
+    // display convention for templateRepeatIndex is 0-based — the
+    // user sees "0/3" for "next iteration is #1 of 3", "1/3" for
+    // "iteration 1 done, next is #2". Keep the input on the same
+    // 0-based axis to match what is already on screen.
+    tplRepeatProgress = '  [T <input type="text" value="' + tplCurrent
+      + '" style="width:28px" title="Template start iteration index — 0-based; next iteration to dispatch" placeholder="0"'
+      + ' onclick="event.stopPropagation()" onkeydown="submitTemplateStartIndexFromStatus(event, \\'' + safeId + '\\', this)">/'
+      + '<input type="text" value="' + escapeHtml(tplRepeatCountDisplay) + '" style="width:38px" title="Update template repeat total (Enter)" placeholder="1 or var" onclick="event.stopPropagation()" onkeydown="submitTemplateRepeatFromStatus(event, \\\'' + safeId + '\\\', this)">'
+      + ']';
+  } else if (isSending) {
     tplRepeatProgress = '  [T ' + tplCurrent + '/'
       + '<input type="text" value="' + escapeHtml(tplRepeatCountDisplay) + '" style="width:38px" title="Update template repeat total (Enter)" placeholder="1 or var" onclick="event.stopPropagation()" onkeydown="submitTemplateRepeatFromStatus(event, \\\'' + safeId + '\\\', this)">'
-      + (isSending && (tplRepeatCount > 1 || tplRepeatIsVar) ? ' <span class="codicon codicon-debug-step-over" style="cursor:pointer;font-size:11px;" onclick="event.stopPropagation();continueSending(\\'' + safeId + '\\')" title="Skip to next template iteration"></span>' : '')
+      + ((tplRepeatCount > 1 || tplRepeatIsVar) ? ' <span class="codicon codicon-debug-step-over" style="cursor:pointer;font-size:11px;" onclick="event.stopPropagation();continueSending(\\'' + safeId + '\\')" title="Skip to next template iteration"></span>' : '')
       + ']';
   } else if (tplRepeatCount > 1 || tplRepeatIsVar) {
     tplRepeatProgress = '  [T ' + tplCurrent + '/' + tplTotal + ' (' + escapeHtml(tplRepeatCountDisplay) + ')]';
@@ -663,16 +692,25 @@ function updateItemRepeat(id, patch) {
     type: 'updateItemRepeat',
     id: id,
     repeatCount: undefined,
+    repeatIndex: undefined,
     repeatPrefix: undefined,
     repeatSuffix: undefined,
     answerWaitMinutes: undefined,
     templateRepeatCount: undefined,
+    templateRepeatIndex: undefined,
   };
   if (Object.prototype.hasOwnProperty.call(nextPatch, 'repeatCount')) {
     // Accept both number and string (variable name)
     var rcVal = String(nextPatch.repeatCount || '').trim();
     var rcNum = parseInt(rcVal, 10);
     msg.repeatCount = isNaN(rcNum) ? rcVal : Math.max(0, rcNum);
+  }
+  if (Object.prototype.hasOwnProperty.call(nextPatch, 'repeatIndex')) {
+    // 0-based start index. Caller is responsible for any 1-based → 0-based
+    // conversion (the MP status-bar input does that translation before
+    // delegating here).
+    var riVal = parseInt(String(nextPatch.repeatIndex || '0'), 10);
+    msg.repeatIndex = isNaN(riVal) ? 0 : Math.max(0, riVal);
   }
   if (Object.prototype.hasOwnProperty.call(nextPatch, 'repeatPrefix')) {
     msg.repeatPrefix = String(nextPatch.repeatPrefix || '');
@@ -687,6 +725,11 @@ function updateItemRepeat(id, patch) {
     var trcVal = String(nextPatch.templateRepeatCount || '').trim();
     var trcNum = parseInt(trcVal, 10);
     msg.templateRepeatCount = isNaN(trcNum) ? trcVal : Math.max(0, trcNum);
+  }
+  if (Object.prototype.hasOwnProperty.call(nextPatch, 'templateRepeatIndex')) {
+    // 0-based start index, matching the displayed convention.
+    var triVal = parseInt(String(nextPatch.templateRepeatIndex || '0'), 10);
+    msg.templateRepeatIndex = isNaN(triVal) ? 0 : Math.max(0, triVal);
   }
   vscode.postMessage(msg);
 }
@@ -717,6 +760,39 @@ function submitTemplateRepeatFromStatus(event, id, inputEl) {
     if (typeof inputEl.blur === 'function') { inputEl.blur(); }
   }
   updateItemRepeat(id, { templateRepeatCount: val });
+}
+// Main-prompt start rep number — 1-based input matching the displayed
+// format. Translate to 0-based repeatIndex before forwarding so the
+// manager's storage stays internally consistent.
+function submitRepeatStartIndexFromStatus(event, id, inputEl) {
+  if (!event || event.key !== 'Enter') { return; }
+  event.preventDefault();
+  event.stopPropagation();
+  var raw = String(inputEl && inputEl.value || '').trim();
+  if (!raw) return;
+  var num = parseInt(raw, 10);
+  if (isNaN(num) || num < 1) num = 1;
+  if (inputEl) {
+    inputEl.value = String(num);
+    if (typeof inputEl.blur === 'function') { inputEl.blur(); }
+  }
+  updateItemRepeat(id, { repeatIndex: num - 1 });
+}
+// Template start iteration — 0-based input (matches the displayed
+// "T 0/3" convention). Forwarded verbatim.
+function submitTemplateStartIndexFromStatus(event, id, inputEl) {
+  if (!event || event.key !== 'Enter') { return; }
+  event.preventDefault();
+  event.stopPropagation();
+  var raw = String(inputEl && inputEl.value || '').trim();
+  if (!raw) return;
+  var num = parseInt(raw, 10);
+  if (isNaN(num) || num < 0) num = 0;
+  if (inputEl) {
+    inputEl.value = String(num);
+    if (typeof inputEl.blur === 'function') { inputEl.blur(); }
+  }
+  updateItemRepeat(id, { templateRepeatIndex: num });
 }
 function updateItemTemplate(id, template) { vscode.postMessage({ type: 'updateItemTemplate', id: id, template: template || '' }); }
 function updateItemReminder(id, field, value) {

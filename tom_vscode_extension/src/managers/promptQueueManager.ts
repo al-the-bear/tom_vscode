@@ -31,7 +31,7 @@ import {
 } from '../storage/queueFileStorage';
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
-import { applyRepetitionAffixes, computeRepeatDecision, convertStagedToPending, shouldAutoPauseOnEmpty } from '../utils/queueStep3Utils';
+import { applyRepetitionAffixes, buildNextTemplateIterationParams, convertStagedToPending, shouldAutoPauseOnEmpty } from '../utils/queueStep3Utils';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
 import { applyErrorTransition, applyResetToPending, itemHasInFlightProgress } from '../utils/queueErrorTransitions';
 import { resolveVariables } from '../utils/variableResolver.js';
@@ -943,54 +943,7 @@ export class PromptQueueManager {
                         sending.lastReminderAt = undefined;
                         this.removePendingReminderFor(sending.id);
 
-                        const resolvedTemplateRepeatCount = resolveRepeatCount(sending.templateRepeatCount);
-                        logQueue(`Template repeat check (answer-wait): templateRepeatCount=${String(sending.templateRepeatCount)}, resolved=${resolvedTemplateRepeatCount}, templateRepeatIndex=${sending.templateRepeatIndex}, repeatCount=${String(sending.repeatCount)}`);
-                        const repeatDecision = computeRepeatDecision({
-                            repeatCount: sending.templateRepeatCount,
-                            repeatIndex: sending.templateRepeatIndex,
-                        }, resolvedTemplateRepeatCount);
-                        if (repeatDecision.shouldRepeat) {
-                            await this.enqueue({
-                                originalText: sending.originalText,
-                                template: sending.template,
-                                answerWrapper: sending.answerWrapper,
-                                answerWaitMinutes: sending.answerWaitMinutes,
-                                type: sending.type,
-                                repeatCount: sending.repeatCount,
-                                repeatIndex: 0,
-                                repeatPrefix: sending.repeatPrefix,
-                                repeatSuffix: sending.repeatSuffix,
-                                templateRepeatCount: sending.templateRepeatCount,
-                                templateRepeatIndex: repeatDecision.nextRepeatIndex,
-                                reminderTemplateId: sending.reminderTemplateId,
-                                reminderTimeoutMinutes: sending.reminderTimeoutMinutes,
-                                reminderRepeat: sending.reminderRepeat,
-                                reminderEnabled: sending.reminderEnabled,
-                                prePrompts: (sending.prePrompts || []).map(pp => ({
-                                    text: pp.text,
-                                    template: pp.template,
-                                    repeatCount: pp.repeatCount,
-                                    answerWaitMinutes: pp.answerWaitMinutes,
-                                    reminderTemplateId: pp.reminderTemplateId,
-                                    reminderTimeoutMinutes: pp.reminderTimeoutMinutes,
-                                    reminderRepeat: pp.reminderRepeat,
-                                    reminderEnabled: pp.reminderEnabled,
-                                })),
-                                followUps: (sending.followUps || []).map(f => ({
-                                    originalText: f.originalText,
-                                    template: f.template,
-                                    repeatCount: f.repeatCount,
-                                    answerWaitMinutes: f.answerWaitMinutes,
-                                    reminderTemplateId: f.reminderTemplateId,
-                                    reminderTimeoutMinutes: f.reminderTimeoutMinutes,
-                                    reminderRepeat: !!f.reminderRepeat,
-                                    reminderEnabled: !!f.reminderEnabled,
-                                })),
-                                initialStatus: 'pending',
-                                deferSend: true,
-                            });
-                            logQueue(`Repeat queued for answer-wait item ${sending.id}`);
-                        }
+                        await this._enqueueNextTemplateIterationIfNeeded(sending, 'answer-wait');
 
                         this.persist();
                         this._onDidChange.fire();
@@ -1198,54 +1151,7 @@ export class PromptQueueManager {
                 sending.lastReminderAt = undefined;
                 this.removePendingReminderFor(sending.id);
 
-                const resolvedTemplateRepeatCount = resolveRepeatCount(sending.templateRepeatCount);
-                logQueue(`Template repeat check (answer-file): templateRepeatCount=${String(sending.templateRepeatCount)}, resolved=${resolvedTemplateRepeatCount}, templateRepeatIndex=${sending.templateRepeatIndex}, repeatCount=${String(sending.repeatCount)}`);
-                const repeatDecision = computeRepeatDecision({
-                    repeatCount: sending.templateRepeatCount,
-                    repeatIndex: sending.templateRepeatIndex,
-                }, resolvedTemplateRepeatCount);
-                if (repeatDecision.shouldRepeat) {
-                    await this.enqueue({
-                        originalText: sending.originalText,
-                        template: sending.template,
-                        answerWrapper: sending.answerWrapper,
-                        answerWaitMinutes: sending.answerWaitMinutes,
-                        type: sending.type,
-                        repeatCount: sending.repeatCount,
-                        repeatIndex: 0,
-                        repeatPrefix: sending.repeatPrefix,
-                        repeatSuffix: sending.repeatSuffix,
-                        templateRepeatCount: sending.templateRepeatCount,
-                        templateRepeatIndex: repeatDecision.nextRepeatIndex,
-                        reminderTemplateId: sending.reminderTemplateId,
-                        reminderTimeoutMinutes: sending.reminderTimeoutMinutes,
-                        reminderRepeat: sending.reminderRepeat,
-                        reminderEnabled: sending.reminderEnabled,
-                        prePrompts: (sending.prePrompts || []).map(pp => ({
-                            text: pp.text,
-                            template: pp.template,
-                            repeatCount: pp.repeatCount,
-                            answerWaitMinutes: pp.answerWaitMinutes,
-                            reminderTemplateId: pp.reminderTemplateId,
-                            reminderTimeoutMinutes: pp.reminderTimeoutMinutes,
-                            reminderRepeat: pp.reminderRepeat,
-                            reminderEnabled: pp.reminderEnabled,
-                        })),
-                        followUps: (sending.followUps || []).map(f => ({
-                            originalText: f.originalText,
-                            template: f.template,
-                            repeatCount: f.repeatCount,
-                            answerWaitMinutes: f.answerWaitMinutes,
-                            reminderTemplateId: f.reminderTemplateId,
-                            reminderTimeoutMinutes: f.reminderTimeoutMinutes,
-                            reminderRepeat: !!f.reminderRepeat,
-                            reminderEnabled: !!f.reminderEnabled,
-                        })),
-                        initialStatus: 'pending',
-                        deferSend: true,
-                    });
-                    logQueue(`Repeat ${repeatDecision.progressLabel} queued for item ${sending.id}`);
-                }
+                await this._enqueueNextTemplateIterationIfNeeded(sending, 'answer-file');
 
                 this.persist();
                 this._onDidChange.fire();
@@ -1414,6 +1320,9 @@ export class PromptQueueManager {
             } else if (outcome === 'done' && isAnthropicItem) {
                 const liveItem = this._items.find(i => i.id === item.id) ?? item;
                 liveItem.status = 'sent';
+                // Continue the outer template-repeat loop — see the
+                // matching call in sendItem for the rationale.
+                await this._enqueueNextTemplateIterationIfNeeded(liveItem, 'resume/anthropic');
                 this.persist();
                 this._onDidChange.fire();
                 logQueue(`Resumed item ${item.id} completed (anthropic transport — no polling)`);
@@ -2093,55 +2002,7 @@ export class PromptQueueManager {
         sending.lastReminderAt = undefined;
         this.removePendingReminderFor(sending.id);
 
-        const resolvedTemplateRepeatCount = resolveRepeatCount(sending.templateRepeatCount);
-        logQueue(`Template repeat check (no-answer): templateRepeatCount=${String(sending.templateRepeatCount)}, resolved=${resolvedTemplateRepeatCount}, templateRepeatIndex=${sending.templateRepeatIndex}, repeatCount=${String(sending.repeatCount)}`);
-        const repeatDecision = computeRepeatDecision({
-            repeatCount: sending.templateRepeatCount,
-            repeatIndex: sending.templateRepeatIndex,
-        }, resolvedTemplateRepeatCount);
-
-        if (repeatDecision.shouldRepeat) {
-            await this.enqueue({
-                originalText: sending.originalText,
-                template: sending.template,
-                answerWrapper: sending.answerWrapper,
-                answerWaitMinutes: sending.answerWaitMinutes,
-                type: sending.type,
-                repeatCount: sending.repeatCount,
-                repeatIndex: 0,
-                repeatPrefix: sending.repeatPrefix,
-                repeatSuffix: sending.repeatSuffix,
-                templateRepeatCount: sending.templateRepeatCount,
-                templateRepeatIndex: repeatDecision.nextRepeatIndex,
-                reminderTemplateId: sending.reminderTemplateId,
-                reminderTimeoutMinutes: sending.reminderTimeoutMinutes,
-                reminderRepeat: sending.reminderRepeat,
-                reminderEnabled: sending.reminderEnabled,
-                prePrompts: (sending.prePrompts || []).map(pp => ({
-                    text: pp.text,
-                    template: pp.template,
-                    repeatCount: pp.repeatCount,
-                    answerWaitMinutes: pp.answerWaitMinutes,
-                    reminderTemplateId: pp.reminderTemplateId,
-                    reminderTimeoutMinutes: pp.reminderTimeoutMinutes,
-                    reminderRepeat: pp.reminderRepeat,
-                    reminderEnabled: pp.reminderEnabled,
-                })),
-                followUps: (sending.followUps || []).map(f => ({
-                    originalText: f.originalText,
-                    template: f.template,
-                    repeatCount: f.repeatCount,
-                    answerWaitMinutes: f.answerWaitMinutes,
-                    reminderTemplateId: f.reminderTemplateId,
-                    reminderTimeoutMinutes: f.reminderTimeoutMinutes,
-                    reminderRepeat: !!f.reminderRepeat,
-                    reminderEnabled: !!f.reminderEnabled,
-                })),
-                initialStatus: 'pending',
-                deferSend: true,
-            });
-            logQueue(`Repeat ${repeatDecision.progressLabel} queued for item ${sending.id} (${reason})`);
-        }
+        await this._enqueueNextTemplateIterationIfNeeded(sending, reason);
 
         this.persist();
         this._onDidChange.fire();
@@ -2315,7 +2176,7 @@ export class PromptQueueManager {
         return changed;
     }
 
-    updateRepeat(id: string, patch: { repeatCount?: number | string; repeatIndex?: number; repeatPrefix?: string; repeatSuffix?: string; answerWaitMinutes?: number; templateRepeatCount?: number | string }): void {
+    updateRepeat(id: string, patch: { repeatCount?: number | string; repeatIndex?: number; repeatPrefix?: string; repeatSuffix?: string; answerWaitMinutes?: number; templateRepeatCount?: number | string; templateRepeatIndex?: number }): void {
         const item = this._items.find(i => i.id === id);
         if (!item) { return; }
 
@@ -2360,6 +2221,12 @@ export class PromptQueueManager {
                 const val = typeof patch.templateRepeatCount === 'string' ? parseInt(patch.templateRepeatCount, 10) || 0 : patch.templateRepeatCount || 0;
                 item.templateRepeatCount = val > 0 ? val : undefined;
             }
+        }
+        if (patch.templateRepeatIndex !== undefined) {
+            // 0-based — clamped non-negative. Persisted as-is; the
+            // dispatcher's `computeRepeatDecision` decides whether the
+            // item is still in range relative to templateRepeatCount.
+            item.templateRepeatIndex = Math.max(0, Math.round(patch.templateRepeatIndex || 0));
         }
 
         this.persist();
@@ -2504,6 +2371,11 @@ export class PromptQueueManager {
                 // stall the queue permanently.
                 const liveItem = this._items.find(i => i.id === item.id) ?? item;
                 liveItem.status = 'sent';
+                // Continue the outer template-repeat loop. Without this,
+                // Anthropic items with templateRepeatCount > 1 terminate
+                // after iteration 1 and the user perceives "the outer
+                // loop always starts at 1 again" when they retry.
+                await this._enqueueNextTemplateIterationIfNeeded(liveItem, 'sendItem/anthropic');
                 this.persist();
                 this._onDidChange.fire();
                 logQueue(`Prompt ${item.id} completed (anthropic transport — no polling)`);
@@ -2599,6 +2471,12 @@ export class PromptQueueManager {
                 const liveItem = this._items.find(i => i.id === item.id) ?? item;
                 if (outcome === 'done') {
                     liveItem.status = 'sent';
+                    // Continue the outer template-repeat loop — same
+                    // rationale as in sendItem / _resumePausedSendingItem.
+                    // Without this a Resend on the last iteration of a
+                    // failed multi-iteration sequence would never spawn
+                    // the next iteration.
+                    await this._enqueueNextTemplateIterationIfNeeded(liveItem, 'resend/anthropic');
                     this.persist();
                     this._onDidChange.fire();
                     void this.sendNext();
@@ -2897,6 +2775,45 @@ export class PromptQueueManager {
      */
     private _itemHasInFlightProgress(item: QueuedPrompt): boolean {
         return itemHasInFlightProgress(item);
+    }
+
+    /**
+     * If `sending` is one iteration of a template-repeat sequence and
+     * more iterations remain, enqueue the next one as a fresh pending
+     * item with `templateRepeatIndex` advanced by one. Returns `true`
+     * iff an iteration was actually enqueued.
+     *
+     * Called from every completion site:
+     *  - answer-wait timer fires (Copilot),
+     *  - answer file detected (Copilot),
+     *  - manual continue (`continueSending`),
+     *  - Anthropic-direct `sendItem` completion,
+     *  - Anthropic-direct `_resumePausedSendingItem` completion,
+     *  - Anthropic-direct `resendLastPrompt` completion.
+     *
+     * The last three were missing prior to this method and caused
+     * Anthropic items with `templateRepeatCount > 1` to terminate
+     * after the first iteration — so retrying the same prompt after
+     * an error appeared to "always start at iteration 1 again" instead
+     * of continuing the outer loop.
+     */
+    private async _enqueueNextTemplateIterationIfNeeded(
+        sending: QueuedPrompt,
+        reason: string,
+    ): Promise<boolean> {
+        const resolvedTemplateRepeatCount = resolveRepeatCount(sending.templateRepeatCount);
+        logQueue(`Template repeat check (${reason}): templateRepeatCount=${String(sending.templateRepeatCount)}, resolved=${resolvedTemplateRepeatCount}, templateRepeatIndex=${sending.templateRepeatIndex}, repeatCount=${String(sending.repeatCount)}`);
+        const params = buildNextTemplateIterationParams(sending, resolvedTemplateRepeatCount);
+        if (!params) {
+            return false;
+        }
+        const { progressLabel: _progressLabel, ...enqueueParams } = params;
+        await this.enqueue({
+            ...enqueueParams,
+            type: enqueueParams.type as QueuedPromptType | undefined,
+        });
+        logQueue(`Repeat ${params.progressLabel} queued for item ${sending.id} (${reason})`);
+        return true;
     }
 
     /**

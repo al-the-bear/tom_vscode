@@ -71,6 +71,162 @@ function fillRepetitionPlaceholders(template: string, repeatCount: number, repea
     return template;
 }
 
+/**
+ * Subset of a sending queue item the next-template-iteration builder
+ * needs to read. Mirrors `QueuedPrompt` from `promptQueueManager.ts` for
+ * the fields that survive across template iterations; kept local so the
+ * pure helper has no dependency on the manager type.
+ */
+export interface NextTemplateIterationSource {
+    originalText: string;
+    template?: string;
+    answerWrapper?: boolean;
+    answerWaitMinutes?: number;
+    type?: string;
+    repeatCount?: number | string;
+    repeatPrefix?: string;
+    repeatSuffix?: string;
+    templateRepeatCount?: number | string;
+    templateRepeatIndex?: number;
+    reminderTemplateId?: string;
+    reminderTimeoutMinutes?: number;
+    reminderRepeat?: boolean;
+    reminderEnabled?: boolean;
+    prePrompts?: Array<{
+        text: string;
+        template?: string;
+        repeatCount?: number | string;
+        answerWaitMinutes?: number;
+        reminderTemplateId?: string;
+        reminderTimeoutMinutes?: number;
+        reminderRepeat?: boolean;
+        reminderEnabled?: boolean;
+    }>;
+    followUps?: Array<{
+        originalText: string;
+        template?: string;
+        repeatCount?: number | string;
+        answerWaitMinutes?: number;
+        reminderTemplateId?: string;
+        reminderTimeoutMinutes?: number;
+        reminderRepeat?: boolean;
+        reminderEnabled?: boolean;
+    }>;
+}
+
+/**
+ * Parameters for `PromptQueueManager.enqueue()` plus a `progressLabel`
+ * the caller uses when logging. Returned by `buildNextTemplateIterationParams`
+ * when another template iteration is required.
+ */
+export interface NextTemplateIterationParams {
+    originalText: string;
+    template?: string;
+    answerWrapper?: boolean;
+    answerWaitMinutes?: number;
+    type?: string;
+    repeatCount?: number | string;
+    repeatIndex: 0;
+    repeatPrefix?: string;
+    repeatSuffix?: string;
+    templateRepeatCount?: number | string;
+    templateRepeatIndex: number;
+    reminderTemplateId?: string;
+    reminderTimeoutMinutes?: number;
+    reminderRepeat?: boolean;
+    reminderEnabled?: boolean;
+    prePrompts: Array<{
+        text: string;
+        template?: string;
+        repeatCount?: number | string;
+        answerWaitMinutes?: number;
+        reminderTemplateId?: string;
+        reminderTimeoutMinutes?: number;
+        reminderRepeat?: boolean;
+        reminderEnabled?: boolean;
+    }>;
+    followUps: Array<{
+        originalText: string;
+        template?: string;
+        repeatCount?: number | string;
+        answerWaitMinutes?: number;
+        reminderTemplateId?: string;
+        reminderTimeoutMinutes?: number;
+        reminderRepeat?: boolean;
+        reminderEnabled?: boolean;
+    }>;
+    initialStatus: 'pending';
+    deferSend: true;
+    /** Decision metadata — for logging. Not consumed by `enqueue()`. */
+    progressLabel: string;
+}
+
+/**
+ * Build the params to enqueue the next iteration of a template-repeat
+ * sequence, or `null` when the sequence has reached its target count.
+ *
+ * Pure / unit-testable. Extracted from three identical inline blocks in
+ * `PromptQueueManager` (answer-file, answer-wait timer, manual continue)
+ * so the Anthropic-direct completion paths can share the same logic —
+ * without this, items with `templateRepeatCount > 1` dispatched via the
+ * synchronous Anthropic transport never spawned the second iteration
+ * (the next-iteration enqueue lived only on Copilot/manual paths).
+ */
+export function buildNextTemplateIterationParams(
+    sending: NextTemplateIterationSource,
+    resolvedTemplateRepeatCount: number,
+): NextTemplateIterationParams | null {
+    const decision = computeRepeatDecision({
+        repeatCount: sending.templateRepeatCount,
+        repeatIndex: sending.templateRepeatIndex,
+    }, resolvedTemplateRepeatCount);
+
+    if (!decision.shouldRepeat) {
+        return null;
+    }
+
+    return {
+        originalText: sending.originalText,
+        template: sending.template,
+        answerWrapper: sending.answerWrapper,
+        answerWaitMinutes: sending.answerWaitMinutes,
+        type: sending.type,
+        repeatCount: sending.repeatCount,
+        repeatIndex: 0,
+        repeatPrefix: sending.repeatPrefix,
+        repeatSuffix: sending.repeatSuffix,
+        templateRepeatCount: sending.templateRepeatCount,
+        templateRepeatIndex: decision.nextRepeatIndex,
+        reminderTemplateId: sending.reminderTemplateId,
+        reminderTimeoutMinutes: sending.reminderTimeoutMinutes,
+        reminderRepeat: sending.reminderRepeat,
+        reminderEnabled: sending.reminderEnabled,
+        prePrompts: (sending.prePrompts || []).map(pp => ({
+            text: pp.text,
+            template: pp.template,
+            repeatCount: pp.repeatCount,
+            answerWaitMinutes: pp.answerWaitMinutes,
+            reminderTemplateId: pp.reminderTemplateId,
+            reminderTimeoutMinutes: pp.reminderTimeoutMinutes,
+            reminderRepeat: pp.reminderRepeat,
+            reminderEnabled: pp.reminderEnabled,
+        })),
+        followUps: (sending.followUps || []).map(f => ({
+            originalText: f.originalText,
+            template: f.template,
+            repeatCount: f.repeatCount,
+            answerWaitMinutes: f.answerWaitMinutes,
+            reminderTemplateId: f.reminderTemplateId,
+            reminderTimeoutMinutes: f.reminderTimeoutMinutes,
+            reminderRepeat: !!f.reminderRepeat,
+            reminderEnabled: !!f.reminderEnabled,
+        })),
+        initialStatus: 'pending',
+        deferSend: true,
+        progressLabel: decision.progressLabel,
+    };
+}
+
 export function applyRepetitionAffixes(input: RepetitionAffixInput): string {
     const rawCount = typeof input.repeatCount === 'string' ? parseInt(input.repeatCount, 10) || 0 : (input.repeatCount || 0);
     const repeatCount = Math.max(0, Math.round(rawCount));

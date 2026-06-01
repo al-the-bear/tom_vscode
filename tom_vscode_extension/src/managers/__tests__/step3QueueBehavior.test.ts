@@ -6,6 +6,7 @@ import {
     convertStagedToPending,
     shouldAutoPauseOnEmpty,
     applyRepetitionAffixes,
+    buildNextTemplateIterationParams,
 } from '../../utils/queueStep3Utils.js';
 
 describe('Step 3 - Issue 4: queue auto-pause behavior', () => {
@@ -96,6 +97,89 @@ describe('Step 3 - Issue 10: repeat decision', () => {
             wrapped,
             'Run ${repeatNumber} of ${repeatCount} (index=${repeatIndex})\n\nPrompt\n\nFinished ${repeatNumber}',
         );
+    });
+
+    test('next template iteration params advance templateRepeatIndex and reset main repeatIndex to 0', () => {
+        // Sequence in flight: iteration 1 of 3 finished. The builder
+        // must produce params for iteration 2 (templateRepeatIndex=1)
+        // while resetting the inner main-prompt counter so the new
+        // iteration runs its main reps from the top.
+        const params = buildNextTemplateIterationParams(
+            {
+                originalText: 'Body',
+                templateRepeatCount: 3,
+                templateRepeatIndex: 0,
+                repeatCount: 2,
+                repeatPrefix: 'Run ${repeatNumber}',
+                prePrompts: [{ text: 'PP', repeatCount: 1 }],
+                followUps: [{ originalText: 'FU', repeatCount: 1 }],
+            },
+            3,
+        );
+
+        assert.ok(params, 'builder must return params when more iterations are pending');
+        assert.equal(params!.templateRepeatCount, 3);
+        assert.equal(params!.templateRepeatIndex, 1, 'next iteration index advances by one');
+        assert.equal(params!.repeatIndex, 0, 'main-prompt counter must reset for the new iteration');
+        assert.equal(params!.repeatCount, 2, 'main-prompt count carries through unchanged');
+        assert.equal(params!.repeatPrefix, 'Run ${repeatNumber}', 'affix placeholders re-render per iteration');
+        assert.equal(params!.initialStatus, 'pending');
+        assert.equal(params!.deferSend, true);
+        assert.deepEqual(params!.prePrompts.map(p => p.text), ['PP']);
+        assert.deepEqual(params!.followUps.map(f => f.originalText), ['FU']);
+        assert.equal(params!.progressLabel, '1/3', 'progressLabel describes the just-completed iteration');
+    });
+
+    test('next template iteration params return null when sequence is complete', () => {
+        // Iteration 3 of 3 just finished. No further iteration to enqueue.
+        const params = buildNextTemplateIterationParams(
+            {
+                originalText: 'Body',
+                templateRepeatCount: 3,
+                templateRepeatIndex: 2,
+            },
+            3,
+        );
+        assert.equal(params, null);
+    });
+
+    test('next template iteration params return null when templateRepeatCount <= 1', () => {
+        // Single-shot prompt — no template repetition was ever configured.
+        // computeRepeatDecision treats <=1 as shouldRepeat=false.
+        const params = buildNextTemplateIterationParams(
+            { originalText: 'Body', templateRepeatCount: 1, templateRepeatIndex: 0 },
+            1,
+        );
+        assert.equal(params, null);
+    });
+
+    test('next template iteration params preserve reminder + answerWrapper + answerWaitMinutes settings', () => {
+        // The bug we're fixing surfaces when these inheritable
+        // per-iteration knobs silently drop through the gap. Lock them
+        // into a regression test so future refactors don't lose them.
+        const params = buildNextTemplateIterationParams(
+            {
+                originalText: 'Body',
+                templateRepeatCount: 4,
+                templateRepeatIndex: 1,
+                answerWrapper: true,
+                answerWaitMinutes: 7,
+                reminderTemplateId: 'tpl-42',
+                reminderTimeoutMinutes: 12,
+                reminderRepeat: true,
+                reminderEnabled: true,
+            },
+            4,
+        );
+
+        assert.ok(params);
+        assert.equal(params!.answerWrapper, true);
+        assert.equal(params!.answerWaitMinutes, 7);
+        assert.equal(params!.reminderTemplateId, 'tpl-42');
+        assert.equal(params!.reminderTimeoutMinutes, 12);
+        assert.equal(params!.reminderRepeat, true);
+        assert.equal(params!.reminderEnabled, true);
+        assert.equal(params!.templateRepeatIndex, 2, 'next iteration index advances by one');
     });
 
     test('repetition affixes keep mustache placeholders unchanged', () => {
