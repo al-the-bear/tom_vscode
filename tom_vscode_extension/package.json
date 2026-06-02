@@ -2753,6 +2753,11 @@
                     "default": false,
                     "description": "Enable pre-processing step with cheap model to gather context before main processing"
                 },
+                "tomAi.tomAiChat.retryMaxTotalWaitMinutes": {
+                    "type": "number",
+                    "default": 10,
+                    "description": "Maximum cumulative minutes to keep retrying a VS Code language-model request when the backend is busy (HTTP 429 / 503 / 529 / rate-limit). Uses exponential backoff. Set to 0 to disable retries."
+                },
                 "tomAi.localLlm.ollamaUrl": {
                     "type": "string",
                     "default": "http://localhost:11434",

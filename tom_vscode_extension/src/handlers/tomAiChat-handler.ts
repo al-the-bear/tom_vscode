@@ -15,6 +15,7 @@ import { ChatTodoSessionManager, TodoOperationResult } from '../managers/chatTod
 import { setActiveTodoManager } from '../tools/tomAiChat-tools';
 import { WsPaths } from '../utils/workspacePaths';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
+import { withRetryBudget } from '../utils/retryWithBudget';
 import {
     logPrompt, logResponse, logToolRequest, logToolResult,
     isTrailEnabled, loadTrailConfig, writeTrailFile,
@@ -511,7 +512,9 @@ function getConfig() {
         maxToolResultChars: configTomAi.get<number>('tomAiChat.maxToolResultChars')
             ?? DEFAULT_MAX_TOOL_RESULT_CHARS,
         maxDraftChars: configTomAi.get<number>('tomAiChat.maxDraftChars')
-            ?? DEFAULT_MAX_DRAFT_CHARS
+            ?? DEFAULT_MAX_DRAFT_CHARS,
+        retryMaxTotalWaitMinutes: configTomAi.get<number>('tomAiChat.retryMaxTotalWaitMinutes')
+            ?? 10
     };
 }
 
@@ -722,6 +725,14 @@ export async function sendToTomAiChatHandler(): Promise<void> {
     activeCancellationTokenSource = new vscode.CancellationTokenSource();
     const cancellationToken = activeCancellationTokenSource.token;
 
+    // Retry-on-busy budget for the VS Code LM transport. The VS Code
+    // language-model API has no internal tool loop or retry of its own, so
+    // it surfaces transient overloads (429 / 503 / 529 / rate-limit) the
+    // same way the Anthropic-direct and Local LLM transports do. We give it
+    // the same exponential-backoff budget via `withRetryBudget`.
+    const retryMaxTotalWaitMs = (config.retryMaxTotalWaitMinutes ?? 10) * 60 * 1000;
+    const lmRetryStatus = (message: string): void => logChannel.appendLine(`${EXTENSION_MESSAGE_PREFIX}${message}`);
+
     // Initialize chat log manager for exact logging
     const chatLog = new ChatLogManager(chatId, dir);
     chatLog.startUserPrompt(parsed.promptText);
@@ -764,17 +775,28 @@ export async function sendToTomAiChatHandler(): Promise<void> {
         const responsesContent = fs.readFileSync(responsesPath, 'utf8').trim();
         if (responsesContent.length > 0) {
             const summaryPrompt = buildSummaryPrompt(responsesContent);
-            const summaryResponse = await model.sendRequest(
-                [vscode.LanguageModelChatMessage.User(summaryPrompt)],
-                {}
-            );
-
-            let summaryOutput = '';
-            for await (const part of summaryResponse.stream) {
-                if (part instanceof vscode.LanguageModelTextPart) {
-                    summaryOutput += part.value;
-                }
-            }
+            // Accumulate inside the retried call so a mid-stream overload
+            // restarts cleanly instead of doubling up partial output.
+            const summaryOutput = await withRetryBudget({
+                call: async () => {
+                    const summaryResponse = await model.sendRequest(
+                        [vscode.LanguageModelChatMessage.User(summaryPrompt)],
+                        {},
+                        cancellationToken
+                    );
+                    let out = '';
+                    for await (const part of summaryResponse.stream) {
+                        if (part instanceof vscode.LanguageModelTextPart) {
+                            out += part.value;
+                        }
+                    }
+                    return out;
+                },
+                totalWaitMs: retryMaxTotalWaitMs,
+                backendLabel: 'VS Code Language Model busy (summary)',
+                cancellationToken,
+                onRetryStatus: lmRetryStatus,
+            });
             summaryText = summaryOutput.trim();
             summaryText = await trimToTokenLimit(summaryText, responseSummaryTokenLimit, tokenModel);
             fs.writeFileSync(summaryPath, summaryText);
@@ -934,26 +956,36 @@ Use the available tools to gather context, then respond with a summary of what y
                     break;
                 }
                 
-                const preResponse = await preProcessModel.sendRequest(
-                    preProcessMessages,
-                    { tools: preProcessingTools }
-                );
-                
-                let hasToolCalls = false;
-                let iterationText = '';
-                const iterationToolCalls: vscode.LanguageModelToolCallPart[] = [];
-                
-                for await (const part of preResponse.stream) {
-                    if (part instanceof vscode.LanguageModelTextPart) {
-                        iterationText += part.value;
-                        preProcessOutput += part.value;
-                    } else if (part instanceof vscode.LanguageModelToolCallPart) {
-                        hasToolCalls = true;
-                        iterationToolCalls.push(part);
-                        logChannel.appendLine(`[Tom AI] Pre-processing tool call: ${part.name}`);
-                    }
-                }
-                
+                // Accumulate inside the retried call so a mid-stream overload
+                // restarts cleanly instead of doubling up partial output.
+                const { iterationText, iterationToolCalls, hasToolCalls } = await withRetryBudget({
+                    call: async () => {
+                        const preResponse = await preProcessModel.sendRequest(
+                            preProcessMessages,
+                            { tools: preProcessingTools },
+                            cancellationToken
+                        );
+                        let text = '';
+                        const calls: vscode.LanguageModelToolCallPart[] = [];
+                        let toolFlag = false;
+                        for await (const part of preResponse.stream) {
+                            if (part instanceof vscode.LanguageModelTextPart) {
+                                text += part.value;
+                            } else if (part instanceof vscode.LanguageModelToolCallPart) {
+                                toolFlag = true;
+                                calls.push(part);
+                                logChannel.appendLine(`[Tom AI] Pre-processing tool call: ${part.name}`);
+                            }
+                        }
+                        return { iterationText: text, iterationToolCalls: calls, hasToolCalls: toolFlag };
+                    },
+                    totalWaitMs: retryMaxTotalWaitMs,
+                    backendLabel: 'VS Code Language Model busy (pre-processing)',
+                    cancellationToken,
+                    onRetryStatus: lmRetryStatus,
+                });
+                preProcessOutput += iterationText;
+
                 if (!hasToolCalls) {
                     // No more tool calls, exit loop
                     break;
@@ -1061,20 +1093,32 @@ Use the available tools to gather context, then respond with a summary of what y
         const promptForLog = iteration === 1 ? initialPrompt : `[continuation with ${messages.length} messages]`;
         chatLog.logRequest(iteration, promptForLog, tools.map(t => t.name));
         
-        const response = await model.sendRequest(messages, { tools }, cancellationToken);
-
-        let iterationText = '';
-        const toolCalls: vscode.LanguageModelToolCallPart[] = [];
-
-        for await (const part of response.stream) {
-            if (part instanceof vscode.LanguageModelTextPart) {
-                iterationText += part.value;
-                logChannel.append(part.value);
-            } else if (part instanceof vscode.LanguageModelToolCallPart) {
-                toolCalls.push(part);
-                toolLogChannel.appendLine(`\n[Tool Call] ${part.name} ${formatToolInputForLog(part.input)}`);
-            }
-        }
+        // Accumulate inside the retried call so a mid-stream overload
+        // restarts cleanly instead of doubling up partial output. Live
+        // token logging may repeat on a retry — acceptable for a log
+        // channel; the authoritative text/tool-call accumulation resets
+        // per attempt because it is local to the closure.
+        const { iterationText, toolCalls } = await withRetryBudget({
+            call: async () => {
+                const response = await model.sendRequest(messages, { tools }, cancellationToken);
+                let text = '';
+                const calls: vscode.LanguageModelToolCallPart[] = [];
+                for await (const part of response.stream) {
+                    if (part instanceof vscode.LanguageModelTextPart) {
+                        text += part.value;
+                        logChannel.append(part.value);
+                    } else if (part instanceof vscode.LanguageModelToolCallPart) {
+                        calls.push(part);
+                        toolLogChannel.appendLine(`\n[Tool Call] ${part.name} ${formatToolInputForLog(part.input)}`);
+                    }
+                }
+                return { iterationText: text, toolCalls: calls };
+            },
+            totalWaitMs: retryMaxTotalWaitMs,
+            backendLabel: 'VS Code Language Model busy',
+            cancellationToken,
+            onRetryStatus: lmRetryStatus,
+        });
 
         // Log reply to chat log file
         chatLog.logReply(iteration, iterationText, toolCalls.map(c => ({ name: c.name, input: c.input })));
