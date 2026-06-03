@@ -29,7 +29,39 @@
                     "description": "Optional user-message templates (anthropicUserMessage category).",
                     "items": { "$ref": "#/definitions/userMessageTemplate" }
                 },
-                "memory": { "$ref": "#/definitions/anthropicMemory" }
+                "memory": { "$ref": "#/definitions/anthropicMemory" },
+                "transportRetry": {
+                    "type": "object",
+                    "description": "Agent SDK transport retry (agent-sdk-transport.ts). Retries a failed SDK stream, resuming the session with a continuation prompt or repeating on a fresh session when the session id is missing/unknown.",
+                    "properties": {
+                        "maxAttempts": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "default": 3,
+                            "description": "Total attempts including the first. 1 disables retry."
+                        },
+                        "templateId": {
+                            "type": "string",
+                            "description": "Selected continuation-prompt template id (from templates). Empty = built-in default."
+                        },
+                        "templates": {
+                            "type": "array",
+                            "description": "Continuation-prompt templates (transportRetry category). Bodies typically reference ${errorText} and ${userMessage}.",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "id": { "type": "string" },
+                                    "name": { "type": "string" },
+                                    "description": { "type": "string" },
+                                    "template": { "type": "string" }
+                                },
+                                "required": ["id", "name", "template"],
+                                "additionalProperties": true
+                            }
+                        }
+                    },
+                    "additionalProperties": true
+                }
             },
             "additionalProperties": true
         },

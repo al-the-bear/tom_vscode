@@ -53,7 +53,7 @@ import {
     pushAndCap as pushRawTurnAndCap,
 } from '../services/raw-turns-store';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
-import { runAgentSdkQuery } from './agent-sdk-transport';
+import { runAgentSdkQuery, DEFAULT_TRANSPORT_RETRY_TEMPLATE } from './agent-sdk-transport';
 import * as anthropicOutput from './anthropic-output-channels';
 import { WsPaths } from '../utils/workspacePaths';
 import { resolveVariables } from '../utils/variableResolver';
@@ -246,6 +246,12 @@ interface AnthropicSection {
     apiKeyEnvVar?: string;
     configurations?: AnthropicConfiguration[];
     profiles?: AnthropicProfile[];
+    /** Agent SDK transport retry settings (spec §18, "Anthropic Transport Retry"). */
+    transportRetry?: {
+        maxAttempts?: number;
+        templateId?: string;
+        templates?: Array<{ id: string; name: string; description?: string; template: string }>;
+    };
 }
 
 export interface AnthropicSendOptions {
@@ -1720,6 +1726,35 @@ export class AnthropicHandler {
                 }
                 : undefined;
 
+            // Transport retry (spec §18, "Anthropic Transport Retry"):
+            // resume the failed session with a continuation prompt built
+            // from the selected template, or restart on a fresh session
+            // when the id is missing/unusable. Disabled (single attempt)
+            // when maxAttempts <= 1.
+            const retrySection = this.getAnthropicSection().transportRetry;
+            const retryMaxAttempts = Number.isFinite(retrySection?.maxAttempts)
+                ? Math.max(1, retrySection!.maxAttempts as number)
+                : 3;
+            const retryParam = retryMaxAttempts > 1
+                ? {
+                    maxAttempts: retryMaxAttempts,
+                    buildContinuationPrompt: (errorText: string): string => {
+                        const selected = retrySection?.templateId
+                            ? retrySection.templates?.find((t) => t.id === retrySection.templateId)
+                            : undefined;
+                        const body = selected?.template ?? DEFAULT_TRANSPORT_RETRY_TEMPLATE;
+                        return resolveVariables(body, {
+                            values: {
+                                errorText,
+                                userMessage: userContent,
+                                originalPrompt: userContent,
+                            },
+                            enableJsExpressions: true,
+                        });
+                    },
+                }
+                : undefined;
+
             let result: AnthropicSendResult & { sessionId?: string };
             try {
                 result = await runAgentSdkQuery({
@@ -1733,6 +1768,7 @@ export class AnthropicHandler {
                     thinkingBudgetTokens: profile.thinkingEnabled ? (profile.thinkingBudgetTokens ?? 8192) : undefined,
                     resumeSessionId,
                     onSessionIdCaptured,
+                    retry: retryParam,
                     autoLoadProjectSettings: useSdkManagedContinuity,
                     liveTrail: liveTrail ?? undefined,
                     context: {

@@ -124,6 +124,21 @@ import type {
     AnthropicToolApprovalRequest,
 } from './anthropic-handler';
 import { ANTHROPIC_SUBSYSTEM } from '../services/trailSubsystems';
+import {
+    isUnknownSessionError,
+    planAgentSdkRetry,
+    DEFAULT_TRANSPORT_RETRY_TEMPLATE,
+} from '../services/agent-sdk-retry';
+import type { AgentSdkRetryPlan } from '../services/agent-sdk-retry';
+
+// Re-export the pure retry-decision API so existing consumers
+// (`anthropic-handler.ts`) can keep importing it from this transport module.
+export {
+    isUnknownSessionError,
+    planAgentSdkRetry,
+    DEFAULT_TRANSPORT_RETRY_TEMPLATE,
+};
+export type { AgentSdkRetryPlan };
 
 // ============================================================================
 // Context — provided by AnthropicHandler.sendMessage when it delegates here
@@ -212,6 +227,32 @@ export interface AgentSdkSendParams {
      * whatever the configuration specifies).
      */
     autoLoadProjectSettings?: boolean;
+    /**
+     * Automatic retry of failed Agent SDK attempts (spec: anthropic_sdk
+     * §18, "Anthropic Transport Retry"). When omitted, a failed stream
+     * throws to the caller on the first attempt (legacy behavior).
+     *
+     * On a retryable failure the transport either:
+     *   - **resumes** the failed session and sends `buildContinuationPrompt
+     *     (errorText)` so the agent can pick up where it left off, or
+     *   - **restarts on a fresh session** (no `resume`) replaying the
+     *     original prompt — used when no session id is known yet or the
+     *     error indicates the session id is unusable ("no session" /
+     *     "unknown session id").
+     *
+     * The decision is made by {@link planAgentSdkRetry}.
+     */
+    retry?: {
+        /** Total attempts including the first. `<= 1` disables retry. */
+        maxAttempts: number;
+        /**
+         * Builds the continuation prompt for a *resumed* retry from the
+         * error text of the failed attempt. Fresh-session retries replay
+         * the original `userText` instead (the new session has no context
+         * a continuation prompt could reference).
+         */
+        buildContinuationPrompt: (errorText: string) => string;
+    };
 }
 
 export interface AgentSdkResult {
@@ -423,11 +464,75 @@ function makeCanUseTool(
  * Run a query through the Claude Agent SDK and map its message stream onto
  * our raw trail + tool trail, returning an `AnthropicSendResult`.
  *
- * The SDK handles retries, caching, and compaction internally. We only
- * observe the event stream and forward it to our logging / UI surfaces.
+ * The SDK handles per-request retries, caching, and compaction internally.
+ * This wrapper adds an outer retry loop (spec §18, "Anthropic Transport
+ * Retry") that resumes the failed session with a continuation prompt — or
+ * restarts on a fresh session when the session id is missing/unusable —
+ * driven by {@link planAgentSdkRetry}. With no `params.retry` (or
+ * `maxAttempts <= 1`) it behaves exactly as a single attempt.
  */
 export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<AgentSdkResult> {
-    const { configuration, tools, systemPrompt, userText, cancellationToken, context } = params;
+    const maxAttempts = Math.max(1, params.retry?.maxAttempts ?? 1);
+    let attemptResumeSessionId = params.resumeSessionId;
+    let attemptPrompt = params.userText;
+    let attemptsMade = 0;
+
+    for (;;) {
+        attemptsMade++;
+        const sessionOut: { capturedSessionId?: string } = {};
+        try {
+            return await runAgentSdkAttempt(params, {
+                userText: attemptPrompt,
+                resumeSessionId: attemptResumeSessionId,
+                sessionOut,
+            });
+        } catch (err) {
+            const errorMessage = err instanceof Error ? err.message : String(err);
+            const plan = planAgentSdkRetry({
+                attemptsMade,
+                maxAttempts,
+                errorMessage,
+                resumeSessionId: attemptResumeSessionId,
+                capturedSessionId: sessionOut.capturedSessionId,
+                cancelled: params.cancellationToken?.isCancellationRequested === true,
+            });
+            if (plan.kind === 'give-up') {
+                throw err;
+            }
+            if (plan.kind === 'retry-fresh') {
+                // No usable session — restart from scratch, replaying the
+                // original prompt so the new session has full context.
+                attemptResumeSessionId = undefined;
+                attemptPrompt = params.userText;
+            } else {
+                // Resume the live session and continue with a prompt that
+                // tells the agent what went wrong.
+                attemptResumeSessionId = plan.sessionId;
+                attemptPrompt = params.retry
+                    ? params.retry.buildContinuationPrompt(errorMessage)
+                    : params.userText;
+            }
+        }
+    }
+}
+
+/**
+ * One Agent SDK attempt: streams the query, mirrors it to the raw + tool
+ * trail, and either returns the result or throws on stream error. The
+ * `attempt` argument carries the per-attempt prompt + resume id (which the
+ * retry loop varies between attempts) and a `sessionOut` holder the attempt
+ * fills with the captured session id so the loop can resume it on failure.
+ */
+async function runAgentSdkAttempt(
+    params: AgentSdkSendParams,
+    attempt: {
+        userText: string;
+        resumeSessionId?: string;
+        sessionOut: { capturedSessionId?: string };
+    },
+): Promise<AgentSdkResult> {
+    const { configuration, tools, systemPrompt, cancellationToken, context } = params;
+    const { userText } = attempt;
 
     const sdk = await loadSdk();
     const mcpServer = buildMcpServer(sdk, tools, context);
@@ -489,7 +594,6 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
     let totalToolCalls = 0;
     let stopReason: string | undefined;
     let turnsUsed = 0;
-    let capturedSessionId: string | undefined;
 
     // Built-in tool tracking — when the profile opts into the Claude
     // Code preset (Read, Write, Bash, Grep, …), the SDK executes those
@@ -530,8 +634,8 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
         };
         // Continuity: passing `resume` tells the SDK to continue a prior
         // session so it sees the full turn history it produced earlier.
-        if (params.resumeSessionId && params.resumeSessionId.length > 0) {
-            queryOptions.resume = params.resumeSessionId;
+        if (attempt.resumeSessionId && attempt.resumeSessionId.length > 0) {
+            queryOptions.resume = attempt.resumeSessionId;
         }
 
         // Dump what we hand to the Agent SDK to the per-quest
@@ -567,7 +671,7 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
                 body: {
                     prompt: userText,
                     options: safeOptions,
-                    ...(params.resumeSessionId ? { resumingSessionId: params.resumeSessionId } : {}),
+                    ...(attempt.resumeSessionId ? { resumingSessionId: attempt.resumeSessionId } : {}),
                 },
             }, context.questId);
         } catch { /* best-effort */ }
@@ -590,8 +694,8 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
             // window reload that kills the stream must not invalidate
             // the continuity we already have.
             const sid = (msg as { session_id?: unknown }).session_id;
-            if (typeof sid === 'string' && sid.length > 0 && !capturedSessionId) {
-                capturedSessionId = sid;
+            if (typeof sid === 'string' && sid.length > 0 && !attempt.sessionOut.capturedSessionId) {
+                attempt.sessionOut.capturedSessionId = sid;
                 try {
                     params.onSessionIdCaptured?.(sid);
                 } catch { /* persistence is best-effort */ }
@@ -760,7 +864,7 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
         turnsUsed: turnsUsed || maxTurns,
         toolCallCount: totalToolCalls,
         stopReason,
-        sessionId: capturedSessionId,
+        sessionId: attempt.sessionOut.capturedSessionId,
     };
 }
 

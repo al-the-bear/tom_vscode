@@ -1262,6 +1262,10 @@ The following placeholders are populated by the handler that drives the request.
 <em>Memory-extraction-only placeholders</em> (resolve only inside the <code>compaction.memoryExtractionTemplates[*].template</code> field — see the Memory Extraction editor):<br>
 <code>\${lastTurn}</code>, <code>\${compactedSummary}</code>, <code>\${existingMemory}</code>, <code>\${memoryFilePath}</code>, <code>\${memoryScope}</code>, <code>\${historyMaxChars}</code>, <code>\${memoryMaxChars}</code>.<br>
 <br>
+<em>Transport-retry-only placeholders</em> (resolve only inside the <code>anthropic.transportRetry.templates[*].template</code> field — see the Anthropic Transport Retry section of the Status page):<br>
+<code>\${errorText}</code> – The error message from the failed Agent SDK attempt that triggered the retry. Inject this into the continuation prompt so the model knows what went wrong.<br>
+<code>\${userMessage}</code> / <code>\${originalPrompt}</code> – The original user prompt text being retried.<br>
+<br>
 <em>Tool-trail retention contract:</em> within a single user turn, the most recent <code>toolTrailKeepRounds</code> tool rounds keep their (truncated to <code>toolTrailMaxResultChars</code>) bodies inline. Older rounds are replaced with a stub naming the replay key. Full bodies are persisted under <code>_ai/trail/&lt;subsystem&gt;/&lt;quest&gt;/tool_results/&lt;key&gt;.json</code> and are recoverable via <code>tomAi_readPastToolResult({"key":"tX"})</code>.<br>
 <br>
 <em>Inline JavaScript:</em><br>

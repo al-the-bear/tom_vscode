@@ -72,6 +72,11 @@ interface AnthropicSectionForStatusPage {
         memoryToolsEnabled?: boolean;
         maxInjectedTokens?: number;
     };
+    transportRetry?: {
+        maxAttempts?: number;
+        templateId?: string;
+        templates?: Array<{ id: string; name: string; description?: string; template: string }>;
+    };
 }
 
 function getAnthropicSection(): AnthropicSectionForStatusPage {
@@ -1213,6 +1218,19 @@ export async function handleStatusAction(action: string, message: any): Promise<
             vscode.window.showInformationMessage('Compaction settings saved');
             break;
         }
+        case 'updateTransportRetrySettings': {
+            const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
+            if (!stcConfig.anthropic) { stcConfig.anthropic = {}; }
+            if (!stcConfig.anthropic.transportRetry) { stcConfig.anthropic.transportRetry = {}; }
+            const s = message.settings || {};
+            stcConfig.anthropic.transportRetry.maxAttempts =
+                Number.isFinite(s.maxAttempts) ? Math.max(1, s.maxAttempts) : 3;
+            stcConfig.anthropic.transportRetry.templateId = s.templateId || '';
+            saveSendToChatConfig(stcConfig);
+            notifyAnthropicConfigChanged();
+            vscode.window.showInformationMessage('Transport retry settings saved');
+            break;
+        }
         case 'runCompactionDryRun': {
             // Side-effect-free: uses the active rolling history if present
             // (or a small synthetic fallback), writes raw prompts/answers
@@ -1334,6 +1352,33 @@ export async function handleStatusAction(action: string, message: any): Promise<
                 stcConfig.compaction.memoryExtractionTemplates = stcConfig.compaction.memoryExtractionTemplates.filter(t => t.id !== itemId);
                 saveSendToChatConfig(stcConfig);
                 vscode.window.showInformationMessage(`Deleted memory extraction template: ${itemId}`);
+            }
+            break;
+        }
+        case 'editTransportRetryTemplate': {
+            await vscode.commands.executeCommand('tomAi.editor.promptTemplates', {
+                category: 'transportRetry',
+                itemId: message.itemId || undefined,
+            });
+            break;
+        }
+        case 'addTransportRetryTemplate': {
+            await vscode.commands.executeCommand('tomAi.editor.promptTemplates', {
+                category: 'transportRetry',
+            });
+            break;
+        }
+        case 'deleteTransportRetryTemplate': {
+            const itemId = String(message.itemId || '').trim();
+            if (!itemId) {
+                vscode.window.showWarningMessage('Select a transport retry template first.');
+                break;
+            }
+            const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
+            if (stcConfig.anthropic?.transportRetry?.templates) {
+                stcConfig.anthropic.transportRetry.templates = stcConfig.anthropic.transportRetry.templates.filter(t => t.id !== itemId);
+                saveSendToChatConfig(stcConfig);
+                vscode.window.showInformationMessage(`Deleted transport retry template: ${itemId}`);
             }
             break;
         }
@@ -1720,6 +1765,13 @@ export interface StatusData {
     /** Templates available for the compaction `<select>` controls. */
     compactionTemplateChoices: Array<{ id: string; name: string }>;
     memoryExtractionTemplateChoices: Array<{ id: string; name: string }>;
+    /** Agent SDK transport retry settings + continuation-prompt templates. */
+    transportRetry: {
+        maxAttempts: number;
+        templateId: string;
+    };
+    /** Templates available for the transport-retry continuation-prompt `<select>`. */
+    transportRetryTemplateChoices: Array<{ id: string; name: string }>;
     /** Anthropic configurations (id+name) for the compaction provider select. */
     anthropicConfigurationChoices: Array<{ id: string; name: string }>;
     /** Environment variable name that holds the Anthropic API key (anthropic_sdk_integration.md §14). */
@@ -1975,6 +2027,16 @@ export async function gatherStatusData(): Promise<StatusData> {
             id: t.id, name: t.name || t.id,
         })),
         memoryExtractionTemplateChoices: (sendToChatConfig?.compaction?.memoryExtractionTemplates || []).map((t) => ({
+            id: t.id, name: t.name || t.id,
+        })),
+        transportRetry: (() => {
+            const retry = getAnthropicSection().transportRetry ?? {};
+            return {
+                maxAttempts: Number.isFinite(retry.maxAttempts) ? (retry.maxAttempts as number) : 3,
+                templateId: retry.templateId ?? '',
+            };
+        })(),
+        transportRetryTemplateChoices: (getAnthropicSection().transportRetry?.templates || []).map((t) => ({
             id: t.id, name: t.name || t.id,
         })),
         ...(() => {
@@ -2681,6 +2743,39 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
         </div>
     </div>
 
+    <!-- Anthropic Transport Retry (anthropic_sdk_integration.md §18) -->
+    <div class="sp-section">
+        <div class="sp-section-header sp-collapsible" data-collapse="transportRetry">
+            <span class="sp-section-title"><span class="sp-collapse-icon">▶</span> 🔁 Anthropic Transport Retry</span>
+        </div>
+        <div class="sp-collapse-content sp-collapsed" id="sp-transportRetry-content">
+            <p style="font-size:11px;color:var(--vscode-descriptionForeground);margin:0 0 8px">
+                Automatic retry for the <strong>Agent SDK</strong> transport. When a request fails, the failed
+                session is <strong>resumed</strong> with the selected continuation prompt (which can reference
+                <code>\${errorText}</code>). When there is no session id yet, or the error is a
+                <em>"no session" / "unknown session id"</em> error, the original prompt is replayed on a
+                <strong>fresh session</strong> instead. Set <strong>Max attempts</strong> to 1 to disable retry.
+            </p>
+            <div class="sp-settings-row">
+                <label title="Total attempts including the first. 1 disables retry; 3 means up to two retries after the initial attempt.">Max attempts:</label>
+                <input type="number" id="sp-retry-maxAttempts" value="${status.transportRetry.maxAttempts}" min="1" max="20" style="width:70px">
+            </div>
+            <div class="sp-settings-row">
+                <label>Continuation prompt:</label>
+                <select id="sp-retry-templateId">
+                    <option value="">(built-in default)</option>
+                    ${status.transportRetryTemplateChoices.map(t => `<option value="${t.id}" ${t.id === status.transportRetry.templateId ? 'selected' : ''}>${escapeHtmlContent(t.name)}</option>`).join('')}
+                </select>
+                <button class="sp-btn small" data-status-action="editTransportRetryTemplate">✏️ Edit</button>
+                <button class="sp-btn small" data-status-action="addTransportRetryTemplate">➕</button>
+                <button class="sp-btn small danger" data-status-action="deleteTransportRetryTemplate">🗑️</button>
+            </div>
+            <div class="sp-settings-row">
+                <button class="sp-btn primary" data-status-action="updateTransportRetrySettings">Save Transport Retry Settings</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Anthropic — Configurations Editor (anthropic_sdk_integration.md §18.8) -->
     <div class="sp-section">
         <div class="sp-section-header sp-collapsible" data-collapse="anthropicConfigs">
@@ -3041,8 +3136,15 @@ function attachStatusPanelListeners(skipEditorInit) {
                 msgData.itemId = (document.getElementById('sp-comp-memoryExtractionTemplateId') || {}).value || '';
             } else if (action === 'deleteMemoryExtractionTemplate') {
                 msgData.itemId = (document.getElementById('sp-comp-memoryExtractionTemplateId') || {}).value || '';
+            } else if (action === 'updateTransportRetrySettings') {
+                msgData.settings = {
+                    maxAttempts: parseInt((document.getElementById('sp-retry-maxAttempts') || {}).value || '3'),
+                    templateId: (document.getElementById('sp-retry-templateId') || {}).value || ''
+                };
+            } else if (action === 'editTransportRetryTemplate' || action === 'deleteTransportRetryTemplate') {
+                msgData.itemId = (document.getElementById('sp-retry-templateId') || {}).value || '';
             }
-            
+
             vscode.postMessage(msgData);
         });
     });

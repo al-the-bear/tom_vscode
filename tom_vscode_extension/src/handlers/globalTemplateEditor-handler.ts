@@ -48,7 +48,8 @@ export type TemplateCategory =
     | 'anthropicProfiles'
     | 'anthropicUserMessage'
     | 'compaction'
-    | 'memoryExtraction';
+    | 'memoryExtraction'
+    | 'transportRetry';
 
 export const CATEGORY_LABELS: Record<TemplateCategory, string> = {
     copilot: 'Copilot',
@@ -62,7 +63,19 @@ export const CATEGORY_LABELS: Record<TemplateCategory, string> = {
     anthropicUserMessage: 'Anthropic — User Message',
     compaction: 'Compaction',
     memoryExtraction: 'Memory Extraction',
+    transportRetry: 'Anthropic Transport Retry',
 };
+
+/**
+ * Default continuation-prompt body for a newly-added Transport Retry
+ * template. Mirrors `DEFAULT_TRANSPORT_RETRY_TEMPLATE` in
+ * `agent-sdk-transport.ts` (kept as a literal here to avoid importing the
+ * SDK transport module into the editor). References `${errorText}`.
+ */
+const DEFAULT_TRANSPORT_RETRY_TEMPLATE_BODY =
+    'The previous attempt failed with the following error:\n\n${errorText}\n\n' +
+    'Please continue from where you left off and complete the original request. ' +
+    'Do not repeat work that already succeeded.';
 
 interface TemplateItem {
     id: string;
@@ -209,6 +222,9 @@ function _getItemsForCategory(config: SendToChatConfig, category: TemplateCatego
                 .map(t => ({ id: t.id, label: t.name || t.id }));
         case 'memoryExtraction':
             return (config.compaction?.memoryExtractionTemplates || [])
+                .map(t => ({ id: t.id, label: t.name || t.id }));
+        case 'transportRetry':
+            return (config.anthropic?.transportRetry?.templates || [])
                 .map(t => ({ id: t.id, label: t.name || t.id }));
     }
 }
@@ -499,6 +515,20 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                 { name: 'scope', label: 'Scope', type: 'text', value: tpl.scope || 'quest', help: 'quest, shared, or both' },
                 { name: 'allToolsEnabled', label: 'All Tools Enabled', type: 'checkbox', value: String(memAllEnabled), help: 'When checked, the memory extraction call exposes every tool in <code>ALL_SHARED_TOOLS</code>. Uncheck to pick a template-specific subset — typically the memory read/write tools.' },
                 { name: 'enabledTools', label: 'Tools', type: 'multi-checkbox', value: JSON.stringify(memEnabled), options: memToolOptions, disabledWhen: { field: 'allToolsEnabled', equals: 'true' }, help: 'Tool subset the memory extraction LLM may call. Typical defaults: <code>tomAi_listMemory</code>, <code>tomAi_readMemory</code>, <code>tomAi_saveMemory</code>, <code>tomAi_updateMemory</code>.' },
+            );
+            break;
+        }
+        case 'transportRetry': {
+            const tpl = (config.anthropic?.transportRetry?.templates || []).find(t => t.id === itemId);
+            if (!tpl) break;
+            fields.push(
+                { name: 'id', label: 'ID', type: 'text', value: tpl.id, readonly: true },
+                { name: 'name', label: 'Name', type: 'text', value: tpl.name || '' },
+                { name: 'description', label: 'Description', type: 'text', value: tpl.description || '' },
+                { name: 'template', label: 'Continuation Prompt', type: 'textarea', value: tpl.template || '', help: PLACEHOLDER_HELP + '<br><br><strong>Transport-retry placeholders</strong> (resolved when an Agent SDK attempt fails and is resumed):<br>'
+                    + '<code>${errorText}</code> – the error message from the failed attempt; inject it so the agent knows what went wrong<br>'
+                    + '<code>${userMessage}</code> / <code>${originalPrompt}</code> – the original prompt being retried<br>'
+                    + '<br><strong>How this template is invoked:</strong> when an Agent SDK request errors and the session can be resumed, the handler expands this template and sends it as the continuation prompt on the resumed session. Fresh-session retries (no session id, or a "no session" / "unknown session id" error) replay the original prompt instead and do not use this template.<br>' },
             );
             break;
         }
@@ -888,6 +918,25 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
             config.compaction.memoryExtractionTemplates = templates;
             break;
         }
+        case 'transportRetry': {
+            if (!config.anthropic) config.anthropic = {};
+            if (!config.anthropic.transportRetry) config.anthropic.transportRetry = {};
+            const templates = config.anthropic.transportRetry.templates ?? [];
+            const idx = templates.findIndex(t => t.id === itemId);
+            const next = {
+                id: itemId,
+                name: values.name || itemId,
+                description: values.description || '',
+                template: values.template || '',
+            };
+            if (idx >= 0) {
+                templates[idx] = { ...templates[idx], ...next };
+            } else {
+                templates.push(next);
+            }
+            config.anthropic.transportRetry.templates = templates;
+            break;
+        }
         case 'selfTalk': {
             const selfTalk = (config as any).aiConversation?.selfTalk;
             if (!selfTalk) break;
@@ -1024,6 +1073,19 @@ async function _addItem(category: TemplateCategory): Promise<void> {
             config.compaction.memoryExtractionTemplates = templates;
             break;
         }
+        case 'transportRetry': {
+            if (!config.anthropic) config.anthropic = {};
+            if (!config.anthropic.transportRetry) config.anthropic.transportRetry = {};
+            const templates = config.anthropic.transportRetry.templates ?? [];
+            templates.push({
+                id: name,
+                name,
+                description: '',
+                template: DEFAULT_TRANSPORT_RETRY_TEMPLATE_BODY,
+            });
+            config.anthropic.transportRetry.templates = templates;
+            break;
+        }
     }
 
     if (saveSendToChatConfig(config)) {
@@ -1064,6 +1126,7 @@ function _listIds(config: NonNullable<ReturnType<typeof loadSendToChatConfig>>, 
         case 'anthropicUserMessage':  return new Set((config.anthropic?.userMessageTemplates ?? []).map((t) => t.id));
         case 'compaction':            return new Set((config.compaction?.templates ?? []).map((t) => t.id));
         case 'memoryExtraction':      return new Set((config.compaction?.memoryExtractionTemplates ?? []).map((t) => t.id));
+        case 'transportRetry':        return new Set((config.anthropic?.transportRetry?.templates ?? []).map((t) => t.id));
         default:                      return new Set();
     }
 }
@@ -1177,6 +1240,16 @@ async function _copyItem(category: TemplateCategory, itemId: string): Promise<vo
             (config.compaction!.memoryExtractionTemplates ??= []).push(clone);
             break;
         }
+        case 'transportRetry': {
+            const src = (config.anthropic?.transportRetry?.templates ?? []).find((t) => t.id === itemId);
+            if (!src) return;
+            const clone = JSON.parse(JSON.stringify(src));
+            clone.id = targetId;
+            clone.name = `${src.name} (copy)`;
+            ((config.anthropic ??= {}).transportRetry ??= {}).templates ??= [];
+            config.anthropic.transportRetry.templates!.push(clone);
+            break;
+        }
     }
 
     if (saveSendToChatConfig(config)) {
@@ -1287,6 +1360,13 @@ async function _renameItem(category: TemplateCategory, itemId: string): Promise<
             if (entry.name === itemId) { entry.name = targetId; }
             break;
         }
+        case 'transportRetry': {
+            const entry = (config.anthropic?.transportRetry?.templates ?? []).find((t) => t.id === itemId);
+            if (!entry) return;
+            entry.id = targetId;
+            if (entry.name === itemId) { entry.name = targetId; }
+            break;
+        }
     }
 
     // Fix up profile → configuration cross-references when renaming a
@@ -1357,6 +1437,11 @@ async function _deleteItem(category: TemplateCategory, itemId: string): Promise<
         case 'memoryExtraction':
             if (config.compaction?.memoryExtractionTemplates) {
                 config.compaction.memoryExtractionTemplates = config.compaction.memoryExtractionTemplates.filter(t => t.id !== itemId);
+            }
+            break;
+        case 'transportRetry':
+            if (config.anthropic?.transportRetry?.templates) {
+                config.anthropic.transportRetry.templates = config.anthropic.transportRetry.templates.filter(t => t.id !== itemId);
             }
             break;
     }

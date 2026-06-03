@@ -275,6 +275,28 @@ export interface SendToChatConfig {
             autoExtractMode?: 'never' | 'summary' | 'trim_and_summary' | 'llm_extract' | 'all';
             maxInjectedTokens?: number;
         };
+        /**
+         * Agent SDK transport retry. When the SDK stream errors out, the
+         * transport retries the prompt up to `maxAttempts` times. On a
+         * resumable error it continues the same session with a continuation
+         * prompt built from the selected template (which can inject the error
+         * via `${errorText}`); when there is no session id, or the error names
+         * an unknown/missing session, it repeats the original prompt on a
+         * fresh session instead. See agent-sdk-transport.ts.
+         */
+        transportRetry?: {
+            /** Total attempts including the first. Default 3; minimum 1 (no retry). */
+            maxAttempts?: number;
+            /** Selected continuation-prompt template id (from `templates`). Empty = built-in default. */
+            templateId?: string;
+            /** Continuation-prompt templates. Bodies typically reference `${errorText}` + `${userMessage}`. */
+            templates?: Array<{
+                id: string;
+                name: string;
+                description?: string;
+                template: string;
+            }>;
+        };
     };
 
     /**
