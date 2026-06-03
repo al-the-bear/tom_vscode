@@ -107,9 +107,9 @@ Two-tier memory (`_ai/memory/shared/` + `_ai/memory/{quest}/`) is exposed via fi
 
 Memory writes are subject to the approval gate (§8.1) unless the active profile's `toolApprovalMode` is set to `never` (or the user elevates the call at the approval bar via "Allow All (session)").
 
-## 5. The four template categories
+## 5. Template categories
 
-The Anthropic flow uses four template categories, all editable via the **Global Template Editor**:
+The Anthropic flow uses the following template categories, all editable via the **Global Template Editor**:
 
 | Category | Purpose | Where it runs |
 | --- | --- | --- |
@@ -117,8 +117,30 @@ The Anthropic flow uses four template categories, all editable via the **Global 
 | `anthropicUserMessage` | User-input wrapping (e.g. add file context, role banner) | Wraps each user turn before sending (both transports) |
 | `compaction` | History-summary template | `history-compaction.ts` between turns (direct only — SDK compacts on `agentSdk`) |
 | `memoryExtraction` | Extract durable facts from a finished exchange | Background pass after each turn (direct only on `agentSdk`) |
+| `transportRetry` | Retry-on-busy planning text | `agentSdk` transport when a turn is interrupted/overloaded |
+| `interactiveQuestions` | Fallback text returned to the agent for an `AskUserQuestion` call | `agentSdk` transport when interactive questions are off / dismissed (see §6) |
 
 The compaction and memory extraction templates support `${userMessage}` (raw user input) plus all the universal placeholders documented in `file_and_prompt_placeholders.md`.
+
+## 6. Interactive questions (Agent SDK only)
+
+The Claude Agent SDK ships a built-in `AskUserQuestion` tool. On the `agentSdk` transport with `useBuiltInTools: true`, the agent can call it to ask the user multiple-choice questions. In a headless extension host there is no TTY, so the SDK would auto-allow the call, run it with no way to collect an answer, and surface the unanswered questions as the turn's final text — stalling the run.
+
+The extension intercepts `AskUserQuestion` in the `canUseTool` callback (`agent-sdk-transport.ts`, pure logic in `services/agent-sdk-questions.ts`):
+
+- When the active profile sets **`allowInteractiveQuestions: true`**, each question is shown as a native VS Code QuickPick (multi-select honoured). A free-text **"Other…"** entry falls through to an input box. The collected answers are returned to the agent as the tool result via `{ behavior: 'deny', message }`, so the agent continues the turn with the user's choices.
+- When interactive questions are **off**, or the user **dismisses** the picker/input box, a fallback message (the `interactiveQuestionsTemplateId` template, or a built-in default) is returned instead. Its body may reference `${questions}` — a bulleted digest of the headers and options — instructing the agent to proceed autonomously.
+
+> **Limitation:** `canUseTool` is not fired when `permissionMode === 'bypassPermissions'`, which `toolApprovalMode: 'never'` forces. With a never-approve profile the interception is skipped and the SDK's default headless behaviour applies. Use `toolApprovalMode: 'default'` (or `'auto'`) for interactive questions to take effect.
+
+Configure per-profile (`anthropicProfile`):
+
+```json
+{
+  "allowInteractiveQuestions": true,
+  "interactiveQuestionsTemplateId": "my-autonomous-fallback"
+}
+```
 
 ## Related sections of the spec
 

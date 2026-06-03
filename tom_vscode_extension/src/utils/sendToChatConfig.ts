@@ -258,6 +258,17 @@ export interface SendToChatConfig {
             useBuiltInTools?: boolean;
             /** When true, auto-append `${memory}` to the resolved system prompt. */
             autoInjectMemory?: boolean;
+            /**
+             * Agent SDK only — when the agent invokes the built-in
+             * `AskUserQuestion` tool, show a VS Code QuickPick per question
+             * and feed the user's selections back to the model. Default
+             * false: the questions are answered with the autonomous fallback
+             * template instead. Requires `useBuiltInTools` and a non-`never`
+             * `toolApprovalMode`. See `anthropic.interactiveQuestionsTemplates`.
+             */
+            allowInteractiveQuestions?: boolean;
+            /** Selected fallback template id (from `anthropic.interactiveQuestionsTemplates`). Empty = built-in default. */
+            interactiveQuestionsTemplateId?: string;
             isDefault?: boolean;
         }>;
         userMessageTemplates?: Array<{
@@ -297,6 +308,21 @@ export interface SendToChatConfig {
                 template: string;
             }>;
         };
+        /**
+         * Fallback templates for the Agent SDK built-in `AskUserQuestion`
+         * tool. When a profile does not allow interactive questions (or the
+         * user dismisses the picker), the agent receives the selected
+         * template's body as the tool result, telling it to proceed
+         * autonomously. Bodies may reference `${questions}` (a digest of the
+         * skipped questions). Selected per-profile via
+         * `interactiveQuestionsTemplateId`. See agent-sdk-questions.ts.
+         */
+        interactiveQuestionsTemplates?: Array<{
+            id: string;
+            name: string;
+            description?: string;
+            template: string;
+        }>;
     };
 
     /**

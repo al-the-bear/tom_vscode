@@ -49,7 +49,8 @@ export type TemplateCategory =
     | 'anthropicUserMessage'
     | 'compaction'
     | 'memoryExtraction'
-    | 'transportRetry';
+    | 'transportRetry'
+    | 'interactiveQuestions';
 
 export const CATEGORY_LABELS: Record<TemplateCategory, string> = {
     copilot: 'Copilot',
@@ -64,6 +65,7 @@ export const CATEGORY_LABELS: Record<TemplateCategory, string> = {
     compaction: 'Compaction',
     memoryExtraction: 'Memory Extraction',
     transportRetry: 'Anthropic Transport Retry',
+    interactiveQuestions: 'Anthropic — Interactive Questions',
 };
 
 /**
@@ -76,6 +78,20 @@ const DEFAULT_TRANSPORT_RETRY_TEMPLATE_BODY =
     'The previous attempt failed with the following error:\n\n${errorText}\n\n' +
     'Please continue from where you left off and complete the original request. ' +
     'Do not repeat work that already succeeded.';
+
+/**
+ * Default fallback body for a newly-added Interactive Questions template.
+ * Mirrors `DEFAULT_INTERACTIVE_QUESTIONS_TEMPLATE` in
+ * `agent-sdk-questions.ts` (kept as a literal here to avoid importing the
+ * SDK service into the editor). References `${questions}`.
+ */
+const DEFAULT_INTERACTIVE_QUESTIONS_TEMPLATE_BODY =
+    'The user is not available to answer interactive questions right now. ' +
+    'Do not wait for a response — proceed autonomously using your best ' +
+    'judgement and the recommendation you would otherwise have presented. ' +
+    'If a choice is reversible, pick the most reasonable default and state ' +
+    'the assumption you made in your answer.\n\n' +
+    'Questions that were skipped:\n${questions}';
 
 interface TemplateItem {
     id: string;
@@ -225,6 +241,9 @@ function _getItemsForCategory(config: SendToChatConfig, category: TemplateCatego
                 .map(t => ({ id: t.id, label: t.name || t.id }));
         case 'transportRetry':
             return (config.anthropic?.transportRetry?.templates || [])
+                .map(t => ({ id: t.id, label: t.name || t.id }));
+        case 'interactiveQuestions':
+            return (config.anthropic?.interactiveQuestionsTemplates || [])
                 .map(t => ({ id: t.id, label: t.name || t.id }));
     }
 }
@@ -431,9 +450,18 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                 toolApprovalMode?: 'always' | 'never';
                 useBuiltInTools?: boolean;
                 autoInjectMemory?: boolean;
+                allowInteractiveQuestions?: boolean;
+                interactiveQuestionsTemplateId?: string;
             };
             const approvalMode: 'always' | 'never' = p.toolApprovalMode === 'never' ? 'never' : 'always';
             const promptCachingDefaultOn = p.promptCachingEnabled !== false;
+            // Fallback-template dropdown for the AskUserQuestion interception.
+            const interactiveQuestionsTemplateOptions = [
+                { value: '', label: '(built-in default)' },
+                ...((config.anthropic?.interactiveQuestionsTemplates || [])
+                    .filter((t) => t && typeof t.id === 'string')
+                    .map((t) => ({ value: t.id, label: t.name || t.id }))),
+            ];
             fields.push(
                 { name: 'id', label: 'ID', type: 'text', value: profile.id, readonly: true },
                 { name: 'name', label: 'Name', type: 'text', value: profile.name || '' },
@@ -448,6 +476,8 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                 { name: 'promptCachingEnabled', label: 'Prompt Caching', type: 'checkbox', value: String(promptCachingDefaultOn), help: 'Enable prompt caching for this profile. Overrides <code>configuration.promptCachingEnabled</code>. Defaults to on.' },
                 { name: 'toolApprovalMode', label: 'Tool Approval', type: 'select', value: approvalMode, options: [{ value: 'always', label: 'Always — prompt before every write tool call' }, { value: 'never', label: 'Never — skip the approval gate (dangerous)' }], help: 'Approval gate for write tool calls. <strong>Always</strong> shows the approval bar; the user can elevate a single approval to the full session via the "Allow All (session)" button at the bar. <strong>Never</strong> skips the gate entirely (on the Agent SDK it also forces <code>permissionMode=bypassPermissions</code>).' },
                 { name: 'useBuiltInTools', label: 'Use Built-In Agent SDK Tools', type: 'checkbox', value: String(p.useBuiltInTools === true), help: 'Agent SDK transport only: expose Claude Code\'s built-in tool preset (Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch, TodoWrite, …) and automatically suppress extension tools that duplicate them. No effect on the direct Anthropic SDK.' },
+                { name: 'allowInteractiveQuestions', label: 'Allow Interactive Questions', type: 'checkbox', value: String(p.allowInteractiveQuestions === true), help: 'Agent SDK transport only: when the agent calls the built-in <code>AskUserQuestion</code> tool, show a VS Code QuickPick per question and feed your selections back to the model. When unchecked (default), the questions are answered with the fallback template below, telling the agent to proceed autonomously. Requires "Use Built-In Agent SDK Tools"; has no effect when Tool Approval is "Never" (the SDK does not fire the approval callback under <code>bypassPermissions</code>).' },
+                { name: 'interactiveQuestionsTemplateId', label: 'Interactive Questions Fallback', type: 'select', value: p.interactiveQuestionsTemplateId || '', options: interactiveQuestionsTemplateOptions, help: 'Fallback template (from the "Anthropic — Interactive Questions" category) returned to the agent when interactive questions are off or you dismiss the picker. Bodies may reference <code>${questions}</code>. "(built-in default)" uses the hard-coded autonomous fallback.' },
                 { name: 'autoInjectMemory', label: 'Auto-inject Memory', type: 'checkbox', value: String(p.autoInjectMemory === true), help: 'When checked, append a <code>## Memory</code> section with <code>${memory}</code> to the resolved system prompt automatically. When unchecked (default), memory is only included when the profile explicitly references <code>${memory}</code> / <code>${memory-shared}</code> / <code>${memory-quest}</code> in its System Prompt, User Prompt Wrapper, or user-message template.<br><br><strong>Caveat:</strong> file-injection placeholders (<code>${role-description}</code>, <code>${quest-description}</code>, <code>${guidelines-*}</code>) recursively expand any <code>${memory*}</code> tokens that appear inside the injected file. Leaving this off does NOT prevent that. Audit those files if you want zero memory in the prompt.' },
                 { name: 'maxRounds', label: 'Max Rounds', type: 'number', value: String(profile.maxRounds ?? ''), help: 'Override <code>configuration.maxRounds</code> for this profile. Leave empty to inherit.' },
                 { name: 'maxTokens', label: 'Max Tokens', type: 'number', value: String((profile as { maxTokens?: number }).maxTokens ?? ''), help: 'Override <code>configuration.maxTokens</code> for this profile. Leave empty to inherit.' },
@@ -529,6 +559,19 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                     + '<code>${errorText}</code> – the error message from the failed attempt; inject it so the agent knows what went wrong<br>'
                     + '<code>${userMessage}</code> / <code>${originalPrompt}</code> – the original prompt being retried<br>'
                     + '<br><strong>How this template is invoked:</strong> when an Agent SDK request errors and the session can be resumed, the handler expands this template and sends it as the continuation prompt on the resumed session. Fresh-session retries (no session id, or a "no session" / "unknown session id" error) replay the original prompt instead and do not use this template.<br>' },
+            );
+            break;
+        }
+        case 'interactiveQuestions': {
+            const tpl = (config.anthropic?.interactiveQuestionsTemplates || []).find(t => t.id === itemId);
+            if (!tpl) break;
+            fields.push(
+                { name: 'id', label: 'ID', type: 'text', value: tpl.id, readonly: true },
+                { name: 'name', label: 'Name', type: 'text', value: tpl.name || '' },
+                { name: 'description', label: 'Description', type: 'text', value: tpl.description || '' },
+                { name: 'template', label: 'Fallback Answer', type: 'textarea', value: tpl.template || '', help: PLACEHOLDER_HELP + '<br><br><strong>Interactive-questions placeholder</strong> (resolved when the Agent SDK calls the built-in <code>AskUserQuestion</code> tool and interactive answering is off, or the user dismisses the picker):<br>'
+                    + '<code>${questions}</code> – a digest of the skipped questions (one bullet per question with its options)<br>'
+                    + '<br><strong>How this template is invoked:</strong> the body is returned to the agent as the <code>AskUserQuestion</code> tool result, so it should instruct the agent to proceed autonomously rather than wait for an answer.<br>' },
             );
             break;
         }
@@ -788,6 +831,8 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
             const toolApprovalMode: 'always' | 'never' = values.toolApprovalMode === 'never' ? 'never' : 'always';
             const useBuiltInTools = values.useBuiltInTools === 'true';
             const autoInjectMemory = values.autoInjectMemory === 'true';
+            const allowInteractiveQuestions = values.allowInteractiveQuestions === 'true';
+            const interactiveQuestionsTemplateId = (values.interactiveQuestionsTemplateId || '').trim();
             const userPromptWrapper = (values.userPromptWrapper || '').trim();
             const next = {
                 id: itemId,
@@ -804,6 +849,8 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
                 toolApprovalMode,
                 useBuiltInTools,
                 autoInjectMemory,
+                allowInteractiveQuestions,
+                ...(interactiveQuestionsTemplateId ? { interactiveQuestionsTemplateId } : {}),
                 maxRounds: values.maxRounds ? parseInt(values.maxRounds, 10) : undefined,
                 maxTokens: values.maxTokens ? parseInt(values.maxTokens, 10) : undefined,
                 historyMode: values.historyMode || null,
@@ -825,6 +872,10 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
                 // without this the spread would preserve the old value.
                 if (!userPromptWrapper && 'userPromptWrapper' in existing) {
                     delete existing.userPromptWrapper;
+                }
+                // Same for a cleared interactiveQuestionsTemplateId.
+                if (!interactiveQuestionsTemplateId && 'interactiveQuestionsTemplateId' in existing) {
+                    delete existing.interactiveQuestionsTemplateId;
                 }
                 profiles[idx] = { ...existing, ...next };
             } else {
@@ -935,6 +986,24 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
                 templates.push(next);
             }
             config.anthropic.transportRetry.templates = templates;
+            break;
+        }
+        case 'interactiveQuestions': {
+            if (!config.anthropic) config.anthropic = {};
+            const templates = config.anthropic.interactiveQuestionsTemplates ?? [];
+            const idx = templates.findIndex(t => t.id === itemId);
+            const next = {
+                id: itemId,
+                name: values.name || itemId,
+                description: values.description || '',
+                template: values.template || '',
+            };
+            if (idx >= 0) {
+                templates[idx] = { ...templates[idx], ...next };
+            } else {
+                templates.push(next);
+            }
+            config.anthropic.interactiveQuestionsTemplates = templates;
             break;
         }
         case 'selfTalk': {
@@ -1086,6 +1155,18 @@ async function _addItem(category: TemplateCategory): Promise<void> {
             config.anthropic.transportRetry.templates = templates;
             break;
         }
+        case 'interactiveQuestions': {
+            if (!config.anthropic) config.anthropic = {};
+            const templates = config.anthropic.interactiveQuestionsTemplates ?? [];
+            templates.push({
+                id: name,
+                name,
+                description: '',
+                template: DEFAULT_INTERACTIVE_QUESTIONS_TEMPLATE_BODY,
+            });
+            config.anthropic.interactiveQuestionsTemplates = templates;
+            break;
+        }
     }
 
     if (saveSendToChatConfig(config)) {
@@ -1127,6 +1208,7 @@ function _listIds(config: NonNullable<ReturnType<typeof loadSendToChatConfig>>, 
         case 'compaction':            return new Set((config.compaction?.templates ?? []).map((t) => t.id));
         case 'memoryExtraction':      return new Set((config.compaction?.memoryExtractionTemplates ?? []).map((t) => t.id));
         case 'transportRetry':        return new Set((config.anthropic?.transportRetry?.templates ?? []).map((t) => t.id));
+        case 'interactiveQuestions':  return new Set((config.anthropic?.interactiveQuestionsTemplates ?? []).map((t) => t.id));
         default:                      return new Set();
     }
 }
@@ -1250,6 +1332,16 @@ async function _copyItem(category: TemplateCategory, itemId: string): Promise<vo
             config.anthropic.transportRetry.templates!.push(clone);
             break;
         }
+        case 'interactiveQuestions': {
+            const src = (config.anthropic?.interactiveQuestionsTemplates ?? []).find((t) => t.id === itemId);
+            if (!src) return;
+            const clone = JSON.parse(JSON.stringify(src));
+            clone.id = targetId;
+            clone.name = `${src.name} (copy)`;
+            (config.anthropic ??= {}).interactiveQuestionsTemplates ??= [];
+            config.anthropic.interactiveQuestionsTemplates!.push(clone);
+            break;
+        }
     }
 
     if (saveSendToChatConfig(config)) {
@@ -1367,6 +1459,13 @@ async function _renameItem(category: TemplateCategory, itemId: string): Promise<
             if (entry.name === itemId) { entry.name = targetId; }
             break;
         }
+        case 'interactiveQuestions': {
+            const entry = (config.anthropic?.interactiveQuestionsTemplates ?? []).find((t) => t.id === itemId);
+            if (!entry) return;
+            entry.id = targetId;
+            if (entry.name === itemId) { entry.name = targetId; }
+            break;
+        }
     }
 
     // Fix up profile → configuration cross-references when renaming a
@@ -1442,6 +1541,11 @@ async function _deleteItem(category: TemplateCategory, itemId: string): Promise<
         case 'transportRetry':
             if (config.anthropic?.transportRetry?.templates) {
                 config.anthropic.transportRetry.templates = config.anthropic.transportRetry.templates.filter(t => t.id !== itemId);
+            }
+            break;
+        case 'interactiveQuestions':
+            if (config.anthropic?.interactiveQuestionsTemplates) {
+                config.anthropic.interactiveQuestionsTemplates = config.anthropic.interactiveQuestionsTemplates.filter(t => t.id !== itemId);
             }
             break;
     }

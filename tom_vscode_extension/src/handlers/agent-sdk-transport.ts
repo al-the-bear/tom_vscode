@@ -130,6 +130,14 @@ import {
     DEFAULT_TRANSPORT_RETRY_TEMPLATE,
 } from '../services/agent-sdk-retry';
 import type { AgentSdkRetryPlan } from '../services/agent-sdk-retry';
+import {
+    isAskUserQuestionTool,
+    parseAskUserQuestionInput,
+    collectInteractiveAnswers,
+    summarizeQuestions,
+    DEFAULT_INTERACTIVE_QUESTIONS_TEMPLATE,
+} from '../services/agent-sdk-questions';
+import { liveUserPrompter } from '../tools/user-interaction-tools';
 
 // Re-export the pure retry-decision API so existing consumers
 // (`anthropic-handler.ts`) can keep importing it from this transport module.
@@ -139,6 +147,10 @@ export {
     DEFAULT_TRANSPORT_RETRY_TEMPLATE,
 };
 export type { AgentSdkRetryPlan };
+
+// Re-export the interactive-questions default so the handler can resolve
+// the fallback template from one place.
+export { DEFAULT_INTERACTIVE_QUESTIONS_TEMPLATE };
 
 // ============================================================================
 // Context — provided by AnthropicHandler.sendMessage when it delegates here
@@ -252,6 +264,32 @@ export interface AgentSdkSendParams {
          * a continuation prompt could reference).
          */
         buildContinuationPrompt: (errorText: string) => string;
+    };
+    /**
+     * Interception of the SDK's built-in `AskUserQuestion` tool (spec §18,
+     * "Anthropic Interactive Questions"). Only relevant when
+     * `useBuiltInTools` is on — the tool exists nowhere else. When omitted,
+     * the questions are answered with the built-in autonomous fallback.
+     *
+     *  - `enabled`           → show a VS Code QuickPick per question and feed
+     *    the user's selections back as the tool result.
+     *  - else / on dismissal → return `buildFallbackText(questionsDigest)`,
+     *    which tells the agent to proceed autonomously.
+     *
+     * NOTE: the interception runs inside `canUseTool`, which the SDK does
+     * NOT fire when `toolApprovalMode === 'never'` (that forces
+     * `bypassPermissions`). With approval bypassed the questions are not
+     * intercepted and revert to the SDK's headless behavior.
+     */
+    interactiveQuestions?: {
+        /** When true, prompt the user; otherwise always use the fallback. */
+        enabled: boolean;
+        /**
+         * Builds the fallback tool-result text from a human-readable digest
+         * of the (skipped) questions. Used when `enabled` is false and when
+         * the user dismisses the interactive picker.
+         */
+        buildFallbackText: (questionsDigest: string) => string;
     };
 }
 
@@ -419,9 +457,35 @@ function makeCanUseTool(
     tools: SharedToolDefinition[],
     ctx: AgentSdkTransportContext,
     approvalMode: 'always' | 'never' = 'always',
+    interactiveQuestions?: AgentSdkSendParams['interactiveQuestions'],
 ): CanUseTool {
     return async (toolName, input): Promise<PermissionResult> => {
         const bare = stripMcpPrefix(toolName);
+
+        // Built-in `AskUserQuestion`: a headless run has no TTY, so the SDK
+        // would otherwise surface the unanswered questions as final text and
+        // stall. Intercept it here — `canUseTool`'s deny `message` is fed
+        // back to the model as the tool result, so we return either the
+        // user's selections (interactive) or the autonomous fallback.
+        if (isAskUserQuestionTool(bare)) {
+            const parsed = parseAskUserQuestionInput(input);
+            if (parsed) {
+                if (interactiveQuestions?.enabled) {
+                    const answers = await collectInteractiveAnswers(liveUserPrompter, parsed);
+                    if (answers !== null) {
+                        return { behavior: 'deny', message: answers };
+                    }
+                    // User dismissed → fall through to the autonomous fallback.
+                }
+                const fallback = interactiveQuestions
+                    ? interactiveQuestions.buildFallbackText(summarizeQuestions(parsed))
+                    : DEFAULT_INTERACTIVE_QUESTIONS_TEMPLATE.replace('${questions}', summarizeQuestions(parsed));
+                return { behavior: 'deny', message: fallback };
+            }
+            // Unrecognised payload — let the SDK handle it as before.
+            return { behavior: 'allow', updatedInput: input };
+        }
+
         const def = tools.find((t) => t.name === bare);
 
         // Built-ins the SDK itself manages when useBuiltInTools is on —
@@ -537,7 +601,7 @@ async function runAgentSdkAttempt(
     const sdk = await loadSdk();
     const mcpServer = buildMcpServer(sdk, tools, context);
     const approvalMode = params.toolApprovalMode ?? 'always';
-    const canUseToolFn = makeCanUseTool(tools, context, approvalMode);
+    const canUseToolFn = makeCanUseTool(tools, context, approvalMode, params.interactiveQuestions);
 
     const abortController = new AbortController();
     const cancelSub = cancellationToken?.onCancellationRequested(() => abortController.abort());

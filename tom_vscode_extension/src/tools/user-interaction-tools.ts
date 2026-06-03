@@ -230,7 +230,7 @@ export const ASK_USER_PICKER_DESCRIPTION =
 // Live vscode bridge
 // ===========================================================================
 
-const liveUserPrompter: UserPrompter = {
+export const liveUserPrompter: UserPrompter = {
     showInputBox(opts) {
         return Promise.resolve(vscode.window.showInputBox({
             prompt: opts.prompt,

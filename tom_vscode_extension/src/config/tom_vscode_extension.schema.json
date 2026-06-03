@@ -61,6 +61,21 @@
                         }
                     },
                     "additionalProperties": true
+                },
+                "interactiveQuestionsTemplates": {
+                    "type": "array",
+                    "description": "Fallback templates for the Agent SDK built-in AskUserQuestion tool (agent-sdk-questions.ts). Used as the tool result when a profile does not allow interactive questions (or the user dismisses the picker), telling the agent to proceed autonomously. Bodies may reference ${questions} (a digest of the skipped questions). Selected per-profile via interactiveQuestionsTemplateId.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": { "type": "string" },
+                            "name": { "type": "string" },
+                            "description": { "type": "string" },
+                            "template": { "type": "string" }
+                        },
+                        "required": ["id", "name", "template"],
+                        "additionalProperties": true
+                    }
                 }
             },
             "additionalProperties": true
@@ -362,6 +377,15 @@
                     "type": "boolean",
                     "default": false,
                     "description": "When true, append a `## Memory\\n\\n${memory}` section to the resolved system prompt automatically. When false (default), memory is only injected when the profile explicitly references `${memory}` / `${memory-shared}` / `${memory-quest}` in its System Prompt, User Prompt Wrapper, or user-message template. Note: recursive expansion may still inline memory through file-injection placeholders like `${quest-description}` if those files contain memory tokens — audit those files separately."
+                },
+                "allowInteractiveQuestions": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Agent SDK transport only: when the agent calls the built-in AskUserQuestion tool, show a VS Code QuickPick per question and feed the user's selections back to the model. When false (default), the questions are answered with the fallback template (interactiveQuestionsTemplateId), telling the agent to proceed autonomously. Requires useBuiltInTools; has no effect when toolApprovalMode is 'never' (canUseTool is not fired under bypassPermissions)."
+                },
+                "interactiveQuestionsTemplateId": {
+                    "type": "string",
+                    "description": "Selected fallback template id (from anthropic.interactiveQuestionsTemplates) returned to the agent when interactive questions are disabled or the user dismisses the picker. Empty = built-in default."
                 },
                 "isDefault": { "type": "boolean" }
             }

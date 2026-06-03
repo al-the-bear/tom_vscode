@@ -1904,3 +1904,28 @@ Switching back to **Direct API** restores all previously set direct-only field v
 | Approval gate       | In-handler intercept before `execute()`            | `canUseTool` callback before `execute()`      |
 | Model dropdown      | Live from `anthropic.models.list()` (§2)           | Live from `anthropic.models.list()` (same)    |
 | Panel status line   | `model · historyMode · last N tools · turns`       | `model · SDK-managed · last N tools · turns`  |
+
+### 18.11 Interactive questions (`AskUserQuestion`)
+
+The Agent SDK exposes a built-in `AskUserQuestion` tool (available on the `agentSdk` transport when `useBuiltInTools: true`). Its input shape:
+
+```ts
+{ questions: Array<{
+    question: string;
+    header?: string;        // short label, defaults to ''
+    multiSelect?: boolean;  // defaults to false
+    options?: Array<{ label: string; description?: string }>;
+}> }   // 1–4 questions; the SDK auto-adds an "Other" entry
+```
+
+In a headless extension host there is no TTY, so the SDK auto-allows the call and the unanswered questions surface as the turn's final text, stalling the run. The extension intercepts the call in the `canUseTool` callback:
+
+- **Pure logic** lives in `src/services/agent-sdk-questions.ts` (imports `vscode` only as a type, so it runs under `node --test`). Exports: `isAskUserQuestionTool`, `parseAskUserQuestionInput`, `summarizeQuestions`, `formatInteractiveAnswers`, `collectInteractiveAnswers`, plus `ASK_USER_QUESTION_TOOL_NAME`, `OTHER_OPTION_LABEL`, `DEFAULT_INTERACTIVE_QUESTIONS_TEMPLATE`.
+- **Collection** (`collectInteractiveAnswers`) shows one VS Code QuickPick per question through the `UserPrompter` seam (`tools/user-interaction-tools.ts`), honouring `multiSelect`. An `"Other…"` entry falls through to an input box for free text. Any dismissal returns `null`.
+- **Round-trip:** answers are returned as the tool result via `{ behavior: 'deny', message }` — the SDK feeds `message` back to the model. When interception is off or answers are `null`, the fallback template (`interactiveQuestionsTemplateId`, body may reference `${questions}`) or the built-in default is returned instead, instructing the agent to proceed autonomously.
+
+**Configuration.** Per-profile (`anthropicProfile`): `allowInteractiveQuestions` (boolean) and `interactiveQuestionsTemplateId` (string, id into `anthropic.interactiveQuestionsTemplates`). The template store mirrors `transportRetry`. A new Global Template Editor category `interactiveQuestions` ("Anthropic — Interactive Questions") manages the fallback templates.
+
+**Limitation.** `canUseTool` is not fired under `permissionMode === 'bypassPermissions'` (forced by `toolApprovalMode: 'never'`), so interactive questions require `toolApprovalMode: 'default'`/`'auto'` to take effect.
+
+Touched files: `services/agent-sdk-questions.ts` (new) + test, `handlers/agent-sdk-transport.ts`, `handlers/anthropic-handler.ts`, `handlers/globalTemplateEditor-handler.ts`, `tools/user-interaction-tools.ts` (export `liveUserPrompter`), `utils/sendToChatConfig.ts`, `config/tom_vscode_extension.schema.json`.

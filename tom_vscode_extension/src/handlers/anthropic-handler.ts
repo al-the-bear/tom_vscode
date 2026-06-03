@@ -53,7 +53,7 @@ import {
     pushAndCap as pushRawTurnAndCap,
 } from '../services/raw-turns-store';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
-import { runAgentSdkQuery, DEFAULT_TRANSPORT_RETRY_TEMPLATE } from './agent-sdk-transport';
+import { runAgentSdkQuery, DEFAULT_TRANSPORT_RETRY_TEMPLATE, DEFAULT_INTERACTIVE_QUESTIONS_TEMPLATE } from './agent-sdk-transport';
 import * as anthropicOutput from './anthropic-output-channels';
 import { WsPaths } from '../utils/workspacePaths';
 import { resolveVariables } from '../utils/variableResolver';
@@ -213,6 +213,19 @@ export interface AnthropicProfile {
      */
     useBuiltInTools?: boolean;
     /**
+     * Agent SDK path only — when the agent invokes the built-in
+     * `AskUserQuestion` tool, prompt the user with a VS Code QuickPick per
+     * question and feed the selections back as the tool result. Default
+     * `false`: the questions are answered with the fallback template
+     * (`interactiveQuestionsTemplateId`), telling the agent to proceed
+     * autonomously. Requires `useBuiltInTools` and has no effect when
+     * `toolApprovalMode === 'never'` (canUseTool isn't fired under
+     * bypassPermissions).
+     */
+    allowInteractiveQuestions?: boolean;
+    /** Selected fallback template id from `anthropic.interactiveQuestionsTemplates`. Empty = built-in default. */
+    interactiveQuestionsTemplateId?: string;
+    /**
      * When true, append a `${memory}` block to the resolved system prompt
      * automatically, so the user doesn't have to add the placeholder by
      * hand. Default `false` — memory is only included when the profile's
@@ -252,6 +265,8 @@ interface AnthropicSection {
         templateId?: string;
         templates?: Array<{ id: string; name: string; description?: string; template: string }>;
     };
+    /** Fallback templates for the Agent SDK built-in `AskUserQuestion` tool (spec §18, "Anthropic Interactive Questions"). */
+    interactiveQuestionsTemplates?: Array<{ id: string; name: string; description?: string; template: string }>;
 }
 
 export interface AnthropicSendOptions {
@@ -1755,6 +1770,30 @@ export class AnthropicHandler {
                 }
                 : undefined;
 
+            // Interactive questions (spec §18, "Anthropic Interactive
+            // Questions"): when the agent calls the built-in AskUserQuestion
+            // tool, either prompt the user (allowInteractiveQuestions) or
+            // feed back the resolved fallback template telling it to proceed
+            // autonomously. Only meaningful with useBuiltInTools.
+            const interactiveSection = this.getAnthropicSection();
+            const interactiveQuestionsParam = profile.useBuiltInTools
+                ? {
+                    enabled: profile.allowInteractiveQuestions === true,
+                    buildFallbackText: (questionsDigest: string): string => {
+                        const selected = profile.interactiveQuestionsTemplateId
+                            ? interactiveSection.interactiveQuestionsTemplates?.find(
+                                (t) => t.id === profile.interactiveQuestionsTemplateId,
+                            )
+                            : undefined;
+                        const body = selected?.template ?? DEFAULT_INTERACTIVE_QUESTIONS_TEMPLATE;
+                        return resolveVariables(body, {
+                            values: { questions: questionsDigest },
+                            enableJsExpressions: true,
+                        });
+                    },
+                }
+                : undefined;
+
             let result: AnthropicSendResult & { sessionId?: string };
             try {
                 result = await runAgentSdkQuery({
@@ -1769,6 +1808,7 @@ export class AnthropicHandler {
                     resumeSessionId,
                     onSessionIdCaptured,
                     retry: retryParam,
+                    interactiveQuestions: interactiveQuestionsParam,
                     autoLoadProjectSettings: useSdkManagedContinuity,
                     liveTrail: liveTrail ?? undefined,
                     context: {
