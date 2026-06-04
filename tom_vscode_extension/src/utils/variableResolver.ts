@@ -35,6 +35,7 @@ import * as os from 'os';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
 import { WsPaths } from './workspacePaths';
+import { logConfigAccess } from './toolLog';
 
 // ============================================================================
 // Public types
@@ -233,6 +234,11 @@ function getConfigFilePath(): string {
         configPath = configPath.replace(/\$\{workspaceFolder\}/g, wsRoot);
     }
 
+    logConfigAccess('variableResolver.getConfigFilePath', configPath, {
+        action: 'resolve',
+        branch: setting ? 'setting' : 'home default',
+        setting: setting ?? '',
+    });
     return configPath;
 }
 

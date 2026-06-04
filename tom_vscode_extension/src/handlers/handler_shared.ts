@@ -36,6 +36,7 @@ import {
 } from '../utils/sendToChatConfig';
 import { debugException, debugLog } from '../utils/debugLogger';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
+import { logConfigAccess } from '../utils/toolLog';
 
 // Re-export config types and functions from sendToChatConfig
 export {
@@ -187,6 +188,10 @@ export function getConfigPath(): string | undefined {
     // 1. Check workspace .tom/ first
     const wsConfigPath = WsPaths.wsConfig(WsPaths.configFileName);
     if (wsConfigPath && fs.existsSync(wsConfigPath)) {
+        logConfigAccess('handler_shared.getConfigPath', wsConfigPath, {
+            action: 'resolve',
+            branch: 'legacy fallback / workspace .tom (exists)',
+        });
         return wsConfigPath;
     }
 
@@ -195,10 +200,20 @@ export function getConfigPath(): string | undefined {
         .getConfiguration('tomAi')
         .get<string>('configPath');
     if (configSetting) {
-        return resolvePathVariables(configSetting) ?? configSetting;
+        const resolved = resolvePathVariables(configSetting) ?? configSetting;
+        logConfigAccess('handler_shared.getConfigPath', resolved, {
+            action: 'resolve',
+            branch: 'legacy fallback / setting',
+            setting: configSetting,
+        });
+        return resolved;
     }
 
     // 3. Workspace default path (no home-level fallback)
+    logConfigAccess('handler_shared.getConfigPath', wsConfigPath, {
+        action: 'resolve',
+        branch: 'legacy fallback / workspace default target',
+    });
     return wsConfigPath;
 }
 

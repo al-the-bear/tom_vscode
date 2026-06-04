@@ -15,6 +15,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { WsPaths } from './workspacePaths';
 import { TomAiConfiguration } from './tomAiConfiguration';
+import { logConfigAccess } from './toolLog';
 
 // ============================================================================
 // Configuration Interface
@@ -585,6 +586,10 @@ function getConfigPathSimple(): string | undefined {
     // 1. Check workspace .tom/ first
     const wsConfigPath = WsPaths.wsConfig(WsPaths.configFileName);
     if (wsConfigPath && fs.existsSync(wsConfigPath)) {
+        logConfigAccess('sendToChatConfig.getConfigPathSimple', wsConfigPath, {
+            action: 'resolve',
+            branch: 'fallback / workspace .tom (exists)',
+        });
         return wsConfigPath;
     }
 
@@ -593,10 +598,20 @@ function getConfigPathSimple(): string | undefined {
         .getConfiguration('tomAi')
         .get<string>('configPath');
     if (configSetting) {
-        return expandHomePath(configSetting);
+        const resolved = expandHomePath(configSetting);
+        logConfigAccess('sendToChatConfig.getConfigPathSimple', resolved, {
+            action: 'resolve',
+            branch: 'fallback / setting',
+            setting: configSetting,
+        });
+        return resolved;
     }
 
     // 3. Workspace default target
+    logConfigAccess('sendToChatConfig.getConfigPathSimple', wsConfigPath, {
+        action: 'resolve',
+        branch: 'fallback / workspace default target',
+    });
     return wsConfigPath;
 }
 

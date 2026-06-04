@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 import { parseDocument } from 'yaml';
 import { FsUtils } from './fsUtils';
 import { WsPaths } from './workspacePaths';
+import { logConfigAccess } from './toolLog';
 import {
     BRIDGE_MAX_RESTARTS,
     BRIDGE_REQUEST_TIMEOUT,
@@ -153,6 +154,10 @@ export class TomAiConfiguration {
     get configPath(): string {
         const wsConfigPath = WsPaths.wsConfig(WsPaths.configFileName);
         if (wsConfigPath && fs.existsSync(wsConfigPath)) {
+            logConfigAccess('TomAiConfiguration.configPath', wsConfigPath, {
+                action: 'resolve',
+                branch: 'workspace .tom (exists)',
+            });
             return wsConfigPath;
         }
 
@@ -161,17 +166,32 @@ export class TomAiConfiguration {
             .get<string>('configPath');
 
         if (configuredPath && configuredPath.trim()) {
-            return this.resolveConfiguredPath(configuredPath.trim());
+            const resolved = this.resolveConfiguredPath(configuredPath.trim());
+            logConfigAccess('TomAiConfiguration.configPath', resolved, {
+                action: 'resolve',
+                branch: 'tomAi.configPath setting',
+                setting: configuredPath,
+            });
+            return resolved;
         }
 
         if (wsConfigPath) {
+            logConfigAccess('TomAiConfiguration.configPath', wsConfigPath, {
+                action: 'resolve',
+                branch: 'workspace .tom (default target)',
+            });
             return wsConfigPath;
         }
 
         const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        return wsRoot
+        const fallback = wsRoot
             ? path.join(wsRoot, '.tom', WsPaths.configFileName)
             : path.join(os.homedir(), '.tom', 'vscode', WsPaths.configFileName);
+        logConfigAccess('TomAiConfiguration.configPath', fallback, {
+            action: 'resolve',
+            branch: wsRoot ? 'workspace root fallback' : 'home fallback (no workspace)',
+        });
+        return fallback;
     }
 
     getLocalLlm(): LocalLlmConfig { return this.getSection<LocalLlmConfig>('localLlm') ?? {}; }
@@ -216,17 +236,29 @@ export class TomAiConfiguration {
 
         const filePath = this.configPath;
         if (!FsUtils.fileExists(filePath)) {
+            logConfigAccess('TomAiConfiguration.reload', filePath, {
+                action: 'missing',
+                note: 'file does not exist — using defaults',
+            });
             this.config = this.mergeConfig({});
             return;
         }
 
         const raw = FsUtils.safeReadFile(filePath);
         if (!raw) {
+            logConfigAccess('TomAiConfiguration.reload', filePath, {
+                action: 'read-failed',
+                note: 'file present but unreadable/empty — using defaults',
+            });
             this.config = this.mergeConfig({});
             return;
         }
 
         const parsed = this.parseConfig(raw, filePath) ?? {};
+        logConfigAccess('TomAiConfiguration.reload', filePath, {
+            action: 'loaded',
+            note: `${raw.length} bytes`,
+        });
         this.config = this.mergeConfig(parsed);
     }
 

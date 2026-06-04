@@ -20,9 +20,12 @@ import {
     logPrompt, logResponse, logToolRequest, logToolResult,
     isTrailEnabled, loadTrailConfig, writeTrailFile,
 } from '../services/trailLogging';
+import { getToolLogChannel } from '../utils/toolLog';
 
 const logChannel = vscode.window.createOutputChannel('Tom AI Chat Log');
-const toolLogChannel = vscode.window.createOutputChannel('Tom Tool Log');
+// Shared "Tom Tool Log" channel — owned by utils/toolLog so config-path
+// diagnostics and this handler write to a single channel (no duplicate).
+const toolLogChannel = getToolLogChannel();
 const responseChannel = vscode.window.createOutputChannel('Tom AI Chat Responses');
 const EXTENSION_MESSAGE_PREFIX = '[Tom AI] ';
 
