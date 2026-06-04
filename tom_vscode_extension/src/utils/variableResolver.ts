@@ -215,10 +215,7 @@ function addPathSubProperties(values: Record<string, string>): void {
 function getConfigFilePath(): string {
     const setting = vscode.workspace
         .getConfiguration('tomAi')
-        .get<string>('configPath')
-        || vscode.workspace
-            .getConfiguration('tomAi')
-            .get<string>('configPath');
+        .get<string>('configPath');
 
     let configPath = setting || path.join('~', '.tom', 'vscode', 'tom_vscode_extension.json');
 

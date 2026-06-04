@@ -174,7 +174,7 @@ export function getWorkspaceRoot(): string | undefined {
  *
  * Resolution order:
  *   1. Workspace `.tom/tom_vscode_extension.json` (if it exists)
- *   2. Explicit `tomAi.configPath` / `tomAi.configPath` setting (with variable resolution)
+ *   2. Explicit `tomAi.configPath` setting (with variable resolution)
  *   3. Workspace `.tom/tom_vscode_extension.json` default target
  */
 export function getConfigPath(): string | undefined {
@@ -193,10 +193,7 @@ export function getConfigPath(): string | undefined {
     // 2. Explicit setting
     const configSetting = vscode.workspace
         .getConfiguration('tomAi')
-        .get<string>('configPath')
-        || vscode.workspace
-            .getConfiguration('tomAi')
-            .get<string>('configPath');
+        .get<string>('configPath');
     if (configSetting) {
         return resolvePathVariables(configSetting) ?? configSetting;
     }

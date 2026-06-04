@@ -53,7 +53,8 @@
                                     "id": { "type": "string" },
                                     "name": { "type": "string" },
                                     "description": { "type": "string" },
-                                    "template": { "type": "string" }
+                                    "template": { "type": "string" },
+                                    "isDefault": { "type": "boolean", "description": "Marks the template that \"use default\" (empty templateId) resolves to. At most one." }
                                 },
                                 "required": ["id", "name", "template"],
                                 "additionalProperties": true

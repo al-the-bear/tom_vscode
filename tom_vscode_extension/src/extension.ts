@@ -476,8 +476,25 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // CLI Server autostart: if enabled in config, start after bridge is ready
     {
-        const { loadSendToChatConfig } = await import('./utils/sendToChatConfig.js');
+        const {
+            loadSendToChatConfig,
+            saveSendToChatConfig,
+            ensureDefaultTransportRetryTemplate,
+        } = await import('./utils/sendToChatConfig.js');
         const stcConfig = loadSendToChatConfig();
+        // One-shot seed: migrate the in-code transport-retry default into an
+        // on-disk "Default Retry" template (marked isDefault) so "use default"
+        // resolves to an editable, pickable entry. No-op once it exists.
+        if (stcConfig) {
+            try {
+                if (ensureDefaultTransportRetryTemplate(stcConfig)) {
+                    saveSendToChatConfig(stcConfig);
+                    bridgeLog('Seeded "Default Retry" transport-retry template', 'INFO');
+                }
+            } catch (e: any) {
+                bridgeLog(`Default Retry template seed failed: ${e?.message ?? e}`, 'ERROR');
+            }
+        }
         if (stcConfig?.bridge?.cliServerAutostart) {
             // Small delay to let bridge fully settle before starting CLI server
             setTimeout(async () => {
@@ -696,16 +713,43 @@ function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
-    // Reload Send to Chat config command
+    // Re-read the extension's on-disk configuration. The main
+    // TomAiConfiguration singleton only resolves `tomAi.configPath` and loads
+    // the file once, in its constructor at activation — so without an explicit
+    // refresh, a changed path is not picked up until a full window reload.
+    const reloadAllConfig = async (notify: boolean): Promise<void> => {
+        try {
+            TomAiConfiguration.instance.reload();
+        } catch {
+            // Singleton not initialized yet — nothing to reload.
+        }
+        if (sendToChatAdvancedManager) {
+            await sendToChatAdvancedManager.loadConfig();
+        }
+        if (notify) {
+            vscode.window.showInformationMessage('Tom AI configuration reloaded');
+        }
+    };
+
+    // Reload config command
     const reloadSendToChatConfigCmd = vscode.commands.registerCommand(
         'tomAi.reloadConfig',
-        async () => {
-            if (sendToChatAdvancedManager) {
-                await sendToChatAdvancedManager.loadConfig();
-                vscode.window.showInformationMessage('Send to Chat configuration reloaded');
-            }
-        }
+        () => reloadAllConfig(true),
     );
+
+    // Pick up a changed config-file location (or AI/queue folder) without a
+    // full window reload. Without this, editing `tomAi.configPath` in
+    // workspace/.code-workspace settings has no effect until VS Code restarts
+    // the extension host.
+    const configChangeListener = vscode.workspace.onDidChangeConfiguration((e) => {
+        if (
+            e.affectsConfiguration('tomAi.configPath') ||
+            e.affectsConfiguration('tomAi.aiFolder') ||
+            e.affectsConfiguration('tomAi.queueFolder')
+        ) {
+            void reloadAllConfig(false);
+        }
+    });
 
     // CLI Integration Server commands
     const startCliServerCmd = vscode.commands.registerCommand(
@@ -995,6 +1039,7 @@ function registerCommands(context: vscode.ExtensionContext) {
         runTestsCmd,
         reloadWithBridgeNotificationCmd,
         reloadSendToChatConfigCmd,
+        configChangeListener,
         startCliServerCmd,
         startCliServerCustomPortCmd,
         stopCliServerCmd,

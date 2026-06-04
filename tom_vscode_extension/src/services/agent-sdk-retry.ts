@@ -69,13 +69,48 @@ export function planAgentSdkRetry(input: AgentSdkRetryInput): AgentSdkRetryPlan 
 }
 
 /**
- * Built-in continuation prompt used for a *resumed* retry when the
- * configuration selects no `anthropic.transportRetry` template (or the
- * selected id is missing). References `${errorText}`; the handler expands
- * it with the placeholder engine before passing it as
+ * Error-case fallback continuation prompt. Used **only** when no transport
+ * retry template can be resolved from the config — i.e. there is no config on
+ * disk, or it carries no template marked `isDefault`. In normal operation the
+ * body comes from the on-disk "Default Retry" template (seeded by
+ * `ensureDefaultTransportRetryTemplate`). References `${errorText}`; the handler
+ * expands it with the placeholder engine before passing it as
  * `buildContinuationPrompt`.
  */
 export const DEFAULT_TRANSPORT_RETRY_TEMPLATE =
     'The previous attempt failed with the following error:\n\n${errorText}\n\n' +
     'Please continue from where you left off and complete the original request. ' +
     'Do not repeat work that already succeeded.';
+
+/** Minimal shape of a single transport-retry template (config subset). */
+export interface TransportRetryTemplateLike {
+    id: string;
+    template: string;
+    isDefault?: boolean;
+}
+
+/** Minimal shape of the `anthropic.transportRetry` config section. */
+export interface TransportRetrySectionLike {
+    templateId?: string;
+    templates?: TransportRetryTemplateLike[];
+}
+
+/**
+ * Resolve the continuation-prompt body for a transport-retry attempt:
+ *  - an explicit `templateId` selects that template by id;
+ *  - an empty/missing `templateId` ("use default") selects the template
+ *    marked `isDefault`;
+ *  - if neither resolves, fall back to {@link DEFAULT_TRANSPORT_RETRY_TEMPLATE}.
+ *
+ * The returned body still contains placeholders (e.g. `${errorText}`); the
+ * caller expands them.
+ */
+export function selectTransportRetryTemplateBody(
+    section: TransportRetrySectionLike | undefined,
+): string {
+    const templates = section?.templates;
+    const selected = section?.templateId
+        ? templates?.find((t) => t.id === section.templateId)
+        : templates?.find((t) => t.isDefault === true);
+    return selected?.template ?? DEFAULT_TRANSPORT_RETRY_TEMPLATE;
+}

@@ -22,6 +22,7 @@ import {
     isUnknownSessionError,
     planAgentSdkRetry,
     DEFAULT_TRANSPORT_RETRY_TEMPLATE,
+    selectTransportRetryTemplateBody,
 } from '../agent-sdk-retry.js';
 
 describe('isUnknownSessionError', () => {
@@ -158,5 +159,61 @@ describe('planAgentSdkRetry — resume session', () => {
 describe('DEFAULT_TRANSPORT_RETRY_TEMPLATE', () => {
     test('references the ${errorText} placeholder', () => {
         assert.ok(DEFAULT_TRANSPORT_RETRY_TEMPLATE.includes('${errorText}'));
+    });
+});
+
+describe('selectTransportRetryTemplateBody', () => {
+    test('falls back to the in-code constant when section is undefined', () => {
+        assert.equal(selectTransportRetryTemplateBody(undefined), DEFAULT_TRANSPORT_RETRY_TEMPLATE);
+    });
+
+    test('falls back to the in-code constant when there are no templates', () => {
+        assert.equal(
+            selectTransportRetryTemplateBody({ templates: [] }),
+            DEFAULT_TRANSPORT_RETRY_TEMPLATE,
+        );
+    });
+
+    test('"use default" (empty templateId) resolves to the isDefault template', () => {
+        const body = selectTransportRetryTemplateBody({
+            templateId: '',
+            templates: [
+                { id: 'a', template: 'A body' },
+                { id: 'default-retry', template: 'DEFAULT body', isDefault: true },
+            ],
+        });
+        assert.equal(body, 'DEFAULT body');
+    });
+
+    test('"use default" falls back to the constant when no template is marked default', () => {
+        const body = selectTransportRetryTemplateBody({
+            templateId: '',
+            templates: [
+                { id: 'a', template: 'A body' },
+                { id: 'b', template: 'B body' },
+            ],
+        });
+        assert.equal(body, DEFAULT_TRANSPORT_RETRY_TEMPLATE);
+    });
+
+    test('an explicit templateId selects that template, ignoring isDefault', () => {
+        const body = selectTransportRetryTemplateBody({
+            templateId: 'a',
+            templates: [
+                { id: 'a', template: 'A body' },
+                { id: 'default-retry', template: 'DEFAULT body', isDefault: true },
+            ],
+        });
+        assert.equal(body, 'A body');
+    });
+
+    test('an explicit but missing templateId falls back to the constant (not the default)', () => {
+        const body = selectTransportRetryTemplateBody({
+            templateId: 'gone',
+            templates: [
+                { id: 'default-retry', template: 'DEFAULT body', isDefault: true },
+            ],
+        });
+        assert.equal(body, DEFAULT_TRANSPORT_RETRY_TEMPLATE);
     });
 });

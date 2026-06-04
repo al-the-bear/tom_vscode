@@ -53,7 +53,7 @@ import {
     pushAndCap as pushRawTurnAndCap,
 } from '../services/raw-turns-store';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
-import { runAgentSdkQuery, DEFAULT_TRANSPORT_RETRY_TEMPLATE, DEFAULT_INTERACTIVE_QUESTIONS_TEMPLATE } from './agent-sdk-transport';
+import { runAgentSdkQuery, selectTransportRetryTemplateBody, DEFAULT_INTERACTIVE_QUESTIONS_TEMPLATE } from './agent-sdk-transport';
 import * as anthropicOutput from './anthropic-output-channels';
 import { WsPaths } from '../utils/workspacePaths';
 import { resolveVariables } from '../utils/variableResolver';
@@ -1776,10 +1776,11 @@ export class AnthropicHandler {
                 ? {
                     maxAttempts: retryMaxAttempts,
                     buildContinuationPrompt: (errorText: string): string => {
-                        const selected = retrySection?.templateId
-                            ? retrySection.templates?.find((t) => t.id === retrySection.templateId)
-                            : undefined;
-                        const body = selected?.template ?? DEFAULT_TRANSPORT_RETRY_TEMPLATE;
+                        // Empty templateId ("use default") resolves to the
+                        // template marked isDefault (seeded as "Default Retry"),
+                        // falling back to the in-code constant only when no
+                        // default exists on disk.
+                        const body = selectTransportRetryTemplateBody(retrySection);
                         return resolveVariables(body, {
                             values: {
                                 errorText,

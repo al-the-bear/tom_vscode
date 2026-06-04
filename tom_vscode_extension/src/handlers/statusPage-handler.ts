@@ -2763,7 +2763,7 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
             <div class="sp-settings-row">
                 <label>Continuation prompt:</label>
                 <select id="sp-retry-templateId">
-                    <option value="">(built-in default)</option>
+                    <option value="">use default</option>
                     ${status.transportRetryTemplateChoices.map(t => `<option value="${t.id}" ${t.id === status.transportRetry.templateId ? 'selected' : ''}>${escapeHtmlContent(t.name)}</option>`).join('')}
                 </select>
                 <button class="sp-btn small" data-status-action="editTransportRetryTemplate">✏️ Edit</button>

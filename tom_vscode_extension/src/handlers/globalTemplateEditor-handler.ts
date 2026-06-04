@@ -26,7 +26,7 @@
  */
 
 import * as vscode from 'vscode';
-import { loadSendToChatConfig, saveSendToChatConfig, SendToChatConfig } from '../utils/sendToChatConfig';
+import { loadSendToChatConfig, saveSendToChatConfig, SendToChatConfig, DEFAULT_TRANSPORT_RETRY_TEMPLATE_BODY } from '../utils/sendToChatConfig';
 import { PLACEHOLDER_HELP } from './promptTemplate';
 import { escapeHtml } from './handler_shared';
 import { AVAILABLE_LLM_TOOLS } from '../utils/constants';
@@ -67,17 +67,6 @@ export const CATEGORY_LABELS: Record<TemplateCategory, string> = {
     transportRetry: 'Anthropic Transport Retry',
     interactiveQuestions: 'Anthropic — Interactive Questions',
 };
-
-/**
- * Default continuation-prompt body for a newly-added Transport Retry
- * template. Mirrors `DEFAULT_TRANSPORT_RETRY_TEMPLATE` in
- * `agent-sdk-transport.ts` (kept as a literal here to avoid importing the
- * SDK transport module into the editor). References `${errorText}`.
- */
-const DEFAULT_TRANSPORT_RETRY_TEMPLATE_BODY =
-    'The previous attempt failed with the following error:\n\n${errorText}\n\n' +
-    'Please continue from where you left off and complete the original request. ' +
-    'Do not repeat work that already succeeded.';
 
 /**
  * Default fallback body for a newly-added Interactive Questions template.
@@ -559,6 +548,7 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                     + '<code>${errorText}</code> – the error message from the failed attempt; inject it so the agent knows what went wrong<br>'
                     + '<code>${userMessage}</code> / <code>${originalPrompt}</code> – the original prompt being retried<br>'
                     + '<br><strong>How this template is invoked:</strong> when an Agent SDK request errors and the session can be resumed, the handler expands this template and sends it as the continuation prompt on the resumed session. Fresh-session retries (no session id, or a "no session" / "unknown session id" error) replay the original prompt instead and do not use this template.<br>' },
+                { name: 'isDefault', label: 'Is Default', type: 'checkbox', value: String(tpl.isDefault === true), help: 'When checked, this template is the one the "use default" selection resolves to. Setting it un-marks any other default.' },
             );
             break;
         }
@@ -979,11 +969,16 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
                 name: values.name || itemId,
                 description: values.description || '',
                 template: values.template || '',
+                isDefault: values.isDefault === 'true',
             };
             if (idx >= 0) {
                 templates[idx] = { ...templates[idx], ...next };
             } else {
                 templates.push(next);
+            }
+            // At most one default: marking this one un-marks the others.
+            if (next.isDefault) {
+                templates.forEach(t => { if (t.id !== itemId) t.isDefault = false; });
             }
             config.anthropic.transportRetry.templates = templates;
             break;
@@ -1328,6 +1323,7 @@ async function _copyItem(category: TemplateCategory, itemId: string): Promise<vo
             const clone = JSON.parse(JSON.stringify(src));
             clone.id = targetId;
             clone.name = `${src.name} (copy)`;
+            clone.isDefault = false;
             ((config.anthropic ??= {}).transportRetry ??= {}).templates ??= [];
             config.anthropic.transportRetry.templates!.push(clone);
             break;

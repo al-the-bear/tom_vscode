@@ -128,6 +128,7 @@ import {
     isUnknownSessionError,
     planAgentSdkRetry,
     DEFAULT_TRANSPORT_RETRY_TEMPLATE,
+    selectTransportRetryTemplateBody,
 } from '../services/agent-sdk-retry';
 import type { AgentSdkRetryPlan } from '../services/agent-sdk-retry';
 import {
@@ -145,6 +146,7 @@ export {
     isUnknownSessionError,
     planAgentSdkRetry,
     DEFAULT_TRANSPORT_RETRY_TEMPLATE,
+    selectTransportRetryTemplateBody,
 };
 export type { AgentSdkRetryPlan };
 

@@ -298,7 +298,11 @@ export interface SendToChatConfig {
         transportRetry?: {
             /** Total attempts including the first. Default 3; minimum 1 (no retry). */
             maxAttempts?: number;
-            /** Selected continuation-prompt template id (from `templates`). Empty = built-in default. */
+            /**
+             * Selected continuation-prompt template id (from `templates`).
+             * Empty = "use default" → the template marked `isDefault`, falling
+             * back to the built-in constant only when no default exists on disk.
+             */
             templateId?: string;
             /** Continuation-prompt templates. Bodies typically reference `${errorText}` + `${userMessage}`. */
             templates?: Array<{
@@ -306,6 +310,11 @@ export interface SendToChatConfig {
                 name: string;
                 description?: string;
                 template: string;
+                /**
+                 * Marks the template "use default" resolves to. At most one
+                 * template should carry this flag (enforced by the editor).
+                 */
+                isDefault?: boolean;
             }>;
         };
         /**
@@ -538,19 +547,24 @@ export function validateStrictAiConfiguration(config: SendToChatConfig | null | 
 // ============================================================================
 
 /**
- * Expand home directory in a path (simple version without full variable resolution).
- * Handles both `~` prefix and `${home}` placeholder.
+ * Expand path placeholders in a config path (simple version without the full
+ * variableResolver). Handles `~` prefix, `${home}`, and `${workspaceFolder}` —
+ * the same tokens `tomAi.configPath` is documented to accept — so this
+ * early-startup fallback resolves to the same absolute path the main resolver
+ * would produce.
  */
 function expandHomePath(p: string): string {
     const home = os.homedir();
-    if (p.startsWith('~/')) {
-        return path.join(home, p.slice(2));
+    let result = p;
+    if (result.startsWith('~/') || result.startsWith('~\\')) {
+        result = path.join(home, result.slice(2));
     }
-    if (p.startsWith('~\\')) {
-        return path.join(home, p.slice(2));
+    result = result.replace(/\$\{home\}/g, home);
+    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (wsRoot) {
+        result = result.replace(/\$\{workspaceFolder\}/g, wsRoot);
     }
-    // Also handle ${home} placeholder
-    return p.replace(/\$\{home\}/g, home);
+    return result;
 }
 
 /**
@@ -558,7 +572,7 @@ function expandHomePath(p: string): string {
  *
  * Resolution order:
  *   1. Workspace `.tom/tom_vscode_extension.json` (if it exists)
- *   2. Explicit `tomAi.configPath` setting (with ~ expansion)
+ *   2. Explicit `tomAi.configPath` setting (with ~, ${home}, ${workspaceFolder} expansion)
  *   3. Workspace `.tom/tom_vscode_extension.json` default target
  */
 function getConfigPathSimple(): string | undefined {
@@ -631,6 +645,66 @@ export function saveSendToChatConfig(config: SendToChatConfig): boolean {
     } catch {
         return false;
     }
+}
+
+// ============================================================================
+// Transport Retry Default Template
+// ============================================================================
+
+/** Id of the seeded, on-disk "Default Retry" transport-retry template. */
+export const DEFAULT_TRANSPORT_RETRY_TEMPLATE_ID = 'default-retry';
+
+/** Display name of the seeded "Default Retry" template. */
+export const DEFAULT_TRANSPORT_RETRY_TEMPLATE_NAME = 'Default Retry';
+
+/**
+ * Canonical continuation-prompt body for the seeded "Default Retry" template
+ * and for newly-added transport-retry templates. This is the same text the
+ * Agent SDK retry used to hard-code internally; it now lives in the config so
+ * it can be edited/picked like any other template. The in-code constant
+ * (`DEFAULT_TRANSPORT_RETRY_TEMPLATE` in agent-sdk-retry.ts) is kept only as an
+ * error-case fallback for when no default template exists on disk.
+ * References `${errorText}`.
+ */
+export const DEFAULT_TRANSPORT_RETRY_TEMPLATE_BODY =
+    'The previous attempt failed with the following error:\n\n${errorText}\n\n' +
+    'Please continue from where you left off and complete the original request. ' +
+    'Do not repeat work that already succeeded.';
+
+/**
+ * Ensure the config carries a transport-retry template marked `isDefault`, so
+ * the "use default" selection resolves to an on-disk template rather than the
+ * in-code fallback constant. Idempotent and mutating:
+ *  - if a template already has `isDefault: true`, does nothing;
+ *  - else if a template with id `default-retry` exists, marks it default;
+ *  - else appends a fresh "Default Retry" template (seeded from the canonical
+ *    body) and marks it default.
+ *
+ * Returns `true` when it changed `config` (caller should persist).
+ */
+export function ensureDefaultTransportRetryTemplate(config: SendToChatConfig): boolean {
+    const anthropic = (config.anthropic ??= {});
+    const retry = (anthropic.transportRetry ??= {});
+    const templates = (retry.templates ??= []);
+
+    if (templates.some((t) => t.isDefault === true)) {
+        return false;
+    }
+
+    const existing = templates.find((t) => t.id === DEFAULT_TRANSPORT_RETRY_TEMPLATE_ID);
+    if (existing) {
+        existing.isDefault = true;
+        return true;
+    }
+
+    templates.push({
+        id: DEFAULT_TRANSPORT_RETRY_TEMPLATE_ID,
+        name: DEFAULT_TRANSPORT_RETRY_TEMPLATE_NAME,
+        description: 'Built-in default continuation prompt used when an Agent SDK attempt fails and the session is resumed.',
+        template: DEFAULT_TRANSPORT_RETRY_TEMPLATE_BODY,
+        isDefault: true,
+    });
+    return true;
 }
 
 // ============================================================================
