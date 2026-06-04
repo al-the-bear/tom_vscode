@@ -624,15 +624,20 @@ export class TwoTierMemoryService {
     // ------------------------------------------------------------------------
 
     /**
-     * Fixed filename inside the quest's history folder: `default.session.json`.
+     * Filename inside the quest's history folder, keyed by `sessionKey`:
+     * `<sessionKey>.session.json` (e.g. `default.session.json` for the
+     * prompt queue, `chat.session.json` for the Anthropic chat panel).
+     * Keeping each entry point on its own key stops one surface from
+     * resuming (or clearing) another's SDK session.
+     *
      * Gitignored because SDK sessions are tied to a single machine/install
      * and can't move with git. A fixed path means the file is auto-recreated
      * when missing and survives VS Code window restarts — earlier versions
      * keyed on windowId, which defeated that goal (every reload produced an
      * orphan file and lost continuity).
      */
-    private agentSdkSessionFile(questId?: string): string {
-        return path.join(this.historyFolder(questId), 'default.session.json');
+    private agentSdkSessionFile(questId?: string, sessionKey: string = 'default'): string {
+        return path.join(this.historyFolder(questId), `${sessionKey}.session.json`);
     }
 
     /**
@@ -643,9 +648,9 @@ export class TwoTierMemoryService {
      * reload, and leaving it around would mask a good value from older
      * turns that aren't the user's fault.
      */
-    loadAgentSdkSessionId(questId?: string): string | undefined {
+    loadAgentSdkSessionId(questId?: string, sessionKey: string = 'default'): string | undefined {
         try {
-            const file = this.agentSdkSessionFile(questId);
+            const file = this.agentSdkSessionFile(questId, sessionKey);
             if (!fs.existsSync(file)) { return undefined; }
             try {
                 const stat = fs.statSync(file);
@@ -680,14 +685,14 @@ export class TwoTierMemoryService {
      * looks like a fresh session and forks a new Claude Code session
      * per prompt).
      */
-    saveAgentSdkSessionId(sessionId: string, questId?: string, model?: string): void {
+    saveAgentSdkSessionId(sessionId: string, questId?: string, model?: string, sessionKey: string = 'default'): void {
         try {
             if (!sessionId || sessionId.length === 0) { return; }
-            const file = this.agentSdkSessionFile(questId);
+            const file = this.agentSdkSessionFile(questId, sessionKey);
             // Idempotent short-circuit: if the file already holds this
             // exact id, leave it alone. Reuses loadAgentSdkSessionId
             // so stale empty files also get cleaned up correctly.
-            const existing = this.loadAgentSdkSessionId(questId);
+            const existing = this.loadAgentSdkSessionId(questId, sessionKey);
             if (existing === sessionId) { return; }
             FsUtils.ensureDir(path.dirname(file));
             const tmp = `${file}.tmp`;
@@ -702,10 +707,10 @@ export class TwoTierMemoryService {
         }
     }
 
-    /** Remove the session-id file (used by clearSession). */
-    clearAgentSdkSessionId(questId?: string): void {
+    /** Remove the session-id file for `sessionKey` (used by clearSession). */
+    clearAgentSdkSessionId(questId?: string, sessionKey: string = 'default'): void {
         try {
-            const file = this.agentSdkSessionFile(questId);
+            const file = this.agentSdkSessionFile(questId, sessionKey);
             if (fs.existsSync(file)) { fs.unlinkSync(file); }
         } catch {
             // best-effort

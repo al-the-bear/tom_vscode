@@ -36,7 +36,7 @@ import { findNearestDetectedProject, scanWorkspaceProjectsByDetectors } from '..
 import { TrailService } from '../services/trailService';
 import { TwoTierMemoryService } from '../services/memory-service';
 import { writeWindowState } from './windowStatusPanel-handler.js';
-import { AnthropicHandler, AnthropicProfile, AnthropicConfiguration } from './anthropic-handler';
+import { AnthropicHandler, AnthropicProfile, AnthropicConfiguration, ANTHROPIC_CHAT_SESSION_KEY } from './anthropic-handler';
 import { ALL_SHARED_TOOLS } from '../tools/tool-executors';
 import { SharedToolDefinition } from '../tools/shared-tool-registry';
 import { chatProviders, ChatDraftState } from './chat/chatProviderRegistry';
@@ -423,7 +423,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         await this._sendVsCodeLmModels();
                         break;
                     case 'clearAnthropicHistory':
-                        AnthropicHandler.instance.clearSession();
+                        AnthropicHandler.instance.clearSession(ANTHROPIC_CHAT_SESSION_KEY);
                         break;
                     case 'openAnthropicMemory':
                         await vscode.commands.executeCommand('tomAi.panel.memory');
@@ -1788,6 +1788,11 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 configuration: cfg,
                 tools,
                 cancellationToken: cts.token,
+                // Chat panel keeps its Agent SDK continuity in its own
+                // `chat.session.json`, separate from the prompt queue's
+                // `default.session.json`, so the two never resume each
+                // other's session.
+                sessionKey: ANTHROPIC_CHAT_SESSION_KEY,
                 ...(userMessageTemplate ? { userMessageTemplate } : {}),
             });
             this._view?.webview.postMessage({

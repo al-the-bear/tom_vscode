@@ -163,6 +163,41 @@ export function temperatureField(temperature: number | undefined): { temperature
     return { temperature };
 }
 
+/** History strategy actually applied to a turn (after defaulting). */
+export type EffectiveHistoryMode = 'sdk-managed' | 'full' | 'summary' | 'trim_and_summary' | 'llm_extract';
+
+/**
+ * Resolve the history mode for a turn from the configuration's raw
+ * `historyMode` and the transport.
+ *
+ * An explicit, recognised value always wins. When the value is absent
+ * (or unrecognised), the fallback is transport-aware:
+ *
+ *   • `agentSdk` → `sdk-managed` — the Agent SDK's whole point is its
+ *     own session continuity, so an agentSdk config that omits
+ *     `historyMode` should resume its SDK session (and persist its
+ *     session id), not silently fall back to our injected-history
+ *     mode. Without this, such a config never writes its
+ *     `<sessionKey>.session.json`, so the chat panel's `chat.session.json`
+ *     would never appear.
+ *   • any other transport → `trim_and_summary` — the direct-path default.
+ */
+export function resolveEffectiveHistoryMode(
+    rawHistoryMode: string | undefined,
+    transport: AnthropicTransport,
+): EffectiveHistoryMode {
+    switch (rawHistoryMode) {
+        case 'sdk-managed':
+        case 'full':
+        case 'summary':
+        case 'trim_and_summary':
+        case 'llm_extract':
+            return rawHistoryMode;
+        default:
+            return transport === 'agentSdk' ? 'sdk-managed' : 'trim_and_summary';
+    }
+}
+
 /**
  * Type guard for a persisted `ConversationMessage`. Used by the
  * session-history deserialiser to reject malformed entries without

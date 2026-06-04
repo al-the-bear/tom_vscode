@@ -290,7 +290,22 @@ export interface AnthropicSendOptions {
      * parent conversation's history.
      */
     isolated?: boolean;
+    /**
+     * Agent SDK continuity bucket. The SDK session id is persisted to
+     * `<sessionKey>.session.json` in the quest's history folder and resumed
+     * from there on the next send with the same key. Keeping each entry
+     * point on its own key prevents the chat panel and the prompt queue
+     * from sharing — or clobbering — one another's session. Defaults to
+     * `DEFAULT_AGENT_SDK_SESSION_KEY` (the prompt queue's bucket). Only
+     * meaningful for the agentSdk transport in `historyMode: 'sdk-managed'`.
+     */
+    sessionKey?: string;
 }
+
+/** Prompt-queue Agent SDK session bucket → `default.session.json`. */
+export const DEFAULT_AGENT_SDK_SESSION_KEY = 'default';
+/** Anthropic chat-panel Agent SDK session bucket → `chat.session.json`. */
+export const ANTHROPIC_CHAT_SESSION_KEY = 'chat';
 
 
 /**
@@ -304,7 +319,7 @@ export interface AnthropicSendOptions {
 // Pure payload / parameter helpers live in `../services/anthropicPayload.ts`.
 // `temperatureField` is re-exported here because external callers (tests,
 // trail utilities) import it from this module by name.
-import { buildPayloadDump, temperatureField, isConversationMessage } from '../services/anthropicPayload';
+import { buildPayloadDump, temperatureField, isConversationMessage, resolveEffectiveHistoryMode } from '../services/anthropicPayload';
 export { temperatureField };
 
 /**
@@ -549,8 +564,15 @@ export class AnthropicHandler {
         }
     }
 
-    /** Clear all in-session state (blocks, rolling tail, accumulator, tool trail, session-mode approvals, persisted SDK session id). */
-    clearSession(): void {
+    /**
+     * Clear all in-session state (blocks, rolling tail, accumulator, tool
+     * trail, session-mode approvals, persisted SDK session id).
+     *
+     * `sessionKey` selects which Agent SDK session file to drop — the chat
+     * panel clears its own `chat.session.json`, leaving the prompt queue's
+     * `default.session.json` untouched. Defaults to the prompt-queue bucket.
+     */
+    clearSession(sessionKey: string = DEFAULT_AGENT_SDK_SESSION_KEY): void {
         this.compactedHistoryBlocks = [];
         this.compactionRounds = [];
         this.rawTurnsRolling = [];
@@ -567,7 +589,7 @@ export class AnthropicHandler {
         // one we just cleared.
         try {
             const quest = TwoTierMemoryService.instance.currentQuest();
-            TwoTierMemoryService.instance.clearAgentSdkSessionId(quest);
+            TwoTierMemoryService.instance.clearAgentSdkSessionId(quest, sessionKey);
             // Also drop the uncompacted-rounds accumulator + rolling
             // tail so the next turn starts from a clean slate. Both
             // files are per-machine (gitignored).
@@ -1591,15 +1613,13 @@ export class AnthropicHandler {
         const systemPrompt = systemSegments.filter((s) => s).join('\n\n');
         // Effective history mode for this call. Agent SDK configs may use
         // 'sdk-managed' (SDK session resumption); 'full' / 'trim_and_summary'
-        // on either transport triggers our own history injection. Direct
-        // transport defaults to trim_and_summary.
+        // on either transport triggers our own history injection. The
+        // fallback is transport-aware: an agentSdk config with no explicit
+        // historyMode defaults to 'sdk-managed' (so it resumes — and
+        // persists — its SDK session), every other transport defaults to
+        // 'trim_and_summary'. See resolveEffectiveHistoryMode for why.
         const rawHistoryMode = configuration.historyMode as string | undefined;
-        const effectiveHistoryMode: 'sdk-managed' | 'full' | 'summary' | 'trim_and_summary' | 'llm_extract' =
-            rawHistoryMode === 'sdk-managed' ? 'sdk-managed'
-                : rawHistoryMode === 'full' ? 'full'
-                : rawHistoryMode === 'summary' ? 'summary'
-                : rawHistoryMode === 'llm_extract' ? 'llm_extract'
-                : 'trim_and_summary';
+        const effectiveHistoryMode = resolveEffectiveHistoryMode(rawHistoryMode, transport);
         // When a user-message template is set AND the history mode wants
         // us to inject our own history (anything except sdk-managed),
         // expose ${compactedSummary} and ${rawTurns} so a
@@ -1709,11 +1729,12 @@ export class AnthropicHandler {
             // workspace instructions reach the agent without the user
             // having to configure settingSources manually.
             const useSdkManagedContinuity = effectiveHistoryMode === 'sdk-managed' && !options.isolated;
+            const sessionKey = options.sessionKey ?? DEFAULT_AGENT_SDK_SESSION_KEY;
             const resumeSessionId = useSdkManagedContinuity
-                ? TwoTierMemoryService.instance.loadAgentSdkSessionId(quest)
+                ? TwoTierMemoryService.instance.loadAgentSdkSessionId(quest, sessionKey)
                 : undefined;
             debugLog(
-                `[AgentSDK] continuity: quest=${quest} resume=${resumeSessionId ?? '(none — new session)'}`,
+                `[AgentSDK] continuity: quest=${quest} key=${sessionKey} resume=${resumeSessionId ?? '(none — new session)'}`,
                 'INFO',
                 'anthropic',
             );
@@ -1730,6 +1751,7 @@ export class AnthropicHandler {
                         sid,
                         quest,
                         configuration.model,
+                        sessionKey,
                     );
                     if (sid !== resumeSessionId) {
                         debugLog(
@@ -1842,6 +1864,7 @@ export class AnthropicHandler {
                     result.sessionId,
                     quest,
                     configuration.model,
+                    sessionKey,
                 );
             }
 
