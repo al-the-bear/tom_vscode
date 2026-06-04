@@ -281,6 +281,56 @@ function installGlobalInstrumentation(): void {
 // ============================================================================
 
 /**
+ * Expand the placeholders the extension supports in a `tomAi.configPath`
+ * value: a leading `~`, `${home}`, and `${workspaceFolder}`. Kept local to
+ * activation because it runs *before* `TomAiConfiguration.init()` — we cannot
+ * route through the configuration singleton yet.
+ */
+function expandConfiguredConfigPath(raw: string, wsRoot: string): string {
+    let result = raw;
+    if (result.startsWith('~/') || result.startsWith('~\\') || result === '~') {
+        result = path.join(os.homedir(), result.slice(1));
+    }
+    result = result.replace(/\$\{home\}/g, os.homedir());
+    result = result.replace(/\$\{workspaceFolder\}/g, wsRoot);
+    return result;
+}
+
+/**
+ * Decide whether the open workspace is a Tom AI workspace.
+ *
+ * Historically this checked only for a `.tom/` folder directly under the
+ * workspace root. That breaks nested layouts where the workspace root is a
+ * *parent* of the actual Tom project (e.g. opening an umbrella
+ * `al_the_bear.code-workspace` whose folder is the repo root while the Tom
+ * project — and its `.tom/` — lives several directories deeper). In that
+ * case the user points `tomAi.configPath` at the real config file, but the
+ * root has no `.tom/`, so the extension wrongly dropped to minimal mode.
+ *
+ * We now treat the workspace as a Tom workspace when **either** the root has
+ * a `.tom/` folder **or** the configured `tomAi.configPath` resolves to an
+ * existing file (or an existing parent directory, so a not-yet-created config
+ * at a valid location still activates fully).
+ */
+function hasTomWorkspaceConfig(wsRoot: string): boolean {
+    if (fs.existsSync(path.join(wsRoot, '.tom'))) {
+        return true;
+    }
+
+    const configured = vscode.workspace
+        .getConfiguration('tomAi')
+        .get<string>('configPath');
+    if (configured && configured.trim()) {
+        const resolved = expandConfiguredConfigPath(configured.trim(), wsRoot);
+        if (fs.existsSync(resolved) || fs.existsSync(path.dirname(resolved))) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
  * Main extension activation function
  */
 export async function activate(context: vscode.ExtensionContext) {
@@ -309,10 +359,10 @@ export async function activate(context: vscode.ExtensionContext) {
     // If there is no .tom/ config folder in the workspace root, skip full
     // initialization and show an informational message instead.
     const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const hasTomConfig = wsRoot ? fs.existsSync(path.join(wsRoot, '.tom')) : false;
+    const hasTomConfig = wsRoot ? hasTomWorkspaceConfig(wsRoot) : false;
     if (!hasTomConfig) {
         const totalMs = Math.round((performance.now() - activateStart) * 100) / 100;
-        const msg = 'TOM AI: no TOM AI config found (.tom/ folder missing). Extension running in minimal mode.';
+        const msg = 'TOM AI: no TOM AI config found (.tom/ folder missing and tomAi.configPath unset/invalid). Extension running in minimal mode.';
         debugLog(msg, 'INFO', 'extension.activate');
         vscode.window.showInformationMessage(msg);
 
