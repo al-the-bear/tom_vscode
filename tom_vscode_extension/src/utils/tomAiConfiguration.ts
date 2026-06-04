@@ -156,9 +156,9 @@ export class TomAiConfiguration {
             return wsConfigPath;
         }
 
-        const configuredPath =
-            vscode.workspace.getConfiguration('tomAi').get<string>('configPath')
-            || vscode.workspace.getConfiguration('tomAi').get<string>('configPath');
+        const configuredPath = vscode.workspace
+            .getConfiguration('tomAi')
+            .get<string>('configPath');
 
         if (configuredPath && configuredPath.trim()) {
             return this.resolveConfiguredPath(configuredPath.trim());

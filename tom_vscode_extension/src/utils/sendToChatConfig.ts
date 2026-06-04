@@ -558,7 +558,7 @@ function expandHomePath(p: string): string {
  *
  * Resolution order:
  *   1. Workspace `.tom/tom_vscode_extension.json` (if it exists)
- *   2. Explicit `tomAi.configPath` / `tomAi.configPath` setting (with ~ expansion)
+ *   2. Explicit `tomAi.configPath` setting (with ~ expansion)
  *   3. Workspace `.tom/tom_vscode_extension.json` default target
  */
 function getConfigPathSimple(): string | undefined {
