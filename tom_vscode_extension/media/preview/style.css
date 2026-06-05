@@ -1,0 +1,12 @@
+/*
+ * Preview panel styles — extracted verbatim from the inline <style> in
+ * showPreviewPanel() of src/handlers/handler_shared.ts (Phase B.18 webview
+ * restructuring).
+ */
+body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); background: var(--vscode-editor-background); padding: 16px; margin: 0; }
+pre { white-space: pre-wrap; word-wrap: break-word; background: var(--vscode-textCodeBlock-background); padding: 12px; border-radius: 4px; font-family: var(--vscode-editor-font-family); font-size: 13px; overflow: auto; max-height: calc(100vh - 100px); }
+.buttons { margin-top: 16px; display: flex; gap: 8px; }
+button { padding: 6px 14px; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; border-radius: 3px; cursor: pointer; font-size: 13px; }
+button:hover { background: var(--vscode-button-hoverBackground); }
+button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+button.secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }

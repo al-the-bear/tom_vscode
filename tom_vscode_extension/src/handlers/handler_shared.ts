@@ -37,6 +37,7 @@ import {
 import { debugException, debugLog } from '../utils/debugLogger';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 import { logConfigAccess } from '../utils/toolLog';
+import { loadWebviewHtml } from '../utils/webviewLoader';
 
 // Re-export config types and functions from sendToChatConfig
 export {
@@ -759,123 +760,28 @@ export async function showTemplateEditorPanel(
         templateEditorPanel.dispose();
     }
 
+    const extPath = getExtensionPath();
     templateEditorPanel = vscode.window.createWebviewPanel(
         'dsNotesTemplateEditor',
         `${config.title}`,
         vscode.ViewColumn.Active,
-        { enableScripts: true }
+        {
+            enableScripts: true,
+            localResourceRoots: extPath
+                ? [vscode.Uri.file(path.join(extPath, 'media'))]
+                : undefined,
+        }
     );
 
-    const fieldsHtml = config.fields.map(f => {
-        const readonlyAttr = f.readonly ? 'readonly disabled style="opacity: 0.7; cursor: not-allowed;"' : '';
-        const inputHtml = f.type === 'textarea'
-            ? `<textarea id="${f.name}" placeholder="${escapeHtml(f.placeholder || '')}" rows="6" ${readonlyAttr}>${escapeHtml(f.value || '')}</textarea>`
-            : `<input type="text" id="${f.name}" placeholder="${escapeHtml(f.placeholder || '')}" value="${escapeHtml(f.value || '')}" ${readonlyAttr}>`;
-        const helpHtml = f.help ? `<div class="help">${f.help}</div>` : '';
-        return `<div class="field">
-            <label for="${f.name}">${f.label}</label>
-            ${inputHtml}
-            ${helpHtml}
-        </div>`;
-    }).join('');
-
-    templateEditorPanel.webview.html = `<!DOCTYPE html>
-<html><head><meta charset="UTF-8">
-<style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-        padding: 24px;
-        height: 100vh;
-        display: flex;
-        flex-direction: column;
-        font-family: var(--vscode-font-family);
-        background-color: var(--vscode-editor-background);
-        color: var(--vscode-foreground);
-    }
-    h2 { margin-bottom: 20px; }
-    .fields { flex: 1; overflow-y: auto; }
-    .field { margin-bottom: 20px; }
-    .field label {
-        display: block;
-        margin-bottom: 6px;
-        font-weight: 500;
-    }
-    .field input, .field textarea {
-        width: 100%;
-        border: 1px solid var(--vscode-input-border);
-        background-color: var(--vscode-input-background);
-        color: var(--vscode-input-foreground);
-        padding: 8px 12px;
-        font-family: var(--vscode-editor-font-family, monospace);
-        font-size: var(--vscode-editor-font-size, 13px);
-        border-radius: 4px;
-    }
-    .field textarea { min-height: 100px; resize: vertical; line-height: 1.5; }
-    .field input:focus, .field textarea:focus { border-color: var(--vscode-focusBorder); outline: none; }
-    .help {
-        margin-top: 8px;
-        font-size: 12px;
-        color: var(--vscode-descriptionForeground);
-        background: var(--vscode-textBlockQuote-background);
-        padding: 10px;
-        border-radius: 4px;
-        line-height: 1.5;
-    }
-    .help code {
-        background: var(--vscode-textCodeBlock-background);
-        padding: 2px 5px;
-        border-radius: 3px;
-        font-family: var(--vscode-editor-font-family, monospace);
-    }
-    .buttons {
-        display: flex;
-        gap: 12px;
-        margin-top: 24px;
-        justify-content: flex-end;
-        flex-shrink: 0;
-    }
-    button {
-        padding: 8px 20px;
-        border: 1px solid var(--vscode-input-border);
-        background-color: var(--vscode-button-secondaryBackground);
-        color: var(--vscode-button-secondaryForeground);
-        cursor: pointer;
-        border-radius: 4px;
-        font-size: 13px;
-    }
-    button:hover { background-color: var(--vscode-button-secondaryHoverBackground); }
-    button.primary {
-        background-color: var(--vscode-button-background);
-        color: var(--vscode-button-foreground);
-    }
-    button.primary:hover { background-color: var(--vscode-button-hoverBackground); }
-</style>
-</head>
-<body>
-    <h2>${escapeHtml(config.title)}</h2>
-    <div class="fields">
-        ${fieldsHtml}
-    </div>
-    <div class="buttons">
-        <button onclick="cancel()">Cancel</button>
-        <button class="primary" onclick="save()">Save</button>
-    </div>
-    <script>
-        const vscode = acquireVsCodeApi();
-        const fieldNames = ${JSON.stringify(config.fields.map(f => f.name))};
-
-        function cancel() { vscode.postMessage({ type: 'cancel' }); }
-
-        function save() {
-            const values = {};
-            fieldNames.forEach(name => {
-                const el = document.getElementById(name);
-                values[name] = el ? el.value : '';
-            });
-            vscode.postMessage({ type: 'save', values });
-        }
-    </script>
-</body></html>`;
+    // The title + dynamic field list (previously string-built host-side and
+    // interpolated into the inline HTML/JS) flow to the webview via
+    // window.__INIT__; the field DOM is built client-side in
+    // media/templateEditor/main.js.
+    templateEditorPanel.webview.html = loadWebviewHtml(
+        templateEditorPanel.webview,
+        'templateEditor',
+        { init: { title: config.title, fields: config.fields } },
+    );
 
     templateEditorPanel.webview.onDidReceiveMessage(async (msg) => {
         if (msg.type === 'cancel') {
@@ -937,46 +843,33 @@ export async function showPreviewPanel(title: string, content: string, onSend?: 
         previewPanel.dispose();
     }
     
+    const extPath = getExtensionPath();
     previewPanel = vscode.window.createWebviewPanel(
         'tomAiPreview',
         `Preview: ${title}`,
         vscode.ViewColumn.Active,
-        { enableScripts: true, retainContextWhenHidden: true }
+        {
+            enableScripts: true,
+            retainContextWhenHidden: true,
+            localResourceRoots: extPath
+                ? [vscode.Uri.file(path.join(extPath, 'media'))]
+                : undefined,
+        }
     );
-    
-    const escapedContent = content
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
-    
-    previewPanel.webview.html = `<!DOCTYPE html>
-<html><head><meta charset="UTF-8">
-<style>
-body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); background: var(--vscode-editor-background); padding: 16px; margin: 0; }
-pre { white-space: pre-wrap; word-wrap: break-word; background: var(--vscode-textCodeBlock-background); padding: 12px; border-radius: 4px; font-family: var(--vscode-editor-font-family); font-size: 13px; overflow: auto; max-height: calc(100vh - 100px); }
-.buttons { margin-top: 16px; display: flex; gap: 8px; }
-button { padding: 6px 14px; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; border-radius: 3px; cursor: pointer; font-size: 13px; }
-button:hover { background: var(--vscode-button-hoverBackground); }
-button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
-button.secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
-</style>
-</head><body>
-<pre>${escapedContent}</pre>
-<div class="buttons">
-    <button class="secondary" onclick="copyToClipboard()">Copy to Clipboard</button>
-    ${onSend ? '<button onclick="send()">Send</button>' : ''}
-</div>
-<script>
-const vscode = acquireVsCodeApi();
-function copyToClipboard() { vscode.postMessage({ type: 'copy' }); }
-function send() { vscode.postMessage({ type: 'send' }); }
-</script>
-</body></html>`;
 
-    previewPanel.webview.onDidReceiveMessage(async (msg) => {
-        if (msg.type === 'copy') {
+    // §3 content-injection panel: the Send button's presence is first-paint
+    // state (init), but the preview text itself is injected via postMessage
+    // (setContent) after the webview's 'ready' handshake — never via template
+    // substitution. See media/preview/main.js.
+    const preview = previewPanel;
+    preview.webview.html = loadWebviewHtml(preview.webview, 'preview', {
+        init: { hasSend: !!onSend },
+    });
+
+    preview.webview.onDidReceiveMessage(async (msg) => {
+        if (msg.type === 'ready') {
+            preview.webview.postMessage({ type: 'setContent', content });
+        } else if (msg.type === 'copy') {
             await vscode.env.clipboard.writeText(content);
             vscode.window.showInformationMessage('Copied to clipboard');
         } else if (msg.type === 'send' && onSend) {

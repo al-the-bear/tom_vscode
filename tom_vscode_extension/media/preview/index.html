@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Preview</title>
+<!--
+  Preview panel shell — extracted from showPreviewPanel() in
+  src/handlers/handler_shared.ts (Phase B.18 webview restructuring).
+
+  This is a §3 content-injection panel: the shell is externalized like any other
+  webview, but the preview text is injected via postMessage (setContent) rather
+  than template substitution. main.js posts a 'ready' handshake on load and the
+  host replies with the content. The Send button's visibility comes from the
+  loader's window.__INIT__ (hasSend) since it is known at first paint.
+
+  All buttons are wired with addEventListener (no inline on*= handlers), so the
+  shell declares NO CSP and adopts the loader's default nonce-only CSP — which
+  also nonces the external main.js.
+-->
+<link rel="stylesheet" href="{{baseUri}}/style.css">
+</head>
+<body>
+    <pre id="content"></pre>
+    <div class="buttons">
+        <button class="secondary" id="copyBtn">Copy to Clipboard</button>
+        <button id="sendBtn" style="display: none;">Send</button>
+    </div>
+    <script src="{{baseUri}}/main.js"></script>
+</body>
+</html>

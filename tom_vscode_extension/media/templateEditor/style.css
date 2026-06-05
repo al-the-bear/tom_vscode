@@ -1,0 +1,72 @@
+/*
+ * Template Editor panel styles — extracted verbatim from the inline <style> in
+ * showTemplateEditorPanel() of src/handlers/handler_shared.ts (Phase B.18
+ * webview restructuring).
+ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    padding: 24px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    font-family: var(--vscode-font-family);
+    background-color: var(--vscode-editor-background);
+    color: var(--vscode-foreground);
+}
+h2 { margin-bottom: 20px; }
+.fields { flex: 1; overflow-y: auto; }
+.field { margin-bottom: 20px; }
+.field label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 500;
+}
+.field input, .field textarea {
+    width: 100%;
+    border: 1px solid var(--vscode-input-border);
+    background-color: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    padding: 8px 12px;
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: var(--vscode-editor-font-size, 13px);
+    border-radius: 4px;
+}
+.field textarea { min-height: 100px; resize: vertical; line-height: 1.5; }
+.field input:focus, .field textarea:focus { border-color: var(--vscode-focusBorder); outline: none; }
+.help {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground);
+    background: var(--vscode-textBlockQuote-background);
+    padding: 10px;
+    border-radius: 4px;
+    line-height: 1.5;
+}
+.help code {
+    background: var(--vscode-textCodeBlock-background);
+    padding: 2px 5px;
+    border-radius: 3px;
+    font-family: var(--vscode-editor-font-family, monospace);
+}
+.buttons {
+    display: flex;
+    gap: 12px;
+    margin-top: 24px;
+    justify-content: flex-end;
+    flex-shrink: 0;
+}
+button {
+    padding: 8px 20px;
+    border: 1px solid var(--vscode-input-border);
+    background-color: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: 13px;
+}
+button:hover { background-color: var(--vscode-button-secondaryHoverBackground); }
+button.primary {
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+}
+button.primary:hover { background-color: var(--vscode-button-hoverBackground); }

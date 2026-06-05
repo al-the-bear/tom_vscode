@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Template Editor</title>
+<!--
+  Template Editor shell — extracted from showTemplateEditorPanel() in
+  src/handlers/handler_shared.ts (Phase B.18 webview restructuring).
+
+  All interaction is wired in main.js with addEventListener (no inline on*=
+  handlers), so per migration guide §7 this shell declares NO CSP and lets the
+  loader inject the default nonce-only CSP — which also nonces the external
+  main.js. The title + dynamic field list (previously interpolated into the
+  inline HTML/JS) now arrive via the loader's window.__INIT__ payload and are
+  rendered by main.js.
+-->
+<link rel="stylesheet" href="{{baseUri}}/style.css">
+</head>
+<body>
+    <h2 id="title"></h2>
+    <div class="fields" id="fields"></div>
+    <div class="buttons">
+        <button id="cancelBtn">Cancel</button>
+        <button class="primary" id="saveBtn">Save</button>
+    </div>
+    <script src="{{baseUri}}/main.js"></script>
+</body>
+</html>
