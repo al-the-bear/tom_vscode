@@ -1,0 +1,41 @@
+/*
+ * Chat Variables Editor styles — extracted verbatim from the inline <style> of
+ * getHtml() in src/handlers/chatVariablesEditor-handler.ts (Phase B.12 webview
+ * restructuring).
+ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); background: var(--vscode-editor-background); padding: 16px; display: flex; flex-direction: column; height: 100vh; }
+
+h2 { font-size: 16px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+.add-btn { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; border-radius: 3px; cursor: pointer; padding: 2px 8px; font-size: 12px; }
+.add-btn:hover { background: var(--vscode-button-hoverBackground); }
+
+/* ── Table ──────────────────────────────────── */
+table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+th { text-align: left; font-size: 11px; font-weight: 600; color: var(--vscode-descriptionForeground); padding: 4px 8px; border-bottom: 2px solid var(--vscode-panel-border); }
+td { padding: 4px 8px; border-bottom: 1px solid var(--vscode-panel-border); vertical-align: middle; }
+.var-name { font-weight: 600; font-size: 12px; min-width: 120px; }
+.var-value input, .var-value textarea { width: 100%; background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); color: var(--vscode-input-foreground); border-radius: 3px; padding: 3px 6px; font-size: 12px; font-family: inherit; }
+.var-value textarea { resize: vertical; min-height: 28px; }
+.var-actions { width: 32px; text-align: center; }
+.delete-btn { background: none; border: none; color: var(--vscode-errorForeground); cursor: pointer; font-size: 14px; padding: 2px; }
+.delete-btn:hover { opacity: 0.8; }
+.select-btn { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: none; border-radius: 3px; cursor: pointer; padding: 2px 6px; font-size: 11px; margin-left: 4px; }
+.select-btn:hover { background: var(--vscode-button-secondaryHoverBackground); }
+.file-btn { background: none; border: none; cursor: pointer; font-size: 14px; padding: 2px 4px; opacity: 0.7; }
+.file-btn:hover { opacity: 1; }
+
+/* ── New variable row ──────────────────────── */
+.new-row { display: none; }
+.new-row.visible { display: table-row; }
+.new-row input { width: 100%; background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); color: var(--vscode-input-foreground); border-radius: 3px; padding: 3px 6px; font-size: 12px; }
+.confirm-btn { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; border-radius: 3px; cursor: pointer; padding: 2px 6px; font-size: 11px; }
+
+/* ── Change log ────────────────────────────── */
+.log-section { flex: 1; display: flex; flex-direction: column; min-height: 100px; }
+.log-section h3 { font-size: 13px; margin-bottom: 6px; color: var(--vscode-descriptionForeground); }
+.log-list { flex: 1; overflow-y: auto; font-family: var(--vscode-editor-font-family); font-size: 11px; line-height: 1.6; background: var(--vscode-textBlockQuote-background); border-radius: 4px; padding: 8px; }
+.log-entry { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.log-time { color: var(--vscode-descriptionForeground); margin-right: 8px; }
+.log-var { font-weight: 600; color: var(--vscode-foreground); }
+.log-source { font-style: italic; color: var(--vscode-descriptionForeground); margin-left: 4px; }
