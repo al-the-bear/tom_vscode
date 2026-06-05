@@ -1,0 +1,167 @@
+/*
+ * Reusable Prompt Editor styles — extracted from the inline <style> of
+ * _getHtml() in src/handlers/reusablePromptEditor-handler.ts
+ * (Phase B.9 webview restructuring). The panel headline's former inline
+ * style attribute is folded into the #panelHeadline rule below.
+ */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    font-family: var(--vscode-font-family);
+    background: var(--vscode-editor-background);
+    color: var(--vscode-foreground);
+    overflow: hidden;
+}
+
+#panelHeadline {
+    margin: 12px 16px 0;
+    font-weight: 600;
+    font-size: 1.1em;
+    color: var(--vscode-foreground);
+}
+
+/* ── Action bar ── */
+.action-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    background: var(--vscode-sideBar-background);
+    flex-shrink: 0;
+}
+.action-bar select {
+    padding: 4px 8px;
+    border: 1px solid var(--vscode-input-border);
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    border-radius: 3px;
+    font-size: 13px;
+}
+.action-bar .spacer { flex: 1; }
+.icon-btn {
+    background: none;
+    border: 1px solid transparent;
+    color: var(--vscode-foreground);
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 3px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 13px;
+}
+.icon-btn:hover { background: var(--vscode-toolbar-hoverBackground); }
+.icon-btn .codicon { font-size: 16px; }
+.sep { width: 1px; height: 20px; background: var(--vscode-panel-border); margin: 0 4px; }
+
+/* ── Main layout ── */
+.main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+/* ── Vertical splitter ── */
+.v-splitter {
+    width: 4px;
+    cursor: col-resize;
+    background: var(--vscode-panel-border);
+    flex-shrink: 0;
+}
+.v-splitter:hover, .v-splitter.dragging { background: var(--vscode-focusBorder); }
+
+/* ── Left list ── */
+.file-list {
+    width: 260px;
+    min-width: 180px;
+    border-right: 1px solid var(--vscode-panel-border);
+    overflow-y: auto;
+    background: var(--vscode-sideBar-background);
+    flex-shrink: 0;
+}
+.file-list .item {
+    padding: 6px 12px;
+    cursor: pointer;
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-left: 3px solid transparent;
+}
+.file-list .item:hover { background: var(--vscode-list-hoverBackground); }
+.file-list .item.selected {
+    background: var(--vscode-list-activeSelectionBackground);
+    color: var(--vscode-list-activeSelectionForeground);
+    border-left-color: var(--vscode-focusBorder);
+}
+.file-list .empty {
+    padding: 16px 12px;
+    color: var(--vscode-descriptionForeground);
+    font-style: italic;
+    font-size: 12px;
+}
+
+/* ── Right editor ── */
+.editor-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.editor-area .no-selection {
+    color: var(--vscode-descriptionForeground);
+    font-style: italic;
+    padding-top: 40px;
+    text-align: center;
+}
+.editor-area textarea {
+    flex: 1;
+    width: 100%;
+    border: none;
+    background: var(--vscode-editor-background);
+    color: var(--vscode-editor-foreground);
+    padding: 12px 16px;
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: var(--vscode-editor-font-size, 13px);
+    line-height: 1.5;
+    resize: none;
+    outline: none;
+    tab-size: 4;
+}
+.editor-area textarea:focus { border-color: var(--vscode-focusBorder); }
+.file-header {
+    padding: 6px 16px;
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground);
+    background: var(--vscode-sideBarSectionHeader-background);
+    border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.save-bar {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 8px 16px;
+    border-top: 1px solid var(--vscode-panel-border);
+    background: var(--vscode-sideBar-background);
+    flex-shrink: 0;
+}
+.save-bar button {
+    padding: 6px 16px;
+    border: 1px solid var(--vscode-input-border);
+    background: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+    cursor: pointer;
+    border-radius: 3px;
+    font-size: 13px;
+}
+.save-bar button.primary {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+}
+.save-bar button:hover { opacity: 0.9; }

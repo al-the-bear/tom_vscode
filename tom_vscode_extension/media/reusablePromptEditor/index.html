@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="{{baseUri}}/style.css">
+<title>Reusable Prompt Editor</title>
+</head>
+<body>
+
+<h2 id="panelHeadline">Reusable Prompt Editor</h2>
+
+<div class="action-bar">
+    <select id="scopeSelect">
+        <option value="global">Global</option>
+        <option value="project">Project</option>
+        <option value="quest">Quest</option>
+        <option value="scan">Scan</option>
+    </select>
+    <select id="subScopeSelect" style="display:none"></select>
+    <div class="sep"></div>
+    <button class="icon-btn" id="btnAdd" title="Add new prompt file">
+        <span class="codicon codicon-new-file"></span>
+    </button>
+    <button class="icon-btn" id="btnDelete" title="Delete selected file">
+        <span class="codicon codicon-trash"></span>
+    </button>
+    <div class="spacer"></div>
+    <button class="icon-btn" id="btnPreview" title="Preview in Markdown viewer">
+        <span class="codicon codicon-preview"></span> Preview
+    </button>
+    <button class="icon-btn" id="btnOpen" title="Open in VS Code editor">
+        <span class="codicon codicon-go-to-file"></span> Open
+    </button>
+</div>
+
+<div class="main">
+    <div class="file-list" id="fileList"></div>
+    <div class="v-splitter" id="vSplitter"></div>
+    <div class="editor-area" id="editorArea">
+        <div class="no-selection">Select a prompt file from the left to edit</div>
+    </div>
+</div>
+
+<div class="save-bar" id="saveBar" style="display:none">
+    <button class="primary" id="btnSave">Save</button>
+</div>
+
+<script src="{{baseUri}}/main.js"></script>
+<script src="{{sharedUri}}/completion.js"></script>
+</body>
+</html>
