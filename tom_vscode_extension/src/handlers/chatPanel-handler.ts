@@ -41,8 +41,7 @@ import { ALL_SHARED_TOOLS } from '../tools/tool-executors';
 import { SharedToolDefinition } from '../tools/shared-tool-registry';
 import { chatProviders, ChatDraftState } from './chat/chatProviderRegistry';
 import { saveChatDrafts, loadChatDrafts } from '../services/chatDraftService';
-import { showCompletionPicker } from './completion-picker';
-import { type CompletionKind } from '../services/completion-service';
+import { wireCompletionMessages } from '../utils/completionWiring';
 
 // ============================================================================
 // Answer File Utilities (for Copilot answer file feature)
@@ -399,6 +398,12 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             return;
         }
 
+        // /skill + @file completion: the shared webview component posts
+        // `requestCompletion`; this wiring shows the picker and posts the
+        // chosen `insertCompletion` back. Registered as its own listener so it
+        // coexists with the panel's message switch below.
+        wireCompletionMessages(webviewView.webview);
+
         // Handle messages from the webview
         webviewView.webview.onDidReceiveMessage(
             async (message) => {
@@ -424,14 +429,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'cancel':
                         this._handleCancel(String(message.section || ''));
                         break;
-                    case 'requestCompletion': {
-                        const kind = (message.kind === 'file' ? 'file' : 'skill') as CompletionKind;
-                        const query = String(message.query || '');
-                        await showCompletionPicker(kind, query, (insertText) => {
-                            this._view?.webview.postMessage({ type: 'insertCompletion', text: insertText });
-                        });
-                        break;
-                    }
                     case 'refreshAnthropicModels':
                         await this._sendAnthropicModels();
                         break;

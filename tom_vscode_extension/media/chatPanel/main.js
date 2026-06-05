@@ -26,6 +26,9 @@
 })();
 
 var vscode = acquireVsCodeApi();
+// Publish the host bridge so shared webview components (media/shared/*.js,
+// e.g. completion.js) reuse it — acquireVsCodeApi() may be called only once.
+window.__tomVscodeApi = vscode;
 var sectionsConfig = [
     { id: 'localLlm', icon: '<span class="codicon codicon-robot"></span>', title: 'Local LLM' },
     { id: 'conversation', icon: '<span class="codicon codicon-comment-discussion"></span>', title: 'AI Conversation' },
@@ -230,7 +233,7 @@ function getPromptEditorComponent(options) {
         '</div>' +
         (options.afterToolbarHtml || '') +
         '<div id="' + options.infoId + '" class="profile-info" style="display:none;"></div>' +
-        '<textarea id="' + options.sectionId + '-text" placeholder="' + options.placeholder + '" data-input="' + options.sectionId + '"></textarea>' +
+        '<textarea id="' + options.sectionId + '-text" placeholder="' + options.placeholder + '" data-input="' + options.sectionId + '" data-completion="on"></textarea>' +
         (options.afterEditorHtml || '');
 }
 
@@ -575,42 +578,11 @@ function updateResizeHandles() {
     }
 }
 
-// Pending completion request: which textarea + token range to replace
-// when the extension posts back the chosen insertion. Mirrors
-// detectToken() in services/completion-service.ts.
-var completionTarget = null;
-function detectCompletionToken(text, cursor) {
-    var i = cursor - 1;
-    while (i >= 0) {
-        var ch = text.charAt(i);
-        if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') {return null;}
-        if (ch === '/' || ch === '@') {
-            var beforeOk = (i === 0) || /\s/.test(text.charAt(i - 1));
-            if (!beforeOk) {return null;}
-            return { kind: ch === '/' ? 'skill' : 'file', query: text.slice(i + 1, cursor), start: i, end: cursor };
-        }
-        i--;
-    }
-    return null;
-}
-// Splice the chosen completion into the originating textarea, replacing
-// the trigger token, and restore focus + cursor after the insertion.
-function applyCompletionInsertion(insertText) {
-    if (!completionTarget) {return;}
-    var ta = document.getElementById(completionTarget.sectionId + '-text');
-    if (!ta) { completionTarget = null; return; }
-    var value = ta.value || '';
-    var start = completionTarget.start;
-    var end = completionTarget.end;
-    if (start < 0 || end > value.length || start > end) { completionTarget = null; return; }
-    ta.value = value.slice(0, start) + insertText + value.slice(end);
-    var caret = start + insertText.length;
-    ta.focus();
-    try { ta.setSelectionRange(caret, caret); } catch (e) { /* ignore */ }
-    var sectionState = ensureSlotState(completionTarget.sectionId);
-    setSlotText(completionTarget.sectionId, sectionState.activeSlot, ta.value);
-    completionTarget = null;
-}
+// /skill + @file completion is provided by the shared component
+// media/shared/completion.js (opt-in via data-completion="on" on each
+// textarea). It posts requestCompletion / applies insertCompletion itself and
+// fires an `input` event after insertion, so the per-section input listener
+// below persists the slot draft. Nothing panel-specific is needed here.
 
 function attachEventListeners() {
     if (!delegatedUiHandlersAttached) {
@@ -646,20 +618,10 @@ function attachEventListeners() {
             var sectionState = ensureSlotState(sectionId);
             setSlotText(sectionId, sectionState.activeSlot, ta.value || '');
         });
-        // Ctrl+Shift+Space → skill (/) or file (@) completion. Scan back from
-        // the cursor for the trigger token, then ask the extension to show
-        // the picker.
-        ta.addEventListener('keydown', function(ev) {
-            if (!(ev.ctrlKey && ev.shiftKey && (ev.key === ' ' || ev.code === 'Space'))) {return;}
-            // Own the shortcut: preventDefault + stopPropagation keep any
-            // default handling from also firing for this webview key.
-            ev.preventDefault();
-            ev.stopPropagation();
-            var token = detectCompletionToken(ta.value || '', ta.selectionStart);
-            if (!token) {return;}
-            completionTarget = { sectionId: sectionId, start: token.start, end: token.end };
-            vscode.postMessage({ type: 'requestCompletion', section: sectionId, kind: token.kind, query: token.query, start: token.start, end: token.end });
-        });
+        // Ctrl+Shift+Space completion (/skill, @file) is handled by the shared
+        // media/shared/completion.js component via the data-completion="on"
+        // attribute; it fires `input` after insertion so the listener above
+        // persists the slot draft.
     });
     // Set placeholder help buttons to open popup on click
     document.querySelectorAll('.placeholder-help-btn').forEach(function(el) { el.addEventListener('click', function() { showPlaceholderPopup(); }); });
@@ -1169,10 +1131,8 @@ function populateEntitySelect(id, options, defaultLabel) {
 
 window.addEventListener('message', function(e) {
     var msg = e.data;
-    if (msg.type === 'insertCompletion') {
-        applyCompletionInsertion(String(msg.text || ''));
-        return;
-    }
+    // `insertCompletion` is handled by the shared media/shared/completion.js
+    // component (its own message listener), not here.
     if (msg.type === 'profiles') {
         profiles = { localLlm: msg.localLlm || [], conversation: msg.conversation || [], copilot: msg.copilot || [], tomAiChat: msg.tomAiChat || [], anthropic: msg.anthropic || [] };
         configurations = msg.configurations || [];

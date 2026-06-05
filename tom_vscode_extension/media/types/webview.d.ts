@@ -33,4 +33,11 @@ interface Window {
      * Undefined when the panel was rendered without an `init` payload.
      */
     __INIT__?: Record<string, unknown>;
+    /**
+     * The host bridge published for shared webview components (e.g.
+     * `media/shared/completion.js`) to reuse, since {@link acquireVsCodeApi}
+     * may be called at most once. A panel's main script publishes its acquired
+     * API here; shared components read it (and acquire+cache as a fallback).
+     */
+    __tomVscodeApi?: VsCodeWebviewApi;
 }
