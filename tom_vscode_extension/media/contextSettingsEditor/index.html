@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<!--
+  Context & Settings Editor shell — extracted from _getHtml() in
+  src/handlers/contextSettingsEditor-handler.ts (Phase B.16 webview
+  restructuring).
+
+  This panel wires every interaction with addEventListener (no inline on*=
+  handlers) and previously declared no CSP, so per migration guide §7 it lets
+  the loader inject the DEFAULT nonce-only CSP — no hand-written CSP needed.
+
+  The codicons stylesheet is injected at runtime by main.js from
+  window.__INIT__.codiconsUri (no placeholder exists for node_modules assets).
+
+  All data flows in via postMessage after main.js's initial getContextData
+  request — there is no init.state payload, only init.codiconsUri.
+-->
+<link rel="stylesheet" href="{{baseUri}}/style.css">
+</head>
+<body>
+<h1><span class="codicon codicon-tools"></span> Context & Settings</h1>
+
+<fieldset>
+    <legend>Context</legend>
+    <div class="form-row"><label>Quest:</label><select id="ctx-quest"></select></div>
+    <div class="form-row"><label>Role:</label><select id="ctx-role"></select></div>
+    <div class="form-row"><label>Projects:</label><input type="text" id="ctx-projects" placeholder="Comma-separated or use Select…"><button class="secondary" id="btn-pick-projects" style="padding:4px 12px;flex:none;">Select…</button></div>
+    <div class="form-row"><label>Todo File:</label><select id="ctx-todoFile"></select></div>
+    <div class="form-row"><label>Todo:</label><select id="ctx-todo"></select></div>
+</fieldset>
+
+<fieldset>
+    <legend>Reminder Templates</legend>
+    <div class="form-row">
+        <label>Template:</label>
+        <select id="ctx-reminder-template" style="flex:1;"></select>
+        <button class="icon-btn" id="btn-add-template" title="Add Template"><span class="codicon codicon-add"></span> Add</button>
+        <button class="icon-btn" id="btn-edit-template" title="Edit Template"><span class="codicon codicon-edit"></span> Edit</button>
+        <button class="icon-btn danger" id="btn-delete-template" title="Delete Template"><span class="codicon codicon-trash"></span> Del</button>
+    </div>
+</fieldset>
+
+<fieldset>
+    <legend>Reminder</legend>
+    <div class="form-row">
+        <div class="checkbox-row">
+            <input type="checkbox" id="ctx-reminder-enabled">
+            <label style="min-width:auto;">Alive check</label>
+        </div>
+        <select id="ctx-reminder-timeout" style="max-width:120px;">
+            <option value="300000">5 min</option>
+            <option value="600000">10 min</option>
+            <option value="900000">15 min</option>
+            <option value="1800000">30 min</option>
+            <option value="3600000">60 min</option>
+            <option value="7200000">120 min</option>
+            <option value="14400000">240 min</option>
+            <option value="21600000">360 min</option>
+            <option value="28800000">480 min</option>
+        </select>
+    </div>
+</fieldset>
+
+<fieldset>
+    <legend>Sidebar Auto-hide</legend>
+    <div class="form-row">
+        <label>After sending prompt:</label>
+        <select id="ctx-autohide" style="max-width:160px;">
+            <option value="0">Keep open</option>
+            <option value="1000">1 second</option>
+            <option value="5000">5 seconds</option>
+            <option value="10000">10 seconds</option>
+        </select>
+    </div>
+</fieldset>
+
+<div style="margin-top:8px; margin-bottom:12px;">
+    <button class="link-btn" id="btn-open-chat-variables">Open Chat Variables Editor…</button>
+</div>
+
+<div class="actions">
+    <button class="secondary" id="btn-cancel">Cancel</button>
+    <button class="primary" id="btn-apply"><span class="codicon codicon-check"></span> Apply</button>
+</div>
+
+<script src="{{baseUri}}/main.js"></script>
+</body>
+</html>

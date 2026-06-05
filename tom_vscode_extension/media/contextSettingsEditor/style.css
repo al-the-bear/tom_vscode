@@ -1,0 +1,111 @@
+/*
+ * Context & Settings Editor styles — extracted verbatim from the inline
+ * <style> in _getHtml() of src/handlers/contextSettingsEditor-handler.ts
+ * (Phase B.16 webview restructuring).
+ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+    color: var(--vscode-foreground);
+    background: var(--vscode-editor-background);
+    padding: 20px;
+    max-width: 600px;
+    margin: 0;
+}
+h1 { font-size: 18px; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+h1 .codicon { font-size: 20px; }
+
+fieldset {
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+}
+legend {
+    font-size: 14px;
+    font-weight: 600;
+    padding: 0 6px;
+}
+.form-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+.form-row label {
+    font-size: 13px;
+    font-weight: 600;
+    min-width: 90px;
+    color: var(--vscode-descriptionForeground);
+}
+.form-row select, .form-row input[type="text"] {
+    flex: 1;
+    background: var(--vscode-dropdown-background);
+    border: 1px solid var(--vscode-dropdown-border);
+    color: var(--vscode-dropdown-foreground);
+    border-radius: 4px;
+    font-size: 13px;
+    padding: 4px 8px;
+}
+.form-row select[multiple] {
+    min-height: 72px;
+}
+.actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+    justify-content: flex-end;
+}
+.primary {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 6px 20px;
+    font-size: 13px;
+    font-weight: 600;
+}
+.primary:hover { background: var(--vscode-button-hoverBackground); }
+.secondary {
+    background: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 6px 20px;
+    font-size: 13px;
+}
+.secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
+.checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+}
+.checkbox-row input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+}
+.icon-btn {
+    background: none;
+    border: 1px solid var(--vscode-button-border, transparent);
+    color: var(--vscode-foreground);
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 13px;
+}
+.icon-btn:hover { background: var(--vscode-toolbar-hoverBackground); }
+.icon-btn.danger { color: var(--vscode-errorForeground); }
+.link-btn {
+    background: none;
+    border: none;
+    color: var(--vscode-textLink-foreground);
+    cursor: pointer;
+    font-size: 13px;
+    text-decoration: underline;
+    padding: 4px 0;
+}
+.link-btn:hover { color: var(--vscode-textLink-activeForeground); }
