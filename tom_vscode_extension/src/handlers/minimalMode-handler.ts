@@ -15,6 +15,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { BaseWebviewProvider } from '../utils/baseWebviewProvider';
+import { loadWebviewHtml } from '../utils/webviewLoader';
 
 // All webview view IDs declared in package.json that need a provider in minimal mode
 const MINIMAL_VIEW_IDS = [
@@ -40,7 +41,12 @@ class MinimalModeViewProvider extends BaseWebviewProvider {
     }
 
     protected onResolve(webview: vscode.Webview): void {
-        webview.options = { enableScripts: true };
+        webview.options = {
+            enableScripts: true,
+            localResourceRoots: [
+                vscode.Uri.joinPath(this._extensionUri, 'media'),
+            ],
+        };
         webview.html = this._getHtml(webview);
     }
 
@@ -58,83 +64,9 @@ class MinimalModeViewProvider extends BaseWebviewProvider {
     }
 
     private _getHtml(webview: vscode.Webview): string {
-        const body = `
-  <div class="icon">&#9881;</div>
-  <h3>TOM AI Setup Required</h3>
-  <p>This workspace is not configured for TOM AI.<br>The extension is running in minimal mode.</p>
-  <ol class="steps">
-    <li>Create a <code>.tom/</code> folder in the workspace root</li>
-    <li>Add <code>.tom/tom_vscode_extension.json</code> config file</li>
-    <li>Reload the window</li>
-  </ol>
-  <button id="setupBtn">Open Setup Guide</button>`;
-
-        const script = `
-(function() {
-  var vscode = acquireVsCodeApi();
-  document.getElementById('setupBtn').addEventListener('click', function() {
-    vscode.postMessage({ type: 'openSetupDoc' });
-  });
-})();`;
-
-        // The base helper wires up CSP + base styles. We replace the body
-        // styles with a centered-layout variant tuned for the empty-state card.
-        return this.getBaseHtml(webview, body, script).replace(
-            /<style>[\s\S]*?<\/style>/,
-            `<style>${this.getBaseStyles()}${extraStyles}</style>`,
-        );
+        return loadWebviewHtml(webview, 'minimalMode');
     }
 }
-
-const extraStyles = `
-body {
-    padding: 16px 12px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    background: var(--vscode-sideBar-background);
-}
-.icon {
-    font-size: 32px;
-    margin-bottom: 12px;
-    opacity: 0.6;
-}
-h3 {
-    font-size: 13px;
-    font-weight: 600;
-    margin-bottom: 8px;
-}
-p {
-    font-size: 12px;
-    color: var(--vscode-descriptionForeground);
-    line-height: 1.5;
-    margin-bottom: 12px;
-}
-code {
-    background: var(--vscode-textCodeBlock-background);
-    padding: 1px 4px;
-    border-radius: 3px;
-    font-size: 11px;
-}
-.steps {
-    text-align: left;
-    width: 100%;
-    font-size: 12px;
-    color: var(--vscode-descriptionForeground);
-    line-height: 1.6;
-    margin-bottom: 12px;
-}
-.steps li {
-    margin-bottom: 4px;
-    margin-left: 16px;
-}
-button {
-    padding: 6px 14px;
-    border-radius: 2px;
-    font-size: 12px;
-}
-`;
 
 /**
  * Register placeholder webview providers for all panel view IDs in minimal mode.

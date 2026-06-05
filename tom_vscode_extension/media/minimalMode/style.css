@@ -1,0 +1,73 @@
+/*
+ * Minimal-mode placeholder panel styles — extracted from minimalMode-handler.ts
+ * (Phase B.8 webview restructuring). Merges the former BaseWebviewProvider base
+ * styles (body + button) with the panel's centered empty-state overrides into a
+ * single self-contained stylesheet.
+ */
+
+body {
+    margin: 0;
+    padding: 16px 12px;
+    color: var(--vscode-foreground);
+    background: var(--vscode-sideBar-background);
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+.icon {
+    font-size: 32px;
+    margin-bottom: 12px;
+    opacity: 0.6;
+}
+
+h3 {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+p {
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground);
+    line-height: 1.5;
+    margin-bottom: 12px;
+}
+
+code {
+    background: var(--vscode-textCodeBlock-background);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 11px;
+}
+
+.steps {
+    text-align: left;
+    width: 100%;
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground);
+    line-height: 1.6;
+    margin-bottom: 12px;
+}
+
+.steps li {
+    margin-bottom: 4px;
+    margin-left: 16px;
+}
+
+button {
+    color: var(--vscode-button-foreground);
+    background: var(--vscode-button-background);
+    border: none;
+    padding: 6px 14px;
+    border-radius: 2px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+button:hover {
+    background: var(--vscode-button-hoverBackground);
+}
