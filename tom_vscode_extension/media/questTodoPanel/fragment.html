@@ -1,0 +1,46 @@
+<!-- Quest TODO panel HTML fragment — extracted from getQuestTodoHtmlFragment()
+     in src/handlers/questTodo/questTodoAssets.ts (Phase B.5 webview
+     restructuring). Composed into the popout, embedded, and accordion shells;
+     loaded raw via readMediaText(). -->
+<div class="qt-top-bar">
+    <label>Quest:</label>
+    <select id="qt-quest-select"></select>
+    <label>File:</label>
+    <select id="qt-file-select"><option value="all">All files</option></select>
+    <span id="qt-fixed-file-label" class="qt-scope-summary" style="display:none;"></span>
+    <input id="qt-search" type="text" placeholder="Search..." class="qt-search-input">
+    <button class="icon-btn" id="qt-btn-filter" title="Filter"><span class="codicon codicon-filter"></span></button>
+    <button class="icon-btn" id="qt-btn-sort" title="Sort"><span class="codicon codicon-list-ordered"></span></button>
+    <button class="icon-btn" id="qt-btn-nav-back" title="Back" disabled style="opacity:0.3"><span class="codicon codicon-arrow-left"></span></button>
+    <button class="icon-btn" id="qt-btn-nav-fwd" title="Forward" disabled style="opacity:0.3"><span class="codicon codicon-arrow-right"></span></button>
+    <button class="icon-btn" id="qt-btn-reload" title="Reload from disk"><span class="codicon codicon-refresh"></span></button>
+    <button class="icon-btn" id="qt-btn-open-yaml" title="Open YAML"><span class="codicon codicon-go-to-file"></span></button>
+    <button class="icon-btn" id="qt-btn-delete-all" title="Delete all session todos" style="display:none"><span class="codicon codicon-trash"></span></button>
+    <button class="icon-btn" id="qt-btn-toggle-backup" title="Switch to backup file" style="display:none"><span class="codicon codicon-archive"></span></button>
+    <button class="icon-btn" id="qt-btn-open-ext" title="Open in external application" style="display:none"><span class="codicon codicon-terminal"></span></button>
+    <button class="icon-btn" id="qt-btn-import" title="Import todos from file" style="display:none"><span class="codicon codicon-cloud-download"></span></button>
+    <button class="icon-btn" id="qt-btn-popout" title="Open in editor area"><span class="codicon codicon-link-external"></span></button>
+    <button class="primary" id="qt-btn-add-todo" title="Add Todo"><span class="codicon codicon-add"></span> Add</button>
+    <button class="icon-btn" id="qt-btn-mass-add" title="Mass Add Todos"><span class="codicon codicon-list-unordered"></span></button>
+    <span class="qt-spacer"></span>
+    <div class="qt-top-chat-group">
+        <label>Template:</label>
+        <select id="qt-template-select"><option value="__none__">(None)</option></select>
+        <button class="icon-btn" id="qt-btn-add-queue" title="Save to Queue"><span class="codicon codicon-add"></span><span class="codicon codicon-list-ordered"></span></button>
+        <button class="icon-btn primary" id="qt-btn-send-copilot" title="Send to Copilot"><span class="codicon codicon-send"></span></button>
+        <button class="icon-btn" id="qt-btn-open-trail" title="Open Trail"><span class="codicon codicon-history"></span></button>
+    </div>
+</div>
+<div class="qt-split" style="position:relative;">
+    <div class="qt-list-pane" id="qt-list-pane"></div>
+    <div class="qt-splitter" id="qt-splitter" title="Drag to resize"></div>
+    <div class="qt-detail-pane" id="qt-detail-pane"><div class="qt-empty-detail">Select a todo to view details</div></div>
+    <div id="qt-filter-picker" class="qt-picker-overlay" style="display:none;"></div>
+    <div id="qt-sort-picker" class="qt-picker-overlay qt-sort-picker-overlay" style="display:none;"></div>
+</div>
+<div class="qt-popup-overlay" id="qt-popup-overlay">
+    <div class="qt-popup" id="qt-popup-content"></div>
+</div>
+<div class="qt-mass-overlay" id="qt-mass-overlay">
+    <div class="qt-mass-panel" id="qt-mass-panel"></div>
+</div>
