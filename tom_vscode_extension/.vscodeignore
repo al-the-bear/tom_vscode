@@ -5,6 +5,7 @@ src/**
 
 # Build config
 tsconfig.json
+tsconfig.media.json
 .vscode/**
 
 # Development files
@@ -14,6 +15,11 @@ doc/**
 !doc/workspace_setup.md
 example/**
 .npmrc
+
+# Webview media dev-only types (the runtime media assets DO ship; the ambient
+# typecheck shims under media/types/ are dev-only — exclude them even though the
+# global !**/*.d.ts re-include rule above would otherwise pull them in).
+media/types/**
 
 # Test files
 **/*.test.js

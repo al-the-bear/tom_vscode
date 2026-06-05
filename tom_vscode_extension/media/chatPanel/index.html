@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{cspSource}} https: data:; style-src {{cspSource}} 'unsafe-inline'; font-src {{cspSource}} data:; script-src {{cspSource}} 'unsafe-inline';">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="{{sharedUri}}/accordion.css">
+<link rel="stylesheet" href="{{baseUri}}/style.css">
+</head>
+<body>
+<div class="accordion-container" id="container">Loading T2...</div>
+<div class="placeholder-popup-overlay" id="placeholderOverlay" onclick="closePlaceholderPopup()"></div>
+<div class="placeholder-popup" id="placeholderPopup"></div>
+<div id="placeholder-help-source" style="display:none;"></div>
+<script src="{{baseUri}}/main.js"></script>
+</body>
+</html>
