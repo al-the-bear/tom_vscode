@@ -16,6 +16,29 @@
         "no-throw-literal": "warn",
         "semi": "off"
     },
+    "overrides": [
+        {
+            "files": ["media/**/*.js"],
+            "parser": "espree",
+            "parserOptions": {
+                "ecmaVersion": 2021,
+                "sourceType": "script"
+            },
+            "env": {
+                "browser": true,
+                "es2021": true
+            },
+            "globals": {
+                "acquireVsCodeApi": "readonly"
+            },
+            "rules": {
+                "@typescript-eslint/naming-convention": "off",
+                "@typescript-eslint/semi": "off",
+                "no-undef": "error",
+                "no-unused-vars": "warn"
+            }
+        }
+    ],
     "ignorePatterns": [
         "out",
         "dist",
