@@ -41,6 +41,8 @@ import { ALL_SHARED_TOOLS } from '../tools/tool-executors';
 import { SharedToolDefinition } from '../tools/shared-tool-registry';
 import { chatProviders, ChatDraftState } from './chat/chatProviderRegistry';
 import { saveChatDrafts, loadChatDrafts } from '../services/chatDraftService';
+import { showCompletionPicker } from './completion-picker';
+import { type CompletionKind } from '../services/completion-service';
 
 // ============================================================================
 // Answer File Utilities (for Copilot answer file feature)
@@ -416,6 +418,14 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'cancel':
                         this._handleCancel(String(message.section || ''));
                         break;
+                    case 'requestCompletion': {
+                        const kind = (message.kind === 'file' ? 'file' : 'skill') as CompletionKind;
+                        const query = String(message.query || '');
+                        await showCompletionPicker(kind, query, (insertText) => {
+                            this._view?.webview.postMessage({ type: 'insertCompletion', text: insertText });
+                        });
+                        break;
+                    }
                     case 'refreshAnthropicModels':
                         await this._sendAnthropicModels();
                         break;
@@ -3576,6 +3586,43 @@ function updateResizeHandles() {
     }
 }
 
+// Pending completion request: which textarea + token range to replace
+// when the extension posts back the chosen insertion. Mirrors
+// detectToken() in services/completion-service.ts.
+var completionTarget = null;
+function detectCompletionToken(text, cursor) {
+    var i = cursor - 1;
+    while (i >= 0) {
+        var ch = text.charAt(i);
+        if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') return null;
+        if (ch === '/' || ch === '@') {
+            var beforeOk = (i === 0) || /\s/.test(text.charAt(i - 1));
+            if (!beforeOk) return null;
+            return { kind: ch === '/' ? 'skill' : 'file', query: text.slice(i + 1, cursor), start: i, end: cursor };
+        }
+        i--;
+    }
+    return null;
+}
+// Splice the chosen completion into the originating textarea, replacing
+// the trigger token, and restore focus + cursor after the insertion.
+function applyCompletionInsertion(insertText) {
+    if (!completionTarget) return;
+    var ta = document.getElementById(completionTarget.sectionId + '-text');
+    if (!ta) { completionTarget = null; return; }
+    var value = ta.value || '';
+    var start = completionTarget.start;
+    var end = completionTarget.end;
+    if (start < 0 || end > value.length || start > end) { completionTarget = null; return; }
+    ta.value = value.slice(0, start) + insertText + value.slice(end);
+    var caret = start + insertText.length;
+    ta.focus();
+    try { ta.setSelectionRange(caret, caret); } catch (e) { /* ignore */ }
+    var sectionState = ensureSlotState(completionTarget.sectionId);
+    setSlotText(completionTarget.sectionId, sectionState.activeSlot, ta.value);
+    completionTarget = null;
+}
+
 function attachEventListeners() {
     if (!delegatedUiHandlersAttached) {
         document.addEventListener('click', function(event) {
@@ -3609,6 +3656,20 @@ function attachEventListeners() {
         ta.addEventListener('input', function() {
             var sectionState = ensureSlotState(sectionId);
             setSlotText(sectionId, sectionState.activeSlot, ta.value || '');
+        });
+        // Ctrl+Shift+S → skill (/) or file (@) completion. Scan back from
+        // the cursor for the trigger token, then ask the extension to show
+        // the picker. preventDefault stops VS Code's default "Save As".
+        ta.addEventListener('keydown', function(ev) {
+            if (!(ev.ctrlKey && ev.shiftKey && (ev.key === 's' || ev.key === 'S'))) return;
+            // Own the shortcut: preventDefault + stopPropagation keep VS Code's
+            // default "File: Save As" from also firing for this webview key.
+            ev.preventDefault();
+            ev.stopPropagation();
+            var token = detectCompletionToken(ta.value || '', ta.selectionStart);
+            if (!token) return;
+            completionTarget = { sectionId: sectionId, start: token.start, end: token.end };
+            vscode.postMessage({ type: 'requestCompletion', section: sectionId, kind: token.kind, query: token.query, start: token.start, end: token.end });
         });
     });
     // Set placeholder help buttons to open popup on click
@@ -4119,6 +4180,10 @@ function populateEntitySelect(id, options, defaultLabel) {
 
 window.addEventListener('message', function(e) {
     var msg = e.data;
+    if (msg.type === 'insertCompletion') {
+        applyCompletionInsertion(String(msg.text || ''));
+        return;
+    }
     if (msg.type === 'profiles') {
         profiles = { localLlm: msg.localLlm || [], conversation: msg.conversation || [], copilot: msg.copilot || [], tomAiChat: msg.tomAiChat || [], anthropic: msg.anthropic || [] };
         configurations = msg.configurations || [];
