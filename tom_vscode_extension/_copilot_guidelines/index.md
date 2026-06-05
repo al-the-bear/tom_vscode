@@ -29,6 +29,7 @@ Type: TypeScript extension
 - [explorer_notes.md](explorer_notes.md)
 - [bottom_panel_accordion.md](bottom_panel_accordion.md)
 - [tab_navigation.md](tab_navigation.md)
+- [media_webview_migration.md](media_webview_migration.md)
 - [reinstall_extension.md](reinstall_extension.md)
 - [restart_debugging_flow.backup.md](restart_debugging_flow.backup.md)
 - [ai_conversation.md](ai_conversation.md)

@@ -1,7 +1,8 @@
-# Source files (compiled to out/)
+# Source files (compiled to out/). `**/*.ts` also covers `*.d.ts`; we ship no
+# `.d.ts` at runtime (the only own one is the dev-only media/types shim below),
+# so there is intentionally no `!**/*.d.ts` re-include.
 src/**
 **/*.ts
-!**/*.d.ts
 
 # Build config
 tsconfig.json
