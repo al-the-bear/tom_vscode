@@ -1,0 +1,87 @@
+/*
+ * Shared queue-entry CSS — extracted verbatim from queueEntryStyles() in
+ * src/handlers/queueEntryComponent.ts (Phase B.13 webview restructuring).
+ */
+  :root { --bg: var(--vscode-editor-background); --fg: var(--vscode-editor-foreground); --border: var(--vscode-panel-border); --btnBg: var(--vscode-button-background); --btnFg: var(--vscode-button-foreground); }
+  body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--fg); background: var(--bg); margin: 0; padding: 8px; }
+  h2 { margin: 0 0 8px; font-size: 1.1em; }
+  .toolbar { display: flex; gap: 6px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+  .toolbar button:not(.ctx-btn-icon) { padding: 4px 10px; border: 1px solid var(--border); background: var(--btnBg); color: var(--btnFg); cursor: pointer; border-radius: 3px; font-size: 0.85em; }
+  .toolbar .toggle.active { background: var(--vscode-inputValidation-infoBorder, #007acc); }
+  .queue-list { display: flex; flex-direction: column; gap: 8px; }
+  .queue-item { border: 1px solid var(--border); border-radius: 4px; padding: 8px; position: relative; }
+  .queue-item.sending { border-left: 3px solid var(--vscode-inputValidation-infoBorder, #007acc); }
+  /* Sent items: dim only the header bar so the answer + content stay readable. */
+  .queue-item.sent > .item-header { opacity: 0.55; }
+  .queue-item.error { border-left: 3px solid var(--vscode-inputValidation-errorBorder, #f44); }
+  .queue-item.reminder { border-left: 3px solid orange; }
+  .item-header { display: flex; align-items: center; margin-bottom: 4px; }
+  .item-meta { font-size: 0.8em; opacity: 0.7; }
+  .status-bar { flex: 1; padding: 3px 10px; border-radius: 3px; font-size: 0.8em; font-weight: bold; text-transform: uppercase; color: #000; display: flex; justify-content: space-between; align-items: center; }
+  .status-bar.staged { background: #ef9a9a; }
+  .status-bar.pending { background: #4caf50; }
+  .status-bar.sending { background: #4caf50; }
+  .status-bar.sent { background: #bdbdbd; }
+  .status-bar.error { background: #e57373; }
+  .status-bar.reminder { background: #ff9800; }
+  .status-bar.template-mode { background: var(--vscode-textBlockQuote-background); color: var(--fg); font-weight: normal; }
+  textarea { width: 100%; min-height: 50px; resize: vertical; font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--border); padding: 4px; box-sizing: border-box; }
+  .empty { text-align: center; opacity: 0.5; padding: 20px; }
+  .context-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding: 6px 8px; background: var(--vscode-textBlockQuote-background); border-radius: 4px; font-size: 0.85em; }
+  .context-summary { flex: 1; opacity: 0.8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ctx-btn { padding: 3px 10px; border: 1px solid var(--border); background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); cursor: pointer; border-radius: 3px; font-size: 0.8em; white-space: nowrap; }
+  .ctx-btn-icon { padding: 2px 4px; border: none; background: transparent; color: var(--fg); cursor: pointer; border-radius: 3px; font-size: 0.85em; opacity: 0.7; }
+  .ctx-btn-icon:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground); }
+  /* Answer expand/collapse toggle: full opacity, with hover affordance. */
+  .answer-toggle-icon { opacity: 1 !important; padding: 2px 4px; border-radius: 3px; }
+  .answer-toggle-icon:hover { background: var(--vscode-toolbar-hoverBackground); }
+  .add-form { border: 1px solid var(--border); border-radius: 4px; padding: 10px; margin-bottom: 10px; display: none; }
+  .add-form.visible { display: block; }
+  .add-form label { font-size: 0.85em; font-weight: 600; display: block; margin: 6px 0 2px; }
+  .add-form textarea { width: 100%; min-height: 50px; resize: vertical; font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--border); padding: 4px; box-sizing: border-box; }
+  .add-options { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin-top: 6px; font-size: 0.85em; }
+  .add-options label { font-weight: 600; }
+  .add-options select, .add-options input[type="number"] { background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--border); padding: 2px 6px; font-size: 0.9em; border-radius: 3px; }
+  .add-form-actions { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
+  .add-form-actions button { padding: 4px 14px; border: 1px solid var(--border); cursor: pointer; border-radius: 3px; font-size: 0.85em; }
+  .add-feedback { font-size: 0.8em; margin-left: 8px; transition: opacity 0.3s; }
+  .add-feedback.success { color: var(--vscode-charts-green, #388a34); }
+  .add-feedback.error { color: var(--vscode-charts-red, #f44); }
+  .followup-block { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 8px; }
+  .followup-block.indented { margin-left: 16px; }
+  .followup-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-start; margin-top: 4px; }
+  .followup-row { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+  .followup-actions .followup-row { margin-top: 0; flex-wrap: wrap; }
+  .followup-row textarea { min-height: 44px; }
+  .followup-list { display: flex; flex-direction: column; gap: 6px; }
+  .followup-item { border: 1px solid var(--border); border-radius: 3px; padding: 6px; }
+  .followup-item-head { display: flex; justify-content: space-between; align-items: center; font-size: 0.8em; opacity: 0.8; margin-bottom: 4px; }
+  .followup-tools { display: flex; gap: 3px; align-items: center; }
+  .status-left { display:flex; align-items:center; gap:6px; }
+  .status-icons { display:flex; align-items:center; gap:3px; }
+  .details-hidden { display:none; }
+  .mainprompt-content.is-active { font-weight: 700; }
+  .preprompt-block { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 8px; }
+  .preprompt-block.indented { margin-left: 16px; }
+  .preprompt-list { display: flex; flex-direction: column; gap: 6px; }
+  .preprompt-item { border: 1px solid var(--border); border-radius: 3px; padding: 6px; }
+  .preprompt-item-head { display: flex; justify-content: space-between; align-items: center; font-size: 0.8em; opacity: 0.8; margin-bottom: 4px; }
+  .preprompt-item.is-active { border-color: var(--vscode-focusBorder, #007acc); }
+  .preprompt-item.is-active .preprompt-item-head { opacity: 1; font-weight: 700; }
+  .preprompt-item.is-active .preprompt-content { font-weight: 700; }
+  .template-row { display: flex; gap: 6px; align-items: center; margin-top: 6px; font-size: 0.85em; flex-wrap: wrap; }
+  .repeat-affix-row { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+  .repeat-affix-row textarea { min-height: 42px; }
+  .followup-item.is-active { border-color: var(--vscode-focusBorder, #007acc); }
+  .followup-item.is-active .followup-item-head { opacity: 1; font-weight: 700; }
+  .followup-item.is-active .followup-content { font-weight: 700; }
+  /* Yellow interruption chip — rate-limit / quota / overload / cancelled /
+     mid-stream interrupt. Distinct from the red .queue-item.error border so
+     the user can tell a recoverable send apart from a hard failure. */
+  .queue-item.warned { border-left: 3px solid var(--vscode-inputValidation-warningBorder, #e9a700); }
+  .warning-chip { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px;
+    padding: 4px 8px; border-radius: 4px; font-size: 0.8em; font-weight: 600;
+    background: rgba(233, 167, 0, 0.15); color: var(--vscode-inputValidation-warningBorder, #e9a700);
+    border: 1px solid rgba(233, 167, 0, 0.35); }
+  .warning-chip .codicon { font-size: 13px; }
+  

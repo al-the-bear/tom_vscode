@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<!--
+  Prompt Queue Editor shell — extracted from getHtml() in
+  src/handlers/queueEditor-handler.ts (Phase B.13 webview restructuring).
+
+  This panel uses inline on*= handlers throughout (onclick/onchange on the
+  toolbar, add-form and dynamically rendered queue entries), so per migration
+  guide §7 it HAND-WRITES a CSP with 'unsafe-inline' and NO nonce-source —
+  under CSP L3 a nonce-source would make 'unsafe-inline' be ignored and break
+  every inline handler. Because the document already declares a CSP, the loader
+  leaves it untouched (it still adds harmless, ignored nonces to scripts).
+
+  The codicons stylesheet is injected at runtime by main.js from
+  window.__INIT__.codiconsUri (no placeholder exists for node_modules assets).
+  The two transport-picker fragments are rendered host-side and injected into
+  #queueDefaultPickerSlot / #addTransportRow from window.__INIT__ by main.js,
+  then wired by transportPicker.js (loaded last). Component scripts load before
+  main.js so their global functions exist when main.js's init runs; they read
+  main.js's host globals at call-time (classic-script shared global scope).
+-->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{cspSource}} https: data:; style-src {{cspSource}} 'unsafe-inline'; font-src {{cspSource}}; script-src {{cspSource}} 'unsafe-inline';">
+<link rel="stylesheet" href="{{baseUri}}/queueEntryStyles.css">
+</head>
+<body>
+<h2>Prompt Queue</h2>
+<div class="context-bar">
+  <span id="contextSummary" class="context-summary"></span>
+  <button class="ctx-btn-icon" onclick="openChatVariables()" title="Chat Variables"><span class="codicon codicon-symbol-key"></span></button>
+  <button class="ctx-btn-icon" onclick="openContextSettings()" title="Context &amp; Settings"><span class="codicon codicon-tools"></span></button>
+  <button class="ctx-btn-icon" onclick="openTemplateEditor()" title="Prompt Templates"><span class="codicon codicon-file-code"></span></button>
+  <button class="ctx-btn-icon" onclick="openQueueTemplates()" title="Queue Templates"><span class="codicon codicon-symbol-file"></span></button>
+</div>
+<!-- Queue-level default transport (spec §4.10 header row). Persists
+     in the queue-settings YAML; new items without an explicit transport
+     inherit this at dispatch. Per-item / per-stage overrides still win.
+     Picker markup is rendered host-side and injected here by main.js. -->
+<div class="context-bar" id="queueDefaultPickerSlot" style="border-top:1px solid var(--vscode-panel-border);padding-top:6px;"></div>
+<div class="toolbar">
+  <button class="ctx-btn-icon" onclick="toggleAddForm()" title="Add to Queue"><span class="codicon codicon-add"></span></button>
+  <button class="ctx-btn-icon" id="autoSendBtn" onclick="toggleAutoSend()" title="Auto-Send"><span class="codicon codicon-play"></span></button>
+  <button class="ctx-btn-icon" id="autoStartBtn" onclick="toggleAutoStart()" title="Auto-Start (enable auto-send on extension load)"><span class="codicon codicon-rocket"></span></button>
+  <button class="ctx-btn-icon" id="autoPauseBtn" onclick="toggleAutoPause()" title="Auto-Pause (pause when queue empties)"><span class="codicon codicon-debug-pause"></span></button>
+  <button class="ctx-btn-icon" id="autoContinueBtn" onclick="toggleAutoContinue()" title="Auto-Continue (resume repetitions after reload)"><span class="codicon codicon-sync"></span></button>
+  <button class="ctx-btn-icon" onclick="restartQueue()" title="Restart Queue (reset stuck items)"><span class="codicon codicon-debug-restart"></span></button>
+  <button class="ctx-btn-icon" id="stopActiveBtn" onclick="stopActiveItem()" title="Stop currently running prompt (revert to staged)"><span class="codicon codicon-debug-stop"></span></button>
+  <button onclick="sendAllStaged()">Send All Staged</button>
+  <button onclick="retryAllErrors()" title="Resend every item currently in error state — the first errored item takes the sending slot, the rest are requeued in place">Retry All Errors</button>
+  <button onclick="clearErrors()" title="Remove every item currently in error state">Delete Errors</button>
+  <button onclick="clearSent()">Clear Sent</button>
+  <button onclick="clearAll()">Clear All</button>
+  <label style="font-size:0.85em;opacity:0.85;">Answer Timeout:</label>
+  <select id="responseTimeout" onchange="setResponseTimeout(this.value)">
+    <option value="5">5 Minutes</option>
+    <option value="10">10 Minutes</option>
+    <option value="15">15 Minutes</option>
+    <option value="30">30 Minutes</option>
+    <option value="60">60 Minutes</option>
+    <option value="120">120 Minutes</option>
+    <option value="240">240 Minutes</option>
+    <option value="480">480 Minutes</option>
+  </select>
+  <label style="font-size:0.85em;opacity:0.85;">Reminder Template:</label>
+  <select id="toolbarReminderTemplate" onchange="setDefaultReminderTemplate(this.value)"></select>
+  <button class="ctx-btn-icon" onclick="addReminderTemplate()" title="Add Reminder Template"><span class="codicon codicon-add"></span></button>
+  <button class="ctx-btn-icon" onclick="editReminderTemplate()" title="Edit Reminder Template"><span class="codicon codicon-edit"></span></button>
+  <button class="ctx-btn-icon" onclick="deleteReminderTemplate()" title="Delete Reminder Template"><span class="codicon codicon-trash"></span></button>
+  <button onclick="collapseAll()">Collapse All</button>
+  <button onclick="expandAll()">Expand All</button>
+  <span id="countLabel" style="margin-left:auto; font-size:0.85em; opacity:0.7;"></span>
+</div>
+
+<div class="add-form" id="addForm">
+  <label>Prompt</label>
+  <textarea id="addText" placeholder="Type a prompt to add to the queue..." rows="3"></textarea>
+  <div class="add-options">
+    <label>Template:</label>
+    <select id="addTemplate"><option value="">(None)</option></select>
+    <button class="ctx-btn-icon" onclick="addPromptTemplate()" title="Add Template"><span class="codicon codicon-add"></span></button>
+    <button class="ctx-btn-icon" onclick="editPromptTemplate()" title="Edit Template"><span class="codicon codicon-edit"></span></button>
+    <button class="ctx-btn-icon" onclick="deletePromptTemplate()" title="Delete Template"><span class="codicon codicon-trash"></span></button>
+  </div>
+  <div class="add-options">
+    <label style="margin-right:6px;">Reminder:</label>
+    <select id="addReminderTemplate"><option value="">Global Default</option><option value="__none__">No reminder</option></select>
+    <button class="ctx-btn-icon" onclick="addReminderTemplate()" title="Add Reminder Template"><span class="codicon codicon-add"></span></button>
+    <button class="ctx-btn-icon" onclick="editReminderTemplate('addReminderTemplate')" title="Edit Reminder Template"><span class="codicon codicon-edit"></span></button>
+    <button class="ctx-btn-icon" onclick="deleteReminderTemplate('addReminderTemplate')" title="Delete Reminder Template"><span class="codicon codicon-trash"></span></button>
+    <span style="font-size:0.8em;opacity:0.85;">Wait:</span>
+    <select id="addReminderTimeout">
+      <option value="5">5 min</option>
+      <option value="10">10 min</option>
+      <option value="15">15 min</option>
+      <option value="30">30 min</option>
+      <option value="60" selected>60 min</option>
+      <option value="120">120 min</option>
+      <option value="240">240 min</option>
+      <option value="480">480 min</option>
+    </select>
+  </div>
+  <div class="add-options">
+    <label style="margin-right:6px;">Queue Repeats:</label>
+    <input id="addRepeatCount" type="text" value="1" style="width:80px" title="Total number of times to send this prompt (number or variable name)"/>
+  </div>
+  <!-- Multi-transport picker (spec §4.10 / §4.15). Pins the staged
+       item to either Copilot (answer-file polling) or Anthropic
+       (direct AnthropicHandler.sendMessage dispatch). Markup is
+       rendered host-side and injected here by main.js. -->
+  <div class="add-options" id="addTransportRow"></div>
+  <div class="add-options" style="display:block;">
+    <label style="display:block;margin-bottom:4px;">Repeat Prefix (supports ${repeatNumber}, ${repeatIndex}, ${repeatCount})</label>
+    <textarea id="addRepeatPrefix" rows="2" placeholder="Optional text added before repeated prompt body"></textarea>
+    <label style="display:block;margin:6px 0 4px;">Repeat Suffix (supports ${repeatNumber}, ${repeatIndex}, ${repeatCount})</label>
+    <textarea id="addRepeatSuffix" rows="2" placeholder="Optional text added after repeated prompt body"></textarea>
+  </div>
+  <div class="add-form-actions">
+    <button onclick="addPrompt()" style="background:var(--btnBg);color:var(--btnFg);">✅ Add</button>
+    <button onclick="cancelAdd()">Cancel</button>
+    <span id="addFeedback" class="add-feedback"></span>
+  </div>
+</div>
+
+<div class="queue-list" id="queueList"><div class="empty">Loading…</div></div>
+<noscript><div class="empty" style="color:var(--vscode-errorForeground,#f85149);">JavaScript is disabled in this webview.</div></noscript>
+
+<script src="{{baseUri}}/queueEntryUtils.js"></script>
+<script src="{{baseUri}}/queueEntryRenderFunctions.js"></script>
+<script src="{{baseUri}}/queueEntryMessageHandlers.js"></script>
+<script src="{{baseUri}}/main.js"></script>
+<script src="{{baseUri}}/transportPicker.js"></script>
+<script src="{{baseUri}}/fallback.js"></script>
+</body>
+</html>
