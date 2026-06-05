@@ -1,0 +1,13 @@
+/*
+ * QuestNotes provider-specific styles (on top of
+ * {{sharedUri}}/notepadBase.css). Phase B.4 webview restructuring.
+ */
+
+.file-name {
+    flex: 1;
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

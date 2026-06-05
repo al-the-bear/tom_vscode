@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="{{sharedUri}}/notepadBase.css">
+<link rel="stylesheet" href="{{baseUri}}/style.css">
+</head>
+<body>
+<div id="toolbar" class="toolbar" style="display:none;">
+<div class="toolbar-row">
+<select id="templateSelect"></select>
+<span id="fileName" class="file-name">-</span>
+<button class="icon-btn" id="previewPromptBtn" title="Prompt Preview">🧠</button>
+<button class="icon-btn" id="previewMarkdownBtn" title="Preview Markdown">👁️</button>
+<button class="primary icon-btn" id="sendBtn" title="Send to Copilot">➤</button>
+<button class="icon-btn" id="openBtn" title="Open in Editor">📄</button>
+</div>
+</div>
+<div id="empty" class="empty-state" style="display:none;">Open a quest .code-workspace file. If its quest folder does not exist, QUEST NOTES stays hidden.</div>
+<textarea id="content" style="display:none;" data-completion="on"></textarea>
+<div id="status" class="status-bar" style="display:none;"><span id="charCount">0 chars</span></div>
+<script src="{{baseUri}}/main.js"></script>
+<script src="{{sharedUri}}/completion.js"></script>
+</body>
+</html>
