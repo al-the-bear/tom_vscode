@@ -3,9 +3,9 @@
 // queueEntryUtils — extracted verbatim from queueEntryUtils() in src/handlers/queueEntryComponent.ts (Phase B.13 webview
 // restructuring). This is a host-scope mixin: its functions reference page
 // globals (currentItems, vscode, detailsExpanded, reminderTemplates, editorMode,
-// render, …) declared by media/queueEditor/main.js, so no-undef is disabled.
-// The same file is also concatenated into the queue template editor script via
-// queueEntryComponent.ts (readMediaText), keeping a single source of truth.
+// render, …) declared by the host panel main.js (media/queueEditor or media/queueTemplateEditor), so no-undef is disabled. Promoted to media/shared in B.14 (used by both editors).
+// Both the queue editor and the queue template editor load this file as a
+// <script src> from media/shared/ (loader {{sharedUri}}), keeping one source of truth.
 function escapeHtml(s) {
   return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }

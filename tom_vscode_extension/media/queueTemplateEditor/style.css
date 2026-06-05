@@ -1,0 +1,24 @@
+/*
+ * Queue Template Editor layout — extracted verbatim from the inline <style>
+ * (template-editor-specific rules) in getHtml() of
+ * src/handlers/queueTemplateEditor-handler.ts (Phase B.14 webview
+ * restructuring). The shared queue-entry styles are loaded separately from
+ * media/shared/queueEntryStyles.css.
+ */
+.tpl-layout { display: flex; height: calc(100vh - 60px); gap: 8px; }
+.tpl-sidebar { width: 220px; min-width: 180px; border-right: 1px solid var(--border); padding-right: 8px; overflow-y: auto; display: flex; flex-direction: column; }
+.tpl-sidebar-header { display: flex; align-items: center; gap: 4px; margin-bottom: 6px; font-size: 0.85em; font-weight: 600; }
+.tpl-sidebar-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.tpl-sidebar-item { padding: 4px 8px; border-radius: 3px; cursor: pointer; font-size: 0.85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tpl-sidebar-item:hover { background: var(--vscode-list-hoverBackground); }
+.tpl-sidebar-item.selected { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
+.tpl-main { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+.tpl-editor-area { flex: 1; overflow-y: auto; }
+.tpl-bottom-bar { display: flex; gap: 6px; align-items: center; padding: 8px 0; border-top: 1px solid var(--border); margin-top: 8px; }
+.tpl-bottom-bar button { padding: 4px 14px; border: 1px solid var(--border); cursor: pointer; border-radius: 3px; font-size: 0.85em; }
+.tpl-bottom-bar .primary { background: var(--btnBg); color: var(--btnFg); }
+.tpl-prompt-input { margin-top: 8px; }
+.tpl-prompt-input label { font-size: 0.85em; font-weight: 600; display: block; margin-bottom: 2px; }
+.tpl-feedback { font-size: 0.8em; margin-left: 8px; transition: opacity 0.3s; }
+.tpl-feedback.success { color: var(--vscode-charts-green, #388a34); }
+.tpl-feedback.error { color: var(--vscode-charts-red, #f44); }

@@ -23,7 +23,7 @@
   main.js's host globals at call-time (classic-script shared global scope).
 -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{cspSource}} https: data:; style-src {{cspSource}} 'unsafe-inline'; font-src {{cspSource}}; script-src {{cspSource}} 'unsafe-inline';">
-<link rel="stylesheet" href="{{baseUri}}/queueEntryStyles.css">
+<link rel="stylesheet" href="{{sharedUri}}/queueEntryStyles.css">
 </head>
 <body>
 <h2>Prompt Queue</h2>
@@ -126,9 +126,9 @@
 <div class="queue-list" id="queueList"><div class="empty">Loading…</div></div>
 <noscript><div class="empty" style="color:var(--vscode-errorForeground,#f85149);">JavaScript is disabled in this webview.</div></noscript>
 
-<script src="{{baseUri}}/queueEntryUtils.js"></script>
-<script src="{{baseUri}}/queueEntryRenderFunctions.js"></script>
-<script src="{{baseUri}}/queueEntryMessageHandlers.js"></script>
+<script src="{{sharedUri}}/queueEntryUtils.js"></script>
+<script src="{{sharedUri}}/queueEntryRenderFunctions.js"></script>
+<script src="{{sharedUri}}/queueEntryMessageHandlers.js"></script>
 <script src="{{baseUri}}/main.js"></script>
 <script src="{{baseUri}}/transportPicker.js"></script>
 <script src="{{baseUri}}/fallback.js"></script>

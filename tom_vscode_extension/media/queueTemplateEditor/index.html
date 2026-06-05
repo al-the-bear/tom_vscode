@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<!--
+  Queue Template Editor shell — extracted from getHtml() in
+  src/handlers/queueTemplateEditor-handler.ts (Phase B.14 webview restructuring).
+
+  This panel uses inline on*= handlers (onclick on the sidebar header buttons,
+  the bottom bar, and dynamically rendered queue entries), so per migration
+  guide §7 it HAND-WRITES a CSP with 'unsafe-inline' and NO nonce-source —
+  under CSP L3 a nonce-source would make 'unsafe-inline' be ignored and break
+  every inline handler. Because the document already declares a CSP, the loader
+  leaves it untouched (it still adds harmless, ignored nonces to scripts).
+
+  The codicons stylesheet is injected at runtime by main.js from
+  window.__INIT__.codiconsUri (no placeholder exists for node_modules assets).
+
+  The shared queue-entry component (utils + render functions + message handlers)
+  is loaded from media/shared/ via {{sharedUri}} — the same files the Prompt
+  Queue Editor uses. They load BEFORE main.js so their global functions exist
+  when main.js's init runs and so main.js can capture-and-override them (classic
+  scripts share one global realm; component `function` declarations become
+  reassignable window properties). main.js reads the component's host globals at
+  call-time.
+-->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{cspSource}} https: data:; style-src {{cspSource}} 'unsafe-inline'; font-src {{cspSource}}; script-src {{cspSource}} 'unsafe-inline';">
+<link rel="stylesheet" href="{{sharedUri}}/queueEntryStyles.css">
+<link rel="stylesheet" href="{{baseUri}}/style.css">
+</head>
+<body>
+<h2>Queue Templates</h2>
+
+<div class="tpl-layout">
+  <div class="tpl-sidebar">
+    <div class="tpl-sidebar-header">
+      Templates
+      <button class="ctx-btn-icon" onclick="createTemplate()" title="New Template"><span class="codicon codicon-add"></span></button>
+      <button class="ctx-btn-icon" onclick="copyCurrentTemplate()" title="Copy Template"><span class="codicon codicon-copy"></span></button>
+      <button class="ctx-btn-icon" onclick="renameCurrentTemplate()" title="Rename Template"><span class="codicon codicon-edit"></span></button>
+      <button class="ctx-btn-icon" onclick="openCurrentTemplateFile()" title="Open Template YAML"><span class="codicon codicon-go-to-file"></span></button>
+      <button class="ctx-btn-icon" onclick="deleteCurrentTemplate()" title="Delete Template"><span class="codicon codicon-trash"></span></button>
+    </div>
+    <div class="tpl-sidebar-list" id="templateList"></div>
+  </div>
+  <div class="tpl-main">
+    <div class="tpl-editor-area" id="editorArea"><div class="empty">Select or create a template</div></div>
+    <div class="tpl-prompt-input">
+      <label>Prompt Text Override (optional, not saved with template)</label>
+      <textarea id="promptInput" placeholder="Leave empty to queue template with its stored main prompt text." rows="3"></textarea>
+    </div>
+    <div class="tpl-bottom-bar">
+      <button class="primary" onclick="queuePrompt()">Queue Prompt</button>
+      <button onclick="saveTemplate()">Save</button>
+      <span id="tplFeedback" class="tpl-feedback"></span>
+    </div>
+  </div>
+</div>
+
+<script src="{{sharedUri}}/queueEntryUtils.js"></script>
+<script src="{{sharedUri}}/queueEntryRenderFunctions.js"></script>
+<script src="{{sharedUri}}/queueEntryMessageHandlers.js"></script>
+<script src="{{baseUri}}/main.js"></script>
+</body>
+</html>
