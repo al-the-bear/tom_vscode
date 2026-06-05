@@ -131,6 +131,11 @@ export interface AnthropicConfiguration {
         /** Backend protocol; `'ollama'` (default) or `'openai'` for vLLM-like endpoints. */
         apiStyle?: 'ollama' | 'openai';
         /**
+         * Name of the env var holding the bearer API key for this endpoint.
+         * When set (and non-empty), requests carry `Authorization: Bearer …`.
+         */
+        apiKeyEnv?: string;
+        /**
          * Master switch for tool use through this Local-LLM-backed Anthropic
          * profile. When `false`, the dispatcher never sends a `tools` array
          * to the backend regardless of profile-level tool settings. This is
@@ -2535,6 +2540,7 @@ export class AnthropicHandler {
                     tools: effectiveTools,
                     keepAlive: llm.keepAlive,
                     apiStyle: llm.apiStyle,
+                    apiKeyEnv: llm.apiKeyEnv,
                     cancellationToken: options.cancellationToken,
                     onToken: (fragment: string) => liveTrail?.appendAssistantText(fragment),
                     // Profile carries the retry budget (in minutes); the

@@ -87,6 +87,7 @@ export function resolveAnthropicTargets(
             model?: string;
             temperature?: number;
             keepAlive?: string;
+            apiKeyEnv?: string;
             maxRounds?: number;
             maxTokens?: number;
             toolsEnabled?: boolean;
@@ -117,6 +118,7 @@ export function resolveAnthropicTargets(
                     temperature: typeof llm.temperature === 'number' ? llm.temperature : 0.5,
                     keepAlive: llm.keepAlive,
                     apiStyle: llm.apiStyle,
+                    apiKeyEnv: llm.apiKeyEnv,
                     toolsEnabled: effectiveToolsEnabled,
                 },
             } as AnthropicConfiguration;

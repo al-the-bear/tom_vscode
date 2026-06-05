@@ -130,6 +130,8 @@ export interface LlmConfiguration {
     enabledTools: string[];
     /** Ollama keep_alive parameter (e.g., '5m', '30m'). Ignored for `apiStyle: 'openai'`. */
     keepAlive?: string;
+    /** Name of the env var holding the bearer API key (OpenAI-compatible auth). When set, requests carry `Authorization: Bearer <value>`. */
+    apiKeyEnv?: string;
     /** Max tool-call rounds when driving an Anthropic profile. Default 10. */
     maxRounds?: number;
     /** Max response tokens. Default 8192. */
@@ -329,7 +331,8 @@ async function editOrCreateModelConfig(modelKey: string, existing: any | null): 
     const description = existing?.description ?? '';
     const isDefault = existing?.isDefault ?? false;
     const keepAlive = existing?.keepAlive ?? '5m';
-    
+    const apiKeyEnv = existing?.apiKeyEnv ?? '';
+
     // Use multi-step input to gather model config
     const newModel = await vscode.window.showInputBox({
         prompt: 'Ollama model name (e.g., qwen3:8b, llama3:70b)',
@@ -380,7 +383,14 @@ async function editOrCreateModelConfig(modelKey: string, existing: any | null): 
         placeHolder: '5m'
     });
     if (newKeepAlive === undefined) { return; }
-    
+
+    const newApiKeyEnv = await vscode.window.showInputBox({
+        prompt: 'API key environment variable name (optional; for OpenAI-compatible endpoints that require auth). Leave empty for none.',
+        value: apiKeyEnv,
+        placeHolder: 'e.g. OPENAI_API_KEY'
+    });
+    if (newApiKeyEnv === undefined) { return; }
+
     // Save the model config
     const cfg = loadConfig() || {};
     if (!cfg.localLlm) { cfg.localLlm = {}; }
@@ -402,7 +412,8 @@ async function editOrCreateModelConfig(modelKey: string, existing: any | null): 
         stripThinkingTags: stripChoice === 'Yes',
         description: newDesc.trim(),
         isDefault: defaultChoice === 'Yes',
-        keepAlive: newKeepAlive.trim() || '5m'
+        keepAlive: newKeepAlive.trim() || '5m',
+        apiKeyEnv: newApiKeyEnv.trim() || undefined
     };
     
     saveConfig(cfg);
@@ -1528,6 +1539,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
                 historyMode: config.historyMode,
                 enabledTools: config.enabledTools,
                 keepAlive: config.keepAlive,
+                apiKeyEnv: typeof config.apiKeyEnv === 'string' && config.apiKeyEnv.trim().length > 0 ? config.apiKeyEnv.trim() : undefined,
                 maxRounds: typeof config.maxRounds === 'number' && Number.isFinite(config.maxRounds) ? config.maxRounds : undefined,
                 maxTokens: typeof config.maxTokens === 'number' && Number.isFinite(config.maxTokens) ? config.maxTokens : undefined,
                 toolsEnabled: typeof config.toolsEnabled === 'boolean' ? config.toolsEnabled : undefined,
@@ -1987,6 +1999,7 @@ export async function gatherStatusData(): Promise<StatusData> {
             historyMode: typeof v?.historyMode === 'string' ? v.historyMode : '',
             enabledTools: Array.isArray(v?.enabledTools) ? v.enabledTools : [],
             keepAlive: typeof v?.keepAlive === 'string' ? v.keepAlive : '',
+            apiKeyEnv: typeof v?.apiKeyEnv === 'string' ? v.apiKeyEnv : '',
             maxRounds: typeof v?.maxRounds === 'number' ? v.maxRounds : 10,
             maxTokens: typeof v?.maxTokens === 'number' ? v.maxTokens : 8192,
             toolsEnabled: typeof v?.toolsEnabled === 'boolean' ? v.toolsEnabled : true,
@@ -2241,6 +2254,10 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
                 <input type="number" data-field="toolTrailKeepRounds" value="${cfg.toolTrailKeepRounds ?? ''}" placeholder="(inherit)" min="0" max="50" style="width:80px">
                 <label title="When checked, this configuration is picked when no specific id is requested.">Default:</label>
                 <input type="checkbox" data-field="isDefault" ${cfg.isDefault ? 'checked' : ''}>
+            </div>
+            <div class="sp-settings-row">
+                <label title="Name of the environment variable holding the API key (bearer token) for this endpoint. Only needed for OpenAI-compatible hosts that require authentication. Empty = unauthenticated (local Ollama/vLLM).">API Key Env:</label>
+                <input type="text" data-field="apiKeyEnv" value="${cfg.apiKeyEnv || ''}" placeholder="(none, e.g. OPENAI_API_KEY)" style="flex:1">
             </div>
             <div class="sp-settings-row">
                 <label>Answer Folder:</label>

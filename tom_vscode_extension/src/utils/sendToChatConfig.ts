@@ -79,6 +79,8 @@ export interface SendToChatConfig {
             description?: string;
             isDefault?: boolean;
             keepAlive?: string;
+            /** Name of the env var holding the bearer API key (OpenAI-compatible auth). */
+            apiKeyEnv?: string;
         } };
         tools?: {
             askCopilot?: unknown;
@@ -103,6 +105,8 @@ export interface SendToChatConfig {
             enabledTools?: string[];
             isDefault?: boolean;
             keepAlive?: string;
+            /** Name of the env var holding the bearer API key (OpenAI-compatible auth). */
+            apiKeyEnv?: string;
             /** Max tool-call rounds when driving an Anthropic profile. Default 10. */
             maxRounds?: number;
             /** Max response tokens (`maxTokens` on the synthesised AnthropicConfiguration). Default 8192. */

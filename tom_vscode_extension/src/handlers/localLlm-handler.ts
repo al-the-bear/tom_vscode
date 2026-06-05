@@ -31,6 +31,7 @@ import {
 } from '../tools/shared-tool-registry';
 import { READ_ONLY_TOOLS, ALL_SHARED_TOOLS } from '../tools/tool-executors';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
+import { apiKeyAuthHeader } from '../utils/apiKeyAuthHeader';
 import { withRetryBudget } from '../utils/retryWithBudget';
 import {
     logPrompt, logResponse, logToolRequest, logToolResult,
@@ -72,6 +73,15 @@ export interface ModelConfig {
     isDefault?: boolean;
     /** Ollama keep_alive duration (e.g. "5m", "1h", "0", "-1"). Default: "5m". Ignored for OpenAI-style endpoints. */
     keepAlive?: string;
+    /**
+     * Name of the environment variable holding the API key (bearer token) for
+     * this endpoint — primarily for OpenAI-compatible hosts that require auth.
+     * When set and the variable is non-empty, the request is sent with an
+     * `Authorization: Bearer <value>` header; when unset the call is made
+     * without authentication (current behaviour). The key itself is never
+     * stored in config, only the variable name.
+     */
+    apiKeyEnv?: string;
 }
 
 /** Backend API protocol spoken by the endpoint. */
@@ -109,6 +119,15 @@ export interface LlmConfiguration {
     isDefault?: boolean;
     /** Ollama keep_alive duration (e.g. "5m", "1h", "0", "-1"). Default: "5m". Ignored by OpenAI-style endpoints. */
     keepAlive?: string;
+    /**
+     * Name of the environment variable holding the API key (bearer token) for
+     * this endpoint — primarily for OpenAI-compatible hosts that require auth.
+     * When set and the variable is non-empty, requests carry an
+     * `Authorization: Bearer <value>` header; when unset the call is made
+     * without authentication (current behaviour). Only the variable name is
+     * stored in config, never the key itself.
+     */
+    apiKeyEnv?: string;
     /**
      * Maximum tool-call rounds when this configuration drives an Anthropic
      * profile (`transport: 'localLlm'`). Defaults to 10 in
@@ -787,6 +806,7 @@ export class LocalLlmManager {
                             description: typeof m.description === 'string' ? m.description : undefined,
                             isDefault: m.isDefault === true,
                             keepAlive: typeof m.keepAlive === 'string' ? m.keepAlive : undefined,
+                            apiKeyEnv: typeof m.apiKeyEnv === 'string' && m.apiKeyEnv.length > 0 ? m.apiKeyEnv : undefined,
                         };
                     }
                 }
@@ -844,6 +864,7 @@ export class LocalLlmManager {
                             enabledTools: Array.isArray(lc.enabledTools) ? lc.enabledTools.filter((t: any) => typeof t === 'string') : [],
                             isDefault: lc.isDefault === true,
                             keepAlive: typeof lc.keepAlive === 'string' ? lc.keepAlive : undefined,
+                            apiKeyEnv: typeof lc.apiKeyEnv === 'string' && lc.apiKeyEnv.length > 0 ? lc.apiKeyEnv : undefined,
                             maxRounds: typeof lc.maxRounds === 'number' ? lc.maxRounds : undefined,
                             toolsEnabled: typeof lc.toolsEnabled === 'boolean' ? lc.toolsEnabled : undefined,
                             historyMode: typeof lc.historyMode === 'string'
@@ -904,6 +925,7 @@ export class LocalLlmManager {
                         description: llmConfig.name,
                         isDefault: llmConfig.isDefault,
                         keepAlive: llmConfig.keepAlive,
+                        apiKeyEnv: llmConfig.apiKeyEnv,
                     },
                 };
             }
@@ -923,6 +945,7 @@ export class LocalLlmManager {
                         description: defaultLlm.name,
                         isDefault: defaultLlm.isDefault,
                         keepAlive: defaultLlm.keepAlive,
+                        apiKeyEnv: defaultLlm.apiKeyEnv,
                     },
                 };
             }
@@ -1117,6 +1140,22 @@ export class LocalLlmManager {
         });
     }
 
+    /**
+     * Build the optional `Authorization` header for a Local LLM request.
+     *
+     * `apiKeyEnv` names an environment variable; when it is set and that
+     * variable holds a non-empty value, the request gets an
+     * `Authorization: Bearer <value>` header. When `apiKeyEnv` is unset the
+     * call is unauthenticated (the original behaviour). A configured-but-empty
+     * variable is logged and treated as unset so a typo'd env name fails
+     * loud-ish rather than silently sending `Bearer undefined`.
+     */
+    private apiKeyAuthHeader(apiKeyEnv?: string): Record<string, string> {
+        return apiKeyAuthHeader(apiKeyEnv, process.env, (name) => {
+            this.logChannel.appendLine(`[localLlm] apiKeyEnv='${name}' is configured but the environment variable is empty/undefined — sending the request without Authorization.`);
+        });
+    }
+
     private async ollamaGenerate(
         baseUrl: string,
         model: string,
@@ -1128,15 +1167,16 @@ export class LocalLlmManager {
         keepAlive?: string,
         tools?: OllamaTool[],
         apiStyle: LocalLlmApiStyle = 'ollama',
+        apiKeyEnv?: string,
     ): Promise<{ text: string; stats?: OllamaStats; toolCalls?: OllamaToolCall[] }> {
         const messages = [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
         ];
         if (apiStyle === 'openai') {
-            return this.openaiChat(baseUrl, model, messages, temperature, onToken, cancellationToken, tools);
+            return this.openaiChat(baseUrl, model, messages, temperature, onToken, cancellationToken, tools, apiKeyEnv);
         }
-        return this.ollamaChat(baseUrl, model, messages, temperature, onToken, cancellationToken, keepAlive, tools);
+        return this.ollamaChat(baseUrl, model, messages, temperature, onToken, cancellationToken, keepAlive, tools, apiKeyEnv);
     }
 
     /**
@@ -1153,6 +1193,7 @@ export class LocalLlmManager {
         cancellationToken?: vscode.CancellationToken,
         keepAlive?: string,
         tools?: OllamaTool[],
+        apiKeyEnv?: string,
     ): Promise<{ text: string; stats?: OllamaStats; toolCalls?: OllamaToolCall[] }> {
         return new Promise((resolve, reject) => {
             const url = new URL('/api/chat', baseUrl);
@@ -1206,8 +1247,11 @@ export class LocalLlmManager {
                     port: url.port,
                     path: url.pathname,
                     method: 'POST',
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        // eslint-disable-next-line @typescript-eslint/naming-convention
+                        'Content-Type': 'application/json',
+                        ...this.apiKeyAuthHeader(apiKeyEnv),
+                    },
                 },
                 (res) => {
                     let fullResponse = '';
@@ -1345,6 +1389,7 @@ export class LocalLlmManager {
         onToken?: (token: string) => void,
         cancellationToken?: vscode.CancellationToken,
         tools?: OllamaTool[],
+        apiKeyEnv?: string,
     ): Promise<{ text: string; stats?: OllamaStats; toolCalls?: OllamaToolCall[] }> {
         return new Promise((resolve, reject) => {
             const url = new URL('/v1/chat/completions', baseUrl);
@@ -1435,6 +1480,7 @@ export class LocalLlmManager {
                         'Content-Type': 'application/json',
                         // eslint-disable-next-line @typescript-eslint/naming-convention
                         Accept: 'text/event-stream',
+                        ...this.apiKeyAuthHeader(apiKeyEnv),
                     },
                 },
                 (res) => {
@@ -1634,6 +1680,11 @@ export class LocalLlmManager {
         /** Backend protocol. Defaults to `'ollama'`. */
         apiStyle?: LocalLlmApiStyle;
         /**
+         * Name of the env var holding the bearer API key for this endpoint.
+         * When set (and non-empty), requests carry `Authorization: Bearer …`.
+         */
+        apiKeyEnv?: string;
+        /**
          * Status callback fired before each retry on a busy backend (HTTP
          * 429 / 503 / 529 / textual hints). The string is meant for direct
          * UI display. Plumbed to the Anthropic panel's status line by
@@ -1661,6 +1712,7 @@ export class LocalLlmManager {
                     opts.onToken,
                     opts.cancellationToken,
                     ollamaTools.length > 0 ? ollamaTools : undefined,
+                    opts.apiKeyEnv,
                 )
                 : this.ollamaChat(
                     opts.baseUrl,
@@ -1671,6 +1723,7 @@ export class LocalLlmManager {
                     opts.cancellationToken,
                     opts.keepAlive,
                     ollamaTools.length > 0 ? ollamaTools : undefined,
+                    opts.apiKeyEnv,
                 ),
             totalWaitMs,
             backendLabel: label,
@@ -1709,6 +1762,11 @@ export class LocalLlmManager {
         /** Backend protocol; defaults to `'ollama'`. */
         apiStyle?: LocalLlmApiStyle;
         /**
+         * Name of the env var holding the bearer API key for this endpoint.
+         * When set (and non-empty), requests carry `Authorization: Bearer …`.
+         */
+        apiKeyEnv?: string;
+        /**
          * Optional live-trail writer. When provided, `beginToolCall`
          * fires before each tool invocation and `appendToolResult`
          * after, so the panel's Open Live Trail button can stream the
@@ -1719,7 +1777,7 @@ export class LocalLlmManager {
     }): Promise<{ text: string; stats?: OllamaStats; toolCallCount: number; turnsUsed: number }> {
         const {
             baseUrl, model, systemPrompt, userPrompt, temperature,
-            tools, onToken: callerOnToken, onToolCall, cancellationToken, keepAlive, apiStyle, liveTrail,
+            tools, onToken: callerOnToken, onToolCall, cancellationToken, keepAlive, apiStyle, apiKeyEnv, liveTrail,
         } = options;
         // When a live-trail writer is provided, wrap the caller's
         // `onToken` so each streamed content delta is also folded into
@@ -1852,6 +1910,7 @@ export class LocalLlmManager {
                 cancellationToken,
                 keepAlive,
                 apiStyle,
+                apiKeyEnv,
             });
 
             // No tool calls → model produced a final text response
@@ -2035,6 +2094,7 @@ export class LocalLlmManager {
             baseUrl: mc.ollamaUrl,
             model: mc.model,
             apiStyle: mc.apiStyle,
+            apiKeyEnv: mc.apiKeyEnv,
             systemPrompt: options.systemPrompt,
             userPrompt: options.userPrompt,
             temperature: temp,
@@ -2346,6 +2406,7 @@ export class LocalLlmManager {
                 baseUrl: mc.ollamaUrl,
                 model: mc.model,
                 apiStyle: mc.apiStyle,
+                apiKeyEnv: mc.apiKeyEnv,
                 systemPrompt: resolvedSystemPrompt,
                 userPrompt: prompt,
                 temperature: effectiveTemperature,
@@ -2918,7 +2979,7 @@ export class LocalLlmManager {
                             await this.ollamaGenerate(
                                 mc.ollamaUrl, mc.model, 'Respond with OK.', 'OK', 0,
                                 undefined, token, mc.keepAlive,
-                                undefined, mc.apiStyle,
+                                undefined, mc.apiStyle, mc.apiKeyEnv,
                             );
                         } catch (err: any) {
                             if (err.message === 'Cancelled') { preloadCancelled = true; }
