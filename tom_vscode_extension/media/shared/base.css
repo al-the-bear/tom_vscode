@@ -1,0 +1,28 @@
+/*
+ * Shared base styles for externalized webviews.
+ *
+ * Migrated from BaseWebviewProvider.getBaseStyles(). Panels load this via
+ * the loader's {{sharedUri}} placeholder, e.g.:
+ *   <link rel="stylesheet" href="{{sharedUri}}/base.css">
+ */
+
+body {
+    margin: 0;
+    padding: 8px;
+    color: var(--vscode-foreground);
+    background: var(--vscode-editor-background);
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+}
+
+button {
+    color: var(--vscode-button-foreground);
+    background: var(--vscode-button-background);
+    border: none;
+    padding: 4px 8px;
+    cursor: pointer;
+}
+
+button:hover {
+    background: var(--vscode-button-hoverBackground);
+}

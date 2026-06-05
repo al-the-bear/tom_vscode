@@ -2818,7 +2818,8 @@
         "pretest": "npm run compile",
         "test:tools": "node --test --test-concurrency=1 out/tools/__tests__/*.test.js",
         "test:services": "node --test --test-concurrency=1 out/services/__tests__/*.test.js",
-        "test": "npm run test:tools && npm run test:services && npm run audit:tools",
+        "test:utils": "node --test --test-concurrency=1 out/utils/__tests__/*.test.js",
+        "test": "npm run test:tools && npm run test:services && npm run test:utils && npm run audit:tools",
         "audit:tools": "node scripts/audit-tool-coverage.cjs",
         "lint": "eslint src --ext ts"
     },
