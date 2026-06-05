@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<!--
+  Chat Variables Editor shell — extracted from getHtml() in
+  src/handlers/chatVariablesEditor-handler.ts (Phase B.12 webview restructuring).
+  Standard migration: no inline on*= handlers (all listeners attached in
+  main.js), so the loader's default nonce-only CSP applies. The codicons
+  stylesheet the handler used to load was never referenced and has been dropped.
+-->
+<link rel="stylesheet" href="{{baseUri}}/style.css">
+</head>
+<body>
+<h2>Chat Variables <button class="add-btn" id="btn-add">+ Add</button> <button class="file-btn" id="btn-file" title="Show YAML file">📄</button></h2>
+
+<table id="var-table">
+<thead><tr><th>Variable</th><th>Value</th><th></th></tr></thead>
+<tbody id="var-body"></tbody>
+</table>
+
+<div class="log-section">
+    <h3>Change Log (last 100)</h3>
+    <div class="log-list" id="log-list"></div>
+</div>
+
+<script src="{{baseUri}}/main.js"></script>
+</body>
+</html>
