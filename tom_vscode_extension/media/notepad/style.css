@@ -1,0 +1,83 @@
+/*
+ * notepad webview styles (shared by both providers: the Workspace Notepad in the
+ * Explorer sidebar and the Tom Notepad in the bottom panel).
+ *
+ * Extracted verbatim from the inline <style> of the `_getHtmlContent` template
+ * literal in src/handlers/notepad-handler.ts.
+ */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    padding: 8px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+    background-color: var(--vscode-panel-background);
+    color: var(--vscode-foreground);
+}
+
+.toolbar {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 8px;
+    flex-shrink: 0;
+}
+
+button {
+    padding: 4px 10px;
+    border: none;
+    background-color: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+    cursor: pointer;
+    border-radius: 2px;
+    font-size: 12px;
+}
+
+button:hover {
+    background-color: var(--vscode-button-secondaryHoverBackground);
+}
+
+button.primary {
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+}
+
+button.primary:hover {
+    background-color: var(--vscode-button-hoverBackground);
+}
+
+#notepad {
+    flex: 1;
+    width: 100%;
+    resize: none;
+    border: 1px solid var(--vscode-input-border);
+    background-color: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    padding: 8px;
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: var(--vscode-editor-font-size, 13px);
+    line-height: 1.4;
+    outline: none;
+}
+
+#notepad:focus {
+    border-color: var(--vscode-focusBorder);
+}
+
+#notepad::placeholder {
+    color: var(--vscode-input-placeholderForeground);
+}
+
+.char-count {
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+    margin-top: 4px;
+    text-align: right;
+}

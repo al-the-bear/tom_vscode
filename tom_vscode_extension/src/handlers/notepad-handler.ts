@@ -8,6 +8,8 @@
  */
 
 import * as vscode from 'vscode';
+import { loadWebviewHtml } from '../utils/webviewLoader';
+import { wireCompletionMessages } from '../utils/completionWiring';
 
 const WS_NOTEPAD_VIEW_ID = 'tomAi.notepad';
 const TOM_NOTEPAD_VIEW_ID = 'tomAi.vscodeNotes';
@@ -39,10 +41,23 @@ class NotepadViewProvider implements vscode.WebviewViewProvider {
 
         webviewView.webview.options = {
             enableScripts: true,
-            localResourceRoots: []
+            localResourceRoots: [
+                vscode.Uri.joinPath(this._context.extensionUri, 'media')
+            ]
         };
 
-        webviewView.webview.html = this._getHtmlContent();
+        webviewView.webview.html = loadWebviewHtml(webviewView.webview, 'notepad', {
+            init: {
+                content: this._content,
+                placeholderText: this._placeholderText
+            }
+        });
+
+        // Shared textarea completion (Ctrl+Shift+Space → /skill + @file). The
+        // webview posts `requestCompletion`; this wiring shows the picker and
+        // posts the chosen `insertCompletion` back. Registered as its own
+        // listener so it coexists with the message handler below.
+        wireCompletionMessages(webviewView.webview);
 
         // Handle messages from webview
         webviewView.webview.onDidReceiveMessage(async (message) => {
@@ -86,201 +101,6 @@ class NotepadViewProvider implements vscode.WebviewViewProvider {
                 });
             }
         });
-    }
-
-    private _getHtmlContent(): string {
-        const escapedContent = this._escapeHtml(this._content);
-        
-        return `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        body {
-            padding: 8px;
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-            font-family: var(--vscode-font-family);
-            font-size: var(--vscode-font-size);
-            background-color: var(--vscode-panel-background);
-            color: var(--vscode-foreground);
-        }
-        .toolbar {
-            display: flex;
-            gap: 4px;
-            margin-bottom: 8px;
-            flex-shrink: 0;
-        }
-        button {
-            padding: 4px 10px;
-            border: none;
-            background-color: var(--vscode-button-secondaryBackground);
-            color: var(--vscode-button-secondaryForeground);
-            cursor: pointer;
-            border-radius: 2px;
-            font-size: 12px;
-        }
-        button:hover {
-            background-color: var(--vscode-button-secondaryHoverBackground);
-        }
-        button.primary {
-            background-color: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-        }
-        button.primary:hover {
-            background-color: var(--vscode-button-hoverBackground);
-        }
-        #notepad {
-            flex: 1;
-            width: 100%;
-            resize: none;
-            border: 1px solid var(--vscode-input-border);
-            background-color: var(--vscode-input-background);
-            color: var(--vscode-input-foreground);
-            padding: 8px;
-            font-family: var(--vscode-editor-font-family, monospace);
-            font-size: var(--vscode-editor-font-size, 13px);
-            line-height: 1.4;
-            outline: none;
-        }
-        #notepad:focus {
-            border-color: var(--vscode-focusBorder);
-        }
-        #notepad::placeholder {
-            color: var(--vscode-input-placeholderForeground);
-        }
-        .char-count {
-            font-size: 11px;
-            color: var(--vscode-descriptionForeground);
-            margin-top: 4px;
-            text-align: right;
-        }
-    </style>
-</head>
-<body>
-    <div class="toolbar">
-        <button class="primary" id="sendBtn" title="Send selected text (or all) to Copilot Chat">Send to Chat</button>
-        <button id="copyBtn" title="Copy selected text (or all) to clipboard">Copy</button>
-        <button id="clearBtn" title="Clear notepad">Clear</button>
-    </div>
-    <textarea id="notepad" placeholder="${this._placeholderText}">${escapedContent}</textarea>
-    <div class="char-count"><span id="charCount">0</span> chars | <span id="selCount">0</span> selected</div>
-
-    <script>
-        const vscode = acquireVsCodeApi();
-        const notepad = document.getElementById('notepad');
-        const charCount = document.getElementById('charCount');
-        const selCount = document.getElementById('selCount');
-        const sendBtn = document.getElementById('sendBtn');
-        const copyBtn = document.getElementById('copyBtn');
-        const clearBtn = document.getElementById('clearBtn');
-
-        let saveTimeout;
-
-        function updateCharCount() {
-            charCount.textContent = notepad.value.length;
-        }
-
-        function updateSelCount() {
-            const start = notepad.selectionStart;
-            const end = notepad.selectionEnd;
-            selCount.textContent = end - start;
-        }
-
-        function getSelectedOrAll() {
-            const start = notepad.selectionStart;
-            const end = notepad.selectionEnd;
-            if (start !== end) {
-                return notepad.value.substring(start, end);
-            }
-            return notepad.value;
-        }
-
-        function saveContent() {
-            vscode.postMessage({ type: 'save', content: notepad.value });
-        }
-
-        function debouncedSave() {
-            clearTimeout(saveTimeout);
-            saveTimeout = setTimeout(saveContent, 500);
-        }
-
-        notepad.addEventListener('input', () => {
-            updateCharCount();
-            updateSelCount();
-            debouncedSave();
-        });
-
-        notepad.addEventListener('select', updateSelCount);
-        notepad.addEventListener('click', updateSelCount);
-        notepad.addEventListener('keyup', updateSelCount);
-
-        sendBtn.addEventListener('click', () => {
-            const selected = getSelectedOrAll();
-            vscode.postMessage({ 
-                type: 'sendToChat', 
-                content: notepad.value,
-                selectedText: notepad.selectionStart !== notepad.selectionEnd ? selected : null
-            });
-        });
-
-        copyBtn.addEventListener('click', () => {
-            const selected = getSelectedOrAll();
-            vscode.postMessage({ 
-                type: 'copyToClipboard', 
-                content: notepad.value,
-                selectedText: notepad.selectionStart !== notepad.selectionEnd ? selected : null
-            });
-        });
-
-        clearBtn.addEventListener('click', () => {
-            if (notepad.value.trim() === '' || confirm('Clear all content?')) {
-                notepad.value = '';
-                updateCharCount();
-                updateSelCount();
-                vscode.postMessage({ type: 'clear' });
-            }
-        });
-
-        // Handle messages from extension
-        window.addEventListener('message', (event) => {
-            const message = event.data;
-            switch (message.type) {
-                case 'restore':
-                    notepad.value = message.content || '';
-                    updateCharCount();
-                    updateSelCount();
-                    break;
-                case 'cleared':
-                    notepad.value = '';
-                    updateCharCount();
-                    updateSelCount();
-                    break;
-            }
-        });
-
-        // Initial counts
-        updateCharCount();
-        updateSelCount();
-    </script>
-</body>
-</html>`;
-    }
-
-    private _escapeHtml(text: string): string {
-        return text
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#039;');
     }
 
     /**
