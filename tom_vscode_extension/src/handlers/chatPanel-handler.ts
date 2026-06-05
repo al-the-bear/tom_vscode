@@ -3657,13 +3657,13 @@ function attachEventListeners() {
             var sectionState = ensureSlotState(sectionId);
             setSlotText(sectionId, sectionState.activeSlot, ta.value || '');
         });
-        // Ctrl+Shift+S → skill (/) or file (@) completion. Scan back from
+        // Ctrl+Shift+Space → skill (/) or file (@) completion. Scan back from
         // the cursor for the trigger token, then ask the extension to show
-        // the picker. preventDefault stops VS Code's default "Save As".
+        // the picker.
         ta.addEventListener('keydown', function(ev) {
-            if (!(ev.ctrlKey && ev.shiftKey && (ev.key === 's' || ev.key === 'S'))) return;
-            // Own the shortcut: preventDefault + stopPropagation keep VS Code's
-            // default "File: Save As" from also firing for this webview key.
+            if (!(ev.ctrlKey && ev.shiftKey && (ev.key === ' ' || ev.code === 'Space'))) return;
+            // Own the shortcut: preventDefault + stopPropagation keep any
+            // default handling from also firing for this webview key.
             ev.preventDefault();
             ev.stopPropagation();
             var token = detectCompletionToken(ta.value || '', ta.selectionStart);
