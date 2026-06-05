@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<!--
+  Hand-written CSP: the status body (injected via postMessage) uses inline on*=
+  handlers (onclick/onchange), which require 'unsafe-inline' WITHOUT a
+  nonce-source for script-src (CSP L3 ignores 'unsafe-inline' when a nonce-source
+  is present). External main.js / listeners.js / completion.js load via
+  {{cspSource}}. See media_webview_migration.md §7.
+-->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{cspSource}} https: data:; style-src {{cspSource}} 'unsafe-inline'; font-src {{cspSource}} data:; script-src {{cspSource}} 'unsafe-inline';">
+<link rel="stylesheet" href="{{baseUri}}/page.css">
+<link rel="stylesheet" href="{{baseUri}}/status.css">
+<title>Tom Extension Status</title>
+</head>
+<body>
+<h1>🔧 Tom Extension Status</h1>
+<div id="settings-status-panel">
+  <div class="sp-loading" style="opacity:0.6;padding:12px;">Loading…</div>
+</div>
+<noscript><div style="color:var(--vscode-errorForeground,#f85149);padding:12px;">JavaScript is disabled in this webview.</div></noscript>
+
+<!-- main.js runs first: it acquires the vscode bridge, publishes the shared
+     globals (window.__statusAvailableLlmTools, window.__tomVscodeApi) that
+     listeners.js / completion.js depend on, and requests the initial data. -->
+<script src="{{baseUri}}/main.js"></script>
+<script src="{{baseUri}}/listeners.js"></script>
+<script src="{{sharedUri}}/completion.js"></script>
+</body>
+</html>

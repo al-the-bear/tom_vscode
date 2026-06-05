@@ -1,0 +1,38 @@
+/*
+ * Status Page full-page styles — verbatim extraction of the standalone
+ * page <style> block formerly inlined in getStatusPageHtml() in
+ * src/handlers/statusPage-handler.ts (Phase B.11 webview restructuring).
+ * Loaded alongside status.css (the shared embedded-status styles) only by
+ * the standalone status page (media/statusPage/index.html); the @WS
+ * accordion embed does not use these full-page overrides.
+ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    padding: 12px;
+    font-family: var(--vscode-font-family);
+    background-color: var(--vscode-editor-background);
+    color: var(--vscode-foreground);
+}
+h1 { margin-bottom: 12px; font-size: 16px; font-weight: 600; }
+
+/* Full-page overrides — keep compact, matching bottom-panel density */
+.sp-panel { max-width: 800px; gap: 8px; padding: 0; max-height: none; }
+.sp-section { padding: 10px; border-radius: 6px; }
+.sp-section-header { margin-bottom: 4px; }
+.sp-section-title { font-size: 12px; }
+.sp-badge { padding: 2px 8px; border-radius: 8px; font-size: 10px; }
+.sp-btn { padding: 4px 10px; font-size: 11px; border-radius: 3px; }
+.sp-settings-row { gap: 6px; margin-top: 4px; font-size: 11px; }
+.sp-settings-row label { min-width: auto; font-size: 11px; }
+.sp-settings-row input, .sp-settings-row select { padding: 2px 6px; font-size: 11px; }
+.sp-settings-row input[type="number"] { width: 60px; }
+.sp-settings-row input[type="text"] { flex: 1; min-width: 100px; max-width: 250px; }
+.sp-settings-row select { min-width: 70px; max-width: 160px; }
+.sp-settings-row textarea { padding: 2px 6px; font-size: 11px; }
+.sp-controls { gap: 6px; margin-bottom: 4px; }
+.sp-links { gap: 4px; }
+.sp-link-btn { padding: 4px 8px; font-size: 11px; }
+.sp-collapse-content { max-height: none !important; }
+.sp-collapse-content.sp-collapsed { max-height: 0 !important; }
+.sp-fullpage { display: none; }
+#sp-bridgeProfile { padding: 2px 6px; font-size: 11px; min-width: 100px; }
