@@ -286,6 +286,25 @@ export function readMediaText(panelId: string, file: string): string {
     return defaultDeps().readMediaFile(panelId, file);
 }
 
+/**
+ * Strip HTML comments (`<!-- ... -->`) from a template shell.
+ *
+ * Why: the accordion/tab host shells carry a leading dev-doc comment that
+ * mentions the `{{css}}` / `{{script}}` placeholder tokens verbatim. Those
+ * hosts compose their shell with a *literal* token substitution
+ * (`html.split(token).join(value)`), which also replaces the tokens **inside
+ * the comment** — dumping the entire css+script blob there. The injected
+ * script then contains a `-->` sequence that terminates the comment early,
+ * spilling the rest of the (escaped) script source onto the page as visible
+ * text and leaving the real body unrendered. Stripping comments from the shell
+ * BEFORE substitution lets the dev docs reference the tokens freely without
+ * leaking into the rendered output. Run on the raw template only, so injected
+ * css/script (which may legitimately contain `<!--`/`-->`) is never affected.
+ */
+export function stripHtmlComments(html: string): string {
+    return html.replace(/<!--[\s\S]*?-->/g, '');
+}
+
 // ---------------------------------------------------------------------------
 // Internal string helpers (pure)
 // ---------------------------------------------------------------------------

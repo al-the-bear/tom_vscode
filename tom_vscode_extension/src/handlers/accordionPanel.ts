@@ -14,7 +14,7 @@
  */
 
 import * as vscode from 'vscode';
-import { readMediaText } from '../utils/webviewLoader.js';
+import { readMediaText, stripHtmlComments } from '../utils/webviewLoader.js';
 
 /** Section configuration for accordion panel */
 export interface AccordionSection {
@@ -105,7 +105,10 @@ export function getAccordionHtml(config: AccordionPanelConfig): string {
         '{{css}}': css,
         '{{script}}': script,
     };
-    let html = readMediaText('accordionPanel', 'index.html');
+    // Strip the shell's dev-doc comment before substitution: it references the
+    // {{css}}/{{script}} tokens verbatim and would otherwise absorb the whole
+    // css+script blob (see stripHtmlComments).
+    let html = stripHtmlComments(readMediaText('accordionPanel', 'index.html'));
     for (const [token, value] of Object.entries(tokens)) {
         html = html.split(token).join(value);
     }

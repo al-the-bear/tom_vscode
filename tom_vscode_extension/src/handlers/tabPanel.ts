@@ -14,7 +14,7 @@
  */
 
 import * as vscode from 'vscode';
-import { readMediaText } from '../utils/webviewLoader.js';
+import { readMediaText, stripHtmlComments } from '../utils/webviewLoader.js';
 
 /** Tab configuration for tab panel */
 export interface TabSection {
@@ -93,7 +93,10 @@ export function getTabPanelHtml(config: TabPanelConfig): string {
         '{{tabContent}}': tabContentHtml,
         '{{script}}': script,
     };
-    let html = readMediaText('tabPanel', 'index.html');
+    // Strip the shell's dev-doc comment before substitution: it references the
+    // {{css}}/{{script}} tokens verbatim and would otherwise absorb the whole
+    // css+script blob (see stripHtmlComments).
+    let html = stripHtmlComments(readMediaText('tabPanel', 'index.html'));
     for (const [token, value] of Object.entries(tokens)) {
         html = html.split(token).join(value);
     }

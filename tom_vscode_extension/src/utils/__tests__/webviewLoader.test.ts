@@ -22,6 +22,7 @@ import {
     renderWebviewHtml,
     loadWebviewHtml,
     generateNonce,
+    stripHtmlComments,
     type WebviewLike,
     type WebviewLoaderDeps,
 } from '../webviewLoader.js';
@@ -278,6 +279,55 @@ describe('loadWebviewHtml — IO wrapper', () => {
 // ---------------------------------------------------------------------------
 // generateNonce
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// stripHtmlComments — guards the accordion/tab host shells against the
+// "comment absorbs the {{css}}/{{script}} tokens" regression that left the
+// @WS accordion rendering its escaped script source as visible page text.
+// ---------------------------------------------------------------------------
+
+describe('stripHtmlComments', () => {
+    test('removes a leading shell comment that mentions placeholder tokens', () => {
+        const shell =
+            '<!--\n  Shell doc: substitutes {{css}} and {{script}} below.\n-->\n' +
+            '<html><head><style>{{css}}</style></head>' +
+            '<body><script>{{script}}</script></body></html>';
+        const stripped = stripHtmlComments(shell);
+        // The comment (and its token mentions) is gone; the real tokens remain.
+        assert.doesNotMatch(stripped, /Shell doc/);
+        assert.equal((stripped.match(/\{\{css\}\}/g) ?? []).length, 1);
+        assert.equal((stripped.match(/\{\{script\}\}/g) ?? []).length, 1);
+    });
+
+    test('host substitution no longer leaks script into the doc comment', () => {
+        // Reproduces the @WS bug: a literal token substitution over a shell
+        // whose comment names the tokens. Without the strip, the comment's
+        // {{script}} is filled too — and a `-->` inside the injected script
+        // terminates the comment early, spilling script source as page text.
+        const shell =
+            '<!-- composes {{css}}, {{script}} -->\n' +
+            '<style>{{css}}</style><body><script>{{script}}</script></body>';
+        const css = '.a{color:red}';
+        // Script body deliberately contains a decrement that reads as `-->`.
+        const script = 'var i=10; while (i --> 0) {} var marker=1;';
+        const tokens: Record<string, string> = { '{{css}}': css, '{{script}}': script };
+        let html = stripHtmlComments(shell);
+        for (const [t, v] of Object.entries(tokens)) {
+            html = html.split(t).join(v);
+        }
+        // Script appears exactly once — only inside the real <script>, never
+        // leaked into a (now-absent) comment.
+        assert.equal((html.match(/var marker=1;/g) ?? []).length, 1);
+        const scriptIdx = html.indexOf('var marker=1;');
+        const styleClose = html.indexOf('</style>');
+        assert.ok(scriptIdx > styleClose, 'script lands after </style>, not inside the head');
+    });
+
+    test('leaves comment-free templates untouched', () => {
+        const raw = '<html><head></head><body>{{script}}</body></html>';
+        assert.equal(stripHtmlComments(raw), raw);
+    });
+});
 
 describe('generateNonce', () => {
     test('produces distinct values', () => {
