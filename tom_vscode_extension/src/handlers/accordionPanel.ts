@@ -57,18 +57,26 @@ export function getAccordionScript(sections: AccordionSection[], initialExpanded
     const firstSection = sections[0]?.id || '';
     const defaultExpanded = initialExpanded || firstSection;
     
-    const sectionsJson = JSON.stringify(sections.map(s => ({
+    // Section HTML is embedded as JSON *inside* the inline <script> below, so any
+    // literal `</script>` (or `<!--`) in a section's content would prematurely
+    // close the script element and dump the rest of the page as text. Escape every
+    // `<` to a unicode escape (backslash-u-003c): harmless inside a JS string
+    // literal (the engine decodes it back to `<`) but invisible to the HTML
+    // parser. Same technique as webviewLoader's serializeInit.
+    const escapeForScript = (json: string): string => json.replace(/</g, '\\u003c');
+
+    const sectionsJson = escapeForScript(JSON.stringify(sections.map(s => ({
         id: s.id,
         icon: `<span class="codicon codicon-${s.icon}"></span>`,
         title: s.title
-    })));
-    
-    const contentsJson = JSON.stringify(
+    }))));
+
+    const contentsJson = escapeForScript(JSON.stringify(
         sections.reduce((acc, s) => {
             acc[s.id] = s.content;
             return acc;
         }, {} as Record<string, string>)
-    );
+    ));
 
     // Generated data-prefix declares the globals the static body reads; the
     // body (functions + loadState()/render() bootstrap) lives in
