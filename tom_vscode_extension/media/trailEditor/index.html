@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!--
+  Trail (Summary) viewer custom-editor shell — extracted from buildHtml() in
+  src/handlers/trailEditor-handler.ts (Phase B.23 webview restructuring).
+
+  This is a standalone panel, but buildHtml() server-renders the first-paint
+  regions (quest/subsystem dropdown options, entry list, preview, metadata) and
+  four <script type="application/json"> data blocks, so it is composed with the
+  readMediaText escape hatch rather than loadWebviewHtml. The handler reads this
+  file and substitutes the {{tokens}} below (cspSource, codiconsUri, markedUri,
+  baseUri, the five server-rendered HTML regions, and the four JSON payloads).
+
+  The CSP is hand-written and uses 'unsafe-inline' (no nonce-source, so it is
+  honored): the executable scripts (marked.umd.js, main.js) load from cspSource,
+  and 'unsafe-inline' keeps the JSON data blocks readable regardless of how the
+  host treats <script type="application/json"> under CSP. style-src stays
+  permissive ('unsafe-inline') to match the original (which shipped no CSP) so
+  marked's rendered markdown and the JS-driven splitter style writes never trip.
+-->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; font-src {{cspSource}} data:; img-src {{cspSource}} data: https:; script-src {{cspSource}} 'unsafe-inline';">
+<link rel="stylesheet" href="{{codiconsUri}}">
+<link rel="stylesheet" href="{{baseUri}}/style.css">
+</head>
+<body>
+
+<!-- Top bar -->
+<div class="top-bar">
+    <strong style="margin-right:8px">Summary Viewer</strong>
+    <label>Trail:</label>
+    <select id="quest-select">{{questOptions}}</select>
+    <label>Subsystem:</label>
+    <select id="subsystem-select">{{subsystemOptions}}</select>
+    <span class="spacer"></span>
+    <button class="icon-btn" id="btn-open-prompts" title="Open prompts file in editor"><span class="codicon codicon-file-text"></span></button>
+    <button class="icon-btn" id="btn-open-answers" title="Open answers file in editor"><span class="codicon codicon-file-code"></span></button>
+    <button class="icon-btn" id="btn-md-viewer" title="Open in MD viewer"><span class="codicon codicon-link-external"></span></button>
+</div>
+
+<!-- Main layout -->
+<div class="main">
+    <!-- Left sidebar: entry list -->
+    <div class="sidebar" id="sidebar">
+        <div class="entry-list" id="entry-list">{{entryList}}</div>
+    </div>
+
+    <!-- Vertical splitter -->
+    <div class="v-splitter" id="v-splitter"></div>
+
+    <!-- Right panels -->
+    <div class="right-panels" id="right-panels">
+        <!-- Content preview -->
+        <div class="preview-panel" id="preview-panel">
+            {{preview}}
+        </div>
+
+        <!-- Horizontal splitter -->
+        <div class="h-splitter" id="h-splitter"></div>
+
+        <!-- Metadata panel -->
+        <div class="meta-panel" id="meta-panel">
+            {{metaRows}}
+        </div>
+    </div>
+</div>
+
+<script id="trail-data-entries" type="application/json">{{entriesJson}}</script>
+<script id="trail-data-entries-by-set" type="application/json">{{entriesBySetJson}}</script>
+<script id="trail-data-sets" type="application/json">{{setsJson}}</script>
+<script id="trail-data-current-set" type="application/json">{{currentSetJson}}</script>
+<script src="{{markedUri}}"></script>
+<script src="{{baseUri}}/main.js"></script>
+</body>
+</html>
