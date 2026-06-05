@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<!--
+  Prompt Template Editor shell — extracted from _getHtml() in
+  src/handlers/globalTemplateEditor-handler.ts (Phase B.15 webview restructuring).
+
+  This panel wires every interaction with addEventListener (no inline on*=
+  handlers), so per migration guide §7 it lets the loader inject the DEFAULT
+  nonce-only CSP — no hand-written CSP is needed here.
+
+  The codicons stylesheet is injected at runtime by main.js from
+  window.__INIT__.codiconsUri (no placeholder exists for node_modules assets).
+
+  All data flows in via postMessage after a 'ready' handshake — there is no
+  init.state payload, only init.codiconsUri.
+-->
+<link rel="stylesheet" href="{{baseUri}}/style.css">
+</head>
+<body>
+
+<h2 id="panelHeadline" style="margin:12px 16px 0;font-weight:600;font-size:1.1em;color:var(--vscode-foreground);">Prompt Template Editor</h2>
+
+<div class="action-bar">
+    <select id="categorySelect"></select>
+    <button class="icon-btn" id="btnAdd" title="Add new template">
+        <span class="codicon codicon-add"></span>
+    </button>
+    <button class="icon-btn" id="btnCopy" title="Copy the selected template under a new name">
+        <span class="codicon codicon-copy"></span>
+    </button>
+    <button class="icon-btn" id="btnRename" title="Rename the selected template (changes its id)">
+        <span class="codicon codicon-edit"></span>
+    </button>
+    <button class="icon-btn" id="btnDelete" title="Delete selected template">
+        <span class="codicon codicon-trash"></span>
+    </button>
+    <div class="spacer"></div>
+</div>
+
+<div class="main">
+    <div class="file-list" id="fileList"></div>
+    <div class="v-splitter" id="vSplitter"></div>
+    <div class="editor-area" id="editorArea">
+        <div class="no-selection">Select a template from the left to edit</div>
+    </div>
+</div>
+
+<div class="save-bar" id="saveBar" style="display:none">
+    <button class="primary" id="btnSave">Save</button>
+</div>
+
+<script src="{{baseUri}}/main.js"></script>
+</body>
+</html>
