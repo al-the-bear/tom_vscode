@@ -1,0 +1,61 @@
+/* Markdown HTML preview styles — extracted verbatim from the inline <style>
+   block of showMarkdownHtmlPreview() in src/handlers/markdownHtmlPreview.ts
+   (Phase B.20 webview restructuring). */
+
+body {
+    margin: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--vscode-editor-background);
+    color: var(--vscode-editor-foreground);
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+}
+.header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    background: var(--vscode-sideBar-background);
+}
+.title {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.close-btn {
+    border: 1px solid var(--vscode-button-border, transparent);
+    background: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+    border-radius: 4px;
+    cursor: pointer;
+    width: 28px;
+    height: 28px;
+    font-size: 16px;
+    line-height: 1;
+}
+.close-btn:hover {
+    background: var(--vscode-button-secondaryHoverBackground);
+}
+.meta {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    color: var(--vscode-descriptionForeground);
+    font-size: 11px;
+}
+.content {
+    padding: 14px 18px;
+    overflow: auto;
+    flex: 1;
+}
+.markdown-body h1, .markdown-body h2, .markdown-body h3 { margin: 16px 0 8px; }
+.markdown-body p { margin: 8px 0; line-height: 1.5; }
+.markdown-body pre { background: var(--vscode-textCodeBlock-background); padding: 10px; border-radius: 6px; overflow-x: auto; }
+.markdown-body code { font-family: var(--vscode-editor-font-family); }
+.markdown-body blockquote { border-left: 3px solid var(--vscode-panel-border); margin: 8px 0; padding: 4px 10px; color: var(--vscode-descriptionForeground); }
+.markdown-body table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+.markdown-body th, .markdown-body td { border: 1px solid var(--vscode-panel-border); padding: 6px 8px; text-align: left; }
+.markdown-body hr { border: 0; border-top: 1px solid var(--vscode-panel-border); margin: 14px 0; }

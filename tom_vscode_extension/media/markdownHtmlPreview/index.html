@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Markdown Preview</title>
+<!--
+  Markdown HTML preview shell — extracted from showMarkdownHtmlPreview() in
+  src/handlers/markdownHtmlPreview.ts (Phase B.20 webview restructuring).
+
+  §3 content-injection panel: the shell is externalized like any other webview,
+  but the markdown text is injected via postMessage (setContent) rather than
+  template substitution, so large documents and re-render-on-change are handled
+  without rebuilding the HTML. main.js loads the marked + mermaid libraries
+  (their webview URIs arrive via window.__INIT__), then posts a 'ready'
+  handshake and the host replies with the content.
+
+  CSP is hand-written (the loader leaves a declared CSP alone). It uses
+  {{cspSource}} for scripts — which covers both the external main.js (served
+  from media) and the marked/mermaid bundles (served from node_modules via
+  asWebviewUri, same cspSource) — plus 'unsafe-inline' so the loader's nonce'd
+  init payload and mermaid's injected <style> run. No nonce-source is present,
+  so 'unsafe-inline' is honored.
+-->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{cspSource}} https: data:; style-src {{cspSource}} 'unsafe-inline'; font-src {{cspSource}} data:; script-src {{cspSource}} 'unsafe-inline';">
+<link rel="stylesheet" href="{{baseUri}}/style.css">
+</head>
+<body>
+    <div class="header">
+        <div class="title" id="previewTitle"></div>
+        <button class="close-btn" id="closeBtn" title="Close">✕</button>
+    </div>
+    <div class="meta" id="previewMeta"></div>
+    <div class="content markdown-body" id="previewContent"></div>
+    <script src="{{baseUri}}/main.js"></script>
+</body>
+</html>
