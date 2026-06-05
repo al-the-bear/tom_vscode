@@ -1,0 +1,127 @@
+/*
+ * Window Status panel styles — extracted from the inline <style> of
+ * WindowStatusViewProvider._getHtml() in src/handlers/windowStatusPanel-handler.ts
+ * (Phase B.7 webview restructuring). The two status colours were module-level
+ * TS constants (COLOUR_PROMPT_SENT / COLOUR_ANSWER_RECEIVED) used only here;
+ * hardcoded directly now that the HTML no longer lives in TypeScript.
+ */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+    color: var(--vscode-foreground);
+    background: var(--vscode-sideBar-background);
+    height: 100vh;
+    overflow-y: auto;
+}
+
+.window-list {
+    padding: 2px 0;
+}
+
+.window-card {
+    padding: 6px 12px;
+    border-left: 3px solid transparent;
+    border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.window-card:hover {
+    background: var(--vscode-list-hoverBackground);
+}
+
+.window-card-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.window-workspace {
+    font-size: 11px;
+    font-weight: 600;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.subsystem-list {
+    margin-top: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.ai-conversation-line {
+    margin-top: 4px;
+    font-size: 10px;
+    color: var(--vscode-descriptionForeground);
+}
+
+.ai-conversation-line.active {
+    color: #3fb950;
+}
+
+.subsystem-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.status-dot.prompt-sent {
+    background: #e8a317;
+}
+
+.status-dot.answer-received {
+    background: #3fb950;
+}
+
+.subsystem-name {
+    color: var(--vscode-foreground);
+}
+
+.subsystem-time {
+    color: var(--vscode-descriptionForeground);
+    margin-left: auto;
+    white-space: nowrap;
+}
+
+.delete-btn {
+    background: none;
+    border: none;
+    color: var(--vscode-foreground);
+    cursor: pointer;
+    padding: 2px;
+    opacity: 0.5;
+    flex-shrink: 0;
+}
+
+.delete-btn:hover {
+    opacity: 1;
+    color: var(--vscode-errorForeground);
+}
+
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 12px;
+    color: var(--vscode-descriptionForeground);
+    text-align: center;
+    font-size: 12px;
+}
+
+.empty-state .codicon {
+    font-size: 32px;
+    margin-bottom: 8px;
+}
