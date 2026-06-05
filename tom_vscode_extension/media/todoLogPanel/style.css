@@ -1,0 +1,113 @@
+/*
+ * TODO Log panel styles — extracted from the inline <style> of
+ * TodoLogViewProvider._getHtml() in src/handlers/todoLogPanel-handler.ts
+ * (Phase B.6 webview restructuring).
+ */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+    color: var(--vscode-foreground);
+    background: var(--vscode-sideBar-background);
+    height: 100vh;
+    overflow-y: auto;
+}
+
+.header {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.header h2 {
+    font-size: 11px;
+    font-weight: 600;
+    flex: 1;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.header button {
+    background: none;
+    border: none;
+    color: var(--vscode-foreground);
+    cursor: pointer;
+    padding: 2px;
+}
+
+.header button:hover {
+    color: var(--vscode-textLink-foreground);
+}
+
+.entry-list {
+    padding: 2px 0;
+}
+
+.entry-item {
+    padding: 6px 12px;
+    border-left: 3px solid transparent;
+    cursor: pointer;
+}
+
+.entry-item:hover {
+    background: var(--vscode-list-hoverBackground);
+}
+
+.entry-time {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--vscode-descriptionForeground);
+}
+
+.entry-session {
+    font-size: 10px;
+    color: var(--vscode-descriptionForeground);
+    margin-top: 1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.entry-todo-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 6px;
+    margin-top: 3px;
+}
+
+.entry-todo-link {
+    color: var(--vscode-textLink-foreground);
+    cursor: pointer;
+    font-size: 11px;
+    text-decoration: none;
+}
+
+.entry-todo-link:hover {
+    text-decoration: underline;
+}
+
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 12px;
+    color: var(--vscode-descriptionForeground);
+    text-align: center;
+    font-size: 12px;
+}
+
+.empty-state .codicon {
+    font-size: 32px;
+    margin-bottom: 8px;
+}
+
+.entry-count {
+    font-size: 10px;
+    color: var(--vscode-descriptionForeground);
+    font-weight: normal;
+}

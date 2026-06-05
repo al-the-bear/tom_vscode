@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="{{baseUri}}/style.css">
+<title>TODO Log</title>
+</head>
+<body>
+<div class="header">
+    <h2>TODO Log <span class="entry-count" id="entryCount"></span></h2>
+    <button id="openTrailFilesBtn" title="Open Trail"><span class="codicon codicon-history"></span></button>
+    <button id="openTrailViewerBtn" title="Open Trail Files Viewer"><span class="codicon codicon-list-flat"></span></button>
+    <button id="refreshBtn" title="Refresh"><span class="codicon codicon-refresh"></span></button>
+</div>
+<div class="entry-list" id="entryList">
+    <div class="empty-state">
+        <span class="codicon codicon-loading codicon-modifier-spin"></span>
+        <div>Loading...</div>
+    </div>
+</div>
+<script src="{{baseUri}}/main.js"></script>
+</body>
+</html>
