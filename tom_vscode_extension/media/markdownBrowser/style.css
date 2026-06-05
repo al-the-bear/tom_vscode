@@ -1,0 +1,110 @@
+/* Markdown Browser styles — extracted verbatim from the inline <style> block of
+   buildHtml() in src/handlers/markdownBrowser-handler.ts (Phase B.21 webview
+   restructuring). The shared document-picker CSS (getDocumentPickerCss()) is
+   composed separately and inlined by buildHtml; it is NOT in this file. */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+    color: var(--vscode-editor-foreground);
+    background: var(--vscode-editor-background);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* ---- Action Bar ---- */
+.action-bar {
+    display: flex;
+    align-items: center;
+    padding: 6px 12px;
+    gap: 8px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    background: var(--vscode-sideBar-background);
+    flex-shrink: 0;
+}
+.action-bar .picker-area {
+    flex: 1;
+    display: flex;
+    align-items: center;
+}
+.action-bar .nav-area {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+.icon-btn {
+    background: none;
+    border: none;
+    color: var(--vscode-foreground);
+    cursor: pointer;
+    padding: 3px 5px;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.icon-btn:hover {
+    background: var(--vscode-toolbar-hoverBackground);
+}
+.icon-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+.icon-btn:disabled:hover {
+    background: none;
+}
+
+/* ---- File Info Bar ---- */
+.file-info-bar {
+    padding: 4px 12px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+.file-info-bar .file-path {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ---- Markdown Content Area ---- */
+.content-area {
+    flex: 1;
+    overflow: auto;
+    padding: 14px 18px;
+}
+.markdown-body h1, .markdown-body h2, .markdown-body h3 { margin: 16px 0 8px; }
+.markdown-body h1 { border-bottom: 1px solid var(--vscode-panel-border); padding-bottom: 4px; }
+.markdown-body p { margin: 8px 0; line-height: 1.6; }
+.markdown-body pre { background: var(--vscode-textCodeBlock-background); padding: 10px; border-radius: 6px; overflow-x: auto; }
+.markdown-body code { font-family: var(--vscode-editor-font-family); font-size: 0.9em; }
+.markdown-body :not(pre) > code { background: var(--vscode-textCodeBlock-background); padding: 1px 4px; border-radius: 3px; }
+.markdown-body blockquote { border-left: 3px solid var(--vscode-panel-border); margin: 8px 0; padding: 4px 10px; color: var(--vscode-descriptionForeground); }
+.markdown-body table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+.markdown-body th, .markdown-body td { border: 1px solid var(--vscode-panel-border); padding: 6px 8px; text-align: left; }
+.markdown-body hr { border: 0; border-top: 1px solid var(--vscode-panel-border); margin: 14px 0; }
+.markdown-body a { color: var(--vscode-textLink-foreground); cursor: pointer; }
+.markdown-body a:hover { text-decoration: underline; }
+.markdown-body img { max-width: 100%; }
+.markdown-body ul, .markdown-body ol { margin: 8px 0; padding-left: 24px; }
+.markdown-body li { margin: 2px 0; line-height: 1.5; }
+
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--vscode-descriptionForeground);
+    gap: 12px;
+}
+.empty-state .codicon { font-size: 48px; }
+.error-state { color: var(--vscode-errorForeground); }

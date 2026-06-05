@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!--
+      Markdown Browser shell — extracted from buildHtml() in
+      src/handlers/markdownBrowser-handler.ts (Phase B.21 webview restructuring).
+
+      This panel COMPOSES the shared documentPicker fragment (HTML/CSS/JS) — a
+      component owned elsewhere and consumed by other panels too — so it is built
+      with the readMediaText escape hatch rather than loadWebviewHtml: buildHtml
+      reads this file and substitutes the {{tokens}} below (cspSource, the
+      marked/mermaid/codicons webview URIs, baseUri, and the picker pieces).
+
+      The CSP is hand-written and uses 'unsafe-inline' (no nonce-source, so it is
+      honored): it admits the external marked/mermaid bundles + main.js (all
+      served from cspSource) and the inlined picker <style>/<script>. main.js
+      acquires the vscode API once and publishes window.vscode; the picker IIFE
+      (a separate inline <script>) reads that global.
+    -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; script-src {{cspSource}} 'unsafe-inline'; font-src {{cspSource}}; img-src {{cspSource}} data: https:;">
+    <link href="{{codiconsUri}}" rel="stylesheet" />
+    <link href="{{baseUri}}/style.css" rel="stylesheet" />
+    <style>
+{{pickerCss}}
+    </style>
+</head>
+<body>
+    <!-- Action Bar -->
+    <div class="action-bar">
+        <div class="picker-area">
+            {{pickerHtml}}
+        </div>
+        <div class="nav-area">
+            <button class="icon-btn" id="openInEditorBtn" title="Open in Editor">
+                <span class="codicon codicon-go-to-file"></span>
+            </button>
+            <button class="icon-btn" id="openExternalBtn" title="Open in External Viewer">
+                <span class="codicon codicon-link-external"></span>
+            </button>
+            <span style="width:1px; height:16px; background:var(--vscode-panel-border); margin:0 2px;"></span>
+            <button class="icon-btn" id="backBtn" disabled title="Go Back">
+                <span class="codicon codicon-arrow-left"></span>
+            </button>
+            <button class="icon-btn" id="forwardBtn" disabled title="Go Forward">
+                <span class="codicon codicon-arrow-right"></span>
+            </button>
+            <span style="width:1px; height:16px; background:var(--vscode-panel-border); margin:0 2px;"></span>
+            <button class="icon-btn" id="reloadBtn" title="Reload Current File">
+                <span class="codicon codicon-refresh"></span>
+            </button>
+        </div>
+    </div>
+
+    <!-- File info -->
+    <div class="file-info-bar">
+        <span class="file-path" id="filePath">No file selected</span>
+    </div>
+
+    <!-- Content -->
+    <div class="content-area markdown-body" id="contentArea">
+        <div class="empty-state">
+            <span class="codicon codicon-markdown"></span>
+            <div>Select a document to preview</div>
+        </div>
+    </div>
+
+    <script src="{{markedUri}}"></script>
+    <script src="{{mermaidUri}}"></script>
+    <script src="{{baseUri}}/main.js"></script>
+    <script>
+{{pickerScript}}
+    </script>
+</body>
+</html>

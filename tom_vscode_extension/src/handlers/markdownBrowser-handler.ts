@@ -33,6 +33,7 @@ import { WsPaths } from '../utils/workspacePaths.js';
 import { debugLog } from '../utils/debugLogger.js';
 import { openInExternalApplication } from './handler_shared.js';
 import { resolveLink, type ResolvedLink, type LinkContext } from '../utils/linkResolver.js';
+import { readMediaText } from '../utils/webviewLoader.js';
 
 // ============================================================================
 // Constants
@@ -136,6 +137,7 @@ class MdBrowserPanel {
                 enableScripts: true,
                 retainContextWhenHidden: true,
                 localResourceRoots: [
+                    vscode.Uri.joinPath(context.extensionUri, 'media'),
                     vscode.Uri.joinPath(context.extensionUri, 'node_modules', 'marked', 'lib'),
                     vscode.Uri.joinPath(context.extensionUri, 'node_modules', 'mermaid', 'dist'),
                     vscode.Uri.joinPath(context.extensionUri, 'node_modules', '@vscode', 'codicons', 'dist'),
@@ -864,399 +866,29 @@ function buildHtml(webview: vscode.Webview, context: vscode.ExtensionContext): s
         showGroupSelector: true,
     });
 
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource}; img-src ${webview.cspSource} data: https:;">
-    <link href="${codiconsUri}" rel="stylesheet" />
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: var(--vscode-font-family);
-            font-size: var(--vscode-font-size);
-            color: var(--vscode-editor-foreground);
-            background: var(--vscode-editor-background);
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
+    // This panel COMPOSES the shared documentPicker fragment (HTML/CSS/JS),
+    // which is owned elsewhere and consumed by other panels too — so it uses
+    // the readMediaText escape hatch (raw media text, no loader rewriting) and
+    // substitutes its own {{tokens}} here, rather than loadWebviewHtml.
+    const baseUri = webview
+        .asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', 'markdownBrowser'))
+        .toString()
+        .replace(/\/$/, '');
 
-        /* ---- Action Bar ---- */
-        .action-bar {
-            display: flex;
-            align-items: center;
-            padding: 6px 12px;
-            gap: 8px;
-            border-bottom: 1px solid var(--vscode-panel-border);
-            background: var(--vscode-sideBar-background);
-            flex-shrink: 0;
-        }
-        .action-bar .picker-area {
-            flex: 1;
-            display: flex;
-            align-items: center;
-        }
-        .action-bar .nav-area {
-            display: flex;
-            gap: 4px;
-            align-items: center;
-        }
-        .icon-btn {
-            background: none;
-            border: none;
-            color: var(--vscode-foreground);
-            cursor: pointer;
-            padding: 3px 5px;
-            border-radius: 3px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .icon-btn:hover {
-            background: var(--vscode-toolbar-hoverBackground);
-        }
-        .icon-btn:disabled {
-            opacity: 0.3;
-            cursor: default;
-        }
-        .icon-btn:disabled:hover {
-            background: none;
-        }
+    const tokens: Record<string, string> = {
+        '{{cspSource}}': webview.cspSource,
+        '{{codiconsUri}}': codiconsUri.toString(),
+        '{{markedUri}}': markedUri.toString(),
+        '{{mermaidUri}}': mermaidUri.toString(),
+        '{{baseUri}}': baseUri,
+        '{{pickerHtml}}': pickerHtml,
+        '{{pickerCss}}': pickerCss,
+        '{{pickerScript}}': pickerScript,
+    };
 
-        /* ---- File Info Bar ---- */
-        .file-info-bar {
-            padding: 4px 12px;
-            border-bottom: 1px solid var(--vscode-panel-border);
-            font-size: 11px;
-            color: var(--vscode-descriptionForeground);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            flex-shrink: 0;
-        }
-        .file-info-bar .file-path {
-            flex: 1;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        /* ---- Markdown Content Area ---- */
-        .content-area {
-            flex: 1;
-            overflow: auto;
-            padding: 14px 18px;
-        }
-        .markdown-body h1, .markdown-body h2, .markdown-body h3 { margin: 16px 0 8px; }
-        .markdown-body h1 { border-bottom: 1px solid var(--vscode-panel-border); padding-bottom: 4px; }
-        .markdown-body p { margin: 8px 0; line-height: 1.6; }
-        .markdown-body pre { background: var(--vscode-textCodeBlock-background); padding: 10px; border-radius: 6px; overflow-x: auto; }
-        .markdown-body code { font-family: var(--vscode-editor-font-family); font-size: 0.9em; }
-        .markdown-body :not(pre) > code { background: var(--vscode-textCodeBlock-background); padding: 1px 4px; border-radius: 3px; }
-        .markdown-body blockquote { border-left: 3px solid var(--vscode-panel-border); margin: 8px 0; padding: 4px 10px; color: var(--vscode-descriptionForeground); }
-        .markdown-body table { border-collapse: collapse; width: 100%; margin: 10px 0; }
-        .markdown-body th, .markdown-body td { border: 1px solid var(--vscode-panel-border); padding: 6px 8px; text-align: left; }
-        .markdown-body hr { border: 0; border-top: 1px solid var(--vscode-panel-border); margin: 14px 0; }
-        .markdown-body a { color: var(--vscode-textLink-foreground); cursor: pointer; }
-        .markdown-body a:hover { text-decoration: underline; }
-        .markdown-body img { max-width: 100%; }
-        .markdown-body ul, .markdown-body ol { margin: 8px 0; padding-left: 24px; }
-        .markdown-body li { margin: 2px 0; line-height: 1.5; }
-
-        .empty-state {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100%;
-            color: var(--vscode-descriptionForeground);
-            gap: 12px;
-        }
-        .empty-state .codicon { font-size: 48px; }
-        .error-state { color: var(--vscode-errorForeground); }
-
-        ${pickerCss}
-    </style>
-</head>
-<body>
-    <!-- Action Bar -->
-    <div class="action-bar">
-        <div class="picker-area">
-            ${pickerHtml}
-        </div>
-        <div class="nav-area">
-            <button class="icon-btn" id="openInEditorBtn" title="Open in Editor">
-                <span class="codicon codicon-go-to-file"></span>
-            </button>
-            <button class="icon-btn" id="openExternalBtn" title="Open in External Viewer">
-                <span class="codicon codicon-link-external"></span>
-            </button>
-            <span style="width:1px; height:16px; background:var(--vscode-panel-border); margin:0 2px;"></span>
-            <button class="icon-btn" id="backBtn" disabled title="Go Back">
-                <span class="codicon codicon-arrow-left"></span>
-            </button>
-            <button class="icon-btn" id="forwardBtn" disabled title="Go Forward">
-                <span class="codicon codicon-arrow-right"></span>
-            </button>
-            <span style="width:1px; height:16px; background:var(--vscode-panel-border); margin:0 2px;"></span>
-            <button class="icon-btn" id="reloadBtn" title="Reload Current File">
-                <span class="codicon codicon-refresh"></span>
-            </button>
-        </div>
-    </div>
-
-    <!-- File info -->
-    <div class="file-info-bar">
-        <span class="file-path" id="filePath">No file selected</span>
-    </div>
-
-    <!-- Content -->
-    <div class="content-area markdown-body" id="contentArea">
-        <div class="empty-state">
-            <span class="codicon codicon-markdown"></span>
-            <div>Select a document to preview</div>
-        </div>
-    </div>
-
-    <script src="${markedUri}"></script>
-    <script src="${mermaidUri}"></script>
-    <script>
-        var vscode = acquireVsCodeApi();
-        var __mdBrowserBooted = false;
-
-        try {
-            var backBtn = document.getElementById('backBtn');
-            var forwardBtn = document.getElementById('forwardBtn');
-            var openInEditorBtn = document.getElementById('openInEditorBtn');
-            var openExternalBtn = document.getElementById('openExternalBtn');
-            var reloadBtn = document.getElementById('reloadBtn');
-            var contentArea = document.getElementById('contentArea');
-            var filePathEl = document.getElementById('filePath');
-
-            var currentFilePath = '';
-            // liveMode + follow-tail state.
-            //   liveMode: true when the panel was opened via
-            //     tomAi.openInMdBrowserLive — enables the auto-scroll-to-
-            //     bottom behavior below.
-            //   followTail: sticky flag. Starts true (initial render has
-            //     no prior scroll state); the user's scroll listener
-            //     flips it off when they scroll away from the bottom and
-            //     back on when they scroll back. Only when followTail
-            //     is on do we auto-scroll after a content update.
-            var liveMode = false;
-            var followTail = true;
-            var BOTTOM_THRESHOLD_PX = 48;
-
-            function isNearBottom() {
-                if (!contentArea) return true;
-                var distanceFromBottom = contentArea.scrollHeight - contentArea.clientHeight - contentArea.scrollTop;
-                return distanceFromBottom <= BOTTOM_THRESHOLD_PX;
-            }
-
-            function scrollToBottom() {
-                if (!contentArea) return;
-                contentArea.scrollTop = contentArea.scrollHeight;
-            }
-
-            // ---- Document Picker Script ----
-            ${pickerScript}
-
-            // ---- Notify backend that webview is ready ----
-            // (Backend will send groups and initial file content)
-            setTimeout(function() {
-                vscode.postMessage({ type: 'webviewReady' });
-            }, 10);
-
-            // ---- Navigation Buttons ----
-            backBtn.addEventListener('click', function() {
-                vscode.postMessage({ type: 'goBack' });
-            });
-            forwardBtn.addEventListener('click', function() {
-                vscode.postMessage({ type: 'goForward' });
-            });
-            openInEditorBtn.addEventListener('click', function() {
-                vscode.postMessage({ type: 'openInEditor' });
-            });
-            openExternalBtn.addEventListener('click', function() {
-                vscode.postMessage({ type: 'openExternal' });
-            });
-            reloadBtn.addEventListener('click', function() {
-                vscode.postMessage({ type: 'reload' });
-            });
-
-            // ---- Render Markdown ----
-            function renderMarkdown(text) {
-                if (typeof marked !== 'undefined' && marked.parse) {
-                    return marked.parse(text || '');
-                }
-                return '<pre>' + escapeHtml(text || '') + '</pre>';
-            }
-
-            function escapeHtml(text) {
-                var div = document.createElement('div');
-                div.textContent = text;
-                return div.innerHTML;
-            }
-
-            // ---- Anchor Scrolling ----
-            function scrollToAnchor(anchor) {
-                if (!anchor || !contentArea) return false;
-
-                // Try finding element by ID first (standard anchor)
-                var target = document.getElementById(anchor);
-
-                // If not found, try common heading ID patterns generated by marked.js
-                if (!target) {
-                    // marked.js generates IDs by lowercasing and replacing spaces/special chars
-                    var normalizedAnchor = anchor.toLowerCase().replace(/[^\\w\\s-]/g, '').replace(/\\s+/g, '-');
-                    target = document.getElementById(normalizedAnchor);
-                }
-
-                // Try finding by heading text content
-                if (!target) {
-                    var headings = contentArea.querySelectorAll('h1, h2, h3, h4, h5, h6');
-                    for (var i = 0; i < headings.length; i++) {
-                        var h = headings[i];
-                        var headingId = h.id || '';
-                        var headingText = (h.textContent || '').toLowerCase().replace(/[^\\w\\s-]/g, '').replace(/\\s+/g, '-');
-                        if (headingId === anchor || headingText === anchor || headingText === anchor.toLowerCase()) {
-                            target = h;
-                            break;
-                        }
-                    }
-                }
-
-                if (target) {
-                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    // Add a brief highlight effect
-                    target.style.transition = 'background-color 0.3s';
-                    target.style.backgroundColor = 'var(--vscode-editor-findMatchHighlightBackground)';
-                    setTimeout(function() {
-                        target.style.backgroundColor = '';
-                    }, 1500);
-                    return true;
-                }
-                return false;
-            }
-
-            function initMermaid() {
-                if (typeof mermaid === 'undefined' || !contentArea) return;
-                try {
-                    contentArea.querySelectorAll('pre > code.language-mermaid').forEach(function(codeEl) {
-                        var pre = codeEl.parentElement;
-                        if (!pre || !pre.parentElement) return;
-                        var mermaidDiv = document.createElement('div');
-                        mermaidDiv.className = 'mermaid';
-                        mermaidDiv.textContent = codeEl.textContent || '';
-                        pre.parentElement.replaceChild(mermaidDiv, pre);
-                    });
-                    mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
-                    mermaid.run({ nodes: contentArea.querySelectorAll('.mermaid') });
-                } catch (err) {
-                    console.error('Mermaid render failed', err);
-                }
-            }
-
-            // ---- Link Click Handling ----
-            function interceptLinks() {
-                if (!contentArea) return;
-                contentArea.querySelectorAll('a[href]').forEach(function(link) {
-                    link.addEventListener('click', function(e) {
-                        e.preventDefault();
-                        var href = link.getAttribute('href') || '';
-                        if (!href) return;
-
-                        // Skip external URLs
-                        if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:')) {
-                            return;
-                        }
-
-                        vscode.postMessage({ type: 'navigateLink', href: href });
-                    });
-                });
-            }
-
-            // ---- Message Handling ----
-            window.addEventListener('message', function(e) {
-                var msg = e.data;
-                if (!msg || !msg.type) return;
-
-                if (msg.type === 'mdContent') {
-                    if (msg.error) {
-                        contentArea.innerHTML = '<div class="empty-state error-state">'
-                            + '<span class="codicon codicon-error"></span>'
-                            + '<div>' + escapeHtml(msg.error) + '</div>'
-                            + '</div>';
-                        filePathEl.textContent = 'Error';
-                    } else {
-                        var prevFilePath = currentFilePath;
-                        var incomingFilePath = msg.filePath || '';
-                        var sameFile = !!prevFilePath && prevFilePath === incomingFilePath;
-                        var incomingLiveMode = msg.liveMode === true;
-
-                        // Sample follow-tail *before* we replace the DOM,
-                        // otherwise scrollTop is meaningless. We only trust
-                        // the sample when it's a re-render of the same
-                        // file — a navigation to a different file resets
-                        // followTail to true so the view starts at the
-                        // bottom (live) or top (normal) rather than
-                        // wherever the previous file happened to be.
-                        if (sameFile) {
-                            followTail = isNearBottom();
-                        } else {
-                            followTail = true;
-                        }
-
-                        liveMode = incomingLiveMode;
-                        currentFilePath = incomingFilePath;
-                        filePathEl.textContent = msg.relativePath || msg.fileName || '';
-                        contentArea.innerHTML = renderMarkdown(msg.content);
-                        initMermaid();
-                        interceptLinks();
-
-                        // Handle anchor scrolling after content loads
-                        if (msg.anchor) {
-                            // Small delay to ensure DOM is ready
-                            setTimeout(function() {
-                                scrollToAnchor(msg.anchor);
-                            }, 50);
-                        } else if (liveMode && followTail) {
-                            // Layout may not be final yet (Mermaid blocks
-                            // can resize the doc after they render). Wait
-                            // a frame so scrollHeight reflects the new
-                            // content, then pin to the bottom.
-                            requestAnimationFrame(function() {
-                                scrollToBottom();
-                            });
-                        } else if (!sameFile) {
-                            // Different file and not following: start at
-                            // the top, matching the previous behavior.
-                            contentArea.scrollTop = 0;
-                        }
-                        // Same-file re-render without live follow: leave
-                        // scrollTop alone so the user's reading position
-                        // is preserved.
-                    }
-                } else if (msg.type === 'navState') {
-                    backBtn.disabled = !msg.canGoBack;
-                    forwardBtn.disabled = !msg.canGoForward;
-                } else if (msg.type === 'scrollToAnchor') {
-                    // Scroll to anchor within current document
-                    if (msg.anchor) {
-                        scrollToAnchor(msg.anchor);
-                    }
-                }
-            });
-
-            __mdBrowserBooted = true;
-        } catch (err) {
-            console.error('[MdBrowser] Boot error:', err);
-            document.body.innerHTML = '<div style="padding:20px;color:red;">MD Browser failed to initialize: ' + err + '</div>';
-        }
-    </script>
-</body>
-</html>`;
+    let html = readMediaText('markdownBrowser', 'index.html');
+    for (const [token, value] of Object.entries(tokens)) {
+        html = html.split(token).join(value);
+    }
+    return html;
 }
