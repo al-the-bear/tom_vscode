@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!--
+      Quest TODO custom-editor shell — extracted from _buildHtml() in
+      src/handlers/questTodoEditor-handler.ts (Phase B.22 webview restructuring).
+
+      This editor COMPOSES the shared Quest TODO panel fragment (HTML/CSS/JS) —
+      owned by media/questTodoPanel/ and consumed by four hosts (popout,
+      embedded, this editor, and the @WS accordion) — so it is built with the
+      readMediaText escape hatch rather than loadWebviewHtml. The handler reads
+      this file and substitutes the {{tokens}} below (cspSource, codiconsUri,
+      baseUri, the questTodo CSS/fragment/script, and the per-document initJson).
+
+      The CSP is hand-written and uses 'unsafe-inline' (no nonce-source, so it is
+      honored): it admits this editor's main.js / initialSelection.js (served
+      from baseUri/cspSource) and the inlined questTodo <script> + any inline
+      handlers in the composed fragment. main.js acquires the vscode API once and
+      publishes it as the global `vscode` that the composed questTodo script uses.
+    -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; font-src {{cspSource}} data:; img-src {{cspSource}} data: https:; script-src {{cspSource}} 'unsafe-inline';">
+    <link rel="stylesheet" href="{{codiconsUri}}">
+    <link rel="stylesheet" href="{{baseUri}}/style.css">
+    <style>
+{{questTodoCss}}
+    </style>
+</head>
+<body>
+{{questTodoFragment}}
+
+    <!-- First-paint, per-document selection seed (read by main.js). -->
+    <script>window.__INIT__ = {{initJson}};</script>
+
+    <!-- Editor boot: acquire vscode, seed init vars, register message listener.
+         Runs BEFORE the composed questTodo script so `vscode` is defined. -->
+    <script src="{{baseUri}}/main.js"></script>
+
+    <!-- Shared Quest TODO panel script (defines qtHandleMessage + qt* globals;
+         uses the global `vscode` published by main.js). Composed string. -->
+    <script>
+{{questTodoScript}}
+    </script>
+
+    <!-- Initial-selection override: must run AFTER the questTodo script defines
+         qtHandleMessage and the qt* globals. -->
+    <script src="{{baseUri}}/initialSelection.js"></script>
+</body>
+</html>

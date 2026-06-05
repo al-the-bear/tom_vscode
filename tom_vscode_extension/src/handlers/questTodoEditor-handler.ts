@@ -8,6 +8,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { WsPaths } from '../utils/workspacePaths';
+import { readMediaText } from '../utils/webviewLoader';
 import {
     getQuestTodoCss,
     getQuestTodoHtmlFragment,
@@ -48,6 +49,7 @@ class QuestTodoEditorProvider implements vscode.CustomTextEditorProvider {
         webviewPanel.webview.options = {
             enableScripts: true,
             localResourceRoots: [
+                vscode.Uri.joinPath(this.context.extensionUri, 'media'),
                 vscode.Uri.joinPath(this.context.extensionUri, 'node_modules', '@vscode', 'codicons', 'dist'),
             ],
         };
@@ -68,6 +70,8 @@ class QuestTodoEditorProvider implements vscode.CustomTextEditorProvider {
         }
 
         webviewPanel.webview.html = _buildHtml(
+            webviewPanel.webview,
+            this.context,
             webviewCodiconsUri.toString(),
             questId,
             fileName,
@@ -115,87 +119,48 @@ function _resolveQuestContext(document: vscode.TextDocument): { questId: string;
     return { questId: '__all_workspace__', fileName: rel };
 }
 
-function _buildHtml(codiconsUri: string, initialQuestId: string, initialFile: string, initialTodoId: string): string {
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="stylesheet" href="${codiconsUri}">
-<style>
-body { margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden;
-    font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); background: var(--vscode-editor-background); }
-${getQuestTodoCss()}
-</style>
-</head>
-<body>
-${getQuestTodoHtmlFragment()}
-<script>
-const vscode = acquireVsCodeApi();
+/**
+ * Compose the custom-editor HTML.
+ *
+ * This editor COMPOSES the shared Quest TODO panel fragment (CSS / HTML /
+ * client script, owned by `media/questTodoPanel/` and consumed by four hosts),
+ * so it uses the `readMediaText` escape hatch (raw media text, no loader
+ * rewriting) and substitutes its own `{{tokens}}` here — the same pattern as
+ * the markdownBrowser (B.21) and issuesPanel (B.19) migrations, not
+ * `loadWebviewHtml`. The per-document initial selection is first-paint data and
+ * flows via `window.__INIT__` (seeded by `media/questTodoEditor/main.js`).
+ */
+function _buildHtml(
+    webview: vscode.Webview,
+    context: vscode.ExtensionContext,
+    codiconsUri: string,
+    initialQuestId: string,
+    initialFile: string,
+    initialTodoId: string,
+): string {
+    const baseUri = webview
+        .asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', 'questTodoEditor'))
+        .toString()
+        .replace(/\/$/, '');
 
-// Pre-configured initial state from file path
-var _initialQuestId = ${JSON.stringify(initialQuestId)};
-var _initialFile = ${JSON.stringify(initialFile)};
-var _initialTodoId = ${JSON.stringify(initialTodoId)};
+    // First-paint seed for window.__INIT__. Escape `<` so the JSON cannot break
+    // out of the inline <script> (mirrors the loader's init handling).
+    const initJson = JSON.stringify({ initialQuestId, initialFile, initialTodoId })
+        .replace(/</g, '\\u003c');
 
-window.addEventListener('message', function(event) { qtHandleMessage(event.data); });
-
-${getQuestTodoScript()}
-
-// After init, override the quest/file selection if initial values are set
-(function applyInitialSelection() {
-    if (!_initialQuestId) return;
-    // Wait for the qtQuests message to populate the dropdown, then override
-    var origHandler = qtHandleMessage;
-    var patched = false;
-    qtHandleMessage = function(msg) {
-        origHandler(msg);
-        if (!patched && msg.type === 'qtQuests') {
-            patched = true;
-            qtHandleMessage = origHandler; // restore
-            var sel = document.getElementById('qt-quest-select');
-            if (sel) {
-                // Ensure the option exists
-                var found = false;
-                for (var i = 0; i < sel.options.length; i++) {
-                    if (sel.options[i].value === _initialQuestId) { found = true; break; }
-                }
-                if (found) {
-                    sel.value = _initialQuestId;
-                    qtCurrentQuestId = _initialQuestId;
-                }
-            }
-            // If specific file, wait for file list then select it
-            if (_initialFile && _initialQuestId !== '__all_workspace__') {
-                var origHandler2 = qtHandleMessage;
-                qtHandleMessage = function(msg2) {
-                    origHandler2(msg2);
-                    if (msg2.type === 'qtFiles') {
-                        qtHandleMessage = origHandler2;
-                        var fsel = document.getElementById('qt-file-select');
-                        if (fsel) {
-                            for (var j = 0; j < fsel.options.length; j++) {
-                                if (fsel.options[j].value === _initialFile) {
-                                    fsel.value = _initialFile;
-                                    qtCurrentFile = _initialFile;
-                                    vscode.postMessage({ type: 'qtGetTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
-                                    if (_initialTodoId) {
-                                        qtPendingSelectTodoId = _initialTodoId;
-                                    }
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                };
-            } else if (_initialTodoId) {
-                qtPendingSelectTodoId = _initialTodoId;
-                vscode.postMessage({ type: 'qtGetTodos', questId: qtCurrentQuestId, file: qtCurrentFile || 'all' });
-            }
-        }
+    const tokens: Record<string, string> = {
+        '{{cspSource}}': webview.cspSource,
+        '{{codiconsUri}}': codiconsUri,
+        '{{baseUri}}': baseUri,
+        '{{initJson}}': initJson,
+        '{{questTodoCss}}': getQuestTodoCss(),
+        '{{questTodoFragment}}': getQuestTodoHtmlFragment(),
+        '{{questTodoScript}}': getQuestTodoScript(),
     };
-})();
-</script>
-</body>
-</html>`;
+
+    let html = readMediaText('questTodoEditor', 'index.html');
+    for (const [token, value] of Object.entries(tokens)) {
+        html = html.split(token).join(value);
+    }
+    return html;
 }
