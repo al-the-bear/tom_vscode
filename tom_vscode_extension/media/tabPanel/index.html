@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<!--
+  Tab panel shell — extracted from getTabPanelHtml() in
+  src/handlers/tabPanel.ts (Phase B.24 webview restructuring). Composed via
+  readMediaText (not loadWebviewHtml): the host panel server-renders the
+  combined CSS, the tab bar / tab content regions and the script, then
+  substitutes the {{tokens}} below ({{codiconsUri}}, {{css}}, {{tabBar}},
+  {{tabContent}}, {{script}}). No CSP is set — matching the original inline
+  shell — so the codicon webfont and the consumers' inline content fragments
+  keep loading. The {{script}} payload is one inline <script> holding the
+  generated data-prefix, the tab body and the consumer's additionalScript
+  together (single acquireVsCodeApi()).
+-->
+<html><head><meta charset="UTF-8">
+<link href="{{codiconsUri}}" rel="stylesheet" />
+<style>{{css}}</style></head>
+<body>
+<div class="tab-container">
+  <div class="tab-bar">{{tabBar}}</div>
+  <div class="tab-content-area">{{tabContent}}</div>
+</div>
+<script>{{script}}</script>
+</body></html>

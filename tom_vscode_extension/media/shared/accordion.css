@@ -1,5 +1,8 @@
-/* Snapshot of getAccordionStyles() (accordionPanel.ts). Shared accordion
-   layout base. B.24 will dedupe this against the TS source. */
+/* Shared accordion layout base — the single source for the accordion panel's
+   styles. Read verbatim by getAccordionStyles() in
+   src/handlers/accordionPanel.ts via readMediaText('shared', 'accordion.css')
+   (Phase B.24 webview restructuring; previously a duplicated snapshot of the
+   inline getAccordionStyles() template literal). */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); background: var(--vscode-panel-background); height: 100vh; display: flex; flex-direction: row; overflow: hidden; }
 .accordion-container { display: flex; flex-direction: row; width: 100%; height: 100%; overflow: hidden; }

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<!--
+  Accordion panel shell — extracted from getAccordionHtml() in
+  src/handlers/accordionPanel.ts (Phase B.24 webview restructuring). Composed
+  via readMediaText (not loadWebviewHtml): the host panel server-renders the
+  combined CSS and script and substitutes the {{tokens}} below
+  ({{codiconsUri}}, {{css}}, {{script}}). No CSP is set — matching the original
+  inline shell — so the codicon webfont and the consumers' inline content
+  fragments keep loading. The {{script}} payload is one inline <script> that
+  must hold the generated data-prefix, the accordion body, and the consumer's
+  additionalScript together (single acquireVsCodeApi(); onRenderComplete
+  hoisting), so it cannot be split into a <script src>.
+-->
+<html><head><meta charset="UTF-8">
+<link href="{{codiconsUri}}" rel="stylesheet" />
+<style>{{css}}</style></head>
+<body>
+<div class="accordion-container" id="container">Loading...</div>
+<script>
+// ── Debug error trap (separate block so it survives parse errors in the main script) ──
+window.onerror = function(msg, src, line, col, err) {
+    var c = document.getElementById('container');
+    if (c) c.innerHTML = '<div style="padding:12px;color:var(--vscode-errorForeground,red);font-family:monospace;font-size:12px;white-space:pre-wrap;">' +
+        '<b>Panel script error</b>\n' + msg + '\nLine: ' + line + ', Col: ' + col +
+        (err && err.stack ? '\n\n' + err.stack : '') + '</div>';
+    console.error('[AccordionPanel] Script error:', msg, 'at line', line, col, err);
+    return true;
+};
+</script>
+<script>{{script}}</script>
+</body></html>

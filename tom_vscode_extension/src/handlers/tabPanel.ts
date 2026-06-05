@@ -14,6 +14,7 @@
  */
 
 import * as vscode from 'vscode';
+import { readMediaText } from '../utils/webviewLoader.js';
 
 /** Tab configuration for tab panel */
 export interface TabSection {
@@ -42,50 +43,11 @@ export interface TabPanelConfig {
 }
 
 /**
- * Get the base CSS styles for tab panel
+ * Get the base CSS styles for tab panel.
+ * Source of truth: `media/tabPanel/style.css` (read verbatim).
  */
 export function getTabPanelStyles(): string {
-    return `
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); background: var(--vscode-panel-background); height: 100vh; overflow: hidden; }
-.tab-container { display: flex; flex-direction: column; height: 100%; width: 100%; }
-.tab-bar {
-    display: flex; flex-shrink: 0; align-items: stretch;
-    background: var(--vscode-sideBarSectionHeader-background);
-    border-bottom: 1px solid var(--vscode-panel-border);
-    height: 28px; gap: 0; overflow-x: auto;
-    scrollbar-width: none;
-}
-.tab-bar::-webkit-scrollbar { display: none; }
-.tab-btn {
-    display: inline-flex; align-items: center; gap: 4px;
-    padding: 0 10px; font-size: 11px; text-transform: uppercase;
-    background: none; border: none; border-bottom: 2px solid transparent;
-    color: var(--vscode-foreground); cursor: pointer; opacity: 0.6;
-    white-space: nowrap; flex-shrink: 0;
-}
-.tab-btn:hover { opacity: 0.8; }
-.tab-btn.active { opacity: 1; border-bottom-color: var(--vscode-focusBorder); font-weight: 600; }
-.tab-btn .codicon { font-size: 14px; }
-.tab-content-area { flex: 1; overflow: hidden; position: relative; }
-.tab-content { display: none; height: 100%; width: 100%; }
-.tab-content.active { display: flex; flex-direction: column; }
-.toolbar { display: flex; flex-direction: row; flex-wrap: wrap; gap: 0px; align-items: center; }
-.toolbar label { font-size: 12px; padding-right: 4px; }
-.toolbar select { padding: 0 4px; height: 22px; background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border); border-radius: 3px; font-size: 12px; min-width: 60px; max-width: 120px; }
-.toolbar button { padding: 3px 4px; height: 22px; background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: none; border-radius: 3px; cursor: pointer; font-size: 12px; }
-.toolbar button:hover { background: var(--vscode-button-secondaryHoverBackground); }
-.toolbar button.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
-.toolbar button.primary:hover { background: var(--vscode-button-hoverBackground); }
-.icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: none; border: none; color: var(--vscode-foreground); cursor: pointer; border-radius: 3px; opacity: 0.8; }
-.icon-btn:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground); }
-.icon-btn.danger:hover { color: var(--vscode-errorForeground); }
-.icon-btn .codicon { font-size: 14px; }
-textarea { flex: 1; min-height: 50px; resize: none; padding: 8px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 3px; font-family: var(--vscode-editor-font-family); font-size: 13px; }
-textarea:focus { outline: none; border-color: var(--vscode-focusBorder); }
-.status-bar { font-size: 11px; color: var(--vscode-descriptionForeground); }
-.simple-content { display: flex; flex-direction: column; height: 100%; padding: 8px; gap: 6px; }
-`;
+    return readMediaText('tabPanel', 'style.css');
 }
 
 /**
@@ -95,39 +57,15 @@ export function getTabPanelScript(tabs: TabSection[], initialActive?: string): s
     const firstTab = tabs[0]?.id || '';
     const defaultActive = initialActive || firstTab;
 
-    return `
+    // Generated data-prefix declares the globals the static body reads; the
+    // body (the tab-switching IIFE) lives in media/tabPanel/main.js and is
+    // inlined verbatim. They compose into one <script> (single
+    // acquireVsCodeApi(); the consumer's additionalScript is appended after).
+    const prefix = `
 var vscode = acquireVsCodeApi();
-
-(function() {
-    var tabBtns = document.querySelectorAll('.tab-btn');
-
-    function switchTab(tabId) {
-        tabBtns.forEach(function(t) { t.classList.remove('active'); });
-        document.querySelectorAll('.tab-content').forEach(function(c) { c.classList.remove('active'); });
-        var btn = document.querySelector('.tab-btn[data-tab="' + tabId + '"]');
-        var content = document.querySelector('[data-tab-content="' + tabId + '"]');
-        if (btn && content) { btn.classList.add('active'); content.classList.add('active'); }
-        var state = vscode.getState() || {};
-        state.activeTab = tabId;
-        vscode.setState(state);
-    }
-
-    tabBtns.forEach(function(btn) {
-        btn.addEventListener('click', function() { switchTab(btn.dataset.tab); });
-    });
-
-    // Restore persisted tab or use default
-    var s = vscode.getState();
-    if (s && s.activeTab) { switchTab(s.activeTab); }
-    else { switchTab('${defaultActive}'); }
-
-    // Action button handler
-    document.addEventListener('click', function(e) {
-        var btn = e.target.closest('[data-action]');
-        if (btn) { vscode.postMessage({ type: 'action', action: btn.dataset.action, sectionId: btn.dataset.id }); }
-    });
-})();
+var __defaultActive = '${defaultActive}';
 `;
+    return prefix + readMediaText('tabPanel', 'main.js');
 }
 
 /**
@@ -148,17 +86,18 @@ export function getTabPanelHtml(config: TabPanelConfig): string {
 
     const script = getTabPanelScript(config.tabs, config.initialActive) + (config.additionalScript || '');
 
-    return `<!DOCTYPE html>
-<html><head><meta charset="UTF-8">
-<link href="${config.codiconsUri}" rel="stylesheet" />
-<style>${css}</style></head>
-<body>
-<div class="tab-container">
-  <div class="tab-bar">${tabBarHtml}</div>
-  <div class="tab-content-area">${tabContentHtml}</div>
-</div>
-<script>${script}</script>
-</body></html>`;
+    const tokens: Record<string, string> = {
+        '{{codiconsUri}}': config.codiconsUri,
+        '{{css}}': css,
+        '{{tabBar}}': tabBarHtml,
+        '{{tabContent}}': tabContentHtml,
+        '{{script}}': script,
+    };
+    let html = readMediaText('tabPanel', 'index.html');
+    for (const [token, value] of Object.entries(tokens)) {
+        html = html.split(token).join(value);
+    }
+    return html;
 }
 
 /**
