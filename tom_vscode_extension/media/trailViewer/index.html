@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Trail Viewer</title>
+<!--
+  Prompt Trail Viewer shell — extracted from getWebviewHtml() in
+  src/handlers/trailViewer-handler.ts (Phase B.17 webview restructuring).
+
+  This panel wires every interaction with addEventListener (no inline on*=
+  handlers). The original hand-wrote a CSP with script-src 'unsafe-inline'
+  (no nonce) because the script was inline; now that main.js is an external
+  file, an inline-only CSP would block it. So per migration guide §7 this
+  shell declares NO CSP and lets the loader inject the DEFAULT nonce-only
+  CSP — main.js + the init payload both get nonces.
+
+  Initial state (folder options, selected subsystem/quest, root folder) was
+  previously interpolated into the inline script; it now arrives via the
+  loader's window.__INIT__ payload. The codicons stylesheet is injected at
+  runtime by main.js from window.__INIT__.codiconsUri (no placeholder exists
+  for node_modules assets).
+-->
+<link rel="stylesheet" href="{{baseUri}}/style.css">
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-header-title">
+                <h2>Raw Files</h2>
+                <button id="refreshBtn" title="Refresh"><span class="codicon codicon-refresh"></span></button>
+            </div>
+            <div class="sidebar-header-controls">
+                <select id="subsystemSelect" title="Subsystem"></select>
+                <select id="questSelect" title="Quest"></select>
+            </div>
+        </div>
+        <div class="session-list" id="sessionList">
+            <div class="empty-state">
+                <span class="codicon codicon-loading codicon-modifier-spin"></span>
+                <div>Loading sessions...</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="v-splitter" id="vSplitter"></div>
+
+    <div class="content">
+        <div class="content-header">
+            <h2 id="exchangeTitle">Select an exchange</h2>
+            <button class="btn icon-btn" id="gotoTodoBtn" style="display: none;" title="Open TODO in @WS QUEST TODOS">
+                <span class="codicon codicon-tasklist"></span>
+            </button>
+            <button class="btn icon-btn" id="openInEditorBtn" style="display: none;" title="Open as Markdown in Editor">
+                <span class="codicon codicon-file-code"></span>
+            </button>
+            <button class="btn icon-btn" id="openExternallyBtn" style="display: none;" title="Open in MD viewer">
+                <span class="codicon codicon-link-external"></span>
+            </button>
+            <button class="btn" id="extractBtn" style="display: none;">
+                <span class="codicon codicon-file-text"></span>
+                Extract to Markdown
+            </button>
+        </div>
+        <div class="tabs" id="tabs" style="display: none;">
+            <div class="tab active" data-tab="prompt">Prompt</div>
+            <div class="tab" data-tab="answer">Answer</div>
+        </div>
+        <div class="content-pane" id="contentPane">
+            <div class="empty-state">
+                <span class="codicon codicon-history"></span>
+                <div>Select an exchange to view its content</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{baseUri}}/main.js"></script>
+</body>
+</html>
