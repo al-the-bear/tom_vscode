@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<!--
+  Hand-written CSP: this panel uses inline on*= handlers (onclick/onchange),
+  which require 'unsafe-inline' WITHOUT a nonce-source for script-src (CSP L3
+  ignores 'unsafe-inline' when a nonce-source is present). External main.js /
+  completion.js load via {{cspSource}}. See media_webview_migration.md §7.
+-->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{cspSource}} https: data:; style-src {{cspSource}} 'unsafe-inline'; font-src {{cspSource}} data:; script-src {{cspSource}} 'unsafe-inline';">
+<link rel="stylesheet" href="{{baseUri}}/style.css">
+<title>Timed Requests</title>
+</head>
+<body>
+<h2>Timed Requests</h2>
+<div class="context-bar">
+  <span id="contextSummary" class="context-summary"></span>
+  <button class="ctx-btn-icon" onclick="openChatVariables()" title="Chat Variables"><span class="codicon codicon-symbol-key"></span></button>
+  <button class="ctx-btn-icon" onclick="openContextSettings()" title="Context &amp; Settings"><span class="codicon codicon-tools"></span></button>
+  <button class="ctx-btn-icon" onclick="showFile()" title="Show YAML file"><span class="codicon codicon-go-to-file"></span></button>
+</div>
+<div class="toolbar">
+  <button class="ctx-btn-icon" onclick="toggleAddForm()" title="Add New"><span class="codicon codicon-add"></span></button>
+  <button class="ctx-btn-icon" id="timerToggleBtn" onclick="toggleTimer()" title="Timer"><span class="codicon codicon-play"></span></button>
+  <button onclick="enableAll()">Enable All</button>
+  <button onclick="disableAll()">Disable All</button>
+  <button onclick="collapseAll()">Collapse All</button>
+  <button onclick="expandAll()">Expand All</button>
+</div>
+
+<div class="add-form" id="addForm">
+  <div class="prompt-section">
+    <label>Prompt</label>
+    <textarea id="addText" rows="4" data-completion="on" placeholder="Enter timed request prompt…"></textarea>
+  </div>
+  <label>Prompt Template</label>
+  <div class="schedule-row">
+    <select id="addTemplate">
+      <option value="">(None)</option>
+    </select>
+    <button class="ctx-btn-icon" onclick="addPromptTemplate()" title="Add Prompt Template"><span class="codicon codicon-add"></span></button>
+    <button class="ctx-btn-icon" onclick="editPromptTemplate('addTemplate')" title="Edit Prompt Template"><span class="codicon codicon-edit"></span></button>
+    <button class="ctx-btn-icon" onclick="deletePromptTemplate('addTemplate')" title="Delete Prompt Template"><span class="codicon codicon-trash"></span></button>
+    <label style="display:inline;margin:0;"><input type="checkbox" id="addAnswerWrapper" /> Answer Wrapper</label>
+  </div>
+  <label>Schedule Mode</label>
+  <div class="schedule-row">
+    <label style="display:inline;"><input type="radio" name="addScheduleMode" value="interval" checked
+      onchange="document.getElementById('addIntervalRow').style.display='';document.getElementById('addIntervalWeekdaysRow').style.display='';"/> Interval</label>
+    <label style="display:inline;"><input type="radio" name="addScheduleMode" value="scheduled"
+      onchange="document.getElementById('addIntervalRow').style.display='none';document.getElementById('addIntervalWeekdaysRow').style.display='none';"/> Scheduled Times</label>
+  </div>
+  <div id="addIntervalRow" class="schedule-row">
+    <span>Every</span> <input type="number" id="addInterval" min="1" value="30" style="width:60px"/> <span>minutes</span>
+    <span style="margin-left:8px;">Send max:</span> <input type="number" id="addSendMaximum" min="0" value="0" style="width:60px" title="0 = unlimited"/>
+    <span style="margin-left:8px;">Answer wait:</span> <input type="number" id="addAnswerWait" min="0" value="0" style="width:60px" title="Minutes to wait before auto-advancing (0 = wait for answer file)"/>
+  </div>
+  <div id="addIntervalWeekdaysRow" class="schedule-row" style="align-items:center;">
+    <span style="font-size:0.85em;white-space:nowrap;">Days:</span>
+    <span class="weekdays-row">
+      <label>M<input type="checkbox" data-day="1" checked/></label>
+      <label>Tu<input type="checkbox" data-day="2" checked/></label>
+      <label>W<input type="checkbox" data-day="3" checked/></label>
+      <label>Th<input type="checkbox" data-day="4" checked/></label>
+      <label>F<input type="checkbox" data-day="5" checked/></label>
+      <label>Sa<input type="checkbox" data-day="6" checked/></label>
+      <label>Su<input type="checkbox" data-day="0" checked/></label>
+    </span>
+    <span style="font-size:0.75em;opacity:0.6;margin-left:4px;">(all = any day)</span>
+  </div>
+  <label>Reminder</label>
+  <div class="schedule-row">
+    <label style="display:inline;"><input type="checkbox" id="addReminderEnabled"/> Enabled</label>
+    <select id="addReminder"><option value="">Global Default</option></select>
+    <button class="ctx-btn-icon" onclick="addReminderTemplate()" title="Add Reminder Template"><span class="codicon codicon-add"></span></button>
+    <button class="ctx-btn-icon" onclick="editReminderTemplate('addReminder')" title="Edit Reminder Template"><span class="codicon codicon-edit"></span></button>
+    <button class="ctx-btn-icon" onclick="deleteReminderTemplate('addReminder')" title="Delete Reminder Template"><span class="codicon codicon-trash"></span></button>
+    <span style="font-size:0.8em;opacity:0.85;">Wait:</span>
+    <select id="addReminderTimeout">
+      <option value="5">5 min</option>
+      <option value="10">10 min</option>
+      <option value="15">15 min</option>
+      <option value="30">30 min</option>
+      <option value="60" selected>60 min</option>
+      <option value="120">120 min</option>
+      <option value="240">240 min</option>
+      <option value="480">480 min</option>
+    </select>
+  </div>
+  <div class="entry-sections">
+    <div class="entry-section">
+      <label>Repetition</label>
+      <div class="schedule-row">
+        <span>Repeat Count:</span>
+        <input type="number" id="addRepeatCount" min="1" step="1" value="1" style="width:80px"/>
+      </div>
+    </div>
+    <div class="entry-section fill">
+      <label>Repeat Prefix (supports ${repeatNumber}, ${repeatIndex}, ${repeatCount})</label>
+      <textarea id="addRepeatPrefix" rows="2" data-completion="on" placeholder="Optional text inserted before repeated prompt body"></textarea>
+      <label>Repeat Suffix (supports ${repeatNumber}, ${repeatIndex}, ${repeatCount})</label>
+      <textarea id="addRepeatSuffix" rows="2" data-completion="on" placeholder="Optional text inserted after repeated prompt body"></textarea>
+    </div>
+  </div>
+  <div class="add-form-actions">
+    <button onclick="submitNewEntry()" style="background:var(--btnBg);color:var(--btnFg);">✅ Create</button>
+    <button onclick="cancelAdd()">Cancel</button>
+  </div>
+  <div id="addFeedback" class="add-feedback"></div>
+</div>
+
+<div class="entries" id="entriesList"><div class="empty">Loading…</div></div>
+<noscript><div class="empty" style="color:var(--vscode-errorForeground,#f85149);">JavaScript is disabled in this webview.</div></noscript>
+
+<script src="{{baseUri}}/main.js"></script>
+<script src="{{sharedUri}}/completion.js"></script>
+</body>
+</html>
