@@ -1,0 +1,49 @@
+<!--
+  Issues/Tests panel HTML fragment — extracted from getIssuesHtmlFragment()
+  in src/handlers/issuesPanel-handler.ts (Phase B.19 webview restructuring).
+  The {{prefix}} token is substituted host-side (issues|tests) before the
+  fragment is composed into the WS panel accordion; readMediaText does no
+  rewriting, so getIssuesHtmlFragment() does the .replace() itself.
+-->
+<div class="issues-root" id="{{prefix}}-root">
+  <div class="issues-browser" id="{{prefix}}-browser">
+    <div class="browser-toolbar">
+      <select id="{{prefix}}-repoSelect"><option value="">Loading…</option></select>
+      <button id="{{prefix}}-filterBtn" class="icon-btn" title="Filter by status"><span class="codicon codicon-filter"></span></button>
+      <button id="{{prefix}}-sortBtn" class="icon-btn" title="Sort issues"><span class="codicon codicon-list-ordered"></span></button>
+      <button id="{{prefix}}-refreshBtn" class="icon-btn" title="Refresh"><span class="codicon codicon-refresh"></span></button>
+    </div>
+    <div id="{{prefix}}-issueList" class="issue-list"></div>
+    <div id="{{prefix}}-filterPicker" class="picker-overlay" style="display:none;"></div>
+    <div id="{{prefix}}-sortPicker" class="picker-overlay sort-picker-overlay" style="display:none;"></div>
+    <div id="{{prefix}}-columnPicker" class="picker-overlay column-picker-overlay" style="display:none;"></div>
+  </div>
+  <div id="{{prefix}}-splitHandle" class="split-handle"></div>
+  <div class="issues-editor" id="{{prefix}}-editor">
+    <div class="editor-toolbar">
+      <span id="{{prefix}}-issueTitle" class="issue-title-bar">No issue selected</span>
+      <div class="toolbar-icons">
+        <select id="{{prefix}}-statusSelect" class="status-select" style="display:none;" title="Change status"></select>
+        <button id="{{prefix}}-openBrowserBtn" class="icon-btn" title="Open in Browser" style="display:none;"><span class="codicon codicon-link-external"></span></button>
+        <button id="{{prefix}}-labelsBtn" class="icon-btn" title="Quick Labels" style="display:none;"><span class="codicon codicon-tag"></span></button>
+        <button id="{{prefix}}-addBtn" class="icon-btn" title="New Issue"><span class="codicon codicon-add"></span></button>
+      </div>
+    </div>
+    <div id="{{prefix}}-commentHistory" class="comment-history"></div>
+    <div id="{{prefix}}-vSplitHandle" class="v-split-handle"></div>
+    <div id="{{prefix}}-attachmentArea" class="attachment-area" style="display:none;">
+      <div id="{{prefix}}-attachmentList" class="attachment-list"></div>
+    </div>
+    <div id="{{prefix}}-inputArea" class="input-area">
+      <div class="input-column">
+        <input id="{{prefix}}-titleInput" type="text" placeholder="Issue title…" style="display:none;" />
+        <textarea id="{{prefix}}-inputText" placeholder="Write a comment…"></textarea>
+      </div>
+      <div class="input-icons">
+        <button id="{{prefix}}-attachBtn" class="icon-btn" title="Add Attachment"><span class="codicon codicon-attach"></span></button>
+        <button id="{{prefix}}-sendBtn" class="icon-btn send-btn" title="Send"><span class="codicon codicon-send"></span></button>
+      </div>
+    </div>
+    <div id="{{prefix}}-labelsPicker" class="labels-picker" style="display:none;"></div>
+  </div>
+</div>
