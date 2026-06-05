@@ -711,7 +711,7 @@ function registerCommands(context: vscode.ExtensionContext) {
     const sendToChatCmd = vscode.commands.registerCommand(
         'tomAi.sendToCopilot',
         async () => {
-            await sendToChatHandler();
+            await sendToChatHandler(context);
         }
     );
 

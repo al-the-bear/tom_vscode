@@ -39,6 +39,7 @@ import { writeWindowState } from './windowStatusPanel-handler.js';
 import { AnthropicHandler, AnthropicProfile, AnthropicConfiguration, ANTHROPIC_CHAT_SESSION_KEY } from './anthropic-handler';
 import { resolveProfileTools } from '../tools/tool-executors';
 import { ACTIVE_ANTHROPIC_PROFILE_KEY } from '../tools/scripting-tools-bridge';
+import { tryBeginAnthropicSend, endAnthropicSend } from './sendToChatState';
 import { SharedToolDefinition } from '../tools/shared-tool-registry';
 import { chatProviders, ChatDraftState } from './chat/chatProviderRegistry';
 import { saveChatDrafts, loadChatDrafts } from '../services/chatDraftService';
@@ -1728,6 +1729,16 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
 
     private async _handleSendAnthropic(text: string, profileId: string, modelId: string, configId: string, userMessageTemplateId?: string): Promise<void> {
         if (!text || !text.trim()) { return; }
+        // Spec: only one interactive Anthropic turn at a time. The webview
+        // already disables Send during a panel turn, but the shared guard also
+        // blocks a concurrent Send-to-Chat / scripting turn — and vice versa.
+        if (!tryBeginAnthropicSend()) {
+            this._view?.webview.postMessage({
+                type: 'anthropicError',
+                message: 'An Anthropic chat request is already running.',
+            });
+            return;
+        }
         const config = loadSendToChatConfig();
         const userMessageTemplates: Array<{ id: string; template: string; isDefault?: boolean }> = Array.isArray(config?.anthropic?.userMessageTemplates)
             ? (config!.anthropic!.userMessageTemplates! as Array<{ id: string; template: string; isDefault?: boolean }>)
@@ -1759,6 +1770,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     type: 'anthropicError',
                     message: resolved.error + ' — add a configuration on the Status Page or pick a model.',
                 });
+                endAnthropicSend();
                 return;
             }
             profile = {
@@ -1824,6 +1836,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 this._activeCts.delete('anthropic');
             }
             cts.dispose();
+            endAnthropicSend();
         }
     }
 
@@ -2982,5 +2995,27 @@ export function notifyAnthropicConfigChanged(): void {
     (_provider as unknown as { _sendProfiles: () => void })._sendProfiles();
     // Trigger model list refresh.
     void (_provider as unknown as { _sendAnthropicModels: () => Promise<void> })._sendAnthropicModels();
+}
+
+/**
+ * External hook used by the Send-to-Chat router to mirror an Anthropic turn it
+ * initiated (from the command/menu or the scripting bridge) into the chat panel
+ * UI — so a routed send shows up just like a panel send. A no-op when the panel
+ * has never been opened (`_view` is undefined); the turn is still written to
+ * `live-trail.md` by the handler regardless.
+ */
+export function showAnthropicResultInPanel(
+    text: string,
+    meta: { turnsUsed: number; toolCallCount: number; historyMode: string },
+): void {
+    const view = (_provider as unknown as { _view?: vscode.WebviewView })?._view;
+    if (!view) { return; }
+    view.webview.postMessage({
+        type: 'anthropicResult',
+        text,
+        turnsUsed: meta.turnsUsed,
+        toolCallCount: meta.toolCallCount,
+        historyMode: meta.historyMode,
+    });
 }
 

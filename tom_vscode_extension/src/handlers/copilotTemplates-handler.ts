@@ -14,6 +14,7 @@ import {
     resolveTemplate,
     formatDateTime,
 } from './promptTemplate';
+import { currentSendToChatTarget, dispatchSendToChat } from './sendToChatRouter';
 
 /**
  * Configuration entry for a send-to-chat template.
@@ -363,6 +364,16 @@ export class SendToChatAdvancedManager {
             content = editor.document.getText();
         } else {
             content = editor.document.getText(selection);
+        }
+
+        // Spec: when the target is Anthropic, Copilot templates do not apply —
+        // only the Anthropic profile + its own user-message template are used,
+        // exactly as if the raw content had been typed into the Anthropic panel.
+        // Route the raw content through the shared dispatcher (no answer handling).
+        if (currentSendToChatTarget() === 'anthropic') {
+            await dispatchSendToChat(this.context, content);
+            this.log(`Sent to Anthropic (template "${label}" skipped — Anthropic target)`);
+            return;
         }
 
         // Build the full prompt using the unified template system

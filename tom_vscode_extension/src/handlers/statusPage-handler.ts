@@ -33,7 +33,7 @@ import {
 } from '../tools/local-llm-tools-config';
 import { WsPaths } from '../utils/workspacePaths';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
-import { validateStrictAiConfiguration, SendToChatConfig } from '../utils/sendToChatConfig';
+import { validateStrictAiConfiguration, SendToChatConfig, getSendToChatTarget } from '../utils/sendToChatConfig';
 import { loadWebviewHtml, readMediaText } from '../utils/webviewLoader';
 import { wireCompletionMessages } from '../utils/completionWiring';
 
@@ -1096,6 +1096,13 @@ export async function handleStatusAction(action: string, message: any): Promise<
             vscode.window.showInformationMessage('Trail settings updated');
             break;
         }
+        case 'setSendToChatTarget': {
+            const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
+            stcConfig.sendToChatTarget = message.target === 'copilot' ? 'copilot' : 'anthropic';
+            saveSendToChatConfig(stcConfig);
+            vscode.window.showInformationMessage(`Send to Chat target: ${stcConfig.sendToChatTarget === 'copilot' ? 'Copilot' : 'Anthropic'}`);
+            break;
+        }
         // Editors
         case 'openFullStatusPage':
             await vscode.commands.executeCommand('tomAi.statusPage');
@@ -1649,6 +1656,8 @@ export interface StatusData {
         maxRawFiles: number;
         maxEntries: number;
     };
+    /** Which transport "Send to Chat" routes to (default 'anthropic'). */
+    sendToChatTarget: 'anthropic' | 'copilot';
     telegram: {
         polling: boolean;
         enabled: boolean;
@@ -1894,6 +1903,7 @@ export async function gatherStatusData(): Promise<StatusData> {
             maxRawFiles: sendToChatConfig?.trail?.maxRawFiles ?? 1000,
             maxEntries: sendToChatConfig?.trail?.maxEntries ?? 1000,
         },
+        sendToChatTarget: getSendToChatTarget(sendToChatConfig),
         telegram: {
             polling: isTelegramPollingActive(),
             enabled: telegram.enabled ?? false,
@@ -2386,6 +2396,21 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
             <label>Max (entries per trail file):</label>
             <input type="number" id="sp-trailMaxEntries" value="${status.trail.maxEntries}" min="10" max="100000">
             <button class="sp-btn" data-status-action="updateTrailSettings">Save</button>
+        </div>
+    </div>
+
+    <!-- Send to Chat Target Section -->
+    <div class="sp-section">
+        <div class="sp-section-header">
+            <span class="sp-section-title">💬 Send to Chat</span>
+            <span class="sp-badge ${status.sendToChatTarget === 'anthropic' ? 'sp-running' : 'sp-stopped'}">${status.sendToChatTarget === 'anthropic' ? 'Anthropic' : 'Copilot'}</span>
+        </div>
+        <div class="sp-settings-row">
+            <label>Target:</label>
+            <select id="sp-sendToChatTarget" onchange="sendStatusAction('setSendToChatTarget',{target:this.value})">
+                <option value="anthropic" ${status.sendToChatTarget === 'anthropic' ? 'selected' : ''}>Anthropic</option>
+                <option value="copilot" ${status.sendToChatTarget === 'copilot' ? 'selected' : ''}>Copilot</option>
+            </select>
         </div>
     </div>
 

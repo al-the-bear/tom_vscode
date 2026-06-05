@@ -39,6 +39,7 @@ export 'src/tom_timed_api.dart';
 export 'src/tom_document_api.dart';
 export 'src/tom_workspace_api.dart';
 export 'src/tom_tools_api.dart';
+export 'src/tom_chat_api.dart';
 
 // Script globals (vscode, window, workspace, commands, extensions, lm, chat)
 export 'script_globals.dart';

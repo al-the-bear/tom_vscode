@@ -4,6 +4,7 @@ import { spawn, ChildProcess } from 'child_process';
 import { getLocalLlmManager, getAiConversationManager } from './handlers';
 import { getTomScriptingBridgeHandler } from './handlers/tomScriptingBridge-handler';
 import { invokeToolByName, getActiveProfileToolsJson } from './tools/scripting-tools-bridge';
+import { sendToChatForScript } from './handlers/sendToChatRouter';
 
 const DART_COMMAND = 'dart';
 
@@ -619,9 +620,20 @@ export class DartBridgeClient {
                     result = await this.executeScript(params.script, params.params || {}, scriptName);
                     break;
 
-                case 'sendToChatVce':
-                    result = await this.sendToChat(params.prompt);
+                case 'sendToChatVce': {
+                    // Route by the configured target. The scripting caller gets
+                    // an answer for BOTH targets: Anthropic from the transport,
+                    // Copilot from the answer-file round-trip.
+                    const outcome = await sendToChatForScript(this.context, String(params.prompt || ''));
+                    result = {
+                        success: outcome.ok,
+                        target: outcome.target,
+                        ...(outcome.answer !== undefined ? { answer: outcome.answer } : {}),
+                        ...(outcome.rejected ? { rejected: true } : {}),
+                        ...(outcome.error ? { error: outcome.error } : {}),
+                    };
                     break;
+                }
 
                 // LLM tool registry — scripting-API surface
                 case 'tools.invokeVce':
@@ -999,26 +1011,4 @@ export class DartBridgeClient {
         }
     }
 
-    /**
-     * Send a prompt to Copilot Chat
-     */
-    private async sendToChat(prompt: string): Promise<any> {
-        bridgeLog(`→ sendToChat: ${prompt}`, DartBridgeClient.outputChannel);
-
-        try {
-            // Use the VS Code chat API to send the prompt
-            await vscode.commands.executeCommand('workbench.action.chat.open', {
-                query: prompt
-            });
-
-            bridgeLog(`← sendToChat success`, DartBridgeClient.outputChannel);
-            return { success: true };
-        } catch (error: any) {
-            bridgeLog(`sendToChat error: ${error.message}`, DartBridgeClient.outputChannel, 'ERROR');
-            return {
-                success: false,
-                error: error.message
-            };
-        }
-    }
 }

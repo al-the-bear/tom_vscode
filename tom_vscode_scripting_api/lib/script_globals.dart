@@ -142,8 +142,8 @@ VSCodeLanguageModel get lm => VSCode.instance.lm;
 VSCodeChat get chat => VSCode.instance.chat;
 
 // Note: Tom APIs (TomTodoApi, TomQueueApi, TomTimedApi, TomDocumentApi,
-// TomWorkspaceApi, TomToolsApi) are all static class APIs accessed directly by
-// class name. Import the main package to access them:
+// TomWorkspaceApi, TomToolsApi, TomChatApi) are all static class APIs accessed
+// directly by class name. Import the main package to access them:
 //
 //   import 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart';
 //
@@ -153,3 +153,4 @@ VSCodeChat get chat => VSCode.instance.chat;
 //   final projects = await TomWorkspaceApi.listProjects();
 //   final result = await TomToolsApi.invokeTool('tomAi_readFile', {'path': 'README.md'});
 //   final toolsJson = await TomToolsApi.getToolsJson(); // for prompt injection
+//   final reply = await TomChatApi.sendToChat('Summarize this file'); // target-aware
