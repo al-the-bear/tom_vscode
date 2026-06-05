@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="{{baseUri}}/style.css">
+</head>
+<body>
+<div class="tabs">
+<div class="tab active" data-scope="shared">Shared memory</div>
+<div class="tab" data-scope="quest" id="quest-tab">Quest</div>
+</div>
+<div class="toolbar">
+<button id="btn-new">+ New file</button>
+<button id="btn-save" disabled>Save</button>
+<button id="btn-delete" disabled>Delete file</button>
+<button id="btn-open" disabled>Open in editor</button>
+<span style="flex:1"></span>
+<span id="status" style="padding-top:6px;color:var(--vscode-descriptionForeground);font-size:12px"></span>
+</div>
+<div class="split">
+<div class="file-list" id="file-list"></div>
+<div class="editor">
+<textarea id="content" spellcheck="false" data-completion="on" placeholder="Select a file — or click '+ New file' to create one."></textarea>
+</div>
+</div>
+<script src="{{baseUri}}/main.js"></script>
+<script src="{{sharedUri}}/completion.js"></script>
+</body>
+</html>
