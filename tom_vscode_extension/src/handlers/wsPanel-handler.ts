@@ -43,6 +43,8 @@ import {
     getDocumentPickerCss,
     getDocumentPickerScript,
 } from './documentPicker.js';
+import { readMediaText } from '../utils/webviewLoader.js';
+import { wireCompletionMessages } from '../utils/completionWiring.js';
 
 const VIEW_ID = 'tomAi.wsPanel';
 
@@ -98,6 +100,13 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
         };
 
         webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
+
+        // /skill + @file completion for the Guidelines / Documentation
+        // textareas: the shared media/shared/completion.js client posts
+        // `requestCompletion`; this wiring shows the picker and posts the chosen
+        // `insertCompletion` back. Registered as its own listener so it coexists
+        // with _handleMessage below.
+        wireCompletionMessages(webviewView.webview);
 
         webviewView.webview.onDidReceiveMessage(
             async (message) => {
@@ -266,7 +275,7 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
     <button class="icon-btn" onclick="previewGuidelines()" title="Preview in overlay"><span class="codicon codicon-open-preview"></span></button>
     <button class="icon-btn" onclick="openGuidelinesExternal()" title="Open in MD viewer"><span class="codicon codicon-link-external"></span></button>
 </div>
-<textarea id="guidelines-text" placeholder="Guidelines..." spellcheck="false"></textarea>
+<textarea id="guidelines-text" placeholder="Guidelines..." spellcheck="false" data-completion="on"></textarea>
 <div class="status-bar">Workspace/project guidelines editor</div>`,
             },
             {
@@ -283,7 +292,7 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
     <button class="icon-btn" onclick="previewDocs()" title="Preview in overlay"><span class="codicon codicon-open-preview"></span></button>
     <button class="icon-btn" onclick="openDocsExternal()" title="Open in MD viewer"><span class="codicon codicon-link-external"></span></button>
 </div>
-<textarea id="docs-text" placeholder="Documentation..." spellcheck="false"></textarea>
+<textarea id="docs-text" placeholder="Documentation..." spellcheck="false" data-completion="on"></textarea>
 <div class="status-bar">Documentation viewer</div>`,
             },
             {
@@ -324,348 +333,31 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
             },
         ];
 
-        // Issues panels and Quest TODO need their own CSS and client-side scripts
-        const additionalCss = `${getIssuesCss()}\n${getQuestTodoCss()}\n${getDocumentPickerCss()}\n
-#guidelines textarea, #documentation textarea { min-height: 220px; width: 100%; resize: vertical; }
-#guidelines .toolbar, #documentation .toolbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
-#guidelines select, #documentation select { max-width: 220px; min-width: 120px; }
-#documentation .doc-picker-toolbar { display: inline-flex; margin-bottom: 0; padding: 0; }
-.settings-panel { display: flex; flex-direction: column; height: 100%; min-height: 200px; }
-.sp-loading { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--vscode-descriptionForeground); }
-${getEmbeddedStatusStyles()}
-`;
-        const additionalScript = `
-${getIssuesScript('issues', 'issues')}
-${getIssuesScript('tests', 'tests')}
-${getQuestTodoScript()}
+        // Issues panels and Quest TODO need their own CSS and client-side scripts.
+        // wsPanel-specific CSS/JS now live in media/wsPanel/{style.css,main.js} and
+        // are read verbatim and composed into the accordion's inline <style>/<script>.
+        // Fragment scripts (issues / tests / questTodo / documentPicker / status
+        // listeners) are grouped AHEAD of the wsPanel main script so their declared
+        // functions and window-exposed APIs (docs_*, attachStatusPanelListeners) are
+        // available before main.js runs; the shared completion component is appended
+        // LAST because it reads window.__tomVscodeApi published at the top of main.js.
+        const additionalCss = [
+            getIssuesCss(),
+            getQuestTodoCss(),
+            getDocumentPickerCss(),
+            readMediaText('wsPanel', 'style.css'),
+            getEmbeddedStatusStyles(),
+        ].join('\n');
 
-var guidelinesFiles = [];
-var guidelinesSelectedFile = '';
-var guidelinesSelectedGroup = 'global';
-var guidelinesGroups = [];
-var guidelinesProjects = [];
-var guidelinesSelectedProject = '';
-var guidelinesQuests = [];
-var guidelinesSelectedQuest = '';
-var guidelinesContent = '';
-var guidelinesSaveTimer = null;
-
-function effectiveGuidelinesGroup() {
-    if (guidelinesSelectedGroup === 'project') return guidelinesSelectedProject;
-    if (guidelinesSelectedGroup === 'quest') return guidelinesSelectedQuest;
-    return guidelinesSelectedGroup;
-}
-
-function selectGuidelinesGroup(group) {
-    guidelinesSelectedGroup = (group === 'projects' ? 'project' : (group || 'global'));
-    guidelinesSelectedProject = '';
-    guidelinesSelectedQuest = '';
-    guidelinesSelectedFile = '';
-    guidelinesContent = '';
-    updateGuidelinesUI();
-    if (guidelinesSelectedGroup !== 'project' && guidelinesSelectedGroup !== 'quest') {
-        vscode.postMessage({ type: 'getGuidelinesFiles', group: guidelinesSelectedGroup });
-    }
-}
-
-function selectGuidelinesProject(projectGroup) {
-    guidelinesSelectedProject = projectGroup || '';
-    guidelinesSelectedFile = '';
-    guidelinesContent = '';
-    updateGuidelinesUI();
-    if (guidelinesSelectedProject) {
-        vscode.postMessage({ type: 'getGuidelinesFiles', group: guidelinesSelectedProject });
-    }
-}
-
-function selectGuidelinesQuest(questGroup) {
-    guidelinesSelectedQuest = questGroup || '';
-    guidelinesSelectedFile = '';
-    guidelinesContent = '';
-    updateGuidelinesUI();
-    if (guidelinesSelectedQuest) {
-        vscode.postMessage({ type: 'getGuidelinesFiles', group: guidelinesSelectedQuest });
-    }
-}
-
-function selectGuidelinesFile(file) {
-    guidelinesSelectedFile = file || '';
-    if (guidelinesSelectedFile) {
-        vscode.postMessage({ type: 'loadGuidelinesFile', file: guidelinesSelectedFile, group: effectiveGuidelinesGroup() });
-    } else {
-        guidelinesContent = '';
-        updateGuidelinesUI();
-    }
-}
-
-function reloadGuidelines() {
-    vscode.postMessage({ type: 'getGuidelinesGroups' });
-    if (effectiveGuidelinesGroup()) {
-        vscode.postMessage({ type: 'getGuidelinesFiles', group: effectiveGuidelinesGroup() });
-    }
-}
-
-function addGuidelinesFile() {
-    vscode.postMessage({ type: 'addGuidelinesFile', group: effectiveGuidelinesGroup() });
-}
-
-function deleteGuidelinesFile() {
-    if (!guidelinesSelectedFile) return;
-    vscode.postMessage({ type: 'deleteGuidelinesFile', file: guidelinesSelectedFile, group: effectiveGuidelinesGroup() });
-}
-
-function openGuidelinesInEditor() {
-    if (!guidelinesSelectedFile) return;
-    vscode.postMessage({ type: 'openGuidelinesInEditor', file: guidelinesSelectedFile, group: effectiveGuidelinesGroup() });
-}
-
-function previewGuidelines() {
-    if (!guidelinesSelectedFile) return;
-    vscode.postMessage({ type: 'previewGuidelinesFile', file: guidelinesSelectedFile, group: effectiveGuidelinesGroup() });
-}
-
-function openGuidelinesExternal() {
-    if (!guidelinesSelectedFile) { vscode.postMessage({ type: 'showWarning', text: 'No file selected' }); return; }
-    vscode.postMessage({ type: 'openGuidelinesExternal', file: guidelinesSelectedFile, group: effectiveGuidelinesGroup() });
-}
-
-function updateGuidelinesUI() {
-    var groupSel = document.getElementById('guidelines-group');
-    if (groupSel) {
-        groupSel.innerHTML = (guidelinesGroups || []).map(function(g) {
-            return '<option value="' + g.id + '"' + (g.id === guidelinesSelectedGroup ? ' selected' : '') + '>' + g.label + '</option>';
-        }).join('');
-    }
-
-    var projectSel = document.getElementById('guidelines-project');
-    var projectLabel = document.getElementById('guidelines-project-label');
-    if (projectSel) {
-        if (guidelinesSelectedGroup === 'project' && (guidelinesProjects || []).length > 0) {
-            if (projectLabel) projectLabel.style.display = '';
-            projectSel.style.display = '';
-            projectSel.innerHTML = '<option value="">(Select project)</option>' + (guidelinesProjects || []).map(function(p) {
-                return '<option value="' + p.id + '"' + (p.id === guidelinesSelectedProject ? ' selected' : '') + '>' + p.label + '</option>';
-            }).join('');
-        } else {
-            if (projectLabel) projectLabel.style.display = 'none';
-            projectSel.style.display = 'none';
-            projectSel.innerHTML = '';
-        }
-    }
-
-    var questSel = document.getElementById('guidelines-quest');
-    var questLabel = document.getElementById('guidelines-quest-label');
-    if (questSel) {
-        if (guidelinesSelectedGroup === 'quest' && (guidelinesQuests || []).length > 0) {
-            if (questLabel) questLabel.style.display = '';
-            questSel.style.display = '';
-            questSel.innerHTML = '<option value="">(Select quest)</option>' + (guidelinesQuests || []).map(function(q) {
-                return '<option value="' + q.id + '"' + (q.id === guidelinesSelectedQuest ? ' selected' : '') + '>' + q.label + '</option>';
-            }).join('');
-        } else {
-            if (questLabel) questLabel.style.display = 'none';
-            questSel.style.display = 'none';
-            questSel.innerHTML = '';
-        }
-    }
-
-    var fileSel = document.getElementById('guidelines-file');
-    if (fileSel) {
-        fileSel.innerHTML = '<option value="">(Select file)</option>' + (guidelinesFiles || []).map(function(f) {
-            return '<option value="' + f + '"' + (f === guidelinesSelectedFile ? ' selected' : '') + '>' + f + '</option>';
-        }).join('');
-    }
-
-    var ta = document.getElementById('guidelines-text');
-    if (ta) {
-        ta.value = guidelinesContent || '';
-    }
-}
-
-function onGuidelinesInput() {
-    var ta = document.getElementById('guidelines-text');
-    if (!ta || !guidelinesSelectedFile) return;
-    guidelinesContent = ta.value;
-    if (guidelinesSaveTimer) clearTimeout(guidelinesSaveTimer);
-    guidelinesSaveTimer = setTimeout(function() {
-        vscode.postMessage({ type: 'saveGuidelinesFile', file: guidelinesSelectedFile, content: guidelinesContent, group: effectiveGuidelinesGroup() });
-    }, 500);
-}
-
-// ---- Documentation panel (using shared documentPicker) ----
-${getDocumentPickerScript({ idPrefix: 'docs', allowOtherFile: true, showGroupSelector: true })}
-
-// Local state for content (textarea)
-var docsContent = '';
-var docsSaveTimer = null;
-
-function reloadDocs() {
-    vscode.postMessage({ type: 'getDocsGroups' });
-    var group = docs_getEffectiveGroup();
-    if (group) {
-        vscode.postMessage({ type: 'docsGetFiles', group: group });
-    }
-}
-
-function addDocsFile() {
-    vscode.postMessage({ type: 'addDocsFile', group: docs_getEffectiveGroup() });
-}
-
-function deleteDocsFile() {
-    var file = docs_getSelectedFile();
-    if (!file) return;
-    vscode.postMessage({ type: 'deleteDocsFile', file: file, group: docs_getEffectiveGroup() });
-}
-
-function openDocsInEditor() {
-    var file = docs_getSelectedFile();
-    if (!file) return;
-    vscode.postMessage({ type: 'openDocsInEditor', file: file, group: docs_getEffectiveGroup() });
-}
-
-function previewDocs() {
-    var file = docs_getSelectedFile();
-    if (!file) return;
-    vscode.postMessage({ type: 'previewDocsFile', file: file, group: docs_getEffectiveGroup() });
-}
-
-function openDocsExternal() {
-    var file = docs_getSelectedFile();
-    if (!file) { vscode.postMessage({ type: 'showWarning', text: 'No file selected' }); return; }
-    vscode.postMessage({ type: 'openDocsExternal', file: file, group: docs_getEffectiveGroup() });
-}
-
-function updateDocsContent() {
-    var ta = document.getElementById('docs-text');
-    if (ta) {
-        ta.value = docsContent || '';
-    }
-}
-
-function onDocsInput() {
-    var ta = document.getElementById('docs-text');
-    var file = docs_getSelectedFile();
-    if (!ta || !file) return;
-    docsContent = ta.value;
-    if (docsSaveTimer) clearTimeout(docsSaveTimer);
-    docsSaveTimer = setTimeout(function() {
-        vscode.postMessage({ type: 'saveDocsFile', file: file, content: docsContent, group: docs_getEffectiveGroup() });
-    }, 500);
-}
-
-window.addEventListener('message', function(e) {
-    var msg = e.data;
-    if (!msg || !msg.type) return;
-    if (msg.type === 'guidelinesGroups') {
-        guidelinesGroups = msg.groups || [];
-        guidelinesProjects = msg.projects || [];
-        guidelinesQuests = msg.quests || [];
-        updateGuidelinesUI();
-    } else if (msg.type === 'guidelinesFiles') {
-        guidelinesFiles = msg.files || [];
-        if (msg.selectedFile) guidelinesSelectedFile = msg.selectedFile;
-        else if (guidelinesFiles.length > 0 && !guidelinesSelectedFile) guidelinesSelectedFile = guidelinesFiles[0];
-        updateGuidelinesUI();
-        if (guidelinesSelectedFile) {
-            vscode.postMessage({ type: 'loadGuidelinesFile', file: guidelinesSelectedFile, group: effectiveGuidelinesGroup() });
-        }
-    } else if (msg.type === 'guidelinesContent') {
-        guidelinesContent = msg.content || '';
-        updateGuidelinesUI();
-    } else if (msg.type === 'docsGroups') {
-        // Forward to documentPicker
-        docs_setGroups(msg.groups || [], msg.projects || []);
-    } else if (msg.type === 'docsFiles') {
-        // Forward to documentPicker
-        docs_setFiles(msg.files || [], msg.selectedFile);
-    } else if (msg.type === 'docsContent') {
-        docsContent = msg.content || '';
-        updateDocsContent();
-    }
-});
-
-// Called by accordion after each render (initial and toggle).
-// Re-applies UI state so freshly-expanded sections show current data.
-// Guards needed: during initial render() var assignments haven't executed yet
-// (function declarations are hoisted but var assignments are not).
-function onRenderComplete() {
-    if (guidelinesGroups) updateGuidelinesUI();
-    if (typeof docs_updateUI === 'function') docs_updateUI();
-}
-
-setTimeout(function() {
-    var groupSel = document.getElementById('guidelines-group');
-    if (groupSel) groupSel.addEventListener('change', function() { selectGuidelinesGroup(groupSel.value); });
-    var projectSel = document.getElementById('guidelines-project');
-    if (projectSel) projectSel.addEventListener('change', function() { selectGuidelinesProject(projectSel.value); });
-    var questSel = document.getElementById('guidelines-quest');
-    if (questSel) questSel.addEventListener('change', function() { selectGuidelinesQuest(questSel.value); });
-    var guidelinesFileSel = document.getElementById('guidelines-file');
-    if (guidelinesFileSel) guidelinesFileSel.addEventListener('change', function() { selectGuidelinesFile(guidelinesFileSel.value); });
-    var guidelinesText = document.getElementById('guidelines-text');
-    if (guidelinesText) guidelinesText.addEventListener('input', onGuidelinesInput);
-
-    var docsGroupSel = document.getElementById('docs-group');
-    if (docsGroupSel) docsGroupSel.addEventListener('change', function() { selectDocsGroup(docsGroupSel.value); });
-    var docsProjectSel = document.getElementById('docs-project');
-    if (docsProjectSel) docsProjectSel.addEventListener('change', function() { selectDocsProject(docsProjectSel.value); });
-    var docsFileSel = document.getElementById('docs-file');
-    if (docsFileSel) docsFileSel.addEventListener('change', function() { selectDocsFile(docsFileSel.value); });
-    var docsText = document.getElementById('docs-text');
-    if (docsText) docsText.addEventListener('input', onDocsInput);
-
-    vscode.postMessage({ type: 'getGuidelinesGroups' });
-    vscode.postMessage({ type: 'getGuidelinesFiles', group: 'global' });
-    vscode.postMessage({ type: 'getDocsGroups' });
-    vscode.postMessage({ type: 'getDocsFiles', group: 'notes' });
-    vscode.postMessage({ type: 'getStatusData' });
-}, 0);
-
-// Status panel listeners
-${getStatusPanelListenersScript()}
-
-// Route Quest TODO messages from extension to qtHandleMessage
-// Route statusData messages to populate the settings panel
-window.addEventListener('message', function(e) {
-    var msg = e.data;
-    if (!msg || !msg.type) return;
-    if (msg.type === 'expandSection') {
-        // Programmatically expand an accordion section by ID
-        var sid = msg.sectionId || '';
-        if (sid && typeof isExpanded === 'function' && !isExpanded(sid)) {
-            toggleSection(sid);
-        }
-        return;
-    }
-    if (typeof msg.type === 'string' && msg.type.startsWith('qt')) {
-        qtHandleMessage(msg);
-    } else if (msg.type === 'statusData') {
-        var panel = document.getElementById('settings-status-panel');
-        if (panel) {
-            // Preserve collapse/expand states before replacing HTML
-            var __savedCollapseStates = {};
-            panel.querySelectorAll('.sp-collapse-content').forEach(function(el) {
-                if (el.id) __savedCollapseStates[el.id] = el.classList.contains('sp-collapsed');
-            });
-            panel.innerHTML = msg.html || '<div class="sp-loading">No data</div>';
-            // Restore collapse/expand states after replacing HTML
-            Object.keys(__savedCollapseStates).forEach(function(elId) {
-                var el = document.getElementById(elId);
-                if (!el) return;
-                var icon = el.previousElementSibling ? el.previousElementSibling.querySelector('.sp-collapse-icon') : null;
-                if (__savedCollapseStates[elId]) {
-                    el.classList.add('sp-collapsed');
-                    if (icon) icon.textContent = '▶';
-                } else {
-                    el.classList.remove('sp-collapsed');
-                    if (icon) icon.textContent = '▼';
-                }
-            });
-        }
-        attachStatusPanelListeners();
-    }
-});
-`;
+        const additionalScript = [
+            getIssuesScript('issues', 'issues'),
+            getIssuesScript('tests', 'tests'),
+            getQuestTodoScript(),
+            getDocumentPickerScript({ idPrefix: 'docs', allowOtherFile: true, showGroupSelector: true }),
+            getStatusPanelListenersScript(),
+            readMediaText('wsPanel', 'main.js'),
+            readMediaText('shared', 'completion.js'),
+        ].join('\n');
 
         return getAccordionHtml({
             codiconsUri: codiconsUri.toString(),

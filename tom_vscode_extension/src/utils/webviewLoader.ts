@@ -270,6 +270,22 @@ export function clearWebviewLoaderCache(): void {
     cachedDeps = undefined;
 }
 
+/**
+ * Read a raw `media/<panelId>/<file>` text asset (cached after first load),
+ * WITHOUT any of the loader's HTML rewriting.
+ *
+ * This is the escape hatch for **accordion-hosted** panels that do not yet own
+ * a full `index.html` rendered through {@link loadWebviewHtml} (the shared
+ * accordion shell is migrated last — see the webview restructuring plan B.24).
+ * Such panels author their own JS/CSS in `media/<panelId>/` files and feed the
+ * text into `getAccordionHtml(...)`; this keeps the source lintable and free of
+ * template-literal escaping while the shell stays inline. Prefer
+ * {@link loadWebviewHtml} for any panel that can render a standalone document.
+ */
+export function readMediaText(panelId: string, file: string): string {
+    return defaultDeps().readMediaFile(panelId, file);
+}
+
 // ---------------------------------------------------------------------------
 // Internal string helpers (pure)
 // ---------------------------------------------------------------------------

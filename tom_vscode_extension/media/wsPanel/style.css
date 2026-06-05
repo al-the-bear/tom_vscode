@@ -1,0 +1,15 @@
+/*
+ * wsPanel-specific styles for the @WS accordion panel.
+ *
+ * Extracted from the `additionalCss` template literal of
+ * `src/handlers/wsPanel-handler.ts`. Concatenated into the accordion's inline
+ * <style> AFTER the embedded fragment CSS (issues / questTodo / documentPicker)
+ * and BEFORE the status-panel styles, preserving the original cascade order.
+ */
+
+#guidelines textarea, #documentation textarea { min-height: 220px; width: 100%; resize: vertical; }
+#guidelines .toolbar, #documentation .toolbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+#guidelines select, #documentation select { max-width: 220px; min-width: 120px; }
+#documentation .doc-picker-toolbar { display: inline-flex; margin-bottom: 0; padding: 0; }
+.settings-panel { display: flex; flex-direction: column; height: 100%; min-height: 200px; }
+.sp-loading { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--vscode-descriptionForeground); }
