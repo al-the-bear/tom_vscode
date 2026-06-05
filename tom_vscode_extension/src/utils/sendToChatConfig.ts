@@ -479,6 +479,25 @@ export interface SendToChatConfig {
      */
     userName?: string;
 
+    /**
+     * Which chat transport "Send to Chat" routes to.
+     *  - 'anthropic' (default): handle as if entered in the Anthropic chat
+     *    panel — same profile + tools, answer comes from the Anthropic
+     *    transport, shows in the live trail, blocks while executing.
+     *  - 'copilot': legacy behaviour — route to GitHub Copilot Chat.
+     * Read via {@link getSendToChatTarget} which applies the default.
+     */
+    sendToChatTarget?: 'anthropic' | 'copilot';
+
+}
+
+/**
+ * Resolve the configured Send-to-Chat target, defaulting to 'anthropic'.
+ */
+export function getSendToChatTarget(
+    config: SendToChatConfig | null | undefined,
+): 'anthropic' | 'copilot' {
+    return config?.sendToChatTarget === 'copilot' ? 'copilot' : 'anthropic';
 }
 
 export function validateStrictAiConfiguration(config: SendToChatConfig | null | undefined): string[] {

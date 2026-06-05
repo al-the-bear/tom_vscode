@@ -1601,3 +1601,31 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
 export const READ_ONLY_TOOLS: SharedToolDefinition<any>[] = ALL_SHARED_TOOLS.filter(
     t => t.readOnly && t.name !== 'tomAi_readGuideline',
 );
+
+/**
+ * Resolve the tool set enabled for an Anthropic profile.
+ *
+ * The profile is the single source of truth (matching `_handleSendAnthropic`
+ * in chatPanel-handler.ts and the `anthropicProfiles` case in
+ * globalTemplateEditor-handler.ts):
+ *
+ *  1. `toolsEnabled !== false`  → ALL tools (`ALL_SHARED_TOOLS`)
+ *  2. `toolsEnabled === false`  → the `enabledTools` allow-list subset
+ *     (an empty/missing list → no tools)
+ *
+ * Extracted here so both the chat panel and the scripting-API bridge apply
+ * identical filtering.
+ */
+export function resolveProfileTools(
+    profile: { toolsEnabled?: boolean; enabledTools?: string[] } | undefined,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): SharedToolDefinition<any>[] {
+    const allToolsEnabled = profile?.toolsEnabled !== false;
+    if (allToolsEnabled) {
+        return [...ALL_SHARED_TOOLS];
+    }
+    const enabledIds = Array.isArray(profile?.enabledTools) ? profile!.enabledTools! : [];
+    return enabledIds.length > 0
+        ? ALL_SHARED_TOOLS.filter((t) => enabledIds.includes(t.name))
+        : [];
+}

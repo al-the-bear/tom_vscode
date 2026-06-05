@@ -867,7 +867,16 @@ function populateDropdowns() {
         anthropicProfileSel._anthropicStatusBound = true;
         anthropicProfileSel.addEventListener('change', function() {
             setAnthropicStatus(buildAnthropicStatusLine());
+            // Mirror the active profile to the extension so the scripting-API
+            // bridge (tools.getJsonVce) can resolve the same profile's tool set
+            // without a webview round-trip.
+            vscode.postMessage({ type: 'anthropicProfileSelected', profileId: this.value });
         });
+    }
+    // Mirror the initial selection too, so the bridge has a value before the
+    // user ever touches the dropdown.
+    if (anthropicProfileSel && anthropicProfileSel.value) {
+        vscode.postMessage({ type: 'anthropicProfileSelected', profileId: anthropicProfileSel.value });
     }
     // Kick off the initial vscode.lm model fetch once per panel lifetime
     // so the dropdown shows content without requiring a manual refresh.

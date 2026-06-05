@@ -5,6 +5,12 @@
     "description": "User configuration for the Tom VS Code extension. Covers anthropic, compaction, memory, and trail subsystems (anthropic_sdk_integration.md §14).",
     "type": "object",
     "properties": {
+        "sendToChatTarget": {
+            "type": "string",
+            "enum": ["anthropic", "copilot"],
+            "default": "anthropic",
+            "description": "Which chat transport 'Send to Chat' routes to. 'anthropic' (default) handles the prompt as if entered in the Anthropic panel (same profile + tools, answer from the Anthropic transport, shown in the live trail, blocks while executing). 'copilot' routes to GitHub Copilot Chat. Also drives tools.getJsonVce: the scripting-API tools JSON is empty when set to 'copilot'."
+        },
         "anthropic": {
             "type": "object",
             "description": "Anthropic SDK integration (anthropic_sdk_integration.md §14).",

@@ -37,7 +37,8 @@ import { TrailService } from '../services/trailService';
 import { TwoTierMemoryService } from '../services/memory-service';
 import { writeWindowState } from './windowStatusPanel-handler.js';
 import { AnthropicHandler, AnthropicProfile, AnthropicConfiguration, ANTHROPIC_CHAT_SESSION_KEY } from './anthropic-handler';
-import { ALL_SHARED_TOOLS } from '../tools/tool-executors';
+import { resolveProfileTools } from '../tools/tool-executors';
+import { ACTIVE_ANTHROPIC_PROFILE_KEY } from '../tools/scripting-tools-bridge';
 import { SharedToolDefinition } from '../tools/shared-tool-registry';
 import { chatProviders, ChatDraftState } from './chat/chatProviderRegistry';
 import { saveChatDrafts, loadChatDrafts } from '../services/chatDraftService';
@@ -446,6 +447,15 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                             String(message.toolId || ''),
                             !!message.approved,
                             !!message.approveAll,
+                        );
+                        break;
+                    case 'anthropicProfileSelected':
+                        // Mirror the webview's active Anthropic profile so the
+                        // scripting-API bridge can resolve the same profile's
+                        // tool set (tools.getJsonVce) without a round-trip.
+                        await this._context.workspaceState.update(
+                            ACTIVE_ANTHROPIC_PROFILE_KEY,
+                            String(message.profileId || ''),
                         );
                         break;
                     case 'getProfiles':
@@ -1769,22 +1779,12 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             cfg = resolved.configuration;
         }
 
-        // Tool resolution — profile is the single source of truth
-        // (see globalTemplateEditor-handler.ts `anthropicProfiles` case):
-        //  1. profile.toolsEnabled !== false  → ALL tools (ALL_SHARED_TOOLS)
-        //  2. profile.toolsEnabled === false  → profile.enabledTools subset
-        //     (empty array → no tools)
-        const profileOverride = (profile as unknown as { enabledTools?: string[]; toolsEnabled?: boolean });
-        const allToolsEnabled = profileOverride.toolsEnabled !== false;
-        let tools: SharedToolDefinition[];
-        if (allToolsEnabled) {
-            tools = [...ALL_SHARED_TOOLS];
-        } else {
-            const enabledIds = Array.isArray(profileOverride.enabledTools) ? profileOverride.enabledTools : [];
-            tools = enabledIds.length > 0
-                ? ALL_SHARED_TOOLS.filter((t) => enabledIds.includes(t.name))
-                : [];
-        }
+        // Tool resolution — profile is the single source of truth.
+        // Filtering lives in resolveProfileTools() so the chat panel and the
+        // scripting-API bridge (tools.getJsonVce) stay in lockstep.
+        const tools: SharedToolDefinition[] = resolveProfileTools(
+            profile as unknown as { enabledTools?: string[]; toolsEnabled?: boolean },
+        );
 
         this._ensureAnthropicApprovalListener();
         this._ensureAnthropicStatusListener();

@@ -3,6 +3,7 @@ import * as path from 'path';
 import { spawn, ChildProcess } from 'child_process';
 import { getLocalLlmManager, getAiConversationManager } from './handlers';
 import { getTomScriptingBridgeHandler } from './handlers/tomScriptingBridge-handler';
+import { invokeToolByName, getActiveProfileToolsJson } from './tools/scripting-tools-bridge';
 
 const DART_COMMAND = 'dart';
 
@@ -620,6 +621,20 @@ export class DartBridgeClient {
 
                 case 'sendToChatVce':
                     result = await this.sendToChat(params.prompt);
+                    break;
+
+                // LLM tool registry — scripting-API surface
+                case 'tools.invokeVce':
+                    result = {
+                        result: await invokeToolByName(
+                            String(params.name || ''),
+                            (params.arguments ?? {}) as Record<string, unknown>,
+                        ),
+                    };
+                    break;
+
+                case 'tools.getJsonVce':
+                    result = { tools: getActiveProfileToolsJson(this.context) };
                     break;
 
                 // Local LLM / Prompt Expander bridge API
