@@ -213,6 +213,7 @@ From plan §3:
 | **External-package webviews** | `yamlGraph-handler.ts` (delegates to the `yaml-graph-core` / `yaml-graph-vscode` npm packages) | HTML/JS is owned by the sub-packages and loaded via dynamic import. **Document only — do not migrate.** |
 | **Content-injection / preview webviews** | `markdownHtmlPreview`, `markdownBrowser`, `handler_shared` preview panel | Externalize the **shell** like any other panel, but inject the rendered markdown/HTML **content via `postMessage`**, never via template substitution. |
 | **Tiny static-string placeholders** | a panel that only swaps a label/title into otherwise-static HTML | A minimal `{{title}}`-style placeholder is fine (added to the loader map); don't over-engineer with an `init` payload. |
+| **Degenerate error fallbacks** | the `catch`-block / unresolved-state HTML in `chatPanel-handler.ts` (T2 render error), `yamlGraph-handler.ts` (graph-type-unresolved + exception) | Tiny inline `<html><body>…</body></html>` strings assigned to `webview.html` **only** when the normal render path fails (e.g. `loadWebviewHtml` itself threw because a media file is missing). They carry no scripts and no user input, and externalizing them is circular — you cannot load a media shell to report that media loading failed. **Keep inline; do not migrate.** The migration's "no remaining `webview.html = \`\`" gate excludes these. |
 
 ### 9.1 yamlGraph — external-package webview (no migration)
 

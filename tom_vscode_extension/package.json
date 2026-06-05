@@ -2815,7 +2815,7 @@
         "vscode:prepublish": "npm run compile",
         "compile": "tsc -p ./ && mkdir -p out/config && cp src/config/*.json out/config/",
         "watch": "tsc -watch -p ./",
-        "pretest": "npm run compile",
+        "pretest": "npm run compile && npm run typecheck:media",
         "test:tools": "node --test --test-concurrency=1 out/tools/__tests__/*.test.js",
         "test:services": "node --test --test-concurrency=1 out/services/__tests__/*.test.js",
         "test:utils": "node --test --test-concurrency=1 out/utils/__tests__/*.test.js",
