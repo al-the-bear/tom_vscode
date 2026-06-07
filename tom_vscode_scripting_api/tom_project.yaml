@@ -2,3 +2,4 @@ project_id: VS
 name: vs-api
 description: >-
   VS Code scripting API.
+license: BSD-3-Clause
