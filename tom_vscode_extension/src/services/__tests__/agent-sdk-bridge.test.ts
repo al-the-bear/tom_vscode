@@ -342,8 +342,7 @@ describe('AgentSdkBridge — Dart-defined tools (sdk mcp servers)', () => {
         assert.equal(h.toolCalls.length, 1);
     });
 
-    test('non-sdk mcp servers pass through unchanged', async () => {
-        const h = makeToolRoundTripHarness({});
+    test('external (stdio/sse/http) mcp servers pass through unchanged', async () => {
         let seenOptions: Record<string, unknown> | undefined;
         const sdk: AgentSdkLike = {
             query(params: { prompt: string; options?: Record<string, unknown> }) {
@@ -363,12 +362,25 @@ describe('AgentSdkBridge — Dart-defined tools (sdk mcp servers)', () => {
             requestClient: async () => ({ content: [] }),
         });
 
-        const stdioServers = { mcpServers: { fs: { type: 'stdio', command: 'mcp-fs' } } };
-        await bridge.startQuery({ streamId: 's', prompt: 'go', options: { ...stdioServers } });
+        // Every external server variant (stdio / sse / http) must reach
+        // sdk.query() byte-for-byte; only `{type:'sdk'}` descriptors are rebuilt.
+        const externalServers = {
+            mcpServers: {
+                fs: { type: 'stdio', command: 'mcp-fs', args: ['--root', '/'], env: { TOKEN: 'x' } },
+                remote: {
+                    type: 'sse',
+                    url: 'https://x/sse',
+                    headers: { Authorization: 'Bearer t' },
+                    tools: [{ name: 'q', permission_policy: 'always_ask' }],
+                },
+                web: { type: 'http', url: 'https://x/mcp', alwaysLoad: true },
+            },
+        };
+        await bridge.startQuery({ streamId: 's', prompt: 'go', options: { ...externalServers } });
         await finished;
 
-        const servers = seenOptions!.mcpServers as Record<string, { type: string; command: string }>;
-        assert.deepEqual(servers.fs, { type: 'stdio', command: 'mcp-fs' });
+        const servers = seenOptions!.mcpServers as Record<string, unknown>;
+        assert.deepEqual(servers, externalServers.mcpServers);
     });
 
     test('an sdk server with no requestClient dep fails the query', async () => {

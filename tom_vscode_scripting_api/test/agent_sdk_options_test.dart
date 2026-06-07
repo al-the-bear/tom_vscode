@@ -199,6 +199,49 @@ void main() {
       });
     });
 
+    test('sse / http servers carry per-tool permission policies', () {
+      final sse = McpServerConfig.fromJson({
+        'type': 'sse',
+        'url': 'https://x/sse',
+        'headers': {'Authorization': 'Bearer t'},
+        'tools': [
+          {'name': 'read', 'permission_policy': 'always_allow'},
+          {'name': 'write', 'permission_policy': 'always_ask'},
+        ],
+        'alwaysLoad': true,
+      });
+      expect(sse, isA<McpSSEServerConfig>());
+      expect((sse as McpSSEServerConfig).tools, hasLength(2));
+      expect(sse.tools!.first.permissionPolicy, 'always_allow');
+      // Per-tool policy uses snake_case `permission_policy` on the wire.
+      expect(sse.toJson()['tools'], [
+        {'name': 'read', 'permission_policy': 'always_allow'},
+        {'name': 'write', 'permission_policy': 'always_ask'},
+      ]);
+      expect(McpServerConfig.fromJson(sse.toJson()).toJson(), equals(sse.toJson()));
+
+      final http = McpServerConfig.fromJson({
+        'type': 'http',
+        'url': 'https://x/mcp',
+        'tools': [
+          {'name': 'fetch', 'permission_policy': 'always_deny'},
+        ],
+      });
+      expect((http as McpHttpServerConfig).tools!.single.name, 'fetch');
+      expect(McpServerConfig.fromJson(http.toJson()).toJson(), equals(http.toJson()));
+    });
+
+    test('stdio carries args/env/alwaysLoad', () {
+      final stdio = McpServerConfig.fromJson({
+        'type': 'stdio',
+        'command': 'node',
+        'args': ['server.js', '--flag'],
+        'env': {'TOKEN': 'abc'},
+        'alwaysLoad': false,
+      });
+      expect(McpServerConfig.fromJson(stdio.toJson()).toJson(), equals(stdio.toJson()));
+    });
+
     test('sdk server config carries the descriptor (name/version/tools)', () {
       final tool = SdkMcpTool(
         name: 'greet',
@@ -290,6 +333,71 @@ void main() {
 
       final back = Options.fromJson(wire);
       expect(back.toJson(), equals(wire));
+    });
+
+    test('remaining tier-C fields named in the audit round-trip', () {
+      // The fields todo #7 calls out explicitly (agents, permissionPromptToolName,
+      // additionalDirectories, env, includePartialMessages) plus the other
+      // structured sub-configs, asserted end-to-end so the audit's "full
+      // coverage" claim is test-backed.
+      final o = Options(
+        agents: {
+          'reviewer': AgentDefinition(
+            description: 'reviews code',
+            prompt: 'be strict',
+            tools: ['Read', 'Grep'],
+            model: 'claude-x',
+            permissionMode: PermissionMode.plan,
+          ),
+        },
+        permissionPromptToolName: 'mcp__approver',
+        additionalDirectories: ['/a', '/b'],
+        env: {'FOO': 'bar', 'BAZ': 'qux'},
+        includePartialMessages: true,
+        taskBudget: TaskBudget(total: 5),
+        outputFormat: OutputFormat(schema: {'type': 'object'}),
+        plugins: [PluginConfig(path: '/plugins/x')],
+        skills: SkillsList(['greet']),
+        // extraArgs values may be null (bare CLI flags) — that must survive.
+        extraArgs: {'verbose': null, 'profile': 'fast'},
+        // A mixed external-server map: every variant reaches the wire intact.
+        mcpServers: {
+          'fs': McpStdioServerConfig(command: 'mcp-fs', args: ['--root', '/']),
+          'remote': McpSSEServerConfig(
+            url: 'https://x/sse',
+            tools: [
+              McpServerToolPolicy(name: 'q', permissionPolicy: 'always_ask'),
+            ],
+          ),
+          'web': McpHttpServerConfig(url: 'https://x/mcp', alwaysLoad: true),
+        },
+      );
+
+      final wire = o.toJson();
+      expect(wire['agents'], {
+        'reviewer': {
+          'description': 'reviews code',
+          'prompt': 'be strict',
+          'tools': ['Read', 'Grep'],
+          'model': 'claude-x',
+          'permissionMode': 'plan',
+        },
+      });
+      expect(wire['permissionPromptToolName'], 'mcp__approver');
+      expect(wire['additionalDirectories'], ['/a', '/b']);
+      expect(wire['env'], {'FOO': 'bar', 'BAZ': 'qux'});
+      expect(wire['includePartialMessages'], true);
+      expect(wire['extraArgs'], {'verbose': null, 'profile': 'fast'});
+      expect((wire['mcpServers'] as Map)['remote'], {
+        'type': 'sse',
+        'url': 'https://x/sse',
+        'tools': [
+          {'name': 'q', 'permission_policy': 'always_ask'},
+        ],
+      });
+
+      // Full structural round-trip across every field above.
+      expect(Options.fromJson(wire).toJson(), equals(wire));
     });
 
     test('empty Options serializes to an empty map (no null keys)', () {

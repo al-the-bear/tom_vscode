@@ -366,11 +366,15 @@ class AgentDefinition {
   /// The model the agent runs on.
   final String? model;
 
+  /// The permission mode the agent runs under.
+  final PermissionMode? permissionMode;
+
   AgentDefinition({
     required this.description,
     required this.prompt,
     this.tools,
     this.model,
+    this.permissionMode,
   });
 
   /// Parses from wire JSON.
@@ -380,6 +384,9 @@ class AgentDefinition {
         prompt: json['prompt'] as String,
         tools: (json['tools'] as List?)?.map((e) => e.toString()).toList(),
         model: json['model'] as String?,
+        permissionMode: json['permissionMode'] == null
+            ? null
+            : PermissionMode.fromWire(json['permissionMode'] as String),
       );
 
   /// Serializes to wire JSON.
@@ -388,6 +395,7 @@ class AgentDefinition {
         'prompt': prompt,
         if (tools != null) 'tools': tools,
         if (model != null) 'model': model,
+        if (permissionMode != null) 'permissionMode': permissionMode!.wire,
       };
 }
 
