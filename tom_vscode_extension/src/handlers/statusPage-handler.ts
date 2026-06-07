@@ -1093,6 +1093,18 @@ export async function handleStatusAction(action: string, message: any): Promise<
             vscode.window.showInformationMessage('MCP Server settings saved');
             break;
         }
+        // MCP Server lifecycle (card Start/Stop/Restart). Route through the
+        // registered commands (#19) — the single entry point; the command toggles
+        // the controller, whose onChange refreshes this card's status line.
+        case 'startMcpServer':
+            await vscode.commands.executeCommand('tomAi.mcpServer.start');
+            break;
+        case 'stopMcpServer':
+            await vscode.commands.executeCommand('tomAi.mcpServer.stop');
+            break;
+        case 'restartMcpServer':
+            await vscode.commands.executeCommand('tomAi.mcpServer.restart');
+            break;
         // Bridge
         case 'restartBridge':
             await vscode.commands.executeCommand('tomAi.bridge.restart');

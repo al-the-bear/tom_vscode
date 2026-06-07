@@ -142,6 +142,7 @@ export function renderMcpServerCard(model: McpServerCardModel, toolNames: readon
         <div class="sp-controls">
             <button class="sp-btn ${model.running ? '' : 'primary'}" data-status-action="startMcpServer">Start</button>
             <button class="sp-btn ${model.running ? 'primary' : ''}" data-status-action="stopMcpServer">Stop</button>
+            <button class="sp-btn" data-status-action="restartMcpServer">Restart</button>
             <label style="margin-left:8px;font-size:12px;display:inline-flex;align-items:center;gap:3px">
                 <input type="checkbox" data-mcp-field="enabled"${checked(model.enabled)} />
                 Enabled
