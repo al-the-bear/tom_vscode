@@ -25,6 +25,7 @@
 
 import * as vscode from 'vscode';
 import { z } from 'zod';
+import { toRawShape } from '../utils/jsonSchemaToZod';
 
 // The Agent SDK ships as ESM-only (`sdk.mjs`), while the VS Code extension
 // host compiles to CommonJS. We load it via dynamic `import()` and cache
@@ -314,63 +315,10 @@ export interface AgentSdkResult {
 const MCP_SERVER_NAME = 'tom-ai';
 
 // ============================================================================
-// JSON Schema -> Zod raw shape
-//
-// `tool()` takes a Zod raw shape (object properties map), not JSON Schema.
-// Our shared tools store `inputSchema` as JSON Schema. This helper converts
-// the subset we actually use (string, number, integer, boolean, array,
-// enum, object), good enough for every tool in `tool-executors.ts`.
-// ============================================================================
-
-function jsonSchemaPropertyToZod(prop: unknown): z.ZodTypeAny {
-    if (!prop || typeof prop !== 'object') {
-        return z.unknown();
-    }
-    const p = prop as Record<string, unknown>;
-    const enumVals = Array.isArray(p.enum) ? (p.enum as unknown[]).filter((v): v is string => typeof v === 'string') : undefined;
-    if (enumVals && enumVals.length > 0) {
-        return z.enum(enumVals as [string, ...string[]]);
-    }
-    switch (p.type) {
-        case 'string':
-            return z.string();
-        case 'number':
-            return z.number();
-        case 'integer':
-            return z.number().int();
-        case 'boolean':
-            return z.boolean();
-        case 'array': {
-            const item = p.items ? jsonSchemaPropertyToZod(p.items) : z.unknown();
-            return z.array(item);
-        }
-        case 'object':
-            return z.record(z.string(), z.unknown());
-        default:
-            return z.unknown();
-    }
-}
-
-function toRawShape(schema: Record<string, unknown> | undefined): Record<string, z.ZodTypeAny> {
-    const shape: Record<string, z.ZodTypeAny> = {};
-    const props = (schema?.properties ?? {}) as Record<string, unknown>;
-    const required = new Set<string>(Array.isArray(schema?.required) ? (schema!.required as string[]) : []);
-    for (const [name, prop] of Object.entries(props)) {
-        let zt = jsonSchemaPropertyToZod(prop);
-        const desc = (prop as { description?: unknown } | undefined)?.description;
-        if (typeof desc === 'string' && desc) {
-            zt = zt.describe(desc);
-        }
-        if (!required.has(name)) {
-            zt = zt.optional();
-        }
-        shape[name] = zt;
-    }
-    return shape;
-}
-
-// ============================================================================
 // Tool adapter — SharedToolDefinition[] -> MCP tools with full trail + trail
+//
+// JSON Schema -> Zod raw shape conversion lives in `../utils/jsonSchemaToZod`,
+// shared with the standalone MCP server so the two converters cannot drift.
 // ============================================================================
 
 function buildMcpServer(
