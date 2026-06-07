@@ -209,6 +209,13 @@ describe('resolveEffectiveTools — auth + read-only floor (injected configured 
         assert.deepEqual(names(eff), ['read_a', 'read_c', 'write_b']);
     });
 
+    // Fourth 2×2 cell (#20): auth ∨ checkbox is an OR, not an XOR — ticking
+    // allowWriteWithoutAuth must never *reduce* an authenticated client's set.
+    test('authenticated + allowWriteWithoutAuth=true ⇒ full configured set (checkbox is a no-op when authed)', () => {
+        const eff = resolveEffectiveTools(configured, { authenticated: true, allowWriteWithoutAuth: true });
+        assert.deepEqual(names(eff), ['read_a', 'read_c', 'write_b']);
+    });
+
     test('unauthenticated + allowWriteWithoutAuth=true ⇒ full configured set', () => {
         const eff = resolveEffectiveTools(configured, { authenticated: false, allowWriteWithoutAuth: true });
         assert.deepEqual(names(eff), ['read_a', 'read_c', 'write_b']);
@@ -244,6 +251,15 @@ describe('resolveEffectiveMcpTools — full matrix against the real registry', (
 
     test('authenticated (matching bearer) ⇒ all configured tools', () => {
         const eff = resolveEffectiveMcpTools(settings(), 'sekret', env('sekret'));
+        assert.equal(eff.length, allCount);
+    });
+
+    // Fourth 2×2 cell (#20): a matching bearer AND the checkbox both on — auth
+    // already grants the full set, so the checkbox changes nothing.
+    test('authenticated + allowWriteWithoutAuth=true ⇒ all configured tools (auth supersedes the checkbox)', () => {
+        const eff = resolveEffectiveMcpTools(
+            settings({ allowWriteWithoutAuth: true }), 'sekret', env('sekret'),
+        );
         assert.equal(eff.length, allCount);
     });
 
