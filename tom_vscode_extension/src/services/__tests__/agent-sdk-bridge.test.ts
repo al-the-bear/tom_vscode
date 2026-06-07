@@ -383,3 +383,168 @@ describe('AgentSdkBridge — Dart-defined tools (sdk mcp servers)', () => {
         assert.match(String(last.params.error), /requestClient|reverse RPC|tool/i);
     });
 });
+
+// ============================================================================
+// canUseTool permission callback (todo #6) — the SDK approval callback wired
+// to call back into Dart over the #4 reverse RPC.
+//
+// The caller's serialized `options.canUseTool` is a *capability flag* (`true`),
+// not the function itself (proposal §7.7: callback-bearing fields cross the
+// wire as flags). When set, the bridge replaces it with a real callback that
+// issues an `agentSdk.canUseTool` reverse-RPC request `{streamId, toolName,
+// input, suggestions?}` and returns the awaited `PermissionResult` straight to
+// the SDK. Done-when: a round-trip shows the extension awaiting a Dart decision
+// and honouring allow (incl. `updatedInput`) vs deny.
+// ============================================================================
+
+/** The SDK-shaped canUseTool the fake query invokes mid-stream. */
+type CanUseToolFn = (
+    toolName: string,
+    input: Record<string, unknown>,
+    opts?: { signal?: AbortSignal; suggestions?: unknown },
+) => Promise<unknown>;
+
+/**
+ * A fake Agent SDK whose `query` invokes the installed `options.canUseTool`
+ * mid-stream (simulating the model requesting a tool) and yields the returned
+ * decision as a chunk, so the test can assert the decision round-tripped.
+ */
+function makeCanUseToolHarness(opts: {
+    permissionResult?: unknown;
+    omitRequestClient?: boolean;
+    /** The suggestions the SDK passes to canUseTool (forwarded to Dart). */
+    suggestions?: unknown;
+}): {
+    bridge: AgentSdkBridge;
+    notifications: RecordedNotification[];
+    finished: Promise<void>;
+    permissionCalls: RecordedToolCall[];
+    seenCanUseTool: { value?: CanUseToolFn };
+} {
+    const notifications: RecordedNotification[] = [];
+    const permissionCalls: RecordedToolCall[] = [];
+    const seenCanUseTool: { value?: CanUseToolFn } = {};
+    let resolveDone!: () => void;
+    const finished = new Promise<void>((res) => {
+        resolveDone = res;
+    });
+
+    const sdk: AgentSdkLike = {
+        query(params: { prompt: string; options?: Record<string, unknown> }) {
+            const canUseTool = params.options?.canUseTool as CanUseToolFn | undefined;
+            seenCanUseTool.value = canUseTool;
+            return (async function* (): AsyncIterable<unknown> {
+                yield { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'ls' } }] } };
+                if (typeof canUseTool === 'function') {
+                    const decision = await canUseTool('Bash', { command: 'ls' }, { suggestions: opts.suggestions });
+                    yield { type: 'permission_decision', decision };
+                }
+                yield { type: 'result', subtype: 'success' };
+            })();
+        },
+    };
+
+    const requestClient = opts.omitRequestClient
+        ? undefined
+        : async (method: string, params: Record<string, unknown>): Promise<unknown> => {
+              permissionCalls.push({ method, params });
+              return opts.permissionResult ?? { behavior: 'allow' };
+          };
+
+    const deps: AgentSdkBridgeDeps = {
+        loadSdk: async () => sdk,
+        sendNotification: (method, params) => {
+            notifications.push({ method, params });
+            if (params.done === true || params.error !== undefined) {
+                resolveDone();
+            }
+        },
+        requestClient,
+    };
+
+    return { bridge: new AgentSdkBridge(deps), notifications, finished, permissionCalls, seenCanUseTool };
+}
+
+/** Pulls the forwarded `permission_decision` chunk's decision payload. */
+function decisionFromChunks(notifications: RecordedNotification[]): unknown {
+    const chunk = notifications
+        .filter((n) => n.method === 'agentSdk.chunk')
+        .find((c) => (c.params.message as { type?: string } | undefined)?.type === 'permission_decision');
+    return (chunk?.params.message as { decision?: unknown } | undefined)?.decision;
+}
+
+describe('AgentSdkBridge — canUseTool permission callback', () => {
+    test('installs a callback that round-trips an allow decision (incl. updatedInput)', async () => {
+        const allow = { behavior: 'allow', updatedInput: { command: 'ls -la' } };
+        const h = makeCanUseToolHarness({ permissionResult: allow, suggestions: [{ type: 'setMode' }] });
+
+        await h.bridge.startQuery({
+            streamId: 'perm-1',
+            prompt: 'list files',
+            options: { canUseTool: true },
+        });
+        await h.finished;
+
+        // The SDK received a real callback (not the boolean flag).
+        assert.equal(typeof h.seenCanUseTool.value, 'function');
+
+        // The callback called back into Dart over the reverse RPC.
+        assert.equal(h.permissionCalls.length, 1);
+        assert.equal(h.permissionCalls[0].method, 'agentSdk.canUseTool');
+        assert.deepEqual(h.permissionCalls[0].params, {
+            streamId: 'perm-1',
+            toolName: 'Bash',
+            input: { command: 'ls' },
+            suggestions: [{ type: 'setMode' }],
+        });
+
+        // The awaited PermissionResult flowed back to the SDK verbatim.
+        assert.deepEqual(decisionFromChunks(h.notifications), allow);
+    });
+
+    test('round-trips a deny decision', async () => {
+        const deny = { behavior: 'deny', message: 'not allowed' };
+        const h = makeCanUseToolHarness({ permissionResult: deny });
+
+        await h.bridge.startQuery({ streamId: 'perm-2', prompt: 'go', options: { canUseTool: true } });
+        await h.finished;
+
+        assert.equal(h.permissionCalls.length, 1);
+        assert.deepEqual(decisionFromChunks(h.notifications), deny);
+    });
+
+    test('omits the suggestions param when the SDK provides none', async () => {
+        const h = makeCanUseToolHarness({ permissionResult: { behavior: 'allow' } });
+
+        await h.bridge.startQuery({ streamId: 'perm-3', prompt: 'go', options: { canUseTool: true } });
+        await h.finished;
+
+        assert.deepEqual(h.permissionCalls[0].params, {
+            streamId: 'perm-3',
+            toolName: 'Bash',
+            input: { command: 'ls' },
+        });
+    });
+
+    test('does not install a callback when no capability flag is set', async () => {
+        const h = makeCanUseToolHarness({});
+
+        await h.bridge.startQuery({ streamId: 'perm-4', prompt: 'go', options: { model: 'x' } });
+        await h.finished;
+
+        assert.equal(h.seenCanUseTool.value, undefined);
+        assert.equal(h.permissionCalls.length, 0);
+    });
+
+    test('a canUseTool flag with no requestClient dep fails the query', async () => {
+        const h = makeCanUseToolHarness({ omitRequestClient: true });
+
+        await h.bridge.startQuery({ streamId: 'perm-5', prompt: 'go', options: { canUseTool: true } });
+        await h.finished;
+
+        const chunks = h.notifications.filter((n) => n.method === 'agentSdk.chunk');
+        const last = chunks[chunks.length - 1];
+        assert.equal(last.params.streamId, 'perm-5');
+        assert.match(String(last.params.error), /requestClient|reverse RPC|canUseTool/i);
+    });
+});

@@ -296,15 +296,24 @@ void main() {
       expect(Options().toJson(), <String, dynamic>{});
     });
 
-    test('callback fields are not part of the JSON wire data', () {
+    test('canUseTool serializes as a capability flag, not the function', () {
+      // Proposal §7.7: callback-bearing fields cross the wire as capability
+      // flags. The extension installs the real callback (which calls back into
+      // Dart over the #4 reverse RPC) when it sees `canUseTool: true`.
       final o = Options(
         model: 'claude-x',
         canUseTool: (name, input, ctx) async => PermissionAllow(),
         onStderr: (line) {},
       );
-      expect(o.toJson().containsKey('canUseTool'), isFalse);
+      expect(o.toJson()['canUseTool'], isTrue);
+      // The function itself is never serialized, and onStderr stays out of
+      // scope (no capability flag yet).
       expect(o.toJson().containsKey('stderr'), isFalse);
       expect(o.canUseTool, isNotNull);
+    });
+
+    test('canUseTool flag is absent when no callback is supplied', () {
+      expect(Options(model: 'x').toJson().containsKey('canUseTool'), isFalse);
     });
   });
 }

@@ -752,6 +752,10 @@ class Options {
     put('debug', debug);
     put('debugFile', debugFile);
     put('loadTimeoutMs', loadTimeoutMs);
+    // Callback-bearing field: cross the wire as a capability flag (proposal
+    // §7.7), never the function. The extension installs a real callback that
+    // calls back into Dart over the #4 reverse RPC when it sees this flag.
+    if (canUseTool != null) put('canUseTool', true);
     return json;
   }
 }

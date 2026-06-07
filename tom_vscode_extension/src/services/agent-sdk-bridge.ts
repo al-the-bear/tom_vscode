@@ -80,6 +80,19 @@ export interface AgentSdkBridgeDeps {
 /** The wire method a Dart-defined tool handler is invoked over. */
 const TOOL_CALL_METHOD = 'agentSdk.toolCall';
 
+/** The wire method the Dart `canUseTool` approval callback is invoked over. */
+const CAN_USE_TOOL_METHOD = 'agentSdk.canUseTool';
+
+/**
+ * The SDK-shaped `canUseTool` callback the bridge installs in place of the
+ * caller's capability flag. Returns the awaited `PermissionResult` JSON.
+ */
+type CanUseToolCallback = (
+    toolName: string,
+    input: Record<string, unknown>,
+    opts?: { signal?: AbortSignal; suggestions?: unknown },
+) => Promise<unknown>;
+
 /** A serialized in-process ("sdk") MCP server descriptor (`McpSdkServerConfig`). */
 interface SdkServerDescriptor {
     type: 'sdk';
@@ -152,6 +165,13 @@ export class AgentSdkBridge {
                     mcpServers as Record<string, unknown>,
                     { streamId, signal: abortController.signal },
                 );
+            }
+            // A `canUseTool` capability flag (proposal §7.7) means the caller
+            // wants the SDK's approval callback routed back into Dart. Replace
+            // the flag with a real callback that issues an `agentSdk.canUseTool`
+            // reverse-RPC request and returns the awaited PermissionResult.
+            if (options.canUseTool) {
+                options.canUseTool = this.buildCanUseTool(streamId, abortController.signal);
             }
             stream = sdk.query({ prompt, options });
         } catch (err) {
@@ -229,6 +249,30 @@ export class AgentSdkBridge {
             version: descriptor.version ?? '1.0.0',
             tools,
         });
+    }
+
+    /**
+     * Build the SDK `canUseTool` callback for a query. Each invocation issues an
+     * `agentSdk.canUseTool` request over the reverse RPC and returns the awaited
+     * `PermissionResult` straight to the SDK, so the Dart client owns the
+     * allow/deny decision (incl. `updatedInput`).
+     */
+    private buildCanUseTool(streamId: string, signal: AbortSignal): CanUseToolCallback {
+        const requestClient = this.deps.requestClient;
+        if (!requestClient) {
+            throw new Error(
+                `Cannot honour canUseTool: no requestClient (reverse RPC) is configured on this bridge`,
+            );
+        }
+        return async (toolName, input, opts) => {
+            const params: Record<string, unknown> = { streamId, toolName, input };
+            // Forward the SDK's permission suggestions so the Dart callback's
+            // `context.suggestions` resolves; omit when absent.
+            if (opts && opts.suggestions !== undefined) {
+                params.suggestions = opts.suggestions;
+            }
+            return requestClient(CAN_USE_TOOL_METHOD, params, { signal });
+        };
     }
 
     /** Abort the query identified by [streamId]. Idempotent. */

@@ -23,6 +23,8 @@ import 'dart:async';
 
 import 'agent_sdk_messages.dart';
 import 'agent_sdk_options.dart';
+import 'agent_sdk_permission_dispatch.dart';
+import 'agent_sdk_permissions.dart';
 import 'agent_sdk_tool_registry.dart';
 import 'vscode_bridge_client.dart';
 
@@ -59,6 +61,18 @@ abstract class AgentSdkTransport {
   /// Removes the tool registry for [streamId] (on query completion/cancel).
   /// Default: no-op.
   void unregisterTools(String streamId) {}
+
+  /// Registers [callback] so incoming `agentSdk.canUseTool` requests for
+  /// [streamId] are dispatched to the query's [CanUseTool] approval callback
+  /// (todo #6).
+  ///
+  /// Default: no-op — only the reverse-RPC-capable transport
+  /// ([VSCodeBridgeAgentSdkTransport]) needs to act on it.
+  void registerCanUseTool(String streamId, CanUseTool callback) {}
+
+  /// Removes the canUseTool callback for [streamId] (on query completion/cancel).
+  /// Default: no-op.
+  void unregisterCanUseTool(String streamId) {}
 }
 
 /// Thrown into an [AgentQuery]'s stream when the extension reports a query
@@ -117,11 +131,18 @@ class AgentSdkClient {
     final toolRegistry = AgentSdkToolRegistry();
     final hasTools = toolRegistry.addServers(options?.mcpServers);
 
+    // The caller's `canUseTool` approval callback, dispatched over the reverse
+    // RPC whenever the model requests a tool (todo #6).
+    final canUseTool = options?.canUseTool;
+
     Future<void> finish({bool cancelRemote = false}) async {
       if (finished) return;
       finished = true;
       if (hasTools) {
         transport.unregisterTools(streamId);
+      }
+      if (canUseTool != null) {
+        transport.unregisterCanUseTool(streamId);
       }
       await sub?.cancel();
       if (cancelRemote) {
@@ -163,6 +184,12 @@ class AgentSdkClient {
       // cannot arrive before the registry is in place.
       if (hasTools) {
         transport.registerTools(streamId, toolRegistry);
+      }
+
+      // Likewise register the approval callback before starting so an early
+      // `agentSdk.canUseTool` request has a handler.
+      if (canUseTool != null) {
+        transport.registerCanUseTool(streamId, canUseTool);
       }
 
       transport.startQuery({
@@ -219,6 +246,14 @@ class VSCodeBridgeAgentSdkTransport implements AgentSdkTransport {
   /// Whether the single `agentSdk.toolCall` request handler is installed.
   bool _toolHandlerRegistered = false;
 
+  /// Per-stream `canUseTool` callbacks, routed to by an incoming
+  /// `agentSdk.canUseTool` request's `streamId`. One method-keyed handler
+  /// serves every concurrent query.
+  final Map<String, CanUseTool> _canUseToolHandlers = {};
+
+  /// Whether the single `agentSdk.canUseTool` request handler is installed.
+  bool _canUseToolHandlerRegistered = false;
+
   VSCodeBridgeAgentSdkTransport(this.client);
 
   @override
@@ -260,5 +295,31 @@ class VSCodeBridgeAgentSdkTransport implements AgentSdkTransport {
       throw ArgumentError('No tool registry for streamId "$streamId"');
     }
     return registry.handleToolCall(params);
+  }
+
+  @override
+  void registerCanUseTool(String streamId, CanUseTool callback) {
+    _canUseToolHandlers[streamId] = callback;
+    if (!_canUseToolHandlerRegistered) {
+      _canUseToolHandlerRegistered = true;
+      // One method-keyed handler routes by streamId, so concurrent queries
+      // (each with its own callback) share the single `agentSdk.canUseTool` hook.
+      client.registerRequestHandler('agentSdk.canUseTool', _dispatchCanUseTool);
+    }
+  }
+
+  @override
+  void unregisterCanUseTool(String streamId) {
+    _canUseToolHandlers.remove(streamId);
+  }
+
+  /// Routes an incoming `agentSdk.canUseTool` to the callback for its `streamId`.
+  Future<Object?> _dispatchCanUseTool(Map<String, dynamic> params) {
+    final streamId = params['streamId'] as String?;
+    final callback = _canUseToolHandlers[streamId];
+    if (callback == null) {
+      throw ArgumentError('No canUseTool handler for streamId "$streamId"');
+    }
+    return dispatchCanUseTool(callback, params);
   }
 }

@@ -20,6 +20,8 @@ class _FakeAgentSdkTransport implements AgentSdkTransport {
   final List<String> cancelledStreams = [];
   final Map<String, AgentSdkToolRegistry> registeredTools = {};
   final List<String> unregisteredTools = [];
+  final Map<String, CanUseTool> registeredCanUseTool = {};
+  final List<String> unregisteredCanUseTool = [];
 
   /// Push a simulated chunk notification (already unwrapped `params`).
   void emit(Map<String, dynamic> chunk) => _chunks.add(chunk);
@@ -45,6 +47,16 @@ class _FakeAgentSdkTransport implements AgentSdkTransport {
   @override
   void unregisterTools(String streamId) {
     unregisteredTools.add(streamId);
+  }
+
+  @override
+  void registerCanUseTool(String streamId, CanUseTool callback) {
+    registeredCanUseTool[streamId] = callback;
+  }
+
+  @override
+  void unregisterCanUseTool(String streamId) {
+    unregisteredCanUseTool.add(streamId);
   }
 
   Future<void> dispose() => _chunks.close();
@@ -242,6 +254,47 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       expect(transport.registeredTools, isEmpty);
+      await sub.cancel();
+      await transport.dispose();
+    });
+  });
+
+  group('AgentSdkClient.query — canUseTool', () {
+    test('registers the canUseTool callback on start and unregisters on finish',
+        () async {
+      final transport = _FakeAgentSdkTransport();
+      final client = AgentSdkClient(transport);
+
+      final q = client.query(
+        prompt: 'go',
+        options: Options(
+          canUseTool: (name, input, ctx) async => PermissionAllow(),
+        ),
+      );
+      final done = Completer<void>();
+      final sub = q.listen((_) {}, onDone: done.complete);
+      await Future<void>.delayed(Duration.zero);
+
+      final streamId = transport.startedQueries.single['streamId'] as String;
+      expect(transport.registeredCanUseTool.containsKey(streamId), isTrue);
+
+      transport.emit({'streamId': streamId, 'done': true});
+      await done.future;
+
+      expect(transport.unregisteredCanUseTool, contains(streamId));
+      await sub.cancel();
+      await transport.dispose();
+    });
+
+    test('does not register canUseTool when no callback is supplied', () async {
+      final transport = _FakeAgentSdkTransport();
+      final client = AgentSdkClient(transport);
+
+      final q = client.query(prompt: 'go', options: Options(model: 'x'));
+      final sub = q.listen((_) {});
+      await Future<void>.delayed(Duration.zero);
+
+      expect(transport.registeredCanUseTool, isEmpty);
       await sub.cancel();
       await transport.dispose();
     });

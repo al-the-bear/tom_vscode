@@ -47,6 +47,10 @@ export 'src/bridge_request_dispatcher.dart';
 // `agentSdk.toolCall` requests to a query's in-process `tool()` handlers.
 export 'src/agent_sdk_tool_registry.dart';
 
+// canUseTool permission callback (todo #6): pure dispatch that turns an
+// incoming `agentSdk.canUseTool` request into a `CanUseTool` invocation.
+export 'src/agent_sdk_permission_dispatch.dart';
+
 // AI APIs (local LLM prompt processing & bot conversation)
 export 'src/ai_prompt_api.dart';
 export 'src/ai_conversation_api.dart';
