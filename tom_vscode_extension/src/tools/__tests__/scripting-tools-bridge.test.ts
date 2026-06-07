@@ -33,6 +33,7 @@ import {
     invokeToolByName,
     invokeAllowedTool,
     activeProfileToolNames,
+    resolveActiveProfileToolNames,
 } from '../scripting-tools-bridge.js';
 
 describe('resolveProfileTools — active profile drives the tool set', () => {
@@ -95,12 +96,48 @@ describe('activeProfileToolNames — single source for list + gate', () => {
     ): SendToChatConfig =>
         ({ sendToChatTarget: target, anthropic: { profiles } } as unknown as SendToChatConfig);
 
+    // The four cases todo #3 enumerates for the active-profile resolution.
+
     test('copilot target → empty set regardless of profiles', () => {
         const names = activeProfileToolNames(
             cfgWith([{ id: 'p1', toolsEnabled: true }], 'copilot'),
             'p1',
         );
         assert.equal(names.size, 0);
+    });
+
+    test('toolsEnabled → all tool names', () => {
+        const explicit = activeProfileToolNames(
+            cfgWith([{ id: 'p1', toolsEnabled: true }]),
+            'p1',
+        );
+        assert.equal(explicit.size, ALL_SHARED_TOOLS.length);
+        // Missing flag defaults to enabled → all tools.
+        const implied = activeProfileToolNames(cfgWith([{ id: 'p1' }]), 'p1');
+        assert.equal(implied.size, ALL_SHARED_TOOLS.length);
+    });
+
+    test('enabledTools allow-list → subset', () => {
+        const pick = ALL_SHARED_TOOLS[0].name;
+        const names = activeProfileToolNames(
+            cfgWith([{ id: 'p1', toolsEnabled: false, enabledTools: [pick, '__nope__'] }]),
+            'p1',
+        );
+        assert.deepEqual([...names], [pick]);
+    });
+
+    test('empty allow-list (or missing) → empty set', () => {
+        const emptyList = activeProfileToolNames(
+            cfgWith([{ id: 'p1', toolsEnabled: false, enabledTools: [] }]),
+            'p1',
+        );
+        assert.equal(emptyList.size, 0);
+        // Missing allow-list is treated as empty.
+        const missingList = activeProfileToolNames(
+            cfgWith([{ id: 'p1', toolsEnabled: false }]),
+            'p1',
+        );
+        assert.equal(missingList.size, 0);
     });
 
     test('no profiles → all tools (undefined profile)', () => {
@@ -139,6 +176,21 @@ describe('activeProfileToolNames — single source for list + gate', () => {
             'missing',
         );
         assert.deepEqual([...byFirst], [pick]);
+    });
+});
+
+describe('resolveActiveProfileToolNames — context wrapper delegates to the resolver', () => {
+    // The context-bound wrapper reads the live config + the workspaceState
+    // active-profile id, then defers to activeProfileToolNames. With no config
+    // file in the test env the resolver sees no profiles → all tools, proving
+    // the wrapper plumbs the injected context through without its own filtering.
+    const fakeContext = {
+        workspaceState: { get: <T>(_k: string, d?: T): T => d as T },
+    } as unknown as vscode.ExtensionContext;
+
+    test('no config on disk → all tool names', () => {
+        const names = resolveActiveProfileToolNames(fakeContext);
+        assert.equal(names.size, ALL_SHARED_TOOLS.length);
     });
 });
 
