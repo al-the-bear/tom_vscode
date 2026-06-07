@@ -639,6 +639,7 @@ export class DartBridgeClient {
                 case 'tools.invokeVce':
                     result = {
                         result: await invokeToolByName(
+                            this.context,
                             String(params.name || ''),
                             (params.arguments ?? {}) as Record<string, unknown>,
                         ),

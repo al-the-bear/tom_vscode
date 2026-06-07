@@ -21,6 +21,7 @@
 import * as vscode from 'vscode';
 import {
     AnthropicTool,
+    SharedToolDefinition,
     toAnthropicTools,
     executeToolCall,
 } from './shared-tool-registry';
@@ -126,20 +127,58 @@ export function getActiveProfileToolsJson(context: vscode.ExtensionContext): Ant
 }
 
 /**
- * Universally invoke a registered tool by name.
+ * Gate + execute a tool against an explicit allow-set and registry.
  *
- * @param name  The tool name (e.g. 'tomAi_readFile').
- * @param args  The tool's argument object (already parsed JSON).
- * @returns The tool's string result, or an error string for unknown tools /
- *          execution failures (mirrors executeToolCall's contract).
+ * Refuses any name not in `allowed` **before** the executor runs, returning
+ * an error string instead. Pure of `vscode`/config — the allow-set and the
+ * registry are injected — so the gate is unit-testable in isolation (mirrors
+ * the `apiKeyAuthHeader` test seam).
+ *
+ * @param allowed   Tool names the caller is permitted to invoke.
+ * @param registry  Tool definitions to dispatch against.
+ * @param name      The requested tool name.
+ * @param args      The tool's argument object (already parsed JSON).
+ * @returns The tool's string result, or an error string for disallowed /
+ *          unknown tools / execution failures.
  */
-export async function invokeToolByName(
+export async function invokeAllowedTool(
+    allowed: Set<string>,
+    registry: SharedToolDefinition[],
     name: string,
     args: Record<string, unknown>,
 ): Promise<string> {
+    if (!allowed.has(name)) {
+        return `Error: tool "${name}" is not permitted by the active Anthropic profile `
+            + `(or the Send-to-Chat target is 'copilot').`;
+    }
     return runWithToolContext({ source: 'anthropic', requestId: `script-${Date.now()}` }, () =>
-        executeToolCall(ALL_SHARED_TOOLS, {
+        executeToolCall(registry, {
             function: { name, arguments: args ?? {} },
         }),
     );
+}
+
+/**
+ * Universally invoke a registered tool by name, gated by the active Anthropic
+ * profile.
+ *
+ * The allowed set is resolved server-side from the current profile
+ * ({@link resolveActiveProfileToolNames}); a name the profile hides — or any
+ * name while the Send-to-Chat target is `copilot` — is refused before the
+ * executor runs. Enforcement lives here in the extension so a buggy or
+ * malicious Dart client cannot bypass it by passing an arbitrary name.
+ *
+ * @param context  Extension context (carries the active-profile selection).
+ * @param name     The tool name (e.g. 'tomAi_readFile').
+ * @param args     The tool's argument object (already parsed JSON).
+ * @returns The tool's string result, or an error string for disallowed /
+ *          unknown tools / execution failures.
+ */
+export async function invokeToolByName(
+    context: vscode.ExtensionContext,
+    name: string,
+    args: Record<string, unknown>,
+): Promise<string> {
+    const allowed = resolveActiveProfileToolNames(context);
+    return invokeAllowedTool(allowed, ALL_SHARED_TOOLS, name, args);
 }

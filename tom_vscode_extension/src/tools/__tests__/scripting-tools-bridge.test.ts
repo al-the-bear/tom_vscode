@@ -23,11 +23,17 @@ import assert from 'node:assert/strict';
 import { installVscodeStub } from './_vscode-stub.js';
 installVscodeStub({});
 
+import type * as vscode from 'vscode';
 import { ALL_SHARED_TOOLS, resolveProfileTools } from '../tool-executors.js';
 import { toAnthropicTools } from '../shared-tool-registry.js';
+import type { SharedToolDefinition } from '../shared-tool-registry.js';
 import { getSendToChatTarget } from '../../utils/sendToChatConfig.js';
 import type { SendToChatConfig } from '../../utils/sendToChatConfig.js';
-import { invokeToolByName, activeProfileToolNames } from '../scripting-tools-bridge.js';
+import {
+    invokeToolByName,
+    invokeAllowedTool,
+    activeProfileToolNames,
+} from '../scripting-tools-bridge.js';
 
 describe('resolveProfileTools — active profile drives the tool set', () => {
     test('undefined profile → all tools', () => {
@@ -159,9 +165,70 @@ describe('getActiveProfileToolsJson — listing behaviour unchanged by the refac
         }));
 });
 
-describe('invokeToolByName — universal invoke contract', () => {
-    test('unknown tool returns the registry error string (no throw)', async () => {
-        const result = await invokeToolByName('__no_such_tool__', {});
+describe('invokeAllowedTool — gate runs before the executor', () => {
+    const spyTool = (
+        name: string,
+        onExecute: () => void,
+        result = 'ok',
+    ): SharedToolDefinition => ({
+        name,
+        displayName: name,
+        description: name,
+        inputSchema: { type: 'object', properties: {} },
+        tags: [],
+        readOnly: true,
+        execute: async (): Promise<string> => {
+            onExecute();
+            return result;
+        },
+    });
+
+    test('disallowed name → error string, executor never called', async () => {
+        let called = false;
+        const registry = [spyTool('allowed_tool', () => { called = true; })];
+        const result = await invokeAllowedTool(
+            new Set(['allowed_tool']),
+            registry,
+            'forbidden_tool',
+            {},
+        );
+        assert.match(result, /not permitted by the active Anthropic profile/);
+        assert.equal(called, false);
+    });
+
+    test('allowed name → executor runs, returns its result', async () => {
+        let called = false;
+        const registry = [spyTool('allowed_tool', () => { called = true; }, 'TOOL-RESULT')];
+        const result = await invokeAllowedTool(
+            new Set(['allowed_tool']),
+            registry,
+            'allowed_tool',
+            {},
+        );
+        assert.equal(called, true);
+        assert.equal(result, 'TOOL-RESULT');
+    });
+
+    test('allowed but absent from registry → executor reports the unknown tool', async () => {
+        const result = await invokeAllowedTool(
+            new Set(['__no_such_tool__']),
+            [],
+            '__no_such_tool__',
+            {},
+        );
         assert.equal(result, 'Error: unknown tool "__no_such_tool__"');
+    });
+});
+
+describe('invokeToolByName — context-gated invoke', () => {
+    // No config file in the test env → all tools allowed; an unknown name is
+    // therefore refused by the gate before it can reach the executor.
+    const fakeContext = {
+        workspaceState: { get: <T>(_k: string, d?: T): T => d as T },
+    } as unknown as vscode.ExtensionContext;
+
+    test('a name absent from the registry is refused by the gate (no throw)', async () => {
+        const result = await invokeToolByName(fakeContext, '__no_such_tool__', {});
+        assert.match(result, /not permitted by the active Anthropic profile/);
     });
 });
