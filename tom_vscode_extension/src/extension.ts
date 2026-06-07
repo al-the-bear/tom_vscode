@@ -91,7 +91,7 @@ import {
     McpServerController,
     defaultMcpServerStarter,
     setActiveMcpServerController,
-    NULL_MCP_TRAIL_SINK,
+    createTrailServiceMcpSink,
 } from './handlers/mcpServer-handler';
 import { refreshStatusPage } from './handlers/statusPage-handler';
 import { getMcpServerSettings } from './utils/sendToChatConfig';
@@ -586,7 +586,9 @@ export async function activate(context: vscode.ExtensionContext) {
         // card refreshes on every start/stop. Disposed on deactivate + on config
         // change (see registerCommands).
         mcpServerController = new McpServerController({
-            start: defaultMcpServerStarter(NULL_MCP_TRAIL_SINK),
+            start: defaultMcpServerStarter(
+                createTrailServiceMcpSink(wsWindowId, WsPaths.getWorkspaceQuestId()),
+            ),
             onChange: () => { void refreshStatusPage(); },
         });
         setActiveMcpServerController(mcpServerController);

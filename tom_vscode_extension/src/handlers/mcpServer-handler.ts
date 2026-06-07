@@ -20,12 +20,14 @@
  *     Agent SDK's `createSdkMcpServer`/`sdk.tool` shape and carries chat-only
  *     state (`toolTrail` round), neither of which apply to an external client.
  *
- * Trail decoupling: the trail target is **injected** (`McpToolTrailSink`) rather
- * than calling `TrailService` directly. `TrailService` is `vscode`-bound and its
- * `TrailSubsystem` union has no `mcp` member yet; introducing one touches
- * `trailService.ts` / `trailSubsystems.ts` (out of #16's file scope). #19 wires
- * the production sink. Injection also keeps this module `vscode`-free and unit-
- * testable under plain `node:test`.
+ * Trail decoupling: the trail target is **injected** (`McpToolTrailSink`) so the
+ * registry → MCP wiring stays decoupled from `TrailService`. The production sink
+ * (`createTrailServiceMcpSink`, todo #3) backs it with `TrailService` against the
+ * `{type:'mcp'}` subsystem (added in #1) and is the ONLY place here that touches
+ * `TrailService`; the rest of the module stays `vscode`-free. The sink's
+ * `TrailService` writer is itself injectable so the factory is unit-testable
+ * without standing up the vscode-bound singleton; `extension.ts` composes it
+ * with the real instance + the window id / quest id.
  */
 
 import * as http from 'node:http';
@@ -40,6 +42,9 @@ import type { ResolvedMcpServerSettings } from '../utils/sendToChatConfig';
 import type { McpServerRuntimeStatus } from '../utils/mcpServerCard';
 import { toRawShape } from '../utils/jsonSchemaToZod';
 import { runWithToolContext } from '../services/tool-execution-context';
+import { TrailService } from '../services/trailService';
+import type { TrailSubsystem } from '../services/trailService';
+import { MCP_SUBSYSTEM } from '../services/trailSubsystems';
 
 /** MCP server identity advertised to clients. Matches the Agent SDK path. */
 export const MCP_SERVER_NAME = 'tom-ai';
@@ -77,6 +82,34 @@ export const NULL_MCP_TRAIL_SINK: McpToolTrailSink = {
     writeAnswer() { /* no-op */ },
 };
 
+/**
+ * The minimal `TrailService` surface {@link createTrailServiceMcpSink} needs.
+ * Injecting it (rather than reaching for `TrailService.instance` inline) keeps
+ * the factory unit-testable without standing up the vscode-bound singleton.
+ */
+export interface McpTrailWriter {
+    writeRawToolRequest(subsystem: TrailSubsystem, request: object, windowId: string, questId?: string): void;
+    writeRawToolAnswer(subsystem: TrailSubsystem, response: object, windowId: string, questId?: string): void;
+}
+
+/**
+ * Production trail sink: forwards each MCP tool request/answer to `TrailService`
+ * against the `{type:'mcp'}` subsystem, so external tool calls land in the same
+ * `mcp/` trail folder as the rest of the per-window trail. `windowId`/`questId`
+ * are threaded through to scope the entries; `writer` defaults to the live
+ * singleton but is injectable for tests.
+ */
+export function createTrailServiceMcpSink(
+    windowId: string,
+    questId?: string,
+    writer: McpTrailWriter = TrailService.instance,
+): McpToolTrailSink {
+    return {
+        writeRequest: (entry) => writer.writeRawToolRequest(MCP_SUBSYSTEM, entry, windowId, questId),
+        writeAnswer: (entry) => writer.writeRawToolAnswer(MCP_SUBSYSTEM, entry, windowId, questId),
+    };
+}
+
 /** The callback shape `McpServer.registerTool` invokes for each tool call. */
 export type McpToolCallback = (args: Record<string, unknown> | undefined) => Promise<CallToolResult>;
 
@@ -97,7 +130,7 @@ export function makeMcpToolCallback(def: SharedToolDefinition, sink: McpToolTrai
         let error: string | undefined;
         try {
             result = await runWithToolContext(
-                { source: 'anthropic', requestId: `mcp-${Date.now()}` },
+                { source: 'mcp', requestId: `mcp-${Date.now()}` },
                 () => def.execute(input),
             );
         } catch (e) {

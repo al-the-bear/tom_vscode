@@ -40,10 +40,12 @@ import type { ResolvedMcpServerSettings } from '../sendToChatConfig.js';
 import { getCurrentToolContext } from '../../services/tool-execution-context.js';
 import {
     McpToolTrailSink,
+    McpTrailWriter,
     NULL_MCP_TRAIL_SINK,
     RunningMcpServer,
     BuiltMcpServer,
     makeMcpToolCallback,
+    createTrailServiceMcpSink,
     buildToolMcpServer,
     isMcpAuthenticated,
     resolveEffectiveTools,
@@ -55,6 +57,8 @@ import {
     setActiveMcpServerController,
     getMcpServerStatus,
 } from '../../handlers/mcpServer-handler.js';
+import { MCP_SUBSYSTEM } from '../../services/trailSubsystems.js';
+import type { TrailSubsystem } from '../../services/trailService.js';
 import type { McpServerRuntimeStatus } from '../mcpServerCard.js';
 
 /** A trail sink that records every request/answer for assertions. */
@@ -113,7 +117,7 @@ describe('makeMcpToolCallback — trail + execution', () => {
         assert.deepEqual(result.content, [{ type: 'text', text: 'echoed:hi' }]);
     });
 
-    test('runs the executor inside runWithToolContext (tools can read the source)', async () => {
+    test('runs the executor inside runWithToolContext with source "mcp" (tools can read the source)', async () => {
         const sink = spySink();
         let seenSource: string | undefined;
         const def = fakeTool('tomAi_ctx', async () => {
@@ -123,7 +127,9 @@ describe('makeMcpToolCallback — trail + execution', () => {
 
         await makeMcpToolCallback(def, sink)({});
 
-        assert.equal(seenSource, 'anthropic');
+        // External MCP tool calls are attributable as 'mcp' (todo #3), not the
+        // Agent-SDK 'anthropic' source the in-process path uses.
+        assert.equal(seenSource, 'mcp');
         // Context is popped after execution.
         assert.equal(getCurrentToolContext(), undefined);
     });
@@ -172,6 +178,89 @@ describe('buildToolMcpServer — registration', () => {
         const built = buildToolMcpServer([], spySink());
         assert.deepEqual(built.toolNames, []);
         assert.equal(typeof built.server.connect, 'function');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Trail-backed sink (todo #3). The production sink forwards each request/answer
+// to `TrailService` against the `{type:'mcp'}` subsystem (added in #1), so an
+// external MCP tool call produces a real `mcp/` trail request+answer pair. The
+// `TrailService` writer is injected so the factory is tested without standing up
+// the vscode-bound singleton; extension.ts composes it with the real instance.
+// ---------------------------------------------------------------------------
+
+describe('createTrailServiceMcpSink — forwards entries to TrailService', () => {
+    /** A TrailService writer double recording every forwarded call. */
+    function spyWriter(): McpTrailWriter & {
+        requests: Array<{ subsystem: TrailSubsystem; request: object; windowId: string; questId?: string }>;
+        answers: Array<{ subsystem: TrailSubsystem; response: object; windowId: string; questId?: string }>;
+    } {
+        const requests: Array<{ subsystem: TrailSubsystem; request: object; windowId: string; questId?: string }> = [];
+        const answers: Array<{ subsystem: TrailSubsystem; response: object; windowId: string; questId?: string }> = [];
+        return {
+            requests,
+            answers,
+            writeRawToolRequest: (subsystem, request, windowId, questId) => {
+                requests.push({ subsystem, request, windowId, questId });
+            },
+            writeRawToolAnswer: (subsystem, response, windowId, questId) => {
+                answers.push({ subsystem, response, windowId, questId });
+            },
+        };
+    }
+
+    test('writeRequest forwards to writeRawToolRequest with MCP_SUBSYSTEM and threaded ids', () => {
+        const writer = spyWriter();
+        const sink = createTrailServiceMcpSink('win_abc', 'quest_x', writer);
+
+        const entry = { id: 'tomAi_echo-1', name: 'tomAi_echo', input: { x: 'hi' } };
+        sink.writeRequest(entry);
+
+        assert.equal(writer.requests.length, 1);
+        assert.deepEqual(writer.requests[0].subsystem, MCP_SUBSYSTEM);
+        assert.equal(writer.requests[0].subsystem.type, 'mcp');
+        assert.deepEqual(writer.requests[0].request, entry);
+        assert.equal(writer.requests[0].windowId, 'win_abc');
+        assert.equal(writer.requests[0].questId, 'quest_x');
+        assert.equal(writer.answers.length, 0);
+    });
+
+    test('writeAnswer forwards to writeRawToolAnswer with MCP_SUBSYSTEM and threaded ids', () => {
+        const writer = spyWriter();
+        const sink = createTrailServiceMcpSink('win_abc', 'quest_x', writer);
+
+        const entry = { name: 'tomAi_echo', result: 'echoed:hi', durationMs: 3 };
+        sink.writeAnswer(entry);
+
+        assert.equal(writer.answers.length, 1);
+        assert.deepEqual(writer.answers[0].subsystem, MCP_SUBSYSTEM);
+        assert.equal(writer.answers[0].subsystem.type, 'mcp');
+        assert.deepEqual(writer.answers[0].response, entry);
+        assert.equal(writer.answers[0].windowId, 'win_abc');
+        assert.equal(writer.answers[0].questId, 'quest_x');
+        assert.equal(writer.requests.length, 0);
+    });
+
+    test('a tool call through buildToolMcpServer writes a request+answer pair to the trail', async () => {
+        const writer = spyWriter();
+        const sink = createTrailServiceMcpSink('win_abc', 'quest_x', writer);
+        const echo = fakeTool('tomAi_echo', async (input) => `echoed:${input.x}`);
+        const { server } = buildToolMcpServer([echo], sink);
+        const client = await connectInMemory(server);
+
+        try {
+            await client.callTool({ name: 'tomAi_echo', arguments: { x: 'hi' } });
+
+            assert.equal(writer.requests.length, 1);
+            assert.equal((writer.requests[0].request as { name: string }).name, 'tomAi_echo');
+            assert.equal(writer.requests[0].subsystem.type, 'mcp');
+            assert.equal(writer.answers.length, 1);
+            assert.equal((writer.answers[0].response as { result: string }).result, 'echoed:hi');
+            assert.equal(writer.answers[0].subsystem.type, 'mcp');
+        } finally {
+            await client.close();
+            await server.close();
+        }
     });
 });
 
