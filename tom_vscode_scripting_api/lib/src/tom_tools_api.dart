@@ -9,6 +9,23 @@
 ///   a prompt. The set reflects the currently active Anthropic profile's tool
 ///   settings. When the configured Send-to-Chat target is Copilot, the list
 ///   is empty.
+///
+/// ## Gating contract (enforced server-side)
+///
+/// Both the listing ([getToolsJson]) and the invocation ([invokeTool]) are
+/// scoped to the **currently active Anthropic profile**:
+///
+/// - The available tools are exactly the profile's tool set
+///   (`toolsEnabled` / `enabledTools`).
+/// - When the Send-to-Chat target is Copilot, **no** tools are available — the
+///   list is empty and every invoke is refused.
+///
+/// The gate lives **inside the VS Code extension**, not in this Dart API. This
+/// package is a thin pass-through: it performs **no** client-side filtering and
+/// adds no checks of its own. A tool the active profile hides cannot be invoked
+/// by passing its name to [invokeTool] — the extension refuses it before the
+/// executor runs and returns an error string. The extension is the single
+/// authority, so a buggy or malicious client cannot widen its own access.
 // ignore_for_file: avoid_classes_with_only_static_members
 library;
 
@@ -77,6 +94,14 @@ abstract class TomToolsApi {
   /// tool's argument map. Returns the tool's string result; unknown tools and
   /// execution failures surface as an error string (the tool registry never
   /// throws across the bridge for these cases).
+  ///
+  /// **Gated by the active Anthropic profile, enforced server-side.** Only
+  /// tools the current profile permits can be invoked; a name the profile hides
+  /// — or any name while the Send-to-Chat target is Copilot — is refused inside
+  /// the extension **before** the executor runs, returning an error string.
+  /// This package applies no filtering of its own; the extension is the sole
+  /// authority. The set of invokable tools matches the names returned by
+  /// [getToolsJson].
   static Future<String> invokeTool(
     String name, [
     Map<String, dynamic> arguments = const {},
@@ -93,6 +118,11 @@ abstract class TomToolsApi {
   /// Reflects the currently active Anthropic profile's tool settings
   /// (`toolsEnabled` / `enabledTools`). Returns an empty list when the
   /// configured Send-to-Chat target is Copilot.
+  ///
+  /// The returned set is resolved **server-side** by the extension and is the
+  /// authoritative list of invokable tools: the same gate scopes [invokeTool],
+  /// so a name absent from this list cannot be invoked. No Dart-side filtering
+  /// is applied here.
   static Future<List<ToolDefinitionJson>> getToolsJson() async {
     final result = await _requireAdapter.sendRequest('tools.getJsonVce', {});
     final tools = result['tools'] as List? ?? [];
