@@ -93,6 +93,10 @@ describe('renderMcpServerCard — controls bound to mcpServer config', () => {
         assert.match(html, /data-status-action="stopMcpServer"/);
     });
 
+    test('renders a Save button that triggers the saveMcpServer gather (#12)', () => {
+        assert.match(html, /data-status-action="saveMcpServer"/);
+    });
+
     test('renders a tool checkbox per option, checked only for enabledTools', () => {
         assert.match(html, /data-mcp-tool="tomAi_readFile"[^>]*checked/);
         assert.match(html, /data-mcp-tool="tomAi_applyEdit"/);

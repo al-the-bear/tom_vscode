@@ -178,5 +178,8 @@ export function renderMcpServerCard(model: McpServerCardModel, toolNames: readon
             <label style="font-weight:bold;margin-bottom:4px;display:block">Enabled Tools:</label>
             <div class="sp-tools-grid">${renderToolCheckboxes(toolNames, model.enabledTools)}</div>
         </div>
+        <div class="sp-controls" style="margin-top:8px">
+            <button class="sp-btn primary" data-status-action="saveMcpServer">Save MCP Settings</button>
+        </div>
     </div>`;
 }
