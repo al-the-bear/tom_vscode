@@ -39,6 +39,10 @@ export 'src/agent_sdk_options.dart';
 // stream, the transport seam, and the bridge-backed transport.
 export 'src/agent_sdk_query.dart';
 
+// Bidirectional RPC primitive (todo #4): client half that routes incoming
+// server→client requests to registered handlers and replies over the socket.
+export 'src/bridge_request_dispatcher.dart';
+
 // AI APIs (local LLM prompt processing & bot conversation)
 export 'src/ai_prompt_api.dart';
 export 'src/ai_conversation_api.dart';

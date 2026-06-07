@@ -1,37 +1,44 @@
-ID,Groups,Description,Baseline [06-07 11:24],[06-07 17:32],[06-07 17:57],[06-07 18:42],[06-07 18:58]
-,enums map to their SDK wire strings,PermissionDecisionClassification uses snake_case wire,--/OK,--/OK,--/OK,OK/OK,OK/OK
-,TomToolsApi.listAllowedToolNames,empty / missing tools list yields an empty name list,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,TomToolsApi.listAllowedToolNames,"shares the gate with getToolsJson (same op, same names)",OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,SdkMessage.fromJson dispatch + raw round-trip,"assistant message → SdkAssistantMessage, content blocks parsed",--/OK,--/OK,--/OK,OK/OK,OK/OK
-,SdkMessage.fromJson dispatch + raw round-trip,user message → SdkUserMessage with tool_result block,--/OK,--/OK,--/OK,OK/OK,OK/OK
-,SdkMessage.fromJson dispatch + raw round-trip,"result success → SdkResultMessage, typed fields",--/OK,--/OK,--/OK,OK/OK,OK/OK
-,SdkMessage.fromJson dispatch + raw round-trip,"system init → SdkSystemMessage, typed fields",--/OK,--/OK,--/OK,OK/OK,OK/OK
-,enums map to their SDK wire strings,PermissionMode covers all six SDK values,--/OK,--/OK,--/OK,OK/OK,OK/OK
-,SdkMessage.fromJson dispatch + raw round-trip,partial assistant (stream_event) → SdkPartialAssistantMessage,--/OK,--/OK,--/OK,OK/OK,OK/OK
-,enums map to their SDK wire strings,SettingSource and EffortLevel round-trip,--/OK,--/OK,--/OK,OK/OK,OK/OK
-,SdkMessage.fromJson dispatch + raw round-trip,non-init system subtype → SdkSystemEvent carrier,--/OK,--/OK,--/OK,OK/OK,OK/OK
-,TomToolsApi.listAllowedToolNames,calls tools.getJsonVce and returns just the tool names,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,SdkMessage.fromJson dispatch + raw round-trip,unknown top-level type → SdkUnknownMessage fallback,--/OK,--/OK,--/OK,OK/OK,OK/OK
-,ContentBlock.fromJson dispatch + raw round-trip,each known block type maps to its class and round-trips,--/OK,--/OK,--/OK,OK/OK,OK/OK
-SystemPrompt,sealed config sub-types round-trip via toWire/fromWire,text / list / preset,--/OK,--/OK,--/OK,OK/OK,OK/OK
-,ContentBlock.fromJson dispatch + raw round-trip,unknown block type → UnknownBlock fallback,--/OK,--/OK,--/OK,OK/OK,OK/OK
-ToolsConfig,sealed config sub-types round-trip via toWire/fromWire,list / claude_code preset,--/OK,--/OK,--/OK,OK/OK,OK/OK
-,ContentBlock.fromJson dispatch + raw round-trip,tool_result content may be a block list,--/OK,--/OK,--/OK,OK/OK,OK/OK
-ThinkingConfig,sealed config sub-types round-trip via toWire/fromWire,adaptive / enabled / disabled,--/OK,--/OK,--/OK,OK/OK,OK/OK
-Skills,sealed config sub-types round-trip via toWire/fromWire,list / all,--/OK,--/OK,--/OK,OK/OK,OK/OK
-,permission value types round-trip,PermissionResult allow with updatedInput,--/OK,--/OK,--/OK,OK/OK,OK/OK
-,permission value types round-trip,PermissionResult deny with message + interrupt,--/OK,--/OK,--/OK,OK/OK,OK/OK
-,permission value types round-trip,PermissionUpdate variants round-trip,--/OK,--/OK,--/OK,OK/OK,OK/OK
-,AgentSdkClient.collectQuery,collects the full message sequence into a list,--/OK,--/OK,--/OK,--/OK,OK/OK
-,MCP config + tool descriptors round-trip,sdk server config carries the descriptor (name/version/tools),--/OK,--/OK,--/OK,OK/OK,OK/OK
-,MCP config + tool descriptors round-trip,CallToolResult.text builds an MCP content payload,--/OK,--/OK,--/OK,OK/OK,OK/OK
-,Options round-trips its data (tier-C) fields,rich Options instance survives toJson → fromJson → toJson,--/OK,--/OK,--/OK,OK/OK,OK/OK
-,Options round-trips its data (tier-C) fields,empty Options serializes to an empty map (no null keys),--/OK,--/OK,--/OK,OK/OK,OK/OK
-,Options round-trips its data (tier-C) fields,callback fields are not part of the JSON wire data,--/OK,--/OK,--/OK,OK/OK,OK/OK
-,AgentSdkClient.query — chunk correlation,forwards prompt + options to startQuery with a streamId,--/OK,--/OK,--/OK,--/OK,OK/OK
-,AgentSdkClient.query — chunk correlation,maps chunks for its streamId into the typed SdkMessage sequence,--/OK,--/OK,--/OK,--/OK,OK/OK
-,AgentSdkClient.query — chunk correlation,ignores chunks belonging to a different streamId,--/OK,--/OK,--/OK,--/OK,OK/OK
-,AgentSdkClient.query — chunk correlation,surfaces an error chunk as a stream error,--/OK,--/OK,--/OK,--/OK,OK/OK
-,AgentSdkClient.query — cancellation,cancelling the subscription aborts the underlying query,--/OK,--/OK,--/OK,--/OK,OK/OK
-,AgentSdkClient.query — cancellation,interrupt() aborts the underlying query,--/OK,--/OK,--/OK,--/OK,OK/OK
-,MCP config + tool descriptors round-trip,stdio / sse / http server configs,--/OK,--/OK,--/OK,OK/OK,OK/OK
+ID,Groups,Description,Baseline [06-07 11:24],[06-07 17:32],[06-07 17:57],[06-07 18:42],[06-07 18:58],[06-07 19:12]
+SystemPrompt,sealed config sub-types round-trip via toWire/fromWire,text / list / preset,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK
+,TomToolsApi.listAllowedToolNames,empty / missing tools list yields an empty name list,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,TomToolsApi.listAllowedToolNames,"shares the gate with getToolsJson (same op, same names)",OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,SdkMessage.fromJson dispatch + raw round-trip,"assistant message → SdkAssistantMessage, content blocks parsed",--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK
+,SdkMessage.fromJson dispatch + raw round-trip,user message → SdkUserMessage with tool_result block,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK
+,SdkMessage.fromJson dispatch + raw round-trip,"result success → SdkResultMessage, typed fields",--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK
+,SdkMessage.fromJson dispatch + raw round-trip,"system init → SdkSystemMessage, typed fields",--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK
+,enums map to their SDK wire strings,PermissionMode covers all six SDK values,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK
+,SdkMessage.fromJson dispatch + raw round-trip,partial assistant (stream_event) → SdkPartialAssistantMessage,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK
+,enums map to their SDK wire strings,SettingSource and EffortLevel round-trip,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK
+,SdkMessage.fromJson dispatch + raw round-trip,non-init system subtype → SdkSystemEvent carrier,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK
+,TomToolsApi.listAllowedToolNames,calls tools.getJsonVce and returns just the tool names,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,SdkMessage.fromJson dispatch + raw round-trip,unknown top-level type → SdkUnknownMessage fallback,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK
+,ContentBlock.fromJson dispatch + raw round-trip,each known block type maps to its class and round-trips,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK
+,enums map to their SDK wire strings,PermissionDecisionClassification uses snake_case wire,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK
+,ContentBlock.fromJson dispatch + raw round-trip,unknown block type → UnknownBlock fallback,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK
+ToolsConfig,sealed config sub-types round-trip via toWire/fromWire,list / claude_code preset,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK
+,ContentBlock.fromJson dispatch + raw round-trip,tool_result content may be a block list,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK
+ThinkingConfig,sealed config sub-types round-trip via toWire/fromWire,adaptive / enabled / disabled,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK
+Skills,sealed config sub-types round-trip via toWire/fromWire,list / all,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK
+,permission value types round-trip,PermissionResult allow with updatedInput,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK
+,permission value types round-trip,PermissionResult deny with message + interrupt,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK
+,permission value types round-trip,PermissionUpdate variants round-trip,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK
+,AgentSdkClient.collectQuery,collects the full message sequence into a list,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK
+,MCP config + tool descriptors round-trip,sdk server config carries the descriptor (name/version/tools),--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK
+,MCP config + tool descriptors round-trip,CallToolResult.text builds an MCP content payload,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK
+,Options round-trips its data (tier-C) fields,rich Options instance survives toJson → fromJson → toJson,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK
+,Options round-trips its data (tier-C) fields,empty Options serializes to an empty map (no null keys),--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK
+,BridgeRequestDispatcher.unregister,a request for an unregistered (removed) method errors,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK
+,AgentSdkClient.query — chunk correlation,forwards prompt + options to startQuery with a streamId,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK
+,AgentSdkClient.query — chunk correlation,maps chunks for its streamId into the typed SdkMessage sequence,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK
+,AgentSdkClient.query — chunk correlation,ignores chunks belonging to a different streamId,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK
+,AgentSdkClient.query — chunk correlation,surfaces an error chunk as a stream error,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK
+,AgentSdkClient.query — cancellation,cancelling the subscription aborts the underlying query,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK
+,AgentSdkClient.query — cancellation,interrupt() aborts the underlying query,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK
+,MCP config + tool descriptors round-trip,stdio / sse / http server configs,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK
+,BridgeRequestDispatcher.maybeHandle — request routing,routes a request to its handler and replies with the result,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK
+,BridgeRequestDispatcher.maybeHandle — request routing,awaits an async handler before replying,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK
+,BridgeRequestDispatcher.maybeHandle — error replies,replies with an error for an unregistered method,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK
+,BridgeRequestDispatcher.maybeHandle — error replies,replies with an error when the handler throws,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK
+,BridgeRequestDispatcher.maybeHandle — non-requests,returns false for a response (id but no method),--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK
+,BridgeRequestDispatcher.maybeHandle — non-requests,returns false for a notification (method but no id),--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK
+,Options round-trips its data (tier-C) fields,callback fields are not part of the JSON wire data,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK

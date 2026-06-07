@@ -6,6 +6,7 @@ import { getTomScriptingBridgeHandler } from './handlers/tomScriptingBridge-hand
 import { invokeToolByName, getActiveProfileToolsJson } from './tools/scripting-tools-bridge';
 import { sendToChatForScript } from './handlers/sendToChatRouter';
 import { AgentSdkBridge } from './services/agent-sdk-bridge';
+import { ServerToClientRpc } from './services/server-to-client-rpc';
 import { loadSdk } from './handlers/agent-sdk-transport';
 
 const DART_COMMAND = 'dart';
@@ -497,6 +498,44 @@ export class DartBridgeClient {
         return this.agentSdkBridge;
     }
 
+    /** Lazily-created reverse-RPC channel (extension → connected client). */
+    private serverToClientRpc?: ServerToClientRpc;
+
+    /**
+     * The server→client RPC channel (todo #4), created on first use. Its send
+     * sink writes the request frame to the bridge process's stdin; the bridge
+     * relays it over the CLI socket to the connected Dart client (the relay is
+     * tracked separately — see completion_steps). Responses are routed back in
+     * `handleMessage`.
+     */
+    private getServerToClientRpc(): ServerToClientRpc {
+        if (!this.serverToClientRpc) {
+            this.serverToClientRpc = new ServerToClientRpc({
+                sendRequest: (frame) => {
+                    if (!this.process || !this.process.stdin) {
+                        throw new Error('Bridge not started');
+                    }
+                    this.process.stdin.write(JSON.stringify(frame) + '\n');
+                },
+                defaultTimeoutMs: this.defaultRequestTimeoutMs,
+            });
+        }
+        return this.serverToClientRpc;
+    }
+
+    /**
+     * Issue an awaited, id-correlated request to the connected Dart client
+     * (the reverse of the normal client→server call). Used by the callback-
+     * bearing Agent SDK features (#5 Dart-defined tools, #6 `canUseTool`).
+     */
+    requestClient<T = unknown>(
+        method: string,
+        params?: unknown,
+        options?: { timeoutMs?: number; signal?: AbortSignal },
+    ): Promise<T> {
+        return this.getServerToClientRpc().request<T>(method, params, options);
+    }
+
     /**
      * Send a notification to Dart (no response expected)
      */
@@ -567,6 +606,8 @@ export class DartBridgeClient {
                     } else {
                         pending.resolve(message.result);
                     }
+                } else if (this.getServerToClientRpc().handleResponse(message)) {
+                    // A reply to a reverse (server→client) request from this client.
                 } else {
                     bridgeLog(`No pending handler for response id ${responseId}`, DartBridgeClient.outputChannel, 'ERROR');
                 }
