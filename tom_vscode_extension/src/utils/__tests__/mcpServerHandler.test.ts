@@ -25,6 +25,9 @@
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+
 // The handler reuses `resolveProfileTools` (todo #17), which lives in
 // `tool-executors.ts` and imports `vscode`. Install the shared stub BEFORE
 // importing the handler so its transitive `require('vscode')` resolves.
@@ -39,6 +42,7 @@ import {
     McpToolTrailSink,
     NULL_MCP_TRAIL_SINK,
     RunningMcpServer,
+    BuiltMcpServer,
     makeMcpToolCallback,
     buildToolMcpServer,
     isMcpAuthenticated,
@@ -548,6 +552,72 @@ describe('getMcpServerStatus — module-level accessor for the Status Page', () 
         } finally {
             await controller.dispose();
             setActiveMcpServerController(undefined);
+        }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Wire round-trip (todo #21). The per-callback trail/execution is pinned above;
+// this proves the SAME behaviour survives a real MCP protocol exchange. A linked
+// in-memory transport pair (no socket) connects a real `Client` to the server
+// built by `buildToolMcpServer`, so `tools/list` advertises the registered
+// tools and `tools/call` runs the wrapped executor end-to-end — asserting the
+// injected trail sink records request + answer across the wire.
+// ---------------------------------------------------------------------------
+
+/** Connect a real Client to the server over a linked in-memory transport pair. */
+async function connectInMemory(server: BuiltMcpServer['server']): Promise<Client> {
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const client = new Client({ name: 'mcp-roundtrip-test', version: '1.0.0' });
+    await client.connect(clientTransport);
+    return client;
+}
+
+describe('MCP wire round-trip — tools/list + tools/call through a fake transport', () => {
+    test('tools/list advertises the tool; tools/call runs it and writes trail', async () => {
+        const sink = spySink();
+        const echo = fakeTool('tomAi_echo', async (input) => `echoed:${input.x}`);
+        const { server } = buildToolMcpServer([echo], sink);
+        const client = await connectInMemory(server);
+
+        try {
+            const listed = await client.listTools();
+            assert.deepEqual(listed.tools.map((t) => t.name), ['tomAi_echo']);
+            assert.equal(listed.tools[0].description, 'desc-tomAi_echo');
+
+            const result = await client.callTool({ name: 'tomAi_echo', arguments: { x: 'hi' } });
+            assert.notEqual(result.isError, true);
+            assert.deepEqual(result.content, [{ type: 'text', text: 'echoed:hi' }]);
+
+            // The trail wrapper fired across the wire, not just on a direct callback.
+            assert.equal(sink.requests.length, 1);
+            assert.equal(sink.requests[0].name, 'tomAi_echo');
+            assert.deepEqual(sink.requests[0].input, { x: 'hi' });
+            assert.equal(sink.answers.length, 1);
+            assert.equal(sink.answers[0].result, 'echoed:hi');
+            assert.equal(sink.answers[0].error, undefined);
+        } finally {
+            await client.close();
+            await server.close();
+        }
+    });
+
+    test('a throwing tool surfaces isError over the wire and records an error answer', async () => {
+        const sink = spySink();
+        const boom = fakeTool('tomAi_boom', async () => { throw new Error('kaboom'); });
+        const { server } = buildToolMcpServer([boom], sink);
+        const client = await connectInMemory(server);
+
+        try {
+            const result = await client.callTool({ name: 'tomAi_boom', arguments: {} });
+            assert.equal(result.isError, true);
+            assert.deepEqual(result.content, [{ type: 'text', text: 'Error: kaboom' }]);
+            assert.equal(sink.answers.length, 1);
+            assert.equal(sink.answers[0].error, 'kaboom');
+        } finally {
+            await client.close();
+            await server.close();
         }
     });
 });
