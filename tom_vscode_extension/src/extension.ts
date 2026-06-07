@@ -92,10 +92,12 @@ import {
     defaultMcpServerStarter,
     setActiveMcpServerController,
     createTrailServiceMcpSink,
+    reconcileMcpServerConfig,
 } from './handlers/mcpServer-handler';
 import { mcpLog, disposeMcpLogChannel } from './utils/mcpServerLog';
 import { refreshStatusPage } from './handlers/statusPage-handler';
-import { getMcpServerSettings } from './utils/sendToChatConfig';
+import { getMcpServerSettings, loadSendToChatConfig } from './utils/sendToChatConfig';
+import { debounce } from './utils/debounce';
 import { initializeDebugLogger, installConsoleDebugRouting, debugLog } from './utils/debugLogger';
 import { TomAiConfiguration } from './utils/tomAiConfiguration';
 import { WsPaths } from './utils/workspacePaths';
@@ -611,6 +613,35 @@ export async function activate(context: vscode.ExtensionContext) {
                     bridgeLog(`MCP server autostart failed: ${e?.message ?? e}`, 'ERROR');
                 }
             }, 2500);
+        }
+
+        // Reconcile the running server on external config edits (#7). The
+        // file-based config has no `onDidChangeConfiguration`, so watch the
+        // workspace config file directly: an edit by hand or from another
+        // window reconciles the server (disabled ⇒ stop; running ⇒ restart
+        // onto new host/port/tools), not just on card save. The bursty
+        // write events for a single save collapse via the debounce.
+        const mcpWsRoot = WsPaths.wsRoot;
+        if (mcpWsRoot) {
+            const mcpConfigWatcher = vscode.workspace.createFileSystemWatcher(
+                new vscode.RelativePattern(
+                    mcpWsRoot,
+                    `${WsPaths.wsConfigFolder}/${WsPaths.configFileName}`,
+                ),
+            );
+            const reconcileFromConfig = debounce(() => {
+                const cfg = loadSendToChatConfig();
+                if (!cfg) {
+                    return;
+                }
+                void reconcileMcpServerConfig(getMcpServerSettings(cfg)).catch((e: any) => {
+                    bridgeLog(`MCP config reconcile failed: ${e?.message ?? e}`, 'ERROR');
+                });
+            }, 300);
+            mcpConfigWatcher.onDidChange(() => reconcileFromConfig());
+            mcpConfigWatcher.onDidCreate(() => reconcileFromConfig());
+            context.subscriptions.push(mcpConfigWatcher);
+            context.subscriptions.push({ dispose: () => reconcileFromConfig.cancel() });
         }
     }
 
