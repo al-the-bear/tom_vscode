@@ -43,6 +43,10 @@ export 'src/agent_sdk_query.dart';
 // server→client requests to registered handlers and replies over the socket.
 export 'src/bridge_request_dispatcher.dart';
 
+// Dart-defined tools (todo #5): registry that dispatches incoming
+// `agentSdk.toolCall` requests to a query's in-process `tool()` handlers.
+export 'src/agent_sdk_tool_registry.dart';
+
 // AI APIs (local LLM prompt processing & bot conversation)
 export 'src/ai_prompt_api.dart';
 export 'src/ai_conversation_api.dart';

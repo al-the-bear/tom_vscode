@@ -493,6 +493,10 @@ export class DartBridgeClient {
             this.agentSdkBridge = new AgentSdkBridge({
                 loadSdk,
                 sendNotification: (m, p) => this.sendNotification(m, p),
+                // Dart-defined tools (#5) call back into the connected client
+                // over the reverse RPC.
+                requestClient: (method, params, opts) =>
+                    this.requestClient(method, params, opts),
             });
         }
         return this.agentSdkBridge;

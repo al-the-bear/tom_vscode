@@ -18,6 +18,8 @@ class _FakeAgentSdkTransport implements AgentSdkTransport {
   final _chunks = StreamController<Map<String, dynamic>>.broadcast();
   final List<Map<String, dynamic>> startedQueries = [];
   final List<String> cancelledStreams = [];
+  final Map<String, AgentSdkToolRegistry> registeredTools = {};
+  final List<String> unregisteredTools = [];
 
   /// Push a simulated chunk notification (already unwrapped `params`).
   void emit(Map<String, dynamic> chunk) => _chunks.add(chunk);
@@ -33,6 +35,16 @@ class _FakeAgentSdkTransport implements AgentSdkTransport {
   @override
   Future<void> cancelQuery(String streamId) async {
     cancelledStreams.add(streamId);
+  }
+
+  @override
+  void registerTools(String streamId, AgentSdkToolRegistry registry) {
+    registeredTools[streamId] = registry;
+  }
+
+  @override
+  void unregisterTools(String streamId) {
+    unregisteredTools.add(streamId);
   }
 
   Future<void> dispose() => _chunks.close();
@@ -179,6 +191,58 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       expect(transport.cancelledStreams, contains(streamId));
+      await transport.dispose();
+    });
+  });
+
+  group('AgentSdkClient.query — Dart-defined tools', () {
+    test('registers a tool registry on start and unregisters on finish',
+        () async {
+      final transport = _FakeAgentSdkTransport();
+      final client = AgentSdkClient(transport);
+
+      final q = client.query(
+        prompt: 'go',
+        options: Options(mcpServers: {
+          'dartTools': McpSdkServerConfig(
+            name: 'dartTools',
+            tools: [
+              SdkMcpTool(
+                name: 'getWeather',
+                description: 'weather',
+                inputSchema: const {'type': 'object'},
+                handler: (args) async => CallToolResult.text('sunny'),
+              ),
+            ],
+          ),
+        }),
+      );
+      final done = Completer<void>();
+      final sub = q.listen((_) {}, onDone: done.complete);
+      await Future<void>.delayed(Duration.zero);
+
+      final streamId = transport.startedQueries.single['streamId'] as String;
+      expect(transport.registeredTools.containsKey(streamId), isTrue);
+      expect(transport.registeredTools[streamId]!.hasHandlers, isTrue);
+
+      transport.emit({'streamId': streamId, 'done': true});
+      await done.future;
+
+      expect(transport.unregisteredTools, contains(streamId));
+      await sub.cancel();
+      await transport.dispose();
+    });
+
+    test('does not register tools when no sdk server is present', () async {
+      final transport = _FakeAgentSdkTransport();
+      final client = AgentSdkClient(transport);
+
+      final q = client.query(prompt: 'go', options: Options(model: 'x'));
+      final sub = q.listen((_) {});
+      await Future<void>.delayed(Duration.zero);
+
+      expect(transport.registeredTools, isEmpty);
+      await sub.cancel();
       await transport.dispose();
     });
   });

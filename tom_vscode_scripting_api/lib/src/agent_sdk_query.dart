@@ -23,6 +23,7 @@ import 'dart:async';
 
 import 'agent_sdk_messages.dart';
 import 'agent_sdk_options.dart';
+import 'agent_sdk_tool_registry.dart';
 import 'vscode_bridge_client.dart';
 
 /// Transport seam for streaming Agent SDK queries.
@@ -47,6 +48,17 @@ abstract class AgentSdkTransport {
   ///  - `done: true`: the query completed,
   ///  - `error`: the query failed.
   Stream<Map<String, dynamic>> get chunks;
+
+  /// Registers [registry] so incoming `agentSdk.toolCall` requests for
+  /// [streamId] are dispatched to the query's Dart [ToolHandler]s (todo #5).
+  ///
+  /// Default: no-op — only the reverse-RPC-capable transport
+  /// ([VSCodeBridgeAgentSdkTransport]) needs to act on it.
+  void registerTools(String streamId, AgentSdkToolRegistry registry) {}
+
+  /// Removes the tool registry for [streamId] (on query completion/cancel).
+  /// Default: no-op.
+  void unregisterTools(String streamId) {}
 }
 
 /// Thrown into an [AgentQuery]'s stream when the extension reports a query
@@ -100,9 +112,17 @@ class AgentSdkClient {
     StreamSubscription<Map<String, dynamic>>? sub;
     var finished = false;
 
+    // Index any Dart-defined (`sdk`) MCP tool handlers so the extension can
+    // invoke them mid-query over the reverse RPC (todo #5).
+    final toolRegistry = AgentSdkToolRegistry();
+    final hasTools = toolRegistry.addServers(options?.mcpServers);
+
     Future<void> finish({bool cancelRemote = false}) async {
       if (finished) return;
       finished = true;
+      if (hasTools) {
+        transport.unregisterTools(streamId);
+      }
       await sub?.cancel();
       if (cancelRemote) {
         try {
@@ -138,6 +158,12 @@ class AgentSdkClient {
           controller.add(SdkMessage.fromJson(message.cast<String, dynamic>()));
         }
       });
+
+      // Register tool handlers before starting so an early `agentSdk.toolCall`
+      // cannot arrive before the registry is in place.
+      if (hasTools) {
+        transport.registerTools(streamId, toolRegistry);
+      }
 
       transport.startQuery({
         'streamId': streamId,
@@ -186,6 +212,13 @@ class VSCodeBridgeAgentSdkTransport implements AgentSdkTransport {
   /// The connected bridge client.
   final VSCodeBridgeClient client;
 
+  /// Per-stream tool registries, routed to by an incoming `agentSdk.toolCall`'s
+  /// `streamId`. One method-keyed request handler serves every concurrent query.
+  final Map<String, AgentSdkToolRegistry> _toolRegistries = {};
+
+  /// Whether the single `agentSdk.toolCall` request handler is installed.
+  bool _toolHandlerRegistered = false;
+
   VSCodeBridgeAgentSdkTransport(this.client);
 
   @override
@@ -201,5 +234,31 @@ class VSCodeBridgeAgentSdkTransport implements AgentSdkTransport {
   @override
   Future<void> cancelQuery(String streamId) async {
     await client.sendRequest('agentSdk.cancelVce', {'streamId': streamId});
+  }
+
+  @override
+  void registerTools(String streamId, AgentSdkToolRegistry registry) {
+    _toolRegistries[streamId] = registry;
+    if (!_toolHandlerRegistered) {
+      _toolHandlerRegistered = true;
+      // One method-keyed handler routes by streamId, so concurrent queries
+      // (each with its own registry) share the single `agentSdk.toolCall` hook.
+      client.registerRequestHandler('agentSdk.toolCall', _dispatchToolCall);
+    }
+  }
+
+  @override
+  void unregisterTools(String streamId) {
+    _toolRegistries.remove(streamId);
+  }
+
+  /// Routes an incoming `agentSdk.toolCall` to the registry for its `streamId`.
+  Future<Object?> _dispatchToolCall(Map<String, dynamic> params) {
+    final streamId = params['streamId'] as String?;
+    final registry = _toolRegistries[streamId];
+    if (registry == null) {
+      throw ArgumentError('No tool registry for streamId "$streamId"');
+    }
+    return registry.handleToolCall(params);
   }
 }

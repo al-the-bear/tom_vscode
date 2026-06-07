@@ -21,7 +21,7 @@ import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { AgentSdkBridge } from '../agent-sdk-bridge.js';
-import type { AgentSdkBridgeDeps } from '../agent-sdk-bridge.js';
+import type { AgentSdkBridgeDeps, AgentSdkLike } from '../agent-sdk-bridge.js';
 
 interface RecordedNotification {
     method: string;
@@ -189,5 +189,197 @@ describe('AgentSdkBridge.cancelQuery', () => {
     test('cancelling an unknown streamId is a no-op success', () => {
         const bridge = new AgentSdkBridge({ loadSdk: async () => ({ query: () => fromList([]) }), sendNotification: () => {} });
         assert.deepEqual(bridge.cancelQuery({ streamId: 'nope' }), { success: true });
+    });
+});
+
+// ============================================================================
+// Dart-defined tools (todo #5) — `tool()` + `createSdkMcpServer()`.
+//
+// A caller's `options.mcpServers` carries `{type:'sdk'}` *descriptors* (the
+// serialized `McpSdkServerConfig`). The bridge rebuilds each into a real
+// `sdk.createSdkMcpServer()` whose tool handlers call back into Dart over the
+// #4 reverse RPC (`agentSdk.toolCall`) and feed the returned `CallToolResult`
+// into the running query. Done-when: a round-trip shows a Dart-defined tool
+// invoked mid-query and its returned value appearing in the resulting
+// `tool_result`.
+// ============================================================================
+
+interface RecordedToolCall {
+    method: string;
+    params: Record<string, unknown>;
+}
+
+/**
+ * A fake Agent SDK with the callback-bearing surface (`tool` +
+ * `createSdkMcpServer`). Its `query` finds the rebuilt sdk server in
+ * `options.mcpServers`, invokes the first tool's handler mid-stream, and yields
+ * a `tool_result` carrying the handler's returned content.
+ */
+function makeToolRoundTripHarness(opts: {
+    requestClientResult?: unknown;
+    requestClientThrows?: string;
+    omitRequestClient?: boolean;
+}): {
+    bridge: AgentSdkBridge;
+    notifications: RecordedNotification[];
+    finished: Promise<void>;
+    toolCalls: RecordedToolCall[];
+    seenSchema: { shape?: Record<string, unknown> };
+} {
+    const notifications: RecordedNotification[] = [];
+    const toolCalls: RecordedToolCall[] = [];
+    const seenSchema: { shape?: Record<string, unknown> } = {};
+    let resolveDone!: () => void;
+    const finished = new Promise<void>((res) => {
+        resolveDone = res;
+    });
+
+    const sdk: AgentSdkLike = {
+        tool(name: string, description: string, inputSchema: Record<string, unknown>, handler: (args: Record<string, unknown>) => Promise<unknown>) {
+            seenSchema.shape = inputSchema;
+            return { name, description, inputSchema, handler };
+        },
+        createSdkMcpServer(options: { name: string; version?: string; tools?: unknown[] }) {
+            return { name: options.name, version: options.version, tools: options.tools ?? [] };
+        },
+        query(params: { prompt: string; options?: Record<string, unknown> }) {
+            const servers = (params.options?.mcpServers ?? {}) as Record<string, { tools: Array<{ name: string; handler: (args: Record<string, unknown>) => Promise<{ content: unknown }> }> }>;
+            const server = servers['dartTools'];
+            return (async function* (): AsyncIterable<unknown> {
+                yield { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'getWeather', input: { city: 'NYC' } }] } };
+                const toolDef = server.tools[0];
+                const result = await toolDef.handler({ city: 'NYC' });
+                yield { type: 'user', message: { content: [{ type: 'tool_result', content: result.content }] } };
+            })();
+        },
+    };
+
+    const requestClient = opts.omitRequestClient
+        ? undefined
+        : async (method: string, params: Record<string, unknown>): Promise<unknown> => {
+              toolCalls.push({ method, params });
+              if (opts.requestClientThrows !== undefined) {
+                  throw new Error(opts.requestClientThrows);
+              }
+              return opts.requestClientResult ?? { content: [{ type: 'text', text: 'sunny' }] };
+          };
+
+    const deps: AgentSdkBridgeDeps = {
+        loadSdk: async () => sdk,
+        sendNotification: (method, params) => {
+            notifications.push({ method, params });
+            if (params.done === true || params.error !== undefined) {
+                resolveDone();
+            }
+        },
+        requestClient,
+    };
+
+    return { bridge: new AgentSdkBridge(deps), notifications, finished, toolCalls, seenSchema };
+}
+
+const SDK_SERVER_OPTIONS: Record<string, unknown> = {
+    mcpServers: {
+        dartTools: {
+            type: 'sdk',
+            name: 'dartTools',
+            version: '1.0.0',
+            tools: [
+                {
+                    name: 'getWeather',
+                    description: 'Get the weather for a city',
+                    inputSchema: {
+                        type: 'object',
+                        properties: { city: { type: 'string', description: 'City name' } },
+                        required: ['city'],
+                    },
+                },
+            ],
+        },
+    },
+};
+
+describe('AgentSdkBridge — Dart-defined tools (sdk mcp servers)', () => {
+    test('rebuilds sdk server, invokes the Dart tool mid-query, and surfaces its result', async () => {
+        const h = makeToolRoundTripHarness({ requestClientResult: { content: [{ type: 'text', text: 'sunny' }] } });
+
+        await h.bridge.startQuery({
+            streamId: 'tool-1',
+            prompt: 'weather?',
+            options: { ...SDK_SERVER_OPTIONS },
+        });
+        await h.finished;
+
+        // The tool handler called back into Dart over the reverse RPC.
+        assert.equal(h.toolCalls.length, 1);
+        assert.equal(h.toolCalls[0].method, 'agentSdk.toolCall');
+        assert.deepEqual(h.toolCalls[0].params, {
+            streamId: 'tool-1',
+            server: 'dartTools',
+            tool: 'getWeather',
+            args: { city: 'NYC' },
+        });
+
+        // The returned CallToolResult content appears in the forwarded tool_result.
+        const chunks = h.notifications.filter((n) => n.method === 'agentSdk.chunk');
+        const toolResultChunk = chunks.find((c) => {
+            const msg = c.params.message as { message?: { content?: Array<{ type?: string }> } } | undefined;
+            return msg?.message?.content?.some((b) => b.type === 'tool_result');
+        });
+        assert.ok(toolResultChunk, 'a tool_result chunk should be forwarded');
+        const content = (toolResultChunk!.params.message as { message: { content: Array<{ content: unknown }> } }).message.content[0].content;
+        assert.deepEqual(content, [{ type: 'text', text: 'sunny' }]);
+
+        // The JSON-Schema inputSchema was converted to a Zod raw shape.
+        assert.ok(h.seenSchema.shape && typeof h.seenSchema.shape === 'object');
+        assert.ok('city' in h.seenSchema.shape!);
+    });
+
+    test('passes the abort signal to the reverse RPC so cancel propagates', async () => {
+        const h = makeToolRoundTripHarness({});
+        await h.bridge.startQuery({ streamId: 'tool-2', prompt: 'go', options: { ...SDK_SERVER_OPTIONS } });
+        await h.finished;
+        assert.equal(h.toolCalls.length, 1);
+    });
+
+    test('non-sdk mcp servers pass through unchanged', async () => {
+        const h = makeToolRoundTripHarness({});
+        let seenOptions: Record<string, unknown> | undefined;
+        const sdk: AgentSdkLike = {
+            query(params: { prompt: string; options?: Record<string, unknown> }) {
+                seenOptions = params.options;
+                return fromList([{ type: 'result' }]);
+            },
+        };
+        let resolveDone!: () => void;
+        const finished = new Promise<void>((r) => (resolveDone = r));
+        const bridge = new AgentSdkBridge({
+            loadSdk: async () => sdk,
+            sendNotification: (_m, p) => {
+                if (p.done === true) {
+                    resolveDone();
+                }
+            },
+            requestClient: async () => ({ content: [] }),
+        });
+
+        const stdioServers = { mcpServers: { fs: { type: 'stdio', command: 'mcp-fs' } } };
+        await bridge.startQuery({ streamId: 's', prompt: 'go', options: { ...stdioServers } });
+        await finished;
+
+        const servers = seenOptions!.mcpServers as Record<string, { type: string; command: string }>;
+        assert.deepEqual(servers.fs, { type: 'stdio', command: 'mcp-fs' });
+    });
+
+    test('an sdk server with no requestClient dep fails the query', async () => {
+        const h = makeToolRoundTripHarness({ omitRequestClient: true });
+
+        await h.bridge.startQuery({ streamId: 'tool-3', prompt: 'go', options: { ...SDK_SERVER_OPTIONS } });
+        await h.finished;
+
+        const chunks = h.notifications.filter((n) => n.method === 'agentSdk.chunk');
+        const last = chunks[chunks.length - 1];
+        assert.equal(last.params.streamId, 'tool-3');
+        assert.match(String(last.params.error), /requestClient|reverse RPC|tool/i);
     });
 });
