@@ -13,6 +13,10 @@ export 'src/vscode_bridge_client.dart';
 // Bridge adapter implementation
 export 'src/vscode_bridge_adapter.dart';
 
+// Workspace discovery across CLI bridge ports (todo #8): scan 19900–19909,
+// match the open window by workspace name, return the matching port.
+export 'src/bridge_discovery.dart';
+
 // Main VS Code API
 export 'src/vscode.dart';
 

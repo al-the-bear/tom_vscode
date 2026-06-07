@@ -21,8 +21,17 @@ import 'dart:typed_data';
 
 import 'bridge_request_dispatcher.dart';
 
-/// Default port for VS Code VS Code Bridge
+/// Default (and lowest) port for the VS Code CLI Integration Server.
+///
+/// VS Code windows allocate the first free port in the inclusive range
+/// [defaultVSCodeBridgePort]–[maxVSCodeBridgePort], so multiple open windows
+/// each expose a bridge on a distinct port within that span.
 const int defaultVSCodeBridgePort = 19900;
+
+/// Highest port in the VS Code CLI Integration Server range.
+///
+/// See [defaultVSCodeBridgePort] for the allocation scheme.
+const int maxVSCodeBridgePort = 19909;
 
 /// Result of a VS Code bridge command execution.
 class VSCodeBridgeResult {
