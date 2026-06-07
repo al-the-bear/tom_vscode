@@ -87,6 +87,14 @@ import { registerTodoLogView } from './handlers/todoLogPanel-handler';
 import { registerWindowStatusView, deleteCurrentWindowState, cleanupStaleWindowStates } from './handlers/windowStatusPanel-handler';
 import { registerMinimalModePanels } from './handlers/minimalMode-handler';
 import { initTomScriptingBridgeHandler } from './handlers/tomScriptingBridge-handler';
+import {
+    McpServerController,
+    defaultMcpServerStarter,
+    setActiveMcpServerController,
+    NULL_MCP_TRAIL_SINK,
+} from './handlers/mcpServer-handler';
+import { refreshStatusPage } from './handlers/statusPage-handler';
+import { getMcpServerSettings } from './utils/sendToChatConfig';
 import { initializeDebugLogger, installConsoleDebugRouting, debugLog } from './utils/debugLogger';
 import { TomAiConfiguration } from './utils/tomAiConfiguration';
 import { WsPaths } from './utils/workspacePaths';
@@ -116,6 +124,11 @@ let localLlmManager: LocalLlmManager | undefined;
 
 // Global manager instance for AI Conversation
 let aiConversationManager: AiConversationManager | undefined;
+
+// Lifecycle controller for the standalone MCP server (plan §7.5, todo #19).
+// Owns the single running server; pushes the live bound port to the Status Page
+// on every start/stop and is disposed on deactivate.
+let mcpServerController: McpServerController | undefined;
 
 let instrumentationInstalled = false;
 
@@ -567,6 +580,32 @@ export async function activate(context: vscode.ExtensionContext) {
                 }
             }, 3000);
         }
+
+        // MCP server controller (#19): construct once, register it as the active
+        // controller so the Status-Page snapshot reads its live status, and push
+        // card refreshes on every start/stop. Disposed on deactivate + on config
+        // change (see registerCommands).
+        mcpServerController = new McpServerController({
+            start: defaultMcpServerStarter(NULL_MCP_TRAIL_SINK),
+            onChange: () => { void refreshStatusPage(); },
+        });
+        setActiveMcpServerController(mcpServerController);
+        context.subscriptions.push({ dispose: () => { void mcpServerController?.dispose(); } });
+
+        if (stcConfig?.mcpServer?.enabled && stcConfig?.mcpServer?.autoStart) {
+            const settings = getMcpServerSettings(stcConfig);
+            setTimeout(async () => {
+                try {
+                    const running = await mcpServerController?.start(settings);
+                    if (running) {
+                        vscode.window.showInformationMessage(`MCP Server started on ${running.url}`);
+                        bridgeLog(`MCP server auto-started on ${running.url}`, 'INFO');
+                    }
+                } catch (e: any) {
+                    bridgeLog(`MCP server autostart failed: ${e?.message ?? e}`, 'ERROR');
+                }
+            }, 2500);
+        }
     }
 
     // Initialize Send to Chat Advanced manager
@@ -684,7 +723,14 @@ export async function activate(context: vscode.ExtensionContext) {
  */
 export function deactivate() {
     bridgeLog('Tom AI extension deactivating - stopping bridge...');
-    
+
+    // Stop the MCP server so it never leaks its listener across reloads (#19).
+    // dispose() is idempotent and a no-op when the server was never started.
+    if (mcpServerController) {
+        void mcpServerController.dispose();
+        setActiveMcpServerController(undefined);
+    }
+
     // Stop the bridge process to ensure clean shutdown
     const bridgeClient = getBridgeClient();
     if (bridgeClient) {
@@ -820,6 +866,49 @@ function registerCommands(context: vscode.ExtensionContext) {
         'tomAi.cliServer.stop',
         async () => {
             await stopCliServerHandler();
+        }
+    );
+
+    // MCP Server lifecycle commands (plan §7.5, todo #19). Routed to the
+    // controller created at activation; settings are resolved fresh from config
+    // on each invocation so a config edit takes effect on the next start.
+    const startMcpServerCmd = vscode.commands.registerCommand(
+        'tomAi.mcpServer.start',
+        async () => {
+            const { loadSendToChatConfig } = await import('./utils/sendToChatConfig.js');
+            const settings = getMcpServerSettings(loadSendToChatConfig());
+            try {
+                const running = await mcpServerController?.start(settings);
+                if (running) {
+                    vscode.window.showInformationMessage(`MCP Server started on ${running.url}`);
+                }
+            } catch (e: any) {
+                vscode.window.showErrorMessage(`MCP Server failed to start: ${e?.message ?? e}`);
+            }
+        }
+    );
+
+    const stopMcpServerCmd = vscode.commands.registerCommand(
+        'tomAi.mcpServer.stop',
+        async () => {
+            await mcpServerController?.stop();
+            vscode.window.showInformationMessage('MCP Server stopped');
+        }
+    );
+
+    const restartMcpServerCmd = vscode.commands.registerCommand(
+        'tomAi.mcpServer.restart',
+        async () => {
+            const { loadSendToChatConfig } = await import('./utils/sendToChatConfig.js');
+            const settings = getMcpServerSettings(loadSendToChatConfig());
+            try {
+                const running = await mcpServerController?.restart(settings);
+                if (running) {
+                    vscode.window.showInformationMessage(`MCP Server restarted on ${running.url}`);
+                }
+            } catch (e: any) {
+                vscode.window.showErrorMessage(`MCP Server failed to restart: ${e?.message ?? e}`);
+            }
         }
     );
 
@@ -1093,6 +1182,9 @@ function registerCommands(context: vscode.ExtensionContext) {
         startCliServerCmd,
         startCliServerCustomPortCmd,
         stopCliServerCmd,
+        startMcpServerCmd,
+        stopMcpServerCmd,
+        restartMcpServerCmd,
         startProcessMonitorCmd,
         toggleDebugLoggingCmd,
         printConfigurationCmd,

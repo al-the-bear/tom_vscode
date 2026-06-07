@@ -37,6 +37,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { SharedToolDefinition } from '../tools/shared-tool-registry';
 import { resolveProfileTools } from '../tools/tool-executors';
 import type { ResolvedMcpServerSettings } from '../utils/sendToChatConfig';
+import type { McpServerRuntimeStatus } from '../utils/mcpServerCard';
 import { toRawShape } from '../utils/jsonSchemaToZod';
 import { runWithToolContext } from '../services/tool-execution-context';
 
@@ -365,4 +366,159 @@ async function handleMcpRequest(
             }));
         }
     }
+}
+
+// ============================================================================
+// Lifecycle state machine (plan §7.5, todo #19)
+//
+// `McpServerController` owns the single running server for a window. It is
+// deliberately `vscode`-free: it takes an injected *starter* (which binds the
+// real transport via `startMcpHttpServer`) and an `onChange` callback the
+// extension uses to push the live bound port to the Status-Page card. The
+// vscode wiring proper — activation/autoStart, the Start/Stop/Restart commands,
+// the success toast, config-change handling, and disposal on deactivate — lives
+// in `extension.ts`; only this state machine is unit-tested.
+//
+// "Never leak a listener" is enforced by the `pending`/`running` guard: a start
+// while already running (or while a start is in flight) reuses the existing
+// server instead of binding a second one.
+// ============================================================================
+
+/** Binds and returns a running server for the given settings (injectable). */
+export type McpServerStarter = (settings: ResolvedMcpServerSettings) => Promise<RunningMcpServer>;
+
+/**
+ * Production starter: binds the Streamable HTTP transport for `settings`,
+ * resolving the effective tool set per request (auth + read-only floor, #17)
+ * and writing tool trail through `sink`.
+ */
+export function defaultMcpServerStarter(sink: McpToolTrailSink): McpServerStarter {
+    return (settings) => startMcpHttpServer(
+        { host: settings.host, basePort: settings.basePort },
+        { resolveTools: (bearer) => resolveEffectiveMcpTools(settings, bearer), sink },
+    );
+}
+
+/** Collaborators for {@link McpServerController}. */
+export interface McpServerControllerDeps {
+    /** Binds the transport and returns the running server. */
+    start: McpServerStarter;
+    /** Notified with the live status on every start/stop (for the Status Page). */
+    onChange?: (status: McpServerRuntimeStatus) => void;
+}
+
+/**
+ * Owns the lifecycle of a single MCP server: at most one listener is bound at a
+ * time, every transition notifies `onChange`, and `dispose` guarantees clean
+ * shutdown. Concurrent/duplicate starts collapse onto the in-flight bind.
+ */
+export class McpServerController {
+    private running: RunningMcpServer | undefined;
+    private pending: Promise<RunningMcpServer> | undefined;
+
+    constructor(private readonly deps: McpServerControllerDeps) {}
+
+    /** Live status: bound `host`/`port` while running, else `{ running: false }`. */
+    get status(): McpServerRuntimeStatus {
+        return this.running
+            ? { running: true, host: this.running.host, port: this.running.port }
+            : { running: false };
+    }
+
+    get isRunning(): boolean {
+        return this.running !== undefined;
+    }
+
+    /**
+     * Start the server. Idempotent: if already running (or a start is in flight)
+     * the existing server is returned without binding a second listener.
+     */
+    async start(settings: ResolvedMcpServerSettings): Promise<RunningMcpServer> {
+        if (this.running) {
+            return this.running;
+        }
+        if (this.pending) {
+            return this.pending;
+        }
+        this.pending = (async (): Promise<RunningMcpServer> => {
+            const server = await this.deps.start(settings);
+            this.running = server;
+            this.notify();
+            return server;
+        })();
+        try {
+            return await this.pending;
+        } finally {
+            this.pending = undefined;
+        }
+    }
+
+    /** Stop the running server and release the port. No-op when stopped. */
+    async stop(): Promise<void> {
+        const server = this.running;
+        if (!server) {
+            return;
+        }
+        this.running = undefined;
+        await server.close();
+        this.notify();
+    }
+
+    /** Stop the current server (if any) and bind a fresh one. */
+    async restart(settings: ResolvedMcpServerSettings): Promise<RunningMcpServer> {
+        await this.stop();
+        return this.start(settings);
+    }
+
+    /** Clean shutdown for `deactivate` / config disposal. */
+    async dispose(): Promise<void> {
+        await this.stop();
+    }
+
+    private notify(): void {
+        this.deps.onChange?.(this.status);
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Module-level active-controller registry. `extension.ts` registers the live
+// controller so the Status-Page handler can read the runtime status without a
+// cross-handler import cycle (it only needs the read accessor).
+// ----------------------------------------------------------------------------
+
+let activeController: McpServerController | undefined;
+
+/** Register (or clear) the controller whose status the Status Page reports. */
+export function setActiveMcpServerController(controller: McpServerController | undefined): void {
+    activeController = controller;
+}
+
+/** Live MCP server status for the Status-Page snapshot; stopped when none. */
+export function getMcpServerStatus(): McpServerRuntimeStatus {
+    return activeController?.status ?? { running: false };
+}
+
+/**
+ * Reconcile the active controller against changed settings — the "clean disposal
+ * on config change" half of #19. Called after the MCP card is saved:
+ *   - disabled ⇒ stop (release the listener);
+ *   - enabled & already running ⇒ restart to apply new host/port/tools/auth;
+ *   - otherwise ⇒ no-op (the user starts it via command/autoStart).
+ * Returns the running server when one is (re)bound, else `undefined`.
+ */
+export async function reconcileMcpServerConfig(
+    settings: ResolvedMcpServerSettings,
+): Promise<RunningMcpServer | undefined> {
+    const controller = activeController;
+    if (!controller) {
+        return undefined;
+    }
+    if (!settings.enabled) {
+        await controller.stop();
+        return undefined;
+    }
+    if (controller.isRunning) {
+        return controller.restart(settings);
+    }
+    return undefined;
 }

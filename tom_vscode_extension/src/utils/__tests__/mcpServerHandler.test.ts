@@ -38,6 +38,7 @@ import { getCurrentToolContext } from '../../services/tool-execution-context.js'
 import {
     McpToolTrailSink,
     NULL_MCP_TRAIL_SINK,
+    RunningMcpServer,
     makeMcpToolCallback,
     buildToolMcpServer,
     isMcpAuthenticated,
@@ -46,7 +47,11 @@ import {
     extractBearerToken,
     bindFirstFreePort,
     startMcpHttpServer,
+    McpServerController,
+    setActiveMcpServerController,
+    getMcpServerStatus,
 } from '../../handlers/mcpServer-handler.js';
+import type { McpServerRuntimeStatus } from '../mcpServerCard.js';
 
 /** A trail sink that records every request/answer for assertions. */
 function spySink(): McpToolTrailSink & {
@@ -389,6 +394,144 @@ describe('startMcpHttpServer — real loopback binding + consecutive ports', () 
             assert.equal(b.port, boundPort);
         } finally {
             await b.close();
+        }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Lifecycle controller (todo #19). The controller is the vscode-free state
+// machine that owns the running server: it must never leak a listener (no
+// double-bind while running), dispose cleanly, and notify on every state change
+// so the extension can push the live bound port to the Status-Page card. The
+// vscode wiring (commands, activation, toast, config-change) lives in
+// extension.ts and is not unit-testable here; the controller logic IS.
+// ---------------------------------------------------------------------------
+
+/** A fake bound server recording how many times it was closed. */
+function fakeRunning(port: number): RunningMcpServer & { closed: number } {
+    const r = {
+        host: '0.0.0.0',
+        port,
+        url: `http://0.0.0.0:${port}`,
+        closed: 0,
+        close: async (): Promise<void> => { r.closed += 1; },
+    };
+    return r;
+}
+
+/** Minimal settings object — opaque to the controller (passed to the starter). */
+const fakeSettings = {} as ResolvedMcpServerSettings;
+
+describe('McpServerController — lifecycle state machine', () => {
+    test('start binds once, exposes the running status, and notifies', async () => {
+        const changes: McpServerRuntimeStatus[] = [];
+        let calls = 0;
+        const srv = fakeRunning(19920);
+        const controller = new McpServerController({
+            start: async () => { calls += 1; return srv; },
+            onChange: (s) => { changes.push(s); },
+        });
+
+        const running = await controller.start(fakeSettings);
+
+        assert.equal(calls, 1);
+        assert.equal(running, srv);
+        assert.equal(controller.isRunning, true);
+        assert.deepEqual(controller.status, { running: true, host: '0.0.0.0', port: 19920 });
+        assert.equal(changes.length, 1);
+        assert.deepEqual(changes[0], { running: true, host: '0.0.0.0', port: 19920 });
+    });
+
+    test('starting while already running does not bind a second listener', async () => {
+        let calls = 0;
+        const controller = new McpServerController({ start: async () => { calls += 1; return fakeRunning(19920 + calls); } });
+
+        const first = await controller.start(fakeSettings);
+        const second = await controller.start(fakeSettings);
+
+        assert.equal(calls, 1);
+        assert.equal(second, first);
+    });
+
+    test('concurrent starts share one bind', async () => {
+        let calls = 0;
+        const controller = new McpServerController({
+            start: async () => { calls += 1; await Promise.resolve(); return fakeRunning(19920); },
+        });
+
+        const [a, b] = await Promise.all([controller.start(fakeSettings), controller.start(fakeSettings)]);
+
+        assert.equal(calls, 1);
+        assert.equal(a, b);
+    });
+
+    test('stop closes the server, clears state, and notifies', async () => {
+        const changes: McpServerRuntimeStatus[] = [];
+        const srv = fakeRunning(19920);
+        const controller = new McpServerController({ start: async () => srv, onChange: (s) => { changes.push(s); } });
+
+        await controller.start(fakeSettings);
+        await controller.stop();
+
+        assert.equal(srv.closed, 1);
+        assert.equal(controller.isRunning, false);
+        assert.deepEqual(controller.status, { running: false });
+        assert.deepEqual(changes.at(-1), { running: false });
+    });
+
+    test('stop while stopped is a no-op (no close, no notify)', async () => {
+        const changes: McpServerRuntimeStatus[] = [];
+        const controller = new McpServerController({ start: async () => fakeRunning(1), onChange: (s) => { changes.push(s); } });
+
+        await controller.stop();
+
+        assert.equal(changes.length, 0);
+    });
+
+    test('restart closes the old server and binds a fresh one', async () => {
+        const servers: Array<RunningMcpServer & { closed: number }> = [];
+        let calls = 0;
+        const controller = new McpServerController({
+            start: async () => { const s = fakeRunning(19920 + calls); calls += 1; servers.push(s); return s; },
+        });
+
+        await controller.start(fakeSettings);
+        const restarted = await controller.restart(fakeSettings);
+
+        assert.equal(calls, 2);
+        assert.equal(servers[0].closed, 1);            // old one closed
+        assert.equal(restarted, servers[1]);           // fresh one returned
+        assert.equal(controller.status.port, servers[1].port);
+    });
+
+    test('dispose stops the running server', async () => {
+        const srv = fakeRunning(19920);
+        const controller = new McpServerController({ start: async () => srv });
+
+        await controller.start(fakeSettings);
+        await controller.dispose();
+
+        assert.equal(srv.closed, 1);
+        assert.equal(controller.isRunning, false);
+    });
+});
+
+describe('getMcpServerStatus — module-level accessor for the Status Page', () => {
+    test('no active controller ⇒ stopped', () => {
+        setActiveMcpServerController(undefined);
+        assert.deepEqual(getMcpServerStatus(), { running: false });
+    });
+
+    test('reflects the active controller’s live status', async () => {
+        const controller = new McpServerController({ start: async () => fakeRunning(19921) });
+        setActiveMcpServerController(controller);
+        try {
+            assert.deepEqual(getMcpServerStatus(), { running: false });
+            await controller.start(fakeSettings);
+            assert.deepEqual(getMcpServerStatus(), { running: true, host: '0.0.0.0', port: 19921 });
+        } finally {
+            await controller.dispose();
+            setActiveMcpServerController(undefined);
         }
     });
 });
