@@ -28,7 +28,10 @@
  * testable under plain `node:test`.
  */
 
+import * as http from 'node:http';
+
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 import type { SharedToolDefinition } from '../tools/shared-tool-registry';
@@ -199,4 +202,167 @@ export function buildToolMcpServer(tools: SharedToolDefinition[], sink: McpToolT
     }
 
     return { server, toolNames };
+}
+
+// ============================================================================
+// Streamable HTTP transport + port probing + bearer auth (plan §7.3, todo #18)
+//
+// The server binds `0.0.0.0:<port>` (VPN-reachable) and probes upward from
+// `basePort` (19920) to the first free port, so every VS Code window can run
+// its own server. Each inbound request is authenticated by its bearer token and
+// served a freshly-built MCP server scoped to that request's effective tool set
+// (auth → read-only floor from #17), keeping the gate per-request rather than
+// per-process. The vscode toast + Status-Page bound-port reporting live in the
+// lifecycle wiring (#19); this module returns the bound port so #19 can surface
+// it, staying `vscode`-free and unit-testable.
+// ============================================================================
+
+/**
+ * Extract the token from an `Authorization: Bearer <token>` header. The scheme
+ * match is case-insensitive and surrounding whitespace is tolerated. Any other
+ * scheme — or a bare value with no scheme — yields `undefined` (unauthenticated).
+ */
+export function extractBearerToken(authHeader: string | undefined): string | undefined {
+    if (!authHeader) { return undefined; }
+    const match = /^Bearer\s+(.+)$/i.exec(authHeader.trim());
+    return match ? match[1].trim() : undefined;
+}
+
+/** True for the `EADDRINUSE` errno that signals "this port is taken, try the next". */
+function isAddrInUse(error: unknown): boolean {
+    return (error as NodeJS.ErrnoException | undefined)?.code === 'EADDRINUSE';
+}
+
+/**
+ * Probe upward from `basePort` to the first port `attempt` can bind. `attempt`
+ * resolves with the bound resource, or rejects with an `EADDRINUSE` error to
+ * signal "try the next port"; any other rejection aborts the search immediately
+ * (e.g. `EACCES`). After `maxAttempts` busy ports it rejects with a clear error.
+ *
+ * Injecting `attempt` keeps the probe logic socket-free and unit-testable; the
+ * real binder ({@link startMcpHttpServer}) passes an `http.Server.listen` wrapper.
+ */
+export async function bindFirstFreePort<T>(
+    basePort: number,
+    maxAttempts: number,
+    attempt: (port: number) => Promise<T>,
+): Promise<{ port: number; resource: T }> {
+    for (let i = 0; i < maxAttempts; i++) {
+        const port = basePort + i;
+        try {
+            return { port, resource: await attempt(port) };
+        } catch (error) {
+            if (!isAddrInUse(error)) { throw error; }
+        }
+    }
+    throw new Error(
+        `MCP server: no free port in ${basePort}..${basePort + maxAttempts - 1} (${maxAttempts} attempts)`,
+    );
+}
+
+/** Default cap on the upward port search (basePort..basePort+99). */
+export const MCP_PORT_PROBE_ATTEMPTS = 100;
+
+/**
+ * Per-request dependencies for the HTTP server. `resolveTools` maps an inbound
+ * bearer to the effective tool set (the caller wires this to
+ * {@link resolveEffectiveMcpTools} with the live settings + `process.env`);
+ * `sink` receives the trail entries every tool call writes.
+ */
+export interface McpHttpServerDeps {
+    resolveTools: (bearer: string | undefined) => SharedToolDefinition[];
+    sink: McpToolTrailSink;
+}
+
+/** A bound, running MCP HTTP server plus the handle to shut it down. */
+export interface RunningMcpServer {
+    host: string;
+    port: number;
+    /** `http://<host>:<port>` — the advertised base URL. */
+    url: string;
+    /** Stop accepting connections and release the port. */
+    close(): Promise<void>;
+}
+
+/** Wrap `server.listen(port, host)` in a promise that rejects on bind error. */
+function listenOnce(server: http.Server, host: string, port: number): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+        const onError = (error: Error): void => { server.off('listening', onListening); reject(error); };
+        const onListening = (): void => { server.off('error', onError); resolve(); };
+        server.once('error', onError);
+        server.once('listening', onListening);
+        server.listen(port, host);
+    });
+}
+
+/**
+ * Start a Streamable HTTP MCP server on `host`, probing upward from `basePort`
+ * to the first free port. Each request is served in stateless mode: the bearer
+ * is extracted, the effective tool set resolved for it, and a fresh MCP server
+ * built and connected to a per-request transport — so auth gates every call.
+ *
+ * Returns the bound `host`/`port`/`url` and a `close()` handle. The success
+ * toast and Status-Page reporting are the lifecycle layer's job (#19).
+ */
+export async function startMcpHttpServer(
+    opts: { host: string; basePort: number; maxAttempts?: number },
+    deps: McpHttpServerDeps,
+): Promise<RunningMcpServer> {
+    const maxAttempts = opts.maxAttempts ?? MCP_PORT_PROBE_ATTEMPTS;
+
+    const { port, resource: server } = await bindFirstFreePort(
+        opts.basePort,
+        maxAttempts,
+        async (candidate) => {
+            const httpServer = http.createServer((req, res) => { void handleMcpRequest(req, res, deps); });
+            try {
+                await listenOnce(httpServer, opts.host, candidate);
+            } catch (error) {
+                httpServer.close();
+                throw error;
+            }
+            return httpServer;
+        },
+    );
+
+    return {
+        host: opts.host,
+        port,
+        url: `http://${opts.host}:${port}`,
+        close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    };
+}
+
+/**
+ * Serve a single inbound HTTP request: authenticate by bearer, resolve the
+ * effective tool set, build a fresh stateless MCP server for it, and delegate to
+ * the SDK transport. Closing both on response end keeps the stateless model
+ * leak-free.
+ */
+async function handleMcpRequest(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    deps: McpHttpServerDeps,
+): Promise<void> {
+    const bearer = extractBearerToken(req.headers.authorization);
+    const tools = deps.resolveTools(bearer);
+    const { server } = buildToolMcpServer(tools, deps.sink);
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+
+    res.on('close', () => { void transport.close(); void server.close(); });
+
+    try {
+        await server.connect(transport);
+        await transport.handleRequest(req, res);
+    } catch (error) {
+        if (!res.headersSent) {
+            res.setHeader('Content-Type', 'application/json');
+            res.writeHead(500);
+            res.end(JSON.stringify({
+                jsonrpc: '2.0',
+                error: { code: -32603, message: error instanceof Error ? error.message : String(error) },
+                id: null,
+            }));
+        }
+    }
 }

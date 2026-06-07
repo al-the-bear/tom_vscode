@@ -37,11 +37,15 @@ import type { ResolvedMcpServerSettings } from '../sendToChatConfig.js';
 import { getCurrentToolContext } from '../../services/tool-execution-context.js';
 import {
     McpToolTrailSink,
+    NULL_MCP_TRAIL_SINK,
     makeMcpToolCallback,
     buildToolMcpServer,
     isMcpAuthenticated,
     resolveEffectiveTools,
     resolveEffectiveMcpTools,
+    extractBearerToken,
+    bindFirstFreePort,
+    startMcpHttpServer,
 } from '../../handlers/mcpServer-handler.js';
 
 /** A trail sink that records every request/answer for assertions. */
@@ -274,5 +278,117 @@ describe('resolveEffectiveMcpTools — full matrix against the real registry', (
         );
         // Unauthenticated floor keeps only the read-only member of the allow-list.
         assert.deepEqual(eff.map((t) => t.name), [readName]);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Streamable HTTP transport + port probing + bearer auth (todo #18).
+//
+// The pure pieces are tested directly: `extractBearerToken` (header parsing)
+// and `bindFirstFreePort` (probe-upward logic with an injected binder, so the
+// base-free / base-busy / all-busy / fatal-error cases are deterministic and
+// socket-free). The real `startMcpHttpServer` is then exercised against actual
+// loopback sockets to prove the "two windows ⇒ consecutive free ports"
+// done-when: a second server started on the first's bound port lands on the
+// next port. The full MCP wire round-trip + the vscode toast/card reporting are
+// #21/#19 respectively (see completion_steps).
+// ---------------------------------------------------------------------------
+
+describe('extractBearerToken — Authorization header parsing', () => {
+    test('absent header ⇒ undefined', () => {
+        assert.equal(extractBearerToken(undefined), undefined);
+        assert.equal(extractBearerToken(''), undefined);
+    });
+    test('Bearer scheme ⇒ the token', () => {
+        assert.equal(extractBearerToken('Bearer abc123'), 'abc123');
+    });
+    test('scheme match is case-insensitive and tolerates surrounding space', () => {
+        assert.equal(extractBearerToken('bearer abc123'), 'abc123');
+        assert.equal(extractBearerToken('  Bearer   abc123  '), 'abc123');
+    });
+    test('non-Bearer scheme ⇒ undefined', () => {
+        assert.equal(extractBearerToken('Basic abc123'), undefined);
+    });
+    test('bare token without a scheme ⇒ undefined', () => {
+        assert.equal(extractBearerToken('abc123'), undefined);
+    });
+});
+
+describe('bindFirstFreePort — probe upward to the first free port', () => {
+    /** An EADDRINUSE-shaped error, signalling "try the next port". */
+    const inUse = (): NodeJS.ErrnoException => Object.assign(new Error('addr in use'), { code: 'EADDRINUSE' });
+
+    test('base port free ⇒ binds basePort on the first attempt', async () => {
+        const attempted: number[] = [];
+        const r = await bindFirstFreePort(19920, 100, async (p) => { attempted.push(p); return `srv@${p}`; });
+        assert.equal(r.port, 19920);
+        assert.equal(r.resource, 'srv@19920');
+        assert.deepEqual(attempted, [19920]);
+    });
+
+    test('base busy ⇒ probes upward to the next free port', async () => {
+        const attempted: number[] = [];
+        const r = await bindFirstFreePort(19920, 100, async (p) => {
+            attempted.push(p);
+            if (p < 19922) { throw inUse(); }
+            return `srv@${p}`;
+        });
+        assert.equal(r.port, 19922);
+        assert.deepEqual(attempted, [19920, 19921, 19922]);
+    });
+
+    test('all probed ports busy ⇒ rejects after the capped number of attempts', async () => {
+        const attempted: number[] = [];
+        await assert.rejects(
+            bindFirstFreePort(19920, 3, async (p) => { attempted.push(p); throw inUse(); }),
+            /no free port/i,
+        );
+        assert.deepEqual(attempted, [19920, 19921, 19922]);
+    });
+
+    test('a non-EADDRINUSE error aborts immediately (no further probing)', async () => {
+        const attempted: number[] = [];
+        await assert.rejects(
+            bindFirstFreePort(19920, 100, async (p) => {
+                attempted.push(p);
+                throw new Error('EACCES: permission denied');
+            }),
+            /EACCES/,
+        );
+        assert.deepEqual(attempted, [19920]);
+    });
+});
+
+describe('startMcpHttpServer — real loopback binding + consecutive ports', () => {
+    test('two servers on the same basePort land on consecutive free ports', async () => {
+        const deps = { resolveTools: () => [], sink: NULL_MCP_TRAIL_SINK };
+        const first = await startMcpHttpServer({ host: '127.0.0.1', basePort: 19920 }, deps);
+        try {
+            // A second window probing from the first's bound port must skip it.
+            const second = await startMcpHttpServer({ host: '127.0.0.1', basePort: first.port }, deps);
+            try {
+                assert.equal(second.port, first.port + 1);
+                assert.equal(first.host, '127.0.0.1');
+                assert.equal(first.url, `http://127.0.0.1:${first.port}`);
+            } finally {
+                await second.close();
+            }
+        } finally {
+            await first.close();
+        }
+    });
+
+    test('close() releases the port for a subsequent bind', async () => {
+        const deps = { resolveTools: () => [], sink: NULL_MCP_TRAIL_SINK };
+        const a = await startMcpHttpServer({ host: '127.0.0.1', basePort: 19940 }, deps);
+        const boundPort = a.port;
+        await a.close();
+        // After close, probing from the same base reclaims the freed port.
+        const b = await startMcpHttpServer({ host: '127.0.0.1', basePort: boundPort }, deps);
+        try {
+            assert.equal(b.port, boundPort);
+        } finally {
+            await b.close();
+        }
     });
 });
