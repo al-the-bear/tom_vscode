@@ -33,7 +33,8 @@ import {
 } from '../tools/local-llm-tools-config';
 import { WsPaths } from '../utils/workspacePaths';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
-import { validateStrictAiConfiguration, SendToChatConfig, getSendToChatTarget } from '../utils/sendToChatConfig';
+import { validateStrictAiConfiguration, SendToChatConfig, getSendToChatTarget, getMcpServerSettings } from '../utils/sendToChatConfig';
+import { McpServerCardModel, buildMcpServerCardModel, renderMcpServerCard } from '../utils/mcpServerCard';
 import { loadWebviewHtml, readMediaText } from '../utils/webviewLoader';
 import { wireCompletionMessages } from '../utils/completionWiring';
 
@@ -1658,6 +1659,8 @@ export interface StatusData {
         port?: number;
         autostart: boolean;
     };
+    /** Standalone MCP server card (config + runtime-bound host:port). */
+    mcpServer: McpServerCardModel;
     bridge: {
         connected: boolean;
         currentProfile: string;
@@ -1905,6 +1908,10 @@ export async function gatherStatusData(): Promise<StatusData> {
             port: cliStatus.port,
             autostart: sendToChatConfig?.bridge?.cliServerAutostart ?? false,
         },
+        // Runtime state ({ running: false }) is a placeholder until the server
+        // module + lifecycle land (plan todos #16–#19), which will push the
+        // live bound host:port. The card already renders it when running.
+        mcpServer: buildMcpServerCardModel(getMcpServerSettings(sendToChatConfig), { running: false }),
         bridge: {
             connected: bridgeClient !== null,
             currentProfile: bridgeConfig?.current ?? 'default',
@@ -2446,6 +2453,7 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
             </label>
         </div>
     </div>
+${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS)}
 
     <!-- Bridge Section -->
     <div class="sp-section">
