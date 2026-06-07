@@ -1087,10 +1087,7 @@
             },
             {
                 "name": "tomAi_readGlobalGuideline",
-                "tags": [
-                    "guidelines",
-                    "tom-ai-chat"
-                ],
+                "tags": ["guidelines", "tom-ai-chat"],
                 "displayName": "Read Global Guideline",
                 "userDescription": "Read workspace-level coding guidelines",
                 "modelDescription": "Read a workspace-level guideline from _copilot_guidelines/. Without a fileName, returns the file list and the index.md content. Use this to understand workspace conventions before making changes.",
@@ -1108,10 +1105,7 @@
             },
             {
                 "name": "tomAi_listGlobalGuidelines",
-                "tags": [
-                    "guidelines",
-                    "tom-ai-chat"
-                ],
+                "tags": ["guidelines", "tom-ai-chat"],
                 "displayName": "List Global Guidelines",
                 "userDescription": "List workspace-level guideline files",
                 "modelDescription": "List all global guideline markdown files under _copilot_guidelines/ (recursively). Optionally scope to a subfolder.",
@@ -1119,126 +1113,78 @@
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "subfolder": {
-                            "type": "string"
-                        }
+                        "subfolder": { "type": "string" }
                     }
                 },
                 "toolReferenceName": "tomAi_listGlobalGuidelines"
             },
             {
                 "name": "tomAi_searchGlobalGuidelines",
-                "tags": [
-                    "guidelines",
-                    "tom-ai-chat"
-                ],
+                "tags": ["guidelines", "tom-ai-chat"],
                 "displayName": "Search Global Guidelines",
                 "userDescription": "Search workspace-level guideline files",
                 "modelDescription": "Search _copilot_guidelines/ for a substring and return file+line matches.",
                 "canBeReferencedInPrompt": true,
                 "inputSchema": {
                     "type": "object",
-                    "required": [
-                        "query"
-                    ],
+                    "required": ["query"],
                     "properties": {
-                        "query": {
-                            "type": "string"
-                        },
-                        "caseSensitive": {
-                            "type": "boolean"
-                        },
-                        "maxMatches": {
-                            "type": "number"
-                        }
+                        "query": { "type": "string" },
+                        "caseSensitive": { "type": "boolean" },
+                        "maxMatches": { "type": "number" }
                     }
                 },
                 "toolReferenceName": "tomAi_searchGlobalGuidelines"
             },
             {
                 "name": "tomAi_readProjectGuideline",
-                "tags": [
-                    "guidelines",
-                    "project",
-                    "tom-ai-chat"
-                ],
+                "tags": ["guidelines", "project", "tom-ai-chat"],
                 "displayName": "Read Project Guideline",
                 "userDescription": "Read a project-level guideline",
                 "modelDescription": "Read a project-level guideline from {projectPath}/_copilot_guidelines/. Without a fileName, returns the file list and index.md for that project.",
                 "canBeReferencedInPrompt": true,
                 "inputSchema": {
                     "type": "object",
-                    "required": [
-                        "projectPath"
-                    ],
+                    "required": ["projectPath"],
                     "properties": {
-                        "projectPath": {
-                            "type": "string"
-                        },
-                        "fileName": {
-                            "type": "string"
-                        }
+                        "projectPath": { "type": "string" },
+                        "fileName": { "type": "string" }
                     }
                 },
                 "toolReferenceName": "tomAi_readProjectGuideline"
             },
             {
                 "name": "tomAi_listProjectGuidelines",
-                "tags": [
-                    "guidelines",
-                    "project",
-                    "tom-ai-chat"
-                ],
+                "tags": ["guidelines", "project", "tom-ai-chat"],
                 "displayName": "List Project Guidelines",
                 "userDescription": "List a project's guideline files",
                 "modelDescription": "List all project guideline files under {projectPath}/_copilot_guidelines/. Use tomAi_listProjects to discover project paths.",
                 "canBeReferencedInPrompt": true,
                 "inputSchema": {
                     "type": "object",
-                    "required": [
-                        "projectPath"
-                    ],
+                    "required": ["projectPath"],
                     "properties": {
-                        "projectPath": {
-                            "type": "string"
-                        },
-                        "subfolder": {
-                            "type": "string"
-                        }
+                        "projectPath": { "type": "string" },
+                        "subfolder": { "type": "string" }
                     }
                 },
                 "toolReferenceName": "tomAi_listProjectGuidelines"
             },
             {
                 "name": "tomAi_searchProjectGuidelines",
-                "tags": [
-                    "guidelines",
-                    "project",
-                    "tom-ai-chat"
-                ],
+                "tags": ["guidelines", "project", "tom-ai-chat"],
                 "displayName": "Search Project Guidelines",
                 "userDescription": "Search a project's guideline files",
                 "modelDescription": "Search a project's _copilot_guidelines/ for a substring. Use tomAi_listProjects to discover project paths.",
                 "canBeReferencedInPrompt": true,
                 "inputSchema": {
                     "type": "object",
-                    "required": [
-                        "projectPath",
-                        "query"
-                    ],
+                    "required": ["projectPath", "query"],
                     "properties": {
-                        "projectPath": {
-                            "type": "string"
-                        },
-                        "query": {
-                            "type": "string"
-                        },
-                        "caseSensitive": {
-                            "type": "boolean"
-                        },
-                        "maxMatches": {
-                            "type": "number"
-                        }
+                        "projectPath": { "type": "string" },
+                        "query": { "type": "string" },
+                        "caseSensitive": { "type": "boolean" },
+                        "maxMatches": { "type": "number" }
                     }
                 },
                 "toolReferenceName": "tomAi_searchProjectGuidelines"
@@ -2169,210 +2115,123 @@
             },
             {
                 "name": "tomAi_listPromptTemplates",
-                "tags": [
-                    "templates",
-                    "copilot",
-                    "tom-ai-chat"
-                ],
+                "tags": ["templates", "copilot", "tom-ai-chat"],
                 "displayName": "List Prompt Templates",
                 "userDescription": "List prompt templates",
                 "modelDescription": "List prompt templates used by the queue and timed requests.",
                 "canBeReferencedInPrompt": true,
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {}
-                },
+                "inputSchema": { "type": "object", "properties": {} },
                 "toolReferenceName": "tomAi_listPromptTemplates"
             },
             {
                 "name": "tomAi_createPromptTemplate",
-                "tags": [
-                    "templates",
-                    "copilot",
-                    "tom-ai-chat"
-                ],
+                "tags": ["templates", "copilot", "tom-ai-chat"],
                 "displayName": "Create Prompt Template",
                 "userDescription": "Create a new prompt template",
                 "modelDescription": "Create a new prompt template.",
                 "canBeReferencedInPrompt": true,
                 "inputSchema": {
                     "type": "object",
-                    "required": [
-                        "name"
-                    ],
+                    "required": ["name"],
                     "properties": {
-                        "name": {
-                            "type": "string"
-                        },
-                        "template": {
-                            "type": "string"
-                        },
-                        "showInMenu": {
-                            "type": "boolean"
-                        }
+                        "name": { "type": "string" },
+                        "template": { "type": "string" },
+                        "showInMenu": { "type": "boolean" }
                     }
                 },
                 "toolReferenceName": "tomAi_createPromptTemplate"
             },
             {
                 "name": "tomAi_updatePromptTemplate",
-                "tags": [
-                    "templates",
-                    "copilot",
-                    "tom-ai-chat"
-                ],
+                "tags": ["templates", "copilot", "tom-ai-chat"],
                 "displayName": "Update Prompt Template",
                 "userDescription": "Update a prompt template",
                 "modelDescription": "Patch an existing prompt template. Optionally rename via newName.",
                 "canBeReferencedInPrompt": true,
                 "inputSchema": {
                     "type": "object",
-                    "required": [
-                        "name"
-                    ],
+                    "required": ["name"],
                     "properties": {
-                        "name": {
-                            "type": "string"
-                        },
-                        "newName": {
-                            "type": "string"
-                        },
-                        "template": {
-                            "type": "string"
-                        },
-                        "showInMenu": {
-                            "type": "boolean"
-                        }
+                        "name": { "type": "string" },
+                        "newName": { "type": "string" },
+                        "template": { "type": "string" },
+                        "showInMenu": { "type": "boolean" }
                     }
                 },
                 "toolReferenceName": "tomAi_updatePromptTemplate"
             },
             {
                 "name": "tomAi_deletePromptTemplate",
-                "tags": [
-                    "templates",
-                    "copilot",
-                    "tom-ai-chat"
-                ],
+                "tags": ["templates", "copilot", "tom-ai-chat"],
                 "displayName": "Delete Prompt Template",
                 "userDescription": "Delete a prompt template",
                 "modelDescription": "Delete a prompt template by name.",
                 "canBeReferencedInPrompt": true,
                 "inputSchema": {
                     "type": "object",
-                    "required": [
-                        "name"
-                    ],
-                    "properties": {
-                        "name": {
-                            "type": "string"
-                        }
-                    }
+                    "required": ["name"],
+                    "properties": { "name": { "type": "string" } }
                 },
                 "toolReferenceName": "tomAi_deletePromptTemplate"
             },
             {
                 "name": "tomAi_listReminderTemplates",
-                "tags": [
-                    "templates",
-                    "reminder",
-                    "tom-ai-chat"
-                ],
+                "tags": ["templates", "reminder", "tom-ai-chat"],
                 "displayName": "List Reminder Templates",
                 "userDescription": "List reminder templates",
                 "modelDescription": "List reminder templates used by the queue and timed-request reminders.",
                 "canBeReferencedInPrompt": true,
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {}
-                },
+                "inputSchema": { "type": "object", "properties": {} },
                 "toolReferenceName": "tomAi_listReminderTemplates"
             },
             {
                 "name": "tomAi_createReminderTemplate",
-                "tags": [
-                    "templates",
-                    "reminder",
-                    "tom-ai-chat"
-                ],
+                "tags": ["templates", "reminder", "tom-ai-chat"],
                 "displayName": "Create Reminder Template",
                 "userDescription": "Create a reminder template",
                 "modelDescription": "Create a new reminder template.",
                 "canBeReferencedInPrompt": true,
                 "inputSchema": {
                     "type": "object",
-                    "required": [
-                        "name",
-                        "prompt"
-                    ],
+                    "required": ["name", "prompt"],
                     "properties": {
-                        "name": {
-                            "type": "string"
-                        },
-                        "prompt": {
-                            "type": "string"
-                        },
-                        "isDefault": {
-                            "type": "boolean"
-                        }
+                        "name": { "type": "string" },
+                        "prompt": { "type": "string" },
+                        "isDefault": { "type": "boolean" }
                     }
                 },
                 "toolReferenceName": "tomAi_createReminderTemplate"
             },
             {
                 "name": "tomAi_updateReminderTemplate",
-                "tags": [
-                    "templates",
-                    "reminder",
-                    "tom-ai-chat"
-                ],
+                "tags": ["templates", "reminder", "tom-ai-chat"],
                 "displayName": "Update Reminder Template",
                 "userDescription": "Update a reminder template",
                 "modelDescription": "Patch an existing reminder template by id.",
                 "canBeReferencedInPrompt": true,
                 "inputSchema": {
                     "type": "object",
-                    "required": [
-                        "id"
-                    ],
+                    "required": ["id"],
                     "properties": {
-                        "id": {
-                            "type": "string"
-                        },
-                        "name": {
-                            "type": "string"
-                        },
-                        "prompt": {
-                            "type": "string"
-                        },
-                        "isDefault": {
-                            "type": "boolean"
-                        }
+                        "id": { "type": "string" },
+                        "name": { "type": "string" },
+                        "prompt": { "type": "string" },
+                        "isDefault": { "type": "boolean" }
                     }
                 },
                 "toolReferenceName": "tomAi_updateReminderTemplate"
             },
             {
                 "name": "tomAi_deleteReminderTemplate",
-                "tags": [
-                    "templates",
-                    "reminder",
-                    "tom-ai-chat"
-                ],
+                "tags": ["templates", "reminder", "tom-ai-chat"],
                 "displayName": "Delete Reminder Template",
                 "userDescription": "Delete a reminder template",
                 "modelDescription": "Delete a reminder template by id.",
                 "canBeReferencedInPrompt": true,
                 "inputSchema": {
                     "type": "object",
-                    "required": [
-                        "id"
-                    ],
-                    "properties": {
-                        "id": {
-                            "type": "string"
-                        }
-                    }
+                    "required": ["id"],
+                    "properties": { "id": { "type": "string" } }
                 },
                 "toolReferenceName": "tomAi_deleteReminderTemplate"
             },
