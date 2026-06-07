@@ -34,7 +34,7 @@ import {
 import { WsPaths } from '../utils/workspacePaths';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 import { validateStrictAiConfiguration, SendToChatConfig, getSendToChatTarget, getMcpServerSettings } from '../utils/sendToChatConfig';
-import { McpServerCardModel, buildMcpServerCardModel, renderMcpServerCard } from '../utils/mcpServerCard';
+import { McpServerCardModel, buildMcpServerCardModel, renderMcpServerCard, buildMcpServerConfigFromMessage } from '../utils/mcpServerCard';
 import { loadWebviewHtml, readMediaText } from '../utils/webviewLoader';
 import { wireCompletionMessages } from '../utils/completionWiring';
 
@@ -1077,6 +1077,15 @@ export async function handleStatusAction(action: string, message: any): Promise<
             if (!stcConfig.bridge) { stcConfig.bridge = { profiles: {} }; }
             stcConfig.bridge.cliServerAutostart = !!message.enabled;
             saveSendToChatConfig(stcConfig);
+            break;
+        }
+        // MCP Server (standalone) — persist the card's settings. The gather map
+        // normalises the webview payload; the resolver applies defaults on read.
+        case 'saveMcpServer': {
+            const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
+            stcConfig.mcpServer = buildMcpServerConfigFromMessage(message);
+            saveSendToChatConfig(stcConfig);
+            vscode.window.showInformationMessage('MCP Server settings saved');
             break;
         }
         // Bridge

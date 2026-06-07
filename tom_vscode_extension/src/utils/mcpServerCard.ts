@@ -6,14 +6,17 @@
  * import graph). `buildMcpServerCardModel` maps the resolved `mcpServer`
  * settings plus runtime state into a view-model; `renderMcpServerCard` turns
  * that view-model and the available tool names into an HTML fragment.
+ * `buildMcpServerConfigFromMessage` (todo #11) is the inverse: it maps the
+ * field payload the webview posts back into the on-disk `McpServerConfig`
+ * shape, so the save handler can be a thin one-liner.
  *
  * The tool-name options are passed in by the caller — the handler supplies
  * `AVAILABLE_LLM_TOOLS`, the exact same option set the Anthropic profile
  * templates use (globalTemplateEditor-handler.ts `anthropicProfiles` case) — so
- * this module imports only a TYPE from sendToChatConfig (erased at runtime).
+ * this module imports only TYPES from sendToChatConfig (erased at runtime).
  */
 
-import type { ResolvedMcpServerSettings } from './sendToChatConfig';
+import type { McpServerConfig, ResolvedMcpServerSettings } from './sendToChatConfig';
 
 /**
  * Live runtime state of the MCP server. The bound `host`/`port` are only
@@ -46,6 +49,48 @@ export function buildMcpServerCardModel(
         running: runtime.running === true,
         boundHost: runtime.running ? runtime.host : undefined,
         boundPort: runtime.running ? runtime.port : undefined,
+    };
+}
+
+/**
+ * Field payload the Status-Page webview posts when saving the MCP card. Values
+ * arrive untyped (e.g. number inputs send strings, checkboxes send booleans),
+ * so each field is `unknown` and normalised by {@link buildMcpServerConfigFromMessage}.
+ */
+export interface McpServerSavePayload {
+    enabled?: unknown;
+    autoStart?: unknown;
+    host?: unknown;
+    basePort?: unknown;
+    apiKeyEnv?: unknown;
+    allowWriteWithoutAuth?: unknown;
+    toolsEnabled?: unknown;
+    enabledTools?: unknown;
+}
+
+/**
+ * The save gather-map: normalise the webview's field payload into the on-disk
+ * `McpServerConfig`. Blank `host`/`apiKeyEnv` and invalid `basePort` are dropped
+ * (left `undefined`) so {@link getMcpServerSettings} supplies the documented
+ * defaults on read — the resolver remains the single source of defaults.
+ * `toolsEnabled` is "all tools" unless the payload says explicitly `false`.
+ */
+export function buildMcpServerConfigFromMessage(payload: McpServerSavePayload): McpServerConfig {
+    const host = typeof payload.host === 'string' ? payload.host.trim() : '';
+    const apiKeyEnv = typeof payload.apiKeyEnv === 'string' ? payload.apiKeyEnv.trim() : '';
+    const basePort = Number(payload.basePort);
+    const enabledTools = Array.isArray(payload.enabledTools)
+        ? payload.enabledTools.filter((t): t is string => typeof t === 'string')
+        : [];
+    return {
+        enabled: payload.enabled === true,
+        autoStart: payload.autoStart === true,
+        host: host || undefined,
+        basePort: Number.isFinite(basePort) && basePort > 0 ? Math.floor(basePort) : undefined,
+        apiKeyEnv: apiKeyEnv || undefined,
+        allowWriteWithoutAuth: payload.allowWriteWithoutAuth === true,
+        toolsEnabled: payload.toolsEnabled !== false,
+        enabledTools,
     };
 }
 
