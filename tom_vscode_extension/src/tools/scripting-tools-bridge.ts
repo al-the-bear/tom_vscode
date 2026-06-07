@@ -29,6 +29,7 @@ import { runWithToolContext } from '../services/tool-execution-context';
 import {
     loadSendToChatConfig,
     getSendToChatTarget,
+    SendToChatConfig,
 } from '../utils/sendToChatConfig';
 
 /**
@@ -48,23 +49,28 @@ interface AnthropicProfileLike {
 }
 
 /**
- * Resolve the active Anthropic profile from config.
+ * Pure selection of the active Anthropic profile from a loaded config.
  *
  * Preference order:
- *  1. The profile whose id matches the webview-mirrored active selection.
+ *  1. The profile whose id matches `activeProfileId` (the webview-mirrored
+ *     active selection).
  *  2. The profile flagged `isDefault`.
  *  3. The first configured profile.
  * Returns `undefined` when no profiles are configured (→ all tools).
+ *
+ * Kept config-in / no-vscode so the resolution is unit-testable without a
+ * live config file (mirrors the apiKeyAuthHeader test seam).
  */
-function resolveActiveProfile(context: vscode.ExtensionContext): AnthropicProfileLike | undefined {
-    const config = loadSendToChatConfig();
+function pickActiveProfile(
+    config: SendToChatConfig | null,
+    activeProfileId: string,
+): AnthropicProfileLike | undefined {
     const profiles = (config?.anthropic?.profiles ?? []) as AnthropicProfileLike[];
     if (profiles.length === 0) {
         return undefined;
     }
-    const activeId = context.workspaceState.get<string>(ACTIVE_ANTHROPIC_PROFILE_KEY, '');
-    if (activeId) {
-        const match = profiles.find((p) => p.id === activeId);
+    if (activeProfileId) {
+        const match = profiles.find((p) => p.id === activeProfileId);
         if (match) {
             return match;
         }
@@ -73,19 +79,50 @@ function resolveActiveProfile(context: vscode.ExtensionContext): AnthropicProfil
 }
 
 /**
+ * Pure resolution of the tool-name set allowed for the active profile.
+ *
+ * The single source of truth shared by tool listing
+ * ({@link getActiveProfileToolsJson}) and tool-invocation gating:
+ *  - Send-to-Chat target 'copilot' ⇒ empty set (no tools).
+ *  - Otherwise the active profile (see {@link pickActiveProfile}) drives the
+ *    set via `resolveProfileTools`.
+ *
+ * Config-in / activeId-in so it is unit-testable without a live config file.
+ */
+export function activeProfileToolNames(
+    config: SendToChatConfig | null,
+    activeProfileId: string,
+): Set<string> {
+    if (getSendToChatTarget(config) === 'copilot') {
+        return new Set();
+    }
+    const profile = pickActiveProfile(config, activeProfileId);
+    return new Set(resolveProfileTools(profile).map((t) => t.name));
+}
+
+/**
+ * Resolve the allowed tool-name set for the currently active profile,
+ * reading the live config + webview-mirrored profile selection from
+ * extension state. Thin wrapper over {@link activeProfileToolNames}.
+ */
+export function resolveActiveProfileToolNames(context: vscode.ExtensionContext): Set<string> {
+    const config = loadSendToChatConfig();
+    const activeId = context.workspaceState.get<string>(ACTIVE_ANTHROPIC_PROFILE_KEY, '');
+    return activeProfileToolNames(config, activeId);
+}
+
+/**
  * Generate the Anthropic-shaped tools JSON for the currently active profile.
  *
  * Empty when the Send-to-Chat target is 'copilot'. Otherwise the set is
- * filtered by the active profile's `toolsEnabled` / `enabledTools`.
+ * filtered by the active profile's `toolsEnabled` / `enabledTools`. Built from
+ * {@link resolveActiveProfileToolNames} so listing and invocation gating read
+ * from one helper; filtering `ALL_SHARED_TOOLS` by the resolved name set
+ * preserves the original entries and ordering.
  */
 export function getActiveProfileToolsJson(context: vscode.ExtensionContext): AnthropicTool[] {
-    const config = loadSendToChatConfig();
-    if (getSendToChatTarget(config) === 'copilot') {
-        return [];
-    }
-    const profile = resolveActiveProfile(context);
-    const tools = resolveProfileTools(profile);
-    return toAnthropicTools(tools);
+    const allowed = resolveActiveProfileToolNames(context);
+    return toAnthropicTools(ALL_SHARED_TOOLS.filter((t) => allowed.has(t.name)));
 }
 
 /**

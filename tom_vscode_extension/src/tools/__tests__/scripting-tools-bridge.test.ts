@@ -26,7 +26,8 @@ installVscodeStub({});
 import { ALL_SHARED_TOOLS, resolveProfileTools } from '../tool-executors.js';
 import { toAnthropicTools } from '../shared-tool-registry.js';
 import { getSendToChatTarget } from '../../utils/sendToChatConfig.js';
-import { invokeToolByName } from '../scripting-tools-bridge.js';
+import type { SendToChatConfig } from '../../utils/sendToChatConfig.js';
+import { invokeToolByName, activeProfileToolNames } from '../scripting-tools-bridge.js';
 
 describe('resolveProfileTools — active profile drives the tool set', () => {
     test('undefined profile → all tools', () => {
@@ -79,6 +80,83 @@ describe('getSendToChatTarget — copilot gate / default', () => {
         assert.equal(getSendToChatTarget({ sendToChatTarget: 'anthropic' } as never), 'anthropic');
         assert.equal(getSendToChatTarget({ sendToChatTarget: 'bogus' } as never), 'anthropic');
     });
+});
+
+describe('activeProfileToolNames — single source for list + gate', () => {
+    const cfgWith = (
+        profiles: unknown[],
+        target?: 'anthropic' | 'copilot',
+    ): SendToChatConfig =>
+        ({ sendToChatTarget: target, anthropic: { profiles } } as unknown as SendToChatConfig);
+
+    test('copilot target → empty set regardless of profiles', () => {
+        const names = activeProfileToolNames(
+            cfgWith([{ id: 'p1', toolsEnabled: true }], 'copilot'),
+            'p1',
+        );
+        assert.equal(names.size, 0);
+    });
+
+    test('no profiles → all tools (undefined profile)', () => {
+        const names = activeProfileToolNames(cfgWith([]), '');
+        assert.equal(names.size, ALL_SHARED_TOOLS.length);
+    });
+
+    test('active id selects the matching profile allow-list', () => {
+        const pick = ALL_SHARED_TOOLS[0].name;
+        const names = activeProfileToolNames(
+            cfgWith([
+                { id: 'all', toolsEnabled: true },
+                { id: 'subset', toolsEnabled: false, enabledTools: [pick] },
+            ]),
+            'subset',
+        );
+        assert.deepEqual([...names], [pick]);
+    });
+
+    test('unmatched active id falls back to isDefault, then first', () => {
+        const pick = ALL_SHARED_TOOLS[0].name;
+        const byDefault = activeProfileToolNames(
+            cfgWith([
+                { id: 'first', toolsEnabled: true },
+                { id: 'def', isDefault: true, toolsEnabled: false, enabledTools: [pick] },
+            ]),
+            'missing',
+        );
+        assert.deepEqual([...byDefault], [pick]);
+
+        const byFirst = activeProfileToolNames(
+            cfgWith([
+                { id: 'first', toolsEnabled: false, enabledTools: [pick] },
+                { id: 'second', toolsEnabled: true },
+            ]),
+            'missing',
+        );
+        assert.deepEqual([...byFirst], [pick]);
+    });
+});
+
+describe('getActiveProfileToolsJson — listing behaviour unchanged by the refactor', () => {
+    // The refactor builds the JSON from the same name set resolveProfileTools
+    // produces, so filtering ALL_SHARED_TOOLS by that set must yield the exact
+    // same Anthropic JSON (same entries, same order) as the old composition.
+    const sameAsOld = (
+        profile: { toolsEnabled?: boolean; enabledTools?: string[] } | undefined,
+    ): void => {
+        const allowed = new Set(resolveProfileTools(profile).map((t) => t.name));
+        const viaNames = toAnthropicTools(ALL_SHARED_TOOLS.filter((t) => allowed.has(t.name)));
+        const viaOld = toAnthropicTools(resolveProfileTools(profile));
+        assert.deepEqual(viaNames, viaOld);
+    };
+
+    test('all-tools profile', () => sameAsOld({ toolsEnabled: true }));
+    test('undefined profile', () => sameAsOld(undefined));
+    test('empty allow-list profile', () => sameAsOld({ toolsEnabled: false, enabledTools: [] }));
+    test('subset allow-list profile', () =>
+        sameAsOld({
+            toolsEnabled: false,
+            enabledTools: [ALL_SHARED_TOOLS[0].name, ALL_SHARED_TOOLS[1].name],
+        }));
 });
 
 describe('invokeToolByName — universal invoke contract', () => {
