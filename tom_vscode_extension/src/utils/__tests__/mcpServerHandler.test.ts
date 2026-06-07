@@ -50,6 +50,7 @@ import {
     isMcpAuthenticated,
     resolveEffectiveTools,
     resolveEffectiveMcpTools,
+    resolveMcpRequestTools,
     extractBearerToken,
     bindFirstFreePort,
     startMcpHttpServer,
@@ -396,6 +397,49 @@ describe('resolveEffectiveMcpTools — full matrix against the real registry', (
 });
 
 // ---------------------------------------------------------------------------
+// Per-request auth-decision logging (todo #4). `resolveMcpRequestTools` composes
+// `resolveEffectiveMcpTools` + `isMcpAuthenticated` and logs the access decision
+// (authenticated → full set vs read-only floor) WITHOUT ever emitting the token.
+// It returns the same tool set the resolver would, so the gate is unchanged.
+// ---------------------------------------------------------------------------
+
+describe('resolveMcpRequestTools — logs the auth decision, never the token', () => {
+    const ENV_KEY = 'TOM_MCP_KEY';
+    const env = (token?: string): NodeJS.ProcessEnv => (token === undefined ? {} : { [ENV_KEY]: token });
+    const settings = (over: Partial<ResolvedMcpServerSettings> = {}): ResolvedMcpServerSettings => ({
+        enabled: true,
+        autoStart: false,
+        host: '0.0.0.0',
+        basePort: 19920,
+        apiKeyEnv: ENV_KEY,
+        allowWriteWithoutAuth: false,
+        toolsEnabled: true,
+        enabledTools: [],
+        ...over,
+    });
+
+    test('authenticated request logs an "authenticated" decision and returns the full set', () => {
+        const logs: string[] = [];
+        const eff = resolveMcpRequestTools(settings(), 'sekret', (l) => logs.push(l), env('sekret'));
+        assert.equal(eff.length, ALL_SHARED_TOOLS.length);
+        assert.equal(logs.length, 1);
+        assert.match(logs[0], /authenticated/i);
+        assert.doesNotMatch(logs[0], /sekret/);
+    });
+
+    test('unauthenticated request logs a "read-only floor" decision, no token leak', () => {
+        const logs: string[] = [];
+        const eff = resolveMcpRequestTools(settings(), 'WRONG', (l) => logs.push(l), env('sekret'));
+        assert.ok(eff.every((t) => t.readOnly));
+        assert.equal(logs.length, 1);
+        assert.match(logs[0], /read-only floor/i);
+        // Neither the presented nor the expected token may appear in the log.
+        assert.doesNotMatch(logs[0], /WRONG/);
+        assert.doesNotMatch(logs[0], /sekret/);
+    });
+});
+
+// ---------------------------------------------------------------------------
 // Streamable HTTP transport + port probing + bearer auth (todo #18).
 //
 // The pure pieces are tested directly: `extractBearerToken` (header parsing)
@@ -470,6 +514,20 @@ describe('bindFirstFreePort — probe upward to the first free port', () => {
             /EACCES/,
         );
         assert.deepEqual(attempted, [19920]);
+    });
+
+    test('logs each busy probe and the chosen port (todo #4)', async () => {
+        const logs: string[] = [];
+        const r = await bindFirstFreePort(
+            19920, 100,
+            async (p) => { if (p < 19922) { throw inUse(); } return `srv@${p}`; },
+            (line) => logs.push(line),
+        );
+        assert.equal(r.port, 19922);
+        // Two busy ports announced, then the bound port.
+        assert.ok(logs.some((l) => l.includes('19920') && /in use/i.test(l)));
+        assert.ok(logs.some((l) => l.includes('19921') && /in use/i.test(l)));
+        assert.ok(logs.some((l) => l.includes('19922') && /bound/i.test(l)));
     });
 });
 
@@ -622,6 +680,21 @@ describe('McpServerController — lifecycle state machine', () => {
 
         assert.equal(srv.closed, 1);
         assert.equal(controller.isRunning, false);
+    });
+
+    test('logs "started on <url>" on start and "stopped" on stop (todo #4)', async () => {
+        const logs: string[] = [];
+        const srv = fakeRunning(19920);
+        const controller = new McpServerController({
+            start: async () => srv,
+            log: (line) => logs.push(line),
+        });
+
+        await controller.start(fakeSettings);
+        await controller.stop();
+
+        assert.ok(logs.some((l) => l.includes('started') && l.includes(srv.url)));
+        assert.ok(logs.some((l) => /stopped/i.test(l)));
     });
 });
 

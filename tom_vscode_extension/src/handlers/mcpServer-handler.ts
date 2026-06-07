@@ -208,6 +208,33 @@ export function resolveEffectiveMcpTools(
     });
 }
 
+/**
+ * Resolve the effective tool set for an MCP request AND log the access decision
+ * for the operator. Returns exactly what {@link resolveEffectiveMcpTools} would
+ * (so the gate is unchanged), but additionally emits a single audit line stating
+ * whether the request was authenticated (full configured set) or fell to the
+ * read-only floor — **never** echoing the presented or expected token. `env` is
+ * injectable for tests and defaults to `process.env`.
+ */
+export function resolveMcpRequestTools(
+    settings: ResolvedMcpServerSettings,
+    bearer: string | undefined,
+    log: (line: string) => void,
+    env: NodeJS.ProcessEnv = process.env,
+): SharedToolDefinition[] {
+    const tools = resolveEffectiveMcpTools(settings, bearer, env);
+    const expectedToken = settings.apiKeyEnv ? (env[settings.apiKeyEnv] ?? '') : '';
+    const authenticated = isMcpAuthenticated(expectedToken, bearer);
+    if (authenticated) {
+        log(`request authenticated → full tool set (${tools.length} tools)`);
+    } else if (settings.allowWriteWithoutAuth) {
+        log(`request unauthenticated, write-without-auth enabled → full tool set (${tools.length} tools)`);
+    } else {
+        log(`request unauthenticated → read-only floor (${tools.length} tools)`);
+    }
+    return tools;
+}
+
 /** A built MCP server plus the names of the tools registered on it. */
 export interface BuiltMcpServer {
     server: McpServer;
@@ -275,18 +302,23 @@ function isAddrInUse(error: unknown): boolean {
  *
  * Injecting `attempt` keeps the probe logic socket-free and unit-testable; the
  * real binder ({@link startMcpHttpServer}) passes an `http.Server.listen` wrapper.
+ * `log` (default no-op) announces each busy probe and the finally-bound port.
  */
 export async function bindFirstFreePort<T>(
     basePort: number,
     maxAttempts: number,
     attempt: (port: number) => Promise<T>,
+    log: (line: string) => void = () => { /* no-op */ },
 ): Promise<{ port: number; resource: T }> {
     for (let i = 0; i < maxAttempts; i++) {
         const port = basePort + i;
         try {
-            return { port, resource: await attempt(port) };
+            const resource = await attempt(port);
+            log(`bound port ${port}`);
+            return { port, resource };
         } catch (error) {
             if (!isAddrInUse(error)) { throw error; }
+            log(`port ${port} in use, trying next`);
         }
     }
     throw new Error(
@@ -306,6 +338,8 @@ export const MCP_PORT_PROBE_ATTEMPTS = 100;
 export interface McpHttpServerDeps {
     resolveTools: (bearer: string | undefined) => SharedToolDefinition[];
     sink: McpToolTrailSink;
+    /** Optional audit log for port probing + per-request errors (default no-op). */
+    log?: (line: string) => void;
 }
 
 /** A bound, running MCP HTTP server plus the handle to shut it down. */
@@ -357,6 +391,7 @@ export async function startMcpHttpServer(
             }
             return httpServer;
         },
+        deps.log,
     );
 
     return {
@@ -389,12 +424,14 @@ async function handleMcpRequest(
         await server.connect(transport);
         await transport.handleRequest(req, res);
     } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        deps.log?.(`request failed: ${message}`);
         if (!res.headersSent) {
             res.setHeader('Content-Type', 'application/json');
             res.writeHead(500);
             res.end(JSON.stringify({
                 jsonrpc: '2.0',
-                error: { code: -32603, message: error instanceof Error ? error.message : String(error) },
+                error: { code: -32603, message },
                 id: null,
             }));
         }
@@ -422,13 +459,18 @@ export type McpServerStarter = (settings: ResolvedMcpServerSettings) => Promise<
 
 /**
  * Production starter: binds the Streamable HTTP transport for `settings`,
- * resolving the effective tool set per request (auth + read-only floor, #17)
- * and writing tool trail through `sink`.
+ * resolving the effective tool set per request (auth + read-only floor, #17),
+ * writing tool trail through `sink`, and emitting an operator audit line per
+ * request decision + port probe through `log` (the "Tom AI: MCP Server" channel,
+ * #4; defaults to no-op so tests/headless runs stay quiet).
  */
-export function defaultMcpServerStarter(sink: McpToolTrailSink): McpServerStarter {
+export function defaultMcpServerStarter(
+    sink: McpToolTrailSink,
+    log: (line: string) => void = () => { /* no-op */ },
+): McpServerStarter {
     return (settings) => startMcpHttpServer(
         { host: settings.host, basePort: settings.basePort },
-        { resolveTools: (bearer) => resolveEffectiveMcpTools(settings, bearer), sink },
+        { resolveTools: (bearer) => resolveMcpRequestTools(settings, bearer, log), sink, log },
     );
 }
 
@@ -438,6 +480,8 @@ export interface McpServerControllerDeps {
     start: McpServerStarter;
     /** Notified with the live status on every start/stop (for the Status Page). */
     onChange?: (status: McpServerRuntimeStatus) => void;
+    /** Optional audit log for lifecycle transitions (default no-op). */
+    log?: (line: string) => void;
 }
 
 /**
@@ -476,6 +520,7 @@ export class McpServerController {
         this.pending = (async (): Promise<RunningMcpServer> => {
             const server = await this.deps.start(settings);
             this.running = server;
+            this.deps.log?.(`started on ${server.url}`);
             this.notify();
             return server;
         })();
@@ -494,6 +539,7 @@ export class McpServerController {
         }
         this.running = undefined;
         await server.close();
+        this.deps.log?.('stopped');
         this.notify();
     }
 

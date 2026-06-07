@@ -93,6 +93,7 @@ import {
     setActiveMcpServerController,
     createTrailServiceMcpSink,
 } from './handlers/mcpServer-handler';
+import { mcpLog, disposeMcpLogChannel } from './utils/mcpServerLog';
 import { refreshStatusPage } from './handlers/statusPage-handler';
 import { getMcpServerSettings } from './utils/sendToChatConfig';
 import { initializeDebugLogger, installConsoleDebugRouting, debugLog } from './utils/debugLogger';
@@ -588,11 +589,14 @@ export async function activate(context: vscode.ExtensionContext) {
         mcpServerController = new McpServerController({
             start: defaultMcpServerStarter(
                 createTrailServiceMcpSink(wsWindowId, WsPaths.getWorkspaceQuestId()),
+                mcpLog,
             ),
             onChange: () => { void refreshStatusPage(); },
+            log: mcpLog,
         });
         setActiveMcpServerController(mcpServerController);
         context.subscriptions.push({ dispose: () => { void mcpServerController?.dispose(); } });
+        context.subscriptions.push({ dispose: disposeMcpLogChannel });
 
         if (stcConfig?.mcpServer?.enabled && stcConfig?.mcpServer?.autoStart) {
             const settings = getMcpServerSettings(stcConfig);
@@ -732,6 +736,7 @@ export function deactivate() {
         void mcpServerController.dispose();
         setActiveMcpServerController(undefined);
     }
+    disposeMcpLogChannel();
 
     // Stop the bridge process to ensure clean shutdown
     const bridgeClient = getBridgeClient();
