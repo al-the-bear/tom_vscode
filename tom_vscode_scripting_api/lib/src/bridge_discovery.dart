@@ -14,6 +14,8 @@
 library;
 
 import 'tom_workspace_api.dart';
+import 'vscode.dart';
+import 'vscode_bridge_adapter.dart';
 import 'vscode_bridge_client.dart';
 
 /// Probes whether a bridge is listening on [host]:[port].
@@ -110,6 +112,58 @@ Future<Map<int, String>> scanBridgePorts({
   }
   return table;
 }
+
+/// Creates a port-bound [LazyVSCodeBridgeAdapter] for a resolved bridge.
+///
+/// The production default constructs a real [LazyVSCodeBridgeAdapter]; tests
+/// inject a double so [connectToWorkspace] can run without a socket.
+typedef BridgeAdapterFactory = LazyVSCodeBridgeAdapter Function(
+  String host,
+  int port,
+);
+
+/// Resolves the bridge port for the workspace named [name] (via
+/// [findBridgePortForWorkspace]) and returns a connected adapter bound to it.
+///
+/// The adapter is connected before returning; if the resolved bridge cannot be
+/// connected a [StateError] is thrown. When [initializeVSCode] is `true`, the
+/// returned adapter is also promoted to the global [VSCode] singleton so
+/// `VSCode.instance` targets that window. The
+/// [BridgeWorkspaceNotFoundException] raised by the underlying scan when no
+/// window matches [name] propagates unchanged.
+Future<LazyVSCodeBridgeAdapter> connectToWorkspace(
+  String name, {
+  String host = '127.0.0.1',
+  int minPort = defaultVSCodeBridgePort,
+  int maxPort = maxVSCodeBridgePort,
+  BridgePortProbe probe = _defaultProbe,
+  BridgeIdentityFetcher fetchIdentity = fetchBridgeWorkspaceName,
+  bool initializeVSCode = false,
+  BridgeAdapterFactory adapterFactory = _defaultAdapterFactory,
+}) async {
+  final port = await findBridgePortForWorkspace(
+    name,
+    host: host,
+    minPort: minPort,
+    maxPort: maxPort,
+    probe: probe,
+    fetchIdentity: fetchIdentity,
+  );
+  final adapter = adapterFactory(host, port);
+  final connected = await adapter.connect();
+  if (!connected) {
+    throw StateError(
+      'Found workspace "$name" on port $port but could not connect to its '
+      'bridge.',
+    );
+  }
+  if (initializeVSCode) VSCode.initialize(adapter);
+  return adapter;
+}
+
+/// Default [BridgeAdapterFactory] — a real [LazyVSCodeBridgeAdapter].
+LazyVSCodeBridgeAdapter _defaultAdapterFactory(String host, int port) =>
+    LazyVSCodeBridgeAdapter(host: host, port: port);
 
 /// Default [BridgePortProbe] — delegates to [VSCodeBridgeClient.isAvailable].
 Future<bool> _defaultProbe(String host, int port) =>

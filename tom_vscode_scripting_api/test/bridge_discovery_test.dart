@@ -235,10 +235,104 @@ void main() {
     });
   });
 
+  group('connectToWorkspace', () {
+    test('resolves the port and returns a connected adapter pointed at it',
+        () async {
+      int? factoryPort;
+
+      final adapter = await connectToWorkspace(
+        'target',
+        probe: (host, p) async => p == 19905,
+        fetchIdentity: (host, p) async => 'target',
+        adapterFactory: (host, p) {
+          factoryPort = p;
+          return _FakeLazyAdapter(port: p);
+        },
+      );
+
+      expect(factoryPort, 19905, reason: 'factory receives the resolved port');
+      expect(adapter.port, 19905);
+      expect(adapter.isConnected, isTrue);
+    });
+
+    test('surfaces the not-found error from the underlying scan', () async {
+      expect(
+        () => connectToWorkspace(
+          'absent',
+          probe: (host, p) async => false,
+          fetchIdentity: (host, p) async => 'whatever',
+          adapterFactory: (host, p) => _FakeLazyAdapter(port: p),
+        ),
+        throwsA(isA<BridgeWorkspaceNotFoundException>()),
+      );
+    });
+
+    test('throws when the resolved bridge fails to connect', () async {
+      expect(
+        () => connectToWorkspace(
+          'target',
+          probe: (host, p) async => p == 19900,
+          fetchIdentity: (host, p) async => 'target',
+          adapterFactory: (host, p) =>
+              _FakeLazyAdapter(port: p, connects: false),
+        ),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('initializes VSCode.instance with the adapter when requested',
+        () async {
+      final adapter = await connectToWorkspace(
+        'target',
+        probe: (host, p) async => p == 19902,
+        fetchIdentity: (host, p) async => 'target',
+        initializeVSCode: true,
+        adapterFactory: (host, p) => _FakeLazyAdapter(port: p),
+      );
+
+      expect(VSCode.isInitialized, isTrue);
+      expect(identical(VSCode.instance.adapter, adapter), isTrue);
+    });
+
+    test('does not initialize VSCode.instance by default', () async {
+      final sentinel = _FakeLazyAdapter(port: 19900);
+      VSCode.initialize(sentinel);
+
+      final adapter = await connectToWorkspace(
+        'plain',
+        probe: (host, p) async => p == 19901,
+        fetchIdentity: (host, p) async => 'plain',
+        adapterFactory: (host, p) => _FakeLazyAdapter(port: p),
+      );
+
+      // The adapter is returned but not promoted to the global singleton.
+      expect(identical(VSCode.instance.adapter, sentinel), isTrue);
+      expect(identical(VSCode.instance.adapter, adapter), isFalse);
+    });
+  });
+
   group('bridge port constants', () {
     test('cover the documented 19900–19909 CLI range', () {
       expect(defaultVSCodeBridgePort, 19900);
       expect(maxVSCodeBridgePort, 19909);
     });
   });
+}
+
+/// A [LazyVSCodeBridgeAdapter] double that reports connectivity without opening
+/// a socket, so [connectToWorkspace] can be exercised against faked bridges.
+class _FakeLazyAdapter extends LazyVSCodeBridgeAdapter {
+  final bool connects;
+  bool _connected = false;
+
+  _FakeLazyAdapter({required super.port, this.connects = true});
+
+  @override
+  Future<bool> connect() async {
+    _connected = connects;
+    return connects;
+  }
+
+  @override
+  bool get isConnected => _connected;
 }
