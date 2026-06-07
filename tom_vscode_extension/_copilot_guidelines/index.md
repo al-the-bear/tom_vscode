@@ -41,5 +41,6 @@ Type: TypeScript extension
 - [doc/user_guide.md](../doc/user_guide.md)
 - [doc/quick_reference.md](../doc/quick_reference.md)
 - [doc/copilot_chat_tools.md](../doc/copilot_chat_tools.md)
+- [doc/mcp_server.md](../doc/mcp_server.md)
 
 Ask-AI tooling guidance is merged into `doc/copilot_chat_tools.md`.

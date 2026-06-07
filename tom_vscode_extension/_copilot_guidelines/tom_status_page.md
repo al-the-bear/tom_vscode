@@ -19,6 +19,14 @@ Single-page view for runtime visibility into extension state, configuration high
 - **Configured paths** — workspace root, quest folder, trail folder, Copilot answer folder.
 - **Quick actions** — restart bridge, toggle debug logging, open config file, clear session, etc.
 
+## MCP Server card
+
+The **MCP Server** card configures and controls the standalone MCP server (see [../doc/mcp_server.md](../doc/mcp_server.md)). Rendered by [mcpServerCard.ts](../src/utils/mcpServerCard.ts); message handling in [statusPage-handler.ts](../src/handlers/statusPage-handler.ts).
+
+- **Controls** (each maps to a `mcpServer.*` config field): `enabled`, `autoStart`, `host`, `basePort`, `apiKeyEnv`, `allowWriteWithoutAuth`, `toolsEnabled`, and the tool picker for `enabledTools`. The card shows the live runtime status (running + bound port, or stopped).
+- **Save** — the `saveMcpServer` action gathers the controls and persists the `mcpServer` block; saving reconciles the running server (disabled ⇒ stop, running ⇒ restart onto the new settings).
+- **Start / Stop / Restart** — these buttons route through the generic `[data-status-action]` dispatcher to the `startMcpServer` / `stopMcpServer` / `restartMcpServer` handler cases, which call the `tomAi.mcpServer.start` / `.stop` / `.restart` commands (no per-action `listeners.js` branch — the no-payload actions ride the existing dispatcher). The controller's `onChange → refreshStatusPage` push updates the status line.
+
 ## Embedded in `@WS`
 
 The `@WS` panel's **Settings** section embeds a summary view of the status page so the user doesn't have to context-switch.
