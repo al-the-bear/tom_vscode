@@ -103,7 +103,10 @@ interface AgentSdkModule {
 }
 
 let cachedSdk: Promise<AgentSdkModule> | undefined;
-async function loadSdk(): Promise<AgentSdkModule> {
+// Exported so the thin pass-through bridge (`services/agent-sdk-bridge.ts`,
+// todo #3) reuses the exact same ESM load path instead of duplicating the
+// `new Function('m', 'return import(m)')` dance.
+export async function loadSdk(): Promise<AgentSdkModule> {
     if (!cachedSdk) {
         // `new Function('m', 'return import(m)')` keeps the `import()` out
         // of the TS emit — otherwise `tsc --module commonjs` would rewrite

@@ -5,6 +5,8 @@ import { getLocalLlmManager, getAiConversationManager } from './handlers';
 import { getTomScriptingBridgeHandler } from './handlers/tomScriptingBridge-handler';
 import { invokeToolByName, getActiveProfileToolsJson } from './tools/scripting-tools-bridge';
 import { sendToChatForScript } from './handlers/sendToChatRouter';
+import { AgentSdkBridge } from './services/agent-sdk-bridge';
+import { loadSdk } from './handlers/agent-sdk-transport';
 
 const DART_COMMAND = 'dart';
 
@@ -477,6 +479,24 @@ export class DartBridgeClient {
         });
     }
 
+    /** Lazily-created bridge for the thin pass-through Agent SDK path (todo #3). */
+    private agentSdkBridge?: AgentSdkBridge;
+
+    /**
+     * The Agent SDK pass-through bridge, created on first use. It reuses the
+     * transport module's `loadSdk` (single ESM load path) and sends chunk
+     * notifications through this client's `sendNotification`.
+     */
+    private getAgentSdkBridge(): AgentSdkBridge {
+        if (!this.agentSdkBridge) {
+            this.agentSdkBridge = new AgentSdkBridge({
+                loadSdk,
+                sendNotification: (m, p) => this.sendNotification(m, p),
+            });
+        }
+        return this.agentSdkBridge;
+    }
+
     /**
      * Send a notification to Dart (no response expected)
      */
@@ -777,6 +797,18 @@ export class DartBridgeClient {
                     result = await tomHandler.handleBridgeRequest(method, params);
                     break;
                 }
+
+                // Agent SDK 1:1 mirror — thin pass-through streaming query()
+                // (todo #3). `queryVce` starts a query and streams every
+                // SDKMessage back as `streamId`-keyed `agentSdk.chunk`
+                // notifications; `cancelVce` aborts it.
+                case 'agentSdk.queryVce':
+                    result = await this.getAgentSdkBridge().startQuery(params);
+                    break;
+
+                case 'agentSdk.cancelVce':
+                    result = this.getAgentSdkBridge().cancelQuery(params);
+                    break;
 
                 default:
                     throw new Error(`Unknown method: ${method}`);

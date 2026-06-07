@@ -125,6 +125,14 @@ class VSCodeBridgeClient {
   int _messageId = 0;
   final Map<String, Completer<Map<String, dynamic>>> _pendingRequests = {};
   final List<int> _buffer = [];
+  final StreamController<Map<String, dynamic>> _notifications =
+      StreamController<Map<String, dynamic>>.broadcast();
+
+  /// Broadcast stream of incoming JSON-RPC *notifications* (messages with a
+  /// `method` but no `id`), e.g. `log` or `agentSdk.chunk`. Each event is the
+  /// raw notification map (`{jsonrpc, method, params}`). Consumers filter by
+  /// `method` and read `params`.
+  Stream<Map<String, dynamic>> get notifications => _notifications.stream;
 
   /// Creates a VS Code bridge client.
   /// 
@@ -402,7 +410,7 @@ class VSCodeBridgeClient {
     // Handle log notifications (no id means it's a notification)
     final id = response['id']?.toString();
     if (id == null) {
-      // This is a notification, e.g., log messages
+      // This is a notification, e.g., log messages or streaming chunks.
       final method = response['method'];
       if (method == 'log') {
         final message = response['params']?['message'];
@@ -410,6 +418,11 @@ class VSCodeBridgeClient {
           // Print log messages in real-time
           print('[VS Code] $message');
         }
+      }
+      // Surface every notification on the broadcast stream so structured
+      // consumers (e.g. the Agent SDK chunk channel) can correlate them.
+      if (!_notifications.isClosed) {
+        _notifications.add(response);
       }
       return;
     }

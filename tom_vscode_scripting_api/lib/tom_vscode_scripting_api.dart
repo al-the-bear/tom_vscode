@@ -35,6 +35,10 @@ export 'src/agent_sdk_permissions.dart';
 export 'src/agent_sdk_mcp.dart';
 export 'src/agent_sdk_options.dart';
 
+// Agent SDK 1:1 mirror — streaming query() core (todo #3): typed message
+// stream, the transport seam, and the bridge-backed transport.
+export 'src/agent_sdk_query.dart';
+
 // AI APIs (local LLM prompt processing & bot conversation)
 export 'src/ai_prompt_api.dart';
 export 'src/ai_conversation_api.dart';
