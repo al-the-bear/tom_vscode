@@ -28,6 +28,13 @@ export 'src/vscode_helper.dart';
 // Types
 export 'src/vscode_types.dart';
 
+// Agent SDK 1:1 mirror — type surface (todo #2): messages/blocks (raw-
+// preserving), Options + sealed configs, permission and MCP value types.
+export 'src/agent_sdk_messages.dart';
+export 'src/agent_sdk_permissions.dart';
+export 'src/agent_sdk_mcp.dart';
+export 'src/agent_sdk_options.dart';
+
 // AI APIs (local LLM prompt processing & bot conversation)
 export 'src/ai_prompt_api.dart';
 export 'src/ai_conversation_api.dart';
