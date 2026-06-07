@@ -32,6 +32,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 import type { SharedToolDefinition } from '../tools/shared-tool-registry';
+import { resolveProfileTools } from '../tools/tool-executors';
+import type { ResolvedMcpServerSettings } from '../utils/sendToChatConfig';
 import { toRawShape } from '../utils/jsonSchemaToZod';
 import { runWithToolContext } from '../services/tool-execution-context';
 
@@ -107,6 +109,66 @@ export function makeMcpToolCallback(def: SharedToolDefinition, sink: McpToolTrai
             isError: error !== undefined,
         };
     };
+}
+
+// ============================================================================
+// Effective tool-set resolution (plan §7.4, todo #17)
+//
+// The MCP server exposes a gated subset of the configured allow-list:
+//   - the configured allow-list comes from the MCP picker, resolved with the
+//     SAME primitive the chat profiles use (`resolveProfileTools`);
+//   - inbound auth + the read-only floor then decide how much of it is exposed.
+// Mirrors the Phase-1 seam (`invokeAllowedTool` pure / `invokeToolByName`
+// context-bound): the pure pieces take injected doubles; the composition wires
+// them to the registry + `process.env`.
+// ============================================================================
+
+/**
+ * Is the client authenticated? True only when the operator configured an
+ * expected token (a non-empty `process.env[apiKeyEnv]`) AND the client
+ * presented a bearer that matches it. A missing/empty/wrong bearer — or no
+ * configured token at all — is unauthenticated.
+ */
+export function isMcpAuthenticated(expectedToken: string, bearer: string | undefined): boolean {
+    return Boolean(expectedToken) && Boolean(bearer) && bearer === expectedToken;
+}
+
+/**
+ * Apply the auth + read-only floor to an already-configured allow-list.
+ * Authenticated clients (or the explicit `allowWriteWithoutAuth` opt-in) get the
+ * full configured set; otherwise the unauthenticated floor keeps only the
+ * read-only tools.
+ */
+export function resolveEffectiveTools(
+    configured: SharedToolDefinition[],
+    opts: { authenticated: boolean; allowWriteWithoutAuth: boolean },
+): SharedToolDefinition[] {
+    if (opts.authenticated || opts.allowWriteWithoutAuth) {
+        return [...configured];
+    }
+    return configured.filter((t) => t.readOnly);
+}
+
+/**
+ * Resolve the effective tool set for an MCP request: the configured allow-list
+ * (`resolveProfileTools` over the MCP picker settings) narrowed by the auth +
+ * read-only floor. `env` is injectable for tests; it defaults to `process.env`.
+ */
+export function resolveEffectiveMcpTools(
+    settings: ResolvedMcpServerSettings,
+    bearer: string | undefined,
+    env: NodeJS.ProcessEnv = process.env,
+): SharedToolDefinition[] {
+    const configured = resolveProfileTools({
+        toolsEnabled: settings.toolsEnabled,
+        enabledTools: settings.enabledTools,
+    });
+    const expectedToken = settings.apiKeyEnv ? (env[settings.apiKeyEnv] ?? '') : '';
+    const authenticated = isMcpAuthenticated(expectedToken, bearer);
+    return resolveEffectiveTools(configured, {
+        authenticated,
+        allowWriteWithoutAuth: settings.allowWriteWithoutAuth,
+    });
 }
 
 /** A built MCP server plus the names of the tools registered on it. */

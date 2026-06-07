@@ -25,12 +25,23 @@
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 
+// The handler reuses `resolveProfileTools` (todo #17), which lives in
+// `tool-executors.ts` and imports `vscode`. Install the shared stub BEFORE
+// importing the handler so its transitive `require('vscode')` resolves.
+import { installVscodeStub } from '../../tools/__tests__/_vscode-stub.js';
+installVscodeStub({});
+
 import type { SharedToolDefinition } from '../../tools/shared-tool-registry.js';
+import { ALL_SHARED_TOOLS } from '../../tools/tool-executors.js';
+import type { ResolvedMcpServerSettings } from '../sendToChatConfig.js';
 import { getCurrentToolContext } from '../../services/tool-execution-context.js';
 import {
     McpToolTrailSink,
     makeMcpToolCallback,
     buildToolMcpServer,
+    isMcpAuthenticated,
+    resolveEffectiveTools,
+    resolveEffectiveMcpTools,
 } from '../../handlers/mcpServer-handler.js';
 
 /** A trail sink that records every request/answer for assertions. */
@@ -148,5 +159,120 @@ describe('buildToolMcpServer — registration', () => {
         const built = buildToolMcpServer([], spySink());
         assert.deepEqual(built.toolNames, []);
         assert.equal(typeof built.server.connect, 'function');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Effective-set resolution (todo #17). The MCP server's exposed tool set is
+// gated by inbound auth + the read-only floor:
+//   authenticated                       ⇒ configured allow-list (writes too)
+//   unauth + allowWriteWithoutAuth=true ⇒ configured allow-list (writes too)
+//   unauth + allowWriteWithoutAuth=false⇒ configured ∩ readOnly
+//   wrong/absent bearer                 ⇒ treated as unauthenticated
+// The pure pieces (`isMcpAuthenticated`, `resolveEffectiveTools`) take injected
+// doubles; `resolveEffectiveMcpTools` wires them to `resolveProfileTools` + env.
+// ---------------------------------------------------------------------------
+
+describe('isMcpAuthenticated — bearer must match a configured token', () => {
+    test('no expected token configured ⇒ never authenticated', () => {
+        assert.equal(isMcpAuthenticated('', 'anything'), false);
+    });
+    test('absent bearer ⇒ unauthenticated', () => {
+        assert.equal(isMcpAuthenticated('secret', undefined), false);
+        assert.equal(isMcpAuthenticated('secret', ''), false);
+    });
+    test('wrong bearer ⇒ unauthenticated', () => {
+        assert.equal(isMcpAuthenticated('secret', 'nope'), false);
+    });
+    test('matching bearer ⇒ authenticated', () => {
+        assert.equal(isMcpAuthenticated('secret', 'secret'), true);
+    });
+});
+
+describe('resolveEffectiveTools — auth + read-only floor (injected configured set)', () => {
+    const ro = (name: string): SharedToolDefinition => fakeTool(name, async () => 'r', { readOnly: true });
+    const rw = (name: string): SharedToolDefinition => fakeTool(name, async () => 'w', { readOnly: false });
+    const configured = [ro('read_a'), rw('write_b'), ro('read_c')];
+    const names = (list: SharedToolDefinition[]): string[] => list.map((t) => t.name).sort();
+
+    test('authenticated ⇒ full configured set (writes included)', () => {
+        const eff = resolveEffectiveTools(configured, { authenticated: true, allowWriteWithoutAuth: false });
+        assert.deepEqual(names(eff), ['read_a', 'read_c', 'write_b']);
+    });
+
+    test('unauthenticated + allowWriteWithoutAuth=true ⇒ full configured set', () => {
+        const eff = resolveEffectiveTools(configured, { authenticated: false, allowWriteWithoutAuth: true });
+        assert.deepEqual(names(eff), ['read_a', 'read_c', 'write_b']);
+    });
+
+    test('unauthenticated + allowWriteWithoutAuth=false ⇒ configured ∩ readOnly', () => {
+        const eff = resolveEffectiveTools(configured, { authenticated: false, allowWriteWithoutAuth: false });
+        assert.deepEqual(names(eff), ['read_a', 'read_c']);
+    });
+});
+
+describe('resolveEffectiveMcpTools — full matrix against the real registry', () => {
+    const allCount = ALL_SHARED_TOOLS.length;
+    const readOnlyCount = ALL_SHARED_TOOLS.filter((t) => t.readOnly).length;
+
+    // Env vars are conventionally UPPER_CASE; reference the name via a constant
+    // and a computed key so the camelCase naming-convention lint rule (which
+    // targets literal property names) doesn't flag the fixture.
+    const ENV_KEY = 'TOM_MCP_KEY';
+    const env = (token?: string): NodeJS.ProcessEnv => (token === undefined ? {} : { [ENV_KEY]: token });
+
+    const settings = (over: Partial<ResolvedMcpServerSettings> = {}): ResolvedMcpServerSettings => ({
+        enabled: true,
+        autoStart: false,
+        host: '0.0.0.0',
+        basePort: 19920,
+        apiKeyEnv: ENV_KEY,
+        allowWriteWithoutAuth: false,
+        toolsEnabled: true,
+        enabledTools: [],
+        ...over,
+    });
+
+    test('authenticated (matching bearer) ⇒ all configured tools', () => {
+        const eff = resolveEffectiveMcpTools(settings(), 'sekret', env('sekret'));
+        assert.equal(eff.length, allCount);
+    });
+
+    test('unauthenticated (wrong bearer) ⇒ read-only floor', () => {
+        const eff = resolveEffectiveMcpTools(settings(), 'WRONG', env('sekret'));
+        assert.ok(eff.every((t) => t.readOnly));
+        assert.equal(eff.length, readOnlyCount);
+        assert.ok(eff.length < allCount);
+    });
+
+    test('unauthenticated + allowWriteWithoutAuth=true ⇒ all configured tools', () => {
+        const eff = resolveEffectiveMcpTools(
+            settings({ allowWriteWithoutAuth: true }), undefined, env('sekret'),
+        );
+        assert.equal(eff.length, allCount);
+    });
+
+    test('no apiKeyEnv configured ⇒ unauthenticated even with a bearer (read-only floor)', () => {
+        const eff = resolveEffectiveMcpTools(settings({ apiKeyEnv: '' }), 'anything', env());
+        assert.ok(eff.every((t) => t.readOnly));
+        assert.equal(eff.length, readOnlyCount);
+    });
+
+    test('apiKeyEnv names a var absent from the environment ⇒ unauthenticated', () => {
+        const eff = resolveEffectiveMcpTools(settings(), 'sekret', env());
+        assert.ok(eff.every((t) => t.readOnly));
+        assert.equal(eff.length, readOnlyCount);
+    });
+
+    test('configured allow-list narrows the set before the floor applies', () => {
+        const readName = ALL_SHARED_TOOLS.find((t) => t.readOnly)!.name;
+        const writeName = ALL_SHARED_TOOLS.find((t) => !t.readOnly)!.name;
+        const eff = resolveEffectiveMcpTools(
+            settings({ toolsEnabled: false, enabledTools: [readName, writeName] }),
+            'WRONG',
+            env('sekret'),
+        );
+        // Unauthenticated floor keeps only the read-only member of the allow-list.
+        assert.deepEqual(eff.map((t) => t.name), [readName]);
     });
 });
