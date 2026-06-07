@@ -215,6 +215,21 @@
                 "category": "@Tom"
             },
             {
+                "command": "tomAi.mcpServer.start",
+                "title": "@T: Start Tom MCP Server",
+                "category": "@Tom"
+            },
+            {
+                "command": "tomAi.mcpServer.stop",
+                "title": "@T: Stop Tom MCP Server",
+                "category": "@Tom"
+            },
+            {
+                "command": "tomAi.mcpServer.restart",
+                "title": "@T: Restart Tom MCP Server",
+                "category": "@Tom"
+            },
+            {
                 "command": "tomAi.startProcessMonitor",
                 "title": "@T: Start Tom Process Monitor",
                 "category": "@Tom"

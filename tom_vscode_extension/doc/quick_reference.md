@@ -60,6 +60,9 @@
 - `tomAi.bridge.switchProfile`
 - `tomAi.cliServer.start`
 - `tomAi.cliServer.stop`
+- `tomAi.mcpServer.start`
+- `tomAi.mcpServer.stop`
+- `tomAi.mcpServer.restart`
 - `tomAi.startProcessMonitor`
 
 ## Utility Commands
