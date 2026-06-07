@@ -147,6 +147,94 @@ void main() {
     });
   });
 
+  group('scanBridgePorts', () {
+    test('returns port → workspace for every responsive bridge', () async {
+      final responsive = {19900, 19903, 19907};
+      final identities = <int, String>{
+        19900: 'alpha',
+        19903: 'beta',
+        19907: 'gamma',
+      };
+
+      final table = await scanBridgePorts(
+        probe: (host, p) async => responsive.contains(p),
+        fetchIdentity: (host, p) async => identities[p],
+      );
+
+      expect(table, {19900: 'alpha', 19903: 'beta', 19907: 'gamma'});
+    });
+
+    test('omits ports with no bridge (dead ports absent)', () async {
+      final table = await scanBridgePorts(
+        probe: (host, p) async => p == 19901,
+        fetchIdentity: (host, p) async => 'only',
+      );
+
+      expect(table.keys, [19901]);
+      expect(table, {19901: 'only'});
+    });
+
+    test('does not fetch identity for unresponsive ports', () async {
+      final fetched = <int>[];
+
+      await scanBridgePorts(
+        probe: (host, p) async => p == 19902 || p == 19905,
+        fetchIdentity: (host, p) async {
+          fetched.add(p);
+          return 'ws';
+        },
+      );
+
+      expect(fetched, [19902, 19905]);
+    });
+
+    test('omits responsive bridges whose identity is null', () async {
+      final table = await scanBridgePorts(
+        probe: (host, p) async => p == 19900 || p == 19901,
+        fetchIdentity: (host, p) async => p == 19901 ? 'named' : null,
+      );
+
+      expect(table, {19901: 'named'});
+    });
+
+    test('returns an empty map when no bridge is responsive', () async {
+      final table = await scanBridgePorts(
+        probe: (host, p) async => false,
+        fetchIdentity: (host, p) async => 'never',
+      );
+
+      expect(table, isEmpty);
+    });
+
+    test('scans the full 19900–19909 range in ascending order', () async {
+      final probed = <int>[];
+
+      await scanBridgePorts(
+        probe: (host, p) async {
+          probed.add(p);
+          return false;
+        },
+        fetchIdentity: (host, p) async => null,
+      );
+
+      expect(probed, [
+        19900, 19901, 19902, 19903, 19904,
+        19905, 19906, 19907, 19908, 19909,
+      ]);
+    });
+
+    test('honours a custom port range', () async {
+      final table = await scanBridgePorts(
+        minPort: 19905,
+        maxPort: 19906,
+        probe: (host, p) async => true,
+        fetchIdentity: (host, p) async => 'ws$p',
+      );
+
+      expect(table, {19905: 'ws19905', 19906: 'ws19906'});
+    });
+  });
+
   group('bridge port constants', () {
     test('cover the documented 19900–19909 CLI range', () {
       expect(defaultVSCodeBridgePort, 19900);

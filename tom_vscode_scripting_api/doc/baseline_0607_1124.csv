@@ -1,75 +1,81 @@
-ID,Groups,Description,Baseline [06-07 11:24],[06-07 17:32],[06-07 17:57],[06-07 18:42],[06-07 18:58],[06-07 19:12],[06-07 19:30],[06-07 19:41],[06-07 19:50],[06-07 19:53],[06-07 20:02]
-,MCP config + tool descriptors round-trip,sdk server config carries the descriptor (name/version/tools),--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,TomToolsApi.listAllowedToolNames,empty / missing tools list yields an empty name list,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,TomToolsApi.listAllowedToolNames,"shares the gate with getToolsJson (same op, same names)",OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,SdkMessage.fromJson dispatch + raw round-trip,"assistant message → SdkAssistantMessage, content blocks parsed",--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,SdkMessage.fromJson dispatch + raw round-trip,user message → SdkUserMessage with tool_result block,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,SdkMessage.fromJson dispatch + raw round-trip,"result success → SdkResultMessage, typed fields",--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,SdkMessage.fromJson dispatch + raw round-trip,"system init → SdkSystemMessage, typed fields",--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,enums map to their SDK wire strings,PermissionMode covers all six SDK values,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,SdkMessage.fromJson dispatch + raw round-trip,partial assistant (stream_event) → SdkPartialAssistantMessage,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,enums map to their SDK wire strings,SettingSource and EffortLevel round-trip,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,SdkMessage.fromJson dispatch + raw round-trip,non-init system subtype → SdkSystemEvent carrier,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,TomToolsApi.listAllowedToolNames,calls tools.getJsonVce and returns just the tool names,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,SdkMessage.fromJson dispatch + raw round-trip,unknown top-level type → SdkUnknownMessage fallback,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,ContentBlock.fromJson dispatch + raw round-trip,each known block type maps to its class and round-trips,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,enums map to their SDK wire strings,PermissionDecisionClassification uses snake_case wire,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,ContentBlock.fromJson dispatch + raw round-trip,unknown block type → UnknownBlock fallback,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-ToolsConfig,sealed config sub-types round-trip via toWire/fromWire,list / claude_code preset,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-SystemPrompt,sealed config sub-types round-trip via toWire/fromWire,text / list / preset,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-ThinkingConfig,sealed config sub-types round-trip via toWire/fromWire,adaptive / enabled / disabled,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,ContentBlock.fromJson dispatch + raw round-trip,tool_result content may be a block list,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,permission value types round-trip,PermissionResult allow with updatedInput,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,permission value types round-trip,PermissionResult deny with message + interrupt,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,permission value types round-trip,PermissionUpdate variants round-trip,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,AgentSdkClient.collectQuery,collects the full message sequence into a list,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-Skills,sealed config sub-types round-trip via toWire/fromWire,list / all,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,MCP config + tool descriptors round-trip,CallToolResult.text builds an MCP content payload,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,Options round-trips its data (tier-C) fields,rich Options instance survives toJson → fromJson → toJson,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,Options round-trips its data (tier-C) fields,empty Options serializes to an empty map (no null keys),--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,BridgeRequestDispatcher.unregister,a request for an unregistered (removed) method errors,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,AgentSdkClient.query — chunk correlation,forwards prompt + options to startQuery with a streamId,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,AgentSdkClient.query — chunk correlation,maps chunks for its streamId into the typed SdkMessage sequence,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,AgentSdkClient.query — chunk correlation,ignores chunks belonging to a different streamId,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,AgentSdkClient.query — chunk correlation,surfaces an error chunk as a stream error,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,AgentSdkClient.query — Dart-defined tools,does not register tools when no sdk server is present,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,AgentSdkClient.query — cancellation,interrupt() aborts the underlying query,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,MCP config + tool descriptors round-trip,stdio / sse / http server configs,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,BridgeRequestDispatcher.maybeHandle — request routing,routes a request to its handler and replies with the result,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,BridgeRequestDispatcher.maybeHandle — request routing,awaits an async handler before replying,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,BridgeRequestDispatcher.maybeHandle — error replies,replies with an error for an unregistered method,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,Options round-trips its data (tier-C) fields,canUseTool flag is absent when no callback is supplied,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,BridgeRequestDispatcher.maybeHandle — non-requests,returns false for a response (id but no method),--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,BridgeRequestDispatcher.maybeHandle — non-requests,returns false for a notification (method but no id),--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,Options round-trips its data (tier-C) fields,"canUseTool serializes as a capability flag, not the function",--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,AgentSdkToolRegistry.addServers,collects handlers from an sdk server and reports tools present,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,AgentSdkToolRegistry.addServers,ignores non-sdk servers,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,AgentSdkToolRegistry.addServers,ignores sdk tools that carry no handler (descriptor-only),--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,AgentSdkToolRegistry.addServers,null mcpServers reports nothing added,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,AgentSdkToolRegistry.handleToolCall,runs the matching handler and returns its CallToolResult JSON,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,bridge port constants,cover the documented 19900–19909 CLI range,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK
-,AgentSdkToolRegistry.handleToolCall,throws for an unknown tool on a known server,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,AgentSdkClient.query — Dart-defined tools,registers a tool registry on start and unregisters on finish,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,AgentSdkClient.query — cancellation,cancelling the subscription aborts the underlying query,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,dispatchCanUseTool,"passes toolName, input and suggestions to the callback",--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,dispatchCanUseTool,serializes an allow decision (incl. updatedInput),--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,dispatchCanUseTool,serializes a deny decision,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,dispatchCanUseTool,tolerates a missing input map,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,AgentSdkClient.query — canUseTool,registers the canUseTool callback on start and unregisters on finish,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,AgentSdkClient.query — canUseTool,does not register canUseTool when no callback is supplied,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,BridgeRequestDispatcher.maybeHandle — error replies,replies with an error when the handler throws,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,MCP config + tool descriptors round-trip,stdio carries args/env/alwaysLoad,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK
-,MCP config + tool descriptors round-trip,sse / http servers carry per-tool permission policies,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK
-,Options round-trips its data (tier-C) fields,remaining tier-C fields named in the audit round-trip,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK
-,findBridgePortForWorkspace,honours a custom port range,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK
-,findBridgePortForWorkspace,returns the first port whose workspace matches the name,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK
-,findBridgePortForWorkspace,scans the full 19900–19909 range,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK
-,findBridgePortForWorkspace,skips unresponsive ports without fetching their identity,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK
-,findBridgePortForWorkspace,throws BridgeWorkspaceNotFoundException when no bridge matches,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK
-,findBridgePortForWorkspace,throws when no bridge is responsive at all,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK
-,findBridgePortForWorkspace,ignores responsive bridges whose identity is null,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK
-,findBridgePortForWorkspace,matches a .code-workspace filename against the bare name,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK
-,findBridgePortForWorkspace,matches when the requested name carries the .code-workspace ext,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK
-,findBridgePortForWorkspace,"strips the VS Code "" (Workspace)"" multi-root suffix when matching",--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK
-,AgentSdkToolRegistry.handleToolCall,throws for an unknown server,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
-,Options round-trips its data (tier-C) fields,callback fields are not part of the JSON wire data,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,--/OK,--/OK,--/OK,--/OK
+ID,Groups,Description,Baseline [06-07 11:24],[06-07 17:32],[06-07 17:57],[06-07 18:42],[06-07 18:58],[06-07 19:12],[06-07 19:30],[06-07 19:41],[06-07 19:50],[06-07 19:53],[06-07 20:02],[06-07 20:05]
+,Options round-trips its data (tier-C) fields,rich Options instance survives toJson → fromJson → toJson,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,TomToolsApi.listAllowedToolNames,empty / missing tools list yields an empty name list,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,TomToolsApi.listAllowedToolNames,"shares the gate with getToolsJson (same op, same names)",OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,SdkMessage.fromJson dispatch + raw round-trip,"assistant message → SdkAssistantMessage, content blocks parsed",--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,SdkMessage.fromJson dispatch + raw round-trip,user message → SdkUserMessage with tool_result block,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,SdkMessage.fromJson dispatch + raw round-trip,"result success → SdkResultMessage, typed fields",--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,SdkMessage.fromJson dispatch + raw round-trip,"system init → SdkSystemMessage, typed fields",--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,enums map to their SDK wire strings,PermissionMode covers all six SDK values,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,SdkMessage.fromJson dispatch + raw round-trip,partial assistant (stream_event) → SdkPartialAssistantMessage,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,enums map to their SDK wire strings,SettingSource and EffortLevel round-trip,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,SdkMessage.fromJson dispatch + raw round-trip,non-init system subtype → SdkSystemEvent carrier,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,TomToolsApi.listAllowedToolNames,calls tools.getJsonVce and returns just the tool names,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,SdkMessage.fromJson dispatch + raw round-trip,unknown top-level type → SdkUnknownMessage fallback,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,ContentBlock.fromJson dispatch + raw round-trip,each known block type maps to its class and round-trips,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,enums map to their SDK wire strings,PermissionDecisionClassification uses snake_case wire,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,ContentBlock.fromJson dispatch + raw round-trip,unknown block type → UnknownBlock fallback,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+ToolsConfig,sealed config sub-types round-trip via toWire/fromWire,list / claude_code preset,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+SystemPrompt,sealed config sub-types round-trip via toWire/fromWire,text / list / preset,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+ThinkingConfig,sealed config sub-types round-trip via toWire/fromWire,adaptive / enabled / disabled,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,ContentBlock.fromJson dispatch + raw round-trip,tool_result content may be a block list,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,permission value types round-trip,PermissionResult allow with updatedInput,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,permission value types round-trip,PermissionResult deny with message + interrupt,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,permission value types round-trip,PermissionUpdate variants round-trip,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,AgentSdkClient.collectQuery,collects the full message sequence into a list,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+Skills,sealed config sub-types round-trip via toWire/fromWire,list / all,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,MCP config + tool descriptors round-trip,CallToolResult.text builds an MCP content payload,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,MCP config + tool descriptors round-trip,sdk server config carries the descriptor (name/version/tools),--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,Options round-trips its data (tier-C) fields,empty Options serializes to an empty map (no null keys),--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,BridgeRequestDispatcher.unregister,a request for an unregistered (removed) method errors,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,AgentSdkClient.query — chunk correlation,forwards prompt + options to startQuery with a streamId,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,AgentSdkClient.query — chunk correlation,maps chunks for its streamId into the typed SdkMessage sequence,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,AgentSdkClient.query — chunk correlation,ignores chunks belonging to a different streamId,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,AgentSdkClient.query — chunk correlation,surfaces an error chunk as a stream error,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,AgentSdkClient.query — Dart-defined tools,does not register tools when no sdk server is present,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,AgentSdkClient.query — cancellation,interrupt() aborts the underlying query,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,MCP config + tool descriptors round-trip,stdio / sse / http server configs,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,BridgeRequestDispatcher.maybeHandle — request routing,routes a request to its handler and replies with the result,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,BridgeRequestDispatcher.maybeHandle — request routing,awaits an async handler before replying,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,BridgeRequestDispatcher.maybeHandle — error replies,replies with an error for an unregistered method,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,Options round-trips its data (tier-C) fields,canUseTool flag is absent when no callback is supplied,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,BridgeRequestDispatcher.maybeHandle — non-requests,returns false for a response (id but no method),--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,BridgeRequestDispatcher.maybeHandle — non-requests,returns false for a notification (method but no id),--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,Options round-trips its data (tier-C) fields,"canUseTool serializes as a capability flag, not the function",--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,AgentSdkToolRegistry.addServers,collects handlers from an sdk server and reports tools present,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,AgentSdkToolRegistry.addServers,ignores non-sdk servers,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,AgentSdkToolRegistry.addServers,ignores sdk tools that carry no handler (descriptor-only),--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,AgentSdkToolRegistry.addServers,null mcpServers reports nothing added,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,AgentSdkToolRegistry.handleToolCall,runs the matching handler and returns its CallToolResult JSON,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,bridge port constants,cover the documented 19900–19909 CLI range,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK
+,AgentSdkToolRegistry.handleToolCall,throws for an unknown tool on a known server,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,AgentSdkClient.query — Dart-defined tools,registers a tool registry on start and unregisters on finish,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,AgentSdkClient.query — cancellation,cancelling the subscription aborts the underlying query,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,scanBridgePorts,scans the full 19900–19909 range in ascending order,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK
+,dispatchCanUseTool,serializes an allow decision (incl. updatedInput),--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,dispatchCanUseTool,serializes a deny decision,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,dispatchCanUseTool,tolerates a missing input map,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,AgentSdkClient.query — canUseTool,registers the canUseTool callback on start and unregisters on finish,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,AgentSdkClient.query — canUseTool,does not register canUseTool when no callback is supplied,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,BridgeRequestDispatcher.maybeHandle — error replies,replies with an error when the handler throws,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,MCP config + tool descriptors round-trip,stdio carries args/env/alwaysLoad,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,MCP config + tool descriptors round-trip,sse / http servers carry per-tool permission policies,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,Options round-trips its data (tier-C) fields,remaining tier-C fields named in the audit round-trip,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,findBridgePortForWorkspace,honours a custom port range,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK
+,findBridgePortForWorkspace,returns the first port whose workspace matches the name,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK
+,findBridgePortForWorkspace,scans the full 19900–19909 range,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK
+,findBridgePortForWorkspace,skips unresponsive ports without fetching their identity,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK
+,findBridgePortForWorkspace,throws BridgeWorkspaceNotFoundException when no bridge matches,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK
+,findBridgePortForWorkspace,throws when no bridge is responsive at all,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK
+,findBridgePortForWorkspace,ignores responsive bridges whose identity is null,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK
+,findBridgePortForWorkspace,matches a .code-workspace filename against the bare name,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK
+,findBridgePortForWorkspace,matches when the requested name carries the .code-workspace ext,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK
+,findBridgePortForWorkspace,"strips the VS Code "" (Workspace)"" multi-root suffix when matching",--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK
+,AgentSdkToolRegistry.handleToolCall,throws for an unknown server,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,scanBridgePorts,returns an empty map when no bridge is responsive,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK
+,scanBridgePorts,returns port → workspace for every responsive bridge,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK
+,scanBridgePorts,omits ports with no bridge (dead ports absent),--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK
+,scanBridgePorts,does not fetch identity for unresponsive ports,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK
+,scanBridgePorts,omits responsive bridges whose identity is null,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK
+,dispatchCanUseTool,"passes toolName, input and suggestions to the callback",--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,OK/OK
+,Options round-trips its data (tier-C) fields,callback fields are not part of the JSON wire data,--/OK,--/OK,--/OK,OK/OK,OK/OK,OK/OK,OK/OK,--/OK,--/OK,--/OK,--/OK,--/OK

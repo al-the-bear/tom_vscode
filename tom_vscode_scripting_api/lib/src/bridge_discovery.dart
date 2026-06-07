@@ -82,6 +82,35 @@ Future<int> findBridgePortForWorkspace(
   throw BridgeWorkspaceNotFoundException(name, minPort, maxPort);
 }
 
+/// Scans the CLI bridge port range and returns a `port → workspace` table for
+/// every responsive bridge.
+///
+/// Ports are probed in ascending order from [minPort] to [maxPort] (inclusive,
+/// defaulting to the full [defaultVSCodeBridgePort]–[maxVSCodeBridgePort]
+/// range). Each responsive bridge's workspace identity is fetched; ports with
+/// no bridge (or no identifiable workspace) are omitted. The returned map
+/// preserves ascending port order.
+///
+/// Unlike [findBridgePortForWorkspace], the reported names are the bridges'
+/// raw identity strings (not normalised) — scanning is a reporting concern,
+/// name normalisation is a matching concern.
+Future<Map<int, String>> scanBridgePorts({
+  String host = '127.0.0.1',
+  int minPort = defaultVSCodeBridgePort,
+  int maxPort = maxVSCodeBridgePort,
+  BridgePortProbe probe = _defaultProbe,
+  BridgeIdentityFetcher fetchIdentity = fetchBridgeWorkspaceName,
+}) async {
+  final table = <int, String>{};
+  for (var port = minPort; port <= maxPort; port++) {
+    if (!await probe(host, port)) continue;
+    final identity = await fetchIdentity(host, port);
+    if (identity == null) continue;
+    table[port] = identity;
+  }
+  return table;
+}
+
 /// Default [BridgePortProbe] — delegates to [VSCodeBridgeClient.isAvailable].
 Future<bool> _defaultProbe(String host, int port) =>
     VSCodeBridgeClient.isAvailable(host: host, port: port);
