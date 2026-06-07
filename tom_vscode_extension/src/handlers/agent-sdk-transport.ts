@@ -118,7 +118,7 @@ async function loadSdk(): Promise<AgentSdkModule> {
 import { SharedToolDefinition } from '../tools/shared-tool-registry';
 import { TrailService } from '../services/trailService';
 import { ToolTrail } from '../services/tool-trail';
-import { runWithToolContext } from '../services/tool-execution-context';
+import { wrapToolWithTrail } from '../utils/toolTrailWrapper';
 import type {
     AnthropicConfiguration,
     AnthropicSendResult,
@@ -331,53 +331,41 @@ function buildMcpServer(
             def.name,
             def.description,
             toRawShape(def.inputSchema),
-            async (args) => {
-                const input = (args ?? {}) as Record<string, unknown>;
-                const inputSummary = summarizeInput(input);
-
-                TrailService.instance.writeRawToolRequest(
-                    ANTHROPIC_SUBSYSTEM,
-                    { id: `${ctx.requestId}-${def.name}-${Date.now()}`, name: def.name, input },
-                    ctx.windowId,
-                    ctx.questId,
-                );
-
-                const start = Date.now();
-                let result = '';
-                let error: string | undefined;
-                try {
-                    result = await runWithToolContext(
-                        { source: 'anthropic', requestId: ctx.requestId },
-                        () => def.execute(input),
-                    );
-                } catch (e) {
-                    error = e instanceof Error ? e.message : String(e);
-                    result = `Error: ${error}`;
-                }
-                const durationMs = Date.now() - start;
-
-                TrailService.instance.writeRawToolAnswer(
-                    ANTHROPIC_SUBSYSTEM,
-                    { name: def.name, result, durationMs, error },
-                    ctx.windowId,
-                    ctx.questId,
-                );
-
-                ctx.toolTrail.add({
-                    timestamp: new Date().toISOString().slice(11, 19),
-                    round: ctx.round,
-                    toolName: def.name,
-                    inputSummary,
-                    result,
-                    durationMs,
-                    error,
-                });
-
-                return {
-                    content: [{ type: 'text' as const, text: result }],
-                    isError: error !== undefined,
-                };
-            },
+            // Same executor + trail invariant as the standalone MCP server, via the
+            // shared wrapper. The Agent SDK path's two extras are the injected sink:
+            // it forwards to `TrailService` under the anthropic subsystem AND
+            // decorates the chat `toolTrail` (round + input summary).
+            wrapToolWithTrail(
+                def,
+                {
+                    writeRequest: (name, input) => {
+                        TrailService.instance.writeRawToolRequest(
+                            ANTHROPIC_SUBSYSTEM,
+                            { id: `${ctx.requestId}-${name}-${Date.now()}`, name, input },
+                            ctx.windowId,
+                            ctx.questId,
+                        );
+                    },
+                    writeAnswer: ({ name, input, result, durationMs, error }) => {
+                        TrailService.instance.writeRawToolAnswer(
+                            ANTHROPIC_SUBSYSTEM,
+                            { name, result, durationMs, error },
+                            ctx.windowId,
+                            ctx.questId,
+                        );
+                        ctx.toolTrail.add({
+                            timestamp: new Date().toISOString().slice(11, 19),
+                            round: ctx.round,
+                            toolName: name,
+                            inputSummary: summarizeInput(input),
+                            result,
+                            durationMs,
+                            error,
+                        });
+                    },
+                },
+                () => ({ source: 'anthropic', requestId: ctx.requestId }),
+            ),
         ),
     );
 

@@ -34,14 +34,13 @@ import * as http from 'node:http';
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 import type { SharedToolDefinition } from '../tools/shared-tool-registry';
 import { resolveProfileTools } from '../tools/tool-executors';
 import type { ResolvedMcpServerSettings } from '../utils/sendToChatConfig';
 import type { McpServerRuntimeStatus } from '../utils/mcpServerCard';
 import { toRawShape } from '../utils/jsonSchemaToZod';
-import { runWithToolContext } from '../services/tool-execution-context';
+import { wrapToolWithTrail, type McpToolCallback } from '../utils/toolTrailWrapper';
 import { TrailService } from '../services/trailService';
 import type { TrailSubsystem } from '../services/trailService';
 import { MCP_SUBSYSTEM } from '../services/trailSubsystems';
@@ -110,42 +109,26 @@ export function createTrailServiceMcpSink(
     };
 }
 
-/** The callback shape `McpServer.registerTool` invokes for each tool call. */
-export type McpToolCallback = (args: Record<string, unknown> | undefined) => Promise<CallToolResult>;
+/** Re-exported for callers that wire registered MCP tool callbacks. */
+export type { McpToolCallback };
 
 /**
  * Wrap a single tool definition in the trail-writing executor used for every
- * registered MCP tool. Writes a request entry, runs `def.execute` inside the
- * ambient tool context, then writes an answer entry (capturing errors), and
- * returns the result as MCP text content.
+ * registered MCP tool. Delegates the executor + trail invariant to the shared
+ * {@link wrapToolWithTrail}, adapting the standalone server's MCP-specific trail
+ * sink (`{id, name, input}` request / `{name, result, durationMs, error}`
+ * answer) and pinning the execution context to `{source:'mcp'}`.
  */
 export function makeMcpToolCallback(def: SharedToolDefinition, sink: McpToolTrailSink): McpToolCallback {
-    return async (args) => {
-        const input = (args ?? {}) as Record<string, unknown>;
-
-        sink.writeRequest({ id: `${def.name}-${Date.now()}`, name: def.name, input });
-
-        const start = Date.now();
-        let result = '';
-        let error: string | undefined;
-        try {
-            result = await runWithToolContext(
-                { source: 'mcp', requestId: `mcp-${Date.now()}` },
-                () => def.execute(input),
-            );
-        } catch (e) {
-            error = e instanceof Error ? e.message : String(e);
-            result = `Error: ${error}`;
-        }
-        const durationMs = Date.now() - start;
-
-        sink.writeAnswer({ name: def.name, result, durationMs, error });
-
-        return {
-            content: [{ type: 'text' as const, text: result }],
-            isError: error !== undefined,
-        };
-    };
+    return wrapToolWithTrail(
+        def,
+        {
+            writeRequest: (name, input) => sink.writeRequest({ id: `${name}-${Date.now()}`, name, input }),
+            writeAnswer: ({ name, result, durationMs, error }) =>
+                sink.writeAnswer({ name, result, durationMs, error }),
+        },
+        () => ({ source: 'mcp', requestId: `mcp-${Date.now()}` }),
+    );
 }
 
 // ============================================================================
