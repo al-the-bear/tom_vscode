@@ -130,4 +130,16 @@ abstract class TomToolsApi {
         .map((t) => ToolDefinitionJson.fromJson(t as Map<String, dynamic>))
         .toList();
   }
+
+  /// The names of the tools the active profile permits — a cheap convenience
+  /// for pre-validating a name before calling [invokeTool].
+  ///
+  /// Backed by the same `tools.getJsonVce` op as [getToolsJson] (so it honours
+  /// the identical server-side gate: active-profile scoped, empty for the
+  /// Copilot target). This is an ergonomic shortcut only — the extension still
+  /// re-checks on [invokeTool], so skipping the pre-check is always safe.
+  static Future<List<String>> listAllowedToolNames() async {
+    final tools = await getToolsJson();
+    return tools.map((t) => t.name).toList();
+  }
 }
