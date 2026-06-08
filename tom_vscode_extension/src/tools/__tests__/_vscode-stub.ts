@@ -471,7 +471,15 @@ function buildDefaultStub(record: (method: string, args: unknown[]) => void, opt
             User: (parts: unknown[]): unknown => ({ role: 'user', content: parts }),
             Assistant: (parts: unknown[]): unknown => ({ role: 'assistant', content: parts }),
         },
-        env: { sessionId: 'test-session', machineId: 'test-machine' },
+        version: '1.0.0-test',
+        UIKind: { Desktop: 1, Web: 2 },
+        env: {
+            sessionId: 'test-session',
+            machineId: 'test-machine',
+            appName: 'Visual Studio Code (test)',
+            appHost: 'desktop',
+            uiKind: 1,
+        },
     };
 
     // Apply initial workspaceFolders + configuration shaping.

@@ -156,6 +156,31 @@ function attachStatusPanelListeners(skipEditorInit) {
                 };
             } else if (action === 'editTransportRetryTemplate' || action === 'deleteTransportRetryTemplate') {
                 msgData.itemId = (document.getElementById('sp-retry-templateId') || {}).value || '';
+            } else if (action === 'saveMcpServer') {
+                // Explicit per-field gather for the standalone MCP server card
+                // (per the localLlm lesson — read each named control, never a
+                // generic dump). Raw values are sent; the server-side gather map
+                // (buildMcpServerConfigFromMessage) does the coercion/defaults.
+                var mcpCard = panel.querySelector('[data-mcp-card]');
+                var mcpField = function(name) {
+                    return mcpCard ? mcpCard.querySelector('[data-mcp-field="' + name + '"]') : null;
+                };
+                var mcpValue = function(name) { var el = mcpField(name); return el ? el.value : ''; };
+                var mcpChecked = function(name) { var el = mcpField(name); return !!(el && el.checked); };
+                var mcpEnabledTools = [];
+                if (mcpCard) {
+                    mcpCard.querySelectorAll('[data-mcp-tool]:checked').forEach(function(cb) {
+                        mcpEnabledTools.push(cb.getAttribute('data-mcp-tool'));
+                    });
+                }
+                msgData.enabled = mcpChecked('enabled');
+                msgData.autoStart = mcpChecked('autoStart');
+                msgData.host = mcpValue('host');
+                msgData.basePort = mcpValue('basePort');
+                msgData.apiKeyEnv = mcpValue('apiKeyEnv');
+                msgData.allowWriteWithoutAuth = mcpChecked('allowWriteWithoutAuth');
+                msgData.toolsEnabled = mcpValue('toolsEnabled') !== 'false';
+                msgData.enabledTools = mcpEnabledTools;
             }
 
             vscode.postMessage(msgData);

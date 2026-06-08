@@ -493,6 +493,97 @@ export interface SendToChatConfig {
      */
     sendToChatTarget?: 'anthropic' | 'copilot';
 
+    /**
+     * Standalone MCP server (see mcp_server_implementation_plan.md §6/§7).
+     *
+     * A separate, independently-configured surface from the scripting-API /
+     * CLI bridge: its own tool picker (not the chat profile), its own inbound
+     * API key, and its own lifecycle. Transport is always Streamable HTTP bound
+     * to `host` (default `0.0.0.0`, VPN-reachable). On start the server probes
+     * upward from `basePort` to the first free port — every window runs its own
+     * server — so the actually-bound port is **runtime state**, surfaced in the
+     * UI, never written back here. Read via {@link getMcpServerSettings} which
+     * applies the documented defaults.
+     */
+    mcpServer?: McpServerConfig;
+
+}
+
+/**
+ * On-disk shape of the standalone MCP server config block. All fields are
+ * optional; {@link getMcpServerSettings} resolves them against sane defaults.
+ */
+export interface McpServerConfig {
+    /** Master on/off switch for the MCP server. Default `false`. */
+    enabled?: boolean;
+    /** Start the server on extension activation. Default `false`. */
+    autoStart?: boolean;
+    /** Bind address. Default `0.0.0.0` (reachable over the VPN). */
+    host?: string;
+    /**
+     * First port to try. The server probes upward from here to the first free
+     * port; the actually-bound port is runtime state, not stored. Default
+     * `19920` (clear of the CLI server's `19900`).
+     */
+    basePort?: number;
+    /**
+     * NAME of the env var holding the expected inbound bearer token (never the
+     * secret). Empty ⇒ no auth configured ⇒ read-only floor applies.
+     */
+    apiKeyEnv?: string;
+    /**
+     * When `true`, unauthenticated clients also get the configured write tools.
+     * Default `false` ⇒ unauthenticated access is read-only.
+     */
+    allowWriteWithoutAuth?: boolean;
+    /** `true` ⇒ expose all tools; `false` ⇒ use {@link enabledTools}. Default `true`. */
+    toolsEnabled?: boolean;
+    /** Independent allow-list (own picker, NOT the chat profile). Honored when `toolsEnabled === false`. */
+    enabledTools?: string[];
+}
+
+/** Default MCP bind address — VPN-reachable per plan decision (b). */
+export const MCP_SERVER_DEFAULT_HOST = '0.0.0.0';
+
+/** First port the MCP server tries before probing upward (plan decision (c)). */
+export const MCP_SERVER_DEFAULT_BASE_PORT = 19920;
+
+/** Fully-resolved MCP server settings with all defaults applied. */
+export interface ResolvedMcpServerSettings {
+    enabled: boolean;
+    autoStart: boolean;
+    host: string;
+    basePort: number;
+    apiKeyEnv: string;
+    allowWriteWithoutAuth: boolean;
+    toolsEnabled: boolean;
+    enabledTools: string[];
+}
+
+/**
+ * Resolve the MCP server settings from a (possibly partial / absent) config,
+ * applying the documented defaults. The single source of truth for the MCP
+ * defaults, mirroring {@link getSendToChatTarget}'s default-applying role.
+ *
+ * Note: the bound port is runtime state and is deliberately NOT part of this
+ * shape — only `basePort` (the starting point of the probe) is configured.
+ */
+export function getMcpServerSettings(
+    config: SendToChatConfig | null | undefined,
+): ResolvedMcpServerSettings {
+    const mcp = config?.mcpServer;
+    const host = (mcp?.host ?? '').trim();
+    const basePort = mcp?.basePort;
+    return {
+        enabled: mcp?.enabled === true,
+        autoStart: mcp?.autoStart === true,
+        host: host || MCP_SERVER_DEFAULT_HOST,
+        basePort: typeof basePort === 'number' && basePort > 0 ? basePort : MCP_SERVER_DEFAULT_BASE_PORT,
+        apiKeyEnv: (mcp?.apiKeyEnv ?? '').trim(),
+        allowWriteWithoutAuth: mcp?.allowWriteWithoutAuth === true,
+        toolsEnabled: mcp?.toolsEnabled !== false,
+        enabledTools: Array.isArray(mcp?.enabledTools) ? mcp.enabledTools : [],
+    };
 }
 
 /**

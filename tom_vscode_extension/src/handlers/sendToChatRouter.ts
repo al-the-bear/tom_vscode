@@ -30,7 +30,7 @@ import {
     getSendToChatTarget,
 } from '../utils/sendToChatConfig';
 import { resolveAnthropicTargets } from '../utils/resolveAnthropicTargets';
-import { resolveProfileTools } from '../tools/tool-executors';
+import { resolveProfileTools, ALL_SHARED_TOOLS } from '../tools/tool-executors';
 import type { SharedToolDefinition } from '../tools/shared-tool-registry';
 import {
     AnthropicHandler,
@@ -38,7 +38,7 @@ import {
 } from './anthropic-handler';
 import {
     ACTIVE_ANTHROPIC_PROFILE_KEY,
-    invokeToolByName,
+    invokeAllowedTool,
 } from '../tools/scripting-tools-bridge';
 import { showAnthropicResultInPanel } from './chatPanel-handler';
 import {
@@ -182,7 +182,16 @@ export async function sendToChatForScript(
     prompt: string,
 ): Promise<SendToChatOutcome> {
     if (currentSendToChatTarget() === 'copilot') {
-        const answer = await invokeToolByName('tomAi_askCopilot', { prompt });
+        // Trusted internal routing: deliberately invoke the Copilot bridge tool
+        // even though the profile gate exposes no tools for the 'copilot'
+        // target. The permitted tool is named explicitly here, so this call
+        // site stays narrow rather than reopening an ungated invoke path.
+        const answer = await invokeAllowedTool(
+            new Set(['tomAi_askCopilot']),
+            ALL_SHARED_TOOLS,
+            'tomAi_askCopilot',
+            { prompt },
+        );
         return { target: 'copilot', ok: true, answer };
     }
     return runAnthropicSend(context, prompt);

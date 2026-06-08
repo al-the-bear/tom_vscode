@@ -33,7 +33,9 @@ import {
 } from '../tools/local-llm-tools-config';
 import { WsPaths } from '../utils/workspacePaths';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
-import { validateStrictAiConfiguration, SendToChatConfig, getSendToChatTarget } from '../utils/sendToChatConfig';
+import { validateStrictAiConfiguration, SendToChatConfig, getSendToChatTarget, getMcpServerSettings } from '../utils/sendToChatConfig';
+import { McpServerCardModel, buildMcpServerCardModel, renderMcpServerCard, buildMcpServerConfigFromMessage } from '../utils/mcpServerCard';
+import { getMcpServerStatus, reconcileMcpServerConfig } from './mcpServer-handler';
 import { loadWebviewHtml, readMediaText } from '../utils/webviewLoader';
 import { wireCompletionMessages } from '../utils/completionWiring';
 
@@ -1078,6 +1080,31 @@ export async function handleStatusAction(action: string, message: any): Promise<
             saveSendToChatConfig(stcConfig);
             break;
         }
+        // MCP Server (standalone) — persist the card's settings. The gather map
+        // normalises the webview payload; the resolver applies defaults on read.
+        case 'saveMcpServer': {
+            const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
+            stcConfig.mcpServer = buildMcpServerConfigFromMessage(message);
+            saveSendToChatConfig(stcConfig);
+            // Config-change disposal (#19): apply the new settings to a running
+            // server (restart) or stop it if now disabled. The controller's
+            // onChange refreshes the card when the runtime state changes.
+            await reconcileMcpServerConfig(getMcpServerSettings(stcConfig));
+            vscode.window.showInformationMessage('MCP Server settings saved');
+            break;
+        }
+        // MCP Server lifecycle (card Start/Stop/Restart). Route through the
+        // registered commands (#19) — the single entry point; the command toggles
+        // the controller, whose onChange refreshes this card's status line.
+        case 'startMcpServer':
+            await vscode.commands.executeCommand('tomAi.mcpServer.start');
+            break;
+        case 'stopMcpServer':
+            await vscode.commands.executeCommand('tomAi.mcpServer.stop');
+            break;
+        case 'restartMcpServer':
+            await vscode.commands.executeCommand('tomAi.mcpServer.restart');
+            break;
         // Bridge
         case 'restartBridge':
             await vscode.commands.executeCommand('tomAi.bridge.restart');
@@ -1658,6 +1685,8 @@ export interface StatusData {
         port?: number;
         autostart: boolean;
     };
+    /** Standalone MCP server card (config + runtime-bound host:port). */
+    mcpServer: McpServerCardModel;
     bridge: {
         connected: boolean;
         currentProfile: string;
@@ -1905,6 +1934,9 @@ export async function gatherStatusData(): Promise<StatusData> {
             port: cliStatus.port,
             autostart: sendToChatConfig?.bridge?.cliServerAutostart ?? false,
         },
+        // Live runtime state from the lifecycle controller (#19): the actually
+        // bound host:port while running, or { running: false } when stopped.
+        mcpServer: buildMcpServerCardModel(getMcpServerSettings(sendToChatConfig), getMcpServerStatus()),
         bridge: {
             connected: bridgeClient !== null,
             currentProfile: bridgeConfig?.current ?? 'default',
@@ -2446,6 +2478,7 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
             </label>
         </div>
     </div>
+${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS)}
 
     <!-- Bridge Section -->
     <div class="sp-section">
@@ -3110,8 +3143,12 @@ export async function showStatusPageHandler(): Promise<void> {
 /**
  * Refresh the status page by re-sending the data-driven body to the webview,
  * which re-injects it and re-wires its listeners (see media/statusPage/main.js).
+ *
+ * Exported so the MCP lifecycle controller (#19) can push the live bound port to
+ * the card on every start/stop via its `onChange` hook. No-op when the panel is
+ * closed.
  */
-async function refreshStatusPage(): Promise<void> {
+export async function refreshStatusPage(): Promise<void> {
     if (!statusPanel) { return; }
     const status = await gatherStatusData();
     statusPanel.webview.postMessage({ type: 'statusData', html: getEmbeddedStatusHtml(status) });

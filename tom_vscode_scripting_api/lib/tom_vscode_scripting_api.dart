@@ -13,6 +13,10 @@ export 'src/vscode_bridge_client.dart';
 // Bridge adapter implementation
 export 'src/vscode_bridge_adapter.dart';
 
+// Workspace discovery across CLI bridge ports (todo #8): scan 19900–19909,
+// match the open window by workspace name, return the matching port.
+export 'src/bridge_discovery.dart';
+
 // Main VS Code API
 export 'src/vscode.dart';
 
@@ -27,6 +31,29 @@ export 'src/vscode_helper.dart';
 
 // Types
 export 'src/vscode_types.dart';
+
+// Agent SDK 1:1 mirror — type surface (todo #2): messages/blocks (raw-
+// preserving), Options + sealed configs, permission and MCP value types.
+export 'src/agent_sdk_messages.dart';
+export 'src/agent_sdk_permissions.dart';
+export 'src/agent_sdk_mcp.dart';
+export 'src/agent_sdk_options.dart';
+
+// Agent SDK 1:1 mirror — streaming query() core (todo #3): typed message
+// stream, the transport seam, and the bridge-backed transport.
+export 'src/agent_sdk_query.dart';
+
+// Bidirectional RPC primitive (todo #4): client half that routes incoming
+// server→client requests to registered handlers and replies over the socket.
+export 'src/bridge_request_dispatcher.dart';
+
+// Dart-defined tools (todo #5): registry that dispatches incoming
+// `agentSdk.toolCall` requests to a query's in-process `tool()` handlers.
+export 'src/agent_sdk_tool_registry.dart';
+
+// canUseTool permission callback (todo #6): pure dispatch that turns an
+// incoming `agentSdk.canUseTool` request into a `CanUseTool` invocation.
+export 'src/agent_sdk_permission_dispatch.dart';
 
 // AI APIs (local LLM prompt processing & bot conversation)
 export 'src/ai_prompt_api.dart';

@@ -215,6 +215,21 @@
                 "category": "@Tom"
             },
             {
+                "command": "tomAi.mcpServer.start",
+                "title": "@T: Start Tom MCP Server",
+                "category": "@Tom"
+            },
+            {
+                "command": "tomAi.mcpServer.stop",
+                "title": "@T: Stop Tom MCP Server",
+                "category": "@Tom"
+            },
+            {
+                "command": "tomAi.mcpServer.restart",
+                "title": "@T: Restart Tom MCP Server",
+                "category": "@Tom"
+            },
+            {
                 "command": "tomAi.startProcessMonitor",
                 "title": "@T: Start Tom Process Monitor",
                 "category": "@Tom"
@@ -2826,16 +2841,19 @@
         "typecheck:media": "tsc -p tsconfig.media.json"
     },
     "devDependencies": {
+        "@types/jsdom": "^28.0.3",
         "@types/node": "^18.x",
         "@types/vscode": "1.96.0",
         "@typescript-eslint/eslint-plugin": "^6.0.0",
         "@typescript-eslint/parser": "^6.0.0",
         "eslint": "^8.0.0",
+        "jsdom": "^29.1.1",
         "typescript": "^5.3.0"
     },
     "dependencies": {
         "@anthropic-ai/claude-agent-sdk": "^0.2.110",
         "@anthropic-ai/sdk": "^0.89.0",
+        "@modelcontextprotocol/sdk": "^1.29.0",
         "@vscode/codicons": "^0.0.45",
         "ajv": "^8.18.0",
         "marked": "^14.1.2",

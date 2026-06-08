@@ -21,6 +21,7 @@
 import * as vscode from 'vscode';
 import {
     AnthropicTool,
+    SharedToolDefinition,
     toAnthropicTools,
     executeToolCall,
 } from './shared-tool-registry';
@@ -29,6 +30,7 @@ import { runWithToolContext } from '../services/tool-execution-context';
 import {
     loadSendToChatConfig,
     getSendToChatTarget,
+    SendToChatConfig,
 } from '../utils/sendToChatConfig';
 
 /**
@@ -48,23 +50,28 @@ interface AnthropicProfileLike {
 }
 
 /**
- * Resolve the active Anthropic profile from config.
+ * Pure selection of the active Anthropic profile from a loaded config.
  *
  * Preference order:
- *  1. The profile whose id matches the webview-mirrored active selection.
+ *  1. The profile whose id matches `activeProfileId` (the webview-mirrored
+ *     active selection).
  *  2. The profile flagged `isDefault`.
  *  3. The first configured profile.
  * Returns `undefined` when no profiles are configured (→ all tools).
+ *
+ * Kept config-in / no-vscode so the resolution is unit-testable without a
+ * live config file (mirrors the apiKeyAuthHeader test seam).
  */
-function resolveActiveProfile(context: vscode.ExtensionContext): AnthropicProfileLike | undefined {
-    const config = loadSendToChatConfig();
+function pickActiveProfile(
+    config: SendToChatConfig | null,
+    activeProfileId: string,
+): AnthropicProfileLike | undefined {
     const profiles = (config?.anthropic?.profiles ?? []) as AnthropicProfileLike[];
     if (profiles.length === 0) {
         return undefined;
     }
-    const activeId = context.workspaceState.get<string>(ACTIVE_ANTHROPIC_PROFILE_KEY, '');
-    if (activeId) {
-        const match = profiles.find((p) => p.id === activeId);
+    if (activeProfileId) {
+        const match = profiles.find((p) => p.id === activeProfileId);
         if (match) {
             return match;
         }
@@ -73,36 +80,105 @@ function resolveActiveProfile(context: vscode.ExtensionContext): AnthropicProfil
 }
 
 /**
- * Generate the Anthropic-shaped tools JSON for the currently active profile.
+ * Pure resolution of the tool-name set allowed for the active profile.
  *
- * Empty when the Send-to-Chat target is 'copilot'. Otherwise the set is
- * filtered by the active profile's `toolsEnabled` / `enabledTools`.
+ * The single source of truth shared by tool listing
+ * ({@link getActiveProfileToolsJson}) and tool-invocation gating:
+ *  - Send-to-Chat target 'copilot' ⇒ empty set (no tools).
+ *  - Otherwise the active profile (see {@link pickActiveProfile}) drives the
+ *    set via `resolveProfileTools`.
+ *
+ * Config-in / activeId-in so it is unit-testable without a live config file.
  */
-export function getActiveProfileToolsJson(context: vscode.ExtensionContext): AnthropicTool[] {
-    const config = loadSendToChatConfig();
+export function activeProfileToolNames(
+    config: SendToChatConfig | null,
+    activeProfileId: string,
+): Set<string> {
     if (getSendToChatTarget(config) === 'copilot') {
-        return [];
+        return new Set();
     }
-    const profile = resolveActiveProfile(context);
-    const tools = resolveProfileTools(profile);
-    return toAnthropicTools(tools);
+    const profile = pickActiveProfile(config, activeProfileId);
+    return new Set(resolveProfileTools(profile).map((t) => t.name));
 }
 
 /**
- * Universally invoke a registered tool by name.
- *
- * @param name  The tool name (e.g. 'tomAi_readFile').
- * @param args  The tool's argument object (already parsed JSON).
- * @returns The tool's string result, or an error string for unknown tools /
- *          execution failures (mirrors executeToolCall's contract).
+ * Resolve the allowed tool-name set for the currently active profile,
+ * reading the live config + webview-mirrored profile selection from
+ * extension state. Thin wrapper over {@link activeProfileToolNames}.
  */
-export async function invokeToolByName(
+export function resolveActiveProfileToolNames(context: vscode.ExtensionContext): Set<string> {
+    const config = loadSendToChatConfig();
+    const activeId = context.workspaceState.get<string>(ACTIVE_ANTHROPIC_PROFILE_KEY, '');
+    return activeProfileToolNames(config, activeId);
+}
+
+/**
+ * Generate the Anthropic-shaped tools JSON for the currently active profile.
+ *
+ * Empty when the Send-to-Chat target is 'copilot'. Otherwise the set is
+ * filtered by the active profile's `toolsEnabled` / `enabledTools`. Built from
+ * {@link resolveActiveProfileToolNames} so listing and invocation gating read
+ * from one helper; filtering `ALL_SHARED_TOOLS` by the resolved name set
+ * preserves the original entries and ordering.
+ */
+export function getActiveProfileToolsJson(context: vscode.ExtensionContext): AnthropicTool[] {
+    const allowed = resolveActiveProfileToolNames(context);
+    return toAnthropicTools(ALL_SHARED_TOOLS.filter((t) => allowed.has(t.name)));
+}
+
+/**
+ * Gate + execute a tool against an explicit allow-set and registry.
+ *
+ * Refuses any name not in `allowed` **before** the executor runs, returning
+ * an error string instead. Pure of `vscode`/config — the allow-set and the
+ * registry are injected — so the gate is unit-testable in isolation (mirrors
+ * the `apiKeyAuthHeader` test seam).
+ *
+ * @param allowed   Tool names the caller is permitted to invoke.
+ * @param registry  Tool definitions to dispatch against.
+ * @param name      The requested tool name.
+ * @param args      The tool's argument object (already parsed JSON).
+ * @returns The tool's string result, or an error string for disallowed /
+ *          unknown tools / execution failures.
+ */
+export async function invokeAllowedTool(
+    allowed: Set<string>,
+    registry: SharedToolDefinition[],
     name: string,
     args: Record<string, unknown>,
 ): Promise<string> {
+    if (!allowed.has(name)) {
+        return `Error: tool "${name}" is not permitted by the active Anthropic profile `
+            + `(or the Send-to-Chat target is 'copilot').`;
+    }
     return runWithToolContext({ source: 'anthropic', requestId: `script-${Date.now()}` }, () =>
-        executeToolCall(ALL_SHARED_TOOLS, {
+        executeToolCall(registry, {
             function: { name, arguments: args ?? {} },
         }),
     );
+}
+
+/**
+ * Universally invoke a registered tool by name, gated by the active Anthropic
+ * profile.
+ *
+ * The allowed set is resolved server-side from the current profile
+ * ({@link resolveActiveProfileToolNames}); a name the profile hides — or any
+ * name while the Send-to-Chat target is `copilot` — is refused before the
+ * executor runs. Enforcement lives here in the extension so a buggy or
+ * malicious Dart client cannot bypass it by passing an arbitrary name.
+ *
+ * @param context  Extension context (carries the active-profile selection).
+ * @param name     The tool name (e.g. 'tomAi_readFile').
+ * @param args     The tool's argument object (already parsed JSON).
+ * @returns The tool's string result, or an error string for disallowed /
+ *          unknown tools / execution failures.
+ */
+export async function invokeToolByName(
+    context: vscode.ExtensionContext,
+    name: string,
+    args: Record<string, unknown>,
+): Promise<string> {
+    const allowed = resolveActiveProfileToolNames(context);
+    return invokeAllowedTool(allowed, ALL_SHARED_TOOLS, name, args);
 }

@@ -19,7 +19,7 @@ import { FsUtils } from '../utils/fsUtils';
 // ============================================================================
 
 /** Identifies who triggered a variable change. */
-export type ChangeSource = 'user' | 'localLlm' | 'copilot' | 'tomAiChat' | 'anthropic';
+export type ChangeSource = 'user' | 'localLlm' | 'copilot' | 'tomAiChat' | 'anthropic' | 'mcp';
 
 /** A single entry in the change log. */
 export interface ChangeLogEntry {

@@ -17,7 +17,9 @@ export type TrailSubsystem =
      *   - 'compaction'  → _ai/trail/anthropic/{quest}/compaction/
      *   - 'memory'      → _ai/trail/anthropic/{quest}/memory/
      */
-    | { type: 'anthropic'; category?: 'compaction' | 'memory' };
+    | { type: 'anthropic'; category?: 'compaction' | 'memory' }
+    /** MCP server subsystem — trails tool calls routed through the in-process MCP server. */
+    | { type: 'mcp' };
 
 export interface TrailMetadata {
     requestId?: string;
@@ -36,6 +38,7 @@ interface RawTrailConfig {
         copilot?: string;
         lmApi?: string;
         anthropic?: string;
+        mcp?: string;
     };
 }
 
@@ -252,6 +255,7 @@ export class TrailService {
                 copilot: raw.paths?.copilot ?? '${ai}/trail/copilot/${quest}',
                 lmApi: raw.paths?.lmApi ?? '${ai}/trail/lm-api/${quest}',
                 anthropic: raw.paths?.anthropic ?? '${ai}/trail/anthropic/${quest}',
+                mcp: raw.paths?.mcp ?? '${ai}/trail/mcp/${quest}',
             },
         };
     }
@@ -282,6 +286,9 @@ export class TrailService {
                 base = `${raw.paths?.anthropic ?? '${ai}/trail/anthropic/${quest}'}${catSuffix}`;
                 break;
             }
+            case 'mcp':
+                base = raw.paths?.mcp ?? '${ai}/trail/mcp/${quest}';
+                break;
             case 'lmApi':
             default:
                 base = raw.paths?.lmApi ?? '${ai}/trail/lm-api/${quest}';
@@ -445,6 +452,9 @@ export class TrailService {
         }
         if (subsystem.type === 'anthropic') {
             return 'anthropic';
+        }
+        if (subsystem.type === 'mcp') {
+            return 'mcp';
         }
         return `lm-api-${subsystem.model}`;
     }

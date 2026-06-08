@@ -25,6 +25,7 @@
 
 import * as vscode from 'vscode';
 import { z } from 'zod';
+import { toRawShape } from '../utils/jsonSchemaToZod';
 
 // The Agent SDK ships as ESM-only (`sdk.mjs`), while the VS Code extension
 // host compiles to CommonJS. We load it via dynamic `import()` and cache
@@ -102,7 +103,10 @@ interface AgentSdkModule {
 }
 
 let cachedSdk: Promise<AgentSdkModule> | undefined;
-async function loadSdk(): Promise<AgentSdkModule> {
+// Exported so the thin pass-through bridge (`services/agent-sdk-bridge.ts`,
+// todo #3) reuses the exact same ESM load path instead of duplicating the
+// `new Function('m', 'return import(m)')` dance.
+export async function loadSdk(): Promise<AgentSdkModule> {
     if (!cachedSdk) {
         // `new Function('m', 'return import(m)')` keeps the `import()` out
         // of the TS emit — otherwise `tsc --module commonjs` would rewrite
@@ -117,7 +121,7 @@ async function loadSdk(): Promise<AgentSdkModule> {
 import { SharedToolDefinition } from '../tools/shared-tool-registry';
 import { TrailService } from '../services/trailService';
 import { ToolTrail } from '../services/tool-trail';
-import { runWithToolContext } from '../services/tool-execution-context';
+import { wrapToolWithTrail } from '../utils/toolTrailWrapper';
 import type {
     AnthropicConfiguration,
     AnthropicSendResult,
@@ -314,63 +318,10 @@ export interface AgentSdkResult {
 const MCP_SERVER_NAME = 'tom-ai';
 
 // ============================================================================
-// JSON Schema -> Zod raw shape
-//
-// `tool()` takes a Zod raw shape (object properties map), not JSON Schema.
-// Our shared tools store `inputSchema` as JSON Schema. This helper converts
-// the subset we actually use (string, number, integer, boolean, array,
-// enum, object), good enough for every tool in `tool-executors.ts`.
-// ============================================================================
-
-function jsonSchemaPropertyToZod(prop: unknown): z.ZodTypeAny {
-    if (!prop || typeof prop !== 'object') {
-        return z.unknown();
-    }
-    const p = prop as Record<string, unknown>;
-    const enumVals = Array.isArray(p.enum) ? (p.enum as unknown[]).filter((v): v is string => typeof v === 'string') : undefined;
-    if (enumVals && enumVals.length > 0) {
-        return z.enum(enumVals as [string, ...string[]]);
-    }
-    switch (p.type) {
-        case 'string':
-            return z.string();
-        case 'number':
-            return z.number();
-        case 'integer':
-            return z.number().int();
-        case 'boolean':
-            return z.boolean();
-        case 'array': {
-            const item = p.items ? jsonSchemaPropertyToZod(p.items) : z.unknown();
-            return z.array(item);
-        }
-        case 'object':
-            return z.record(z.string(), z.unknown());
-        default:
-            return z.unknown();
-    }
-}
-
-function toRawShape(schema: Record<string, unknown> | undefined): Record<string, z.ZodTypeAny> {
-    const shape: Record<string, z.ZodTypeAny> = {};
-    const props = (schema?.properties ?? {}) as Record<string, unknown>;
-    const required = new Set<string>(Array.isArray(schema?.required) ? (schema!.required as string[]) : []);
-    for (const [name, prop] of Object.entries(props)) {
-        let zt = jsonSchemaPropertyToZod(prop);
-        const desc = (prop as { description?: unknown } | undefined)?.description;
-        if (typeof desc === 'string' && desc) {
-            zt = zt.describe(desc);
-        }
-        if (!required.has(name)) {
-            zt = zt.optional();
-        }
-        shape[name] = zt;
-    }
-    return shape;
-}
-
-// ============================================================================
 // Tool adapter — SharedToolDefinition[] -> MCP tools with full trail + trail
+//
+// JSON Schema -> Zod raw shape conversion lives in `../utils/jsonSchemaToZod`,
+// shared with the standalone MCP server so the two converters cannot drift.
 // ============================================================================
 
 function buildMcpServer(
@@ -383,53 +334,41 @@ function buildMcpServer(
             def.name,
             def.description,
             toRawShape(def.inputSchema),
-            async (args) => {
-                const input = (args ?? {}) as Record<string, unknown>;
-                const inputSummary = summarizeInput(input);
-
-                TrailService.instance.writeRawToolRequest(
-                    ANTHROPIC_SUBSYSTEM,
-                    { id: `${ctx.requestId}-${def.name}-${Date.now()}`, name: def.name, input },
-                    ctx.windowId,
-                    ctx.questId,
-                );
-
-                const start = Date.now();
-                let result = '';
-                let error: string | undefined;
-                try {
-                    result = await runWithToolContext(
-                        { source: 'anthropic', requestId: ctx.requestId },
-                        () => def.execute(input),
-                    );
-                } catch (e) {
-                    error = e instanceof Error ? e.message : String(e);
-                    result = `Error: ${error}`;
-                }
-                const durationMs = Date.now() - start;
-
-                TrailService.instance.writeRawToolAnswer(
-                    ANTHROPIC_SUBSYSTEM,
-                    { name: def.name, result, durationMs, error },
-                    ctx.windowId,
-                    ctx.questId,
-                );
-
-                ctx.toolTrail.add({
-                    timestamp: new Date().toISOString().slice(11, 19),
-                    round: ctx.round,
-                    toolName: def.name,
-                    inputSummary,
-                    result,
-                    durationMs,
-                    error,
-                });
-
-                return {
-                    content: [{ type: 'text' as const, text: result }],
-                    isError: error !== undefined,
-                };
-            },
+            // Same executor + trail invariant as the standalone MCP server, via the
+            // shared wrapper. The Agent SDK path's two extras are the injected sink:
+            // it forwards to `TrailService` under the anthropic subsystem AND
+            // decorates the chat `toolTrail` (round + input summary).
+            wrapToolWithTrail(
+                def,
+                {
+                    writeRequest: (name, input) => {
+                        TrailService.instance.writeRawToolRequest(
+                            ANTHROPIC_SUBSYSTEM,
+                            { id: `${ctx.requestId}-${name}-${Date.now()}`, name, input },
+                            ctx.windowId,
+                            ctx.questId,
+                        );
+                    },
+                    writeAnswer: ({ name, input, result, durationMs, error }) => {
+                        TrailService.instance.writeRawToolAnswer(
+                            ANTHROPIC_SUBSYSTEM,
+                            { name, result, durationMs, error },
+                            ctx.windowId,
+                            ctx.questId,
+                        );
+                        ctx.toolTrail.add({
+                            timestamp: new Date().toISOString().slice(11, 19),
+                            round: ctx.round,
+                            toolName: name,
+                            inputSummary: summarizeInput(input),
+                            result,
+                            durationMs,
+                            error,
+                        });
+                    },
+                },
+                () => ({ source: 'anthropic', requestId: ctx.requestId }),
+            ),
         ),
     );
 

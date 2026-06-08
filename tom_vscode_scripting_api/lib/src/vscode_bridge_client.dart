@@ -19,8 +19,19 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-/// Default port for VS Code VS Code Bridge
+import 'bridge_request_dispatcher.dart';
+
+/// Default (and lowest) port for the VS Code CLI Integration Server.
+///
+/// VS Code windows allocate the first free port in the inclusive range
+/// [defaultVSCodeBridgePort]–[maxVSCodeBridgePort], so multiple open windows
+/// each expose a bridge on a distinct port within that span.
 const int defaultVSCodeBridgePort = 19900;
+
+/// Highest port in the VS Code CLI Integration Server range.
+///
+/// See [defaultVSCodeBridgePort] for the allocation scheme.
+const int maxVSCodeBridgePort = 19909;
 
 /// Result of a VS Code bridge command execution.
 class VSCodeBridgeResult {
@@ -125,6 +136,18 @@ class VSCodeBridgeClient {
   int _messageId = 0;
   final Map<String, Completer<Map<String, dynamic>>> _pendingRequests = {};
   final List<int> _buffer = [];
+  final StreamController<Map<String, dynamic>> _notifications =
+      StreamController<Map<String, dynamic>>.broadcast();
+
+  /// Routes incoming server→client requests (todo #4) to registered handlers
+  /// and writes replies back over the socket. Created on first use.
+  BridgeRequestDispatcher? _requestDispatcher;
+
+  /// Broadcast stream of incoming JSON-RPC *notifications* (messages with a
+  /// `method` but no `id`), e.g. `log` or `agentSdk.chunk`. Each event is the
+  /// raw notification map (`{jsonrpc, method, params}`). Consumers filter by
+  /// `method` and read `params`.
+  Stream<Map<String, dynamic>> get notifications => _notifications.stream;
 
   /// Creates a VS Code bridge client.
   /// 
@@ -221,11 +244,7 @@ class VSCodeBridgeClient {
     final completer = Completer<Map<String, dynamic>>();
     _pendingRequests[id] = completer;
 
-    // Encode with length prefix
-    final jsonBytes = utf8.encode(jsonEncode(request));
-    final lengthBytes = ByteData(4)..setUint32(0, jsonBytes.length, Endian.big);
-    _socket!.add(lengthBytes.buffer.asUint8List());
-    _socket!.add(jsonBytes);
+    _writeMessage(request);
 
     // Wait for response with timeout
     try {
@@ -234,6 +253,35 @@ class VSCodeBridgeClient {
       _pendingRequests.remove(id);
       throw TimeoutException('Request timed out', requestTimeout);
     }
+  }
+
+  /// Encodes [message] as a length-prefixed JSON frame and writes it to the
+  /// socket. Shared by [sendRequest] (client→server) and the server→client
+  /// reply path used by [BridgeRequestDispatcher].
+  void _writeMessage(Map<String, dynamic> message) {
+    if (_socket == null) {
+      throw StateError('Not connected to VS Code bridge');
+    }
+    final jsonBytes = utf8.encode(jsonEncode(message));
+    final lengthBytes = ByteData(4)..setUint32(0, jsonBytes.length, Endian.big);
+    _socket!.add(lengthBytes.buffer.asUint8List());
+    _socket!.add(jsonBytes);
+  }
+
+  BridgeRequestDispatcher get _dispatcher =>
+      _requestDispatcher ??= BridgeRequestDispatcher(sendReply: _writeMessage);
+
+  /// Register a [handler] for incoming server→client requests (todo #4) with
+  /// the given [method]. The extension issues these mid-query for the callback-
+  /// bearing Agent SDK features (Dart-defined tools, `canUseTool`). The handler
+  /// receives the request `params` and returns the JSON-encodable reply value.
+  void registerRequestHandler(String method, BridgeRequestHandler handler) {
+    _dispatcher.register(method, handler);
+  }
+
+  /// Remove a previously-registered server→client request [handler].
+  void unregisterRequestHandler(String method) {
+    _requestDispatcher?.unregister(method);
   }
 
   /// Executes a D4rt expression via VS Code bridge.
@@ -399,10 +447,17 @@ class VSCodeBridgeClient {
   }
 
   void _handleResponse(Map<String, dynamic> response) {
+    // An incoming server→client request (todo #4) carries both a `method` and
+    // an `id`. Route it to a registered handler before the notification/
+    // response logic, which would otherwise drop it (no matching pending id).
+    if (_dispatcher.maybeHandle(response)) {
+      return;
+    }
+
     // Handle log notifications (no id means it's a notification)
     final id = response['id']?.toString();
     if (id == null) {
-      // This is a notification, e.g., log messages
+      // This is a notification, e.g., log messages or streaming chunks.
       final method = response['method'];
       if (method == 'log') {
         final message = response['params']?['message'];
@@ -410,6 +465,11 @@ class VSCodeBridgeClient {
           // Print log messages in real-time
           print('[VS Code] $message');
         }
+      }
+      // Surface every notification on the broadcast stream so structured
+      // consumers (e.g. the Agent SDK chunk channel) can correlate them.
+      if (!_notifications.isClosed) {
+        _notifications.add(response);
       }
       return;
     }
