@@ -2,3 +2,4 @@ project_id: VSB
 name: bridge
 description: >-
   VS Code Dart bridge.
+license: BSD-3-Clause
