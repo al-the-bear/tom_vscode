@@ -29,42 +29,62 @@ export function openChatVariablesEditor(context: vscode.ExtensionContext): void 
         return;
     }
 
-    _panel = vscode.window.createWebviewPanel(
+    const panel = vscode.window.createWebviewPanel(
         'chatVariablesEditor',
         'Chat Variables',
         vscode.ViewColumn.Active,
         {
-            enableScripts: true,
+            ...getChatVariablesEditorWebviewOptions(context),
             retainContextWhenHidden: true,
-            localResourceRoots: [
-                vscode.Uri.joinPath(context.extensionUri, 'media'),
-            ],
         },
     );
+    bindChatVariablesEditorPanel(context, panel);
+}
+
+/** Webview options shared by the fresh-open and reload-restore paths. */
+function getChatVariablesEditorWebviewOptions(context: vscode.ExtensionContext): vscode.WebviewOptions {
+    return {
+        enableScripts: true,
+        localResourceRoots: [
+            vscode.Uri.joinPath(context.extensionUri, 'media'),
+        ],
+    };
+}
+
+/**
+ * Wire a (freshly-created or reload-restored) Chat Variables editor panel:
+ * install the message handler, paint the HTML, re-subscribe to the store's
+ * change events, and push the initial state. Both `openChatVariablesEditor` and
+ * the reload serializer call this so the wiring lives in one place. Singleton
+ * that reloads all variables from the store on open, so no per-panel state is
+ * persisted.
+ */
+function bindChatVariablesEditorPanel(context: vscode.ExtensionContext, panel: vscode.WebviewPanel): void {
+    _panel = panel;
 
     // Register message handler BEFORE setting html so no messages are lost
-    _panel.webview.onDidReceiveMessage(
+    panel.webview.onDidReceiveMessage(
         (msg) => handleMessage(msg),
         undefined,
         context.subscriptions,
     );
 
-    _panel.webview.html = loadWebviewHtml(_panel.webview, 'chatVariablesEditor');
+    panel.webview.html = loadWebviewHtml(panel.webview, 'chatVariablesEditor');
 
     // Listen for store changes → push to webview + persist YAML
     let storeListener: vscode.Disposable | undefined;
     try {
         const store = ChatVariablesStore.instance;
         storeListener = store.onDidChange(() => {
-            sendState(_panel!);
+            sendState(panel);
             _persistYaml(store);
         });
     } catch { /* store not initialised */ }
 
     // Initial data push
-    sendState(_panel);
+    sendState(panel);
 
-    _panel.onDidDispose(() => {
+    panel.onDidDispose(() => {
         _panel = undefined;
         storeListener?.dispose();
     });
@@ -212,6 +232,19 @@ export function registerChatVariablesEditorCommand(context: vscode.ExtensionCont
     context.subscriptions.push(
         vscode.commands.registerCommand('tomAi.editor.chatVariables', () => {
             openChatVariablesEditor(context);
+        }),
+    );
+    // Restore the panel after a window reload. Singleton that reloads all
+    // variables from the store on open, so no per-panel state is persisted — the
+    // deserialize path re-binds the recreated panel (or disposes a duplicate).
+    // Without the serializer the tab silently vanishes on reload.
+    context.subscriptions.push(
+        vscode.window.registerWebviewPanelSerializer('chatVariablesEditor', {
+            async deserializeWebviewPanel(panel: vscode.WebviewPanel): Promise<void> {
+                if (_panel) { panel.dispose(); return; }
+                panel.webview.options = getChatVariablesEditorWebviewOptions(context);
+                bindChatVariablesEditorPanel(context, panel);
+            },
         }),
     );
 }
