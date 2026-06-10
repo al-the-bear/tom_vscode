@@ -123,38 +123,62 @@ export function openGlobalTemplateEditor(
         return;
     }
 
-    const codiconsUri = vscode.Uri.joinPath(
-        context.extensionUri,
-        'node_modules', '@vscode', 'codicons', 'dist', 'codicon.css',
-    );
-
-    _panel = vscode.window.createWebviewPanel(
+    const panel = vscode.window.createWebviewPanel(
         'tomAi.globalTemplateEditor',
         'Prompt Template Editor',
         vscode.ViewColumn.Active,
         {
-            enableScripts: true,
+            ...getGlobalTemplateEditorWebviewOptions(context),
             retainContextWhenHidden: true,
-            localResourceRoots: [
-                vscode.Uri.joinPath(context.extensionUri, 'node_modules', '@vscode', 'codicons', 'dist'),
-                vscode.Uri.joinPath(context.extensionUri, 'media'),
-            ],
         },
     );
+    bindGlobalTemplateEditorPanel(context, panel, options);
+}
 
-    const webviewCodiconsUri = _panel.webview.asWebviewUri(codiconsUri);
+/** Webview options shared by the fresh-open and reload-restore paths. */
+function getGlobalTemplateEditorWebviewOptions(context: vscode.ExtensionContext): vscode.WebviewOptions {
+    return {
+        enableScripts: true,
+        localResourceRoots: [
+            vscode.Uri.joinPath(context.extensionUri, 'node_modules', '@vscode', 'codicons', 'dist'),
+            vscode.Uri.joinPath(context.extensionUri, 'media'),
+        ],
+    };
+}
 
-    _panel.webview.onDidReceiveMessage(
+/**
+ * Wire a (freshly-created or reload-restored) Prompt Template editor panel:
+ * install the message handler, paint the HTML, and push the template data from
+ * config. Both `openGlobalTemplateEditor` and the reload serializer call this so
+ * the wiring lives in one place. On restore `options` is undefined, so the
+ * editor lands on the default category — it's a singleton that reloads all
+ * templates from config, so no per-panel state is persisted.
+ */
+function bindGlobalTemplateEditorPanel(
+    context: vscode.ExtensionContext,
+    panel: vscode.WebviewPanel,
+    options?: { category?: TemplateCategory; itemId?: string },
+): void {
+    _context = context;
+    _panel = panel;
+
+    const codiconsUri = vscode.Uri.joinPath(
+        context.extensionUri,
+        'node_modules', '@vscode', 'codicons', 'dist', 'codicon.css',
+    );
+    const webviewCodiconsUri = panel.webview.asWebviewUri(codiconsUri);
+
+    panel.webview.onDidReceiveMessage(
         (msg) => _handleMessage(msg),
         undefined,
         context.subscriptions,
     );
 
-    _panel.webview.html = loadWebviewHtml(_panel.webview, 'globalTemplateEditor', {
+    panel.webview.html = loadWebviewHtml(panel.webview, 'globalTemplateEditor', {
         init: { codiconsUri: webviewCodiconsUri.toString() },
     });
 
-    _panel.onDidDispose(() => {
+    panel.onDidDispose(() => {
         _panel = undefined;
         _pendingInitialCategory = undefined;
         _pendingInitialItemId = undefined;
@@ -182,6 +206,20 @@ export function registerGlobalTemplateEditorCommand(ctx: vscode.ExtensionContext
                 category: args?.category,
                 itemId: args?.itemId,
             });
+        }),
+    );
+    // Restore the panel after a window reload. Singleton that reloads all
+    // templates from config on open, so no per-panel state is persisted — the
+    // deserialize path re-binds the recreated panel (default category). Without
+    // the serializer the tab silently vanishes on reload.
+    ctx.subscriptions.push(
+        vscode.window.registerWebviewPanelSerializer('tomAi.globalTemplateEditor', {
+            async deserializeWebviewPanel(panel: vscode.WebviewPanel): Promise<void> {
+                if (_panel) { panel.dispose(); return; }
+                const context = _context ?? ctx;
+                panel.webview.options = getGlobalTemplateEditorWebviewOptions(context);
+                bindGlobalTemplateEditorPanel(context, panel);
+            },
         }),
     );
 }
