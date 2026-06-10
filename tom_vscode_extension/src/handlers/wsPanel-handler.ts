@@ -26,6 +26,7 @@ import {
     setupQuestTodoWatcher,
     sendQuestTodoRefresh,
     setQuestTodoContext,
+    registerQuestTodoPopoutSerializer,
 } from './questTodoPanel-handler.js';
 import {
     gatherStatusData,
@@ -815,4 +816,9 @@ export function registerWsPanel(context: vscode.ExtensionContext): void {
     if (watcher) {
         context.subscriptions.push(watcher);
     }
+
+    // Restore the Quest TODO popout window after a Reload Window / host restart.
+    // Registered here because the WsPanelHandler constructor above guarantees
+    // setQuestTodoContext(context) has run, so the popout module's context is set.
+    registerQuestTodoPopoutSerializer(context);
 }

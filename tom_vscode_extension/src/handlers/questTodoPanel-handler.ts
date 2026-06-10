@@ -1808,6 +1808,17 @@ function _findTodoForPromptAction(questId: string, todoId: string, sourceFile?: 
 // Popout panel — opens the same TODO editor in a full editor tab
 // ============================================================================
 
+/** Webview options shared by the fresh-open and reload-restore paths. */
+function _getPopoutWebviewOptions(ctx: vscode.ExtensionContext): vscode.WebviewOptions {
+    return {
+        enableScripts: true,
+        localResourceRoots: [
+            vscode.Uri.joinPath(ctx.extensionUri, 'node_modules', '@vscode', 'codicons', 'dist'),
+            vscode.Uri.joinPath(ctx.extensionUri, 'media'),
+        ],
+    };
+}
+
 function _openPopoutPanel(): void {
     if (_popoutPanel) {
         _popoutPanel.reveal();
@@ -1816,46 +1827,75 @@ function _openPopoutPanel(): void {
     const ctx = _extensionContext;
     if (!ctx) return;
 
-    const codiconsUri = vscode.Uri.joinPath(ctx.extensionUri, 'node_modules', '@vscode', 'codicons', 'dist', 'codicon.css');
-
-    _popoutPanel = vscode.window.createWebviewPanel(
+    const panel = vscode.window.createWebviewPanel(
         'questTodoEditor',
         'Quest TODO Editor',
         vscode.ViewColumn.Active,
         {
-            enableScripts: true,
+            ..._getPopoutWebviewOptions(ctx),
             retainContextWhenHidden: true,
-            localResourceRoots: [
-                vscode.Uri.joinPath(ctx.extensionUri, 'node_modules', '@vscode', 'codicons', 'dist'),
-                vscode.Uri.joinPath(ctx.extensionUri, 'media'),
-            ],
         },
     );
+    _bindPopoutPanel(ctx, panel);
+}
 
-    const webviewCodiconsUri = _popoutPanel.webview.asWebviewUri(codiconsUri);
-    const completionUri = _popoutPanel.webview.asWebviewUri(
+/**
+ * Wire a (freshly-created or reload-restored) popout panel: paint HTML, install
+ * the message + completion handlers, attach the auto-refresh watcher, and clear
+ * the singleton on dispose. The popout carries no per-panel serializer state —
+ * on load the webview asks for `qtGetQuests`, which resolves the active quest
+ * from the persisted panel state (`_loadPanelState`), so the same quest/file
+ * comes back after a reload without anything extra to persist here.
+ */
+function _bindPopoutPanel(ctx: vscode.ExtensionContext, panel: vscode.WebviewPanel): void {
+    _popoutPanel = panel;
+
+    const codiconsUri = vscode.Uri.joinPath(ctx.extensionUri, 'node_modules', '@vscode', 'codicons', 'dist', 'codicon.css');
+    const webviewCodiconsUri = panel.webview.asWebviewUri(codiconsUri);
+    const completionUri = panel.webview.asWebviewUri(
         vscode.Uri.joinPath(ctx.extensionUri, 'media', 'shared', 'completion.js'),
     );
-    _popoutPanel.webview.html = _getPopoutHtml(webviewCodiconsUri.toString(), completionUri.toString());
+    panel.webview.html = _getPopoutHtml(webviewCodiconsUri.toString(), completionUri.toString());
 
-    _popoutPanel.webview.onDidReceiveMessage(
+    panel.webview.onDidReceiveMessage(
         async (message) => {
-            await handleQuestTodoMessage(message, _popoutPanel!.webview);
+            await handleQuestTodoMessage(message, panel.webview);
         },
         undefined,
         ctx.subscriptions,
     );
-    ctx.subscriptions.push(wireCompletionMessages(_popoutPanel.webview));
+    ctx.subscriptions.push(wireCompletionMessages(panel.webview));
 
     // File watcher for auto-refresh
     const watcher = setupQuestTodoWatcher(() => {
         if (_popoutPanel) sendQuestTodoRefresh(_popoutPanel.webview);
     });
 
-    _popoutPanel.onDidDispose(() => {
+    panel.onDidDispose(() => {
         _popoutPanel = undefined;
         watcher?.dispose();
     });
+}
+
+/**
+ * Register the serializer that restores the Quest TODO popout after a window
+ * reload. The popout's viewType (`questTodoEditor`) is distinct from the
+ * *.todo.yaml custom editor (`tomAi.todoEditor`), so there is no collision.
+ * `_extensionContext` is set eagerly at activation (the @WS panel handler
+ * constructor calls `setQuestTodoContext`), so it is available here. Called
+ * once from `registerWsPanel`.
+ */
+export function registerQuestTodoPopoutSerializer(ctx: vscode.ExtensionContext): void {
+    ctx.subscriptions.push(
+        vscode.window.registerWebviewPanelSerializer('questTodoEditor', {
+            async deserializeWebviewPanel(panel: vscode.WebviewPanel): Promise<void> {
+                if (_popoutPanel) { panel.dispose(); return; }
+                const context = _extensionContext ?? ctx;
+                panel.webview.options = _getPopoutWebviewOptions(context);
+                _bindPopoutPanel(context, panel);
+            },
+        }),
+    );
 }
 
 function _getPopoutHtml(codiconsUri: string, completionUri: string): string {
