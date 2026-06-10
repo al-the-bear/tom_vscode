@@ -206,6 +206,12 @@
 
                     liveMode = incomingLiveMode;
                     currentFilePath = incomingFilePath;
+                    // Persist enough to restore this panel after a window reload
+                    // (the backend's WebviewPanelSerializer reads filePath +
+                    // liveMode back from here in deserializeWebviewPanel).
+                    if (incomingFilePath) {
+                        vscode.setState({ filePath: incomingFilePath, liveMode: liveMode });
+                    }
                     filePathEl.textContent = msg.relativePath || msg.fileName || '';
                     contentArea.innerHTML = renderMarkdown(msg.content);
                     initMermaid();

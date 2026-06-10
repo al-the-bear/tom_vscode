@@ -73,6 +73,7 @@ import {
     telegramConfigureHandler,
     disposeTelegramStandalone,
     showStatusPageHandler,
+    registerStatusPageSerializer,
     toggleTrailHandler,
     getConfigPath,
     registerYamlGraphEditor,
@@ -1115,6 +1116,8 @@ function registerCommands(context: vscode.ExtensionContext) {
             await showStatusPageHandler();
         }
     );
+    // Restore the Status Page panel after a window reload.
+    registerStatusPageSerializer(context);
 
     // Focus @TOM activity-bar sidebar container
     const focusTomSidebarCmd = vscode.commands.registerCommand(

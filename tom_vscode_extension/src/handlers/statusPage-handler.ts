@@ -3124,21 +3124,39 @@ export async function showStatusPageHandler(): Promise<void> {
         'tomStatusPage',
         'Tom Extension Status',
         vscode.ViewColumn.Active,
-        {
-            enableScripts: true,
-            localResourceRoots: extPath
-                ? [vscode.Uri.file(path.join(extPath, 'media'))]
-                : undefined,
-        }
+        getStatusPageWebviewOptions(extPath),
     );
 
-    statusPanel.webview.html = loadWebviewHtml(statusPanel.webview, 'statusPage', {
+    bindStatusPanel(statusPanel);
+    await refreshStatusPage();
+}
+
+/** Webview options shared by the fresh-open and reload-restore paths. */
+function getStatusPageWebviewOptions(extPath: string | undefined): vscode.WebviewOptions {
+    return {
+        enableScripts: true,
+        localResourceRoots: extPath
+            ? [vscode.Uri.file(path.join(extPath, 'media'))]
+            : undefined,
+    };
+}
+
+/**
+ * Wire a (freshly-created or reload-restored) status panel: paint the HTML,
+ * wire completion + action messages, and clear the singleton on dispose. The
+ * status page is fully data-driven (every value is re-gathered on open), so the
+ * reload path needs no persisted state beyond "the panel was open".
+ */
+function bindStatusPanel(panel: vscode.WebviewPanel): void {
+    statusPanel = panel;
+
+    panel.webview.html = loadWebviewHtml(panel.webview, 'statusPage', {
         init: { availableLlmTools: AVAILABLE_LLM_TOOLS },
     });
-    wireCompletionMessages(statusPanel.webview);
+    wireCompletionMessages(panel.webview);
 
     // Handle messages from the webview - delegates to the shared handleStatusAction
-    statusPanel.webview.onDidReceiveMessage(async (msg) => {
+    panel.webview.onDidReceiveMessage(async (msg) => {
         if (msg.type === 'getStatusData') {
             await refreshStatusPage();
             return;
@@ -3151,9 +3169,27 @@ export async function showStatusPageHandler(): Promise<void> {
         if (!skipRefresh) { setTimeout(refreshStatusPage, 500); }
     });
 
-    statusPanel.onDidDispose(() => {
+    panel.onDidDispose(() => {
         statusPanel = undefined;
     });
+}
+
+/**
+ * Register the serializer that restores the status page after a window reload.
+ * Without it the recreated tab is left blank and inert. Called once at
+ * activation from extension.ts.
+ */
+export function registerStatusPageSerializer(context: vscode.ExtensionContext): void {
+    context.subscriptions.push(
+        vscode.window.registerWebviewPanelSerializer('tomStatusPage', {
+            async deserializeWebviewPanel(panel: vscode.WebviewPanel): Promise<void> {
+                if (statusPanel) { panel.dispose(); return; }
+                panel.webview.options = getStatusPageWebviewOptions(getExtensionPath());
+                bindStatusPanel(panel);
+                await refreshStatusPage();
+            },
+        })
+    );
 }
 
 /**

@@ -61,6 +61,26 @@ export function setMdBrowserDebug(enabled: boolean): void {
     MD_BROWSER_DEBUG = enabled;
 }
 
+/**
+ * Webview options shared by the fresh-open and reload-restore paths. Kept in one
+ * place so the resource roots a restored panel needs stay identical to a freshly
+ * opened one (`retainContextWhenHidden` is a panel-create option, not a webview
+ * option, so it is added separately at create time).
+ */
+function getMdBrowserWebviewOptions(context: vscode.ExtensionContext): vscode.WebviewOptions {
+    return {
+        enableScripts: true,
+        localResourceRoots: [
+            vscode.Uri.joinPath(context.extensionUri, 'media'),
+            vscode.Uri.joinPath(context.extensionUri, 'node_modules', 'marked', 'lib'),
+            vscode.Uri.joinPath(context.extensionUri, 'node_modules', 'mermaid', 'dist'),
+            vscode.Uri.joinPath(context.extensionUri, 'node_modules', '@vscode', 'codicons', 'dist'),
+            // Allow reading any workspace file for markdown rendering
+            ...(vscode.workspace.workspaceFolders?.map(f => f.uri) || []),
+        ],
+    };
+}
+
 // ============================================================================
 // History
 // ============================================================================
@@ -136,6 +156,7 @@ class MdBrowserPanel {
         filePath: string,
         liveMode: boolean,
         onDispose: () => void,
+        restorePanel?: vscode.WebviewPanel,
     ) {
         this._context = context;
         this._liveMode = liveMode;
@@ -143,23 +164,23 @@ class MdBrowserPanel {
         this._pendingInitialFile = filePath;
         this._onDisposeCallback = onDispose;
 
-        this._panel = vscode.window.createWebviewPanel(
-            PANEL_VIEW_TYPE,
-            PANEL_TITLE,
-            vscode.ViewColumn.Active,
-            {
-                enableScripts: true,
-                retainContextWhenHidden: true,
-                localResourceRoots: [
-                    vscode.Uri.joinPath(context.extensionUri, 'media'),
-                    vscode.Uri.joinPath(context.extensionUri, 'node_modules', 'marked', 'lib'),
-                    vscode.Uri.joinPath(context.extensionUri, 'node_modules', 'mermaid', 'dist'),
-                    vscode.Uri.joinPath(context.extensionUri, 'node_modules', '@vscode', 'codicons', 'dist'),
-                    // Allow reading any workspace file for markdown rendering
-                    ...(vscode.workspace.workspaceFolders?.map(f => f.uri) || []),
-                ],
-            },
-        );
+        if (restorePanel) {
+            // Reload-restore path: adopt the panel VS Code re-created for us.
+            // Its webview options must be re-applied (scripts/resource roots are
+            // not preserved across a reload) before we paint the HTML.
+            this._panel = restorePanel;
+            this._panel.webview.options = getMdBrowserWebviewOptions(context);
+        } else {
+            this._panel = vscode.window.createWebviewPanel(
+                PANEL_VIEW_TYPE,
+                PANEL_TITLE,
+                vscode.ViewColumn.Active,
+                {
+                    ...getMdBrowserWebviewOptions(context),
+                    retainContextWhenHidden: true,
+                },
+            );
+        }
 
         this._panel.webview.html = buildHtml(this._panel.webview, context);
 
@@ -796,6 +817,48 @@ export function registerMarkdownBrowser(context: vscode.ExtensionContext): void 
             } catch (err) {
                 debugLog(`[MdBrowser] command error: ${err}`, 'ERROR', 'mdBrowser');
             }
+        }),
+        // Restore MD Browser panels after a window reload. The webview persists
+        // its current file path + live mode via setState (media/markdownBrowser/
+        // main.js); we re-adopt the panel here and replay openMarkdownBrowser's
+        // wiring so the same file (and, for live trails, the same singleton-map
+        // entry + follow-tail behaviour) comes back instead of a blank tab.
+        vscode.window.registerWebviewPanelSerializer(PANEL_VIEW_TYPE, {
+            async deserializeWebviewPanel(panel: vscode.WebviewPanel, state: unknown): Promise<void> {
+                try {
+                    const restoreState = (state || {}) as { filePath?: string; liveMode?: boolean };
+                    const filePath = restoreState.filePath;
+                    if (!filePath || !fs.existsSync(filePath)) {
+                        // Nothing meaningful to restore (panel was empty or the
+                        // file is gone) — drop the recreated tab rather than show
+                        // a dead browser.
+                        panel.dispose();
+                        return;
+                    }
+                    const liveMode = restoreState.liveMode === true;
+                    if (liveMode) {
+                        const key = path.resolve(filePath);
+                        const existing = livePanelInstances.get(key);
+                        if (existing) {
+                            // A live panel for this file already exists (e.g. the
+                            // command re-opened it first) — don't create a second.
+                            panel.dispose();
+                            return;
+                        }
+                        const restored = new MdBrowserPanel(context, filePath, true, () => {
+                            if (livePanelInstances.get(key) === restored) {
+                                livePanelInstances.delete(key);
+                            }
+                        }, panel);
+                        livePanelInstances.set(key, restored);
+                    } else {
+                        new MdBrowserPanel(context, filePath, false, () => { /* self-contained */ }, panel);
+                    }
+                } catch (err) {
+                    debugLog(`[MdBrowser] deserialize error: ${err}`, 'ERROR', 'mdBrowser');
+                    panel.dispose();
+                }
+            },
         }),
     );
 }

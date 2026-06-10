@@ -79,7 +79,7 @@ export { registerTimedRequestsEditorCommand } from './timedRequestsEditor-handle
 export { registerGlobalTemplateEditorCommand, openGlobalTemplateEditor } from './globalTemplateEditor-handler';
 export { registerReusablePromptEditorCommand, openReusablePromptEditor } from './reusablePromptEditor-handler';
 export { toggleTrail, setTrailEnabled, isTrailEnabled, loadTrailConfig } from '../services/trailLogging';
-export { showStatusPageHandler, toggleTrailHandler } from './statusPage-handler';
+export { showStatusPageHandler, toggleTrailHandler, registerStatusPageSerializer } from './statusPage-handler';
 export { getCliServerStatus } from './cliServer-handler';
 export { registerTrailViewerCommands } from './trailViewer-handler';
 

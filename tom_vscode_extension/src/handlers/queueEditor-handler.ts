@@ -45,32 +45,63 @@ export function registerQueueEditorCommand(ctx: vscode.ExtensionContext): void {
     ctx.subscriptions.push(
         vscode.commands.registerCommand('tomAi.editor.promptQueue', () => openQueueEditor(ctx))
     );
+    // Restore the panel after a window reload. The queue editor is a singleton
+    // that rebuilds its entire view from PromptQueueManager on open, so no
+    // per-panel state needs persisting — we just re-bind the panel VS Code
+    // hands back. Without this serializer the tab silently vanishes on reload.
+    ctx.subscriptions.push(
+        vscode.window.registerWebviewPanelSerializer('tomAi.queueEditor', {
+            async deserializeWebviewPanel(panel: vscode.WebviewPanel): Promise<void> {
+                if (_panel) { panel.dispose(); return; }
+                panel.webview.options = getQueueEditorWebviewOptions(ctx);
+                bindQueueEditorPanel(ctx, panel);
+            },
+        })
+    );
 }
 
 // ============================================================================
 // Open / Reveal
 // ============================================================================
 
+/** Webview options shared by the fresh-open and reload-restore paths. */
+function getQueueEditorWebviewOptions(ctx: vscode.ExtensionContext): vscode.WebviewOptions {
+    return {
+        enableScripts: true,
+        localResourceRoots: [
+            vscode.Uri.joinPath(ctx.extensionUri, 'media'),
+            vscode.Uri.joinPath(ctx.extensionUri, 'node_modules', '@vscode', 'codicons', 'dist'),
+        ],
+    };
+}
+
 function openQueueEditor(ctx: vscode.ExtensionContext): void {
     if (_panel) { _panel.reveal(); return; }
-  _ctx = ctx;
-  loadCollapsedQueueState(ctx);
 
-    const codiconsUri = vscode.Uri.joinPath(ctx.extensionUri, 'node_modules', '@vscode', 'codicons', 'dist', 'codicon.css');
-
-    _panel = vscode.window.createWebviewPanel(
+    const panel = vscode.window.createWebviewPanel(
         'tomAi.queueEditor',
         'Prompt Queue',
         vscode.ViewColumn.One,
         {
-            enableScripts: true,
+            ...getQueueEditorWebviewOptions(ctx),
             retainContextWhenHidden: true,
-            localResourceRoots: [
-                vscode.Uri.joinPath(ctx.extensionUri, 'media'),
-                vscode.Uri.joinPath(ctx.extensionUri, 'node_modules', '@vscode', 'codicons', 'dist'),
-            ],
         },
     );
+    bindQueueEditorPanel(ctx, panel);
+}
+
+/**
+ * Wire a (freshly-created or reload-restored) Prompt Queue panel: install the
+ * message handler, paint the initial HTML, push state, and subscribe to queue
+ * changes. Both `openQueueEditor` and the reload serializer call this so the
+ * wiring lives in exactly one place.
+ */
+function bindQueueEditorPanel(ctx: vscode.ExtensionContext, panel: vscode.WebviewPanel): void {
+    _panel = panel;
+    _ctx = ctx;
+    loadCollapsedQueueState(ctx);
+
+    const codiconsUri = vscode.Uri.joinPath(ctx.extensionUri, 'node_modules', '@vscode', 'codicons', 'dist', 'codicon.css');
 
     const webviewCodiconsUri = _panel.webview.asWebviewUri(codiconsUri);
 
