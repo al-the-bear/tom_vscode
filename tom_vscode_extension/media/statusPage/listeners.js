@@ -167,9 +167,17 @@ function attachStatusPanelListeners(skipEditorInit) {
                 };
                 var mcpValue = function(name) { var el = mcpField(name); return el ? el.value : ''; };
                 var mcpChecked = function(name) { var el = mcpField(name); return !!(el && el.checked); };
+                // Tri-state mode: 'all' | 'readonly' | 'custom'. 'all' exposes
+                // every tool; 'readonly' is the read-only floor (collected from
+                // the data-readonly flags so it is robust even if the preset
+                // change-handler never ran); 'custom' is the checked subset.
+                var mcpMode = mcpValue('toolsEnabled') || 'all';
                 var mcpEnabledTools = [];
                 if (mcpCard) {
-                    mcpCard.querySelectorAll('[data-mcp-tool]:checked').forEach(function(cb) {
+                    var mcpToolSel = mcpMode === 'readonly'
+                        ? '[data-mcp-tool][data-readonly="true"]'
+                        : '[data-mcp-tool]:checked';
+                    mcpCard.querySelectorAll(mcpToolSel).forEach(function(cb) {
                         mcpEnabledTools.push(cb.getAttribute('data-mcp-tool'));
                     });
                 }
@@ -179,7 +187,7 @@ function attachStatusPanelListeners(skipEditorInit) {
                 msgData.basePort = mcpValue('basePort');
                 msgData.apiKeyEnv = mcpValue('apiKeyEnv');
                 msgData.allowWriteWithoutAuth = mcpChecked('allowWriteWithoutAuth');
-                msgData.toolsEnabled = mcpValue('toolsEnabled') !== 'false';
+                msgData.toolsEnabled = mcpMode === 'all';
                 msgData.enabledTools = mcpEnabledTools;
             }
 
@@ -195,6 +203,49 @@ function attachStatusPanelListeners(skipEditorInit) {
             vscode.postMessage({ type: 'statusAction', action: action, value: el.value });
         });
     });
+
+    // MCP Server card — grouped tool picker interactivity (mirrors the Anthropic
+    // profile editor): per-group all/none buttons, global Select All/None/Read-Only
+    // bulk buttons, and the "All Tools" dropdown driving the checkboxes. Delegated
+    // off the card so it survives re-renders; bound once via a data flag.
+    var mcpCardEl = panel.querySelector('[data-mcp-card]');
+    if (mcpCardEl && mcpCardEl.dataset.spMcpToolsBound !== '1') {
+        mcpCardEl.dataset.spMcpToolsBound = '1';
+        var mcpToolBoxes = function() { return mcpCardEl.querySelectorAll('[data-mcp-tool]'); };
+        var mcpGroupBoxes = function(group) {
+            var wrap = mcpCardEl.querySelector('[data-mcp-group="' + (window.CSS && CSS.escape ? CSS.escape(group) : group) + '"]');
+            return wrap ? wrap.querySelectorAll('[data-mcp-tool]') : [];
+        };
+        var mcpSetAll = function(on) { mcpToolBoxes().forEach(function(cb) { cb.checked = !!on; }); };
+        var mcpSetReadOnly = function() {
+            mcpToolBoxes().forEach(function(cb) { cb.checked = cb.getAttribute('data-readonly') === 'true'; });
+        };
+        mcpCardEl.addEventListener('click', function(ev) {
+            var t = ev.target;
+            if (!t || !t.getAttribute) return;
+            if (t.hasAttribute('data-mcp-group-all')) {
+                mcpGroupBoxes(t.getAttribute('data-mcp-group-all')).forEach(function(cb) { cb.checked = true; });
+            } else if (t.hasAttribute('data-mcp-group-none')) {
+                mcpGroupBoxes(t.getAttribute('data-mcp-group-none')).forEach(function(cb) { cb.checked = false; });
+            } else if (t.hasAttribute('data-mcp-tools-all')) {
+                mcpSetAll(true);
+            } else if (t.hasAttribute('data-mcp-tools-none')) {
+                mcpSetAll(false);
+            } else if (t.hasAttribute('data-mcp-tools-readonly')) {
+                mcpSetReadOnly();
+            }
+        });
+        var mcpModeSel = mcpCardEl.querySelector('[data-mcp-field="toolsEnabled"]');
+        if (mcpModeSel) {
+            mcpModeSel.addEventListener('change', function() {
+                // The dropdown is a preset: reflect the chosen mode in the
+                // checkboxes so the user sees what will be saved.
+                if (mcpModeSel.value === 'all') { mcpSetAll(true); }
+                else if (mcpModeSel.value === 'readonly') { mcpSetReadOnly(); }
+                // 'custom' leaves the current selection untouched.
+            });
+        }
+    }
 
     var compProviderSel = document.getElementById('sp-comp-llmProvider');
     var compConfigSel = document.getElementById('sp-comp-llmConfigId');

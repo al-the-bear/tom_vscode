@@ -35,7 +35,23 @@ import { WsPaths } from '../utils/workspacePaths';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 import { validateStrictAiConfiguration, SendToChatConfig, getSendToChatTarget, getMcpServerSettings } from '../utils/sendToChatConfig';
 import { McpServerCardModel, buildMcpServerCardModel, renderMcpServerCard, buildMcpServerConfigFromMessage } from '../utils/mcpServerCard';
+import { READ_ONLY_TOOLS } from '../tools/tool-executors';
 import { getMcpServerStatus, reconcileMcpServerConfig } from './mcpServer-handler';
+
+/**
+ * Names of the read-only tool floor, passed to the MCP card so its "Read-only"
+ * dropdown preset and bulk button can target exactly that set (matching the
+ * Anthropic profile editor's Read-Only button). Computed lazily (not at module
+ * load): `READ_ONLY_TOOLS` comes from tool-executors via a circular import and
+ * is `undefined` while this module's top level runs.
+ */
+let _mcpReadOnlyToolNames: ReadonlySet<string> | undefined;
+function getMcpReadOnlyToolNames(): ReadonlySet<string> {
+    if (!_mcpReadOnlyToolNames) {
+        _mcpReadOnlyToolNames = new Set(READ_ONLY_TOOLS.map((t) => t.name));
+    }
+    return _mcpReadOnlyToolNames;
+}
 import { loadWebviewHtml, readMediaText } from '../utils/webviewLoader';
 import { wireCompletionMessages } from '../utils/completionWiring';
 
@@ -2478,7 +2494,7 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
             </label>
         </div>
     </div>
-${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS)}
+${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolNames())}
 
     <!-- Bridge Section -->
     <div class="sp-section">

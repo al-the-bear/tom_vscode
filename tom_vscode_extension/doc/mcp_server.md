@@ -47,6 +47,28 @@ All fields are optional; `getMcpServerSettings` applies the defaults below.
 
 The actually-bound port is **runtime state** — when `basePort` is busy the server binds `basePort + 1`, `+2`, …, so it is surfaced in the UI and the log, never written back into the config.
 
+### 2.1 Tool-picker UI (status page card)
+
+The on-disk shape stays `toolsEnabled` (boolean) + `enabledTools` (list), but the
+status-page **"All Tools" dropdown is tri-state** for usability, mirroring the
+Anthropic profile editor:
+
+| Dropdown option | Persisted as |
+| --- | --- |
+| **Enabled (all tools)** | `toolsEnabled: true` |
+| **Read-only tools** | `toolsEnabled: false`, `enabledTools` = the read-only floor (`READ_ONLY_TOOLS`) |
+| **Custom (use subset)** | `toolsEnabled: false`, `enabledTools` = the hand-picked subset |
+
+"Read-only" is therefore the subset that *equals* the read-only set — no schema
+migration. On re-render `deriveToolsMode()` reports `readonly` when the saved
+subset exactly matches that set, so the choice round-trips. Below the dropdown,
+the per-tool checkboxes are **grouped by category** (`categorizeTools`, shared
+with the profile editor) with per-group `all`/`none` buttons and global
+`Select All` / `Select None` / `Read-Only` bulk buttons. The client gather reads
+the dropdown mode: `all` → `toolsEnabled: true`; `readonly` → collect the
+`data-readonly` tools (robust even if the preset never ran); `custom` → collect
+the checked boxes.
+
 ## 3. Architecture
 
 `src/handlers/mcpServer-handler.ts` is deliberately `vscode`-free (so it is unit-testable under the `out/utils/__tests__/*.test.js` glob); only `extension.ts` composes the real `vscode` objects. It is built from four cooperating pieces:

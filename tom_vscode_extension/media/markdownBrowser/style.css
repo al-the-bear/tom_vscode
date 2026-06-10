@@ -108,3 +108,6 @@ body {
 }
 .empty-state .codicon { font-size: 48px; }
 .error-state { color: var(--vscode-errorForeground); }
+
+/* Brief confirmation flash after a successful live-watch reconnect. */
+.icon-btn.reconnect-ok { color: var(--vscode-testing-iconPassed, var(--vscode-charts-green, #89d185)); }

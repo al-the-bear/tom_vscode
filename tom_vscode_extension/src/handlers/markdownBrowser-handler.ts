@@ -44,6 +44,16 @@ const PANEL_TITLE = 'MD Browser';
 const MAX_HISTORY_ENTRIES = 100;
 const PICKER_PREFIX = 'mdBrowser';
 
+/**
+ * Polling interval (ms) for the mtime-based fallback that backs up the VS Code
+ * file watcher. `createFileSystemWatcher` does not reliably fire for files whose
+ * real path resolves OUTSIDE the workspace folders — and the live-trail under
+ * `_ai/` is exactly that case (`_ai` is a relative symlink onto a single shared
+ * clone, so its target lives outside this workspace folder). The poll guarantees
+ * the live-trail keeps tailing even when the native watcher silently detaches.
+ */
+const FILE_POLL_INTERVAL_MS = 1000;
+
 /** Debug logging toggle for this module. */
 let MD_BROWSER_DEBUG = false;
 
@@ -115,6 +125,10 @@ class MdBrowserPanel {
     private _pendingInitialFile?: string;
     private _fileWatcher?: vscode.FileSystemWatcher;
     private _fileWatcherDebounce?: ReturnType<typeof setTimeout>;
+    /** mtime-polling fallback for files the native watcher can't see (see FILE_POLL_INTERVAL_MS). */
+    private _filePollTimer?: ReturnType<typeof setInterval>;
+    /** Last observed mtime of the watched file; drives the poll's change detection. */
+    private _lastMtimeMs?: number;
     private readonly _onDisposeCallback: () => void;
 
     constructor(
@@ -176,6 +190,12 @@ class MdBrowserPanel {
     // ---- Lifecycle ---------------------------------------------------------
 
     private _onDispose(): void {
+        this._stopWatching();
+        this._onDisposeCallback();
+    }
+
+    /** Tear down the native watcher, its debounce, and the poll fallback. */
+    private _stopWatching(): void {
         if (this._fileWatcher) {
             this._fileWatcher.dispose();
             this._fileWatcher = undefined;
@@ -184,7 +204,10 @@ class MdBrowserPanel {
             clearTimeout(this._fileWatcherDebounce);
             this._fileWatcherDebounce = undefined;
         }
-        this._onDisposeCallback();
+        if (this._filePollTimer !== undefined) {
+            clearInterval(this._filePollTimer);
+            this._filePollTimer = undefined;
+        }
     }
 
     // ---- Navigation --------------------------------------------------------
@@ -246,14 +269,10 @@ class MdBrowserPanel {
 
     private _watchCurrentFile(absPath: string): void {
         try {
-            if (this._fileWatcher) {
-                this._fileWatcher.dispose();
-                this._fileWatcher = undefined;
-            }
-            if (this._fileWatcherDebounce !== undefined) {
-                clearTimeout(this._fileWatcherDebounce);
-                this._fileWatcherDebounce = undefined;
-            }
+            this._stopWatching();
+
+            // Baseline mtime so the poll only fires on genuine changes.
+            try { this._lastMtimeMs = fs.statSync(absPath).mtimeMs; } catch { this._lastMtimeMs = undefined; }
 
             const dir = path.dirname(absPath);
             const name = path.basename(absPath);
@@ -266,13 +285,34 @@ class MdBrowserPanel {
                 this._fileWatcherDebounce = setTimeout(() => {
                     this._fileWatcherDebounce = undefined;
                     if (this._history.current?.filePath === absPath) {
+                        this._refreshMtimeBaseline(absPath);
                         this._sendFileContent(absPath);
                     }
                 }, 200);
             });
+
+            // Poll fallback: the native watcher does not reliably fire for the
+            // symlinked `_ai/` live-trail (real path outside the workspace
+            // folder), which is the long-standing "live-trail stops updating"
+            // bug. A cheap per-second mtime stat guarantees the tail keeps up.
+            this._filePollTimer = setInterval(() => {
+                try {
+                    if (this._history.current?.filePath !== absPath) { return; }
+                    const m = fs.statSync(absPath).mtimeMs;
+                    if (this._lastMtimeMs === undefined || m > this._lastMtimeMs) {
+                        this._lastMtimeMs = m;
+                        this._sendFileContent(absPath);
+                    }
+                } catch { /* file may be mid-write or briefly absent; ignore */ }
+            }, FILE_POLL_INTERVAL_MS);
         } catch (err) {
             debugLog(`[MdBrowser] watchCurrentFile error: ${err}`, 'ERROR', 'mdBrowser');
         }
+    }
+
+    /** Re-read the watched file's mtime so the poll doesn't double-send after a watcher push. */
+    private _refreshMtimeBaseline(absPath: string): void {
+        try { this._lastMtimeMs = fs.statSync(absPath).mtimeMs; } catch { /* ignore */ }
     }
 
     // ---- Document picker helpers -------------------------------------------
@@ -604,6 +644,28 @@ class MdBrowserPanel {
                     } else {
                         this._panel.webview.postMessage({
                             type: 'mdContent', content: '', error: 'No file to reload.',
+                        });
+                    }
+                    break;
+                }
+
+                case 'reconnect': {
+                    // Re-establish the file watch from scratch (native watcher +
+                    // poll fallback) and force a fresh read. This is the recovery
+                    // path when the live-trail viewer has detached from the file
+                    // (symlinked `_ai/` watcher silently stopped firing).
+                    const current = this._history.current;
+                    if (current && fs.existsSync(current.filePath)) {
+                        this._watchCurrentFile(current.filePath);
+                        this._sendFileContent(current.filePath);
+                        this._panel.webview.postMessage({
+                            type: 'reconnected',
+                            filePath: current.filePath,
+                            liveMode: this._liveMode,
+                        });
+                    } else {
+                        this._panel.webview.postMessage({
+                            type: 'mdContent', content: '', error: 'No file to reconnect.',
                         });
                     }
                     break;

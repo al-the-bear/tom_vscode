@@ -17,6 +17,7 @@
  */
 
 import type { McpServerConfig, ResolvedMcpServerSettings } from './sendToChatConfig';
+import { categorizeTools } from './toolCategories';
 
 /**
  * Live runtime state of the MCP server. The bound `host`/`port` are only
@@ -104,18 +105,73 @@ function escapeHtml(value: string): string {
         .replace(/'/g, '&#39;');
 }
 
-/** Render the tool multi-checkbox grid — same markup the page uses elsewhere. */
-function renderToolCheckboxes(toolNames: readonly string[], enabledTools: readonly string[]): string {
+/**
+ * The three persisted tool-selection modes the "All Tools" dropdown offers.
+ * `all` ⇒ expose every tool; `readonly` ⇒ exactly the read-only floor;
+ * `custom` ⇒ the hand-picked `enabledTools` subset. The on-disk shape stays a
+ * boolean `toolsEnabled` + `enabledTools` list (see
+ * {@link buildMcpServerConfigFromMessage}); `readonly` is the subset that
+ * happens to equal the read-only set, so no schema migration is needed.
+ */
+export type McpToolsMode = 'all' | 'readonly' | 'custom';
+
+/**
+ * Derive which dropdown option to pre-select. `all` when `toolsEnabled`;
+ * otherwise `readonly` when the saved subset is exactly the read-only set
+ * (so a one-click "Read-only" preset round-trips), else `custom`.
+ */
+export function deriveToolsMode(
+    model: Pick<McpServerCardModel, 'toolsEnabled' | 'enabledTools'>,
+    readOnlyToolNames?: ReadonlySet<string>,
+): McpToolsMode {
+    if (model.toolsEnabled) { return 'all'; }
+    if (readOnlyToolNames && readOnlyToolNames.size > 0) {
+        const enabled = new Set(model.enabledTools);
+        if (enabled.size === readOnlyToolNames.size
+            && [...enabled].every((t) => readOnlyToolNames.has(t))) {
+            return 'readonly';
+        }
+    }
+    return 'custom';
+}
+
+/**
+ * Render the per-tool selection as grouped checkboxes — the same grouped layout
+ * the Anthropic profile editor uses (`categorizeTools` + per-group all/none
+ * buttons). Each checkbox keeps the stable `data-mcp-tool` hook the client
+ * gather reads, plus `data-readonly` so the "Read-only" presets (dropdown +
+ * bulk button) can target the read-only floor without a server round-trip.
+ */
+function renderToolGroups(
+    toolNames: readonly string[],
+    enabledTools: readonly string[],
+    readOnlyToolNames?: ReadonlySet<string>,
+): string {
     const selected = new Set(enabledTools);
-    return toolNames
-        .map((tool) => {
-            const safe = escapeHtml(tool);
-            const checked = selected.has(tool) ? ' checked' : '';
-            const short = tool.replace('tomAi_', '').replace('tom_', '');
-            return `<label class="sp-tool-checkbox" title="${safe}">
-                <input type="checkbox" data-mcp-tool="${safe}"${checked}>
-                ${escapeHtml(short)}
-            </label>`;
+    const groups = categorizeTools(toolNames, readOnlyToolNames);
+    return groups
+        .map((group) => {
+            const safeCat = escapeHtml(group.category);
+            const rows = group.tools
+                .map((tool) => {
+                    const safe = escapeHtml(tool.value);
+                    const checked = selected.has(tool.value) ? ' checked' : '';
+                    const readonlyAttr = tool.readOnly ? ' data-readonly="true"' : '';
+                    const short = tool.value.replace('tomAi_', '').replace('tom_', '');
+                    return `<label class="sp-tool-checkbox" title="${safe}">
+                        <input type="checkbox" data-mcp-tool="${safe}"${readonlyAttr}${checked}>
+                        ${escapeHtml(short)}
+                    </label>`;
+                })
+                .join('');
+            return `<div class="sp-tool-group" data-mcp-group="${safeCat}">
+                <div class="sp-tool-group-header">
+                    <span class="sp-tool-group-name">${safeCat}</span>
+                    <button type="button" class="sp-btn sp-tool-group-btn" data-mcp-group-all="${safeCat}">all</button>
+                    <button type="button" class="sp-btn sp-tool-group-btn" data-mcp-group-none="${safeCat}">none</button>
+                </div>
+                <div class="sp-tools-grid">${rows}</div>
+            </div>`;
         })
         .join('');
 }
@@ -125,12 +181,18 @@ function renderToolCheckboxes(toolNames: readonly string[], enabledTools: readon
  * `data-mcp-field` / `data-mcp-tool` / `data-status-action` hooks so the save
  * handler (#11) and the client gather (#12) can read and persist them.
  */
-export function renderMcpServerCard(model: McpServerCardModel, toolNames: readonly string[]): string {
+export function renderMcpServerCard(
+    model: McpServerCardModel,
+    toolNames: readonly string[],
+    readOnlyToolNames?: ReadonlySet<string>,
+): string {
     const statusText = model.running
         ? `Running on http://${escapeHtml(model.boundHost ?? model.host)}:${model.boundPort ?? ''}`
         : 'Stopped';
     const statusClass = model.running ? 'sp-running' : 'sp-stopped';
     const checked = (on: boolean): string => (on ? ' checked' : '');
+    const toolsMode = deriveToolsMode(model, readOnlyToolNames);
+    const modeSelected = (m: McpToolsMode): string => (toolsMode === m ? ' selected' : '');
 
     return `
     <!-- MCP Server Section -->
@@ -169,15 +231,21 @@ export function renderMcpServerCard(model: McpServerCardModel, toolNames: readon
             </label>
         </div>
         <div class="sp-settings-row">
-            <label title="When on, expose every tool. Turn off to pick a subset below.">All Tools:</label>
+            <label title="Expose every tool, only the read-only floor, or a hand-picked subset.">All Tools:</label>
             <select data-mcp-field="toolsEnabled">
-                <option value="true"${model.toolsEnabled ? ' selected' : ''}>Enabled (all tools)</option>
-                <option value="false"${!model.toolsEnabled ? ' selected' : ''}>Disabled (use subset)</option>
+                <option value="all"${modeSelected('all')}>Enabled (all tools)</option>
+                <option value="readonly"${modeSelected('readonly')}>Read-only tools</option>
+                <option value="custom"${modeSelected('custom')}>Custom (use subset below)</option>
             </select>
         </div>
         <div class="sp-tools-section">
             <label style="font-weight:bold;margin-bottom:4px;display:block">Enabled Tools:</label>
-            <div class="sp-tools-grid">${renderToolCheckboxes(toolNames, model.enabledTools)}</div>
+            <div class="sp-tool-bulk">
+                <button type="button" class="sp-btn sp-tool-bulk-btn" data-mcp-tools-all>Select All</button>
+                <button type="button" class="sp-btn sp-tool-bulk-btn" data-mcp-tools-none>Select None</button>
+                <button type="button" class="sp-btn sp-tool-bulk-btn" data-mcp-tools-readonly>Read-Only</button>
+            </div>
+            <div class="sp-tool-groups">${renderToolGroups(toolNames, model.enabledTools, readOnlyToolNames)}</div>
         </div>
         <div class="sp-controls" style="margin-top:8px">
             <button class="sp-btn primary" data-status-action="saveMcpServer">Save MCP Settings</button>

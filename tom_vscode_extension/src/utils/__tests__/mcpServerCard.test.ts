@@ -19,6 +19,7 @@ import assert from 'node:assert/strict';
 import {
     buildMcpServerCardModel,
     renderMcpServerCard,
+    deriveToolsMode,
     type McpServerCardModel,
 } from '../mcpServerCard.js';
 
@@ -101,6 +102,79 @@ describe('renderMcpServerCard — controls bound to mcpServer config', () => {
         assert.match(html, /data-mcp-tool="tomAi_readFile"[^>]*checked/);
         assert.match(html, /data-mcp-tool="tomAi_applyEdit"/);
         assert.doesNotMatch(html, /data-mcp-tool="tomAi_applyEdit"[^>]*checked/);
+    });
+});
+
+describe('deriveToolsMode — tri-state dropdown selection', () => {
+    const readOnly = new Set(['tomAi_readFile', 'tomAi_listDirectory']);
+
+    test('toolsEnabled true → "all" regardless of subset', () => {
+        assert.equal(deriveToolsMode({ toolsEnabled: true, enabledTools: [] }, readOnly), 'all');
+    });
+
+    test('subset exactly equal to the read-only set → "readonly"', () => {
+        assert.equal(
+            deriveToolsMode({ toolsEnabled: false, enabledTools: ['tomAi_listDirectory', 'tomAi_readFile'] }, readOnly),
+            'readonly',
+        );
+    });
+
+    test('a different subset → "custom"', () => {
+        assert.equal(
+            deriveToolsMode({ toolsEnabled: false, enabledTools: ['tomAi_readFile'] }, readOnly),
+            'custom',
+        );
+    });
+
+    test('no read-only set provided → never "readonly"', () => {
+        assert.equal(deriveToolsMode({ toolsEnabled: false, enabledTools: ['tomAi_readFile'] }), 'custom');
+    });
+});
+
+describe('renderMcpServerCard — tri-state dropdown + grouped tools', () => {
+    const readOnly = new Set(['tomAi_readFile']);
+
+    test('dropdown offers all / readonly / custom options', () => {
+        const html = renderMcpServerCard(
+            buildMcpServerCardModel(baseSettings, { running: false }),
+            ['tomAi_readFile', 'tomAi_applyEdit'],
+            readOnly,
+        );
+        assert.match(html, /<option value="all"[^>]*selected/);
+        assert.match(html, /<option value="readonly"/);
+        assert.match(html, /<option value="custom"/);
+    });
+
+    test('readonly subset pre-selects the "readonly" option', () => {
+        const model = buildMcpServerCardModel(
+            { ...baseSettings, toolsEnabled: false, enabledTools: ['tomAi_readFile'] },
+            { running: false },
+        );
+        const html = renderMcpServerCard(model, ['tomAi_readFile', 'tomAi_applyEdit'], readOnly);
+        assert.match(html, /<option value="readonly"[^>]*selected/);
+    });
+
+    test('tools render in groups with per-group all/none buttons', () => {
+        const html = renderMcpServerCard(
+            buildMcpServerCardModel(baseSettings, { running: false }),
+            ['tomAi_readFile', 'tomAi_applyEdit'],
+            readOnly,
+        );
+        assert.match(html, /data-mcp-group=/);
+        assert.match(html, /data-mcp-group-all=/);
+        assert.match(html, /data-mcp-group-none=/);
+    });
+
+    test('read-only tools carry data-readonly and bulk buttons exist', () => {
+        const html = renderMcpServerCard(
+            buildMcpServerCardModel(baseSettings, { running: false }),
+            ['tomAi_readFile', 'tomAi_applyEdit'],
+            readOnly,
+        );
+        assert.match(html, /data-mcp-tool="tomAi_readFile"[^>]*data-readonly="true"/);
+        assert.match(html, /data-mcp-tools-all/);
+        assert.match(html, /data-mcp-tools-none/);
+        assert.match(html, /data-mcp-tools-readonly/);
     });
 });
 

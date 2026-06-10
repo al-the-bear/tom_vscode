@@ -159,6 +159,29 @@ Debounce is important — writes happen per event and a naive re-render per writ
 
 One existing browser panel per window is reused (no duplicate panels). When the user navigates to a different file inside the browser, the watcher re-targets.
 
+### 6.1 Poll fallback + Reconnect button (symlinked `_ai/`)
+
+`createFileSystemWatcher` does **not** reliably fire for files whose real path
+resolves outside the workspace folders. The live-trail lives under `_ai/`, which
+is a *relative symlink* onto one shared clone (its target is outside this
+workspace folder) — so the native watcher silently detaches and the trail stops
+updating. Reload and close/reopen don't help because they don't re-establish a
+working watch.
+
+Two mitigations in `markdownBrowser-handler.ts`:
+
+1. **mtime poll fallback** (`FILE_POLL_INTERVAL_MS`, 1 s): alongside the native
+   watcher, a per-second `fs.statSync` compares `mtimeMs` and re-sends content on
+   change. Cheap (one stat/sec/panel) and watcher-independent, so the tail keeps
+   up even when the native watcher is dead. `_watchCurrentFile` re-baselines the
+   mtime on every native push so the two paths don't double-send.
+2. **Reconnect button** (`codicon-plug` in the action bar): posts `{type:'reconnect'}`.
+   The handler tears down and recreates the watcher *and* the poll
+   (`_stopWatching` → `_watchCurrentFile`), forces a fresh `_sendFileContent`, and
+   replies `{type:'reconnected'}`. The webview re-sticks `followTail = true`,
+   scrolls to the bottom in live mode, and flashes the button green. This is the
+   manual recovery path if the trail ever appears stuck.
+
 ## 7. Chat panel button
 
 New icon button in the Anthropic chat-panel action bar:

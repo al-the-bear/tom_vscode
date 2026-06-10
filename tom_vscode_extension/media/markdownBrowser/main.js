@@ -21,6 +21,7 @@
         var openInEditorBtn = document.getElementById('openInEditorBtn');
         var openExternalBtn = document.getElementById('openExternalBtn');
         var reloadBtn = document.getElementById('reloadBtn');
+        var reconnectBtn = document.getElementById('reconnectBtn');
         var contentArea = document.getElementById('contentArea');
         var filePathEl = document.getElementById('filePath');
 
@@ -71,6 +72,14 @@
         reloadBtn.addEventListener('click', function() {
             vscode.postMessage({ type: 'reload' });
         });
+        if (reconnectBtn) {
+            reconnectBtn.addEventListener('click', function() {
+                // Re-attach the file watch on the backend and re-stick to the
+                // tail, so a detached live-trail starts auto-updating again.
+                followTail = true;
+                vscode.postMessage({ type: 'reconnect' });
+            });
+        }
 
         // ---- Render Markdown ----
         function renderMarkdown(text) {
@@ -232,6 +241,17 @@
                 // Scroll to anchor within current document
                 if (msg.anchor) {
                     scrollToAnchor(msg.anchor);
+                }
+            } else if (msg.type === 'reconnected') {
+                // Backend re-attached the watch and pushed fresh content; pin to
+                // the tail and briefly flash the button so the user sees it worked.
+                followTail = true;
+                if (msg.liveMode) {
+                    requestAnimationFrame(function() { scrollToBottom(); });
+                }
+                if (reconnectBtn) {
+                    reconnectBtn.classList.add('reconnect-ok');
+                    setTimeout(function() { reconnectBtn.classList.remove('reconnect-ok'); }, 800);
                 }
             }
         });

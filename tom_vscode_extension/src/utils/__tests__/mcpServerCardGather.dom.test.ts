@@ -39,6 +39,9 @@ function readListenersJs(): string {
     );
 }
 
+/** The subset of TOOL_NAMES the card should treat as read-only. */
+const READ_ONLY_NAMES = new Set(['tomAi_readFile']);
+
 /** Render the card from a representative (all-default) model. */
 function renderCardHtml(): string {
     const model = buildMcpServerCardModel(
@@ -54,7 +57,7 @@ function renderCardHtml(): string {
         },
         { running: false },
     );
-    return renderMcpServerCard(model, TOOL_NAMES);
+    return renderMcpServerCard(model, TOOL_NAMES, READ_ONLY_NAMES);
 }
 
 /** The shape `saveMcpServer` posts. Loosely typed — it's a webview message. */
@@ -94,6 +97,16 @@ function field(window: any, name: string): any {
     return window.document.querySelector(`[data-mcp-field="${name}"]`);
 }
 
+/** Look up a tool checkbox by its tool name. */
+function toolBox(window: any, name: string): any {
+    return window.document.querySelector(`[data-mcp-tool="${name}"]`);
+}
+
+/** Fire a native change event so the bound preset listeners run. */
+function fireChange(window: any, el: any): void {
+    el.dispatchEvent(new window.Event('change'));
+}
+
 /** Click the card's Save button (triggers the real gather). */
 function clickSave(window: any): void {
     window.document.querySelector('[data-status-action="saveMcpServer"]').click();
@@ -119,7 +132,7 @@ describe('saveMcpServer gather — executed against a jsdom DOM (todo #10)', () 
         field(window, 'basePort').value = '20005';
         field(window, 'apiKeyEnv').value = 'MY_MCP_KEY';
         field(window, 'allowWriteWithoutAuth').checked = true;
-        field(window, 'toolsEnabled').value = 'false';
+        field(window, 'toolsEnabled').value = 'custom';
 
         clickSave(window);
 
@@ -131,26 +144,76 @@ describe('saveMcpServer gather — executed against a jsdom DOM (todo #10)', () 
         assert.equal(msg.basePort, '20005');
         assert.equal(msg.apiKeyEnv, 'MY_MCP_KEY');
         assert.equal(msg.allowWriteWithoutAuth, true);
-        // `toolsEnabled` select value 'false' -> boolean false.
+        // `toolsEnabled` mode 'custom' -> boolean false (use subset).
         assert.equal(msg.toolsEnabled, false);
     });
 
-    test('the gather collects only the checked tool checkboxes into enabledTools', () => {
+    test('custom mode collects only the checked tool checkboxes into enabledTools', () => {
         const { window, captured } = setupGatherHarness();
 
-        const checkboxes = window.document.querySelectorAll('[data-mcp-tool]');
-        // Check the first and third tool, leave the second unchecked.
-        checkboxes[0].checked = true;
-        checkboxes[2].checked = true;
+        field(window, 'toolsEnabled').value = 'custom';
+        toolBox(window, 'tomAi_readFile').checked = true;
+        toolBox(window, 'tomAi_runCommand').checked = true;
 
         clickSave(window);
 
         // `enabledTools` is built inside the jsdom realm, so copy it into this
         // realm before comparing (cross-realm arrays differ by prototype).
+        // Grouped layout reorders the DOM, so compare order-independently.
         assert.deepEqual(
-            Array.from(captured[0].enabledTools as unknown[]),
+            Array.from(captured[0].enabledTools as unknown[]).sort(),
             ['tomAi_readFile', 'tomAi_runCommand'],
         );
+    });
+
+    test('readonly mode collects exactly the read-only tools, ignoring checkbox state', () => {
+        const { window, captured } = setupGatherHarness();
+
+        // Tick a NON-read-only tool to prove readonly mode ignores live ticks.
+        toolBox(window, 'tomAi_applyEdit').checked = true;
+        field(window, 'toolsEnabled').value = 'readonly';
+
+        clickSave(window);
+
+        const msg = captured[0];
+        assert.equal(msg.toolsEnabled, false);
+        assert.deepEqual(Array.from(msg.enabledTools as unknown[]), ['tomAi_readFile']);
+    });
+
+    test('selecting the Read-Only dropdown preset ticks exactly the read-only boxes', () => {
+        const { window } = setupGatherHarness();
+
+        const sel = field(window, 'toolsEnabled');
+        sel.value = 'readonly';
+        fireChange(window, sel);
+
+        assert.equal(toolBox(window, 'tomAi_readFile').checked, true);
+        assert.equal(toolBox(window, 'tomAi_applyEdit').checked, false);
+        assert.equal(toolBox(window, 'tomAi_runCommand').checked, false);
+    });
+
+    test('the Read-Only bulk button ticks exactly the read-only boxes', () => {
+        const { window } = setupGatherHarness();
+
+        window.document.querySelector('[data-mcp-tools-readonly]').click();
+
+        assert.equal(toolBox(window, 'tomAi_readFile').checked, true);
+        assert.equal(toolBox(window, 'tomAi_applyEdit').checked, false);
+    });
+
+    test('per-group all/none buttons toggle only that group', () => {
+        const { window } = setupGatherHarness();
+
+        // tomAi_applyEdit lives in the "Workspace Edit" group.
+        const group = window.document
+            .querySelector('[data-mcp-tool="tomAi_applyEdit"]')
+            .closest('[data-mcp-group]');
+        const groupName = group.getAttribute('data-mcp-group');
+        window.document.querySelector(`[data-mcp-group-all="${groupName}"]`).click();
+
+        assert.equal(toolBox(window, 'tomAi_applyEdit').checked, true);
+        // A tool in a different group is untouched.
+        assert.equal(toolBox(window, 'tomAi_readFile').checked, false);
     });
 
     test('an all-default card posts the defaults (enabled off, toolsEnabled on, no tools)', () => {

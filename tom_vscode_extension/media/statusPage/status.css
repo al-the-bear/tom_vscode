@@ -84,6 +84,15 @@
 .sp-tool-checkbox:hover { background: var(--vscode-list-hoverBackground); }
 .sp-tool-checkbox input { margin: 0; }
 
+/* Grouped MCP tool picker (mirrors the Anthropic profile editor) */
+.sp-tool-bulk { display: flex; gap: 4px; margin: 4px 0 6px; }
+.sp-tool-bulk-btn { font-size: 10px; padding: 1px 6px; }
+.sp-tool-groups { display: flex; flex-direction: column; gap: 6px; }
+.sp-tool-group { border: 1px solid var(--vscode-panel-border); border-radius: 3px; padding: 4px 6px; }
+.sp-tool-group-header { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.sp-tool-group-name { flex: 1; font-size: 11px; font-weight: bold; color: var(--vscode-descriptionForeground); }
+.sp-tool-group-btn { font-size: 10px; padding: 0 6px; }
+
 /* Toggle button group */
 .sp-toggle .sp-btn { border-radius: 0; }
 .sp-toggle .sp-btn:first-child { border-radius: 3px 0 0 3px; }
