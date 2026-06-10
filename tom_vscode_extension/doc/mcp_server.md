@@ -82,6 +82,8 @@ The default `host` is `0.0.0.0`, which makes the server reachable by **every mac
 
 > **`host: "0.0.0.0"` together with `allowWriteWithoutAuth: true` exposes unattended write + command-execution tools to every VPN peer with no credential.** Anyone who can route to the port can edit files and run shell commands in this workspace.
 
+There is a second reason the key matters here: **MCP calls bypass the `canUseTool` approval gate** that the Agent SDK transport applies to its in-SDK tools (`anthropic_handler.md` §2b). An MCP `tools/call` that lands in the effective set executes immediately — there is no interactive per-call confirmation. So the auth decision (and the read-only floor) is the *only* thing standing between a caller and an unattended mutation; nothing downstream will prompt for approval.
+
 The API key is the real boundary. When you expose write tools:
 
 - **Set `apiKeyEnv`** to a non-empty env var and keep `allowWriteWithoutAuth: false`. Authenticated clients then get write access; everyone else stays on the read-only floor.

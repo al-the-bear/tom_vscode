@@ -11,6 +11,7 @@ User-facing documentation for the `tom_vscode_extension` plugin. For implementat
 
 - [anthropic_handler.md](anthropic_handler.md) — Anthropic direct SDK + Agent SDK handler, profiles, history modes, trails, approval gate.
 - [mcp_server.md](mcp_server.md) — standalone MCP server: config, auth + read-only floor, lifecycle, security, observability.
+- [agent_sdk_scripting_mirror.md](agent_sdk_scripting_mirror.md) — Agent SDK 1:1 Dart mirror for scripting: type surface, `query()` streaming, reverse-RPC tools + `canUseTool`, workspace discovery, security boundary.
 - [copilot_chat_tools.md](copilot_chat_tools.md) — Copilot chat tooling reference.
 - [llm_tools.md](llm_tools.md) — Local LLM toolchain.
 - [chat_log_custom_editor.md](chat_log_custom_editor.md) — Markdown Browser + live-trail follow-tail behavior.

@@ -2,7 +2,9 @@
 
 **Quest:** vscode_extension
 **Created:** 17 February 2026
-**Status:** Draft — awaiting review
+**Status:** Draft — awaiting review (historical design spec; implementation has since shipped and evolved)
+
+> **Note:** This is the original design spec. Several behaviours described here as "COPILOT panel" sends now route through the **Send-to-Chat target router** (`sendToChatTarget: 'anthropic' | 'copilot'`, default `'anthropic'`), so a "send to chat" can land on the Anthropic transport rather than Copilot. See [copilot_chat_tools.md → Send-to-Chat Target Routing](copilot_chat_tools.md#send-to-chat-target-routing) for the current behaviour.
 
 ---
 

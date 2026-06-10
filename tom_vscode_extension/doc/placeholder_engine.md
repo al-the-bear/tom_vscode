@@ -16,6 +16,15 @@ Resolves a finding from the code review: the extension used to ship **five paral
 
 **Rule of thumb:** if your call site sends text to a user-facing AI channel, reach for `expandTemplate`. If it's a path or filesystem string, reach for `resolveVariables` (with `includeEditor: false`, `enableJsExpressions: false`). Don't introduce a new engine.
 
+> **Not to be confused with webview shell tokens.** The webview loader and the
+> accordion/tab host shells substitute their own `{{cspSource}}`/`{{nonce}}`/
+> `{{baseUri}}`/`{{sharedUri}}` (and the host-shell `{{css}}`/`{{script}}`)
+> tokens — a separate literal-substitution path in
+> [utils/webviewLoader.ts](../src/utils/webviewLoader.ts), unrelated to the AI
+> placeholder engines above. That path additionally **strips HTML comments
+> before substitution** (`stripHtmlComments`); the AI engines here do **not**.
+> See [../\_copilot\_guidelines/media\_webview\_migration.md §9.2](../_copilot_guidelines/media_webview_migration.md#92-host-shell-panels-accordion--tab-two-script-safety-rules).
+
 ## 2. Capability levels
 
 Every placeholder context falls into one of four levels. Adding a new context means **picking a level**, not writing a new resolver.

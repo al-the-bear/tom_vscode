@@ -165,6 +165,8 @@ flowchart TD
 | `src/utils/` | 12 | Shared utilities (paths, config, resolver, logging) |
 | `src/services/` | 2 | TrailService, other services |
 
+> **Webview assets are not in `src/`.** Each panel's HTML/JS/CSS lives as real files under `media/<panelId>/` (`index.html` + `main.js` + `style.css`, with reusable pieces in `media/shared/`) and is loaded through the single rewriting loader `src/utils/webviewLoader.ts`. The handlers below are correspondingly thinner than their historical line counts imply — they wire messages and call `loadWebviewHtml(webview, '<panelId>', { init })` rather than embedding HTML in template literals. The few documented exceptions (external-package `yamlGraph`, content-injection previews, degenerate error fallbacks) keep small inline HTML by design. See [../_copilot_guidelines/media_webview_migration.md](../_copilot_guidelines/media_webview_migration.md).
+
 ### Handler Files by Size (lines)
 
 | File | Lines | Purpose |
@@ -349,6 +351,8 @@ Commands are registered with `@T:` prefix and `@Tom` category.
 
 | Component | File | Used By |
 |-----------|------|---------|
+| WebviewLoader | `utils/webviewLoader.ts` | Every webview — loads `media/<panelId>/` assets with fixed-placeholder + nonce/CSP rewriting and `init` injection |
+| Shared completion client | `media/shared/completion.js` + `utils/completionWiring.ts` | Any textarea tagged `data-completion="on"` (`/skill` + `@file` completion) |
 | AccordionPanel | `accordionPanel.ts` | @CHAT, @WS panels |
 | TabPanel | `tabPanel.ts` | Multiple editors |
 | DocumentPicker | `documentPicker.ts` | MD Browser, @WS Documentation/Guidelines |

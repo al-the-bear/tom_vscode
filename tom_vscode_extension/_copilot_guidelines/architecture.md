@@ -11,7 +11,7 @@ The plugin runtime consists of:
 - tool implementations under [src/tools/](../src/tools/) — everything exposed to AI models,
 - bridge client integration ([vscode-bridge](../src/utils/vscode-bridge.ts) + handler),
 - Agent SDK transport ([agent-sdk-transport.ts](../src/handlers/agent-sdk-transport.ts)) over `@anthropic-ai/claude-agent-sdk`,
-- shared webview components (accordion, tabs, queue entry), and
+- externalized webview assets under `media/<panelId>/` loaded via [webviewLoader.ts](../src/utils/webviewLoader.ts), plus shared webview components (accordion, tabs, queue entry), and
 - optional external packages (`yaml-graph-core`, `yaml-graph-vscode`).
 
 ## Layering rules
@@ -47,6 +47,18 @@ During activation, the extension:
 - **`@WS`** (`tomAi.wsPanel`) — workspace / ops panel with guidelines, docs, quest, logs, settings, issues, tests.
 - **`@TOM`** sidebar — tree views for notes, todos, todo log, window status.
 - **Markdown Browser** (`tomAi.markdownBrowser`) — standalone custom editor with link resolver, debounced file watcher, navigation history, and live-mode follow-tail (used by the "Open Live Trail" chat-panel button). Context-menu opens always create a **new** panel; the "Open Live Trail" button reuses a single live-panel singleton.
+
+## Webview asset layout
+
+Webview HTML/JS/CSS is **not** embedded in TypeScript template literals. Every panel's assets are authored as real files under `media/<panelId>/` (`index.html` + `main.js` + `style.css`, with reusable pieces under `media/shared/`) and loaded through one uniform rewriting loader, [src/utils/webviewLoader.ts](../src/utils/webviewLoader.ts). This is the standard for all new and migrated webviews — the move out of template literals is complete (webview restructuring plan Phases A + B).
+
+- **Single loader, minimal rewriting.** `loadWebviewHtml(webview, panelId, opts?)` does only: substitute the four fixed placeholders (`{{cspSource}}`, `{{nonce}}`, `{{baseUri}}`, `{{sharedUri}}`), inject a nonce-only CSP **iff** the document declares none, nonce every un-nonced `<script>`, and inject the first-paint `init` payload as `window.__INIT__` (with `</` escaped). Unknown `{{...}}` tokens are left untouched.
+- **`init` vs `postMessage`.** First-paint data known at construction time flows through `init`; everything that changes after load flows through `postMessage`. Per-render data is never string-substituted into the HTML.
+- **Callers must** add `media` to `localResourceRoots`, or no externalized asset loads.
+- **Toolchain.** Media JS is lintable/typecheckable on its own (`npm run lint:media`, `npm run typecheck:media` via `tsconfig.media.json`); new media JS carries `// @ts-check`, verbatim legacy extractions carry `// @ts-nocheck`. A shared textarea-completion client (`media/shared/completion.js` + `wireCompletionMessages`) is opt-in per textarea.
+- **Documented non-migrations** (kept inline by design): external-package webviews (`yamlGraph-handler.ts` delegates to `yaml-graph-vscode`/`-core`), content-injection preview shells (markdown content arrives via `postMessage`), and degenerate error-fallback pages assigned directly to `webview.html` only when the normal render path fails. These are excluded from the "no remaining `webview.html = \`...\`" completion gate.
+
+Day-to-day authoring reference (placeholders, `init`/`postMessage`, the inline-handler CSP gotcha, the exceptions): [media_webview_migration.md](media_webview_migration.md).
 
 ## Data and state
 

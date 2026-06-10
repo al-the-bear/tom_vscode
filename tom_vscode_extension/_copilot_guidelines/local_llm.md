@@ -1,6 +1,15 @@
 # Local LLM Integration
 
-The **Local LLM** subpanel in `@CHAT` sends prompts to an Ollama-compatible HTTP endpoint. Source: [localLlm-handler.ts](../src/handlers/localLlm-handler.ts).
+The **Local LLM** subpanel in `@CHAT` sends prompts to an Ollama **or** OpenAI-compatible HTTP endpoint. Source: [localLlm-handler.ts](../src/handlers/localLlm-handler.ts).
+
+## Backends (`apiStyle`) and Bearer auth (`apiKeyEnv`)
+
+Each configuration picks a protocol via `apiStyle` (default `'ollama'`):
+
+- `'ollama'` → `GET /api/tags` + `POST /api/chat`.
+- `'openai'` → `GET /v1/models` + `POST /v1/chat/completions` — for any **OpenAI-compatible** server (vLLM, LM Studio, llama.cpp, …). `ollamaUrl` is the base URL for both styles; `keepAlive` is ignored on the OpenAI path. Set `toolsEnabled: false` for a backend with no tool-call parser.
+
+`apiKeyEnv` names an env var holding a bearer token (never the secret) for OpenAI-compatible auth; set + non-empty ⇒ `Authorization: Bearer <value>`, unset ⇒ unauthenticated, configured-but-empty ⇒ logged and treated as unset (so a typo fails loud-ish). It lives on both `configurations[i]` and `profiles[…]`. Full reference, including the compaction-backend interaction: [../doc/llm_configuration.md §5.4](../doc/llm_configuration.md#54-backends-apistyle-and-bearer-auth-apikeyenv).
 
 ## Commands
 

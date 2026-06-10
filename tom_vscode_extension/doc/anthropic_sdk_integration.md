@@ -1769,6 +1769,8 @@ Delivers: per-configuration opt-in to route requests through `@anthropic-ai/clau
 
 This chapter describes a second backend behind the Anthropic panel: the **Claude Agent SDK** (`@anthropic-ai/claude-agent-sdk`). The existing direct-API path (Phases 1–5) is the default; Agent SDK is per-configuration opt-in via a `transport` field. Both paths share the same `AnthropicSendOptions` / `AnthropicSendResult` contract so the panel, profiles, tool registry, and trail are transport-agnostic.
 
+> **Distinguish from the Dart-side mirror.** This `agentSdk` *transport* is the in-extension panel backend — profile-gated, trailed, approval-gated, and sharing the contract above. It is **not** the low-level Agent SDK **Dart mirror** (`AgentSdkClient`) in `tom_vscode_scripting_api`, which a CLI-bridge script drives directly: that mirror has *no* profiles, allow-lists, trail, or approval gate — the caller owns the SDK `Options` and the bridge relays raw `SDKMessage`s verbatim. The mirror tracks SDK `^0.2.110`; its full type surface, `query()` streaming, reverse-RPC Dart tools, and `canUseTool` callback are documented in [agent_sdk_scripting_mirror.md](agent_sdk_scripting_mirror.md) (§8 states the same "security lives in the extension, not the Dart client" boundary).
+
 ### 18.1 Motivation
 
 The direct Anthropic SDK (`@anthropic-ai/sdk`) requires its own API key and bills against a separate Anthropic account. The Claude Agent SDK wraps Claude Code's own invocation machinery and inherits whatever authentication the host Claude Code installation already holds — API key, Claude Pro/Max subscription via OAuth, Amazon Bedrock, or Google Vertex. For users who already pay for Claude Code, this removes the second billing surface.

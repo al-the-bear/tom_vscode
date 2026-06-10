@@ -31,9 +31,39 @@ staged → pending → sending → sent
 
 - `staged` — item exists but is not yet in the active run (held by the user).
 - `pending` — queued and waiting for the item ahead to finish.
-- `sending` — currently dispatching (may be polling for Copilot or awaiting the Anthropic API).
+- `sending` — currently dispatching (may be polling for Copilot or awaiting the Anthropic API). Shown as **`SENDING (PAUSED)`** in the editor when the item is mid-flight but auto-send was turned off (see pause/resume below).
 - `sent` — all stages complete; `answerText` set for Anthropic items.
-- `error` — dispatch failed; `error` field holds the message; queue pauses.
+- `error` — dispatch failed; `error` field holds the message; **auto-send is flipped off** so the failure doesn't cascade into the following pending items.
+
+### Pause / resume and error handling
+
+The queue preserves the in-flight cursor (`repeatIndex` per stage,
+`followUpIndex`) across pauses, errors, and window reloads, so it always
+resumes from the interrupted repetition rather than restarting the item or
+skipping a rep.
+
+- **Pause finishes the current rep, then holds.** Turning auto-send off lets the
+  in-flight repetition complete (`DispatchOutcome = 'dispatched' | 'done' | 'paused'`);
+  the item stays `'sending'` with its counters intact and the editor shows
+  `SENDING (PAUSED)`. The first dispatch of an item is always allowed even with
+  auto-send off, so an explicit "Send" is never blocked.
+- **Resume** continues from the persisted cursor — re-enabling auto-send
+  re-enters the paused item before starting the next one.
+- **Error → auto-send off.** A failed dispatch stamps `error` (plus an optional
+  classified `warning`), leaves the item at the front, and disables auto-send
+  unconditionally (rate-limit / quota / overload failures almost always recur).
+  The per-item **"Resend"** button is replaced by **"Set to Pending"** while
+  errored.
+- **Resend** replays the errored rep's frozen text without touching counters;
+  **"Set to Pending"** resets to `'pending'` and rolls the interrupted-stage
+  counter back by one so the retry re-runs that exact rep; **"Retry All Errors"**
+  re-enables auto-send before draining.
+
+Full mechanics (pure helpers `itemHasInFlightProgress` / `applyErrorTransition` /
+`applyResetToPending` in `queueErrorTransitions.ts`, the `_markItemError` /
+`_resumePausedSendingItem` / `resendLastPrompt` manager hooks, and the
+`move(id, 'front')` "Send next" affordance) are documented in
+[multi_transport_prompt_queue_revised.md §4.18](../doc/multi_transport_prompt_queue_revised.md).
 
 ### Transports
 

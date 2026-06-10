@@ -16,6 +16,8 @@ A sixth surface — **Copilot Chat (the user-facing VS Code chat panel)** — is
 
 Every transport reads tool enablement from the active configuration / profile — the recommendations below are *defaults*, not hard-coded behaviour. Flip a tool on or off per-profile via the Global Template Editor.
 
+A Dart **script** can also reach the exact same tool registry over the bridge (`TomToolsApi`) — see [§9 Scripting-API access and gating](#9-scripting-api-access-and-gating). It is gated by the same active-profile rule described there.
+
 ## 2. Legend
 
 | symbol | meaning |
@@ -405,3 +407,46 @@ Every new tool needs:
 4. Entry in `AVAILABLE_LLM_TOOLS` (`src/utils/constants.ts`).
 5. For Agent SDK duplicates: add to `DUPLICATES_OF_CLAUDE_CODE_BUILTINS` in `anthropic-handler.ts`.
 6. A row in the right family table in this document.
+
+## 9. Scripting-API access and gating
+
+The five chat surfaces in §1 are not the only way to reach the registry above. A
+Dart **script** running over the CLI bridge can invoke the same tools through
+`TomToolsApi` (in `tom_vscode_scripting_api`):
+
+| Method | Wire op | Returns |
+| --- | --- | --- |
+| `invokeTool(name, [args])` | `tools.invokeVce` | the tool's string result |
+| `getToolsJson()` | `tools.getJsonVce` | Anthropic-shaped `{name, description, input_schema}` for the active profile |
+| `listAllowedToolNames()` | (same `getJsonVce`) | just the permitted tool **names** |
+
+### The gate (active profile, enforced server-side)
+
+Both listing and invocation are scoped to the **currently active Anthropic
+profile**:
+
+- The available tools are exactly the profile's tool set
+  (`toolsEnabled` / `enabledTools`) — the same `resolveProfileTools` primitive
+  the chat transports and the standalone MCP server use.
+- When the **Send-to-Chat target is Copilot**, *no* tools are available: the
+  list is empty and every `invokeTool` is refused.
+
+**The gate lives inside the extension, never in the Dart client.** `TomToolsApi`
+is a thin pass-through that does no client-side filtering: a tool the active
+profile hides is refused by the extension *before* the executor runs (returning
+an error string), so a buggy or malicious client cannot widen its own access.
+This is the same "security-in-extension-not-Dart" boundary the Agent SDK mirror
+([agent_sdk_scripting_mirror.md](agent_sdk_scripting_mirror.md) §8) and the
+standalone MCP server ([mcp_server.md](mcp_server.md)) state.
+
+### `listAllowedToolNames()` is a convenience, not a security check
+
+It returns the names from `getToolsJson()` purely so a script can pre-validate a
+name before calling `invokeTool`. Because the extension **re-checks on every
+invoke**, skipping the pre-check is always safe — `listAllowedToolNames()`
+exists for ergonomics and diagnostics, not enforcement.
+
+> The standalone MCP server resolves its effective set from its **own** picker
+> (`enabledTools` when `toolsEnabled === false`), *not* the active chat profile —
+> see `mcp_server.md`. `TomToolsApi` is the path that follows the active
+> **Anthropic profile**.

@@ -268,9 +268,10 @@ direct-SDK alike), the placeholders `${compactedSummary}`, `${rawTurns}`, and
 | Field | Used by | Meaning |
 | --- | --- | --- |
 | `id`, `name` | UI / refs | Identifier + label. |
-| `ollamaUrl` | Request builder | Endpoint URL (also used for OpenAI-compatible servers). |
-| `apiStyle` | Request builder | `'ollama'` → `/api/chat`, `'openai'` → `/v1/chat/completions`. |
-| `model`, `temperature`, `keepAlive` | Request builder | Forwarded to the backend. |
+| `ollamaUrl` | Request builder | Endpoint base URL (also used for OpenAI-compatible servers — the field name is historical). |
+| `apiStyle` | Request builder | Backend protocol; defaults to `'ollama'`. `'ollama'` → `GET /api/tags` + `POST /api/chat`. `'openai'` → `GET /v1/models` + `POST /v1/chat/completions` — for **OpenAI-compatible** servers (vLLM, LM Studio, llama.cpp, etc.). See §5.4. |
+| `apiKeyEnv` | Request builder | **Name** of an env var holding the bearer token for OpenAI-compatible auth — never the key itself. See §5.4. |
+| `model`, `temperature`, `keepAlive` | Request builder | Forwarded to the backend. `keepAlive` is Ollama-only — ignored when `apiStyle: 'openai'`. |
 | `stripThinkingTags` | Post-processor | Strip `<think>…</think>` from the cleaned text. |
 | `toolsEnabled` | Request builder | When `false`, omit the `tools` array entirely (vLLM without tool-call parser). |
 | `enabledTools` | Request builder | Tool subset when `toolsEnabled === false`. |
@@ -300,6 +301,46 @@ arrives as conversation messages, not template variables (see §4).
 ### 5.3 Top-level `localLlm.historyMode`
 
 Read as a default for profiles that don't override it. Same enum as §3.
+
+### 5.4 Backends (`apiStyle`) and Bearer auth (`apiKeyEnv`)
+
+The Local LLM transport speaks two protocols, selected per configuration by
+`apiStyle` (default `'ollama'`):
+
+| `apiStyle` | Discovery | Chat endpoint | Backends |
+| --- | --- | --- | --- |
+| `'ollama'` (default) | `GET /api/tags` | `POST /api/chat` | Ollama |
+| `'openai'` | `GET /v1/models` | `POST /v1/chat/completions` | **Any OpenAI-compatible server** — vLLM, LM Studio, llama.cpp (`llama-server`), and similar |
+
+`ollamaUrl` is the base URL for **both** styles (the field name is historical);
+point it at the OpenAI-compatible server's root (e.g. `http://bomber.vpn:8001`)
+and the handler appends the right path. `keepAlive` is an Ollama parameter and is
+**ignored** for `apiStyle: 'openai'`. Tool-call support varies by backend — set
+`toolsEnabled: false` for a server that lacks a tool-call parser (e.g. a bare
+vLLM deployment), which omits the `tools` array entirely.
+
+**Bearer auth — `apiKeyEnv`.** OpenAI-compatible servers behind a gateway often
+require a token. Set `apiKeyEnv` to the **name** of an environment variable
+holding the token (never the secret itself, mirroring the Anthropic
+`apiKeyEnvVar` and MCP `apiKeyEnv` discipline). The pure helper
+[`apiKeyAuthHeader`](../src/utils/apiKeyAuthHeader.ts) resolves it:
+
+- set + the named var holds a non-empty value ⇒ the request gets
+  `Authorization: Bearer <value>`;
+- unset ⇒ the call is unauthenticated (the original behaviour);
+- **configured but the named var is empty/undefined ⇒ treated as unset and the
+  miss is logged**, so a typo'd env name fails loud-ish instead of silently
+  sending `Bearer undefined`.
+
+`apiKeyEnv` lives on each `localLlm.configurations[i]` **and** on
+`localLlm.profiles[…]`, and is threaded through to the synthesised Anthropic
+profile path (`resolveAnthropicTargets`) so a Local LLM configuration that backs
+an Anthropic profile authenticates the same way. The history compactor honours
+`apiStyle` too — see `services/history-compaction.ts` — so a vLLM/llama.cpp
+configuration used as the compaction backend hits the OpenAI path as well.
+
+The Status Page Local LLM card surfaces both fields: an **API style** dropdown
+(Ollama / OpenAI) and an **API Key Env** input.
 
 ---
 

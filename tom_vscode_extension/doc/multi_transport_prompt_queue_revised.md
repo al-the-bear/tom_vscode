@@ -497,6 +497,106 @@ All Anthropic profiles — regardless of the selected configuration's leaf type 
 
 Both call sites used to duplicate the fallback chain, and both missed the Local-LLM-backed profile case until the helper was extracted. Consolidating here also enforces consistent error messages (see §5 failure modes). The helper returns a discriminated union `{ profile, configuration } | { error: string }` so callers can surface a clear message without catching thrown errors across the module boundary.
 
+### 4.18 Pause / resume and error handling
+
+The queue is a long-running, possibly multi-repetition drain, so it needs
+well-defined semantics for two interruptions: the user pausing mid-flight, and
+a dispatch failing. Both are designed around a single invariant — **never lose
+the in-flight cursor**. The repetition counters (`repeatIndex` per stage,
+`followUpIndex`) are persisted, so a pause, an error, or even a window crash
+resumes from exactly the rep that was interrupted rather than restarting the
+item or silently skipping a rep.
+
+#### Pause finishes the current rep, then holds
+
+Turning auto-send off does **not** abort the rep that is already in flight.
+`dispatchNextStageForSendingItem` returns a three-valued
+`DispatchOutcome = 'dispatched' | 'done' | 'paused'`. At the top of the loop,
+when `_autoSendEnabled === false` **and** the item already has dispatch
+progress (`itemHasInFlightProgress(item)` — see below), the call returns
+`'paused'` instead of starting the next repetition. The in-flight rep finishes
+naturally; the item **stays in `'sending'`** with its counters intact. All five
+callers (`sendItem`, `onAnswerFileChanged`, the answer-wait timer,
+`advanceSendingItemWithoutAnswer`, `resendLastPrompt`) propagate the new outcome
+instead of treating "not dispatched" as "mark sent".
+
+> The very first dispatch of an item is allowed even with auto-send off, so an
+> explicit `sendNow` / "Send" action is never blocked. The pause gate only
+> refuses to start the *next* rep of an item that's already underway.
+
+The queue editor reflects this: `queueEntryComponent.ts` renders the status
+label as **`SENDING (PAUSED)`** when `status === 'sending'` and the page-level
+`autoSend === false` (guarded with `typeof autoSend !== 'undefined'` so the
+shared component still works in the template editor, where the global isn't
+defined).
+
+#### Resume continues from the persisted cursor
+
+Re-enabling auto-send (`set autoSendEnabled(true)`) first looks for a paused
+`'sending'` item that has progress and re-enters the dispatch loop via
+`_resumePausedSendingItem`; only if there is no such item does it fall through
+to `sendNext`. `sendItem` carries a **fresh-vs-resume gate**: items with prior
+progress (paused mid-flight, error-reset, or recovered after a crash) keep
+their counters, while truly-fresh items get the full reset. State persistence
+was already in place — `repeatIndex` lives in the per-item / per-stage
+`queue-entry` YAML and `auto-send-enabled` in `queue-settings.yaml` — so a
+window reload that recovers a `'sending'` item back to `'pending'` preserves
+the counters and the next drain picks up where the pause left off.
+
+#### Error → auto-send off (anti-cascade brake)
+
+When any stage dispatch throws, all four catch sites funnel through the private
+`_markItemError`, which delegates to the pure helper
+`applyErrorTransition` in [`src/utils/queueErrorTransitions.ts`](../src/utils/queueErrorTransitions.ts):
+
+- The item **stays at its current position** (top of the in-progress queue)
+  with `status: 'error'`; the `error` string and an optional classified
+  `warning` (`rate_limit` / `quota_exceeded` / `overloaded` / `cancelled` /
+  `interrupted`, read from the thrown error) are stamped on it.
+- **Auto-send is flipped off unconditionally.** A rate-limit / quota / overload
+  failure almost always recurs for every following pending item, so draining
+  into them just burns quota. The user reviews the failure and explicitly opts
+  back in. `applyErrorTransition` is idempotent — a second call on an
+  already-errored item refreshes the markers but reports `transitioned: false`
+  so the auto-send brake isn't pulled twice.
+
+In the editor the per-item **"Resend"** button (codicon-refresh) is **hidden**
+while the item is errored, and a **"Set to Pending"** button (codicon-history)
+appears in its place.
+
+#### Resume from the interrupted rep, not the next one
+
+The dispatch loop bumps `repeatIndex` **before** awaiting the send (so the rep
+number is visible to `lastDispatched` and the status formatters during the
+dispatch). When the send then throws, the counter is one ahead of what was
+actually delivered. Two recovery paths keep this correct:
+
+- **"Set to Pending"** → `applyResetToPending`. Resets the item to `'pending'`
+  **only** (never sends immediately), clears the failure + transient
+  send-tracking fields, and **decrements the counter for the stage recorded in
+  `lastDispatched.kind`** (`main` / `prePrompt[i]` / `followUp[i]`, bounded at
+  0). Without this rollback a reset-then-drain would skip the errored rep and
+  jump to rep N+2. Auto-send is left off (the error transition already disabled
+  it); the user re-arms the queue via the toggle when ready, at which point the
+  Resend button reappears (`lastDispatched` is preserved across the reset).
+- **"Resend"** → `resendLastPrompt`. Replays `lastDispatched.expandedText` (the
+  errored rep's frozen text) **without** touching counters, then the loop
+  advances naturally to N+2. (After resending the failed rep it can itself
+  return `'paused'`, holding the item in `'sending'` for a later resume.)
+- **"Retry All Errors"** re-enables auto-send **before** kicking the cascade, so
+  the queue drains properly after a bulk retry — the deliberate opt-in that the
+  per-item error brake otherwise prevents.
+
+The editor also exposes a **"Send next"** button (codicon-arrow-circle-up) per
+pending item, backed by `move(id, 'front')` — a `'front'` direction that
+relocates a pending item to the front of the in-progress queue.
+
+`itemHasInFlightProgress`, `applyErrorTransition`, and `applyResetToPending` are
+all pure (no `vscode` imports) and unit-tested in
+[`queueErrorTransitions.test.ts`](../src/utils/__tests__/queueErrorTransitions.test.ts);
+the manager owns persistence and change-event firing, keeping the helpers free
+of side effects.
+
 ## 5. Edge cases and non-obvious bits
 
 - **Template expansion placeholders** (`${repeatNumber}`, `${repeatIndex}`, chat variables): handled at expand-time inside `_buildExpandedText` at [promptQueueManager.ts:434](../src/managers/promptQueueManager.ts#L434) — unchanged. Chat-variable-driven `repeatCount` keeps working identically on both transports.
@@ -505,8 +605,8 @@ Both call sites used to duplicate the fallback chain, and both missed the Local-
 - **Template reference invalidated when transport changes.** Template names are meaningful only within one transport's store. Switching a queue item's transport in the editor clears its template selection and repopulates from the new transport's store. Do **not** auto-copy templates across stores — the two shapes overlap but aren't identical, and silent conversion is too magical.
 - **`toolApprovalMode` coercion covers every Anthropic leaf path.** Direct, Agent SDK, VS Code LM, Local LLM — all honour `'never'` when called from the queue. The coercion happens *before* `AnthropicHandler.sendMessage` dispatches into a leaf primitive, so the shared loop receives the already-coerced value. Each leaf primitive participates in the Anthropic handler's own approval gate rather than its own — which is why the Local LLM extraction (§4.4a) is necessary: `callLocalLlmOnce` is the pure HTTP call with no approval inside it.
 - **Concurrency**: the queue is strictly sequential (one `sending` item at a time). Anthropic transport doesn't change this.
-- **Failure modes**:
-  - Anthropic API error (any leaf) → item status `'error'`, error message surfaced, queue pauses.
+- **Failure modes** (full pause/resume + error semantics in §4.18):
+  - Anthropic API error (any leaf) → item status `'error'`, error message surfaced, **auto-send flipped off** (anti-cascade), item held at the front for "Resend" / "Set to Pending" (§4.18).
   - `vscode.lm.selectChatModels` returns no entry matching the configuration's stored `modelId` → surface "VS Code LM model not available", pause queue, do not retry. (The stored model was valid at configure-time but the provider extension may have been uninstalled.)
   - `anthropicConfigId` references a config that no longer exists in either the Anthropic or Local LLM config store → dispatcher returns a clear error without touching the transport.
 - **`tomAi_askCopilot` inside an Anthropic queue item**: valid — the Anthropic call can still use the `askCopilot` tool which bounces a sub-question into Copilot Chat. That's pre-existing behaviour, just not the queue's main-prompt transport.

@@ -74,6 +74,8 @@ The panel shows a 🤖 dot next to the 🔑 dot whenever any configuration has `
 
 A quick summary of every configuration (name, model, transport, permission mode, cache, history) is available on the **Status Page → Anthropic — Configurations** section.
 
+> **Not the same as the Dart-side Agent SDK mirror.** Both backends above are the *in-extension* Anthropic panel path: profile-gated, trailed, and approval-gated. The `tom_vscode_scripting_api` package also ships a **low-level 1:1 Dart mirror** of `@anthropic-ai/claude-agent-sdk` (`AgentSdkClient.query({prompt, options})`) reachable over the CLI bridge. That mirror is a *separate* surface — **no profiles, allow-lists, trail, or approval gate**; the script owns the SDK `Options` and the bridge relays raw `SDKMessage`s verbatim. It is **not** the `transport: "agentSdk"` configuration documented here. See [agent_sdk_scripting_mirror.md](agent_sdk_scripting_mirror.md) and `_copilot_guidelines/bridge_scripting_guide.md`.
+
 ## 3. Create a profile
 
 A profile is a system prompt bound to a configuration. Open the **Global Template Editor** (`Tom AI: Edit Templates` command) and switch to the **Anthropic Profiles** category. Each profile has:
@@ -141,6 +143,8 @@ Configure per-profile (`anthropicProfile`):
   "interactiveQuestionsTemplateId": "my-autonomous-fallback"
 }
 ```
+
+> **Deeper reference:** the full input shape, the exported pure-logic surface (`isAskUserQuestionTool`, `parseAskUserQuestionInput`, `collectInteractiveAnswers`, `summarizeQuestions`, …), the `UserPrompter` seam, and the Global Template Editor `interactiveQuestions` category are specified in [anthropic_sdk_integration.md §18.11](anthropic_sdk_integration.md#1811-interactive-questions-askuserquestion).
 
 ## Related sections of the spec
 

@@ -242,6 +242,51 @@ docs: `doc/yaml_graph.md`, `doc/yaml_graph_architecture_design.md`), not this
 extension. This handler is excluded from the "no remaining `webview.html = \`\`"
 completion gate.
 
+### 9.2 Host-shell panels (accordion / tab): two `<script>`-safety rules
+
+The accordion (`@WS`) and tab-panel hosts do **not** route through
+`loadWebviewHtml`. They author their JS/CSS in `media/<panelId>/` files, read
+them with `readMediaText(panelId, file)`, and compose an **inline shell** via a
+*literal* token substitution (`html.split('{{css}}').join(css)` etc.) in
+`getAccordionHtml` / `getTabPanelHtml` (`src/handlers/accordionPanel.ts`,
+`tabPanel.ts`). This is the documented "shell stays inline" path on
+`readMediaText` — distinct from the fixed-placeholder rewriting of §3/§4. Because
+the host composes raw HTML by hand, it carries two `<script>`-safety rules the
+loader would otherwise enforce for you.
+
+**Rule 1 — strip comments before token substitution.** Run
+`stripHtmlComments(shell)` on the raw shell *before* substitution. The shells
+carry a leading dev-doc comment that names the `{{css}}`/`{{script}}` tokens
+verbatim. Literal substitution is not comment-aware, so it expands those tokens
+**inside the comment** too — dumping the whole css+script blob there. The
+injected script contains a `-->` sequence that closes the HTML comment early,
+spilling the rest of the (escaped) script source onto the page as visible text
+and leaving the real body unrendered. Stripping comments first lets the dev docs
+reference the tokens freely without leaking. `stripHtmlComments`
+(`src/utils/webviewLoader.ts`) is a plain `replace(/<!--[\s\S]*?-->/g, '')`; run
+it on the **raw template only** so injected css/script that legitimately
+contains `<!--`/`-->` is never touched.
+
+**Rule 2 — escape `<`→`<` in any JSON embedded in an inline `<script>`.**
+`getAccordionScript` serialises the section list + section contents to JSON and
+embeds them **inside** the accordion's inline `<script>`. A section fragment
+containing a literal `</script>` (e.g. guidelines or issues content) closes the
+script element early, dumping the rest of the page as text and leaving `@WS`
+stuck on "Loading…". The fix is `escapeForScript(json)` —
+`json.replace(/</g, '\\u003c')` — applied to **both** `sectionsJson` and
+`contentsJson`: the `<` escape is decoded back to `<` by the JS engine
+inside the string literal but is invisible to the HTML parser, so no `</script>`
+(or `<!--`) can ever appear in the markup. This is the **same technique** as the
+loader's `serializeInit`, which escapes `</` in the `window.__INIT__` payload
+(§5) — the host shell just has to apply it explicitly because it builds its
+inline script by hand instead of going through the loader.
+
+> Both rules are about the literal-`{{css}}`/`{{script}}` *shell-token*
+> substitution and hand-built inline `<script>`, **not** the AI-prompt
+> placeholder engine (`${…}` / `{{…}}` resolved by `variableResolver.ts` /
+> `promptTemplate.ts` — see `doc/placeholder_engine.md`). Different subsystem;
+> the AI-template engine does neither comment stripping nor `<`-escaping.
+
 ---
 
 ## 10. Per-panel migration checklist
