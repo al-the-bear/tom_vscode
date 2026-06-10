@@ -51,6 +51,7 @@
         editorArea.innerHTML = '<div class="no-selection">Select a prompt file from the left to edit</div>';
         saveBar.style.display = 'none';
         currentFileId = '';
+        persistState();
     });
 
     subScopeSelect.addEventListener('change', () => {
@@ -62,6 +63,7 @@
         editorArea.innerHTML = '<div class="no-selection">Select a prompt file from the left to edit</div>';
         saveBar.style.display = 'none';
         currentFileId = '';
+        persistState();
     });
 
     document.getElementById('btnAdd').addEventListener('click', () => {
@@ -92,6 +94,12 @@
     function getSubScopeId() {
         if (currentScope === 'global') return 'global';
         return currentSubScope;
+    }
+
+    // Persist the current selection so deserializeWebviewPanel() can re-open the
+    // same prompt after a window reload (the extension reads this state object).
+    function persistState() {
+        vscode.setState({ scope: currentScope, subScopeId: getSubScopeId(), fileId: currentFileId });
     }
 
     function updateSubScopeSelect() {
@@ -138,6 +146,7 @@
                 currentFileId = el.dataset.id;
                 fileList.querySelectorAll('.item').forEach(e => e.classList.remove('selected'));
                 el.classList.add('selected');
+                persistState();
                 vscode.postMessage({ type: 'loadFile', scope: currentScope, subScopeId: getSubScopeId(), fileId: currentFileId });
             });
         });
@@ -206,6 +215,7 @@
                         currentFileId = msg.initialFileId;
                     }
                 }
+                persistState();
                 break;
             }
             case 'scopeFiles':
@@ -220,6 +230,7 @@
             case 'selectNewFile':
                 currentFileId = msg.fileId;
                 renderFileList(currentFiles.concat([{ id: msg.fileId, label: msg.fileId }]), msg.fileId);
+                persistState();
                 vscode.postMessage({ type: 'loadFile', scope: currentScope, subScopeId: getSubScopeId(), fileId: msg.fileId });
                 break;
             case 'fileDeleted':
@@ -227,11 +238,13 @@
                 editorArea.innerHTML = '<div class="no-selection">Select a prompt file from the left to edit</div>';
                 saveBar.style.display = 'none';
                 dirty = false;
+                persistState();
                 break;
             case 'selectFile':
                 if (msg.scope) { currentScope = msg.scope; scopeSelect.value = msg.scope; updateSubScopeSelect(); }
                 if (msg.subScopeId) { currentSubScope = msg.subScopeId; subScopeSelect.value = msg.subScopeId; }
                 if (msg.fileId) { currentFileId = msg.fileId; }
+                persistState();
                 requestFiles();
                 break;
         }

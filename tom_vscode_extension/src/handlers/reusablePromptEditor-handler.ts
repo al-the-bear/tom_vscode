@@ -71,37 +71,61 @@ export function openReusablePromptEditor(
         return;
     }
 
-    const codiconsUri = vscode.Uri.joinPath(
-        context.extensionUri,
-        'node_modules', '@vscode', 'codicons', 'dist', 'codicon.css',
-    );
-
-    _panel = vscode.window.createWebviewPanel(
+    const panel = vscode.window.createWebviewPanel(
         'tomAi.reusablePromptEditor',
         'Reusable Prompt Editor',
         vscode.ViewColumn.Active,
         {
-            enableScripts: true,
+            ...getReusablePromptEditorWebviewOptions(context),
             retainContextWhenHidden: true,
-            localResourceRoots: [
-                vscode.Uri.joinPath(context.extensionUri, 'media'),
-                vscode.Uri.joinPath(context.extensionUri, 'node_modules', '@vscode', 'codicons', 'dist'),
-            ],
         },
     );
+    bindReusablePromptEditorPanel(context, panel, options);
+}
 
-    const webviewCodiconsUri = _panel.webview.asWebviewUri(codiconsUri);
+/** Webview options shared by the fresh-open and reload-restore paths. */
+function getReusablePromptEditorWebviewOptions(context: vscode.ExtensionContext): vscode.WebviewOptions {
+    return {
+        enableScripts: true,
+        localResourceRoots: [
+            vscode.Uri.joinPath(context.extensionUri, 'media'),
+            vscode.Uri.joinPath(context.extensionUri, 'node_modules', '@vscode', 'codicons', 'dist'),
+        ],
+    };
+}
 
-    _panel.webview.onDidReceiveMessage(
+/**
+ * Wire a (freshly-created or reload-restored) Reusable Prompt editor panel:
+ * install the message handler, paint the HTML, and push scope/file data. Both
+ * `openReusablePromptEditor` and the reload serializer call this so the wiring
+ * lives in one place. `options` carries the scope/sub-scope/file to pre-select —
+ * on restore it comes from the webview's persisted `setState`, so the editor
+ * re-opens the same prompt the user was last editing.
+ */
+function bindReusablePromptEditorPanel(
+    context: vscode.ExtensionContext,
+    panel: vscode.WebviewPanel,
+    options?: { scope?: PromptScope; subScopeId?: string; fileId?: string },
+): void {
+    _context = context;
+    _panel = panel;
+
+    const codiconsUri = vscode.Uri.joinPath(
+        context.extensionUri,
+        'node_modules', '@vscode', 'codicons', 'dist', 'codicon.css',
+    );
+    const webviewCodiconsUri = panel.webview.asWebviewUri(codiconsUri);
+
+    panel.webview.onDidReceiveMessage(
         (msg) => _handleMessage(msg),
         undefined,
         context.subscriptions,
     );
-    wireCompletionMessages(_panel.webview);
+    wireCompletionMessages(panel.webview);
 
-    _panel.webview.html = _getHtml(_panel.webview, webviewCodiconsUri.toString());
+    panel.webview.html = _getHtml(panel.webview, webviewCodiconsUri.toString());
 
-    _panel.onDidDispose(() => { _panel = undefined; });
+    panel.onDidDispose(() => { _panel = undefined; });
 
     setTimeout(() => {
         _sendAllData(options?.scope, options?.subScopeId, options?.fileId);
@@ -117,6 +141,24 @@ export function registerReusablePromptEditorCommand(ctx: vscode.ExtensionContext
                 subScopeId: args?.subScopeId,
                 fileId: args?.fileId,
             });
+        }),
+    );
+    // Restore the panel after a window reload. Singleton; the webview persists
+    // its selected {scope, subScopeId, fileId} via setState, so the deserialize
+    // path re-opens the same prompt the user was editing. Without the serializer
+    // the tab silently vanishes on reload.
+    ctx.subscriptions.push(
+        vscode.window.registerWebviewPanelSerializer('tomAi.reusablePromptEditor', {
+            async deserializeWebviewPanel(panel: vscode.WebviewPanel, state: any): Promise<void> {
+                if (_panel) { panel.dispose(); return; }
+                const context = _context ?? ctx;
+                panel.webview.options = getReusablePromptEditorWebviewOptions(context);
+                bindReusablePromptEditorPanel(context, panel, {
+                    scope: state?.scope,
+                    subScopeId: state?.subScopeId,
+                    fileId: state?.fileId,
+                });
+            },
         }),
     );
 }
