@@ -46,43 +46,74 @@ export function registerTimedRequestsEditorCommand(ctx: vscode.ExtensionContext)
     ctx.subscriptions.push(
         vscode.commands.registerCommand('tomAi.editor.timedRequests', () => openEditor(ctx))
     );
+    // Restore the panel after a window reload. This is a singleton that rebuilds
+    // its whole view from the TimerEngine on open, so no per-panel state needs
+    // persisting — we just re-bind the panel VS Code hands back. Without the
+    // serializer the tab silently vanishes on reload.
+    ctx.subscriptions.push(
+        vscode.window.registerWebviewPanelSerializer('tomAi.timedRequestsEditor', {
+            async deserializeWebviewPanel(panel: vscode.WebviewPanel): Promise<void> {
+                if (_panel) { panel.dispose(); return; }
+                panel.webview.options = getTimedRequestsEditorWebviewOptions(ctx);
+                bindTimedRequestsEditorPanel(ctx, panel);
+            },
+        })
+    );
 }
 
 // ============================================================================
 // Open / Reveal
 // ============================================================================
 
+/** Webview options shared by the fresh-open and reload-restore paths. */
+function getTimedRequestsEditorWebviewOptions(ctx: vscode.ExtensionContext): vscode.WebviewOptions {
+    return {
+        enableScripts: true,
+        localResourceRoots: [
+            vscode.Uri.joinPath(ctx.extensionUri, 'media'),
+            vscode.Uri.joinPath(ctx.extensionUri, 'node_modules', '@vscode', 'codicons', 'dist'),
+        ],
+    };
+}
+
 function openEditor(ctx: vscode.ExtensionContext): void {
     if (_panel) { _panel.reveal(); return; }
-  _ctx = ctx;
-  loadCollapsedTimedState(ctx);
 
-    const codiconsUri = vscode.Uri.joinPath(ctx.extensionUri, 'node_modules', '@vscode', 'codicons', 'dist', 'codicon.css');
-
-    _panel = vscode.window.createWebviewPanel(
+    const panel = vscode.window.createWebviewPanel(
         'tomAi.timedRequestsEditor',
         'Timed Requests',
         vscode.ViewColumn.One,
         {
-            enableScripts: true,
+            ...getTimedRequestsEditorWebviewOptions(ctx),
             retainContextWhenHidden: true,
-            localResourceRoots: [
-                vscode.Uri.joinPath(ctx.extensionUri, 'media'),
-                vscode.Uri.joinPath(ctx.extensionUri, 'node_modules', '@vscode', 'codicons', 'dist'),
-            ],
         },
     );
+    bindTimedRequestsEditorPanel(ctx, panel);
+}
 
-    const webviewCodiconsUri = _panel.webview.asWebviewUri(codiconsUri);
+/**
+ * Wire a (freshly-created or reload-restored) Timed Requests panel: load the
+ * collapsed-entry state, install the message + completion handlers, paint the
+ * initial HTML, subscribe to TimerEngine changes, and clean up on dispose. Both
+ * `openEditor` and the reload serializer call this so the wiring lives in
+ * exactly one place.
+ */
+function bindTimedRequestsEditorPanel(ctx: vscode.ExtensionContext, panel: vscode.WebviewPanel): void {
+    _panel = panel;
+    _ctx = ctx;
+    loadCollapsedTimedState(ctx);
+
+    const codiconsUri = vscode.Uri.joinPath(ctx.extensionUri, 'node_modules', '@vscode', 'codicons', 'dist', 'codicon.css');
+    const webviewCodiconsUri = panel.webview.asWebviewUri(codiconsUri);
 
     // Register message handler BEFORE setting html so no messages are lost
-    _panel.webview.onDidReceiveMessage(handleMessage);
+    panel.webview.onDidReceiveMessage(handleMessage);
     // Shared textarea completion (/skill + @file) for the prompt + repeat fields.
-    wireCompletionMessages(_panel.webview);
+    wireCompletionMessages(panel.webview);
 
     // Build initial state and pass it as first-paint data (window.__INIT__.state).
     const initialState = buildState();
-    _panel.webview.html = loadWebviewHtml(_panel.webview, 'timedRequestsEditor', {
+    panel.webview.html = loadWebviewHtml(panel.webview, 'timedRequestsEditor', {
         init: { codiconsUri: webviewCodiconsUri.toString(), state: initialState },
     });
 
@@ -97,7 +128,7 @@ function openEditor(ctx: vscode.ExtensionContext): void {
         console.error('[TimedRequestsEditor] Failed to bind onDidChange:', e);
     }
 
-    _panel.onDidDispose(() => {
+    panel.onDidDispose(() => {
         _panel = undefined;
         _timerListener?.dispose();
         _timerListener = undefined;
