@@ -304,7 +304,22 @@ function extractTodoRefFromText(text: string): string | undefined {
 // Webview Panel
 // ============================================================================
 
+// Custom-editor viewType (summary trail files) — used by the `vscode.openWith`
+// calls below, which route to the TrailEditorProvider in trailEditor-handler.ts.
 const VIEW_TYPE = 'tomAi.trailViewer';
+// Distinct viewType for the *free* raw-trail webview panel created here. It must
+// NOT reuse VIEW_TYPE: that string is already owned by the document-backed
+// custom editor, and a WebviewPanelSerializer cannot share a viewType with a
+// custom-editor provider. Matches the `tomAi.editor.rawTrailViewer` command.
+const RAW_VIEW_TYPE = 'tomAi.rawTrailViewer';
+// workspaceState key holding the last-viewed raw-trail folder so the panel can
+// re-open the same trail after a window reload.
+const RAW_TRAIL_STATE_KEY = 'tomAi.rawTrailViewer.lastFolder';
+
+interface PersistedRawTrailState {
+    rootFolder: string;
+    currentFolder: string;
+}
 
 let currentPanel: vscode.WebviewPanel | undefined;
 let currentViewerState: TrailViewerState | undefined;
@@ -663,6 +678,8 @@ export async function openTrailViewer(
     );
     console.log('[TrailViewer] Selected subsystem:', nextState.selectedSubsystem, 'quest:', nextState.selectedQuest);
 
+    void persistRawTrailState(context, nextState);
+
     // If panel exists, just reveal it
     if (currentPanel) {
         currentViewerState = nextState;
@@ -679,38 +696,53 @@ export async function openTrailViewer(
         return;
     }
 
-    currentViewerState = nextState;
-    
-    // Create new panel
-    currentPanel = vscode.window.createWebviewPanel(
-        VIEW_TYPE,
+    // Create new panel and wire it up via the shared bind path.
+    const panel = vscode.window.createWebviewPanel(
+        RAW_VIEW_TYPE,
         'Prompt Trail Viewer',
         vscode.ViewColumn.One,
         {
-            enableScripts: true,
+            ...getTrailViewerWebviewOptions(context),
             retainContextWhenHidden: true,
-            localResourceRoots: [
-                vscode.Uri.joinPath(context.extensionUri, 'node_modules', '@vscode', 'codicons', 'dist'),
-                vscode.Uri.joinPath(context.extensionUri, 'media'),
-            ],
         }
     );
+    bindTrailViewerPanel(context, panel, nextState);
+}
 
-    currentPanel.webview.html = getWebviewHtml(
-        currentPanel.webview,
-        context.extensionUri,
-        currentViewerState,
-    );
-    
-    // Handle messages from webview
-    currentPanel.webview.onDidReceiveMessage(
-        message => handleMessage(message, currentPanel!.webview, currentViewerState!, context),
+/** Webview options shared by the fresh-open and reload-restore paths. */
+function getTrailViewerWebviewOptions(context: vscode.ExtensionContext): vscode.WebviewOptions {
+    return {
+        enableScripts: true,
+        localResourceRoots: [
+            vscode.Uri.joinPath(context.extensionUri, 'node_modules', '@vscode', 'codicons', 'dist'),
+            vscode.Uri.joinPath(context.extensionUri, 'media'),
+        ],
+    };
+}
+
+/**
+ * Wire a (freshly-created or reload-restored) raw Trail Viewer panel: adopt it
+ * as the singleton, paint the HTML for `state`, install the message handler,
+ * attach the folder watcher, and clean up on dispose. Both `openTrailViewer`
+ * and the reload serializer call this so the wiring lives in one place.
+ */
+function bindTrailViewerPanel(
+    context: vscode.ExtensionContext,
+    panel: vscode.WebviewPanel,
+    state: TrailViewerState,
+): void {
+    currentPanel = panel;
+    currentViewerState = state;
+
+    panel.webview.html = getWebviewHtml(panel.webview, context.extensionUri, state);
+
+    panel.webview.onDidReceiveMessage(
+        message => handleMessage(message, panel.webview, currentViewerState!, context),
         undefined,
         context.subscriptions
     );
-    
-    // Clean up on dispose
-    currentPanel.onDidDispose(
+
+    panel.onDidDispose(
         () => {
             currentPanel = undefined;
             currentViewerState = undefined;
@@ -720,7 +752,66 @@ export async function openTrailViewer(
         context.subscriptions
     );
 
-    attachTrailFolderWatcher(currentViewerState.currentFolder);
+    attachTrailFolderWatcher(state.currentFolder);
+}
+
+/**
+ * Persist the currently-viewed raw-trail folder so the serializer can re-open
+ * the same trail after a window reload. Only the root + current folder are
+ * stored; subsystem/quest are re-derived from the path on restore.
+ */
+function persistRawTrailState(context: vscode.ExtensionContext, state: TrailViewerState): void {
+    void context.workspaceState.update(RAW_TRAIL_STATE_KEY, {
+        rootFolder: state.rootFolder,
+        currentFolder: state.currentFolder,
+    } satisfies PersistedRawTrailState);
+}
+
+/**
+ * Rebuild a TrailViewerState from a persisted folder. Subsystem/quest are
+ * derived from `currentFolder` relative to `rootFolder` so the dropdowns come
+ * back on the same selection. Returns undefined if the root no longer exists.
+ */
+function restoreRawTrailState(persisted: PersistedRawTrailState): TrailViewerState | undefined {
+    const { rootFolder, currentFolder } = persisted;
+    if (!rootFolder || !fs.existsSync(rootFolder)) {
+        return undefined;
+    }
+    let subsystem: string | undefined;
+    let quest: string | undefined;
+    if (currentFolder) {
+        const rel = path.relative(rootFolder, currentFolder);
+        if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+            const parts = rel.split(path.sep);
+            subsystem = parts[0] || undefined;
+            quest = parts.length > 1 ? parts.slice(1).join('/') : undefined;
+        }
+    }
+    const state = buildViewerState(rootFolder, quest, subsystem);
+    if (currentFolder && fs.existsSync(currentFolder)) {
+        state.currentFolder = currentFolder;
+    }
+    return state;
+}
+
+/**
+ * Register the serializer that restores the raw Trail Viewer panel after a
+ * window reload. Keyed on RAW_VIEW_TYPE (distinct from the custom editor's
+ * `tomAi.trailViewer`). Rebuilds from the persisted folder; if nothing is
+ * persisted or the folder is gone, the recreated tab is disposed rather than
+ * restored to a broken/empty viewer.
+ */
+function registerRawTrailViewerSerializer(context: vscode.ExtensionContext): vscode.Disposable {
+    return vscode.window.registerWebviewPanelSerializer(RAW_VIEW_TYPE, {
+        async deserializeWebviewPanel(panel: vscode.WebviewPanel): Promise<void> {
+            if (currentPanel) { panel.dispose(); return; }
+            const persisted = context.workspaceState.get<PersistedRawTrailState>(RAW_TRAIL_STATE_KEY);
+            const state = persisted ? restoreRawTrailState(persisted) : undefined;
+            if (!state) { panel.dispose(); return; }
+            panel.webview.options = getTrailViewerWebviewOptions(context);
+            bindTrailViewerPanel(context, panel, state);
+        },
+    });
 }
 
 /**
@@ -787,6 +878,7 @@ async function handleMessage(
             const target = state.folderOptions.find((opt) => opt.folder === selectedFolder);
             if (target && fs.existsSync(target.folder)) {
                 state.currentFolder = target.folder;
+                persistRawTrailState(context, state);
                 const folderExchanges = loadTrailExchanges(state.currentFolder);
                 webview.postMessage({
                     type: 'exchanges',
@@ -1068,6 +1160,9 @@ function getWebviewHtml(
 
 export function registerTrailViewerCommands(context: vscode.ExtensionContext): vscode.Disposable[] {
     return [
+        // Restore the raw-trail webview panel after a window reload. Registered
+        // here so it activates with the rest of the trail-viewer surface.
+        registerRawTrailViewerSerializer(context),
         // `rawTrailViewer` = the grouped-exchanges overview of the raw
         // trail files in _ai/trail/{subsystem}/{quest}/ (individual
         // .userprompt.md + .answer.json files). Opens a webview panel
