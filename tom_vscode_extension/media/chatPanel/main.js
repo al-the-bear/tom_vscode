@@ -1398,13 +1398,15 @@ function addCopilotToQueue() {
     if (!text.trim()) {return;}
     var template = document.getElementById('copilot-template');
     template = template ? template.value : '';
-    var repeat = document.getElementById('copilot-repeat-count');
-    repeat = repeat ? repeat.value : '1';
-    var repeatCount = Math.max(1, parseInt(String(repeat || '1'), 10) || 1);
+    var repeatEl = document.getElementById('copilot-repeat-count');
+    var repeatCount = Math.max(1, parseInt(String((repeatEl ? repeatEl.value : '1') || '1'), 10) || 1);
     var waitEl = document.getElementById('copilot-answer-wait');
     var answerWaitMinutes = Math.max(0, parseInt(String(waitEl ? waitEl.value : '0'), 10) || 0);
     var slot = ensureSlotState('copilot').activeSlot;
     vscode.postMessage({ type: 'addToQueue', text: text, template: template, repeatCount: repeatCount, answerWaitMinutes: answerWaitMinutes, slot: slot });
+    // Reset the repeat count to 1 so the next simple prompt isn't accidentally
+    // queued again with a leftover (high) repeat count.
+    if (repeatEl) { repeatEl.value = '1'; }
 }
 
 function addAnthropicToQueue() {
@@ -1429,6 +1431,9 @@ function addAnthropicToQueue() {
         transport: 'anthropic',
         anthropicProfileId: profileId,
     });
+    // Reset the repeat count to 1 so the next simple prompt isn't accidentally
+    // queued again with a leftover (high) repeat count.
+    if (repeatEl) { repeatEl.value = '1'; }
 }
 
 function openContextPopup() {
