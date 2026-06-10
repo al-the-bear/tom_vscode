@@ -2623,8 +2623,14 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             } else {
                 vscode.window.showWarningMessage('Prompt queue not available');
             }
-        } catch {
-            vscode.window.showWarningMessage('Prompt queue not available');
+        } catch (err) {
+            // Surface the real failure instead of swallowing it. A bare
+            // `catch {}` here previously masked every enqueue/import error as
+            // a generic "queue not available" toast, so a prompt that failed
+            // to queue gave the user no idea why.
+            const msg = err instanceof Error ? err.message : String(err);
+            debugLog(`[ChatPanel] addToQueue failed: ${msg}\n${err instanceof Error ? err.stack ?? '' : ''}`, 'ERROR', 'queue');
+            vscode.window.showErrorMessage(`Failed to add prompt to queue: ${msg}`);
         }
     }
 
