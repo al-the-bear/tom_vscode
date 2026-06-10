@@ -33,7 +33,8 @@ import {
 } from '../tools/local-llm-tools-config';
 import { WsPaths } from '../utils/workspacePaths';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
-import { validateStrictAiConfiguration, SendToChatConfig, getSendToChatTarget, getMcpServerSettings } from '../utils/sendToChatConfig';
+import { validateStrictAiConfiguration, SendToChatConfig, getSendToChatTarget, getMcpServerSettings, getQuestRefreshSettings, type QuestRefreshPanel } from '../utils/sendToChatConfig';
+import { QuestRefreshStore } from '../managers/questRefreshStore';
 import { McpServerCardModel, buildMcpServerCardModel, renderMcpServerCard, buildMcpServerConfigFromMessage } from '../utils/mcpServerCard';
 import { READ_ONLY_TOOLS } from '../tools/tool-executors';
 import { getMcpServerStatus, reconcileMcpServerConfig } from './mcpServer-handler';
@@ -1121,6 +1122,33 @@ export async function handleStatusAction(action: string, message: any): Promise<
         case 'restartMcpServer':
             await vscode.commands.executeCommand('tomAi.mcpServer.restart');
             break;
+        // Quest Refresh — global interval + prompt text (per panel). The
+        // per-quest "active" flag is handled separately (setQuestRefreshActive).
+        case 'updateQuestRefresh': {
+            const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
+            const incoming = (message.settings ?? {}) as Record<string, { promptInterval?: unknown; refreshPrompt?: unknown }>;
+            const questRefresh = stcConfig.questRefresh ?? {};
+            for (const panel of ['anthropic', 'localLlm', 'copilot'] as const) {
+                const src = incoming[panel] ?? {};
+                const rawInterval = typeof src.promptInterval === 'number' ? src.promptInterval : 0;
+                questRefresh[panel] = {
+                    promptInterval: rawInterval > 0 ? Math.floor(rawInterval) : 0,
+                    refreshPrompt: typeof src.refreshPrompt === 'string' ? src.refreshPrompt : '',
+                };
+            }
+            stcConfig.questRefresh = questRefresh;
+            saveSendToChatConfig(stcConfig);
+            vscode.window.showInformationMessage('Quest Refresh settings saved');
+            break;
+        }
+        // Quest Refresh — per-quest activation checkbox for one panel.
+        case 'setQuestRefreshActive': {
+            const panel = message.panel as QuestRefreshPanel;
+            if (panel === 'anthropic' || panel === 'localLlm' || panel === 'copilot') {
+                QuestRefreshStore.instance.setActive(panel, !!message.active);
+            }
+            break;
+        }
         // Bridge
         case 'restartBridge':
             await vscode.commands.executeCommand('tomAi.bridge.restart');
@@ -1703,6 +1731,17 @@ export interface StatusData {
     };
     /** Standalone MCP server card (config + runtime-bound host:port). */
     mcpServer: McpServerCardModel;
+    /**
+     * Quest Refresh — per-panel config. `promptInterval` / `refreshPrompt` are
+     * GLOBAL (from SendToChatConfig); `active` / `count` are PER-QUEST (from
+     * QuestRefreshStore, scoped to the current workspace quest).
+     */
+    questRefresh: {
+        scopeLabel: string;
+        anthropic: { promptInterval: number; refreshPrompt: string; active: boolean; count: number };
+        localLlm: { promptInterval: number; refreshPrompt: string; active: boolean; count: number };
+        copilot: { promptInterval: number; refreshPrompt: string; active: boolean; count: number };
+    };
     bridge: {
         connected: boolean;
         currentProfile: string;
@@ -1953,6 +1992,25 @@ export async function gatherStatusData(): Promise<StatusData> {
         // Live runtime state from the lifecycle controller (#19): the actually
         // bound host:port while running, or { running: false } when stopped.
         mcpServer: buildMcpServerCardModel(getMcpServerSettings(sendToChatConfig), getMcpServerStatus()),
+        questRefresh: (() => {
+            const store = QuestRefreshStore.instance;
+            const buildPanel = (panel: QuestRefreshPanel) => {
+                const global = getQuestRefreshSettings(sendToChatConfig, panel);
+                const state = store.getPanelState(panel, questId);
+                return {
+                    promptInterval: global.promptInterval,
+                    refreshPrompt: global.refreshPrompt,
+                    active: state.active,
+                    count: state.count,
+                };
+            };
+            return {
+                scopeLabel: questId ? `quest: ${questId}` : 'workspace',
+                anthropic: buildPanel('anthropic'),
+                localLlm: buildPanel('localLlm'),
+                copilot: buildPanel('copilot'),
+            };
+        })(),
         bridge: {
             connected: bridgeClient !== null,
             currentProfile: bridgeConfig?.current ?? 'default',
@@ -2155,6 +2213,38 @@ export async function gatherStatusData(): Promise<StatusData> {
 /** Escape text for safe embedding in HTML element content (e.g. inside &lt;textarea&gt;). */
 function escapeHtmlContent(s: string): string {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/**
+ * Render one Quest Refresh sub-block (Anthropic / Local LLM / Copilot): the
+ * global interval + prompt controls plus the per-quest "active" checkbox. The
+ * checkbox toggles via an immediate `setQuestRefreshActive` action; interval and
+ * prompt are saved together by the section's "Save" button (`updateQuestRefresh`).
+ */
+function renderQuestRefreshPanel(
+    panel: QuestRefreshPanel,
+    label: string,
+    data: { promptInterval: number; refreshPrompt: string; active: boolean; count: number },
+): string {
+    return `<div class="sp-settings-group" data-qr-panel="${panel}">
+        <div class="sp-settings-row">
+            <strong style="min-width:90px">${label}</strong>
+            <label style="font-size:12px;display:inline-flex;align-items:center;gap:3px">
+                <input type="checkbox" id="sp-qr-${panel}-active" ${data.active ? 'checked' : ''}
+                    onchange="sendStatusAction('setQuestRefreshActive',{panel:'${panel}',active:this.checked})" />
+                Active for this quest
+            </label>
+            <span style="font-size:11px;opacity:0.7">count: ${data.count}</span>
+        </div>
+        <div class="sp-settings-row">
+            <label>Prompt interval:</label>
+            <input type="number" id="sp-qr-${panel}-interval" value="${data.promptInterval}" min="0" step="1" style="width:80px">
+        </div>
+        <div class="sp-settings-row">
+            <label style="align-self:flex-start">Refresh prompt:</label>
+            <textarea id="sp-qr-${panel}-prompt" rows="3" style="flex:1;min-width:200px">${escapeHtmlContent(data.refreshPrompt)}</textarea>
+        </div>
+    </div>`;
 }
 
 /**
@@ -2495,6 +2585,27 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
         </div>
     </div>
 ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolNames())}
+
+    <!-- Quest Refresh Section -->
+    <div class="sp-section">
+        <div class="sp-section-header sp-collapsible" data-collapse="questRefresh">
+            <span class="sp-section-title"><span class="sp-collapse-icon">▶</span> 🔄 Quest Refresh</span>
+            <span class="sp-badge">${status.questRefresh.scopeLabel}</span>
+        </div>
+        <div class="sp-collapse-content sp-collapsed" id="sp-questRefresh-content">
+            <p style="font-size:11px;opacity:0.75;margin:4px 0 8px">
+                Fire a maintenance "refresh prompt" every N prompts per panel. Interval &amp;
+                prompt text are global; the <em>active</em> checkbox is per-quest
+                (${escapeHtmlContent(status.questRefresh.scopeLabel)}). Interval 0 = never.
+            </p>
+            ${renderQuestRefreshPanel('anthropic', 'Anthropic', status.questRefresh.anthropic)}
+            ${renderQuestRefreshPanel('localLlm', 'Local LLM', status.questRefresh.localLlm)}
+            ${renderQuestRefreshPanel('copilot', 'Copilot', status.questRefresh.copilot)}
+            <div class="sp-settings-row">
+                <button class="sp-btn primary" data-status-action="updateQuestRefresh">Save Quest Refresh Settings</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Bridge Section -->
     <div class="sp-section">

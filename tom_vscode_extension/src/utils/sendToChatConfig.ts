@@ -507,6 +507,36 @@ export interface SendToChatConfig {
      */
     mcpServer?: McpServerConfig;
 
+    /**
+     * Quest Refresh — an automatic "refresh prompt" that fires every *N* prompts
+     * to run maintenance work off the recent trail (update the overview, prune
+     * todos, refresh quest-notes). Global (shared across quests); the per-quest
+     * activation checkbox and the prompt counter live in
+     * `_ai/quests/{questId}/quest-refresh.yaml` (see `QuestRefreshStore`), not
+     * here. Read via {@link getQuestRefreshSettings} which applies defaults.
+     */
+    questRefresh?: QuestRefreshConfig;
+
+}
+
+/**
+ * On-disk shape of the Quest Refresh config block. One sub-block per chat
+ * transport. All fields optional; {@link getQuestRefreshSettings} resolves them
+ * against defaults. Copilot is wired into the config/UI but its auto-trigger is
+ * deferred (see quest_refresh_implementation_plan.md, Open decision option 3).
+ */
+export interface QuestRefreshConfig {
+    anthropic?: QuestRefreshPanelConfig;
+    localLlm?: QuestRefreshPanelConfig;
+    copilot?: QuestRefreshPanelConfig;
+}
+
+/** Per-panel Quest Refresh configuration. Global (shared across quests). */
+export interface QuestRefreshPanelConfig {
+    /** Number of prompts between refreshes. `0` (default) ⇒ never auto-refresh. */
+    promptInterval?: number;
+    /** The refresh prompt text dispatched through the panel's transport. */
+    refreshPrompt?: string;
 }
 
 /**
@@ -583,6 +613,35 @@ export function getMcpServerSettings(
         allowWriteWithoutAuth: mcp?.allowWriteWithoutAuth === true,
         toolsEnabled: mcp?.toolsEnabled !== false,
         enabledTools: Array.isArray(mcp?.enabledTools) ? mcp.enabledTools : [],
+    };
+}
+
+/** Panel keys for Quest Refresh — one per chat transport. */
+export type QuestRefreshPanel = 'anthropic' | 'localLlm' | 'copilot';
+
+/** Fully-resolved per-panel Quest Refresh settings with defaults applied. */
+export interface ResolvedQuestRefreshPanel {
+    /** `0` ⇒ never auto-refresh. */
+    promptInterval: number;
+    refreshPrompt: string;
+}
+
+/**
+ * Resolve the Quest Refresh settings for a single panel from a (possibly
+ * partial / absent) config, applying defaults (`promptInterval: 0`,
+ * `refreshPrompt: ''`). The single source of truth for the global half of the
+ * Quest Refresh state — the per-quest `active` flag + prompt counter live in
+ * `QuestRefreshStore`, not here.
+ */
+export function getQuestRefreshSettings(
+    config: SendToChatConfig | null | undefined,
+    panel: QuestRefreshPanel,
+): ResolvedQuestRefreshPanel {
+    const block = config?.questRefresh?.[panel];
+    const interval = block?.promptInterval;
+    return {
+        promptInterval: typeof interval === 'number' && interval > 0 ? Math.floor(interval) : 0,
+        refreshPrompt: typeof block?.refreshPrompt === 'string' ? block.refreshPrompt : '',
     };
 }
 

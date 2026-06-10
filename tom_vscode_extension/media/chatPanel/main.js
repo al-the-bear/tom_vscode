@@ -292,7 +292,10 @@ function getSectionContent(id) {
             // or "Error: ...". (Comment deliberately backtick-free:
             // this whole function lives inside the _getScript() template
             // literal.)
-            afterEditorHtml: '<div class="status-bar"><span id="localLlm-status" class="context-summary"></span></div>',
+            afterEditorHtml: '<div class="status-bar"><span id="localLlm-status" class="context-summary"></span>' +
+                '<span class="status-bar-actions">' +
+                '<button class="icon-btn" data-action="runQuestRefresh" data-id="localLlm" title="Run Quest Refresh now — dispatch the configured Local LLM refresh prompt for this quest, then trim the live-trail back to base and reset the prompt counter."><span class="codicon codicon-sync"></span></button>' +
+                '</span></div>',
         }),
         conversation: getPromptEditorComponent({
             sectionId: 'conversation',
@@ -458,6 +461,7 @@ function getSectionContent(id) {
                 '<button class="icon-btn" data-action="openStatusPage" data-id="anthropic" title="Open Extension Status Page"><span class="codicon codicon-dashboard"></span></button>' +
                 '<button class="icon-btn" data-action="recreateHistoryFromTrail" data-id="anthropic" title="Recreate history.json from the prompt/answer trail files. Uses the &quot;Rebuild from last N prompts&quot; window from the Compaction settings and folds rounds in chunks of &quot;Run every N rounds − Raw turn pairs kept&quot;."><span class="codicon codicon-history"></span></button>' +
                 '<button class="icon-btn" data-action="recreateMemoryFromTrail" data-id="anthropic" title="Recreate quest memory from the prompt/answer trail files. Same windowing as Recreate History; the memory-extraction template is responsible for deduping against existing memory."><span class="codicon codicon-database"></span></button>' +
+                '<button class="icon-btn" data-action="runQuestRefresh" data-id="anthropic" title="Run Quest Refresh now — dispatch the configured refresh prompt for this quest, then trim the live-trail back to base and reset the prompt counter."><span class="codicon codicon-sync"></span></button>' +
                 '<button class="icon-btn" data-action="openQuestHistoryInMdBrowser" data-id="anthropic" title="Open quest history (history.md) in the MD Browser"><span class="codicon codicon-book"></span></button>' +
                 '<button class="icon-btn" data-action="openQuestMemoryInMdBrowser" data-id="anthropic" title="Open quest memory (facts.md for the active quest) in the MD Browser"><span class="codicon codicon-notebook"></span></button>' +
                 '<button class="icon-btn" data-action="openSharedMemoryInMdBrowser" data-id="anthropic" title="Open shared memory (facts.md in the workspace-wide _ai/memory/shared/) in the MD Browser"><span class="codicon codicon-library"></span></button>' +
@@ -773,6 +777,7 @@ function handleAction(action, id, slot) {
         case 'openStatusPage': vscode.postMessage({ type: 'openStatusPage' }); break;
         case 'recreateHistoryFromTrail': vscode.postMessage({ type: 'recreateHistoryFromTrail' }); break;
         case 'recreateMemoryFromTrail': vscode.postMessage({ type: 'recreateMemoryFromTrail' }); break;
+        case 'runQuestRefresh': { var qrProfile = document.getElementById(id + '-profile'); qrProfile = qrProfile ? qrProfile.value : ''; var qrLlmConfig = document.getElementById('localLlm-llmConfig'); qrLlmConfig = qrLlmConfig ? qrLlmConfig.value : ''; vscode.postMessage({ type: 'runQuestRefresh', section: id || '', profile: qrProfile, llmConfig: qrLlmConfig }); break; }
         case 'openQuestHistoryInMdBrowser': vscode.postMessage({ type: 'openQuestHistoryInMdBrowser' }); break;
         case 'openQuestMemoryInMdBrowser': vscode.postMessage({ type: 'openQuestMemoryInMdBrowser' }); break;
         case 'openSharedMemoryInMdBrowser': vscode.postMessage({ type: 'openSharedMemoryInMdBrowser' }); break;

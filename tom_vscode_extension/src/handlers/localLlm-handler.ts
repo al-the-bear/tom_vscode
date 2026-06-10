@@ -41,15 +41,14 @@ import {
 import { ToolTrail, setActiveToolTrail } from '../services/tool-trail';
 import { writeToolResult } from '../services/tool-result-store';
 import { TwoTierMemoryService } from '../services/memory-service';
-import { LiveTrailWriter } from '../services/live-trail';
+import { LiveTrailWriter, LOCAL_LLM_LIVE_TRAIL_FILENAME } from '../services/live-trail';
+import { QuestRefreshStore } from '../managers/questRefreshStore';
+import { QuestRefreshService } from '../services/quest-refresh-service';
 
-/**
- * Canonical Local LLM live-trail file name. Lives in the quest folder
- * next to the Anthropic-side `live-trail.md` so both transports update
- * parallel trails without clobbering each other. Centralised constant so
- * the panel's Open button can resolve the same path the handler writes.
- */
-export const LOCAL_LLM_LIVE_TRAIL_FILENAME = 'live-trail-localLLM.md';
+// `LOCAL_LLM_LIVE_TRAIL_FILENAME` now lives in `../services/live-trail` so
+// stateless consumers (Quest Refresh) can resolve the same path without
+// importing this handler. Re-exported here for existing importers.
+export { LOCAL_LLM_LIVE_TRAIL_FILENAME };
 
 // ============================================================================
 // Interfaces
@@ -2171,8 +2170,30 @@ export class LocalLlmManager {
         editor?: vscode.TextEditor,
         cancellationToken?: vscode.CancellationToken,
         onToolCall?: (toolName: string, args: Record<string, unknown>, result: string) => void,
+        skipQuestRefresh = false,
     ): Promise<ExpanderProcessResult> {
         const config = this.loadConfig();
+
+        // Quest Refresh auto-trigger (localLlm panel). Mirror of the Anthropic
+        // handler's hook: before counting this upcoming user prompt, fire a
+        // refresh through this same path if the interval has elapsed (with
+        // `skipQuestRefresh` so the refresh prompt neither counts nor recurses),
+        // then count this prompt. Programmatic / bridge sends pass
+        // `skipQuestRefresh = true` so only genuine panel sends advance the
+        // counter.
+        const refreshQuest = WsPaths.getWorkspaceQuestId();
+        if (!skipQuestRefresh) {
+            if (QuestRefreshService.instance.shouldAutoRefresh('localLlm', refreshQuest)) {
+                await QuestRefreshService.instance.runRefresh(
+                    'localLlm',
+                    (refreshText) => this.process(
+                        refreshText, profileKey, modelConfigKey, editor, cancellationToken, onToolCall, true,
+                    ).then(() => undefined),
+                    refreshQuest,
+                );
+            }
+            QuestRefreshStore.instance.incrementCount('localLlm', refreshQuest);
+        }
 
         // Load trail config for new session
         loadTrailConfig();
@@ -2396,6 +2417,12 @@ export class LocalLlmManager {
             // transports side by side. Local to this call (never a field
             // on the singleton) so concurrent invocations don't stomp.
             liveTrail = new LiveTrailWriter(questForHistory, LOCAL_LLM_LIVE_TRAIL_FILENAME);
+            // While a refresh interval is active, retain every prompt since the
+            // last refresh (base + interval) so the refresh prompt can read the
+            // full recent history. `0` ⇒ default last-5-blocks behaviour.
+            liveTrail.setExtraBlockAllowance(
+                QuestRefreshStore.instance.extraTrailAllowance('localLlm', questForHistory),
+            );
             liveTrail.beginPrompt({
                 transport: 'localLlm',
                 config: `${effectiveProfileKey} / ${resolvedModelKey}`,
@@ -2662,6 +2689,11 @@ export class LocalLlmManager {
             params.profile ?? null,
             params.model ?? null,
             vscode.window.activeTextEditor,
+            undefined,
+            undefined,
+            // Programmatic bridge/scripting send — does not advance the Quest
+            // Refresh counter nor trigger an auto-refresh.
+            true,
         );
     }
 

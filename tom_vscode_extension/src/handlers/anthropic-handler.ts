@@ -21,6 +21,8 @@ import { TrailService } from '../services/trailService';
 import { ANTHROPIC_SUBSYSTEM } from '../services/trailSubsystems';
 import { ToolTrail, setActiveToolTrail, type ToolTrailEntry } from '../services/tool-trail';
 import { LiveTrailWriter } from '../services/live-trail';
+import { QuestRefreshStore } from '../managers/questRefreshStore';
+import { QuestRefreshService } from '../services/quest-refresh-service';
 import { classifyAnthropicError, Interruption } from '../utils/anthropicErrorClassifier';
 import { withRetryBudget } from '../utils/retryWithBudget';
 import { runWithToolContext } from '../services/tool-execution-context';
@@ -305,6 +307,13 @@ export interface AnthropicSendOptions {
      * meaningful for the agentSdk transport in `historyMode: 'sdk-managed'`.
      */
     sessionKey?: string;
+    /**
+     * Quest Refresh exemption. When `true`, this send does not count toward the
+     * Quest Refresh interval and never triggers an auto-refresh. Set on the
+     * refresh prompt itself (so it can't recurse) and on any internal /
+     * follow-up send that shouldn't advance the user-prompt counter.
+     */
+    skipQuestRefresh?: boolean;
 }
 
 /** Prompt-queue Agent SDK session bucket → `default.session.json`. */
@@ -1557,6 +1566,30 @@ export class AnthropicHandler {
         const transport = configuration.transport ?? 'direct';
 
         const quest = WsPaths.getWorkspaceQuestId();
+
+        // Quest Refresh auto-trigger (anthropic panel). Before counting this
+        // upcoming user prompt, fire a refresh if the interval has elapsed:
+        // send the refresh prompt through this same transport (with
+        // `skipQuestRefresh` so it neither counts nor recurses), await it,
+        // truncate the live-trail back to base, reset the counter — then count
+        // this prompt and proceed. Isolated sub-agent runs and the refresh
+        // prompt itself are exempt. This single hook covers both the chat panel
+        // and the prompt queue, since the queue dispatches through sendMessage.
+        if (!options.isolated && !options.skipQuestRefresh) {
+            if (QuestRefreshService.instance.shouldAutoRefresh('anthropic', quest)) {
+                await QuestRefreshService.instance.runRefresh(
+                    'anthropic',
+                    (refreshText) => this.sendMessage({
+                        ...options,
+                        userText: refreshText,
+                        skipQuestRefresh: true,
+                    }).then(() => undefined),
+                    quest,
+                );
+            }
+            QuestRefreshStore.instance.incrementCount('anthropic', quest);
+        }
+
         const windowId = vscode.env.sessionId;
         const requestId = this.generateRequestId();
         this.roundCounter += 1;
@@ -1579,6 +1612,12 @@ export class AnthropicHandler {
         // sub-agents, concurrent chat-panel vs queue dispatch — can't
         // stomp it and make the parent turn's writes no-ops.
         const liveTrail: LiveTrailWriter | null = options.isolated ? null : new LiveTrailWriter(quest);
+        // While a refresh interval is active, retain every prompt since the
+        // last refresh (base + interval) so the refresh prompt can read the
+        // full recent history. `0` ⇒ default last-5-blocks behaviour.
+        liveTrail?.setExtraBlockAllowance(
+            QuestRefreshStore.instance.extraTrailAllowance('anthropic', quest),
+        );
 
         // Await any background work from the previous turn before we
         // build the wire payload. This emits status events the chat

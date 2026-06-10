@@ -59,6 +59,16 @@
             },
             "additionalProperties": false
         },
+        "questRefresh": {
+            "type": "object",
+            "description": "Quest Refresh (quest_refresh_implementation_plan.md). An automatic 'refresh prompt' that fires every N prompts to run maintenance work off the recent trail (update overview, prune todos, refresh quest-notes). These settings are GLOBAL (shared across quests); the per-quest activation flag + the prompt counter live in _ai/quests/{questId}/quest-refresh.yaml (QuestRefreshStore), not here. Copilot is wired into the UI but its auto-trigger is deferred.",
+            "properties": {
+                "anthropic": { "$ref": "#/definitions/questRefreshPanel" },
+                "localLlm": { "$ref": "#/definitions/questRefreshPanel" },
+                "copilot": { "$ref": "#/definitions/questRefreshPanel" }
+            },
+            "additionalProperties": false
+        },
         "anthropic": {
             "type": "object",
             "description": "Anthropic SDK integration (anthropic_sdk_integration.md §14).",
@@ -290,6 +300,24 @@
     },
     "additionalProperties": true,
     "definitions": {
+        "questRefreshPanel": {
+            "type": "object",
+            "description": "Per-panel Quest Refresh configuration. Global (shared across quests).",
+            "properties": {
+                "promptInterval": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "default": 0,
+                    "description": "Number of prompts between refreshes. 0 (default) = never auto-refresh."
+                },
+                "refreshPrompt": {
+                    "type": "string",
+                    "default": "",
+                    "description": "The refresh prompt text dispatched through the panel's transport when the interval elapses."
+                }
+            },
+            "additionalProperties": false
+        },
         "anthropicConfiguration": {
             "type": "object",
             "required": ["id", "name", "model"],

@@ -37,6 +37,7 @@ import { TrailService } from '../services/trailService';
 import { TwoTierMemoryService } from '../services/memory-service';
 import { writeWindowState } from './windowStatusPanel-handler.js';
 import { AnthropicHandler, AnthropicProfile, AnthropicConfiguration, ANTHROPIC_CHAT_SESSION_KEY } from './anthropic-handler';
+import { QuestRefreshService } from '../services/quest-refresh-service';
 import { resolveProfileTools } from '../tools/tool-executors';
 import { ACTIVE_ANTHROPIC_PROFILE_KEY } from '../tools/scripting-tools-bridge';
 import { tryBeginAnthropicSend, endAnthropicSend } from './sendToChatState';
@@ -681,6 +682,30 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         const { AnthropicHandler } = await import('./anthropic-handler.js');
                         void AnthropicHandler.instance.recreateMemoryFromTrail();
                         vscode.window.showInformationMessage('Recreating quest memory from the trail files in chunks…');
+                        break;
+                    }
+                    case 'runQuestRefresh': {
+                        // Manual Quest Refresh (Status Page button analog on the
+                        // chat panel): dispatch the configured refresh prompt
+                        // through this panel's transport with quest-refresh
+                        // skipping (so the refresh prompt itself neither counts
+                        // nor re-triggers), then the service truncates the
+                        // live-trail back to base and resets the prompt counter.
+                        const section = String(message.section || '');
+                        if (section === 'anthropic') {
+                            const profileId = String(message.profile || '');
+                            await QuestRefreshService.instance.runRefresh('anthropic', async (refreshText) => {
+                                await this._handleSendAnthropic(refreshText, profileId, '', '', undefined, true);
+                            });
+                            vscode.window.showInformationMessage('Quest Refresh run (Anthropic).');
+                        } else if (section === 'localLlm') {
+                            const profileId = String(message.profile || '');
+                            const llmConfig = String(message.llmConfig || '');
+                            await QuestRefreshService.instance.runRefresh('localLlm', async (refreshText) => {
+                                await this._handleSendLocalLlm(refreshText, profileId, llmConfig, true);
+                            });
+                            vscode.window.showInformationMessage('Quest Refresh run (Local LLM).');
+                        }
                         break;
                     }
                     case 'openQuestHistoryInMdBrowser':
@@ -1352,7 +1377,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         this._sendReusablePrompts();
     }
 
-    private async _handleSendLocalLlm(text: string, profile: string, llmConfig?: string): Promise<void> {
+    private async _handleSendLocalLlm(text: string, profile: string, llmConfig?: string, skipQuestRefresh = false): Promise<void> {
         const manager = ensureLocalLlmManager(this._context);
         if (!manager) {
             vscode.window.showErrorMessage('Local LLM not available - extension not fully initialized. Please try again.');
@@ -1471,7 +1496,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         roundsSeen += 1;
                         setStatus(`Round ${roundsSeen} — tool ${toolName} done (calls so far: ${toolCallsSeen})`);
                     };
-                    return manager.process(expanded, profileKey, llmConfigKey, undefined, externalCts.token, onToolCall);
+                    return manager.process(expanded, profileKey, llmConfigKey, undefined, externalCts.token, onToolCall, skipQuestRefresh);
                 }
             );
 
@@ -1727,7 +1752,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         });
     }
 
-    private async _handleSendAnthropic(text: string, profileId: string, modelId: string, configId: string, userMessageTemplateId?: string): Promise<void> {
+    private async _handleSendAnthropic(text: string, profileId: string, modelId: string, configId: string, userMessageTemplateId?: string, skipQuestRefresh = false): Promise<void> {
         if (!text || !text.trim()) { return; }
         // Spec: only one interactive Anthropic turn at a time. The webview
         // already disables Send during a panel turn, but the shared guard also
@@ -1818,6 +1843,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 // `default.session.json`, so the two never resume each
                 // other's session.
                 sessionKey: ANTHROPIC_CHAT_SESSION_KEY,
+                skipQuestRefresh,
                 ...(userMessageTemplate ? { userMessageTemplate } : {}),
             });
             this._view?.webview.postMessage({

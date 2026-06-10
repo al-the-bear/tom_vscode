@@ -2712,6 +2712,11 @@ export class PromptQueueManager {
         expandedText: string,
         resolved: ReturnType<typeof this.resolveStageTransport>,
         stageForAnswer: { answerText?: string } | undefined,
+        // Quest Refresh exemption forwarded to `sendMessage`. Only the **main**
+        // queue stage counts toward the refresh interval; pre-prompts,
+        // follow-ups, and resends pass `true` so they neither count nor trigger
+        // a refresh.
+        skipQuestRefresh = true,
     ): Promise<{ mode: 'polled' } | { mode: 'direct'; answerText: string }> {
         if (resolved.transport === 'copilot') {
             await vscode.commands.executeCommand('workbench.action.chat.open', { query: expandedText });
@@ -2754,6 +2759,7 @@ export class PromptQueueManager {
                 configuration,
                 tools: ALL_SHARED_TOOLS,
                 cancellationToken: cts.token,
+                skipQuestRefresh,
             });
             if (stageForAnswer) {
                 stageForAnswer.answerText = result.text;
@@ -2960,7 +2966,9 @@ export class PromptQueueManager {
                 anthropicConfigId: resolved.anthropicConfigId,
                 dispatchedAt: new Date().toISOString(),
             };
-            const dispatchResult = await this.dispatchStage(item.expandedText, resolved, item);
+            // Main stage: counts toward the Quest Refresh interval (and may
+            // trigger an auto-refresh before it sends).
+            const dispatchResult = await this.dispatchStage(item.expandedText, resolved, item, false);
             this._onPromptSent.fire(item);
             this.updateWindowStatus('prompt-sent');
             logQueue(`Main prompt sent (${mainSentCount + 1}/${mainRepeatCount}) via ${resolved.transport}`);

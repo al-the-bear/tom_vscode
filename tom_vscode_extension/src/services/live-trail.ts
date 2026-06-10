@@ -40,6 +40,17 @@ const USER_TEXT_PREVIEW_CHARS = 1000;
 const TOOL_INPUT_PREVIEW_CHARS = 2000;
 const TOOL_RESULT_PREVIEW_CHARS = 800;
 
+/** Canonical Anthropic-side live-trail filename (the writer's default). */
+export const ANTHROPIC_LIVE_TRAIL_FILENAME = 'live-trail.md';
+/**
+ * Local LLM live-trail filename, written next to the Anthropic-side
+ * `live-trail.md` so both transports update parallel trails without clobbering
+ * each other. Lives here (not in the handler) so stateless consumers — e.g. the
+ * Quest Refresh service truncating the trail — can resolve the same path without
+ * importing the handler (which would create a cycle).
+ */
+export const LOCAL_LLM_LIVE_TRAIL_FILENAME = 'live-trail-localLLM.md';
+
 export interface LiveTrailPromptInfo {
     transport: string;
     config: string;
@@ -58,6 +69,15 @@ export class LiveTrailWriter {
     private currentlyInAssistantText = false;
     /** Same idea for `### 🧠 thinking` streaming. */
     private currentlyInThinking = false;
+    /**
+     * Extra prompt blocks to retain on top of {@link MAX_PROMPT_BLOCKS}.
+     * Driven by the Quest Refresh feature: while a refresh interval is active
+     * the handler sets this to the interval so every prompt since the last
+     * refresh is retained for the refresh prompt to read. `0` (default) ⇒ the
+     * original last-5-blocks behaviour. Reset to base happens via
+     * {@link truncateToBase} when a refresh fires.
+     */
+    private extraBlockAllowance = 0;
 
     /**
      * @param questId    The quest folder name to target.
@@ -83,6 +103,33 @@ export class LiveTrailWriter {
     /** Absolute path the writer is targeting — useful for the chat panel's Open button. */
     getFilePath(): string {
         return this.filePath;
+    }
+
+    /**
+     * Set how many prompt blocks to retain **on top of** the base
+     * {@link MAX_PROMPT_BLOCKS}. Used by Quest Refresh so the live-trail holds
+     * every prompt since the last refresh (base + interval). Negative values
+     * clamp to 0. `0` restores the original last-5-blocks behaviour.
+     */
+    setExtraBlockAllowance(n: number): void {
+        this.extraBlockAllowance = Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+    }
+
+    /**
+     * Force-trim the file down to the base {@link MAX_PROMPT_BLOCKS} blocks,
+     * discarding the extra blocks accumulated under an active refresh
+     * allowance. Called when a Quest Refresh fires so the trail starts the
+     * next interval window clean. No-op if the file is missing or already at
+     * or below the base size.
+     */
+    truncateToBase(): void {
+        try {
+            const trimmed = this.trimToKeep(MAX_PROMPT_BLOCKS);
+            if (trimmed === undefined) { return; }
+            this.write(trimmed);
+        } catch {
+            // swallowed — trail writes must never affect the turn
+        }
     }
 
     /**
@@ -243,27 +290,37 @@ export class LiveTrailWriter {
 
     /**
      * Read the current file, drop enough of its head that after the caller
-     * appends a new PROMPT header only MAX_PROMPT_BLOCKS remain, and
-     * return the trimmed body. Never writes — the caller composes the
-     * next write including the new header.
+     * appends a new PROMPT header only the effective limit remains, and
+     * return the trimmed body. The effective limit is
+     * `MAX_PROMPT_BLOCKS + extraBlockAllowance`. Never writes — the caller
+     * composes the next write including the new header.
      */
     private trimOldBlocks(): string {
         const current = this.readFileSafe();
         if (!current) { return `${HEADER_COMMENT}\n`; }
+        const effectiveLimit = MAX_PROMPT_BLOCKS + this.extraBlockAllowance;
+        // After the caller adds one header we want exactly `effectiveLimit`
+        // blocks, i.e. keep the last (effectiveLimit - 1) current blocks.
+        const trimmed = this.trimToKeep(effectiveLimit - 1);
+        return trimmed ?? current;
+    }
+
+    /**
+     * Return the file body trimmed to keep only the **last `keepBlocks`**
+     * prompt blocks (prefixed with the header comment). Returns `undefined`
+     * when no trimming is needed — the file is missing, or already holds
+     * `keepBlocks` or fewer blocks — so callers can skip a redundant write.
+     */
+    private trimToKeep(keepBlocks: number): string | undefined {
+        const current = this.readFileSafe();
+        if (!current) { return undefined; }
         const lines = current.split(/\r?\n/);
         const headerIdx: number[] = [];
         for (let i = 0; i < lines.length; i++) {
             if (lines[i].startsWith(PROMPT_HEADER_PREFIX)) { headerIdx.push(i); }
         }
-        // If we already have N blocks, after the caller adds one we'd
-        // have N+1. We want exactly MAX_PROMPT_BLOCKS afterwards, i.e.
-        // keep the last (MAX_PROMPT_BLOCKS - 1) current blocks. Drop
-        // lines above the (headerIdx[length - (MAX_PROMPT_BLOCKS - 1)])
-        // entry.
-        if (headerIdx.length < MAX_PROMPT_BLOCKS) {
-            return current;
-        }
-        const keepFromIdx = headerIdx[headerIdx.length - (MAX_PROMPT_BLOCKS - 1)];
+        if (headerIdx.length <= keepBlocks) { return undefined; }
+        const keepFromIdx = headerIdx[headerIdx.length - keepBlocks];
         const keepFromLine = Math.max(0, keepFromIdx);
         const kept = lines.slice(keepFromLine).join('\n');
         return `${HEADER_COMMENT}\n\n${kept}`;

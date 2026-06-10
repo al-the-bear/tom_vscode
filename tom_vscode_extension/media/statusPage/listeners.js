@@ -189,6 +189,21 @@ function attachStatusPanelListeners(skipEditorInit) {
                 msgData.allowWriteWithoutAuth = mcpChecked('allowWriteWithoutAuth');
                 msgData.toolsEnabled = mcpMode === 'all';
                 msgData.enabledTools = mcpEnabledTools;
+            } else if (action === 'updateQuestRefresh') {
+                // Per-panel global interval + prompt text. The per-quest "active"
+                // checkbox posts its own setQuestRefreshActive on change, so it is
+                // not gathered here.
+                var qrPanel = function(panel) {
+                    return {
+                        promptInterval: parseInt((document.getElementById('sp-qr-' + panel + '-interval') || {}).value || '0'),
+                        refreshPrompt: ((document.getElementById('sp-qr-' + panel + '-prompt') || {}).value || '').toString()
+                    };
+                };
+                msgData.settings = {
+                    anthropic: qrPanel('anthropic'),
+                    localLlm: qrPanel('localLlm'),
+                    copilot: qrPanel('copilot')
+                };
             }
 
             vscode.postMessage(msgData);
