@@ -31,6 +31,20 @@ export function registerContextSettingsEditorCommand(ctx: vscode.ExtensionContex
             openContextSettingsEditor(ctx);
         }),
     );
+    // Restore the panel after a window reload. Singleton that reloads all
+    // context/config data from the stores on open, so no per-panel state is
+    // persisted — the deserialize path re-binds the recreated panel (or disposes
+    // a duplicate). Without the serializer the tab silently vanishes on reload.
+    ctx.subscriptions.push(
+        vscode.window.registerWebviewPanelSerializer('tomAi.contextSettingsEditor', {
+            async deserializeWebviewPanel(panel: vscode.WebviewPanel): Promise<void> {
+                if (_panel) { panel.dispose(); return; }
+                const context = _context ?? ctx;
+                panel.webview.options = getContextSettingsEditorWebviewOptions(context);
+                bindContextSettingsEditorPanel(context, panel);
+            },
+        }),
+    );
 }
 
 export function openContextSettingsEditor(context: vscode.ExtensionContext): void {
@@ -40,39 +54,61 @@ export function openContextSettingsEditor(context: vscode.ExtensionContext): voi
         return;
     }
 
-    const codiconsUri = vscode.Uri.joinPath(
-        context.extensionUri,
-        'node_modules', '@vscode', 'codicons', 'dist', 'codicon.css',
-    );
-
-    _panel = vscode.window.createWebviewPanel(
+    const panel = vscode.window.createWebviewPanel(
         'tomAi.contextSettingsEditor',
         'Context & Settings',
         vscode.ViewColumn.Active,
         {
-            enableScripts: true,
+            ...getContextSettingsEditorWebviewOptions(context),
             retainContextWhenHidden: true,
-            localResourceRoots: [
-                vscode.Uri.joinPath(context.extensionUri, 'node_modules', '@vscode', 'codicons', 'dist'),
-                vscode.Uri.joinPath(context.extensionUri, 'media'),
-            ],
         },
     );
+    bindContextSettingsEditorPanel(context, panel);
+}
 
-    const webviewCodiconsUri = _panel.webview.asWebviewUri(codiconsUri);
+/** Webview options shared by the fresh-open and reload-restore paths. */
+function getContextSettingsEditorWebviewOptions(context: vscode.ExtensionContext): vscode.WebviewOptions {
+    return {
+        enableScripts: true,
+        localResourceRoots: [
+            vscode.Uri.joinPath(context.extensionUri, 'node_modules', '@vscode', 'codicons', 'dist'),
+            vscode.Uri.joinPath(context.extensionUri, 'media'),
+        ],
+    };
+}
+
+/**
+ * Wire a (freshly-created or reload-restored) Context & Settings panel:
+ * install the message handler, paint the HTML, and push the context data from
+ * the stores. Both `openContextSettingsEditor` and the reload serializer call
+ * this so the wiring lives in one place. It's a singleton that reloads all
+ * config on open, so no per-panel state is persisted.
+ */
+function bindContextSettingsEditorPanel(
+    context: vscode.ExtensionContext,
+    panel: vscode.WebviewPanel,
+): void {
+    _context = context;
+    _panel = panel;
+
+    const codiconsUri = vscode.Uri.joinPath(
+        context.extensionUri,
+        'node_modules', '@vscode', 'codicons', 'dist', 'codicon.css',
+    );
+    const webviewCodiconsUri = panel.webview.asWebviewUri(codiconsUri);
 
     // Register message handler BEFORE setting html so no messages are lost
-    _panel.webview.onDidReceiveMessage(
+    panel.webview.onDidReceiveMessage(
         (msg) => _handleMessage(msg),
         undefined,
         context.subscriptions,
     );
 
-    _panel.webview.html = loadWebviewHtml(_panel.webview, 'contextSettingsEditor', {
+    panel.webview.html = loadWebviewHtml(panel.webview, 'contextSettingsEditor', {
         init: { codiconsUri: webviewCodiconsUri.toString() },
     });
 
-    _panel.onDidDispose(() => {
+    panel.onDidDispose(() => {
         _panel = undefined;
     });
 
