@@ -34,6 +34,20 @@ export function registerMemoryPanelCommand(context: vscode.ExtensionContext): vo
             openMemoryPanel(context);
         }),
     );
+    // Restore the panel after a window reload. Singleton that reloads all memory
+    // entries from the store on open, so no per-panel state is persisted — the
+    // deserialize path re-binds the recreated panel (or disposes a duplicate).
+    // Without the serializer the tab silently vanishes on reload.
+    context.subscriptions.push(
+        vscode.window.registerWebviewPanelSerializer('tomAi.memoryPanel', {
+            async deserializeWebviewPanel(panel: vscode.WebviewPanel): Promise<void> {
+                if (_panel) { panel.dispose(); return; }
+                const ctx = _context ?? context;
+                panel.webview.options = getMemoryPanelWebviewOptions(ctx);
+                bindMemoryPanel(ctx, panel);
+            },
+        }),
+    );
 }
 
 export function openMemoryPanel(context: vscode.ExtensionContext): void {
@@ -43,26 +57,46 @@ export function openMemoryPanel(context: vscode.ExtensionContext): void {
         _sendSnapshot();
         return;
     }
-    _panel = vscode.window.createWebviewPanel(
+    const panel = vscode.window.createWebviewPanel(
         'tomAi.memoryPanel',
         'Memory',
         vscode.ViewColumn.Active,
         {
-            enableScripts: true,
+            ...getMemoryPanelWebviewOptions(context),
             retainContextWhenHidden: true,
-            localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')],
         },
     );
-    _panel.webview.html = loadWebviewHtml(_panel.webview, 'memoryPanel');
+    bindMemoryPanel(context, panel);
+}
+
+/** Webview options shared by the fresh-open and reload-restore paths. */
+function getMemoryPanelWebviewOptions(context: vscode.ExtensionContext): vscode.WebviewOptions {
+    return {
+        enableScripts: true,
+        localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')],
+    };
+}
+
+/**
+ * Wire a (freshly-created or reload-restored) Memory panel: paint the HTML,
+ * install completion + message handlers, and push the memory snapshot. Both
+ * `openMemoryPanel` and the reload serializer call this so the wiring lives in
+ * one place. Singleton that reloads all entries on open, so no per-panel state
+ * is persisted.
+ */
+function bindMemoryPanel(context: vscode.ExtensionContext, panel: vscode.WebviewPanel): void {
+    _context = context;
+    _panel = panel;
+    panel.webview.html = loadWebviewHtml(panel.webview, 'memoryPanel');
     // Shared textarea completion (Ctrl+Shift+Space → /skill + @file). Registered
     // as its own listener so it coexists with the panel's message handler below.
-    wireCompletionMessages(_panel.webview);
-    _panel.webview.onDidReceiveMessage(
+    wireCompletionMessages(panel.webview);
+    panel.webview.onDidReceiveMessage(
         (msg: WebviewMessage) => { void _handleMessage(msg); },
         undefined,
         context.subscriptions,
     );
-    _panel.onDidDispose(() => { _panel = undefined; });
+    panel.onDidDispose(() => { _panel = undefined; });
     // Initial data push once the webview has loaded.
     setTimeout(() => _sendSnapshot(), 50);
 }
