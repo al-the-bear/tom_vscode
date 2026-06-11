@@ -71,8 +71,13 @@ export function initTelegramCommands(context: vscode.ExtensionContext): void {
  * to one shared config file for all quests. Storing the settings in the quest
  * folder lets each workspace/quest drive its own bot. Returns `undefined` when
  * no workspace is open.
+ *
+ * This is the **single** Telegram settings location for the extension: the
+ * status-page UI, the `Configure Telegram` command, the bot itself, and the
+ * activation-time autostart check all read/write this one file (see
+ * {@link readEffectiveTelegramRaw} / {@link writeQuestTelegramRaw}).
  */
-function getQuestTelegramConfigPath(): string | undefined {
+export function getQuestTelegramConfigPath(): string | undefined {
     const questId = WsPaths.getWorkspaceQuestId();
     return WsPaths.ai('quests', questId, `telegram.${questId}.json`);
 }
@@ -80,7 +85,8 @@ function getQuestTelegramConfigPath(): string | undefined {
 /**
  * Read the raw Telegram settings object from the shared
  * `tom_vscode_extension.json → aiConversation.telegram` section, if present.
- * Used as a backward-compatible fallback and as a seed for `telegramConfigure`.
+ * Used as a one-time migration source: the first save lifts these values into
+ * the per-quest file, after which the shared section is ignored.
  */
 function readSharedTelegramRaw(): any | undefined {
     const configPath = getConfigPath();
@@ -94,24 +100,70 @@ function readSharedTelegramRaw(): any | undefined {
 }
 
 /**
- * Load the Telegram config for the current quest.
+ * Read the raw per-quest Telegram settings object, or `undefined` when no
+ * per-quest file exists. A parse error surfaces a toast and returns `undefined`.
+ */
+function readQuestTelegramRaw(): any | undefined {
+    const questPath = getQuestTelegramConfigPath();
+    if (!questPath || !fs.existsSync(questPath)) { return undefined; }
+    try {
+        return JSON.parse(fs.readFileSync(questPath, 'utf-8'));
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`Error reading ${path.basename(questPath)}: ${err.message}`);
+        return undefined;
+    }
+}
+
+/**
+ * Effective raw Telegram settings for the settings UI: the per-quest file when
+ * present, else the shared `aiConversation.telegram` section (migration source),
+ * else an empty object. This is what the status page reads to populate its
+ * fields and what `Configure Telegram` seeds from.
+ */
+export function readEffectiveTelegramRaw(): any {
+    return readQuestTelegramRaw() ?? readSharedTelegramRaw() ?? {};
+}
+
+/**
+ * Persist raw Telegram settings to the per-quest file, creating the quest folder
+ * if needed. The runtime-resolved `botToken` is never written (it is derived
+ * from the env var on load). Returns `false` (with an error toast) when no
+ * workspace is open or the write fails.
+ */
+export function writeQuestTelegramRaw(raw: any): boolean {
+    const questPath = getQuestTelegramConfigPath();
+    if (!questPath) {
+        vscode.window.showErrorMessage('No workspace open — cannot resolve the quest folder for Telegram settings.');
+        return false;
+    }
+    const out = { ...raw };
+    delete out.botToken;
+    try {
+        fs.mkdirSync(path.dirname(questPath), { recursive: true });
+        fs.writeFileSync(questPath, JSON.stringify(out, null, 2) + '\n', 'utf-8');
+        return true;
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`Failed to write ${path.basename(questPath)}: ${err.message}`);
+        return false;
+    }
+}
+
+/**
+ * Load the parsed Telegram config for the current quest, used to drive the bot.
  *
  * Resolution order:
  *   1. Per-quest file `_ai/quests/{questId}/telegram.{questId}.json` (authoritative when present).
- *   2. Shared `tom_vscode_extension.json → aiConversation.telegram` (backward-compatible fallback).
+ *   2. Shared `tom_vscode_extension.json → aiConversation.telegram` (migration fallback).
  */
 function loadTelegramConfig(): TelegramConfig | undefined {
     const questPath = getQuestTelegramConfigPath();
 
     // Primary: per-quest settings file. Authoritative when it exists — a parse
-    // error here is surfaced rather than silently falling back to the shared config.
+    // error is surfaced (by readQuestTelegramRaw) rather than silently falling
+    // back to the shared config.
     if (questPath && fs.existsSync(questPath)) {
-        try {
-            return parseTelegramConfig(JSON.parse(fs.readFileSync(questPath, 'utf-8')));
-        } catch (err: any) {
-            vscode.window.showErrorMessage(`Error reading ${path.basename(questPath)}: ${err.message}`);
-            return undefined;
-        }
+        const raw = readQuestTelegramRaw();
+        return raw ? parseTelegramConfig(raw) : undefined;
     }
 
     // Fallback: shared aiConversation.telegram section.
@@ -120,7 +172,7 @@ function loadTelegramConfig(): TelegramConfig | undefined {
 
     const fileName = questPath ? path.basename(questPath) : 'telegram.<quest>.json';
     vscode.window.showErrorMessage(
-        `No Telegram settings found for this quest. Run "Configure Telegram" to create ${fileName} in the quest folder.`,
+        `No Telegram settings found for this quest. Open the status page → Telegram (or run "Configure Telegram") to create ${fileName}.`,
     );
     return undefined;
 }
@@ -380,17 +432,9 @@ export async function telegramConfigureHandler(): Promise<void> {
     }
 
     // Seed: existing quest file → shared aiConversation.telegram → defaults.
-    let telegram: any;
-    if (fs.existsSync(questPath)) {
-        try {
-            telegram = JSON.parse(fs.readFileSync(questPath, 'utf-8'));
-        } catch (err: any) {
-            vscode.window.showErrorMessage(`Error reading ${path.basename(questPath)}: ${err.message}`);
-            return;
-        }
-    }
-    if (!telegram || typeof telegram !== 'object') {
-        telegram = readSharedTelegramRaw() ?? { ...TELEGRAM_DEFAULTS };
+    let telegram = readEffectiveTelegramRaw();
+    if (!telegram || typeof telegram !== 'object' || Object.keys(telegram).length === 0) {
+        telegram = { ...TELEGRAM_DEFAULTS };
     }
 
     // --- Step 1: Bot token env var name ---
@@ -457,13 +501,8 @@ export async function telegramConfigureHandler(): Promise<void> {
     telegram.allowedUserIds = allowedUserIds;
     telegram.defaultChatId = defaultChatId;
     telegram.enabled = enabledPick.value;
-    // `botToken` is a runtime-resolved value (read from the env var on load), not
-    // a setting — never persist it to the quest file.
-    delete telegram.botToken;
 
-    try {
-        fs.mkdirSync(path.dirname(questPath), { recursive: true });
-        fs.writeFileSync(questPath, JSON.stringify(telegram, null, 2) + '\n', 'utf-8');
+    if (writeQuestTelegramRaw(telegram)) {
         const summary = [
             `Token env: ${tokenEnv}`,
             `Users: ${allowedUserIds.length > 0 ? allowedUserIds.join(', ') : '(none)'}`,
@@ -472,8 +511,6 @@ export async function telegramConfigureHandler(): Promise<void> {
         ].join(' | ');
         vscode.window.showInformationMessage(`✅ Telegram configured (${path.basename(questPath)}) — ${summary}`);
         bridgeLog(`[Telegram] Configuration saved to ${questPath}: ${summary}`);
-    } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to write ${path.basename(questPath)}: ${err.message}`);
     }
 }
 

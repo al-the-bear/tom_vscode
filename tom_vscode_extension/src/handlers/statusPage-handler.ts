@@ -23,7 +23,7 @@ import { logRunBanner, showCompactionChannel, logError as logCompactionError } f
 import { getCliServerStatus } from './cliServer-handler';
 import { loadBridgeConfig, BridgeConfig } from './restartBridge-handler';
 import { isTrailEnabled, setTrailEnabled, loadTrailConfig, toggleTrail } from '../services/trailLogging';
-import { isTelegramPollingActive } from './telegram-commands';
+import { isTelegramPollingActive, readEffectiveTelegramRaw, writeQuestTelegramRaw } from './telegram-commands';
 import { 
     loadLocalLlmToolsConfig,
     saveLocalLlmToolsConfig,
@@ -283,17 +283,11 @@ async function updateAiConversationSettings(settings: any): Promise<void> {
 }
 
 async function updateTelegramSettings(settings: any): Promise<void> {
-    const config = loadConfig();
-    if (!config) { return; }
-    
-    if (!config.aiConversation) {
-        config.aiConversation = {};
-    }
-    if (!config.aiConversation.telegram) {
-        config.aiConversation.telegram = {};
-    }
-    
-    Object.assign(config.aiConversation.telegram, {
+    // Telegram settings are stored per-quest, not in the shared config. Merge the
+    // edited fields into the effective settings (per-quest file, else migrated
+    // from the shared section) and persist to the quest file.
+    const telegram = readEffectiveTelegramRaw();
+    Object.assign(telegram, {
         enabled: settings.enabled,
         botTokenEnv: settings.botTokenEnv,
         defaultChatId: settings.defaultChatId,
@@ -302,8 +296,8 @@ async function updateTelegramSettings(settings: any): Promise<void> {
         notifyOnTurn: settings.notifyOnTurn,
         notifyOnEnd: settings.notifyOnEnd
     });
-    
-    if (saveConfig(config)) {
+
+    if (writeQuestTelegramRaw(telegram)) {
         vscode.window.showInformationMessage('Telegram settings updated');
     }
 }
@@ -1233,11 +1227,11 @@ export async function handleStatusAction(action: string, message: any): Promise<
             await vscode.commands.executeCommand('tomAi.telegram.testConnection');
             break;
         case 'setTelegramAutostart': {
-            const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
-            if (!stcConfig.aiConversation) { stcConfig.aiConversation = { profiles: {} }; }
-            if (!stcConfig.aiConversation.telegram) { stcConfig.aiConversation.telegram = {}; }
-            stcConfig.aiConversation.telegram.autostart = !!message.enabled;
-            saveSendToChatConfig(stcConfig);
+            // Autostart is a per-quest Telegram setting (so each workspace decides
+            // independently whether its bot auto-starts).
+            const telegram = readEffectiveTelegramRaw();
+            telegram.autostart = !!message.enabled;
+            writeQuestTelegramRaw(telegram);
             break;
         }
         // Settings updates
@@ -1756,6 +1750,7 @@ export interface StatusData {
     sendToChatTarget: 'anthropic' | 'copilot';
     telegram: {
         polling: boolean;
+        questId: string;
         enabled: boolean;
         autostart: boolean;
         botTokenEnv: string;
@@ -1935,7 +1930,9 @@ export async function gatherStatusData(): Promise<StatusData> {
     }
     const localLlm = config?.localLlm || {};
     const aiConversation = config?.aiConversation || {};
-    const telegram = aiConversation?.telegram || {};
+    // Telegram settings are per-quest (see telegram-commands), not part of the
+    // shared aiConversation.telegram section the rest of this snapshot reads.
+    const telegram = readEffectiveTelegramRaw();
     const questId = WsPaths.getWorkspaceQuestId();
 
     const configurations = Array.isArray(config?.localLlm?.configurations)
@@ -2024,8 +2021,9 @@ export async function gatherStatusData(): Promise<StatusData> {
         sendToChatTarget: getSendToChatTarget(sendToChatConfig),
         telegram: {
             polling: isTelegramPollingActive(),
+            questId,
             enabled: telegram.enabled ?? false,
-            autostart: sendToChatConfig?.aiConversation?.telegram?.autostart ?? false,
+            autostart: telegram.autostart ?? false,
             botTokenEnv: telegram.botTokenEnv ?? 'TELEGRAM_BOT_TOKEN',
             defaultChatId: telegram.defaultChatId ?? 0,
             pollIntervalMs: telegram.pollIntervalMs ?? 3000,
@@ -2631,6 +2629,9 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
             <span class="sp-badge ${status.telegram.polling ? 'sp-running' : 'sp-stopped'}">${status.telegram.polling ? 'Active' : 'Off'}</span>
         </div>
         <div class="sp-collapse-content sp-collapsed" id="sp-telegram-content">
+            <div style="font-size:11px;opacity:0.75;margin-bottom:6px">
+                Per-quest settings — saved to <code>_ai/quests/${status.telegram.questId}/telegram.${status.telegram.questId}.json</code>. Each workspace/quest can run its own bot.
+            </div>
             <div class="sp-controls">
                 <button class="sp-btn ${status.telegram.polling ? '' : 'primary'}" data-status-action="startTelegram">Start</button>
                 <button class="sp-btn ${status.telegram.polling ? 'primary' : ''}" data-status-action="stopTelegram">Stop</button>

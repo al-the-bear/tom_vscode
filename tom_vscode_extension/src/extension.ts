@@ -73,6 +73,7 @@ import {
     telegramConfigureHandler,
     initTelegramCommands,
     disposeTelegramStandalone,
+    readEffectiveTelegramRaw,
     showStatusPageHandler,
     registerStatusPageSerializer,
     toggleTrailHandler,
@@ -574,7 +575,9 @@ export async function activate(context: vscode.ExtensionContext) {
                 }
             }, 2000);
         }
-        if (stcConfig?.aiConversation?.telegram?.autostart) {
+        // Telegram autostart is a per-quest setting (see telegram-commands), so it
+        // is read from the quest file rather than the shared config.
+        if (readEffectiveTelegramRaw()?.autostart) {
             // Start Telegram polling after a short delay
             setTimeout(async () => {
                 try {
