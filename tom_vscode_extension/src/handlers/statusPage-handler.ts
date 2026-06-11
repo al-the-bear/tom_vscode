@@ -23,7 +23,8 @@ import { logRunBanner, showCompactionChannel, logError as logCompactionError } f
 import { getCliServerStatus } from './cliServer-handler';
 import { loadBridgeConfig, BridgeConfig } from './restartBridge-handler';
 import { isTrailEnabled, setTrailEnabled, loadTrailConfig, toggleTrail } from '../services/trailLogging';
-import { isTelegramPollingActive, readEffectiveTelegramRaw, writeQuestTelegramRaw } from './telegram-commands';
+import { isTelegramPollingActive } from './telegram-commands';
+import { readEffectiveTelegramRaw, writeQuestTelegramRaw } from './telegram-config';
 import { 
     loadLocalLlmToolsConfig,
     saveLocalLlmToolsConfig,

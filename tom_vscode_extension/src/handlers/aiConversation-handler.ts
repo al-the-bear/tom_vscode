@@ -30,7 +30,8 @@ import { getLocalLlmManager } from './localLlm-handler';
 import type { OllamaStats } from './localLlm-handler';
 import { ALL_SHARED_TOOLS } from '../tools/tool-executors';
 import type { SharedToolDefinition } from '../tools/shared-tool-registry';
-import { TelegramNotifier, TelegramConfig, TelegramCommand, parseTelegramConfig, TELEGRAM_DEFAULTS } from './telegram-notifier';
+import { TelegramNotifier, TelegramConfig, TelegramCommand, TELEGRAM_DEFAULTS } from './telegram-notifier';
+import { readEffectiveTelegramConfig } from './telegram-config';
 import { TelegramChannel } from './chat';
 import {
     logPrompt, logResponse, logCopilotAnswer,
@@ -661,10 +662,13 @@ export class AiConversationManager {
                 config.conversationMode = sec.conversationMode as ConversationMode;
             }
 
-            // Telegram config
-            if (sec.telegram && typeof sec.telegram === 'object') {
-                config.telegram = parseTelegramConfig(sec.telegram);
-            }
+            // Telegram config comes from the single per-quest source (see
+            // telegram-config), shared with the standalone bot and the status
+            // page — not from this panel's own aiConversation.telegram section,
+            // which would otherwise be a second, divergent set of bot settings.
+            // The per-quest reader falls back to the legacy shared section for
+            // one-time migration.
+            config.telegram = readEffectiveTelegramConfig();
         } catch (err) {
             bridgeLog(`[Bot Conversation] Failed to parse config: ${err}`);
         }
