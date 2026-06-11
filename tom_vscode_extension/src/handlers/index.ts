@@ -67,7 +67,7 @@ export { registerChordMenuCommands } from './chordMenu-handler';
 export { registerCommandlineCommands } from './commandline-handler';
 export { registerCombinedCommands } from './combinedCommand-handler';
 export { registerStateMachineCommands } from './stateMachine-handler';
-export { telegramTestHandler, telegramToggleHandler, telegramConfigureHandler, disposeTelegramStandalone, isTelegramPollingActive } from './telegram-commands';
+export { telegramTestHandler, telegramToggleHandler, telegramConfigureHandler, disposeTelegramStandalone, isTelegramPollingActive, initTelegramCommands } from './telegram-commands';
 export { registerDsNotesViews } from './sidebarNotes-handler';
 export { registerChatPanel } from './chatPanel-handler';
 export { registerWsPanel } from './wsPanel-handler';

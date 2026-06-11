@@ -71,6 +71,7 @@ import {
     telegramTestHandler,
     telegramToggleHandler,
     telegramConfigureHandler,
+    initTelegramCommands,
     disposeTelegramStandalone,
     showStatusPageHandler,
     registerStatusPageSerializer,
@@ -1076,6 +1077,10 @@ function registerCommands(context: vscode.ExtensionContext) {
             await showAiConversationStatusHandler();
         }
     );
+
+    // Capture the extension context for the Telegram command registry so the
+    // `send_prompt` command can drive the Anthropic chat panel.
+    initTelegramCommands(context);
 
     // Telegram Test Connection
     const telegramTestCmd = vscode.commands.registerCommand(

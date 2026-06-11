@@ -33,6 +33,14 @@ import {
 } from './telegram-cmd-parser';
 import { escapeMarkdownV2 } from './telegram-markdown';
 import { findNearestDetectedProject, scanWorkspaceProjectsByDetectors } from '../utils/projectDetector';
+import {
+    parseSendPromptArgs,
+    isSendPromptParseError,
+    questMatches,
+    SEND_PROMPT_USAGE,
+} from '../utils/telegramSendPrompt';
+import { TelegramSendPromptForwarder, type TrailSendChannel } from './telegramTrailForwarder';
+import type { SendToChatOutcome } from './sendToChatRouter';
 
 // ============================================================================
 // State — virtual working directory for the Telegram session
@@ -507,6 +515,98 @@ async function statusHandler(_cmd: ParsedTelegramCommand): Promise<TelegramComma
 }
 
 // ============================================================================
+// send_prompt — drive the Anthropic chat panel remotely
+// ============================================================================
+
+/**
+ * Dependencies the `send_prompt` command needs from the extension host. Passed
+ * in (rather than imported here) so the command-handler module stays free of
+ * the chat-panel / router wiring and is easy to unit-test, and so the registry
+ * can be built without these when no extension context is available.
+ */
+export interface CommandRegistryDeps {
+    /** Extension context, threaded into the Anthropic send path. */
+    context: vscode.ExtensionContext;
+    /** Channel used to stream live-trail progress back to Telegram. */
+    channel: TrailSendChannel | null;
+    /** Whether the @CHAT Anthropic panel has been opened in this window. */
+    isChatPanelOpen: () => boolean;
+    /** Run a prompt exactly as a panel send would; resolves with the outcome. */
+    runAnthropicSend: (
+        context: vscode.ExtensionContext,
+        prompt: string,
+    ) => Promise<SendToChatOutcome>;
+    /** The active quest id of this window (`.code-workspace` stem). */
+    getCurrentQuest: () => string;
+}
+
+/**
+ * Handle `send_prompt <quest> <prompt text>` — send a prompt to *this* window's
+ * Anthropic chat panel, but only when the requested quest matches the window's
+ * active quest and the panel is actually open. Streams the turn's live-trail
+ * back to the chat so the user can follow processing.
+ */
+async function sendPromptHandler(
+    cmd: ParsedTelegramCommand,
+    deps: CommandRegistryDeps,
+): Promise<TelegramCommandResult> {
+    const parsed = parseSendPromptArgs(cmd.rawArgs);
+    if (isSendPromptParseError(parsed)) {
+        return { text: `❌ ${parsed.error}`, rawText: true };
+    }
+
+    const currentQuest = deps.getCurrentQuest();
+    // Double-check the quest: multiple windows may poll the same bot, and only
+    // the window whose active quest matches should process the prompt.
+    if (!questMatches(parsed.quest, currentQuest)) {
+        return {
+            text:
+                `⚠️ This VS Code window's active quest is "${currentQuest}", not "${parsed.quest}". ` +
+                `Run send_prompt from the window whose quest is "${parsed.quest}".`,
+            rawText: true,
+        };
+    }
+
+    if (!deps.isChatPanelOpen()) {
+        return {
+            text:
+                '⚠️ The Anthropic chat panel is not open in this window. ' +
+                'Open the @CHAT panel (Anthropic tab) first, then resend.',
+            rawText: true,
+        };
+    }
+
+    bridgeLog(`[Telegram] send_prompt → quest "${currentQuest}" (${parsed.prompt.length} chars)`);
+
+    const forwarder = new TelegramSendPromptForwarder(deps.channel, cmd.chatId, currentQuest);
+    forwarder.start();
+    try {
+        const outcome = await deps.runAnthropicSend(deps.context, parsed.prompt);
+        forwarder.flush();
+        await forwarder.drain();
+
+        if (outcome.rejected) {
+            return {
+                text: '⏳ A chat request is already running in this window. Try again once it finishes.',
+                rawText: true,
+            };
+        }
+        if (!outcome.ok) {
+            return { text: `❌ Prompt failed: ${outcome.error ?? 'unknown error'}`, rawText: true };
+        }
+        // When the trail already forwarded a terminal footer (✅/⚠️/🟡), suppress
+        // a redundant final reply; otherwise confirm completion.
+        return {
+            text: '✅ Prompt processed.',
+            rawText: true,
+            silent: forwarder.sawTerminal,
+        };
+    } finally {
+        forwarder.stop();
+    }
+}
+
+// ============================================================================
 // Registry setup
 // ============================================================================
 
@@ -515,8 +615,14 @@ async function statusHandler(_cmd: ParsedTelegramCommand): Promise<TelegramComma
  * The registry is used by the standalone polling handler to dispatch commands.
  *
  * @param stopCallback Called when /stop is received to stop polling.
+ * @param deps         Optional host wiring enabling the `send_prompt` command.
+ *                     Omitted when no extension context is available — the
+ *                     command is then simply not registered.
  */
-export function createCommandRegistry(stopCallback: () => void): TelegramCommandRegistry {
+export function createCommandRegistry(
+    stopCallback: () => void,
+    deps?: CommandRegistryDeps,
+): TelegramCommandRegistry {
     const registry = new TelegramCommandRegistry();
 
     // /help
@@ -647,6 +753,16 @@ export function createCommandRegistry(stopCallback: () => void): TelegramCommand
         description: 'Show workspace and polling status',
         handler: statusHandler,
     });
+
+    // send_prompt — drive the Anthropic chat panel remotely (needs host wiring)
+    if (deps) {
+        registry.register({
+            name: 'send_prompt',
+            description: 'Send a prompt to the Anthropic chat panel of a quest window',
+            usage: SEND_PROMPT_USAGE,
+            handler: (cmd) => sendPromptHandler(cmd, deps),
+        });
+    }
 
     // /stop — special: triggers the stop callback
     registry.register({

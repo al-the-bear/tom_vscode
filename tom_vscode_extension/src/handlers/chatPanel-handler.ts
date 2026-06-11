@@ -3030,6 +3030,20 @@ export function notifyAnthropicConfigChanged(): void {
 }
 
 /**
+ * Whether the chat panel webview has been materialised at least once. The view
+ * is created the first time the panel is revealed and — with
+ * `retainContextWhenHidden` — is never torn down afterwards, so this stays
+ * `true` for the rest of the window's life once the user has opened @CHAT.
+ *
+ * Used by the Telegram `send_prompt` command to refuse driving a panel that was
+ * never opened (the user asked for an explicit "chat is not open" reply rather
+ * than silently spinning up a hidden turn).
+ */
+export function isChatPanelOpen(): boolean {
+    return !!(_provider as unknown as { _view?: vscode.WebviewView })?._view;
+}
+
+/**
  * External hook used by the Send-to-Chat router to mirror an Anthropic turn it
  * initiated (from the command/menu or the scripting bridge) into the chat panel
  * UI — so a routed send shows up just like a panel send. A no-op when the panel

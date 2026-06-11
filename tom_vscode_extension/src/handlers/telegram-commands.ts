@@ -15,8 +15,11 @@ import { bridgeLog, getConfigPath } from './handler_shared';
 import { TelegramNotifier, TelegramConfig, TelegramCommand, TelegramApiResult, parseTelegramConfig } from './telegram-notifier';
 import { TelegramCommandRegistry, ParsedTelegramCommand } from './telegram-cmd-parser';
 import { TelegramResponseFormatter } from './telegram-cmd-response';
-import { createCommandRegistry } from './telegram-cmd-handlers';
+import { createCommandRegistry, type CommandRegistryDeps } from './telegram-cmd-handlers';
 import { TelegramChannel } from './chat';
+import { isChatPanelOpen } from './chatPanel-handler';
+import { runAnthropicSend } from './sendToChatRouter';
+import { WsPaths } from '../utils/workspacePaths';
 
 // ============================================================================
 // State
@@ -30,6 +33,19 @@ let isPollingActive = false;
 /** Command infrastructure for rich command handling. */
 let commandRegistry: TelegramCommandRegistry | null = null;
 let responseFormatter: TelegramResponseFormatter | null = null;
+
+/**
+ * Extension context, captured at activation. Needed to build the command
+ * registry's `send_prompt` dependencies (Anthropic send path). Stored at module
+ * scope because the toggle handler that builds the registry is a parameterless
+ * VS Code command callback.
+ */
+let extensionContext: vscode.ExtensionContext | null = null;
+
+/** Capture the extension context so `send_prompt` can drive the Anthropic panel. */
+export function initTelegramCommands(context: vscode.ExtensionContext): void {
+    extensionContext = context;
+}
 
 // ============================================================================
 // Config loading
@@ -169,6 +185,17 @@ export async function telegramToggleHandler(): Promise<void> {
 
     // Initialize command infrastructure (using the same channel for responses)
     responseFormatter = new TelegramResponseFormatter(standaloneChannel);
+    // Build send_prompt deps only when we have an extension context — without it
+    // the command can't reach the Anthropic send path, so it stays unregistered.
+    const sendPromptDeps: CommandRegistryDeps | undefined = extensionContext
+        ? {
+            context: extensionContext,
+            channel: standaloneChannel,
+            isChatPanelOpen,
+            runAnthropicSend,
+            getCurrentQuest: () => WsPaths.getWorkspaceQuestId(),
+        }
+        : undefined;
     commandRegistry = createCommandRegistry(() => {
         // Stop callback — triggered by stop command
         standaloneTelegram?.sendMessage('⏹ Polling stopped via Telegram command.');
@@ -180,7 +207,7 @@ export async function telegramToggleHandler(): Promise<void> {
         commandRegistry = null;
         responseFormatter = null;
         vscode.window.showInformationMessage('⏹ Telegram polling stopped (via stop command).');
-    });
+    }, sendPromptDeps);
 
     standaloneTelegram.onCommand((cmd: TelegramCommand) => {
         handleStandaloneCommand(cmd);

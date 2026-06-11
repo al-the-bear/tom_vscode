@@ -1,0 +1,108 @@
+/**
+ * Coalesces a stream of {@link LiveTrailEvent}s into a small number of plain-text
+ * messages suitable for Telegram, so a remotely-driven Anthropic turn can be
+ * followed in chat without hitting the Bot API rate limit.
+ *
+ * Why this exists: the live-trail emits one event per thinking chunk, tool call,
+ * tool result, and assistant-text chunk. Forwarding each verbatim would be both
+ * spammy and rate-limited. This coalescer applies a fixed policy:
+ *
+ *   - **thinking** and **toolResult** events are dropped — noise for a follower.
+ *   - **assistant** text chunks are buffered and concatenated; the buffer is
+ *     flushed as one message when a structural event (tool call / done / error /
+ *     interruption / explicit {@link flush}) arrives, or when it would exceed
+ *     {@link maxMessageChars}.
+ *   - **toolCall**, **done**, **error**, and **interruption** each produce a
+ *     single concise line, after first flushing any pending assistant text so
+ *     ordering is preserved.
+ *
+ * The class is **pure** (no I/O, no timers) so it is unit-testable in isolation;
+ * the forwarder owns the async send chain.
+ */
+
+import type { LiveTrailEvent } from './live-trail.js';
+
+/** Telegram hard limit is 4096 chars; stay well under to leave room for escaping. */
+const DEFAULT_MAX_MESSAGE_CHARS = 3500;
+
+export class TelegramTrailCoalescer {
+    private readonly maxMessageChars: number;
+    /** Accumulated assistant text not yet emitted as a message. */
+    private buffer = '';
+
+    constructor(opts: { maxMessageChars?: number } = {}) {
+        const n = opts.maxMessageChars;
+        this.maxMessageChars = Number.isFinite(n) && (n as number) > 0
+            ? Math.floor(n as number)
+            : DEFAULT_MAX_MESSAGE_CHARS;
+    }
+
+    /**
+     * Feed one event. Returns zero or more messages to send **now**, in order.
+     * Assistant text is buffered and may not produce output until a later event
+     * (or {@link flush}) forces it out.
+     */
+    push(event: LiveTrailEvent): string[] {
+        switch (event.kind) {
+            case 'prompt':
+                // A fresh prompt block — flush anything stale, then announce.
+                return [
+                    ...this.flush(),
+                    `🚀 prompt started [${event.transport}/${event.config}]`,
+                ];
+            case 'thinking':
+            case 'toolResult':
+                return [];
+            case 'assistant':
+                return this.appendAssistant(event.text);
+            case 'toolCall':
+                return [...this.flush(), `🔧 ${event.toolName}`];
+            case 'done':
+                return [
+                    ...this.flush(),
+                    `✅ done (rounds=${event.rounds}, tools=${event.toolCalls}, ${event.durationMs}ms)`,
+                ];
+            case 'error':
+                return [...this.flush(), `⚠️ error: ${event.message}`];
+            case 'interruption':
+                return [...this.flush(), `🟡 ${event.label}: ${event.message}`];
+            default: {
+                // Exhaustiveness guard: a new event kind must be handled above.
+                const _never: never = event;
+                void _never;
+                return [];
+            }
+        }
+    }
+
+    /**
+     * Emit any buffered assistant text as a message and clear the buffer.
+     * Called by `push` before structural events and by the forwarder when the
+     * turn ends. Returns 0 or 1 messages — {@link appendAssistant} already keeps
+     * the buffer below {@link maxMessageChars}, so a single message always fits.
+     */
+    flush(): string[] {
+        const text = this.buffer.trim();
+        this.buffer = '';
+        return text ? [text] : [];
+    }
+
+    /**
+     * Buffer an assistant chunk. If the buffer grows past the size limit, emit
+     * the full chunks that fit now and keep the remainder buffered so streamed
+     * output is delivered progressively rather than all at the end. The retained
+     * remainder is always below the limit, so {@link flush} never has to split.
+     */
+    private appendAssistant(text: string): string[] {
+        if (!text) { return []; }
+        this.buffer += text;
+        if (this.buffer.length < this.maxMessageChars) { return []; }
+        // Emit complete max-sized chunks, retaining the trailing partial.
+        const out: string[] = [];
+        while (this.buffer.length >= this.maxMessageChars) {
+            out.push(this.buffer.slice(0, this.maxMessageChars));
+            this.buffer = this.buffer.slice(this.maxMessageChars);
+        }
+        return out;
+    }
+}

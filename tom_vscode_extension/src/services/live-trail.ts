@@ -57,7 +57,71 @@ export interface LiveTrailPromptInfo {
     userText: string;
 }
 
+/**
+ * Semantic events emitted by a {@link LiveTrailWriter} as a turn runs. These
+ * mirror the markdown the writer appends to `live-trail.md`, but as structured
+ * data so consumers (e.g. the Telegram forwarder) can follow a turn without
+ * parsing the file. Every event carries the writer's `questId` so a consumer
+ * can filter to the quest it cares about.
+ *
+ * The `kind` discriminator drives which extra fields are present:
+ *   - `prompt`       — a new prompt block opened (`transport`/`config`/`userText`).
+ *   - `thinking`     — a chunk of model thinking text (`text`).
+ *   - `toolCall`     — a tool invocation started (`toolName`/`replayKey`).
+ *   - `toolResult`   — a tool returned (`fullLength` = result size in chars).
+ *   - `assistant`    — a chunk of assistant text (`text`).
+ *   - `done`         — the turn finished cleanly (`rounds`/`toolCalls`/`durationMs`).
+ *   - `error`        — the turn failed (`message`).
+ *   - `interruption` — the turn was interrupted/rate-limited (`label`/`message`).
+ */
+export type LiveTrailEvent =
+    | { kind: 'prompt'; questId: string; transport: string; config: string; userText: string }
+    | { kind: 'thinking'; questId: string; text: string }
+    | { kind: 'toolCall'; questId: string; toolName: string; replayKey: string }
+    | { kind: 'toolResult'; questId: string; fullLength: number }
+    | { kind: 'assistant'; questId: string; text: string }
+    | { kind: 'done'; questId: string; rounds: number; toolCalls: number; durationMs: number }
+    | { kind: 'error'; questId: string; message: string }
+    | { kind: 'interruption'; questId: string; label: string; message: string };
+
+/** Observer callback invoked for every {@link LiveTrailEvent}. */
+export type LiveTrailObserver = (event: LiveTrailEvent) => void;
+
+/**
+ * Union-aware `Omit`: distributes over each member so dropping `questId` keeps
+ * the per-member fields (a plain `Omit` over a union collapses to common keys).
+ */
+type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never;
+
+/** A {@link LiveTrailEvent} as supplied to `emit`, before `questId` is stamped on. */
+type LiveTrailEventInput = DistributiveOmit<LiveTrailEvent, 'questId'>;
+
 export class LiveTrailWriter {
+    /**
+     * Process-wide set of observers notified of every {@link LiveTrailEvent}
+     * from any writer instance. Static so a consumer can subscribe once
+     * (e.g. when a Telegram-driven prompt starts) and receive events from the
+     * writer the handler creates per turn, without threading the writer
+     * through. Observers filter by `event.questId` themselves.
+     */
+    private static observers = new Set<LiveTrailObserver>();
+
+    /**
+     * Subscribe to live-trail events from all writers. Returns a disposable
+     * that removes the observer. Observer exceptions are swallowed so a broken
+     * consumer can never affect a turn.
+     */
+    static addObserver(observer: LiveTrailObserver): { dispose(): void } {
+        LiveTrailWriter.observers.add(observer);
+        return {
+            dispose(): void {
+                LiveTrailWriter.observers.delete(observer);
+            },
+        };
+    }
+
+    /** Raw (unsanitized) quest id stamped onto every emitted event. */
+    private readonly questId: string;
     private filePath: string;
     private startedAtMs = 0;
     /**
@@ -89,6 +153,7 @@ export class LiveTrailWriter {
      *                   stomping on each other.
      */
     constructor(questId: string, fileName: string = 'live-trail.md') {
+        this.questId = questId || 'default';
         const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
         const questsRoot = WsPaths.ai('quests') ?? path.join(wsRoot, WsPaths.aiFolder, 'quests');
         const safeQuest = (questId || 'default').replace(/[^A-Za-z0-9_.-]/g, '_');
@@ -156,6 +221,7 @@ export class LiveTrailWriter {
                 '',
             ].filter((l, i) => !(i === 0 && l === ''));  // drop leading empty when trimmed body was empty
             this.write(lines.join('\n'));
+            this.emit({ kind: 'prompt', transport: info.transport, config: info.config, userText: info.userText });
         } catch {
             // swallowed — trail writes must never affect the turn
         }
@@ -170,6 +236,7 @@ export class LiveTrailWriter {
             this.currentlyInThinking = true;
             this.currentlyInAssistantText = false;
             this.append(body);
+            this.emit({ kind: 'thinking', text });
         } catch { /* swallowed */ }
     }
 
@@ -184,6 +251,7 @@ export class LiveTrailWriter {
                 inputJson + '\n' +
                 '```\n',
             );
+            this.emit({ kind: 'toolCall', toolName, replayKey });
         } catch { /* swallowed */ }
     }
 
@@ -200,6 +268,7 @@ export class LiveTrailWriter {
                 '```\n\n' +
                 '</details>\n',
             );
+            this.emit({ kind: 'toolResult', fullLength });
         } catch { /* swallowed */ }
     }
 
@@ -212,6 +281,7 @@ export class LiveTrailWriter {
             this.currentlyInAssistantText = true;
             this.currentlyInThinking = false;
             this.append(body);
+            this.emit({ kind: 'assistant', text });
         } catch { /* swallowed */ }
     }
 
@@ -221,6 +291,7 @@ export class LiveTrailWriter {
             this.append(`\n\n### ✅ DONE (rounds=${summary.rounds}, toolCalls=${summary.toolCalls}, ${ms}ms)\n`);
             this.currentlyInAssistantText = false;
             this.currentlyInThinking = false;
+            this.emit({ kind: 'done', rounds: summary.rounds, toolCalls: summary.toolCalls, durationMs: ms });
         } catch { /* swallowed */ }
     }
 
@@ -229,6 +300,7 @@ export class LiveTrailWriter {
             this.append(`\n\n### ⚠️ ERROR\n\n\`\`\`text\n${this.clip(message, 2000)}\n\`\`\`\n`);
             this.currentlyInAssistantText = false;
             this.currentlyInThinking = false;
+            this.emit({ kind: 'error', message });
         } catch { /* swallowed */ }
     }
 
@@ -253,7 +325,29 @@ export class LiveTrailWriter {
             );
             this.currentlyInAssistantText = false;
             this.currentlyInThinking = false;
+            this.emit({ kind: 'interruption', label, message });
         } catch { /* swallowed */ }
+    }
+
+    // ------------------------------------------------------------------------
+    // Observer dispatch
+    // ------------------------------------------------------------------------
+
+    /**
+     * Notify all static observers of an event. Each observer is isolated: a
+     * throwing observer never affects the others or the turn. Events that omit
+     * `questId` are stamped with this writer's quest id.
+     */
+    private emit(event: LiveTrailEventInput): void {
+        if (LiveTrailWriter.observers.size === 0) { return; }
+        const full = { ...event, questId: this.questId } as LiveTrailEvent;
+        for (const observer of LiveTrailWriter.observers) {
+            try {
+                observer(full);
+            } catch {
+                // swallowed — a broken observer must never affect the turn
+            }
+        }
     }
 
     // ------------------------------------------------------------------------
