@@ -20,6 +20,16 @@ import * as vscode from 'vscode';
 import { FsUtils } from '../utils/fsUtils';
 import { WsPaths } from '../utils/workspacePaths';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
+import {
+    stampRawTurns,
+    extractRawTurns,
+    formatHistoryAsMarkdown,
+    type SnapshotTurn,
+} from './historySnapshotFormat';
+
+// Re-exported for callers that previously imported these from this module.
+export { formatHistoryAsMarkdown } from './historySnapshotFormat';
+export type { HistoryMarkdownInput } from './historySnapshotFormat';
 
 export type MemoryScope = 'quest' | 'shared';
 export type MemoryReadScope = MemoryScope | 'all';
@@ -492,13 +502,6 @@ export class TwoTierMemoryService {
             const folder = this.historyFolder(questId);
             FsUtils.ensureDir(folder);
             const savedAt = new Date().toISOString();
-            const payload = { messages, savedAt };
-            const jsonContent = JSON.stringify(payload, null, 2);
-            const mdContent = formatHistoryAsMarkdown({
-                messages,
-                savedAt,
-                questId: questId || this.currentQuest() || 'default',
-            });
             // Single rolling pair. When a suffix is provided, write to
             // `history-<suffix>.{json,md}` in the same folder so each
             // profile can own its own conversation thread without
@@ -506,6 +509,18 @@ export class TwoTierMemoryService {
             const base = suffix ? `history-${suffix}` : 'history';
             const canonicalJson = path.join(folder, `${base}.json`);
             const canonicalMd = path.join(folder, `${base}.md`);
+            // Make the snapshot mergeable: stamp each raw turn with a stable
+            // per-entry timestamp, preserving timestamps already on disk (so
+            // the same logical turn carries the same ts on both sides of a
+            // divergence) and migrating legacy snapshots that have none.
+            const stampedMessages = this.stampSnapshotMessages(messages, canonicalJson);
+            const payload = { messages: stampedMessages, savedAt };
+            const jsonContent = JSON.stringify(payload, null, 2);
+            const mdContent = formatHistoryAsMarkdown({
+                messages: stampedMessages,
+                savedAt,
+                questId: questId || this.currentQuest() || 'default',
+            });
             fs.writeFileSync(canonicalJson, jsonContent, 'utf-8');
             fs.writeFileSync(canonicalMd, mdContent, 'utf-8');
             if (archive) {
@@ -519,6 +534,39 @@ export class TwoTierMemoryService {
         } catch {
             return undefined;
         }
+    }
+
+    /**
+     * Return a copy of `messages` whose raw turns carry a stable per-entry
+     * `ts`, making the snapshot mergeable across machines.
+     *
+     * Only the canonical `{ compactedSummary, rawTurns }` shape carries raw
+     * turns; any other payload (e.g. the JSON fallback) is passed through
+     * untouched. Timestamps are matched against the file currently at
+     * `jsonPath` so an existing turn keeps its timestamp, and a legacy
+     * snapshot (entries with no `ts`) is migrated on this write — see
+     * {@link stampRawTurns}.
+     */
+    private stampSnapshotMessages(messages: unknown, jsonPath: string): unknown {
+        if (!messages || typeof messages !== 'object' || Array.isArray(messages)) {
+            return messages;
+        }
+        const obj = messages as { compactedSummary?: unknown; rawTurns?: unknown };
+        if (!Array.isArray(obj.rawTurns)) {
+            return messages;
+        }
+        const nextTurns = extractRawTurns(messages);
+        let prevTurns: SnapshotTurn[] = [];
+        try {
+            if (fs.existsSync(jsonPath)) {
+                const prior = FsUtils.safeReadJson<{ messages?: unknown }>(jsonPath);
+                prevTurns = extractRawTurns(prior?.messages);
+            }
+        } catch {
+            // Best-effort — an unreadable prior file is treated as fresh.
+        }
+        const stamped = stampRawTurns(nextTurns, prevTurns, Date.now());
+        return { ...obj, rawTurns: stamped };
     }
 
     /**
@@ -722,77 +770,6 @@ export class TwoTierMemoryService {
     }
 }
 
-// ============================================================================
-// History → Markdown rendering
-// ============================================================================
-
-export interface HistoryMarkdownInput {
-    messages: unknown;
-    savedAt: string;
-    questId: string;
-}
-
-/**
- * Render a persisted session history payload as human-readable Markdown.
- *
- * Handles the canonical shape (`{ compactedSummary, rawTurns }`) with
- * nicely formatted sections; anything else falls through to a raw-JSON
- * code block so the file is still openable without a parser in the
- * middle. The legacy flat `ConversationMessage[]` shape no longer has
- * a first-class branch — it renders as JSON via the fallback.
- *
- * Written next to every `history.json` (see `persistHistorySnapshot`)
- * so the "Open session history" button in the chat panels has a
- * single stable path to open in the MD Browser.
- */
-export function formatHistoryAsMarkdown(input: HistoryMarkdownInput): string {
-    const { messages, savedAt, questId } = input;
-    const lines: string[] = [];
-    lines.push(`# Session history — \`${questId}\``);
-    lines.push('');
-    lines.push(`_Saved at ${savedAt}._`);
-    lines.push('');
-
-    // --- Canonical shape: { compactedSummary, rawTurns } ---
-    if (messages && typeof messages === 'object' && !Array.isArray(messages)) {
-        const obj = messages as { compactedSummary?: unknown; rawTurns?: unknown };
-        const summary = typeof obj.compactedSummary === 'string' ? obj.compactedSummary : '';
-        const rawTurnsRaw = Array.isArray(obj.rawTurns) ? obj.rawTurns : [];
-        const rawTurns = rawTurnsRaw.filter((m): m is { role: string; content: string } =>
-            !!m && typeof m === 'object' &&
-            typeof (m as { role?: unknown }).role === 'string' &&
-            typeof (m as { content?: unknown }).content === 'string',
-        );
-
-        lines.push(`## Compacted summary — ${summary.length} chars`);
-        lines.push('');
-        if (!summary) {
-            lines.push('_(empty — no turns have been compacted into the summary yet.)_');
-        } else {
-            lines.push(summary);
-        }
-        lines.push('');
-        lines.push(`## Raw turns — ${rawTurns.length} messages`);
-        lines.push('');
-        if (rawTurns.length === 0) {
-            lines.push('_(empty — fresh session or just after a clear.)_');
-        } else {
-            for (let i = 0; i < rawTurns.length; i++) {
-                const m = rawTurns[i];
-                lines.push(`### [${i + 1}] ${m.role} — ${m.content.length} chars`);
-                lines.push('');
-                lines.push(m.content);
-                lines.push('');
-            }
-        }
-        return lines.join('\n');
-    }
-
-    // --- Fallback: raw JSON dump so the file is still inspectable ---
-    lines.push('## Raw payload');
-    lines.push('');
-    lines.push('```json');
-    lines.push(JSON.stringify(messages, null, 2));
-    lines.push('```');
-    return lines.join('\n');
-}
+// History → Markdown rendering and snapshot timestamping now live in the pure,
+// vscode-free `historySnapshotFormat` module (re-exported above) so they can be
+// unit-tested under node:test.
