@@ -36,10 +36,9 @@ import { findNearestDetectedProject, scanWorkspaceProjectsByDetectors } from '..
 import {
     parseSendPromptArgs,
     isSendPromptParseError,
-    questMatches,
     SEND_PROMPT_USAGE,
 } from '../utils/telegramSendPrompt';
-import { TelegramSendPromptForwarder, type TrailSendChannel } from './telegramTrailForwarder';
+import type { LiveConversationStatus } from './telegramTrailForwarder';
 import type { SendToChatOutcome } from './sendToChatRouter';
 
 // ============================================================================
@@ -515,20 +514,32 @@ async function statusHandler(_cmd: ParsedTelegramCommand): Promise<TelegramComma
 }
 
 // ============================================================================
-// send_prompt — drive the Anthropic chat panel remotely
+// Live-conversation commands — send_prompt / chat_silent / chat_listen / chat_status
 // ============================================================================
 
 /**
- * Dependencies the `send_prompt` command needs from the extension host. Passed
- * in (rather than imported here) so the command-handler module stays free of
- * the chat-panel / router wiring and is easy to unit-test, and so the registry
- * can be built without these when no extension context is available.
+ * Controls the persistent live-conversation forwarder owns. Passed in so the
+ * command handlers can toggle listening mode and report running state without
+ * importing the forwarder wiring directly.
+ */
+export interface LiveConversationControls {
+    /** Stream live updates (`true`) or only the final answer (`false`). */
+    setListening(on: boolean): void;
+    /** Whether live updates are currently streamed. */
+    isListening(): boolean;
+    /** Snapshot of the running prompt + listening mode. */
+    getStatus(): LiveConversationStatus;
+}
+
+/**
+ * Dependencies the live-conversation commands need from the extension host.
+ * Passed in (rather than imported here) so the command-handler module stays
+ * free of the chat-panel / router wiring and is easy to unit-test, and so the
+ * registry can be built without these when no extension context is available.
  */
 export interface CommandRegistryDeps {
     /** Extension context, threaded into the Anthropic send path. */
     context: vscode.ExtensionContext;
-    /** Channel used to stream live-trail progress back to Telegram. */
-    channel: TrailSendChannel | null;
     /** Whether the @CHAT Anthropic panel has been opened in this window. */
     isChatPanelOpen: () => boolean;
     /** Run a prompt exactly as a panel send would; resolves with the outcome. */
@@ -536,15 +547,27 @@ export interface CommandRegistryDeps {
         context: vscode.ExtensionContext,
         prompt: string,
     ) => Promise<SendToChatOutcome>;
-    /** The active quest id of this window (`.code-workspace` stem). */
-    getCurrentQuest: () => string;
+    /** Controls for the persistent live-conversation forwarder. */
+    liveConversation: LiveConversationControls;
+}
+
+/** Render an elapsed-milliseconds duration as a compact `Xm Ys` / `Ys` string. */
+function formatElapsed(ms: number): string {
+    const totalSec = Math.max(0, Math.round(ms / 1000));
+    const min = Math.floor(totalSec / 60);
+    const sec = totalSec % 60;
+    return min > 0 ? `${min}m ${sec}s` : `${sec}s`;
 }
 
 /**
- * Handle `send_prompt <quest> <prompt text>` — send a prompt to *this* window's
- * Anthropic chat panel, but only when the requested quest matches the window's
- * active quest and the panel is actually open. Streams the turn's live-trail
- * back to the chat so the user can follow processing.
+ * Handle `send_prompt <prompt text>` — run a prompt in *this* window's Anthropic
+ * chat exactly as a panel send would. Settings are per workspace/quest, so the
+ * window that polls the bot is the one that runs the prompt — no quest selector.
+ *
+ * Progress is forwarded by the persistent live-conversation forwarder (which is
+ * always subscribed), so this handler stays quiet on success. If a prompt is
+ * already running — whether started here or from VS Code — the send is rejected
+ * with an informative message (the prompt queue, not Telegram, owns queuing).
  */
 async function sendPromptHandler(
     cmd: ParsedTelegramCommand,
@@ -553,18 +576,6 @@ async function sendPromptHandler(
     const parsed = parseSendPromptArgs(cmd.rawArgs);
     if (isSendPromptParseError(parsed)) {
         return { text: `❌ ${parsed.error}`, rawText: true };
-    }
-
-    const currentQuest = deps.getCurrentQuest();
-    // Double-check the quest: multiple windows may poll the same bot, and only
-    // the window whose active quest matches should process the prompt.
-    if (!questMatches(parsed.quest, currentQuest)) {
-        return {
-            text:
-                `⚠️ This VS Code window's active quest is "${currentQuest}", not "${parsed.quest}". ` +
-                `Run send_prompt from the window whose quest is "${parsed.quest}".`,
-            rawText: true,
-        };
     }
 
     if (!deps.isChatPanelOpen()) {
@@ -576,34 +587,61 @@ async function sendPromptHandler(
         };
     }
 
-    bridgeLog(`[Telegram] send_prompt → quest "${currentQuest}" (${parsed.prompt.length} chars)`);
+    bridgeLog(`[Telegram] send_prompt (${parsed.prompt.length} chars)`);
 
-    const forwarder = new TelegramSendPromptForwarder(deps.channel, cmd.chatId, currentQuest);
-    forwarder.start();
-    try {
-        const outcome = await deps.runAnthropicSend(deps.context, parsed.prompt);
-        forwarder.flush();
-        await forwarder.drain();
+    const outcome = await deps.runAnthropicSend(deps.context, parsed.prompt);
 
-        if (outcome.rejected) {
-            return {
-                text: '⏳ A chat request is already running in this window. Try again once it finishes.',
-                rawText: true,
-            };
-        }
-        if (!outcome.ok) {
-            return { text: `❌ Prompt failed: ${outcome.error ?? 'unknown error'}`, rawText: true };
-        }
-        // When the trail already forwarded a terminal footer (✅/⚠️/🟡), suppress
-        // a redundant final reply; otherwise confirm completion.
+    if (outcome.rejected) {
+        const status = deps.liveConversation.getStatus();
+        const elapsed = status.running ? ` (running for ${formatElapsed(status.elapsedMs)})` : '';
         return {
-            text: '✅ Prompt processed.',
+            text:
+                `⏳ A prompt is already running in this quest${elapsed}. ` +
+                'Your new prompt was not started — try again once the current one finishes.',
             rawText: true,
-            silent: forwarder.sawTerminal,
         };
-    } finally {
-        forwarder.stop();
     }
+    if (!outcome.ok) {
+        return { text: `❌ Prompt failed: ${outcome.error ?? 'unknown error'}`, rawText: true };
+    }
+    // The live-conversation forwarder already delivered the answer (streamed in
+    // listening mode, or the final answer in silent mode), so stay quiet.
+    return { text: '', rawText: true, silent: true };
+}
+
+/** Handle `chat_silent` — suppress live updates; only the final answer is sent. */
+async function chatSilentHandler(deps: CommandRegistryDeps): Promise<TelegramCommandResult> {
+    deps.liveConversation.setListening(false);
+    return {
+        text: '🔇 Silent mode: live updates muted. You will still receive the final answer.',
+        rawText: true,
+    };
+}
+
+/** Handle `chat_listen` — resume streaming the live conversation. */
+async function chatListenHandler(deps: CommandRegistryDeps): Promise<TelegramCommandResult> {
+    deps.liveConversation.setListening(true);
+    return {
+        text: '🔊 Listening: you will now receive live updates from the running prompt.',
+        rawText: true,
+    };
+}
+
+/** Handle `chat_status` — report whether a prompt is running and for how long. */
+async function chatStatusHandler(deps: CommandRegistryDeps): Promise<TelegramCommandResult> {
+    const status = deps.liveConversation.getStatus();
+    const mode = status.listening ? '🔊 listening' : '🔇 silent';
+    if (!status.running) {
+        return { text: `💤 No prompt is running.\nMode: ${mode}`, rawText: true };
+    }
+    const where = [status.transport, status.config].filter(Boolean).join('/');
+    const whereLine = where ? `\nTransport: ${where}` : '';
+    return {
+        text:
+            `⏳ A prompt is running — ${formatElapsed(status.elapsedMs)} so far.` +
+            `${whereLine}\nMode: ${mode}`,
+        rawText: true,
+    };
 }
 
 // ============================================================================
@@ -754,13 +792,29 @@ export function createCommandRegistry(
         handler: statusHandler,
     });
 
-    // send_prompt — drive the Anthropic chat panel remotely (needs host wiring)
+    // Live-conversation commands — need host wiring (Anthropic send path +
+    // the persistent forwarder). Omitted when no extension context is available.
     if (deps) {
         registry.register({
             name: 'send_prompt',
-            description: 'Send a prompt to the Anthropic chat panel of a quest window',
+            description: 'Run a prompt in this quest window\'s Anthropic chat',
             usage: SEND_PROMPT_USAGE,
             handler: (cmd) => sendPromptHandler(cmd, deps),
+        });
+        registry.register({
+            name: 'chat_silent',
+            description: 'Mute live updates (still receive the final answer)',
+            handler: () => chatSilentHandler(deps),
+        });
+        registry.register({
+            name: 'chat_listen',
+            description: 'Resume streaming the live conversation',
+            handler: () => chatListenHandler(deps),
+        });
+        registry.register({
+            name: 'chat_status',
+            description: 'Show whether a prompt is running and for how long',
+            handler: () => chatStatusHandler(deps),
         });
     }
 

@@ -1,9 +1,10 @@
 /**
  * Unit tests for the pure `send_prompt` helpers.
  *
- * Cover the parser's required-parts contract (quest + prompt), verbatim prompt
- * preservation, and the case-insensitive quest matching that decides whether a
- * given window owns an incoming prompt.
+ * Cover the parser's contract (the whole message is the prompt — settings are
+ * per workspace/quest so no quest selector is parsed), verbatim prompt
+ * preservation, and the case-insensitive quest matching the live-conversation
+ * forwarder uses to filter trail events to its own window's quest.
  */
 
 import test, { describe } from 'node:test';
@@ -16,42 +17,32 @@ import {
 } from '../telegramSendPrompt.js';
 
 describe('parseSendPromptArgs', () => {
-    test('splits the first token as quest and the rest as prompt', () => {
-        const r = parseSendPromptArgs('vscode_extension Summarize the open bug');
+    test('takes the whole message as the prompt', () => {
+        const r = parseSendPromptArgs('Summarize the open bug');
         assert.ok(!isSendPromptParseError(r));
-        assert.equal(r.quest, 'vscode_extension');
         assert.equal(r.prompt, 'Summarize the open bug');
     });
 
     test('preserves internal newlines and casing in the prompt', () => {
-        const r = parseSendPromptArgs('myquest Line one\nLine TWO\n  indented');
+        const r = parseSendPromptArgs('Line one\nLine TWO\n  indented');
         assert.ok(!isSendPromptParseError(r));
-        assert.equal(r.quest, 'myquest');
         assert.equal(r.prompt, 'Line one\nLine TWO\n  indented');
     });
 
     test('trims surrounding whitespace but not the inner body', () => {
-        const r = parseSendPromptArgs('   q   hello world   ');
+        const r = parseSendPromptArgs('   hello   world   ');
         assert.ok(!isSendPromptParseError(r));
-        assert.equal(r.quest, 'q');
-        assert.equal(r.prompt, 'hello world');
+        assert.equal(r.prompt, 'hello   world');
     });
 
     test('errors when nothing is provided', () => {
         const r = parseSendPromptArgs('');
         assert.ok(isSendPromptParseError(r));
-        assert.match(r.error, /No quest specified/);
-    });
-
-    test('errors when only a quest is provided', () => {
-        const r = parseSendPromptArgs('onlyquest');
-        assert.ok(isSendPromptParseError(r));
         assert.match(r.error, /No prompt text specified/);
-        assert.match(r.error, /onlyquest/);
     });
 
-    test('errors when the prompt is only whitespace after the quest', () => {
-        const r = parseSendPromptArgs('q    \n   ');
+    test('errors when the message is only whitespace', () => {
+        const r = parseSendPromptArgs('    \n   ');
         assert.ok(isSendPromptParseError(r));
         assert.match(r.error, /No prompt text specified/);
     });

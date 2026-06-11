@@ -10,7 +10,11 @@
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { TelegramTrailCoalescer } from '../telegramTrailCoalescer.js';
+import {
+    TelegramTrailCoalescer,
+    formatTrailTerminalLine,
+    splitTelegramMessage,
+} from '../telegramTrailCoalescer.js';
 import type { LiveTrailEvent } from '../live-trail.js';
 
 const Q = 'demo';
@@ -104,6 +108,48 @@ describe('TelegramTrailCoalescer', () => {
             '🔧 Grep',
             'found it',
             '✅ done (rounds=1, tools=1, 100ms)',
+        ]);
+    });
+});
+
+describe('formatTrailTerminalLine', () => {
+    test('formats a done event', () => {
+        assert.equal(
+            formatTrailTerminalLine({ kind: 'done', questId: Q, rounds: 2, toolCalls: 3, durationMs: 4500 }),
+            '✅ done (rounds=2, tools=3, 4500ms)',
+        );
+    });
+    test('formats an error event', () => {
+        assert.equal(
+            formatTrailTerminalLine({ kind: 'error', questId: Q, message: 'boom' }),
+            '⚠️ error: boom',
+        );
+    });
+    test('formats an interruption event', () => {
+        assert.equal(
+            formatTrailTerminalLine({ kind: 'interruption', questId: Q, label: 'RATE LIMIT', message: 'slow down' }),
+            '🟡 RATE LIMIT: slow down',
+        );
+    });
+    test('matches the coalescer footer for the same event', () => {
+        const c = new TelegramTrailCoalescer();
+        const event: LiveTrailEvent = { kind: 'done', questId: Q, rounds: 1, toolCalls: 0, durationMs: 10 };
+        assert.deepEqual(c.push(event), [formatTrailTerminalLine(event)]);
+    });
+});
+
+describe('splitTelegramMessage', () => {
+    test('returns [] for empty input', () => {
+        assert.deepEqual(splitTelegramMessage(''), []);
+    });
+    test('returns the whole string when under the cap', () => {
+        assert.deepEqual(splitTelegramMessage('short', 10), ['short']);
+    });
+    test('hard-slices oversize text into cap-sized chunks', () => {
+        assert.deepEqual(splitTelegramMessage('A'.repeat(25), 10), [
+            'AAAAAAAAAA',
+            'AAAAAAAAAA',
+            'AAAAA',
         ]);
     });
 });

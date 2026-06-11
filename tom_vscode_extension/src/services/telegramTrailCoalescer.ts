@@ -25,6 +25,49 @@ import type { LiveTrailEvent } from './live-trail.js';
 /** Telegram hard limit is 4096 chars; stay well under to leave room for escaping. */
 const DEFAULT_MAX_MESSAGE_CHARS = 3500;
 
+/** A terminal live-trail event (the turn ended cleanly, failed, or was interrupted). */
+export type TerminalTrailEvent = Extract<
+    LiveTrailEvent,
+    { kind: 'done' | 'error' | 'interruption' }
+>;
+
+/**
+ * One-line summary for a terminal event, shared by the coalescer's streaming
+ * path and the live-conversation forwarder's silent path so both render the
+ * outcome footer identically.
+ */
+export function formatTrailTerminalLine(event: TerminalTrailEvent): string {
+    switch (event.kind) {
+        case 'done':
+            return `✅ done (rounds=${event.rounds}, tools=${event.toolCalls}, ${event.durationMs}ms)`;
+        case 'error':
+            return `⚠️ error: ${event.message}`;
+        case 'interruption':
+            return `🟡 ${event.label}: ${event.message}`;
+    }
+}
+
+/**
+ * Split a single block of text into Telegram-sized messages (hard slices at
+ * `maxChars`). Returns `[]` for empty input. Used by the forwarder to deliver a
+ * long final answer in silent mode without exceeding the Bot API message cap.
+ */
+export function splitTelegramMessage(
+    text: string,
+    maxChars: number = DEFAULT_MAX_MESSAGE_CHARS,
+): string[] {
+    const t = text ?? '';
+    if (t.length === 0) { return []; }
+    const out: string[] = [];
+    let rest = t;
+    while (rest.length > maxChars) {
+        out.push(rest.slice(0, maxChars));
+        rest = rest.slice(maxChars);
+    }
+    if (rest.length > 0) { out.push(rest); }
+    return out;
+}
+
 export class TelegramTrailCoalescer {
     private readonly maxMessageChars: number;
     /** Accumulated assistant text not yet emitted as a message. */
@@ -58,14 +101,9 @@ export class TelegramTrailCoalescer {
             case 'toolCall':
                 return [...this.flush(), `🔧 ${event.toolName}`];
             case 'done':
-                return [
-                    ...this.flush(),
-                    `✅ done (rounds=${event.rounds}, tools=${event.toolCalls}, ${event.durationMs}ms)`,
-                ];
             case 'error':
-                return [...this.flush(), `⚠️ error: ${event.message}`];
             case 'interruption':
-                return [...this.flush(), `🟡 ${event.label}: ${event.message}`];
+                return [...this.flush(), formatTrailTerminalLine(event)];
             default: {
                 // Exhaustiveness guard: a new event kind must be handled above.
                 const _never: never = event;

@@ -1,29 +1,28 @@
 /**
- * Pure helpers for the Telegram `send_prompt` command — parsing the quest +
- * prompt out of the raw message and deciding whether *this* window should
- * process it.
+ * Pure helpers for the Telegram `send_prompt` command.
+ *
+ * Telegram settings are now **per workspace/quest** (each workspace's
+ * `tom_vscode_extension.json` configures its own bot), so a prompt no longer
+ * carries a quest selector: the window that polls the bot is the one that runs
+ * the prompt. The whole message (everything after the `send_prompt` command
+ * word) is therefore the prompt body, sent verbatim apart from boundary
+ * trimming.
  *
  * Kept free of `vscode` / I/O so it is unit-testable; the command handler in
- * `telegram-cmd-handlers.ts` wires these to `WsPaths.getWorkspaceQuestId()` and
- * the Anthropic send path.
+ * `telegram-cmd-handlers.ts` wires these to the Anthropic send path, and
+ * {@link questMatches} is used by the live-conversation forwarder to filter
+ * live-trail events down to this window's own quest.
  *
- * Message shape (everything after the `send_prompt` command word):
- *
- *     send_prompt <quest> <prompt text…>
- *
- * The first whitespace-delimited token is the quest id; the remainder (which may
- * span multiple lines) is the prompt, sent verbatim apart from boundary
- * trimming. A prompt cannot be sent without a quest — both parts are required.
+ *     send_prompt <prompt text…>
  */
 
 /** Human-readable usage shown on a parse error and in the command help. */
 export const SEND_PROMPT_USAGE =
-    'Usage: send_prompt <quest> <prompt text>\n' +
-    'Example: send_prompt vscode_extension Summarize the open bug in the queue path';
+    'Usage: send_prompt <prompt text>\n' +
+    'Example: send_prompt Summarize the open bug in the queue path';
 
-/** Successful parse: the quest id and the verbatim prompt body. */
+/** Successful parse: the verbatim prompt body. */
 export interface SendPromptArgs {
-    quest: string;
     prompt: string;
 }
 
@@ -40,35 +39,26 @@ export function isSendPromptParseError(
 }
 
 /**
- * Split the raw `send_prompt` arguments into `{ quest, prompt }`, or return
- * `{ error }` when either part is missing. The prompt preserves its internal
+ * Extract the prompt body from the raw `send_prompt` arguments, or return
+ * `{ error }` when no prompt text is present. The prompt preserves its internal
  * formatting (newlines included) and is only trimmed at the boundaries.
  */
 export function parseSendPromptArgs(rawArgs: string): SendPromptArgs | SendPromptParseError {
-    const text = (rawArgs ?? '').replace(/^\s+/, '');
-    if (text.length === 0) {
-        return { error: `No quest specified.\n${SEND_PROMPT_USAGE}` };
-    }
-    // Quest = first whitespace-delimited token; prompt = the rest.
-    const match = /^(\S+)(\s[\s\S]*)?$/.exec(text);
-    // match always succeeds here since text is non-empty and starts non-space.
-    const quest = match ? match[1] : text;
-    const prompt = (match?.[2] ?? '').trim();
+    const prompt = (rawArgs ?? '').trim();
     if (prompt.length === 0) {
-        return { error: `No prompt text specified for quest "${quest}".\n${SEND_PROMPT_USAGE}` };
+        return { error: `No prompt text specified.\n${SEND_PROMPT_USAGE}` };
     }
-    return { quest, prompt };
+    return { prompt };
 }
 
 /**
- * Whether a `send_prompt` targeting `requestedQuest` should be processed by a
- * window whose active quest is `currentQuest`. Comparison is trimmed and
- * case-insensitive so a hand-typed quest id matches the workspace filename
- * stem. Empty/`default` quests never match a request (a real quest must be
- * named).
+ * Whether a live-trail event whose quest is `eventQuest` belongs to the window
+ * whose active quest is `currentQuest`. Comparison is trimmed and
+ * case-insensitive so the writer's quest id matches the workspace filename
+ * stem. Empty quests never match (a real quest must be named).
  */
-export function questMatches(requestedQuest: string, currentQuest: string): boolean {
-    const a = (requestedQuest ?? '').trim().toLowerCase();
+export function questMatches(eventQuest: string, currentQuest: string): boolean {
+    const a = (eventQuest ?? '').trim().toLowerCase();
     const b = (currentQuest ?? '').trim().toLowerCase();
     if (a.length === 0 || b.length === 0) { return false; }
     return a === b;

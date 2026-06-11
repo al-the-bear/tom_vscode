@@ -11,11 +11,12 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { bridgeLog, getConfigPath } from './handler_shared';
+import { bridgeLog, getConfigPath, getWorkspaceRoot } from './handler_shared';
 import { TelegramNotifier, TelegramConfig, TelegramCommand, TelegramApiResult, parseTelegramConfig } from './telegram-notifier';
 import { TelegramCommandRegistry, ParsedTelegramCommand } from './telegram-cmd-parser';
 import { TelegramResponseFormatter } from './telegram-cmd-response';
 import { createCommandRegistry, type CommandRegistryDeps } from './telegram-cmd-handlers';
+import { TelegramLiveConversationForwarder } from './telegramTrailForwarder';
 import { TelegramChannel } from './chat';
 import { isChatPanelOpen } from './chatPanel-handler';
 import { runAnthropicSend } from './sendToChatRouter';
@@ -33,6 +34,14 @@ let isPollingActive = false;
 /** Command infrastructure for rich command handling. */
 let commandRegistry: TelegramCommandRegistry | null = null;
 let responseFormatter: TelegramResponseFormatter | null = null;
+
+/**
+ * Persistent forwarder that streams this window's live conversation to Telegram
+ * for the whole polling session. Subscribes to every live-trail event (so
+ * VS-Code-initiated prompts are forwarded too, not just `send_prompt` ones) and
+ * owns the listening/silent mode the chat_* commands toggle.
+ */
+let liveConversationForwarder: TelegramLiveConversationForwarder | null = null;
 
 /**
  * Extension context, captured at activation. Needed to build the command
@@ -151,6 +160,8 @@ export async function telegramToggleHandler(): Promise<void> {
 
     if (isPollingActive && standaloneTelegram) {
         // Stop polling
+        liveConversationForwarder?.stop();
+        liveConversationForwarder = null;
         standaloneTelegram.dispose();
         standaloneChannel?.dispose();
         standaloneTelegram = null;
@@ -185,20 +196,39 @@ export async function telegramToggleHandler(): Promise<void> {
 
     // Initialize command infrastructure (using the same channel for responses)
     responseFormatter = new TelegramResponseFormatter(standaloneChannel);
-    // Build send_prompt deps only when we have an extension context — without it
-    // the command can't reach the Anthropic send path, so it stays unregistered.
+
+    // Persistent live-conversation forwarder for this window's quest. Created
+    // before the command deps so the chat_* commands can drive it. Forwards
+    // every prompt running in this quest — including ones started from VS Code.
+    const currentQuest = WsPaths.getWorkspaceQuestId();
+    liveConversationForwarder = new TelegramLiveConversationForwarder(
+        standaloneChannel,
+        config.defaultChatId,
+        currentQuest,
+    );
+    liveConversationForwarder.start();
+
+    // Build live-conversation deps only when we have an extension context —
+    // without it the commands can't reach the Anthropic send path, so they
+    // stay unregistered.
+    const forwarder = liveConversationForwarder;
     const sendPromptDeps: CommandRegistryDeps | undefined = extensionContext
         ? {
             context: extensionContext,
-            channel: standaloneChannel,
             isChatPanelOpen,
             runAnthropicSend,
-            getCurrentQuest: () => WsPaths.getWorkspaceQuestId(),
+            liveConversation: {
+                setListening: (on) => forwarder.setListening(on),
+                isListening: () => forwarder.isListening(),
+                getStatus: () => forwarder.getStatus(),
+            },
         }
         : undefined;
     commandRegistry = createCommandRegistry(() => {
         // Stop callback — triggered by stop command
         standaloneTelegram?.sendMessage('⏹ Polling stopped via Telegram command.');
+        liveConversationForwarder?.stop();
+        liveConversationForwarder = null;
         standaloneTelegram?.dispose();
         standaloneChannel?.dispose();
         standaloneTelegram = null;
@@ -217,6 +247,20 @@ export async function telegramToggleHandler(): Promise<void> {
     isPollingActive = true;
     vscode.window.showInformationMessage(`▶️ Telegram polling started (interval: ${config.pollIntervalMs}ms).`);
     bridgeLog(`[Telegram] Standalone polling started (interval: ${config.pollIntervalMs}ms)`);
+
+    // Announce on Telegram which workspace/quest this bot is now driving, so a
+    // user running a different bot per workspace knows which one replied.
+    const wsName = (() => {
+        const root = getWorkspaceRoot();
+        return root ? path.basename(root) : 'workspace';
+    })();
+    const startupMsg =
+        `🤖 Tom AI bot online\n` +
+        `Workspace: ${wsName}\n` +
+        `Quest: ${currentQuest || '(none)'}\n` +
+        `Mode: 🔊 listening (live updates on)\n` +
+        `Send chat_silent to mute, chat_status for state.`;
+    void standaloneTelegram.sendMessage(startupMsg);
 }
 
 /**
@@ -394,6 +438,10 @@ export function isTelegramPollingActive(): boolean {
 
 /** Dispose standalone Telegram resources. Called on extension deactivation. */
 export function disposeTelegramStandalone(): void {
+    if (liveConversationForwarder) {
+        liveConversationForwarder.stop();
+        liveConversationForwarder = null;
+    }
     if (standaloneTelegram) {
         standaloneTelegram.dispose();
         standaloneTelegram = null;

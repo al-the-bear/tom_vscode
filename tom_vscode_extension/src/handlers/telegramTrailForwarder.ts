@@ -1,25 +1,35 @@
 /**
- * Forwards a single Anthropic turn's live-trail to a Telegram chat so a user who
- * launched a prompt with `send_prompt` can follow the model's progress (tool
- * calls, assistant text, final outcome) from their phone.
+ * Forwards this window's live Anthropic/Local-LLM conversation to a Telegram
+ * chat so the user can "listen in" on whatever prompt is currently running —
+ * whether it was launched from Telegram (`send_prompt`) or typed into VS Code.
  *
- * Lifecycle, owned by the `send_prompt` command handler:
+ * Unlike the old per-`send_prompt` forwarder, a single
+ * {@link TelegramLiveConversationForwarder} is created when Telegram polling
+ * starts and lives for the whole polling session, subscribing to **every**
+ * live-trail event for this window's quest. Two listening modes (toggled from
+ * Telegram) decide how much of the conversation is forwarded:
  *
- *   const fwd = new TelegramSendPromptForwarder(channel, chatId, questId);
- *   fwd.start();                       // subscribe before the turn begins
- *   const outcome = await runAnthropicSend(ctx, prompt);
- *   fwd.flush();                       // emit any buffered assistant tail
- *   await fwd.drain();                 // wait for the send chain to settle
- *   fwd.stop();                        // unsubscribe
+ *   - **listening** (default) — every coalesced update is streamed: prompt
+ *     start, tool calls, assistant text, and the terminal footer.
+ *   - **silent** — intermediate updates are suppressed; only the **final
+ *     answer** plus the terminal footer are sent when the turn ends. The final
+ *     answer is *always* delivered in both modes (the user's hard requirement).
  *
- * Only events for the matching quest are forwarded (multiple windows may share
- * one bot). Sends are serialized through a promise chain so messages arrive in
- * order and don't interleave; send failures are swallowed — trail forwarding is
- * best-effort observability and must never affect the turn's result.
+ * The forwarder also tracks whether a prompt is currently running (and for how
+ * long) so the `/chat_status` command and the "already running" rejection can
+ * report it.
+ *
+ * Sends are serialized through a promise chain so messages keep their emission
+ * order; send failures are swallowed — trail forwarding is best-effort
+ * observability and must never affect the turn's result.
  */
 
-import { LiveTrailWriter } from '../services/live-trail';
-import { TelegramTrailCoalescer } from '../services/telegramTrailCoalescer';
+import { LiveTrailWriter, type LiveTrailEvent } from '../services/live-trail';
+import {
+    TelegramTrailCoalescer,
+    formatTrailTerminalLine,
+    splitTelegramMessage,
+} from '../services/telegramTrailCoalescer';
 import { questMatches } from '../utils/telegramSendPrompt';
 
 /** Minimal channel surface the forwarder needs — satisfied by `TelegramChannel`. */
@@ -31,18 +41,39 @@ export interface TrailSendChannel {
     ): Promise<unknown>;
 }
 
-export class TelegramSendPromptForwarder {
+/** Snapshot of the currently-running prompt (if any) for `/chat_status`. */
+export interface LiveConversationStatus {
+    /** Whether a prompt is currently being processed in this window's quest. */
+    running: boolean;
+    /** Milliseconds since the running prompt started (0 when idle). */
+    elapsedMs: number;
+    /** Transport of the running prompt (e.g. `anthropic`), when running. */
+    transport?: string;
+    /** Configuration name of the running prompt, when running. */
+    config?: string;
+    /** Whether live updates are currently being streamed (vs. silent mode). */
+    listening: boolean;
+}
+
+export class TelegramLiveConversationForwarder {
     private readonly coalescer = new TelegramTrailCoalescer();
     private disposable: { dispose(): void } | undefined;
     /** Serializes outbound sends so messages keep their emission order. */
     private sendChain: Promise<void> = Promise.resolve();
-    private terminalSeen = false;
+    /** When true, intermediate updates are streamed; when false, only the final answer. */
+    private listening = true;
+    /** Accumulated assistant text since the last prompt/tool call — the final answer. */
+    private finalAnswer = '';
+    /** Epoch ms when the current prompt started; `undefined` when idle. */
+    private runningSince: number | undefined;
+    private runningTransport: string | undefined;
+    private runningConfig: string | undefined;
 
     /**
      * @param channel  Channel used to send progress messages (the polling
      *                 channel). `null` disables forwarding (still safe to use).
-     * @param chatId   Telegram chat the prompt came from.
-     * @param questId  Quest whose trail events to forward.
+     * @param chatId   Telegram chat to forward the conversation to.
+     * @param questId  Quest whose trail events to forward (this window's quest).
      */
     constructor(
         private readonly channel: TrailSendChannel | null,
@@ -50,41 +81,98 @@ export class TelegramSendPromptForwarder {
         private readonly questId: string,
     ) {}
 
-    /**
-     * Whether a terminal event (`done` / `error` / `interruption`) was already
-     * forwarded. The command handler uses this to avoid sending a redundant
-     * final reply when the trail already announced the outcome.
-     */
-    get sawTerminal(): boolean {
-        return this.terminalSeen;
-    }
-
-    /** Subscribe to live-trail events. Call before the turn starts. */
+    /** Subscribe to live-trail events. Call once when polling starts. */
     start(): void {
         if (this.disposable) { return; }
-        this.disposable = LiveTrailWriter.addObserver((event) => {
-            if (!questMatches(event.questId, this.questId)) { return; }
-            if (event.kind === 'done' || event.kind === 'error' || event.kind === 'interruption') {
-                this.terminalSeen = true;
-            }
-            this.enqueue(this.coalescer.push(event));
-        });
+        this.disposable = LiveTrailWriter.addObserver((event) => this.onEvent(event));
     }
 
-    /** Emit any assistant text still buffered in the coalescer. */
-    flush(): void {
-        this.enqueue(this.coalescer.flush());
+    /** Unsubscribe from live-trail events. Call when polling stops. */
+    stop(): void {
+        this.disposable?.dispose();
+        this.disposable = undefined;
     }
 
-    /** Resolve once every queued send has settled. */
+    /** Switch between streaming live updates (`true`) and silent mode (`false`). */
+    setListening(on: boolean): void {
+        this.listening = on;
+    }
+
+    /** Whether live updates are currently streamed. */
+    isListening(): boolean {
+        return this.listening;
+    }
+
+    /** Snapshot of the running prompt + listening mode for `/chat_status`. */
+    getStatus(): LiveConversationStatus {
+        const running = this.runningSince !== undefined;
+        return {
+            running,
+            elapsedMs: running ? Date.now() - (this.runningSince as number) : 0,
+            ...(running && this.runningTransport ? { transport: this.runningTransport } : {}),
+            ...(running && this.runningConfig ? { config: this.runningConfig } : {}),
+            listening: this.listening,
+        };
+    }
+
+    /** Resolve once every queued send has settled (used by tests / shutdown). */
     async drain(): Promise<void> {
         await this.sendChain;
     }
 
-    /** Unsubscribe from live-trail events. */
-    stop(): void {
-        this.disposable?.dispose();
-        this.disposable = undefined;
+    // ------------------------------------------------------------------------
+    // Internal
+    // ------------------------------------------------------------------------
+
+    private onEvent(event: LiveTrailEvent): void {
+        if (!questMatches(event.questId, this.questId)) { return; }
+
+        // --- Running-state + final-answer bookkeeping (independent of mode) ---
+        switch (event.kind) {
+            case 'prompt':
+                this.runningSince = Date.now();
+                this.runningTransport = event.transport;
+                this.runningConfig = event.config;
+                this.finalAnswer = '';
+                break;
+            case 'toolCall':
+                // Anything before the last tool call isn't the final answer.
+                this.finalAnswer = '';
+                break;
+            case 'assistant':
+                this.finalAnswer += event.text;
+                break;
+            default:
+                break;
+        }
+
+        const terminal =
+            event.kind === 'done' || event.kind === 'error' || event.kind === 'interruption';
+
+        // Always feed the coalescer so its buffer stays coherent for streaming.
+        const coalesced = this.coalescer.push(event);
+
+        if (terminal) {
+            if (this.listening) {
+                // Streaming already delivered the answer progressively; the
+                // coalescer's terminal output is the tail + footer.
+                this.enqueue(coalesced);
+            } else {
+                // Silent: deliver the complete final answer + footer now.
+                const messages = splitTelegramMessage(this.finalAnswer.trim());
+                messages.push(formatTrailTerminalLine(event));
+                this.enqueue(messages);
+            }
+            this.runningSince = undefined;
+            this.runningTransport = undefined;
+            this.runningConfig = undefined;
+            return;
+        }
+
+        // Non-terminal: stream only while listening.
+        if (this.listening) {
+            this.enqueue(coalesced);
+        }
     }
 
     /** Append messages to the serialized send chain. */
@@ -92,6 +180,7 @@ export class TelegramSendPromptForwarder {
         if (messages.length === 0 || !this.channel) { return; }
         const channel = this.channel;
         for (const message of messages) {
+            if (!message) { continue; }
             this.sendChain = this.sendChain.then(async () => {
                 try {
                     await channel.sendMessage(message, this.chatId, { plain: true });
