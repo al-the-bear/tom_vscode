@@ -78,6 +78,11 @@ export class TelegramResponseFormatter {
                 filename,
                 cmd.chatId,
             );
+        } else if (result.rawText) {
+            // Raw text: send without parse_mode. The producer formatted this
+            // as-is, so applying MarkdownV2 would fail on reserved chars
+            // (!, ., -, (, ), …) and trigger a needless failed-send + retry.
+            await this.sendPlainMessage(text, cmd.chatId);
         } else {
             // Send inline (escaping is done in convertMarkdown)
             await this.sendMessage(text, cmd.chatId);

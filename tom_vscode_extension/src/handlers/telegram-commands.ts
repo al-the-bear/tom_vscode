@@ -266,7 +266,9 @@ export async function telegramToggleHandler(): Promise<void> {
         `Quest: ${currentQuest || '(none)'}\n` +
         `Mode: 🔊 listening (live updates on)\n` +
         `Send chat_silent to mute updates, chat_stop to silence everything, chat_status for state.`;
-    void standaloneTelegram.sendMessage(startupMsg);
+    // Send plain (no parse_mode): the message contains reserved MarkdownV2 chars
+    // (parentheses, etc.) that would otherwise fail and trigger a retry.
+    void standaloneChannel.sendMessage(startupMsg, config.defaultChatId ?? undefined, { plain: true });
 }
 
 /**
