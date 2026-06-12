@@ -1223,6 +1223,10 @@ export async function handleStatusAction(action: string, message: any): Promise<
         case 'startTelegram':
         case 'stopTelegram':
             await vscode.commands.executeCommand('tomAi.telegram.toggle');
+            // The toggle flips this window's polling state; re-render so the
+            // badge reflects it immediately instead of staying on the stale
+            // pre-toggle value.
+            await refreshStatusPage();
             break;
         case 'testTelegram':
             await vscode.commands.executeCommand('tomAi.telegram.testConnection');

@@ -179,6 +179,25 @@ export async function telegramToggleHandler(): Promise<void> {
     standaloneChannel = new TelegramChannel(pollingConfig);
     standaloneTelegram = new TelegramNotifier(standaloneChannel, pollingConfig);
 
+    // Surface getUpdates failures. The common one is a 409 Conflict: only one
+    // client may receive via getUpdates per bot token, so a second window
+    // polling the *same* bot silently receives nothing (sending/Test still
+    // works, which is why the symptom is "Test works but no replies"). Each
+    // workspace needs its own bot — tell the user instead of failing silently.
+    standaloneChannel.onPollError((err) => {
+        if (err.code === 409) {
+            vscode.window.showErrorMessage(
+                'Telegram: another client is already polling this bot token (409 Conflict). ' +
+                'Each workspace/quest needs its own bot — set a distinct botTokenEnv for this quest. ' +
+                'Until then, this window will not receive Telegram messages (sending still works).',
+            );
+        } else {
+            vscode.window.showErrorMessage(
+                `Telegram polling error${err.code ? ` (${err.code})` : ''}: ${err.description}`,
+            );
+        }
+    });
+
     // Initialize command infrastructure (using the same channel for responses)
     responseFormatter = new TelegramResponseFormatter(standaloneChannel);
 

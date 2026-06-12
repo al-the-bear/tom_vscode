@@ -63,6 +63,16 @@ export class TelegramChannel implements ChatChannel {
     private _isListening = false;
     private messageCallbacks: ChannelMessageCallback[] = [];
 
+    /**
+     * Notified when getUpdates returns a Telegram API error (e.g. HTTP 409
+     * Conflict when another client is already polling the same bot token).
+     * Reported once per distinct error code so a persistent conflict doesn't
+     * spam a toast on every poll tick.
+     */
+    private pollErrorCallback: ((err: { code?: number; description: string }) => void) | null = null;
+    /** Last reported poll-error code; reset to null after a successful poll so a recurrence re-warns. */
+    private lastPollErrorCode: number | null = null;
+
     constructor(config: TelegramConfig) {
         this.config = config;
     }
@@ -255,11 +265,21 @@ export class TelegramChannel implements ChatChannel {
             this.pollTimer = null;
         }
         this._isListening = false;
+        this.lastPollErrorCode = null;
         bridgeLog('[Telegram] Channel: polling stopped');
     }
 
     onMessage(callback: ChannelMessageCallback): void {
         this.messageCallbacks.push(callback);
+    }
+
+    /**
+     * Register a callback for getUpdates errors (e.g. 409 Conflict when another
+     * window/client is already polling this bot token). Fired once per distinct
+     * error code, not on every poll tick.
+     */
+    onPollError(callback: (err: { code?: number; description: string }) => void): void {
+        this.pollErrorCallback = callback;
     }
 
     // -----------------------------------------------------------------------
@@ -343,7 +363,18 @@ export class TelegramChannel implements ChatChannel {
                 res.on('end', () => {
                     try {
                         const parsed = JSON.parse(responseBody);
-                        resolve(parsed.ok ? (parsed.result ?? []) : []);
+                        if (parsed.ok) {
+                            // Successful poll — clear any prior error so a later
+                            // recurrence is reported again.
+                            this.lastPollErrorCode = null;
+                            resolve(parsed.result ?? []);
+                        } else {
+                            // Surface the API error (notably 409 Conflict — another
+                            // client is already polling this bot token) instead of
+                            // silently returning no updates.
+                            this.reportPollError(parsed.error_code, parsed.description ?? 'getUpdates failed');
+                            resolve([]);
+                        }
                     } catch {
                         resolve([]);
                     }
@@ -356,6 +387,19 @@ export class TelegramChannel implements ChatChannel {
             req.write(body);
             req.end();
         });
+    }
+
+    /**
+     * Report a getUpdates error to the registered callback, de-duplicated by
+     * error code so a persistent conflict (e.g. 409) doesn't fire on every poll
+     * tick. Always logged; the callback (if any) drives the user-facing toast.
+     */
+    private reportPollError(code: number | undefined, description: string): void {
+        const normalized = code ?? -1;
+        if (this.lastPollErrorCode === normalized) { return; }
+        this.lastPollErrorCode = normalized;
+        bridgeLog(`[Telegram] getUpdates error${code ? ` (${code})` : ''}: ${description}`);
+        this.pollErrorCallback?.({ code, description });
     }
 
     // -----------------------------------------------------------------------
