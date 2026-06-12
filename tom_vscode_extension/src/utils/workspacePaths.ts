@@ -132,6 +132,27 @@ export class WsPaths {
     /** The extension config filename, e.g. `tom_vscode_extension.json` */
     static get configFileName(): string { return CONFIG_FILE_NAME; }
 
+    // ── Host helper ─────────────────────────────────────────────────
+
+    /**
+     * Filename-safe segment identifying the current machine.
+     *
+     * The `_ai` layer is a single clone symlinked into every workspace and
+     * synced across the fleet, so files like `quest-refresh.yaml` resolve to
+     * the *same* physical file on every host. Embedding this slug in per-host
+     * config filenames (`quest-refresh.<host>.<quest>.yaml`,
+     * `telegram.<host>.<quest>.yaml`) keeps each machine's state separate
+     * instead of clobbering it through the shared clone.
+     *
+     * Returns the short hostname (domain stripped), lower-cased, with any
+     * character outside `[a-z0-9_-]` replaced by `_`.
+     */
+    static hostSlug(): string {
+        const short = os.hostname().split('.')[0].trim().toLowerCase();
+        const safe = short.replace(/[^a-z0-9_-]/g, '_');
+        return safe || 'unknown-host';
+    }
+
     // ── Workspace root helper ───────────────────────────────────────
 
     /** First workspace folder path, or undefined. */

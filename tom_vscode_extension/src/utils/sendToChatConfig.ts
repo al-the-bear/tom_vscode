@@ -512,8 +512,9 @@ export interface SendToChatConfig {
      * to run maintenance work off the recent trail (update the overview, prune
      * todos, refresh quest-notes). Global (shared across quests); the per-quest
      * activation checkbox and the prompt counter live in
-     * `_ai/quests/{questId}/quest-refresh.yaml` (see `QuestRefreshStore`), not
-     * here. Read via {@link getQuestRefreshSettings} which applies defaults.
+     * `_ai/quests/{questId}/quest-refresh.{hostname}.{questId}.yaml` (see
+     * `QuestRefreshStore`), not here. Read via {@link getQuestRefreshSettings}
+     * which applies defaults.
      */
     questRefresh?: QuestRefreshConfig;
 

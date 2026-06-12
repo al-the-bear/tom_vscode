@@ -434,8 +434,8 @@ function handleStandaloneCommand(cmd: TelegramCommand): void {
 /**
  * Interactive configuration for Telegram integration.
  * Prompts for env var name, allowed user IDs, default chat ID, and enabled state,
- * then writes the values to the per-quest settings file
- * `_ai/quests/{questId}/telegram.{questId}.json`.
+ * then writes the values to the per-quest, per-host settings file
+ * `_ai/quests/{questId}/telegram.{hostname}.{questId}.yaml`.
  *
  * Settings are seeded from the existing quest file if present, otherwise from the
  * shared `aiConversation.telegram` section (for first-time migration), otherwise

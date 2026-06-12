@@ -10,7 +10,9 @@
  *   - `active`: the per-quest activation checkbox.
  *   - `count` : prompts sent since the last refresh, per (quest, panel).
  *
- * Storage: `_ai/quests/{questId}/quest-refresh.yaml`
+ * Storage: `_ai/quests/{questId}/quest-refresh.{hostname}.{questId}.yaml`
+ * (host-specific: the `_ai` clone is shared/symlinked across the fleet, so the
+ * hostname segment keeps each machine's counter + activation flag separate).
  *
  *     panels:
  *       anthropic: { active: true,  count: 3 }
@@ -165,9 +167,13 @@ export class QuestRefreshStore {
     private resolveFilePath(questId: string): string {
         const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
         const safeQuest = questId.replace(/[^A-Za-z0-9_.-]/g, '_');
+        // Host-specific filename so the single shared `_ai` clone keeps each
+        // machine's prompt counter / activation flag separate instead of
+        // clobbering it across the fleet.
+        const fileName = `quest-refresh.${WsPaths.hostSlug()}.${safeQuest}.yaml`;
         return (
-            WsPaths.ai('quests', safeQuest, 'quest-refresh.yaml') ||
-            path.join(wsRoot, '_ai', 'quests', safeQuest, 'quest-refresh.yaml')
+            WsPaths.ai('quests', safeQuest, fileName) ||
+            path.join(wsRoot, '_ai', 'quests', safeQuest, fileName)
         );
     }
 

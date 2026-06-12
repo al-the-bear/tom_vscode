@@ -24,7 +24,7 @@ import { getCliServerStatus } from './cliServer-handler';
 import { loadBridgeConfig, BridgeConfig } from './restartBridge-handler';
 import { isTrailEnabled, setTrailEnabled, loadTrailConfig, toggleTrail } from '../services/trailLogging';
 import { isTelegramPollingActive } from './telegram-commands';
-import { readEffectiveTelegramRaw, writeQuestTelegramRaw } from './telegram-config';
+import { readEffectiveTelegramRaw, writeQuestTelegramRaw, getQuestTelegramConfigPath } from './telegram-config';
 import { 
     loadLocalLlmToolsConfig,
     saveLocalLlmToolsConfig,
@@ -1756,6 +1756,7 @@ export interface StatusData {
     telegram: {
         polling: boolean;
         questId: string;
+        configFile: string;
         enabled: boolean;
         autostart: boolean;
         botTokenEnv: string;
@@ -2027,6 +2028,10 @@ export async function gatherStatusData(): Promise<StatusData> {
         telegram: {
             polling: isTelegramPollingActive(),
             questId,
+            configFile: (() => {
+                const p = getQuestTelegramConfigPath();
+                return p ? path.basename(p) : `telegram.${WsPaths.hostSlug()}.${questId}.yaml`;
+            })(),
             enabled: telegram.enabled ?? false,
             autostart: telegram.autostart ?? false,
             botTokenEnv: telegram.botTokenEnv ?? 'TELEGRAM_BOT_TOKEN',
@@ -2635,7 +2640,7 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
         </div>
         <div class="sp-collapse-content sp-collapsed" id="sp-telegram-content">
             <div style="font-size:11px;opacity:0.75;margin-bottom:6px">
-                Per-quest settings — saved to <code>_ai/quests/${status.telegram.questId}/telegram.${status.telegram.questId}.json</code>. Each workspace/quest can run its own bot.
+                Per-quest, per-host settings — saved to <code>_ai/quests/${status.telegram.questId}/${status.telegram.configFile}</code>. Each workspace/quest runs its own bot, and each machine keeps its own config.
             </div>
             <div class="sp-controls">
                 <button class="sp-btn ${status.telegram.polling ? '' : 'primary'}" data-status-action="startTelegram">Start</button>

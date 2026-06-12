@@ -61,7 +61,7 @@
         },
         "questRefresh": {
             "type": "object",
-            "description": "Quest Refresh (quest_refresh_implementation_plan.md). An automatic 'refresh prompt' that fires every N prompts to run maintenance work off the recent trail (update overview, prune todos, refresh quest-notes). These settings are GLOBAL (shared across quests); the per-quest activation flag + the prompt counter live in _ai/quests/{questId}/quest-refresh.yaml (QuestRefreshStore), not here. Copilot is wired into the UI but its auto-trigger is deferred.",
+            "description": "Quest Refresh (quest_refresh_implementation_plan.md). An automatic 'refresh prompt' that fires every N prompts to run maintenance work off the recent trail (update overview, prune todos, refresh quest-notes). These settings are GLOBAL (shared across quests); the per-quest activation flag + the prompt counter live in _ai/quests/{questId}/quest-refresh.{hostname}.{questId}.yaml (QuestRefreshStore, host-specific so the shared _ai clone doesn't collide state across machines), not here. Copilot is wired into the UI but its auto-trigger is deferred.",
             "properties": {
                 "anthropic": { "$ref": "#/definitions/questRefreshPanel" },
                 "localLlm": { "$ref": "#/definitions/questRefreshPanel" },
