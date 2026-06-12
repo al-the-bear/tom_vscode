@@ -38,6 +38,13 @@ import {
     isSendPromptParseError,
     SEND_PROMPT_USAGE,
 } from '../utils/telegramSendPrompt';
+import {
+    parseQueuePromptArgs,
+    parseQueueDeleteArg,
+    isQueueCommandParseError,
+    QUEUE_PROMPT_USAGE,
+    QUEUE_DELETE_USAGE,
+} from '../utils/telegramQueueCommands';
 import type { LiveConversationStatus } from './telegramTrailForwarder';
 import type { SendToChatOutcome } from './sendToChatRouter';
 
@@ -544,8 +551,6 @@ export interface LiveConversationControls {
 export interface CommandRegistryDeps {
     /** Extension context, threaded into the Anthropic send path. */
     context: vscode.ExtensionContext;
-    /** Whether the @CHAT Anthropic panel has been opened in this window. */
-    isChatPanelOpen: () => boolean;
     /** Run a prompt exactly as a panel send would; resolves with the outcome. */
     runAnthropicSend: (
         context: vscode.ExtensionContext,
@@ -564,6 +569,45 @@ export interface CommandRegistryDeps {
     cancelQueue: () => boolean;
     /** Controls for the persistent live-conversation forwarder. */
     liveConversation: LiveConversationControls;
+    /** Controls for the prompt queue (queue_prompt / queue_list / …). */
+    queue: QueueControls;
+}
+
+/** One sending/pending queue entry, for `queue_list` rendering. */
+export interface QueueListEntry {
+    /** Lifecycle status — only `'sending'` or `'pending'` are listed. */
+    status: 'sending' | 'pending';
+    /** Original prompt text (untruncated; the handler abbreviates for display). */
+    preview: string;
+}
+
+/** Result of a `queue_delete` request. */
+export interface QueueDeleteResult {
+    /** True when an entry at the requested index was removed. */
+    ok: boolean;
+    /** A user-facing message (the removed preview, or why nothing happened). */
+    message: string;
+}
+
+/**
+ * Host wiring for the prompt-queue commands. Passed in (rather than importing
+ * {@link PromptQueueManager} here) so this module stays free of manager wiring
+ * and is easy to unit-test.
+ */
+export interface QueueControls {
+    /**
+     * Add a prompt to the queue. `repeatCount` repeats it; `next` queues it at
+     * the top so it is dispatched next.
+     */
+    addPrompt: (prompt: string, opts: { repeatCount?: number; next: boolean }) => Promise<void>;
+    /** The sending + pending entries, in queue order. */
+    list: () => QueueListEntry[];
+    /** Delete the entry at a 1-based index within {@link list}. */
+    deleteAt: (oneBasedIndex: number) => QueueDeleteResult;
+    /** Toggle pause/resume. Returns `true` when the queue is now running. */
+    togglePause: () => boolean;
+    /** Whether the queue is currently running (auto-send on) vs paused. */
+    isRunning: () => boolean;
 }
 
 /** Render an elapsed-milliseconds duration as a compact `Xm Ys` / `Ys` string. */
@@ -579,10 +623,13 @@ function formatElapsed(ms: number): string {
  * chat exactly as a panel send would. Settings are per workspace/quest, so the
  * window that polls the bot is the one that runs the prompt — no quest selector.
  *
- * Progress is forwarded by the persistent live-conversation forwarder (which is
- * always subscribed), so this handler stays quiet on success. If a prompt is
- * already running — whether started here or from VS Code — the send is rejected
- * with an informative message (the prompt queue, not Telegram, owns queuing).
+ * The turn runs **headless** — the @CHAT panel need not be open. The Anthropic
+ * handler writes the turn to `live-trail.md` regardless, and the result is
+ * mirrored into the panel only when it happens to be open. Progress is forwarded
+ * by the persistent live-conversation forwarder (always subscribed), so this
+ * handler stays quiet on success. If a prompt is already running — whether
+ * started here or from VS Code — the send is rejected with an informative
+ * message (the prompt queue, not Telegram, owns queuing).
  */
 async function sendPromptHandler(
     cmd: ParsedTelegramCommand,
@@ -591,15 +638,6 @@ async function sendPromptHandler(
     const parsed = parseSendPromptArgs(cmd.rawArgs);
     if (isSendPromptParseError(parsed)) {
         return { text: `❌ ${parsed.error}`, rawText: true };
-    }
-
-    if (!deps.isChatPanelOpen()) {
-        return {
-            text:
-                '⚠️ The Anthropic chat panel is not open in this window. ' +
-                'Open the @CHAT panel (Anthropic tab) first, then resend.',
-            rawText: true,
-        };
     }
 
     bridgeLog(`[Telegram] send_prompt (${parsed.prompt.length} chars)`);
@@ -681,9 +719,14 @@ async function chatStatusHandler(deps: CommandRegistryDeps): Promise<TelegramCom
     const status = deps.liveConversation.getStatus();
     const forwarding = status.forwarding ? '▶️ on' : '⏹ off';
     const mode = status.listening ? '🔊 listening' : '🔇 silent';
-    const modeLines = `Forwarding: ${forwarding}\nMode: ${mode}`;
+    const pending = deps.queue.list().filter((e) => e.status === 'pending').length;
+    const queueState = deps.queue.isRunning() ? '▶️ running' : '⏸ paused';
+    const stateLines =
+        `Forwarding: ${forwarding}\n` +
+        `Mode: ${mode}\n` +
+        `Queue: ${queueState} (${pending} pending)`;
     if (status.running.length === 0) {
-        return { text: `💤 No prompt is running.\n${modeLines}`, rawText: true };
+        return { text: `💤 No prompt is running.\n${stateLines}`, rawText: true };
     }
     const blocks = status.running.map((r) => {
         const label = r.source === 'queue' ? '📋 Queue prompt' : '💬 Direct prompt';
@@ -692,7 +735,7 @@ async function chatStatusHandler(deps: CommandRegistryDeps): Promise<TelegramCom
         return `${label}${whereLine} — running ${formatElapsed(r.elapsedMs)}`;
     });
     return {
-        text: `⏳ ${status.running.length} prompt(s) running:\n${blocks.join('\n')}\n${modeLines}`,
+        text: `⏳ ${status.running.length} prompt(s) running:\n${blocks.join('\n')}\n${stateLines}`,
         rawText: true,
     };
 }
@@ -723,6 +766,79 @@ async function cancelQueueHandler(deps: CommandRegistryDeps): Promise<TelegramCo
             : 'ℹ️ No queue prompt is currently running.',
         rawText: true,
     };
+}
+
+/**
+ * Handle `queue_prompt [count] [next] <prompt>` — add a prompt to the queue.
+ * `count` repeats it; `next` queues it at the top so it is dispatched next.
+ */
+async function queuePromptHandler(
+    cmd: ParsedTelegramCommand,
+    deps: CommandRegistryDeps,
+): Promise<TelegramCommandResult> {
+    const parsed = parseQueuePromptArgs(cmd.rawArgs);
+    if (isQueueCommandParseError(parsed)) {
+        return { text: `❌ ${parsed.error}`, rawText: true };
+    }
+    await deps.queue.addPrompt(parsed.prompt, {
+        ...(parsed.repeatCount !== undefined ? { repeatCount: parsed.repeatCount } : {}),
+        next: parsed.next,
+    });
+    const bits = [
+        parsed.next ? 'at the top' : 'to the queue',
+        parsed.repeatCount ? `×${parsed.repeatCount}` : '',
+    ].filter(Boolean).join(' ');
+    return {
+        text: `✅ Queued ${bits}: ${abbreviate(parsed.prompt, 80)}`,
+        rawText: true,
+    };
+}
+
+/** Handle `queue_list` — show sending/pending queue items with 1-based indices. */
+async function queueListHandler(deps: CommandRegistryDeps): Promise<TelegramCommandResult> {
+    const entries = deps.queue.list();
+    if (entries.length === 0) {
+        return { text: '📭 The prompt queue is empty.', rawText: true };
+    }
+    const running = deps.queue.isRunning() ? '▶️ running' : '⏸ paused';
+    const lines = entries.map((e, i) => {
+        const marker = e.status === 'sending' ? '▶️' : '•';
+        return `${i + 1}. ${marker} ${abbreviate(e.preview, 80)}`;
+    });
+    return {
+        text: `📋 Prompt queue (${running}):\n${lines.join('\n')}`,
+        rawText: true,
+    };
+}
+
+/** Handle `queue_delete <index>` — remove the entry at a 1-based queue index. */
+async function queueDeleteHandler(
+    cmd: ParsedTelegramCommand,
+    deps: CommandRegistryDeps,
+): Promise<TelegramCommandResult> {
+    const parsed = parseQueueDeleteArg(cmd.rawArgs);
+    if (isQueueCommandParseError(parsed)) {
+        return { text: `❌ ${parsed.error}`, rawText: true };
+    }
+    const result = deps.queue.deleteAt(parsed);
+    return { text: result.message, rawText: true };
+}
+
+/** Handle `queue_pause` — toggle queue execution; report the new state. */
+async function queuePauseHandler(deps: CommandRegistryDeps): Promise<TelegramCommandResult> {
+    const running = deps.queue.togglePause();
+    return {
+        text: running
+            ? '▶️ Queue resumed — pending prompts will be sent.'
+            : '⏸ Queue paused — no new prompts will be sent until you resume.',
+        rawText: true,
+    };
+}
+
+/** Abbreviate a single-line preview of `text` to at most `max` chars. */
+function abbreviate(text: string, max: number): string {
+    const oneLine = text.replace(/\s+/g, ' ').trim();
+    return oneLine.length <= max ? oneLine : `${oneLine.slice(0, max - 1)}…`;
 }
 
 // ============================================================================
@@ -916,6 +1032,28 @@ export function createCommandRegistry(
             name: 'cancel_queue',
             description: 'Stop the running queue prompt (like the queue Stop button)',
             handler: () => cancelQueueHandler(deps),
+        });
+        registry.register({
+            name: 'queue_prompt',
+            description: 'Add a prompt to the queue (optional count / next)',
+            usage: QUEUE_PROMPT_USAGE,
+            handler: (cmd) => queuePromptHandler(cmd, deps),
+        });
+        registry.register({
+            name: 'queue_list',
+            description: 'List sending/pending prompts in the queue',
+            handler: () => queueListHandler(deps),
+        });
+        registry.register({
+            name: 'queue_delete',
+            description: 'Delete a queued prompt by its queue_list index',
+            usage: QUEUE_DELETE_USAGE,
+            handler: (cmd) => queueDeleteHandler(cmd, deps),
+        });
+        registry.register({
+            name: 'queue_pause',
+            description: 'Toggle queue execution (pause/resume)',
+            handler: () => queuePauseHandler(deps),
         });
     }
 

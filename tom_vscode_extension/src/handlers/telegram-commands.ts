@@ -20,10 +20,9 @@ import {
 } from './telegram-config';
 import { TelegramCommandRegistry, ParsedTelegramCommand } from './telegram-cmd-parser';
 import { TelegramResponseFormatter } from './telegram-cmd-response';
-import { createCommandRegistry, type CommandRegistryDeps } from './telegram-cmd-handlers';
+import { createCommandRegistry, type CommandRegistryDeps, type QueueControls } from './telegram-cmd-handlers';
 import { TelegramLiveConversationForwarder } from './telegramTrailForwarder';
 import { TelegramChannel } from './chat';
-import { isChatPanelOpen } from './chatPanel-handler';
 import { runAnthropicSend } from './sendToChatRouter';
 import { cancelAnthropicSend } from './sendToChatState';
 import { PromptQueueManager } from '../managers/promptQueueManager';
@@ -153,6 +152,66 @@ export async function telegramTestHandler(): Promise<void> {
     );
 }
 
+/**
+ * Build the prompt-queue controls for the Telegram command registry, bridging
+ * the queue commands to the {@link PromptQueueManager}. Kept here (not in
+ * `telegram-cmd-handlers.ts`) so the handler module stays free of manager wiring
+ * and unit-testable.
+ *
+ * `queue_list` / `queue_delete` operate on the *sending + pending* entries in
+ * queue order; deleting the currently-sending item is refused (use
+ * `cancel_queue`). `next` queues at the top via `move(..., 'front')`; pause is
+ * the queue's auto-send switch.
+ */
+function buildQueueControls(): QueueControls {
+    const listable = () =>
+        PromptQueueManager.instance.items.filter(
+            (i) => i.status === 'sending' || i.status === 'pending',
+        );
+    return {
+        addPrompt: async (prompt, opts) => {
+            const qm = PromptQueueManager.instance;
+            const item = await qm.enqueue({
+                originalText: prompt,
+                ...(opts.repeatCount !== undefined ? { repeatCount: opts.repeatCount } : {}),
+            });
+            // `move('front')` only relocates a still-pending item; if auto-send
+            // already promoted it to 'sending' it is effectively next anyway.
+            if (opts.next) { qm.move(item.id, 'front'); }
+        },
+        list: () =>
+            listable().map((i) => ({
+                status: i.status as 'sending' | 'pending',
+                preview: i.originalText,
+            })),
+        deleteAt: (oneBasedIndex) => {
+            const entries = listable();
+            const item = entries[oneBasedIndex - 1];
+            if (!item) {
+                return {
+                    ok: false,
+                    message: `❌ No queue entry at index ${oneBasedIndex}. Use queue_list to see valid indices.`,
+                };
+            }
+            if (item.status === 'sending') {
+                return {
+                    ok: false,
+                    message: '⚠️ That entry is currently sending — use cancel_queue to stop it.',
+                };
+            }
+            PromptQueueManager.instance.remove(item.id);
+            const preview = item.originalText.replace(/\s+/g, ' ').trim().slice(0, 80);
+            return { ok: true, message: `🗑 Deleted entry ${oneBasedIndex}: ${preview}` };
+        },
+        togglePause: () => {
+            const qm = PromptQueueManager.instance;
+            qm.autoSendEnabled = !qm.autoSendEnabled;
+            return qm.autoSendEnabled;
+        },
+        isRunning: () => PromptQueueManager.instance.autoSendEnabled,
+    };
+}
+
 // ============================================================================
 // Toggle Polling command
 // ============================================================================
@@ -240,7 +299,6 @@ export async function telegramToggleHandler(): Promise<void> {
     const sendPromptDeps: CommandRegistryDeps | undefined = extensionContext
         ? {
             context: extensionContext,
-            isChatPanelOpen,
             runAnthropicSend,
             // `/cancel_chat` interrupts the running direct send via the shared
             // guard's cancel hook; `/cancel_queue` stops the active queue item
@@ -254,6 +312,7 @@ export async function telegramToggleHandler(): Promise<void> {
                 isForwarding: () => forwarder.isForwarding(),
                 getStatus: () => forwarder.getStatus(),
             },
+            queue: buildQueueControls(),
         }
         : undefined;
     commandRegistry = createCommandRegistry(() => {
