@@ -87,12 +87,18 @@ export class TelegramTrailCoalescer {
      */
     push(event: LiveTrailEvent): string[] {
         switch (event.kind) {
-            case 'prompt':
-                // A fresh prompt block — flush anything stale, then announce.
-                return [
-                    ...this.flush(),
-                    `🚀 prompt started [${event.transport}/${event.config}]`,
-                ];
+            case 'prompt': {
+                // A fresh prompt block — flush anything stale, then restate the
+                // prompt itself so a Telegram follower sees exactly what was
+                // sent. The prompt is a "main" message the forwarder always
+                // delivers (in both listening and silent modes), mirroring the
+                // always-delivered final answer. The body is split so a long
+                // prompt is delivered in full without exceeding the message cap.
+                const header = `🚀 prompt [${event.transport}/${event.config}]`;
+                const body = (event.userText ?? '').trim();
+                const message = body ? `${header}\n\n${body}` : header;
+                return [...this.flush(), ...splitTelegramMessage(message, this.maxMessageChars)];
+            }
             case 'thinking':
             case 'toolResult':
                 return [];

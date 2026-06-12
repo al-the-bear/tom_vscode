@@ -10,10 +10,15 @@
  * Telegram) decide how much of the conversation is forwarded:
  *
  *   - **listening** (default) — every coalesced update is streamed: prompt
- *     start, tool calls, assistant text, and the terminal footer.
- *   - **silent** — intermediate updates are suppressed; only the **final
- *     answer** plus the terminal footer are sent when the turn ends. The final
- *     answer is *always* delivered in both modes (the user's hard requirement).
+ *     restatement, tool calls, assistant text, and the terminal footer.
+ *   - **silent** — intermediate updates (tool calls, streamed assistant text)
+ *     are suppressed; only the **final answer** plus the terminal footer are
+ *     sent when the turn ends.
+ *
+ * The **prompt restatement** and the **final answer** are "main" messages that
+ * are *always* delivered in both modes (the user's hard requirement): the
+ * follower always sees which prompt started — restating the prompt text just
+ * sent — and how it ended, even while muted to the intermediate noise.
  *
  * The forwarder also tracks whether a prompt is currently running (and for how
  * long) so the `/chat_status` command and the "already running" rejection can
@@ -151,6 +156,15 @@ export class TelegramLiveConversationForwarder {
 
         // Always feed the coalescer so its buffer stays coherent for streaming.
         const coalesced = this.coalescer.push(event);
+
+        // The prompt restatement is a main message — always forward it, even in
+        // silent mode, so the follower always sees which prompt just started
+        // (whether typed in VS Code or queued), mirroring the always-delivered
+        // final answer. Only the intermediate updates honour silent mode.
+        if (event.kind === 'prompt') {
+            this.enqueue(coalesced);
+            return;
+        }
 
         if (terminal) {
             if (this.listening) {

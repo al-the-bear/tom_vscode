@@ -20,10 +20,33 @@ import type { LiveTrailEvent } from '../live-trail.js';
 const Q = 'demo';
 
 describe('TelegramTrailCoalescer', () => {
-    test('prompt event announces the transport/config', () => {
+    test('prompt event restates the prompt text under the transport/config header', () => {
         const c = new TelegramTrailCoalescer();
-        const out = c.push({ kind: 'prompt', questId: Q, transport: 'anthropic', config: 'default', userText: 'hi' });
-        assert.deepEqual(out, ['🚀 prompt started [anthropic/default]']);
+        const out = c.push({ kind: 'prompt', questId: Q, transport: 'anthropic', config: 'default', userText: 'summarize the bug' });
+        assert.deepEqual(out, ['🚀 prompt [anthropic/default]\n\nsummarize the bug']);
+    });
+
+    test('prompt event with empty text falls back to the header only', () => {
+        const c = new TelegramTrailCoalescer();
+        const out = c.push({ kind: 'prompt', questId: Q, transport: 'anthropic', config: 'default', userText: '   ' });
+        assert.deepEqual(out, ['🚀 prompt [anthropic/default]']);
+    });
+
+    test('an oversize prompt restatement is split to the message cap', () => {
+        const c = new TelegramTrailCoalescer({ maxMessageChars: 20 });
+        // Header "🚀 prompt [a/b]\n\n" is 17 chars; with a 30-char body the
+        // combined message exceeds the 20-char cap and is hard-sliced.
+        const out = c.push({ kind: 'prompt', questId: Q, transport: 'a', config: 'b', userText: 'X'.repeat(30) });
+        assert.ok(out.length > 1, 'expected the restatement to span multiple messages');
+        assert.ok(out[0].startsWith('🚀 prompt [a/b]'), 'first chunk keeps the header');
+        assert.equal(out.join('').replace('🚀 prompt [a/b]\n\n', ''), 'X'.repeat(30));
+    });
+
+    test('prompt event flushes stale buffered text before restating', () => {
+        const c = new TelegramTrailCoalescer();
+        c.push({ kind: 'assistant', questId: Q, text: 'leftover' });
+        const out = c.push({ kind: 'prompt', questId: Q, transport: 'anthropic', config: 'default', userText: 'next' });
+        assert.deepEqual(out, ['leftover', '🚀 prompt [anthropic/default]\n\nnext']);
     });
 
     test('thinking and tool-result events are dropped as noise', () => {
@@ -103,7 +126,7 @@ describe('TelegramTrailCoalescer', () => {
         feed({ kind: 'assistant', questId: Q, text: 'found it' });
         feed({ kind: 'done', questId: Q, rounds: 1, toolCalls: 1, durationMs: 100 });
         assert.deepEqual(collected, [
-            '🚀 prompt started [anthropic/default]',
+            '🚀 prompt [anthropic/default]\n\nx',
             'thinking aloud',
             '🔧 Grep',
             'found it',
