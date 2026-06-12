@@ -25,6 +25,7 @@ import { loadBridgeConfig, BridgeConfig } from './restartBridge-handler';
 import { isTrailEnabled, setTrailEnabled, loadTrailConfig, toggleTrail } from '../services/trailLogging';
 import { isTelegramPollingActive } from './telegram-commands';
 import { readEffectiveTelegramRaw, writeQuestTelegramRaw, getQuestTelegramConfigPath } from './telegram-config';
+import { readChatQuestionsConfig, writeChatQuestionsConfig, getChatQuestionsConfigPath } from './chatQuestions-config';
 import { 
     loadLocalLlmToolsConfig,
     saveLocalLlmToolsConfig,
@@ -300,6 +301,20 @@ async function updateTelegramSettings(settings: any): Promise<void> {
 
     if (writeQuestTelegramRaw(telegram)) {
         vscode.window.showInformationMessage('Telegram settings updated');
+    }
+}
+
+async function updateChatQuestionsSettings(settings: any): Promise<void> {
+    // Chat questions (tomAi_askUser) settings are stored per-quest/per-host,
+    // mirroring Telegram. Merge the edited fields over the effective config.
+    const current = readChatQuestionsConfig();
+    const rawMinutes = Number(settings.maxWaitMinutes);
+    const maxWaitMinutes = Number.isFinite(rawMinutes) ? rawMinutes : current.maxWaitMinutes;
+    const fallbackPrompt = typeof settings.fallbackPrompt === 'string'
+        ? settings.fallbackPrompt
+        : current.fallbackPrompt;
+    if (writeChatQuestionsConfig({ maxWaitMinutes, fallbackPrompt })) {
+        vscode.window.showInformationMessage('Chat questions settings updated');
     }
 }
 
@@ -1249,6 +1264,9 @@ export async function handleStatusAction(action: string, message: any): Promise<
         case 'updateTelegram':
             await updateTelegramSettings(message.settings || {});
             break;
+        case 'updateChatQuestions':
+            await updateChatQuestionsSettings(message.settings || {});
+            break;
         case 'updateAskCopilot':
             await updateAskCopilotSettings(message.settings || {});
             break;
@@ -1766,6 +1784,12 @@ export interface StatusData {
         notifyOnStart: boolean;
         notifyOnEnd: boolean;
     };
+    chatQuestions: {
+        scopeLabel: string;
+        configFile: string;
+        maxWaitMinutes: number;
+        fallbackPrompt: string;
+    };
     localLlm: {
         ollamaUrl: string;
         model: string;
@@ -2041,6 +2065,18 @@ export async function gatherStatusData(): Promise<StatusData> {
             notifyOnStart: telegram.notifyOnStart ?? true,
             notifyOnEnd: telegram.notifyOnEnd ?? true,
         },
+        chatQuestions: (() => {
+            const cq = readChatQuestionsConfig();
+            return {
+                scopeLabel: questId ? `quest: ${questId}` : 'workspace',
+                configFile: (() => {
+                    const p = getChatQuestionsConfigPath();
+                    return p ? path.basename(p) : `chat-questions.${WsPaths.hostSlug()}.${questId}.yaml`;
+                })(),
+                maxWaitMinutes: cq.maxWaitMinutes,
+                fallbackPrompt: cq.fallbackPrompt,
+            };
+        })(),
         localLlm: {
             ollamaUrl: localLlm.ollamaUrl ?? 'http://localhost:11434',
             model: localLlm.model ?? 'qwen3:8b',
@@ -2687,6 +2723,29 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
             </div>
             <div class="sp-settings-row">
                 <button class="sp-btn primary" data-status-action="updateTelegram">Save Telegram Settings</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chat Questions Section (tomAi_askUser) -->
+    <div class="sp-section">
+        <div class="sp-section-header sp-collapsible" data-collapse="chatQuestions">
+            <span class="sp-section-title"><span class="sp-collapse-icon">▶</span> 🙋 Chat questions</span>
+        </div>
+        <div class="sp-collapse-content sp-collapsed" id="sp-chatQuestions-content">
+            <div style="font-size:11px;opacity:0.75;margin-bottom:6px">
+                Settings for the <code>tomAi_askUser</code> tool, which pauses the prompt queue to ask you questions. Per-quest, per-host — saved to <code>_ai/quests/${status.chatQuestions.scopeLabel.replace('quest: ', '')}/${status.chatQuestions.configFile}</code>.
+            </div>
+            <div class="sp-settings-row">
+                <label>Max wait (min):</label>
+                <input type="number" id="sp-cq-maxWaitMinutes" value="${status.chatQuestions.maxWaitMinutes}" min="1" step="1">
+            </div>
+            <div class="sp-settings-row" style="align-items:flex-start">
+                <label>Timeout reply:</label>
+                <textarea id="sp-cq-fallbackPrompt" rows="3" style="flex:1;min-width:0;resize:vertical">${escapeHtmlContent(status.chatQuestions.fallbackPrompt)}</textarea>
+            </div>
+            <div class="sp-settings-row">
+                <button class="sp-btn primary" data-status-action="updateChatQuestions">Save Chat Questions Settings</button>
             </div>
         </div>
     </div>

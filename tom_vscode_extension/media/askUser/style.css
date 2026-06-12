@@ -1,0 +1,97 @@
+body {
+    margin: 0;
+    padding: 0;
+    color: var(--vscode-foreground);
+    background: var(--vscode-editor-background);
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size, 13px);
+}
+
+.ask-wrap {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 18px 20px 24px;
+    box-sizing: border-box;
+}
+
+.ask-title {
+    margin: 0 0 6px;
+    font-size: 1.2em;
+    font-weight: 600;
+}
+
+.ask-hint {
+    margin: 0 0 14px;
+    color: var(--vscode-descriptionForeground);
+    line-height: 1.4;
+}
+
+.ask-questions {
+    margin: 0 0 16px;
+    padding-left: 1.4em;
+}
+
+.ask-questions li {
+    margin: 0 0 8px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+}
+
+.ask-answer {
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+    min-height: 140px;
+    padding: 8px 10px;
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border, transparent));
+    border-radius: 4px;
+    font-family: var(--vscode-editor-font-family, var(--vscode-font-family));
+    font-size: 1em;
+    line-height: 1.45;
+}
+
+.ask-answer:focus {
+    outline: 1px solid var(--vscode-focusBorder);
+    outline-offset: -1px;
+}
+
+.ask-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 14px;
+}
+
+.ask-bar .spacer {
+    flex: 1 1 auto;
+}
+
+.ask-timer {
+    color: var(--vscode-descriptionForeground);
+    font-variant-numeric: tabular-nums;
+}
+
+.ask-timer.expired {
+    color: var(--vscode-errorForeground);
+}
+
+button.primary {
+    padding: 6px 16px;
+    color: var(--vscode-button-foreground);
+    background: var(--vscode-button-background);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1em;
+}
+
+button.primary:hover {
+    background: var(--vscode-button-hoverBackground);
+}
+
+button.primary:disabled {
+    opacity: 0.5;
+    cursor: default;
+}

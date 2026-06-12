@@ -72,6 +72,11 @@ function attachStatusPanelListeners(skipEditorInit) {
                     notifyOnTurn: (document.getElementById('sp-tg-notifyOnTurn') || {}).value === 'true',
                     notifyOnEnd: (document.getElementById('sp-tg-notifyOnEnd') || {}).value === 'true'
                 };
+            } else if (action === 'updateChatQuestions') {
+                msgData.settings = {
+                    maxWaitMinutes: parseInt((document.getElementById('sp-cq-maxWaitMinutes') || {}).value || '15'),
+                    fallbackPrompt: (document.getElementById('sp-cq-fallbackPrompt') || {}).value || ''
+                };
             } else if (action === 'updateAskCopilot') {
                 msgData.settings = {
                     enabled: (document.getElementById('sp-ac-enabled') || {}).value === 'true',

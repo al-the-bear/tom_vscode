@@ -27,6 +27,7 @@ import { runAnthropicSend } from './sendToChatRouter';
 import { cancelAnthropicSend } from './sendToChatState';
 import { PromptQueueManager } from '../managers/promptQueueManager';
 import { WsPaths } from '../utils/workspacePaths';
+import { AskUserRegistry } from '../services/askUserRegistry';
 
 // ============================================================================
 // State
@@ -363,6 +364,19 @@ export async function telegramToggleHandler(): Promise<void> {
  */
 function handleStandaloneCommand(cmd: TelegramCommand): void {
     bridgeLog(`[Telegram] Standalone command: ${cmd.type} raw="${cmd.text}" from @${cmd.username}`);
+
+    // Route free text to a pending `tomAi_askUser` ask FIRST. Only one ask is
+    // ever in flight (the prompt queue is blocked on it), so the next free-text
+    // reply belongs to it — no requestId routing is needed on the Telegram side.
+    // This must precede the conversation sink + command registry so the answer
+    // isn't swallowed as an `info`/`unknown` command.
+    if ((cmd.type === 'info' || cmd.type === 'unknown') && AskUserRegistry.instance.hasPending()) {
+        const pending = AskUserRegistry.instance.getPending();
+        if (pending && AskUserRegistry.instance.submit(pending.requestId, cmd.text, 'telegram')) {
+            standaloneTelegram?.sendMessage('✅ Answer received\\. The assistant will continue\\.');
+            return;
+        }
+    }
 
     // Route conversation-control commands to an active AI Conversation first.
     // When the sink consumes the command (a conversation is running in this

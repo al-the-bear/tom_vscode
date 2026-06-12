@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<!--
+  Ask-User panel shell — surfaced by src/handlers/askUser-handler.ts when the
+  LLM calls tomAi_askUser. It renders the numbered questions and a single
+  free-form textarea; Submit posts the verbatim text back to the extension,
+  which routes it into AskUserRegistry.submit(..., 'vscode').
+
+  All interactions are wired with addEventListener (no inline on*= handlers),
+  so the loader's default nonce-only CSP applies (migration guide §7). The
+  questions/title/timeout arrive via window.__INIT__ (first paint) — there is
+  no postMessage round-trip needed to render.
+-->
+<link rel="stylesheet" href="{{baseUri}}/style.css">
+</head>
+<body>
+
+<div class="ask-wrap">
+    <h2 id="askTitle" class="ask-title">The assistant has some questions</h2>
+    <p class="ask-hint">Answer in the box below in your own words. The questions are numbered so you can structure your reply. Your reply is sent back to the assistant exactly as written. You can also answer from Telegram.</p>
+
+    <ol id="askQuestions" class="ask-questions"></ol>
+
+    <textarea id="askAnswer" class="ask-answer" rows="10" placeholder="Type your answer here…" autofocus></textarea>
+
+    <div class="ask-bar">
+        <span id="askTimer" class="ask-timer"></span>
+        <div class="spacer"></div>
+        <button class="primary" id="btnSubmit">Submit answer</button>
+    </div>
+</div>
+
+<script src="{{baseUri}}/main.js"></script>
+</body>
+</html>

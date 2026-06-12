@@ -1,35 +1,22 @@
 /**
- * Tool-impl tests for `user-interaction-tools.ts` — the 2 blocking
- * user-input tools (coverage entry #24):
+ * Tool-impl tests for `user-interaction-tools.ts` — the picker tool
+ * (`tomAi_askUserPicker`, quickpick selection via showQuickPick).
  *
- *   - tomAi_askUser        — free-form input (showInputBox)
- *   - tomAi_askUserPicker  — quickpick selection (showQuickPick)
+ * (The blocking, multi-question `tomAi_askUser` moved to
+ * `ask-user-tool.ts` + `askUser-handler.ts` and is covered by its own
+ * test files; this file now covers only the picker.)
  *
  * Strategy: a stubbed `UserPrompter` that mirrors the documented
- * `vscode.window.{showInputBox, showQuickPick}` contract, plus
- * programmable return values per call.  The dep is a single
- * interface so each test can swap the return value (text / "" /
- * undefined) and observe how the impl folds it into the envelope.
+ * `vscode.window.showQuickPick` contract, plus a programmable return
+ * value per call.  Each test swaps the return value (item / [] /
+ * undefined) and observes how the impl folds it into the envelope.
  *
- * Coverage entry #24 four-row checklist:
- *
- *   a) Description clarity — verified in the impl file; blocking
- *      semantics, no-timeout, ignoreFocusOut: true behaviour, escape-
- *      vs-empty distinction, and the multi-select shape change are all
- *      spelled out.
- *   b) Ambiguities covered explicitly:
- *        - escape (`undefined`) vs empty submission (`""`) — the new
- *          envelope distinguishes `{dismissed: true}` from
- *          `{dismissed: false, emptyInput: true, value: ""}`
- *        - canPickMany empty selection (`[]`) vs cancellation
- *          (`undefined`) — both used to look the same to the caller;
- *          now distinguishable via `{dismissed, selected}`
- *        - PickerItemInput.value fallback to label when omitted
- *        - matchOnDescription default = true (forwarded to options)
- *   c) Tests via a stubbed prompter (no vscode import needed) — the
- *      coverage doc's b-row asks for "stubbed vscode.window.* " and
- *      this is exactly what `UserPrompter` provides.
- *   d) Timing — sub-ms per call (no real UI, no network).
+ * Ambiguities covered explicitly:
+ *   - canPickMany empty selection (`[]`) vs cancellation (`undefined`) —
+ *     both used to look the same to the caller; now distinguishable via
+ *     `{dismissed, selected}`.
+ *   - PickerItemInput.value fallback to label when omitted.
+ *   - matchOnDescription default = true (forwarded to options).
  */
 
 import test, { describe } from 'node:test';
@@ -38,7 +25,7 @@ import assert from 'node:assert/strict';
 import { withTiming } from './_timing.js';
 
 // `user-interaction-tools.ts` imports `vscode` at module top to build the
-// live executor.  The impls themselves are vscode-free (they take a
+// live executor.  The impl itself is vscode-free (it takes a
 // `UserPrompter` dep) but the import would still trip up node:test.
 // Install the shared stub before importing the module — see
 // `_vscode-stub.ts` for the contract.
@@ -46,13 +33,10 @@ import { installVscodeStub } from './_vscode-stub.js';
 installVscodeStub({});
 
 import {
-    askUserImpl,
     askUserPickerImpl,
     type UserPrompter,
     type PickerItem,
-    type InputBoxOpts,
     type QuickPickOpts,
-    type AskUserInput,
     type AskUserPickerInput,
 } from '../user-interaction-tools.js';
 
@@ -60,121 +44,30 @@ import {
 // Stubbed prompter
 // ===========================================================================
 
-interface StubInputCall { opts: InputBoxOpts }
 interface StubPickerCall { items: PickerItem[]; opts: QuickPickOpts }
 
 interface StubPrompter extends UserPrompter {
-    inputCalls: StubInputCall[];
     pickerCalls: StubPickerCall[];
-    /** What `showInputBox` returns next. */
-    nextInput: string | undefined;
     /** What `showQuickPick` returns next. */
     nextPick: PickerItem | PickerItem[] | undefined;
-    /** Force `showInputBox` to throw. */
-    throwOnInput?: Error;
     throwOnPick?: Error;
 }
 
 function makePrompter(): StubPrompter {
     const p: StubPrompter = {
-        inputCalls: [],
         pickerCalls: [],
-        nextInput: undefined,
         nextPick: undefined,
-        async showInputBox(opts) {
-            p.inputCalls.push({ opts });
-            if (p.throwOnInput) { throw p.throwOnInput; }
-            return p.nextInput;
-        },
         async showQuickPick(items, opts) {
             p.pickerCalls.push({ items, opts });
             if (p.throwOnPick) { throw p.throwOnPick; }
             return p.nextPick;
         },
+        // Not exercised by the picker tests, but required by the
+        // `UserPrompter` contract (the Agent-SDK question interceptor uses it).
+        async showInputBox() { return undefined; },
     };
     return p;
 }
-
-// ===========================================================================
-// `tomAi_askUser`
-// ===========================================================================
-
-describe('askUserImpl', () => {
-
-    test('typical: user submits text → ok, value, emptyInput: false', async () => {
-        const p = makePrompter();
-        p.nextInput = 'hello world';
-        const raw = await withTiming('tomAi_askUser:typical', () =>
-            askUserImpl(p, { prompt: 'Say something' }));
-        const r = JSON.parse(raw);
-        assert.equal(r.ok, true);
-        assert.equal(r.dismissed, false);
-        assert.equal(r.value, 'hello world');
-        assert.equal(r.emptyInput, false);
-        // verify the dep was called once with the expected opts
-        assert.equal(p.inputCalls.length, 1);
-        assert.equal(p.inputCalls[0].opts.prompt, 'Say something');
-        assert.equal(p.inputCalls[0].opts.ignoreFocusOut, true);
-    });
-
-    test('cancellation (Escape → undefined) → dismissed: true, value: null', async () => {
-        const p = makePrompter();
-        p.nextInput = undefined;
-        const r = JSON.parse(await askUserImpl(p, { prompt: 'x' }));
-        assert.equal(r.dismissed, true);
-        assert.equal(r.value, null);
-        assert.equal(r.emptyInput, false);
-    });
-
-    test('empty submission ("" — Enter on blank input) is DISTINCT from cancel', async () => {
-        const p = makePrompter();
-        p.nextInput = '';
-        const r = JSON.parse(await askUserImpl(p, { prompt: 'x' }));
-        assert.equal(r.dismissed, false, 'empty submission is a valid submission');
-        assert.equal(r.value, '');
-        assert.equal(r.emptyInput, true, 'flag lets the caller detect blank');
-    });
-
-    test('forwards placeholder + defaultValue + password + title', async () => {
-        const p = makePrompter();
-        p.nextInput = 'secret';
-        await askUserImpl(p, {
-            prompt: 'Pwd?',
-            placeholder: 'enter password',
-            defaultValue: '',
-            password: true,
-            title: 'Auth',
-        } as AskUserInput);
-        const opts = p.inputCalls[0].opts;
-        assert.equal(opts.placeHolder, 'enter password');
-        assert.equal(opts.value, '');
-        assert.equal(opts.password, true);
-        assert.equal(opts.title, 'Auth');
-    });
-
-    test('missing prompt → ok: false, prompter NOT invoked', async () => {
-        const p = makePrompter();
-        const r = JSON.parse(await askUserImpl(p, { prompt: '' }));
-        assert.equal(r.ok, false);
-        assert.match(r.error, /`prompt` is required/);
-        assert.equal(p.inputCalls.length, 0);
-    });
-
-    test('blank-only prompt rejected', async () => {
-        const p = makePrompter();
-        const r = JSON.parse(await askUserImpl(p, { prompt: '   ' }));
-        assert.equal(r.ok, false);
-        assert.match(r.error, /`prompt` is required/);
-    });
-
-    test('prompter throws → ok: false with reason', async () => {
-        const p = makePrompter();
-        p.throwOnInput = new Error('boom');
-        const r = JSON.parse(await askUserImpl(p, { prompt: 'x' }));
-        assert.equal(r.ok, false);
-        assert.match(r.error, /askUser failed: boom/);
-    });
-});
 
 // ===========================================================================
 // `tomAi_askUserPicker`

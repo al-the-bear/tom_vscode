@@ -168,7 +168,7 @@ export function formatToolSummary(
         case 'tomAi_notifyUser':
             return `notifyUser(${i.urgency || 'info'}: "${truncate(i.message || '', 80)}")${failedTag}`;
         case 'tomAi_askUser':
-            return `askUser("${truncate(i.prompt || '', 80)}")${result ? arrow + truncate(result, 120) : ''}${failedTag}`;
+            return `askUser(${Array.isArray(i.questions) ? i.questions.length : 0} questions)${result ? arrow + truncate(result, 120) : ''}${failedTag}`;
         case 'tomAi_askUserPicker':
             return `askUserPicker(${Array.isArray(i.items) ? i.items.length : 0} items)${result ? arrow + truncate(result, 120) : ''}${failedTag}`;
         case 'tomAi_listIssues':

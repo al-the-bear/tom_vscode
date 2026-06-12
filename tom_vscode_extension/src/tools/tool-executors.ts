@@ -1202,6 +1202,7 @@ const liveFileOpener: FileOpener = {
 (OPEN_FILE_DEF as { execute: (input: OpenFileInput) => Promise<string> }).execute =
     (input) => openFileImpl(liveFileOpener, input);
 import { USER_INTERACTION_TOOLS } from './user-interaction-tools';
+import { ASK_USER_LIVE_TOOL } from '../handlers/askUser-handler';
 import {
     WORKSPACE_EDIT_TOOLS,
     APPLY_EDIT_TOOL as APPLY_EDIT_DEF,
@@ -1578,7 +1579,8 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
     ...LANGUAGE_SERVICE_TOOLS,  // findSymbol, gotoDefinition, findReferences, getCodeActions(+Cached), applyCodeAction, rename
     ...GUIDELINE_TOOLS,         // readGuideline, readLocalGuideline, listGuidelines, searchGuidelines
     ...VSCODE_COMMAND_TOOLS,    // openFile, listCommands, vscode (meta)
-    ...USER_INTERACTION_TOOLS,  // askUser, askUserPicker
+    ...USER_INTERACTION_TOOLS,  // askUserPicker
+    ASK_USER_LIVE_TOOL,         // askUser — blocking multi-question ask (webview + Telegram)
     ...WORKSPACE_EDIT_TOOLS,    // applyEdit (transactional)
     ...TASK_DEBUG_TOOLS,        // runTask, runDebugConfig
     ...PROCESS_TOOLS,           // runCommandStream, readCommandOutput, killCommand
