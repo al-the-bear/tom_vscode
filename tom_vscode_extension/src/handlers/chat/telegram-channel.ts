@@ -25,7 +25,6 @@ import {
 import { TelegramConfig } from '../telegram-notifier';
 import { stripMarkdown } from '../telegram-markdown';
 import { bridgeLog } from '../handler_shared';
-import { TelegramPollLock } from '../../utils/telegramPollLock';
 
 // ============================================================================
 // Telegram Update (internal API type)
@@ -64,11 +63,11 @@ export class TelegramChannel implements ChatChannel {
      * Telegram allows only one getUpdates consumer per bot token; a second one
      * makes the API return 409 Conflict to whichever call is superseded, so two
      * pollers on the same token produce an alternating success/409 storm and
-     * neither receives reliably. Two independent owners exist in a window — the
-     * standalone command poller and the AI Conversation panel poller — and they
-     * resolve the *same* per-quest token. This process-wide claim guarantees only
-     * the first channel to start actually polls; later starters defer (and log)
-     * instead of racing. Released in {@link stopListening}.
+     * neither receives reliably. Several channel instances can be constructed in
+     * one window (the standalone command poller plus the send-only AI Conversation
+     * channel) resolving the *same* per-quest token, so this process-wide claim
+     * guarantees only the first channel to start actually polls; later starters
+     * defer (and log) instead of racing. Released in {@link stopListening}.
      */
     private static readonly activePollTokens = new Set<string>();
 
@@ -76,25 +75,15 @@ export class TelegramChannel implements ChatChannel {
     /** True when this channel currently holds the poll claim for its token. */
     private holdsPollClaim = false;
     private lastUpdateId: number = 0;
-    private pollTimer: ReturnType<typeof setInterval> | null = null;
+    /**
+     * Handle for the *next* scheduled poll. The loop is self-rescheduling (one
+     * `setTimeout` per cycle, armed only after the previous `getUpdates` has
+     * fully resolved), so there is never more than one `getUpdates` in flight for
+     * this bot token — overlapping requests are themselves a 409-Conflict source.
+     */
+    private pollTimer: ReturnType<typeof setTimeout> | null = null;
     private _isListening = false;
     private messageCallbacks: ChannelMessageCallback[] = [];
-
-    /**
-     * Cross-process poll lock. The in-process `activePollTokens` set only guards
-     * against two poll loops in *this* extension host; separate VS Code windows
-     * are separate processes that commonly share a bot token, so they also need
-     * coordinating. This lock lets only the owning process call `getUpdates`;
-     * others skip the API call (no 409). Created in {@link startListening} so it
-     * picks up the current poll interval; released in {@link stopListening}.
-     */
-    private pollLock: TelegramPollLock | null = null;
-    /** Bot token the current poll lock was acquired for (for release). */
-    private pollLockToken: string | null = null;
-    /** True once the startup backlog has been skipped for this poll session. */
-    private polled = false;
-    /** Whether we last deferred to another process (for one-shot logging). */
-    private deferredToOther = false;
 
     /**
      * Notified when getUpdates returns a Telegram API error (e.g. HTTP 409
@@ -289,59 +278,52 @@ export class TelegramChannel implements ChatChannel {
         TelegramChannel.activePollTokens.add(token);
         this.holdsPollClaim = true;
         this._isListening = true;
-        this.polled = false;
-        this.deferredToOther = false;
-
-        // Cross-process lock: only the owning process calls getUpdates. Stale
-        // window is a few poll intervals so a live owner is never mistaken for
-        // dead between ticks.
-        this.pollLock = new TelegramPollLock({
-            staleMs: Math.max(15000, this.config.pollIntervalMs * 3),
-        });
-        this.pollLockToken = token;
 
         bridgeLog(`[Telegram] Channel: starting poll (interval: ${this.config.pollIntervalMs}ms)`);
 
-        // Drive the whole loop from one timer. Each tick first checks the
-        // cross-process lock, then (on the first owned tick) skips the startup
-        // backlog, then fetches. Folding the prime step into the loop keeps the
-        // 409-avoiding lock check in front of *every* getUpdates call.
-        this.pollTimer = setInterval(() => { void this.pollTick(); }, this.config.pollIntervalMs);
+        // Run the self-rescheduling loop. Priming skips the startup backlog once;
+        // every subsequent cycle waits for its getUpdates to finish before arming
+        // the next, so this is the single, strictly-sequential getUpdates consumer
+        // for the token.
+        void this.runPollLoop();
     }
 
     /**
-     * One poll tick: defer to whichever process owns the cross-process lock,
-     * skip the startup backlog on the first owned tick, then fetch updates.
+     * Skip the startup backlog once, then enter the self-rescheduling poll cycle.
      *
-     * Skipping the backlog (priming) matters because stale commands otherwise
-     * replay on every startup — most damagingly a leftover `/stop`, which would
-     * immediately stop the poller again before the offset is ever acknowledged.
+     * Priming matters because stale commands otherwise replay on every startup —
+     * most damagingly a leftover `/stop`, which would immediately stop the poller
+     * again before the offset is ever acknowledged.
      */
-    private async pollTick(): Promise<void> {
-        if (!this._isListening || !this.pollLock || !this.pollLockToken) { return; }
-
-        // Cross-process single-consumer guard: only the lock owner hits the API.
-        if (!this.pollLock.acquireOrRefresh(this.pollLockToken)) {
-            if (!this.deferredToOther) {
-                this.deferredToOther = true;
-                bridgeLog('[Telegram] Channel: another window/process is polling this bot token — deferring getUpdates (avoids 409 Conflict). Will take over if it stops.');
-            }
-            return;
-        }
-        if (this.deferredToOther) {
-            this.deferredToOther = false;
-            bridgeLog('[Telegram] Channel: took over polling this bot token (previous owner stopped).');
-        }
-
+    private async runPollLoop(): Promise<void> {
         try {
-            if (!this.polled) {
-                await this.primePollOffset();
-                this.polled = true;
-                return;
-            }
+            await this.primePollOffset();
+        } catch {
+            // Ignore prime errors; the first real fetch retries from offset 0.
+        }
+        this.scheduleNextPoll();
+    }
+
+    /**
+     * Arm the next poll, but only while listening. Using `setTimeout` (re-armed
+     * after each cycle) instead of `setInterval` guarantees a single getUpdates
+     * is ever in flight — a slow/hung request can't pile up concurrent calls that
+     * would 409-conflict with one another.
+     */
+    private scheduleNextPoll(): void {
+        if (!this._isListening) { return; }
+        this.pollTimer = setTimeout(() => { void this.pollOnce(); }, this.config.pollIntervalMs);
+    }
+
+    /** One poll cycle: fetch updates, then arm the next cycle. */
+    private async pollOnce(): Promise<void> {
+        if (!this._isListening) { return; }
+        try {
             await this.fetchUpdates();
         } catch (err: any) {
             bridgeLog(`[Telegram] Poll error: ${err.message}`);
+        } finally {
+            this.scheduleNextPoll();
         }
     }
 
@@ -352,23 +334,17 @@ export class TelegramChannel implements ChatChannel {
             TelegramChannel.activePollTokens.delete(this.config.botToken);
             this.holdsPollClaim = false;
         }
-        // Release the cross-process lock so another window can take over now
-        // rather than waiting for our heartbeat to go stale.
-        if (this.pollLock && this.pollLockToken) {
-            this.pollLock.release(this.pollLockToken);
-        }
-        this.pollLock = null;
-        this.pollLockToken = null;
         // Idempotent: avoid the double "polling stopped" log when both the
         // notifier and the channel are disposed in sequence.
         if (!this._isListening && !this.pollTimer) { return; }
+        // Cancel any pending next-poll so the loop stops after the in-flight
+        // request (if any) settles.
         if (this.pollTimer) {
-            clearInterval(this.pollTimer);
+            clearTimeout(this.pollTimer);
             this.pollTimer = null;
         }
         this._isListening = false;
         this.lastPollErrorCode = null;
-        this.deferredToOther = false;
         bridgeLog('[Telegram] Channel: polling stopped');
     }
 
