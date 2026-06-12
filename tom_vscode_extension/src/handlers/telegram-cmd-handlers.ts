@@ -527,6 +527,10 @@ export interface LiveConversationControls {
     setListening(on: boolean): void;
     /** Whether live updates are currently streamed. */
     isListening(): boolean;
+    /** Master switch: forward anything (`true`) or nothing at all (`false`). */
+    setForwarding(on: boolean): void;
+    /** Whether any messages are forwarded at all (master switch). */
+    isForwarding(): boolean;
     /** Snapshot of the running prompt + listening mode. */
     getStatus(): LiveConversationStatus;
 }
@@ -627,19 +631,48 @@ async function chatListenHandler(deps: CommandRegistryDeps): Promise<TelegramCom
     };
 }
 
+/**
+ * Handle `chat_start` — turn the master forwarding switch on so messages from
+ * the running (and future) prompts are sent again. Does not touch the
+ * listening/silent mode, which resumes at whatever it was.
+ */
+async function chatStartHandler(deps: CommandRegistryDeps): Promise<TelegramCommandResult> {
+    deps.liveConversation.setForwarding(true);
+    const mode = deps.liveConversation.isListening() ? '🔊 listening' : '🔇 silent';
+    return {
+        text: `▶️ Forwarding on. You will receive chat messages again (mode: ${mode}).`,
+        rawText: true,
+    };
+}
+
+/**
+ * Handle `chat_stop` — turn the master forwarding switch off so *nothing* is
+ * sent, not even the prompt restatement or final answer. Lets the user drive
+ * the bot without a running chat interrupting. `chat_start` re-enables it.
+ */
+async function chatStopHandler(deps: CommandRegistryDeps): Promise<TelegramCommandResult> {
+    deps.liveConversation.setForwarding(false);
+    return {
+        text: '⏹ Forwarding off. No chat messages will be sent (not even prompts or final answers). Send chat_start to resume.',
+        rawText: true,
+    };
+}
+
 /** Handle `chat_status` — report whether a prompt is running and for how long. */
 async function chatStatusHandler(deps: CommandRegistryDeps): Promise<TelegramCommandResult> {
     const status = deps.liveConversation.getStatus();
+    const forwarding = status.forwarding ? '▶️ on' : '⏹ off';
     const mode = status.listening ? '🔊 listening' : '🔇 silent';
+    const modeLines = `Forwarding: ${forwarding}\nMode: ${mode}`;
     if (!status.running) {
-        return { text: `💤 No prompt is running.\nMode: ${mode}`, rawText: true };
+        return { text: `💤 No prompt is running.\n${modeLines}`, rawText: true };
     }
     const where = [status.transport, status.config].filter(Boolean).join('/');
     const whereLine = where ? `\nTransport: ${where}` : '';
     return {
         text:
             `⏳ A prompt is running — ${formatElapsed(status.elapsedMs)} so far.` +
-            `${whereLine}\nMode: ${mode}`,
+            `${whereLine}\n${modeLines}`,
         rawText: true,
     };
 }
@@ -810,6 +843,16 @@ export function createCommandRegistry(
             name: 'chat_listen',
             description: 'Resume streaming the live conversation',
             handler: () => chatListenHandler(deps),
+        });
+        registry.register({
+            name: 'chat_start',
+            description: 'Turn chat forwarding on (send prompts/answers again)',
+            handler: () => chatStartHandler(deps),
+        });
+        registry.register({
+            name: 'chat_stop',
+            description: 'Turn chat forwarding off (suppress all chat messages)',
+            handler: () => chatStopHandler(deps),
         });
         registry.register({
             name: 'chat_status',

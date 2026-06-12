@@ -20,6 +20,12 @@
  * follower always sees which prompt started — restating the prompt text just
  * sent — and how it ended, even while muted to the intermediate noise.
  *
+ * On top of those two modes sits a **master forwarding switch** (`/chat_stop` /
+ * `/chat_start`): when off, *nothing* is sent — not even the prompt restatement
+ * or final answer — so the user can drive the bot without a running chat barging
+ * in. Running-state bookkeeping still updates while muted, so `/chat_status`
+ * remains accurate.
+ *
  * The forwarder also tracks whether a prompt is currently running (and for how
  * long) so the `/chat_status` command and the "already running" rejection can
  * report it.
@@ -58,6 +64,12 @@ export interface LiveConversationStatus {
     config?: string;
     /** Whether live updates are currently being streamed (vs. silent mode). */
     listening: boolean;
+    /**
+     * Master forwarding switch. When `false` (`/chat_stop`) nothing is sent —
+     * not even the prompt restatement or final answer — independent of the
+     * listening/silent mode. `true` (`/chat_start`) re-enables forwarding.
+     */
+    forwarding: boolean;
 }
 
 export class TelegramLiveConversationForwarder {
@@ -67,6 +79,14 @@ export class TelegramLiveConversationForwarder {
     private sendChain: Promise<void> = Promise.resolve();
     /** When true, intermediate updates are streamed; when false, only the final answer. */
     private listening = true;
+    /**
+     * Master forwarding switch. When false (`/chat_stop`) every send is
+     * suppressed — including the always-delivered prompt restatement and final
+     * answer — so the user can drive the bot without the running chat barging
+     * in. Running-state bookkeeping still updates, so `/chat_status` stays
+     * accurate while muted. `/chat_start` flips it back on.
+     */
+    private forwarding = true;
     /** Accumulated assistant text since the last prompt/tool call — the final answer. */
     private finalAnswer = '';
     /** Epoch ms when the current prompt started; `undefined` when idle. */
@@ -108,6 +128,20 @@ export class TelegramLiveConversationForwarder {
         return this.listening;
     }
 
+    /**
+     * Turn the master forwarding switch on (`true`, `/chat_start`) or off
+     * (`false`, `/chat_stop`). When off, no messages are sent at all — the
+     * listening/silent mode is irrelevant until forwarding is re-enabled.
+     */
+    setForwarding(on: boolean): void {
+        this.forwarding = on;
+    }
+
+    /** Whether any messages are forwarded at all (master switch). */
+    isForwarding(): boolean {
+        return this.forwarding;
+    }
+
     /** Snapshot of the running prompt + listening mode for `/chat_status`. */
     getStatus(): LiveConversationStatus {
         const running = this.runningSince !== undefined;
@@ -117,6 +151,7 @@ export class TelegramLiveConversationForwarder {
             ...(running && this.runningTransport ? { transport: this.runningTransport } : {}),
             ...(running && this.runningConfig ? { config: this.runningConfig } : {}),
             listening: this.listening,
+            forwarding: this.forwarding,
         };
     }
 
@@ -191,6 +226,11 @@ export class TelegramLiveConversationForwarder {
 
     /** Append messages to the serialized send chain. */
     private enqueue(messages: string[]): void {
+        // Master switch: when forwarding is off, drop everything — including the
+        // always-delivered prompt restatement and final answer. Gating here (not
+        // in `onEvent`) keeps running-state bookkeeping live so `/chat_status`
+        // stays accurate while muted.
+        if (!this.forwarding) { return; }
         if (messages.length === 0 || !this.channel) { return; }
         const channel = this.channel;
         for (const message of messages) {

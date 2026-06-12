@@ -224,6 +224,8 @@ export async function telegramToggleHandler(): Promise<void> {
             liveConversation: {
                 setListening: (on) => forwarder.setListening(on),
                 isListening: () => forwarder.isListening(),
+                setForwarding: (on) => forwarder.setForwarding(on),
+                isForwarding: () => forwarder.isForwarding(),
                 getStatus: () => forwarder.getStatus(),
             },
         }
@@ -263,7 +265,7 @@ export async function telegramToggleHandler(): Promise<void> {
         `Workspace: ${wsName}\n` +
         `Quest: ${currentQuest || '(none)'}\n` +
         `Mode: 🔊 listening (live updates on)\n` +
-        `Send chat_silent to mute, chat_status for state.`;
+        `Send chat_silent to mute updates, chat_stop to silence everything, chat_status for state.`;
     void standaloneTelegram.sendMessage(startupMsg);
 }
 
