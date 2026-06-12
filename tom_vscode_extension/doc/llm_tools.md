@@ -237,7 +237,7 @@ Two-tier: `shared/` (cross-quest) and `{quest}/` (per-quest).
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
 | --- | --- | :-: | :-: | :-: | :-: | :-: |
 | `tomAi_notifyUser` | Notification (Telegram if configured, else VS Code). | ✅ | ✅ | ✅ | ✅ | ⚪ |
-| `tomAi_askUser` | Free-form `showInputBox` — requires a human. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_askUser` | **THE** way to ask the user and get an answer. Blocking: pauses the queue and asks up to 15 questions in a webview + Telegram; returns the user's verbatim reply (or a fallback prompt on timeout). | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_askUserPicker` | `showQuickPick` selection — requires a human. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 
 ### 4.19 Planning and delegation

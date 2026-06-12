@@ -96,17 +96,25 @@ export async function askUserImpl(deps: AskUserDeps, input: AskUserInput): Promi
 // ===========================================================================
 
 export const ASK_USER_DESCRIPTION =
-    'Pause the prompt queue and ask the user up to 15 questions, then **wait** ' +
-    'for their reply. **BLOCKING** — the call does not return until the user ' +
-    'answers (from the VS Code question panel OR from Telegram) or a ' +
-    'configurable timeout fires. The questions are numbered (1..n) for display; ' +
-    'the user types a single free-form reply and that reply is returned to you ' +
-    '**verbatim** as the tool result — structure your questions so a numbered, ' +
-    'free-form answer makes sense. On timeout the result is the configured ' +
-    'fallback prompt instead (default: ask the model to follow its own ' +
-    'recommendations). Only **one** ask may be in flight at a time (the queue ' +
-    'is blocked on it). Use this to get a decision or missing information ' +
-    'mid-run instead of guessing.';
+    'THE way to ask the user something and actually receive an answer. ' +
+    'Whenever you need a decision, clarification, missing information, or ' +
+    'approval from the user, call this tool — do NOT just write the question ' +
+    'in your text reply, because that reply is not surfaced to the user as a ' +
+    'prompt and nothing will answer it (the run will stall or you will be ' +
+    'forced to guess). ' +
+    'Syntax: call `tomAi_askUser` with `questions` (an array of 1–15 strings) ' +
+    'and an optional `title`. Example: ' +
+    '`{ "questions": ["Which database should I target?", "Is a destructive ' +
+    'migration acceptable?"], "title": "Migration plan" }`. ' +
+    'It pauses the prompt queue and **waits**: **BLOCKING** — the call does ' +
+    'not return until the user answers (from the VS Code question panel OR ' +
+    'from Telegram) or a configurable timeout fires. The questions are ' +
+    'numbered (1..n) for display; the user types a single free-form reply and ' +
+    'that reply is returned to you **verbatim** as the tool result — structure ' +
+    'your questions so a numbered, free-form answer makes sense. On timeout ' +
+    'the result is the configured fallback prompt instead (default: ask the ' +
+    'model to follow its own recommendations). Only **one** ask may be in ' +
+    'flight at a time (the queue is blocked on it).';
 
 export const ASK_USER_TOOL: SharedToolDefinition<AskUserInput> = {
     name: 'tomAi_askUser',
