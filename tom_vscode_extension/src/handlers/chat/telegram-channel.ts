@@ -57,7 +57,23 @@ interface TelegramUpdate {
 export class TelegramChannel implements ChatChannel {
     readonly platform = 'telegram';
 
+    /**
+     * Bot tokens with a live getUpdates poll loop *in this extension host*.
+     *
+     * Telegram allows only one getUpdates consumer per bot token; a second one
+     * makes the API return 409 Conflict to whichever call is superseded, so two
+     * pollers on the same token produce an alternating success/409 storm and
+     * neither receives reliably. Two independent owners exist in a window — the
+     * standalone command poller and the AI Conversation panel poller — and they
+     * resolve the *same* per-quest token. This process-wide claim guarantees only
+     * the first channel to start actually polls; later starters defer (and log)
+     * instead of racing. Released in {@link stopListening}.
+     */
+    private static readonly activePollTokens = new Set<string>();
+
     private config: TelegramConfig;
+    /** True when this channel currently holds the poll claim for its token. */
+    private holdsPollClaim = false;
     private lastUpdateId: number = 0;
     private pollTimer: ReturnType<typeof setInterval> | null = null;
     private _isListening = false;
@@ -243,6 +259,18 @@ export class TelegramChannel implements ChatChannel {
 
     startListening(): void {
         if (this._isListening || !this.isEnabled) { return; }
+
+        // One getUpdates consumer per bot token (see activePollTokens). If another
+        // channel in this host already polls this token, don't start a second loop
+        // — that's the 409-Conflict "two clients" storm. Defer silently; the owner
+        // keeps receiving and this channel can still send.
+        const token = this.config.botToken;
+        if (TelegramChannel.activePollTokens.has(token)) {
+            bridgeLog('[Telegram] Channel: not starting a second poll loop — this bot token is already being polled in this window (avoids 409 Conflict).');
+            return;
+        }
+        TelegramChannel.activePollTokens.add(token);
+        this.holdsPollClaim = true;
         this._isListening = true;
 
         bridgeLog(`[Telegram] Channel: starting poll (interval: ${this.config.pollIntervalMs}ms)`);
@@ -269,6 +297,12 @@ export class TelegramChannel implements ChatChannel {
     }
 
     stopListening(): void {
+        // Release the poll claim regardless, so a deferred channel (or this one
+        // restarting) can take over the token later.
+        if (this.holdsPollClaim) {
+            TelegramChannel.activePollTokens.delete(this.config.botToken);
+            this.holdsPollClaim = false;
+        }
         // Idempotent: avoid the double "polling stopped" log when both the
         // notifier and the channel are disposed in sequence.
         if (!this._isListening && !this.pollTimer) { return; }

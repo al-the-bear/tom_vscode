@@ -206,7 +206,14 @@ export class TelegramCommandRegistry {
             const ch = input[i];
             if (ch === '"') {
                 inQuotes = !inQuotes;
-            } else if (ch === ' ' && !inQuotes) {
+            // Any whitespace (space, tab, newline) separates tokens — not just the
+            // literal space. A multi-line message like
+            //   send_prompt\n\n<body>
+            // must tokenize to ["send_prompt", "<body>", …]; splitting on space
+            // alone folds "send_prompt\n\n<firstword>" into one bogus command token,
+            // so the command never matches and the message is silently misrouted to
+            // the info/unknown fallback instead of running.
+            } else if (/\s/.test(ch) && !inQuotes) {
                 if (current.length > 0) {
                     tokens.push(current);
                     current = '';
