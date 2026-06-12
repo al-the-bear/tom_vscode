@@ -231,8 +231,9 @@ export async function telegramToggleHandler(): Promise<void> {
         }
         : undefined;
     commandRegistry = createCommandRegistry(() => {
-        // Stop callback — triggered by stop command
-        standaloneTelegram?.sendMessage('⏹ Polling stopped via Telegram command.');
+        // Stop callback — triggered by stop command. Send plain (no parse_mode)
+        // so the trailing '.' doesn't trigger a MarkdownV2 escape/retry storm.
+        void standaloneChannel?.sendMessage('⏹ Polling stopped via Telegram command.', undefined, { plain: true });
         liveConversationForwarder?.stop();
         liveConversationForwarder = null;
         standaloneTelegram?.dispose();

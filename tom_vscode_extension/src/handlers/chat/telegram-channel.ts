@@ -247,19 +247,31 @@ export class TelegramChannel implements ChatChannel {
 
         bridgeLog(`[Telegram] Channel: starting poll (interval: ${this.config.pollIntervalMs}ms)`);
 
-        // Initial fetch to get current offset
-        this.fetchUpdates().catch(() => { /* ignore initial errors */ });
-
-        this.pollTimer = setInterval(async () => {
-            try {
-                await this.fetchUpdates();
-            } catch (err: any) {
-                bridgeLog(`[Telegram] Poll error: ${err.message}`);
-            }
-        }, this.config.pollIntervalMs);
+        // Skip any backlog that piled up while we weren't polling BEFORE starting
+        // the processing loop. Otherwise stale commands replay on every startup —
+        // most damagingly a leftover `/stop`, which immediately stops the poller
+        // again before the offset is ever acknowledged, so the backlog never
+        // clears and the same ghost commands fire on the next start, forever.
+        this.primePollOffset()
+            .catch(() => { /* ignore prime errors; the loop retries from offset 0 */ })
+            .finally(() => {
+                // A `/stop`/dispose during priming clears the flag — honour it and
+                // don't start (or double-start) the loop.
+                if (!this._isListening || this.pollTimer) { return; }
+                this.pollTimer = setInterval(async () => {
+                    try {
+                        await this.fetchUpdates();
+                    } catch (err: any) {
+                        bridgeLog(`[Telegram] Poll error: ${err.message}`);
+                    }
+                }, this.config.pollIntervalMs);
+            });
     }
 
     stopListening(): void {
+        // Idempotent: avoid the double "polling stopped" log when both the
+        // notifier and the channel are disposed in sequence.
+        if (!this._isListening && !this.pollTimer) { return; }
         if (this.pollTimer) {
             clearInterval(this.pollTimer);
             this.pollTimer = null;
@@ -294,6 +306,21 @@ export class TelegramChannel implements ChatChannel {
     // -----------------------------------------------------------------------
     // Internal: polling
     // -----------------------------------------------------------------------
+
+    /**
+     * Advance the update offset past any messages that arrived before polling
+     * started, WITHOUT dispatching them, so stale commands (e.g. a leftover
+     * `/stop`) don't replay on every startup. getUpdates(-1) returns only the
+     * most recent update and forgets earlier ones; recording its id means the
+     * first real poll (offset = lastUpdateId + 1) confirms/discards the backlog.
+     */
+    private async primePollOffset(): Promise<void> {
+        const updates = await this.getUpdates(-1);
+        if (!updates) { return; }
+        for (const update of updates) {
+            this.lastUpdateId = Math.max(this.lastUpdateId, update.update_id);
+        }
+    }
 
     /** Fetch and process updates from Telegram. */
     private async fetchUpdates(): Promise<void> {
