@@ -40,7 +40,7 @@ import { AnthropicHandler, AnthropicProfile, AnthropicConfiguration, ANTHROPIC_C
 import { QuestRefreshService } from '../services/quest-refresh-service';
 import { resolveProfileTools } from '../tools/tool-executors';
 import { ACTIVE_ANTHROPIC_PROFILE_KEY } from '../tools/scripting-tools-bridge';
-import { tryBeginAnthropicSend, endAnthropicSend } from './sendToChatState';
+import { tryBeginAnthropicSend, endAnthropicSend, setAnthropicSendCancel } from './sendToChatState';
 import { SharedToolDefinition } from '../tools/shared-tool-registry';
 import { chatProviders, ChatDraftState } from './chat/chatProviderRegistry';
 import { saveChatDrafts, loadChatDrafts } from '../services/chatDraftService';
@@ -1830,6 +1830,15 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         this._activeCts.get('anthropic')?.dispose();
         const cts = new vscode.CancellationTokenSource();
         this._activeCts.set('anthropic', cts);
+
+        // Arm the shared cancel hook so a remote driver (Telegram `/cancel_chat`)
+        // can interrupt this panel turn exactly like the Stop button: cancel the
+        // token and abort any pending tool-approval gate. The slot was already
+        // claimed above; `setAnthropicSendCancel` attaches to that claim.
+        setAnthropicSendCancel(() => {
+            cts.cancel();
+            AnthropicHandler.instance.abortPendingApprovals();
+        });
 
         try {
             const result = await AnthropicHandler.instance.sendMessage({

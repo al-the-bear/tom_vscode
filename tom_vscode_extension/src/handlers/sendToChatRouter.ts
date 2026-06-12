@@ -95,7 +95,20 @@ export async function runAnthropicSend(
     if (!prompt || !prompt.trim()) {
         return { target: 'anthropic', ok: false, error: 'Empty prompt.' };
     }
-    if (!tryBeginAnthropicSend()) {
+    // When the caller didn't supply a cancellation token (the command / file
+    // menus and the Telegram `send_prompt` path), own a CTS here so the send is
+    // interruptible — otherwise `/cancel_chat` would have nothing to cancel. A
+    // caller-supplied token (the panel) owns its own cancellation.
+    const ownCts = opts?.cancellationToken ? undefined : new vscode.CancellationTokenSource();
+    const cancellationToken = opts?.cancellationToken ?? ownCts!.token;
+    // Register the cancel hook atomically with the slot claim so `/cancel_chat`
+    // can interrupt this turn exactly like the chat panel's Stop button:
+    // cancel the token and abort any pending tool-approval gate.
+    if (!tryBeginAnthropicSend(() => {
+        ownCts?.cancel();
+        AnthropicHandler.instance.abortPendingApprovals();
+    })) {
+        ownCts?.dispose();
         return {
             target: 'anthropic',
             ok: false,
@@ -125,7 +138,7 @@ export async function runAnthropicSend(
             configuration,
             tools,
             sessionKey: ANTHROPIC_CHAT_SESSION_KEY,
-            ...(opts?.cancellationToken ? { cancellationToken: opts.cancellationToken } : {}),
+            cancellationToken,
             ...(userMessageTemplate ? { userMessageTemplate } : {}),
         });
 
@@ -146,6 +159,7 @@ export async function runAnthropicSend(
         };
     } finally {
         endAnthropicSend();
+        ownCts?.dispose();
     }
 }
 

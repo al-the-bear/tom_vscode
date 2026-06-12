@@ -2760,6 +2760,7 @@ export class PromptQueueManager {
                 tools: ALL_SHARED_TOOLS,
                 cancellationToken: cts.token,
                 skipQuestRefresh,
+                source: 'queue',
             });
             if (stageForAnswer) {
                 stageForAnswer.answerText = result.text;

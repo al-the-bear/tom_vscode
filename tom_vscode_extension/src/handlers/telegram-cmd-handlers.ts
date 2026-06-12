@@ -551,6 +551,17 @@ export interface CommandRegistryDeps {
         context: vscode.ExtensionContext,
         prompt: string,
     ) => Promise<SendToChatOutcome>;
+    /**
+     * Cancel the running **direct** chat prompt (panel Send / Send-to-Chat /
+     * Telegram `send_prompt`), like the chat panel's Stop button. Returns `true`
+     * if a prompt was running and was cancelled.
+     */
+    cancelChat: () => boolean;
+    /**
+     * Cancel the running **queue** prompt, like the queue's Stop button. Returns
+     * `true` if a queue item was running and was cancelled.
+     */
+    cancelQueue: () => boolean;
     /** Controls for the persistent live-conversation forwarder. */
     liveConversation: LiveConversationControls;
 }
@@ -597,7 +608,10 @@ async function sendPromptHandler(
 
     if (outcome.rejected) {
         const status = deps.liveConversation.getStatus();
-        const elapsed = status.running ? ` (running for ${formatElapsed(status.elapsedMs)})` : '';
+        // The rejection comes from the direct-send guard, so report the chat
+        // prompt's elapsed time when we have it.
+        const chat = status.running.find((r) => r.source === 'chat');
+        const elapsed = chat ? ` (running for ${formatElapsed(chat.elapsedMs)})` : '';
         return {
             text:
                 `⏳ A prompt is already running in this quest${elapsed}. ` +
@@ -658,21 +672,55 @@ async function chatStopHandler(deps: CommandRegistryDeps): Promise<TelegramComma
     };
 }
 
-/** Handle `chat_status` — report whether a prompt is running and for how long. */
+/**
+ * Handle `chat_status` — report which prompt(s) are running and for how long.
+ * The queue and a direct chat send can run concurrently, so this emits one
+ * block per running source (📋 queue / 💬 direct).
+ */
 async function chatStatusHandler(deps: CommandRegistryDeps): Promise<TelegramCommandResult> {
     const status = deps.liveConversation.getStatus();
     const forwarding = status.forwarding ? '▶️ on' : '⏹ off';
     const mode = status.listening ? '🔊 listening' : '🔇 silent';
     const modeLines = `Forwarding: ${forwarding}\nMode: ${mode}`;
-    if (!status.running) {
+    if (status.running.length === 0) {
         return { text: `💤 No prompt is running.\n${modeLines}`, rawText: true };
     }
-    const where = [status.transport, status.config].filter(Boolean).join('/');
-    const whereLine = where ? `\nTransport: ${where}` : '';
+    const blocks = status.running.map((r) => {
+        const label = r.source === 'queue' ? '📋 Queue prompt' : '💬 Direct prompt';
+        const where = [r.transport, r.config].filter(Boolean).join('/');
+        const whereLine = where ? ` [${where}]` : '';
+        return `${label}${whereLine} — running ${formatElapsed(r.elapsedMs)}`;
+    });
     return {
-        text:
-            `⏳ A prompt is running — ${formatElapsed(status.elapsedMs)} so far.` +
-            `${whereLine}\n${modeLines}`,
+        text: `⏳ ${status.running.length} prompt(s) running:\n${blocks.join('\n')}\n${modeLines}`,
+        rawText: true,
+    };
+}
+
+/**
+ * Handle `cancel_chat` — interrupt the running **direct** chat prompt (panel
+ * Send / Send-to-Chat / `send_prompt`), like clicking Stop in the chat panel.
+ */
+async function cancelChatHandler(deps: CommandRegistryDeps): Promise<TelegramCommandResult> {
+    const cancelled = deps.cancelChat();
+    return {
+        text: cancelled
+            ? '🛑 Cancelled the running direct chat prompt.'
+            : 'ℹ️ No direct chat prompt is currently running.',
+        rawText: true,
+    };
+}
+
+/**
+ * Handle `cancel_queue` — interrupt the running **queue** prompt, like clicking
+ * Stop on the active queue item.
+ */
+async function cancelQueueHandler(deps: CommandRegistryDeps): Promise<TelegramCommandResult> {
+    const cancelled = deps.cancelQueue();
+    return {
+        text: cancelled
+            ? '🛑 Cancelled the running queue prompt.'
+            : 'ℹ️ No queue prompt is currently running.',
         rawText: true,
     };
 }
@@ -858,6 +906,16 @@ export function createCommandRegistry(
             name: 'chat_status',
             description: 'Show whether a prompt is running and for how long',
             handler: () => chatStatusHandler(deps),
+        });
+        registry.register({
+            name: 'cancel_chat',
+            description: 'Stop the running direct chat prompt (like the chat Stop button)',
+            handler: () => cancelChatHandler(deps),
+        });
+        registry.register({
+            name: 'cancel_queue',
+            description: 'Stop the running queue prompt (like the queue Stop button)',
+            handler: () => cancelQueueHandler(deps),
         });
     }
 

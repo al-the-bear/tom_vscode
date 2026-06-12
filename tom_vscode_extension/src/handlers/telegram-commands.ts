@@ -25,6 +25,8 @@ import { TelegramLiveConversationForwarder } from './telegramTrailForwarder';
 import { TelegramChannel } from './chat';
 import { isChatPanelOpen } from './chatPanel-handler';
 import { runAnthropicSend } from './sendToChatRouter';
+import { cancelAnthropicSend } from './sendToChatState';
+import { PromptQueueManager } from '../managers/promptQueueManager';
 import { WsPaths } from '../utils/workspacePaths';
 
 // ============================================================================
@@ -47,6 +49,25 @@ let responseFormatter: TelegramResponseFormatter | null = null;
  * owns the listening/silent mode the chat_* commands toggle.
  */
 let liveConversationForwarder: TelegramLiveConversationForwarder | null = null;
+
+/**
+ * Optional sink for AI-Conversation control commands. When an AI Conversation
+ * is active in this window it registers a sink here so the **single** standalone
+ * poller can route conversation-control commands (`stop`/`halt`/`continue`/
+ * `status`/`info`) to it. This eliminates the AI Conversation panel's own poller
+ * — two pollers on the same bot token guarantee a 409 Conflict. The sink returns
+ * `true` when the command was consumed by an active conversation; `false` lets
+ * the standalone command registry handle it normally (e.g. `stop` → stop
+ * polling when no conversation is running).
+ */
+let conversationSink: ((cmd: TelegramCommand) => boolean) | null = null;
+
+/** Register (or clear with `null`) the AI-Conversation control-command sink. */
+export function setTelegramConversationSink(
+    sink: ((cmd: TelegramCommand) => boolean) | null,
+): void {
+    conversationSink = sink;
+}
 
 /**
  * Extension context, captured at activation. Needed to build the command
@@ -221,6 +242,11 @@ export async function telegramToggleHandler(): Promise<void> {
             context: extensionContext,
             isChatPanelOpen,
             runAnthropicSend,
+            // `/cancel_chat` interrupts the running direct send via the shared
+            // guard's cancel hook; `/cancel_queue` stops the active queue item
+            // exactly like the queue's Stop button.
+            cancelChat: () => cancelAnthropicSend(),
+            cancelQueue: () => PromptQueueManager.instance.stopActiveItem(),
             liveConversation: {
                 setListening: (on) => forwarder.setListening(on),
                 isListening: () => forwarder.isListening(),
@@ -278,6 +304,24 @@ export async function telegramToggleHandler(): Promise<void> {
  */
 function handleStandaloneCommand(cmd: TelegramCommand): void {
     bridgeLog(`[Telegram] Standalone command: ${cmd.type} raw="${cmd.text}" from @${cmd.username}`);
+
+    // Route conversation-control commands to an active AI Conversation first.
+    // When the sink consumes the command (a conversation is running in this
+    // window), the standalone registry must not also act on it — otherwise
+    // `stop` would stop polling instead of the conversation, and `status` would
+    // report workspace state instead of the conversation's. When no conversation
+    // is active the sink returns false and the command falls through normally.
+    if (
+        conversationSink &&
+        (cmd.type === 'stop' || cmd.type === 'halt' || cmd.type === 'continue' ||
+            cmd.type === 'status' || cmd.type === 'info')
+    ) {
+        try {
+            if (conversationSink(cmd)) { return; }
+        } catch (err) {
+            bridgeLog(`[Telegram] Conversation sink error: ${(err as Error).message}`, 'ERROR');
+        }
+    }
 
     // If we have a command registry, try to parse and dispatch
     if (commandRegistry && responseFormatter) {

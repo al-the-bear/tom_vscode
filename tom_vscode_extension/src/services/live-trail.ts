@@ -51,10 +51,22 @@ export const ANTHROPIC_LIVE_TRAIL_FILENAME = 'live-trail.md';
  */
 export const LOCAL_LLM_LIVE_TRAIL_FILENAME = 'live-trail-localLLM.md';
 
+/**
+ * Where a prompt originated, so consumers can tell a queue-dispatched run apart
+ * from a direct chat send (panel Send button, Send-to-Chat, scripting bridge,
+ * or a Telegram `send_prompt`). A queue item and a direct send can run
+ * concurrently — they use independent cancellation sources — so the Telegram
+ * `/chat_status` reports each separately and `/cancel_queue` / `/cancel_chat`
+ * target the right one.
+ */
+export type PromptSource = 'queue' | 'chat';
+
 export interface LiveTrailPromptInfo {
     transport: string;
     config: string;
     userText: string;
+    /** Origin of the prompt. Defaults to `'chat'` when omitted. */
+    source?: PromptSource;
 }
 
 /**
@@ -62,7 +74,11 @@ export interface LiveTrailPromptInfo {
  * mirror the markdown the writer appends to `live-trail.md`, but as structured
  * data so consumers (e.g. the Telegram forwarder) can follow a turn without
  * parsing the file. Every event carries the writer's `questId` so a consumer
- * can filter to the quest it cares about.
+ * can filter to the quest it cares about, plus the prompt's `source` (`'queue'`
+ * vs `'chat'`) stamped by the writer so a consumer can attribute terminal
+ * events — which carry no other identifying fields — to the run that ended.
+ * `source` is optional on the type (so source-agnostic constructors, e.g. the
+ * coalescer's tests, stay terse) but `emit` always stamps it in production.
  *
  * The `kind` discriminator drives which extra fields are present:
  *   - `prompt`       — a new prompt block opened (`transport`/`config`/`userText`).
@@ -75,14 +91,14 @@ export interface LiveTrailPromptInfo {
  *   - `interruption` — the turn was interrupted/rate-limited (`label`/`message`).
  */
 export type LiveTrailEvent =
-    | { kind: 'prompt'; questId: string; transport: string; config: string; userText: string }
-    | { kind: 'thinking'; questId: string; text: string }
-    | { kind: 'toolCall'; questId: string; toolName: string; replayKey: string }
-    | { kind: 'toolResult'; questId: string; fullLength: number }
-    | { kind: 'assistant'; questId: string; text: string }
-    | { kind: 'done'; questId: string; rounds: number; toolCalls: number; durationMs: number }
-    | { kind: 'error'; questId: string; message: string }
-    | { kind: 'interruption'; questId: string; label: string; message: string };
+    | { kind: 'prompt'; questId: string; source?: PromptSource; transport: string; config: string; userText: string }
+    | { kind: 'thinking'; questId: string; source?: PromptSource; text: string }
+    | { kind: 'toolCall'; questId: string; source?: PromptSource; toolName: string; replayKey: string }
+    | { kind: 'toolResult'; questId: string; source?: PromptSource; fullLength: number }
+    | { kind: 'assistant'; questId: string; source?: PromptSource; text: string }
+    | { kind: 'done'; questId: string; source?: PromptSource; rounds: number; toolCalls: number; durationMs: number }
+    | { kind: 'error'; questId: string; source?: PromptSource; message: string }
+    | { kind: 'interruption'; questId: string; source?: PromptSource; label: string; message: string };
 
 /** Observer callback invoked for every {@link LiveTrailEvent}. */
 export type LiveTrailObserver = (event: LiveTrailEvent) => void;
@@ -93,8 +109,11 @@ export type LiveTrailObserver = (event: LiveTrailEvent) => void;
  */
 type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never;
 
-/** A {@link LiveTrailEvent} as supplied to `emit`, before `questId` is stamped on. */
-type LiveTrailEventInput = DistributiveOmit<LiveTrailEvent, 'questId'>;
+/**
+ * A {@link LiveTrailEvent} as supplied to `emit`, before `questId` and `source`
+ * are stamped on from the writer's own fields.
+ */
+type LiveTrailEventInput = DistributiveOmit<LiveTrailEvent, 'questId' | 'source'>;
 
 export class LiveTrailWriter {
     /**
@@ -122,6 +141,16 @@ export class LiveTrailWriter {
 
     /** Raw (unsanitized) quest id stamped onto every emitted event. */
     private readonly questId: string;
+    /**
+     * Which originator the current turn belongs to — `'queue'` for prompts
+     * dispatched by the prompt queue, `'chat'` for direct sends (panel Send,
+     * Send-to-Chat, Telegram `send_prompt`). Stamped onto every emitted event
+     * (including terminal `done`/`error`/`interruption`, which carry no
+     * identifying fields of their own) so observers like the Telegram forwarder
+     * can attribute a run to its source. Set by {@link beginPrompt}; defaults
+     * to `'chat'`.
+     */
+    private promptSource: PromptSource = 'chat';
     private filePath: string;
     private startedAtMs = 0;
     /**
@@ -204,6 +233,7 @@ export class LiveTrailWriter {
      */
     beginPrompt(info: LiveTrailPromptInfo): void {
         try {
+            this.promptSource = info.source ?? 'chat';
             this.ensureParentDir();
             const trimmed = this.trimOldBlocks();
             this.startedAtMs = Date.now();
@@ -340,7 +370,7 @@ export class LiveTrailWriter {
      */
     private emit(event: LiveTrailEventInput): void {
         if (LiveTrailWriter.observers.size === 0) { return; }
-        const full = { ...event, questId: this.questId } as LiveTrailEvent;
+        const full = { ...event, questId: this.questId, source: this.promptSource } as LiveTrailEvent;
         for (const observer of LiveTrailWriter.observers) {
             try {
                 observer(full);

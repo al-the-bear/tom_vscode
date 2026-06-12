@@ -20,7 +20,7 @@ import {
 import { TrailService } from '../services/trailService';
 import { ANTHROPIC_SUBSYSTEM } from '../services/trailSubsystems';
 import { ToolTrail, setActiveToolTrail, type ToolTrailEntry } from '../services/tool-trail';
-import { LiveTrailWriter } from '../services/live-trail';
+import { LiveTrailWriter, type PromptSource } from '../services/live-trail';
 import { QuestRefreshStore } from '../managers/questRefreshStore';
 import { QuestRefreshService } from '../services/quest-refresh-service';
 import { classifyAnthropicError, Interruption } from '../utils/anthropicErrorClassifier';
@@ -314,6 +314,13 @@ export interface AnthropicSendOptions {
      * follow-up send that shouldn't advance the user-prompt counter.
      */
     skipQuestRefresh?: boolean;
+    /**
+     * Originator of this send — `'queue'` for prompt-queue dispatch, `'chat'`
+     * for direct sends (panel Send, Send-to-Chat, Telegram `send_prompt`).
+     * Threaded onto the live-trail writer so observers (e.g. the Telegram
+     * forwarder) can attribute the run to its source. Defaults to `'chat'`.
+     */
+    source?: PromptSource;
 }
 
 /** Prompt-queue Agent SDK session bucket → `default.session.json`. */
@@ -1696,6 +1703,7 @@ export class AnthropicHandler {
             transport,
             config: configuration.id,
             userText: effectiveUserText,
+            source: options.source ?? 'chat',
         });
 
         TrailService.instance.writeRawPrompt(

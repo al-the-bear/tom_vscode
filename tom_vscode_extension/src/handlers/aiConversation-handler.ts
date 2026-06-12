@@ -31,6 +31,7 @@ import type { OllamaStats } from './localLlm-handler';
 import { ALL_SHARED_TOOLS } from '../tools/tool-executors';
 import type { SharedToolDefinition } from '../tools/shared-tool-registry';
 import { TelegramNotifier, TelegramConfig, TelegramCommand, TELEGRAM_DEFAULTS } from './telegram-notifier';
+import { setTelegramConversationSink } from './telegram-commands';
 import { readEffectiveTelegramConfig } from './telegram-config';
 import { TelegramChannel } from './chat';
 import {
@@ -379,6 +380,7 @@ export class AiConversationManager {
 
     dispose(): void {
         this.stopConversation('Manager disposed');
+        setTelegramConversationSink(null);
         this.telegram?.dispose();
         this.telegramChannel?.dispose();
     }
@@ -513,7 +515,16 @@ export class AiConversationManager {
     // Telegram integration
     // -----------------------------------------------------------------------
 
-    /** Set up Telegram notifier from config. */
+    /**
+     * Set up the Telegram notifier from config — **send-only**.
+     *
+     * Polling is owned by the single standalone poller (`telegram-commands.ts`);
+     * a second poller on the same bot token would 409-Conflict. Instead of
+     * polling, this registers a {@link setTelegramConversationSink sink} so the
+     * standalone poller routes conversation-control commands here while a
+     * conversation is active. The notifier is kept purely for outbound
+     * notifications (the `notify...` / `sendMessage` methods).
+     */
     private setupTelegram(config: AiConversationConfig): void {
         if (this.telegram) {
             this.telegram.dispose();
@@ -523,63 +534,63 @@ export class AiConversationManager {
             this.telegramChannel.dispose();
             this.telegramChannel = null;
         }
-        if (!config.telegram.enabled) { return; }
+        if (!config.telegram.enabled) {
+            setTelegramConversationSink(null);
+            return;
+        }
 
         this.telegramChannel = new TelegramChannel(config.telegram);
         this.telegram = new TelegramNotifier(this.telegramChannel, config.telegram);
-        this.telegram.onCommand((cmd: TelegramCommand) => this.handleTelegramCommand(cmd));
-        this.telegram.startPolling();
+        // No startPolling/onCommand here — the standalone poller is the single
+        // consumer of getUpdates. Register the control-command sink instead.
+        setTelegramConversationSink((cmd) => this.handleTelegramCommand(cmd));
     }
 
-    /** Handle an incoming Telegram command. */
-    private handleTelegramCommand(cmd: TelegramCommand): void {
+    /**
+     * Handle an incoming Telegram conversation-control command, routed from the
+     * single standalone poller via the registered sink.
+     *
+     * @returns `true` when an active conversation consumed the command (so the
+     *          standalone registry must not also act on it); `false` when there
+     *          was nothing to do, letting the standalone command fall through
+     *          (e.g. `stop` → stop polling, `status` → workspace status).
+     */
+    private handleTelegramCommand(cmd: TelegramCommand): boolean {
         switch (cmd.type) {
             case 'stop':
                 if (this.activeConversation?.active) {
                     this.stopConversation(`Stopped via Telegram by @${cmd.username}`);
                     this.telegram?.sendMessage('✅ Conversation stopped.');
-                } else {
-                    this.telegram?.sendMessage('ℹ️ No active conversation.');
+                    return true;
                 }
-                break;
+                return false;
             case 'halt':
-                if (this.haltConversation(`Halted via Telegram by @${cmd.username}`)) {
-                    // notifyHalted already called in haltConversation
-                } else {
-                    this.telegram?.sendMessage('ℹ️ No active conversation to halt (or already halted).');
-                }
-                break;
+                // haltConversation calls notifyHalted on success.
+                return this.haltConversation(`Halted via Telegram by @${cmd.username}`);
             case 'continue':
-                if (this.continueConversation()) {
-                    // notifyContinued already called in continueConversation
-                } else {
-                    this.telegram?.sendMessage('ℹ️ Conversation is not halted.');
-                }
-                break;
+                // continueConversation calls notifyContinued on success.
+                return this.continueConversation();
             case 'info':
                 if (this.addUserInput(cmd.text)) {
                     this.telegram?.sendMessage(`📝 Added to next prompt (${cmd.text.length} chars).`);
-                } else {
-                    this.telegram?.sendMessage('ℹ️ No active conversation to add input to.');
+                    return true;
                 }
-                break;
+                return false;
             case 'status': {
                 if (!this.activeConversation) {
-                    this.telegram?.sendMessage('ℹ️ No active conversation.');
-                } else {
-                    const s = this.activeConversation;
-                    const status = s.halted ? '⏸ Halted' : s.active ? '▶️ Running' : '⏹ Finished';
-                    this.telegram?.sendMessage(
-                        `*Status:* ${status}\n` +
-                        `*Turns:* ${s.exchanges.length}/${s.config.maxTurns}\n` +
-                        `*Goal:* ${s.goal.substring(0, 100)}`,
-                    );
+                    return false;
                 }
-                break;
+                const s = this.activeConversation;
+                const status = s.halted ? '⏸ Halted' : s.active ? '▶️ Running' : '⏹ Finished';
+                this.telegram?.sendMessage(
+                    `*Status:* ${status}\n` +
+                    `*Turns:* ${s.exchanges.length}/${s.config.maxTurns}\n` +
+                    `*Goal:* ${s.goal.substring(0, 100)}`,
+                );
+                return true;
             }
-            case 'unknown':
-                this.telegram?.sendMessage('❓ Unknown command. Use /stop /halt /continue /status or /info <text>');
-                break;
+            default:
+                return false;
         }
     }
 
@@ -1335,10 +1346,10 @@ export class AiConversationManager {
             if (this.activeConversation === state) {
                 this.activeConversation = null;
             }
-            // Clean up Telegram polling
-            if (this.telegram) {
-                this.telegram.stopPolling();
-            }
+            // Unregister the conversation-control sink — no conversation is
+            // active, so Telegram control commands should fall through to the
+            // standalone command registry again.
+            setTelegramConversationSink(null);
             cancellationSource.dispose();
         }
     }
@@ -2067,10 +2078,10 @@ export class AiConversationManager {
             if (this.activeConversation === state) {
                 this.activeConversation = null;
             }
-            // Clean up Telegram polling
-            if (this.telegram) {
-                this.telegram.stopPolling();
-            }
+            // Unregister the conversation-control sink — no conversation is
+            // active, so Telegram control commands should fall through to the
+            // standalone command registry again.
+            setTelegramConversationSink(null);
             cancellationSource.dispose();
         }
 

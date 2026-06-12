@@ -22,6 +22,8 @@ import assert from 'node:assert/strict';
 import {
     isAnthropicSendInFlight,
     tryBeginAnthropicSend,
+    setAnthropicSendCancel,
+    cancelAnthropicSend,
     endAnthropicSend,
 } from '../../handlers/sendToChatState.js';
 
@@ -59,5 +61,55 @@ describe('sendToChatState — interactive send guard', () => {
         endAnthropicSend();
         endAnthropicSend();
         assert.equal(isAnthropicSendInFlight(), false);
+    });
+});
+
+describe('sendToChatState — cancel hook (Telegram /cancel_chat)', () => {
+    beforeEach(() => {
+        endAnthropicSend();
+    });
+
+    test('cancel is a no-op when nothing is in flight', () => {
+        assert.equal(cancelAnthropicSend(), false);
+    });
+
+    test('cancel runs the hook registered at claim and reports it ran', () => {
+        let cancelled = 0;
+        assert.equal(tryBeginAnthropicSend(() => { cancelled++; }), true);
+        assert.equal(cancelAnthropicSend(), true);
+        assert.equal(cancelled, 1);
+    });
+
+    test('claim without a hook: cancel reports nothing to cancel', () => {
+        assert.equal(tryBeginAnthropicSend(), true);
+        assert.equal(cancelAnthropicSend(), false);
+    });
+
+    test('setAnthropicSendCancel arms a hook registered after the claim', () => {
+        let cancelled = 0;
+        assert.equal(tryBeginAnthropicSend(), true);
+        setAnthropicSendCancel(() => { cancelled++; });
+        assert.equal(cancelAnthropicSend(), true);
+        assert.equal(cancelled, 1);
+    });
+
+    test('setAnthropicSendCancel is ignored when no turn is in flight', () => {
+        let cancelled = 0;
+        setAnthropicSendCancel(() => { cancelled++; });
+        assert.equal(cancelAnthropicSend(), false);
+        assert.equal(cancelled, 0);
+    });
+
+    test('release clears the hook so a later cancel cannot fire it', () => {
+        let cancelled = 0;
+        assert.equal(tryBeginAnthropicSend(() => { cancelled++; }), true);
+        endAnthropicSend();
+        assert.equal(cancelAnthropicSend(), false);
+        assert.equal(cancelled, 0);
+    });
+
+    test('a broken cancel hook still reports the turn was cancelled', () => {
+        assert.equal(tryBeginAnthropicSend(() => { throw new Error('boom'); }), true);
+        assert.equal(cancelAnthropicSend(), true);
     });
 });

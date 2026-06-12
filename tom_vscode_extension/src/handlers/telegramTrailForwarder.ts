@@ -35,7 +35,7 @@
  * observability and must never affect the turn's result.
  */
 
-import { LiveTrailWriter, type LiveTrailEvent } from '../services/live-trail';
+import { LiveTrailWriter, type LiveTrailEvent, type PromptSource } from '../services/live-trail';
 import {
     TelegramTrailCoalescer,
     formatTrailTerminalLine,
@@ -52,16 +52,29 @@ export interface TrailSendChannel {
     ): Promise<unknown>;
 }
 
-/** Snapshot of the currently-running prompt (if any) for `/chat_status`. */
-export interface LiveConversationStatus {
-    /** Whether a prompt is currently being processed in this window's quest. */
-    running: boolean;
-    /** Milliseconds since the running prompt started (0 when idle). */
+/** One currently-running prompt, identified by its originator. */
+export interface RunningPromptInfo {
+    /** Originator — `'queue'` (prompt queue) or `'chat'` (direct send). */
+    source: PromptSource;
+    /** Milliseconds since this prompt started. */
     elapsedMs: number;
-    /** Transport of the running prompt (e.g. `anthropic`), when running. */
+    /** Transport of the running prompt (e.g. `anthropic`). */
     transport?: string;
-    /** Configuration name of the running prompt, when running. */
+    /** Configuration name of the running prompt. */
     config?: string;
+}
+
+/**
+ * Snapshot of the currently-running prompt(s) (if any) for `/chat_status`.
+ *
+ * The queue and a direct chat send can run **concurrently**, so running prompts
+ * are tracked per {@link PromptSource}: `running` may hold zero, one, or two
+ * entries (one `queue` + one `chat`). `/chat_status` reports one block per
+ * entry.
+ */
+export interface LiveConversationStatus {
+    /** Currently-running prompts, one entry per active source. Empty when idle. */
+    running: RunningPromptInfo[];
     /** Whether live updates are currently being streamed (vs. silent mode). */
     listening: boolean;
     /**
@@ -89,10 +102,12 @@ export class TelegramLiveConversationForwarder {
     private forwarding = true;
     /** Accumulated assistant text since the last prompt/tool call — the final answer. */
     private finalAnswer = '';
-    /** Epoch ms when the current prompt started; `undefined` when idle. */
-    private runningSince: number | undefined;
-    private runningTransport: string | undefined;
-    private runningConfig: string | undefined;
+    /**
+     * Currently-running prompts keyed by originator. The queue and a direct chat
+     * send can run concurrently, so each source tracks its own start time and
+     * metadata independently. Empty when idle.
+     */
+    private readonly running = new Map<PromptSource, { since: number; transport?: string; config?: string }>();
 
     /**
      * @param channel  Channel used to send progress messages (the polling
@@ -142,14 +157,20 @@ export class TelegramLiveConversationForwarder {
         return this.forwarding;
     }
 
-    /** Snapshot of the running prompt + listening mode for `/chat_status`. */
+    /** Snapshot of the running prompt(s) + listening mode for `/chat_status`. */
     getStatus(): LiveConversationStatus {
-        const running = this.runningSince !== undefined;
+        const now = Date.now();
+        const running: RunningPromptInfo[] = [];
+        for (const [source, info] of this.running) {
+            running.push({
+                source,
+                elapsedMs: now - info.since,
+                ...(info.transport ? { transport: info.transport } : {}),
+                ...(info.config ? { config: info.config } : {}),
+            });
+        }
         return {
             running,
-            elapsedMs: running ? Date.now() - (this.runningSince as number) : 0,
-            ...(running && this.runningTransport ? { transport: this.runningTransport } : {}),
-            ...(running && this.runningConfig ? { config: this.runningConfig } : {}),
             listening: this.listening,
             forwarding: this.forwarding,
         };
@@ -167,12 +188,16 @@ export class TelegramLiveConversationForwarder {
     private onEvent(event: LiveTrailEvent): void {
         if (!questMatches(event.questId, this.questId)) { return; }
 
+        const source: PromptSource = event.source ?? 'chat';
+
         // --- Running-state + final-answer bookkeeping (independent of mode) ---
         switch (event.kind) {
             case 'prompt':
-                this.runningSince = Date.now();
-                this.runningTransport = event.transport;
-                this.runningConfig = event.config;
+                this.running.set(source, {
+                    since: Date.now(),
+                    ...(event.transport ? { transport: event.transport } : {}),
+                    ...(event.config ? { config: event.config } : {}),
+                });
                 this.finalAnswer = '';
                 break;
             case 'toolCall':
@@ -212,9 +237,7 @@ export class TelegramLiveConversationForwarder {
                 messages.push(formatTrailTerminalLine(event));
                 this.enqueue(messages);
             }
-            this.runningSince = undefined;
-            this.runningTransport = undefined;
-            this.runningConfig = undefined;
+            this.running.delete(source);
             return;
         }
 
