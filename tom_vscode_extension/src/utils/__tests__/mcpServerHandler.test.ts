@@ -333,7 +333,6 @@ describe('resolveEffectiveMcpTools — full matrix against the real registry', (
 
     const settings = (over: Partial<ResolvedMcpServerSettings> = {}): ResolvedMcpServerSettings => ({
         enabled: true,
-        autoStart: false,
         host: '0.0.0.0',
         basePort: 19920,
         apiKeyEnv: ENV_KEY,
@@ -408,7 +407,6 @@ describe('resolveMcpRequestTools — logs the auth decision, never the token', (
     const env = (token?: string): NodeJS.ProcessEnv => (token === undefined ? {} : { [ENV_KEY]: token });
     const settings = (over: Partial<ResolvedMcpServerSettings> = {}): ResolvedMcpServerSettings => ({
         enabled: true,
-        autoStart: false,
         host: '0.0.0.0',
         basePort: 19920,
         apiKeyEnv: ENV_KEY,

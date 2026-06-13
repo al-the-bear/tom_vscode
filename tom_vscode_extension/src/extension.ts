@@ -120,6 +120,11 @@ import { SessionTodoStore } from './managers/sessionTodoStore';
 import { PromptQueueManager } from './managers/promptQueueManager';
 import { TimerEngine } from './managers/timerEngine';
 import { ReminderSystem } from './managers/reminderSystem';
+import {
+    getCliServerAutostart,
+    getMcpServerAutostart,
+    migrateQuestExtensionConfig,
+} from './managers/extensionConfigStore';
 import { registerChatVariableResolvers } from './tools/chatVariableResolvers';
 
 // Global manager instance for SendToChatAdvanced
@@ -564,7 +569,15 @@ export async function activate(context: vscode.ExtensionContext) {
                 bridgeLog(`Default Retry template seed failed: ${e?.message ?? e}`, 'ERROR');
             }
         }
-        if (stcConfig?.bridge?.cliServerAutostart) {
+        // One-shot migration of the legacy per-subsystem config files for this
+        // quest into the two consolidated files (quest-refresh + telegram +
+        // CLI/MCP autostart). Idempotent — a no-op once migrated.
+        try {
+            migrateQuestExtensionConfig();
+        } catch (e: any) {
+            bridgeLog(`Extension-config migration failed: ${e?.message ?? e}`, 'ERROR');
+        }
+        if (getCliServerAutostart()) {
             // Small delay to let bridge fully settle before starting CLI server
             setTimeout(async () => {
                 try {
@@ -605,7 +618,7 @@ export async function activate(context: vscode.ExtensionContext) {
         context.subscriptions.push({ dispose: () => { void mcpServerController?.dispose(); } });
         context.subscriptions.push({ dispose: disposeMcpLogChannel });
 
-        if (stcConfig?.mcpServer?.enabled && stcConfig?.mcpServer?.autoStart) {
+        if (stcConfig?.mcpServer?.enabled && getMcpServerAutostart()) {
             const settings = getMcpServerSettings(stcConfig);
             setTimeout(async () => {
                 try {

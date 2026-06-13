@@ -25,7 +25,6 @@ import {
 
 const baseSettings = {
     enabled: true,
-    autoStart: false,
     host: '0.0.0.0',
     basePort: 19920,
     apiKeyEnv: 'MCP_KEY',
@@ -36,7 +35,7 @@ const baseSettings = {
 
 describe('buildMcpServerCardModel', () => {
     test('stopped runtime → running false, no bound host/port', () => {
-        const model = buildMcpServerCardModel(baseSettings, { running: false });
+        const model = buildMcpServerCardModel(baseSettings, { running: false }, false);
         assert.equal(model.running, false);
         assert.equal(model.boundHost, undefined);
         assert.equal(model.boundPort, undefined);
@@ -54,7 +53,7 @@ describe('buildMcpServerCardModel', () => {
             running: true,
             host: '10.8.0.7',
             port: 19923,
-        });
+        }, false);
         assert.equal(model.running, true);
         assert.equal(model.boundHost, '10.8.0.7');
         assert.equal(model.boundPort, 19923);
@@ -62,7 +61,7 @@ describe('buildMcpServerCardModel', () => {
 });
 
 describe('renderMcpServerCard — controls bound to mcpServer config', () => {
-    const model: McpServerCardModel = buildMcpServerCardModel(baseSettings, { running: false });
+    const model: McpServerCardModel = buildMcpServerCardModel(baseSettings, { running: false }, false);
     const html = renderMcpServerCard(model, ['tomAi_readFile', 'tomAi_applyEdit']);
 
     test('renders a single MCP server section card', () => {
@@ -136,7 +135,7 @@ describe('renderMcpServerCard — tri-state dropdown + grouped tools', () => {
 
     test('dropdown offers all / readonly / custom options', () => {
         const html = renderMcpServerCard(
-            buildMcpServerCardModel(baseSettings, { running: false }),
+            buildMcpServerCardModel(baseSettings, { running: false }, false),
             ['tomAi_readFile', 'tomAi_applyEdit'],
             readOnly,
         );
@@ -149,6 +148,7 @@ describe('renderMcpServerCard — tri-state dropdown + grouped tools', () => {
         const model = buildMcpServerCardModel(
             { ...baseSettings, toolsEnabled: false, enabledTools: ['tomAi_readFile'] },
             { running: false },
+            false,
         );
         const html = renderMcpServerCard(model, ['tomAi_readFile', 'tomAi_applyEdit'], readOnly);
         assert.match(html, /<option value="readonly"[^>]*selected/);
@@ -156,7 +156,7 @@ describe('renderMcpServerCard — tri-state dropdown + grouped tools', () => {
 
     test('tools render in groups with per-group all/none buttons', () => {
         const html = renderMcpServerCard(
-            buildMcpServerCardModel(baseSettings, { running: false }),
+            buildMcpServerCardModel(baseSettings, { running: false }, false),
             ['tomAi_readFile', 'tomAi_applyEdit'],
             readOnly,
         );
@@ -167,7 +167,7 @@ describe('renderMcpServerCard — tri-state dropdown + grouped tools', () => {
 
     test('read-only tools carry data-readonly and bulk buttons exist', () => {
         const html = renderMcpServerCard(
-            buildMcpServerCardModel(baseSettings, { running: false }),
+            buildMcpServerCardModel(baseSettings, { running: false }, false),
             ['tomAi_readFile', 'tomAi_applyEdit'],
             readOnly,
         );
@@ -181,7 +181,7 @@ describe('renderMcpServerCard — tri-state dropdown + grouped tools', () => {
 describe('renderMcpServerCard — status line', () => {
     test('stopped → shows a Stopped badge, no host:port', () => {
         const html = renderMcpServerCard(
-            buildMcpServerCardModel(baseSettings, { running: false }),
+            buildMcpServerCardModel(baseSettings, { running: false }, false),
             [],
         );
         assert.match(html, /sp-stopped/);
@@ -190,7 +190,7 @@ describe('renderMcpServerCard — status line', () => {
 
     test('running → status line shows the live bound host:port', () => {
         const html = renderMcpServerCard(
-            buildMcpServerCardModel(baseSettings, { running: true, host: '10.8.0.7', port: 19923 }),
+            buildMcpServerCardModel(baseSettings, { running: true, host: '10.8.0.7', port: 19923 }, false),
             [],
         );
         assert.match(html, /sp-running/);
@@ -203,6 +203,7 @@ describe('renderMcpServerCard — escaping', () => {
         const evil = buildMcpServerCardModel(
             { ...baseSettings, host: '"><script>x', apiKeyEnv: 'A"B' },
             { running: false },
+            false,
         );
         const html = renderMcpServerCard(evil, []);
         assert.doesNotMatch(html, /<script>x/);

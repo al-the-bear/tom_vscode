@@ -29,7 +29,6 @@ describe('buildMcpServerConfigFromMessage — type coercion', () => {
     test('coerces the explicit field payload into the on-disk shape', () => {
         const built = buildMcpServerConfigFromMessage({
             enabled: true,
-            autoStart: true,
             host: '  10.8.0.7  ',
             basePort: '20000', // webview number inputs arrive as strings
             apiKeyEnv: '  MCP_KEY  ',
@@ -38,7 +37,6 @@ describe('buildMcpServerConfigFromMessage — type coercion', () => {
             enabledTools: ['tomAi_readFile', 'tomAi_applyEdit'],
         });
         assert.equal(built.enabled, true);
-        assert.equal(built.autoStart, true);
         assert.equal(built.host, '10.8.0.7'); // trimmed
         assert.equal(built.basePort, 20000); // string → number
         assert.equal(built.apiKeyEnv, 'MCP_KEY'); // trimmed
@@ -50,7 +48,6 @@ describe('buildMcpServerConfigFromMessage — type coercion', () => {
     test('booleans default to safe values when fields are missing/non-boolean', () => {
         const built = buildMcpServerConfigFromMessage({});
         assert.equal(built.enabled, false);
-        assert.equal(built.autoStart, false);
         assert.equal(built.allowWriteWithoutAuth, false);
         // toolsEnabled is "all tools" unless explicitly false
         assert.equal(built.toolsEnabled, true);
@@ -84,7 +81,6 @@ describe('gather map → resolver round-trip (edits round-trip to disk)', () => 
     test('a full edit round-trips to the same resolved settings', () => {
         const built = buildMcpServerConfigFromMessage({
             enabled: true,
-            autoStart: true,
             host: '10.8.0.7',
             basePort: 20000,
             apiKeyEnv: 'MCP_KEY',
@@ -98,7 +94,6 @@ describe('gather map → resolver round-trip (edits round-trip to disk)', () => 
         const resolved = getMcpServerSettings(onDisk);
         assert.deepEqual(resolved, {
             enabled: true,
-            autoStart: true,
             host: '10.8.0.7',
             basePort: 20000,
             apiKeyEnv: 'MCP_KEY',

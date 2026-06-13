@@ -38,7 +38,6 @@ import {
  */
 const EXPECTED_FIELDS: Record<string, { jsonType: string; def: unknown }> = {
     enabled: { jsonType: 'boolean', def: false },
-    autoStart: { jsonType: 'boolean', def: false },
     host: { jsonType: 'string', def: MCP_SERVER_DEFAULT_HOST },
     basePort: { jsonType: 'integer', def: MCP_SERVER_DEFAULT_BASE_PORT },
     apiKeyEnv: { jsonType: 'string', def: '' },

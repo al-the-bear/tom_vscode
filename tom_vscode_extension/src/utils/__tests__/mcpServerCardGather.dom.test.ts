@@ -47,7 +47,6 @@ function renderCardHtml(): string {
     const model = buildMcpServerCardModel(
         {
             enabled: false,
-            autoStart: false,
             host: '0.0.0.0',
             basePort: 19920,
             apiKeyEnv: '',
@@ -56,6 +55,7 @@ function renderCardHtml(): string {
             enabledTools: [],
         },
         { running: false },
+        false,
     );
     return renderMcpServerCard(model, TOOL_NAMES, READ_ONLY_NAMES);
 }

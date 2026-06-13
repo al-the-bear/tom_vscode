@@ -20,11 +20,6 @@
                     "default": false,
                     "description": "Master on/off switch for the MCP server."
                 },
-                "autoStart": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Start the server on extension activation."
-                },
                 "host": {
                     "type": "string",
                     "default": "0.0.0.0",

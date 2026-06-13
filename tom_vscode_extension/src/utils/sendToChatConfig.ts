@@ -459,11 +459,6 @@ export interface SendToChatConfig {
      */
     bridge?: {
         current?: string;
-        /**
-         * When true, the CLI integration server is automatically started
-         * after the Dart bridge connects during extension activation.
-         */
-        cliServerAutostart?: boolean;
         /** Platform-specific binary path directory used as ${binaryPath}. */
         binaryPath?: { [platform: string]: string };
         /** Cross-platform executable configuration. */
@@ -547,8 +542,6 @@ export interface QuestRefreshPanelConfig {
 export interface McpServerConfig {
     /** Master on/off switch for the MCP server. Default `false`. */
     enabled?: boolean;
-    /** Start the server on extension activation. Default `false`. */
-    autoStart?: boolean;
     /** Bind address. Default `0.0.0.0` (reachable over the VPN). */
     host?: string;
     /**
@@ -582,7 +575,6 @@ export const MCP_SERVER_DEFAULT_BASE_PORT = 19920;
 /** Fully-resolved MCP server settings with all defaults applied. */
 export interface ResolvedMcpServerSettings {
     enabled: boolean;
-    autoStart: boolean;
     host: string;
     basePort: number;
     apiKeyEnv: string;
@@ -607,7 +599,6 @@ export function getMcpServerSettings(
     const basePort = mcp?.basePort;
     return {
         enabled: mcp?.enabled === true,
-        autoStart: mcp?.autoStart === true,
         host: host || MCP_SERVER_DEFAULT_HOST,
         basePort: typeof basePort === 'number' && basePort > 0 ? basePort : MCP_SERVER_DEFAULT_BASE_PORT,
         apiKeyEnv: (mcp?.apiKeyEnv ?? '').trim(),

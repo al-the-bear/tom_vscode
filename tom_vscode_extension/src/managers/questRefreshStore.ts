@@ -10,22 +10,27 @@
  *   - `active`: the per-quest activation checkbox.
  *   - `count` : prompts sent since the last refresh, per (quest, panel).
  *
- * Storage: `_ai/quests/{questId}/quest-refresh.{hostname}.{questId}.yaml`
+ * Storage: the `questRefresh` section of the machine-specific consolidated
+ * config file `_ai/quests/{questId}/extension_config.{hostname}.{questId}.yaml`
  * (host-specific: the `_ai` clone is shared/symlinked across the fleet, so the
  * hostname segment keeps each machine's counter + activation flag separate).
+ * This store owns only that one section; {@link extensionConfigStore} owns the
+ * file and preserves the other subsystems' sections.
  *
- *     panels:
- *       anthropic: { active: true,  count: 3 }
- *       localLlm:  { active: false, count: 0 }
- *       copilot:   { active: false, count: 0 }
+ *     questRefresh:
+ *       panels:
+ *         anthropic: { active: true,  count: 3 }
+ *         localLlm:  { active: false, count: 0 }
+ *         copilot:   { active: false, count: 0 }
  *
  * Design: quest_refresh_implementation_plan.md §2.
  */
 
-import * as path from 'path';
-import * as vscode from 'vscode';
-import { WsPaths } from '../utils/workspacePaths';
-import { FsUtils } from '../utils/fsUtils';
+import {
+    SECTION_QUEST_REFRESH,
+    readMachineSection,
+    writeMachineSection,
+} from './extensionConfigStore';
 import {
     getQuestRefreshSettings,
     loadSendToChatConfig,
@@ -159,31 +164,23 @@ export class QuestRefreshStore {
 
     // ---- persistence ----
 
-    private resolveQuest(questId?: string): string {
-        const q = (questId ?? WsPaths.getWorkspaceQuestId() ?? '').trim();
-        return q || 'default';
+    /**
+     * `undefined` is forwarded to {@link extensionConfigStore} so it applies the
+     * canonical quest resolution (open `.code-workspace` → quest id, else
+     * `default`) and host-slug sanitisation in one place.
+     */
+    private resolveQuest(questId?: string): string | undefined {
+        const q = (questId ?? '').trim();
+        return q || undefined;
     }
 
-    private resolveFilePath(questId: string): string {
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
-        const safeQuest = questId.replace(/[^A-Za-z0-9_.-]/g, '_');
-        // Host-specific filename so the single shared `_ai` clone keeps each
-        // machine's prompt counter / activation flag separate instead of
-        // clobbering it across the fleet.
-        const fileName = `quest-refresh.${WsPaths.hostSlug()}.${safeQuest}.yaml`;
-        return (
-            WsPaths.ai('quests', safeQuest, fileName) ||
-            path.join(wsRoot, '_ai', 'quests', safeQuest, fileName)
-        );
-    }
-
-    private read(questId: string): QuestRefreshFile {
-        const raw = FsUtils.safeReadYaml<Partial<QuestRefreshFile>>(this.resolveFilePath(questId));
+    private read(questId: string | undefined): QuestRefreshFile {
+        const raw = readMachineSection<Partial<QuestRefreshFile>>(SECTION_QUEST_REFRESH, questId);
         return QuestRefreshStore.normalize(raw);
     }
 
-    private write(questId: string, file: QuestRefreshFile): void {
-        FsUtils.safeWriteYaml(this.resolveFilePath(questId), file);
+    private write(questId: string | undefined, file: QuestRefreshFile): void {
+        writeMachineSection(SECTION_QUEST_REFRESH, file, questId);
     }
 
     /** Coerce a possibly-partial on-disk shape into a complete, valid file. */

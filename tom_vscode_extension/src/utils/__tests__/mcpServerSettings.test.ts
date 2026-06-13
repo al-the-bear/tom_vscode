@@ -33,7 +33,6 @@ const cfgWith = (mcpServer: unknown): SendToChatConfig =>
 describe('getMcpServerSettings — defaults', () => {
     const expectedDefaults = {
         enabled: false,
-        autoStart: false,
         host: MCP_SERVER_DEFAULT_HOST,
         basePort: MCP_SERVER_DEFAULT_BASE_PORT,
         apiKeyEnv: '',
@@ -68,7 +67,6 @@ describe('getMcpServerSettings — overrides honoured', () => {
     test('every field is taken from config when present', () => {
         const settings = getMcpServerSettings(cfgWith({
             enabled: true,
-            autoStart: true,
             host: '127.0.0.1',
             basePort: 20000,
             apiKeyEnv: 'MCP_KEY',
@@ -78,7 +76,6 @@ describe('getMcpServerSettings — overrides honoured', () => {
         }));
         assert.deepEqual(settings, {
             enabled: true,
-            autoStart: true,
             host: '127.0.0.1',
             basePort: 20000,
             apiKeyEnv: 'MCP_KEY',

@@ -34,7 +34,6 @@ function renderCard(): string {
     const model = buildMcpServerCardModel(
         {
             enabled: true,
-            autoStart: false,
             host: '0.0.0.0',
             basePort: 19920,
             apiKeyEnv: 'MCP_KEY',
@@ -43,6 +42,7 @@ function renderCard(): string {
             enabledTools: ['tomAi_readFile'],
         },
         { running: false },
+        false,
     );
     return renderMcpServerCard(model, ['tomAi_readFile', 'tomAi_applyEdit']);
 }

@@ -37,6 +37,12 @@ import { WsPaths } from '../utils/workspacePaths';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 import { validateStrictAiConfiguration, SendToChatConfig, getSendToChatTarget, getMcpServerSettings, getQuestRefreshSettings, type QuestRefreshPanel } from '../utils/sendToChatConfig';
 import { QuestRefreshStore } from '../managers/questRefreshStore';
+import {
+    getCliServerAutostart,
+    setCliServerAutostart,
+    getMcpServerAutostart,
+    setMcpServerAutostart,
+} from '../managers/extensionConfigStore';
 import { McpServerCardModel, buildMcpServerCardModel, renderMcpServerCard, buildMcpServerConfigFromMessage } from '../utils/mcpServerCard';
 import { READ_ONLY_TOOLS } from '../tools/tool-executors';
 import { getMcpServerStatus, reconcileMcpServerConfig } from './mcpServer-handler';
@@ -1101,10 +1107,8 @@ export async function handleStatusAction(action: string, message: any): Promise<
             await vscode.commands.executeCommand('tomAi.cliServer.stop');
             break;
         case 'setCliAutostart': {
-            const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
-            if (!stcConfig.bridge) { stcConfig.bridge = { profiles: {} }; }
-            stcConfig.bridge.cliServerAutostart = !!message.enabled;
-            saveSendToChatConfig(stcConfig);
+            // CLI server autostart is a per-quest, per-machine setting.
+            setCliServerAutostart(!!message.enabled);
             break;
         }
         // MCP Server (standalone) — persist the card's settings. The gather map
@@ -1113,6 +1117,9 @@ export async function handleStatusAction(action: string, message: any): Promise<
             const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
             stcConfig.mcpServer = buildMcpServerConfigFromMessage(message);
             saveSendToChatConfig(stcConfig);
+            // Autostart is machine-scoped — kept out of the shared config and
+            // persisted to the per-quest, per-machine config file instead.
+            setMcpServerAutostart(message.autoStart === true);
             // Config-change disposal (#19): apply the new settings to a running
             // server (restart) or stop it if now disabled. The controller's
             // onChange refreshes the card when the runtime state changes.
@@ -2014,11 +2021,13 @@ export async function gatherStatusData(): Promise<StatusData> {
         cliServer: {
             running: cliStatus.running,
             port: cliStatus.port,
-            autostart: sendToChatConfig?.bridge?.cliServerAutostart ?? false,
+            autostart: getCliServerAutostart(),
         },
         // Live runtime state from the lifecycle controller (#19): the actually
         // bound host:port while running, or { running: false } when stopped.
-        mcpServer: buildMcpServerCardModel(getMcpServerSettings(sendToChatConfig), getMcpServerStatus()),
+        // Autostart is machine-scoped (per-quest config file), not in the
+        // shared config the resolver reads.
+        mcpServer: buildMcpServerCardModel(getMcpServerSettings(sendToChatConfig), getMcpServerStatus(), getMcpServerAutostart()),
         questRefresh: (() => {
             const store = QuestRefreshStore.instance;
             const buildPanel = (panel: QuestRefreshPanel) => {

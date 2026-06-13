@@ -33,6 +33,12 @@ export interface McpServerRuntimeStatus {
 
 /** View-model the card renders from: resolved config + runtime overlay. */
 export interface McpServerCardModel extends ResolvedMcpServerSettings {
+    /**
+     * Start the server on activation. Machine-scoped, so it is NOT part of the
+     * resolved config (which is machine-independent) — the handler reads it from
+     * {@link extensionConfigStore} and passes it in.
+     */
+    autoStart: boolean;
     running: boolean;
     /** Live bound host while running (runtime state), else undefined. */
     boundHost?: string;
@@ -44,9 +50,11 @@ export interface McpServerCardModel extends ResolvedMcpServerSettings {
 export function buildMcpServerCardModel(
     settings: ResolvedMcpServerSettings,
     runtime: McpServerRuntimeStatus,
+    autoStart: boolean,
 ): McpServerCardModel {
     return {
         ...settings,
+        autoStart: autoStart === true,
         running: runtime.running === true,
         boundHost: runtime.running ? runtime.host : undefined,
         boundPort: runtime.running ? runtime.port : undefined,
@@ -85,7 +93,6 @@ export function buildMcpServerConfigFromMessage(payload: McpServerSavePayload): 
         : [];
     return {
         enabled: payload.enabled === true,
-        autoStart: payload.autoStart === true,
         host: host || undefined,
         basePort: Number.isFinite(basePort) && basePort > 0 ? Math.floor(basePort) : undefined,
         apiKeyEnv: apiKeyEnv || undefined,
