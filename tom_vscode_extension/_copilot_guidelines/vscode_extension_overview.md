@@ -9,7 +9,7 @@ Activated on VS Code startup. Contributes:
 - Command suite under `tomAi.*`.
 - Bottom-panel webviews: `@CHAT` (`tomAi.chatPanel`) and `@WS` (`tomAi.wsPanel`).
 - `@TOM` sidebar tree views (notes, todos, log, window status).
-- Custom editors: `yamlGraph.editor`, `questTodo.editor`, trail viewer, Markdown Browser, and several specialised editors (trail, templates, context, queue, timed requests, raw/summary trails, etc.).
+- Custom editors: `questTodo.editor`, trail viewer, Markdown Browser, and several specialised editors (trail, templates, context, queue, timed requests, raw/summary trails, etc.).
 - AI toolchain: five chat subsystems (Anthropic direct SDK, Agent SDK, Copilot, Local LLM, AI Conversation) plus a shared MCP/tool registry.
 - Bridge/CLI/process-monitor integrations (optional; fail-soft).
 
@@ -128,7 +128,6 @@ Bridge commands cover restart / profile switching / debug logging. CLI server an
 
 | View type | Files | Purpose |
 | --- | --- | --- |
-| `tomAi.yamlGraphEditor` | `*.flow.yaml`, `*.state.yaml`, `*.er.yaml` | Visual graph editor; requires numeric `meta.graph-version`. |
 | `tomAi.todoEditor` | `*.todo.yaml` | Quest todo list editor with status tracking. |
 | `tomAi.markdownBrowser` | `*.md` | Rendered markdown preview with navigation history, mermaid, debounced file-watcher reload, live-mode follow-tail. |
 | `tomAi.trailViewer` | `*.prompts.md`, `*.answers.md` | Summary trail viewer. |

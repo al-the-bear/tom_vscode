@@ -10,9 +10,8 @@ The plugin runtime consists of:
 - managers under [src/managers/](../src/managers/) — volatile session state (queue, timer, reminder, chat variables, session todos),
 - tool implementations under [src/tools/](../src/tools/) — everything exposed to AI models,
 - bridge client integration ([vscode-bridge](../src/utils/vscode-bridge.ts) + handler),
-- Agent SDK transport ([agent-sdk-transport.ts](../src/handlers/agent-sdk-transport.ts)) over `@anthropic-ai/claude-agent-sdk`,
-- externalized webview assets under `media/<panelId>/` loaded via [webviewLoader.ts](../src/utils/webviewLoader.ts), plus shared webview components (accordion, tabs, queue entry), and
-- optional external packages (`yaml-graph-core`, `yaml-graph-vscode`).
+- Agent SDK transport ([agent-sdk-transport.ts](../src/handlers/agent-sdk-transport.ts)) over `@anthropic-ai/claude-agent-sdk`, and
+- externalized webview assets under `media/<panelId>/` loaded via [webviewLoader.ts](../src/utils/webviewLoader.ts), plus shared webview components (accordion, tabs, queue entry).
 
 ## Layering rules
 
@@ -37,7 +36,7 @@ During activation, the extension:
 2. registers commands, key systems, and webviews (`@CHAT`, `@WS`, `@TOM` sidebar views),
 3. initializes stores (chat variables, session todos, queue, timer, reminder),
 4. registers shared tools + variable resolvers,
-5. registers custom editors (YAML graph, quest todo, markdown browser, trail viewer),
+5. registers custom editors (quest todo, markdown browser, trail viewer),
 6. starts queue watchdog and timed-request timer engine,
 7. writes window state file for multi-window status tracking.
 
@@ -56,7 +55,7 @@ Webview HTML/JS/CSS is **not** embedded in TypeScript template literals. Every p
 - **`init` vs `postMessage`.** First-paint data known at construction time flows through `init`; everything that changes after load flows through `postMessage`. Per-render data is never string-substituted into the HTML.
 - **Callers must** add `media` to `localResourceRoots`, or no externalized asset loads.
 - **Toolchain.** Media JS is lintable/typecheckable on its own (`npm run lint:media`, `npm run typecheck:media` via `tsconfig.media.json`); new media JS carries `// @ts-check`, verbatim legacy extractions carry `// @ts-nocheck`. A shared textarea-completion client (`media/shared/completion.js` + `wireCompletionMessages`) is opt-in per textarea.
-- **Documented non-migrations** (kept inline by design): external-package webviews (`yamlGraph-handler.ts` delegates to `yaml-graph-vscode`/`-core`), content-injection preview shells (markdown content arrives via `postMessage`), and degenerate error-fallback pages assigned directly to `webview.html` only when the normal render path fails. These are excluded from the "no remaining `webview.html = \`...\`" completion gate.
+- **Documented non-migrations** (kept inline by design): content-injection preview shells (markdown content arrives via `postMessage`), and degenerate error-fallback pages assigned directly to `webview.html` only when the normal render path fails. These are excluded from the "no remaining `webview.html = \`...\`" completion gate.
 
 Day-to-day authoring reference (placeholders, `init`/`postMessage`, the inline-handler CSP gotcha, the exceptions): [media_webview_migration.md](media_webview_migration.md).
 

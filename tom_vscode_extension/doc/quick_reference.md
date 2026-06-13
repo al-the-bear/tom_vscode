@@ -76,7 +76,6 @@
 
 | Editor | View Type | File Patterns | Priority |
 | --- | --- | --- | --- |
-| YAML Graph Editor | `tomAi.yamlGraphEditor` | `*.flow.yaml`, `*.state.yaml`, `*.er.yaml` | default |
 | Quest TODO Editor | `tomAi.todoEditor` | `*.todo.yaml` | option |
 | Trail Viewer | `tomAi.trailViewer` | `*.prompts.md`, `*.answers.md` | default |
 

@@ -2,7 +2,7 @@
 
 ## 1) What the extension provides
 
-The extension combines VS Code automation, bridge-based scripting, Copilot workflows, Tom AI chat tools, local LLM integration, YAML graph editing, a prompt queue with timed requests, and dedicated output channels for observability.
+The extension combines VS Code automation, bridge-based scripting, Copilot workflows, Tom AI chat tools, local LLM integration, a prompt queue with timed requests, and dedicated output channels for observability.
 
 ## 2) Panels and layout
 
@@ -267,17 +267,11 @@ The Anthropic + Tom AI Chat subsystems write three kinds of trail:
 
 Clear the session (reset history + tool trail + SDK session id) via the subpanel's Clear button or `@T: Clear Anthropic Session`.
 
-## 10) YAML graph editing
-
-Open `*.flow.yaml`, `*.state.yaml`, or `*.er.yaml` files.
-
-The custom editor requires a numeric `meta.graph-version` and renders Mermaid output based on registered graph types.
-
-## 11) Keyboard productivity
+## 10) Keyboard productivity
 
 See [quick_reference.md](quick_reference.md) and [../_copilot_guidelines/keybindings_and_commands.md](../_copilot_guidelines/keybindings_and_commands.md).
 
-## 12) Reinstall and reload
+## 11) Reinstall and reload
 
 If extension changes do not appear:
 

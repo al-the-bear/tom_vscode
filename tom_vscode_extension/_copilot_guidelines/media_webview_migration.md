@@ -210,39 +210,11 @@ From plan §3:
 
 | Case | Files | Handling |
 | --- | --- | --- |
-| **External-package webviews** | `yamlGraph-handler.ts` (delegates to the `yaml-graph-core` / `yaml-graph-vscode` npm packages) | HTML/JS is owned by the sub-packages and loaded via dynamic import. **Document only — do not migrate.** |
 | **Content-injection / preview webviews** | `markdownHtmlPreview`, `markdownBrowser`, `handler_shared` preview panel | Externalize the **shell** like any other panel, but inject the rendered markdown/HTML **content via `postMessage`**, never via template substitution. |
 | **Tiny static-string placeholders** | a panel that only swaps a label/title into otherwise-static HTML | A minimal `{{title}}`-style placeholder is fine (added to the loader map); don't over-engineer with an `init` payload. |
-| **Degenerate error fallbacks** | the `catch`-block / unresolved-state HTML in `chatPanel-handler.ts` (T2 render error), `yamlGraph-handler.ts` (graph-type-unresolved + exception) | Tiny inline `<html><body>…</body></html>` strings assigned to `webview.html` **only** when the normal render path fails (e.g. `loadWebviewHtml` itself threw because a media file is missing). They carry no scripts and no user input, and externalizing them is circular — you cannot load a media shell to report that media loading failed. **Keep inline; do not migrate.** The migration's "no remaining `webview.html = \`\`" gate excludes these. |
+| **Degenerate error fallbacks** | the `catch`-block / unresolved-state HTML in `chatPanel-handler.ts` (T2 render error) | Tiny inline `<html><body>…</body></html>` strings assigned to `webview.html` **only** when the normal render path fails (e.g. `loadWebviewHtml` itself threw because a media file is missing). They carry no scripts and no user input, and externalizing them is circular — you cannot load a media shell to report that media loading failed. **Keep inline; do not migrate.** The migration's "no remaining `webview.html = \`\`" gate excludes these. |
 
-### 9.1 yamlGraph — external-package webview (no migration)
-
-`src/handlers/yamlGraph-handler.ts` registers the `tomAi.yamlGraphEditor`
-custom editor but **does not own its webview**. The editor's HTML/CSS/JS is
-produced by `YamlGraphEditorProvider.resolveCustomTextEditor` from the
-**`yaml-graph-vscode`** npm package (with graph conversion from
-**`yaml-graph-core`**), both pulled in via dynamic `import()` so a missing
-dependency degrades gracefully instead of crashing activation. The handler is
-thin glue: it loads graph types, resolves the graph type for the document, then
-**delegates** to `provider.resolveCustomTextEditor(...)`, which assigns
-`webviewPanel.webview.html`.
-
-The only HTML authored **in this repo** for that editor is two degenerate
-**error-fallback** pages assigned to `webview.webview.html` directly — one when
-the graph type cannot be resolved (lists the registered types), one when
-`resolveCustomTextEditor` throws (shows the stack). These are intentionally left
-as small inline template literals: they are error placeholders, never the live
-panel surface, and externalizing them would add a `media/` shell for something a
-user sees only on misconfiguration. They carry no scripts and no user input.
-
-**Action: none.** Do not create `media/yamlGraph/`. To restyle or restructure
-the real editor webview, change the `yaml-graph-vscode` / `yaml-graph-core`
-packages under `tom_ai/vscode/` (see the quest overview's *YAML graph editor*
-docs: `doc/yaml_graph.md`, `doc/yaml_graph_architecture_design.md`), not this
-extension. This handler is excluded from the "no remaining `webview.html = \`\`"
-completion gate.
-
-### 9.2 Host-shell panels (accordion / tab): two `<script>`-safety rules
+### 9.1 Host-shell panels (accordion / tab): two `<script>`-safety rules
 
 The accordion (`@WS`) and tab-panel hosts do **not** route through
 `loadWebviewHtml`. They author their JS/CSS in `media/<panelId>/` files, read

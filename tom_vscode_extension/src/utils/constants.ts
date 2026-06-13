@@ -25,9 +25,6 @@ export const FILE_EXT_ANSWERS_MD = '.answers.md';
 export const GLOB_TODO = '**/*.todo.yaml';
 export const GLOB_PROMPT = '**/*.prompt.md';
 export const GLOB_CHAT = '**/*.chat.md';
-export const GLOB_FLOW = '*.flow.yaml';
-export const GLOB_STATE = '*.state.yaml';
-export const GLOB_ER = '*.er.yaml';
 
 /**
  * Canonical list of tool names that can be exposed to LLM configurations.

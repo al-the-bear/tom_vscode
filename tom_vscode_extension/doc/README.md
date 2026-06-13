@@ -19,9 +19,6 @@ User-facing documentation for the `tom_vscode_extension` plugin. For implementat
 
 ## Editors + visual tools
 
-- [yaml_graph.md](yaml_graph.md) — YAML graph editor behavior and usage.
-- [yaml_graph_architecture_design.md](yaml_graph_architecture_design.md) — graph editor implementation architecture.
-- [diagram_editing.md](diagram_editing.md) — editing workflow and interaction model.
 - [docspecs_linter_design.md](docspecs_linter_design.md) — DocSpecs linter design.
 
 ## Supporting references

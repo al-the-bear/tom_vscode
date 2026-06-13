@@ -85,26 +85,6 @@ Write-Host ""
 Write-Host "Installing npm dependencies..."
 npm install
 
-# Build the local file:-linked sibling packages (yaml_graph_core,
-# yaml_graph_vscode). Their package.json point `main`/`types` at `dist/`,
-# but nothing in npm install builds them, so the extension's tsc would
-# fail to resolve their type declarations.
-Write-Host ""
-Write-Host "Building local sibling packages..."
-foreach ($pkg in @('yaml_graph_core', 'yaml_graph_vscode')) {
-    $pkgDir = Join-Path (Join-Path $ExtensionDir '..') $pkg
-    Push-Location $pkgDir
-    try {
-        Write-Host "  -> $pkg"
-        npm install
-        if ($LASTEXITCODE -ne 0) { Write-Error "npm install failed in $pkg"; exit 1 }
-        npm run build
-        if ($LASTEXITCODE -ne 0) { Write-Error "npm run build failed in $pkg"; exit 1 }
-    } finally {
-        Pop-Location
-    }
-}
-
 Write-Host ""
 Write-Host "Compiling TypeScript..."
 npm run compile

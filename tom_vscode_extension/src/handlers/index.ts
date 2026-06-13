@@ -83,6 +83,3 @@ export { toggleTrail, setTrailEnabled, isTrailEnabled, loadTrailConfig } from '.
 export { showStatusPageHandler, toggleTrailHandler, registerStatusPageSerializer } from './statusPage-handler';
 export { getCliServerStatus } from './cliServer-handler';
 export { registerTrailViewerCommands } from './trailViewer-handler';
-
-// YAML Graph Editor
-export { registerYamlGraphEditor } from './yamlGraph-handler';

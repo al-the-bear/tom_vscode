@@ -75,6 +75,6 @@ Any change to the config shape must update both `sendToChatConfig.ts` and the JS
 
 - Keep command IDs stable once published. Keybindings, queue entries, and external scripts reference them.
 - Prefer backward-compatible config changes; when breaking, provide migration on load.
-- Avoid hard dependency on optional external packages at activation. Use dynamic `import()` inside try/catch for optional features (`yaml-graph`, `claude-agent-sdk`).
+- Avoid hard dependency on optional external packages at activation. Use dynamic `import()` inside try/catch for optional features (e.g. `claude-agent-sdk`).
 - Run `npx tsc --noEmit` before committing; zero warnings in the Problems pane.
 - Never skip git hooks, never `--amend` a commit after a hook failure.

@@ -39,7 +39,7 @@ graph TB
             EXP["Explorer Sidebar<br/>8 webview views"]
             T2["@CHAT Bottom Panel<br/>Accordion notepad"]
             T3["@WS Bottom Panel<br/>Accordion: Guidelines/Docs/Logs/Settings/Issues/Tests/QuestTodo"]
-            CE["Custom Editors<br/>YAML Graph, Quest TODO, Trail Viewer"]
+            CE["Custom Editors<br/>Quest TODO, Trail Viewer"]
             WP["Standalone Webview Panels<br/>8 editors + Status Page + MD Browser"]
         end
         
@@ -134,7 +134,7 @@ flowchart TD
     L --> M["Register Chat Panel (@CHAT)"]
     M --> N["Register WS Panel (@WS)"]
     N --> O["Register Editor Commands<br/>(ChatVars, Context, Template,<br/>Reusable, Queue, Timed, PromptTemplate)"]
-    O --> P["Register Custom Editors<br/>(YAML Graph, Quest TODO, Trail)"]
+    O --> P["Register Custom Editors<br/>(Quest TODO, Trail)"]
     P --> Q["Register Trail Viewer Commands"]
     Q --> R["Register TODO Log View"]
     R --> S["Auto-start Bridge"]
@@ -165,7 +165,7 @@ flowchart TD
 | `src/utils/` | 12 | Shared utilities (paths, config, resolver, logging) |
 | `src/services/` | 2 | TrailService, other services |
 
-> **Webview assets are not in `src/`.** Each panel's HTML/JS/CSS lives as real files under `media/<panelId>/` (`index.html` + `main.js` + `style.css`, with reusable pieces in `media/shared/`) and is loaded through the single rewriting loader `src/utils/webviewLoader.ts`. The handlers below are correspondingly thinner than their historical line counts imply — they wire messages and call `loadWebviewHtml(webview, '<panelId>', { init })` rather than embedding HTML in template literals. The few documented exceptions (external-package `yamlGraph`, content-injection previews, degenerate error fallbacks) keep small inline HTML by design. See [../_copilot_guidelines/media_webview_migration.md](../_copilot_guidelines/media_webview_migration.md).
+> **Webview assets are not in `src/`.** Each panel's HTML/JS/CSS lives as real files under `media/<panelId>/` (`index.html` + `main.js` + `style.css`, with reusable pieces in `media/shared/`) and is loaded through the single rewriting loader `src/utils/webviewLoader.ts`. The handlers below are correspondingly thinner than their historical line counts imply — they wire messages and call `loadWebviewHtml(webview, '<panelId>', { init })` rather than embedding HTML in template literals. The few documented exceptions (content-injection previews, degenerate error fallbacks) keep small inline HTML by design. See [../_copilot_guidelines/media_webview_migration.md](../_copilot_guidelines/media_webview_migration.md).
 
 ### Handler Files by Size (lines)
 
@@ -255,7 +255,6 @@ Handler: `wsPanel-handler.ts`
 
 | Editor | View Type | File Patterns | Priority | Handler |
 |--------|-----------|---------------|----------|---------|
-| YAML Graph Editor | `tomAi.yamlGraphEditor` | `*.flow.yaml`, `*.state.yaml`, `*.er.yaml` | default | `yamlGraph-handler.ts` |
 | Quest TODO Editor | `tomAi.todoEditor` | `*.todo.yaml` | option | `questTodoEditor-handler.ts` |
 | Trail Viewer | `tomAi.trailViewer` | `*.prompts.md`, `*.answers.md` | default | `trailEditor-handler.ts` |
 
@@ -461,9 +460,6 @@ Tools are registered with `tomAi_` prefix.
 
 | Pattern | Purpose |
 |---------|---------|
-| `*.flow.yaml` | YAML Graph flow diagrams |
-| `*.state.yaml` | YAML Graph state machines |
-| `*.er.yaml` | YAML Graph entity-relationship |
 | `*.todo.yaml` | Todo files (Quest TODO Editor) |
 | `*.prompts.md` | Trail prompt logs |
 | `*.answers.md` | Trail answer logs |

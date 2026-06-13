@@ -74,7 +74,7 @@ These are tools callable by local LLM (Ollama), Copilot (via `@dartscript` chat 
     "workspaceFolders": ["tom/", "tom_ai/xternal/tom_module_vscode/", ...],
     "quest": "vscode_extension",
     "role": "developer",
-    "activeProjects": ["tom_vscode_extension", "yaml_graph_vscode"]
+    "activeProjects": ["tom_vscode_extension", "tom_vscode_bridge"]
   }
   ```
 - Sources workspace name from `vscode.workspace.workspaceFile` or `vscode.workspace.name`

@@ -78,7 +78,6 @@ import {
     registerStatusPageSerializer,
     toggleTrailHandler,
     getConfigPath,
-    registerYamlGraphEditor,
     registerTrailViewerCommands,
     setExtensionPath,
 } from './handlers';
@@ -497,13 +496,6 @@ export async function activate(context: vscode.ExtensionContext) {
     stepStart = performance.now();
     registerTimedRequestsEditorCommand(context);
     timeStep('timedRequestsEditor', stepStart);
-
-    // Register YAML Graph Editor (custom editor for *.flow.yaml, *.state.yaml, *.er.yaml)
-    // NOTE: Graph type registration is deferred to background inside registerYamlGraphEditor.
-    // The custom editor is registered immediately; graph types are loaded lazily.
-    stepStart = performance.now();
-    await registerYamlGraphEditor(context);
-    timeStep('yamlGraphEditor (editor registered, types deferred)', stepStart);
 
     // Register Quest TODO custom editor for *.todo.yaml files
     stepStart = performance.now();

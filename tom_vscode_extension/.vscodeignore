@@ -24,15 +24,3 @@ media/types/**
 
 # Test files
 **/*.test.js
-
-# Nested dev dependencies from yaml-graph packages
-node_modules/yaml-graph-core/node_modules/**
-node_modules/yaml-graph-core/src/**
-node_modules/yaml-graph-core/test/**
-node_modules/yaml-graph-core/tsconfig.json
-node_modules/yaml-graph-core/vitest.config.ts
-node_modules/yaml-graph-vscode/node_modules/**
-node_modules/yaml-graph-vscode/src/**
-node_modules/yaml-graph-vscode/test/**
-node_modules/yaml-graph-vscode/tsconfig.json
-node_modules/yaml-graph-vscode/vitest.config.ts

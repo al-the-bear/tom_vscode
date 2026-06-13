@@ -11,7 +11,7 @@
 
 - Typecheck TypeScript (`npx tsc --noEmit`) — zero errors and zero Problems-pane warnings before commit.
 - Verify impacted command IDs still match `package.json` `contributes.commands`.
-- Verify panel / view / custom-editor IDs still match registration (`tomAi.chatPanel`, `tomAi.wsPanel`, `tomAi.markdownBrowser`, `tomAi.yamlGraphEditor`, `tomAi.todoEditor`, `tomAi.trailViewer`).
+- Verify panel / view / custom-editor IDs still match registration (`tomAi.chatPanel`, `tomAi.wsPanel`, `tomAi.markdownBrowser`, `tomAi.todoEditor`, `tomAi.trailViewer`).
 - When changing `sendToChatConfig` shape, update `config/tom_vscode_extension.schema.json` in the same commit.
 
 ## Documentation sync rules

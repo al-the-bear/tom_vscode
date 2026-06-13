@@ -66,25 +66,6 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# Build the local file:-linked sibling packages (yaml_graph_core,
-# yaml_graph_vscode). Their package.json point main/types at dist/,
-# but nothing in npm install builds them, so the extension's tsc would
-# fail to resolve their type declarations.
-echo ""
-echo "📦 Building local sibling packages..."
-for PKG in yaml_graph_core yaml_graph_vscode; do
-    echo "  → $PKG"
-    (
-        cd "$SCRIPT_DIR/../$PKG"
-        npm install
-        npm run build
-    )
-    if [ $? -ne 0 ]; then
-        echo "❌ Build failed in $PKG"
-        exit 1
-    fi
-done
-
 # Compile TypeScript
 echo "📦 Compiling TypeScript..."
 npm run compile

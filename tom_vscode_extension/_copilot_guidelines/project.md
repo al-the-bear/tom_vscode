@@ -7,7 +7,7 @@
 - multi-transport AI prompt tooling (Anthropic direct SDK, Claude Agent SDK, VS Code Copilot, Local LLM, AI Conversation),
 - bridge-based automation for Dart / shell / workspace operations,
 - panel-based productivity UX (chat, workspace, sidebar notes, todos),
-- YAML graph, quest todo, markdown browser, and trail viewer custom editors,
+- quest todo, markdown browser, and trail viewer custom editors,
 - prompt queue + timed requests for scripted dispatch,
 - status / config / debug utilities.
 
@@ -52,4 +52,4 @@ Maintainer (`_copilot_guidelines/`):
 - Bottom panel titles: `@CHAT`, `@WS`. Sidebar: `@TOM`.
 - Command namespace: `tomAi.*`.
 - Chat variables: `${tomAi.quest}`, `${tomAi.role}`, `${tomAi.activeProjects}`, `${tomAi.todo}`, `${tomAi.workspaceName}`.
-- Custom editor view types: `tomAi.yamlGraphEditor`, `tomAi.todoEditor`, `tomAi.markdownBrowser`, `tomAi.trailViewer`.
+- Custom editor view types: `tomAi.todoEditor`, `tomAi.markdownBrowser`, `tomAi.trailViewer`.
