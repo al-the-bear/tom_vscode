@@ -35,13 +35,15 @@ import {
 } from '../tools/local-llm-tools-config';
 import { WsPaths } from '../utils/workspacePaths';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
-import { validateStrictAiConfiguration, SendToChatConfig, getSendToChatTarget, getMcpServerSettings, getQuestRefreshSettings, type QuestRefreshPanel } from '../utils/sendToChatConfig';
+import { validateStrictAiConfiguration, SendToChatConfig, getSendToChatTarget, getQuestRefreshSettings, type QuestRefreshPanel } from '../utils/sendToChatConfig';
 import { QuestRefreshStore } from '../managers/questRefreshStore';
 import {
     getCliServerAutostart,
     setCliServerAutostart,
     getMcpServerAutostart,
     setMcpServerAutostart,
+    setMcpServerConfig,
+    readEffectiveMcpServerSettings,
 } from '../managers/extensionConfigStore';
 import { McpServerCardModel, buildMcpServerCardModel, renderMcpServerCard, buildMcpServerConfigFromMessage } from '../utils/mcpServerCard';
 import { READ_ONLY_TOOLS } from '../tools/tool-executors';
@@ -299,6 +301,9 @@ async function updateTelegramSettings(settings: any): Promise<void> {
         enabled: settings.enabled,
         botTokenEnv: settings.botTokenEnv,
         defaultChatId: settings.defaultChatId,
+        allowedUserIds: Array.isArray(settings.allowedUserIds)
+            ? settings.allowedUserIds.filter((id: any) => typeof id === 'number' && Number.isFinite(id))
+            : (telegram.allowedUserIds ?? []),
         pollIntervalMs: settings.pollIntervalMs,
         notifyOnStart: settings.notifyOnStart,
         notifyOnTurn: settings.notifyOnTurn,
@@ -1114,16 +1119,17 @@ export async function handleStatusAction(action: string, message: any): Promise<
         // MCP Server (standalone) — persist the card's settings. The gather map
         // normalises the webview payload; the resolver applies defaults on read.
         case 'saveMcpServer': {
-            const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
-            stcConfig.mcpServer = buildMcpServerConfigFromMessage(message);
-            saveSendToChatConfig(stcConfig);
-            // Autostart is machine-scoped — kept out of the shared config and
-            // persisted to the per-quest, per-machine config file instead.
+            // MCP settings (other than autostart) are machine-INDEPENDENT and
+            // live in the per-quest `extension_config.{quest}.yaml`, not the
+            // shared send-to-chat config.
+            setMcpServerConfig(buildMcpServerConfigFromMessage(message));
+            // Autostart is machine-scoped — persisted to the per-quest,
+            // per-machine config file instead.
             setMcpServerAutostart(message.autoStart === true);
             // Config-change disposal (#19): apply the new settings to a running
             // server (restart) or stop it if now disabled. The controller's
             // onChange refreshes the card when the runtime state changes.
-            await reconcileMcpServerConfig(getMcpServerSettings(stcConfig));
+            await reconcileMcpServerConfig(readEffectiveMcpServerSettings());
             vscode.window.showInformationMessage('MCP Server settings saved');
             break;
         }
@@ -1786,6 +1792,7 @@ export interface StatusData {
         autostart: boolean;
         botTokenEnv: string;
         defaultChatId: number;
+        allowedUserIds: number[];
         pollIntervalMs: number;
         notifyOnTurn: boolean;
         notifyOnStart: boolean;
@@ -2025,9 +2032,10 @@ export async function gatherStatusData(): Promise<StatusData> {
         },
         // Live runtime state from the lifecycle controller (#19): the actually
         // bound host:port while running, or { running: false } when stopped.
-        // Autostart is machine-scoped (per-quest config file), not in the
-        // shared config the resolver reads.
-        mcpServer: buildMcpServerCardModel(getMcpServerSettings(sendToChatConfig), getMcpServerStatus(), getMcpServerAutostart()),
+        // Settings are per-quest (extension_config.{quest}.yaml); autostart is
+        // machine-scoped (per-quest, per-host config file). Neither is in the
+        // shared send-to-chat config.
+        mcpServer: buildMcpServerCardModel(readEffectiveMcpServerSettings(), getMcpServerStatus(), getMcpServerAutostart()),
         questRefresh: (() => {
             const store = QuestRefreshStore.instance;
             const buildPanel = (panel: QuestRefreshPanel) => {
@@ -2069,6 +2077,7 @@ export async function gatherStatusData(): Promise<StatusData> {
             autostart: telegram.autostart ?? false,
             botTokenEnv: telegram.botTokenEnv ?? 'TELEGRAM_BOT_TOKEN',
             defaultChatId: telegram.defaultChatId ?? 0,
+            allowedUserIds: Array.isArray(telegram.allowedUserIds) ? telegram.allowedUserIds : [],
             pollIntervalMs: telegram.pollIntervalMs ?? 3000,
             notifyOnTurn: telegram.notifyOnTurn ?? true,
             notifyOnStart: telegram.notifyOnStart ?? true,
@@ -2704,6 +2713,10 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
                 </select>
                 <label>Chat ID:</label>
                 <input type="number" id="sp-tg-defaultChatId" value="${status.telegram.defaultChatId}">
+            </div>
+            <div class="sp-settings-row">
+                <label>Allowed User IDs:</label>
+                <input type="text" id="sp-tg-allowedUserIds" value="${status.telegram.allowedUserIds.join(', ')}" placeholder="comma-separated, e.g. 12345, 67890">
             </div>
             <div class="sp-settings-row">
                 <label>Bot Token Env:</label>

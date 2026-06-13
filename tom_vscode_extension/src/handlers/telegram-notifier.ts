@@ -306,14 +306,24 @@ export function parseTelegramConfig(raw: any): TelegramConfig {
         }
     }
 
+    const defaultChatId = typeof raw.defaultChatId === 'number' ? raw.defaultChatId : TELEGRAM_DEFAULTS.defaultChatId;
+    const explicitAllowed = Array.isArray(raw.allowedUserIds)
+        ? raw.allowedUserIds.filter((id: any) => typeof id === 'number')
+        : [...TELEGRAM_DEFAULTS.allowedUserIds];
+    // The personal chat id and the user id coincide in Telegram, so the
+    // defaultChatId is always implicitly an authorized user — fold it into the
+    // allow-list so every consumer (isEnabled, the inbound whitelist check, the
+    // empty-list warning) treats it as allowed even when not listed explicitly.
+    const allowedUserIds = defaultChatId && !explicitAllowed.includes(defaultChatId)
+        ? [...explicitAllowed, defaultChatId]
+        : explicitAllowed;
+
     return {
         enabled: typeof raw.enabled === 'boolean' ? raw.enabled : TELEGRAM_DEFAULTS.enabled,
         botTokenEnv,
         botToken,
-        allowedUserIds: Array.isArray(raw.allowedUserIds)
-            ? raw.allowedUserIds.filter((id: any) => typeof id === 'number')
-            : TELEGRAM_DEFAULTS.allowedUserIds,
-        defaultChatId: typeof raw.defaultChatId === 'number' ? raw.defaultChatId : TELEGRAM_DEFAULTS.defaultChatId,
+        allowedUserIds,
+        defaultChatId,
         notifyOnTurn: typeof raw.notifyOnTurn === 'boolean' ? raw.notifyOnTurn : TELEGRAM_DEFAULTS.notifyOnTurn,
         notifyOnStart: typeof raw.notifyOnStart === 'boolean' ? raw.notifyOnStart : TELEGRAM_DEFAULTS.notifyOnStart,
         notifyOnEnd: typeof raw.notifyOnEnd === 'boolean' ? raw.notifyOnEnd : TELEGRAM_DEFAULTS.notifyOnEnd,

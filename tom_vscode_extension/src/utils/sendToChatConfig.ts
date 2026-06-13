@@ -489,20 +489,6 @@ export interface SendToChatConfig {
     sendToChatTarget?: 'anthropic' | 'copilot';
 
     /**
-     * Standalone MCP server (see mcp_server_implementation_plan.md §6/§7).
-     *
-     * A separate, independently-configured surface from the scripting-API /
-     * CLI bridge: its own tool picker (not the chat profile), its own inbound
-     * API key, and its own lifecycle. Transport is always Streamable HTTP bound
-     * to `host` (default `0.0.0.0`, VPN-reachable). On start the server probes
-     * upward from `basePort` to the first free port — every window runs its own
-     * server — so the actually-bound port is **runtime state**, surfaced in the
-     * UI, never written back here. Read via {@link getMcpServerSettings} which
-     * applies the documented defaults.
-     */
-    mcpServer?: McpServerConfig;
-
-    /**
      * Quest Refresh — an automatic "refresh prompt" that fires every *N* prompts
      * to run maintenance work off the recent trail (update the overview, prune
      * todos, refresh quest-notes). Global (shared across quests); the per-quest
@@ -536,8 +522,11 @@ export interface QuestRefreshPanelConfig {
 }
 
 /**
- * On-disk shape of the standalone MCP server config block. All fields are
- * optional; {@link getMcpServerSettings} resolves them against sane defaults.
+ * On-disk shape of the standalone MCP server config block. Persisted as the
+ * machine-independent `mcpServer` section of `extension_config.{quest}.yaml`
+ * (owned by `extensionConfigStore`); the machine-scoped `autostart` flag lives
+ * separately in the per-host file. All fields are optional;
+ * {@link getMcpServerSettings} resolves them against sane defaults.
  */
 export interface McpServerConfig {
     /** Master on/off switch for the MCP server. Default `false`. */
@@ -584,17 +573,22 @@ export interface ResolvedMcpServerSettings {
 }
 
 /**
- * Resolve the MCP server settings from a (possibly partial / absent) config,
- * applying the documented defaults. The single source of truth for the MCP
- * defaults, mirroring {@link getSendToChatTarget}'s default-applying role.
+ * Resolve the MCP server settings from a (possibly partial / absent)
+ * {@link McpServerConfig}, applying the documented defaults. The single source
+ * of truth for the MCP defaults, mirroring {@link getSendToChatTarget}'s
+ * default-applying role.
+ *
+ * The MCP config is machine-independent per-quest state — it lives in
+ * `extension_config.{quest}.yaml` (owned by `extensionConfigStore`), NOT in the
+ * shared send-to-chat config. Callers therefore feed the section read from the
+ * quest file here (see `extensionConfigStore.readEffectiveMcpServerSettings`).
  *
  * Note: the bound port is runtime state and is deliberately NOT part of this
  * shape — only `basePort` (the starting point of the probe) is configured.
  */
 export function getMcpServerSettings(
-    config: SendToChatConfig | null | undefined,
+    mcp: McpServerConfig | null | undefined,
 ): ResolvedMcpServerSettings {
-    const mcp = config?.mcpServer;
     const host = (mcp?.host ?? '').trim();
     const basePort = mcp?.basePort;
     return {

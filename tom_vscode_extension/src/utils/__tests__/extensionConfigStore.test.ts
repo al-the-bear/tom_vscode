@@ -34,6 +34,7 @@ import {
     setCliServerAutostart,
     getMcpServerAutostart,
     setMcpServerAutostart,
+    getMcpServerConfig,
     readMergedTelegramRaw,
     writeSplitTelegramRaw,
     migrateQuestExtensionConfig,
@@ -207,7 +208,7 @@ describe('extensionConfigStore — migration from legacy files', () => {
         fs.mkdirSync(path.dirname(p), { recursive: true });
         fs.writeFileSync(p, JSON.stringify({
             bridge: { cliServerAutostart: true, profiles: {} },
-            mcpServer: { enabled: true, autoStart: true },
+            mcpServer: { enabled: true, autoStart: true, basePort: 20001, host: '127.0.0.1' },
         }), 'utf-8');
     }
 
@@ -232,6 +233,13 @@ describe('extensionConfigStore — migration from legacy files', () => {
         });
         assert.equal(getCliServerAutostart(QUEST), true);
         assert.equal(getMcpServerAutostart(QUEST), true);
+        // The non-autostart MCP settings migrate into the machine-independent
+        // quest `mcpServer` section; the autostart-only keys are dropped.
+        assert.deepEqual(getMcpServerConfig(QUEST), {
+            enabled: true,
+            basePort: 20001,
+            host: '127.0.0.1',
+        });
     });
 
     test('is idempotent and does not overwrite already-migrated sections', () => {

@@ -67,6 +67,10 @@ function attachStatusPanelListeners(skipEditorInit) {
                     enabled: (document.getElementById('sp-tg-enabled') || {}).value === 'true',
                     botTokenEnv: (document.getElementById('sp-tg-botTokenEnv') || {}).value || '',
                     defaultChatId: parseInt((document.getElementById('sp-tg-defaultChatId') || {}).value || '0'),
+                    allowedUserIds: ((document.getElementById('sp-tg-allowedUserIds') || {}).value || '')
+                        .split(',')
+                        .map(function (s) { return parseInt(s.trim(), 10); })
+                        .filter(function (n) { return Number.isFinite(n); }),
                     pollIntervalMs: parseInt((document.getElementById('sp-tg-pollIntervalMs') || {}).value || '3000'),
                     notifyOnStart: (document.getElementById('sp-tg-notifyOnStart') || {}).value === 'true',
                     notifyOnTurn: (document.getElementById('sp-tg-notifyOnTurn') || {}).value === 'true',

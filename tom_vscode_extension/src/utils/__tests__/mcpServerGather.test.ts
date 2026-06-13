@@ -4,11 +4,11 @@
  * `buildMcpServerConfigFromMessage` is the pure server-side "gather map": it
  * turns the field payload the Status-Page webview posts (raw, possibly
  * string-typed values from inputs) into the on-disk `McpServerConfig` shape.
- * The save handler in statusPage-handler.ts is a thin wrapper that assigns the
- * result to `config.mcpServer` and calls `saveSendToChatConfig` — so pinning
- * the gather map plus the resolve round-trip here proves the todo's "Done
- * when: edits round-trip to disk" without driving the 3000-line handler or a
- * real file write.
+ * The save handler in statusPage-handler.ts is a thin wrapper that persists the
+ * result via `setMcpServerConfig` (the `mcpServer` section of the per-quest
+ * `extension_config.{quest}.yaml`) — so pinning the gather map plus the resolve
+ * round-trip here proves the todo's "Done when: edits round-trip to disk"
+ * without driving the 3000-line handler or a real file write.
  *
  * The coercion is a pure function (no `vscode`), but the round-trip assertions
  * read the values back through `getMcpServerSettings`, which lives in
@@ -88,9 +88,10 @@ describe('gather map → resolver round-trip (edits round-trip to disk)', () => 
             toolsEnabled: false,
             enabledTools: ['tomAi_readFile'],
         });
-        // Simulate the disk hop: saveSendToChatConfig writes JSON, load + resolve
-        // reads it back. JSON.parse/stringify models the on-disk serialisation.
-        const onDisk = JSON.parse(JSON.stringify({ mcpServer: built }));
+        // Simulate the disk hop: setMcpServerConfig writes the section, load +
+        // resolve reads it back. JSON.parse/stringify models the on-disk
+        // serialisation of the `mcpServer` section.
+        const onDisk = JSON.parse(JSON.stringify(built));
         const resolved = getMcpServerSettings(onDisk);
         assert.deepEqual(resolved, {
             enabled: true,
@@ -111,7 +112,7 @@ describe('gather map → resolver round-trip (edits round-trip to disk)', () => 
             apiKeyEnv: '',
             toolsEnabled: true,
         });
-        const resolved = getMcpServerSettings(JSON.parse(JSON.stringify({ mcpServer: built })));
+        const resolved = getMcpServerSettings(JSON.parse(JSON.stringify(built)));
         assert.equal(resolved.host, MCP_SERVER_DEFAULT_HOST);
         assert.equal(resolved.basePort, MCP_SERVER_DEFAULT_BASE_PORT);
         assert.equal(resolved.apiKeyEnv, '');

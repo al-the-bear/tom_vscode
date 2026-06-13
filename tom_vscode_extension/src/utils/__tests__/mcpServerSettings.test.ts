@@ -1,14 +1,15 @@
 /**
  * Tests for `getMcpServerSettings` — the pure resolver that applies the MCP
- * server's documented defaults to a (possibly partial / absent) `mcpServer`
- * config block.
+ * server's documented defaults to a (possibly partial / absent) `McpServerConfig`
+ * block.
  *
  * The standalone MCP server is configured independently of the chat profiles
- * (plan §6). This resolver is the single place those defaults live, so the
- * Status-Page card (Phase 3) and the server handler (Phase 4) read one source
- * of truth: `basePort` 19920, `host` 0.0.0.0, unauth = read-only (writes off),
- * tools on by default. The bound port is runtime state and is NOT part of this
- * resolved shape.
+ * (plan §6) and now lives in the per-quest `extension_config.{quest}.yaml`
+ * `mcpServer` section. This resolver is the single place those defaults live, so
+ * the Status-Page card (Phase 3) and the server handler (Phase 4) read one
+ * source of truth: `basePort` 19920, `host` 0.0.0.0, unauth = read-only (writes
+ * off), tools on by default. The bound port is runtime state and is NOT part of
+ * this resolved shape.
  *
  * `vscode` is stubbed before importing sendToChatConfig (which requires it),
  * mirroring the apiKeyAuthHeader / scripting-tools-bridge test seam.
@@ -25,10 +26,10 @@ import {
     MCP_SERVER_DEFAULT_HOST,
     MCP_SERVER_DEFAULT_BASE_PORT,
 } from '../sendToChatConfig.js';
-import type { SendToChatConfig } from '../sendToChatConfig.js';
+import type { McpServerConfig } from '../sendToChatConfig.js';
 
-const cfgWith = (mcpServer: unknown): SendToChatConfig =>
-    ({ mcpServer } as unknown as SendToChatConfig);
+const cfgWith = (mcpServer: unknown): McpServerConfig =>
+    (mcpServer as McpServerConfig);
 
 describe('getMcpServerSettings — defaults', () => {
     const expectedDefaults = {
@@ -54,8 +55,8 @@ describe('getMcpServerSettings — defaults', () => {
         assert.deepEqual(getMcpServerSettings(undefined), expectedDefaults);
     });
 
-    test('missing mcpServer block → all defaults', () => {
-        assert.deepEqual(getMcpServerSettings({} as SendToChatConfig), expectedDefaults);
+    test('empty config object → all defaults', () => {
+        assert.deepEqual(getMcpServerSettings({}), expectedDefaults);
     });
 
     test('empty mcpServer block → all defaults', () => {

@@ -17,27 +17,39 @@ The standalone server is also **separate from the scripting-API / CLI bridge**: 
 
 ## 2. Enable it
 
-The server is **off by default**. Turn it on from the **Status Page → MCP Server** card, or edit `.tom/tom_vscode_extension.json` directly:
+The server is **off by default**. Turn it on from the **Status Page → MCP Server**
+card, or edit the per-quest config directly. The settings live in the
+**machine-INDEPENDENT** `_ai/quests/{quest}/extension_config.{quest}.yaml` under a
+top-level `mcpServer` section (owned by `extensionConfigStore.ts`) — *not* in the
+central `.tom/tom_vscode_extension.json`. The one exception is `autostart`, which
+is **machine-SPECIFIC** and lives in the per-host
+`extension_config.{hostSlug}.{quest}.yaml` `mcpServer.autostart` key.
 
-```json
-"mcpServer": {
-  "enabled": true,
-  "autoStart": true,
-  "host": "0.0.0.0",
-  "basePort": 19920,
-  "apiKeyEnv": "TOM_MCP_KEY",
-  "allowWriteWithoutAuth": false,
-  "toolsEnabled": true,
-  "enabledTools": []
-}
+```yaml
+# extension_config.{quest}.yaml  (machine-independent)
+mcpServer:
+  enabled: true
+  host: 0.0.0.0
+  basePort: 19920
+  apiKeyEnv: TOM_MCP_KEY
+  allowWriteWithoutAuth: false
+  toolsEnabled: true
+  enabledTools: []
+
+# extension_config.{hostSlug}.{quest}.yaml  (machine-specific)
+mcpServer:
+  autostart: true
 ```
+
+Legacy `mcpServer` blocks in `.tom/tom_vscode_extension.json` are migrated into
+these files once, on first access (`migrateQuestExtensionConfig`).
 
 All fields are optional; `getMcpServerSettings` applies the defaults below.
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `enabled` | boolean | `false` | Master on/off switch. |
-| `autoStart` | boolean | `false` | Start on extension activation (only when `enabled`). |
+| `autostart` | boolean | `false` | Start on extension activation (only when `enabled`). Machine-specific (per-host file). |
 | `host` | string | `0.0.0.0` | Bind address. `0.0.0.0` is reachable across the VPN; use `127.0.0.1` to keep it host-local. |
 | `basePort` | number | `19920` | First port to try. The server probes **upward** to the first free port (clear of the CLI bridge's `19900`). |
 | `apiKeyEnv` | string | `""` | **Name** of the env var holding the expected inbound bearer token — never the secret itself. Empty ⇒ no auth configured. |
@@ -129,7 +141,7 @@ The API key is the real boundary. When you expose write tools:
 
 3. **Reach it.** Point the external MCP client at `http://<host>:<port>` over Streamable HTTP. With `host: 0.0.0.0`, use the host's VPN IP (`10.8.0.x`) from another fleet machine; with `127.0.0.1`, only local clients can connect. Add the `Authorization: Bearer …` header when authenticating.
 
-4. **Edit settings live.** Saving the card reconciles the running server, and so does editing the `mcpServer` block in `.tom/tom_vscode_extension.json` from another window or by hand — a file-system watcher reloads the config and calls `reconcileMcpServerConfig` (disabled ⇒ stop; running ⇒ restart onto the new host/port/tools/auth).
+4. **Edit settings live.** Saving the card reconciles the running server, and so does editing the `mcpServer` section in the per-quest `extension_config.{quest}.yaml` from another window or by hand — a file-system watcher on the quest config file reloads the config and calls `reconcileMcpServerConfig` (disabled ⇒ stop; running ⇒ restart onto the new host/port/tools/auth).
 
 ## 7. Observability
 

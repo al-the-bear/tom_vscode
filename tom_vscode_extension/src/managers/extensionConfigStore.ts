@@ -31,6 +31,11 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { WsPaths } from '../utils/workspacePaths';
 import { FsUtils } from '../utils/fsUtils';
+import {
+    getMcpServerSettings,
+    type McpServerConfig,
+    type ResolvedMcpServerSettings,
+} from '../utils/sendToChatConfig';
 
 // ============================================================================
 // Section keys
@@ -171,6 +176,47 @@ export function setMcpServerAutostart(value: boolean, questId?: string): void {
 }
 
 // ============================================================================
+// Typed helpers — MCP server settings (machine-INDEPENDENT quest file)
+//
+// All MCP settings other than `autostart` (enabled / host / basePort /
+// apiKeyEnv / allowWriteWithoutAuth / toolsEnabled / enabledTools) are the same
+// on every host, so they live in the quest file's `mcpServer` section. Only
+// `autostart` is machine-scoped (the helpers above); these helpers deliberately
+// never read or write it, so the two files never tread on each other.
+// ============================================================================
+
+/** Drop the machine-scoped `autostart` field so it never lands in the quest file. */
+function stripMcpAutostart(raw: Doc): Doc {
+    const out: Doc = {};
+    for (const [key, value] of Object.entries(raw)) {
+        if (key === 'autostart') { continue; }
+        out[key] = value;
+    }
+    return out;
+}
+
+/** Read the machine-independent MCP server config from the quest file. */
+export function getMcpServerConfig(questId?: string): McpServerConfig {
+    const section = readQuestSection<Doc>(SECTION_MCP_SERVER, questId);
+    if (!section || typeof section !== 'object') { return {}; }
+    return stripMcpAutostart(section) as McpServerConfig;
+}
+
+/** Persist the machine-independent MCP server config to the quest file. */
+export function setMcpServerConfig(config: McpServerConfig, questId?: string): void {
+    const source = config && typeof config === 'object' ? (config as Doc) : {};
+    writeQuestSection(SECTION_MCP_SERVER, stripMcpAutostart(source), questId);
+}
+
+/**
+ * Fully-resolved MCP server settings sourced from the quest file and run through
+ * the shared resolver (so the documented defaults apply consistently).
+ */
+export function readEffectiveMcpServerSettings(questId?: string): ResolvedMcpServerSettings {
+    return getMcpServerSettings(getMcpServerConfig(questId));
+}
+
+// ============================================================================
 // Telegram split / merge
 // ============================================================================
 
@@ -232,13 +278,16 @@ export function writeSplitTelegramRaw(raw: Doc, questId?: string): void {
  *   - `quest-refresh.{host}.{quest}.yaml`  → machine `questRefresh` section.
  *   - `telegram.{host}.{quest}.yaml`       → split telegram sections.
  *   - `tom_vscode_extension.json`          → machine `cliServer` / `mcpServer`
- *     autostart (from `bridge.cliServerAutostart` / `mcpServer.autoStart`).
+ *     autostart (from `bridge.cliServerAutostart` / `mcpServer.autoStart`) and
+ *     the quest `mcpServer` section (the remaining, machine-independent MCP
+ *     settings from the shared `mcpServer` block).
  */
 export function migrateQuestExtensionConfig(questId?: string): void {
     const safeQuest = resolveQuestId(questId);
     migrateLegacyQuestRefresh(safeQuest);
     migrateLegacyTelegram(safeQuest);
     migrateLegacyAutostart(safeQuest);
+    migrateLegacyMcpServerSettings(safeQuest);
 }
 
 function migrateLegacyQuestRefresh(safeQuest: string): void {
@@ -277,6 +326,27 @@ function migrateLegacyAutostart(safeQuest: string): void {
     }
     if (mcpMissing && legacy.mcpServer?.autoStart !== undefined) {
         setMcpServerAutostart(legacy.mcpServer.autoStart === true, safeQuest);
+    }
+}
+
+/**
+ * Migrate the machine-independent MCP server settings out of the shared
+ * `tom_vscode_extension.json` `mcpServer` block into the quest file's
+ * `mcpServer` section. Idempotent: only runs while the quest section is still
+ * absent. The legacy `autoStart` field is intentionally NOT migrated here — it
+ * is machine-scoped and handled by {@link migrateLegacyAutostart}.
+ */
+function migrateLegacyMcpServerSettings(safeQuest: string): void {
+    if (readQuestSection(SECTION_MCP_SERVER, safeQuest) !== undefined) { return; }
+    const legacy = readLegacyWorkspaceConfigRaw();
+    const mcp = legacy?.mcpServer;
+    if (!mcp || typeof mcp !== 'object') { return; }
+    const settings = stripMcpAutostart(mcp);
+    // `autoStart` was the legacy spelling of the machine-scoped autostart flag;
+    // drop it too so only machine-independent settings reach the quest file.
+    delete settings.autoStart;
+    if (Object.keys(settings).length > 0) {
+        writeQuestSection(SECTION_MCP_SERVER, settings, safeQuest);
     }
 }
 

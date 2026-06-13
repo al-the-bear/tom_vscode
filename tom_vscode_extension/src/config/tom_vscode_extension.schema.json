@@ -11,49 +11,6 @@
             "default": "anthropic",
             "description": "Which chat transport 'Send to Chat' routes to. 'anthropic' (default) handles the prompt as if entered in the Anthropic panel (same profile + tools, answer from the Anthropic transport, shown in the live trail, blocks while executing). 'copilot' routes to GitHub Copilot Chat. Also drives tools.getJsonVce: the scripting-API tools JSON is empty when set to 'copilot'."
         },
-        "mcpServer": {
-            "type": "object",
-            "description": "Standalone MCP server (mcp_server_implementation_plan.md §6/§7). A separate, independently-configured surface from the scripting-API / CLI bridge: its own tool picker (not the chat profile), its own inbound API key, and its own lifecycle. Transport is always Streamable HTTP bound to 'host'. On start the server probes upward from 'basePort' to the first free port — every window runs its own server — so the actually-bound port is runtime state, surfaced in the UI, never written back here.",
-            "properties": {
-                "enabled": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Master on/off switch for the MCP server."
-                },
-                "host": {
-                    "type": "string",
-                    "default": "0.0.0.0",
-                    "description": "Bind address. Default 0.0.0.0 (reachable over the VPN)."
-                },
-                "basePort": {
-                    "type": "integer",
-                    "default": 19920,
-                    "description": "First port to try. The server probes upward from here to the first free port; the actually-bound port is runtime state, not stored. Default 19920 (clear of the CLI server's 19900)."
-                },
-                "apiKeyEnv": {
-                    "type": "string",
-                    "default": "",
-                    "description": "NAME of the env var holding the expected inbound bearer token (never the secret). Empty = no auth configured = read-only floor applies."
-                },
-                "allowWriteWithoutAuth": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "When true, unauthenticated clients also get the configured write tools. Default false = unauthenticated access is read-only."
-                },
-                "toolsEnabled": {
-                    "type": "boolean",
-                    "default": true,
-                    "description": "true = expose all tools; false = use enabledTools. Default true."
-                },
-                "enabledTools": {
-                    "type": "array",
-                    "items": { "type": "string" },
-                    "default": [],
-                    "description": "Independent allow-list (own picker, NOT the chat profile). Honored when toolsEnabled is false."
-                }
-            },
-            "additionalProperties": false
-        },
         "questRefresh": {
             "type": "object",
             "description": "Quest Refresh (quest_refresh_implementation_plan.md). An automatic 'refresh prompt' that fires every N prompts to run maintenance work off the recent trail (update overview, prune todos, refresh quest-notes). These settings are GLOBAL (shared across quests); the per-quest activation flag + the prompt counter live in _ai/quests/{questId}/quest-refresh.{hostname}.{questId}.yaml (QuestRefreshStore, host-specific so the shared _ai clone doesn't collide state across machines), not here. Copilot is wired into the UI but its auto-trigger is deferred.",
