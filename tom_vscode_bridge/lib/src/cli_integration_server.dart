@@ -26,7 +26,18 @@ class CliIntegrationServer {
   ServerSocket? _serverSocket;
   final List<Socket> _clients = [];
   bool _isRunning = false;
-  
+
+  /// Maps an Agent SDK `streamId` to the client socket that started that query
+  /// (via `agentSdk.queryVce`). Server→client traffic the extension pushes for
+  /// a stream — `agentSdk.chunk` notifications and `agentSdk.toolCall` /
+  /// `agentSdk.canUseTool` reverse-RPC requests — is routed back only to the
+  /// originating client, not broadcast to every connection.
+  final Map<String, Socket> _agentSdkStreamOwners = {};
+
+  /// Subscription to the bridge's [VSCodeBridgeServer.extensionPushMessages]
+  /// relay channel; active only while the server is running.
+  StreamSubscription<Map<String, dynamic>>? _pushSubscription;
+
   /// Whether the server is currently running
   bool get isRunning => _isRunning;
   
@@ -52,7 +63,13 @@ class CliIntegrationServer {
       
       _isRunning = true;
       _log('CLI integration server started on port $port');
-      
+
+      // Relay Agent SDK server→client traffic (chunks + reverse-RPC) the
+      // extension pushes to the bridge back out to the originating CLI client.
+      _pushSubscription = _bridgeServer.extensionPushMessages.listen(
+        _relayPushMessage,
+      );
+
       _serverSocket!.listen(
         _handleConnection,
         onError: _handleServerError,
@@ -77,7 +94,12 @@ class CliIntegrationServer {
     if (!_isRunning) return;
     
     _log('Stopping CLI integration server...');
-    
+
+    // Stop relaying extension push traffic and drop stream ownership.
+    await _pushSubscription?.cancel();
+    _pushSubscription = null;
+    _agentSdkStreamOwners.clear();
+
     // Close all client connections
     for (final client in _clients.toList()) {
       try {
@@ -183,12 +205,30 @@ class CliIntegrationServer {
       if (BridgeLogging.debugLogging) {
         _log('← CLI Request: $method (id: $id)');
       }
-      
+
       if (method == null) {
+        // A reply (no `method`, has `id`) is the client's answer to an Agent
+        // SDK reverse-RPC request (`agentSdk.toolCall` / `agentSdk.canUseTool`)
+        // that the bridge relayed from the extension. Forward it back to the
+        // extension verbatim so its ServerToClientRpc can correlate it.
+        if (id != null &&
+            (message.containsKey('result') || message.containsKey('error'))) {
+          _bridgeServer.forwardReplyToExtension(message);
+          return;
+        }
         _sendError(client, id, 'Missing method in request');
         return;
       }
-      
+
+      // Remember which client owns an Agent SDK stream so the extension's
+      // server→client traffic for it is routed back to this client only.
+      if (method == 'agentSdk.queryVce') {
+        final streamId = params['streamId'] as String?;
+        if (streamId != null) {
+          _agentSdkStreamOwners[streamId] = client;
+        }
+      }
+
       // Handle the request using the bridge server's handler with socket-based logging
       try {
         final result = await _bridgeServer.handleCliRequest(
@@ -200,6 +240,14 @@ class CliIntegrationServer {
         _sendResponse(client, id, result);
       } catch (e, stackTrace) {
         _sendError(client, id, e.toString(), stackTrace.toString());
+      } finally {
+        // A cancel ends the stream; drop ownership so it can be reused.
+        if (method == 'agentSdk.cancelVce') {
+          final streamId = params['streamId'] as String?;
+          if (streamId != null) {
+            _agentSdkStreamOwners.remove(streamId);
+          }
+        }
       }
     } catch (e) {
       _log('Failed to parse message: $e');
@@ -217,6 +265,46 @@ class CliIntegrationServer {
     _sendMessage(client, jsonEncode(notification));
   }
   
+  /// Relay an Agent SDK server→client message (pushed by the extension to the
+  /// bridge) to the CLI client that owns its `streamId`.
+  ///
+  /// `agentSdk.chunk` notifications and `agentSdk.toolCall` /
+  /// `agentSdk.canUseTool` reverse-RPC requests all carry a `streamId` in their
+  /// params. The message is sent only to the originating client; if the owner
+  /// is unknown (or the message has no `streamId`) it is broadcast to every
+  /// connected client as a fallback. A terminal `agentSdk.chunk` (`done` or
+  /// `error`) releases the stream ownership.
+  void _relayPushMessage(Map<String, dynamic> message) {
+    final params = message['params'];
+    final streamId = params is Map ? params['streamId'] as String? : null;
+    final encoded = jsonEncode(message);
+
+    if (streamId == null) {
+      for (final client in _clients.toList()) {
+        _sendMessage(client, encoded);
+      }
+      return;
+    }
+
+    final owner = _agentSdkStreamOwners[streamId];
+    if (owner != null && _clients.contains(owner)) {
+      _sendMessage(owner, encoded);
+    } else {
+      // Owner unknown/disconnected: broadcast so a late-binding client can
+      // still correlate by streamId.
+      for (final client in _clients.toList()) {
+        _sendMessage(client, encoded);
+      }
+    }
+
+    // Release ownership once the stream completes.
+    if (message['method'] == 'agentSdk.chunk' &&
+        params is Map &&
+        (params['done'] == true || params['error'] != null)) {
+      _agentSdkStreamOwners.remove(streamId);
+    }
+  }
+
   /// Send a JSON-RPC response to a client
   void _sendResponse(Socket client, Object? id, dynamic result) {
     final response = {
@@ -274,6 +362,9 @@ class CliIntegrationServer {
   
   void _removeClient(Socket client) {
     _clients.remove(client);
+    // Drop any Agent SDK streams this client owned so stale routing entries
+    // don't linger after it disconnects.
+    _agentSdkStreamOwners.removeWhere((_, owner) => identical(owner, client));
     try {
       client.destroy();
     } catch (e) {

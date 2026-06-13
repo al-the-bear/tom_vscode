@@ -93,6 +93,31 @@ class VSCodeBridgeServer implements VSCodeAdapter {
   /// CLI integration server for Tom CLI connections
   CliIntegrationServer? _cliServer;
 
+  /// Broadcast stream of server→client messages the VS Code extension pushes
+  /// to the bridge as part of an Agent SDK query — the `agentSdk.chunk`
+  /// streaming notification and the `agentSdk.toolCall` / `agentSdk.canUseTool`
+  /// reverse-RPC requests. These belong to the out-of-process Agent SDK
+  /// transport that started the query, not to the bridge's own request switch,
+  /// so [_handleMessage] forwards them here and the [CliIntegrationServer]
+  /// relays them to the originating CLI client.
+  final StreamController<Map<String, dynamic>> _extensionPushController =
+      StreamController<Map<String, dynamic>>.broadcast();
+
+  /// See [_extensionPushController].
+  Stream<Map<String, dynamic>> get extensionPushMessages =>
+      _extensionPushController.stream;
+
+  /// Methods the extension pushes to the bridge as Agent SDK server→client
+  /// traffic. `agentSdk.chunk` is a notification (no `id`); `agentSdk.toolCall`
+  /// and `agentSdk.canUseTool` are reverse-RPC requests (with `id`). All three
+  /// are relayed to the originating CLI client rather than dispatched against
+  /// the bridge's request switch (which would throw "Unknown method").
+  static const Set<String> _agentSdkPushMethods = {
+    'agentSdk.chunk',
+    'agentSdk.toolCall',
+    'agentSdk.canUseTool',
+  };
+
   String? _currentCallId() => Zone.current['callId'] as String?;
 
   static void setResult(Object? result) {
@@ -398,7 +423,15 @@ void main() {}
       final responseKey = idRaw?.toString();
       final params = message['params'] as Map<String, dynamic>?;
 
-      if (method != null) {
+      if (method != null && _agentSdkPushMethods.contains(method)) {
+        // Agent SDK server→client traffic (streaming chunks + reverse-RPC).
+        // Relay to the originating CLI client instead of dispatching it here.
+        if (!_extensionPushController.isClosed) {
+          _extensionPushController.add(message);
+        } else if (BridgeLogging.debugLogging) {
+          print('[ASDKDROP] No relay for $method (push channel closed)');
+        }
+      } else if (method != null) {
         // This is a request from VS Code
         try {
           unawaited(_handleVSCodeRequest(method, params ?? {}, idRaw));
@@ -706,6 +739,18 @@ void main() {}
     };
 
     _outputController.add(jsonEncode(message));
+  }
+
+  /// Forwards a CLI client's reply to a relayed Agent SDK reverse-RPC request
+  /// (`agentSdk.toolCall` / `agentSdk.canUseTool`) back to the VS Code
+  /// extension verbatim.
+  ///
+  /// The reply keeps the extension's original request `id` so the extension's
+  /// `ServerToClientRpc` correlates it; the bridge is a pass-through and does
+  /// not own that `id`. Called by [CliIntegrationServer] when a CLI client
+  /// answers a request that was relayed via [extensionPushMessages].
+  void forwardReplyToExtension(Map<String, dynamic> reply) {
+    _outputController.add(jsonEncode(reply));
   }
 
   /// Send a response to a VS Code request
