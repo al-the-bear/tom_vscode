@@ -62,35 +62,37 @@ void main() {
   });
 
   group('AgentSdkToolRegistry.handleToolCall', () {
-    test('runs the matching handler and returns its CallToolResult JSON',
-        () async {
-      final registry = AgentSdkToolRegistry();
-      registry.addServers({
-        'dartTools': McpSdkServerConfig(
-          name: 'dartTools',
-          tools: [
-            SdkMcpTool(
-              name: 'getWeather',
-              description: 'weather',
-              inputSchema: const {'type': 'object'},
-              handler: (args) async =>
-                  CallToolResult.text('it is ${args['city']}'),
-            ),
-          ],
-        ),
-      });
+    test(
+      'runs the matching handler and returns its CallToolResult JSON',
+      () async {
+        final registry = AgentSdkToolRegistry();
+        registry.addServers({
+          'dartTools': McpSdkServerConfig(
+            name: 'dartTools',
+            tools: [
+              SdkMcpTool(
+                name: 'getWeather',
+                description: 'weather',
+                inputSchema: const {'type': 'object'},
+                handler: (args) async =>
+                    CallToolResult.text('it is ${args['city']}'),
+              ),
+            ],
+          ),
+        });
 
-      final result = await registry.handleToolCall({
-        'streamId': 's1',
-        'server': 'dartTools',
-        'tool': 'getWeather',
-        'args': {'city': 'NYC'},
-      });
+        final result = await registry.handleToolCall({
+          'streamId': 's1',
+          'server': 'dartTools',
+          'tool': 'getWeather',
+          'args': {'city': 'NYC'},
+        });
 
-      expect(result['content'], [
-        {'type': 'text', 'text': 'it is NYC'},
-      ]);
-    });
+        expect(result['content'], [
+          {'type': 'text', 'text': 'it is NYC'},
+        ]);
+      },
+    );
 
     test('throws for an unknown server', () {
       final registry = AgentSdkToolRegistry();

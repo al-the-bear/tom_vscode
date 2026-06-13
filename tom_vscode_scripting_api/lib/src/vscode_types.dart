@@ -20,11 +20,7 @@ class VSCodeUri {
   });
 
   factory VSCodeUri.file(String path) {
-    return VSCodeUri(
-      scheme: 'file',
-      path: path,
-      fsPath: path,
-    );
+    return VSCodeUri(scheme: 'file', path: path, fsPath: path);
   }
 
   factory VSCodeUri.fromJson(Map<String, dynamic> json) {
@@ -59,11 +55,7 @@ class WorkspaceFolder {
   final String name;
   final int index;
 
-  WorkspaceFolder({
-    required this.uri,
-    required this.name,
-    required this.index,
-  });
+  WorkspaceFolder({required this.uri, required this.name, required this.index});
 
   factory WorkspaceFolder.fromJson(Map<String, dynamic> json) {
     return WorkspaceFolder(
@@ -74,11 +66,7 @@ class WorkspaceFolder {
   }
 
   Map<String, dynamic> toJson() {
-    return {
-      'uri': uri.toJson(),
-      'name': name,
-      'index': index,
-    };
+    return {'uri': uri.toJson(), 'name': name, 'index': index};
   }
 }
 
@@ -162,10 +150,7 @@ class Range {
   }
 
   Map<String, dynamic> toJson() {
-    return {
-      'start': start.toJson(),
-      'end': end.toJson(),
-    };
+    return {'start': start.toJson(), 'end': end.toJson()};
   }
 }
 
@@ -176,10 +161,7 @@ class Selection extends Range {
   final bool isReversed;
 
   Selection(this.anchor, this.active, this.isReversed)
-      : super(
-          isReversed ? active : anchor,
-          isReversed ? anchor : active,
-        );
+    : super(isReversed ? active : anchor, isReversed ? anchor : active);
 
   factory Selection.fromJson(Map<String, dynamic> json) {
     return Selection(
@@ -300,16 +282,10 @@ class MessageOptions {
   final bool modal;
   final String? detail;
 
-  MessageOptions({
-    this.modal = false,
-    this.detail,
-  });
+  MessageOptions({this.modal = false, this.detail});
 
   Map<String, dynamic> toJson() {
-    return {
-      'modal': modal,
-      if (detail != null) 'detail': detail,
-    };
+    return {'modal': modal, if (detail != null) 'detail': detail};
   }
 }
 

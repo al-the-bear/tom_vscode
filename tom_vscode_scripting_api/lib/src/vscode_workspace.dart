@@ -13,9 +13,13 @@ class VSCodeWorkspace {
   VSCodeWorkspace(this._adapter);
 
   /// Get all workspace folders
-  Future<List<WorkspaceFolder>> getWorkspaceFolders({int timeoutSeconds = 30}) async {
-    final result = await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+  Future<List<WorkspaceFolder>> getWorkspaceFolders({
+    int timeoutSeconds = 30,
+  }) async {
+    final result = await _adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         const folders = context.vscode.workspace.workspaceFolders || [];
         return folders.map(f => ({
           uri: {
@@ -30,8 +34,11 @@ class VSCodeWorkspace {
           index: f.index
         }));
       ''',
-      'params': {},
-    }, scriptName: 'getWorkspaceFolders', timeout: Duration(seconds: timeoutSeconds));
+        'params': {},
+      },
+      scriptName: 'getWorkspaceFolders',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
 
     if (result['success'] == true) {
       final folders = result['result'] as List;
@@ -41,9 +48,14 @@ class VSCodeWorkspace {
   }
 
   /// Get workspace folder for a given URI
-  Future<WorkspaceFolder?> getWorkspaceFolder(VSCodeUri uri, {int timeoutSeconds = 30}) async {
-    final result = await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+  Future<WorkspaceFolder?> getWorkspaceFolder(
+    VSCodeUri uri, {
+    int timeoutSeconds = 30,
+  }) async {
+    final result = await _adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         const uri = context.vscode.Uri.file(params.path);
         const folder = context.vscode.workspace.getWorkspaceFolder(uri);
         if (!folder) return null;
@@ -60,8 +72,11 @@ class VSCodeWorkspace {
           index: folder.index
         };
       ''',
-      'params': {'path': uri.fsPath},
-    }, scriptName: 'getWorkspaceFolder', timeout: Duration(seconds: timeoutSeconds));
+        'params': {'path': uri.fsPath},
+      },
+      scriptName: 'getWorkspaceFolder',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
 
     if (result['success'] == true && result['result'] != null) {
       return WorkspaceFolder.fromJson(result['result']);
@@ -70,9 +85,14 @@ class VSCodeWorkspace {
   }
 
   /// Open a text document
-  Future<TextDocument?> openTextDocument(String path, {int timeoutSeconds = 60}) async {
-    final result = await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+  Future<TextDocument?> openTextDocument(
+    String path, {
+    int timeoutSeconds = 60,
+  }) async {
+    final result = await _adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         const uri = context.vscode.Uri.file(params.path);
         const doc = await context.vscode.workspace.openTextDocument(uri);
         return {
@@ -93,8 +113,11 @@ class VSCodeWorkspace {
           lineCount: doc.lineCount
         };
       ''',
-      'params': {'path': path},
-    }, scriptName: 'openTextDocument', timeout: Duration(seconds: timeoutSeconds));
+        'params': {'path': path},
+      },
+      scriptName: 'openTextDocument',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
 
     if (result['success'] == true) {
       return TextDocument.fromJson(result['result']);
@@ -104,14 +127,19 @@ class VSCodeWorkspace {
 
   /// Save a text document
   Future<bool> saveTextDocument(String path, {int timeoutSeconds = 60}) async {
-    final result = await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+    final result = await _adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         const uri = context.vscode.Uri.file(params.path);
         const doc = await context.vscode.workspace.openTextDocument(uri);
         return await doc.save();
       ''',
-      'params': {'path': path},
-    }, scriptName: 'saveTextDocument', timeout: Duration(seconds: timeoutSeconds));
+        'params': {'path': path},
+      },
+      scriptName: 'saveTextDocument',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
 
     return result['success'] == true && result['result'] == true;
   }
@@ -123,8 +151,10 @@ class VSCodeWorkspace {
     int? maxResults,
     int timeoutSeconds = 60,
   }) async {
-    final result = await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+    final result = await _adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         const uris = await context.vscode.workspace.findFiles(
           params.include,
           params.exclude,
@@ -139,12 +169,15 @@ class VSCodeWorkspace {
           fsPath: uri.fsPath
         }));
       ''',
-      'params': {
-        'include': include,
-        'exclude': exclude,
-        'maxResults': maxResults,
+        'params': {
+          'include': include,
+          'exclude': exclude,
+          'maxResults': maxResults,
+        },
       },
-    }, scriptName: 'findFiles', timeout: Duration(seconds: timeoutSeconds));
+      scriptName: 'findFiles',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
 
     if (result['success'] == true) {
       final uris = result['result'] as List;
@@ -160,8 +193,10 @@ class VSCodeWorkspace {
     int? maxResults,
     int timeoutSeconds = 60,
   }) async {
-    final result = await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+    final result = await _adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         const uris = await context.vscode.workspace.findFiles(
           params.include,
           params.exclude,
@@ -169,12 +204,15 @@ class VSCodeWorkspace {
         );
         return uris.map(uri => uri.fsPath);
       ''',
-      'params': {
-        'include': include,
-        'exclude': exclude,
-        'maxResults': maxResults,
+        'params': {
+          'include': include,
+          'exclude': exclude,
+          'maxResults': maxResults,
+        },
       },
-    }, scriptName: 'findFilePaths', timeout: Duration(seconds: timeoutSeconds));
+      scriptName: 'findFilePaths',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
 
     if (result['success'] == true) {
       return (result['result'] as List).cast<String>();
@@ -183,9 +221,15 @@ class VSCodeWorkspace {
   }
 
   /// Get workspace configuration
-  Future<dynamic> getConfiguration(String section, { String? scope, int timeoutSeconds = 60 } ) async {
-    final result = await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+  Future<dynamic> getConfiguration(
+    String section, {
+    String? scope,
+    int timeoutSeconds = 60,
+  }) async {
+    final result = await _adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         const config = context.vscode.workspace.getConfiguration(
           params.section,
           params.scope ? context.vscode.Uri.file(params.scope) : undefined
@@ -204,11 +248,11 @@ class VSCodeWorkspace {
         }
         return result;
       ''',
-      'params': {
-        'section': section,
-        'scope': ?scope,
+        'params': {'section': section, 'scope': ?scope},
       },
-    }, scriptName: 'getConfiguration', timeout: Duration(seconds: timeoutSeconds));
+      scriptName: 'getConfiguration',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
 
     if (result['success'] == true) {
       return result['result'];
@@ -224,8 +268,10 @@ class VSCodeWorkspace {
     bool global = false,
     int timeoutSeconds = 60,
   }) async {
-    final result = await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+    final result = await _adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         const config = context.vscode.workspace.getConfiguration(params.section);
         await config.update(
           params.key,
@@ -234,13 +280,16 @@ class VSCodeWorkspace {
         );
         return true;
       ''',
-      'params': {
-        'section': section,
-        'key': key,
-        'value': value,
-        'global': global,
+        'params': {
+          'section': section,
+          'key': key,
+          'value': value,
+          'global': global,
+        },
       },
-    }, scriptName: 'updateConfiguration', timeout: Duration(seconds: timeoutSeconds));
+      scriptName: 'updateConfiguration',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
 
     return result['success'] == true;
   }

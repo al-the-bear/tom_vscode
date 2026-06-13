@@ -12,17 +12,17 @@ import 'vscode_chat.dart';
 
 /// Main VS Code API wrapper class
 /// Provides unified access to all VS Code APIs through Dart
-/// 
+///
 /// Usage:
 /// ```dart
 /// final vscode = VSCode(adapter);
-/// 
+///
 /// // Show message
 /// await vscode.window.showInformationMessage('Hello from Dart!');
-/// 
+///
 /// // Get workspace folders
 /// final folders = await vscode.workspace.getWorkspaceFolders();
-/// 
+///
 /// // Execute command
 /// await vscode.commands.executeCommand('workbench.action.files.save');
 /// ```
@@ -40,7 +40,9 @@ class VSCode {
   /// Get the adapter instance (for advanced use cases)
   VSCodeAdapter get adapter {
     if (_adapter == null) {
-      throw StateError('VSCode not initialized. Call VSCode.initialize() first.');
+      throw StateError(
+        'VSCode not initialized. Call VSCode.initialize() first.',
+      );
     }
     return _adapter!;
   }
@@ -59,7 +61,9 @@ class VSCode {
   /// Throws if not initialized
   static VSCode get instance {
     if (_vsCode == null) {
-      throw StateError('VSCode not initialized. Call VSCode.initialize() first.');
+      throw StateError(
+        'VSCode not initialized. Call VSCode.initialize() first.',
+      );
     }
     return _vsCode!;
   }
@@ -75,12 +79,17 @@ class VSCode {
 
   /// Get VS Code version
   Future<String> getVersion({int timeoutSeconds = 10}) async {
-    final result = await adapter.sendRequest('executeScriptVce', {
-      'script': '''
+    final result = await adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         return context.vscode.version;
       ''',
-      'params': {},
-    }, scriptName: 'getVersion', timeout: Duration(seconds: timeoutSeconds));
+        'params': {},
+      },
+      scriptName: 'getVersion',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
 
     if (result['success'] == true) {
       return result['result'] ?? 'unknown';
@@ -90,8 +99,10 @@ class VSCode {
 
   /// Get environment information
   Future<Map<String, dynamic>> getEnv({int timeoutSeconds = 10}) async {
-    final result = await adapter.sendRequest('executeScriptVce', {
-      'script': '''
+    final result = await adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         return {
           appName: context.vscode.env.appName,
           appRoot: context.vscode.env.appRoot,
@@ -103,8 +114,11 @@ class VSCode {
           uiKind: context.vscode.env.uiKind
         };
       ''',
-      'params': {},
-    }, scriptName: 'getEnv', timeout: Duration(seconds: timeoutSeconds));
+        'params': {},
+      },
+      scriptName: 'getEnv',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
 
     if (result['success'] == true) {
       return result['result'] ?? {};
@@ -114,36 +128,51 @@ class VSCode {
 
   /// Open external URI (like browser)
   Future<bool> openExternal(String uri, {int timeoutSeconds = 30}) async {
-    final result = await adapter.sendRequest('executeScriptVce', {
-      'script': '''
+    final result = await adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         const uri = context.vscode.Uri.parse(params.uri);
         const success = await context.vscode.env.openExternal(uri);
         return success;
       ''',
-      'params': {'uri': uri},
-    }, scriptName: 'openExternal', timeout: Duration(seconds: timeoutSeconds));
+        'params': {'uri': uri},
+      },
+      scriptName: 'openExternal',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
 
     return result['success'] == true && result['result'] == true;
   }
 
   /// Copy to clipboard
   Future<void> copyToClipboard(String text, {int timeoutSeconds = 10}) async {
-    await adapter.sendRequest('executeScriptVce', {
-      'script': '''
+    await adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         await context.vscode.env.clipboard.writeText(params.text);
       ''',
-      'params': {'text': text},
-    }, scriptName: 'copyToClipboard', timeout: Duration(seconds: timeoutSeconds));
+        'params': {'text': text},
+      },
+      scriptName: 'copyToClipboard',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
   }
 
   /// Read from clipboard
   Future<String> readFromClipboard({int timeoutSeconds = 10}) async {
-    final result = await adapter.sendRequest('executeScriptVce', {
-      'script': '''
+    final result = await adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         return await context.vscode.env.clipboard.readText();
       ''',
-      'params': {},
-    }, scriptName: 'readFromClipboard', timeout: Duration(seconds: timeoutSeconds));
+        'params': {},
+      },
+      scriptName: 'readFromClipboard',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
 
     if (result['success'] == true) {
       return result['result'] ?? '';

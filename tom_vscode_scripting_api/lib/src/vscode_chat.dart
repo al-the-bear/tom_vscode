@@ -1,5 +1,5 @@
 /// VS Code Chat API
-/// 
+///
 /// Wrapper for the vscode.chat namespace for creating chat participants
 library;
 
@@ -8,11 +8,12 @@ import 'dart:convert';
 import 'vscode_adapter.dart';
 
 /// Chat request handler callback
-typedef ChatRequestHandler = Future<ChatResult?> Function(
-  ChatRequest request,
-  ChatContext context,
-  ChatResponseStream stream,
-);
+typedef ChatRequestHandler =
+    Future<ChatResult?> Function(
+      ChatRequest request,
+      ChatContext context,
+      ChatResponseStream stream,
+    );
 
 /// Chat API - Create and manage chat participants
 class VSCodeChat {
@@ -30,17 +31,22 @@ class VSCodeChat {
   }
 
   /// Internal method to handle chat requests - should be called from bridge_server.dart
-  static Future<Map<String, dynamic>?> handleChatRequest(Map<String, dynamic> params) async {
+  static Future<Map<String, dynamic>?> handleChatRequest(
+    Map<String, dynamic> params,
+  ) async {
     final participantId = params['participantId'] as String;
     final handler = _handlers[participantId];
-    
+
     if (handler == null) {
       throw Exception('No handler registered for participant: $participantId');
     }
 
     final request = ChatRequest.fromJson(params['request']);
     final context = ChatContext.fromJson(params['context']);
-    final stream = ChatResponseStream(params['bridge'] as VSCodeAdapter, params['streamId'] as String);
+    final stream = ChatResponseStream(
+      params['bridge'] as VSCodeAdapter,
+      params['streamId'] as String,
+    );
 
     try {
       final result = await handler(request, context, stream);
@@ -52,7 +58,7 @@ class VSCodeChat {
   }
 
   /// Create a chat participant with a request handler
-  /// 
+  ///
   /// Example:
   /// ```dart
   /// final participant = await chat.createChatParticipant(
@@ -73,8 +79,11 @@ class VSCodeChat {
     // Store the handler
     _registerHandler(id, handler);
 
-    final result = await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+    final result = await _adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script':
+            '''
       // Create a map to track active chat streams
       if (typeof chatStreams === 'undefined') {
         globalThis.chatStreams = new Map();
@@ -110,16 +119,19 @@ class VSCodeChat {
         }
       });
 
-      ${description != null ? "participant.description = '${description.replaceAll("'", "\\'")}';": ''}
-      ${fullName != null ? "participant.fullName = '${fullName.replaceAll("'", "\\'")}';": ''}
+      ${description != null ? "participant.description = '${description.replaceAll("'", "\\'")}';" : ''}
+      ${fullName != null ? "participant.fullName = '${fullName.replaceAll("'", "\\'")}';" : ''}
 
       return {
         id: participant.id,
         description: participant.description,
         fullName: participant.fullName
       };
-    '''
-    }, scriptName: 'createChatParticipant', timeout: Duration(seconds: timeoutSeconds));
+    ''',
+      },
+      scriptName: 'createChatParticipant',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
 
     return ChatParticipant.fromJson(result);
   }
@@ -131,11 +143,7 @@ class ChatParticipant {
   final String? description;
   final String? fullName;
 
-  ChatParticipant({
-    required this.id,
-    this.description,
-    this.fullName,
-  });
+  ChatParticipant({required this.id, this.description, this.fullName});
 
   factory ChatParticipant.fromJson(Map<String, dynamic> json) {
     return ChatParticipant(
@@ -170,7 +178,8 @@ class ChatRequest {
     return ChatRequest(
       prompt: json['prompt'] as String,
       command: json['command'] as String? ?? '',
-      references: (json['references'] as List<dynamic>?)
+      references:
+          (json['references'] as List<dynamic>?)
               ?.map((r) => ChatPromptReference.fromJson(r))
               .toList() ??
           [],
@@ -222,15 +231,11 @@ class ChatContext {
   ChatContext({required this.history});
 
   factory ChatContext.fromJson(Map<String, dynamic> json) {
-    return ChatContext(
-      history: json['history'] as List<dynamic>? ?? [],
-    );
+    return ChatContext(history: json['history'] as List<dynamic>? ?? []);
   }
 
   Map<String, dynamic> toJson() {
-    return {
-      'history': history,
-    };
+    return {'history': history};
   }
 }
 
@@ -274,34 +279,45 @@ class ChatResponseStream {
   /// Send markdown text to the stream
   Future<void> markdown(String text) async {
     await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+      'script':
+          '''
         const stream = chatStreams.get('$_streamId');
         if (stream) {
           stream.markdown('${text.replaceAll("'", "\\'")}');
         }
-      '''
+      ''',
     }, scriptName: 'ChatResponseStream.markdown');
   }
 
   /// Send an anchor (link) to the stream
   Future<void> anchor(String uri, {String? title}) async {
-    final titleParam = title != null ? "'${title.replaceAll("'", "\\'")}'" : 'undefined';
+    final titleParam = title != null
+        ? "'${title.replaceAll("'", "\\'")}'"
+        : 'undefined';
     await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+      'script':
+          '''
         const stream = chatStreams.get('$_streamId');
         if (stream) {
           stream.anchor(vscode.Uri.parse('${uri.replaceAll("'", "\\'")}'), $titleParam);
         }
-      '''
+      ''',
     }, scriptName: 'ChatResponseStream.anchor');
   }
 
   /// Send a button to the stream
-  Future<void> button(String command, {String? title, List<dynamic>? arguments}) async {
-    final titleParam = title != null ? "'${title.replaceAll("'", "\\'")}'" : 'undefined';
+  Future<void> button(
+    String command, {
+    String? title,
+    List<dynamic>? arguments,
+  }) async {
+    final titleParam = title != null
+        ? "'${title.replaceAll("'", "\\'")}'"
+        : 'undefined';
     final argsParam = arguments != null ? jsonEncode(arguments) : '[]';
     await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+      'script':
+          '''
         const stream = chatStreams.get('$_streamId');
         if (stream) {
           stream.button({
@@ -310,59 +326,67 @@ class ChatResponseStream {
             arguments: $argsParam
           });
         }
-      '''
+      ''',
     }, scriptName: 'ChatResponseStream.button');
   }
 
   /// Send a file tree to the stream
   Future<void> filetree(List<String> files, {String? baseUri}) async {
     final filesJson = jsonEncode(files);
-    final baseUriParam = baseUri != null ? "vscode.Uri.parse('${baseUri.replaceAll("'", "\\'")}')," : '';
+    final baseUriParam = baseUri != null
+        ? "vscode.Uri.parse('${baseUri.replaceAll("'", "\\'")}'),"
+        : '';
     await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+      'script':
+          '''
         const stream = chatStreams.get('$_streamId');
         if (stream) {
           const files = $filesJson.map(f => vscode.Uri.file(f));
           stream.filetree(files, $baseUriParam);
         }
-      '''
+      ''',
     }, scriptName: 'ChatResponseStream.filetree');
   }
 
   /// Send progress to the stream
   Future<void> progress(String value) async {
     await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+      'script':
+          '''
         const stream = chatStreams.get('$_streamId');
         if (stream) {
           stream.progress('${value.replaceAll("'", "\\'")}');
         }
-      '''
+      ''',
     }, scriptName: 'ChatResponseStream.progress');
   }
 
   /// Push a reference to the stream
   Future<void> reference(String uri, {String? title}) async {
-    final titleParam = title != null ? "'${title.replaceAll("'", "\\'")}'" : 'undefined';
+    final titleParam = title != null
+        ? "'${title.replaceAll("'", "\\'")}'"
+        : 'undefined';
     await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+      'script':
+          '''
         const stream = chatStreams.get('$_streamId');
         if (stream) {
           stream.reference(vscode.Uri.parse('${uri.replaceAll("'", "\\'")}'), $titleParam);
         }
-      '''
+      ''',
     }, scriptName: 'ChatResponseStream.reference');
   }
 
   /// Push an error to the stream
   Future<void> error(String message) async {
     await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+      'script':
+          '''
         const stream = chatStreams.get('$_streamId');
         if (stream) {
           stream.error(new Error('${message.replaceAll("'", "\\'")}'));
         }
-      '''
+      ''',
     }, scriptName: 'ChatResponseStream.error');
   }
 }

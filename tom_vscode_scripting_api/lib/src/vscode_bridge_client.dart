@@ -122,7 +122,7 @@ class VSCodeBridgeResult {
 class VSCodeBridgeClient {
   /// The host to connect to.
   final String host;
-  
+
   /// The port to connect to.
   final int port;
 
@@ -150,7 +150,7 @@ class VSCodeBridgeClient {
   Stream<Map<String, dynamic>> get notifications => _notifications.stream;
 
   /// Creates a VS Code bridge client.
-  /// 
+  ///
   /// [host] - The host to connect to (default: '127.0.0.1').
   /// [port] - The port to connect to (default: 19900).
   VSCodeBridgeClient({
@@ -170,11 +170,7 @@ class VSCodeBridgeClient {
     if (isConnected) return true;
 
     try {
-      _socket = await Socket.connect(
-        host,
-        port,
-        timeout: connectTimeout,
-      );
+      _socket = await Socket.connect(host, port, timeout: connectTimeout);
 
       _socket!.listen(
         _onData,
@@ -204,7 +200,7 @@ class VSCodeBridgeClient {
   /// Checks if the VS Code bridge is available.
   ///
   /// Attempts a quick connection and immediately disconnects.
-  /// 
+  ///
   /// [host] - The host to check (default: '127.0.0.1').
   /// [port] - The port to check (default: 19900).
   static Future<bool> isAvailable({
@@ -310,7 +306,9 @@ class VSCodeBridgeClient {
       } else {
         // Failure: include logs and stack trace for debugging
         final logs = response['logs'];
-        final output = logs is List ? logs.join('\n') : (logs?.toString() ?? '');
+        final output = logs is List
+            ? logs.join('\n')
+            : (logs?.toString() ?? '');
         return VSCodeBridgeResult.failure(
           error: response['error']?.toString() ?? 'Unknown error',
           stackTrace: response['stackTrace']?.toString(),
@@ -394,7 +392,9 @@ class VSCodeBridgeClient {
       } else {
         // Failure: include stack trace and logs for debugging
         final logs = response['logs'];
-        final output = logs is List ? logs.join('\n') : (logs?.toString() ?? '');
+        final output = logs is List
+            ? logs.join('\n')
+            : (logs?.toString() ?? '');
         return VSCodeBridgeResult.failure(
           error: response['error']?.toString() ?? 'Unknown error',
           stackTrace: response['stackTrace']?.toString(),
@@ -477,20 +477,14 @@ class VSCodeBridgeClient {
     if (_pendingRequests.containsKey(id)) {
       final completer = _pendingRequests.remove(id)!;
       if (response.containsKey('error')) {
-        completer.complete({
-          'success': false,
-          'error': response['error'],
-        });
+        completer.complete({'success': false, 'error': response['error']});
       } else {
         final result = response['result'];
         // Handle both direct result and wrapped result (from executeScript)
         if (result is Map<String, dynamic>) {
           completer.complete(result);
         } else {
-          completer.complete({
-            'success': true,
-            'result': result,
-          });
+          completer.complete({'success': true, 'result': result});
         }
       }
     }

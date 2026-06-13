@@ -131,9 +131,9 @@ class PermissionRuleValue {
 
   /// Serializes to wire JSON.
   Map<String, dynamic> toJson() => {
-        'toolName': toolName,
-        if (ruleContent != null) 'ruleContent': ruleContent,
-      };
+    'toolName': toolName,
+    if (ruleContent != null) 'ruleContent': ruleContent,
+  };
 }
 
 /// A permission-rule mutation. Mirrors `PermissionUpdate` (six variants).
@@ -148,8 +148,9 @@ sealed class PermissionUpdate {
 
   /// Parses [json] into the matching [PermissionUpdate] variant.
   factory PermissionUpdate.fromJson(Map<String, dynamic> json) {
-    final destination =
-        PermissionUpdateDestination.fromWire(json['destination'] as String);
+    final destination = PermissionUpdateDestination.fromWire(
+      json['destination'] as String,
+    );
     switch (json['type']) {
       case 'addRules':
         return PermissionUpdateRules._('addRules', json, destination);
@@ -164,10 +165,16 @@ sealed class PermissionUpdate {
         );
       case 'addDirectories':
         return PermissionUpdateDirectories._(
-            'addDirectories', json, destination);
+          'addDirectories',
+          json,
+          destination,
+        );
       case 'removeDirectories':
         return PermissionUpdateDirectories._(
-            'removeDirectories', json, destination);
+          'removeDirectories',
+          json,
+          destination,
+        );
       default:
         throw ArgumentError('Unknown PermissionUpdate type: ${json['type']}');
     }
@@ -199,19 +206,19 @@ final class PermissionUpdateRules extends PermissionUpdate {
     this.type,
     Map<String, dynamic> json,
     this.destination,
-  )   : rules = ((json['rules'] as List?) ?? const [])
-            .whereType<Map>()
-            .map((m) => PermissionRuleValue.fromJson(m.cast<String, dynamic>()))
-            .toList(),
-        behavior = PermissionBehavior.fromWire(json['behavior'] as String);
+  ) : rules = ((json['rules'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((m) => PermissionRuleValue.fromJson(m.cast<String, dynamic>()))
+          .toList(),
+      behavior = PermissionBehavior.fromWire(json['behavior'] as String);
 
   @override
   Map<String, dynamic> toJson() => {
-        'type': type,
-        'rules': rules.map((r) => r.toJson()).toList(),
-        'behavior': behavior.wire,
-        'destination': destination.wire,
-      };
+    'type': type,
+    'rules': rules.map((r) => r.toJson()).toList(),
+    'behavior': behavior.wire,
+    'destination': destination.wire,
+  };
 }
 
 /// `setMode` update.
@@ -229,10 +236,10 @@ final class PermissionUpdateSetMode extends PermissionUpdate {
 
   @override
   Map<String, dynamic> toJson() => {
-        'type': type,
-        'mode': mode.wire,
-        'destination': destination.wire,
-      };
+    'type': type,
+    'mode': mode.wire,
+    'destination': destination.wire,
+  };
 }
 
 /// `addDirectories` / `removeDirectories` updates.
@@ -257,15 +264,15 @@ final class PermissionUpdateDirectories extends PermissionUpdate {
     Map<String, dynamic> json,
     this.destination,
   ) : directories = ((json['directories'] as List?) ?? const [])
-            .map((e) => e.toString())
-            .toList();
+          .map((e) => e.toString())
+          .toList();
 
   @override
   Map<String, dynamic> toJson() => {
-        'type': type,
-        'directories': directories,
-        'destination': destination.wire,
-      };
+    'type': type,
+    'directories': directories,
+    'destination': destination.wire,
+  };
 }
 
 /// The result returned by a [CanUseTool] callback. Mirrors `PermissionResult`
@@ -298,9 +305,11 @@ sealed class PermissionResult {
       updatedInput: (json['updatedInput'] as Map?)?.cast<String, dynamic>(),
       updatedPermissions: updatedPermissions is List
           ? updatedPermissions
-              .whereType<Map>()
-              .map((m) => PermissionUpdate.fromJson(m.cast<String, dynamic>()))
-              .toList()
+                .whereType<Map>()
+                .map(
+                  (m) => PermissionUpdate.fromJson(m.cast<String, dynamic>()),
+                )
+                .toList()
           : null,
       toolUseId: json['toolUseID'] as String?,
       decisionClassification: decision,
@@ -334,15 +343,14 @@ final class PermissionAllow extends PermissionResult {
 
   @override
   Map<String, dynamic> toJson() => {
-        'behavior': behavior,
-        if (updatedInput != null) 'updatedInput': updatedInput,
-        if (updatedPermissions != null)
-          'updatedPermissions':
-              updatedPermissions!.map((u) => u.toJson()).toList(),
-        if (toolUseId != null) 'toolUseID': toolUseId,
-        if (decisionClassification != null)
-          'decisionClassification': decisionClassification!.wire,
-      };
+    'behavior': behavior,
+    if (updatedInput != null) 'updatedInput': updatedInput,
+    if (updatedPermissions != null)
+      'updatedPermissions': updatedPermissions!.map((u) => u.toJson()).toList(),
+    if (toolUseId != null) 'toolUseID': toolUseId,
+    if (decisionClassification != null)
+      'decisionClassification': decisionClassification!.wire,
+  };
 }
 
 /// Deny result (`behavior: 'deny'`).
@@ -371,13 +379,13 @@ final class PermissionDeny extends PermissionResult {
 
   @override
   Map<String, dynamic> toJson() => {
-        'behavior': behavior,
-        'message': message,
-        if (interrupt != null) 'interrupt': interrupt,
-        if (toolUseId != null) 'toolUseID': toolUseId,
-        if (decisionClassification != null)
-          'decisionClassification': decisionClassification!.wire,
-      };
+    'behavior': behavior,
+    'message': message,
+    if (interrupt != null) 'interrupt': interrupt,
+    if (toolUseId != null) 'toolUseID': toolUseId,
+    if (decisionClassification != null)
+      'decisionClassification': decisionClassification!.wire,
+  };
 }
 
 /// Context passed to a [CanUseTool] callback. Mirrors the SDK's
@@ -406,8 +414,9 @@ class CanUseToolContext {
 ///
 /// Declared here as part of the 1:1 type surface; the reverse-RPC dispatch that
 /// invokes it mid-query is wired in todo #6.
-typedef CanUseTool = Future<PermissionResult> Function(
-  String toolName,
-  Map<String, dynamic> input,
-  CanUseToolContext context,
-);
+typedef CanUseTool =
+    Future<PermissionResult> Function(
+      String toolName,
+      Map<String, dynamic> input,
+      CanUseToolContext context,
+    );

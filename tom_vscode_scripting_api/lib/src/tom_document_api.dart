@@ -269,11 +269,11 @@ abstract class TomDocumentApi {
   }) async {
     final result = await _requireAdapter.sendRequest('doc.listVce', {
       'folder': folder.value,
-      if (subfolder != null) 'subfolder': subfolder,
-      if (pattern != null) 'pattern': pattern,
+      'subfolder': ?subfolder,
+      'pattern': ?pattern,
       'recursive': recursive,
     });
-    return DocumentListResult.fromJson(result as Map<String, dynamic>);
+    return DocumentListResult.fromJson(result);
   }
 
   /// Read a document's content.
@@ -281,7 +281,7 @@ abstract class TomDocumentApi {
     final result = await _requireAdapter.sendRequest('doc.readVce', {
       'path': path,
     });
-    return DocumentContent.fromJson(result as Map<String, dynamic>);
+    return DocumentContent.fromJson(result);
   }
 
   /// Write content to a document.
@@ -290,7 +290,7 @@ abstract class TomDocumentApi {
       'path': path,
       'content': content,
     });
-    return (result as Map<String, dynamic>)['success'] as bool? ?? false;
+    return (result)['success'] as bool? ?? false;
   }
 
   /// Delete a document.
@@ -298,7 +298,7 @@ abstract class TomDocumentApi {
     final result = await _requireAdapter.sendRequest('doc.deleteVce', {
       'path': path,
     });
-    return (result as Map<String, dynamic>)['success'] as bool? ?? false;
+    return (result)['success'] as bool? ?? false;
   }
 
   /// Check if a document exists.
@@ -306,7 +306,7 @@ abstract class TomDocumentApi {
     final result = await _requireAdapter.sendRequest('doc.existsVce', {
       'path': path,
     });
-    return (result as Map<String, dynamic>)['exists'] as bool? ?? false;
+    return (result)['exists'] as bool? ?? false;
   }
 
   // --------------------------------------------------------------------------
@@ -316,9 +316,9 @@ abstract class TomDocumentApi {
   /// List prompt files.
   static Future<DocumentListResult> listPrompts({String? pattern}) async {
     final result = await _requireAdapter.sendRequest('doc.listPromptsVce', {
-      if (pattern != null) 'pattern': pattern,
+      'pattern': ?pattern,
     });
-    return DocumentListResult.fromJson(result as Map<String, dynamic>);
+    return DocumentListResult.fromJson(result);
   }
 
   /// Read a prompt file.
@@ -326,16 +326,16 @@ abstract class TomDocumentApi {
     final result = await _requireAdapter.sendRequest('doc.readPromptVce', {
       'filename': filename,
     });
-    return DocumentContent.fromJson(result as Map<String, dynamic>);
+    return DocumentContent.fromJson(result);
   }
 
   /// Create a new prompt file.
   static Future<String> createPrompt(String content, {String? filename}) async {
     final result = await _requireAdapter.sendRequest('doc.createPromptVce', {
       'content': content,
-      if (filename != null) 'filename': filename,
+      'filename': ?filename,
     });
-    return (result as Map<String, dynamic>)['path'] as String? ?? '';
+    return (result)['path'] as String? ?? '';
   }
 
   // --------------------------------------------------------------------------
@@ -348,10 +348,10 @@ abstract class TomDocumentApi {
     String? pattern,
   }) async {
     final result = await _requireAdapter.sendRequest('doc.listAnswersVce', {
-      if (subfolder != null) 'subfolder': subfolder,
-      if (pattern != null) 'pattern': pattern,
+      'subfolder': ?subfolder,
+      'pattern': ?pattern,
     });
-    return DocumentListResult.fromJson(result as Map<String, dynamic>);
+    return DocumentListResult.fromJson(result);
   }
 
   /// Read an answer file.
@@ -359,7 +359,7 @@ abstract class TomDocumentApi {
     final result = await _requireAdapter.sendRequest('doc.readAnswerVce', {
       'path': path,
     });
-    return DocumentContent.fromJson(result as Map<String, dynamic>);
+    return DocumentContent.fromJson(result);
   }
 
   // --------------------------------------------------------------------------
@@ -373,11 +373,11 @@ abstract class TomDocumentApi {
     String? since,
   }) async {
     final result = await _requireAdapter.sendRequest('doc.listTrailVce', {
-      if (questId != null) 'questId': questId,
-      if (limit != null) 'limit': limit,
-      if (since != null) 'since': since,
+      'questId': ?questId,
+      'limit': ?limit,
+      'since': ?since,
     });
-    return TrailListResult.fromJson(result as Map<String, dynamic>);
+    return TrailListResult.fromJson(result);
   }
 
   /// Get a specific trail entry by ID.
@@ -385,8 +385,7 @@ abstract class TomDocumentApi {
     final result = await _requireAdapter.sendRequest('doc.getTrailEntryVce', {
       'entryId': entryId,
     });
-    if (result == null) return null;
-    return TrailEntry.fromJson(result as Map<String, dynamic>);
+    return TrailEntry.fromJson(result);
   }
 
   /// Find trail entry by request ID.
@@ -395,8 +394,7 @@ abstract class TomDocumentApi {
       'doc.findTrailByRequestIdVce',
       {'requestId': requestId},
     );
-    if (result == null) return null;
-    return TrailEntry.fromJson(result as Map<String, dynamic>);
+    return TrailEntry.fromJson(result);
   }
 
   // --------------------------------------------------------------------------
@@ -406,9 +404,9 @@ abstract class TomDocumentApi {
   /// List all guidelines.
   static Future<GuidelineListResult> listGuidelines({String? category}) async {
     final result = await _requireAdapter.sendRequest('doc.listGuidelinesVce', {
-      if (category != null) 'category': category,
+      'category': ?category,
     });
-    return GuidelineListResult.fromJson(result as Map<String, dynamic>);
+    return GuidelineListResult.fromJson(result);
   }
 
   /// Read a guideline document.
@@ -416,7 +414,7 @@ abstract class TomDocumentApi {
     final result = await _requireAdapter.sendRequest('doc.readGuidelineVce', {
       'name': name,
     });
-    return DocumentContent.fromJson(result as Map<String, dynamic>);
+    return DocumentContent.fromJson(result);
   }
 
   // --------------------------------------------------------------------------
@@ -426,9 +424,9 @@ abstract class TomDocumentApi {
   /// List note files.
   static Future<DocumentListResult> listNotes({String? pattern}) async {
     final result = await _requireAdapter.sendRequest('doc.listNotesVce', {
-      if (pattern != null) 'pattern': pattern,
+      'pattern': ?pattern,
     });
-    return DocumentListResult.fromJson(result as Map<String, dynamic>);
+    return DocumentListResult.fromJson(result);
   }
 
   /// Read a note file.
@@ -436,7 +434,7 @@ abstract class TomDocumentApi {
     final result = await _requireAdapter.sendRequest('doc.readNoteVce', {
       'filename': filename,
     });
-    return DocumentContent.fromJson(result as Map<String, dynamic>);
+    return DocumentContent.fromJson(result);
   }
 
   /// Write a note file.
@@ -445,7 +443,7 @@ abstract class TomDocumentApi {
       'filename': filename,
       'content': content,
     });
-    return (result as Map<String, dynamic>)['success'] as bool? ?? false;
+    return (result)['success'] as bool? ?? false;
   }
 
   // --------------------------------------------------------------------------
@@ -459,9 +457,9 @@ abstract class TomDocumentApi {
   }) async {
     final result = await _requireAdapter.sendRequest('doc.listQuestDocsVce', {
       'questId': questId,
-      if (pattern != null) 'pattern': pattern,
+      'pattern': ?pattern,
     });
-    return DocumentListResult.fromJson(result as Map<String, dynamic>);
+    return DocumentListResult.fromJson(result);
   }
 
   /// Read a quest document.
@@ -473,7 +471,7 @@ abstract class TomDocumentApi {
       'questId': questId,
       'filename': filename,
     });
-    return DocumentContent.fromJson(result as Map<String, dynamic>);
+    return DocumentContent.fromJson(result);
   }
 
   /// Write a quest document.
@@ -487,6 +485,6 @@ abstract class TomDocumentApi {
       'filename': filename,
       'content': content,
     });
-    return (result as Map<String, dynamic>)['success'] as bool? ?? false;
+    return (result)['success'] as bool? ?? false;
   }
 }

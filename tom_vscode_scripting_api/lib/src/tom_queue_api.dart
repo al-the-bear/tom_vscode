@@ -328,9 +328,9 @@ abstract class TomQueueApi {
   }) async {
     final result = await _requireAdapter.sendRequest('queue.listVce', {
       'includeSent': includeSent,
-      if (limit != null) 'limit': limit,
+      'limit': ?limit,
     });
-    return QueueListResult.fromJson(result as Map<String, dynamic>);
+    return QueueListResult.fromJson(result);
   }
 
   /// Get a specific queue item by ID.
@@ -338,8 +338,7 @@ abstract class TomQueueApi {
     final result = await _requireAdapter.sendRequest('queue.getVce', {
       'itemId': itemId,
     });
-    if (result == null) return null;
-    return QueuedPrompt.fromJson(result as Map<String, dynamic>);
+    return QueuedPrompt.fromJson(result);
   }
 
   // --------------------------------------------------------------------------
@@ -351,7 +350,7 @@ abstract class TomQueueApi {
     final result = await _requireAdapter.sendRequest('queue.addVce', {
       ...input.toJson(),
     });
-    return QueuedPrompt.fromJson(result as Map<String, dynamic>);
+    return QueuedPrompt.fromJson(result);
   }
 
   /// Remove a prompt from the queue.
@@ -359,7 +358,7 @@ abstract class TomQueueApi {
     final result = await _requireAdapter.sendRequest('queue.removeVce', {
       'itemId': itemId,
     });
-    return (result as Map<String, dynamic>)['success'] as bool? ?? false;
+    return (result)['success'] as bool? ?? false;
   }
 
   /// Clear all pending items from the queue.
@@ -368,13 +367,13 @@ abstract class TomQueueApi {
       'queue.clearPendingVce',
       {},
     );
-    return (result as Map<String, dynamic>)['removedCount'] as int? ?? 0;
+    return (result)['removedCount'] as int? ?? 0;
   }
 
   /// Clear all sent items from the queue history.
   static Future<int> clearSent() async {
     final result = await _requireAdapter.sendRequest('queue.clearSentVce', {});
-    return (result as Map<String, dynamic>)['removedCount'] as int? ?? 0;
+    return (result)['removedCount'] as int? ?? 0;
   }
 
   // --------------------------------------------------------------------------
@@ -390,7 +389,7 @@ abstract class TomQueueApi {
       'itemId': itemId,
       'status': status.value,
     });
-    return QueuedPrompt.fromJson(result as Map<String, dynamic>);
+    return QueuedPrompt.fromJson(result);
   }
 
   /// Update the prompt text of a queue item.
@@ -399,7 +398,7 @@ abstract class TomQueueApi {
       'itemId': itemId,
       'text': text,
     });
-    return QueuedPrompt.fromJson(result as Map<String, dynamic>);
+    return QueuedPrompt.fromJson(result);
   }
 
   /// Update reminder settings for a queue item.
@@ -413,12 +412,12 @@ abstract class TomQueueApi {
     final result = await _requireAdapter
         .sendRequest('queue.updateReminderVce', {
           'itemId': itemId,
-          if (enabled != null) 'enabled': enabled,
-          if (templateId != null) 'templateId': templateId,
-          if (timeoutMinutes != null) 'timeoutMinutes': timeoutMinutes,
-          if (repeat != null) 'repeat': repeat,
+          'enabled': ?enabled,
+          'templateId': ?templateId,
+          'timeoutMinutes': ?timeoutMinutes,
+          'repeat': ?repeat,
         });
-    return QueuedPrompt.fromJson(result as Map<String, dynamic>);
+    return QueuedPrompt.fromJson(result);
   }
 
   // --------------------------------------------------------------------------
@@ -431,7 +430,7 @@ abstract class TomQueueApi {
       'itemId': itemId,
       'newIndex': newIndex,
     });
-    return (result as Map<String, dynamic>)['success'] as bool? ?? false;
+    return (result)['success'] as bool? ?? false;
   }
 
   /// Move an item up one position.
@@ -439,7 +438,7 @@ abstract class TomQueueApi {
     final result = await _requireAdapter.sendRequest('queue.moveUpVce', {
       'itemId': itemId,
     });
-    return (result as Map<String, dynamic>)['success'] as bool? ?? false;
+    return (result)['success'] as bool? ?? false;
   }
 
   /// Move an item down one position.
@@ -447,7 +446,7 @@ abstract class TomQueueApi {
     final result = await _requireAdapter.sendRequest('queue.moveDownVce', {
       'itemId': itemId,
     });
-    return (result as Map<String, dynamic>)['success'] as bool? ?? false;
+    return (result)['success'] as bool? ?? false;
   }
 
   // --------------------------------------------------------------------------
@@ -463,7 +462,7 @@ abstract class TomQueueApi {
       'itemId': itemId,
       ...input.toJson(),
     });
-    return QueuedFollowUp.fromJson(result as Map<String, dynamic>);
+    return QueuedFollowUp.fromJson(result);
   }
 
   /// Remove a follow-up prompt from a queue item.
@@ -472,7 +471,7 @@ abstract class TomQueueApi {
       'queue.removeFollowUpVce',
       {'itemId': itemId, 'followUpId': followUpId},
     );
-    return (result as Map<String, dynamic>)['success'] as bool? ?? false;
+    return (result)['success'] as bool? ?? false;
   }
 
   /// Update a follow-up prompt.
@@ -490,16 +489,14 @@ abstract class TomQueueApi {
         .sendRequest('queue.updateFollowUpVce', {
           'itemId': itemId,
           'followUpId': followUpId,
-          if (text != null) 'text': text,
-          if (template != null) 'template': template,
-          if (reminderEnabled != null) 'reminderEnabled': reminderEnabled,
-          if (reminderTemplateId != null)
-            'reminderTemplateId': reminderTemplateId,
-          if (reminderTimeoutMinutes != null)
-            'reminderTimeoutMinutes': reminderTimeoutMinutes,
-          if (reminderRepeat != null) 'reminderRepeat': reminderRepeat,
+          'text': ?text,
+          'template': ?template,
+          'reminderEnabled': ?reminderEnabled,
+          'reminderTemplateId': ?reminderTemplateId,
+          'reminderTimeoutMinutes': ?reminderTimeoutMinutes,
+          'reminderRepeat': ?reminderRepeat,
         });
-    return QueuedFollowUp.fromJson(result as Map<String, dynamic>);
+    return QueuedFollowUp.fromJson(result);
   }
 
   // --------------------------------------------------------------------------
@@ -509,7 +506,7 @@ abstract class TomQueueApi {
   /// Trigger sending the next pending prompt to Copilot.
   static Future<bool> sendNext() async {
     final result = await _requireAdapter.sendRequest('queue.sendNextVce', {});
-    return (result as Map<String, dynamic>)['sent'] as bool? ?? false;
+    return (result)['sent'] as bool? ?? false;
   }
 
   /// Pause automatic queue processing.
@@ -525,6 +522,6 @@ abstract class TomQueueApi {
   /// Get current queue processing status.
   static Future<bool> isPaused() async {
     final result = await _requireAdapter.sendRequest('queue.isPausedVce', {});
-    return (result as Map<String, dynamic>)['paused'] as bool? ?? false;
+    return (result)['paused'] as bool? ?? false;
   }
 }

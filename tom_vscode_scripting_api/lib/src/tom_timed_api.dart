@@ -250,7 +250,7 @@ abstract class TomTimedApi {
   /// List all timed request entries.
   static Future<TimedRequestListResult> list() async {
     final result = await _requireAdapter.sendRequest('timed.listVce', {});
-    return TimedRequestListResult.fromJson(result as Map<String, dynamic>);
+    return TimedRequestListResult.fromJson(result);
   }
 
   /// Get a specific timed request entry by ID.
@@ -258,8 +258,7 @@ abstract class TomTimedApi {
     final result = await _requireAdapter.sendRequest('timed.getVce', {
       'entryId': entryId,
     });
-    if (result == null) return null;
-    return TimedRequest.fromJson(result as Map<String, dynamic>);
+    return TimedRequest.fromJson(result);
   }
 
   // --------------------------------------------------------------------------
@@ -271,7 +270,7 @@ abstract class TomTimedApi {
     final result = await _requireAdapter.sendRequest('timed.createVce', {
       ...input.toJson(),
     });
-    return TimedRequest.fromJson(result as Map<String, dynamic>);
+    return TimedRequest.fromJson(result);
   }
 
   /// Update an existing timed request entry.
@@ -291,21 +290,20 @@ abstract class TomTimedApi {
   }) async {
     final result = await _requireAdapter.sendRequest('timed.updateVce', {
       'entryId': entryId,
-      if (promptText != null) 'promptText': promptText,
-      if (template != null) 'template': template,
-      if (answerWrapper != null) 'answerWrapper': answerWrapper,
+      'promptText': ?promptText,
+      'template': ?template,
+      'answerWrapper': ?answerWrapper,
       if (scheduleMode != null) 'scheduleMode': scheduleMode.value,
-      if (intervalMinutes != null) 'intervalMinutes': intervalMinutes,
+      'intervalMinutes': ?intervalMinutes,
       if (scheduledTimes != null)
         'scheduledTimes': scheduledTimes.map((t) => t.toJson()).toList(),
-      if (reminderEnabled != null) 'reminderEnabled': reminderEnabled,
-      if (reminderTemplateId != null) 'reminderTemplateId': reminderTemplateId,
-      if (reminderTimeoutMinutes != null)
-        'reminderTimeoutMinutes': reminderTimeoutMinutes,
-      if (reminderRepeat != null) 'reminderRepeat': reminderRepeat,
+      'reminderEnabled': ?reminderEnabled,
+      'reminderTemplateId': ?reminderTemplateId,
+      'reminderTimeoutMinutes': ?reminderTimeoutMinutes,
+      'reminderRepeat': ?reminderRepeat,
       if (status != null) 'status': status.value,
     });
-    return TimedRequest.fromJson(result as Map<String, dynamic>);
+    return TimedRequest.fromJson(result);
   }
 
   /// Delete a timed request entry.
@@ -313,7 +311,7 @@ abstract class TomTimedApi {
     final result = await _requireAdapter.sendRequest('timed.deleteVce', {
       'entryId': entryId,
     });
-    return (result as Map<String, dynamic>)['success'] as bool? ?? false;
+    return (result)['success'] as bool? ?? false;
   }
 
   // --------------------------------------------------------------------------
@@ -325,7 +323,7 @@ abstract class TomTimedApi {
     final result = await _requireAdapter.sendRequest('timed.enableVce', {
       'entryId': entryId,
     });
-    return TimedRequest.fromJson(result as Map<String, dynamic>);
+    return TimedRequest.fromJson(result);
   }
 
   /// Disable a timed request entry.
@@ -333,7 +331,7 @@ abstract class TomTimedApi {
     final result = await _requireAdapter.sendRequest('timed.disableVce', {
       'entryId': entryId,
     });
-    return TimedRequest.fromJson(result as Map<String, dynamic>);
+    return TimedRequest.fromJson(result);
   }
 
   // --------------------------------------------------------------------------
@@ -346,7 +344,7 @@ abstract class TomTimedApi {
       'timed.isActivatedVce',
       {},
     );
-    return (result as Map<String, dynamic>)['activated'] as bool? ?? true;
+    return (result)['activated'] as bool? ?? true;
   }
 
   /// Activate the timer engine.
@@ -365,6 +363,6 @@ abstract class TomTimedApi {
       'timed.triggerCheckVce',
       {},
     );
-    return (result as Map<String, dynamic>)['processedCount'] as int? ?? 0;
+    return (result)['processedCount'] as int? ?? 0;
   }
 }

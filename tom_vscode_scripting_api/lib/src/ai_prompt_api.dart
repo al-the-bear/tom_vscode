@@ -57,11 +57,11 @@ class AiTokenStats {
   }
 
   Map<String, dynamic> toJson() => {
-        'promptTokens': promptTokens,
-        'completionTokens': completionTokens,
-        'totalDurationMs': totalDurationMs,
-        'loadDurationMs': loadDurationMs,
-      };
+    'promptTokens': promptTokens,
+    'completionTokens': completionTokens,
+    'totalDurationMs': totalDurationMs,
+    'loadDurationMs': loadDurationMs,
+  };
 
   @override
   String toString() =>
@@ -127,16 +127,16 @@ class AiPromptResult {
   }
 
   Map<String, dynamic> toJson() => {
-        'success': success,
-        'result': result,
-        'rawResponse': rawResponse,
-        'response': response,
-        'thinkTagContent': thinkTagContent,
-        'profile': profile,
-        'modelConfig': modelConfig,
-        if (error != null) 'error': error,
-        if (tokenInfo != null) 'tokenInfo': tokenInfo!.toJson(),
-      };
+    'success': success,
+    'result': result,
+    'rawResponse': rawResponse,
+    'response': response,
+    'thinkTagContent': thinkTagContent,
+    'profile': profile,
+    'modelConfig': modelConfig,
+    if (error != null) 'error': error,
+    if (tokenInfo != null) 'tokenInfo': tokenInfo!.toJson(),
+  };
 
   @override
   String toString() =>
@@ -191,17 +191,18 @@ class AiPromptProfile {
   }
 
   Map<String, dynamic> toJson() => {
-        'key': key,
-        'label': label,
-        'isDefault': isDefault,
-        if (systemPrompt != null) 'systemPrompt': systemPrompt,
-        if (resultTemplate != null) 'resultTemplate': resultTemplate,
-        if (temperature != null) 'temperature': temperature,
-        if (modelConfig != null) 'modelConfig': modelConfig,
-      };
+    'key': key,
+    'label': label,
+    'isDefault': isDefault,
+    if (systemPrompt != null) 'systemPrompt': systemPrompt,
+    if (resultTemplate != null) 'resultTemplate': resultTemplate,
+    if (temperature != null) 'temperature': temperature,
+    if (modelConfig != null) 'modelConfig': modelConfig,
+  };
 
   @override
-  String toString() => 'AiPromptProfile(key: $key, label: $label'
+  String toString() =>
+      'AiPromptProfile(key: $key, label: $label'
       '${isDefault ? ", default" : ""})';
 }
 
@@ -251,17 +252,18 @@ class AiModelConfig {
   }
 
   Map<String, dynamic> toJson() => {
-        'key': key,
-        'ollamaUrl': ollamaUrl,
-        'model': model,
-        'temperature': temperature,
-        'stripThinkingTags': stripThinkingTags,
-        if (description != null) 'description': description,
-        'isDefault': isDefault,
-      };
+    'key': key,
+    'ollamaUrl': ollamaUrl,
+    'model': model,
+    'temperature': temperature,
+    'stripThinkingTags': stripThinkingTags,
+    if (description != null) 'description': description,
+    'isDefault': isDefault,
+  };
 
   @override
-  String toString() => 'AiModelConfig(key: $key, model: $model'
+  String toString() =>
+      'AiModelConfig(key: $key, model: $model'
       '${isDefault ? ", default" : ""})';
 }
 
@@ -276,7 +278,8 @@ class AiModelsResult {
   AiModelsResult({required this.models, this.effectiveDefault});
 
   factory AiModelsResult.fromJson(Map<String, dynamic> json) {
-    final models = (json['models'] as List?)
+    final models =
+        (json['models'] as List?)
             ?.map((m) => AiModelConfig.fromJson(m as Map<String, dynamic>))
             .toList() ??
         [];
@@ -350,11 +353,7 @@ class AiPromptApi {
   }) async {
     final result = await _adapter.sendRequest(
       'localLlm.processVce',
-      {
-        'prompt': prompt,
-        'profile': ?profile,
-        'model': ?model,
-      },
+      {'prompt': prompt, 'profile': ?profile, 'model': ?model},
       scriptName: 'AiPromptApi.process',
       timeout: Duration(seconds: timeoutSeconds),
     );
@@ -380,8 +379,7 @@ class AiPromptApi {
     );
     final profiles = result['profiles'] as List?;
     return profiles
-            ?.map((p) =>
-                AiPromptProfile.fromJson(p as Map<String, dynamic>))
+            ?.map((p) => AiPromptProfile.fromJson(p as Map<String, dynamic>))
             .toList() ??
         [];
   }
@@ -435,9 +433,7 @@ class AiPromptApi {
   ///
   /// Returns an [AiModelsResult] containing the model list and the
   /// effective default model config.
-  static Future<AiModelsResult> getModels({
-    int timeoutSeconds = 30,
-  }) async {
+  static Future<AiModelsResult> getModels({int timeoutSeconds = 30}) async {
     final result = await _adapter.sendRequest(
       'localLlm.getModelsVce',
       {},

@@ -32,11 +32,7 @@ void main() {
         'toolName': 'Bash',
         'input': {'command': 'ls'},
         'suggestions': [
-          {
-            'type': 'setMode',
-            'mode': 'acceptEdits',
-            'destination': 'session',
-          },
+          {'type': 'setMode', 'mode': 'acceptEdits', 'destination': 'session'},
         ],
       });
 
@@ -51,8 +47,7 @@ void main() {
         String toolName,
         Map<String, dynamic> input,
         CanUseToolContext context,
-      ) async =>
-          PermissionAllow(updatedInput: {'command': 'ls -la'});
+      ) async => PermissionAllow(updatedInput: {'command': 'ls -la'});
 
       final json = await dispatchCanUseTool(callback, {
         'streamId': 's1',
@@ -71,8 +66,7 @@ void main() {
         String toolName,
         Map<String, dynamic> input,
         CanUseToolContext context,
-      ) async =>
-          PermissionDeny(message: 'not allowed');
+      ) async => PermissionDeny(message: 'not allowed');
 
       final json = await dispatchCanUseTool(callback, {
         'streamId': 's1',

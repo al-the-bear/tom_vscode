@@ -124,12 +124,12 @@ final class SystemPromptPreset extends SystemPrompt {
 
   @override
   Object toWire() => {
-        'type': 'preset',
-        'preset': 'claude_code',
-        if (append != null) 'append': append,
-        if (excludeDynamicSections != null)
-          'excludeDynamicSections': excludeDynamicSections,
-      };
+    'type': 'preset',
+    'preset': 'claude_code',
+    if (append != null) 'append': append,
+    if (excludeDynamicSections != null)
+      'excludeDynamicSections': excludeDynamicSections,
+  };
 }
 
 /// The tool selection. Mirrors `string[] | { type:'preset', preset:'claude_code' }`.
@@ -202,9 +202,9 @@ final class ThinkingAdaptive extends ThinkingConfig {
 
   @override
   Map<String, dynamic> toWire() => {
-        'type': 'adaptive',
-        if (display != null) 'display': display,
-      };
+    'type': 'adaptive',
+    if (display != null) 'display': display,
+  };
 }
 
 /// Fixed thinking budget (`type: 'enabled'`).
@@ -219,10 +219,10 @@ final class ThinkingEnabled extends ThinkingConfig {
 
   @override
   Map<String, dynamic> toWire() => {
-        'type': 'enabled',
-        if (budgetTokens != null) 'budgetTokens': budgetTokens,
-        if (display != null) 'display': display,
-      };
+    'type': 'enabled',
+    if (budgetTokens != null) 'budgetTokens': budgetTokens,
+    if (display != null) 'display': display,
+  };
 }
 
 /// No extended thinking (`type: 'disabled'`).
@@ -315,8 +315,8 @@ class OutputFormat {
 
   /// Parses from wire JSON.
   factory OutputFormat.fromJson(Map<String, dynamic> json) => OutputFormat(
-        schema: (json['schema'] as Map?)?.cast<String, dynamic>() ?? const {},
-      );
+    schema: (json['schema'] as Map?)?.cast<String, dynamic>() ?? const {},
+  );
 
   /// Serializes to wire JSON.
   Map<String, dynamic> toJson() => {'type': 'json_schema', 'schema': schema};
@@ -391,12 +391,12 @@ class AgentDefinition {
 
   /// Serializes to wire JSON.
   Map<String, dynamic> toJson() => {
-        'description': description,
-        'prompt': prompt,
-        if (tools != null) 'tools': tools,
-        if (model != null) 'model': model,
-        if (permissionMode != null) 'permissionMode': permissionMode!.wire,
-      };
+    'description': description,
+    'prompt': prompt,
+    if (tools != null) 'tools': tools,
+    if (model != null) 'model': model,
+    if (permissionMode != null) 'permissionMode': permissionMode!.wire,
+  };
 }
 
 /// Options for an Agent SDK query. Mirrors the SDK's `Options` type.
@@ -634,7 +634,9 @@ class Options {
       maxBudgetUsd: (v('maxBudgetUsd') as num?)?.toDouble(),
       taskBudget: v('taskBudget') == null
           ? null
-          : TaskBudget.fromJson((v('taskBudget') as Map).cast<String, dynamic>()),
+          : TaskBudget.fromJson(
+              (v('taskBudget') as Map).cast<String, dynamic>(),
+            ),
       permissionMode: v('permissionMode') == null
           ? null
           : PermissionMode.fromWire(v('permissionMode') as String),
@@ -661,8 +663,9 @@ class Options {
       persistSession: v('persistSession') as bool?,
       title: v('title') as String?,
       env: (v('env') as Map?)?.map((k, val) => MapEntry('$k', '$val')),
-      extraArgs: (v('extraArgs') as Map?)
-          ?.map((k, val) => MapEntry('$k', val as String?)),
+      extraArgs: (v('extraArgs') as Map?)?.map(
+        (k, val) => MapEntry('$k', val as String?),
+      ),
       strictMcpConfig: v('strictMcpConfig') as bool?,
       agent: v('agent') as String?,
       agents: (v('agents') as Map?)?.map(
@@ -680,11 +683,14 @@ class Options {
       outputFormat: v('outputFormat') == null
           ? null
           : OutputFormat.fromJson(
-              (v('outputFormat') as Map).cast<String, dynamic>()),
+              (v('outputFormat') as Map).cast<String, dynamic>(),
+            ),
       toolConfig: (v('toolConfig') as Map?)?.cast<String, dynamic>(),
       thinking: v('thinking') == null
           ? null
-          : ThinkingConfig.fromWire((v('thinking') as Map).cast<String, dynamic>()),
+          : ThinkingConfig.fromWire(
+              (v('thinking') as Map).cast<String, dynamic>(),
+            ),
       effort: v('effort') == null
           ? null
           : EffortLevel.fromWire(v('effort') as String),
@@ -716,8 +722,7 @@ class Options {
     put('tools', tools?.toWire());
     put('allowedTools', allowedTools);
     put('disallowedTools', disallowedTools);
-    put('mcpServers',
-        mcpServers?.map((k, val) => MapEntry(k, val.toJson())));
+    put('mcpServers', mcpServers?.map((k, val) => MapEntry(k, val.toJson())));
     put('maxTurns', maxTurns);
     put('maxBudgetUsd', maxBudgetUsd);
     put('taskBudget', taskBudget?.toJson());

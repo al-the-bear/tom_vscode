@@ -1,5 +1,5 @@
 /// VS Code Language Model (Copilot) API
-/// 
+///
 /// Wrapper for the vscode.lm namespace providing access to language models
 /// including GitHub Copilot
 library;
@@ -14,7 +14,7 @@ class VSCodeLanguageModel {
   VSCodeLanguageModel(this._adapter);
 
   /// Select chat models matching the given criteria
-  /// 
+  ///
   /// Example:
   /// ```dart
   /// final models = await lm.selectChatModels(vendor: 'copilot');
@@ -32,13 +32,18 @@ class VSCodeLanguageModel {
     if (id != null) selector['id'] = id;
     if (version != null) selector['version'] = version;
 
-    final result = await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+    final result = await _adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         const models = await context.vscode.lm.selectChatModels(params.selector);
         return models;
       ''',
-      'params': {'selector': selector},
-    }, scriptName: 'selectChatModels', timeout: Duration(seconds: timeoutSeconds));
+        'params': {'selector': selector},
+      },
+      scriptName: 'selectChatModels',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
 
     if (result['success'] == true && result['result'] is List) {
       return (result['result'] as List)
@@ -54,38 +59,63 @@ class VSCodeLanguageModel {
     Map<String, dynamic> options, {
     int timeoutSeconds = 300,
   }) async {
-    final result = await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+    final result = await _adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         const result = await context.vscode.lm.invokeTool(params.name, params.options);
         return result;
       ''',
-      'params': {'name': name, 'options': options},
-    }, scriptName: 'invokeTool', timeout: Duration(seconds: timeoutSeconds));
+        'params': {'name': name, 'options': options},
+      },
+      scriptName: 'invokeTool',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
     return LanguageModelToolResult.fromJson(result);
   }
 
   /// Register a language model tool
-  Future<void> registerTool(String name, Map<String, dynamic> tool, {int timeoutSeconds = 120}) async {
-    await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+  Future<void> registerTool(
+    String name,
+    Map<String, dynamic> tool, {
+    int timeoutSeconds = 120,
+  }) async {
+    await _adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         await context.vscode.lm.registerTool(params.name, params.tool);
       ''',
-      'params': {'name': name, 'tool': tool},
-    }, scriptName: 'registerTool', timeout: Duration(seconds: timeoutSeconds));
+        'params': {'name': name, 'tool': tool},
+      },
+      scriptName: 'registerTool',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
   }
 
   /// Get list of available tools
-  Future<List<LanguageModelToolInformation>> getTools({int timeoutSeconds = 60}) async {
-    final result = await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+  Future<List<LanguageModelToolInformation>> getTools({
+    int timeoutSeconds = 60,
+  }) async {
+    final result = await _adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         const tools = await context.vscode.lm.tools;
         return tools;
       ''',
-      'params': {},
-    }, scriptName: 'getTools', timeout: Duration(seconds: timeoutSeconds));
+        'params': {},
+      },
+      scriptName: 'getTools',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
     if (result['success'] == true && result['result'] is List) {
       return (result['result'] as List)
-          .map((t) => LanguageModelToolInformation.fromJson(t as Map<String, dynamic>))
+          .map(
+            (t) => LanguageModelToolInformation.fromJson(
+              t as Map<String, dynamic>,
+            ),
+          )
           .toList();
     }
     return [];
@@ -139,8 +169,10 @@ class LanguageModelChat {
     Map<String, dynamic>? modelOptions,
     int timeoutSeconds = 300,
   }) async {
-    final result = await adapter.sendRequest('executeScriptVce', {
-      'script': '''
+    final result = await adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         const models = await context.vscode.lm.selectChatModels({id: params.modelId});
         if (models.length === 0) throw new Error('Model not found');
         const response = await models[0].sendRequest(params.messages, params.options);
@@ -150,12 +182,15 @@ class LanguageModelChat {
         }
         return {text, stream: [text]};
       ''',
-      'params': {
-        'modelId': id,
-        'messages': messages.map((m) => m.toJson()).toList(),
-        'options': modelOptions ?? {},
+        'params': {
+          'modelId': id,
+          'messages': messages.map((m) => m.toJson()).toList(),
+          'options': modelOptions ?? {},
+        },
       },
-    }, scriptName: 'LanguageModelChat.sendRequest', timeout: Duration(seconds: timeoutSeconds));
+      scriptName: 'LanguageModelChat.sendRequest',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
     return LanguageModelChatResponse.fromJson(result);
   }
 
@@ -165,15 +200,20 @@ class LanguageModelChat {
     String text, {
     int timeoutSeconds = 120,
   }) async {
-    final result = await adapter.sendRequest('executeScriptVce', {
-      'script': '''
+    final result = await adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         const models = await context.vscode.lm.selectChatModels({id: params.modelId});
         if (models.length === 0) throw new Error('Model not found');
         const count = await models[0].countTokens(params.text);
         return count;
       ''',
-      'params': {'modelId': id, 'text': text},
-    }, scriptName: 'LanguageModelChat.countTokens', timeout: Duration(seconds: timeoutSeconds));
+        'params': {'modelId': id, 'text': text},
+      },
+      scriptName: 'LanguageModelChat.countTokens',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
     return result as int;
   }
 }
@@ -191,11 +231,7 @@ class LanguageModelChatMessage {
   });
 
   factory LanguageModelChatMessage.user(String content, {String? name}) {
-    return LanguageModelChatMessage(
-      role: 'user',
-      content: content,
-      name: name,
-    );
+    return LanguageModelChatMessage(role: 'user', content: content, name: name);
   }
 
   factory LanguageModelChatMessage.assistant(String content, {String? name}) {
@@ -215,11 +251,7 @@ class LanguageModelChatMessage {
   }
 
   Map<String, dynamic> toJson() {
-    return {
-      'role': role,
-      'content': content,
-      if (name != null) 'name': name,
-    };
+    return {'role': role, 'content': content, if (name != null) 'name': name};
   }
 }
 
@@ -228,10 +260,7 @@ class LanguageModelChatResponse {
   final String text;
   final List<String> streamParts;
 
-  LanguageModelChatResponse({
-    required this.text,
-    required this.streamParts,
-  });
+  LanguageModelChatResponse({required this.text, required this.streamParts});
 
   factory LanguageModelChatResponse.fromJson(Map<String, dynamic> json) {
     return LanguageModelChatResponse(
@@ -241,10 +270,7 @@ class LanguageModelChatResponse {
   }
 
   Map<String, dynamic> toJson() {
-    return {
-      'text': text,
-      'stream': streamParts,
-    };
+    return {'text': text, 'stream': streamParts};
   }
 }
 
@@ -255,9 +281,7 @@ class LanguageModelToolResult {
   LanguageModelToolResult({required this.content});
 
   factory LanguageModelToolResult.fromJson(Map<String, dynamic> json) {
-    return LanguageModelToolResult(
-      content: json['content'] as List? ?? [],
-    );
+    return LanguageModelToolResult(content: json['content'] as List? ?? []);
   }
 
   Map<String, dynamic> toJson() {

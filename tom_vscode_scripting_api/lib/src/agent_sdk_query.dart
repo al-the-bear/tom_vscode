@@ -96,7 +96,7 @@ class AgentQuery extends StreamView<SdkMessage> {
   final Future<void> Function() _interrupt;
 
   AgentQuery._(super.stream, {required Future<void> Function() interrupt})
-      : _interrupt = interrupt;
+    : _interrupt = interrupt;
 
   /// Aborts the underlying query (`agentSdk.cancelVce`). Idempotent.
   ///
@@ -163,22 +163,24 @@ class AgentSdkClient {
       sub = transport.chunks
           .where((chunk) => chunk['streamId'] == streamId)
           .listen((chunk) {
-        if (finished) return;
-        final error = chunk['error'];
-        if (error != null) {
-          controller.addError(AgentSdkQueryException(error.toString()));
-          finish();
-          return;
-        }
-        if (chunk['done'] == true) {
-          finish();
-          return;
-        }
-        final message = chunk['message'];
-        if (message is Map) {
-          controller.add(SdkMessage.fromJson(message.cast<String, dynamic>()));
-        }
-      });
+            if (finished) return;
+            final error = chunk['error'];
+            if (error != null) {
+              controller.addError(AgentSdkQueryException(error.toString()));
+              finish();
+              return;
+            }
+            if (chunk['done'] == true) {
+              finish();
+              return;
+            }
+            final message = chunk['message'];
+            if (message is Map) {
+              controller.add(
+                SdkMessage.fromJson(message.cast<String, dynamic>()),
+              );
+            }
+          });
 
       // Register tool handlers before starting so an early `agentSdk.toolCall`
       // cannot arrive before the registry is in place.
@@ -192,15 +194,17 @@ class AgentSdkClient {
         transport.registerCanUseTool(streamId, canUseTool);
       }
 
-      transport.startQuery({
-        'streamId': streamId,
-        'prompt': prompt,
-        if (options != null) 'options': options.toJson(),
-      }).catchError((Object e) {
-        if (finished) return;
-        controller.addError(e);
-        finish();
-      });
+      transport
+          .startQuery({
+            'streamId': streamId,
+            'prompt': prompt,
+            if (options != null) 'options': options.toJson(),
+          })
+          .catchError((Object e) {
+            if (finished) return;
+            controller.addError(e);
+            finish();
+          });
     };
 
     // A subscriber cancelling the stream aborts the underlying query.

@@ -66,26 +66,26 @@ class VSCodeBridgeAdapter implements VSCodeAdapter {
 /// final adapter = LazyVSCodeBridgeAdapter(port: 19900);
 /// VSCode.initialize(adapter);
 /// // No connection yet...
-/// 
+///
 /// // First use triggers auto-connect
 /// await VSCode.instance.window.showInformationMessage('Hello!');
 /// ```
 class LazyVSCodeBridgeAdapter implements VSCodeAdapter {
   /// The host to connect to.
   String _host;
-  
+
   /// The port to connect to.
   int _port;
-  
+
   /// The underlying client, created on first connect.
   VSCodeBridgeClient? _client;
-  
+
   /// Connection in progress (to avoid multiple simultaneous connects).
   Future<bool>? _connecting;
-  
+
   /// Callback for connection status messages.
   final void Function(String message)? onStatusMessage;
-  
+
   /// Callback for error messages.
   final void Function(String message)? onErrorMessage;
 
@@ -100,10 +100,11 @@ class LazyVSCodeBridgeAdapter implements VSCodeAdapter {
     int port = defaultVSCodeBridgePort,
     this.onStatusMessage,
     this.onErrorMessage,
-  }) : _host = host, _port = port;
+  }) : _host = host,
+       _port = port;
 
   /// Update the host and port for future connections.
-  /// 
+  ///
   /// If already connected to a different host/port, disconnects first.
   Future<void> setHostPort(String host, int port) async {
     if (_host != host || _port != port) {
@@ -114,9 +115,9 @@ class LazyVSCodeBridgeAdapter implements VSCodeAdapter {
       _port = port;
     }
   }
-  
+
   /// Update the port for future connections.
-  /// 
+  ///
   /// If already connected to a different port, disconnects first.
   Future<void> setPort(int port) async {
     if (_port != port) {
@@ -126,10 +127,10 @@ class LazyVSCodeBridgeAdapter implements VSCodeAdapter {
       _port = port;
     }
   }
-  
+
   /// Get the current host.
   String get host => _host;
-  
+
   /// Get the current port.
   int get port => _port;
 
@@ -137,18 +138,18 @@ class LazyVSCodeBridgeAdapter implements VSCodeAdapter {
   bool get isConnected => _client?.isConnected ?? false;
 
   /// Manually connect to the VS Code integration server.
-  /// 
+  ///
   /// Returns true if connected successfully.
   Future<bool> connect() async {
     if (_client?.isConnected == true) {
       return true;
     }
-    
+
     // If a connection is in progress, wait for it
     if (_connecting != null) {
       return _connecting!;
     }
-    
+
     _connecting = _doConnect();
     try {
       return await _connecting!;
@@ -156,19 +157,24 @@ class LazyVSCodeBridgeAdapter implements VSCodeAdapter {
       _connecting = null;
     }
   }
-  
+
   Future<bool> _doConnect() async {
     // Check if server is available
-    final available = await VSCodeBridgeClient.isAvailable(host: _host, port: _port);
+    final available = await VSCodeBridgeClient.isAvailable(
+      host: _host,
+      port: _port,
+    );
     if (!available) {
-      onErrorMessage?.call('No Tom VS Code CLI Integration Server found at $_host:$_port.');
+      onErrorMessage?.call(
+        'No Tom VS Code CLI Integration Server found at $_host:$_port.',
+      );
       return false;
     }
-    
+
     // Connect
     _client = VSCodeBridgeClient(host: _host, port: _port);
     final connected = await _client!.connect();
-    
+
     if (connected) {
       onStatusMessage?.call('Connected to VS Code at $_host:$_port');
       return true;
@@ -201,7 +207,7 @@ class LazyVSCodeBridgeAdapter implements VSCodeAdapter {
         throw StateError(
           'Cannot connect to VS Code integration server on port $_port. '
           'Make sure VS Code is running with the Tom CLI Integration Server started. '
-          'Use the command palette: "DS: Start Tom CLI Integration Server"'
+          'Use the command palette: "DS: Start Tom CLI Integration Server"',
         );
       }
     }

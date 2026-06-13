@@ -12,37 +12,41 @@ import 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart';
 
 void main() {
   group('BridgeRequestDispatcher.maybeHandle — request routing', () {
-    test('routes a request to its handler and replies with the result',
-        () async {
-      final replies = <Map<String, dynamic>>[];
-      final dispatcher =
-          BridgeRequestDispatcher(sendReply: (m) => replies.add(m));
-      dispatcher.register('client.add', (params) {
-        final a = params['a'] as int;
-        final b = params['b'] as int;
-        return a + b;
-      });
+    test(
+      'routes a request to its handler and replies with the result',
+      () async {
+        final replies = <Map<String, dynamic>>[];
+        final dispatcher = BridgeRequestDispatcher(
+          sendReply: (m) => replies.add(m),
+        );
+        dispatcher.register('client.add', (params) {
+          final a = params['a'] as int;
+          final b = params['b'] as int;
+          return a + b;
+        });
 
-      final handled = dispatcher.maybeHandle({
-        'jsonrpc': '2.0',
-        'id': 'r1',
-        'method': 'client.add',
-        'params': {'a': 2, 'b': 3},
-      });
-      expect(handled, isTrue);
+        final handled = dispatcher.maybeHandle({
+          'jsonrpc': '2.0',
+          'id': 'r1',
+          'method': 'client.add',
+          'params': {'a': 2, 'b': 3},
+        });
+        expect(handled, isTrue);
 
-      // The reply is sent after the (possibly async) handler completes.
-      await Future<void>.delayed(Duration.zero);
-      expect(replies, hasLength(1));
-      expect(replies.single['id'], 'r1');
-      expect(replies.single['result'], 5);
-      expect(replies.single.containsKey('error'), isFalse);
-    });
+        // The reply is sent after the (possibly async) handler completes.
+        await Future<void>.delayed(Duration.zero);
+        expect(replies, hasLength(1));
+        expect(replies.single['id'], 'r1');
+        expect(replies.single['result'], 5);
+        expect(replies.single.containsKey('error'), isFalse);
+      },
+    );
 
     test('awaits an async handler before replying', () async {
       final replies = <Map<String, dynamic>>[];
-      final dispatcher =
-          BridgeRequestDispatcher(sendReply: (m) => replies.add(m));
+      final dispatcher = BridgeRequestDispatcher(
+        sendReply: (m) => replies.add(m),
+      );
       dispatcher.register('client.slow', (params) async {
         await Future<void>.delayed(const Duration(milliseconds: 5));
         return 'done';
@@ -66,8 +70,9 @@ void main() {
   group('BridgeRequestDispatcher.maybeHandle — error replies', () {
     test('replies with an error for an unregistered method', () async {
       final replies = <Map<String, dynamic>>[];
-      final dispatcher =
-          BridgeRequestDispatcher(sendReply: (m) => replies.add(m));
+      final dispatcher = BridgeRequestDispatcher(
+        sendReply: (m) => replies.add(m),
+      );
 
       final handled = dispatcher.maybeHandle({
         'jsonrpc': '2.0',
@@ -86,8 +91,9 @@ void main() {
 
     test('replies with an error when the handler throws', () async {
       final replies = <Map<String, dynamic>>[];
-      final dispatcher =
-          BridgeRequestDispatcher(sendReply: (m) => replies.add(m));
+      final dispatcher = BridgeRequestDispatcher(
+        sendReply: (m) => replies.add(m),
+      );
       dispatcher.register('client.boom', (params) {
         throw StateError('kaboom');
       });
@@ -109,8 +115,9 @@ void main() {
   group('BridgeRequestDispatcher.maybeHandle — non-requests', () {
     test('returns false for a response (id but no method)', () {
       final replies = <Map<String, dynamic>>[];
-      final dispatcher =
-          BridgeRequestDispatcher(sendReply: (m) => replies.add(m));
+      final dispatcher = BridgeRequestDispatcher(
+        sendReply: (m) => replies.add(m),
+      );
       final handled = dispatcher.maybeHandle({
         'jsonrpc': '2.0',
         'id': 'x1',
@@ -122,8 +129,9 @@ void main() {
 
     test('returns false for a notification (method but no id)', () {
       final replies = <Map<String, dynamic>>[];
-      final dispatcher =
-          BridgeRequestDispatcher(sendReply: (m) => replies.add(m));
+      final dispatcher = BridgeRequestDispatcher(
+        sendReply: (m) => replies.add(m),
+      );
       final handled = dispatcher.maybeHandle({
         'jsonrpc': '2.0',
         'method': 'someNotification',
@@ -137,8 +145,9 @@ void main() {
   group('BridgeRequestDispatcher.unregister', () {
     test('a request for an unregistered (removed) method errors', () async {
       final replies = <Map<String, dynamic>>[];
-      final dispatcher =
-          BridgeRequestDispatcher(sendReply: (m) => replies.add(m));
+      final dispatcher = BridgeRequestDispatcher(
+        sendReply: (m) => replies.add(m),
+      );
       dispatcher.register('client.temp', (params) => 'ok');
       dispatcher.unregister('client.temp');
 

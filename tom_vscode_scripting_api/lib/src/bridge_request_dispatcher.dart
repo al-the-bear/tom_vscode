@@ -17,15 +17,16 @@ import 'dart:async';
 
 /// A handler for an incoming server→client request `method`. Receives the
 /// request `params` and returns the JSON-encodable result (sync or async).
-typedef BridgeRequestHandler = FutureOr<Object?> Function(
-    Map<String, dynamic> params);
+typedef BridgeRequestHandler =
+    FutureOr<Object?> Function(Map<String, dynamic> params);
 
 /// Routes incoming server→client requests to registered handlers and writes
 /// their replies through an injected sink.
 class BridgeRequestDispatcher {
   /// Creates a dispatcher that writes JSON-RPC response frames via [sendReply].
-  BridgeRequestDispatcher({required void Function(Map<String, dynamic>) sendReply})
-      : _sendReply = sendReply;
+  BridgeRequestDispatcher({
+    required void Function(Map<String, dynamic>) sendReply,
+  }) : _sendReply = sendReply;
 
   final void Function(Map<String, dynamic>) _sendReply;
   final Map<String, BridgeRequestHandler> _handlers = {};
@@ -57,7 +58,10 @@ class BridgeRequestDispatcher {
 
     final handler = _handlers[method];
     if (handler == null) {
-      _replyError(id, "No handler registered for server→client request '$method'");
+      _replyError(
+        id,
+        "No handler registered for server→client request '$method'",
+      );
       return true;
     }
 

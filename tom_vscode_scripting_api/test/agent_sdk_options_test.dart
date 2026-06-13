@@ -37,20 +37,14 @@ void main() {
         PermissionDecisionClassification.userTemporary.wire,
         'user_temporary',
       );
-      expect(
-        PermissionDecisionClassification.userReject.wire,
-        'user_reject',
-      );
+      expect(PermissionDecisionClassification.userReject.wire, 'user_reject');
     });
   });
 
   group('sealed config sub-types round-trip via toWire/fromWire', () {
     test('SystemPrompt: text / list / preset', () {
       expect(SystemPrompt.fromWire('hi').toWire(), 'hi');
-      expect(
-        SystemPrompt.fromWire(['a', 'b']).toWire(),
-        ['a', 'b'],
-      );
+      expect(SystemPrompt.fromWire(['a', 'b']).toWire(), ['a', 'b']);
       final preset = SystemPrompt.fromWire({
         'type': 'preset',
         'preset': 'claude_code',
@@ -78,20 +72,18 @@ void main() {
     });
 
     test('ThinkingConfig: adaptive / enabled / disabled', () {
-      expect(
-        ThinkingConfig.fromWire({'type': 'adaptive'}).toWire(),
-        {'type': 'adaptive'},
-      );
+      expect(ThinkingConfig.fromWire({'type': 'adaptive'}).toWire(), {
+        'type': 'adaptive',
+      });
       final enabled = ThinkingConfig.fromWire({
         'type': 'enabled',
         'budgetTokens': 4096,
       });
       expect(enabled, isA<ThinkingEnabled>());
       expect(enabled.toWire(), {'type': 'enabled', 'budgetTokens': 4096});
-      expect(
-        ThinkingConfig.fromWire({'type': 'disabled'}).toWire(),
-        {'type': 'disabled'},
-      );
+      expect(ThinkingConfig.fromWire({'type': 'disabled'}).toWire(), {
+        'type': 'disabled',
+      });
     });
 
     test('Skills: list / all', () {
@@ -104,8 +96,7 @@ void main() {
     test('PermissionResult allow with updatedInput', () {
       final allow = PermissionAllow(
         updatedInput: {'path': '/safe'},
-        decisionClassification:
-            PermissionDecisionClassification.userPermanent,
+        decisionClassification: PermissionDecisionClassification.userPermanent,
       );
       final wire = allow.toJson();
       expect(wire['behavior'], 'allow');
@@ -218,7 +209,10 @@ void main() {
         {'name': 'read', 'permission_policy': 'always_allow'},
         {'name': 'write', 'permission_policy': 'always_ask'},
       ]);
-      expect(McpServerConfig.fromJson(sse.toJson()).toJson(), equals(sse.toJson()));
+      expect(
+        McpServerConfig.fromJson(sse.toJson()).toJson(),
+        equals(sse.toJson()),
+      );
 
       final http = McpServerConfig.fromJson({
         'type': 'http',
@@ -228,7 +222,10 @@ void main() {
         ],
       });
       expect((http as McpHttpServerConfig).tools!.single.name, 'fetch');
-      expect(McpServerConfig.fromJson(http.toJson()).toJson(), equals(http.toJson()));
+      expect(
+        McpServerConfig.fromJson(http.toJson()).toJson(),
+        equals(http.toJson()),
+      );
     });
 
     test('stdio carries args/env/alwaysLoad', () {
@@ -239,7 +236,10 @@ void main() {
         'env': {'TOKEN': 'abc'},
         'alwaysLoad': false,
       });
-      expect(McpServerConfig.fromJson(stdio.toJson()).toJson(), equals(stdio.toJson()));
+      expect(
+        McpServerConfig.fromJson(stdio.toJson()).toJson(),
+        equals(stdio.toJson()),
+      );
     });
 
     test('sdk server config carries the descriptor (name/version/tools)', () {
@@ -298,9 +298,7 @@ void main() {
         tools: ToolsClaudeCodePreset(),
         allowedTools: ['Read', 'Edit'],
         disallowedTools: ['Bash'],
-        mcpServers: {
-          'srv': McpStdioServerConfig(command: 'node'),
-        },
+        mcpServers: {'srv': McpStdioServerConfig(command: 'node')},
         maxTurns: 12,
         maxBudgetUsd: 1.5,
         permissionMode: PermissionMode.acceptEdits,

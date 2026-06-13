@@ -117,10 +117,8 @@ Future<Map<int, String>> scanBridgePorts({
 ///
 /// The production default constructs a real [LazyVSCodeBridgeAdapter]; tests
 /// inject a double so [connectToWorkspace] can run without a socket.
-typedef BridgeAdapterFactory = LazyVSCodeBridgeAdapter Function(
-  String host,
-  int port,
-);
+typedef BridgeAdapterFactory =
+    LazyVSCodeBridgeAdapter Function(String host, int port);
 
 /// Resolves the bridge port for the workspace named [name] (via
 /// [findBridgePortForWorkspace]) and returns a connected adapter bound to it.

@@ -51,7 +51,8 @@ class ToolDefinitionJson {
     return ToolDefinitionJson(
       name: json['name'] as String? ?? '',
       description: json['description'] as String? ?? '',
-      inputSchema: (json['input_schema'] as Map?)?.cast<String, dynamic>() ?? {},
+      inputSchema:
+          (json['input_schema'] as Map?)?.cast<String, dynamic>() ?? {},
     );
   }
 
@@ -83,7 +84,9 @@ abstract class TomToolsApi {
 
   static VSCodeAdapter get _requireAdapter {
     if (_adapter == null) {
-      throw StateError('TomToolsApi: adapter not set. Call setAdapter() first.');
+      throw StateError(
+        'TomToolsApi: adapter not set. Call setAdapter() first.',
+      );
     }
     return _adapter!;
   }

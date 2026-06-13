@@ -54,8 +54,10 @@ class VSCodeExtensions {
 
   /// Get all extensions
   Future<List<Extension>> getAll({int timeoutSeconds = 60}) async {
-    final result = await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+    final result = await _adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         const extensions = context.vscode.extensions.all.map(ext => ({
           id: ext.id,
           extensionUri: ext.extensionUri.toString(),
@@ -66,8 +68,11 @@ class VSCodeExtensions {
         }));
         return extensions;
       ''',
-      'params': {},
-    }, scriptName: 'getAllExtensions', timeout: Duration(seconds: timeoutSeconds));
+        'params': {},
+      },
+      scriptName: 'getAllExtensions',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
 
     if (result['success'] == true) {
       return (result['result'] as List)
@@ -78,9 +83,14 @@ class VSCodeExtensions {
   }
 
   /// Get extension by ID
-  Future<Extension?> getExtension(String extensionId, {int timeoutSeconds = 60}) async {
-    final result = await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+  Future<Extension?> getExtension(
+    String extensionId, {
+    int timeoutSeconds = 60,
+  }) async {
+    final result = await _adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         const ext = context.vscode.extensions.getExtension(params.extensionId);
         if (!ext) return null;
         
@@ -93,10 +103,11 @@ class VSCodeExtensions {
           extensionKind: ext.extensionKind ? ext.extensionKind.toString() : null
         };
       ''',
-      'params': {
-        'extensionId': extensionId,
+        'params': {'extensionId': extensionId},
       },
-    }, scriptName: 'getExtension', timeout: Duration(seconds: timeoutSeconds));
+      scriptName: 'getExtension',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
 
     if (result['success'] == true && result['result'] != null) {
       return Extension.fromJson(result['result']);
@@ -105,15 +116,23 @@ class VSCodeExtensions {
   }
 
   /// Check if extension is installed
-  Future<bool> isInstalled(String extensionId, {int timeoutSeconds = 60}) async {
+  Future<bool> isInstalled(
+    String extensionId, {
+    int timeoutSeconds = 60,
+  }) async {
     final ext = await getExtension(extensionId, timeoutSeconds: timeoutSeconds);
     return ext != null;
   }
 
   /// Get extension export (API) - returns dynamic as it depends on extension
-  Future<dynamic> getExtensionExports(String extensionId, {int timeoutSeconds = 120}) async {
-    final result = await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+  Future<dynamic> getExtensionExports(
+    String extensionId, {
+    int timeoutSeconds = 120,
+  }) async {
+    final result = await _adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         const ext = context.vscode.extensions.getExtension(params.extensionId);
         if (!ext) return null;
         
@@ -124,10 +143,11 @@ class VSCodeExtensions {
         
         return ext.exports || null;
       ''',
-      'params': {
-        'extensionId': extensionId,
+        'params': {'extensionId': extensionId},
       },
-    }, scriptName: 'getExtensionExports', timeout: Duration(seconds: timeoutSeconds));
+      scriptName: 'getExtensionExports',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
 
     if (result['success'] == true) {
       return result['result'];
@@ -136,9 +156,14 @@ class VSCodeExtensions {
   }
 
   /// Activate extension
-  Future<bool> activateExtension(String extensionId, {int timeoutSeconds = 180}) async {
-    final result = await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+  Future<bool> activateExtension(
+    String extensionId, {
+    int timeoutSeconds = 180,
+  }) async {
+    final result = await _adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         const ext = context.vscode.extensions.getExtension(params.extensionId);
         if (!ext) return false;
         
@@ -148,26 +173,33 @@ class VSCodeExtensions {
         
         return ext.isActive;
       ''',
-      'params': {
-        'extensionId': extensionId,
+        'params': {'extensionId': extensionId},
       },
-    }, scriptName: 'activateExtension', timeout: Duration(seconds: timeoutSeconds));
+      scriptName: 'activateExtension',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
 
     return result['success'] == true && result['result'] == true;
   }
 
   /// Get extension version
-  Future<String?> getExtensionVersion(String extensionId, {int timeoutSeconds = 60}) async {
-    final result = await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+  Future<String?> getExtensionVersion(
+    String extensionId, {
+    int timeoutSeconds = 60,
+  }) async {
+    final result = await _adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         const ext = context.vscode.extensions.getExtension(params.extensionId);
         if (!ext) return null;
         return ext.packageJSON.version || null;
       ''',
-      'params': {
-        'extensionId': extensionId,
+        'params': {'extensionId': extensionId},
       },
-    }, scriptName: 'getExtensionVersion', timeout: Duration(seconds: timeoutSeconds));
+      scriptName: 'getExtensionVersion',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
 
     if (result['success'] == true) {
       return result['result'] as String?;
@@ -176,17 +208,23 @@ class VSCodeExtensions {
   }
 
   /// Get extension display name
-  Future<String?> getExtensionDisplayName(String extensionId, {int timeoutSeconds = 60}) async {
-    final result = await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+  Future<String?> getExtensionDisplayName(
+    String extensionId, {
+    int timeoutSeconds = 60,
+  }) async {
+    final result = await _adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         const ext = context.vscode.extensions.getExtension(params.extensionId);
         if (!ext) return null;
         return ext.packageJSON.displayName || ext.packageJSON.name || null;
       ''',
-      'params': {
-        'extensionId': extensionId,
+        'params': {'extensionId': extensionId},
       },
-    }, scriptName: 'getExtensionDisplayName', timeout: Duration(seconds: timeoutSeconds));
+      scriptName: 'getExtensionDisplayName',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
 
     if (result['success'] == true) {
       return result['result'] as String?;
@@ -195,17 +233,23 @@ class VSCodeExtensions {
   }
 
   /// Get extension description
-  Future<String?> getExtensionDescription(String extensionId, {int timeoutSeconds = 60}) async {
-    final result = await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+  Future<String?> getExtensionDescription(
+    String extensionId, {
+    int timeoutSeconds = 60,
+  }) async {
+    final result = await _adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         const ext = context.vscode.extensions.getExtension(params.extensionId);
         if (!ext) return null;
         return ext.packageJSON.description || null;
       ''',
-      'params': {
-        'extensionId': extensionId,
+        'params': {'extensionId': extensionId},
       },
-    }, scriptName: 'getExtensionDescription', timeout: Duration(seconds: timeoutSeconds));
+      scriptName: 'getExtensionDescription',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
 
     if (result['success'] == true) {
       return result['result'] as String?;

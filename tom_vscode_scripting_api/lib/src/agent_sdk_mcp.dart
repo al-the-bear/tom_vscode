@@ -14,9 +14,8 @@ library;
 ///
 /// Declared here as part of the 1:1 type surface; the reverse-RPC dispatch that
 /// invokes it mid-query is wired in todo #5.
-typedef ToolHandler = Future<CallToolResult> Function(
-  Map<String, dynamic> args,
-);
+typedef ToolHandler =
+    Future<CallToolResult> Function(Map<String, dynamic> args);
 
 /// The result a [ToolHandler] returns. Mirrors MCP `CallToolResult`.
 class CallToolResult {
@@ -30,26 +29,26 @@ class CallToolResult {
 
   /// Convenience for a single text result.
   factory CallToolResult.text(String text, {bool? isError}) => CallToolResult(
-        content: [
-          {'type': 'text', 'text': text},
-        ],
-        isError: isError,
-      );
+    content: [
+      {'type': 'text', 'text': text},
+    ],
+    isError: isError,
+  );
 
   /// Parses a [CallToolResult] from wire JSON.
   factory CallToolResult.fromJson(Map<String, dynamic> json) => CallToolResult(
-        content: ((json['content'] as List?) ?? const [])
-            .whereType<Map>()
-            .map((m) => m.cast<String, dynamic>())
-            .toList(),
-        isError: json['isError'] as bool?,
-      );
+    content: ((json['content'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((m) => m.cast<String, dynamic>())
+        .toList(),
+    isError: json['isError'] as bool?,
+  );
 
   /// Serializes to wire JSON.
   Map<String, dynamic> toJson() => {
-        'content': content,
-        if (isError != null) 'isError': isError,
-      };
+    'content': content,
+    if (isError != null) 'isError': isError,
+  };
 }
 
 /// An in-process tool definition. Mirrors `SdkMcpToolDefinition` / the object
@@ -80,18 +79,18 @@ class SdkMcpTool {
 
   /// Parses a tool descriptor from wire JSON. The handler is not transported.
   factory SdkMcpTool.fromJson(Map<String, dynamic> json) => SdkMcpTool(
-        name: json['name'] as String,
-        description: json['description'] as String? ?? '',
-        inputSchema:
-            (json['inputSchema'] as Map?)?.cast<String, dynamic>() ?? const {},
-      );
+    name: json['name'] as String,
+    description: json['description'] as String? ?? '',
+    inputSchema:
+        (json['inputSchema'] as Map?)?.cast<String, dynamic>() ?? const {},
+  );
 
   /// Serializes the descriptor (name/description/schema) — never the handler.
   Map<String, dynamic> toJson() => {
-        'name': name,
-        'description': description,
-        'inputSchema': inputSchema,
-      };
+    'name': name,
+    'description': description,
+    'inputSchema': inputSchema,
+  };
 }
 
 /// Per-tool permission policy for a remote MCP server. Mirrors
@@ -114,9 +113,9 @@ class McpServerToolPolicy {
 
   /// Serializes to wire JSON.
   Map<String, dynamic> toJson() => {
-        'name': name,
-        'permission_policy': permissionPolicy,
-      };
+    'name': name,
+    'permission_policy': permissionPolicy,
+  };
 }
 
 /// An MCP server configuration referenced from `Options.mcpServers`.
@@ -184,12 +183,12 @@ final class McpStdioServerConfig extends McpServerConfig {
 
   @override
   Map<String, dynamic> toJson() => {
-        'type': type,
-        'command': command,
-        if (args != null) 'args': args,
-        if (env != null) 'env': env,
-        if (alwaysLoad != null) 'alwaysLoad': alwaysLoad,
-      };
+    'type': type,
+    'command': command,
+    if (args != null) 'args': args,
+    if (env != null) 'env': env,
+    if (alwaysLoad != null) 'alwaysLoad': alwaysLoad,
+  };
 }
 
 /// An SSE MCP server. Mirrors `McpSSEServerConfig`.
@@ -227,12 +226,12 @@ final class McpSSEServerConfig extends McpServerConfig {
 
   @override
   Map<String, dynamic> toJson() => {
-        'type': type,
-        'url': url,
-        if (headers != null) 'headers': headers,
-        if (tools != null) 'tools': tools!.map((t) => t.toJson()).toList(),
-        if (alwaysLoad != null) 'alwaysLoad': alwaysLoad,
-      };
+    'type': type,
+    'url': url,
+    if (headers != null) 'headers': headers,
+    if (tools != null) 'tools': tools!.map((t) => t.toJson()).toList(),
+    if (alwaysLoad != null) 'alwaysLoad': alwaysLoad,
+  };
 }
 
 /// An HTTP MCP server. Mirrors `McpHttpServerConfig`.
@@ -270,12 +269,12 @@ final class McpHttpServerConfig extends McpServerConfig {
 
   @override
   Map<String, dynamic> toJson() => {
-        'type': type,
-        'url': url,
-        if (headers != null) 'headers': headers,
-        if (tools != null) 'tools': tools!.map((t) => t.toJson()).toList(),
-        if (alwaysLoad != null) 'alwaysLoad': alwaysLoad,
-      };
+    'type': type,
+    'url': url,
+    if (headers != null) 'headers': headers,
+    if (tools != null) 'tools': tools!.map((t) => t.toJson()).toList(),
+    if (alwaysLoad != null) 'alwaysLoad': alwaysLoad,
+  };
 }
 
 /// An in-process ("sdk") MCP server. Mirrors `McpSdkServerConfigWithInstance`,
@@ -313,11 +312,11 @@ final class McpSdkServerConfig extends McpServerConfig {
 
   @override
   Map<String, dynamic> toJson() => {
-        'type': type,
-        'name': name,
-        'version': version,
-        'tools': tools.map((t) => t.toJson()).toList(),
-      };
+    'type': type,
+    'name': name,
+    'version': version,
+    'tools': tools.map((t) => t.toJson()).toList(),
+  };
 }
 
 /// Parses a list of [McpServerToolPolicy] from a JSON value.

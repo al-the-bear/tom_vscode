@@ -95,48 +95,50 @@ void main() {
       await sub.cancel();
     });
 
-    test('maps chunks for its streamId into the typed SdkMessage sequence',
-        () async {
-      final q = client.query(prompt: 'go');
-      final received = <SdkMessage>[];
-      final done = Completer<void>();
-      q.listen(received.add, onDone: done.complete);
-      await Future<void>.delayed(Duration.zero);
+    test(
+      'maps chunks for its streamId into the typed SdkMessage sequence',
+      () async {
+        final q = client.query(prompt: 'go');
+        final received = <SdkMessage>[];
+        final done = Completer<void>();
+        q.listen(received.add, onDone: done.complete);
+        await Future<void>.delayed(Duration.zero);
 
-      final streamId = transport.startedQueries.single['streamId'] as String;
+        final streamId = transport.startedQueries.single['streamId'] as String;
 
-      transport.emit({
-        'streamId': streamId,
-        'message': {
-          'type': 'assistant',
-          'session_id': 's1',
+        transport.emit({
+          'streamId': streamId,
           'message': {
-            'content': [
-              {'type': 'text', 'text': 'hi'},
-            ],
+            'type': 'assistant',
+            'session_id': 's1',
+            'message': {
+              'content': [
+                {'type': 'text', 'text': 'hi'},
+              ],
+            },
           },
-        },
-      });
-      transport.emit({
-        'streamId': streamId,
-        'message': {
-          'type': 'result',
-          'subtype': 'success',
-          'is_error': false,
-          'num_turns': 1,
-          'result': 'done',
-        },
-      });
-      transport.emit({'streamId': streamId, 'done': true});
+        });
+        transport.emit({
+          'streamId': streamId,
+          'message': {
+            'type': 'result',
+            'subtype': 'success',
+            'is_error': false,
+            'num_turns': 1,
+            'result': 'done',
+          },
+        });
+        transport.emit({'streamId': streamId, 'done': true});
 
-      await done.future;
+        await done.future;
 
-      expect(received, hasLength(2));
-      expect(received[0], isA<SdkAssistantMessage>());
-      expect((received[0] as SdkAssistantMessage).sessionId, 's1');
-      expect(received[1], isA<SdkResultMessage>());
-      expect((received[1] as SdkResultMessage).result, 'done');
-    });
+        expect(received, hasLength(2));
+        expect(received[0], isA<SdkAssistantMessage>());
+        expect((received[0] as SdkAssistantMessage).sessionId, 's1');
+        expect(received[1], isA<SdkResultMessage>());
+        expect((received[1] as SdkResultMessage).result, 'done');
+      },
+    );
 
     test('ignores chunks belonging to a different streamId', () async {
       final q = client.query(prompt: 'go');
@@ -157,11 +159,7 @@ void main() {
       final q = client.query(prompt: 'go');
       final errors = <Object>[];
       final done = Completer<void>();
-      q.listen(
-        (_) {},
-        onError: errors.add,
-        onDone: done.complete,
-      );
+      q.listen((_) {}, onError: errors.add, onDone: done.complete);
       await Future<void>.delayed(Duration.zero);
 
       final streamId = transport.startedQueries.single['streamId'] as String;
@@ -208,48 +206,55 @@ void main() {
   });
 
   group('AgentSdkClient.query — Dart-defined tools', () {
-    test('registers a tool registry on start and unregisters on finish',
-        () async {
-      final transport = _FakeAgentSdkTransport();
-      final client = AgentSdkClient(transport);
+    test(
+      'registers a tool registry on start and unregisters on finish',
+      () async {
+        final transport = _FakeAgentSdkTransport();
+        final client = AgentSdkClient(transport);
 
-      final q = client.query(
-        prompt: 'go',
-        options: Options(mcpServers: {
-          'dartTools': McpSdkServerConfig(
-            name: 'dartTools',
-            tools: [
-              SdkMcpTool(
-                name: 'getWeather',
-                description: 'weather',
-                inputSchema: const {'type': 'object'},
-                handler: (args) async => CallToolResult.text('sunny'),
+        final q = client.query(
+          prompt: 'go',
+          options: Options(
+            mcpServers: {
+              'dartTools': McpSdkServerConfig(
+                name: 'dartTools',
+                tools: [
+                  SdkMcpTool(
+                    name: 'getWeather',
+                    description: 'weather',
+                    inputSchema: const {'type': 'object'},
+                    handler: (args) async => CallToolResult.text('sunny'),
+                  ),
+                ],
               ),
-            ],
+            },
           ),
-        }),
-      );
-      final done = Completer<void>();
-      final sub = q.listen((_) {}, onDone: done.complete);
-      await Future<void>.delayed(Duration.zero);
+        );
+        final done = Completer<void>();
+        final sub = q.listen((_) {}, onDone: done.complete);
+        await Future<void>.delayed(Duration.zero);
 
-      final streamId = transport.startedQueries.single['streamId'] as String;
-      expect(transport.registeredTools.containsKey(streamId), isTrue);
-      expect(transport.registeredTools[streamId]!.hasHandlers, isTrue);
+        final streamId = transport.startedQueries.single['streamId'] as String;
+        expect(transport.registeredTools.containsKey(streamId), isTrue);
+        expect(transport.registeredTools[streamId]!.hasHandlers, isTrue);
 
-      transport.emit({'streamId': streamId, 'done': true});
-      await done.future;
+        transport.emit({'streamId': streamId, 'done': true});
+        await done.future;
 
-      expect(transport.unregisteredTools, contains(streamId));
-      await sub.cancel();
-      await transport.dispose();
-    });
+        expect(transport.unregisteredTools, contains(streamId));
+        await sub.cancel();
+        await transport.dispose();
+      },
+    );
 
     test('does not register tools when no sdk server is present', () async {
       final transport = _FakeAgentSdkTransport();
       final client = AgentSdkClient(transport);
 
-      final q = client.query(prompt: 'go', options: Options(model: 'x'));
+      final q = client.query(
+        prompt: 'go',
+        options: Options(model: 'x'),
+      );
       final sub = q.listen((_) {});
       await Future<void>.delayed(Duration.zero);
 
@@ -260,37 +265,42 @@ void main() {
   });
 
   group('AgentSdkClient.query — canUseTool', () {
-    test('registers the canUseTool callback on start and unregisters on finish',
-        () async {
-      final transport = _FakeAgentSdkTransport();
-      final client = AgentSdkClient(transport);
+    test(
+      'registers the canUseTool callback on start and unregisters on finish',
+      () async {
+        final transport = _FakeAgentSdkTransport();
+        final client = AgentSdkClient(transport);
 
-      final q = client.query(
-        prompt: 'go',
-        options: Options(
-          canUseTool: (name, input, ctx) async => PermissionAllow(),
-        ),
-      );
-      final done = Completer<void>();
-      final sub = q.listen((_) {}, onDone: done.complete);
-      await Future<void>.delayed(Duration.zero);
+        final q = client.query(
+          prompt: 'go',
+          options: Options(
+            canUseTool: (name, input, ctx) async => PermissionAllow(),
+          ),
+        );
+        final done = Completer<void>();
+        final sub = q.listen((_) {}, onDone: done.complete);
+        await Future<void>.delayed(Duration.zero);
 
-      final streamId = transport.startedQueries.single['streamId'] as String;
-      expect(transport.registeredCanUseTool.containsKey(streamId), isTrue);
+        final streamId = transport.startedQueries.single['streamId'] as String;
+        expect(transport.registeredCanUseTool.containsKey(streamId), isTrue);
 
-      transport.emit({'streamId': streamId, 'done': true});
-      await done.future;
+        transport.emit({'streamId': streamId, 'done': true});
+        await done.future;
 
-      expect(transport.unregisteredCanUseTool, contains(streamId));
-      await sub.cancel();
-      await transport.dispose();
-    });
+        expect(transport.unregisteredCanUseTool, contains(streamId));
+        await sub.cancel();
+        await transport.dispose();
+      },
+    );
 
     test('does not register canUseTool when no callback is supplied', () async {
       final transport = _FakeAgentSdkTransport();
       final client = AgentSdkClient(transport);
 
-      final q = client.query(prompt: 'go', options: Options(model: 'x'));
+      final q = client.query(
+        prompt: 'go',
+        options: Options(model: 'x'),
+      );
       final sub = q.listen((_) {});
       await Future<void>.delayed(Duration.zero);
 

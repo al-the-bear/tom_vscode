@@ -42,8 +42,16 @@ void main() {
 
       expect(port, 19909);
       expect(probed, [
-        19900, 19901, 19902, 19903, 19904,
-        19905, 19906, 19907, 19908, 19909,
+        19900,
+        19901,
+        19902,
+        19903,
+        19904,
+        19905,
+        19906,
+        19907,
+        19908,
+        19909,
       ]);
     });
 
@@ -63,17 +71,19 @@ void main() {
       expect(fetched, [19903], reason: 'only the responsive port is queried');
     });
 
-    test('throws BridgeWorkspaceNotFoundException when no bridge matches',
-        () async {
-      expect(
-        () => findBridgePortForWorkspace(
-          'absent',
-          probe: (host, p) async => p == 19900 || p == 19901,
-          fetchIdentity: (host, p) async => 'present',
-        ),
-        throwsA(isA<BridgeWorkspaceNotFoundException>()),
-      );
-    });
+    test(
+      'throws BridgeWorkspaceNotFoundException when no bridge matches',
+      () async {
+        expect(
+          () => findBridgePortForWorkspace(
+            'absent',
+            probe: (host, p) async => p == 19900 || p == 19901,
+            fetchIdentity: (host, p) async => 'present',
+          ),
+          throwsA(isA<BridgeWorkspaceNotFoundException>()),
+        );
+      },
+    );
 
     test('throws when no bridge is responsive at all', () async {
       expect(
@@ -106,27 +116,31 @@ void main() {
       expect(port, 19901);
     });
 
-    test('matches when the requested name carries the .code-workspace ext',
-        () async {
-      final port = await findBridgePortForWorkspace(
-        'vscode_extension.code-workspace',
-        probe: (host, p) async => p == 19901,
-        fetchIdentity: (host, p) async => 'vscode_extension',
-      );
+    test(
+      'matches when the requested name carries the .code-workspace ext',
+      () async {
+        final port = await findBridgePortForWorkspace(
+          'vscode_extension.code-workspace',
+          probe: (host, p) async => p == 19901,
+          fetchIdentity: (host, p) async => 'vscode_extension',
+        );
 
-      expect(port, 19901);
-    });
+        expect(port, 19901);
+      },
+    );
 
-    test('strips the VS Code " (Workspace)" multi-root suffix when matching',
-        () async {
-      final port = await findBridgePortForWorkspace(
-        'enterprise_flutter',
-        probe: (host, p) async => p == 19902,
-        fetchIdentity: (host, p) async => 'enterprise_flutter (Workspace)',
-      );
+    test(
+      'strips the VS Code " (Workspace)" multi-root suffix when matching',
+      () async {
+        final port = await findBridgePortForWorkspace(
+          'enterprise_flutter',
+          probe: (host, p) async => p == 19902,
+          fetchIdentity: (host, p) async => 'enterprise_flutter (Workspace)',
+        );
 
-      expect(port, 19902);
-    });
+        expect(port, 19902);
+      },
+    );
 
     test('honours a custom port range', () async {
       final probed = <int>[];
@@ -218,8 +232,16 @@ void main() {
       );
 
       expect(probed, [
-        19900, 19901, 19902, 19903, 19904,
-        19905, 19906, 19907, 19908, 19909,
+        19900,
+        19901,
+        19902,
+        19903,
+        19904,
+        19905,
+        19906,
+        19907,
+        19908,
+        19909,
       ]);
     });
 
@@ -236,24 +258,30 @@ void main() {
   });
 
   group('connectToWorkspace', () {
-    test('resolves the port and returns a connected adapter pointed at it',
-        () async {
-      int? factoryPort;
+    test(
+      'resolves the port and returns a connected adapter pointed at it',
+      () async {
+        int? factoryPort;
 
-      final adapter = await connectToWorkspace(
-        'target',
-        probe: (host, p) async => p == 19905,
-        fetchIdentity: (host, p) async => 'target',
-        adapterFactory: (host, p) {
-          factoryPort = p;
-          return _FakeLazyAdapter(port: p);
-        },
-      );
+        final adapter = await connectToWorkspace(
+          'target',
+          probe: (host, p) async => p == 19905,
+          fetchIdentity: (host, p) async => 'target',
+          adapterFactory: (host, p) {
+            factoryPort = p;
+            return _FakeLazyAdapter(port: p);
+          },
+        );
 
-      expect(factoryPort, 19905, reason: 'factory receives the resolved port');
-      expect(adapter.port, 19905);
-      expect(adapter.isConnected, isTrue);
-    });
+        expect(
+          factoryPort,
+          19905,
+          reason: 'factory receives the resolved port',
+        );
+        expect(adapter.port, 19905);
+        expect(adapter.isConnected, isTrue);
+      },
+    );
 
     test('surfaces the not-found error from the underlying scan', () async {
       expect(
@@ -280,19 +308,21 @@ void main() {
       );
     });
 
-    test('initializes VSCode.instance with the adapter when requested',
-        () async {
-      final adapter = await connectToWorkspace(
-        'target',
-        probe: (host, p) async => p == 19902,
-        fetchIdentity: (host, p) async => 'target',
-        initializeVSCode: true,
-        adapterFactory: (host, p) => _FakeLazyAdapter(port: p),
-      );
+    test(
+      'initializes VSCode.instance with the adapter when requested',
+      () async {
+        final adapter = await connectToWorkspace(
+          'target',
+          probe: (host, p) async => p == 19902,
+          fetchIdentity: (host, p) async => 'target',
+          initializeVSCode: true,
+          adapterFactory: (host, p) => _FakeLazyAdapter(port: p),
+        );
 
-      expect(VSCode.isInitialized, isTrue);
-      expect(identical(VSCode.instance.adapter, adapter), isTrue);
-    });
+        expect(VSCode.isInitialized, isTrue);
+        expect(identical(VSCode.instance.adapter, adapter), isTrue);
+      },
+    );
 
     test('does not initialize VSCode.instance by default', () async {
       final sentinel = _FakeLazyAdapter(port: 19900);

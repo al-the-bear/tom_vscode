@@ -264,7 +264,7 @@ abstract class TomWorkspaceApi {
       'workspace.getInfoVce',
       {},
     );
-    return WorkspaceInfo.fromJson(result as Map<String, dynamic>);
+    return WorkspaceInfo.fromJson(result);
   }
 
   /// Get the workspace root path.
@@ -273,7 +273,7 @@ abstract class TomWorkspaceApi {
       'workspace.getRootPathVce',
       {},
     );
-    return (result as Map<String, dynamic>)['rootPath'] as String? ?? '';
+    return (result)['rootPath'] as String? ?? '';
   }
 
   /// Get the window ID.
@@ -282,7 +282,7 @@ abstract class TomWorkspaceApi {
       'workspace.getWindowIdVce',
       {},
     );
-    return (result as Map<String, dynamic>)['windowId'] as String?;
+    return (result)['windowId'] as String?;
   }
 
   // --------------------------------------------------------------------------
@@ -299,7 +299,7 @@ abstract class TomWorkspaceApi {
           if (type != null) 'type': type.value,
           'includeSubWorkspaces': includeSubWorkspaces,
         });
-    return ProjectListResult.fromJson(result as Map<String, dynamic>);
+    return ProjectListResult.fromJson(result);
   }
 
   /// Get information about a specific project.
@@ -308,8 +308,7 @@ abstract class TomWorkspaceApi {
       'workspace.getProjectVce',
       {'projectId': projectId},
     );
-    if (result == null) return null;
-    return ProjectInfo.fromJson(result as Map<String, dynamic>);
+    return ProjectInfo.fromJson(result);
   }
 
   /// Find projects by path pattern.
@@ -318,7 +317,7 @@ abstract class TomWorkspaceApi {
       'workspace.findProjectsVce',
       {'pattern': pattern},
     );
-    return ProjectListResult.fromJson(result as Map<String, dynamic>);
+    return ProjectListResult.fromJson(result);
   }
 
   // --------------------------------------------------------------------------
@@ -333,7 +332,7 @@ abstract class TomWorkspaceApi {
       'workspace.listQuestsVce',
       {'includeTodoCounts': includeTodoCounts},
     );
-    return QuestListResult.fromJson(result as Map<String, dynamic>);
+    return QuestListResult.fromJson(result);
   }
 
   /// Get information about a specific quest.
@@ -341,8 +340,7 @@ abstract class TomWorkspaceApi {
     final result = await _requireAdapter.sendRequest('workspace.getQuestVce', {
       'questId': questId,
     });
-    if (result == null) return null;
-    return QuestInfo.fromJson(result as Map<String, dynamic>);
+    return QuestInfo.fromJson(result);
   }
 
   /// Get the currently active quest.
@@ -351,8 +349,7 @@ abstract class TomWorkspaceApi {
       'workspace.getActiveQuestVce',
       {},
     );
-    if (result == null) return null;
-    return QuestInfo.fromJson(result as Map<String, dynamic>);
+    return QuestInfo.fromJson(result);
   }
 
   /// Set the active quest.
@@ -361,7 +358,7 @@ abstract class TomWorkspaceApi {
       'workspace.setActiveQuestVce',
       {'questId': questId},
     );
-    return (result as Map<String, dynamic>)['success'] as bool? ?? false;
+    return (result)['success'] as bool? ?? false;
   }
 
   // --------------------------------------------------------------------------
@@ -374,7 +371,7 @@ abstract class TomWorkspaceApi {
       'workspace.listChatVariablesVce',
       {},
     );
-    return ChatVariableListResult.fromJson(result as Map<String, dynamic>);
+    return ChatVariableListResult.fromJson(result);
   }
 
   /// Get a specific chat variable.
@@ -383,8 +380,7 @@ abstract class TomWorkspaceApi {
       'workspace.getChatVariableVce',
       {'name': name},
     );
-    if (result == null) return null;
-    return ChatVariable.fromJson(result as Map<String, dynamic>);
+    return ChatVariable.fromJson(result);
   }
 
   /// Set a chat variable value.
@@ -393,7 +389,7 @@ abstract class TomWorkspaceApi {
       'workspace.setChatVariableVce',
       {'name': name, 'value': value},
     );
-    return (result as Map<String, dynamic>)['success'] as bool? ?? false;
+    return (result)['success'] as bool? ?? false;
   }
 
   // --------------------------------------------------------------------------
@@ -405,9 +401,7 @@ abstract class TomWorkspaceApi {
     final result = await _requireAdapter.sendRequest('workspace.getConfigVce', {
       'section': section,
     });
-    return (result as Map<String, dynamic>)['config']
-            as Map<String, dynamic>? ??
-        {};
+    return (result)['config'] as Map<String, dynamic>? ?? {};
   }
 
   /// Update workspace configuration.
@@ -419,6 +413,6 @@ abstract class TomWorkspaceApi {
       'workspace.updateConfigVce',
       {'section': section, 'values': values},
     );
-    return (result as Map<String, dynamic>)['success'] as bool? ?? false;
+    return (result)['success'] as bool? ?? false;
   }
 }

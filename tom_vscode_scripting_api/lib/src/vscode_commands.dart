@@ -13,20 +13,26 @@ class VSCodeCommands {
 
   /// Execute a VS Code command
   /// Returns the result of the command execution (can be any type)
-  Future<dynamic> executeCommand(String command, {List<dynamic>? args, int timeoutSeconds = 120}) async {
-    final result = await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+  Future<dynamic> executeCommand(
+    String command, {
+    List<dynamic>? args,
+    int timeoutSeconds = 120,
+  }) async {
+    final result = await _adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         const result = await context.vscode.commands.executeCommand(
           params.command,
           ...(params.args || [])
         );
         return result;
       ''',
-      'params': {
-        'command': command,
-        'args': ?args,
+        'params': {'command': command, 'args': ?args},
       },
-    }, scriptName: 'executeCommand', timeout: Duration(seconds: timeoutSeconds));
+      scriptName: 'executeCommand',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
 
     if (result['success'] == true) {
       return result['result'];
@@ -35,16 +41,22 @@ class VSCodeCommands {
   }
 
   /// Get all registered commands
-  Future<List<String>> getCommands({bool filterInternal = false, int timeoutSeconds = 60}) async {
-    final result = await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+  Future<List<String>> getCommands({
+    bool filterInternal = false,
+    int timeoutSeconds = 60,
+  }) async {
+    final result = await _adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         const commands = await context.vscode.commands.getCommands(params.filterInternal);
         return commands;
       ''',
-      'params': {
-        'filterInternal': filterInternal,
+        'params': {'filterInternal': filterInternal},
       },
-    }, scriptName: 'getCommands', timeout: Duration(seconds: timeoutSeconds));
+      scriptName: 'getCommands',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
 
     if (result['success'] == true) {
       return (result['result'] as List).cast<String>();
@@ -57,11 +69,13 @@ class VSCodeCommands {
   /// Returns true if successful
   Future<bool> registerCommand(
     String command,
-    String handlerScript,
-    {int timeoutSeconds = 120}
-  ) async {
-    final result = await _adapter.sendRequest('executeScriptVce', {
-      'script': '''
+    String handlerScript, {
+    int timeoutSeconds = 120,
+  }) async {
+    final result = await _adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         // Register command with handler
         const disposable = context.vscode.commands.registerCommand(
           params.command,
@@ -75,11 +89,11 @@ class VSCodeCommands {
         // Store disposable for cleanup (simplified)
         return true;
       ''',
-      'params': {
-        'command': command,
-        'handlerScript': handlerScript,
+        'params': {'command': command, 'handlerScript': handlerScript},
       },
-    }, scriptName: 'registerCommand', timeout: Duration(seconds: timeoutSeconds));
+      scriptName: 'registerCommand',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
 
     return result['success'] == true;
   }
@@ -94,7 +108,8 @@ class VSCodeCommonCommands {
   static const String openFolder = 'vscode.openFolder';
 
   /// New untitled file
-  static const String newUntitledFile = 'workbench.action.files.newUntitledFile';
+  static const String newUntitledFile =
+      'workbench.action.files.newUntitledFile';
 
   /// Save file
   static const String saveFile = 'workbench.action.files.save';
@@ -127,13 +142,15 @@ class VSCodeCommonCommands {
   static const String replaceInFiles = 'workbench.action.replaceInFiles';
 
   /// Toggle terminal
-  static const String toggleTerminal = 'workbench.action.terminal.toggleTerminal';
+  static const String toggleTerminal =
+      'workbench.action.terminal.toggleTerminal';
 
   /// New terminal
   static const String newTerminal = 'workbench.action.terminal.new';
 
   /// Toggle sidebar
-  static const String toggleSidebar = 'workbench.action.toggleSidebarVisibility';
+  static const String toggleSidebar =
+      'workbench.action.toggleSidebarVisibility';
 
   /// Toggle panel
   static const String togglePanel = 'workbench.action.togglePanel';
@@ -172,8 +189,10 @@ class VSCodeCommonCommands {
   static const String reloadWindow = 'workbench.action.reloadWindow';
 
   /// Show extensions
-  static const String showExtensions = 'workbench.extensions.action.showExtensionsOnRunningBrowser';
+  static const String showExtensions =
+      'workbench.extensions.action.showExtensionsOnRunningBrowser';
 
   /// Install extension
-  static const String installExtension = 'workbench.extensions.installExtension';
+  static const String installExtension =
+      'workbench.extensions.installExtension';
 }

@@ -9,7 +9,7 @@ class TomVersionInfo {
   TomVersionInfo._();
 
   /// Package version from pubspec.yaml
-  static const String version = '1.0.1';
+  static const String version = '1.1.0';
 
   /// Build timestamp (ISO 8601 UTC format)
   static const String buildTime = '2026-02-19T19:52:56.482075Z';
@@ -29,9 +29,11 @@ class TomVersionInfo {
 
   /// Medium version string: version + build number + git commit + build time
   /// Example: "1.0.0+42.abc1234 (2026-02-01T10:30:00.000Z)"
-  static String get versionMedium => '$version+$buildNumber.$gitCommit ($buildTime)';
+  static String get versionMedium =>
+      '$version+$buildNumber.$gitCommit ($buildTime)';
 
   /// Long version string: includes all available information including SDK version
   /// Example: "1.0.0+42.abc1234 (2026-02-01T10:30:00.000Z) [Dart 3.x.x]"
-  static String get versionLong => '$version+$buildNumber.$gitCommit ($buildTime) [Dart $dartSdkVersion]';
+  static String get versionLong =>
+      '$version+$buildNumber.$gitCommit ($buildTime) [Dart $dartSdkVersion]';
 }

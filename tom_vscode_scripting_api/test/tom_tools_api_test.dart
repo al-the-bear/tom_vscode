@@ -63,7 +63,9 @@ void main() {
       });
       TomToolsApi.setAdapter(adapter);
 
-      final fromJson = (await TomToolsApi.getToolsJson()).map((t) => t.name).toList();
+      final fromJson = (await TomToolsApi.getToolsJson())
+          .map((t) => t.name)
+          .toList();
       final fromNames = await TomToolsApi.listAllowedToolNames();
 
       expect(fromNames, fromJson);

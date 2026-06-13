@@ -129,12 +129,12 @@ class CopilotResponse {
   }
 
   Map<String, dynamic> toJson() => {
-        'requestId': requestId,
-        'generatedMarkdown': generatedMarkdown,
-        'comments': ?comments,
-        'references': references,
-        'requestedAttachments': requestedAttachments,
-      };
+    'requestId': requestId,
+    'generatedMarkdown': generatedMarkdown,
+    'comments': ?comments,
+    'references': references,
+    'requestedAttachments': requestedAttachments,
+  };
 
   @override
   String toString() =>
@@ -176,22 +176,24 @@ class ConversationExchange {
       promptToCopilot: json['promptToCopilot'] as String? ?? '',
       copilotResponse: json['copilotResponse'] is Map<String, dynamic>
           ? CopilotResponse.fromJson(
-              json['copilotResponse'] as Map<String, dynamic>)
+              json['copilotResponse'] as Map<String, dynamic>,
+            )
           : CopilotResponse(requestId: '', generatedMarkdown: ''),
       localModelStats: json['localModelStats'] is Map<String, dynamic>
           ? AiTokenStats.fromJson(
-              json['localModelStats'] as Map<String, dynamic>)
+              json['localModelStats'] as Map<String, dynamic>,
+            )
           : null,
     );
   }
 
   Map<String, dynamic> toJson() => {
-        'turn': turn,
-        'timestamp': timestamp.toIso8601String(),
-        'promptToCopilot': promptToCopilot,
-        'copilotResponse': copilotResponse.toJson(),
-        'localModelStats': ?localModelStats?.toJson(),
-      };
+    'turn': turn,
+    'timestamp': timestamp.toIso8601String(),
+    'promptToCopilot': promptToCopilot,
+    'copilotResponse': copilotResponse.toJson(),
+    'localModelStats': ?localModelStats?.toJson(),
+  };
 
   @override
   String toString() =>
@@ -231,9 +233,11 @@ class ConversationResult {
       turns: json['turns'] as int? ?? 0,
       goalReached: json['goalReached'] as bool? ?? false,
       logFilePath: json['logFilePath'] as String? ?? '',
-      exchanges: (json['exchanges'] as List?)
-              ?.map((e) =>
-                  ConversationExchange.fromJson(e as Map<String, dynamic>))
+      exchanges:
+          (json['exchanges'] as List?)
+              ?.map(
+                (e) => ConversationExchange.fromJson(e as Map<String, dynamic>),
+              )
               .toList() ??
           [],
     );
@@ -444,11 +448,13 @@ class SingleTurnResult {
       localModelOutput: json['localModelOutput'] as String? ?? '',
       localModelStats: json['localModelStats'] is Map<String, dynamic>
           ? AiTokenStats.fromJson(
-              json['localModelStats'] as Map<String, dynamic>)
+              json['localModelStats'] as Map<String, dynamic>,
+            )
           : null,
       copilotResponse: json['copilotResponse'] is Map<String, dynamic>
           ? CopilotResponse.fromJson(
-              json['copilotResponse'] as Map<String, dynamic>)
+              json['copilotResponse'] as Map<String, dynamic>,
+            )
           : null,
     );
   }
@@ -708,9 +714,7 @@ class AiConversationApi {
   ///
   /// Returns a [ConversationStatus] with active/halted state, turn count,
   /// goal, profile, and pending user input count.
-  static Future<ConversationStatus> status({
-    int timeoutSeconds = 30,
-  }) async {
+  static Future<ConversationStatus> status({int timeoutSeconds = 30}) async {
     final result = await _adapter.sendRequest(
       'botConversation.statusVce',
       {},
@@ -745,9 +749,7 @@ class AiConversationApi {
   ///
   /// Returns the full merged config (defaults + send_to_chat.json overrides)
   /// including a list of available profile keys.
-  static Future<ConversationConfig> getConfig({
-    int timeoutSeconds = 30,
-  }) async {
+  static Future<ConversationConfig> getConfig({int timeoutSeconds = 30}) async {
     final result = await _adapter.sendRequest(
       'botConversation.getConfigVce',
       {},
@@ -771,8 +773,9 @@ class AiConversationApi {
     );
     final profiles = result['profiles'] as List?;
     return profiles
-            ?.map((p) =>
-                ConversationProfile.fromJson(p as Map<String, dynamic>))
+            ?.map(
+              (p) => ConversationProfile.fromJson(p as Map<String, dynamic>),
+            )
             .toList() ??
         [];
   }

@@ -1,5 +1,5 @@
 /// VS Code Helper
-/// 
+///
 /// Static helper class for common VS Code API operations.
 /// Provides simplified access to VS Code functionality for scripts.
 library;
@@ -16,15 +16,15 @@ class HelperLogging {
 }
 
 /// Helper class for VS Code API operations in scripts
-/// 
+///
 /// All methods are static and require VSCode instance initialization.
-/// 
+///
 /// Example usage:
 /// ```dart
 /// void main() {
 ///   // Initialize with adapter
 ///   VsCodeHelper.initialize(adapter);
-///   
+///
 ///   // Use helper methods
 ///   VsCodeHelper.showInfo('Hello from script!');
 /// }
@@ -52,18 +52,23 @@ class VsCodeHelper {
   }
 
   /// Get the VS Code window identifier (sessionId_machineId)
-  /// 
+  ///
   /// This unique ID identifies the current VS Code window/session and can be
   /// used for session-specific file naming (e.g., chat answer files).
   static Future<String> getWindowId({int timeoutSeconds = 30}) async {
     final vscode = getVSCode();
-    final result = await vscode.adapter.sendRequest('executeScriptVce', {
-      'script': '''
+    final result = await vscode.adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         return context.vscode.env.sessionId + '_' + context.vscode.env.machineId;
       ''',
-      'params': {},
-    }, scriptName: 'getWindowId', timeout: Duration(seconds: timeoutSeconds));
-    
+        'params': {},
+      },
+      scriptName: 'getWindowId',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
+
     // Extract result from wrapper pattern {success: true, result: ...}
     if (result.containsKey('result')) {
       return result['result']?.toString() ?? '';
@@ -72,7 +77,7 @@ class VsCodeHelper {
   }
 
   /// Generate a timestamp-based unique ID
-  /// 
+  ///
   /// Format: YYYYMMDD_HHMMSS (e.g., 20250114_153042)
   /// Useful for generating unique file names, request IDs, etc.
   static String generateTimestampId() {
@@ -87,7 +92,7 @@ class VsCodeHelper {
   }
 
   /// Generate a short timestamp ID for internal use
-  /// 
+  ///
   /// Format: yymmdd-hhmmss (e.g., 260201-143042)
   /// Used as default requestId for askCopilotChat.
   static String _generateShortTimestampId() {
@@ -106,7 +111,11 @@ class VsCodeHelper {
   // ============================================================================
 
   /// Show information message
-  static Future<String?> showInfo(String message, {List<String>? choices, int timeoutSeconds = 300}) async {
+  static Future<String?> showInfo(
+    String message, {
+    List<String>? choices,
+    int timeoutSeconds = 300,
+  }) async {
     final vscode = getVSCode();
     return await vscode.window.showInformationMessage(
       message,
@@ -116,7 +125,11 @@ class VsCodeHelper {
   }
 
   /// Show warning message
-  static Future<String?> showWarning(String message, {List<String>? choices, int timeoutSeconds = 300}) async {
+  static Future<String?> showWarning(
+    String message, {
+    List<String>? choices,
+    int timeoutSeconds = 300,
+  }) async {
     final vscode = getVSCode();
     return await vscode.window.showWarningMessage(
       message,
@@ -126,7 +139,11 @@ class VsCodeHelper {
   }
 
   /// Show error message
-  static Future<String?> showError(String message, {List<String>? choices, int timeoutSeconds = 300}) async {
+  static Future<String?> showError(
+    String message, {
+    List<String>? choices,
+    int timeoutSeconds = 300,
+  }) async {
     final vscode = getVSCode();
     return await vscode.window.showErrorMessage(
       message,
@@ -187,7 +204,9 @@ class VsCodeHelper {
   }
 
   /// Get workspace folders
-  static Future<List<dynamic>?> getWorkspaceFolders({int timeoutSeconds = 30}) async {
+  static Future<List<dynamic>?> getWorkspaceFolders({
+    int timeoutSeconds = 30,
+  }) async {
     final vscode = getVSCode();
     return await vscode.workspace.getWorkspaceFolders(
       timeoutSeconds: timeoutSeconds,
@@ -224,7 +243,11 @@ class VsCodeHelper {
   }
 
   /// Write file content
-  static Future<bool> writeFile(String path, String content, {int timeoutSeconds = 60}) async {
+  static Future<bool> writeFile(
+    String path,
+    String content, {
+    int timeoutSeconds = 60,
+  }) async {
     final vscode = getVSCode();
     return await vscode.workspace.writeFile(path, content);
   }
@@ -251,7 +274,11 @@ class VsCodeHelper {
   }
 
   /// Execute VS Code command
-  static Future<dynamic> executeCommand(String command, {List<dynamic>? args, int timeoutSeconds = 120}) async {
+  static Future<dynamic> executeCommand(
+    String command, {
+    List<dynamic>? args,
+    int timeoutSeconds = 120,
+  }) async {
     final vscode = getVSCode();
     return await vscode.commands.executeCommand(
       command,
@@ -261,7 +288,11 @@ class VsCodeHelper {
   }
 
   /// Set status bar message
-  static Future<void> setStatus(String message, {int? timeout, int timeoutSeconds = 120}) async {
+  static Future<void> setStatus(
+    String message, {
+    int? timeout,
+    int timeoutSeconds = 120,
+  }) async {
     final vscode = getVSCode();
     await vscode.window.setStatusBarMessage(
       message,
@@ -271,7 +302,11 @@ class VsCodeHelper {
   }
 
   /// Create and show output channel
-  static Future<String> createOutput(String name, {String? initialContent, int timeoutSeconds = 60}) async {
+  static Future<String> createOutput(
+    String name, {
+    String? initialContent,
+    int timeoutSeconds = 60,
+  }) async {
     final vscode = getVSCode();
     final channel = await vscode.window.createOutputChannel(
       name,
@@ -292,7 +327,11 @@ class VsCodeHelper {
   }
 
   /// Append to output channel
-  static Future<void> appendOutput(String channel, String text, {int timeoutSeconds = 60}) async {
+  static Future<void> appendOutput(
+    String channel,
+    String text, {
+    int timeoutSeconds = 60,
+  }) async {
     final vscode = getVSCode();
     await vscode.window.appendToOutputChannel(
       channel,
@@ -302,7 +341,10 @@ class VsCodeHelper {
   }
 
   /// Copy to clipboard
-  static Future<void> copyToClipboard(String text, {int timeoutSeconds = 10}) async {
+  static Future<void> copyToClipboard(
+    String text, {
+    int timeoutSeconds = 10,
+  }) async {
     final vscode = getVSCode();
     await vscode.copyToClipboard(text, timeoutSeconds: timeoutSeconds);
   }
@@ -320,7 +362,11 @@ class VsCodeHelper {
   }
 
   /// Get configuration value
-  static Future<dynamic> getConfig(String section, {String? key, int timeoutSeconds = 60}) async {
+  static Future<dynamic> getConfig(
+    String section, {
+    String? key,
+    int timeoutSeconds = 60,
+  }) async {
     final vscode = getVSCode();
     final config = await vscode.workspace.getConfiguration(
       section,
@@ -352,37 +398,53 @@ class VsCodeHelper {
   // ==========================================================================
 
   /// Run `dart pub get` in the workspace
-  static Future<bool> runPubGet({String? workingDirectory, int timeoutSeconds = 300}) async {
+  static Future<bool> runPubGet({
+    String? workingDirectory,
+    int timeoutSeconds = 300,
+  }) async {
     final vscode = getVSCode();
     return await vscode.commands.executeCommand(
-      'dart.pub.get',
-      args: workingDirectory != null ? [workingDirectory] : null,
-      timeoutSeconds: timeoutSeconds,
-    ) != null;
+          'dart.pub.get',
+          args: workingDirectory != null ? [workingDirectory] : null,
+          timeoutSeconds: timeoutSeconds,
+        ) !=
+        null;
   }
 
   /// Run `dart pub upgrade` in the workspace
-  static Future<bool> runPubUpgrade({String? workingDirectory, int timeoutSeconds = 300}) async {
+  static Future<bool> runPubUpgrade({
+    String? workingDirectory,
+    int timeoutSeconds = 300,
+  }) async {
     final vscode = getVSCode();
     return await vscode.commands.executeCommand(
-      'dart.pub.upgrade',
-      args: workingDirectory != null ? [workingDirectory] : null,
-      timeoutSeconds: timeoutSeconds,
-    ) != null;
+          'dart.pub.upgrade',
+          args: workingDirectory != null ? [workingDirectory] : null,
+          timeoutSeconds: timeoutSeconds,
+        ) !=
+        null;
   }
 
   /// Add a dependency to pubspec.yaml
-  static Future<bool> addDependency(String name, {String? version, int timeoutSeconds = 180}) async {
+  static Future<bool> addDependency(
+    String name, {
+    String? version,
+    int timeoutSeconds = 180,
+  }) async {
     final vscode = getVSCode();
     return await vscode.commands.executeCommand(
-      'dart.addDependency',
-      args: [name, ?version],
-      timeoutSeconds: timeoutSeconds,
-    ) != null;
+          'dart.addDependency',
+          args: [name, ?version],
+          timeoutSeconds: timeoutSeconds,
+        ) !=
+        null;
   }
 
   /// Get diagnostics (errors/warnings) for a file
-  static Future<List<Map<String, dynamic>>> getDiagnostics(String uri, {int timeoutSeconds = 120}) async {
+  static Future<List<Map<String, dynamic>>> getDiagnostics(
+    String uri, {
+    int timeoutSeconds = 120,
+  }) async {
     final vscode = getVSCode();
     final result = await vscode.commands.executeCommand(
       'vscode.executeDiagnosticProvider',
@@ -393,47 +455,59 @@ class VsCodeHelper {
   }
 
   /// Format a Dart document
-  static Future<bool> formatDocument(String uri, {int timeoutSeconds = 180}) async {
+  static Future<bool> formatDocument(
+    String uri, {
+    int timeoutSeconds = 180,
+  }) async {
     final vscode = getVSCode();
     return await vscode.commands.executeCommand(
-      'editor.action.formatDocument',
-      args: [uri],
-      timeoutSeconds: timeoutSeconds,
-    ) != null;
+          'editor.action.formatDocument',
+          args: [uri],
+          timeoutSeconds: timeoutSeconds,
+        ) !=
+        null;
   }
 
   /// Organize imports in a Dart file
-  static Future<bool> organizeImports(String uri, {int timeoutSeconds = 180}) async {
+  static Future<bool> organizeImports(
+    String uri, {
+    int timeoutSeconds = 180,
+  }) async {
     final vscode = getVSCode();
     return await vscode.commands.executeCommand(
-      'editor.action.organizeImports',
-      args: [uri],
-      timeoutSeconds: timeoutSeconds,
-    ) != null;
+          'editor.action.organizeImports',
+          args: [uri],
+          timeoutSeconds: timeoutSeconds,
+        ) !=
+        null;
   }
 
   /// Trigger Flutter hot reload
   static Future<bool> hotReload({int timeoutSeconds = 180}) async {
     final vscode = getVSCode();
     return await vscode.commands.executeCommand(
-      'flutter.hotReload',
-      args: null,
-      timeoutSeconds: timeoutSeconds,
-    ) != null;
+          'flutter.hotReload',
+          args: null,
+          timeoutSeconds: timeoutSeconds,
+        ) !=
+        null;
   }
 
   /// Trigger Flutter hot restart
   static Future<bool> hotRestart({int timeoutSeconds = 240}) async {
     final vscode = getVSCode();
     return await vscode.commands.executeCommand(
-      'flutter.hotRestart',
-      args: null,
-      timeoutSeconds: timeoutSeconds,
-    ) != null;
+          'flutter.hotRestart',
+          args: null,
+          timeoutSeconds: timeoutSeconds,
+        ) !=
+        null;
   }
 
   /// Get list of Flutter devices
-  static Future<List<Map<String, dynamic>>> getFlutterDevices({int timeoutSeconds = 180}) async {
+  static Future<List<Map<String, dynamic>>> getFlutterDevices({
+    int timeoutSeconds = 180,
+  }) async {
     final vscode = getVSCode();
     final result = await vscode.commands.executeCommand(
       'flutter.selectDevice',
@@ -444,13 +518,17 @@ class VsCodeHelper {
   }
 
   /// Run Flutter app on specified device
-  static Future<bool> runFlutterApp({String? deviceId, int timeoutSeconds = 420}) async {
+  static Future<bool> runFlutterApp({
+    String? deviceId,
+    int timeoutSeconds = 420,
+  }) async {
     final vscode = getVSCode();
     return await vscode.commands.executeCommand(
-      'flutter.run',
-      args: deviceId != null ? [deviceId] : null,
-      timeoutSeconds: timeoutSeconds,
-    ) != null;
+          'flutter.run',
+          args: deviceId != null ? [deviceId] : null,
+          timeoutSeconds: timeoutSeconds,
+        ) !=
+        null;
   }
 
   // ==========================================================================
@@ -458,20 +536,26 @@ class VsCodeHelper {
   // ==========================================================================
 
   /// Ask GitHub Copilot a question (D4rt-safe version)
-  /// 
+  ///
   /// This method performs the entire LM request in JavaScript to avoid
   /// D4rt deserialization issues with `List<LanguageModelChat>`.
-  static Future<String> askCopilot(String prompt, {String? context, int timeoutSeconds = 300}) async {
+  static Future<String> askCopilot(
+    String prompt, {
+    String? context,
+    int timeoutSeconds = 300,
+  }) async {
     final vscode = getVSCode();
-    
+
     // Build the full prompt with context
-    final fullPrompt = context != null 
+    final fullPrompt = context != null
         ? 'Context: $context\n\n$prompt'
         : prompt;
-    
+
     // Execute everything in JavaScript to avoid D4rt list deserialization issues
-    final result = await vscode.adapter.sendRequest('executeScriptVce', {
-      'script': '''
+    final result = await vscode.adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         // Try to get models - first without filter, then with vendor filter
         let models = await context.vscode.lm.selectChatModels({});
         if (models.length === 0) {
@@ -506,9 +590,12 @@ class VsCodeHelper {
         }
         throw lastError || new Error('All models failed');
       ''',
-      'params': {'prompt': fullPrompt},
-    }, scriptName: 'askCopilot', timeout: Duration(seconds: timeoutSeconds));
-    
+        'params': {'prompt': fullPrompt},
+      },
+      scriptName: 'askCopilot',
+      timeout: Duration(seconds: timeoutSeconds),
+    );
+
     // Result is always Map - extract the result
     if (result.containsKey('result')) {
       return result['result']?.toString() ?? '';
@@ -522,17 +609,17 @@ class VsCodeHelper {
   }
 
   /// Ask Copilot Chat a question and wait for the response
-  /// 
+  ///
   /// This method sends the prompt to the Copilot Chat UI (visible to user)
   /// and polls for the response. The model is asked to write its response
   /// to `data[generatedMarkdown]` and any comments to `data[comments]`.
-  /// 
+  ///
   /// Benefits over direct LM API:
   /// - User can see and control the chat
   /// - Chat has access to workspace tools (@workspace, file reading, etc.)
   /// - User can manually select the model
-  /// 
-  /// [prompt] - The question or instruction to send (if customResponseInstructions is true, 
+  ///
+  /// [prompt] - The question or instruction to send (if customResponseInstructions is true,
   ///            prompt should already contain complete instructions for how to respond)
   /// [requestId] - Unique identifier for this request (used in answer file).
   ///               If not provided, defaults to timestamp format: yymmdd-hhmmss
@@ -540,7 +627,7 @@ class VsCodeHelper {
   /// [timeoutSeconds] - Maximum wait time (default: 7200 = 2 hours)
   /// [customResponseInstructions] - If true, prompt already contains response instructions,
   ///                                 don't add default suffix (default: false)
-  /// 
+  ///
   /// Returns a Map with the following keys:
   /// - 'generatedMarkdown': String - The main response text (always present)
   /// - 'comments': String - Optional additional notes or metadata
@@ -554,20 +641,22 @@ class VsCodeHelper {
     bool customResponseInstructions = false,
   }) async {
     final vscode = getVSCode();
-    
+
     // Generate requestId from timestamp if not provided
     final effectiveRequestId = requestId ?? _generateShortTimestampId();
-    
+
     // Get windowId for file naming
     final windowId = await getWindowId();
-    
+
     // Use absolute path in ~/.tom/copilot-chat-answers/ for reliability
     // This avoids workspace folder detection issues
     final answerFileName = '${windowId}_answer.json';
-    
+
     // Build the suffix that instructs the model to write to the answer file
     // Skip if caller provided custom response instructions
-    final suffix = customResponseInstructions ? '' : '''
+    final suffix = customResponseInstructions
+        ? ''
+        : '''
 
 ---
 IMPORTANT: When you have completed your response, write your answer to the file:
@@ -592,10 +681,12 @@ Request ID: $effectiveRequestId
 ''';
 
     final fullPrompt = '$prompt$suffix';
-    
+
     // Delete existing answer file before sending (to ensure we detect a fresh file)
-    await vscode.adapter.sendRequest('executeScriptVce', {
-      'script': '''
+    await vscode.adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         const fs = context.require('fs');
         const path = context.require('path');
         const os = context.require('os');
@@ -616,34 +707,45 @@ Request ID: $effectiveRequestId
         }
         return { deleted: false, path: filePath };
       ''',
-      'params': {'answerFileName': answerFileName},
-    }, scriptName: 'askCopilotChat.deleteOldAnswer', timeout: Duration(seconds: 30));
-    
+        'params': {'answerFileName': answerFileName},
+      },
+      scriptName: 'askCopilotChat.deleteOldAnswer',
+      timeout: Duration(seconds: 30),
+    );
+
     // Send to Copilot Chat
-    await vscode.adapter.sendRequest('executeScriptVce', {
-      'script': '''
+    await vscode.adapter.sendRequest(
+      'executeScriptVce',
+      {
+        'script': '''
         await context.vscode.commands.executeCommand('workbench.action.chat.open', {
           query: params.prompt
         });
         return 'sent';
       ''',
-      'params': {'prompt': fullPrompt},
-    }, scriptName: 'askCopilotChat.send', timeout: Duration(seconds: 120));
-    
-    if (HelperLogging.debugLogging) print('[COPSND] Sent to Copilot Chat, waiting for response...');
-    
+        'params': {'prompt': fullPrompt},
+      },
+      scriptName: 'askCopilotChat.send',
+      timeout: Duration(seconds: 120),
+    );
+
+    if (HelperLogging.debugLogging)
+      print('[COPSND] Sent to Copilot Chat, waiting for response...');
+
     // Poll for response
     final startTime = DateTime.now();
     final timeout = Duration(seconds: timeoutSeconds);
     final pollInterval = Duration(seconds: pollIntervalSeconds);
-    
+
     while (DateTime.now().difference(startTime) < timeout) {
       // Wait before polling
       await Future.delayed(pollInterval);
-      
+
       // Check for response in ~/.tom/copilot-chat-answers/ using Node.js fs
-      final result = await vscode.adapter.sendRequest('executeScriptVce', {
-        'script': '''
+      final result = await vscode.adapter.sendRequest(
+        'executeScriptVce',
+        {
+          'script': '''
           const fs = context.require('fs');
           const path = context.require('path');
           const os = context.require('os');
@@ -695,38 +797,49 @@ Request ID: $effectiveRequestId
             return { found: false, reason: 'error: ' + e.message };
           }
         ''',
-        'params': {
-          'requestId': effectiveRequestId,
-          'answerFileName': answerFileName,
+          'params': {
+            'requestId': effectiveRequestId,
+            'answerFileName': answerFileName,
+          },
         },
-      }, scriptName: 'askCopilotChat.poll', timeout: Duration(seconds: 120));
-      
+        scriptName: 'askCopilotChat.poll',
+        timeout: Duration(seconds: 120),
+      );
+
       // The result is wrapped: {success: true, result: {found: true, ...}}
       // Extract the inner result - result is always Map<String, dynamic>
       final innerResult = result['result'];
-      
+
       if (innerResult is Map && innerResult['found'] == true) {
-        if (HelperLogging.debugLogging) print('[COPRCV] Response received from Copilot Chat');
+        if (HelperLogging.debugLogging)
+          print('[COPRCV] Response received from Copilot Chat');
         // Extract references and requestedAttachments as List<String>
         final references = innerResult['references'];
         final requestedAttachments = innerResult['requestedAttachments'];
         return {
-          'generatedMarkdown': innerResult['generatedMarkdown']?.toString() ?? '',
+          'generatedMarkdown':
+              innerResult['generatedMarkdown']?.toString() ?? '',
           'comments': innerResult['comments']?.toString() ?? '',
-          'references': references is List ? references.map((e) => e.toString()).toList() : <String>[],
-          'requestedAttachments': requestedAttachments is List ? requestedAttachments.map((e) => e.toString()).toList() : <String>[],
+          'references': references is List
+              ? references.map((e) => e.toString()).toList()
+              : <String>[],
+          'requestedAttachments': requestedAttachments is List
+              ? requestedAttachments.map((e) => e.toString()).toList()
+              : <String>[],
         };
       }
     }
-    
-    throw Exception('Timeout waiting for Copilot Chat response after $timeoutSeconds seconds');
+
+    throw Exception(
+      'Timeout waiting for Copilot Chat response after $timeoutSeconds seconds',
+    );
   }
 
   /// Ask a specific language model a question by model ID
-  /// 
+  ///
   /// Use this when you need to specify a particular model rather than
   /// using the default first available Copilot model.
-  /// 
+  ///
   /// If modelId is 'auto' or empty, uses the first available model.
   static Future<String> askModel(
     String modelId,
@@ -736,17 +849,17 @@ Request ID: $effectiveRequestId
     int timeoutSeconds = 300,
   }) async {
     final vscode = getVSCode();
-    
+
     // Get all models for the vendor
     final allModels = await vscode.lm.selectChatModels(
       vendor: vendor,
       timeoutSeconds: timeoutSeconds,
     );
-    
+
     if (allModels.isEmpty) {
       throw Exception('No models available for vendor "$vendor"');
     }
-    
+
     // If auto or empty, use first available model
     if (modelId == 'auto' || modelId.isEmpty) {
       final messages = <LanguageModelChatMessage>[
@@ -760,7 +873,7 @@ Request ID: $effectiveRequestId
       );
       return response.text;
     }
-    
+
     // Find the model with matching ID using index-based loop (D4rt compatible)
     LanguageModelChat? model;
     var i = 0;
@@ -771,7 +884,7 @@ Request ID: $effectiveRequestId
       }
       i = i + 1;
     }
-    
+
     if (model == null) {
       // Build available list with index-based loop
       final availableIds = <String>[];
@@ -780,7 +893,9 @@ Request ID: $effectiveRequestId
         availableIds.add(allModels[i].id);
         i = i + 1;
       }
-      throw Exception('Model "$modelId" not available. Available: ${availableIds.join(', ')}');
+      throw Exception(
+        'Model "$modelId" not available. Available: ${availableIds.join(', ')}',
+      );
     }
 
     final messages = <LanguageModelChatMessage>[
@@ -797,8 +912,13 @@ Request ID: $effectiveRequestId
   }
 
   /// Get code suggestion from Copilot
-  static Future<String> getCopilotSuggestion(String code, String instruction, {int timeoutSeconds = 300}) async {
-    final prompt = '''
+  static Future<String> getCopilotSuggestion(
+    String code,
+    String instruction, {
+    int timeoutSeconds = 300,
+  }) async {
+    final prompt =
+        '''
 Given the following code:
 
 ```
@@ -813,8 +933,12 @@ Please provide the modified code.
   }
 
   /// Get code explanation from Copilot
-  static Future<String> explainCode(String code, {int timeoutSeconds = 300}) async {
-    final prompt = '''
+  static Future<String> explainCode(
+    String code, {
+    int timeoutSeconds = 300,
+  }) async {
+    final prompt =
+        '''
 Please explain the following code in detail:
 
 ```
@@ -825,8 +949,12 @@ $code
   }
 
   /// Get code review from Copilot
-  static Future<String> reviewCode(String code, {int timeoutSeconds = 300}) async {
-    final prompt = '''
+  static Future<String> reviewCode(
+    String code, {
+    int timeoutSeconds = 300,
+  }) async {
+    final prompt =
+        '''
 Please review the following code and provide suggestions for improvement:
 
 ```
@@ -843,8 +971,12 @@ Focus on:
   }
 
   /// Generate tests for code using Copilot
-  static Future<String> generateTests(String code, {int timeoutSeconds = 300}) async {
-    final prompt = '''
+  static Future<String> generateTests(
+    String code, {
+    int timeoutSeconds = 300,
+  }) async {
+    final prompt =
+        '''
 Please generate comprehensive unit tests for the following code:
 
 ```
@@ -857,8 +989,13 @@ Use appropriate testing framework and cover edge cases.
   }
 
   /// Get fix suggestions from Copilot
-  static Future<String> fixCode(String code, String error, {int timeoutSeconds = 300}) async {
-    final prompt = '''
+  static Future<String> fixCode(
+    String code,
+    String error, {
+    int timeoutSeconds = 300,
+  }) async {
+    final prompt =
+        '''
 The following code has an error:
 
 ```
@@ -890,7 +1027,9 @@ Please provide a fixed version of the code.
   }
 
   /// Get list of available Copilot models
-  static Future<List<LanguageModelChat>> getCopilotModels({int timeoutSeconds = 120}) async {
+  static Future<List<LanguageModelChat>> getCopilotModels({
+    int timeoutSeconds = 120,
+  }) async {
     final vscode = getVSCode();
     return await vscode.lm.selectChatModels(
       vendor: 'copilot',
@@ -909,24 +1048,25 @@ Please provide a fixed version of the code.
     int startChar,
     int endLine,
     int endChar,
-    String text,
-    {int timeoutSeconds = 180}
-  ) async {
+    String text, {
+    int timeoutSeconds = 180,
+  }) async {
     final vscode = getVSCode();
     return await vscode.commands.executeCommand(
-      'vscode.executeDocumentEdit',
-      args: [
-        uri,
-        {
-          'range': {
-            'start': {'line': startLine, 'character': startChar},
-            'end': {'line': endLine, 'character': endChar},
-          },
-          'newText': text,
-        }
-      ],
-      timeoutSeconds: timeoutSeconds,
-    ) != null;
+          'vscode.executeDocumentEdit',
+          args: [
+            uri,
+            {
+              'range': {
+                'start': {'line': startLine, 'character': startChar},
+                'end': {'line': endLine, 'character': endChar},
+              },
+              'newText': text,
+            },
+          ],
+          timeoutSeconds: timeoutSeconds,
+        ) !=
+        null;
   }
 
   /// Insert a code snippet
@@ -934,31 +1074,36 @@ Please provide a fixed version of the code.
     String uri,
     int line,
     int character,
-    String snippet,
-    {int timeoutSeconds = 180}
-  ) async {
+    String snippet, {
+    int timeoutSeconds = 180,
+  }) async {
     final vscode = getVSCode();
     return await vscode.commands.executeCommand(
-      'editor.action.insertSnippet',
-      args: [
-        {
-          'uri': uri,
-          'position': {'line': line, 'character': character},
-          'snippet': snippet,
-        }
-      ],
-      timeoutSeconds: timeoutSeconds,
-    ) != null;
+          'editor.action.insertSnippet',
+          args: [
+            {
+              'uri': uri,
+              'position': {'line': line, 'character': character},
+              'snippet': snippet,
+            },
+          ],
+          timeoutSeconds: timeoutSeconds,
+        ) !=
+        null;
   }
 
   /// Apply workspace edit
-  static Future<bool> applyWorkspaceEdit(List<Map<String, dynamic>> edits, {int timeoutSeconds = 180}) async {
+  static Future<bool> applyWorkspaceEdit(
+    List<Map<String, dynamic>> edits, {
+    int timeoutSeconds = 180,
+  }) async {
     final vscode = getVSCode();
     return await vscode.commands.executeCommand(
-      'vscode.workspace.applyEdit',
-      args: [edits],
-      timeoutSeconds: timeoutSeconds,
-    ) != null;
+          'vscode.workspace.applyEdit',
+          args: [edits],
+          timeoutSeconds: timeoutSeconds,
+        ) !=
+        null;
   }
 
   /// Get current selection
@@ -974,20 +1119,21 @@ Please provide a fixed version of the code.
     int startLine,
     int startChar,
     int endLine,
-    int endChar,
-    {int timeoutSeconds = 120}
-  ) async {
+    int endChar, {
+    int timeoutSeconds = 120,
+  }) async {
     final vscode = getVSCode();
     return await vscode.commands.executeCommand(
-      'editor.action.select',
-      args: [
-        {
-          'start': {'line': startLine, 'character': startChar},
-          'end': {'line': endLine, 'character': endChar},
-        }
-      ],
-      timeoutSeconds: timeoutSeconds,
-    ) != null;
+          'editor.action.select',
+          args: [
+            {
+              'start': {'line': startLine, 'character': startChar},
+              'end': {'line': endLine, 'character': endChar},
+            },
+          ],
+          timeoutSeconds: timeoutSeconds,
+        ) !=
+        null;
   }
 
   /// Get cursor position
@@ -1004,7 +1150,11 @@ Please provide a fixed version of the code.
   // ==========================================================================
 
   /// Get project files matching pattern with smart filtering
-  static Future<List<String>> getProjectFiles(String pattern, {bool excludeTests = true, int timeoutSeconds = 120}) async {
+  static Future<List<String>> getProjectFiles(
+    String pattern, {
+    bool excludeTests = true,
+    int timeoutSeconds = 120,
+  }) async {
     final exclude = excludeTests
         ? '**/test/**,**/tests/**,**/.dart_tool/**,**/build/**'
         : '**/.dart_tool/**,**/build/**';
@@ -1034,7 +1184,10 @@ Please provide a fixed version of the code.
     // Check for pubspec.yaml
     final pubspecPath = '$root/pubspec.yaml';
     if (await fileExists(pubspecPath, timeoutSeconds: timeoutSeconds)) {
-      final content = await readFile(pubspecPath, timeoutSeconds: timeoutSeconds);
+      final content = await readFile(
+        pubspecPath,
+        timeoutSeconds: timeoutSeconds,
+      );
       if (content.contains('flutter:')) {
         return 'flutter';
       }
@@ -1042,9 +1195,12 @@ Please provide a fixed version of the code.
     }
 
     // Check for other project types
-    if (await fileExists('$root/package.json', timeoutSeconds: timeoutSeconds)) return 'node';
-    if (await fileExists('$root/pom.xml', timeoutSeconds: timeoutSeconds)) return 'java';
-    if (await fileExists('$root/Cargo.toml', timeoutSeconds: timeoutSeconds)) return 'rust';
+    if (await fileExists('$root/package.json', timeoutSeconds: timeoutSeconds))
+      return 'node';
+    if (await fileExists('$root/pom.xml', timeoutSeconds: timeoutSeconds))
+      return 'java';
+    if (await fileExists('$root/Cargo.toml', timeoutSeconds: timeoutSeconds))
+      return 'rust';
 
     return 'unknown';
   }
@@ -1068,7 +1224,7 @@ Please provide a fixed version of the code.
           'exclude': ?excludePattern,
           'isRegex': isRegex,
           'maxResults': ?maxResults,
-        }
+        },
       ],
       timeoutSeconds: timeoutSeconds,
     );
@@ -1086,18 +1242,19 @@ Please provide a fixed version of the code.
   }) async {
     final vscode = getVSCode();
     return await vscode.commands.executeCommand(
-      'workbench.action.replaceInFiles',
-      args: [
-        {
-          'query': query,
-          'replace': replacement,
-          'include': ?includePattern,
-          'exclude': ?excludePattern,
-          'isRegex': isRegex,
-        }
-      ],
-      timeoutSeconds: timeoutSeconds,
-    ) != null;
+          'workbench.action.replaceInFiles',
+          args: [
+            {
+              'query': query,
+              'replace': replacement,
+              'include': ?includePattern,
+              'exclude': ?excludePattern,
+              'isRegex': isRegex,
+            },
+          ],
+          timeoutSeconds: timeoutSeconds,
+        ) !=
+        null;
   }
 
   // ==========================================================================
@@ -1105,7 +1262,10 @@ Please provide a fixed version of the code.
   // ==========================================================================
 
   /// Run tests in specified file or workspace
-  static Future<Map<String, dynamic>> runTests({String? uri, int timeoutSeconds = 420}) async {
+  static Future<Map<String, dynamic>> runTests({
+    String? uri,
+    int timeoutSeconds = 420,
+  }) async {
     final vscode = getVSCode();
     final result = await vscode.commands.executeCommand(
       'dart.runAllTests',
@@ -1116,7 +1276,10 @@ Please provide a fixed version of the code.
   }
 
   /// Run tests with coverage
-  static Future<Map<String, dynamic>> runTestsWithCoverage({String? uri, int timeoutSeconds = 600}) async {
+  static Future<Map<String, dynamic>> runTestsWithCoverage({
+    String? uri,
+    int timeoutSeconds = 600,
+  }) async {
     final vscode = getVSCode();
     final result = await vscode.commands.executeCommand(
       'dart.runAllTestsWithCoverage',
@@ -1127,7 +1290,9 @@ Please provide a fixed version of the code.
   }
 
   /// Get test results
-  static Future<List<Map<String, dynamic>>> getTestResults({int timeoutSeconds = 240}) async {
+  static Future<List<Map<String, dynamic>>> getTestResults({
+    int timeoutSeconds = 240,
+  }) async {
     final vscode = getVSCode();
     final result = await vscode.commands.executeCommand(
       'testing.getResults',
@@ -1138,51 +1303,68 @@ Please provide a fixed version of the code.
   }
 
   /// Start debugging with configuration
-  static Future<bool> startDebugging({Map<String, dynamic>? config, int timeoutSeconds = 300}) async {
+  static Future<bool> startDebugging({
+    Map<String, dynamic>? config,
+    int timeoutSeconds = 300,
+  }) async {
     final vscode = getVSCode();
     return await vscode.commands.executeCommand(
-      'workbench.action.debug.start',
-      args: config != null ? [config] : null,
-      timeoutSeconds: timeoutSeconds,
-    ) != null;
+          'workbench.action.debug.start',
+          args: config != null ? [config] : null,
+          timeoutSeconds: timeoutSeconds,
+        ) !=
+        null;
   }
 
   /// Stop current debugging session
   static Future<bool> stopDebugging({int timeoutSeconds = 180}) async {
     final vscode = getVSCode();
     return await vscode.commands.executeCommand(
-      'workbench.action.debug.stop',
-      args: null,
-      timeoutSeconds: timeoutSeconds,
-    ) != null;
+          'workbench.action.debug.stop',
+          args: null,
+          timeoutSeconds: timeoutSeconds,
+        ) !=
+        null;
   }
 
   /// Set breakpoint at line
-  static Future<bool> setBreakpoint(String uri, int line, {int timeoutSeconds = 180}) async {
+  static Future<bool> setBreakpoint(
+    String uri,
+    int line, {
+    int timeoutSeconds = 180,
+  }) async {
     final vscode = getVSCode();
     return await vscode.commands.executeCommand(
-      'editor.debug.action.toggleBreakpoint',
-      args: [
-        {'uri': uri, 'line': line}
-      ],
-      timeoutSeconds: timeoutSeconds,
-    ) != null;
+          'editor.debug.action.toggleBreakpoint',
+          args: [
+            {'uri': uri, 'line': line},
+          ],
+          timeoutSeconds: timeoutSeconds,
+        ) !=
+        null;
   }
 
   /// Remove breakpoint at line
-  static Future<bool> removeBreakpoint(String uri, int line, {int timeoutSeconds = 180}) async {
+  static Future<bool> removeBreakpoint(
+    String uri,
+    int line, {
+    int timeoutSeconds = 180,
+  }) async {
     final vscode = getVSCode();
     return await vscode.commands.executeCommand(
-      'editor.debug.action.removeBreakpoint',
-      args: [
-        {'uri': uri, 'line': line}
-      ],
-      timeoutSeconds: timeoutSeconds,
-    ) != null;
+          'editor.debug.action.removeBreakpoint',
+          args: [
+            {'uri': uri, 'line': line},
+          ],
+          timeoutSeconds: timeoutSeconds,
+        ) !=
+        null;
   }
 
   /// Get all breakpoints
-  static Future<List<Map<String, dynamic>>> getBreakpoints({int timeoutSeconds = 180}) async {
+  static Future<List<Map<String, dynamic>>> getBreakpoints({
+    int timeoutSeconds = 180,
+  }) async {
     final vscode = getVSCode();
     final result = await vscode.commands.executeCommand(
       'debug.getBreakpoints',
@@ -1198,7 +1380,7 @@ Please provide a fixed version of the code.
 // ============================================================================
 
 /// Progress indicator helper
-/// 
+///
 /// Named VsProgress to avoid conflict with dcli's Progress class.
 class VsProgress {
   final String channelName;

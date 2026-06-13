@@ -301,7 +301,7 @@ abstract class TomTodoApi {
     final result = await _requireAdapter.sendRequest('todo.listFilesVce', {
       'questId': questId,
     });
-    return TodoFileListResult.fromJson(result as Map<String, dynamic>);
+    return TodoFileListResult.fromJson(result);
   }
 
   /// List todos from a specific quest (optionally from a specific file).
@@ -311,9 +311,9 @@ abstract class TomTodoApi {
   }) async {
     final result = await _requireAdapter.sendRequest('todo.listQuestVce', {
       'questId': questId,
-      if (file != null) 'file': file,
+      'file': ?file,
     });
-    return TodoListResult.fromJson(result as Map<String, dynamic>);
+    return TodoListResult.fromJson(result);
   }
 
   /// Get a specific todo item by ID from a quest.
@@ -325,10 +325,9 @@ abstract class TomTodoApi {
     final result = await _requireAdapter.sendRequest('todo.getQuestVce', {
       'questId': questId,
       'todoId': todoId,
-      if (file != null) 'file': file,
+      'file': ?file,
     });
-    if (result == null) return null;
-    return TodoItem.fromJson(result as Map<String, dynamic>);
+    return TodoItem.fromJson(result);
   }
 
   /// Create a new todo in a quest file.
@@ -340,9 +339,9 @@ abstract class TomTodoApi {
     final result = await _requireAdapter.sendRequest('todo.createQuestVce', {
       'questId': questId,
       'todo': todo.toJson(),
-      if (file != null) 'file': file,
+      'file': ?file,
     });
-    return TodoItem.fromJson(result as Map<String, dynamic>);
+    return TodoItem.fromJson(result);
   }
 
   /// Update an existing todo in a quest.
@@ -354,9 +353,9 @@ abstract class TomTodoApi {
     final result = await _requireAdapter.sendRequest('todo.updateQuestVce', {
       'questId': questId,
       'todo': todo.toJson(),
-      if (file != null) 'file': file,
+      'file': ?file,
     });
-    return TodoItem.fromJson(result as Map<String, dynamic>);
+    return TodoItem.fromJson(result);
   }
 
   /// Delete a todo from a quest.
@@ -368,9 +367,9 @@ abstract class TomTodoApi {
     final result = await _requireAdapter.sendRequest('todo.deleteQuestVce', {
       'questId': questId,
       'todoId': todoId,
-      if (file != null) 'file': file,
+      'file': ?file,
     });
-    return (result as Map<String, dynamic>)['success'] as bool? ?? false;
+    return (result)['success'] as bool? ?? false;
   }
 
   // --------------------------------------------------------------------------
@@ -383,15 +382,15 @@ abstract class TomTodoApi {
       'todo.listWorkspaceFilesVce',
       {},
     );
-    return TodoFileListResult.fromJson(result as Map<String, dynamic>);
+    return TodoFileListResult.fromJson(result);
   }
 
   /// List todos from workspace-level files.
   static Future<TodoListResult> listWorkspaceTodos({String? file}) async {
     final result = await _requireAdapter.sendRequest('todo.listWorkspaceVce', {
-      if (file != null) 'file': file,
+      'file': ?file,
     });
-    return TodoListResult.fromJson(result as Map<String, dynamic>);
+    return TodoListResult.fromJson(result);
   }
 
   /// Get a specific todo item by ID from workspace-level.
@@ -401,10 +400,9 @@ abstract class TomTodoApi {
   }) async {
     final result = await _requireAdapter.sendRequest('todo.getWorkspaceVce', {
       'todoId': todoId,
-      if (file != null) 'file': file,
+      'file': ?file,
     });
-    if (result == null) return null;
-    return TodoItem.fromJson(result as Map<String, dynamic>);
+    return TodoItem.fromJson(result);
   }
 
   /// Create a new todo in workspace-level file.
@@ -414,9 +412,9 @@ abstract class TomTodoApi {
   }) async {
     final result = await _requireAdapter.sendRequest(
       'todo.createWorkspaceVce',
-      {'todo': todo.toJson(), if (file != null) 'file': file},
+      {'todo': todo.toJson(), 'file': ?file},
     );
-    return TodoItem.fromJson(result as Map<String, dynamic>);
+    return TodoItem.fromJson(result);
   }
 
   /// Update an existing todo in workspace-level.
@@ -426,18 +424,18 @@ abstract class TomTodoApi {
   }) async {
     final result = await _requireAdapter.sendRequest(
       'todo.updateWorkspaceVce',
-      {'todo': todo.toJson(), if (file != null) 'file': file},
+      {'todo': todo.toJson(), 'file': ?file},
     );
-    return TodoItem.fromJson(result as Map<String, dynamic>);
+    return TodoItem.fromJson(result);
   }
 
   /// Delete a todo from workspace-level.
   static Future<bool> deleteWorkspaceTodo(String todoId, {String? file}) async {
     final result = await _requireAdapter.sendRequest(
       'todo.deleteWorkspaceVce',
-      {'todoId': todoId, if (file != null) 'file': file},
+      {'todoId': todoId, 'file': ?file},
     );
-    return (result as Map<String, dynamic>)['success'] as bool? ?? false;
+    return (result)['success'] as bool? ?? false;
   }
 
   // --------------------------------------------------------------------------
@@ -447,7 +445,7 @@ abstract class TomTodoApi {
   /// List all session (window) todos.
   static Future<TodoListResult> listSessionTodos() async {
     final result = await _requireAdapter.sendRequest('todo.listSessionVce', {});
-    return TodoListResult.fromJson(result as Map<String, dynamic>);
+    return TodoListResult.fromJson(result);
   }
 
   /// Get a specific session todo by ID.
@@ -455,8 +453,7 @@ abstract class TomTodoApi {
     final result = await _requireAdapter.sendRequest('todo.getSessionVce', {
       'todoId': todoId,
     });
-    if (result == null) return null;
-    return TodoItem.fromJson(result as Map<String, dynamic>);
+    return TodoItem.fromJson(result);
   }
 
   /// Create a new session todo.
@@ -464,7 +461,7 @@ abstract class TomTodoApi {
     final result = await _requireAdapter.sendRequest('todo.createSessionVce', {
       'todo': todo.toJson(),
     });
-    return TodoItem.fromJson(result as Map<String, dynamic>);
+    return TodoItem.fromJson(result);
   }
 
   /// Update an existing session todo.
@@ -472,7 +469,7 @@ abstract class TomTodoApi {
     final result = await _requireAdapter.sendRequest('todo.updateSessionVce', {
       'todo': todo.toJson(),
     });
-    return TodoItem.fromJson(result as Map<String, dynamic>);
+    return TodoItem.fromJson(result);
   }
 
   /// Delete a session todo.
@@ -480,7 +477,7 @@ abstract class TomTodoApi {
     final result = await _requireAdapter.sendRequest('todo.deleteSessionVce', {
       'todoId': todoId,
     });
-    return (result as Map<String, dynamic>)['success'] as bool? ?? false;
+    return (result)['success'] as bool? ?? false;
   }
 
   // --------------------------------------------------------------------------
@@ -499,8 +496,8 @@ abstract class TomTodoApi {
       'includeQuest': includeQuest,
       'includeWorkspace': includeWorkspace,
       'includeSession': includeSession,
-      if (questId != null) 'questId': questId,
+      'questId': ?questId,
     });
-    return TodoListResult.fromJson(result as Map<String, dynamic>);
+    return TodoListResult.fromJson(result);
   }
 }

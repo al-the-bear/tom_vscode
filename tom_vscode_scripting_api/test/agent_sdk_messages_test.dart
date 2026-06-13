@@ -166,10 +166,9 @@ void main() {
 
       expect(msg, isA<SdkPartialAssistantMessage>());
       expect(msg.toJson(), equals(json));
-      expect(
-        (msg as SdkPartialAssistantMessage).event,
-        {'type': 'content_block_delta'},
-      );
+      expect((msg as SdkPartialAssistantMessage).event, {
+        'type': 'content_block_delta',
+      });
     });
 
     test('non-init system subtype → SdkSystemEvent carrier', () {
