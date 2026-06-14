@@ -132,7 +132,7 @@ if ($CodeCli) {
 
         # ── Bundle bridge binaries for all platforms ─────────────────────
         $WorkspaceRoot = (Resolve-Path (Join-Path $ExtensionDir '..\..\..')).Path
-        $TomBinDir = Join-Path $WorkspaceRoot 'tom_binaries' 'tom'
+        $TomBinDir = Join-Path (Join-Path $WorkspaceRoot 'tom_binaries') 'tom'
         $BundledBinaries = @('tom_bs')
         $Platforms = @(
             @{ Id = 'darwin-arm64'; Ext = '' },
@@ -149,7 +149,7 @@ if ($CodeCli) {
         $TotalBundled = 0
         foreach ($plat in $Platforms) {
             $srcDir = Join-Path $TomBinDir $plat.Id
-            $dstDir = Join-Path $ExtensionDir 'bin' $plat.Id
+            $dstDir = Join-Path (Join-Path $ExtensionDir 'bin') $plat.Id
             if (-not (Test-Path $srcDir)) {
                 Write-Host "  Warning: Source not found: $($plat.Id) - skipping"
                 continue

@@ -114,7 +114,7 @@ Remove-Item -Path "*.vsix" -Force -ErrorAction SilentlyContinue
 
 # ── Bundle bridge binaries for all platforms ─────────────────────────────────
 $WorkspaceRoot = (Resolve-Path (Join-Path $ScriptDir '..\..\..')).Path
-$TomBinDir = Join-Path $WorkspaceRoot 'tom_binaries' 'tom'
+$TomBinDir = Join-Path (Join-Path $WorkspaceRoot 'tom_binaries') 'tom'
 $BundledBinaries = @('tom_bs')
 # Platforms and their executable extension
 $Platforms = @(
@@ -133,7 +133,7 @@ if (Test-Path $ExtBinDir) { Remove-Item -Recurse -Force $ExtBinDir }
 $TotalBundled = 0
 foreach ($plat in $Platforms) {
     $srcDir = Join-Path $TomBinDir $plat.Id
-    $dstDir = Join-Path $ScriptDir 'bin' $plat.Id
+    $dstDir = Join-Path (Join-Path $ScriptDir 'bin') $plat.Id
     if (-not (Test-Path $srcDir)) {
         Write-Host "  ⚠️  Source not found: $($plat.Id) — skipping" -ForegroundColor Yellow
         continue
