@@ -33,6 +33,7 @@ import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
 import { applyRepetitionAffixes, buildNextTemplateIterationParams, convertStagedToPending, shouldAutoPauseOnEmpty } from '../utils/queueStep3Utils';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
+import { mergeQueueReload } from '../utils/queueReloadMergeUtils';
 import { applyErrorTransition, applyResetToPending, itemHasInFlightProgress } from '../utils/queueErrorTransitions';
 import { resolveVariables } from '../utils/variableResolver.js';
 import {
@@ -3247,27 +3248,74 @@ export class PromptQueueManager {
         }
         this._reloadDebounceTimer = setTimeout(() => {
             this._reloadDebounceTimer = undefined;
-            // Never replace in-memory state while an item is actively
-            // sending.  During an Anthropic dispatch the in-memory objects
-            // are authoritative: status updates (pending→sending→sent) flow
-            // through the live references held by sendItem().  A reload here
-            // would swap those objects out from under the async chain, so
-            // the final item.status = 'sent' assignment would update a
-            // discarded object and the queue would stall permanently.
-            if (this._items.some(i => i.status === 'sending')) {
-                debugLog('[PromptQueueManager] Queue files changed but skipping reload — item is currently sending', 'DEBUG', 'queue');
-                return;
+            // Merge the disk state onto the current in-memory list instead of
+            // replacing it wholesale. During an Anthropic dispatch the live
+            // in-memory object for the `sending` item is authoritative: status
+            // updates (pending→sending→sent) flow through the reference held by
+            // sendItem(). A wholesale rebuild would swap that object out from
+            // under the async chain, so its final item.status = 'sent' would
+            // land on a discarded object and the queue would stall. The merge
+            // keeps the live reference for `sending` items while still applying
+            // disk state for everything else — so externally-added prompts and
+            // completed prompts surface even while an item is sending.
+            const diskBuild = this._buildItemsFromEntries(readAllEntries());
+            const previousFileNameMap = this._fileNameMap;
+            const { merged, preservedIds } = mergeQueueReload(this._items, diskBuild.items);
+
+            this._items = merged;
+            this._fileNameMap = diskBuild.fileNameMap;
+            // Carry over the filename mapping for any preserved live item that
+            // isn't on disk yet, so a later persist() reuses its file instead
+            // of orphaning it under a freshly generated name.
+            for (const item of this._items) {
+                if (!this._fileNameMap.has(item.id)) {
+                    const previous = previousFileNameMap.get(item.id);
+                    if (previous) { this._fileNameMap.set(item.id, previous); }
+                }
             }
-            const entries = readAllEntries();
-            this._loadFromEntryFiles(entries);
+
+            // Crash recovery only for `sending` items whose live reference was
+            // NOT preserved — those are genuine crash leftovers on disk (no
+            // in-flight send in this window). Preserved items are legitimately
+            // mid-send and must keep their `sending` status.
+            const recoverable = this._items.filter(i => !preservedIds.has(i.id));
+            const recovered = this._applyCrashRecoveryTo(recoverable);
+            if (recovered > 0) {
+                this._persistToFiles();
+            }
+
             this._onDidChange.fire();
         }, 300);
     }
 
-    /** Load queue items from entry files into memory. */
+    /** Load queue items from entry files into memory (full replace). */
     private _loadFromEntryFiles(entries: QueueEntryFile[]): void {
-        this._items = [];
-        this._fileNameMap.clear();
+        const { items, fileNameMap } = this._buildItemsFromEntries(entries);
+        this._items = items;
+        this._fileNameMap = fileNameMap;
+
+        // Crash recovery — runs for the initial activation/full-load path. Any
+        // `sending` entry on disk implies a prior crash/reload (restore() runs
+        // at construction with empty in-memory state). Resetting to `pending`
+        // re-exposes the Resend icon in the queue editor (hidden while
+        // isSending) so the user can replay the interrupted stage via
+        // `item.lastDispatched`, which is preserved on purpose.
+        const recovered = this._applyCrashRecovery();
+        if (recovered > 0) {
+            // Align disk with the recovered in-memory state so a subsequent
+            // watcher event doesn't reintroduce the stale `sending` status.
+            this._persistToFiles();
+        }
+    }
+
+    /**
+     * Build an ordered list of queue items (and the id→fileName map) from raw
+     * entry files, without mutating manager state. Shared by the full-load and
+     * merge-reload paths.
+     */
+    private _buildItemsFromEntries(entries: QueueEntryFile[]): { items: QueuedPrompt[]; fileNameMap: Map<string, string> } {
+        const items: QueuedPrompt[] = [];
+        const fileNameMap = new Map<string, string>();
 
         const orderedEntries = [...entries].sort((a, b) => {
             const aOrder = Number((a.doc?.meta as Record<string, unknown> | undefined)?.['queue-order-index']);
@@ -3286,26 +3334,12 @@ export class PromptQueueManager {
         for (const entry of orderedEntries) {
             const item = this._entryToQueuedPrompt(entry);
             if (item) {
-                this._items.push(item);
-                this._fileNameMap.set(item.id, entry.fileName);
+                items.push(item);
+                fileNameMap.set(item.id, entry.fileName);
             }
         }
 
-        // Crash recovery — runs for both initial activation and file-watcher
-        // reloads. Any `sending` entry on disk implies a prior crash/reload
-        // (callers guarantee no in-memory item is actively sending when we
-        // get here: restore() runs at construction with empty in-memory
-        // state; _reloadFromDisk() bails early if any in-memory item is
-        // sending). Resetting to `pending` here re-exposes the Resend icon
-        // in the queue editor (hidden while isSending) so the user can
-        // replay the interrupted stage via `item.lastDispatched`, which is
-        // preserved on purpose.
-        const recovered = this._applyCrashRecovery();
-        if (recovered > 0) {
-            // Align disk with the recovered in-memory state so a subsequent
-            // watcher event doesn't reintroduce the stale `sending` status.
-            this._persistToFiles();
-        }
+        return { items, fileNameMap };
     }
 
     /**
@@ -3321,12 +3355,21 @@ export class PromptQueueManager {
      * Returns the count of items reset.
      */
     private _applyCrashRecovery(): number {
+        return this._applyCrashRecoveryTo(this._items);
+    }
+
+    /**
+     * Crash-recover a specific subset of items (used by the merge-reload path,
+     * which must exclude live `sending` references that are legitimately
+     * mid-send). Mutates the given objects in place; returns the count reset.
+     */
+    private _applyCrashRecoveryTo(items: QueuedPrompt[]): number {
         // Snapshot ids that will be recovered so we can log each one
         // (applyCrashRecovery is pure and only returns the count).
-        const toRecover = this._items
+        const toRecover = items
             .filter(item => item.status === 'sending')
             .map(item => ({ id: item.id, hasLastDispatched: !!item.lastDispatched }));
-        const count = applyCrashRecovery(this._items);
+        const count = applyCrashRecovery(items);
         for (const info of toRecover) {
             logQueue(`Crash recovery: reset item ${info.id} from 'sending' to 'pending' (Resend available via item.lastDispatched=${info.hasLastDispatched ? 'yes' : 'no'})`);
         }
