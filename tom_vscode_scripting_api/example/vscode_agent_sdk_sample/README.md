@@ -54,7 +54,7 @@ each of the five concepts file by file.
 Five self-contained programs — one concept each — that tour the Agent SDK mirror
 as a script sees it:
 
-```
+```text
 message_types → options → in_process_tool → can_use_tool → streaming_query
 (parse the      (the      (a Dart tool()    (the           (a real query()
  typed SDK      Options    the model can     canUseTool     against the
@@ -106,7 +106,7 @@ One concept is **interactive** and skipped by the auto-run:
 
 ## 3. Project layout
 
-```
+```text
 vscode_agent_sdk_sample/
 ├── pubspec.yaml                 # depends only on tom_vscode_scripting_api ^1.1.0
 ├── analysis_options.yaml        # package:lints/recommended.yaml
@@ -275,7 +275,7 @@ AgentSdkClient agentSdkClientFor(VSCodeBridgeClient client) =>
 
 Read it outside-in:
 
-```
+```text
 AgentSdkClient                       ← the API you call: query(), collectQuery()
   └── VSCodeBridgeAgentSdkTransport  ← the wire: queryVce/cancelVce + chunk stream
         └── VSCodeBridgeClient       ← the socket: requests, notifications, reverse RPC

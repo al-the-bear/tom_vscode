@@ -53,7 +53,7 @@ works).
 Six self-contained programs — one concept each — that tour the API surface a
 real scripting task actually uses:
 
-```
+```text
 file_batch  →  editor_edits  →  progress  →  helper_layer  →  language_model  →  quick_pick_input
 (bulk file     (ranged edit     (output     (the static      (Copilot via       (ask the user;
  read/write     via the          channel +   VsCodeHelper     selectChatModels   interactive,
@@ -109,7 +109,7 @@ on:
 
 ## 3. Project layout
 
-```
+```text
 vscode_scripting_advanced_sample/
 ├── pubspec.yaml                 # depends only on tom_vscode_scripting_api ^1.1.0
 ├── analysis_options.yaml        # package:lints/recommended.yaml

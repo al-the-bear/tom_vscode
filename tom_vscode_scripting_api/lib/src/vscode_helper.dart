@@ -729,8 +729,9 @@ Request ID: $effectiveRequestId
       timeout: Duration(seconds: 120),
     );
 
-    if (HelperLogging.debugLogging)
+    if (HelperLogging.debugLogging) {
       print('[COPSND] Sent to Copilot Chat, waiting for response...');
+    }
 
     // Poll for response
     final startTime = DateTime.now();
@@ -811,8 +812,9 @@ Request ID: $effectiveRequestId
       final innerResult = result['result'];
 
       if (innerResult is Map && innerResult['found'] == true) {
-        if (HelperLogging.debugLogging)
+        if (HelperLogging.debugLogging) {
           print('[COPRCV] Response received from Copilot Chat');
+        }
         // Extract references and requestedAttachments as List<String>
         final references = innerResult['references'];
         final requestedAttachments = innerResult['requestedAttachments'];
@@ -1195,12 +1197,15 @@ Please provide a fixed version of the code.
     }
 
     // Check for other project types
-    if (await fileExists('$root/package.json', timeoutSeconds: timeoutSeconds))
+    if (await fileExists('$root/package.json', timeoutSeconds: timeoutSeconds)) {
       return 'node';
-    if (await fileExists('$root/pom.xml', timeoutSeconds: timeoutSeconds))
+    }
+    if (await fileExists('$root/pom.xml', timeoutSeconds: timeoutSeconds)) {
       return 'java';
-    if (await fileExists('$root/Cargo.toml', timeoutSeconds: timeoutSeconds))
+    }
+    if (await fileExists('$root/Cargo.toml', timeoutSeconds: timeoutSeconds)) {
       return 'rust';
+    }
 
     return 'unknown';
   }

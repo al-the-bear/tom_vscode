@@ -54,7 +54,7 @@ tool registry is **gated server-side by the active Anthropic profile**.
 Seven self-contained programs — one concept each — that tour the extension's own
 feature APIs as a script sees them:
 
-```
+```text
 workspace_metadata → todos → queue → timed_requests → documents → tools → send_to_chat
 (name, projects,     (CRUD   (multi-  (scheduled       (the _ai     (the LLM   (dispatch to
  quests, the          across  transport prompts +       document     tool        the live
@@ -117,7 +117,7 @@ And one concept is **interactive** and skipped by the auto-run:
 
 ## 3. Project layout
 
-```
+```text
 vscode_agent_tools_sample/
 ├── pubspec.yaml                 # depends only on tom_vscode_scripting_api ^1.1.0
 ├── analysis_options.yaml        # package:lints/recommended.yaml

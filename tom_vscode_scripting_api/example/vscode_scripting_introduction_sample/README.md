@@ -48,7 +48,7 @@ builds on.
 Five tiny, self-contained programs — one concept each — that together form a
 complete first tour of the scripting API:
 
-```
+```text
 connect  →  messages  →  commands  →  workspace_folders  →  read_open_file
 (find a    (toasts &     (list &      (roots, name,         (find, read,
  window)    status bar)   execute)     folders)              open a file)
@@ -91,7 +91,7 @@ box: it simply reports "no window found" and stops.
 
 ## 3. Project layout
 
-```
+```text
 vscode_scripting_introduction_sample/
 ├── pubspec.yaml                 # depends only on tom_vscode_scripting_api ^1.1.0
 ├── analysis_options.yaml        # package:lints/recommended.yaml
@@ -183,7 +183,7 @@ An interpreter sample runs *your* code in *its* process. This sample is the
 mirror image: it runs your code in your own process and reaches **out** to a
 program (VS Code) that is already running.
 
-```
+```text
 ┌─────────────────────────┐         JSON-RPC 2.0          ┌──────────────────────────┐
 │  your Dart program       │   over a length-prefixed      │  VS Code window          │
 │  (this sample)           │   TCP socket on 127.0.0.1     │  + Tom extension         │
