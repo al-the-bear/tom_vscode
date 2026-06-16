@@ -1,29 +1,34 @@
 # @Tom VS Code Extension
 
-A VS Code extension for Copilot-driven workflows, prompt queue automation, timed requests, workspace tools, and bridge-based scripting.
+> **Tom VS Code** — part of the Tom Framework by Peter Nicolai Alexis Kyaw.
+> Licensed BSD-3-Clause. See [LICENSE](LICENSE).
+
+The **`@Tom`** VS Code extension — an AI-assisted development cockpit. It adds
+multi-model chat panels (Anthropic, Local LLM, Copilot), a multi-transport prompt
+queue, timed requests, a shared tool registry, a standalone MCP server, the
+status page, and the **CLI Integration Server** that lets out-of-process Dart
+clients drive the live window. This is the product of the Tom VS Code repo.
+
+---
 
 ## Overview
 
-@Tom provides a unified AI workspace in VS Code with:
+`@Tom` turns a normal VS Code window into a unified AI workspace:
 
-- Copilot and local LLM prompt workflows
-- prompt queue orchestration with follow-ups, reminders, and repeat support
-- timed request scheduling that enqueues prompts automatically
-- markdown/guideline browsing and quest navigation
-- bridge and CLI integration for workspace automation
+- **Multi-model chat** — Anthropic (direct SDK + Agent SDK), the VS Code language
+  model (Copilot), and a local LLM, in dedicated bottom-panel subpanels.
+- **Prompt queue orchestration** — queue work across transports with follow-ups,
+  reminders, repeat support, and automation toggles.
+- **Timed requests** — interval / scheduled prompts that enqueue automatically.
+- **Tool registry + MCP server** — the same MCP-style tools the panels use,
+  published to external MCP clients over HTTP.
+- **Scripting surface** — the CLI Integration Server exposes the extension to the
+  [`tom_vscode_scripting_api`](../tom_vscode_scripting_api/README.md) Dart client
+  and the [`tom_vscode_bridge`](../tom_vscode_bridge/README.md) server.
+- **Workspace tooling** — markdown/guideline browsing, quest navigation, a
+  per-window status page, and D4rt/bridge/CLI runtime integration.
 
-## Key Features
-
-- Copilot prompt send flows with template support
-- @CHAT panel with repeat (R) and answer-wait (W) action-bar fields
-- Prompt Queue editor with auto-send, auto-start, auto-pause, auto-continue, and restart controls
-- RequestId-based answer detection with file watcher + polling fallback
-- Timed Requests editor with interval/scheduled modes, sendMaximum, repeat affixes, and answer wait minutes
-- Dedicated output channels: Tom Prompt Queue and Tom Timed Requests
-- Markdown Browser with grouped document picker, quest filters, line anchors, and auto reload
-- Window Status panel showing per-window subsystem state from window-state files
-- Local LLM, AI Conversation, and Tom AI Chat integration
-- D4rt/bridge/CLI runtime tooling
+---
 
 ## Installation
 
@@ -115,132 +120,194 @@ The `tom_vscode_*` projects live in the **tom_vscode** repo (mounted at
     └── tom/<platform>/tom_bs
 ```
 
-Paths the from-source build touches:
-
-| Path | Role |
-| --- | --- |
-| `tom_ai/vscode/tom_vscode_bridge` | Bridge source; `dart pub get` + `dart compile exe bin/tom_bs.dart` |
-| `tom_ai/d4rt/tom_d4rt_generator` | Generator; run via `dart --packages=<gen>/.dart_tool/package_config.json <gen>/bin/d4rtgen.dart` |
-| `tom_vscode_extension/bin/<platform>/tom_bs` | Local compile output, bundled into the VSIX |
-
 `<platform>` is VS Code's platform-vs id: `darwin-arm64`, `darwin-x64`,
 `linux-x64`, `linux-arm64`, or `win32-x64`.
 
-## Main Commands
+---
 
-Open the command palette and type @T: to discover commands.
+## Features
 
-### Core AI Commands
+### Chat panels
 
-- @T: Send to Copilot
-- @T: Send to Copilot (Default Template)
-- @T: Send to Copilot (Pick Template)
-- @T: Send to Local LLM
-- @T: Change Local LLM Model...
-- @T: Start AI Conversation
-- @T: Start Tom AI Chat
+The bottom **@CHAT** panel (`tomAi.chatPanel`) hosts five subpanels:
 
-### Queue and Timer Commands
+| Subpanel | Transport |
+| --- | --- |
+| Anthropic | Direct Anthropic SDK + Agent SDK (`anthropic-handler`, `agent-sdk-transport`). |
+| Tom AI Chat | The extension's own chat surface. |
+| AI Conversation | Multi-turn bot-conversation loop (not queue-compatible). |
+| Copilot | VS Code language model (`vscodeLm`). |
+| Local LLM | Locally hosted models (`localLlm-handler`). |
 
-- @T: Open Prompt Queue
-- @T: Open Timed Requests
-- @T: Open Prompt Templates
-- @T: Open Reusable Prompts
+Alongside it: **@WS** (`tomAi.wsPanel`, workspace) in the bottom panel, and the
+**@TOM** sidebar with tree views for notes, todos, the todo log, and window
+status.
 
-### Workspace and Runtime Commands
+### Highlights
 
-- @T: Open in Markdown Browser
-- @T: Extension Status Page
-- @T: Restart Bridge
-- @T: Start Tom CLI Integration Server
-- @T: Stop Tom CLI Integration Server
-- @T: Start Process Monitor
+| Area | Capabilities |
+| --- | --- |
+| Prompt Queue | One-file-per-entry YAML storage; auto-send / auto-start / auto-pause / auto-continue / restart; repeat with prefix/suffix placeholders; answer-wait timeout; watchdog health checks. |
+| Timed Requests | Interval and scheduled firing; `sentCount`-based `sendMaximum` auto-pause; reminder + repeat config; global schedule-slot filtering; all fires enqueue through the Prompt Queue (single dispatch path). |
+| Answer detection | RequestId-based detection with a file watcher plus a polling fallback. |
+| Browsing | Markdown Browser with a grouped document picker, quest filters, line anchors, and auto-reload. |
+| Status | Window Status panel showing per-window subsystem state from window-state files. |
+| MCP server | Standalone MCP server publishing the tool registry over HTTP — see [doc/mcp_server.md](doc/mcp_server.md). |
 
-## Keybindings
+### Output channels
 
-See full keybindings in [doc/quick_reference.md](doc/quick_reference.md).
+`Tom Prompt Queue` · `Tom Timed Requests` · `Tom Debug` · `Tom Tests` ·
+`Tom Dartbridge Log` · `Tom Conversation Log` · `Tom AI Chat Log` ·
+`Tom Tool Log` · `Tom AI Chat Responses` · `Tom AI Local LLM` ·
+`Tom AI Local Log`.
 
-High-use shortcuts:
+---
 
-- Ctrl+Shift+0: focus @CHAT
-- Ctrl+Shift+9: focus @WS
-- Ctrl+Shift+6: open Prompt Queue
-- Ctrl+Shift+7: open Timed Requests
-- Ctrl+Shift+5: open Raw Trail Viewer
-- Ctrl+Shift+\: maximize toggle
+## Commands
 
-## Queue and Timed Request Behavior
+Open the command palette and type `@T:` to discover commands.
 
-Prompt Queue highlights:
+| Group | Commands |
+| --- | --- |
+| Core AI | Send to Copilot · Send to Copilot (Default Template) · Send to Copilot (Pick Template) · Send to Local LLM · Change Local LLM Model… · Start AI Conversation · Start Tom AI Chat |
+| Queue & timer | Open Prompt Queue · Open Timed Requests · Open Prompt Templates · Open Reusable Prompts |
+| Workspace & runtime | Open in Markdown Browser · Extension Status Page · Restart Bridge · Start / Stop Tom CLI Integration Server · Start Process Monitor |
 
-- one-file-per-entry YAML storage
-- automation toggles for queue flow behavior
-- repetition support with prefix/suffix placeholders
-- answer-wait timeout for time-based auto-advance
-- watchdog health checks to recover watcher issues
+### Keybindings
 
-Timed Requests highlights:
+High-use shortcuts (full list in [doc/quick_reference.md](doc/quick_reference.md)):
 
-- interval and scheduled firing modes
-- sendMaximum with sentCount-based auto-pause
-- reminder and repeat configuration
-- global schedule slot filtering
-- all fires enqueue through Prompt Queue (single dispatch path)
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl+Shift+0` | Focus @CHAT |
+| `Ctrl+Shift+9` | Focus @WS |
+| `Ctrl+Shift+6` | Open Prompt Queue |
+| `Ctrl+Shift+7` | Open Timed Requests |
+| `Ctrl+Shift+5` | Open Raw Trail Viewer |
+| `Ctrl+Shift+\` | Maximize toggle |
 
-## Output Channels
+---
 
-- Tom Prompt Queue
-- Tom Timed Requests
-- Tom Debug
-- Tom Tests
-- Tom Dartbridge Log
-- Tom Conversation Log
-- Tom AI Chat Log
-- Tom Tool Log
-- Tom AI Chat Responses
-- Tom AI Local LLM
-- Tom AI Local Log
+## Architecture
 
-## Requirements
+The extension activates `onStartupFinished` (`src/extension.ts`) and is layered:
+handlers own webview wiring, services own side-effects, utils are pure.
 
-- VS Code 1.96.0+
-- Dart SDK 3.10.4+ for the bridge / from-source build
-- Node.js 20+ (manage with nvm) for building the extension
-- GitHub Copilot subscription for Copilot workflows
+| Folder | Role |
+| --- | --- |
+| `config/` | Configuration schemas + defaults (`sendToChatConfig.ts`, `tom_vscode_extension.schema.json`). |
+| `extension.ts` | Activation entry point. |
+| `handlers/` | Per-subsystem handlers — chatPanel, anthropic, agent-sdk-transport, localLlm, tomAiChat, queueEditor, statusPage, mcpServer, … |
+| `managers/` | Long-lived state managers (e.g. `promptQueueManager`, `reminderSystem`). |
+| `services/` | Pure side-effect services — trail, tool-result store, history compaction, memory, drafts, answer files. |
+| `storage/` | Disk-backed stores (`panelYamlStore`, notepad stores). |
+| `tools/` | MCP-style tool surface — shared tool registry, tool executors, chat-enhancement / issue / test tools. |
+| `types/` | Shared type declarations. |
+| `utils/` | Pure helpers — `variableResolver`, `tomAiConfiguration`, `fsUtils`, `workspacePaths`, `retryWithBudget`. |
+| `vscode-bridge.ts` | External bridge surface consumed by `tom_vscode_bridge`. |
 
-See [Installation → Prerequisites](#prerequisites) for the full software list
-and the directory layout the build scripts expect.
+### Key components
+
+| Component | Role |
+| --- | --- |
+| `promptQueueManager` (managers) | The single dispatch path; owns queue state, automation, and watchdog recovery. |
+| `anthropic-handler` / `agent-sdk-transport` (handlers) | Anthropic direct-SDK and Agent-SDK transports. |
+| `shared-tool-registry` (tools) | The MCP-style tool surface shared by panels and the MCP server. |
+| `mcpServer-handler` (handlers) | Standalone MCP server lifecycle and HTTP surface. |
+| CLI Integration Server | TCP server (`19900`–`19909`) the scripting API connects to (hosted via the bridge). |
+| `extensionConfigStore` (managers) | Section-scoped reads/writes of the per-quest config files. |
+
+> **Configuration invariant.** Any change to the configuration shape must update
+> **both** `src/config/sendToChatConfig.ts` (the TypeScript shape) and
+> `src/config/tom_vscode_extension.schema.json` (the JSON Schema) in lockstep.
+
+---
+
+## Queue and timed-request behavior
+
+- **Prompt Queue** — one-file-per-entry YAML storage; automation toggles for flow
+  behavior; repetition with prefix/suffix placeholders; answer-wait timeout for
+  time-based auto-advance; watchdog health checks to recover watcher issues.
+- **Timed Requests** — interval and scheduled firing modes; `sendMaximum` with
+  `sentCount`-based auto-pause; reminder and repeat configuration; global
+  schedule-slot filtering; every fire enqueues through the Prompt Queue.
+
+Full model: [doc/multi_transport_prompt_queue_revised.md](doc/multi_transport_prompt_queue_revised.md).
+
+---
 
 ## Development
 
-Build:
-
 ```bash
-npm run compile
+npm run compile      # tsc -p ./ + copy config json to out/config/
+npm run watch        # incremental rebuild
+npm test             # lint media + tools/services/utils test suites + tool-coverage audit
 ```
 
-Watch mode:
+Run the extension host for manual testing: open this project in VS Code, press
+`F5`, and test commands in the Extension Development Host.
 
-```bash
-npm run watch
-```
+> Reloading the window alone does **not** pick up source changes — it reloads the
+> *installed* VSIX. Repackage + reinstall first (`compile_and_install.sh`), then
+> reload.
 
-Run extension host for manual testing:
+---
 
-1. Open this project in VS Code.
-2. Press F5.
-3. Test commands in the Extension Development Host.
+## Ecosystem
 
-## Documentation
+- [`tom_vscode_scripting_api`](../tom_vscode_scripting_api/README.md) — the typed
+  Dart client that drives this extension over the CLI Integration Server.
+- [`tom_vscode_bridge`](../tom_vscode_bridge/README.md) — the Dart bridge server
+  this extension launches (`tom_bs`).
+- [`tom_vscode_shared`](../tom_vscode_shared/README.md) /
+  [`tom_vscode_workflow`](../tom_vscode_workflow/README.md) — the shared
+  TypeScript libraries the extension is built from.
+- [Repository map](../README.md) — the whole Tom VS Code ecosystem at a glance.
 
-- [doc/user_guide.md](doc/user_guide.md): complete feature guide
-- [doc/quick_reference.md](doc/quick_reference.md): shortcuts, panels, command map
-- [doc/copilot_chat_tools.md](doc/copilot_chat_tools.md): Copilot/Tom AI Chat tooling
-- [_copilot_guidelines/architecture.md](_copilot_guidelines/architecture.md): architecture and state model
-- [_copilot_guidelines/keybindings_and_commands.md](_copilot_guidelines/keybindings_and_commands.md): command and keybinding details
+---
+
+## Further documentation
+
+User-facing guides live in [`doc/`](doc/); development docs in
+[`_copilot_guidelines/`](_copilot_guidelines/).
+
+| Document | Covers |
+| --- | --- |
+| [doc/user_guide.md](doc/user_guide.md) | Complete feature guide. |
+| [doc/quick_reference.md](doc/quick_reference.md) | Shortcuts, panels, command map. |
+| [doc/extension_analysis.md](doc/extension_analysis.md) | Cross-component architecture analysis. |
+| [doc/anthropic_sdk_integration.md](doc/anthropic_sdk_integration.md) | Anthropic direct + Agent SDK integration. |
+| [doc/mcp_server.md](doc/mcp_server.md) | Standalone MCP server — config, auth, lifecycle, security. |
+| [doc/multi_transport_prompt_queue_revised.md](doc/multi_transport_prompt_queue_revised.md) | The current prompt-queue model. |
+| [doc/llm_configuration.md](doc/llm_configuration.md) | Local LLM + Anthropic + history-compaction settings. |
+| [doc/placeholder_engine.md](doc/placeholder_engine.md) | Placeholder engine reference. |
+| [doc/copilot_chat_tools.md](doc/copilot_chat_tools.md) | Copilot / Tom AI Chat tooling. |
+| [_copilot_guidelines/architecture.md](_copilot_guidelines/architecture.md) | Architecture and state model (dev). |
+| [_copilot_guidelines/keybindings_and_commands.md](_copilot_guidelines/keybindings_and_commands.md) | Command and keybinding details (dev). |
+
+---
+
+## Status
+
+| | |
+| --- | --- |
+| Name / publisher | `tom-ai-extension` (`@Tom`) · `peter-nicolai-alexis-kyaw` |
+| Version | 0.1.0 |
+| VS Code engine | `^1.96.0` |
+| Node.js | ≥ 20 (targets v25) |
+| Tests | 88 test files (`npm test` runs the tools/services/utils suites + tool-coverage audit) |
+| License | BSD-3-Clause |
+
+---
 
 ## Resources
 
 - [VS Code Extension API](https://code.visualstudio.com/api)
 - [Language Model API](https://code.visualstudio.com/api/extension-guides/language-model)
 - [Chat API](https://code.visualstudio.com/api/extension-guides/chat)
+
+## License
+
+Part of the Tom Framework by Peter Nicolai Alexis Kyaw, BSD-3-Clause. See
+[LICENSE](LICENSE).
+</content>
