@@ -1,0 +1,19 @@
+name: vscode_agent_tools_sample
+description: >-
+  Agent-tools tom_vscode_scripting_api sample — scripting the Tom AI
+  extension's own feature APIs (not VS Code itself): workspace metadata,
+  todos, the prompt queue, timed requests, documents, the MCP-style tool
+  surface, and send-to-chat. Demonstrates the per-class setAdapter connection
+  story these static-method APIs use.
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  tom_vscode_scripting_api: ^1.1.0
+
+dev_dependencies:
+  lints: ^4.0.0
+  test: ^1.25.0
