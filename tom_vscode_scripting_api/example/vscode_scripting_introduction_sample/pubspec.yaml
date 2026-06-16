@@ -1,0 +1,19 @@
+name: vscode_scripting_introduction_sample
+description: >-
+  Introductory tom_vscode_scripting_api sample — connects a plain Dart program
+  to a running VS Code window over the CLI Integration bridge and drives the
+  core namespaces (window, commands, workspace). Establishes the shared
+  connection helper and run-script conventions used by the other VS Code
+  scripting samples.
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  tom_vscode_scripting_api: ^1.1.0
+
+dev_dependencies:
+  lints: ^4.0.0
+  test: ^1.25.0

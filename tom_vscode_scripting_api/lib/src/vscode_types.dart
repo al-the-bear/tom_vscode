@@ -204,7 +204,8 @@ class TextEditor {
       selections: (json['selections'] as List)
           .map((s) => Selection.fromJson(s))
           .toList(),
-      visibleRanges: json['visibleRanges'] != null
+      visibleRanges:
+          json['visibleRanges'] is List && (json['visibleRanges'] as List).isNotEmpty
           ? Range.fromJson(json['visibleRanges'][0])
           : null,
     );
