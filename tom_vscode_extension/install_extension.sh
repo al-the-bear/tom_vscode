@@ -105,39 +105,90 @@ echo "🗑️  Uninstalling old version..."
 # Remove old VSIX files to prevent stale packaging
 rm -f *.vsix
 
-# ── Bundle bridge binaries for all platforms ─────────────────────────────────
+# ── Bundle bridge binaries ───────────────────────────────────────────────────
+# Default: copy prebuilt binaries for all 5 platforms out of the binaries layer
+# (tom_binaries). When TOM_BRIDGE_FROM_SOURCE=1 (set by compile_and_install.sh):
+# resolve deps, regenerate the d4rt bridges, and compile the bridge for THIS
+# host from source — bundling only that one binary, built into the extension's
+# local bin/ (never $TOM_BINARY_PATH or a PATH-resolved location).
 WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 TOM_BIN_DIR="$WORKSPACE_ROOT/tom_binaries/tom"
+BRIDGE_DIR="$WORKSPACE_ROOT/tom_ai/vscode/tom_vscode_bridge"
 BUNDLED_BINARIES="tom_bs"
 
-echo "📦 Bundling bridge binaries..."
 # Clean previous bin/ to avoid stale binaries
 rm -rf "$SCRIPT_DIR/bin"
 
-TOTAL_BUNDLED=0
-for PLAT_SPEC in "darwin-arm64:" "darwin-x64:" "linux-x64:" "linux-arm64:" "win32-x64:.exe"; do
-    PLAT_ID="${PLAT_SPEC%%:*}"
-    PLAT_EXT="${PLAT_SPEC#*:}"
-    SRC_DIR="$TOM_BIN_DIR/$PLAT_ID"
-    DST_DIR="$SCRIPT_DIR/bin/$PLAT_ID"
-    if [ ! -d "$SRC_DIR" ]; then
-        echo "  ⚠️  Source not found: $PLAT_ID — skipping"
-        continue
+if [ "${TOM_BRIDGE_FROM_SOURCE:-0}" = "1" ]; then
+    if ! command -v dart &> /dev/null; then
+        echo "❌ Error: Dart SDK not found — cannot compile the bridge from source"
+        exit 1
     fi
+    GEN_DIR="$WORKSPACE_ROOT/tom_ai/d4rt/tom_d4rt_generator"
+    GEN_PKG_CONFIG="$GEN_DIR/.dart_tool/package_config.json"
+
+    # Map the running host to VS Code's platform-vs naming.
+    case "$(uname -s)" in
+        Darwin) BRIDGE_OS="darwin" ;;
+        Linux)  BRIDGE_OS="linux" ;;
+        *)      echo "❌ Unsupported host OS for from-source build: $(uname -s)"; exit 1 ;;
+    esac
+    case "$(uname -m)" in
+        x86_64|amd64)   BRIDGE_ARCH="x64" ;;
+        arm64|aarch64)  BRIDGE_ARCH="arm64" ;;
+        *)              echo "❌ Unsupported host arch for from-source build: $(uname -m)"; exit 1 ;;
+    esac
+    BRIDGE_PLAT="$BRIDGE_OS-$BRIDGE_ARCH"
+    DST_DIR="$SCRIPT_DIR/bin/$BRIDGE_PLAT"
     mkdir -p "$DST_DIR"
+
+    # 1) Resolve dependencies for both the generator and the bridge.
+    echo "📦 Resolving Dart dependencies (generator + bridge)..."
+    ( cd "$GEN_DIR" && dart pub get )
+    ( cd "$BRIDGE_DIR" && dart pub get )
+
+    # 2) Regenerate the d4rt bridges for the bridge package. d4rtgen processes
+    #    the project in its current directory, so run it from the bridge dir;
+    #    --packages runs the generator's entrypoint directly from its source,
+    #    without requiring it on PATH or as a dependency of the bridge.
+    echo "📦 Regenerating d4rt bridges..."
+    ( cd "$BRIDGE_DIR" && dart --packages="$GEN_PKG_CONFIG" "$GEN_DIR/bin/d4rtgen.dart" )
+
+    # 3) Compile the bridge binary for THIS host straight into the extension's
+    #    local bin/ — no $TOM_BINARY_PATH, no PATH lookup, no shared location.
+    echo "📦 Compiling bridge binary from source for $BRIDGE_PLAT ..."
     for BIN in $BUNDLED_BINARIES; do
-        SRC="$SRC_DIR/${BIN}${PLAT_EXT}"
-        if [ -f "$SRC" ]; then
-            cp "$SRC" "$DST_DIR/${BIN}${PLAT_EXT}"
-            chmod +x "$DST_DIR/${BIN}${PLAT_EXT}"
-            TOTAL_BUNDLED=$((TOTAL_BUNDLED + 1))
-            echo "  ✔ $PLAT_ID/${BIN}${PLAT_EXT}"
-        else
-            echo "  ⚠️  Missing: $PLAT_ID/${BIN}${PLAT_EXT}"
-        fi
+        ( cd "$BRIDGE_DIR" && dart compile exe "bin/${BIN}.dart" -o "$DST_DIR/${BIN}" )
+        chmod +x "$DST_DIR/${BIN}"
+        echo "  ✔ $BRIDGE_PLAT/${BIN} (from source)"
     done
-done
-echo "  Bundled $TOTAL_BUNDLED binaries across 5 platforms"
+else
+    echo "📦 Bundling bridge binaries..."
+    TOTAL_BUNDLED=0
+    for PLAT_SPEC in "darwin-arm64:" "darwin-x64:" "linux-x64:" "linux-arm64:" "win32-x64:.exe"; do
+        PLAT_ID="${PLAT_SPEC%%:*}"
+        PLAT_EXT="${PLAT_SPEC#*:}"
+        SRC_DIR="$TOM_BIN_DIR/$PLAT_ID"
+        DST_DIR="$SCRIPT_DIR/bin/$PLAT_ID"
+        if [ ! -d "$SRC_DIR" ]; then
+            echo "  ⚠️  Source not found: $PLAT_ID — skipping"
+            continue
+        fi
+        mkdir -p "$DST_DIR"
+        for BIN in $BUNDLED_BINARIES; do
+            SRC="$SRC_DIR/${BIN}${PLAT_EXT}"
+            if [ -f "$SRC" ]; then
+                cp "$SRC" "$DST_DIR/${BIN}${PLAT_EXT}"
+                chmod +x "$DST_DIR/${BIN}${PLAT_EXT}"
+                TOTAL_BUNDLED=$((TOTAL_BUNDLED + 1))
+                echo "  ✔ $PLAT_ID/${BIN}${PLAT_EXT}"
+            else
+                echo "  ⚠️  Missing: $PLAT_ID/${BIN}${PLAT_EXT}"
+            fi
+        done
+    done
+    echo "  Bundled $TOTAL_BUNDLED binaries across 5 platforms"
+fi
 
 # ── Ensure Claude Agent SDK native CLI binary for THIS host ──────────────────
 # Since SDK >=0.2.13x the Claude CLI ships as a platform-specific native binary

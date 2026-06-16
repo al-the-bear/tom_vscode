@@ -27,19 +27,104 @@ A VS Code extension for Copilot-driven workflows, prompt queue automation, timed
 
 ## Installation
 
-Build and install from source:
+### Prerequisites
+
+| Software | Version | Notes |
+| --- | --- | --- |
+| Dart SDK | ≥ 3.10.4 (< 4.0) | Compiles the `tom_bs` bridge binary and runs the d4rt generator |
+| Node.js | ≥ 20 (LTS) | Enforced by the installer; the extension targets Node v25 — install/switch with nvm |
+| nvm | latest | Recommended — lets the installer install/switch to a supported Node automatically |
+| VS Code | ≥ 1.96.0 | `engines.vscode` in `package.json` |
+| `code` CLI | — | Must be on `PATH` for the installer to install the VSIX (VS Code → *Shell Command: Install 'code' command in PATH*) |
+| `@vscode/vsce` | latest | Auto-run via `npx` if not installed globally |
+
+The from-source build also needs two sibling Tom projects present on disk (see
+[Directory Layout](#directory-layout)):
+
+- **`tom_vscode_bridge`** — the bridge whose `tom_bs` binary is compiled (ships
+  in the same repo as this extension).
+- **`tom_d4rt_generator`** — the d4rt bridge generator, part of the **d4rt
+  repo**, which must be cloned as a sibling under `tom_ai/d4rt/`.
+
+All other Dart dependencies (`tom_d4rt`, `tom_vscode_scripting_api`,
+`tom_build_base`, `analyzer`, …) are resolved from pub.dev by `dart pub get`.
+
+### Preferred: build from source for the current platform
+
+`compile_and_install.sh` / `.ps1` is the recommended installer. It performs a
+fully local build for the host platform only:
 
 ```bash
-npm install
-npm run compile
-bash install_extension.sh
+bash compile_and_install.sh      # macOS / Linux
+pwsh compile_and_install.ps1     # Windows
 ```
 
-Or install a VSIX package:
+It runs end to end:
+
+1. Checks Node (switches via nvm if below 20), installs npm deps, compiles the TypeScript.
+2. `dart pub get` for the generator and the bridge.
+3. Regenerates the d4rt bridges for `tom_vscode_bridge`.
+4. `dart compile exe bin/tom_bs.dart` straight into the extension's local
+   `bin/<platform>/` — it never writes to `tom_binaries`, relies on
+   `$TOM_BINARY_PATH`, or needs any tool on `PATH`.
+5. Ensures the host's Claude Agent SDK native CLI binary is present.
+6. Packages the VSIX (bundling only the host `tom_bs`) and installs it via the `code` CLI.
+
+After install, reload VS Code: `Cmd/Ctrl+Shift+P` → **Developer: Reload Window**.
+
+### Alternative: bundle prebuilt binaries for all platforms
+
+`install_extension.sh` / `.ps1` builds the same VSIX but bundles prebuilt
+`tom_bs` binaries for all five platforms copied from
+`tom_binaries/tom/<platform>/` (it does **not** compile from source). Use this
+only when the prebuilt binaries layer is present:
+
+```bash
+bash install_extension.sh        # macOS / Linux
+pwsh install_extension.ps1       # Windows
+```
+
+### Alternative: install a prebuilt VSIX
 
 ```bash
 code --install-extension tom-ai-extension-0.1.0.vsix
 ```
+
+### Directory Layout
+
+Both installer scripts resolve the workspace root as **three levels above** the
+extension folder (`tom_vscode_extension/../../..`) and expect the layout below.
+The `tom_vscode_*` projects live in the **tom_vscode** repo (mounted at
+`tom_ai/vscode/`); the `tom_d4rt*` projects live in the separate **d4rt** repo
+(cloned at `tom_ai/d4rt/`):
+
+```
+<workspace-root>/                      # parent of tom_ai (e.g. tom_agent_container)
+├── tom_ai/
+│   ├── vscode/                        # tom_vscode repo
+│   │   ├── tom_vscode_extension/      # ← this extension (scripts live here)
+│   │   │   ├── compile_and_install.sh / .ps1
+│   │   │   ├── install_extension.sh / .ps1
+│   │   │   └── bin/<platform>/tom_bs  # build output (gitignored)
+│   │   ├── tom_vscode_bridge/         # bridge source → compiled to tom_bs
+│   │   └── tom_vscode_scripting_api/  # bridged scripting API
+│   └── d4rt/                          # d4rt repo (separate clone, sibling of vscode/)
+│       ├── tom_d4rt_generator/        # d4rtgen — regenerates the d4rt bridges
+│       └── tom_d4rt/                  # d4rt interpreter runtime
+└── tom_binaries/                      # prebuilt binaries layer (install_extension only)
+    └── tom/<platform>/tom_bs
+```
+
+Paths the from-source build touches:
+
+| Path | Role |
+| --- | --- |
+| `tom_ai/vscode/tom_vscode_bridge` | Bridge source; `dart pub get` + `dart compile exe bin/tom_bs.dart` |
+| `tom_ai/d4rt/tom_d4rt_generator` | Generator; run via `dart --packages=<gen>/.dart_tool/package_config.json <gen>/bin/d4rtgen.dart` |
+| `tom_vscode_extension/bin/<platform>/tom_bs` | Local compile output, bundled into the VSIX |
+
+`<platform>` is VS Code's platform-vs id: `darwin-arm64`, `darwin-x64`,
+`linux-x64`, `linux-arm64`, or `win32-x64`.
 
 ## Main Commands
 
@@ -118,9 +203,13 @@ Timed Requests highlights:
 
 ## Requirements
 
-- VS Code 1.85.0+
+- VS Code 1.96.0+
+- Dart SDK 3.10.4+ for the bridge / from-source build
+- Node.js 20+ (manage with nvm) for building the extension
 - GitHub Copilot subscription for Copilot workflows
-- Dart SDK 3.0+ for script/bridge features
+
+See [Installation → Prerequisites](#prerequisites) for the full software list
+and the directory layout the build scripts expect.
 
 ## Development
 

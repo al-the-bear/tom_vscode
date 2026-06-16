@@ -286,8 +286,8 @@
                 },
                 "historyMode": {
                     "type": "string",
-                    "enum": ["last", "all", "summary", "trim_and_summary", "llm_extract"],
-                    "default": "last"
+                    "enum": ["sdk-managed", "full", "summary", "trim_and_summary", "llm_extract"],
+                    "default": "sdk-managed"
                 },
                 "maxHistoryTokens": { "type": "integer", "minimum": 0 },
                 "historyMaxChars": { "type": "integer", "minimum": 1000, "description": "Per-configuration override for compaction.historyMaxChars." },

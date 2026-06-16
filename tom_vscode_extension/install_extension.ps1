@@ -110,8 +110,13 @@ if (Get-Command code -ErrorAction SilentlyContinue) {
 Write-Host ""
 
 if ($CodeCli) {
-    # Ask if user wants to package and install as VSIX
-    $Result = Read-Host "Do you want to package and install the extension (VSIX)? (y/n)"
+    # Ask if user wants to package and install as VSIX. compile_and_install.ps1
+    # sets TOM_BRIDGE_FROM_SOURCE=1 to run unattended (auto-confirm).
+    if ($env:TOM_BRIDGE_FROM_SOURCE -eq '1') {
+        $Result = 'y'
+    } else {
+        $Result = Read-Host "Do you want to package and install the extension (VSIX)? (y/n)"
+    }
     Write-Host ""
     
     if ($Result -match "^[Yy]") {
@@ -130,40 +135,99 @@ if ($CodeCli) {
         Write-Host ""
         Write-Host "Packaging extension as VSIX..."
 
-        # ── Bundle bridge binaries for all platforms ─────────────────────
+        # ── Bundle bridge binaries ───────────────────────────────────────
+        # Default: copy prebuilt binaries for all 5 platforms out of the
+        # binaries layer (tom_binaries). When TOM_BRIDGE_FROM_SOURCE=1 (set by
+        # compile_and_install.ps1): resolve deps, regenerate the d4rt bridges,
+        # and compile the bridge for THIS host from source - bundling only that
+        # one binary, built into the extension's local bin/ (never a shared or
+        # PATH-resolved location).
         $WorkspaceRoot = (Resolve-Path (Join-Path $ExtensionDir '..\..\..')).Path
         $TomBinDir = Join-Path (Join-Path $WorkspaceRoot 'tom_binaries') 'tom'
+        $BridgeDir = Join-Path $WorkspaceRoot 'tom_ai/vscode/tom_vscode_bridge'
         $BundledBinaries = @('tom_bs')
-        $Platforms = @(
-            @{ Id = 'darwin-arm64'; Ext = '' },
-            @{ Id = 'darwin-x64';   Ext = '' },
-            @{ Id = 'linux-x64';    Ext = '' },
-            @{ Id = 'linux-arm64';  Ext = '' },
-            @{ Id = 'win32-x64';    Ext = '.exe' }
-        )
 
-        Write-Host "Bundling bridge binaries..."
         $ExtBinDir = Join-Path $ExtensionDir 'bin'
         if (Test-Path $ExtBinDir) { Remove-Item -Recurse -Force $ExtBinDir }
 
-        $TotalBundled = 0
-        foreach ($plat in $Platforms) {
-            $srcDir = Join-Path $TomBinDir $plat.Id
-            $dstDir = Join-Path (Join-Path $ExtensionDir 'bin') $plat.Id
-            if (-not (Test-Path $srcDir)) {
-                Write-Host "  Warning: Source not found: $($plat.Id) - skipping"
-                continue
+        if ($env:TOM_BRIDGE_FROM_SOURCE -eq '1') {
+            if (-not (Get-Command dart -ErrorAction SilentlyContinue)) {
+                Write-Error "Dart SDK not found - cannot compile the bridge from source"
+                exit 1
             }
+            $GenDir = Join-Path $WorkspaceRoot 'tom_ai/d4rt/tom_d4rt_generator'
+            $GenPkgConfig = Join-Path $GenDir '.dart_tool/package_config.json'
+            $GenEntrypoint = Join-Path $GenDir 'bin/d4rtgen.dart'
+
+            $arch = switch ($env:PROCESSOR_ARCHITECTURE) {
+                'ARM64' { 'arm64' }
+                default { 'x64' }
+            }
+            $HostPlat = "win32-$arch"
+            $dstDir = Join-Path $ExtBinDir $HostPlat
             New-Item -ItemType Directory -Path $dstDir -Force | Out-Null
+
+            # 1) Resolve dependencies for both the generator and the bridge.
+            Write-Host "Resolving Dart dependencies (generator + bridge)..."
+            Push-Location $GenDir
+            dart pub get
+            if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "dart pub get failed in $GenDir"; exit 1 }
+            Pop-Location
+            Push-Location $BridgeDir
+            dart pub get
+            if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "dart pub get failed in $BridgeDir"; exit 1 }
+
+            # 2) Regenerate the d4rt bridges. d4rtgen processes the project in its
+            #    current directory, so run it from the bridge dir; --packages runs
+            #    the generator's entrypoint directly from its source, without
+            #    requiring it on PATH or as a dependency of the bridge.
+            Write-Host "Regenerating d4rt bridges..."
+            dart --packages="$GenPkgConfig" "$GenEntrypoint"
+            if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "d4rt bridge generation failed"; exit 1 }
+
+            # 3) Compile the bridge binary for THIS host straight into the
+            #    extension's local bin/ - no shared location, no PATH lookup.
+            Write-Host "Compiling bridge binary from source for $HostPlat ..."
             foreach ($bin in $BundledBinaries) {
-                $src = Join-Path $srcDir "$bin$($plat.Ext)"
-                if (Test-Path $src) {
-                    Copy-Item -Path $src -Destination (Join-Path $dstDir "$bin$($plat.Ext)") -Force
-                    $TotalBundled++
+                $dst = Join-Path $dstDir "$bin.exe"
+                dart compile exe (Join-Path 'bin' "$bin.dart") -o $dst
+                if ($LASTEXITCODE -ne 0) {
+                    Pop-Location
+                    Write-Error "Failed to compile $bin from source"
+                    exit 1
+                }
+                Write-Host "  $HostPlat/$bin.exe (from source)"
+            }
+            Pop-Location
+        } else {
+            $Platforms = @(
+                @{ Id = 'darwin-arm64'; Ext = '' },
+                @{ Id = 'darwin-x64';   Ext = '' },
+                @{ Id = 'linux-x64';    Ext = '' },
+                @{ Id = 'linux-arm64';  Ext = '' },
+                @{ Id = 'win32-x64';    Ext = '.exe' }
+            )
+
+            Write-Host "Bundling bridge binaries..."
+            $TotalBundled = 0
+            foreach ($plat in $Platforms) {
+                $srcDir = Join-Path $TomBinDir $plat.Id
+                $dstDir = Join-Path $ExtBinDir $plat.Id
+                if (-not (Test-Path $srcDir)) {
+                    Write-Host "  Warning: Source not found: $($plat.Id) - skipping"
+                    continue
+                }
+                New-Item -ItemType Directory -Path $dstDir -Force | Out-Null
+                foreach ($bin in $BundledBinaries) {
+                    $src = Join-Path $srcDir "$bin$($plat.Ext)"
+                    if (Test-Path $src) {
+                        Copy-Item -Path $src -Destination (Join-Path $dstDir "$bin$($plat.Ext)") -Force
+                        $TotalBundled++
+                    }
                 }
             }
+            Write-Host "Bundled $TotalBundled binaries across $($Platforms.Count) platforms"
         }
-        Write-Host "Bundled $TotalBundled binaries across $($Platforms.Count) platforms"
         Write-Host ""
 
         # ── Ensure Claude Agent SDK native CLI binary for THIS host ──────────

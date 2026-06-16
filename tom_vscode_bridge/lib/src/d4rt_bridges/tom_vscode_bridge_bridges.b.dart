@@ -1,14 +1,18 @@
 // D4rt Bridge - Generated file, do not edit
-// Sources: 33 files
-// Generated: 2026-06-13T18:03:25.552944
+// Sources: 34 files
+// Generated: 2026-06-16T11:13:00.501368
 
-// ignore_for_file: unused_import, deprecated_member_use, prefer_function_declarations_over_variables, implementation_imports, sort_child_properties_last, non_constant_identifier_names, avoid_function_literals_in_foreach_calls
+// ignore_for_file: unused_import, deprecated_member_use, prefer_function_declarations_over_variables, implementation_imports, sort_child_properties_last, non_constant_identifier_names, avoid_function_literals_in_foreach_calls, invalid_use_of_protected_member, unnecessary_non_null_assertion, invalid_use_of_visible_for_testing_member, unnecessary_cast, unused_local_variable, no_leading_underscores_for_local_identifiers, prefer_is_empty, unnecessary_question_mark, unreachable_switch_case, unintended_html_in_doc_comment, empty_constructor_bodies, prefer_const_constructors_in_immutables, prefer_final_fields, unused_field, must_call_super, no_logic_in_create_state, use_key_in_widget_constructors, annotate_overrides, unnecessary_import
 
 import 'package:tom_d4rt/d4rt.dart';
 import 'package:tom_d4rt/tom_d4rt.dart';
 import 'dart:async';
 
-import 'package:tom_d4rt/src/d4rt_base.dart' as $tom_d4rt_1;
+import 'package:tom_d4rt/src/bridge/bridged_types.dart' as $tom_d4rt_1;
+import 'package:tom_d4rt/src/bridge/registration.dart' as $tom_d4rt_2;
+import 'package:tom_d4rt/src/d4rt_base.dart' as $tom_d4rt_3;
+import 'package:tom_d4rt/src/interpreter_visitor.dart' as $tom_d4rt_4;
+import 'package:tom_d4rt/src/runtime_interfaces.dart' as $tom_d4rt_5;
 import 'package:tom_vscode_bridge/bridge_server.dart' as $tom_vscode_bridge_1;
 import 'package:tom_vscode_bridge/script_api.dart' as $tom_vscode_bridge_2;
 import 'package:tom_vscode_scripting_api/script_globals.dart' as $tom_vscode_scripting_api_1;
@@ -208,6 +212,7 @@ class AllBridge {
       _createTomToolsApiBridge(),
       _createSendToChatResultBridge(),
       _createTomChatApiBridge(),
+      _createBridgedClassBridge(),
     ];
   }
 
@@ -377,6 +382,61 @@ class AllBridge {
       'TomToolsApi': 'package:tom_vscode_scripting_api/src/tom_tools_api.dart',
       'SendToChatResult': 'package:tom_vscode_scripting_api/src/tom_chat_api.dart',
       'TomChatApi': 'package:tom_vscode_scripting_api/src/tom_chat_api.dart',
+      'BridgedClass': 'package:tom_d4rt/src/bridge/bridged_types.dart',
+    };
+  }
+
+  /// Returns a map of class names to their flattened (transitive)
+  /// native supertype names (superclasses, interfaces and mixins).
+  ///
+  /// Fed to `BridgedClass.registerSupertypes` so interpreted subclasses
+  /// of bridged classes pass `is`/subtype checks against bridged
+  /// ancestors and the interface-proxy supertype walk resolves up the
+  /// chain (MCI#1 / A1).
+  static Map<String, List<String>> classSupertypes() {
+    return {
+      'VSCodeBridgeServer': ['VSCodeAdapter'],
+      'VSCodeBridgeAdapter': ['VSCodeAdapter'],
+      'LazyVSCodeBridgeAdapter': ['VSCodeAdapter'],
+      'BridgeWorkspaceNotFoundException': ['Exception'],
+      'Selection': ['Range'],
+      'SdkAssistantMessage': ['SdkMessage'],
+      'SdkUserMessage': ['SdkMessage'],
+      'SdkResultMessage': ['SdkMessage'],
+      'SdkSystemMessage': ['SdkMessage'],
+      'SdkPartialAssistantMessage': ['SdkMessage'],
+      'SdkSystemEvent': ['SdkMessage'],
+      'SdkUnknownMessage': ['SdkMessage'],
+      'TextBlock': ['ContentBlock'],
+      'ThinkingBlock': ['ContentBlock'],
+      'ToolUseBlock': ['ContentBlock'],
+      'ToolResultBlock': ['ContentBlock'],
+      'UnknownBlock': ['ContentBlock'],
+      'PermissionUpdateRules': ['PermissionUpdate'],
+      'PermissionUpdateSetMode': ['PermissionUpdate'],
+      'PermissionUpdateDirectories': ['PermissionUpdate'],
+      'PermissionAllow': ['PermissionResult'],
+      'PermissionDeny': ['PermissionResult'],
+      'McpStdioServerConfig': ['McpServerConfig'],
+      'McpSSEServerConfig': ['McpServerConfig'],
+      'McpHttpServerConfig': ['McpServerConfig'],
+      'McpSdkServerConfig': ['McpServerConfig'],
+      'SystemPromptText': ['SystemPrompt'],
+      'SystemPromptList': ['SystemPrompt'],
+      'SystemPromptPreset': ['SystemPrompt'],
+      'ToolsList': ['ToolsConfig'],
+      'ToolsClaudeCodePreset': ['ToolsConfig'],
+      'ThinkingAdaptive': ['ThinkingConfig'],
+      'ThinkingEnabled': ['ThinkingConfig'],
+      'ThinkingDisabled': ['ThinkingConfig'],
+      'SkillsList': ['Skills'],
+      'SkillsAll': ['Skills'],
+      'SettingsPath': ['SettingsRef'],
+      'SettingsInline': ['SettingsRef'],
+      'AgentSdkQueryException': ['Exception'],
+      'AgentQuery': ['StreamView', 'Stream'],
+      'VSCodeBridgeAgentSdkTransport': ['AgentSdkTransport'],
+      'BridgedClass': ['RuntimeType'],
     };
   }
 
@@ -388,6 +448,30 @@ class AllBridge {
   static Map<String, String> classAliases() {
     return {
     };
+  }
+
+  /// Returns the list of function typedef names declared in this library.
+  ///
+  /// Function typedefs like `typedef VoidCallback = void Function()` are
+  /// registered so that they can be used as type arguments in D4rt scripts.
+  static List<String> functionTypedefs() {
+    return [
+      'BridgeRegistrar',
+      'BridgeRequestHandler',
+      'BridgePortProbe',
+      'BridgeIdentityFetcher',
+      'BridgeAdapterFactory',
+      'ChatRequestHandler',
+      'CanUseTool',
+      'ToolHandler',
+      'BridgedConstructorCallable',
+      'BridgedMethodAdapter',
+      'BridgedStaticMethodAdapter',
+      'BridgedStaticGetterAdapter',
+      'BridgedStaticSetterAdapter',
+      'BridgedInstanceGetterAdapter',
+      'BridgedInstanceSetterAdapter',
+    ];
   }
 
   /// Returns all bridged enum definitions.
@@ -571,6 +655,48 @@ class AllBridge {
     };
   }
 
+  /// GEN-107: Library re-exports declared by the bridged source
+  /// libraries. Each tuple mirrors a Dart `export '…'` directive.
+  /// Consumed by `registerBridges` via `D4rt.registerLibraryReExport`
+  /// (mirrored on `D4rtRunner` in tom_d4rt_ast).
+  static List<({String source, String target, Set<String>? show, Set<String>? hide})>
+  bridgeReExports() {
+    return [
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_adapter.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_bridge_client.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_bridge_adapter.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/bridge_discovery.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_commands.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_extensions.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_lm.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_window.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_workspace.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_chat.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_helper.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_types.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/agent_sdk_messages.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/agent_sdk_permissions.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/agent_sdk_mcp.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/agent_sdk_options.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/agent_sdk_query.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/bridge_request_dispatcher.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/agent_sdk_tool_registry.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/agent_sdk_permission_dispatch.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/ai_prompt_api.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/ai_conversation_api.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/tom_todo_api.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/tom_queue_api.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/tom_timed_api.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/tom_document_api.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/tom_workspace_api.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/tom_tools_api.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/tom_chat_api.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/script_globals.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/script_globals.dart', target: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', show: null, hide: null),
+    ];
+  }
+
   /// Registers all bridges with an interpreter.
   ///
   /// [importPath] is the package import path that D4rt scripts will use
@@ -582,6 +708,11 @@ class AllBridge {
     for (final bridge in classes) {
       interpreter.registerBridgedClass(bridge, importPath, sourceUri: classSources[bridge.name]);
     }
+
+    // MCI#1 / A1: Register the flattened native supertype table so
+    // interpreted subclasses pass subtype checks against bridged
+    // ancestors. Idempotent — safe to call per barrel.
+    BridgedClass.registerSupertypes(classSupertypes());
 
     // Register bridged enums with source URIs for deduplication
     final enums = bridgedEnums();
@@ -599,6 +730,17 @@ class AllBridge {
     final funcSigs = globalFunctionSignatures();
     for (final entry in funcs.entries) {
       interpreter.registertopLevelFunction(entry.key, entry.value, importPath, sourceUri: funcSources[entry.key], signature: funcSigs[entry.key]);
+    }
+
+    // Register function typedefs for type resolution
+    final typedefs = functionTypedefs();
+    for (final name in typedefs) {
+      interpreter.registerFunctionTypedef(name, importPath);
+    }
+
+    // GEN-107: Register library re-exports
+    for (final r in bridgeReExports()) {
+      interpreter.registerLibraryReExport(r.source, r.target, show: r.show, hide: r.hide);
     }
   }
 
@@ -668,82 +810,82 @@ class AllBridge {
         }
         if (!named.containsKey('minPort') && !named.containsKey('maxPort') && named.containsKey('probe') && !named.containsKey('fetchIdentity')) {
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           return $tom_vscode_scripting_api_11.findBridgePortForWorkspace(name, host: host, probe: probe);
         }
         if (named.containsKey('minPort') && !named.containsKey('maxPort') && named.containsKey('probe') && !named.containsKey('fetchIdentity')) {
           final minPort = D4.getRequiredNamedArg<int>(named, 'minPort', 'findBridgePortForWorkspace');
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           return $tom_vscode_scripting_api_11.findBridgePortForWorkspace(name, host: host, minPort: minPort, probe: probe);
         }
         if (!named.containsKey('minPort') && named.containsKey('maxPort') && named.containsKey('probe') && !named.containsKey('fetchIdentity')) {
           final maxPort = D4.getRequiredNamedArg<int>(named, 'maxPort', 'findBridgePortForWorkspace');
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           return $tom_vscode_scripting_api_11.findBridgePortForWorkspace(name, host: host, maxPort: maxPort, probe: probe);
         }
         if (named.containsKey('minPort') && named.containsKey('maxPort') && named.containsKey('probe') && !named.containsKey('fetchIdentity')) {
           final minPort = D4.getRequiredNamedArg<int>(named, 'minPort', 'findBridgePortForWorkspace');
           final maxPort = D4.getRequiredNamedArg<int>(named, 'maxPort', 'findBridgePortForWorkspace');
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           return $tom_vscode_scripting_api_11.findBridgePortForWorkspace(name, host: host, minPort: minPort, maxPort: maxPort, probe: probe);
         }
         if (!named.containsKey('minPort') && !named.containsKey('maxPort') && !named.containsKey('probe') && named.containsKey('fetchIdentity')) {
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           return $tom_vscode_scripting_api_11.findBridgePortForWorkspace(name, host: host, fetchIdentity: fetchIdentity);
         }
         if (named.containsKey('minPort') && !named.containsKey('maxPort') && !named.containsKey('probe') && named.containsKey('fetchIdentity')) {
           final minPort = D4.getRequiredNamedArg<int>(named, 'minPort', 'findBridgePortForWorkspace');
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           return $tom_vscode_scripting_api_11.findBridgePortForWorkspace(name, host: host, minPort: minPort, fetchIdentity: fetchIdentity);
         }
         if (!named.containsKey('minPort') && named.containsKey('maxPort') && !named.containsKey('probe') && named.containsKey('fetchIdentity')) {
           final maxPort = D4.getRequiredNamedArg<int>(named, 'maxPort', 'findBridgePortForWorkspace');
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           return $tom_vscode_scripting_api_11.findBridgePortForWorkspace(name, host: host, maxPort: maxPort, fetchIdentity: fetchIdentity);
         }
         if (named.containsKey('minPort') && named.containsKey('maxPort') && !named.containsKey('probe') && named.containsKey('fetchIdentity')) {
           final minPort = D4.getRequiredNamedArg<int>(named, 'minPort', 'findBridgePortForWorkspace');
           final maxPort = D4.getRequiredNamedArg<int>(named, 'maxPort', 'findBridgePortForWorkspace');
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           return $tom_vscode_scripting_api_11.findBridgePortForWorkspace(name, host: host, minPort: minPort, maxPort: maxPort, fetchIdentity: fetchIdentity);
         }
         if (!named.containsKey('minPort') && !named.containsKey('maxPort') && named.containsKey('probe') && named.containsKey('fetchIdentity')) {
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           return $tom_vscode_scripting_api_11.findBridgePortForWorkspace(name, host: host, probe: probe, fetchIdentity: fetchIdentity);
         }
         if (named.containsKey('minPort') && !named.containsKey('maxPort') && named.containsKey('probe') && named.containsKey('fetchIdentity')) {
           final minPort = D4.getRequiredNamedArg<int>(named, 'minPort', 'findBridgePortForWorkspace');
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           return $tom_vscode_scripting_api_11.findBridgePortForWorkspace(name, host: host, minPort: minPort, probe: probe, fetchIdentity: fetchIdentity);
         }
         if (!named.containsKey('minPort') && named.containsKey('maxPort') && named.containsKey('probe') && named.containsKey('fetchIdentity')) {
           final maxPort = D4.getRequiredNamedArg<int>(named, 'maxPort', 'findBridgePortForWorkspace');
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           return $tom_vscode_scripting_api_11.findBridgePortForWorkspace(name, host: host, maxPort: maxPort, probe: probe, fetchIdentity: fetchIdentity);
         }
         if (named.containsKey('minPort') && named.containsKey('maxPort') && named.containsKey('probe') && named.containsKey('fetchIdentity')) {
           final minPort = D4.getRequiredNamedArg<int>(named, 'minPort', 'findBridgePortForWorkspace');
           final maxPort = D4.getRequiredNamedArg<int>(named, 'maxPort', 'findBridgePortForWorkspace');
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           return $tom_vscode_scripting_api_11.findBridgePortForWorkspace(name, host: host, minPort: minPort, maxPort: maxPort, probe: probe, fetchIdentity: fetchIdentity);
         }
         throw StateError('Unreachable: all named parameter combinations should be covered');
@@ -768,82 +910,82 @@ class AllBridge {
         }
         if (!named.containsKey('minPort') && !named.containsKey('maxPort') && named.containsKey('probe') && !named.containsKey('fetchIdentity')) {
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           return $tom_vscode_scripting_api_11.scanBridgePorts(host: host, probe: probe);
         }
         if (named.containsKey('minPort') && !named.containsKey('maxPort') && named.containsKey('probe') && !named.containsKey('fetchIdentity')) {
           final minPort = D4.getRequiredNamedArg<int>(named, 'minPort', 'scanBridgePorts');
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           return $tom_vscode_scripting_api_11.scanBridgePorts(host: host, minPort: minPort, probe: probe);
         }
         if (!named.containsKey('minPort') && named.containsKey('maxPort') && named.containsKey('probe') && !named.containsKey('fetchIdentity')) {
           final maxPort = D4.getRequiredNamedArg<int>(named, 'maxPort', 'scanBridgePorts');
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           return $tom_vscode_scripting_api_11.scanBridgePorts(host: host, maxPort: maxPort, probe: probe);
         }
         if (named.containsKey('minPort') && named.containsKey('maxPort') && named.containsKey('probe') && !named.containsKey('fetchIdentity')) {
           final minPort = D4.getRequiredNamedArg<int>(named, 'minPort', 'scanBridgePorts');
           final maxPort = D4.getRequiredNamedArg<int>(named, 'maxPort', 'scanBridgePorts');
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           return $tom_vscode_scripting_api_11.scanBridgePorts(host: host, minPort: minPort, maxPort: maxPort, probe: probe);
         }
         if (!named.containsKey('minPort') && !named.containsKey('maxPort') && !named.containsKey('probe') && named.containsKey('fetchIdentity')) {
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           return $tom_vscode_scripting_api_11.scanBridgePorts(host: host, fetchIdentity: fetchIdentity);
         }
         if (named.containsKey('minPort') && !named.containsKey('maxPort') && !named.containsKey('probe') && named.containsKey('fetchIdentity')) {
           final minPort = D4.getRequiredNamedArg<int>(named, 'minPort', 'scanBridgePorts');
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           return $tom_vscode_scripting_api_11.scanBridgePorts(host: host, minPort: minPort, fetchIdentity: fetchIdentity);
         }
         if (!named.containsKey('minPort') && named.containsKey('maxPort') && !named.containsKey('probe') && named.containsKey('fetchIdentity')) {
           final maxPort = D4.getRequiredNamedArg<int>(named, 'maxPort', 'scanBridgePorts');
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           return $tom_vscode_scripting_api_11.scanBridgePorts(host: host, maxPort: maxPort, fetchIdentity: fetchIdentity);
         }
         if (named.containsKey('minPort') && named.containsKey('maxPort') && !named.containsKey('probe') && named.containsKey('fetchIdentity')) {
           final minPort = D4.getRequiredNamedArg<int>(named, 'minPort', 'scanBridgePorts');
           final maxPort = D4.getRequiredNamedArg<int>(named, 'maxPort', 'scanBridgePorts');
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           return $tom_vscode_scripting_api_11.scanBridgePorts(host: host, minPort: minPort, maxPort: maxPort, fetchIdentity: fetchIdentity);
         }
         if (!named.containsKey('minPort') && !named.containsKey('maxPort') && named.containsKey('probe') && named.containsKey('fetchIdentity')) {
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           return $tom_vscode_scripting_api_11.scanBridgePorts(host: host, probe: probe, fetchIdentity: fetchIdentity);
         }
         if (named.containsKey('minPort') && !named.containsKey('maxPort') && named.containsKey('probe') && named.containsKey('fetchIdentity')) {
           final minPort = D4.getRequiredNamedArg<int>(named, 'minPort', 'scanBridgePorts');
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           return $tom_vscode_scripting_api_11.scanBridgePorts(host: host, minPort: minPort, probe: probe, fetchIdentity: fetchIdentity);
         }
         if (!named.containsKey('minPort') && named.containsKey('maxPort') && named.containsKey('probe') && named.containsKey('fetchIdentity')) {
           final maxPort = D4.getRequiredNamedArg<int>(named, 'maxPort', 'scanBridgePorts');
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           return $tom_vscode_scripting_api_11.scanBridgePorts(host: host, maxPort: maxPort, probe: probe, fetchIdentity: fetchIdentity);
         }
         if (named.containsKey('minPort') && named.containsKey('maxPort') && named.containsKey('probe') && named.containsKey('fetchIdentity')) {
           final minPort = D4.getRequiredNamedArg<int>(named, 'minPort', 'scanBridgePorts');
           final maxPort = D4.getRequiredNamedArg<int>(named, 'maxPort', 'scanBridgePorts');
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           return $tom_vscode_scripting_api_11.scanBridgePorts(host: host, minPort: minPort, maxPort: maxPort, probe: probe, fetchIdentity: fetchIdentity);
         }
         throw StateError('Unreachable: all named parameter combinations should be covered');
@@ -871,210 +1013,210 @@ class AllBridge {
         }
         if (!named.containsKey('minPort') && !named.containsKey('maxPort') && named.containsKey('probe') && !named.containsKey('fetchIdentity') && !named.containsKey('adapterFactory')) {
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           return $tom_vscode_scripting_api_11.connectToWorkspace(name, host: host, initializeVSCode: initializeVSCode, probe: probe);
         }
         if (named.containsKey('minPort') && !named.containsKey('maxPort') && named.containsKey('probe') && !named.containsKey('fetchIdentity') && !named.containsKey('adapterFactory')) {
           final minPort = D4.getRequiredNamedArg<int>(named, 'minPort', 'connectToWorkspace');
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           return $tom_vscode_scripting_api_11.connectToWorkspace(name, host: host, initializeVSCode: initializeVSCode, minPort: minPort, probe: probe);
         }
         if (!named.containsKey('minPort') && named.containsKey('maxPort') && named.containsKey('probe') && !named.containsKey('fetchIdentity') && !named.containsKey('adapterFactory')) {
           final maxPort = D4.getRequiredNamedArg<int>(named, 'maxPort', 'connectToWorkspace');
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           return $tom_vscode_scripting_api_11.connectToWorkspace(name, host: host, initializeVSCode: initializeVSCode, maxPort: maxPort, probe: probe);
         }
         if (named.containsKey('minPort') && named.containsKey('maxPort') && named.containsKey('probe') && !named.containsKey('fetchIdentity') && !named.containsKey('adapterFactory')) {
           final minPort = D4.getRequiredNamedArg<int>(named, 'minPort', 'connectToWorkspace');
           final maxPort = D4.getRequiredNamedArg<int>(named, 'maxPort', 'connectToWorkspace');
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           return $tom_vscode_scripting_api_11.connectToWorkspace(name, host: host, initializeVSCode: initializeVSCode, minPort: minPort, maxPort: maxPort, probe: probe);
         }
         if (!named.containsKey('minPort') && !named.containsKey('maxPort') && !named.containsKey('probe') && named.containsKey('fetchIdentity') && !named.containsKey('adapterFactory')) {
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           return $tom_vscode_scripting_api_11.connectToWorkspace(name, host: host, initializeVSCode: initializeVSCode, fetchIdentity: fetchIdentity);
         }
         if (named.containsKey('minPort') && !named.containsKey('maxPort') && !named.containsKey('probe') && named.containsKey('fetchIdentity') && !named.containsKey('adapterFactory')) {
           final minPort = D4.getRequiredNamedArg<int>(named, 'minPort', 'connectToWorkspace');
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           return $tom_vscode_scripting_api_11.connectToWorkspace(name, host: host, initializeVSCode: initializeVSCode, minPort: minPort, fetchIdentity: fetchIdentity);
         }
         if (!named.containsKey('minPort') && named.containsKey('maxPort') && !named.containsKey('probe') && named.containsKey('fetchIdentity') && !named.containsKey('adapterFactory')) {
           final maxPort = D4.getRequiredNamedArg<int>(named, 'maxPort', 'connectToWorkspace');
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           return $tom_vscode_scripting_api_11.connectToWorkspace(name, host: host, initializeVSCode: initializeVSCode, maxPort: maxPort, fetchIdentity: fetchIdentity);
         }
         if (named.containsKey('minPort') && named.containsKey('maxPort') && !named.containsKey('probe') && named.containsKey('fetchIdentity') && !named.containsKey('adapterFactory')) {
           final minPort = D4.getRequiredNamedArg<int>(named, 'minPort', 'connectToWorkspace');
           final maxPort = D4.getRequiredNamedArg<int>(named, 'maxPort', 'connectToWorkspace');
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           return $tom_vscode_scripting_api_11.connectToWorkspace(name, host: host, initializeVSCode: initializeVSCode, minPort: minPort, maxPort: maxPort, fetchIdentity: fetchIdentity);
         }
         if (!named.containsKey('minPort') && !named.containsKey('maxPort') && named.containsKey('probe') && named.containsKey('fetchIdentity') && !named.containsKey('adapterFactory')) {
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           return $tom_vscode_scripting_api_11.connectToWorkspace(name, host: host, initializeVSCode: initializeVSCode, probe: probe, fetchIdentity: fetchIdentity);
         }
         if (named.containsKey('minPort') && !named.containsKey('maxPort') && named.containsKey('probe') && named.containsKey('fetchIdentity') && !named.containsKey('adapterFactory')) {
           final minPort = D4.getRequiredNamedArg<int>(named, 'minPort', 'connectToWorkspace');
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           return $tom_vscode_scripting_api_11.connectToWorkspace(name, host: host, initializeVSCode: initializeVSCode, minPort: minPort, probe: probe, fetchIdentity: fetchIdentity);
         }
         if (!named.containsKey('minPort') && named.containsKey('maxPort') && named.containsKey('probe') && named.containsKey('fetchIdentity') && !named.containsKey('adapterFactory')) {
           final maxPort = D4.getRequiredNamedArg<int>(named, 'maxPort', 'connectToWorkspace');
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           return $tom_vscode_scripting_api_11.connectToWorkspace(name, host: host, initializeVSCode: initializeVSCode, maxPort: maxPort, probe: probe, fetchIdentity: fetchIdentity);
         }
         if (named.containsKey('minPort') && named.containsKey('maxPort') && named.containsKey('probe') && named.containsKey('fetchIdentity') && !named.containsKey('adapterFactory')) {
           final minPort = D4.getRequiredNamedArg<int>(named, 'minPort', 'connectToWorkspace');
           final maxPort = D4.getRequiredNamedArg<int>(named, 'maxPort', 'connectToWorkspace');
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           return $tom_vscode_scripting_api_11.connectToWorkspace(name, host: host, initializeVSCode: initializeVSCode, minPort: minPort, maxPort: maxPort, probe: probe, fetchIdentity: fetchIdentity);
         }
         if (!named.containsKey('minPort') && !named.containsKey('maxPort') && !named.containsKey('probe') && !named.containsKey('fetchIdentity') && named.containsKey('adapterFactory')) {
           final adapterFactoryRaw = named['adapterFactory'];
-          final adapterFactory = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; };
+          final adapterFactory = ((String p0, int p1) { return D4.extractBridgedArg<$tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter>(D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]), 'callback', visitor) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; }) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter Function(String, int);
           return $tom_vscode_scripting_api_11.connectToWorkspace(name, host: host, initializeVSCode: initializeVSCode, adapterFactory: adapterFactory);
         }
         if (named.containsKey('minPort') && !named.containsKey('maxPort') && !named.containsKey('probe') && !named.containsKey('fetchIdentity') && named.containsKey('adapterFactory')) {
           final minPort = D4.getRequiredNamedArg<int>(named, 'minPort', 'connectToWorkspace');
           final adapterFactoryRaw = named['adapterFactory'];
-          final adapterFactory = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; };
+          final adapterFactory = ((String p0, int p1) { return D4.extractBridgedArg<$tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter>(D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]), 'callback', visitor) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; }) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter Function(String, int);
           return $tom_vscode_scripting_api_11.connectToWorkspace(name, host: host, initializeVSCode: initializeVSCode, minPort: minPort, adapterFactory: adapterFactory);
         }
         if (!named.containsKey('minPort') && named.containsKey('maxPort') && !named.containsKey('probe') && !named.containsKey('fetchIdentity') && named.containsKey('adapterFactory')) {
           final maxPort = D4.getRequiredNamedArg<int>(named, 'maxPort', 'connectToWorkspace');
           final adapterFactoryRaw = named['adapterFactory'];
-          final adapterFactory = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; };
+          final adapterFactory = ((String p0, int p1) { return D4.extractBridgedArg<$tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter>(D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]), 'callback', visitor) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; }) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter Function(String, int);
           return $tom_vscode_scripting_api_11.connectToWorkspace(name, host: host, initializeVSCode: initializeVSCode, maxPort: maxPort, adapterFactory: adapterFactory);
         }
         if (named.containsKey('minPort') && named.containsKey('maxPort') && !named.containsKey('probe') && !named.containsKey('fetchIdentity') && named.containsKey('adapterFactory')) {
           final minPort = D4.getRequiredNamedArg<int>(named, 'minPort', 'connectToWorkspace');
           final maxPort = D4.getRequiredNamedArg<int>(named, 'maxPort', 'connectToWorkspace');
           final adapterFactoryRaw = named['adapterFactory'];
-          final adapterFactory = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; };
+          final adapterFactory = ((String p0, int p1) { return D4.extractBridgedArg<$tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter>(D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]), 'callback', visitor) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; }) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter Function(String, int);
           return $tom_vscode_scripting_api_11.connectToWorkspace(name, host: host, initializeVSCode: initializeVSCode, minPort: minPort, maxPort: maxPort, adapterFactory: adapterFactory);
         }
         if (!named.containsKey('minPort') && !named.containsKey('maxPort') && named.containsKey('probe') && !named.containsKey('fetchIdentity') && named.containsKey('adapterFactory')) {
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           final adapterFactoryRaw = named['adapterFactory'];
-          final adapterFactory = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; };
+          final adapterFactory = ((String p0, int p1) { return D4.extractBridgedArg<$tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter>(D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]), 'callback', visitor) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; }) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter Function(String, int);
           return $tom_vscode_scripting_api_11.connectToWorkspace(name, host: host, initializeVSCode: initializeVSCode, probe: probe, adapterFactory: adapterFactory);
         }
         if (named.containsKey('minPort') && !named.containsKey('maxPort') && named.containsKey('probe') && !named.containsKey('fetchIdentity') && named.containsKey('adapterFactory')) {
           final minPort = D4.getRequiredNamedArg<int>(named, 'minPort', 'connectToWorkspace');
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           final adapterFactoryRaw = named['adapterFactory'];
-          final adapterFactory = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; };
+          final adapterFactory = ((String p0, int p1) { return D4.extractBridgedArg<$tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter>(D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]), 'callback', visitor) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; }) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter Function(String, int);
           return $tom_vscode_scripting_api_11.connectToWorkspace(name, host: host, initializeVSCode: initializeVSCode, minPort: minPort, probe: probe, adapterFactory: adapterFactory);
         }
         if (!named.containsKey('minPort') && named.containsKey('maxPort') && named.containsKey('probe') && !named.containsKey('fetchIdentity') && named.containsKey('adapterFactory')) {
           final maxPort = D4.getRequiredNamedArg<int>(named, 'maxPort', 'connectToWorkspace');
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           final adapterFactoryRaw = named['adapterFactory'];
-          final adapterFactory = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; };
+          final adapterFactory = ((String p0, int p1) { return D4.extractBridgedArg<$tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter>(D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]), 'callback', visitor) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; }) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter Function(String, int);
           return $tom_vscode_scripting_api_11.connectToWorkspace(name, host: host, initializeVSCode: initializeVSCode, maxPort: maxPort, probe: probe, adapterFactory: adapterFactory);
         }
         if (named.containsKey('minPort') && named.containsKey('maxPort') && named.containsKey('probe') && !named.containsKey('fetchIdentity') && named.containsKey('adapterFactory')) {
           final minPort = D4.getRequiredNamedArg<int>(named, 'minPort', 'connectToWorkspace');
           final maxPort = D4.getRequiredNamedArg<int>(named, 'maxPort', 'connectToWorkspace');
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           final adapterFactoryRaw = named['adapterFactory'];
-          final adapterFactory = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; };
+          final adapterFactory = ((String p0, int p1) { return D4.extractBridgedArg<$tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter>(D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]), 'callback', visitor) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; }) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter Function(String, int);
           return $tom_vscode_scripting_api_11.connectToWorkspace(name, host: host, initializeVSCode: initializeVSCode, minPort: minPort, maxPort: maxPort, probe: probe, adapterFactory: adapterFactory);
         }
         if (!named.containsKey('minPort') && !named.containsKey('maxPort') && !named.containsKey('probe') && named.containsKey('fetchIdentity') && named.containsKey('adapterFactory')) {
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           final adapterFactoryRaw = named['adapterFactory'];
-          final adapterFactory = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; };
+          final adapterFactory = ((String p0, int p1) { return D4.extractBridgedArg<$tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter>(D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]), 'callback', visitor) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; }) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter Function(String, int);
           return $tom_vscode_scripting_api_11.connectToWorkspace(name, host: host, initializeVSCode: initializeVSCode, fetchIdentity: fetchIdentity, adapterFactory: adapterFactory);
         }
         if (named.containsKey('minPort') && !named.containsKey('maxPort') && !named.containsKey('probe') && named.containsKey('fetchIdentity') && named.containsKey('adapterFactory')) {
           final minPort = D4.getRequiredNamedArg<int>(named, 'minPort', 'connectToWorkspace');
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           final adapterFactoryRaw = named['adapterFactory'];
-          final adapterFactory = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; };
+          final adapterFactory = ((String p0, int p1) { return D4.extractBridgedArg<$tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter>(D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]), 'callback', visitor) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; }) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter Function(String, int);
           return $tom_vscode_scripting_api_11.connectToWorkspace(name, host: host, initializeVSCode: initializeVSCode, minPort: minPort, fetchIdentity: fetchIdentity, adapterFactory: adapterFactory);
         }
         if (!named.containsKey('minPort') && named.containsKey('maxPort') && !named.containsKey('probe') && named.containsKey('fetchIdentity') && named.containsKey('adapterFactory')) {
           final maxPort = D4.getRequiredNamedArg<int>(named, 'maxPort', 'connectToWorkspace');
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           final adapterFactoryRaw = named['adapterFactory'];
-          final adapterFactory = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; };
+          final adapterFactory = ((String p0, int p1) { return D4.extractBridgedArg<$tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter>(D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]), 'callback', visitor) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; }) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter Function(String, int);
           return $tom_vscode_scripting_api_11.connectToWorkspace(name, host: host, initializeVSCode: initializeVSCode, maxPort: maxPort, fetchIdentity: fetchIdentity, adapterFactory: adapterFactory);
         }
         if (named.containsKey('minPort') && named.containsKey('maxPort') && !named.containsKey('probe') && named.containsKey('fetchIdentity') && named.containsKey('adapterFactory')) {
           final minPort = D4.getRequiredNamedArg<int>(named, 'minPort', 'connectToWorkspace');
           final maxPort = D4.getRequiredNamedArg<int>(named, 'maxPort', 'connectToWorkspace');
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           final adapterFactoryRaw = named['adapterFactory'];
-          final adapterFactory = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; };
+          final adapterFactory = ((String p0, int p1) { return D4.extractBridgedArg<$tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter>(D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]), 'callback', visitor) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; }) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter Function(String, int);
           return $tom_vscode_scripting_api_11.connectToWorkspace(name, host: host, initializeVSCode: initializeVSCode, minPort: minPort, maxPort: maxPort, fetchIdentity: fetchIdentity, adapterFactory: adapterFactory);
         }
         if (!named.containsKey('minPort') && !named.containsKey('maxPort') && named.containsKey('probe') && named.containsKey('fetchIdentity') && named.containsKey('adapterFactory')) {
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           final adapterFactoryRaw = named['adapterFactory'];
-          final adapterFactory = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; };
+          final adapterFactory = ((String p0, int p1) { return D4.extractBridgedArg<$tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter>(D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]), 'callback', visitor) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; }) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter Function(String, int);
           return $tom_vscode_scripting_api_11.connectToWorkspace(name, host: host, initializeVSCode: initializeVSCode, probe: probe, fetchIdentity: fetchIdentity, adapterFactory: adapterFactory);
         }
         if (named.containsKey('minPort') && !named.containsKey('maxPort') && named.containsKey('probe') && named.containsKey('fetchIdentity') && named.containsKey('adapterFactory')) {
           final minPort = D4.getRequiredNamedArg<int>(named, 'minPort', 'connectToWorkspace');
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           final adapterFactoryRaw = named['adapterFactory'];
-          final adapterFactory = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; };
+          final adapterFactory = ((String p0, int p1) { return D4.extractBridgedArg<$tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter>(D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]), 'callback', visitor) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; }) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter Function(String, int);
           return $tom_vscode_scripting_api_11.connectToWorkspace(name, host: host, initializeVSCode: initializeVSCode, minPort: minPort, probe: probe, fetchIdentity: fetchIdentity, adapterFactory: adapterFactory);
         }
         if (!named.containsKey('minPort') && named.containsKey('maxPort') && named.containsKey('probe') && named.containsKey('fetchIdentity') && named.containsKey('adapterFactory')) {
           final maxPort = D4.getRequiredNamedArg<int>(named, 'maxPort', 'connectToWorkspace');
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           final adapterFactoryRaw = named['adapterFactory'];
-          final adapterFactory = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; };
+          final adapterFactory = ((String p0, int p1) { return D4.extractBridgedArg<$tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter>(D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]), 'callback', visitor) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; }) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter Function(String, int);
           return $tom_vscode_scripting_api_11.connectToWorkspace(name, host: host, initializeVSCode: initializeVSCode, maxPort: maxPort, probe: probe, fetchIdentity: fetchIdentity, adapterFactory: adapterFactory);
         }
         if (named.containsKey('minPort') && named.containsKey('maxPort') && named.containsKey('probe') && named.containsKey('fetchIdentity') && named.containsKey('adapterFactory')) {
           final minPort = D4.getRequiredNamedArg<int>(named, 'minPort', 'connectToWorkspace');
           final maxPort = D4.getRequiredNamedArg<int>(named, 'maxPort', 'connectToWorkspace');
           final probeRaw = named['probe'];
-          final probe = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]) as Future<bool>; };
+          final probe = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1])).then((v) => v as bool); }) as Future<bool> Function(String, int);
           final fetchIdentityRaw = named['fetchIdentity'];
-          final fetchIdentity = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1]) as Future<String?>; };
+          final fetchIdentity = ((String p0, int p1) { return Future.value(D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [p0, p1])).then((v) => v as String?); }) as Future<String?> Function(String, int);
           final adapterFactoryRaw = named['adapterFactory'];
-          final adapterFactory = (String p0, int p1) { return D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; };
+          final adapterFactory = ((String p0, int p1) { return D4.extractBridgedArg<$tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter>(D4.callInterpreterCallback(visitor!, adapterFactoryRaw, [p0, p1]), 'callback', visitor) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter; }) as $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter Function(String, int);
           return $tom_vscode_scripting_api_11.connectToWorkspace(name, host: host, initializeVSCode: initializeVSCode, minPort: minPort, maxPort: maxPort, probe: probe, fetchIdentity: fetchIdentity, adapterFactory: adapterFactory);
         }
         throw StateError('Unreachable: all named parameter combinations should be covered');
@@ -1096,7 +1238,7 @@ class AllBridge {
           throw ArgumentError('dispatchCanUseTool: Missing required argument "callback" at position 0');
         }
         final callbackRaw = positional[0];
-        final callback = (String p0, Map<String, dynamic> p1, $tom_vscode_scripting_api_6.CanUseToolContext p2) { return D4.callInterpreterCallback(visitor!, callbackRaw, [p0, p1, p2]) as Future<$tom_vscode_scripting_api_6.PermissionResult>; };
+        final callback = ((String p0, Map<String, dynamic> p1, $tom_vscode_scripting_api_6.CanUseToolContext p2) { return Future.value(D4.callInterpreterCallback(visitor!, callbackRaw, [p0, p1, p2])).then((v) => v as $tom_vscode_scripting_api_6.PermissionResult); }) as Future<$tom_vscode_scripting_api_6.PermissionResult> Function(String, Map<String, dynamic>, $tom_vscode_scripting_api_6.CanUseToolContext);
         final params = D4.getRequiredArg<Map<String, dynamic>>(positional, 1, 'params', 'dispatchCanUseTool');
         return $tom_vscode_scripting_api_5.dispatchCanUseTool(callback, params);
       },
@@ -1137,6 +1279,7 @@ class AllBridge {
   /// multiple barrels.
   static List<String> sourceLibraries() {
     return [
+      'package:tom_d4rt/src/bridge/bridged_types.dart',
       'package:tom_vscode_bridge/bridge_server.dart',
       'package:tom_vscode_bridge/script_api.dart',
       'package:tom_vscode_scripting_api/script_globals.dart',
@@ -1180,6 +1323,7 @@ class AllBridge {
   static String getImportBlock() {
     final imports = StringBuffer();
     imports.writeln("import 'package:tom_vscode_bridge/tom_vscode_bridge.dart';");
+    imports.writeln("import 'package:tom_d4rt/tom_d4rt.dart';");
     imports.writeln("import 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart';");
     return imports.toString();
   }
@@ -1192,6 +1336,7 @@ class AllBridge {
   /// so that module resolution finds content for those URIs.
   static List<String> subPackageBarrels() {
     return [
+      'package:tom_d4rt/tom_d4rt.dart',
       'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart',
     ];
   }
@@ -1339,6 +1484,7 @@ BridgedClass _createVSCodeBridgeServerBridge() {
     nativeType: $tom_vscode_bridge_1.VSCodeBridgeServer,
     name: 'VSCodeBridgeServer',
     isAssignable: (v) => v is $tom_vscode_bridge_1.VSCodeBridgeServer,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         // TODO: Unbridgeable function type List<BridgeRegistrar>
@@ -1421,8 +1567,8 @@ BridgedClass _createVSCodeBridgeServerBridge() {
       },
     },
     staticGetters: {
-      'params': (visitor) => $tom_vscode_bridge_1.VSCodeBridgeServer.params,
       'defaultInitSource': (visitor) => $tom_vscode_bridge_1.VSCodeBridgeServer.defaultInitSource,
+      'params': (visitor) => $tom_vscode_bridge_1.VSCodeBridgeServer.params,
     },
     staticMethods: {
       'setResult': (visitor, positional, named, typeArgs) {
@@ -1449,8 +1595,8 @@ BridgedClass _createVSCodeBridgeServerBridge() {
       'setResult': 'void setResult(Object? result)',
     },
     staticGetterSignatures: {
-      'params': 'Map<String, dynamic> get params',
       'defaultInitSource': 'String get defaultInitSource',
+      'params': 'Map<String, dynamic> get params',
     },
   );
 }
@@ -1492,7 +1638,7 @@ BridgedClass _createVsCodeBridgeBridge() {
           throw ArgumentError('execute: Missing required argument "handler" at position 0');
         }
         final handlerRaw = positional[0];
-        t.execute((Map<String, dynamic> p0, Map<String, dynamic> p1) { return D4.callInterpreterCallback(visitor!, handlerRaw, [p0, p1]) as dynamic; });
+        t.execute((Map<String, dynamic> p0, Map<String, dynamic> p1) { return D4.castCallbackResult<dynamic>(D4.callInterpreterCallback(visitor!, handlerRaw, [p0, p1])); });
         return null;
       },
     },
@@ -1515,6 +1661,7 @@ BridgedClass _createVSCodeAdapterBridge() {
     nativeType: $tom_vscode_scripting_api_21.VSCodeAdapter,
     name: 'VSCodeAdapter',
     isAssignable: (v) => v is $tom_vscode_scripting_api_21.VSCodeAdapter,
+    isAbstract: true,
     constructors: {
     },
     methods: {
@@ -1549,22 +1696,34 @@ BridgedClass _createVSCodeBridgeResultBridge() {
     constructors: {
       '': (visitor, positional, named) {
         final success = D4.getRequiredNamedArg<bool>(named, 'success', 'VSCodeBridgeResult');
-        final value = D4.getRequiredNamedArgTodoDefault<dynamic>(named, 'value', 'VSCodeBridgeResult', '<default unavailable>');
         final output = D4.getNamedArgWithDefault<String>(named, 'output', '');
         final error = D4.getOptionalNamedArg<String?>(named, 'error');
         final stackTrace = D4.getOptionalNamedArg<String?>(named, 'stackTrace');
         final exception = D4.getOptionalNamedArg<String?>(named, 'exception');
         final exceptionStackTrace = D4.getOptionalNamedArg<String?>(named, 'exceptionStackTrace');
         final duration = D4.getRequiredNamedArg<Duration>(named, 'duration', 'VSCodeBridgeResult');
-        return $tom_vscode_scripting_api_23.VSCodeBridgeResult(success: success, value: value, output: output, error: error, stackTrace: stackTrace, exception: exception, exceptionStackTrace: exceptionStackTrace, duration: duration);
+        if (!named.containsKey('value')) {
+          return $tom_vscode_scripting_api_23.VSCodeBridgeResult(success: success, output: output, error: error, stackTrace: stackTrace, exception: exception, exceptionStackTrace: exceptionStackTrace, duration: duration);
+        }
+        if (named.containsKey('value')) {
+          final value = D4.getRequiredNamedArg<dynamic>(named, 'value', 'VSCodeBridgeResult');
+          return $tom_vscode_scripting_api_23.VSCodeBridgeResult(success: success, output: output, error: error, stackTrace: stackTrace, exception: exception, exceptionStackTrace: exceptionStackTrace, duration: duration, value: value);
+        }
+        throw StateError('Unreachable: all named parameter combinations should be covered');
       },
       'success': (visitor, positional, named) {
-        final value = D4.getRequiredNamedArgTodoDefault<dynamic>(named, 'value', 'VSCodeBridgeResult', '<default unavailable>');
         final output = D4.getNamedArgWithDefault<String>(named, 'output', '');
         final exception = D4.getOptionalNamedArg<String?>(named, 'exception');
         final exceptionStackTrace = D4.getOptionalNamedArg<String?>(named, 'exceptionStackTrace');
         final duration = D4.getRequiredNamedArg<Duration>(named, 'duration', 'VSCodeBridgeResult');
-        return $tom_vscode_scripting_api_23.VSCodeBridgeResult.success(value: value, output: output, exception: exception, exceptionStackTrace: exceptionStackTrace, duration: duration);
+        if (!named.containsKey('value')) {
+          return $tom_vscode_scripting_api_23.VSCodeBridgeResult.success(output: output, exception: exception, exceptionStackTrace: exceptionStackTrace, duration: duration);
+        }
+        if (named.containsKey('value')) {
+          final value = D4.getRequiredNamedArg<dynamic>(named, 'value', 'VSCodeBridgeResult');
+          return $tom_vscode_scripting_api_23.VSCodeBridgeResult.success(output: output, exception: exception, exceptionStackTrace: exceptionStackTrace, duration: duration, value: value);
+        }
+        throw StateError('Unreachable: all named parameter combinations should be covered');
       },
       'failure': (visitor, positional, named) {
         final error = D4.getRequiredNamedArg<String>(named, 'error', 'VSCodeBridgeResult');
@@ -1663,7 +1822,7 @@ BridgedClass _createVSCodeBridgeClientBridge() {
           throw ArgumentError('registerRequestHandler: Missing required argument "handler" at position 1');
         }
         final handlerRaw = positional[1];
-        t.registerRequestHandler(method, (Map<String, dynamic> p0) { return D4.callInterpreterCallback(visitor!, handlerRaw, [p0]) as FutureOr<Object?>; });
+        t.registerRequestHandler(method, ((Map<String, dynamic> p0) { return D4.castCallbackResult<FutureOr<Object?>>(D4.callInterpreterCallback(visitor!, handlerRaw, [p0])); }) as FutureOr<Object?> Function(Map<String, dynamic>));
         return null;
       },
       'unregisterRequestHandler': (visitor, target, positional, named, typeArgs) {
@@ -1741,6 +1900,7 @@ BridgedClass _createVSCodeBridgeAdapterBridge() {
     nativeType: $tom_vscode_scripting_api_22.VSCodeBridgeAdapter,
     name: 'VSCodeBridgeAdapter',
     isAssignable: (v) => v is $tom_vscode_scripting_api_22.VSCodeBridgeAdapter,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         D4.requireMinArgs(positional, 1, 'VSCodeBridgeAdapter');
@@ -1793,6 +1953,7 @@ BridgedClass _createLazyVSCodeBridgeAdapterBridge() {
     nativeType: $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter,
     name: 'LazyVSCodeBridgeAdapter',
     isAssignable: (v) => v is $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         final host = D4.getNamedArgWithDefault<String>(named, 'host', '127.0.0.1');
@@ -1851,7 +2012,7 @@ BridgedClass _createLazyVSCodeBridgeAdapterBridge() {
       },
     },
     constructorSignatures: {
-      '': 'LazyVSCodeBridgeAdapter({String host = \'127.0.0.1\', int port = defaultVSCodeBridgePort, void Function(String)? onStatusMessage, void Function(String)? onErrorMessage})',
+      '': 'LazyVSCodeBridgeAdapter({String host = \'127.0.0.1\', int port = defaultVSCodeBridgePort, void Function(String message)? onStatusMessage, void Function(String message)? onErrorMessage})',
     },
     methodSignatures: {
       'setHostPort': 'Future<void> setHostPort(String host, int port)',
@@ -1879,6 +2040,7 @@ BridgedClass _createBridgeWorkspaceNotFoundExceptionBridge() {
     nativeType: $tom_vscode_scripting_api_11.BridgeWorkspaceNotFoundException,
     name: 'BridgeWorkspaceNotFoundException',
     isAssignable: (v) => v is $tom_vscode_scripting_api_11.BridgeWorkspaceNotFoundException,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         D4.requireMinArgs(positional, 3, 'BridgeWorkspaceNotFoundException');
@@ -2044,7 +2206,7 @@ BridgedClass _createVSCodeCommandsBridge() {
         final t = D4.validateTarget<$tom_vscode_scripting_api_25.VSCodeCommands>(target, 'VSCodeCommands');
         D4.requireMinArgs(positional, 1, 'executeCommand');
         final command = D4.getRequiredArg<String>(positional, 0, 'command', 'executeCommand');
-        final args = D4.coerceListOrNull<dynamic>(named['args'], 'args');
+        final args = D4.getOptionalNamedArg<List?>(named, 'args');
         final timeoutSeconds = D4.getNamedArgWithDefault<int>(named, 'timeoutSeconds', 120);
         return t.executeCommand(command, args: args, timeoutSeconds: timeoutSeconds);
       },
@@ -2067,7 +2229,7 @@ BridgedClass _createVSCodeCommandsBridge() {
       '': 'VSCodeCommands(VSCodeAdapter _adapter)',
     },
     methodSignatures: {
-      'executeCommand': 'Future<dynamic> executeCommand(String command, {List<dynamic>? args, int timeoutSeconds = 120})',
+      'executeCommand': 'Future executeCommand(String command, {List? args, int timeoutSeconds = 120})',
       'getCommands': 'Future<List<String>> getCommands({bool filterInternal = false, int timeoutSeconds = 60})',
       'registerCommand': 'Future<bool> registerCommand(String command, String handlerScript, {int timeoutSeconds = 120})',
     },
@@ -2300,7 +2462,7 @@ BridgedClass _createVSCodeExtensionsBridge() {
       'getAll': 'Future<List<Extension>> getAll({int timeoutSeconds = 60})',
       'getExtension': 'Future<Extension?> getExtension(String extensionId, {int timeoutSeconds = 60})',
       'isInstalled': 'Future<bool> isInstalled(String extensionId, {int timeoutSeconds = 60})',
-      'getExtensionExports': 'Future<dynamic> getExtensionExports(String extensionId, {int timeoutSeconds = 120})',
+      'getExtensionExports': 'Future getExtensionExports(String extensionId, {int timeoutSeconds = 120})',
       'activateExtension': 'Future<bool> activateExtension(String extensionId, {int timeoutSeconds = 180})',
       'getExtensionVersion': 'Future<String?> getExtensionVersion(String extensionId, {int timeoutSeconds = 60})',
       'getExtensionDisplayName': 'Future<String?> getExtensionDisplayName(String extensionId, {int timeoutSeconds = 60})',
@@ -2584,10 +2746,7 @@ BridgedClass _createLanguageModelToolResultBridge() {
     isAssignable: (v) => v is $tom_vscode_scripting_api_28.LanguageModelToolResult,
     constructors: {
       '': (visitor, positional, named) {
-        if (!named.containsKey('content') || named['content'] == null) {
-          throw ArgumentError('LanguageModelToolResult: Missing required named argument "content"');
-        }
-        final content = D4.coerceList<dynamic>(named['content'], 'content');
+        final content = D4.getRequiredNamedArg<List>(named, 'content', 'LanguageModelToolResult');
         return $tom_vscode_scripting_api_28.LanguageModelToolResult(content: content);
       },
       'fromJson': (visitor, positional, named) {
@@ -2609,14 +2768,14 @@ BridgedClass _createLanguageModelToolResultBridge() {
       },
     },
     constructorSignatures: {
-      '': 'LanguageModelToolResult({required List<dynamic> content})',
+      '': 'LanguageModelToolResult({required List content})',
       'fromJson': 'factory LanguageModelToolResult.fromJson(Map<String, dynamic> json)',
     },
     methodSignatures: {
       'toJson': 'Map<String, dynamic> toJson()',
     },
     getterSignatures: {
-      'content': 'List<dynamic> get content',
+      'content': 'List get content',
     },
   );
 }
@@ -2974,7 +3133,7 @@ BridgedClass _createVSCodeWorkspaceBridge() {
       'saveTextDocument': 'Future<bool> saveTextDocument(String path, {int timeoutSeconds = 60})',
       'findFiles': 'Future<List<VSCodeUri>> findFiles(String include, {String? exclude, int? maxResults, int timeoutSeconds = 60})',
       'findFilePaths': 'Future<List<String>> findFilePaths({required String include, String? exclude, int? maxResults, int timeoutSeconds = 60})',
-      'getConfiguration': 'Future<dynamic> getConfiguration(String section, {String? scope, int timeoutSeconds = 60})',
+      'getConfiguration': 'Future getConfiguration(String section, {String? scope, int timeoutSeconds = 60})',
       'updateConfiguration': 'Future<bool> updateConfiguration(String section, String key, dynamic value, {bool global = false, int timeoutSeconds = 60})',
       'getRootPath': 'Future<String?> getRootPath()',
       'getWorkspaceName': 'Future<String?> getWorkspaceName()',
@@ -3014,7 +3173,7 @@ BridgedClass _createVSCodeChatBridge() {
         final description = D4.getOptionalNamedArg<String?>(named, 'description');
         final fullName = D4.getOptionalNamedArg<String?>(named, 'fullName');
         final timeoutSeconds = D4.getNamedArgWithDefault<int>(named, 'timeoutSeconds', 300);
-        return t.createChatParticipant(id, handler: ($tom_vscode_scripting_api_24.ChatRequest p0, $tom_vscode_scripting_api_24.ChatContext p1, $tom_vscode_scripting_api_24.ChatResponseStream p2) { return D4.callInterpreterCallback(visitor!, handlerRaw, [p0, p1, p2]) as Future<$tom_vscode_scripting_api_24.ChatResult>; }, description: description, fullName: fullName, timeoutSeconds: timeoutSeconds);
+        return t.createChatParticipant(id, handler: (($tom_vscode_scripting_api_24.ChatRequest p0, $tom_vscode_scripting_api_24.ChatContext p1, $tom_vscode_scripting_api_24.ChatResponseStream p2) { return Future.value(D4.callInterpreterCallback(visitor!, handlerRaw, [p0, p1, p2])).then((v) => v as $tom_vscode_scripting_api_24.ChatResult); }) as Future<$tom_vscode_scripting_api_24.ChatResult> Function($tom_vscode_scripting_api_24.ChatRequest, $tom_vscode_scripting_api_24.ChatContext, $tom_vscode_scripting_api_24.ChatResponseStream), description: description, fullName: fullName, timeoutSeconds: timeoutSeconds);
       },
     },
     staticMethods: {
@@ -3206,10 +3365,7 @@ BridgedClass _createChatContextBridge() {
     isAssignable: (v) => v is $tom_vscode_scripting_api_24.ChatContext,
     constructors: {
       '': (visitor, positional, named) {
-        if (!named.containsKey('history') || named['history'] == null) {
-          throw ArgumentError('ChatContext: Missing required named argument "history"');
-        }
-        final history = D4.coerceList<dynamic>(named['history'], 'history');
+        final history = D4.getRequiredNamedArg<List>(named, 'history', 'ChatContext');
         return $tom_vscode_scripting_api_24.ChatContext(history: history);
       },
       'fromJson': (visitor, positional, named) {
@@ -3231,14 +3387,14 @@ BridgedClass _createChatContextBridge() {
       },
     },
     constructorSignatures: {
-      '': 'ChatContext({required List<dynamic> history})',
+      '': 'ChatContext({required List history})',
       'fromJson': 'factory ChatContext.fromJson(Map<String, dynamic> json)',
     },
     methodSignatures: {
       'toJson': 'Map<String, dynamic> toJson()',
     },
     getterSignatures: {
-      'history': 'List<dynamic> get history',
+      'history': 'List get history',
     },
   );
 }
@@ -3357,7 +3513,7 @@ BridgedClass _createChatResponseStreamBridge() {
         D4.requireMinArgs(positional, 1, 'button');
         final command = D4.getRequiredArg<String>(positional, 0, 'command', 'button');
         final title = D4.getOptionalNamedArg<String?>(named, 'title');
-        final arguments = D4.coerceListOrNull<dynamic>(named['arguments'], 'arguments');
+        final arguments = D4.getOptionalNamedArg<List?>(named, 'arguments');
         return t.button(command, title: title, arguments: arguments);
       },
       'filetree': (visitor, target, positional, named, typeArgs) {
@@ -3396,7 +3552,7 @@ BridgedClass _createChatResponseStreamBridge() {
     methodSignatures: {
       'markdown': 'Future<void> markdown(String text)',
       'anchor': 'Future<void> anchor(String uri, {String? title})',
-      'button': 'Future<void> button(String command, {String? title, List<dynamic>? arguments})',
+      'button': 'Future<void> button(String command, {String? title, List? arguments})',
       'filetree': 'Future<void> filetree(List<String> files, {String? baseUri})',
       'progress': 'Future<void> progress(String value)',
       'reference': 'Future<void> reference(String uri, {String? title})',
@@ -3568,7 +3724,7 @@ BridgedClass _createVsCodeHelperBridge() {
       'executeCommand': (visitor, positional, named, typeArgs) {
         D4.requireMinArgs(positional, 1, 'executeCommand');
         final command = D4.getRequiredArg<String>(positional, 0, 'command', 'executeCommand');
-        final args = D4.coerceListOrNull<dynamic>(named['args'], 'args');
+        final args = D4.getOptionalNamedArg<List?>(named, 'args');
         final timeoutSeconds = D4.getNamedArgWithDefault<int>(named, 'timeoutSeconds', 120);
         return $tom_vscode_scripting_api_27.VsCodeHelper.executeCommand(command, args: args, timeoutSeconds: timeoutSeconds);
       },
@@ -3880,22 +4036,22 @@ BridgedClass _createVsCodeHelperBridge() {
       'quickPick': 'Future<String?> quickPick(List<String> items, {String? placeholder, bool canPickMany = false, int timeoutSeconds = 1800, String? fallbackValueOnTimeout, bool failOnTimeout = false})',
       'inputBox': 'Future<String?> inputBox({String? prompt, String? placeholder, String? defaultValue, bool password = false, int timeoutSeconds = 1800, String? fallbackValueOnTimeout, bool failOnTimeout = false})',
       'getWorkspaceRoot': 'Future<String?> getWorkspaceRoot({int timeoutSeconds = 30})',
-      'getWorkspaceFolders': 'Future<List<dynamic>?> getWorkspaceFolders({int timeoutSeconds = 30})',
-      'getActiveTextEditor': 'Future<dynamic> getActiveTextEditor({int timeoutSeconds = 30})',
+      'getWorkspaceFolders': 'Future<List?> getWorkspaceFolders({int timeoutSeconds = 30})',
+      'getActiveTextEditor': 'Future getActiveTextEditor({int timeoutSeconds = 30})',
       'findFiles': 'Future<List<String>> findFiles({required String include, String? exclude, int? maxResults, int timeoutSeconds = 60})',
       'readFile': 'Future<String> readFile(String path, {int timeoutSeconds = 60})',
       'writeFile': 'Future<bool> writeFile(String path, String content, {int timeoutSeconds = 60})',
       'createFile': 'Future<bool> createFile(String path, {String content = \'\', int timeoutSeconds = 60})',
       'deleteFile': 'Future<bool> deleteFile(String path, {int timeoutSeconds = 60})',
       'fileExists': 'Future<bool> fileExists(String path, {int timeoutSeconds = 30})',
-      'executeCommand': 'Future<dynamic> executeCommand(String command, {List<dynamic>? args, int timeoutSeconds = 120})',
+      'executeCommand': 'Future executeCommand(String command, {List? args, int timeoutSeconds = 120})',
       'setStatus': 'Future<void> setStatus(String message, {int? timeout, int timeoutSeconds = 120})',
       'createOutput': 'Future<String> createOutput(String name, {String? initialContent, int timeoutSeconds = 60})',
       'appendOutput': 'Future<void> appendOutput(String channel, String text, {int timeoutSeconds = 60})',
       'copyToClipboard': 'Future<void> copyToClipboard(String text, {int timeoutSeconds = 10})',
       'readClipboard': 'Future<String> readClipboard({int timeoutSeconds = 10})',
       'openFile': 'Future<void> openFile(String path, {int timeoutSeconds = 600})',
-      'getConfig': 'Future<dynamic> getConfig(String section, {String? key, int timeoutSeconds = 60})',
+      'getConfig': 'Future getConfig(String section, {String? key, int timeoutSeconds = 60})',
       'setConfig': 'Future<bool> setConfig(String section, String key, dynamic value, {bool global = true, int timeoutSeconds = 60})',
       'runPubGet': 'Future<bool> runPubGet({String? workingDirectory, int timeoutSeconds = 300})',
       'runPubUpgrade': 'Future<bool> runPubUpgrade({String? workingDirectory, int timeoutSeconds = 300})',
@@ -4016,7 +4172,7 @@ BridgedClass _createFileBatchBridge() {
           throw ArgumentError('process: Missing required argument "processor" at position 0');
         }
         final processorRaw = positional[0];
-        return t.process((String p0, String p1) { return D4.callInterpreterCallback(visitor!, processorRaw, [p0, p1]) as Future<dynamic>; });
+        return t.process(((String p0, String p1) { return Future.value(D4.callInterpreterCallback(visitor!, processorRaw, [p0, p1])).then((v) => v as dynamic); }) as Future<dynamic> Function(String, String));
       },
       'filter': (visitor, target, positional, named, typeArgs) {
         final t = D4.validateTarget<$tom_vscode_scripting_api_27.FileBatch>(target, 'FileBatch');
@@ -4025,7 +4181,7 @@ BridgedClass _createFileBatchBridge() {
           throw ArgumentError('filter: Missing required argument "predicate" at position 0');
         }
         final predicateRaw = positional[0];
-        return t.filter((String p0) { return D4.callInterpreterCallback(visitor!, predicateRaw, [p0]) as bool; });
+        return t.filter(((String p0) { return D4.callInterpreterCallback(visitor!, predicateRaw, [p0]) as bool; }) as bool Function(String));
       },
     },
     staticMethods: {
@@ -4345,6 +4501,7 @@ BridgedClass _createSelectionBridge() {
     nativeType: $tom_vscode_scripting_api_29.Selection,
     name: 'Selection',
     isAssignable: (v) => v is $tom_vscode_scripting_api_29.Selection,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         D4.requireMinArgs(positional, 3, 'Selection');
@@ -4709,7 +4866,6 @@ BridgedClass _createSdkMessageBridge() {
       },
     },
     constructorSignatures: {
-      '': 'const SdkMessage(Map<String, dynamic> raw)',
       'fromJson': 'factory SdkMessage.fromJson(Map<String, dynamic> json)',
     },
     methodSignatures: {
@@ -4733,6 +4889,7 @@ BridgedClass _createSdkAssistantMessageBridge() {
     nativeType: $tom_vscode_scripting_api_3.SdkAssistantMessage,
     name: 'SdkAssistantMessage',
     isAssignable: (v) => v is $tom_vscode_scripting_api_3.SdkAssistantMessage,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         D4.requireMinArgs(positional, 1, 'SdkAssistantMessage');
@@ -4787,6 +4944,7 @@ BridgedClass _createSdkUserMessageBridge() {
     nativeType: $tom_vscode_scripting_api_3.SdkUserMessage,
     name: 'SdkUserMessage',
     isAssignable: (v) => v is $tom_vscode_scripting_api_3.SdkUserMessage,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         D4.requireMinArgs(positional, 1, 'SdkUserMessage');
@@ -4841,6 +4999,7 @@ BridgedClass _createSdkResultMessageBridge() {
     nativeType: $tom_vscode_scripting_api_3.SdkResultMessage,
     name: 'SdkResultMessage',
     isAssignable: (v) => v is $tom_vscode_scripting_api_3.SdkResultMessage,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         D4.requireMinArgs(positional, 1, 'SdkResultMessage');
@@ -4905,6 +5064,7 @@ BridgedClass _createSdkSystemMessageBridge() {
     nativeType: $tom_vscode_scripting_api_3.SdkSystemMessage,
     name: 'SdkSystemMessage',
     isAssignable: (v) => v is $tom_vscode_scripting_api_3.SdkSystemMessage,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         D4.requireMinArgs(positional, 1, 'SdkSystemMessage');
@@ -4967,6 +5127,7 @@ BridgedClass _createSdkPartialAssistantMessageBridge() {
     nativeType: $tom_vscode_scripting_api_3.SdkPartialAssistantMessage,
     name: 'SdkPartialAssistantMessage',
     isAssignable: (v) => v is $tom_vscode_scripting_api_3.SdkPartialAssistantMessage,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         D4.requireMinArgs(positional, 1, 'SdkPartialAssistantMessage');
@@ -5017,6 +5178,7 @@ BridgedClass _createSdkSystemEventBridge() {
     nativeType: $tom_vscode_scripting_api_3.SdkSystemEvent,
     name: 'SdkSystemEvent',
     isAssignable: (v) => v is $tom_vscode_scripting_api_3.SdkSystemEvent,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         D4.requireMinArgs(positional, 1, 'SdkSystemEvent');
@@ -5065,6 +5227,7 @@ BridgedClass _createSdkUnknownMessageBridge() {
     nativeType: $tom_vscode_scripting_api_3.SdkUnknownMessage,
     name: 'SdkUnknownMessage',
     isAssignable: (v) => v is $tom_vscode_scripting_api_3.SdkUnknownMessage,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         D4.requireMinArgs(positional, 1, 'SdkUnknownMessage');
@@ -5132,7 +5295,6 @@ BridgedClass _createContentBlockBridge() {
       },
     },
     constructorSignatures: {
-      '': 'const ContentBlock(Map<String, dynamic> raw)',
       'fromJson': 'factory ContentBlock.fromJson(Map<String, dynamic> json)',
     },
     methodSignatures: {
@@ -5154,6 +5316,7 @@ BridgedClass _createTextBlockBridge() {
     nativeType: $tom_vscode_scripting_api_3.TextBlock,
     name: 'TextBlock',
     isAssignable: (v) => v is $tom_vscode_scripting_api_3.TextBlock,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         D4.requireMinArgs(positional, 1, 'TextBlock');
@@ -5198,6 +5361,7 @@ BridgedClass _createThinkingBlockBridge() {
     nativeType: $tom_vscode_scripting_api_3.ThinkingBlock,
     name: 'ThinkingBlock',
     isAssignable: (v) => v is $tom_vscode_scripting_api_3.ThinkingBlock,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         D4.requireMinArgs(positional, 1, 'ThinkingBlock');
@@ -5244,6 +5408,7 @@ BridgedClass _createToolUseBlockBridge() {
     nativeType: $tom_vscode_scripting_api_3.ToolUseBlock,
     name: 'ToolUseBlock',
     isAssignable: (v) => v is $tom_vscode_scripting_api_3.ToolUseBlock,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         D4.requireMinArgs(positional, 1, 'ToolUseBlock');
@@ -5292,6 +5457,7 @@ BridgedClass _createToolResultBlockBridge() {
     nativeType: $tom_vscode_scripting_api_3.ToolResultBlock,
     name: 'ToolResultBlock',
     isAssignable: (v) => v is $tom_vscode_scripting_api_3.ToolResultBlock,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         D4.requireMinArgs(positional, 1, 'ToolResultBlock');
@@ -5340,6 +5506,7 @@ BridgedClass _createUnknownBlockBridge() {
     nativeType: $tom_vscode_scripting_api_3.UnknownBlock,
     name: 'UnknownBlock',
     isAssignable: (v) => v is $tom_vscode_scripting_api_3.UnknownBlock,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         D4.requireMinArgs(positional, 1, 'UnknownBlock');
@@ -5450,7 +5617,6 @@ BridgedClass _createPermissionUpdateBridge() {
       },
     },
     constructorSignatures: {
-      '': 'const PermissionUpdate()',
       'fromJson': 'factory PermissionUpdate.fromJson(Map<String, dynamic> json)',
     },
     methodSignatures: {
@@ -5471,6 +5637,7 @@ BridgedClass _createPermissionUpdateRulesBridge() {
     nativeType: $tom_vscode_scripting_api_6.PermissionUpdateRules,
     name: 'PermissionUpdateRules',
     isAssignable: (v) => v is $tom_vscode_scripting_api_6.PermissionUpdateRules,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         final type = D4.getRequiredNamedArg<String>(named, 'type', 'PermissionUpdateRules');
@@ -5519,6 +5686,7 @@ BridgedClass _createPermissionUpdateSetModeBridge() {
     nativeType: $tom_vscode_scripting_api_6.PermissionUpdateSetMode,
     name: 'PermissionUpdateSetMode',
     isAssignable: (v) => v is $tom_vscode_scripting_api_6.PermissionUpdateSetMode,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         final mode = D4.getRequiredNamedArg<$tom_vscode_scripting_api_6.PermissionMode>(named, 'mode', 'PermissionUpdateSetMode');
@@ -5560,6 +5728,7 @@ BridgedClass _createPermissionUpdateDirectoriesBridge() {
     nativeType: $tom_vscode_scripting_api_6.PermissionUpdateDirectories,
     name: 'PermissionUpdateDirectories',
     isAssignable: (v) => v is $tom_vscode_scripting_api_6.PermissionUpdateDirectories,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         final type = D4.getRequiredNamedArg<String>(named, 'type', 'PermissionUpdateDirectories');
@@ -5625,7 +5794,6 @@ BridgedClass _createPermissionResultBridge() {
       },
     },
     constructorSignatures: {
-      '': 'const PermissionResult()',
       'fromJson': 'factory PermissionResult.fromJson(Map<String, dynamic> json)',
     },
     methodSignatures: {
@@ -5646,6 +5814,7 @@ BridgedClass _createPermissionAllowBridge() {
     nativeType: $tom_vscode_scripting_api_6.PermissionAllow,
     name: 'PermissionAllow',
     isAssignable: (v) => v is $tom_vscode_scripting_api_6.PermissionAllow,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         final updatedInput = D4.coerceMapOrNull<String, dynamic>(named['updatedInput'], 'updatedInput');
@@ -5693,6 +5862,7 @@ BridgedClass _createPermissionDenyBridge() {
     nativeType: $tom_vscode_scripting_api_6.PermissionDeny,
     name: 'PermissionDeny',
     isAssignable: (v) => v is $tom_vscode_scripting_api_6.PermissionDeny,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         final message = D4.getRequiredNamedArg<String>(named, 'message', 'PermissionDeny');
@@ -5840,7 +6010,7 @@ BridgedClass _createSdkMcpToolBridge() {
         }
         final inputSchema = D4.coerceMap<String, dynamic>(named['inputSchema'], 'inputSchema');
         final handlerRaw = named['handler'];
-        return $tom_vscode_scripting_api_2.SdkMcpTool(name: name, description: description, inputSchema: inputSchema, handler: handlerRaw == null ? null : (Map<String, dynamic> p0) { return D4.callInterpreterCallback(visitor!, handlerRaw, [p0]) as Future<$tom_vscode_scripting_api_2.CallToolResult>; });
+        return $tom_vscode_scripting_api_2.SdkMcpTool(name: name, description: description, inputSchema: inputSchema, handler: handlerRaw == null ? null : ((Map<String, dynamic> p0) { return Future.value(D4.callInterpreterCallback(visitor!, handlerRaw, [p0])).then((v) => v as $tom_vscode_scripting_api_2.CallToolResult); }) as Future<$tom_vscode_scripting_api_2.CallToolResult> Function(Map<String, dynamic>));
       },
       'fromJson': (visitor, positional, named) {
         D4.requireMinArgs(positional, 1, 'SdkMcpTool');
@@ -5864,7 +6034,7 @@ BridgedClass _createSdkMcpToolBridge() {
       },
     },
     constructorSignatures: {
-      '': 'SdkMcpTool({required String name, required String description, required Map<String, dynamic> inputSchema, Future<CallToolResult> Function(Map<String, dynamic>)? handler})',
+      '': 'SdkMcpTool({required String name, required String description, required Map<String, dynamic> inputSchema, ToolHandler? handler})',
       'fromJson': 'factory SdkMcpTool.fromJson(Map<String, dynamic> json)',
     },
     methodSignatures: {
@@ -5956,7 +6126,6 @@ BridgedClass _createMcpServerConfigBridge() {
       },
     },
     constructorSignatures: {
-      '': 'const McpServerConfig()',
       'fromJson': 'factory McpServerConfig.fromJson(Map<String, dynamic> json)',
     },
     methodSignatures: {
@@ -5977,6 +6146,7 @@ BridgedClass _createMcpStdioServerConfigBridge() {
     nativeType: $tom_vscode_scripting_api_2.McpStdioServerConfig,
     name: 'McpStdioServerConfig',
     isAssignable: (v) => v is $tom_vscode_scripting_api_2.McpStdioServerConfig,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         final command = D4.getRequiredNamedArg<String>(named, 'command', 'McpStdioServerConfig');
@@ -6033,6 +6203,7 @@ BridgedClass _createMcpSSEServerConfigBridge() {
     nativeType: $tom_vscode_scripting_api_2.McpSSEServerConfig,
     name: 'McpSSEServerConfig',
     isAssignable: (v) => v is $tom_vscode_scripting_api_2.McpSSEServerConfig,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         final url = D4.getRequiredNamedArg<String>(named, 'url', 'McpSSEServerConfig');
@@ -6089,6 +6260,7 @@ BridgedClass _createMcpHttpServerConfigBridge() {
     nativeType: $tom_vscode_scripting_api_2.McpHttpServerConfig,
     name: 'McpHttpServerConfig',
     isAssignable: (v) => v is $tom_vscode_scripting_api_2.McpHttpServerConfig,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         final url = D4.getRequiredNamedArg<String>(named, 'url', 'McpHttpServerConfig');
@@ -6145,6 +6317,7 @@ BridgedClass _createMcpSdkServerConfigBridge() {
     nativeType: $tom_vscode_scripting_api_2.McpSdkServerConfig,
     name: 'McpSdkServerConfig',
     isAssignable: (v) => v is $tom_vscode_scripting_api_2.McpSdkServerConfig,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         final name = D4.getRequiredNamedArg<String>(named, 'name', 'McpSdkServerConfig');
@@ -6214,7 +6387,6 @@ BridgedClass _createSystemPromptBridge() {
       },
     },
     constructorSignatures: {
-      '': 'const SystemPrompt()',
       'fromWire': 'factory SystemPrompt.fromWire(Object value)',
     },
     methodSignatures: {
@@ -6232,6 +6404,7 @@ BridgedClass _createSystemPromptTextBridge() {
     nativeType: $tom_vscode_scripting_api_4.SystemPromptText,
     name: 'SystemPromptText',
     isAssignable: (v) => v is $tom_vscode_scripting_api_4.SystemPromptText,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         D4.requireMinArgs(positional, 1, 'SystemPromptText');
@@ -6269,6 +6442,7 @@ BridgedClass _createSystemPromptListBridge() {
     nativeType: $tom_vscode_scripting_api_4.SystemPromptList,
     name: 'SystemPromptList',
     isAssignable: (v) => v is $tom_vscode_scripting_api_4.SystemPromptList,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         D4.requireMinArgs(positional, 1, 'SystemPromptList');
@@ -6309,6 +6483,7 @@ BridgedClass _createSystemPromptPresetBridge() {
     nativeType: $tom_vscode_scripting_api_4.SystemPromptPreset,
     name: 'SystemPromptPreset',
     isAssignable: (v) => v is $tom_vscode_scripting_api_4.SystemPromptPreset,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         final append = D4.getOptionalNamedArg<String?>(named, 'append');
@@ -6362,7 +6537,6 @@ BridgedClass _createToolsConfigBridge() {
       },
     },
     constructorSignatures: {
-      '': 'const ToolsConfig()',
       'fromWire': 'factory ToolsConfig.fromWire(Object value)',
     },
     methodSignatures: {
@@ -6380,6 +6554,7 @@ BridgedClass _createToolsListBridge() {
     nativeType: $tom_vscode_scripting_api_4.ToolsList,
     name: 'ToolsList',
     isAssignable: (v) => v is $tom_vscode_scripting_api_4.ToolsList,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         D4.requireMinArgs(positional, 1, 'ToolsList');
@@ -6420,6 +6595,7 @@ BridgedClass _createToolsClaudeCodePresetBridge() {
     nativeType: $tom_vscode_scripting_api_4.ToolsClaudeCodePreset,
     name: 'ToolsClaudeCodePreset',
     isAssignable: (v) => v is $tom_vscode_scripting_api_4.ToolsClaudeCodePreset,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         return $tom_vscode_scripting_api_4.ToolsClaudeCodePreset();
@@ -6466,7 +6642,6 @@ BridgedClass _createThinkingConfigBridge() {
       },
     },
     constructorSignatures: {
-      '': 'const ThinkingConfig()',
       'fromWire': 'factory ThinkingConfig.fromWire(Map<String, dynamic> value)',
     },
     methodSignatures: {
@@ -6484,6 +6659,7 @@ BridgedClass _createThinkingAdaptiveBridge() {
     nativeType: $tom_vscode_scripting_api_4.ThinkingAdaptive,
     name: 'ThinkingAdaptive',
     isAssignable: (v) => v is $tom_vscode_scripting_api_4.ThinkingAdaptive,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         final display = D4.getOptionalNamedArg<String?>(named, 'display');
@@ -6520,6 +6696,7 @@ BridgedClass _createThinkingEnabledBridge() {
     nativeType: $tom_vscode_scripting_api_4.ThinkingEnabled,
     name: 'ThinkingEnabled',
     isAssignable: (v) => v is $tom_vscode_scripting_api_4.ThinkingEnabled,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         final budgetTokens = D4.getOptionalNamedArg<int?>(named, 'budgetTokens');
@@ -6559,6 +6736,7 @@ BridgedClass _createThinkingDisabledBridge() {
     nativeType: $tom_vscode_scripting_api_4.ThinkingDisabled,
     name: 'ThinkingDisabled',
     isAssignable: (v) => v is $tom_vscode_scripting_api_4.ThinkingDisabled,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         return $tom_vscode_scripting_api_4.ThinkingDisabled();
@@ -6602,7 +6780,6 @@ BridgedClass _createSkillsBridge() {
       },
     },
     constructorSignatures: {
-      '': 'const Skills()',
       'fromWire': 'factory Skills.fromWire(Object value)',
     },
     methodSignatures: {
@@ -6620,6 +6797,7 @@ BridgedClass _createSkillsListBridge() {
     nativeType: $tom_vscode_scripting_api_4.SkillsList,
     name: 'SkillsList',
     isAssignable: (v) => v is $tom_vscode_scripting_api_4.SkillsList,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         D4.requireMinArgs(positional, 1, 'SkillsList');
@@ -6660,6 +6838,7 @@ BridgedClass _createSkillsAllBridge() {
     nativeType: $tom_vscode_scripting_api_4.SkillsAll,
     name: 'SkillsAll',
     isAssignable: (v) => v is $tom_vscode_scripting_api_4.SkillsAll,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         return $tom_vscode_scripting_api_4.SkillsAll();
@@ -6703,7 +6882,6 @@ BridgedClass _createSettingsRefBridge() {
       },
     },
     constructorSignatures: {
-      '': 'const SettingsRef()',
       'fromWire': 'factory SettingsRef.fromWire(Object value)',
     },
     methodSignatures: {
@@ -6721,6 +6899,7 @@ BridgedClass _createSettingsPathBridge() {
     nativeType: $tom_vscode_scripting_api_4.SettingsPath,
     name: 'SettingsPath',
     isAssignable: (v) => v is $tom_vscode_scripting_api_4.SettingsPath,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         D4.requireMinArgs(positional, 1, 'SettingsPath');
@@ -6758,6 +6937,7 @@ BridgedClass _createSettingsInlineBridge() {
     nativeType: $tom_vscode_scripting_api_4.SettingsInline,
     name: 'SettingsInline',
     isAssignable: (v) => v is $tom_vscode_scripting_api_4.SettingsInline,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         D4.requireMinArgs(positional, 1, 'SettingsInline');
@@ -7046,7 +7226,7 @@ BridgedClass _createOptionsBridge() {
         final loadTimeoutMs = D4.getOptionalNamedArg<int?>(named, 'loadTimeoutMs');
         final canUseToolRaw = named['canUseTool'];
         final onStderrRaw = named['onStderr'];
-        return $tom_vscode_scripting_api_4.Options(model: model, fallbackModel: fallbackModel, systemPrompt: systemPrompt, tools: tools, allowedTools: allowedTools, disallowedTools: disallowedTools, mcpServers: mcpServers, maxTurns: maxTurns, maxBudgetUsd: maxBudgetUsd, taskBudget: taskBudget, permissionMode: permissionMode, planModeInstructions: planModeInstructions, allowDangerouslySkipPermissions: allowDangerouslySkipPermissions, permissionPromptToolName: permissionPromptToolName, settingSources: settingSources, settings: settings, managedSettings: managedSettings, cwd: cwd, additionalDirectories: additionalDirectories, continueSession: continueSession, resume: resume, sessionId: sessionId, resumeSessionAt: resumeSessionAt, forkSession: forkSession, persistSession: persistSession, title: title, env: env, extraArgs: extraArgs, strictMcpConfig: strictMcpConfig, agent: agent, agents: agents, skills: skills, plugins: plugins, betas: betas, outputFormat: outputFormat, toolConfig: toolConfig, thinking: thinking, effort: effort, maxThinkingTokens: maxThinkingTokens, includePartialMessages: includePartialMessages, includeHookEvents: includeHookEvents, forwardSubagentText: forwardSubagentText, promptSuggestions: promptSuggestions, agentProgressSummaries: agentProgressSummaries, enableFileCheckpointing: enableFileCheckpointing, sandbox: sandbox, debug: debug, debugFile: debugFile, loadTimeoutMs: loadTimeoutMs, canUseTool: canUseToolRaw == null ? null : (String p0, Map<String, dynamic> p1, $tom_vscode_scripting_api_6.CanUseToolContext p2) { return D4.callInterpreterCallback(visitor!, canUseToolRaw, [p0, p1, p2]) as Future<$tom_vscode_scripting_api_6.PermissionResult>; }, onStderr: onStderrRaw == null ? null : (String p0) { D4.callInterpreterCallback(visitor!, onStderrRaw, [p0]); });
+        return $tom_vscode_scripting_api_4.Options(model: model, fallbackModel: fallbackModel, systemPrompt: systemPrompt, tools: tools, allowedTools: allowedTools, disallowedTools: disallowedTools, mcpServers: mcpServers, maxTurns: maxTurns, maxBudgetUsd: maxBudgetUsd, taskBudget: taskBudget, permissionMode: permissionMode, planModeInstructions: planModeInstructions, allowDangerouslySkipPermissions: allowDangerouslySkipPermissions, permissionPromptToolName: permissionPromptToolName, settingSources: settingSources, settings: settings, managedSettings: managedSettings, cwd: cwd, additionalDirectories: additionalDirectories, continueSession: continueSession, resume: resume, sessionId: sessionId, resumeSessionAt: resumeSessionAt, forkSession: forkSession, persistSession: persistSession, title: title, env: env, extraArgs: extraArgs, strictMcpConfig: strictMcpConfig, agent: agent, agents: agents, skills: skills, plugins: plugins, betas: betas, outputFormat: outputFormat, toolConfig: toolConfig, thinking: thinking, effort: effort, maxThinkingTokens: maxThinkingTokens, includePartialMessages: includePartialMessages, includeHookEvents: includeHookEvents, forwardSubagentText: forwardSubagentText, promptSuggestions: promptSuggestions, agentProgressSummaries: agentProgressSummaries, enableFileCheckpointing: enableFileCheckpointing, sandbox: sandbox, debug: debug, debugFile: debugFile, loadTimeoutMs: loadTimeoutMs, canUseTool: canUseToolRaw == null ? null : ((String p0, Map<String, dynamic> p1, $tom_vscode_scripting_api_6.CanUseToolContext p2) { return Future.value(D4.callInterpreterCallback(visitor!, canUseToolRaw, [p0, p1, p2])).then((v) => v as $tom_vscode_scripting_api_6.PermissionResult); }) as Future<$tom_vscode_scripting_api_6.PermissionResult> Function(String, Map<String, dynamic>, $tom_vscode_scripting_api_6.CanUseToolContext), onStderr: onStderrRaw == null ? null : (String p0) { D4.callInterpreterCallback(visitor!, onStderrRaw, [p0]); });
       },
       'fromJson': (visitor, positional, named) {
         D4.requireMinArgs(positional, 1, 'Options');
@@ -7117,7 +7297,7 @@ BridgedClass _createOptionsBridge() {
       },
     },
     constructorSignatures: {
-      '': 'Options({String? model, String? fallbackModel, SystemPrompt? systemPrompt, ToolsConfig? tools, List<String>? allowedTools, List<String>? disallowedTools, Map<String, McpServerConfig>? mcpServers, int? maxTurns, double? maxBudgetUsd, TaskBudget? taskBudget, PermissionMode? permissionMode, String? planModeInstructions, bool? allowDangerouslySkipPermissions, String? permissionPromptToolName, List<SettingSource>? settingSources, SettingsRef? settings, SettingsRef? managedSettings, String? cwd, List<String>? additionalDirectories, bool? continueSession, String? resume, String? sessionId, String? resumeSessionAt, bool? forkSession, bool? persistSession, String? title, Map<String, String>? env, Map<String, String?>? extraArgs, bool? strictMcpConfig, String? agent, Map<String, AgentDefinition>? agents, Skills? skills, List<PluginConfig>? plugins, List<String>? betas, OutputFormat? outputFormat, Map<String, dynamic>? toolConfig, ThinkingConfig? thinking, EffortLevel? effort, int? maxThinkingTokens, bool? includePartialMessages, bool? includeHookEvents, bool? forwardSubagentText, bool? promptSuggestions, bool? agentProgressSummaries, bool? enableFileCheckpointing, Map<String, dynamic>? sandbox, bool? debug, String? debugFile, int? loadTimeoutMs, Future<PermissionResult> Function(String, Map<String, dynamic>, CanUseToolContext)? canUseTool, void Function(String)? onStderr})',
+      '': 'Options({String? model, String? fallbackModel, SystemPrompt? systemPrompt, ToolsConfig? tools, List<String>? allowedTools, List<String>? disallowedTools, Map<String, McpServerConfig>? mcpServers, int? maxTurns, double? maxBudgetUsd, TaskBudget? taskBudget, PermissionMode? permissionMode, String? planModeInstructions, bool? allowDangerouslySkipPermissions, String? permissionPromptToolName, List<SettingSource>? settingSources, SettingsRef? settings, SettingsRef? managedSettings, String? cwd, List<String>? additionalDirectories, bool? continueSession, String? resume, String? sessionId, String? resumeSessionAt, bool? forkSession, bool? persistSession, String? title, Map<String, String>? env, Map<String, String?>? extraArgs, bool? strictMcpConfig, String? agent, Map<String, AgentDefinition>? agents, Skills? skills, List<PluginConfig>? plugins, List<String>? betas, OutputFormat? outputFormat, Map<String, dynamic>? toolConfig, ThinkingConfig? thinking, EffortLevel? effort, int? maxThinkingTokens, bool? includePartialMessages, bool? includeHookEvents, bool? forwardSubagentText, bool? promptSuggestions, bool? agentProgressSummaries, bool? enableFileCheckpointing, Map<String, dynamic>? sandbox, bool? debug, String? debugFile, int? loadTimeoutMs, CanUseTool? canUseTool, void Function(String line)? onStderr})',
       'fromJson': 'factory Options.fromJson(Map<String, dynamic> json)',
     },
     methodSignatures: {
@@ -7188,6 +7368,7 @@ BridgedClass _createAgentSdkTransportBridge() {
     nativeType: $tom_vscode_scripting_api_7.AgentSdkTransport,
     name: 'AgentSdkTransport',
     isAssignable: (v) => v is $tom_vscode_scripting_api_7.AgentSdkTransport,
+    isAbstract: true,
     constructors: {
     },
     getters: {
@@ -7232,7 +7413,7 @@ BridgedClass _createAgentSdkTransportBridge() {
           throw ArgumentError('registerCanUseTool: Missing required argument "callback" at position 1');
         }
         final callbackRaw = positional[1];
-        t.registerCanUseTool(streamId, (String p0, Map<String, dynamic> p1, $tom_vscode_scripting_api_6.CanUseToolContext p2) { return D4.callInterpreterCallback(visitor!, callbackRaw, [p0, p1, p2]) as Future<$tom_vscode_scripting_api_6.PermissionResult>; });
+        t.registerCanUseTool(streamId, ((String p0, Map<String, dynamic> p1, $tom_vscode_scripting_api_6.CanUseToolContext p2) { return Future.value(D4.callInterpreterCallback(visitor!, callbackRaw, [p0, p1, p2])).then((v) => v as $tom_vscode_scripting_api_6.PermissionResult); }) as Future<$tom_vscode_scripting_api_6.PermissionResult> Function(String, Map<String, dynamic>, $tom_vscode_scripting_api_6.CanUseToolContext));
         return null;
       },
       'unregisterCanUseTool': (visitor, target, positional, named, typeArgs) {
@@ -7266,6 +7447,7 @@ BridgedClass _createAgentSdkQueryExceptionBridge() {
     nativeType: $tom_vscode_scripting_api_7.AgentSdkQueryException,
     name: 'AgentSdkQueryException',
     isAssignable: (v) => v is $tom_vscode_scripting_api_7.AgentSdkQueryException,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         D4.requireMinArgs(positional, 1, 'AgentSdkQueryException');
@@ -7303,6 +7485,7 @@ BridgedClass _createAgentQueryBridge() {
     nativeType: $tom_vscode_scripting_api_7.AgentQuery,
     name: 'AgentQuery',
     isAssignable: (v) => v is $tom_vscode_scripting_api_7.AgentQuery,
+    hierarchyDepth: 2,
     constructors: {
     },
     getters: {
@@ -7343,7 +7526,7 @@ BridgedClass _createAgentQueryBridge() {
           throw ArgumentError('where: Missing required argument "test" at position 0');
         }
         final testRaw = positional[0];
-        return t.where(($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.callInterpreterCallback(visitor!, testRaw, [p0]) as bool; });
+        return t.where((($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.callInterpreterCallback(visitor!, testRaw, [p0]) as bool; }) as bool Function($tom_vscode_scripting_api_3.SdkMessage));
       },
       'map': (visitor, target, positional, named, typeArgs) {
         final t = D4.validateTarget<$tom_vscode_scripting_api_7.AgentQuery>(target, 'AgentQuery');
@@ -7352,7 +7535,7 @@ BridgedClass _createAgentQueryBridge() {
           throw ArgumentError('map: Missing required argument "convert" at position 0');
         }
         final convertRaw = positional[0];
-        return t.map(($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.callInterpreterCallback(visitor!, convertRaw, [p0]) as dynamic; });
+        return t.map(($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.castCallbackResult<dynamic>(D4.callInterpreterCallback(visitor!, convertRaw, [p0])); });
       },
       'asyncMap': (visitor, target, positional, named, typeArgs) {
         final t = D4.validateTarget<$tom_vscode_scripting_api_7.AgentQuery>(target, 'AgentQuery');
@@ -7361,7 +7544,7 @@ BridgedClass _createAgentQueryBridge() {
           throw ArgumentError('asyncMap: Missing required argument "convert" at position 0');
         }
         final convertRaw = positional[0];
-        return t.asyncMap(($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.callInterpreterCallback(visitor!, convertRaw, [p0]) as FutureOr<Object>; });
+        return t.asyncMap((($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.castCallbackResult<FutureOr<Object?>>(D4.callInterpreterCallback(visitor!, convertRaw, [p0])); }) as FutureOr<Object?> Function($tom_vscode_scripting_api_3.SdkMessage));
       },
       'asyncExpand': (visitor, target, positional, named, typeArgs) {
         final t = D4.validateTarget<$tom_vscode_scripting_api_7.AgentQuery>(target, 'AgentQuery');
@@ -7370,14 +7553,14 @@ BridgedClass _createAgentQueryBridge() {
           throw ArgumentError('asyncExpand: Missing required argument "convert" at position 0');
         }
         final convertRaw = positional[0];
-        return t.asyncExpand(($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.callInterpreterCallback(visitor!, convertRaw, [p0]) as Stream<dynamic>?; });
+        return t.asyncExpand((($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.extractBridgedArg<Stream<dynamic>?>(D4.callInterpreterCallback(visitor!, convertRaw, [p0]), 'callback', visitor) as Stream<dynamic>?; }) as Stream<dynamic>? Function($tom_vscode_scripting_api_3.SdkMessage));
       },
       'handleError': (visitor, target, positional, named, typeArgs) {
         final t = D4.validateTarget<$tom_vscode_scripting_api_7.AgentQuery>(target, 'AgentQuery');
         D4.requireMinArgs(positional, 1, 'handleError');
         final onError = D4.getRequiredArg<Function>(positional, 0, 'onError', 'handleError');
         final testRaw = named['test'];
-        return t.handleError(onError, test: testRaw == null ? null : (dynamic p0) { return D4.callInterpreterCallback(visitor!, testRaw, [p0]) as bool; });
+        return t.handleError(onError, test: testRaw == null ? null : ((dynamic p0) { return D4.callInterpreterCallback(visitor!, testRaw, [p0]) as bool; }) as bool Function(dynamic));
       },
       'expand': (visitor, target, positional, named, typeArgs) {
         final t = D4.validateTarget<$tom_vscode_scripting_api_7.AgentQuery>(target, 'AgentQuery');
@@ -7386,7 +7569,7 @@ BridgedClass _createAgentQueryBridge() {
           throw ArgumentError('expand: Missing required argument "convert" at position 0');
         }
         final convertRaw = positional[0];
-        return t.expand(($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.callInterpreterCallback(visitor!, convertRaw, [p0]) as Iterable<dynamic>; });
+        return t.expand((($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.extractBridgedArg<Iterable<dynamic>>(D4.callInterpreterCallback(visitor!, convertRaw, [p0]), 'callback', visitor) as Iterable<dynamic>; }) as Iterable<dynamic> Function($tom_vscode_scripting_api_3.SdkMessage));
       },
       'pipe': (visitor, target, positional, named, typeArgs) {
         final t = D4.validateTarget<$tom_vscode_scripting_api_7.AgentQuery>(target, 'AgentQuery');
@@ -7407,7 +7590,7 @@ BridgedClass _createAgentQueryBridge() {
           throw ArgumentError('reduce: Missing required argument "combine" at position 0');
         }
         final combineRaw = positional[0];
-        return t.reduce(($tom_vscode_scripting_api_3.SdkMessage p0, $tom_vscode_scripting_api_3.SdkMessage p1) { return D4.callInterpreterCallback(visitor!, combineRaw, [p0, p1]) as $tom_vscode_scripting_api_3.SdkMessage; });
+        return t.reduce((($tom_vscode_scripting_api_3.SdkMessage p0, $tom_vscode_scripting_api_3.SdkMessage p1) { return D4.extractBridgedArg<$tom_vscode_scripting_api_3.SdkMessage>(D4.callInterpreterCallback(visitor!, combineRaw, [p0, p1]), 'callback', visitor) as $tom_vscode_scripting_api_3.SdkMessage; }) as $tom_vscode_scripting_api_3.SdkMessage Function($tom_vscode_scripting_api_3.SdkMessage, $tom_vscode_scripting_api_3.SdkMessage));
       },
       'fold': (visitor, target, positional, named, typeArgs) {
         final t = D4.validateTarget<$tom_vscode_scripting_api_7.AgentQuery>(target, 'AgentQuery');
@@ -7417,7 +7600,7 @@ BridgedClass _createAgentQueryBridge() {
           throw ArgumentError('fold: Missing required argument "combine" at position 1');
         }
         final combineRaw = positional[1];
-        return t.fold(initialValue, (dynamic p0, $tom_vscode_scripting_api_3.SdkMessage p1) { return D4.callInterpreterCallback(visitor!, combineRaw, [p0, p1]) as dynamic; });
+        return t.fold(initialValue, (dynamic p0, $tom_vscode_scripting_api_3.SdkMessage p1) { return D4.castCallbackResult<dynamic>(D4.callInterpreterCallback(visitor!, combineRaw, [p0, p1])); });
       },
       'join': (visitor, target, positional, named, typeArgs) {
         final t = D4.validateTarget<$tom_vscode_scripting_api_7.AgentQuery>(target, 'AgentQuery');
@@ -7446,7 +7629,7 @@ BridgedClass _createAgentQueryBridge() {
           throw ArgumentError('every: Missing required argument "test" at position 0');
         }
         final testRaw = positional[0];
-        return t.every(($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.callInterpreterCallback(visitor!, testRaw, [p0]) as bool; });
+        return t.every((($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.callInterpreterCallback(visitor!, testRaw, [p0]) as bool; }) as bool Function($tom_vscode_scripting_api_3.SdkMessage));
       },
       'any': (visitor, target, positional, named, typeArgs) {
         final t = D4.validateTarget<$tom_vscode_scripting_api_7.AgentQuery>(target, 'AgentQuery');
@@ -7455,7 +7638,7 @@ BridgedClass _createAgentQueryBridge() {
           throw ArgumentError('any: Missing required argument "test" at position 0');
         }
         final testRaw = positional[0];
-        return t.any(($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.callInterpreterCallback(visitor!, testRaw, [p0]) as bool; });
+        return t.any((($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.callInterpreterCallback(visitor!, testRaw, [p0]) as bool; }) as bool Function($tom_vscode_scripting_api_3.SdkMessage));
       },
       'cast': (visitor, target, positional, named, typeArgs) {
         final t = D4.validateTarget<$tom_vscode_scripting_api_7.AgentQuery>(target, 'AgentQuery');
@@ -7487,7 +7670,7 @@ BridgedClass _createAgentQueryBridge() {
           throw ArgumentError('takeWhile: Missing required argument "test" at position 0');
         }
         final testRaw = positional[0];
-        return t.takeWhile(($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.callInterpreterCallback(visitor!, testRaw, [p0]) as bool; });
+        return t.takeWhile((($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.callInterpreterCallback(visitor!, testRaw, [p0]) as bool; }) as bool Function($tom_vscode_scripting_api_3.SdkMessage));
       },
       'skip': (visitor, target, positional, named, typeArgs) {
         final t = D4.validateTarget<$tom_vscode_scripting_api_7.AgentQuery>(target, 'AgentQuery');
@@ -7502,12 +7685,12 @@ BridgedClass _createAgentQueryBridge() {
           throw ArgumentError('skipWhile: Missing required argument "test" at position 0');
         }
         final testRaw = positional[0];
-        return t.skipWhile(($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.callInterpreterCallback(visitor!, testRaw, [p0]) as bool; });
+        return t.skipWhile((($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.callInterpreterCallback(visitor!, testRaw, [p0]) as bool; }) as bool Function($tom_vscode_scripting_api_3.SdkMessage));
       },
       'distinct': (visitor, target, positional, named, typeArgs) {
         final t = D4.validateTarget<$tom_vscode_scripting_api_7.AgentQuery>(target, 'AgentQuery');
         final equalsRaw = positional.isNotEmpty ? positional[0] : null;
-        return t.distinct(equalsRaw == null ? null : ($tom_vscode_scripting_api_3.SdkMessage p0, $tom_vscode_scripting_api_3.SdkMessage p1) { return D4.callInterpreterCallback(visitor!, equalsRaw, [p0, p1]) as bool; });
+        return t.distinct(equalsRaw == null ? null : (($tom_vscode_scripting_api_3.SdkMessage p0, $tom_vscode_scripting_api_3.SdkMessage p1) { return D4.callInterpreterCallback(visitor!, equalsRaw, [p0, p1]) as bool; }) as bool Function($tom_vscode_scripting_api_3.SdkMessage, $tom_vscode_scripting_api_3.SdkMessage));
       },
       'firstWhere': (visitor, target, positional, named, typeArgs) {
         final t = D4.validateTarget<$tom_vscode_scripting_api_7.AgentQuery>(target, 'AgentQuery');
@@ -7517,7 +7700,7 @@ BridgedClass _createAgentQueryBridge() {
         }
         final testRaw = positional[0];
         final orElseRaw = named['orElse'];
-        return t.firstWhere(($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.callInterpreterCallback(visitor!, testRaw, [p0]) as bool; }, orElse: orElseRaw == null ? null : () { return D4.callInterpreterCallback(visitor!, orElseRaw, []) as $tom_vscode_scripting_api_3.SdkMessage; });
+        return t.firstWhere((($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.callInterpreterCallback(visitor!, testRaw, [p0]) as bool; }) as bool Function($tom_vscode_scripting_api_3.SdkMessage), orElse: orElseRaw == null ? null : (() { return D4.extractBridgedArg<$tom_vscode_scripting_api_3.SdkMessage>(D4.callInterpreterCallback(visitor!, orElseRaw, []), 'callback', visitor) as $tom_vscode_scripting_api_3.SdkMessage; }) as $tom_vscode_scripting_api_3.SdkMessage Function());
       },
       'lastWhere': (visitor, target, positional, named, typeArgs) {
         final t = D4.validateTarget<$tom_vscode_scripting_api_7.AgentQuery>(target, 'AgentQuery');
@@ -7527,7 +7710,7 @@ BridgedClass _createAgentQueryBridge() {
         }
         final testRaw = positional[0];
         final orElseRaw = named['orElse'];
-        return t.lastWhere(($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.callInterpreterCallback(visitor!, testRaw, [p0]) as bool; }, orElse: orElseRaw == null ? null : () { return D4.callInterpreterCallback(visitor!, orElseRaw, []) as $tom_vscode_scripting_api_3.SdkMessage; });
+        return t.lastWhere((($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.callInterpreterCallback(visitor!, testRaw, [p0]) as bool; }) as bool Function($tom_vscode_scripting_api_3.SdkMessage), orElse: orElseRaw == null ? null : (() { return D4.extractBridgedArg<$tom_vscode_scripting_api_3.SdkMessage>(D4.callInterpreterCallback(visitor!, orElseRaw, []), 'callback', visitor) as $tom_vscode_scripting_api_3.SdkMessage; }) as $tom_vscode_scripting_api_3.SdkMessage Function());
       },
       'singleWhere': (visitor, target, positional, named, typeArgs) {
         final t = D4.validateTarget<$tom_vscode_scripting_api_7.AgentQuery>(target, 'AgentQuery');
@@ -7537,7 +7720,7 @@ BridgedClass _createAgentQueryBridge() {
         }
         final testRaw = positional[0];
         final orElseRaw = named['orElse'];
-        return t.singleWhere(($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.callInterpreterCallback(visitor!, testRaw, [p0]) as bool; }, orElse: orElseRaw == null ? null : () { return D4.callInterpreterCallback(visitor!, orElseRaw, []) as $tom_vscode_scripting_api_3.SdkMessage; });
+        return t.singleWhere((($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.callInterpreterCallback(visitor!, testRaw, [p0]) as bool; }) as bool Function($tom_vscode_scripting_api_3.SdkMessage), orElse: orElseRaw == null ? null : (() { return D4.extractBridgedArg<$tom_vscode_scripting_api_3.SdkMessage>(D4.callInterpreterCallback(visitor!, orElseRaw, []), 'callback', visitor) as $tom_vscode_scripting_api_3.SdkMessage; }) as $tom_vscode_scripting_api_3.SdkMessage Function());
       },
       'elementAt': (visitor, target, positional, named, typeArgs) {
         final t = D4.validateTarget<$tom_vscode_scripting_api_7.AgentQuery>(target, 'AgentQuery');
@@ -7555,37 +7738,37 @@ BridgedClass _createAgentQueryBridge() {
     },
     methodSignatures: {
       'interrupt': 'Future<void> interrupt()',
-      'asBroadcastStream': 'Stream<SdkMessage> asBroadcastStream({void Function(StreamSubscription<SdkMessage>)? onListen, void Function(StreamSubscription<SdkMessage>)? onCancel})',
-      'listen': 'StreamSubscription<SdkMessage> listen(void Function(SdkMessage)? onData, {Function? onError, void Function()? onDone, bool? cancelOnError})',
-      'where': 'Stream<SdkMessage> where(bool Function(SdkMessage) test)',
-      'map': 'Stream<S> map(S Function(SdkMessage) convert)',
-      'asyncMap': 'Stream<E> asyncMap(FutureOr<E> Function(SdkMessage) convert)',
-      'asyncExpand': 'Stream<E> asyncExpand(Stream<E>? Function(SdkMessage) convert)',
-      'handleError': 'Stream<SdkMessage> handleError(Function onError, {bool Function(dynamic)? test})',
-      'expand': 'Stream<S> expand(Iterable<S> Function(SdkMessage) convert)',
-      'pipe': 'Future<dynamic> pipe(StreamConsumer<SdkMessage> streamConsumer)',
+      'asBroadcastStream': 'Stream<SdkMessage> asBroadcastStream({void Function(StreamSubscription<SdkMessage> subscription)? onListen, void Function(StreamSubscription<SdkMessage> subscription)? onCancel})',
+      'listen': 'StreamSubscription<SdkMessage> listen(void Function(SdkMessage value)? onData, {Function? onError, void Function()? onDone, bool? cancelOnError})',
+      'where': 'Stream<SdkMessage> where(bool Function(SdkMessage event) test)',
+      'map': 'Stream<S> map(S Function(SdkMessage event) convert)',
+      'asyncMap': 'Stream<E> asyncMap(FutureOr<E> Function(SdkMessage event) convert)',
+      'asyncExpand': 'Stream<E> asyncExpand(Stream<E>? Function(SdkMessage event) convert)',
+      'handleError': 'Stream<SdkMessage> handleError(Function onError, {bool Function(dynamic error)? test})',
+      'expand': 'Stream<S> expand(Iterable<S> Function(SdkMessage element) convert)',
+      'pipe': 'Future pipe(StreamConsumer<SdkMessage> streamConsumer)',
       'transform': 'Stream<S> transform(StreamTransformer<SdkMessage, S> streamTransformer)',
-      'reduce': 'Future<SdkMessage> reduce(SdkMessage Function(SdkMessage, SdkMessage) combine)',
-      'fold': 'Future<S> fold(S initialValue, S Function(S, SdkMessage) combine)',
+      'reduce': 'Future<SdkMessage> reduce(SdkMessage Function(SdkMessage previous, SdkMessage element) combine)',
+      'fold': 'Future<S> fold(S initialValue, S Function(S previous, SdkMessage element) combine)',
       'join': 'Future<String> join([String separator = ""])',
       'contains': 'Future<bool> contains(Object? needle)',
-      'forEach': 'Future<void> forEach(void Function(SdkMessage) action)',
-      'every': 'Future<bool> every(bool Function(SdkMessage) test)',
-      'any': 'Future<bool> any(bool Function(SdkMessage) test)',
+      'forEach': 'Future<void> forEach(void Function(SdkMessage element) action)',
+      'every': 'Future<bool> every(bool Function(SdkMessage element) test)',
+      'any': 'Future<bool> any(bool Function(SdkMessage element) test)',
       'cast': 'Stream<R> cast()',
       'toList': 'Future<List<SdkMessage>> toList()',
       'toSet': 'Future<Set<SdkMessage>> toSet()',
       'drain': 'Future<E> drain([E? futureValue])',
       'take': 'Stream<SdkMessage> take(int count)',
-      'takeWhile': 'Stream<SdkMessage> takeWhile(bool Function(SdkMessage) test)',
+      'takeWhile': 'Stream<SdkMessage> takeWhile(bool Function(SdkMessage element) test)',
       'skip': 'Stream<SdkMessage> skip(int count)',
-      'skipWhile': 'Stream<SdkMessage> skipWhile(bool Function(SdkMessage) test)',
-      'distinct': 'Stream<SdkMessage> distinct([bool Function(SdkMessage, SdkMessage)? equals])',
-      'firstWhere': 'Future<SdkMessage> firstWhere(bool Function(SdkMessage) test, {SdkMessage Function()? orElse})',
-      'lastWhere': 'Future<SdkMessage> lastWhere(bool Function(SdkMessage) test, {SdkMessage Function()? orElse})',
-      'singleWhere': 'Future<SdkMessage> singleWhere(bool Function(SdkMessage) test, {SdkMessage Function()? orElse})',
+      'skipWhile': 'Stream<SdkMessage> skipWhile(bool Function(SdkMessage element) test)',
+      'distinct': 'Stream<SdkMessage> distinct([bool Function(SdkMessage previous, SdkMessage next)? equals])',
+      'firstWhere': 'Future<SdkMessage> firstWhere(bool Function(SdkMessage element) test, {SdkMessage Function()? orElse})',
+      'lastWhere': 'Future<SdkMessage> lastWhere(bool Function(SdkMessage element) test, {SdkMessage Function()? orElse})',
+      'singleWhere': 'Future<SdkMessage> singleWhere(bool Function(SdkMessage element) test, {SdkMessage Function()? orElse})',
       'elementAt': 'Future<SdkMessage> elementAt(int index)',
-      'timeout': 'Stream<SdkMessage> timeout(Duration timeLimit, {void Function(EventSink<SdkMessage>)? onTimeout})',
+      'timeout': 'Stream<SdkMessage> timeout(Duration timeLimit, {void Function(EventSink<SdkMessage> sink)? onTimeout})',
     },
     getterSignatures: {
       'isBroadcast': 'bool get isBroadcast',
@@ -7653,6 +7836,7 @@ BridgedClass _createVSCodeBridgeAgentSdkTransportBridge() {
     nativeType: $tom_vscode_scripting_api_7.VSCodeBridgeAgentSdkTransport,
     name: 'VSCodeBridgeAgentSdkTransport',
     isAssignable: (v) => v is $tom_vscode_scripting_api_7.VSCodeBridgeAgentSdkTransport,
+    hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
         D4.requireMinArgs(positional, 1, 'VSCodeBridgeAgentSdkTransport');
@@ -7703,7 +7887,7 @@ BridgedClass _createVSCodeBridgeAgentSdkTransportBridge() {
           throw ArgumentError('registerCanUseTool: Missing required argument "callback" at position 1');
         }
         final callbackRaw = positional[1];
-        t.registerCanUseTool(streamId, (String p0, Map<String, dynamic> p1, $tom_vscode_scripting_api_6.CanUseToolContext p2) { return D4.callInterpreterCallback(visitor!, callbackRaw, [p0, p1, p2]) as Future<$tom_vscode_scripting_api_6.PermissionResult>; });
+        t.registerCanUseTool(streamId, ((String p0, Map<String, dynamic> p1, $tom_vscode_scripting_api_6.CanUseToolContext p2) { return Future.value(D4.callInterpreterCallback(visitor!, callbackRaw, [p0, p1, p2])).then((v) => v as $tom_vscode_scripting_api_6.PermissionResult); }) as Future<$tom_vscode_scripting_api_6.PermissionResult> Function(String, Map<String, dynamic>, $tom_vscode_scripting_api_6.CanUseToolContext));
         return null;
       },
       'unregisterCanUseTool': (visitor, target, positional, named, typeArgs) {
@@ -7759,7 +7943,7 @@ BridgedClass _createBridgeRequestDispatcherBridge() {
           throw ArgumentError('register: Missing required argument "handler" at position 1');
         }
         final handlerRaw = positional[1];
-        t.register(method, (Map<String, dynamic> p0) { return D4.callInterpreterCallback(visitor!, handlerRaw, [p0]) as FutureOr<Object?>; });
+        t.register(method, ((Map<String, dynamic> p0) { return D4.castCallbackResult<FutureOr<Object?>>(D4.callInterpreterCallback(visitor!, handlerRaw, [p0])); }) as FutureOr<Object?> Function(Map<String, dynamic>));
         return null;
       },
       'unregister': (visitor, target, positional, named, typeArgs) {
@@ -9195,6 +9379,7 @@ BridgedClass _createTomTodoApiBridge() {
     nativeType: $tom_vscode_scripting_api_17.TomTodoApi,
     name: 'TomTodoApi',
     isAssignable: (v) => v is $tom_vscode_scripting_api_17.TomTodoApi,
+    isAbstract: true,
     constructors: {
     },
     staticMethods: {
@@ -9661,6 +9846,7 @@ BridgedClass _createTomQueueApiBridge() {
     nativeType: $tom_vscode_scripting_api_15.TomQueueApi,
     name: 'TomQueueApi',
     isAssignable: (v) => v is $tom_vscode_scripting_api_15.TomQueueApi,
+    isAbstract: true,
     constructors: {
     },
     staticMethods: {
@@ -10049,6 +10235,7 @@ BridgedClass _createTomTimedApiBridge() {
     nativeType: $tom_vscode_scripting_api_16.TomTimedApi,
     name: 'TomTimedApi',
     isAssignable: (v) => v is $tom_vscode_scripting_api_16.TomTimedApi,
+    isAbstract: true,
     constructors: {
     },
     staticMethods: {
@@ -10482,6 +10669,7 @@ BridgedClass _createTomDocumentApiBridge() {
     nativeType: $tom_vscode_scripting_api_14.TomDocumentApi,
     name: 'TomDocumentApi',
     isAssignable: (v) => v is $tom_vscode_scripting_api_14.TomDocumentApi,
+    isAbstract: true,
     constructors: {
     },
     staticMethods: {
@@ -10991,6 +11179,7 @@ BridgedClass _createTomWorkspaceApiBridge() {
     nativeType: $tom_vscode_scripting_api_19.TomWorkspaceApi,
     name: 'TomWorkspaceApi',
     isAssignable: (v) => v is $tom_vscode_scripting_api_19.TomWorkspaceApi,
+    isAbstract: true,
     constructors: {
     },
     staticMethods: {
@@ -11153,6 +11342,7 @@ BridgedClass _createTomToolsApiBridge() {
     nativeType: $tom_vscode_scripting_api_18.TomToolsApi,
     name: 'TomToolsApi',
     isAssignable: (v) => v is $tom_vscode_scripting_api_18.TomToolsApi,
+    isAbstract: true,
     constructors: {
     },
     staticMethods: {
@@ -11242,6 +11432,7 @@ BridgedClass _createTomChatApiBridge() {
     nativeType: $tom_vscode_scripting_api_13.TomChatApi,
     name: 'TomChatApi',
     isAssignable: (v) => v is $tom_vscode_scripting_api_13.TomChatApi,
+    isAbstract: true,
     constructors: {
     },
     staticMethods: {
@@ -11259,6 +11450,198 @@ BridgedClass _createTomChatApiBridge() {
     staticMethodSignatures: {
       'setAdapter': 'void setAdapter(VSCodeAdapter adapter)',
       'sendToChat': 'Future<SendToChatResult> sendToChat(String prompt)',
+    },
+  );
+}
+
+// =============================================================================
+// BridgedClass Bridge
+// =============================================================================
+
+BridgedClass _createBridgedClassBridge() {
+  return BridgedClass(
+    nativeType: $tom_d4rt_1.BridgedClass,
+    name: 'BridgedClass',
+    isAssignable: (v) => v is $tom_d4rt_1.BridgedClass,
+    hierarchyDepth: 1,
+    constructors: {
+      '': (visitor, positional, named) {
+        final nativeType = D4.getRequiredNamedArg<Type>(named, 'nativeType', 'BridgedClass');
+        final name = D4.getRequiredNamedArg<String>(named, 'name', 'BridgedClass');
+        final nativeNames = D4.coerceListOrNull<String>(named['nativeNames'], 'nativeNames');
+        final typeParameterCount = D4.getNamedArgWithDefault<int>(named, 'typeParameterCount', 0);
+        final canBeUsedAsMixin = D4.getNamedArgWithDefault<bool>(named, 'canBeUsedAsMixin', false);
+        final constructors = named.containsKey('constructors') && named['constructors'] != null
+            ? D4.coerceMap<String, $tom_d4rt_2.BridgedConstructorCallable>(named['constructors'], 'constructors')
+            : const <String, $tom_d4rt_2.BridgedConstructorCallable>{};
+        final staticMethods = named.containsKey('staticMethods') && named['staticMethods'] != null
+            ? D4.coerceMap<String, $tom_d4rt_2.BridgedStaticMethodAdapter>(named['staticMethods'], 'staticMethods')
+            : const <String, $tom_d4rt_2.BridgedStaticMethodAdapter>{};
+        final staticGetters = named.containsKey('staticGetters') && named['staticGetters'] != null
+            ? D4.coerceMap<String, $tom_d4rt_2.BridgedStaticGetterAdapter>(named['staticGetters'], 'staticGetters')
+            : const <String, $tom_d4rt_2.BridgedStaticGetterAdapter>{};
+        final staticSetters = named.containsKey('staticSetters') && named['staticSetters'] != null
+            ? D4.coerceMap<String, $tom_d4rt_2.BridgedStaticSetterAdapter>(named['staticSetters'], 'staticSetters')
+            : const <String, $tom_d4rt_2.BridgedStaticSetterAdapter>{};
+        final methods = named.containsKey('methods') && named['methods'] != null
+            ? D4.coerceMap<String, $tom_d4rt_2.BridgedMethodAdapter>(named['methods'], 'methods')
+            : const <String, $tom_d4rt_2.BridgedMethodAdapter>{};
+        final getters = named.containsKey('getters') && named['getters'] != null
+            ? D4.coerceMap<String, $tom_d4rt_2.BridgedInstanceGetterAdapter>(named['getters'], 'getters')
+            : const <String, $tom_d4rt_2.BridgedInstanceGetterAdapter>{};
+        final setters = named.containsKey('setters') && named['setters'] != null
+            ? D4.coerceMap<String, $tom_d4rt_2.BridgedInstanceSetterAdapter>(named['setters'], 'setters')
+            : const <String, $tom_d4rt_2.BridgedInstanceSetterAdapter>{};
+        final constructorSignatures = named.containsKey('constructorSignatures') && named['constructorSignatures'] != null
+            ? D4.coerceMap<String, String>(named['constructorSignatures'], 'constructorSignatures')
+            : const <String, String>{};
+        final methodSignatures = named.containsKey('methodSignatures') && named['methodSignatures'] != null
+            ? D4.coerceMap<String, String>(named['methodSignatures'], 'methodSignatures')
+            : const <String, String>{};
+        final staticMethodSignatures = named.containsKey('staticMethodSignatures') && named['staticMethodSignatures'] != null
+            ? D4.coerceMap<String, String>(named['staticMethodSignatures'], 'staticMethodSignatures')
+            : const <String, String>{};
+        final staticGetterSignatures = named.containsKey('staticGetterSignatures') && named['staticGetterSignatures'] != null
+            ? D4.coerceMap<String, String>(named['staticGetterSignatures'], 'staticGetterSignatures')
+            : const <String, String>{};
+        final staticSetterSignatures = named.containsKey('staticSetterSignatures') && named['staticSetterSignatures'] != null
+            ? D4.coerceMap<String, String>(named['staticSetterSignatures'], 'staticSetterSignatures')
+            : const <String, String>{};
+        final getterSignatures = named.containsKey('getterSignatures') && named['getterSignatures'] != null
+            ? D4.coerceMap<String, String>(named['getterSignatures'], 'getterSignatures')
+            : const <String, String>{};
+        final setterSignatures = named.containsKey('setterSignatures') && named['setterSignatures'] != null
+            ? D4.coerceMap<String, String>(named['setterSignatures'], 'setterSignatures')
+            : const <String, String>{};
+        final isSubtypeOfFuncRaw = named['isSubtypeOfFunc'];
+        return $tom_d4rt_1.BridgedClass(nativeType: nativeType, name: name, nativeNames: nativeNames, typeParameterCount: typeParameterCount, canBeUsedAsMixin: canBeUsedAsMixin, constructors: constructors, staticMethods: staticMethods, staticGetters: staticGetters, staticSetters: staticSetters, methods: methods, getters: getters, setters: setters, constructorSignatures: constructorSignatures, methodSignatures: methodSignatures, staticMethodSignatures: staticMethodSignatures, staticGetterSignatures: staticGetterSignatures, staticSetterSignatures: staticSetterSignatures, getterSignatures: getterSignatures, setterSignatures: setterSignatures, isSubtypeOfFunc: isSubtypeOfFuncRaw == null ? null : ($tom_d4rt_1.BridgedClass p0, {Object? value}) { return D4.callInterpreterCallback(visitor!, isSubtypeOfFuncRaw, [p0], {'value': value}) as bool; });
+      },
+    },
+    getters: {
+      'nativeType': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').nativeType,
+      'name': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').name,
+      'nativeNames': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').nativeNames,
+      'isSubtypeOfFunc': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').isSubtypeOfFunc,
+      'typeParameterCount': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').typeParameterCount,
+      'canBeUsedAsMixin': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').canBeUsedAsMixin,
+      'constructors': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').constructors,
+      'methods': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').methods,
+      'staticMethods': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').staticMethods,
+      'staticGetters': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').staticGetters,
+      'staticSetters': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').staticSetters,
+      'getters': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').getters,
+      'setters': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').setters,
+      'constructorSignatures': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').constructorSignatures,
+      'methodSignatures': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').methodSignatures,
+      'staticMethodSignatures': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').staticMethodSignatures,
+      'staticGetterSignatures': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').staticGetterSignatures,
+      'staticSetterSignatures': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').staticSetterSignatures,
+      'getterSignatures': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').getterSignatures,
+      'setterSignatures': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').setterSignatures,
+    },
+    setters: {
+    },
+    methods: {
+      'isSubtypeOf': (visitor, target, positional, named, typeArgs) {
+        final t = D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass');
+        D4.requireMinArgs(positional, 1, 'isSubtypeOf');
+        final other = D4.getRequiredArg<$tom_d4rt_5.RuntimeType>(positional, 0, 'other', 'isSubtypeOf');
+        final value = D4.getOptionalNamedArg<Object?>(named, 'value');
+        return t.isSubtypeOf(other, value: value);
+      },
+      'findConstructorAdapter': (visitor, target, positional, named, typeArgs) {
+        final t = D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass');
+        D4.requireMinArgs(positional, 1, 'findConstructorAdapter');
+        final name = D4.getRequiredArg<String>(positional, 0, 'name', 'findConstructorAdapter');
+        return t.findConstructorAdapter(name);
+      },
+      'findInstanceMethodAdapter': (visitor, target, positional, named, typeArgs) {
+        final t = D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass');
+        D4.requireMinArgs(positional, 1, 'findInstanceMethodAdapter');
+        final name = D4.getRequiredArg<String>(positional, 0, 'name', 'findInstanceMethodAdapter');
+        return t.findInstanceMethodAdapter(name);
+      },
+      'findStaticMethodAdapter': (visitor, target, positional, named, typeArgs) {
+        final t = D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass');
+        D4.requireMinArgs(positional, 1, 'findStaticMethodAdapter');
+        final name = D4.getRequiredArg<String>(positional, 0, 'name', 'findStaticMethodAdapter');
+        return t.findStaticMethodAdapter(name);
+      },
+      'findStaticGetterAdapter': (visitor, target, positional, named, typeArgs) {
+        final t = D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass');
+        D4.requireMinArgs(positional, 1, 'findStaticGetterAdapter');
+        final name = D4.getRequiredArg<String>(positional, 0, 'name', 'findStaticGetterAdapter');
+        return t.findStaticGetterAdapter(name);
+      },
+      'findStaticSetterAdapter': (visitor, target, positional, named, typeArgs) {
+        final t = D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass');
+        D4.requireMinArgs(positional, 1, 'findStaticSetterAdapter');
+        final name = D4.getRequiredArg<String>(positional, 0, 'name', 'findStaticSetterAdapter');
+        return t.findStaticSetterAdapter(name);
+      },
+      'findInstanceGetterAdapter': (visitor, target, positional, named, typeArgs) {
+        final t = D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass');
+        D4.requireMinArgs(positional, 1, 'findInstanceGetterAdapter');
+        final name = D4.getRequiredArg<String>(positional, 0, 'name', 'findInstanceGetterAdapter');
+        return t.findInstanceGetterAdapter(name);
+      },
+      'findInstanceSetterAdapter': (visitor, target, positional, named, typeArgs) {
+        final t = D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass');
+        D4.requireMinArgs(positional, 1, 'findInstanceSetterAdapter');
+        final name = D4.getRequiredArg<String>(positional, 0, 'name', 'findInstanceSetterAdapter');
+        return t.findInstanceSetterAdapter(name);
+      },
+    },
+    constructorSignatures: {
+      '': 'BridgedClass({required Type nativeType, required String name, List<String>? nativeNames, int typeParameterCount = 0, bool canBeUsedAsMixin = false, Map<String, BridgedConstructorCallable> constructors = const {}, Map<String, BridgedStaticMethodAdapter> staticMethods = const {}, Map<String, BridgedStaticGetterAdapter> staticGetters = const {}, Map<String, BridgedStaticSetterAdapter> staticSetters = const {}, Map<String, BridgedMethodAdapter> methods = const {}, Map<String, BridgedInstanceGetterAdapter> getters = const {}, Map<String, BridgedInstanceSetterAdapter> setters = const {}, Map<String, String> constructorSignatures = const {}, Map<String, String> methodSignatures = const {}, Map<String, String> staticMethodSignatures = const {}, Map<String, String> staticGetterSignatures = const {}, Map<String, String> staticSetterSignatures = const {}, Map<String, String> getterSignatures = const {}, Map<String, String> setterSignatures = const {}, bool Function(BridgedClass other, {Object? value})? isSubtypeOfFunc})',
+    },
+    methodSignatures: {
+      'isSubtypeOf': 'bool isSubtypeOf(RuntimeType other, {Object? value})',
+      'findConstructorAdapter': 'BridgedConstructorCallable? findConstructorAdapter(String name)',
+      'findInstanceMethodAdapter': 'BridgedMethodAdapter? findInstanceMethodAdapter(String name)',
+      'findStaticMethodAdapter': 'BridgedStaticMethodAdapter? findStaticMethodAdapter(String name)',
+      'findStaticGetterAdapter': 'BridgedStaticGetterAdapter? findStaticGetterAdapter(String name)',
+      'findStaticSetterAdapter': 'BridgedStaticSetterAdapter? findStaticSetterAdapter(String name)',
+      'findInstanceGetterAdapter': 'BridgedInstanceGetterAdapter? findInstanceGetterAdapter(String name)',
+      'findInstanceSetterAdapter': 'BridgedInstanceSetterAdapter? findInstanceSetterAdapter(String name)',
+    },
+    getterSignatures: {
+      'nativeType': 'Type get nativeType',
+      'name': 'String get name',
+      'nativeNames': 'List<String>? get nativeNames',
+      'isSubtypeOfFunc': 'bool Function(BridgedClass other, {Object? value})? get isSubtypeOfFunc',
+      'typeParameterCount': 'int get typeParameterCount',
+      'canBeUsedAsMixin': 'bool get canBeUsedAsMixin',
+      'constructors': 'Map<String, BridgedConstructorCallable> get constructors',
+      'methods': 'Map<String, BridgedMethodAdapter> get methods',
+      'staticMethods': 'Map<String, BridgedStaticMethodAdapter> get staticMethods',
+      'staticGetters': 'Map<String, BridgedStaticGetterAdapter> get staticGetters',
+      'staticSetters': 'Map<String, BridgedStaticSetterAdapter> get staticSetters',
+      'getters': 'Map<String, BridgedInstanceGetterAdapter> get getters',
+      'setters': 'Map<String, BridgedInstanceSetterAdapter> get setters',
+      'constructorSignatures': 'Map<String, String> get constructorSignatures',
+      'methodSignatures': 'Map<String, String> get methodSignatures',
+      'staticMethodSignatures': 'Map<String, String> get staticMethodSignatures',
+      'staticGetterSignatures': 'Map<String, String> get staticGetterSignatures',
+      'staticSetterSignatures': 'Map<String, String> get staticSetterSignatures',
+      'getterSignatures': 'Map<String, String> get getterSignatures',
+      'setterSignatures': 'Map<String, String> get setterSignatures',
+    },
+    setterSignatures: {
+      'constructors': 'set constructors(dynamic value)',
+      'methods': 'set methods(dynamic value)',
+      'staticMethods': 'set staticMethods(dynamic value)',
+      'staticGetters': 'set staticGetters(dynamic value)',
+      'staticSetters': 'set staticSetters(dynamic value)',
+      'getters': 'set getters(dynamic value)',
+      'setters': 'set setters(dynamic value)',
+      'constructorSignatures': 'set constructorSignatures(dynamic value)',
+      'methodSignatures': 'set methodSignatures(dynamic value)',
+      'staticMethodSignatures': 'set staticMethodSignatures(dynamic value)',
+      'staticGetterSignatures': 'set staticGetterSignatures(dynamic value)',
+      'staticSetterSignatures': 'set staticSetterSignatures(dynamic value)',
+      'getterSignatures': 'set getterSignatures(dynamic value)',
+      'setterSignatures': 'set setterSignatures(dynamic value)',
     },
   );
 }
