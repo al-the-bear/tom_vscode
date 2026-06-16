@@ -358,36 +358,22 @@ export async function ensureBridgeRunning(
     context: vscode.ExtensionContext,
     showMessages: boolean = false
 ): Promise<DartBridgeClient | null> {
-    const workspaceRoot = getWorkspaceRoot();
-    if (!workspaceRoot) {
-        if (showMessages) {
-            vscode.window.showErrorMessage('No workspace folder open');
-        }
-        return null;
+    // Reuse an already-running bridge — started via the config-driven restart
+    // command or autostart — regardless of where its sources live. This is the
+    // common case for "execute file"/"execute script": the bridge is up, so we
+    // must not fail looking for a particular source path.
+    if (bridgeClient && bridgeClient.isRunning()) {
+        return bridgeClient;
     }
 
-    const bridgePath = path.join(workspaceRoot, 'xternal', 'tom_module_vscode', 'tom_vscode_bridge');
-    if (!fs.existsSync(bridgePath)) {
-        if (showMessages) {
-            vscode.window.showErrorMessage('tom_vscode_bridge not found in workspace (expected at xternal/tom_module_vscode/tom_vscode_bridge)');
-        }
-        return null;
-    }
+    // Not running: start it through the canonical config-driven profile
+    // (bridge section of tom_vscode_extension.json), which resolves the correct
+    // command/args/cwd and sets the shared singleton via setBridgeClient().
+    // Lazy import avoids a load-time cycle with restartBridge-handler.
+    const { restartBridgeHandler } = await import('./restartBridge-handler.js');
+    await restartBridgeHandler(context, showMessages);
 
-    // Create bridge client if needed
-    if (!bridgeClient) {
-        bridgeClient = new DartBridgeClient(context);
-    }
-
-    // Start bridge if not already running
-    if (!bridgeClient.isRunning()) {
-        if (showMessages) {
-            vscode.window.showInformationMessage('Starting Dart bridge...');
-        }
-        await bridgeClient.startWithAutoRestart(bridgePath);
-    }
-
-    return bridgeClient;
+    return bridgeClient && bridgeClient.isRunning() ? bridgeClient : null;
 }
 
 // ============================================================================
