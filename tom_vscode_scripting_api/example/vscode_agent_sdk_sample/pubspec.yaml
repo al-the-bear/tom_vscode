@@ -1,0 +1,19 @@
+name: vscode_agent_sdk_sample
+description: >-
+  Agent SDK tom_vscode_scripting_api sample — the 1:1 Dart mirror of the
+  Anthropic Agent SDK driven over the VS Code bridge: streaming query(),
+  the Options input surface, the typed SdkMessage output stream, in-process
+  Dart tool() handlers, and the canUseTool permission callback. Demonstrates
+  the raw VSCodeBridgeClient + VSCodeBridgeAgentSdkTransport connection story.
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  tom_vscode_scripting_api: ^1.1.0
+
+dev_dependencies:
+  lints: ^4.0.0
+  test: ^1.25.0
