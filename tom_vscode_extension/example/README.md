@@ -1,40 +1,64 @@
-# VS Code Integration Examples
+# tom_vscode_extension — examples
 
-Examples demonstrating the VS Code extension capabilities, including bridge communication, Copilot integration, and testing.
+> **Tom VS Code** — part of the Tom Framework by Peter Nicolai Alexis Kyaw.
+> Licensed BSD-3-Clause. See [LICENSE](../LICENSE).
 
-## Table of Contents
-
-- [JavaScript Examples](#javascript-examples)
-- [TypeScript Examples](#typescript-examples)
-- [Testing Commands](#testing-commands)
-- [Running Examples](#running-examples)
+A small set of **extension-side** examples: script files the extension can
+execute over the bridge, and copy-and-edit configuration samples. These are
+specific to the extension itself — for the Dart **scripting API** samples
+(driving VS Code from a Dart program) see the canonical home linked below.
 
 ---
 
-## JavaScript Examples
+## What's here
 
-### example_script.js
+### Script-execution samples
 
-A JavaScript file that can be executed via `executeFile`. Demonstrates:
-- Accessing VS Code API through context
-- Making nested calls back to Dart bridge
-- Returning structured results
+The extension can run JS/TS files and inline scripts through the bridge
+(`tomAi.executeFile` / `tomAi.executeScript`), passing a `context` with `vscode`,
+`bridge`, and `console`. These files are runnable demonstrations of that surface:
 
-```javascript
-module.exports = async function execute(params, context) {
-    const { vscode, bridge, console } = context;
-    
-    // Access workspace folders
-    const folders = vscode.workspace.workspaceFolders;
-    
-    // Make nested call to Dart
-    const dartInfo = await bridge.sendRequest('getWorkspaceInfo', {...});
-    
-    return { success: true, data: dartInfo };
-};
-```
+| File | Demonstrates | Run via |
+| --- | --- | --- |
+| [`example_script.js`](example_script.js) | `module.exports = async (params, context)` — access workspace folders, make nested calls back to the Dart bridge, return structured results. | `@T: Execute File` (`tomAi.executeFile`) |
+| [`example_inline_script.js`](example_inline_script.js) | An inline script body for `executeScript` — read params, use the `vscode` API without `module.exports`, return a value. | `@T: Execute as Script` (`tomAi.executeScript`) |
+| [`nested_execution_example.ts`](nested_execution_example.ts) | A multi-hop TS → Dart → TS execution flow where each nested call completes before the next returns. | `@T: Execute File` on the compiled output, or as a reference. |
 
-**Usage from Dart**:
+### Configuration samples
+
+Copy-and-edit starting points for the extension's on-disk config (shape defined
+by `src/config/tom_vscode_extension.schema.json` ⇄ `src/utils/sendToChatConfig.ts`):
+
+| File | Purpose |
+| --- | --- |
+| [`tom_vscode_extension.json`](tom_vscode_extension.json) | A worked **workspace** config sample — post-actions, send-to-chat config, panels, etc. Copy to `.tom/tom_vscode_extension.json` in a workspace and trim to taste. |
+| [`tom_vscode_extension.user.sample.yaml`](tom_vscode_extension.user.sample.yaml) | A **user-global** config overlay sample. Its header documents where to copy it; the overlay supplies defaults when the workspace config omits a key. |
+
+### `graph_samples/` (empty)
+
+This directory is a leftover of the removed YAML Graph editor feature
+(`3b0b63d`). The graph fixtures it used to hold are preserved with the rest of
+the removed glue under
+`../../yaml_graph_vscode/_extension_backup/example/graph_samples/`. The YAML
+Graph packages are otherwise decoupled — see
+[`yaml_graph_core`](../../yaml_graph_core/README.md) /
+[`yaml_graph_vscode`](../../yaml_graph_vscode/README.md).
+
+---
+
+## Running the examples
+
+Script execution runs against a **live window** — the extension must be
+installed and active.
+
+**From the Command Palette / Explorer:**
+
+1. Open a `.dart`, `.js`, or `.ts` file (or right-click it in the Explorer).
+2. Run **@T: Execute File** (`tomAi.executeFile`) or **@T: Execute as Script**
+   (`tomAi.executeScript`).
+
+**From Dart (via the scripting API / bridge):**
+
 ```dart
 final result = await vscode.workspace.executeFile(
   filePath: 'example/example_script.js',
@@ -42,102 +66,35 @@ final result = await vscode.workspace.executeFile(
 );
 ```
 
-### example_inline_script.js
-
-An inline script for `executeScript`. Shows:
-- Accessing parameters directly
-- Using VS Code API without module exports
-- Returning values from inline code
-
-**Usage from Dart**:
-```dart
-final result = await vscode.workspace.executeScript(
-  script: '<script content>',
-  params: {'name': 'World'},
-);
-```
+**Bridge test runner.** The extension also ships a built-in runner
+(`BridgeTestRunner` in `src/tests.ts`) exposed as **@T: Run Tests**
+(`tomAi.runTests`); it executes the D4rt test scripts under
+`tom_vscode_bridge/test/` and writes per-test JSON results.
 
 ---
 
-## TypeScript Examples
+## Looking for the Dart scripting samples?
 
-### nested_execution_example.ts
+The runnable **Dart** samples that drive VS Code through the scripting API live
+in their own canonical home:
 
-Demonstrates complex nested execution flows:
-1. TypeScript calls Dart method
-2. Dart calls back to TypeScript (multiple times)
-3. Each nested call completes before returning
-4. Final result includes all nested results
-
-**Key Pattern**:
-```typescript
-const result = await bridge.sendRequest<any>('analyzeAndDocumentProject', {
-    projectPath: workspaceRoot
-});
-// Result contains structured data from all nested calls
-```
+- [`tom_vscode_scripting_api/example/`](../../tom_vscode_scripting_api/example/README.md)
+  — connect to a window, edit files, run commands, use the agent tools and the
+  Agent SDK; each is a self-contained project with a full article README.
 
 ---
 
-## Testing Commands
+## Where to look next
 
-The extension includes a built-in test runner (in `tests.ts`):
-
-### Run Bridge Tests
-
-**Command**: `@T: Run Test Script on Bridge`
-
-Runs all D4rt test scripts from `tom_vscode_bridge/test/` directory:
-
-1. Clears `test_results/` directory
-2. Executes each `.dart` test file via the bridge
-3. Saves individual results to `test_results/{name}_results.json`
-4. Displays summary in output channel
+- [`tom_vscode_extension`](../README.md) — the extension itself (handlers,
+  panels, config shape, commands).
+- [`tom_vscode_bridge`](../../tom_vscode_bridge/README.md) — the bridge that
+  hosts script execution.
+- [Repository map](../../README.md) — the whole Tom VS Code ecosystem.
 
 ---
 
-## Running Examples
+## License
 
-### From Command Palette
-
-1. Open Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`)
-2. Run `@T: Run Test Script on Bridge`
-3. View results in output channel and test_results/ folder
-
-### From Context Menu
-
-1. Right-click on a `.dart` file in Explorer
-2. Select **Execute in D4rt** or **Execute as Script**
-
-### From TypeScript Code
-
-```typescript
-import { BridgeTestRunner } from '../src/tests';
-
-// Run tests programmatically
-const runner = new BridgeTestRunner(context);
-await runner.runAllTests();
-```
-
----
-
-## Test Results Format
-
-Results are saved to `test_results/{name}_results.json`:
-
-```json
-{
-  "testFile": "01_test_vscode_api.dart",
-  "testName": "01_test_vscode_api",
-  "passed": true,
-  "duration": 150,
-  "result": { ... },
-  "timestamp": "2026-01-07T10:30:00.000Z"
-}
-```
-
-This makes it easy to:
-- Parse programmatically
-- Filter by test name
-- Calculate statistics
-- Track test history over time
+Part of the Tom Framework by Peter Nicolai Alexis Kyaw, BSD-3-Clause. See
+[LICENSE](../LICENSE).
