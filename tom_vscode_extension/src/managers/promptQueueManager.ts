@@ -34,7 +34,7 @@ import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
 import { applyRepetitionAffixes, buildNextTemplateIterationParams, convertStagedToPending, shouldAutoPauseOnEmpty } from '../utils/queueStep3Utils';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
 import { mergeQueueReload } from '../utils/queueReloadMergeUtils';
-import { applyErrorTransition, applyResetToPending, itemHasInFlightProgress } from '../utils/queueErrorTransitions';
+import { applyErrorTransition, applyResetToPending, itemHasInFlightProgress, resolveAnswerContainer } from '../utils/queueErrorTransitions';
 import { resolveVariables } from '../utils/variableResolver.js';
 import {
     buildAnswerFilePath,
@@ -1985,6 +1985,17 @@ export class PromptQueueManager {
     }
 
     private async advanceSendingItemWithoutAnswer(sending: QueuedPrompt, reason: string): Promise<boolean> {
+        // Capture the most-recent LLM answer as the completing stage's
+        // answer. The user clicks Continue precisely when the model
+        // produced an answer that the queue didn't auto-detect as final
+        // (e.g. it stalled mid tool-loop). For Anthropic-transport
+        // stages the handler tracks the latest assistant text; route it
+        // onto the stage that was last dispatched so the captured answer
+        // is persisted (and ${answer} placeholders resolve) before we
+        // advance. Copilot stages have no such handler-side text — their
+        // answer lives in an answer file — so they are left untouched.
+        await this._captureLastAnswerForSendingItem(sending);
+
         const outcome = await this.dispatchNextStageForSendingItem(sending);
         if (outcome === 'paused') {
             logQueue(`advanceSendingItemWithoutAnswer paused for ${sending.id} (${reason}): auto-send off, item kept in 'sending' for resume`);
@@ -2022,6 +2033,40 @@ export class PromptQueueManager {
 
         logQueue(`Manual continue completed for ${sending.id} (${reason})`);
         return true;
+    }
+
+    /**
+     * Record the LLM's most-recent answer onto the stage the item last
+     * dispatched, so a manual continue treats the in-flight (aborted)
+     * send as if it had completed normally with that answer.
+     *
+     * Only applies to Anthropic-transport stages: the handler tracks
+     * `lastAssistantText` across the round loop, so even a send that
+     * stalled mid tool-loop has the latest assistant text available.
+     * Copilot stages capture their answer from an answer file, never
+     * from the handler, so they are skipped. Never clobbers a stage
+     * that already has an `answerText` (the normal direct-completion
+     * path already recorded the real answer).
+     */
+    private async _captureLastAnswerForSendingItem(sending: QueuedPrompt): Promise<void> {
+        const last = sending.lastDispatched;
+        if (!last || last.transport !== 'anthropic') {
+            return;
+        }
+        const container = resolveAnswerContainer(sending);
+        if (!container || (container.answerText && container.answerText.length > 0)) {
+            return;
+        }
+        try {
+            const { AnthropicHandler } = await import('../handlers/anthropic-handler.js');
+            const answer = AnthropicHandler.instance.lastAssistantText;
+            if (answer && answer.length > 0) {
+                container.answerText = answer;
+                logQueue(`Captured most-recent LLM answer (${answer.length} chars) for ${sending.id} stage=${last.kind}`);
+            }
+        } catch (err) {
+            logQueue(`captureLastAnswer: failed to read last assistant text: ${err instanceof Error ? err.message : String(err)}`);
+        }
     }
 
     setStatus(id: string, status: 'staged' | 'pending'): boolean {
@@ -2437,14 +2482,7 @@ export class PromptQueueManager {
 
         // Resolve the container that should absorb the returned answer
         // text — same contract as the dispatch loop.
-        const container: { answerText?: string } | undefined =
-            last.kind === 'prePrompt' && last.prePromptIndex !== undefined
-                ? item.prePrompts?.[last.prePromptIndex]
-                : last.kind === 'followUp' && last.followUpIndex !== undefined
-                    ? item.followUps?.[last.followUpIndex]
-                    : last.kind === 'main'
-                        ? item
-                        : undefined;
+        const container = resolveAnswerContainer(item);
 
         const resolved = {
             transport: last.transport,

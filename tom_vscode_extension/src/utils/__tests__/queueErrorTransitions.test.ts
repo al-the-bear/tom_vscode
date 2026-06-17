@@ -5,6 +5,7 @@ import {
     applyErrorTransition,
     applyResetToPending,
     itemHasInFlightProgress,
+    resolveAnswerContainer,
 } from '../queueErrorTransitions.js';
 
 describe('applyErrorTransition', () => {
@@ -283,5 +284,60 @@ describe('itemHasInFlightProgress — fresh-vs-resume gate predicate', () => {
         // gate must keep treating it as a resume so `sendItem` preserves
         // the counters instead of resetting them.
         assert.equal(itemHasInFlightProgress({ repeatIndex: 2 }), true);
+    });
+});
+
+describe('resolveAnswerContainer — route a captured answer to the last-dispatched stage', () => {
+    test('main stage resolves to the item itself', () => {
+        const item: any = {
+            answerText: undefined,
+            lastDispatched: { kind: 'main' },
+        };
+        const container = resolveAnswerContainer(item);
+        assert.equal(container, item, 'main stage container is the item itself');
+        container!.answerText = 'captured';
+        assert.equal(item.answerText, 'captured', 'writing answerText lands on the item');
+    });
+
+    test('pre-prompt stage resolves to the addressed pre-prompt container', () => {
+        const pp0 = { answerText: undefined };
+        const pp1 = { answerText: undefined };
+        const item: any = {
+            prePrompts: [pp0, pp1],
+            lastDispatched: { kind: 'prePrompt', prePromptIndex: 1 },
+        };
+        const container = resolveAnswerContainer(item);
+        assert.equal(container, pp1, 'resolves the pre-prompt at the dispatched index');
+    });
+
+    test('follow-up stage resolves to the addressed follow-up container', () => {
+        const fu0 = { answerText: undefined };
+        const fu1 = { answerText: undefined };
+        const item: any = {
+            followUps: [fu0, fu1],
+            lastDispatched: { kind: 'followUp', followUpIndex: 0 },
+        };
+        const container = resolveAnswerContainer(item);
+        assert.equal(container, fu0, 'resolves the follow-up at the dispatched index');
+    });
+
+    test('returns undefined when there is no lastDispatched snapshot', () => {
+        assert.equal(resolveAnswerContainer({} as any), undefined);
+    });
+
+    test('returns undefined when the pre-prompt index is out of bounds', () => {
+        const item: any = {
+            prePrompts: [{ answerText: undefined }],
+            lastDispatched: { kind: 'prePrompt', prePromptIndex: 99 },
+        };
+        assert.equal(resolveAnswerContainer(item), undefined);
+    });
+
+    test('returns undefined when the follow-up index is missing', () => {
+        const item: any = {
+            followUps: [{ answerText: undefined }],
+            lastDispatched: { kind: 'followUp' },
+        };
+        assert.equal(resolveAnswerContainer(item), undefined);
     });
 });

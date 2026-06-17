@@ -254,6 +254,58 @@ export function itemHasInFlightProgress(item: InFlightProgressItem): boolean {
     return false;
 }
 
+/** Minimal container shape that can absorb a captured answer text. */
+export interface AnswerContainerLike {
+    answerText?: string;
+}
+
+/**
+ * Item shape needed to route a captured answer back to the stage that
+ * was last dispatched. Mirrors the per-stage container scheme: the
+ * main prompt's container is the item itself; pre-prompts and
+ * follow-ups have their own container objects addressed by index.
+ */
+export interface AnswerContainerItem extends AnswerContainerLike {
+    prePrompts?: AnswerContainerLike[];
+    followUps?: AnswerContainerLike[];
+    lastDispatched?: {
+        kind: 'prePrompt' | 'main' | 'followUp';
+        prePromptIndex?: number;
+        followUpIndex?: number;
+    };
+}
+
+/**
+ * Resolve the stage container that should absorb the answer text for
+ * the **last-dispatched** stage of an item, using the same contract as
+ * the dispatch loop's `stageForAnswer` argument.
+ *
+ * Returns `undefined` when there is no `lastDispatched` snapshot or the
+ * referenced stage no longer exists (defensive — indices come off a
+ * persisted snapshot). Used by both `resendLastPrompt` (route the
+ * resend's returned text) and the manual-continue capture (record the
+ * most-recent LLM answer onto the stage being completed).
+ *
+ * Pure so it can be unit-tested without instantiating
+ * `PromptQueueManager`.
+ */
+export function resolveAnswerContainer(item: AnswerContainerItem): AnswerContainerLike | undefined {
+    const last = item.lastDispatched;
+    if (!last) {
+        return undefined;
+    }
+    if (last.kind === 'prePrompt' && typeof last.prePromptIndex === 'number') {
+        return item.prePrompts?.[last.prePromptIndex];
+    }
+    if (last.kind === 'followUp' && typeof last.followUpIndex === 'number') {
+        return item.followUps?.[last.followUpIndex];
+    }
+    if (last.kind === 'main') {
+        return item;
+    }
+    return undefined;
+}
+
 function stringifyError(err: unknown): string {
     // Matches the historical `String(err)` behaviour at the four
     // catch sites — for `Error` instances this yields "Error: <msg>"

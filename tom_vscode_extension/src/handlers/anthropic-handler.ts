@@ -483,6 +483,18 @@ export class AnthropicHandler {
     private rawTurns: ConversationMessage[] = [];
 
     /**
+     * The most-recent non-empty assistant text the model produced —
+     * updated per round (so it tracks the latest answer even mid-turn,
+     * between tool rounds) and again at `finalize`. Exposed via
+     * {@link lastAssistantText} so the prompt queue's manual-continue
+     * path can capture "the answer the LLM gave but that wasn't
+     * detected as the final answer" when the user aborts an in-flight
+     * send. Not session-scoped — it reflects the latest send across all
+     * transports; consumers read it right after cancelling a dispatch.
+     */
+    private _lastAssistantText = '';
+
+    /**
      * Concatenated bodies of `compactedHistoryBlocks` — what the
      * outgoing-message build injects as the "Additional context"
      * synthetic pair. Empty string when no blocks. Computing on read
@@ -554,6 +566,22 @@ export class AnthropicHandler {
             AnthropicHandler._instance = new AnthropicHandler();
         }
         return AnthropicHandler._instance;
+    }
+
+    /**
+     * The most-recent non-empty assistant text the model produced. See
+     * {@link _lastAssistantText}. Empty string until the first send
+     * yields text.
+     */
+    get lastAssistantText(): string {
+        return this._lastAssistantText;
+    }
+
+    /** Record the latest non-empty assistant text. No-op for blank text. */
+    private rememberAssistantText(text: string | undefined): void {
+        if (text && text.trim().length > 0) {
+            this._lastAssistantText = text;
+        }
     }
 
     private constructor() {
@@ -1925,6 +1953,7 @@ export class AnthropicHandler {
             // sendMessage() before the API call, so only the answer is
             // needed here. The SDK branch returns early (doesn't go through
             // finalize()), so we write the answer explicitly.
+            this.rememberAssistantText(result.text);
             TrailService.instance.writeSummaryAnswer(
                 ANTHROPIC_SUBSYSTEM,
                 result.text,
@@ -2111,6 +2140,7 @@ export class AnthropicHandler {
 
                 lastStopReason = response.stop_reason ?? undefined;
                 lastText = this.extractText(response.content) || lastText;
+                this.rememberAssistantText(lastText);
 
                 // Live-trail each content block from this response so
                 // the MD Browser shows thinking / text before we go
@@ -2343,7 +2373,7 @@ export class AnthropicHandler {
                     }
                     // Other part types (if any) are ignored silently.
                 }
-                if (turnText) { lastText = turnText; }
+                if (turnText) { lastText = turnText; this.rememberAssistantText(lastText); }
 
                 if (toolCalls.length === 0) {
                     lastStopReason = 'end_turn';
@@ -2600,6 +2630,7 @@ export class AnthropicHandler {
                     onRetryStatus: (text: string) => this._onStatusUpdate.fire(text),
                 });
                 lastText = result.text || lastText;
+                this.rememberAssistantText(lastText);
 
                 if (!result.toolCalls || result.toolCalls.length === 0) {
                     lastStopReason = 'end_turn';
@@ -2735,6 +2766,7 @@ export class AnthropicHandler {
         liveTrail?: LiveTrailWriter | null,
     ): AnthropicSendResult {
         const userTextForSummary = rawUserText ?? userContent;
+        this.rememberAssistantText(text);
         // Never write a truly empty answer body to the trail — either
         // the text the model produced, or a short diagnostic line so
         // the `.answer.json` file is always informative.
