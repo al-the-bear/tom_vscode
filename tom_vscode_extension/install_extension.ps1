@@ -167,7 +167,43 @@ if ($CodeCli) {
             $dstDir = Join-Path $ExtBinDir $HostPlat
             New-Item -ItemType Directory -Path $dstDir -Force | Out-Null
 
-            # 1) Resolve dependencies for both the generator and the bridge.
+            # 1) Versioner: increment the bridge build number and (re)generate
+            #    lib/src/version.versioner.dart (compilation fails if missing).
+            #    The versioner lives only inside buildkit, so prefer a prebuilt
+            #    buildkit binary (PATH, then the tom_binaries layer); fall back to
+            #    running it from buildkit's source via dart so a fresh checkout
+            #    with only the Dart SDK still works. -R --project targets the
+            #    bridge from the workspace root without cd-ing into it.
+            Write-Host "Running versioner (build number + version.versioner.dart)..."
+            $BuildkitBin = $null
+            if (Get-Command buildkit -ErrorAction SilentlyContinue) {
+                $BuildkitBin = 'buildkit'
+            } elseif ($env:TOM_BINARY_PATH -and (Test-Path (Join-Path $env:TOM_BINARY_PATH "$HostPlat/buildkit.exe"))) {
+                $BuildkitBin = Join-Path $env:TOM_BINARY_PATH "$HostPlat/buildkit.exe"
+            } elseif (Test-Path (Join-Path $HOME "tac/tom_binaries/tom/$HostPlat/buildkit.exe")) {
+                $BuildkitBin = Join-Path $HOME "tac/tom_binaries/tom/$HostPlat/buildkit.exe"
+            }
+            if ($BuildkitBin) {
+                Push-Location $WorkspaceRoot
+                & $BuildkitBin -R --project tom_vscode_bridge :versioner
+                if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "versioner failed"; exit 1 }
+                Pop-Location
+            } else {
+                Write-Host "  buildkit binary not found - running versioner from source"
+                $BuildkitDir = Join-Path $WorkspaceRoot 'tom_ai/basics/tom_build_kit'
+                Push-Location $BuildkitDir
+                dart pub get
+                if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "dart pub get failed in $BuildkitDir"; exit 1 }
+                Pop-Location
+                $BuildkitPkgConfig = Join-Path $BuildkitDir '.dart_tool/package_config.json'
+                $BuildkitEntrypoint = Join-Path $BuildkitDir 'bin/buildkit.dart'
+                Push-Location $WorkspaceRoot
+                dart --packages="$BuildkitPkgConfig" "$BuildkitEntrypoint" -R --project tom_vscode_bridge :versioner
+                if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "versioner failed"; exit 1 }
+                Pop-Location
+            }
+
+            # 2) Resolve dependencies for both the generator and the bridge.
             Write-Host "Resolving Dart dependencies (generator + bridge)..."
             Push-Location $GenDir
             dart pub get
@@ -177,7 +213,7 @@ if ($CodeCli) {
             dart pub get
             if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "dart pub get failed in $BridgeDir"; exit 1 }
 
-            # 2) Regenerate the d4rt bridges. d4rtgen processes the project in its
+            # 3) Regenerate the d4rt bridges. d4rtgen processes the project in its
             #    current directory, so run it from the bridge dir; --packages runs
             #    the generator's entrypoint directly from its source, without
             #    requiring it on PATH or as a dependency of the bridge.
@@ -185,7 +221,7 @@ if ($CodeCli) {
             dart --packages="$GenPkgConfig" "$GenEntrypoint"
             if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "d4rt bridge generation failed"; exit 1 }
 
-            # 3) Compile the bridge binary for THIS host straight into the
+            # 4) Compile the bridge binary for THIS host straight into the
             #    extension's local bin/ - no shared location, no PATH lookup.
             Write-Host "Compiling bridge binary from source for $HostPlat ..."
             foreach ($bin in $BundledBinaries) {
