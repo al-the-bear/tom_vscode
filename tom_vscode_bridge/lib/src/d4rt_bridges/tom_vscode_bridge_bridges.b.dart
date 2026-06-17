@@ -1,6 +1,6 @@
 // D4rt Bridge - Generated file, do not edit
 // Sources: 34 files
-// Generated: 2026-06-16T11:13:00.501368
+// Generated: 2026-06-16T23:30:08.064909
 
 // ignore_for_file: unused_import, deprecated_member_use, prefer_function_declarations_over_variables, implementation_imports, sort_child_properties_last, non_constant_identifier_names, avoid_function_literals_in_foreach_calls, invalid_use_of_protected_member, unnecessary_non_null_assertion, invalid_use_of_visible_for_testing_member, unnecessary_cast, unused_local_variable, no_leading_underscores_for_local_identifiers, prefer_is_empty, unnecessary_question_mark, unreachable_switch_case, unintended_html_in_doc_comment, empty_constructor_bodies, prefer_const_constructors_in_immutables, prefer_final_fields, unused_field, must_call_super, no_logic_in_create_state, use_key_in_widget_constructors, annotate_overrides, unnecessary_import
 
@@ -662,6 +662,9 @@ class AllBridge {
   static List<({String source, String target, Set<String>? show, Set<String>? hide})>
   bridgeReExports() {
     return [
+      (source: 'package:tom_vscode_bridge/tom_vscode_bridge.dart', target: 'package:tom_vscode_bridge/bridge_server.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_bridge/tom_vscode_bridge.dart', target: 'package:tom_vscode_bridge/script_api.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_bridge/tom_vscode_bridge.dart', target: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', show: null, hide: null),
       (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_adapter.dart', show: null, hide: null),
       (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_bridge_client.dart', show: null, hide: null),
       (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_bridge_adapter.dart', show: null, hide: null),
@@ -4172,7 +4175,7 @@ BridgedClass _createFileBatchBridge() {
           throw ArgumentError('process: Missing required argument "processor" at position 0');
         }
         final processorRaw = positional[0];
-        return t.process(((String p0, String p1) { return Future.value(D4.callInterpreterCallback(visitor!, processorRaw, [p0, p1])).then((v) => v as dynamic); }) as Future<dynamic> Function(String, String));
+        return t.process<Object?>(((String p0, String p1) { return Future.value(D4.callInterpreterCallback(visitor!, processorRaw, [p0, p1])).then((v) => v as dynamic); }) as Future<dynamic> Function(String, String));
       },
       'filter': (visitor, target, positional, named, typeArgs) {
         final t = D4.validateTarget<$tom_vscode_scripting_api_27.FileBatch>(target, 'FileBatch');
@@ -7535,7 +7538,7 @@ BridgedClass _createAgentQueryBridge() {
           throw ArgumentError('map: Missing required argument "convert" at position 0');
         }
         final convertRaw = positional[0];
-        return t.map(($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.castCallbackResult<dynamic>(D4.callInterpreterCallback(visitor!, convertRaw, [p0])); });
+        return t.map<Object?>(($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.castCallbackResult<dynamic>(D4.callInterpreterCallback(visitor!, convertRaw, [p0])); });
       },
       'asyncMap': (visitor, target, positional, named, typeArgs) {
         final t = D4.validateTarget<$tom_vscode_scripting_api_7.AgentQuery>(target, 'AgentQuery');
@@ -7544,7 +7547,7 @@ BridgedClass _createAgentQueryBridge() {
           throw ArgumentError('asyncMap: Missing required argument "convert" at position 0');
         }
         final convertRaw = positional[0];
-        return t.asyncMap((($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.castCallbackResult<FutureOr<Object?>>(D4.callInterpreterCallback(visitor!, convertRaw, [p0])); }) as FutureOr<Object?> Function($tom_vscode_scripting_api_3.SdkMessage));
+        return t.asyncMap<Object?>((($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.castCallbackResult<FutureOr<Object?>>(D4.callInterpreterCallback(visitor!, convertRaw, [p0])); }) as FutureOr<Object?> Function($tom_vscode_scripting_api_3.SdkMessage));
       },
       'asyncExpand': (visitor, target, positional, named, typeArgs) {
         final t = D4.validateTarget<$tom_vscode_scripting_api_7.AgentQuery>(target, 'AgentQuery');
@@ -7553,7 +7556,7 @@ BridgedClass _createAgentQueryBridge() {
           throw ArgumentError('asyncExpand: Missing required argument "convert" at position 0');
         }
         final convertRaw = positional[0];
-        return t.asyncExpand((($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.extractBridgedArg<Stream<dynamic>?>(D4.callInterpreterCallback(visitor!, convertRaw, [p0]), 'callback', visitor) as Stream<dynamic>?; }) as Stream<dynamic>? Function($tom_vscode_scripting_api_3.SdkMessage));
+        return t.asyncExpand<Object?>((($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.extractBridgedArg<Stream<dynamic>?>(D4.callInterpreterCallback(visitor!, convertRaw, [p0]), 'callback', visitor) as Stream<dynamic>?; }) as Stream<dynamic>? Function($tom_vscode_scripting_api_3.SdkMessage));
       },
       'handleError': (visitor, target, positional, named, typeArgs) {
         final t = D4.validateTarget<$tom_vscode_scripting_api_7.AgentQuery>(target, 'AgentQuery');
@@ -7569,7 +7572,7 @@ BridgedClass _createAgentQueryBridge() {
           throw ArgumentError('expand: Missing required argument "convert" at position 0');
         }
         final convertRaw = positional[0];
-        return t.expand((($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.extractBridgedArg<Iterable<dynamic>>(D4.callInterpreterCallback(visitor!, convertRaw, [p0]), 'callback', visitor) as Iterable<dynamic>; }) as Iterable<dynamic> Function($tom_vscode_scripting_api_3.SdkMessage));
+        return t.expand<Object?>((($tom_vscode_scripting_api_3.SdkMessage p0) { return D4.extractBridgedArg<Iterable<dynamic>>(D4.callInterpreterCallback(visitor!, convertRaw, [p0]), 'callback', visitor) as Iterable<dynamic>; }) as Iterable<dynamic> Function($tom_vscode_scripting_api_3.SdkMessage));
       },
       'pipe': (visitor, target, positional, named, typeArgs) {
         final t = D4.validateTarget<$tom_vscode_scripting_api_7.AgentQuery>(target, 'AgentQuery');
@@ -7600,7 +7603,7 @@ BridgedClass _createAgentQueryBridge() {
           throw ArgumentError('fold: Missing required argument "combine" at position 1');
         }
         final combineRaw = positional[1];
-        return t.fold(initialValue, (dynamic p0, $tom_vscode_scripting_api_3.SdkMessage p1) { return D4.castCallbackResult<dynamic>(D4.callInterpreterCallback(visitor!, combineRaw, [p0, p1])); });
+        return t.fold<Object?>(initialValue, (dynamic p0, $tom_vscode_scripting_api_3.SdkMessage p1) { return D4.castCallbackResult<dynamic>(D4.callInterpreterCallback(visitor!, combineRaw, [p0, p1])); });
       },
       'join': (visitor, target, positional, named, typeArgs) {
         final t = D4.validateTarget<$tom_vscode_scripting_api_7.AgentQuery>(target, 'AgentQuery');
