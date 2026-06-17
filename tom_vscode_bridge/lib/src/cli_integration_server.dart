@@ -45,7 +45,28 @@ class CliIntegrationServer {
   int get serverPort => port;
   
   CliIntegrationServer(this._bridgeServer, {this.port = defaultCliServerPort});
-  
+
+  /// Test-only: the actual port the server socket is bound to. Differs from
+  /// [serverPort] when the server is constructed with `port: 0` to take an
+  /// ephemeral port (the robust choice for parallel-safe tests).
+  int get debugBoundPort => _serverSocket?.port ?? port;
+
+  /// Test-only: register the most recently connected client as the owner of
+  /// [streamId], mirroring the `agentSdk.queryVce` ownership registration (see
+  /// [_handleMessage]) without forwarding a hanging `*Vce` request to the
+  /// extension. Returns `false` if no client is connected yet.
+  bool debugRegisterStreamOwner(String streamId) {
+    if (_clients.isEmpty) return false;
+    _agentSdkStreamOwners[streamId] = _clients.last;
+    return true;
+  }
+
+  /// Test-only: stream ids currently owned by a connected client.
+  Set<String> get debugOwnedStreamIds => _agentSdkStreamOwners.keys.toSet();
+
+  /// Test-only: number of currently connected clients.
+  int get debugClientCount => _clients.length;
+
   /// Start the TCP socket server
   /// 
   /// Throws [SocketException] if the port is already in use.

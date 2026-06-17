@@ -108,6 +108,16 @@ class VSCodeBridgeServer implements VSCodeAdapter {
   Stream<Map<String, dynamic>> get extensionPushMessages =>
       _extensionPushController.stream;
 
+  /// Test-only seam: feed a server→client push message into the relay channel
+  /// exactly as [_handleMessage] does for [_agentSdkPushMethods], so tests can
+  /// drive [extensionPushMessages] (and the [CliIntegrationServer] relay) without
+  /// a live extension on stdin. Not used in production.
+  void debugInjectExtensionPush(Map<String, dynamic> message) {
+    if (!_extensionPushController.isClosed) {
+      _extensionPushController.add(message);
+    }
+  }
+
   /// Methods the extension pushes to the bridge as Agent SDK server→client
   /// traffic. `agentSdk.chunk` is a notification (no `id`); `agentSdk.toolCall`
   /// and `agentSdk.canUseTool` are reverse-RPC requests (with `id`). All three
