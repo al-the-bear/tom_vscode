@@ -962,6 +962,11 @@ export class PromptQueueManager {
                         sending.reminderSentCount = 0;
                         sending.lastReminderAt = undefined;
                         this.removePendingReminderFor(sending.id);
+                        // Green the queue dot: the answer-wait timer
+                        // completed the item without an answer file, so the
+                        // answer-file handler (which would otherwise green
+                        // it) never fires here.
+                        this.updateWindowStatus('answer-received');
 
                         await this._enqueueNextTemplateIterationIfNeeded(sending, 'answer-wait');
 
@@ -1345,6 +1350,10 @@ export class PromptQueueManager {
             } else if (outcome === 'done' && isAnthropicItem) {
                 const liveItem = this._items.find(i => i.id === item.id) ?? item;
                 liveItem.status = 'sent';
+                // Green the queue dot on completion — see the matching
+                // call in sendItem for the rationale (anthropic has no
+                // answer-file callback to do it later).
+                this.updateWindowStatus('answer-received');
                 // Continue the outer template-repeat loop — see the
                 // matching call in sendItem for the rationale.
                 await this._enqueueNextTemplateIterationIfNeeded(liveItem, 'resume/anthropic');
@@ -2472,6 +2481,13 @@ export class PromptQueueManager {
                 // stall the queue permanently.
                 const liveItem = this._items.find(i => i.id === item.id) ?? item;
                 liveItem.status = 'sent';
+                // Flip the queue window-status dot from 'prompt-sent'
+                // (orange = in-flight) back to 'answer-received' (green =
+                // idle/done). Anthropic items complete synchronously here,
+                // so unlike Copilot — whose answer-file handler greens the
+                // dot in onAnswerFileChanged — there is no later callback to
+                // do it. Without this the queue dot stays orange forever.
+                this.updateWindowStatus('answer-received');
                 // Continue the outer template-repeat loop. Without this,
                 // Anthropic items with templateRepeatCount > 1 terminate
                 // after iteration 1 and the user perceives "the outer
@@ -2578,6 +2594,10 @@ export class PromptQueueManager {
                 const liveItem = this._items.find(i => i.id === item.id) ?? item;
                 if (outcome === 'done') {
                     liveItem.status = 'sent';
+                    // Green the queue dot on completion — see the matching
+                    // call in sendItem (anthropic has no answer-file
+                    // callback to do it later).
+                    this.updateWindowStatus('answer-received');
                     // Continue the outer template-repeat loop — same
                     // rationale as in sendItem / _resumePausedSendingItem.
                     // Without this a Resend on the last iteration of a
