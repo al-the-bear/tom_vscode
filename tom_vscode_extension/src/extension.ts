@@ -86,7 +86,8 @@ import { registerQuestTodoCustomEditor } from './handlers/questTodoEditor-handle
 import { registerMarkdownBrowser } from './handlers/markdownBrowser-handler';
 import { registerTrailCustomEditor } from './handlers/trailEditor-handler';
 import { registerTodoLogView } from './handlers/todoLogPanel-handler';
-import { registerWindowStatusView, deleteCurrentWindowState, cleanupStaleWindowStates } from './handlers/windowStatusPanel-handler';
+import { registerWindowStatusView, deleteCurrentWindowState, cleanupStaleWindowStates, ensureWindowStateRegistered } from './handlers/windowStatusPanel-handler';
+import { getWorkspaceName } from './services/copilotTrailService';
 import { registerMinimalModePanels } from './handlers/minimalMode-handler';
 import { initTomScriptingBridgeHandler } from './handlers/tomScriptingBridge-handler';
 import {
@@ -529,6 +530,10 @@ export async function activate(context: vscode.ExtensionContext) {
     // Compute the trail-compatible window ID (matches chatPanel-handler getWindowId())
     const wsWindowId = `${vscode.env.sessionId.substring(0, 8)}_${vscode.env.machineId.substring(0, 8)}`;
     cleanupStaleWindowStates(wsWindowId);
+    // Register an idle state file for THIS window so it shows in the panel
+    // even before it dispatches anything (otherwise open-but-idle windows
+    // never appear). Does not clobber an existing file with real status.
+    ensureWindowStateRegistered(wsWindowId, getWorkspaceName(), WsPaths.getWorkspaceQuestId());
     // Cleanup own window state file on deactivation
     context.subscriptions.push({ dispose: () => deleteCurrentWindowState(wsWindowId) });
     timeStep('windowStatusView', stepStart);

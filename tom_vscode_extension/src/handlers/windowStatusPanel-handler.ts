@@ -409,6 +409,50 @@ export function writeWindowState(
 }
 
 /**
+ * Ensure the current window has a state file so it appears in the panel
+ * even before it has dispatched anything.
+ *
+ * The panel lists one card per `*.window-state.json` file. Those files are
+ * otherwise created lazily — only the first time a subsystem reports status
+ * (queue/anthropic/copilot prompt) or the AI conversation toggles — so an
+ * open-but-idle window would never show up. Called at activation to register
+ * an idle entry (no subsystem status, conversation inactive).
+ *
+ * Does NOT clobber an existing file: if a state file is already present
+ * (e.g. this window already sent a prompt, or a same-id file survived from a
+ * prior session), it is left untouched so real status isn't reset to idle.
+ * Top-level fields are still refreshed when the file is missing.
+ */
+export function ensureWindowStateRegistered(
+    windowId: string,
+    workspace: string,
+    activeQuest: string,
+): void {
+    try {
+        const filePath = stateFilePath(windowId);
+        if (!filePath) {
+            debugLog('[WindowStatus] Cannot register window — no local folder', 'WARN', 'windowStatus');
+            return;
+        }
+        if (fs.existsSync(filePath)) { return; }
+
+        const state: WindowStateFile = {
+            windowId,
+            workspace,
+            activeQuest,
+            status: [],
+            aiConversationActive: false,
+        };
+        const tempPath = filePath + '.tmp';
+        fs.writeFileSync(tempPath, JSON.stringify(state, null, 2), 'utf-8');
+        fs.renameSync(tempPath, filePath);
+        debugLog(`[WindowStatus] Registered idle window state: windowId=${windowId}`, 'INFO', 'windowStatus');
+    } catch (error) {
+        reportException('windowStatusPanel.ensureWindowStateRegistered', error, { windowId });
+    }
+}
+
+/**
  * Delete the window state file for a given window ID.
  */
 export function deleteWindowStateFile(windowId: string): void {
