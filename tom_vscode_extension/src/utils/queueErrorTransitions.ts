@@ -306,6 +306,38 @@ export function resolveAnswerContainer(item: AnswerContainerItem): AnswerContain
     return undefined;
 }
 
+/**
+ * Decide whether a dispatch frame that has just finished (returned
+ * normally *or* threw) is still the authoritative owner of its queue
+ * item, or whether an explicit user action superseded it while the
+ * dispatch was in flight.
+ *
+ * The queue keeps a monotonic "dispatch epoch" counter that is bumped
+ * every time an in-flight dispatch is **intentionally** cancelled —
+ * i.e. from `_cancelActiveDispatch`, which is only ever reached via the
+ * user-facing Continue / Stop / set-to-staged actions. A send-owning
+ * frame (`sendItem`, `_resumePausedSendingItem`, `resendLastPrompt`,
+ * `continueSending`) captures the epoch immediately before awaiting its
+ * dispatch. If the epoch has advanced by the time the await settles, the
+ * cancel was deliberate and this frame must become a **no-op**:
+ *
+ *   - it must NOT promote the item to `error` (the cancel was wanted,
+ *     not a failure) and must NOT disable auto-send (no quota cascade to
+ *     guard against), and
+ *   - it must NOT advance the queue (mark `sent`, enqueue the next
+ *     template iteration, or call `sendNext`) — the action that issued
+ *     the cancel already owns the item's next state.
+ *
+ * Without this guard, cancelling an in-flight Anthropic send (e.g. by
+ * pressing Continue) makes the original send's awaited call throw a
+ * cancellation error, which the owning frame's catch would otherwise
+ * turn into `error` + auto-send-off (the reported "Continue → error +
+ * queue pauses" bug); and in the non-throw path it would double-advance.
+ */
+export function dispatchWasSuperseded(capturedEpoch: number, currentEpoch: number): boolean {
+    return currentEpoch !== capturedEpoch;
+}
+
 function stringifyError(err: unknown): string {
     // Matches the historical `String(err)` behaviour at the four
     // catch sites — for `Error` instances this yields "Error: <msg>"

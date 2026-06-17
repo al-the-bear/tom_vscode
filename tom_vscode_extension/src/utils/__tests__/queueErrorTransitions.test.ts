@@ -4,9 +4,26 @@ import assert from 'node:assert/strict';
 import {
     applyErrorTransition,
     applyResetToPending,
+    dispatchWasSuperseded,
     itemHasInFlightProgress,
     resolveAnswerContainer,
 } from '../queueErrorTransitions.js';
+
+describe('dispatchWasSuperseded', () => {
+    test('unchanged epoch means the frame still owns the item', () => {
+        assert.equal(dispatchWasSuperseded(5, 5), false);
+    });
+
+    test('advanced epoch means an explicit cancel superseded the frame', () => {
+        // Continue / Stop / set-to-staged bumped the epoch while the
+        // dispatch was in flight — the owning frame must become a no-op.
+        assert.equal(dispatchWasSuperseded(5, 6), true);
+    });
+
+    test('any difference counts as superseded (defensive against multiple cancels)', () => {
+        assert.equal(dispatchWasSuperseded(0, 2), true);
+    });
+});
 
 describe('applyErrorTransition', () => {
     test('promotes a sending item to error and reports auto-send must be disabled', () => {

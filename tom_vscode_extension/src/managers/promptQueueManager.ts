@@ -34,7 +34,7 @@ import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
 import { applyRepetitionAffixes, buildNextTemplateIterationParams, convertStagedToPending, shouldAutoPauseOnEmpty } from '../utils/queueStep3Utils';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
 import { mergeQueueReload } from '../utils/queueReloadMergeUtils';
-import { applyErrorTransition, applyResetToPending, itemHasInFlightProgress, resolveAnswerContainer } from '../utils/queueErrorTransitions';
+import { applyErrorTransition, applyResetToPending, dispatchWasSuperseded, itemHasInFlightProgress, resolveAnswerContainer } from '../utils/queueErrorTransitions';
 import { resolveVariables } from '../utils/variableResolver.js';
 import {
     buildAnswerFilePath,
@@ -392,6 +392,18 @@ export class PromptQueueManager {
      * Anthropic round loop bails out at its next checkpoint.
      */
     private _activeAnthropicCts?: vscode.CancellationTokenSource;
+
+    /**
+     * Monotonic "dispatch epoch" bumped every time an in-flight dispatch
+     * is intentionally cancelled via `_cancelActiveDispatch` (i.e. from
+     * the user-facing Continue / Stop / set-to-staged actions). A
+     * send-owning frame captures this value before awaiting its dispatch
+     * and, when the await settles, asks `dispatchWasSuperseded` whether a
+     * cancel happened in the meantime — if so the frame becomes a no-op
+     * instead of promoting the item to `error` / advancing the queue.
+     * See `dispatchWasSuperseded` for the full rationale.
+     */
+    private _dispatchEpoch = 0;
 
     /** Maps QueuedPrompt.id → entry filename on disk. */
     private _fileNameMap = new Map<string, string>();
@@ -1313,8 +1325,13 @@ export class PromptQueueManager {
      *   - `'dispatched'` — Copilot: wait for the next answer file.
      */
     private async _resumePausedSendingItem(item: QueuedPrompt): Promise<void> {
+        const epoch = this._dispatchEpoch;
         try {
             const outcome = await this.dispatchNextStageForSendingItem(item);
+            if (dispatchWasSuperseded(epoch, this._dispatchEpoch)) {
+                logQueue(`_resumePausedSendingItem(${item.id}): dispatch superseded by an explicit action — original frame stands down`);
+                return;
+            }
             const isAnthropicItem = this.resolveStageTransport(item).transport === 'anthropic';
             if (outcome === 'paused') {
                 logQueue(`_resumePausedSendingItem(${item.id}): re-paused`);
@@ -1332,6 +1349,10 @@ export class PromptQueueManager {
                 logQueue(`Resumed item ${item.id} sent, waiting for answer at ${this.getAnswerFilePathForRequestId(item.expectedRequestId)}`);
             }
         } catch (err) {
+            if (dispatchWasSuperseded(epoch, this._dispatchEpoch)) {
+                logQueue(`_resumePausedSendingItem(${item.id}): dispatch cancelled by an explicit action — error suppressed`);
+                return;
+            }
             const liveItem = this._items.find(i => i.id === item.id) ?? item;
             this._markItemError(liveItem, err, `_resumePausedSendingItem(${item.id})`, readInterruptionFromError(err));
         }
@@ -1976,9 +1997,19 @@ export class PromptQueueManager {
         // CTS for the next stage's dispatch.
         this._cancelActiveDispatch();
 
+        // Baseline epoch *after* our own cancel: this advance frame now
+        // owns the item. If a *further* explicit action (a second
+        // Continue / Stop) bumps the epoch again while we await, stand
+        // down rather than marking `error` — that later action owns the
+        // item's next state.
+        const epoch = this._dispatchEpoch;
         try {
             return await this.advanceSendingItemWithoutAnswer(sending, 'manual-continue');
         } catch (err) {
+            if (dispatchWasSuperseded(epoch, this._dispatchEpoch)) {
+                logQueue(`continueSending(${sending.id}): superseded by a later explicit action — error suppressed`);
+                return false;
+            }
             this._markItemError(sending, err, `continueSending(${sending.id})`);
             return false;
         }
@@ -2129,6 +2160,12 @@ export class PromptQueueManager {
      * Copilot-transport item is a no-op and safe.
      */
     private _cancelActiveDispatch(): void {
+        // Bump the dispatch epoch so any send-owning frame currently
+        // awaiting a dispatch (sendItem / resume / resend / continue)
+        // recognises that this cancellation was intentional and turns
+        // its completion into a no-op rather than an `error` transition
+        // or a duplicate queue advance. See `dispatchWasSuperseded`.
+        this._dispatchEpoch++;
         const cts = this._activeAnthropicCts;
         if (cts) {
             try {
@@ -2394,8 +2431,19 @@ export class PromptQueueManager {
         this.persist();
         this._onDidChange.fire();
 
+        // Snapshot the dispatch epoch: if it advances while we await the
+        // dispatch, an explicit Continue / Stop / set-to-staged cancelled
+        // this send and now owns the item's next state. We must then
+        // neither advance the queue (success path) nor mark `error`
+        // (catch path). See `dispatchWasSuperseded`.
+        const epoch = this._dispatchEpoch;
+
         try {
             const outcome = await this.dispatchNextStageForSendingItem(item);
+            if (dispatchWasSuperseded(epoch, this._dispatchEpoch)) {
+                logQueue(`sendItem(${item.id}): dispatch superseded by an explicit action — original frame stands down`);
+                return;
+            }
             // Anthropic items cascade synchronously through all their
             // stages; on 'done' the item is finished. For Copilot
             // items the answer-file polling loop drives progression
@@ -2431,6 +2479,14 @@ export class PromptQueueManager {
                 logQueue(`Prompt ${item.id} sent, waiting for answer at ${this.getAnswerFilePathForRequestId(item.expectedRequestId)}`);
             }
         } catch (err) {
+            if (dispatchWasSuperseded(epoch, this._dispatchEpoch)) {
+                // The throw is the byproduct of an intentional cancel
+                // (Continue / Stop / set-to-staged); the action that
+                // cancelled already set the item's terminal state. Do
+                // NOT mark `error` or disable auto-send.
+                logQueue(`sendItem(${item.id}): dispatch cancelled by an explicit action — error suppressed`);
+                return;
+            }
             const liveItem = this._items.find(i => i.id === item.id) ?? item;
             // If the Anthropic leaf stamped an Interruption onto the
             // thrown error, surface it as a yellow warning chip so the
@@ -2490,11 +2546,16 @@ export class PromptQueueManager {
             anthropicConfigId: last.anthropicConfigId,
         };
 
+        const epoch = this._dispatchEpoch;
         try {
             if (last.transport === 'copilot') {
                 this.clearExpectedAnswerFiles(item.expectedRequestId);
             }
             const dispatchResult = await this.dispatchStage(last.expandedText, resolved, container);
+            if (dispatchWasSuperseded(epoch, this._dispatchEpoch)) {
+                logQueue(`resendLastPrompt(${item.id}): dispatch superseded by an explicit action — original frame stands down`);
+                return;
+            }
             // Refresh the timestamp so the user can see the resend happened.
             item.lastDispatched = { ...last, dispatchedAt: new Date().toISOString() };
             this._onPromptSent.fire(item);
@@ -2530,6 +2591,10 @@ export class PromptQueueManager {
                 // answer file appears (or to 'error' on timeout).
             }
         } catch (err) {
+            if (dispatchWasSuperseded(epoch, this._dispatchEpoch)) {
+                logQueue(`resendLastPrompt(${item.id}): dispatch cancelled by an explicit action — error suppressed`);
+                return;
+            }
             const liveItem = this._items.find(i => i.id === item.id) ?? item;
             this._markItemError(liveItem, err, `resendLastPrompt(${item.id})`, readInterruptionFromError(err));
         }
