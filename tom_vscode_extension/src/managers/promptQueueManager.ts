@@ -524,15 +524,22 @@ export class PromptQueueManager {
         return expanded;
     }
 
-    private updateWindowStatus(status: 'prompt-sent' | 'answer-received'): void {
+    private updateWindowStatus(status: 'prompt-sent' | 'answer-received', transport?: QueuedTransport): void {
         try {
             const quest = (await_import_ChatVariablesStore())?.quest || '';
             const windowId = getWindowStatusWindowId();
             const workspaceName = getWindowStatusWorkspaceName();
-            // Keep queue status for future multi-subsystem routing, and mirror
-            // current queue processing into copilot subsystem status.
+            // The queue's own processing always lights the 'queue' dot.
             writeWindowState(windowId, workspaceName, quest, 'queue', status);
-            writeWindowState(windowId, workspaceName, quest, 'copilot', status);
+            // Only mirror to the 'copilot' dot when the dispatched stage
+            // actually used the Copilot transport. Without this guard an
+            // Anthropic queue item would falsely light Copilot (the bug
+            // behind the panel showing the wrong subsystem). Copilot
+            // answers are additionally marked 'answer-received' by
+            // copilotTrailService's answer-file path.
+            if (transport === 'copilot') {
+                writeWindowState(windowId, workspaceName, quest, 'copilot', status);
+            }
         } catch {
             // Best-effort status panel update; queue processing must continue.
         }
@@ -2559,7 +2566,7 @@ export class PromptQueueManager {
             // Refresh the timestamp so the user can see the resend happened.
             item.lastDispatched = { ...last, dispatchedAt: new Date().toISOString() };
             this._onPromptSent.fire(item);
-            this.updateWindowStatus('prompt-sent');
+            this.updateWindowStatus('prompt-sent', last.transport);
             this.persist();
             this._onDidChange.fire();
 
@@ -3002,7 +3009,7 @@ export class PromptQueueManager {
                 };
                 const dispatchResult = await this.dispatchStage(prePromptExpanded, resolved, pp);
                 this._onPromptSent.fire(item);
-                this.updateWindowStatus('prompt-sent');
+                this.updateWindowStatus('prompt-sent', resolved.transport);
                 logQueue(`Pre-prompt sent (${ppSentCount + 1}/${ppRepeatCount}) via ${resolved.transport}`);
                 if (dispatchResult.mode === 'direct') {
                     // Synchronous response — advance to the next stage
@@ -3075,7 +3082,7 @@ export class PromptQueueManager {
             // trigger an auto-refresh before it sends).
             const dispatchResult = await this.dispatchStage(item.expandedText, resolved, item, false);
             this._onPromptSent.fire(item);
-            this.updateWindowStatus('prompt-sent');
+            this.updateWindowStatus('prompt-sent', resolved.transport);
             logQueue(`Main prompt sent (${mainSentCount + 1}/${mainRepeatCount}) via ${resolved.transport}`);
             if (dispatchResult.mode === 'direct') {
                 this.persist();
@@ -3141,7 +3148,7 @@ export class PromptQueueManager {
                 };
                 const dispatchResult = await this.dispatchStage(followUpExpanded, resolved, nextFollowUp);
                 this._onPromptSent.fire(item);
-                this.updateWindowStatus('prompt-sent');
+                this.updateWindowStatus('prompt-sent', resolved.transport);
                 logQueue(`Follow-up ${currentFuIndex + 1} sent (${fuSentCount + 1}/${fuRepeatCount}) via ${resolved.transport}`);
                 if (dispatchResult.mode === 'direct') {
                     this.persist();

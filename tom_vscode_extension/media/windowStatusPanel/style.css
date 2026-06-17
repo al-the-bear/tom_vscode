@@ -46,11 +46,24 @@ body {
     text-overflow: ellipsis;
 }
 
-.subsystem-list {
+/* Single line of three labelled status dots: queue · anthropic · copilot */
+.status-line {
     margin-top: 4px;
     display: flex;
-    flex-direction: column;
-    gap: 2px;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    font-size: 10px;
+}
+
+.status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.status-pill-label {
+    color: var(--vscode-descriptionForeground);
 }
 
 .ai-conversation-line {
@@ -63,18 +76,17 @@ body {
     color: #3fb950;
 }
 
-.subsystem-item {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 10px;
-}
-
 .status-dot {
     width: 8px;
     height: 8px;
     border-radius: 50%;
     flex-shrink: 0;
+}
+
+/* No status entry yet — subsystem idle. */
+.status-dot.idle {
+    background: var(--vscode-descriptionForeground);
+    opacity: 0.35;
 }
 
 .status-dot.prompt-sent {
@@ -83,16 +95,6 @@ body {
 
 .status-dot.answer-received {
     background: #3fb950;
-}
-
-.subsystem-name {
-    color: var(--vscode-foreground);
-}
-
-.subsystem-time {
-    color: var(--vscode-descriptionForeground);
-    margin-left: auto;
-    white-space: nowrap;
 }
 
 .delete-btn {

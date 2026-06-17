@@ -45,7 +45,11 @@ const AUTO_REFRESH_INTERVAL_MS = 3_000;
 export interface SubsystemStatus {
     /** Current status: 'prompt-sent' | 'answer-received' */
     status: 'prompt-sent' | 'answer-received';
-    /** Subsystem identifier (e.g. 'copilot', 'localLlm', 'aiConversation') */
+    /**
+     * Subsystem identifier. The window-status panel renders a fixed line
+     * of three dots for 'queue', 'anthropic', and 'copilot'; other
+     * identifiers (e.g. 'localLlm') may be written but are not shown.
+     */
     subsystem: string;
     /** ISO timestamp when the prompt was sent */
     promptStartedAt: string;
