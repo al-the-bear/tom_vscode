@@ -1,6 +1,6 @@
 // D4rt Bridge - Generated file, do not edit
 // Sources: 34 files
-// Generated: 2026-06-16T23:30:08.064909
+// Generated: 2026-06-17T13:44:56.654195
 
 // ignore_for_file: unused_import, deprecated_member_use, prefer_function_declarations_over_variables, implementation_imports, sort_child_properties_last, non_constant_identifier_names, avoid_function_literals_in_foreach_calls, invalid_use_of_protected_member, unnecessary_non_null_assertion, invalid_use_of_visible_for_testing_member, unnecessary_cast, unused_local_variable, no_leading_underscores_for_local_identifiers, prefer_is_empty, unnecessary_question_mark, unreachable_switch_case, unintended_html_in_doc_comment, empty_constructor_bodies, prefer_const_constructors_in_immutables, prefer_final_fields, unused_field, must_call_super, no_logic_in_create_state, use_key_in_widget_constructors, annotate_overrides, unnecessary_import
 
@@ -662,9 +662,6 @@ class AllBridge {
   static List<({String source, String target, Set<String>? show, Set<String>? hide})>
   bridgeReExports() {
     return [
-      (source: 'package:tom_vscode_bridge/tom_vscode_bridge.dart', target: 'package:tom_vscode_bridge/bridge_server.dart', show: null, hide: null),
-      (source: 'package:tom_vscode_bridge/tom_vscode_bridge.dart', target: 'package:tom_vscode_bridge/script_api.dart', show: null, hide: null),
-      (source: 'package:tom_vscode_bridge/tom_vscode_bridge.dart', target: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', show: null, hide: null),
       (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_adapter.dart', show: null, hide: null),
       (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_bridge_client.dart', show: null, hide: null),
       (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_bridge_adapter.dart', show: null, hide: null),
@@ -11474,6 +11471,7 @@ BridgedClass _createBridgedClassBridge() {
         final nativeNames = D4.coerceListOrNull<String>(named['nativeNames'], 'nativeNames');
         final typeParameterCount = D4.getNamedArgWithDefault<int>(named, 'typeParameterCount', 0);
         final canBeUsedAsMixin = D4.getNamedArgWithDefault<bool>(named, 'canBeUsedAsMixin', false);
+        final isAssignableRaw = named['isAssignable'];
         final constructors = named.containsKey('constructors') && named['constructors'] != null
             ? D4.coerceMap<String, $tom_d4rt_2.BridgedConstructorCallable>(named['constructors'], 'constructors')
             : const <String, $tom_d4rt_2.BridgedConstructorCallable>{};
@@ -11517,7 +11515,7 @@ BridgedClass _createBridgedClassBridge() {
             ? D4.coerceMap<String, String>(named['setterSignatures'], 'setterSignatures')
             : const <String, String>{};
         final isSubtypeOfFuncRaw = named['isSubtypeOfFunc'];
-        return $tom_d4rt_1.BridgedClass(nativeType: nativeType, name: name, nativeNames: nativeNames, typeParameterCount: typeParameterCount, canBeUsedAsMixin: canBeUsedAsMixin, constructors: constructors, staticMethods: staticMethods, staticGetters: staticGetters, staticSetters: staticSetters, methods: methods, getters: getters, setters: setters, constructorSignatures: constructorSignatures, methodSignatures: methodSignatures, staticMethodSignatures: staticMethodSignatures, staticGetterSignatures: staticGetterSignatures, staticSetterSignatures: staticSetterSignatures, getterSignatures: getterSignatures, setterSignatures: setterSignatures, isSubtypeOfFunc: isSubtypeOfFuncRaw == null ? null : ($tom_d4rt_1.BridgedClass p0, {Object? value}) { return D4.callInterpreterCallback(visitor!, isSubtypeOfFuncRaw, [p0], {'value': value}) as bool; });
+        return $tom_d4rt_1.BridgedClass(nativeType: nativeType, name: name, nativeNames: nativeNames, typeParameterCount: typeParameterCount, canBeUsedAsMixin: canBeUsedAsMixin, isAssignable: isAssignableRaw == null ? null : ((Object? p0) { return D4.callInterpreterCallback(visitor!, isAssignableRaw, [p0]) as bool; }) as bool Function(Object?), constructors: constructors, staticMethods: staticMethods, staticGetters: staticGetters, staticSetters: staticSetters, methods: methods, getters: getters, setters: setters, constructorSignatures: constructorSignatures, methodSignatures: methodSignatures, staticMethodSignatures: staticMethodSignatures, staticGetterSignatures: staticGetterSignatures, staticSetterSignatures: staticSetterSignatures, getterSignatures: getterSignatures, setterSignatures: setterSignatures, isSubtypeOfFunc: isSubtypeOfFuncRaw == null ? null : ($tom_d4rt_1.BridgedClass p0, {Object? value}) { return D4.callInterpreterCallback(visitor!, isSubtypeOfFuncRaw, [p0], {'value': value}) as bool; });
       },
     },
     getters: {
@@ -11525,6 +11523,7 @@ BridgedClass _createBridgedClassBridge() {
       'name': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').name,
       'nativeNames': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').nativeNames,
       'isSubtypeOfFunc': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').isSubtypeOfFunc,
+      'isAssignable': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').isAssignable,
       'typeParameterCount': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').typeParameterCount,
       'canBeUsedAsMixin': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').canBeUsedAsMixin,
       'constructors': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').constructors,
@@ -11596,7 +11595,7 @@ BridgedClass _createBridgedClassBridge() {
       },
     },
     constructorSignatures: {
-      '': 'BridgedClass({required Type nativeType, required String name, List<String>? nativeNames, int typeParameterCount = 0, bool canBeUsedAsMixin = false, Map<String, BridgedConstructorCallable> constructors = const {}, Map<String, BridgedStaticMethodAdapter> staticMethods = const {}, Map<String, BridgedStaticGetterAdapter> staticGetters = const {}, Map<String, BridgedStaticSetterAdapter> staticSetters = const {}, Map<String, BridgedMethodAdapter> methods = const {}, Map<String, BridgedInstanceGetterAdapter> getters = const {}, Map<String, BridgedInstanceSetterAdapter> setters = const {}, Map<String, String> constructorSignatures = const {}, Map<String, String> methodSignatures = const {}, Map<String, String> staticMethodSignatures = const {}, Map<String, String> staticGetterSignatures = const {}, Map<String, String> staticSetterSignatures = const {}, Map<String, String> getterSignatures = const {}, Map<String, String> setterSignatures = const {}, bool Function(BridgedClass other, {Object? value})? isSubtypeOfFunc})',
+      '': 'BridgedClass({required Type nativeType, required String name, List<String>? nativeNames, int typeParameterCount = 0, bool canBeUsedAsMixin = false, bool Function(Object?)? isAssignable, Map<String, BridgedConstructorCallable> constructors = const {}, Map<String, BridgedStaticMethodAdapter> staticMethods = const {}, Map<String, BridgedStaticGetterAdapter> staticGetters = const {}, Map<String, BridgedStaticSetterAdapter> staticSetters = const {}, Map<String, BridgedMethodAdapter> methods = const {}, Map<String, BridgedInstanceGetterAdapter> getters = const {}, Map<String, BridgedInstanceSetterAdapter> setters = const {}, Map<String, String> constructorSignatures = const {}, Map<String, String> methodSignatures = const {}, Map<String, String> staticMethodSignatures = const {}, Map<String, String> staticGetterSignatures = const {}, Map<String, String> staticSetterSignatures = const {}, Map<String, String> getterSignatures = const {}, Map<String, String> setterSignatures = const {}, bool Function(BridgedClass other, {Object? value})? isSubtypeOfFunc})',
     },
     methodSignatures: {
       'isSubtypeOf': 'bool isSubtypeOf(RuntimeType other, {Object? value})',
@@ -11613,6 +11612,7 @@ BridgedClass _createBridgedClassBridge() {
       'name': 'String get name',
       'nativeNames': 'List<String>? get nativeNames',
       'isSubtypeOfFunc': 'bool Function(BridgedClass other, {Object? value})? get isSubtypeOfFunc',
+      'isAssignable': 'bool Function(Object?)? get isAssignable',
       'typeParameterCount': 'int get typeParameterCount',
       'canBeUsedAsMixin': 'bool get canBeUsedAsMixin',
       'constructors': 'Map<String, BridgedConstructorCallable> get constructors',
