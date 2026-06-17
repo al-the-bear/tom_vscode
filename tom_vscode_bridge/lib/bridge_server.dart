@@ -6,6 +6,7 @@ import 'package:tom_vscode_bridge/src/cli_integration_server.dart';
 import 'package:tom_d4rt/d4rt.dart';
 import 'package:tom_d4rt_dcli/dartscript.b.dart';
 import 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart';
+import 'src/version.versioner.dart';
 
 /// Default port for CLI integration server
 const int defaultCliServerPort = 19900;
@@ -411,6 +412,8 @@ void main() {}
       stdout.writeln(message);
     });
 
+    print('[BSTART] Version: ${VscodeBridgeVersionInfo.versionLong}');
+    print('[BSTART] Binary:  ${Platform.resolvedExecutable}');
     print('[BSTART] VS Code Bridge Server started');
   }
 
