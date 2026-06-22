@@ -409,6 +409,84 @@ export function writeWindowState(
 }
 
 /**
+ * Set a subsystem's *live* active/idle state for the current window.
+ *
+ * Unlike {@link writeWindowState} — which records discrete prompt-sent /
+ * answer-received events and never removes an entry — this represents a
+ * continuously-recomputed condition (e.g. "this window's queue is actively
+ * sending right now"). When `active` is true the subsystem dot is lit
+ * (rendered as `prompt-sent`/orange); when false the subsystem entry is
+ * REMOVED so the panel renders the idle (grey) dot. Removal is the only way
+ * to express idle, since the panel infers idle from the absence of a status
+ * entry.
+ *
+ * Does nothing if the state file doesn't exist yet (no idle entry to clear)
+ * and `active` is false — there is nothing to represent.
+ */
+export function setWindowSubsystemActive(
+    windowId: string,
+    workspace: string,
+    activeQuest: string,
+    subsystem: string,
+    active: boolean,
+): void {
+    try {
+        const filePath = stateFilePath(windowId);
+        if (!filePath) {
+            debugLog('[WindowStatus] Cannot set subsystem active — no local folder', 'WARN', 'windowStatus');
+            return;
+        }
+
+        let state: WindowStateFile | undefined;
+        if (fs.existsSync(filePath)) {
+            state = readWindowStateFile(filePath) || undefined;
+        }
+        if (!state) {
+            // No file: only create one if we actually need to light a dot.
+            if (!active) { return; }
+            state = {
+                windowId,
+                workspace,
+                activeQuest,
+                status: [],
+                aiConversationActive: false,
+            };
+        }
+
+        state.workspace = workspace;
+        state.activeQuest = activeQuest;
+
+        const existingIdx = state.status.findIndex(s => s.subsystem === subsystem);
+        if (active) {
+            const now = new Date().toISOString();
+            if (existingIdx >= 0) {
+                state.status[existingIdx].status = 'prompt-sent';
+                state.status[existingIdx].promptStartedAt = now;
+                state.status[existingIdx].lastAnswerAt = '';
+            } else {
+                state.status.push({
+                    status: 'prompt-sent',
+                    subsystem,
+                    promptStartedAt: now,
+                    lastAnswerAt: '',
+                });
+            }
+        } else {
+            if (existingIdx < 0) { return; }  // already idle — nothing to clear
+            state.status.splice(existingIdx, 1);
+        }
+
+        const tempPath = filePath + '.tmp';
+        fs.writeFileSync(tempPath, JSON.stringify(state, null, 2), 'utf-8');
+        fs.renameSync(tempPath, filePath);
+
+        debugLog(`[WindowStatus] Set subsystem active: windowId=${windowId} subsystem=${subsystem} active=${active}`, 'INFO', 'windowStatus');
+    } catch (error) {
+        reportException('windowStatusPanel.setWindowSubsystemActive', error, { windowId, subsystem, active });
+    }
+}
+
+/**
  * Ensure the current window has a state file so it appears in the panel
  * even before it has dispatched anything.
  *
