@@ -1902,6 +1902,13 @@ export class AnthropicHandler {
             const retryParam = retryMaxAttempts > 1
                 ? {
                     maxAttempts: retryMaxAttempts,
+                    // Transient backend-busy errors (429/500/503/529/overloaded)
+                    // are ridden out for the profile's full retry window with
+                    // exponential backoff — same `retryMaxTotalWaitMinutes`
+                    // budget the direct-SDK and Local-LLM paths honor — instead
+                    // of being capped at the small `maxAttempts` count.
+                    maxTotalWaitMs: (profile.retryMaxTotalWaitMinutes ?? 10) * 60 * 1000,
+                    onRetryStatus: (text: string): void => this._onStatusUpdate.fire(text),
                     buildContinuationPrompt: (errorText: string): string => {
                         // Empty templateId ("use default") resolves to the
                         // template marked isDefault (seeded as "Default Retry"),

@@ -4,36 +4,16 @@
  * the first failure exceeds `totalWaitMs`, with exponential backoff capped at
  * `maxDelayMs`. Cancellation aborts the in-flight wait.
  *
- * Different backends signal "busy" differently — Anthropic uses 429/529, vLLM
- * uses 429/503, Ollama tends to use 500/503 with a textual hint. {@link
- * isRetryableBusyError} normalises across these by inspecting both numeric
- * `.status` (Anthropic SDK errors carry it) and the error text.
+ * The "is this worth retrying?" decision lives in the dependency-free
+ * {@link isRetryableBusyError} (re-exported here for existing callers); the
+ * Agent SDK transport shares the same classifier so all paths agree on the
+ * retryable set (429 / 500 / 503 / 529 + textual signals).
  */
 import * as vscode from 'vscode';
 import { toolLog } from './toolLog';
+import { isRetryableBusyError } from './retryableError';
 
-/**
- * Returns true when an error looks like a transient "backend busy / overloaded
- * / rate-limited" signal worth retrying. Other errors (auth, model-not-found,
- * malformed request) should escape immediately so the user can fix them.
- */
-export function isRetryableBusyError(err: unknown): boolean {
-    if (err == null) { return false; }
-    const anyErr = err as { status?: number; message?: string };
-    if (typeof anyErr.status === 'number') {
-        if (anyErr.status === 429 || anyErr.status === 503 || anyErr.status === 529) {
-            return true;
-        }
-    }
-    const msg = typeof anyErr.message === 'string' ? anyErr.message : String(err);
-    if (/HTTP\s*(429|503|529)\b/i.test(msg)) { return true; }
-    if (/\brate[\s_-]?limit/i.test(msg)) { return true; }
-    if (/\boverload(ed)?/i.test(msg)) { return true; }
-    if (/\bservice\s+unavailable/i.test(msg)) { return true; }
-    if (/\bserver\s+busy/i.test(msg)) { return true; }
-    if (/\btoo\s+many\s+requests/i.test(msg)) { return true; }
-    return false;
-}
+export { isRetryableBusyError };
 
 export interface RetryWithBudgetOptions<T> {
     /** The operation to retry. */

@@ -131,10 +131,13 @@ import { ANTHROPIC_SUBSYSTEM } from '../services/trailSubsystems';
 import {
     isUnknownSessionError,
     planAgentSdkRetry,
+    computeBackoffMs,
     DEFAULT_TRANSPORT_RETRY_TEMPLATE,
     selectTransportRetryTemplateBody,
 } from '../services/agent-sdk-retry';
 import type { AgentSdkRetryPlan } from '../services/agent-sdk-retry';
+import { isRetryableBusyError } from '../utils/retryableError';
+import { toolLog } from '../utils/toolLog';
 import {
     isAskUserQuestionTool,
     parseAskUserQuestionInput,
@@ -270,6 +273,26 @@ export interface AgentSdkSendParams {
          * a continuation prompt could reference).
          */
         buildContinuationPrompt: (errorText: string) => string;
+        /**
+         * Time budget (ms) for riding out *transient backend-busy* errors
+         * (HTTP 429 / 500 / 503 / 529 / overloaded). Maps from the Anthropic
+         * profile's `retryMaxTotalWaitMinutes`. While a busy error keeps
+         * recurring the loop retries with exponential backoff until this budget
+         * is spent — independent of `maxAttempts`, which only bounds the
+         * non-busy "resume interrupted work" retries. Omit / `0` to keep the
+         * legacy count-only behavior.
+         */
+        maxTotalWaitMs?: number;
+        /** Initial backoff delay before the first busy retry (ms). Default 1000. */
+        initialDelayMs?: number;
+        /** Cap on a single backoff step (ms). Default 5 minutes. */
+        maxDelayMs?: number;
+        /**
+         * Called before each busy-retry backoff sleep with a UI-ready status
+         * line (the Anthropic panel binds this to the status line under the
+         * prompt input, mirroring the direct-SDK `withRetryBudget` path).
+         */
+        onRetryStatus?: (message: string) => void;
     };
     /**
      * Interception of the SDK's built-in `AskUserQuestion` tool (spec §18,
@@ -478,9 +501,14 @@ function makeCanUseTool(
  */
 export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<AgentSdkResult> {
     const maxAttempts = Math.max(1, params.retry?.maxAttempts ?? 1);
+    const maxTotalWaitMs = params.retry?.maxTotalWaitMs;
     let attemptResumeSessionId = params.resumeSessionId;
     let attemptPrompt = params.userText;
     let attemptsMade = 0;
+    // Tracked only across *busy* failures: when the first transient overload
+    // hit, and how many busy retries we have spaced out so far (for backoff).
+    let firstBusyFailureAt: number | undefined;
+    let busyRetryIndex = 0;
 
     for (;;) {
         attemptsMade++;
@@ -493,6 +521,13 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
             });
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : String(err);
+            const errorIsBusy = isRetryableBusyError(err);
+            if (errorIsBusy && firstBusyFailureAt === undefined) {
+                firstBusyFailureAt = Date.now();
+            }
+            const elapsedMs = firstBusyFailureAt === undefined
+                ? 0
+                : Date.now() - firstBusyFailureAt;
             const plan = planAgentSdkRetry({
                 attemptsMade,
                 maxAttempts,
@@ -500,8 +535,14 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
                 resumeSessionId: attemptResumeSessionId,
                 capturedSessionId: sessionOut.capturedSessionId,
                 cancelled: params.cancellationToken?.isCancellationRequested === true,
+                errorIsBusy,
+                elapsedMs,
+                maxTotalWaitMs,
             });
             if (plan.kind === 'give-up') {
+                if (errorIsBusy && typeof maxTotalWaitMs === 'number' && maxTotalWaitMs > 0) {
+                    toolLog(`[retry] Anthropic API busy (Agent SDK) — budget exhausted after ${formatRetryDuration(elapsedMs)} over ${attemptsMade} attempt(s); giving up: ${errorMessage}`);
+                }
                 throw err;
             }
             if (plan.kind === 'retry-fresh') {
@@ -517,8 +558,49 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
                     ? params.retry.buildContinuationPrompt(errorMessage)
                     : params.userText;
             }
+            // Space out busy retries with exponential backoff bounded by the
+            // remaining time budget; non-busy "resume interrupted work" retries
+            // keep the legacy immediate behavior.
+            if (errorIsBusy && typeof maxTotalWaitMs === 'number' && maxTotalWaitMs > 0) {
+                const remainingBudgetMs = maxTotalWaitMs - elapsedMs;
+                const waitMs = Math.min(
+                    computeBackoffMs(busyRetryIndex, {
+                        initialDelayMs: params.retry?.initialDelayMs,
+                        maxDelayMs: params.retry?.maxDelayMs,
+                    }),
+                    Math.max(0, remainingBudgetMs),
+                );
+                busyRetryIndex++;
+                const status = `Anthropic API busy (Agent SDK) — retrying in ${formatRetryDuration(waitMs)} (attempt ${attemptsMade + 1}, ${formatRetryDuration(elapsedMs)} / ${formatRetryDuration(maxTotalWaitMs)} elapsed)`;
+                params.retry?.onRetryStatus?.(status);
+                toolLog(`[retry] ${status} — cause: ${errorMessage}`);
+                await sleepCancellable(waitMs, params.cancellationToken);
+            }
         }
     }
+}
+
+/** Cancellable sleep — rejects with `Cancelled` when the token fires. */
+function sleepCancellable(ms: number, ct?: vscode.CancellationToken): Promise<void> {
+    if (ms <= 0) { return Promise.resolve(); }
+    return new Promise((resolve, reject) => {
+        const t = setTimeout(resolve, ms);
+        ct?.onCancellationRequested(() => {
+            clearTimeout(t);
+            reject(new Error('Cancelled'));
+        });
+    });
+}
+
+/** Render a millisecond duration as `1h2m3s` / `4m5s` / `6s`. */
+function formatRetryDuration(ms: number): string {
+    const totalSec = Math.max(0, Math.round(ms / 1000));
+    const hours = Math.floor(totalSec / 3600);
+    const minutes = Math.floor((totalSec % 3600) / 60);
+    const seconds = totalSec % 60;
+    if (hours > 0) { return `${hours}h${minutes}m${seconds}s`; }
+    if (minutes > 0) { return `${minutes}m${seconds}s`; }
+    return `${seconds}s`;
 }
 
 /**
