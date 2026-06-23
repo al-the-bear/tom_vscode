@@ -88,6 +88,17 @@ export interface ConfigAccessDetails {
 }
 
 /**
+ * Last config-access line emitted per source (keyed by `source`), minus the
+ * timestamp. Config resolution runs on a hot path — `configPath` is read on
+ * every `loadSendToChatConfig()` call, and several pollers call that every few
+ * seconds — so the unchanged "resolve" line would otherwise be appended to the
+ * log dozens of times a minute. We keep the diagnostic but emit a given
+ * source's line only when its content actually changes (so it appears once at
+ * startup, and again only if the resolved path/branch/existence changes).
+ */
+const lastConfigAccessLineBySource = new Map<string, string>();
+
+/**
  * Log a config-file access to the "Tom Tool Log" channel.
  *
  * Emits the call site (`source`), the post-placeholder-replacement resolved
@@ -95,6 +106,11 @@ export interface ConfigAccessDetails {
  * details supplied by the caller. This is the single helper every config
  * resolution/load site routes through so the user can see exactly which file
  * the extension is trying to access and from where the access was issued.
+ *
+ * Identical consecutive lines from the same `source` are suppressed (see
+ * {@link lastConfigAccessLineBySource}) so repeated resolution on polling hot
+ * paths doesn't spam the log — the line reappears only when its content
+ * changes.
  *
  * @param source    Human-readable call site (e.g. 'TomAiConfiguration.reload').
  * @param resolved  The fully-resolved path (after `${...}`/`~` expansion), or undefined.
@@ -128,5 +144,10 @@ export function logConfigAccess(
     }
     if (details.note) { parts.push(`note=${details.note}`); }
 
-    toolLog(parts.join(' '));
+    const line = parts.join(' ');
+    if (lastConfigAccessLineBySource.get(source) === line) {
+        return;  // Unchanged since last emit from this source — suppress the repeat.
+    }
+    lastConfigAccessLineBySource.set(source, line);
+    toolLog(line);
 }

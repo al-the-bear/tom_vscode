@@ -19,6 +19,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { FsUtils } from '../utils/fsUtils';
 import { WsPaths } from '../utils/workspacePaths';
+import { toolLog } from '../utils/toolLog';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import {
     stampRawTurns,
@@ -219,6 +220,14 @@ export class TwoTierMemoryService {
         const target = this.filePath(scope, file, questId);
         FsUtils.ensureDir(path.dirname(target));
         fs.writeFileSync(target, content, 'utf-8');
+        // Single choke point for every memory mutation (prepend/append/
+        // replaceSection all funnel through write) — surfaced in the shared
+        // Tom Tool Log so memory updates are visible regardless of which
+        // path triggered them (compaction extraction, MCP tools, migration).
+        toolLog(
+            `[memory] write scope=${scope} file=${file}` +
+            `${questId ? ` quest=${questId}` : ''} bytes=${Buffer.byteLength(content, 'utf8')}`,
+        );
     }
 
     /** Append `content` to `file` (with a leading newline if the file is non-empty). */
@@ -353,6 +362,7 @@ export class TwoTierMemoryService {
         try {
             if (fs.existsSync(target)) {
                 fs.unlinkSync(target);
+                toolLog(`[memory] delete scope=${scope} file=${file}${questId ? ` quest=${questId}` : ''}`);
             }
         } catch {
             // ignore — callers can re-list to confirm

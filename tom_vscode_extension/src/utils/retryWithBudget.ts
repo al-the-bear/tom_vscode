@@ -10,6 +10,7 @@
  * `.status` (Anthropic SDK errors carry it) and the error text.
  */
 import * as vscode from 'vscode';
+import { toolLog } from './toolLog';
 
 /**
  * Returns true when an error looks like a transient "backend busy / overloaded
@@ -94,9 +95,18 @@ export async function withRetryBudget<T>(opts: RetryWithBudgetOptions<T>): Promi
             if (firstFailureAt === undefined) { firstFailureAt = Date.now(); }
             const elapsedMs = Date.now() - firstFailureAt;
             const remainingBudgetMs = totalWaitMs - elapsedMs;
-            if (remainingBudgetMs <= 0) { throw err; }
+            const errMsg = err instanceof Error ? err.message : String(err);
+            if (remainingBudgetMs <= 0) {
+                toolLog(`[retry] ${label} — budget exhausted after ${formatDuration(elapsedMs)} over ${attempt} attempt(s); giving up: ${errMsg}`);
+                throw err;
+            }
             const waitMs = Math.min(delay, remainingBudgetMs);
-            opts.onRetryStatus?.(`${label} — retrying in ${formatDuration(waitMs)} (attempt ${attempt + 1}, ${formatDuration(elapsedMs)} / ${formatDuration(totalWaitMs)} elapsed)`);
+            const status = `${label} — retrying in ${formatDuration(waitMs)} (attempt ${attempt + 1}, ${formatDuration(elapsedMs)} / ${formatDuration(totalWaitMs)} elapsed)`;
+            opts.onRetryStatus?.(status);
+            // Persist the retry to the shared Tom Tool Log so the backoff is
+            // visible after the fact (the status line is transient UI). Include
+            // the triggering error so the user sees *why* it retried.
+            toolLog(`[retry] ${status} — cause: ${errMsg}`);
             await sleepCancellable(waitMs, opts.cancellationToken);
             delay = Math.min(delay * 2, maxDelayMs);
         }
