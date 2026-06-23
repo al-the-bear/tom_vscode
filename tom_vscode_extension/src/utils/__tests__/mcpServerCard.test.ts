@@ -64,10 +64,42 @@ describe('renderMcpServerCard — controls bound to mcpServer config', () => {
     const model: McpServerCardModel = buildMcpServerCardModel(baseSettings, { running: false }, false);
     const html = renderMcpServerCard(model, ['tomAi_readFile', 'tomAi_applyEdit']);
 
-    test('renders a single MCP server section card', () => {
+    test('renders the control + configuration cards under one data-mcp-card', () => {
         assert.match(html, /sp-section/);
         assert.match(html, /MCP Server/);
         assert.match(html, /data-mcp-card/);
+        // Exactly one shared wrapper so the client gather reaches both cards.
+        assert.equal((html.match(/data-mcp-card/g) ?? []).length, 1);
+    });
+
+    test('control card is always open (no collapse header); config card is an accordion', () => {
+        // The control card has a plain header (no sp-collapsible).
+        assert.match(html, /🔌 MCP Server/);
+        // The configuration card is a collapsible accordion, collapsed by default.
+        assert.match(html, /sp-section-header sp-collapsible" data-collapse="mcpConfig"/);
+        assert.match(html, /MCP Server Configuration/);
+        assert.match(html, /class="sp-collapse-content sp-collapsed" id="sp-mcpConfig-content"/);
+    });
+
+    test('Start/Stop/Restart and Enabled/Autostart live in the control card, ahead of the accordion', () => {
+        const cfgStart = html.indexOf('id="sp-mcpConfig-content"');
+        assert.ok(cfgStart > 0);
+        const control = html.slice(0, cfgStart);
+        assert.match(control, /data-status-action="startMcpServer"/);
+        assert.match(control, /data-status-action="stopMcpServer"/);
+        assert.match(control, /data-status-action="restartMcpServer"/);
+        assert.match(control, /data-mcp-field="enabled"/);
+        assert.match(control, /data-mcp-field="autoStart"/);
+    });
+
+    test('host/port/apiKeyEnv/tools and the Save button live inside the accordion content', () => {
+        const cfgStart = html.indexOf('id="sp-mcpConfig-content"');
+        const config = html.slice(cfgStart);
+        assert.match(config, /data-mcp-field="host"/);
+        assert.match(config, /data-mcp-field="basePort"/);
+        assert.match(config, /data-mcp-field="apiKeyEnv"/);
+        assert.match(config, /data-mcp-field="toolsEnabled"/);
+        assert.match(config, /data-status-action="saveMcpServer"/);
     });
 
     test('host, basePort and apiKeyEnv inputs are bound with current values', () => {
