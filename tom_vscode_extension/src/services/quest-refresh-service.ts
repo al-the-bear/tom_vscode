@@ -23,6 +23,7 @@ import {
 import { WsPaths } from '../utils/workspacePaths';
 import { QuestRefreshStore } from '../managers/questRefreshStore';
 import type { QuestRefreshPanel } from '../utils/sendToChatConfig';
+import { toolLog } from '../utils/toolLog';
 
 /** Live-trail filename for each refreshable panel. */
 function trailFileName(panel: QuestRefreshPanel): string {
@@ -61,16 +62,29 @@ export class QuestRefreshService {
         const store = QuestRefreshStore.instance;
         const quest = (questId ?? WsPaths.getWorkspaceQuestId() ?? 'default').trim() || 'default';
         const refreshText = store.getRefreshPrompt(panel).trim();
+        const startedAt = Date.now();
+        toolLog(
+            `[quest-refresh] start panel=${panel} quest=${quest} ` +
+            `promptChars=${refreshText.length}${refreshText ? '' : ' (blank — trim + reset only)'}`,
+        );
         try {
             if (refreshText) {
                 await dispatch(refreshText);
+                toolLog(`[quest-refresh] dispatched panel=${panel} quest=${quest} in ${Date.now() - startedAt}ms`);
             }
+        } catch (err) {
+            toolLog(
+                `[quest-refresh] dispatch FAILED panel=${panel} quest=${quest}: ` +
+                `${err instanceof Error ? err.message : String(err)}`,
+            );
+            throw err;
         } finally {
             // Always truncate + reset even if the dispatch failed, so a broken
             // refresh prompt can't pin the counter at the trigger threshold and
             // re-fire on every subsequent prompt.
             this.truncateTrail(panel, quest);
             store.resetCount(panel, quest);
+            toolLog(`[quest-refresh] done panel=${panel} quest=${quest} — trail trimmed to base, counter reset`);
         }
     }
 

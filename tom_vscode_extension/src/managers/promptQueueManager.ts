@@ -44,7 +44,7 @@ import {
     resolveDetectedRequestId,
     computeHealthCheckDecisions,
 } from '../utils/queueStep4Utils';
-import { writeWindowState } from '../handlers/windowStatusPanel-handler';
+import { writeWindowState, setWindowSubsystemActive } from '../handlers/windowStatusPanel-handler';
 import { TrailService } from '../services/trailService';
 import { WsPaths } from '../utils/workspacePaths';
 
@@ -348,6 +348,9 @@ export class PromptQueueManager {
 
     private _items: QueuedPrompt[] = [];
     private _autoSendEnabled = true;
+    // Last 'queue' window-status active state written, to skip redundant
+    // writes in _refreshQueueWindowStatus(). undefined = never written yet.
+    private _lastQueueActiveWritten?: boolean;
     private _autoSendDelayMs = 2000;
     private _autoStartEnabled = false;
     private _autoPauseEnabled = true;
@@ -526,20 +529,51 @@ export class PromptQueueManager {
 
     private updateWindowStatus(status: 'prompt-sent' | 'answer-received', transport?: QueuedTransport): void {
         try {
-            const quest = (await_import_ChatVariablesStore())?.quest || '';
-            const windowId = getWindowStatusWindowId();
-            const workspaceName = getWindowStatusWorkspaceName();
-            // The queue's own processing always lights the 'queue' dot.
-            writeWindowState(windowId, workspaceName, quest, 'queue', status);
             // Only mirror to the 'copilot' dot when the dispatched stage
             // actually used the Copilot transport. Without this guard an
             // Anthropic queue item would falsely light Copilot (the bug
             // behind the panel showing the wrong subsystem). Copilot
             // answers are additionally marked 'answer-received' by
             // copilotTrailService's answer-file path.
-            if (transport === 'copilot') {
-                writeWindowState(windowId, workspaceName, quest, 'copilot', status);
-            }
+            //
+            // The 'queue' dot itself is NOT written here — it reflects the
+            // live local queue state and is recomputed in
+            // _refreshQueueWindowStatus() rather than stamped per-event.
+            if (transport !== 'copilot') { return; }
+            const quest = (await_import_ChatVariablesStore())?.quest || '';
+            const windowId = getWindowStatusWindowId();
+            const workspaceName = getWindowStatusWorkspaceName();
+            writeWindowState(windowId, workspaceName, quest, 'copilot', status);
+        } catch {
+            // Best-effort status panel update; queue processing must continue.
+        }
+    }
+
+    /**
+     * Refresh the 'queue' window-status dot to reflect this window's *live*
+     * local queue state — not a per-event stamp.
+     *
+     * The prompt queue is a single global queue shared by every window (it
+     * lives in the symlinked `_ai/queue`). A discrete prompt-sent /
+     * answer-received stamp would therefore show the same colour in every
+     * window. What actually differs per window is whether *this* window is
+     * driving the queue: auto-send enabled AND an item pending, or an item
+     * mid-send. We light the dot in that case and clear it (idle/grey)
+     * otherwise.
+     *
+     * Skips redundant writes when the computed active state is unchanged.
+     */
+    private _refreshQueueWindowStatus(): void {
+        try {
+            const hasSending = this._items.some(i => i.status === 'sending');
+            const hasPending = this._items.some(i => i.status === 'pending');
+            const active = hasSending || (this._autoSendEnabled && hasPending);
+            if (active === this._lastQueueActiveWritten) { return; }
+            const quest = (await_import_ChatVariablesStore())?.quest || '';
+            const windowId = getWindowStatusWindowId();
+            const workspaceName = getWindowStatusWorkspaceName();
+            setWindowSubsystemActive(windowId, workspaceName, quest, 'queue', active);
+            this._lastQueueActiveWritten = active;
         } catch {
             // Best-effort status panel update; queue processing must continue.
         }
@@ -962,11 +996,6 @@ export class PromptQueueManager {
                         sending.reminderSentCount = 0;
                         sending.lastReminderAt = undefined;
                         this.removePendingReminderFor(sending.id);
-                        // Green the queue dot: the answer-wait timer
-                        // completed the item without an answer file, so the
-                        // answer-file handler (which would otherwise green
-                        // it) never fires here.
-                        this.updateWindowStatus('answer-received');
 
                         await this._enqueueNextTemplateIterationIfNeeded(sending, 'answer-wait');
 
@@ -1157,7 +1186,6 @@ export class PromptQueueManager {
 
         logQueue(`Answer detected for ${sending.id}, requestId=${resolvedAnswerRequestId || '(none)'}`);
         debugLog(`[PromptQueueManager] Processing answer for sending item ${sending.id}`, 'INFO', 'queue');
-        this.updateWindowStatus('answer-received');
 
         try {
             const outcome = await this.dispatchNextStageForSendingItem(sending);
@@ -1350,10 +1378,6 @@ export class PromptQueueManager {
             } else if (outcome === 'done' && isAnthropicItem) {
                 const liveItem = this._items.find(i => i.id === item.id) ?? item;
                 liveItem.status = 'sent';
-                // Green the queue dot on completion — see the matching
-                // call in sendItem for the rationale (anthropic has no
-                // answer-file callback to do it later).
-                this.updateWindowStatus('answer-received');
                 // Continue the outer template-repeat loop — see the
                 // matching call in sendItem for the rationale.
                 await this._enqueueNextTemplateIterationIfNeeded(liveItem, 'resume/anthropic');
@@ -2002,7 +2026,6 @@ export class PromptQueueManager {
         }
 
         logQueue(`Manual continue requested for sending item ${sending.id}`);
-        this.updateWindowStatus('answer-received');
 
         // Cancel any in-flight Anthropic dispatch for this item before advancing.
         // Without this, the next stage/item is dispatched while the original handler
@@ -2144,7 +2167,6 @@ export class PromptQueueManager {
             this.removePendingReminderFor(item.id);
             this.persist();
             this._onDidChange.fire();
-            this.updateWindowStatus('answer-received');
             return true;
         }
         // Allow sent items to be re-staged, but not error items
@@ -2481,13 +2503,6 @@ export class PromptQueueManager {
                 // stall the queue permanently.
                 const liveItem = this._items.find(i => i.id === item.id) ?? item;
                 liveItem.status = 'sent';
-                // Flip the queue window-status dot from 'prompt-sent'
-                // (orange = in-flight) back to 'answer-received' (green =
-                // idle/done). Anthropic items complete synchronously here,
-                // so unlike Copilot — whose answer-file handler greens the
-                // dot in onAnswerFileChanged — there is no later callback to
-                // do it. Without this the queue dot stays orange forever.
-                this.updateWindowStatus('answer-received');
                 // Continue the outer template-repeat loop. Without this,
                 // Anthropic items with templateRepeatCount > 1 terminate
                 // after iteration 1 and the user perceives "the outer
@@ -2594,10 +2609,6 @@ export class PromptQueueManager {
                 const liveItem = this._items.find(i => i.id === item.id) ?? item;
                 if (outcome === 'done') {
                     liveItem.status = 'sent';
-                    // Green the queue dot on completion — see the matching
-                    // call in sendItem (anthropic has no answer-file
-                    // callback to do it later).
-                    this.updateWindowStatus('answer-received');
                     // Continue the outer template-repeat loop — same
                     // rationale as in sendItem / _resumePausedSendingItem.
                     // Without this a Resend on the last iteration of a
@@ -3222,6 +3233,7 @@ export class PromptQueueManager {
     private persist(): void {
         this.trimSentHistory();
         this._persistToFiles();
+        this._refreshQueueWindowStatus();
     }
 
     private restore(): void {
@@ -3271,10 +3283,16 @@ export class PromptQueueManager {
         if (this._autoSendEnabled && this._items.some(i => i.status === 'pending') && !this._items.some(i => i.status === 'sending')) {
             void this.sendNext();
         }
+
+        // Reflect the restored queue state in the window-status dot.
+        this._refreshQueueWindowStatus();
     }
 
     /** Persist queue-level settings to disk. */
     private persistSettings(): void {
+        // Auto-send toggling changes whether this window drives the queue, so
+        // refresh the live 'queue' window-status dot.
+        this._refreshQueueWindowStatus();
         writeQueueSettings({
             'response-timeout-minutes': this._responseFileTimeoutMinutes,
             'default-reminder-template-id': this._defaultReminderTemplateId,
@@ -3413,6 +3431,10 @@ export class PromptQueueManager {
             if (recovered > 0) {
                 this._persistToFiles();
             }
+
+            // A cross-window queue change may have added/removed pending items;
+            // refresh this window's live 'queue' dot to match.
+            this._refreshQueueWindowStatus();
 
             this._onDidChange.fire();
         }, 300);
