@@ -40,11 +40,12 @@ export interface RetryWithBudgetOptions<T> {
     /** Cancellation token — cancels the in-flight wait. */
     cancellationToken?: vscode.CancellationToken;
     /**
-     * Called before each backoff sleep with a string suitable for direct UI
-     * display. The Anthropic chat panel binds this to the status line under
-     * the prompt input via `AnthropicHandler._onStatusUpdate.fire`.
+     * Called before each backoff sleep with a UI-ready status string and the
+     * triggering error's text. The Anthropic chat panel binds this to the
+     * status line under the prompt input via `AnthropicHandler._onStatusUpdate`
+     * and mirrors the retry into the quest live-trail (`cause` shown there).
      */
-    onRetryStatus?: (message: string) => void;
+    onRetryStatus?: (message: string, cause?: string) => void;
 }
 
 /**
@@ -82,7 +83,7 @@ export async function withRetryBudget<T>(opts: RetryWithBudgetOptions<T>): Promi
             }
             const waitMs = Math.min(delay, remainingBudgetMs);
             const status = `${label} — retrying in ${formatDuration(waitMs)} (attempt ${attempt + 1}, ${formatDuration(elapsedMs)} / ${formatDuration(totalWaitMs)} elapsed)`;
-            opts.onRetryStatus?.(status);
+            opts.onRetryStatus?.(status, errMsg);
             // Persist the retry to the shared Tom Tool Log so the backoff is
             // visible after the fact (the status line is transient UI). Include
             // the triggering error so the user sees *why* it retried.

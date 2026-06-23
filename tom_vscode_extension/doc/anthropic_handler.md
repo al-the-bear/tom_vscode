@@ -159,6 +159,15 @@ How long it retries depends on the transport, but all of them honour the profile
 
 On the `agentSdk` path a busy error keeps retrying past the small `maxAttempts` cap until the time budget is spent — a sustained 529 needs many spaced-out retries, not three instant ones. Each backoff sleep is cancellable (Stop button / cancellation token) and pushes a status line (`Anthropic API busy (Agent SDK) — retrying in …`) to the panel via `_onStatusUpdate`, plus a `[retry]` line to the Tom Tool Log. The `transportRetry` *template* (§5) still governs the continuation prompt sent when a retry **resumes** the failed session.
 
+### Retries are visible in the live-trail
+
+Every retry is also written into the quest's `live-trail.md` as a `### 🔁 retry` entry — the status line plus the triggering error in a fenced block — so you can see *that there was an error and it's being ridden out* without opening the Tom Tool Log, alongside the thinking / tool-call / assistant entries. This is emitted by `LiveTrailWriter.appendRetry` (a `{ kind: 'retry', message, cause }` event) and applies to **all transports**:
+
+- `direct` / `localLlm` — the enriched `withRetryBudget` `onRetryStatus(status, cause)` callback fires the panel status line *and* `liveTrail.appendRetry`.
+- `agentSdk` — `runAgentSdkQuery` calls `liveTrail.appendRetry` for **every** retry: busy errors (with the backoff status) and the non-busy "resume interrupted work" retries (with a `Retrying after error …` note).
+
+The retry entry does **not** close the prompt block — the turn continues — unlike the terminal `### ✅ DONE` / `### ⚠️ ERROR` / interruption banners. The Telegram trail forwarder mirrors it as a `🔁 retry — …` line so a remote follower sees the failure too.
+
 ## Related sections of the spec
 
 - §4 Trail system (raw + summary trails for `anthropic` subsystem)

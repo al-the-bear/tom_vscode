@@ -106,6 +106,11 @@ export class TelegramTrailCoalescer {
                 return this.appendAssistant(event.text);
             case 'toolCall':
                 return [...this.flush(), `🔧 ${event.toolName}`];
+            case 'retry':
+                // A mid-turn transient-failure retry — flush buffered text and
+                // surface it so a Telegram follower sees the error + retry too,
+                // mirroring the live-trail's `🔁 retry` entry.
+                return [...this.flush(), `🔁 retry — ${event.message}`];
             case 'done':
             case 'error':
             case 'interruption':

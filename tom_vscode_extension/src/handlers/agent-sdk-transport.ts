@@ -219,6 +219,8 @@ export interface AgentSdkSendParams {
         appendAssistantText(text: string): void;
         beginToolCall(toolName: string, input: unknown, replayKey: string): void;
         appendToolResult(resultPreview: string, fullLength: number): void;
+        /** Record a transient-failure retry mid-turn (status line + cause). */
+        appendRetry(message: string, cause?: string): void;
     };
     /**
      * When provided, passed as `resume` to the SDK so the agent continues a
@@ -545,6 +547,7 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
                 }
                 throw err;
             }
+            const resumeNote = plan.kind === 'retry-fresh' ? 'fresh session' : 'resuming session';
             if (plan.kind === 'retry-fresh') {
                 // No usable session — restart from scratch, replaying the
                 // original prompt so the new session has full context.
@@ -560,7 +563,9 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
             }
             // Space out busy retries with exponential backoff bounded by the
             // remaining time budget; non-busy "resume interrupted work" retries
-            // keep the legacy immediate behavior.
+            // keep the legacy immediate behavior. Either way, mirror the retry
+            // into the live-trail so the user sees the error + retry without
+            // opening the Tom Tool Log.
             if (errorIsBusy && typeof maxTotalWaitMs === 'number' && maxTotalWaitMs > 0) {
                 const remainingBudgetMs = maxTotalWaitMs - elapsedMs;
                 const waitMs = Math.min(
@@ -571,10 +576,18 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
                     Math.max(0, remainingBudgetMs),
                 );
                 busyRetryIndex++;
-                const status = `Anthropic API busy (Agent SDK) — retrying in ${formatRetryDuration(waitMs)} (attempt ${attemptsMade + 1}, ${formatRetryDuration(elapsedMs)} / ${formatRetryDuration(maxTotalWaitMs)} elapsed)`;
+                const status = `Anthropic API busy (Agent SDK) — retrying in ${formatRetryDuration(waitMs)} (attempt ${attemptsMade + 1}, ${formatRetryDuration(elapsedMs)} / ${formatRetryDuration(maxTotalWaitMs)} elapsed, ${resumeNote})`;
                 params.retry?.onRetryStatus?.(status);
+                params.liveTrail?.appendRetry(status, errorMessage);
                 toolLog(`[retry] ${status} — cause: ${errorMessage}`);
                 await sleepCancellable(waitMs, params.cancellationToken);
+            } else {
+                // Immediate retry (non-busy resume-interrupted-work, or a busy
+                // error with no time budget configured). No backoff sleep, but
+                // still surface it so the trail records the failure.
+                const note = `Retrying after error (attempt ${attemptsMade + 1}, ${resumeNote})`;
+                params.liveTrail?.appendRetry(note, errorMessage);
+                toolLog(`[retry] ${note} — cause: ${errorMessage}`);
             }
         }
     }

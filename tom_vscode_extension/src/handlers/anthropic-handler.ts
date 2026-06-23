@@ -2189,7 +2189,10 @@ export class AnthropicHandler {
                     totalWaitMs: (profile.retryMaxTotalWaitMinutes ?? 10) * 60 * 1000,
                     backendLabel: 'Anthropic API busy',
                     cancellationToken: options.cancellationToken,
-                    onRetryStatus: (text: string) => this._onStatusUpdate.fire(text),
+                    onRetryStatus: (text: string, cause?: string): void => {
+                        this._onStatusUpdate.fire(text);
+                        liveTrail?.appendRetry(text, cause);
+                    },
                 });
 
                 lastStopReason = response.stop_reason ?? undefined;
@@ -2680,8 +2683,12 @@ export class AnthropicHandler {
                     retryTotalWaitMs: (options.profile.retryMaxTotalWaitMinutes ?? 10) * 60 * 1000,
                     // Forward backend-busy retry waits to the chat panel
                     // status line (`AnthropicHandler._onStatusUpdate` is the
-                    // existing channel the panel already subscribes to).
-                    onRetryStatus: (text: string) => this._onStatusUpdate.fire(text),
+                    // existing channel the panel already subscribes to) and
+                    // mirror them into the live-trail so the user sees the error.
+                    onRetryStatus: (text: string, cause?: string): void => {
+                        this._onStatusUpdate.fire(text);
+                        liveTrail?.appendRetry(text, cause);
+                    },
                 });
                 lastText = result.text || lastText;
                 this.rememberAssistantText(lastText);

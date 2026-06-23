@@ -86,6 +86,9 @@ export interface LiveTrailPromptInfo {
  *   - `toolCall`     — a tool invocation started (`toolName`/`replayKey`).
  *   - `toolResult`   — a tool returned (`fullLength` = result size in chars).
  *   - `assistant`    — a chunk of assistant text (`text`).
+ *   - `retry`        — a transient failure is being retried mid-turn
+ *                      (`message` = the UI status line, `cause` = the triggering
+ *                      error). The turn has NOT ended; more events follow.
  *   - `done`         — the turn finished cleanly (`rounds`/`toolCalls`/`durationMs`).
  *   - `error`        — the turn failed (`message`).
  *   - `interruption` — the turn was interrupted/rate-limited (`label`/`message`).
@@ -96,6 +99,7 @@ export type LiveTrailEvent =
     | { kind: 'toolCall'; questId: string; source?: PromptSource; toolName: string; replayKey: string }
     | { kind: 'toolResult'; questId: string; source?: PromptSource; fullLength: number }
     | { kind: 'assistant'; questId: string; source?: PromptSource; text: string }
+    | { kind: 'retry'; questId: string; source?: PromptSource; message: string; cause?: string }
     | { kind: 'done'; questId: string; source?: PromptSource; rounds: number; toolCalls: number; durationMs: number }
     | { kind: 'error'; questId: string; source?: PromptSource; message: string }
     | { kind: 'interruption'; questId: string; source?: PromptSource; label: string; message: string };
@@ -312,6 +316,30 @@ export class LiveTrailWriter {
             this.currentlyInThinking = false;
             this.append(body);
             this.emit({ kind: 'assistant', text });
+        } catch { /* swallowed */ }
+    }
+
+    /**
+     * Record a transient-failure retry **inside** the current prompt block,
+     * so the user can see in the trail that an error occurred and is being
+     * ridden out — without opening the Tom Tool Log. Unlike
+     * {@link endPromptWithError} / {@link endPromptWithInterruption} this does
+     * NOT close the block: the turn continues, and the next thinking / text /
+     * tool event opens a fresh heading (the streaming flags are reset).
+     *
+     * @param message UI-ready status line (e.g. "Backend busy — retrying in 4s …").
+     * @param cause   The triggering error text, rendered in a fenced block when set.
+     */
+    appendRetry(message: string, cause?: string): void {
+        if (!message) { return; }
+        try {
+            const causeBlock = cause
+                ? '\n\n```text\n' + this.clip(cause, 1000) + '\n```\n'
+                : '\n';
+            this.append(`\n### 🔁 retry\n\n${message}${causeBlock}`);
+            this.currentlyInAssistantText = false;
+            this.currentlyInThinking = false;
+            this.emit({ kind: 'retry', message, cause });
         } catch { /* swallowed */ }
     }
 

@@ -1685,11 +1685,12 @@ export class LocalLlmManager {
         apiKeyEnv?: string;
         /**
          * Status callback fired before each retry on a busy backend (HTTP
-         * 429 / 503 / 529 / textual hints). The string is meant for direct
-         * UI display. Plumbed to the Anthropic panel's status line by
+         * 429 / 503 / 529 / textual hints). The first arg is a UI-ready status
+         * string; the second is the triggering error's text. Plumbed to the
+         * Anthropic panel's status line and the quest live-trail by
          * `sendViaLocalLlm` so the user can watch the retry budget tick down.
          */
-        onRetryStatus?: (message: string) => void;
+        onRetryStatus?: (message: string, cause?: string) => void;
         /**
          * Total cumulative wait time (ms) the retry loop is allowed before
          * giving up. Defaults to 10 minutes. Applies uniformly to both
