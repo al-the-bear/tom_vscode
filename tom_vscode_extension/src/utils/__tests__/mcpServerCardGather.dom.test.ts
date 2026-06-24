@@ -216,6 +216,21 @@ describe('saveMcpServer gather — executed against a jsdom DOM (todo #10)', () 
         assert.equal(toolBox(window, 'tomAi_readFile').checked, false);
     });
 
+    test('clicking Save collapses the configuration accordion (closes on save)', () => {
+        const { window } = setupGatherHarness();
+
+        // Open the configuration accordion first (it renders collapsed).
+        const content = window.document.getElementById('sp-mcpConfig-content');
+        content.classList.remove('sp-collapsed');
+        assert.equal(content.classList.contains('sp-collapsed'), false);
+
+        clickSave(window);
+
+        assert.equal(content.classList.contains('sp-collapsed'), true);
+        const icon = content.previousElementSibling.querySelector('.sp-collapse-icon');
+        assert.equal(icon.textContent, '▶');
+    });
+
     test('an all-default card posts the defaults (enabled off, toolsEnabled on, no tools)', () => {
         const { window, captured } = setupGatherHarness();
 

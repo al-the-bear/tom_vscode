@@ -39,6 +39,24 @@ export interface AgentSdkRetryInput {
     capturedSessionId?: string;
     /** Whether cancellation was requested. */
     cancelled?: boolean;
+    /**
+     * Whether the failed attempt's error is a transient backend-busy signal
+     * (HTTP 429 / 500 / 503 / 529 / overloaded). The caller classifies the raw
+     * error with the shared `isRetryableBusyError` and passes the result here so
+     * this module stays free of `vscode` / SDK imports. When true AND a positive
+     * `maxTotalWaitMs` is supplied, the retry is bounded by the **time budget**
+     * instead of `maxAttempts` — a sustained overload needs many spaced-out
+     * retries over minutes/hours, not the small instant `maxAttempts` cap.
+     */
+    errorIsBusy?: boolean;
+    /** Elapsed time (ms) since the first failure in this retry sequence. */
+    elapsedMs?: number;
+    /**
+     * Time budget (ms) for retrying *busy* errors. Maps from the Anthropic
+     * profile's `retryMaxTotalWaitMinutes`. Undefined / <= 0 falls back to the
+     * `maxAttempts` count bound (legacy behavior).
+     */
+    maxTotalWaitMs?: number;
 }
 
 /**
@@ -46,7 +64,11 @@ export interface AgentSdkRetryInput {
  *
  * Rules:
  *  - Never retry once cancellation was requested.
- *  - Never retry once `attemptsMade >= maxAttempts`.
+ *  - **Busy errors with a time budget** (`errorIsBusy && maxTotalWaitMs > 0`)
+ *    retry until `elapsedMs >= maxTotalWaitMs`, ignoring `maxAttempts` — this is
+ *    how a 529/500 overload is ridden out for the profile's full retry window.
+ *  - **Other errors** (the "resume interrupted work" case) keep the legacy
+ *    count bound: give up once `attemptsMade >= maxAttempts`.
  *  - **Fresh session** (`retry-fresh`, replay original prompt) when no
  *    session id is known yet OR the error is an unknown/no-session error.
  *  - Otherwise **resume** (`retry-resume`) the most recent session id and
@@ -56,7 +78,15 @@ export function planAgentSdkRetry(input: AgentSdkRetryInput): AgentSdkRetryPlan 
     if (input.cancelled === true) {
         return { kind: 'give-up' };
     }
-    if (input.attemptsMade >= input.maxAttempts) {
+    const budgetBounded =
+        input.errorIsBusy === true &&
+        typeof input.maxTotalWaitMs === 'number' &&
+        input.maxTotalWaitMs > 0;
+    if (budgetBounded) {
+        if ((input.elapsedMs ?? 0) >= (input.maxTotalWaitMs as number)) {
+            return { kind: 'give-up' };
+        }
+    } else if (input.attemptsMade >= input.maxAttempts) {
         return { kind: 'give-up' };
     }
     // Prefer the id captured during the failed attempt (the live session)
@@ -66,6 +96,26 @@ export function planAgentSdkRetry(input: AgentSdkRetryInput): AgentSdkRetryPlan 
         return { kind: 'retry-fresh' };
     }
     return { kind: 'retry-resume', sessionId };
+}
+
+/** Tunables for {@link computeBackoffMs}. */
+export interface BackoffOptions {
+    /** Delay before the first retry (ms). Default 1000. */
+    initialDelayMs?: number;
+    /** Cap on a single backoff step (ms). Default 5 minutes. */
+    maxDelayMs?: number;
+}
+
+/**
+ * Exponential backoff delay for the `retryIndex`-th busy retry (0 = the wait
+ * before the first retry). Pure so the transport loop's spacing is testable
+ * without timers: `initialDelayMs * 2^retryIndex`, capped at `maxDelayMs`.
+ */
+export function computeBackoffMs(retryIndex: number, opts?: BackoffOptions): number {
+    const initial = opts?.initialDelayMs ?? 1000;
+    const max = opts?.maxDelayMs ?? 5 * 60 * 1000;
+    const idx = Math.max(0, Math.floor(retryIndex));
+    return Math.min(initial * Math.pow(2, idx), max);
 }
 
 /**

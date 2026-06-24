@@ -19,12 +19,13 @@ Single-page view for runtime visibility into extension state, configuration high
 - **Configured paths** — workspace root, quest folder, trail folder, Copilot answer folder.
 - **Quick actions** — restart bridge, toggle debug logging, open config file, clear session, etc.
 
-## MCP Server card
+## MCP Server cards
 
-The **MCP Server** card configures and controls the standalone MCP server (see [../doc/mcp_server.md](../doc/mcp_server.md)). Rendered by [mcpServerCard.ts](../src/utils/mcpServerCard.ts); message handling in [statusPage-handler.ts](../src/handlers/statusPage-handler.ts).
+The standalone MCP server (see [../doc/mcp_server.md](../doc/mcp_server.md)) is configured and controlled by **two sibling cards** rendered by [mcpServerCard.ts](../src/utils/mcpServerCard.ts) under one shared `data-mcp-card` wrapper; message handling is in [statusPage-handler.ts](../src/handlers/statusPage-handler.ts). The shared wrapper lets the `saveMcpServer` gather reach every `data-mcp-field` / `data-mcp-tool` control regardless of which card it lives in.
 
-- **Controls** (each maps to a `mcpServer.*` config field): `enabled`, `autoStart`, `host`, `basePort`, `apiKeyEnv`, `allowWriteWithoutAuth`, `toolsEnabled`, and the tool picker for `enabledTools`. The card shows the live runtime status (running + bound port, or stopped).
-- **Save** — the `saveMcpServer` action gathers the controls and persists the `mcpServer` block; saving reconciles the running server (disabled ⇒ stop, running ⇒ restart onto the new settings).
+- **MCP Server** (control card, always open) — the live runtime status badge (running + bound port, or stopped), the **Start / Stop / Restart** buttons, and the `enabled` / `autoStart` checkboxes. Always open so the lifecycle controls are directly reachable without expanding an accordion.
+- **MCP Server Configuration** (accordion, default collapsed, `data-collapse="mcpConfig"`) — the remaining `mcpServer.*` fields (`host`, `basePort`, `apiKeyEnv`, `allowWriteWithoutAuth`, `toolsEnabled`, and the tool picker for `enabledTools`) plus the **Save** button. The accordion **closes on save**: the `saveMcpServer` post step in `listeners.js` collapses `sp-mcpConfig-content` client-side, and the post-save panel refresh (main.js) preserves the collapsed state.
+- **Save** — the `saveMcpServer` action gathers both cards' controls and persists the `mcpServer` block (including `enabled` / `autoStart` from the control card); saving reconciles the running server (disabled ⇒ stop, running ⇒ restart onto the new settings).
 - **Start / Stop / Restart** — these buttons route through the generic `[data-status-action]` dispatcher to the `startMcpServer` / `stopMcpServer` / `restartMcpServer` handler cases, which call the `tomAi.mcpServer.start` / `.stop` / `.restart` commands (no per-action `listeners.js` branch — the no-payload actions ride the existing dispatcher). The controller's `onChange → refreshStatusPage` push updates the status line.
 
 ## Embedded in `@WS`

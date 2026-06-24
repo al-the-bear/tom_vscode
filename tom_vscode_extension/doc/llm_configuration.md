@@ -370,7 +370,7 @@ behaviour that is genuinely system-wide (e.g. the global kill switch).
 
 | Field | Default | Where used |
 | --- | --- | --- |
-| `disabled` | `false` | Global kill switch for the post-turn compaction + memory-extraction pass. Per-config `compactionOverride` wins. |
+| `disabled` | `false` | Global kill switch for the post-turn compaction + memory-extraction pass. Also suppresses the **automatic** trail-based history rebuild on session seed (so a disabled compactor makes no LLM/Ollama calls on a fresh session); the explicit "Recreate History" button still forces a rebuild. Per-config `compactionOverride` wins. |
 | `llmProvider` | `'localLlm'` | Picks Anthropic vs Local LLM as the compactor backend. |
 | `llmConfigId` | — | Configuration id within the chosen provider. |
 | `compactionTemplateId` | — | Active compaction template (`compaction.templates[]`). |
@@ -385,7 +385,7 @@ behaviour that is genuinely system-wide (e.g. the global kill switch).
 | `fullTrailMaxTurns` | `200` | Safety cap on `historyMode: full`. |
 | `backgroundExtractionEnabled` | `true` | Anthropic background `llm_extract` pass on/off. |
 | `runMemoryExtractionOnCompaction` | `true` | Memory extraction runs after every compaction pass. |
-| `rebuildFromLastNPrompts` | `200` | Anthropic — number of trail-file entries used to seed history when no `history.json` exists. |
+| `rebuildFromLastNPrompts` | `200` | Anthropic — number of trail-file entries used to seed history when no `history.json` exists. Only runs the LLM fold when compaction is enabled (`disabled: false`) or the rebuild was forced via "Recreate History". |
 | `archiveHistoryEveryTurn` | `false` | Debug toggle: write a timestamped `history.json` snapshot per turn. |
 | `templates[]` | — | Compaction prompt templates (id, name, body, targetMode). |
 | `memoryExtractionTemplates[]` | — | Memory-extraction prompt templates. |
