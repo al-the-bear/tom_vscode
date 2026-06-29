@@ -1,6 +1,6 @@
 // D4rt Bridge - Generated file, do not edit
 // Test runner for tom_vscode_bridge
-// Generated: 2026-06-23T21:33:36.977243
+// Generated: 2026-06-28T14:31:01.777293
 
 // ignore_for_file: avoid_print
 
@@ -32,19 +32,6 @@ void _registerBridges(D4rt d4rt) {
     d4rt,
     'tom_vscode_bridge.dart',
   );
-}
-
-/// Logs D4 invocations to a debug file.
-const String _d4InvocationsLogPath = '/Users/alexiskyaw/Desktop/Code/tom2/d4_invocations.log';
-
-void _logD4Invocation(String mode, String input) {
-  final timestamp = DateTime.now().toIso8601String();
-  final logLine = '$timestamp | $mode | $input\n';
-  try {
-    File(_d4InvocationsLogPath).writeAsStringSync(logLine, mode: FileMode.append);
-  } catch (_) {
-    // Ignore logging failures
-  }
 }
 
 Future<void> main(List<String> args) async {
@@ -101,7 +88,6 @@ Future<void> main(List<String> args) async {
 
 /// Run a D4rt script file using execute().
 void _runFile(String filePath) {
-  _logD4Invocation('FILE', filePath);
   final file = File(filePath);
   if (!file.existsSync()) {
     stderr.writeln('Error: File not found: $filePath');
@@ -137,7 +123,6 @@ void _runFile(String filePath) {
 
 /// Evaluate an expression using eval().
 void _runExpression(String expression) {
-  _logD4Invocation('EXPR', expression);
   final d4rt = D4rt();
   _registerBridges(d4rt);
   // Grant all permissions for full access
@@ -165,7 +150,6 @@ void _runExpression(String expression) {
 
 /// Evaluate file content using eval().
 void _runEvalFile(String filePath) {
-  _logD4Invocation('EVAL-FILE', filePath);
   final file = File(filePath);
   if (!file.existsSync()) {
     stderr.writeln('Error: File not found: $filePath');
@@ -230,7 +214,6 @@ void _runInitEval() {
 /// output and unhandled exceptions. Results are output as JSON.
 /// Properly awaits async main() functions.
 Future<void> _runTestScript(String filePath) async {
-  _logD4Invocation('TEST', filePath);
   final file = File(filePath);
   if (!file.existsSync()) {
     _emitTestResult('', ['File not found: $filePath']);
@@ -288,7 +271,6 @@ Future<void> _runTestScript(String filePath) async {
 /// Initializes with [initFilePath], then evaluates [evalFilePath].
 /// Properly awaits async init scripts.
 Future<void> _runTestEval(String initFilePath, String evalFilePath) async {
-  _logD4Invocation('TEST-EVAL', '$initFilePath | $evalFilePath');
   final initFile = File(initFilePath);
   final evalFile = File(evalFilePath);
   if (!initFile.existsSync()) {
