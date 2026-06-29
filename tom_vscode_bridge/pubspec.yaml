@@ -9,8 +9,8 @@ environment:
 # Add regular dependencies here.
 dependencies:
   path: ^1.9.0
-  tom_vscode_scripting_api: ^1.1.0
-  tom_d4rt: ^1.10.1
+  tom_vscode_scripting_api: ">=1.1.0"
+  tom_d4rt: ">=1.11.0"
   tom_d4rt_dcli:
 
 dev_dependencies:
