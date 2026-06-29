@@ -39,6 +39,44 @@
         return hr + 'h ago';
     }
 
+    /* The three tracked subsystems, rendered as a single fixed-order
+     * line of labelled dots. A subsystem with no status entry shows an
+     * idle (grey) dot; otherwise orange = prompt sent / waiting, green =
+     * answer received. */
+    var SUBSYSTEMS = ['queue', 'anthropic', 'copilot'];
+
+    function statusLineHtml(statusArray) {
+        var byName = {};
+        if (statusArray && statusArray.length) {
+            for (var j = 0; j < statusArray.length; j++) {
+                if (statusArray[j] && statusArray[j].subsystem) {
+                    byName[statusArray[j].subsystem] = statusArray[j];
+                }
+            }
+        }
+        var pills = '';
+        for (var k = 0; k < SUBSYSTEMS.length; k++) {
+            var name = SUBSYSTEMS[k];
+            var sub = byName[name];
+            var dotClass = 'idle';
+            var title = name + ': idle';
+            if (sub) {
+                if (sub.status === 'answer-received') {
+                    dotClass = 'answer-received';
+                    title = name + ': answer received ' + timeAgo(sub.lastAnswerAt);
+                } else {
+                    dotClass = 'prompt-sent';
+                    title = name + ': prompt sent ' + timeAgo(sub.promptStartedAt);
+                }
+            }
+            pills += '<span class="status-pill" title="' + escapeHtml(title) + '">'
+                + '<span class="status-dot ' + dotClass + '"></span>'
+                + '<span class="status-pill-label">' + escapeHtml(name) + '</span>'
+                + '</span>';
+        }
+        return '<div class="status-line">' + pills + '</div>';
+    }
+
     function renderStates() {
         if (states.length === 0) {
             windowList.innerHTML = '<div class="empty-state">'
@@ -53,28 +91,14 @@
             var questLabel = s.activeQuest || s.workspace || 'unknown';
             var aiConversationActive = s.aiConversationActive === true;
             var aiConversationHtml = '<div class="ai-conversation-line ' + (aiConversationActive ? 'active' : 'inactive') + '">AI conversation: ' + (aiConversationActive ? 'active' : 'inactive') + '</div>';
-            var subsHtml = '';
-            if (s.status && s.status.length > 0) {
-                for (var j = 0; j < s.status.length; j++) {
-                    var sub = s.status[j];
-                    var dotClass = sub.status === 'answer-received' ? 'answer-received' : 'prompt-sent';
-                    var statusLabel = sub.status === 'answer-received' ? 'Answer received' : 'Prompt sent';
-                    var ts = sub.status === 'answer-received' ? sub.lastAnswerAt : sub.promptStartedAt;
-                    subsHtml += '<div class="subsystem-item">'
-                        + '<span class="status-dot ' + dotClass + '" title="' + escapeHtml(statusLabel) + '"></span>'
-                        + '<span class="subsystem-name">' + escapeHtml(sub.subsystem) + '</span>'
-                        + '<span class="subsystem-time">' + escapeHtml(timeAgo(ts)) + '</span>'
-                        + '</div>';
-                }
-            }
             html += '<div class="window-card">'
                 + '<div class="window-card-header">'
                 + '<span class="window-workspace">' + escapeHtml(questLabel) + '</span>'
                 + '<button class="delete-btn" data-windowid="' + escapeHtml(s.windowId) + '" title="Remove window status">'
                 + '<span class="codicon codicon-trash"></span></button>'
                 + '</div>'
+                + statusLineHtml(s.status)
                 + aiConversationHtml
-                + (subsHtml ? '<div class="subsystem-list">' + subsHtml + '</div>' : '')
                 + '</div>';
         }
         windowList.innerHTML = html;

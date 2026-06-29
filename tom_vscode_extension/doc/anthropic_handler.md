@@ -146,6 +146,28 @@ Configure per-profile (`anthropicProfile`):
 
 > **Deeper reference:** the full input shape, the exported pure-logic surface (`isAskUserQuestionTool`, `parseAskUserQuestionInput`, `collectInteractiveAnswers`, `summarizeQuestions`, …), the `UserPrompter` seam, and the Global Template Editor `interactiveQuestions` category are specified in [anthropic_sdk_integration.md §18.11](anthropic_sdk_integration.md#1811-interactive-questions-askuserquestion).
 
+## 7. Backend-busy retry (all transports)
+
+Transient backend pressure — HTTP **429 / 500 / 503 / 529** and `overloaded_error` — is ridden out automatically, not surfaced as a failure. The retryable set is one shared classifier, `isRetryableBusyError` (`src/utils/retryableError.ts`), used by every send path so they agree on what "busy" means. It matches both error shapes: the raw Anthropic SDK's numeric `.status`, and the Claude Agent SDK's `API Error: <code> { … } · check status.claude.com` message string. **500 ("Internal server error") is included** — it is a server-side transient, not a client bug.
+
+How long it retries depends on the transport, but all of them honour the profile's **`retryMaxTotalWaitMinutes`** (default 10; set 240 for a 4-hour window that survives a long overload):
+
+| Transport | Mechanism | Bound | Backoff |
+| --- | --- | --- | --- |
+| `direct`, `localLlm` | `withRetryBudget` (`src/utils/retryWithBudget.ts`) | time budget = `retryMaxTotalWaitMinutes` | exponential, capped 5 min/step |
+| `agentSdk` | `runAgentSdkQuery` loop + `planAgentSdkRetry` (`src/services/agent-sdk-retry.ts`) | **busy** errors: same time budget; **non-busy** "resume interrupted work" errors: `anthropic.transportRetry.maxAttempts` (default 3) | exponential (`computeBackoffMs`), capped 5 min/step, bounded by remaining budget |
+
+On the `agentSdk` path a busy error keeps retrying past the small `maxAttempts` cap until the time budget is spent — a sustained 529 needs many spaced-out retries, not three instant ones. Each backoff sleep is cancellable (Stop button / cancellation token) and pushes a status line (`Anthropic API busy (Agent SDK) — retrying in …`) to the panel via `_onStatusUpdate`, plus a `[retry]` line to the Tom Tool Log. The `transportRetry` *template* (§5) still governs the continuation prompt sent when a retry **resumes** the failed session.
+
+### Retries are visible in the live-trail
+
+Every retry is also written into the quest's `live-trail.md` as a `### 🔁 retry` entry — the status line plus the triggering error in a fenced block — so you can see *that there was an error and it's being ridden out* without opening the Tom Tool Log, alongside the thinking / tool-call / assistant entries. This is emitted by `LiveTrailWriter.appendRetry` (a `{ kind: 'retry', message, cause }` event) and applies to **all transports**:
+
+- `direct` / `localLlm` — the enriched `withRetryBudget` `onRetryStatus(status, cause)` callback fires the panel status line *and* `liveTrail.appendRetry`.
+- `agentSdk` — `runAgentSdkQuery` calls `liveTrail.appendRetry` for **every** retry: busy errors (with the backoff status) and the non-busy "resume interrupted work" retries (with a `Retrying after error …` note).
+
+The retry entry does **not** close the prompt block — the turn continues — unlike the terminal `### ✅ DONE` / `### ⚠️ ERROR` / interruption banners. The Telegram trail forwarder mirrors it as a `🔁 retry — …` line so a remote follower sees the failure too.
+
 ## Related sections of the spec
 
 - §4 Trail system (raw + summary trails for `anthropic` subsystem)

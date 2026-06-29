@@ -21,6 +21,7 @@ import assert from 'node:assert/strict';
 import {
     isUnknownSessionError,
     planAgentSdkRetry,
+    computeBackoffMs,
     DEFAULT_TRANSPORT_RETRY_TEMPLATE,
     selectTransportRetryTemplateBody,
 } from '../agent-sdk-retry.js';
@@ -153,6 +154,111 @@ describe('planAgentSdkRetry — resume session', () => {
             capturedSessionId: 'sess-1',
         });
         assert.deepEqual(plan, { kind: 'retry-resume', sessionId: 'sess-1' });
+    });
+});
+
+describe('planAgentSdkRetry — busy errors are bounded by the time budget', () => {
+    test('a busy error keeps retrying past maxAttempts while within the budget', () => {
+        // attemptsMade far exceeds maxAttempts, but the budget is not yet spent.
+        const plan = planAgentSdkRetry({
+            attemptsMade: 9,
+            maxAttempts: 3,
+            errorMessage: 'API Error: 529 overloaded',
+            capturedSessionId: 'sess-1',
+            errorIsBusy: true,
+            elapsedMs: 60_000,
+            maxTotalWaitMs: 240 * 60_000,
+        });
+        assert.deepEqual(plan, { kind: 'retry-resume', sessionId: 'sess-1' });
+    });
+
+    test('a busy error gives up once the budget is exhausted', () => {
+        const plan = planAgentSdkRetry({
+            attemptsMade: 2,
+            maxAttempts: 99,
+            errorMessage: 'API Error: 529 overloaded',
+            capturedSessionId: 'sess-1',
+            errorIsBusy: true,
+            elapsedMs: 240 * 60_000,
+            maxTotalWaitMs: 240 * 60_000,
+        });
+        assert.deepEqual(plan, { kind: 'give-up' });
+    });
+
+    test('a busy error with no budget falls back to the maxAttempts count bound', () => {
+        const plan = planAgentSdkRetry({
+            attemptsMade: 3,
+            maxAttempts: 3,
+            errorMessage: 'API Error: 529 overloaded',
+            capturedSessionId: 'sess-1',
+            errorIsBusy: true,
+            // no maxTotalWaitMs → count-bounded → exhausted
+        });
+        assert.deepEqual(plan, { kind: 'give-up' });
+    });
+
+    test('a NON-busy error stays count-bounded even when a budget is supplied', () => {
+        const plan = planAgentSdkRetry({
+            attemptsMade: 3,
+            maxAttempts: 3,
+            errorMessage: 'some non-retryable failure',
+            capturedSessionId: 'sess-1',
+            errorIsBusy: false,
+            elapsedMs: 1_000,
+            maxTotalWaitMs: 240 * 60_000,
+        });
+        assert.deepEqual(plan, { kind: 'give-up' });
+    });
+
+    test('cancellation still wins over an in-budget busy error', () => {
+        const plan = planAgentSdkRetry({
+            attemptsMade: 1,
+            maxAttempts: 3,
+            errorMessage: 'API Error: 529 overloaded',
+            capturedSessionId: 'sess-1',
+            errorIsBusy: true,
+            elapsedMs: 0,
+            maxTotalWaitMs: 240 * 60_000,
+            cancelled: true,
+        });
+        assert.deepEqual(plan, { kind: 'give-up' });
+    });
+
+    test('a busy budget retry with no session id restarts fresh', () => {
+        const plan = planAgentSdkRetry({
+            attemptsMade: 5,
+            maxAttempts: 3,
+            errorMessage: 'API Error: 500 Internal server error',
+            errorIsBusy: true,
+            elapsedMs: 10_000,
+            maxTotalWaitMs: 240 * 60_000,
+        });
+        assert.deepEqual(plan, { kind: 'retry-fresh' });
+    });
+});
+
+describe('computeBackoffMs — exponential backoff for busy retries', () => {
+    test('doubles from the initial delay per retry index', () => {
+        const opts = { initialDelayMs: 1000, maxDelayMs: 5 * 60 * 1000 };
+        assert.equal(computeBackoffMs(0, opts), 1000);
+        assert.equal(computeBackoffMs(1, opts), 2000);
+        assert.equal(computeBackoffMs(2, opts), 4000);
+        assert.equal(computeBackoffMs(3, opts), 8000);
+    });
+
+    test('caps at maxDelayMs', () => {
+        const opts = { initialDelayMs: 1000, maxDelayMs: 10_000 };
+        assert.equal(computeBackoffMs(10, opts), 10_000);
+    });
+
+    test('clamps negative / fractional indices to index 0', () => {
+        assert.equal(computeBackoffMs(-3, { initialDelayMs: 500 }), 500);
+        assert.equal(computeBackoffMs(0.9, { initialDelayMs: 500 }), 500);
+    });
+
+    test('uses sane defaults when no options are given', () => {
+        assert.equal(computeBackoffMs(0), 1000);
+        assert.equal(computeBackoffMs(100), 5 * 60 * 1000);
     });
 });
 

@@ -242,8 +242,8 @@ function renderEntry(item, idx) {
           (item.lastDispatched && !isSending && !isError
             ? '<span class="codicon codicon-refresh" style="cursor:pointer;color:#000;" onclick="resendLastPrompt(\'' + safeId + '\')" title="Resend last prompt (keeps repetition counters)"></span>'
             : '') +
-          (isPending ? '<span class="codicon codicon-arrow-up" style="cursor:pointer;color:#000;" onclick="moveDown(\'' + safeId + '\')" title="Move up (away from send)"></span>' : '') +
-          (isPending ? '<span class="codicon codicon-arrow-down" style="cursor:pointer;color:#000;" onclick="moveUp(\'' + safeId + '\')" title="Move down (closer to send)"></span>' : '') +
+          (isPending ? '<span class="codicon codicon-arrow-up" style="cursor:pointer;color:#000;" onclick="moveUp(\'' + safeId + '\')" title="Move up (closer to queue top — sent sooner)"></span>' : '') +
+          (isPending ? '<span class="codicon codicon-arrow-down" style="cursor:pointer;color:#000;" onclick="moveDown(\'' + safeId + '\')" title="Move down (closer to queue end — sent later)"></span>' : '') +
           (isPending ? '<span class="codicon codicon-arrow-circle-up" style="cursor:pointer;color:#000;" onclick="moveToFront(\'' + safeId + '\')" title="Send next (move to front of pending queue)"></span>' : '') +
           (isSending ? '<span class="codicon ' + (reminderEnabled ? 'codicon-bell' : 'codicon-bell-slash') + '" style="cursor:pointer;color:' + (reminderEnabled ? '#000' : '#888') + ';" onclick="toggleReminder(\'' + safeId + '\', ' + !reminderEnabled + ')" title="' + (reminderEnabled ? 'Reminders ON - click to disable' : 'Reminders OFF - click to enable') + '"></span>' : '') +
           // Staged-only: once an item is pending or sending, the

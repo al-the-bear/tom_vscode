@@ -1,8 +1,8 @@
 // D4rt Bridge - Generated file, do not edit
 // Sources: 34 files
-// Generated: 2026-06-17T13:44:56.654195
+// Generated: 2026-06-28T14:31:01.610907
 
-// ignore_for_file: unused_import, deprecated_member_use, prefer_function_declarations_over_variables, implementation_imports, sort_child_properties_last, non_constant_identifier_names, avoid_function_literals_in_foreach_calls, invalid_use_of_protected_member, unnecessary_non_null_assertion, invalid_use_of_visible_for_testing_member, unnecessary_cast, unused_local_variable, no_leading_underscores_for_local_identifiers, prefer_is_empty, unnecessary_question_mark, unreachable_switch_case, unintended_html_in_doc_comment, empty_constructor_bodies, prefer_const_constructors_in_immutables, prefer_final_fields, unused_field, must_call_super, no_logic_in_create_state, use_key_in_widget_constructors, annotate_overrides, unnecessary_import
+// ignore_for_file: unused_import, deprecated_member_use, prefer_function_declarations_over_variables, implementation_imports, sort_child_properties_last, non_constant_identifier_names, avoid_function_literals_in_foreach_calls, invalid_use_of_protected_member, unnecessary_non_null_assertion, invalid_use_of_visible_for_testing_member, unnecessary_cast, unused_local_variable, no_leading_underscores_for_local_identifiers, prefer_is_empty, unnecessary_question_mark, unreachable_switch_case, unintended_html_in_doc_comment, empty_constructor_bodies, prefer_const_constructors_in_immutables, prefer_final_fields, unused_field, must_call_super, no_logic_in_create_state, use_key_in_widget_constructors, annotate_overrides, non_const_argument_for_const_parameter, unnecessary_import
 
 import 'package:tom_d4rt/d4rt.dart';
 import 'package:tom_d4rt/tom_d4rt.dart';
@@ -50,6 +50,10 @@ import 'package:tom_vscode_scripting_api/src/vscode_workspace.dart' as $tom_vsco
 /// Bridge class for all module.
 class AllBridge {
   /// Returns all bridge class definitions.
+  ///
+  /// Eager — building every class. Prefer [bridgeClassThunks] +
+  /// [bridgeClassTypes] for lazy registration (Step #17); this remains
+  /// for diagnostics and callers that need the full list.
   static List<BridgedClass> bridgeClasses() {
     return [
       _createBridgeLoggingBridge(),
@@ -214,6 +218,345 @@ class AllBridge {
       _createTomChatApiBridge(),
       _createBridgedClassBridge(),
     ];
+  }
+
+  /// Returns deferred factory thunks keyed by class name.
+  ///
+  /// Each thunk builds one class's [BridgedClass] on demand. Plugs into
+  /// the interpreter's lazy registry via [registerBridges] (Step #17).
+  static Map<String, BridgedClass Function()> bridgeClassThunks() {
+    return {
+      'BridgeLogging': _createBridgeLoggingBridge,
+      'ExecutionContext': _createExecutionContextBridge,
+      'VSCodeBridgeServer': _createVSCodeBridgeServerBridge,
+      'VsCodeBridge': _createVsCodeBridgeBridge,
+      'VSCodeAdapter': _createVSCodeAdapterBridge,
+      'VSCodeBridgeResult': _createVSCodeBridgeResultBridge,
+      'VSCodeBridgeClient': _createVSCodeBridgeClientBridge,
+      'VSCodeBridgeAdapter': _createVSCodeBridgeAdapterBridge,
+      'LazyVSCodeBridgeAdapter': _createLazyVSCodeBridgeAdapterBridge,
+      'BridgeWorkspaceNotFoundException': _createBridgeWorkspaceNotFoundExceptionBridge,
+      'VSCode': _createVSCodeBridge,
+      'VSCodeCommands': _createVSCodeCommandsBridge,
+      'VSCodeCommonCommands': _createVSCodeCommonCommandsBridge,
+      'Extension': _createExtensionBridge,
+      'VSCodeExtensions': _createVSCodeExtensionsBridge,
+      'VSCodeLanguageModel': _createVSCodeLanguageModelBridge,
+      'LanguageModelChat': _createLanguageModelChatBridge,
+      'LanguageModelChatMessage': _createLanguageModelChatMessageBridge,
+      'LanguageModelChatResponse': _createLanguageModelChatResponseBridge,
+      'LanguageModelToolResult': _createLanguageModelToolResultBridge,
+      'LanguageModelToolInformation': _createLanguageModelToolInformationBridge,
+      'VSCodeWindow': _createVSCodeWindowBridge,
+      'VSCodeWorkspace': _createVSCodeWorkspaceBridge,
+      'VSCodeChat': _createVSCodeChatBridge,
+      'ChatParticipant': _createChatParticipantBridge,
+      'ChatRequest': _createChatRequestBridge,
+      'ChatPromptReference': _createChatPromptReferenceBridge,
+      'ChatContext': _createChatContextBridge,
+      'ChatResult': _createChatResultBridge,
+      'ChatErrorDetails': _createChatErrorDetailsBridge,
+      'ChatResponseStream': _createChatResponseStreamBridge,
+      'HelperLogging': _createHelperLoggingBridge,
+      'VsCodeHelper': _createVsCodeHelperBridge,
+      'VsProgress': _createVsProgressBridge,
+      'FileBatch': _createFileBatchBridge,
+      'VSCodeUri': _createVSCodeUriBridge,
+      'WorkspaceFolder': _createWorkspaceFolderBridge,
+      'TextDocument': _createTextDocumentBridge,
+      'Position': _createPositionBridge,
+      'Range': _createRangeBridge,
+      'Selection': _createSelectionBridge,
+      'TextEditor': _createTextEditorBridge,
+      'QuickPickItem': _createQuickPickItemBridge,
+      'InputBoxOptions': _createInputBoxOptionsBridge,
+      'MessageOptions': _createMessageOptionsBridge,
+      'TerminalOptions': _createTerminalOptionsBridge,
+      'FileSystemWatcherOptions': _createFileSystemWatcherOptionsBridge,
+      'SdkMessage': _createSdkMessageBridge,
+      'SdkAssistantMessage': _createSdkAssistantMessageBridge,
+      'SdkUserMessage': _createSdkUserMessageBridge,
+      'SdkResultMessage': _createSdkResultMessageBridge,
+      'SdkSystemMessage': _createSdkSystemMessageBridge,
+      'SdkPartialAssistantMessage': _createSdkPartialAssistantMessageBridge,
+      'SdkSystemEvent': _createSdkSystemEventBridge,
+      'SdkUnknownMessage': _createSdkUnknownMessageBridge,
+      'ContentBlock': _createContentBlockBridge,
+      'TextBlock': _createTextBlockBridge,
+      'ThinkingBlock': _createThinkingBlockBridge,
+      'ToolUseBlock': _createToolUseBlockBridge,
+      'ToolResultBlock': _createToolResultBlockBridge,
+      'UnknownBlock': _createUnknownBlockBridge,
+      'PermissionRuleValue': _createPermissionRuleValueBridge,
+      'PermissionUpdate': _createPermissionUpdateBridge,
+      'PermissionUpdateRules': _createPermissionUpdateRulesBridge,
+      'PermissionUpdateSetMode': _createPermissionUpdateSetModeBridge,
+      'PermissionUpdateDirectories': _createPermissionUpdateDirectoriesBridge,
+      'PermissionResult': _createPermissionResultBridge,
+      'PermissionAllow': _createPermissionAllowBridge,
+      'PermissionDeny': _createPermissionDenyBridge,
+      'CanUseToolContext': _createCanUseToolContextBridge,
+      'CallToolResult': _createCallToolResultBridge,
+      'SdkMcpTool': _createSdkMcpToolBridge,
+      'McpServerToolPolicy': _createMcpServerToolPolicyBridge,
+      'McpServerConfig': _createMcpServerConfigBridge,
+      'McpStdioServerConfig': _createMcpStdioServerConfigBridge,
+      'McpSSEServerConfig': _createMcpSSEServerConfigBridge,
+      'McpHttpServerConfig': _createMcpHttpServerConfigBridge,
+      'McpSdkServerConfig': _createMcpSdkServerConfigBridge,
+      'SystemPrompt': _createSystemPromptBridge,
+      'SystemPromptText': _createSystemPromptTextBridge,
+      'SystemPromptList': _createSystemPromptListBridge,
+      'SystemPromptPreset': _createSystemPromptPresetBridge,
+      'ToolsConfig': _createToolsConfigBridge,
+      'ToolsList': _createToolsListBridge,
+      'ToolsClaudeCodePreset': _createToolsClaudeCodePresetBridge,
+      'ThinkingConfig': _createThinkingConfigBridge,
+      'ThinkingAdaptive': _createThinkingAdaptiveBridge,
+      'ThinkingEnabled': _createThinkingEnabledBridge,
+      'ThinkingDisabled': _createThinkingDisabledBridge,
+      'Skills': _createSkillsBridge,
+      'SkillsList': _createSkillsListBridge,
+      'SkillsAll': _createSkillsAllBridge,
+      'SettingsRef': _createSettingsRefBridge,
+      'SettingsPath': _createSettingsPathBridge,
+      'SettingsInline': _createSettingsInlineBridge,
+      'OutputFormat': _createOutputFormatBridge,
+      'TaskBudget': _createTaskBudgetBridge,
+      'PluginConfig': _createPluginConfigBridge,
+      'AgentDefinition': _createAgentDefinitionBridge,
+      'Options': _createOptionsBridge,
+      'AgentSdkTransport': _createAgentSdkTransportBridge,
+      'AgentSdkQueryException': _createAgentSdkQueryExceptionBridge,
+      'AgentQuery': _createAgentQueryBridge,
+      'AgentSdkClient': _createAgentSdkClientBridge,
+      'VSCodeBridgeAgentSdkTransport': _createVSCodeBridgeAgentSdkTransportBridge,
+      'BridgeRequestDispatcher': _createBridgeRequestDispatcherBridge,
+      'AgentSdkToolRegistry': _createAgentSdkToolRegistryBridge,
+      'AiTokenStats': _createAiTokenStatsBridge,
+      'AiPromptResult': _createAiPromptResultBridge,
+      'AiPromptProfile': _createAiPromptProfileBridge,
+      'AiModelConfig': _createAiModelConfigBridge,
+      'AiModelsResult': _createAiModelsResultBridge,
+      'AiPromptApi': _createAiPromptApiBridge,
+      'CopilotResponse': _createCopilotResponseBridge,
+      'ConversationExchange': _createConversationExchangeBridge,
+      'ConversationResult': _createConversationResultBridge,
+      'ConversationStatus': _createConversationStatusBridge,
+      'ConversationProfile': _createConversationProfileBridge,
+      'ConversationConfig': _createConversationConfigBridge,
+      'SingleTurnResult': _createSingleTurnResultBridge,
+      'ConversationActionResult': _createConversationActionResultBridge,
+      'ConversationLog': _createConversationLogBridge,
+      'AiConversationApi': _createAiConversationApiBridge,
+      'TodoReference': _createTodoReferenceBridge,
+      'TodoScope': _createTodoScopeBridge,
+      'TodoItem': _createTodoItemBridge,
+      'TodoListResult': _createTodoListResultBridge,
+      'TodoFileListResult': _createTodoFileListResultBridge,
+      'TomTodoApi': _createTomTodoApiBridge,
+      'QueuedFollowUp': _createQueuedFollowUpBridge,
+      'QueuedPrompt': _createQueuedPromptBridge,
+      'QueueListResult': _createQueueListResultBridge,
+      'QueueItemInput': _createQueueItemInputBridge,
+      'FollowUpInput': _createFollowUpInputBridge,
+      'TomQueueApi': _createTomQueueApiBridge,
+      'ScheduledTime': _createScheduledTimeBridge,
+      'TimedRequest': _createTimedRequestBridge,
+      'TimedRequestListResult': _createTimedRequestListResultBridge,
+      'TimedRequestInput': _createTimedRequestInputBridge,
+      'TomTimedApi': _createTomTimedApiBridge,
+      'DocumentInfo': _createDocumentInfoBridge,
+      'DocumentListResult': _createDocumentListResultBridge,
+      'DocumentContent': _createDocumentContentBridge,
+      'TrailEntry': _createTrailEntryBridge,
+      'TrailListResult': _createTrailListResultBridge,
+      'GuidelineInfo': _createGuidelineInfoBridge,
+      'GuidelineListResult': _createGuidelineListResultBridge,
+      'TomDocumentApi': _createTomDocumentApiBridge,
+      'ProjectInfo': _createProjectInfoBridge,
+      'ProjectListResult': _createProjectListResultBridge,
+      'QuestInfo': _createQuestInfoBridge,
+      'QuestListResult': _createQuestListResultBridge,
+      'WorkspaceInfo': _createWorkspaceInfoBridge,
+      'ChatVariable': _createChatVariableBridge,
+      'ChatVariableListResult': _createChatVariableListResultBridge,
+      'TomWorkspaceApi': _createTomWorkspaceApiBridge,
+      'ToolDefinitionJson': _createToolDefinitionJsonBridge,
+      'TomToolsApi': _createTomToolsApiBridge,
+      'SendToChatResult': _createSendToChatResultBridge,
+      'TomChatApi': _createTomChatApiBridge,
+      'BridgedClass': _createBridgedClassBridge,
+    };
+  }
+
+  /// Returns native [Type]s keyed by class name, parallel to
+  /// [bridgeClassThunks] (Step #17). Used to register the native-type
+  /// lookup thunk without building the BridgedClass.
+  static Map<String, Type> bridgeClassTypes() {
+    return {
+      'BridgeLogging': $tom_vscode_bridge_1.BridgeLogging,
+      'ExecutionContext': $tom_vscode_bridge_1.ExecutionContext,
+      'VSCodeBridgeServer': $tom_vscode_bridge_1.VSCodeBridgeServer,
+      'VsCodeBridge': $tom_vscode_bridge_2.VsCodeBridge,
+      'VSCodeAdapter': $tom_vscode_scripting_api_21.VSCodeAdapter,
+      'VSCodeBridgeResult': $tom_vscode_scripting_api_23.VSCodeBridgeResult,
+      'VSCodeBridgeClient': $tom_vscode_scripting_api_23.VSCodeBridgeClient,
+      'VSCodeBridgeAdapter': $tom_vscode_scripting_api_22.VSCodeBridgeAdapter,
+      'LazyVSCodeBridgeAdapter': $tom_vscode_scripting_api_22.LazyVSCodeBridgeAdapter,
+      'BridgeWorkspaceNotFoundException': $tom_vscode_scripting_api_11.BridgeWorkspaceNotFoundException,
+      'VSCode': $tom_vscode_scripting_api_20.VSCode,
+      'VSCodeCommands': $tom_vscode_scripting_api_25.VSCodeCommands,
+      'VSCodeCommonCommands': $tom_vscode_scripting_api_25.VSCodeCommonCommands,
+      'Extension': $tom_vscode_scripting_api_26.Extension,
+      'VSCodeExtensions': $tom_vscode_scripting_api_26.VSCodeExtensions,
+      'VSCodeLanguageModel': $tom_vscode_scripting_api_28.VSCodeLanguageModel,
+      'LanguageModelChat': $tom_vscode_scripting_api_28.LanguageModelChat,
+      'LanguageModelChatMessage': $tom_vscode_scripting_api_28.LanguageModelChatMessage,
+      'LanguageModelChatResponse': $tom_vscode_scripting_api_28.LanguageModelChatResponse,
+      'LanguageModelToolResult': $tom_vscode_scripting_api_28.LanguageModelToolResult,
+      'LanguageModelToolInformation': $tom_vscode_scripting_api_28.LanguageModelToolInformation,
+      'VSCodeWindow': $tom_vscode_scripting_api_30.VSCodeWindow,
+      'VSCodeWorkspace': $tom_vscode_scripting_api_31.VSCodeWorkspace,
+      'VSCodeChat': $tom_vscode_scripting_api_24.VSCodeChat,
+      'ChatParticipant': $tom_vscode_scripting_api_24.ChatParticipant,
+      'ChatRequest': $tom_vscode_scripting_api_24.ChatRequest,
+      'ChatPromptReference': $tom_vscode_scripting_api_24.ChatPromptReference,
+      'ChatContext': $tom_vscode_scripting_api_24.ChatContext,
+      'ChatResult': $tom_vscode_scripting_api_24.ChatResult,
+      'ChatErrorDetails': $tom_vscode_scripting_api_24.ChatErrorDetails,
+      'ChatResponseStream': $tom_vscode_scripting_api_24.ChatResponseStream,
+      'HelperLogging': $tom_vscode_scripting_api_27.HelperLogging,
+      'VsCodeHelper': $tom_vscode_scripting_api_27.VsCodeHelper,
+      'VsProgress': $tom_vscode_scripting_api_27.VsProgress,
+      'FileBatch': $tom_vscode_scripting_api_27.FileBatch,
+      'VSCodeUri': $tom_vscode_scripting_api_29.VSCodeUri,
+      'WorkspaceFolder': $tom_vscode_scripting_api_29.WorkspaceFolder,
+      'TextDocument': $tom_vscode_scripting_api_29.TextDocument,
+      'Position': $tom_vscode_scripting_api_29.Position,
+      'Range': $tom_vscode_scripting_api_29.Range,
+      'Selection': $tom_vscode_scripting_api_29.Selection,
+      'TextEditor': $tom_vscode_scripting_api_29.TextEditor,
+      'QuickPickItem': $tom_vscode_scripting_api_29.QuickPickItem,
+      'InputBoxOptions': $tom_vscode_scripting_api_29.InputBoxOptions,
+      'MessageOptions': $tom_vscode_scripting_api_29.MessageOptions,
+      'TerminalOptions': $tom_vscode_scripting_api_29.TerminalOptions,
+      'FileSystemWatcherOptions': $tom_vscode_scripting_api_29.FileSystemWatcherOptions,
+      'SdkMessage': $tom_vscode_scripting_api_3.SdkMessage,
+      'SdkAssistantMessage': $tom_vscode_scripting_api_3.SdkAssistantMessage,
+      'SdkUserMessage': $tom_vscode_scripting_api_3.SdkUserMessage,
+      'SdkResultMessage': $tom_vscode_scripting_api_3.SdkResultMessage,
+      'SdkSystemMessage': $tom_vscode_scripting_api_3.SdkSystemMessage,
+      'SdkPartialAssistantMessage': $tom_vscode_scripting_api_3.SdkPartialAssistantMessage,
+      'SdkSystemEvent': $tom_vscode_scripting_api_3.SdkSystemEvent,
+      'SdkUnknownMessage': $tom_vscode_scripting_api_3.SdkUnknownMessage,
+      'ContentBlock': $tom_vscode_scripting_api_3.ContentBlock,
+      'TextBlock': $tom_vscode_scripting_api_3.TextBlock,
+      'ThinkingBlock': $tom_vscode_scripting_api_3.ThinkingBlock,
+      'ToolUseBlock': $tom_vscode_scripting_api_3.ToolUseBlock,
+      'ToolResultBlock': $tom_vscode_scripting_api_3.ToolResultBlock,
+      'UnknownBlock': $tom_vscode_scripting_api_3.UnknownBlock,
+      'PermissionRuleValue': $tom_vscode_scripting_api_6.PermissionRuleValue,
+      'PermissionUpdate': $tom_vscode_scripting_api_6.PermissionUpdate,
+      'PermissionUpdateRules': $tom_vscode_scripting_api_6.PermissionUpdateRules,
+      'PermissionUpdateSetMode': $tom_vscode_scripting_api_6.PermissionUpdateSetMode,
+      'PermissionUpdateDirectories': $tom_vscode_scripting_api_6.PermissionUpdateDirectories,
+      'PermissionResult': $tom_vscode_scripting_api_6.PermissionResult,
+      'PermissionAllow': $tom_vscode_scripting_api_6.PermissionAllow,
+      'PermissionDeny': $tom_vscode_scripting_api_6.PermissionDeny,
+      'CanUseToolContext': $tom_vscode_scripting_api_6.CanUseToolContext,
+      'CallToolResult': $tom_vscode_scripting_api_2.CallToolResult,
+      'SdkMcpTool': $tom_vscode_scripting_api_2.SdkMcpTool,
+      'McpServerToolPolicy': $tom_vscode_scripting_api_2.McpServerToolPolicy,
+      'McpServerConfig': $tom_vscode_scripting_api_2.McpServerConfig,
+      'McpStdioServerConfig': $tom_vscode_scripting_api_2.McpStdioServerConfig,
+      'McpSSEServerConfig': $tom_vscode_scripting_api_2.McpSSEServerConfig,
+      'McpHttpServerConfig': $tom_vscode_scripting_api_2.McpHttpServerConfig,
+      'McpSdkServerConfig': $tom_vscode_scripting_api_2.McpSdkServerConfig,
+      'SystemPrompt': $tom_vscode_scripting_api_4.SystemPrompt,
+      'SystemPromptText': $tom_vscode_scripting_api_4.SystemPromptText,
+      'SystemPromptList': $tom_vscode_scripting_api_4.SystemPromptList,
+      'SystemPromptPreset': $tom_vscode_scripting_api_4.SystemPromptPreset,
+      'ToolsConfig': $tom_vscode_scripting_api_4.ToolsConfig,
+      'ToolsList': $tom_vscode_scripting_api_4.ToolsList,
+      'ToolsClaudeCodePreset': $tom_vscode_scripting_api_4.ToolsClaudeCodePreset,
+      'ThinkingConfig': $tom_vscode_scripting_api_4.ThinkingConfig,
+      'ThinkingAdaptive': $tom_vscode_scripting_api_4.ThinkingAdaptive,
+      'ThinkingEnabled': $tom_vscode_scripting_api_4.ThinkingEnabled,
+      'ThinkingDisabled': $tom_vscode_scripting_api_4.ThinkingDisabled,
+      'Skills': $tom_vscode_scripting_api_4.Skills,
+      'SkillsList': $tom_vscode_scripting_api_4.SkillsList,
+      'SkillsAll': $tom_vscode_scripting_api_4.SkillsAll,
+      'SettingsRef': $tom_vscode_scripting_api_4.SettingsRef,
+      'SettingsPath': $tom_vscode_scripting_api_4.SettingsPath,
+      'SettingsInline': $tom_vscode_scripting_api_4.SettingsInline,
+      'OutputFormat': $tom_vscode_scripting_api_4.OutputFormat,
+      'TaskBudget': $tom_vscode_scripting_api_4.TaskBudget,
+      'PluginConfig': $tom_vscode_scripting_api_4.PluginConfig,
+      'AgentDefinition': $tom_vscode_scripting_api_4.AgentDefinition,
+      'Options': $tom_vscode_scripting_api_4.Options,
+      'AgentSdkTransport': $tom_vscode_scripting_api_7.AgentSdkTransport,
+      'AgentSdkQueryException': $tom_vscode_scripting_api_7.AgentSdkQueryException,
+      'AgentQuery': $tom_vscode_scripting_api_7.AgentQuery,
+      'AgentSdkClient': $tom_vscode_scripting_api_7.AgentSdkClient,
+      'VSCodeBridgeAgentSdkTransport': $tom_vscode_scripting_api_7.VSCodeBridgeAgentSdkTransport,
+      'BridgeRequestDispatcher': $tom_vscode_scripting_api_12.BridgeRequestDispatcher,
+      'AgentSdkToolRegistry': $tom_vscode_scripting_api_8.AgentSdkToolRegistry,
+      'AiTokenStats': $tom_vscode_scripting_api_10.AiTokenStats,
+      'AiPromptResult': $tom_vscode_scripting_api_10.AiPromptResult,
+      'AiPromptProfile': $tom_vscode_scripting_api_10.AiPromptProfile,
+      'AiModelConfig': $tom_vscode_scripting_api_10.AiModelConfig,
+      'AiModelsResult': $tom_vscode_scripting_api_10.AiModelsResult,
+      'AiPromptApi': $tom_vscode_scripting_api_10.AiPromptApi,
+      'CopilotResponse': $tom_vscode_scripting_api_9.CopilotResponse,
+      'ConversationExchange': $tom_vscode_scripting_api_9.ConversationExchange,
+      'ConversationResult': $tom_vscode_scripting_api_9.ConversationResult,
+      'ConversationStatus': $tom_vscode_scripting_api_9.ConversationStatus,
+      'ConversationProfile': $tom_vscode_scripting_api_9.ConversationProfile,
+      'ConversationConfig': $tom_vscode_scripting_api_9.ConversationConfig,
+      'SingleTurnResult': $tom_vscode_scripting_api_9.SingleTurnResult,
+      'ConversationActionResult': $tom_vscode_scripting_api_9.ConversationActionResult,
+      'ConversationLog': $tom_vscode_scripting_api_9.ConversationLog,
+      'AiConversationApi': $tom_vscode_scripting_api_9.AiConversationApi,
+      'TodoReference': $tom_vscode_scripting_api_17.TodoReference,
+      'TodoScope': $tom_vscode_scripting_api_17.TodoScope,
+      'TodoItem': $tom_vscode_scripting_api_17.TodoItem,
+      'TodoListResult': $tom_vscode_scripting_api_17.TodoListResult,
+      'TodoFileListResult': $tom_vscode_scripting_api_17.TodoFileListResult,
+      'TomTodoApi': $tom_vscode_scripting_api_17.TomTodoApi,
+      'QueuedFollowUp': $tom_vscode_scripting_api_15.QueuedFollowUp,
+      'QueuedPrompt': $tom_vscode_scripting_api_15.QueuedPrompt,
+      'QueueListResult': $tom_vscode_scripting_api_15.QueueListResult,
+      'QueueItemInput': $tom_vscode_scripting_api_15.QueueItemInput,
+      'FollowUpInput': $tom_vscode_scripting_api_15.FollowUpInput,
+      'TomQueueApi': $tom_vscode_scripting_api_15.TomQueueApi,
+      'ScheduledTime': $tom_vscode_scripting_api_16.ScheduledTime,
+      'TimedRequest': $tom_vscode_scripting_api_16.TimedRequest,
+      'TimedRequestListResult': $tom_vscode_scripting_api_16.TimedRequestListResult,
+      'TimedRequestInput': $tom_vscode_scripting_api_16.TimedRequestInput,
+      'TomTimedApi': $tom_vscode_scripting_api_16.TomTimedApi,
+      'DocumentInfo': $tom_vscode_scripting_api_14.DocumentInfo,
+      'DocumentListResult': $tom_vscode_scripting_api_14.DocumentListResult,
+      'DocumentContent': $tom_vscode_scripting_api_14.DocumentContent,
+      'TrailEntry': $tom_vscode_scripting_api_14.TrailEntry,
+      'TrailListResult': $tom_vscode_scripting_api_14.TrailListResult,
+      'GuidelineInfo': $tom_vscode_scripting_api_14.GuidelineInfo,
+      'GuidelineListResult': $tom_vscode_scripting_api_14.GuidelineListResult,
+      'TomDocumentApi': $tom_vscode_scripting_api_14.TomDocumentApi,
+      'ProjectInfo': $tom_vscode_scripting_api_19.ProjectInfo,
+      'ProjectListResult': $tom_vscode_scripting_api_19.ProjectListResult,
+      'QuestInfo': $tom_vscode_scripting_api_19.QuestInfo,
+      'QuestListResult': $tom_vscode_scripting_api_19.QuestListResult,
+      'WorkspaceInfo': $tom_vscode_scripting_api_19.WorkspaceInfo,
+      'ChatVariable': $tom_vscode_scripting_api_19.ChatVariable,
+      'ChatVariableListResult': $tom_vscode_scripting_api_19.ChatVariableListResult,
+      'TomWorkspaceApi': $tom_vscode_scripting_api_19.TomWorkspaceApi,
+      'ToolDefinitionJson': $tom_vscode_scripting_api_18.ToolDefinitionJson,
+      'TomToolsApi': $tom_vscode_scripting_api_18.TomToolsApi,
+      'SendToChatResult': $tom_vscode_scripting_api_13.SendToChatResult,
+      'TomChatApi': $tom_vscode_scripting_api_13.TomChatApi,
+      'BridgedClass': $tom_d4rt_1.BridgedClass,
+    };
   }
 
   /// Returns a map of class names to their canonical source URIs.
@@ -662,6 +1005,9 @@ class AllBridge {
   static List<({String source, String target, Set<String>? show, Set<String>? hide})>
   bridgeReExports() {
     return [
+      (source: 'package:tom_vscode_bridge/tom_vscode_bridge.dart', target: 'package:tom_vscode_bridge/bridge_server.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_bridge/tom_vscode_bridge.dart', target: 'package:tom_vscode_bridge/script_api.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_bridge/tom_vscode_bridge.dart', target: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', show: null, hide: null),
       (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_adapter.dart', show: null, hide: null),
       (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_bridge_client.dart', show: null, hide: null),
       (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_bridge_adapter.dart', show: null, hide: null),
@@ -702,11 +1048,20 @@ class AllBridge {
   /// [importPath] is the package import path that D4rt scripts will use
   /// to access these classes (e.g., 'package:tom_build/tom.dart').
   static void registerBridges(D4rt interpreter, String importPath) {
-    // Register bridged classes with source URIs for deduplication
-    final classes = bridgeClasses();
+    // Step #17 — register deferred factory thunks (not pre-built
+    // BridgedClass objects): a script touching N of the M classes
+    // materializes ≈N (each thunk builds its class on first resolve).
+    final classThunks = bridgeClassThunks();
+    final classTypes = bridgeClassTypes();
     final classSources = classSourceUris();
-    for (final bridge in classes) {
-      interpreter.registerBridgedClass(bridge, importPath, sourceUri: classSources[bridge.name]);
+    for (final entry in classThunks.entries) {
+      interpreter.registerBridgedClassLazy(
+        entry.key,
+        classTypes[entry.key]!,
+        entry.value,
+        importPath,
+        sourceUri: classSources[entry.key],
+      );
     }
 
     // MCI#1 / A1: Register the flattened native supertype table so
@@ -1499,6 +1854,16 @@ BridgedClass _createVSCodeBridgeServerBridge() {
       'extensionPushMessages': (visitor, target) => D4.validateTarget<$tom_vscode_bridge_1.VSCodeBridgeServer>(target, 'VSCodeBridgeServer').extensionPushMessages,
     },
     methods: {
+      'debugInjectExtensionPush': (visitor, target, positional, named, typeArgs) {
+        final t = D4.validateTarget<$tom_vscode_bridge_1.VSCodeBridgeServer>(target, 'VSCodeBridgeServer');
+        D4.requireMinArgs(positional, 1, 'debugInjectExtensionPush');
+        if (positional.isEmpty) {
+          throw ArgumentError('debugInjectExtensionPush: Missing required argument "message" at position 0');
+        }
+        final message = D4.coerceMap<String, dynamic>(positional[0], 'message');
+        t.debugInjectExtensionPush(message);
+        return null;
+      },
       'start': (visitor, target, positional, named, typeArgs) {
         final t = D4.validateTarget<$tom_vscode_bridge_1.VSCodeBridgeServer>(target, 'VSCodeBridgeServer');
         t.start();
@@ -1581,6 +1946,7 @@ BridgedClass _createVSCodeBridgeServerBridge() {
       '': 'VSCodeBridgeServer({List<BridgeRegistrar>? additionalBridgeRegistrars, String? initSource})',
     },
     methodSignatures: {
+      'debugInjectExtensionPush': 'void debugInjectExtensionPush(Map<String, dynamic> message)',
       'start': 'void start()',
       'handleCliRequest': 'Future<Map<String, dynamic>?> handleCliRequest(String method, Map<String, dynamic> params, Object? id, void Function(String message) sendLogToSocket)',
       'sendRequest': 'Future<Map<String, dynamic>> sendRequest(String method, Map<String, dynamic> params, {String? scriptName, Duration timeout = const Duration(seconds: 30)})',
@@ -11471,6 +11837,8 @@ BridgedClass _createBridgedClassBridge() {
         final nativeNames = D4.coerceListOrNull<String>(named['nativeNames'], 'nativeNames');
         final typeParameterCount = D4.getNamedArgWithDefault<int>(named, 'typeParameterCount', 0);
         final canBeUsedAsMixin = D4.getNamedArgWithDefault<bool>(named, 'canBeUsedAsMixin', false);
+        final isAbstract = D4.getNamedArgWithDefault<bool>(named, 'isAbstract', false);
+        final hierarchyDepth = D4.getNamedArgWithDefault<int>(named, 'hierarchyDepth', 0);
         final isAssignableRaw = named['isAssignable'];
         final constructors = named.containsKey('constructors') && named['constructors'] != null
             ? D4.coerceMap<String, $tom_d4rt_2.BridgedConstructorCallable>(named['constructors'], 'constructors')
@@ -11515,7 +11883,7 @@ BridgedClass _createBridgedClassBridge() {
             ? D4.coerceMap<String, String>(named['setterSignatures'], 'setterSignatures')
             : const <String, String>{};
         final isSubtypeOfFuncRaw = named['isSubtypeOfFunc'];
-        return $tom_d4rt_1.BridgedClass(nativeType: nativeType, name: name, nativeNames: nativeNames, typeParameterCount: typeParameterCount, canBeUsedAsMixin: canBeUsedAsMixin, isAssignable: isAssignableRaw == null ? null : ((Object? p0) { return D4.callInterpreterCallback(visitor!, isAssignableRaw, [p0]) as bool; }) as bool Function(Object?), constructors: constructors, staticMethods: staticMethods, staticGetters: staticGetters, staticSetters: staticSetters, methods: methods, getters: getters, setters: setters, constructorSignatures: constructorSignatures, methodSignatures: methodSignatures, staticMethodSignatures: staticMethodSignatures, staticGetterSignatures: staticGetterSignatures, staticSetterSignatures: staticSetterSignatures, getterSignatures: getterSignatures, setterSignatures: setterSignatures, isSubtypeOfFunc: isSubtypeOfFuncRaw == null ? null : ($tom_d4rt_1.BridgedClass p0, {Object? value}) { return D4.callInterpreterCallback(visitor!, isSubtypeOfFuncRaw, [p0], {'value': value}) as bool; });
+        return $tom_d4rt_1.BridgedClass(nativeType: nativeType, name: name, nativeNames: nativeNames, typeParameterCount: typeParameterCount, canBeUsedAsMixin: canBeUsedAsMixin, isAbstract: isAbstract, hierarchyDepth: hierarchyDepth, isAssignable: isAssignableRaw == null ? null : ((Object? p0) { return D4.callInterpreterCallback(visitor!, isAssignableRaw, [p0]) as bool; }) as bool Function(Object?), constructors: constructors, staticMethods: staticMethods, staticGetters: staticGetters, staticSetters: staticSetters, methods: methods, getters: getters, setters: setters, constructorSignatures: constructorSignatures, methodSignatures: methodSignatures, staticMethodSignatures: staticMethodSignatures, staticGetterSignatures: staticGetterSignatures, staticSetterSignatures: staticSetterSignatures, getterSignatures: getterSignatures, setterSignatures: setterSignatures, isSubtypeOfFunc: isSubtypeOfFuncRaw == null ? null : ($tom_d4rt_1.BridgedClass p0, {Object? value}) { return D4.callInterpreterCallback(visitor!, isSubtypeOfFuncRaw, [p0], {'value': value}) as bool; });
       },
     },
     getters: {
@@ -11526,6 +11894,8 @@ BridgedClass _createBridgedClassBridge() {
       'isAssignable': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').isAssignable,
       'typeParameterCount': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').typeParameterCount,
       'canBeUsedAsMixin': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').canBeUsedAsMixin,
+      'isAbstract': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').isAbstract,
+      'hierarchyDepth': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').hierarchyDepth,
       'constructors': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').constructors,
       'methods': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').methods,
       'staticMethods': (visitor, target) => D4.validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass').staticMethods,
@@ -11594,8 +11964,23 @@ BridgedClass _createBridgedClassBridge() {
         return t.findInstanceSetterAdapter(name);
       },
     },
+    staticMethods: {
+      'registerSupertypes': (visitor, positional, named, typeArgs) {
+        D4.requireMinArgs(positional, 1, 'registerSupertypes');
+        if (positional.isEmpty) {
+          throw ArgumentError('registerSupertypes: Missing required argument "hierarchy" at position 0');
+        }
+        final hierarchy = D4.coerceMap<String, List<String>>(positional[0], 'hierarchy');
+        return $tom_d4rt_1.BridgedClass.registerSupertypes(hierarchy);
+      },
+      'transitiveSupertypeNames': (visitor, positional, named, typeArgs) {
+        D4.requireMinArgs(positional, 1, 'transitiveSupertypeNames');
+        final className = D4.getRequiredArg<String>(positional, 0, 'className', 'transitiveSupertypeNames');
+        return $tom_d4rt_1.BridgedClass.transitiveSupertypeNames(className);
+      },
+    },
     constructorSignatures: {
-      '': 'BridgedClass({required Type nativeType, required String name, List<String>? nativeNames, int typeParameterCount = 0, bool canBeUsedAsMixin = false, bool Function(Object?)? isAssignable, Map<String, BridgedConstructorCallable> constructors = const {}, Map<String, BridgedStaticMethodAdapter> staticMethods = const {}, Map<String, BridgedStaticGetterAdapter> staticGetters = const {}, Map<String, BridgedStaticSetterAdapter> staticSetters = const {}, Map<String, BridgedMethodAdapter> methods = const {}, Map<String, BridgedInstanceGetterAdapter> getters = const {}, Map<String, BridgedInstanceSetterAdapter> setters = const {}, Map<String, String> constructorSignatures = const {}, Map<String, String> methodSignatures = const {}, Map<String, String> staticMethodSignatures = const {}, Map<String, String> staticGetterSignatures = const {}, Map<String, String> staticSetterSignatures = const {}, Map<String, String> getterSignatures = const {}, Map<String, String> setterSignatures = const {}, bool Function(BridgedClass other, {Object? value})? isSubtypeOfFunc})',
+      '': 'BridgedClass({required Type nativeType, required String name, List<String>? nativeNames, int typeParameterCount = 0, bool canBeUsedAsMixin = false, bool isAbstract = false, int hierarchyDepth = 0, bool Function(Object?)? isAssignable, Map<String, BridgedConstructorCallable> constructors = const {}, Map<String, BridgedStaticMethodAdapter> staticMethods = const {}, Map<String, BridgedStaticGetterAdapter> staticGetters = const {}, Map<String, BridgedStaticSetterAdapter> staticSetters = const {}, Map<String, BridgedMethodAdapter> methods = const {}, Map<String, BridgedInstanceGetterAdapter> getters = const {}, Map<String, BridgedInstanceSetterAdapter> setters = const {}, Map<String, String> constructorSignatures = const {}, Map<String, String> methodSignatures = const {}, Map<String, String> staticMethodSignatures = const {}, Map<String, String> staticGetterSignatures = const {}, Map<String, String> staticSetterSignatures = const {}, Map<String, String> getterSignatures = const {}, Map<String, String> setterSignatures = const {}, bool Function(BridgedClass other, {Object? value})? isSubtypeOfFunc})',
     },
     methodSignatures: {
       'isSubtypeOf': 'bool isSubtypeOf(RuntimeType other, {Object? value})',
@@ -11615,6 +12000,8 @@ BridgedClass _createBridgedClassBridge() {
       'isAssignable': 'bool Function(Object?)? get isAssignable',
       'typeParameterCount': 'int get typeParameterCount',
       'canBeUsedAsMixin': 'bool get canBeUsedAsMixin',
+      'isAbstract': 'bool get isAbstract',
+      'hierarchyDepth': 'int get hierarchyDepth',
       'constructors': 'Map<String, BridgedConstructorCallable> get constructors',
       'methods': 'Map<String, BridgedMethodAdapter> get methods',
       'staticMethods': 'Map<String, BridgedStaticMethodAdapter> get staticMethods',
@@ -11645,6 +12032,10 @@ BridgedClass _createBridgedClassBridge() {
       'staticSetterSignatures': 'set staticSetterSignatures(dynamic value)',
       'getterSignatures': 'set getterSignatures(dynamic value)',
       'setterSignatures': 'set setterSignatures(dynamic value)',
+    },
+    staticMethodSignatures: {
+      'registerSupertypes': 'void registerSupertypes(Map<String, List<String>> hierarchy)',
+      'transitiveSupertypeNames': 'List<String> transitiveSupertypeNames(String className)',
     },
   );
 }

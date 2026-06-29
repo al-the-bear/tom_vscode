@@ -216,9 +216,23 @@ function attachStatusPanelListeners(skipEditorInit) {
             }
 
             vscode.postMessage(msgData);
+
+            // The MCP Server Configuration section is an accordion that closes on
+            // save (the control card with Start/Stop/Enabled stays open). Collapse
+            // it client-side right after posting; the post-save panel refresh
+            // (main.js) preserves the now-collapsed state.
+            if (action === 'saveMcpServer') {
+                var mcpCfg = document.getElementById('sp-mcpConfig-content');
+                if (mcpCfg) {
+                    mcpCfg.classList.add('sp-collapsed');
+                    var mcpHdr = mcpCfg.previousElementSibling;
+                    var mcpIcon = mcpHdr ? mcpHdr.querySelector('.sp-collapse-icon') : null;
+                    if (mcpIcon) mcpIcon.textContent = '▶';
+                }
+            }
         });
     });
-    
+
     panel.querySelectorAll('[data-status-select]').forEach(function(el) {
         if (el.dataset.spSelectBound === '1') return;
         el.dataset.spSelectBound = '1';

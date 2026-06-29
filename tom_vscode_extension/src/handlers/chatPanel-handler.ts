@@ -1752,6 +1752,22 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         });
     }
 
+    /**
+     * Mirror an Anthropic chat-panel turn into the window-status panel
+     * so the sidebar's `anthropic` dot reflects this window's panel
+     * activity (orange while waiting, green once the turn returns). Uses
+     * the same windowId/workspace/quest source as the Copilot trail so
+     * all subsystem dots land on a single window card. Best-effort —
+     * a status-panel failure must never break the chat send.
+     */
+    private _updateAnthropicWindowStatus(status: 'prompt-sent' | 'answer-received'): void {
+        try {
+            writeWindowState(getWindowId(), getWorkspaceName(), WsPaths.getWorkspaceQuestId(), 'anthropic', status);
+        } catch (e) {
+            debugLog(`[ChatPanel] Failed to update anthropic window status: ${e}`, 'WARN', 'windowStatus');
+        }
+    }
+
     private async _handleSendAnthropic(text: string, profileId: string, modelId: string, configId: string, userMessageTemplateId?: string, skipQuestRefresh = false): Promise<void> {
         if (!text || !text.trim()) { return; }
         // Spec: only one interactive Anthropic turn at a time. The webview
@@ -1840,6 +1856,10 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             AnthropicHandler.instance.abortPendingApprovals();
         });
 
+        // Light the window-status panel's `anthropic` dot (orange) for
+        // the duration of the turn; flipped to green on success below.
+        this._updateAnthropicWindowStatus('prompt-sent');
+
         try {
             const result = await AnthropicHandler.instance.sendMessage({
                 userText: text,
@@ -1855,6 +1875,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 skipQuestRefresh,
                 ...(userMessageTemplate ? { userMessageTemplate } : {}),
             });
+            this._updateAnthropicWindowStatus('answer-received');
             this._view?.webview.postMessage({
                 type: 'anthropicResult',
                 text: result.text,

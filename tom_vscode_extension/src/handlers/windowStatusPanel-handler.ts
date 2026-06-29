@@ -45,7 +45,11 @@ const AUTO_REFRESH_INTERVAL_MS = 3_000;
 export interface SubsystemStatus {
     /** Current status: 'prompt-sent' | 'answer-received' */
     status: 'prompt-sent' | 'answer-received';
-    /** Subsystem identifier (e.g. 'copilot', 'localLlm', 'aiConversation') */
+    /**
+     * Subsystem identifier. The window-status panel renders a fixed line
+     * of three dots for 'queue', 'anthropic', and 'copilot'; other
+     * identifiers (e.g. 'localLlm') may be written but are not shown.
+     */
     subsystem: string;
     /** ISO timestamp when the prompt was sent */
     promptStartedAt: string;
@@ -401,6 +405,128 @@ export function writeWindowState(
         debugLog(`[WindowStatus] Updated state: windowId=${windowId} subsystem=${subsystem} status=${status}`, 'INFO', 'windowStatus');
     } catch (error) {
         reportException('windowStatusPanel.writeWindowState', error, { windowId, subsystem, status });
+    }
+}
+
+/**
+ * Set a subsystem's *live* active/idle state for the current window.
+ *
+ * Unlike {@link writeWindowState} — which records discrete prompt-sent /
+ * answer-received events and never removes an entry — this represents a
+ * continuously-recomputed condition (e.g. "this window's queue is actively
+ * sending right now"). When `active` is true the subsystem dot is lit
+ * (rendered as `prompt-sent`/orange); when false the subsystem entry is
+ * REMOVED so the panel renders the idle (grey) dot. Removal is the only way
+ * to express idle, since the panel infers idle from the absence of a status
+ * entry.
+ *
+ * Does nothing if the state file doesn't exist yet (no idle entry to clear)
+ * and `active` is false — there is nothing to represent.
+ */
+export function setWindowSubsystemActive(
+    windowId: string,
+    workspace: string,
+    activeQuest: string,
+    subsystem: string,
+    active: boolean,
+): void {
+    try {
+        const filePath = stateFilePath(windowId);
+        if (!filePath) {
+            debugLog('[WindowStatus] Cannot set subsystem active — no local folder', 'WARN', 'windowStatus');
+            return;
+        }
+
+        let state: WindowStateFile | undefined;
+        if (fs.existsSync(filePath)) {
+            state = readWindowStateFile(filePath) || undefined;
+        }
+        if (!state) {
+            // No file: only create one if we actually need to light a dot.
+            if (!active) { return; }
+            state = {
+                windowId,
+                workspace,
+                activeQuest,
+                status: [],
+                aiConversationActive: false,
+            };
+        }
+
+        state.workspace = workspace;
+        state.activeQuest = activeQuest;
+
+        const existingIdx = state.status.findIndex(s => s.subsystem === subsystem);
+        if (active) {
+            const now = new Date().toISOString();
+            if (existingIdx >= 0) {
+                state.status[existingIdx].status = 'prompt-sent';
+                state.status[existingIdx].promptStartedAt = now;
+                state.status[existingIdx].lastAnswerAt = '';
+            } else {
+                state.status.push({
+                    status: 'prompt-sent',
+                    subsystem,
+                    promptStartedAt: now,
+                    lastAnswerAt: '',
+                });
+            }
+        } else {
+            if (existingIdx < 0) { return; }  // already idle — nothing to clear
+            state.status.splice(existingIdx, 1);
+        }
+
+        const tempPath = filePath + '.tmp';
+        fs.writeFileSync(tempPath, JSON.stringify(state, null, 2), 'utf-8');
+        fs.renameSync(tempPath, filePath);
+
+        debugLog(`[WindowStatus] Set subsystem active: windowId=${windowId} subsystem=${subsystem} active=${active}`, 'INFO', 'windowStatus');
+    } catch (error) {
+        reportException('windowStatusPanel.setWindowSubsystemActive', error, { windowId, subsystem, active });
+    }
+}
+
+/**
+ * Ensure the current window has a state file so it appears in the panel
+ * even before it has dispatched anything.
+ *
+ * The panel lists one card per `*.window-state.json` file. Those files are
+ * otherwise created lazily — only the first time a subsystem reports status
+ * (queue/anthropic/copilot prompt) or the AI conversation toggles — so an
+ * open-but-idle window would never show up. Called at activation to register
+ * an idle entry (no subsystem status, conversation inactive).
+ *
+ * Does NOT clobber an existing file: if a state file is already present
+ * (e.g. this window already sent a prompt, or a same-id file survived from a
+ * prior session), it is left untouched so real status isn't reset to idle.
+ * Top-level fields are still refreshed when the file is missing.
+ */
+export function ensureWindowStateRegistered(
+    windowId: string,
+    workspace: string,
+    activeQuest: string,
+): void {
+    try {
+        const filePath = stateFilePath(windowId);
+        if (!filePath) {
+            debugLog('[WindowStatus] Cannot register window — no local folder', 'WARN', 'windowStatus');
+            return;
+        }
+        if (fs.existsSync(filePath)) { return; }
+
+        const state: WindowStateFile = {
+            windowId,
+            workspace,
+            activeQuest,
+            status: [],
+            aiConversationActive: false,
+        };
+        const tempPath = filePath + '.tmp';
+        fs.writeFileSync(tempPath, JSON.stringify(state, null, 2), 'utf-8');
+        fs.renameSync(tempPath, filePath);
+        debugLog(`[WindowStatus] Registered idle window state: windowId=${windowId}`, 'INFO', 'windowStatus');
+    } catch (error) {
+        reportException('windowStatusPanel.ensureWindowStateRegistered', error, { windowId });
     }
 }
 

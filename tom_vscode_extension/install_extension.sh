@@ -142,19 +142,44 @@ if [ "${TOM_BRIDGE_FROM_SOURCE:-0}" = "1" ]; then
     DST_DIR="$SCRIPT_DIR/bin/$BRIDGE_PLAT"
     mkdir -p "$DST_DIR"
 
-    # 1) Resolve dependencies for both the generator and the bridge.
+    # 1) Versioner: increment the bridge build number and (re)generate
+    #    lib/src/version.versioner.dart (compilation fails if it's missing).
+    #    The versioner lives only inside buildkit, so prefer a prebuilt
+    #    buildkit binary (PATH, then the tom_binaries layer); fall back to
+    #    running it from buildkit's source via `dart run` so a fresh checkout
+    #    with only the Dart SDK still works. `-R --project` targets the bridge
+    #    from the workspace root without cd-ing into it.
+    echo "📦 Running versioner (build number + version.versioner.dart)..."
+    BUILDKIT_BIN=""
+    if command -v buildkit &> /dev/null; then
+        BUILDKIT_BIN="buildkit"
+    elif [ -n "${TOM_BINARY_PATH:-}" ] && [ -x "$TOM_BINARY_PATH/$BRIDGE_PLAT/buildkit" ]; then
+        BUILDKIT_BIN="$TOM_BINARY_PATH/$BRIDGE_PLAT/buildkit"
+    elif [ -x "$HOME/tac/tom_binaries/tom/$BRIDGE_PLAT/buildkit" ]; then
+        BUILDKIT_BIN="$HOME/tac/tom_binaries/tom/$BRIDGE_PLAT/buildkit"
+    fi
+    if [ -n "$BUILDKIT_BIN" ]; then
+        ( cd "$WORKSPACE_ROOT" && "$BUILDKIT_BIN" -R --project tom_vscode_bridge :versioner )
+    else
+        echo "  ℹ buildkit binary not found — running versioner from source"
+        BUILDKIT_DIR="$WORKSPACE_ROOT/tom_ai/basics/tom_build_kit"
+        ( cd "$BUILDKIT_DIR" && dart pub get )
+        ( cd "$WORKSPACE_ROOT" && dart --packages="$BUILDKIT_DIR/.dart_tool/package_config.json" "$BUILDKIT_DIR/bin/buildkit.dart" -R --project tom_vscode_bridge :versioner )
+    fi
+
+    # 2) Resolve dependencies for both the generator and the bridge.
     echo "📦 Resolving Dart dependencies (generator + bridge)..."
     ( cd "$GEN_DIR" && dart pub get )
     ( cd "$BRIDGE_DIR" && dart pub get )
 
-    # 2) Regenerate the d4rt bridges for the bridge package. d4rtgen processes
+    # 3) Regenerate the d4rt bridges for the bridge package. d4rtgen processes
     #    the project in its current directory, so run it from the bridge dir;
     #    --packages runs the generator's entrypoint directly from its source,
     #    without requiring it on PATH or as a dependency of the bridge.
     echo "📦 Regenerating d4rt bridges..."
     ( cd "$BRIDGE_DIR" && dart --packages="$GEN_PKG_CONFIG" "$GEN_DIR/bin/d4rtgen.dart" )
 
-    # 3) Compile the bridge binary for THIS host straight into the extension's
+    # 4) Compile the bridge binary for THIS host straight into the extension's
     #    local bin/ — no $TOM_BINARY_PATH, no PATH lookup, no shared location.
     echo "📦 Compiling bridge binary from source for $BRIDGE_PLAT ..."
     for BIN in $BUNDLED_BINARIES; do

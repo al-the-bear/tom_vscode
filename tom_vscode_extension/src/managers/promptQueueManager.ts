@@ -44,7 +44,7 @@ import {
     resolveDetectedRequestId,
     computeHealthCheckDecisions,
 } from '../utils/queueStep4Utils';
-import { writeWindowState } from '../handlers/windowStatusPanel-handler';
+import { writeWindowState, setWindowSubsystemActive } from '../handlers/windowStatusPanel-handler';
 import { TrailService } from '../services/trailService';
 import { WsPaths } from '../utils/workspacePaths';
 
@@ -348,6 +348,9 @@ export class PromptQueueManager {
 
     private _items: QueuedPrompt[] = [];
     private _autoSendEnabled = true;
+    // Last 'queue' window-status active state written, to skip redundant
+    // writes in _refreshQueueWindowStatus(). undefined = never written yet.
+    private _lastQueueActiveWritten?: boolean;
     private _autoSendDelayMs = 2000;
     private _autoStartEnabled = false;
     private _autoPauseEnabled = true;
@@ -524,15 +527,53 @@ export class PromptQueueManager {
         return expanded;
     }
 
-    private updateWindowStatus(status: 'prompt-sent' | 'answer-received'): void {
+    private updateWindowStatus(status: 'prompt-sent' | 'answer-received', transport?: QueuedTransport): void {
         try {
+            // Only mirror to the 'copilot' dot when the dispatched stage
+            // actually used the Copilot transport. Without this guard an
+            // Anthropic queue item would falsely light Copilot (the bug
+            // behind the panel showing the wrong subsystem). Copilot
+            // answers are additionally marked 'answer-received' by
+            // copilotTrailService's answer-file path.
+            //
+            // The 'queue' dot itself is NOT written here — it reflects the
+            // live local queue state and is recomputed in
+            // _refreshQueueWindowStatus() rather than stamped per-event.
+            if (transport !== 'copilot') { return; }
             const quest = (await_import_ChatVariablesStore())?.quest || '';
             const windowId = getWindowStatusWindowId();
             const workspaceName = getWindowStatusWorkspaceName();
-            // Keep queue status for future multi-subsystem routing, and mirror
-            // current queue processing into copilot subsystem status.
-            writeWindowState(windowId, workspaceName, quest, 'queue', status);
             writeWindowState(windowId, workspaceName, quest, 'copilot', status);
+        } catch {
+            // Best-effort status panel update; queue processing must continue.
+        }
+    }
+
+    /**
+     * Refresh the 'queue' window-status dot to reflect this window's *live*
+     * local queue state — not a per-event stamp.
+     *
+     * The prompt queue is a single global queue shared by every window (it
+     * lives in the symlinked `_ai/queue`). A discrete prompt-sent /
+     * answer-received stamp would therefore show the same colour in every
+     * window. What actually differs per window is whether *this* window is
+     * driving the queue: auto-send enabled AND an item pending, or an item
+     * mid-send. We light the dot in that case and clear it (idle/grey)
+     * otherwise.
+     *
+     * Skips redundant writes when the computed active state is unchanged.
+     */
+    private _refreshQueueWindowStatus(): void {
+        try {
+            const hasSending = this._items.some(i => i.status === 'sending');
+            const hasPending = this._items.some(i => i.status === 'pending');
+            const active = hasSending || (this._autoSendEnabled && hasPending);
+            if (active === this._lastQueueActiveWritten) { return; }
+            const quest = (await_import_ChatVariablesStore())?.quest || '';
+            const windowId = getWindowStatusWindowId();
+            const workspaceName = getWindowStatusWorkspaceName();
+            setWindowSubsystemActive(windowId, workspaceName, quest, 'queue', active);
+            this._lastQueueActiveWritten = active;
         } catch {
             // Best-effort status panel update; queue processing must continue.
         }
@@ -1145,7 +1186,6 @@ export class PromptQueueManager {
 
         logQueue(`Answer detected for ${sending.id}, requestId=${resolvedAnswerRequestId || '(none)'}`);
         debugLog(`[PromptQueueManager] Processing answer for sending item ${sending.id}`, 'INFO', 'queue');
-        this.updateWindowStatus('answer-received');
 
         try {
             const outcome = await this.dispatchNextStageForSendingItem(sending);
@@ -1986,7 +2026,6 @@ export class PromptQueueManager {
         }
 
         logQueue(`Manual continue requested for sending item ${sending.id}`);
-        this.updateWindowStatus('answer-received');
 
         // Cancel any in-flight Anthropic dispatch for this item before advancing.
         // Without this, the next stage/item is dispatched while the original handler
@@ -2128,7 +2167,6 @@ export class PromptQueueManager {
             this.removePendingReminderFor(item.id);
             this.persist();
             this._onDidChange.fire();
-            this.updateWindowStatus('answer-received');
             return true;
         }
         // Allow sent items to be re-staged, but not error items
@@ -2559,7 +2597,7 @@ export class PromptQueueManager {
             // Refresh the timestamp so the user can see the resend happened.
             item.lastDispatched = { ...last, dispatchedAt: new Date().toISOString() };
             this._onPromptSent.fire(item);
-            this.updateWindowStatus('prompt-sent');
+            this.updateWindowStatus('prompt-sent', last.transport);
             this.persist();
             this._onDidChange.fire();
 
@@ -3002,7 +3040,7 @@ export class PromptQueueManager {
                 };
                 const dispatchResult = await this.dispatchStage(prePromptExpanded, resolved, pp);
                 this._onPromptSent.fire(item);
-                this.updateWindowStatus('prompt-sent');
+                this.updateWindowStatus('prompt-sent', resolved.transport);
                 logQueue(`Pre-prompt sent (${ppSentCount + 1}/${ppRepeatCount}) via ${resolved.transport}`);
                 if (dispatchResult.mode === 'direct') {
                     // Synchronous response — advance to the next stage
@@ -3075,7 +3113,7 @@ export class PromptQueueManager {
             // trigger an auto-refresh before it sends).
             const dispatchResult = await this.dispatchStage(item.expandedText, resolved, item, false);
             this._onPromptSent.fire(item);
-            this.updateWindowStatus('prompt-sent');
+            this.updateWindowStatus('prompt-sent', resolved.transport);
             logQueue(`Main prompt sent (${mainSentCount + 1}/${mainRepeatCount}) via ${resolved.transport}`);
             if (dispatchResult.mode === 'direct') {
                 this.persist();
@@ -3141,7 +3179,7 @@ export class PromptQueueManager {
                 };
                 const dispatchResult = await this.dispatchStage(followUpExpanded, resolved, nextFollowUp);
                 this._onPromptSent.fire(item);
-                this.updateWindowStatus('prompt-sent');
+                this.updateWindowStatus('prompt-sent', resolved.transport);
                 logQueue(`Follow-up ${currentFuIndex + 1} sent (${fuSentCount + 1}/${fuRepeatCount}) via ${resolved.transport}`);
                 if (dispatchResult.mode === 'direct') {
                     this.persist();
@@ -3195,6 +3233,7 @@ export class PromptQueueManager {
     private persist(): void {
         this.trimSentHistory();
         this._persistToFiles();
+        this._refreshQueueWindowStatus();
     }
 
     private restore(): void {
@@ -3244,10 +3283,16 @@ export class PromptQueueManager {
         if (this._autoSendEnabled && this._items.some(i => i.status === 'pending') && !this._items.some(i => i.status === 'sending')) {
             void this.sendNext();
         }
+
+        // Reflect the restored queue state in the window-status dot.
+        this._refreshQueueWindowStatus();
     }
 
     /** Persist queue-level settings to disk. */
     private persistSettings(): void {
+        // Auto-send toggling changes whether this window drives the queue, so
+        // refresh the live 'queue' window-status dot.
+        this._refreshQueueWindowStatus();
         writeQueueSettings({
             'response-timeout-minutes': this._responseFileTimeoutMinutes,
             'default-reminder-template-id': this._defaultReminderTemplateId,
@@ -3386,6 +3431,10 @@ export class PromptQueueManager {
             if (recovered > 0) {
                 this._persistToFiles();
             }
+
+            // A cross-window queue change may have added/removed pending items;
+            // refresh this window's live 'queue' dot to match.
+            this._refreshQueueWindowStatus();
 
             this._onDidChange.fire();
         }, 300);

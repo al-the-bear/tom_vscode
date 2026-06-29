@@ -60,6 +60,7 @@ import * as anthropicOutput from './anthropic-output-channels';
 import { WsPaths } from '../utils/workspacePaths';
 import { resolveVariables } from '../utils/variableResolver';
 import { debugLog } from '../utils/debugLogger';
+import { logInfo as logHistoryInfo, logError as logHistoryError } from '../services/compaction-log';
 
 // ============================================================================
 // Configuration shapes (subset — full schema in §14 of the spec)
@@ -792,11 +793,25 @@ export class AnthropicHandler {
             if (accumulator) { this.compactionRounds = accumulator.rounds; }
             this.rawTurns = this.computeDedupedUnion();
 
-            if (seededFromDisk) { return; }
+            if (seededFromDisk) {
+                logHistoryInfo(`history seed: restored from disk (quest=${questId}, blocks=${this.compactedHistoryBlocks.length}, rawRounds=${this.rawTurnsRolling.length})`);
+                return;
+            }
+
+            // When compaction is disabled, the automatic trail rebuild is off
+            // entirely: skip it so no "Rebuild history…" status fires and no
+            // LLM/Ollama calls happen on a fresh session. Raw turns still
+            // accumulate normally on subsequent sends (the live path keeps
+            // writing them), so context is not lost — it just isn't folded.
+            if (this.getCompactionConfig().disabled) {
+                logHistoryInfo(`history seed: no disk state and compaction disabled — automatic trail rebuild skipped (quest=${questId})`);
+                return;
+            }
 
             // (3) No disk state at all — kick off the trail rebuild as
             //     fire-and-forget. Subsequent sends await
             //     historyRebuildInFlight with a status update.
+            logHistoryInfo(`history seed: no disk state — kicking off trail rebuild (quest=${questId})`);
             this.historyRebuildInFlight = this.rebuildHistoryFromTrail(questId)
                 .finally(() => { this.historyRebuildInFlight = null; });
         } catch {
@@ -1242,7 +1257,9 @@ export class AnthropicHandler {
         this.compactionRounds = [];
         this.rawTurnsRolling = [];
         this.rawTurns = [];
-        await this.rebuildHistoryFromTrail(quest);
+        // Explicit user action: force the LLM fold even if compaction is
+        // globally disabled (the button exists precisely to rebuild on demand).
+        await this.rebuildHistoryFromTrail(quest, { force: true });
         this.historySeeded = true;
     }
 
@@ -1320,15 +1337,31 @@ export class AnthropicHandler {
         }
     }
 
-    private async rebuildHistoryFromTrail(questId: string): Promise<void> {
+    /**
+     * @param opts.force  Run the LLM-driven chunked fold even when compaction
+     *   is globally disabled. Only the explicit "Recreate History" button sets
+     *   this; the automatic seed path leaves it false so a disabled compaction
+     *   setting is honored (no Ollama/LLM calls, no "folding chunk…" status).
+     */
+    private async rebuildHistoryFromTrail(
+        questId: string,
+        opts: { force?: boolean } = {},
+    ): Promise<void> {
+        const rebuildStartedAt = Date.now();
         try {
             const cfg = this.getCompactionConfig();
             const limit = Math.max(1, cfg.rebuildFromLastNPrompts);
             const { loadLastNTrailExchanges } = await import('../services/history-compaction.js');
             const exchanges = loadLastNTrailExchanges(questId, limit);
             if (exchanges.length === 0) {
+                logHistoryInfo(`history rebuild: no trail exchanges found (quest=${questId}, limit=${limit})${opts.force ? ' [forced]' : ''}`);
                 return;
             }
+            logHistoryInfo(
+                `history rebuild start: quest=${questId} exchanges=${exchanges.length} ` +
+                `limit=${limit}${opts.force ? ' [forced]' : ''} ` +
+                `provider=${cfg.llmProvider} config=${cfg.llmConfigId || '<none>'} disabled=${cfg.disabled}`,
+            );
 
             // Chunked rebuild — mirror live operation's every-N-rounds
             // cadence so the seeded summary is the same shape it would
@@ -1361,7 +1394,14 @@ export class AnthropicHandler {
             // sees the prior blocks. If no compactor is configured, fall
             // back to the pre-round-based behaviour: take the last
             // runEveryNRounds exchanges as raw + drop the rest.
-            const canCompact = prefix.length > 0 && cfg.llmConfigId.length > 0;
+            //
+            // When compaction is globally disabled we never run the LLM fold
+            // (the same rule the live sendMessage path applies): no Ollama /
+            // Anthropic calls, no "folding chunk…" status — the raw-flatten
+            // branch below still restores the most recent exchanges. The
+            // explicit "Recreate History" button overrides this via `force`.
+            const compactionAllowed = opts.force || !cfg.disabled;
+            const canCompact = compactionAllowed && prefix.length > 0 && cfg.llmConfigId.length > 0;
             if (canCompact) {
                 const { runIncrementalCompaction } = await import('../services/history-compaction.js');
                 const totalChunks = Math.ceil(prefix.length / chunkSize);
@@ -1422,8 +1462,15 @@ export class AnthropicHandler {
             clearCompactionRounds(questId);
             this.rawTurns = this.computeDedupedUnion();
             this.persistSessionHistory(questId);
-        } catch {
+            logHistoryInfo(
+                `history rebuild end: quest=${questId} ` +
+                `compacted=${canCompact ? 'yes' : 'raw-only'} ` +
+                `blocks=${this.compactedHistoryBlocks.length} rawRounds=${this.rawTurnsRolling.length} ` +
+                `${Date.now() - rebuildStartedAt}ms`,
+            );
+        } catch (e) {
             // best-effort — empty history is a safe fallback
+            logHistoryError(`history rebuild failed (quest=${questId})`, e);
         }
     }
 
@@ -1855,6 +1902,13 @@ export class AnthropicHandler {
             const retryParam = retryMaxAttempts > 1
                 ? {
                     maxAttempts: retryMaxAttempts,
+                    // Transient backend-busy errors (429/500/503/529/overloaded)
+                    // are ridden out for the profile's full retry window with
+                    // exponential backoff — same `retryMaxTotalWaitMinutes`
+                    // budget the direct-SDK and Local-LLM paths honor — instead
+                    // of being capped at the small `maxAttempts` count.
+                    maxTotalWaitMs: (profile.retryMaxTotalWaitMinutes ?? 10) * 60 * 1000,
+                    onRetryStatus: (text: string): void => this._onStatusUpdate.fire(text),
                     buildContinuationPrompt: (errorText: string): string => {
                         // Empty templateId ("use default") resolves to the
                         // template marked isDefault (seeded as "Default Retry"),
@@ -2135,7 +2189,10 @@ export class AnthropicHandler {
                     totalWaitMs: (profile.retryMaxTotalWaitMinutes ?? 10) * 60 * 1000,
                     backendLabel: 'Anthropic API busy',
                     cancellationToken: options.cancellationToken,
-                    onRetryStatus: (text: string) => this._onStatusUpdate.fire(text),
+                    onRetryStatus: (text: string, cause?: string): void => {
+                        this._onStatusUpdate.fire(text);
+                        liveTrail?.appendRetry(text, cause);
+                    },
                 });
 
                 lastStopReason = response.stop_reason ?? undefined;
@@ -2626,8 +2683,12 @@ export class AnthropicHandler {
                     retryTotalWaitMs: (options.profile.retryMaxTotalWaitMinutes ?? 10) * 60 * 1000,
                     // Forward backend-busy retry waits to the chat panel
                     // status line (`AnthropicHandler._onStatusUpdate` is the
-                    // existing channel the panel already subscribes to).
-                    onRetryStatus: (text: string) => this._onStatusUpdate.fire(text),
+                    // existing channel the panel already subscribes to) and
+                    // mirror them into the live-trail so the user sees the error.
+                    onRetryStatus: (text: string, cause?: string): void => {
+                        this._onStatusUpdate.fire(text);
+                        liveTrail?.appendRetry(text, cause);
+                    },
                 });
                 lastText = result.text || lastText;
                 this.rememberAssistantText(lastText);
