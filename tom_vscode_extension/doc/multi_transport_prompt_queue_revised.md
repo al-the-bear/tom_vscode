@@ -488,6 +488,36 @@ All Anthropic profiles — regardless of the selected configuration's leaf type 
 - When a queue item's effective transport is known, the template dropdown filters its contents to that transport's store. All three template dropdowns in the queue editor (Add form's new-item template picker, per-item template select in the expanded row, per-stage template select on pre-prompts + follow-ups) branch on the effective transport (stage > item > queue default).
 - Changing a queue item's transport **blanks** the template selection (see §5 edge case). The dropdown repopulates with templates for the new transport. This also fires when the user changes a pending/sending item's transport via a stage-level gear, since a template name rarely survives a store-change meaningfully.
 
+**Quest TODO panel — send button follows the queue transport:**
+
+- The Quest TODO panel's send button (`qt-btn-send-copilot`) and its template
+  dropdown follow the prompt queue's currently selected transport
+  (`PromptQueueManager.defaultTransport`), instead of being hardcoded to
+  Copilot. When the queue is set to **Copilot** the dropdown lists the Copilot
+  todo templates (built-ins + `config.copilot.templates`) and the button opens
+  Copilot chat; when set to **Anthropic** it lists `config.anthropic.userMessageTemplates`
+  and routes the todo through the Anthropic transport via
+  `runAnthropicSend(context, prompt, { userMessageTemplate })`.
+- The pure decision — which templates to offer and which is pre-selected for a
+  transport — lives in `src/utils/todoSendTargets.ts` (`buildTodoSendTemplateChoices`),
+  unit-tested without the panel. `BUILTIN_TODO_TEMPLATES` also lives there.
+- Selection precedence: the queue's default template id
+  (`PromptQueueManager.defaultMessageTemplateId`, transport-scoped) wins when it
+  names an offered option; otherwise the transport's own default (Copilot:
+  `copilot.defaultTemplate`; Anthropic: the `isDefault` template, else the
+  seeded **Execute TODO** template — see below); otherwise a safe fallback.
+- The dropdown re-requests templates on todo selection so it tracks a transport
+  change without a panel reload, while preserving a still-valid manual pick.
+
+**Seeded "Execute TODO" Anthropic user-message template:**
+
+- `ensureExecuteTodoUserMessageTemplate` (in `sendToChatConfig.ts`, seeded at
+  activation alongside the Default Retry template) adds an `execute-todo`
+  entry to `config.anthropic.userMessageTemplates`. It mirrors the Copilot
+  "TODO Execution" built-in but wraps the Anthropic `${userMessage}` placeholder.
+  It is a pickable option only — **not** forced as the default user-message
+  template — and the seed is idempotent.
+
 ### 4.17 Shared resolver: `resolveAnthropicTargets`
 
 `src/utils/resolveAnthropicTargets.ts` is the single source of truth for `(profileId, configId) → (profile, AnthropicConfiguration)` resolution. Used by:
