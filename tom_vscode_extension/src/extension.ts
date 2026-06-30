@@ -552,19 +552,30 @@ export async function activate(context: vscode.ExtensionContext) {
             loadSendToChatConfig,
             saveSendToChatConfig,
             ensureDefaultTransportRetryTemplate,
+            ensureExecuteTodoUserMessageTemplate,
         } = await import('./utils/sendToChatConfig.js');
         const stcConfig = loadSendToChatConfig();
         // One-shot seed: migrate the in-code transport-retry default into an
         // on-disk "Default Retry" template (marked isDefault) so "use default"
         // resolves to an editable, pickable entry. No-op once it exists.
+        // Same pass also seeds the "Execute TODO" Anthropic user-message
+        // template (an option only — not forced default).
         if (stcConfig) {
             try {
+                let stcDirty = false;
                 if (ensureDefaultTransportRetryTemplate(stcConfig)) {
-                    saveSendToChatConfig(stcConfig);
+                    stcDirty = true;
                     bridgeLog('Seeded "Default Retry" transport-retry template', 'INFO');
                 }
+                if (ensureExecuteTodoUserMessageTemplate(stcConfig)) {
+                    stcDirty = true;
+                    bridgeLog('Seeded "Execute TODO" Anthropic user-message template', 'INFO');
+                }
+                if (stcDirty) {
+                    saveSendToChatConfig(stcConfig);
+                }
             } catch (e: any) {
-                bridgeLog(`Default Retry template seed failed: ${e?.message ?? e}`, 'ERROR');
+                bridgeLog(`Default template seed failed: ${e?.message ?? e}`, 'ERROR');
             }
         }
         // One-shot migration of the legacy per-subsystem config files for this

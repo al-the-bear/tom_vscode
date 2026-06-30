@@ -882,6 +882,58 @@ export function ensureDefaultTransportRetryTemplate(config: SendToChatConfig): b
 }
 
 // ============================================================================
+// Execute TODO User-Message Template (Anthropic)
+// ============================================================================
+
+/** Id of the seeded, on-disk "Execute TODO" Anthropic user-message template. */
+export const EXECUTE_TODO_USER_MESSAGE_TEMPLATE_ID = 'execute-todo';
+
+/** Display name of the seeded "Execute TODO" Anthropic user-message template. */
+export const EXECUTE_TODO_USER_MESSAGE_TEMPLATE_NAME = 'Execute TODO';
+
+/**
+ * Body for the seeded "Execute TODO" Anthropic user-message template. Mirrors
+ * the Copilot "TODO Execution" built-in (questTodoPanel-handler.ts
+ * `BUILTIN_TODO_TEMPLATES`) but wraps the Anthropic `${userMessage}` placeholder
+ * instead of the Copilot `${originalPrompt}` one, so a TODO routed to the
+ * Anthropic transport gets the same execution framing.
+ */
+export const EXECUTE_TODO_USER_MESSAGE_TEMPLATE_BODY =
+    'Do the following TODO:\n\n${userMessage}\n\n' +
+    'Work through the TODO completely. When you start working on the TODO change ' +
+    'its status to "In-Progress". If you notice anything that should be improved ' +
+    'or also needs fixing, fix or do it. If you cannot do it now, create a new ' +
+    'todo so it is tracked.\n\nOnce the TODO is fully done, change its status to ' +
+    '"Completed".\n\nPlease verify everything stated is implemented exactly as ' +
+    'described.';
+
+/**
+ * Ensure the config carries the "Execute TODO" Anthropic user-message template
+ * as a pickable option. Idempotent and mutating; unlike
+ * {@link ensureDefaultTransportRetryTemplate} it does NOT mark the entry
+ * `isDefault` — it only adds an option, leaving the user's chosen default
+ * user-message template untouched.
+ *
+ * Returns `true` when it changed `config` (caller should persist).
+ */
+export function ensureExecuteTodoUserMessageTemplate(config: SendToChatConfig): boolean {
+    const anthropic = (config.anthropic ??= {});
+    const templates = (anthropic.userMessageTemplates ??= []);
+
+    if (templates.some((t) => t.id === EXECUTE_TODO_USER_MESSAGE_TEMPLATE_ID)) {
+        return false;
+    }
+
+    templates.push({
+        id: EXECUTE_TODO_USER_MESSAGE_TEMPLATE_ID,
+        name: EXECUTE_TODO_USER_MESSAGE_TEMPLATE_NAME,
+        description: 'Wraps a TODO routed to the Anthropic transport with execution instructions, mirroring the Copilot "TODO Execution" template.',
+        template: EXECUTE_TODO_USER_MESSAGE_TEMPLATE_BODY,
+    });
+    return true;
+}
+
+// ============================================================================
 // Copilot Answer Folder Functions
 // ============================================================================
 
