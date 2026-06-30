@@ -136,34 +136,12 @@ export class TrailService {
         const timestamp = new Date().toISOString();
 
         let payload = answer;
-        if (subsystem.type === 'copilot') {
-            const metadataBlock: string[] = [];
-
-            const comments = metadata && typeof metadata.comments === 'string' ? metadata.comments : undefined;
-            if (comments && comments.trim().length > 0) {
-                metadataBlock.push(`comments: ${comments.trim()}`);
-            }
-
-            const references = metadata?.references;
-            if (Array.isArray(references) && references.length > 0) {
-                metadataBlock.push(`references:\n${references.map((r) => ` - ${String(r)}`).join('\n')}`);
-            }
-
-            const attachments = metadata?.requestedAttachments;
-            if (Array.isArray(attachments) && attachments.length > 0) {
-                metadataBlock.push(`requestFileAttachments:\n${attachments.map((a) => ` - ${String(a)}`).join('\n')}`);
-            }
-
-            const responseValues = metadata?.responseValues;
-            if (responseValues && typeof responseValues === 'object') {
-                const pairs = Object.entries(responseValues as Record<string, unknown>)
-                    .filter(([k, v]) => k && v !== undefined && v !== null)
-                    .map(([k, v]) => ` - ${k} = ${String(v)}`);
-                if (pairs.length > 0) {
-                    metadataBlock.push(`variables:\n${pairs.join('\n')}`);
-                }
-            }
-
+        // Both copilot and anthropic emit a human-readable metadata block so the
+        // trail loader's copilot-format parser can recover `variables:` (and thus
+        // any `#TODO=` references) from the answer. Other subsystems keep the raw
+        // `### metadata json` wrapper, which the loader parses on its own branch.
+        if (subsystem.type === 'copilot' || subsystem.type === 'anthropic') {
+            const metadataBlock = this.buildHumanReadableMetadataBlock(metadata);
             if (metadataBlock.length > 0) {
                 payload = `${answer}\n\n${metadataBlock.join('\n\n')}`;
             }
@@ -176,6 +154,44 @@ export class TrailService {
             `${payload}\n\n`;
         this.prependEntry(target, entry);
         this.trimTrailFile(target, this.getMaxSummaryEntries());
+    }
+
+    /**
+     * Build the human-readable metadata block (comments / references /
+     * requestFileAttachments / `variables:`) appended after the answer body.
+     * The `variables:` section carries the `responseValues` as ` - key = value`
+     * lines, which is the shape the trail loader and the todo-log panel parse to
+     * recover `#TODO=` references. Returns one string per present section.
+     */
+    private buildHumanReadableMetadataBlock(metadata?: TrailMetadata): string[] {
+        const metadataBlock: string[] = [];
+
+        const comments = metadata && typeof metadata.comments === 'string' ? metadata.comments : undefined;
+        if (comments && comments.trim().length > 0) {
+            metadataBlock.push(`comments: ${comments.trim()}`);
+        }
+
+        const references = metadata?.references;
+        if (Array.isArray(references) && references.length > 0) {
+            metadataBlock.push(`references:\n${references.map((r) => ` - ${String(r)}`).join('\n')}`);
+        }
+
+        const attachments = metadata?.requestedAttachments;
+        if (Array.isArray(attachments) && attachments.length > 0) {
+            metadataBlock.push(`requestFileAttachments:\n${attachments.map((a) => ` - ${String(a)}`).join('\n')}`);
+        }
+
+        const responseValues = metadata?.responseValues;
+        if (responseValues && typeof responseValues === 'object') {
+            const pairs = Object.entries(responseValues as Record<string, unknown>)
+                .filter(([k, v]) => k && v !== undefined && v !== null)
+                .map(([k, v]) => ` - ${k} = ${String(v)}`);
+            if (pairs.length > 0) {
+                metadataBlock.push(`variables:\n${pairs.join('\n')}`);
+            }
+        }
+
+        return metadataBlock;
     }
 
     isEnabled(): boolean {

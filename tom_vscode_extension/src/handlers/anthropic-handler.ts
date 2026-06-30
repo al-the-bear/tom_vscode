@@ -60,6 +60,7 @@ import * as anthropicOutput from './anthropic-output-channels';
 import { WsPaths } from '../utils/workspacePaths';
 import { resolveVariables } from '../utils/variableResolver';
 import { debugLog } from '../utils/debugLogger';
+import { extractTodoResponseValues } from '../utils/responseValues';
 import { logInfo as logHistoryInfo, logError as logHistoryError } from '../services/compaction-log';
 
 // ============================================================================
@@ -2008,10 +2009,18 @@ export class AnthropicHandler {
             // needed here. The SDK branch returns early (doesn't go through
             // finalize()), so we write the answer explicitly.
             this.rememberAssistantText(result.text);
+            // Parse `#TODO=` / responseValues the agent emitted in its answer
+            // text so the referenced todos are marked done — the SDK branch
+            // returns early (skips finalize()), so it must do this itself (Bug 1).
+            const sdkResponseValues = extractTodoResponseValues(result.text);
             TrailService.instance.writeSummaryAnswer(
                 ANTHROPIC_SUBSYSTEM,
                 result.text,
-                { requestId, model: configuration.model },
+                {
+                    requestId,
+                    model: configuration.model,
+                    ...(Object.keys(sdkResponseValues).length > 0 ? { responseValues: sdkResponseValues } : {}),
+                },
                 quest,
             );
 
@@ -2853,10 +2862,20 @@ export class AnthropicHandler {
         // Write the summary answer. The matching prompt entry was already
         // written at the top of sendMessage() before the API call, so only
         // the answer half is needed here.
+        //
+        // Parse any `#TODO=` / responseValues references the model emitted in
+        // its answer text and pass them through as metadata, so the trail loader
+        // and todo-log panel can mark the referenced `*.todo.yaml` entries done
+        // — the same way the Copilot answer path does (Bug 1).
+        const responseValues = extractTodoResponseValues(text);
         TrailService.instance.writeSummaryAnswer(
             ANTHROPIC_SUBSYSTEM,
             text,
-            { requestId, model: configuration.model },
+            {
+                requestId,
+                model: configuration.model,
+                ...(Object.keys(responseValues).length > 0 ? { responseValues } : {}),
+            },
             quest,
         );
 

@@ -28,6 +28,7 @@ import { resolveTrailPath } from '../services/trailPathResolver';
 import { openInExternalApplication } from './handler_shared';
 import { readWorkspaceTodos } from '../managers/questTodoManager.js';
 import { selectTodoInBottomPanel } from './questTodoPanel-handler.js';
+import { extractResponseValuesFromText, extractTodoRefFromText } from '../utils/responseValues.js';
 
 // ============================================================================
 // Types
@@ -229,75 +230,6 @@ function readAnswerJsonData(filePath: string): {
             responseValues: Object.keys(responseValues).length > 0 ? responseValues : undefined,
         };
     }
-}
-
-function extractResponseValuesFromText(text: string): Record<string, string> {
-    const out: Record<string, string> = {};
-    if (!text) return out;
-
-    const jsonResponseBlock = text.match(/"responseValues"\s*:\s*\{([\s\S]*?)\}/i);
-    if (jsonResponseBlock?.[1]) {
-        const pairRegex = /"([^"]+)"\s*:\s*"([^"]*)"/g;
-        let match: RegExpExecArray | null;
-        while ((match = pairRegex.exec(jsonResponseBlock[1])) !== null) {
-            const key = (match[1] || '').trim();
-            const value = (match[2] || '').trim();
-            if (key && value) out[key] = value;
-        }
-    }
-
-    const yamlResponseValuesRegex = /^\s*responseValues\s*:\s*$(?:\n^\s{2,}[^\n]+)+/im;
-    const yamlResponseBlock = text.match(yamlResponseValuesRegex);
-    if (yamlResponseBlock?.[0]) {
-        const lines = yamlResponseBlock[0].split(/\r?\n/);
-        for (const line of lines.slice(1)) {
-            const pair = line.match(/^\s{2,}([A-Za-z0-9_.-]+)\s*:\s*(.+)\s*$/);
-            if (!pair) continue;
-            const key = pair[1].trim();
-            const value = pair[2].trim().replace(/^['"]|['"]$/g, '');
-            if (key && value) out[key] = value;
-        }
-    }
-
-    const variablesBlockRegex = /^\s*variables\s*:\s*$(?:\n^\s*[-*]\s*[^\n]+)+/im;
-    const variablesBlock = text.match(variablesBlockRegex);
-    if (variablesBlock?.[0]) {
-        const lines = variablesBlock[0].split(/\r?\n/);
-        for (const line of lines.slice(1)) {
-            const eqPair = line.match(/^\s*[-*]\s*([A-Za-z0-9_.-]+)\s*=\s*(.+)\s*$/);
-            if (eqPair) {
-                const key = eqPair[1].trim();
-                const value = eqPair[2].trim().replace(/^['"]|['"]$/g, '');
-                if (key && value) out[key] = value;
-                continue;
-            }
-            const colonPair = line.match(/^\s*[-*]\s*([A-Za-z0-9_.-]+)\s*:\s*(.+)\s*$/);
-            if (colonPair) {
-                const key = colonPair[1].trim();
-                const value = colonPair[2].trim().replace(/^['"]|['"]$/g, '');
-                if (key && value) out[key] = value;
-            }
-        }
-    }
-
-    return out;
-}
-
-function extractTodoRefFromText(text: string): string | undefined {
-    if (!text) return undefined;
-    const patterns = [
-        /"TODO"\s*:\s*"([^"]+)"/i,
-        /responseValues\.[Tt][Oo][Dd][Oo]\s*[:=]\s*"?([^"\n]+)"?/i,
-        /\bTODO\b\s*[:=]\s*"?([^"\n]+)"?/i,
-    ];
-    for (const pattern of patterns) {
-        const match = text.match(pattern);
-        if (match?.[1]) {
-            const value = match[1].trim();
-            if (value) return value;
-        }
-    }
-    return undefined;
 }
 
 // ============================================================================
