@@ -1646,6 +1646,15 @@ function qtHandleMessage(msg) {
             if (qtViewingBackup && !msg.fromBackup) break;
             qtTodos = msg.todos || [];
             qtRenderList();
+            // If the previously-selected todo is gone (file emptied, switched,
+            // or the entry removed externally), revert the detail pane to the
+            // empty "pick a todo" state instead of stranding a stale edit form
+            // for an entry that no longer exists (Bug 2).
+            if (qtSelectedTodoId && !qtTodos.some(function(t) { return t.id === qtSelectedTodoId; })) {
+                qtSelectedTodoId = '';
+                var dpStale = document.getElementById('qt-detail-pane');
+                if (dpStale) dpStale.innerHTML = '<div class="qt-empty-detail">Select a todo to view details</div>';
+            }
             if (qtPendingSelectTodoId) {
                 var exists = qtTodos.some(function(t) { return t.id === qtPendingSelectTodoId; });
                 if (exists) {
