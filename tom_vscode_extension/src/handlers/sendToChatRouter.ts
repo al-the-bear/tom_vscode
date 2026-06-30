@@ -86,11 +86,16 @@ function defaultUserMessageTemplate(): string | undefined {
  * @param context  Extension context (for the mirrored active-profile id).
  * @param prompt   The user prompt text.
  * @param opts.cancellationToken  Optional cancellation token.
+ * @param opts.userMessageTemplate  Explicit user-message template body to wrap
+ *   the prompt with (must contain `${userMessage}`). When omitted, the
+ *   Anthropic default template is used — same as a plain panel send. Callers
+ *   that let the user pick a specific template (e.g. the Quest TODO panel's
+ *   send button) pass the chosen template here.
  */
 export async function runAnthropicSend(
     context: vscode.ExtensionContext,
     prompt: string,
-    opts?: { cancellationToken?: vscode.CancellationToken },
+    opts?: { cancellationToken?: vscode.CancellationToken; userMessageTemplate?: string },
 ): Promise<SendToChatOutcome> {
     if (!prompt || !prompt.trim()) {
         return { target: 'anthropic', ok: false, error: 'Empty prompt.' };
@@ -127,7 +132,7 @@ export async function runAnthropicSend(
             return { target: 'anthropic', ok: false, error: resolved.error };
         }
         const { profile, configuration } = resolved;
-        const userMessageTemplate = defaultUserMessageTemplate();
+        const userMessageTemplate = opts?.userMessageTemplate ?? defaultUserMessageTemplate();
         const tools: SharedToolDefinition[] = resolveProfileTools(
             profile as unknown as { enabledTools?: string[]; toolsEnabled?: boolean },
         );

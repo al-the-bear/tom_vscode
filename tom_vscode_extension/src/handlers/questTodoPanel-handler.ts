@@ -24,6 +24,7 @@ import { WsPaths } from '../utils/workspacePaths';
 import { getExternalApplicationForFile, openInExternalApplication, resolvePathVariables, applyDefaultTemplate, DEFAULT_ANSWER_FILE_TEMPLATE } from './handler_shared';
 import { expandTemplate } from './promptTemplate';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
+import { BUILTIN_TODO_TEMPLATES, buildTodoSendTemplateChoices, type TodoSendTransport } from '../utils/todoSendTargets';
 import { wireCompletionMessages } from '../utils/completionWiring';
 
 // Module-level state
@@ -1056,27 +1057,18 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             return true;
         }
         case 'qtGetTemplates': {
+            // The send button + template dropdown follow the prompt queue's
+            // current transport (Bug 3): copilot → copilot todo templates,
+            // anthropic → anthropic user-message templates.
             const config = loadSendToChatConfig();
-            // Built-in templates always available
-            const builtIn: Array<{ id: string; label: string }> = [
-                { id: 'TODO Execution', label: 'TODO Execution' },
-                { id: 'Code Review', label: 'Code Review' },
-                { id: 'Add Unit Tests', label: 'Add Unit Tests' },
-                { id: 'Refactor', label: 'Refactor' },
-            ];
-            const builtInIds = new Set(builtIn.map((b) => b.id));
-            const configured = Object.keys(config?.copilot?.templates || {})
-                .filter((key) => key !== '__answer_file__' && !builtInIds.has(key))
-                .sort();
-            const templates = [
-                { id: '__none__', label: '(None)' },
-                ...builtIn,
-                ...configured.map((name) => ({ id: name, label: name })),
-                { id: '__answer_file__', label: 'Answer Wrapper' },
-            ];
-            const defaultTemplate = String(config?.copilot?.defaultTemplate || 'TODO Execution');
-            const selected = templates.some((t) => t.id === defaultTemplate) ? defaultTemplate : 'TODO Execution';
-            post({ type: 'qtTemplates', templates, selected });
+            const { transport, templateId } = await _queueSendTarget();
+            const choices = buildTodoSendTemplateChoices(transport, config ?? undefined, templateId);
+            post({
+                type: 'qtTemplates',
+                templates: choices.templates,
+                selected: choices.selected,
+                transport: choices.transport,
+            });
             return true;
         }
         case 'qtAddCurrentTodoToQueue': {
@@ -1123,9 +1115,33 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             const todoYaml = _todoYamlFragment(todo, questId, msg.sourceFile);
             const todoRef = _extractTodoRefFromYamlFragment(todoYaml) || todoId;
             const todoPrompt = `${todoYaml}\n\nREQUIRED: Add responseValue #TODO=${todoRef}\n\n`;
-            const wrappedText = applyDefaultTemplate(todoPrompt, 'copilot');
             const selectedTemplate = String(msg.template || '__none__');
             const config = loadSendToChatConfig();
+
+            // Follow the prompt queue's selected transport (Bug 3): route to the
+            // Anthropic chat transport when the queue is set to Anthropic,
+            // otherwise open Copilot chat as before.
+            const { transport } = await _queueSendTarget();
+            if (transport === 'anthropic') {
+                const ctx = _extensionContext;
+                if (!ctx) {
+                    vscode.window.showErrorMessage('Extension context unavailable — cannot send to Anthropic.');
+                    return true;
+                }
+                const tplBody = (selectedTemplate && selectedTemplate !== '__none__')
+                    ? config?.anthropic?.userMessageTemplates?.find((t) => t.id === selectedTemplate)?.template
+                    : undefined;
+                const { runAnthropicSend } = await import('./sendToChatRouter.js');
+                const outcome = await runAnthropicSend(ctx, todoPrompt, tplBody ? { userMessageTemplate: tplBody } : {});
+                if (outcome.rejected) {
+                    vscode.window.showWarningMessage('Anthropic chat is busy — try again once the current request finishes.');
+                } else if (!outcome.ok && outcome.error) {
+                    vscode.window.showErrorMessage(`Send to Anthropic failed: ${outcome.error}`);
+                }
+                return true;
+            }
+
+            const wrappedText = applyDefaultTemplate(todoPrompt, 'copilot');
             const answerFileTemplate = config?.copilot?.templates?.['__answer_file__']?.template || DEFAULT_ANSWER_FILE_TEMPLATE;
 
             let expanded: string;
@@ -1704,12 +1720,24 @@ function _openYamlFile(questId: string, file: string): void {
 }
 
 /** Built-in template texts used when config doesn't define them. */
-const BUILTIN_TODO_TEMPLATES: Record<string, string> = {
-    'TODO Execution': 'Do the following TODO:\n\n${originalPrompt}\n\nWork through the TODO completely. When you start working on the TODO change status to "In-Progress". If you notice anything that should be improved or also needs fixing, fix or do it. If you can\'t do it now, create a new todo so it is tracked.\n\nOnce the TODO is fully done, change status to "Completed".\n\nPlease verify everything stated is implemented exactly as described.',
-    'Code Review': 'Quest: ${chat.quest}\n\nPlease review this code for quality, bugs, and improvements:\n${originalPrompt}\n\nFocus on:\n- Code quality and best practices\n- Potential bugs or edge cases\n- Security vulnerabilities\n- Performance issues\n- Suggestions for improvement',
-    'Add Unit Tests': 'Quest: ${chat.quest}\n\nGenerate comprehensive unit tests for:\n${originalPrompt}\n\nRequirements:\n- High coverage\n- Test edge cases\n- Test error conditions\n- Use appropriate testing framework',
-    'Refactor': 'Quest: ${chat.quest}\n\nRefactor this code for better quality:\n${originalPrompt}\n\nFocus on:\n- Readability\n- Maintainability\n- Performance\n- Best practices',
-};
+/**
+ * Read the prompt queue's current send target — the transport the Quest TODO
+ * send button + template dropdown should follow (Bug 3), plus the queue's
+ * default (transport-scoped) message-template id. Defaults to copilot when the
+ * queue manager is unavailable.
+ */
+async function _queueSendTarget(): Promise<{ transport: TodoSendTransport; templateId?: string }> {
+    try {
+        const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
+        const qm = PromptQueueManager.instance;
+        return {
+            transport: qm.defaultTransport === 'anthropic' ? 'anthropic' : 'copilot',
+            templateId: qm.defaultMessageTemplateId || undefined,
+        };
+    } catch {
+        return { transport: 'copilot' };
+    }
+}
 
 function _todoYamlFragment(todo: questTodo.QuestTodoItem, questId?: string, sourceFileHint?: string): string {
     const sourcePath = _resolveTodoSourcePath(todo, questId, sourceFileHint);

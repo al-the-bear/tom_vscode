@@ -402,6 +402,9 @@ function qtRenderList() {
             qtNavPush(qtSelectedTodoId);
             qtRenderList();
             vscode.postMessage({ type: 'qtGetTodo', questId: qtCurrentQuestId, todoId: qtSelectedTodoId, fromBackup: qtViewingBackup });
+            // Refresh the send button + templates so they track the prompt
+            // queue's current transport even if it changed since load (Bug 3).
+            vscode.postMessage({ type: 'qtGetTemplates' });
         });
     });
     pane.querySelectorAll('.qt-move-btn').forEach(function(btn) {
@@ -1840,13 +1843,28 @@ function qtHandleMessage(msg) {
         case 'qtTemplates': {
             var templateSel = document.getElementById('qt-template-select');
             if (templateSel) {
-                var selected = msg.selected || '__none__';
-                templateSel.innerHTML = (msg.templates || []).map(function(t) {
+                var available = msg.templates || [];
+                // Preserve the user's current pick across refreshes when it is
+                // still an offered option; otherwise use the computed default.
+                // A transport switch changes the options, so a now-invalid pick
+                // correctly falls back to the new transport's default (Bug 3).
+                var prev = templateSel.value;
+                var stillValid = available.some(function(t) { return t.id === prev; });
+                var selected = stillValid ? prev : (msg.selected || '__none__');
+                templateSel.innerHTML = available.map(function(t) {
                     return '<option value="' + qtEsc(t.id) + '">' + qtEsc(t.label) + '</option>';
                 }).join('');
                 templateSel.value = selected;
                 if (templateSel.value !== selected) templateSel.value = '__none__';
                 qtCurrentTemplate = templateSel.value || '__none__';
+            }
+            // Label the send button after the prompt queue's transport (Bug 3).
+            var sendBtn = document.getElementById('qt-btn-send-copilot');
+            if (sendBtn) {
+                var isAnthropic = msg.transport === 'anthropic';
+                var sendLabel = isAnthropic ? 'Send to Anthropic' : 'Send to Copilot';
+                sendBtn.title = sendLabel;
+                if (sendBtn.textContent && sendBtn.textContent.trim()) sendBtn.textContent = sendLabel;
             }
             break;
         }
