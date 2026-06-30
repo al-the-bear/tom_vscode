@@ -289,7 +289,9 @@ function qtNavPush(todoId) {
         vscode.postMessage({ type: 'qtCheckBackupExists', questId: qtCurrentQuestId, file: qtCurrentFile });
     } else if (qtViewConfig.fixedQuestId) {
         qtCurrentQuestId = qtViewConfig.fixedQuestId;
-        qtCurrentFile = qtViewConfig.fixedFile || 'all';
+        // A hard fixedFile locks the view; otherwise pre-select defaultFile but
+        // keep the file picker live so the user can switch files (Bug 4 + Bug 5).
+        qtCurrentFile = qtViewConfig.fixedFile || qtViewConfig.defaultFile || 'all';
         vscode.postMessage({ type: 'qtGetTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
         vscode.postMessage({ type: 'qtGetFiles', questId: qtCurrentQuestId });
         vscode.postMessage({ type: 'qtCheckBackupExists', questId: qtCurrentQuestId, file: qtCurrentFile });

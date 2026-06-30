@@ -83,7 +83,18 @@ async function _savePanelState(state: QtPanelState): Promise<void> {
 export interface QuestTodoViewConfig {
     mode?: 'default' | 'fixed-file' | 'workspace-file' | 'session';
     fixedQuestId?: string;
+    /**
+     * Lock the view to a single file (the file picker is then meaningless and
+     * usually hidden). Mutually exclusive in practice with {@link defaultFile}.
+     */
     fixedFile?: string;
+    /**
+     * Pre-select this file on load while still leaving the file picker active,
+     * so the user can switch to any other `*.todo.yaml` in the quest. Used by
+     * the left-sidebar quest TODO view, which fixes the quest but lets the user
+     * pick the file (Bug 4 + Bug 5).
+     */
+    defaultFile?: string;
     fixedFilePath?: string;
     fixedFileLabel?: string;
     hideQuestSelect?: boolean;
@@ -344,10 +355,14 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 post({ type: 'qtFiles', files: [path.basename(fp)], questId: '__all_workspace__' });
                 return true;
             }
-            if (cfg.mode === 'fixed-file' && cfg.fixedQuestId && cfg.fixedFile) {
+            // Ensure the quest's primary todo file exists so a fixed-quest view
+            // is never empty on a fresh quest. `defaultFile` (file-picker mode)
+            // is honoured as well as a hard `fixedFile`.
+            const ensureFile = cfg.fixedFile || cfg.defaultFile;
+            if (cfg.mode === 'fixed-file' && cfg.fixedQuestId && ensureFile) {
                 const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
                 if (wsRoot) {
-                    const fp = WsPaths.ai('quests', cfg.fixedQuestId, cfg.fixedFile) || path.join(wsRoot, '_ai', 'quests', cfg.fixedQuestId, cfg.fixedFile);
+                    const fp = WsPaths.ai('quests', cfg.fixedQuestId, ensureFile) || path.join(wsRoot, '_ai', 'quests', cfg.fixedQuestId, ensureFile);
                     questTodo.ensureTodoFile(fp, { quest: cfg.fixedQuestId });
                 }
             }

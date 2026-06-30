@@ -912,8 +912,11 @@ export function registerDsNotesViews(context: vscode.ExtensionContext): void {
     const questExists = questFolderExists(workspaceQuestId);
     const resolvedQuestId = workspaceQuestId && questExists ? workspaceQuestId : '__invalid_quest__';
     const questTodoFile = workspaceQuestId ? resolveQuestTodoFileName(workspaceQuestId) : 'all';
+    // The file is now selectable via the picker, so the fixed label names the
+    // quest only (not quest/file) — it acts as the quest indicator since the
+    // quest select is hidden in this view.
     const questLabel = workspaceQuestId
-        ? (questExists ? `${workspaceQuestId}/${questTodoFile}` : `Quest doesn't exist`)
+        ? (questExists ? workspaceQuestId : `Quest doesn't exist`)
         : 'Active quest not set';
 
     const workspaceTodosProvider = new QuestTodoEmbeddedViewProvider(context.extensionUri, context, {
@@ -926,10 +929,13 @@ export function registerDsNotesViews(context: vscode.ExtensionContext): void {
     const questTodosProvider = new QuestTodoEmbeddedViewProvider(context.extensionUri, context, {
         mode: 'fixed-file',
         fixedQuestId: resolvedQuestId,
-        fixedFile: questTodoFile,
+        // Pre-select the quest's primary file but leave the picker active so the
+        // user can switch to any *.todo.yaml in the quest — including newly
+        // created structured files (Bug 4 + Bug 5).
+        defaultFile: questExists && questTodoFile !== 'all' ? questTodoFile : undefined,
         fixedFileLabel: questLabel,
         hideQuestSelect: true,
-        hideFileSelect: true,
+        hideFileSelect: false,
         disableFileActions: !workspaceQuestId || !questExists,
     });
     setQuestTodosProvider(questTodosProvider);
