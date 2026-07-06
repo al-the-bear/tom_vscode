@@ -47,6 +47,9 @@ import {
 import { writeWindowState, setWindowSubsystemActive } from '../handlers/windowStatusPanel-handler';
 import { TrailService } from '../services/trailService';
 import { WsPaths } from '../utils/workspacePaths';
+import { normalizeResponseValues, splitResponseValues } from '../utils/answerResponseValues';
+import { extractResponseValuesFromText } from '../utils/responseValues';
+import type { ChangeSource } from './chatVariablesStore';
 
 // ============================================================================
 // Types
@@ -1244,38 +1247,41 @@ export class PromptQueueManager {
         }
     }
 
-    private propagateAnswerResponseValues(answer: Record<string, unknown> | undefined): void {
-        debugLog(`[PromptQueueManager] propagateAnswerResponseValues called`, 'DEBUG', 'queue');
+    /**
+     * Apply the chat-variable updates carried by one *final* answer. Both
+     * transports funnel their final answers through here so a repeating /
+     * multi-stage queue item propagates responseValues for EVERY stage — each
+     * pre-prompt, the main prompt, every repeat, and every follow-up:
+     *
+     *   - **Copilot** — {@link onAnswerFileChanged} passes the answer file's
+     *     structured `responseValues` (default `source: 'copilot'`).
+     *   - **Anthropic** — {@link _propagateDirectAnswer} parses responseValues
+     *     out of the direct answer text and passes `source: 'anthropic'`.
+     */
+    private propagateAnswerResponseValues(
+        answer: Record<string, unknown> | undefined,
+        source: ChangeSource = 'copilot',
+    ): void {
+        debugLog(`[PromptQueueManager] propagateAnswerResponseValues called (source=${source})`, 'DEBUG', 'queue');
         if (!answer || typeof answer !== 'object') {
             debugLog(`[PromptQueueManager] propagateAnswerResponseValues: no answer object`, 'DEBUG', 'queue');
             return;
         }
 
-        const rv = (answer as any).responseValues;
-        if (!rv || typeof rv !== 'object') {
-            debugLog(`[PromptQueueManager] propagateAnswerResponseValues: no responseValues in answer`, 'DEBUG', 'queue');
-            return;
-        }
-
-        const normalized: Record<string, string> = {};
-        for (const [k, v] of Object.entries(rv as Record<string, unknown>)) {
-            if (!k) { continue; }
-            if (v === undefined || v === null) { continue; }
-            normalized[k] = String(v);
-        }
-
+        const normalized = normalizeResponseValues((answer as any).responseValues as Record<string, unknown> | undefined);
         if (Object.keys(normalized).length === 0) {
             debugLog(`[PromptQueueManager] propagateAnswerResponseValues: no values to propagate`, 'DEBUG', 'queue');
             return;
         }
 
-        debugLog(`[PromptQueueManager] propagateAnswerResponseValues: propagating ${Object.keys(normalized).length} values: ${JSON.stringify(normalized)}`, 'INFO', 'queue');
+        const { chatResponseValues, customValues } = splitResponseValues(normalized);
+        debugLog(`[PromptQueueManager] propagateAnswerResponseValues: propagating ${Object.keys(chatResponseValues).length} values: ${JSON.stringify(chatResponseValues)}`, 'INFO', 'queue');
 
         const answerRequestId = typeof (answer as any).requestId === 'string' ? (answer as any).requestId : undefined;
 
         try {
             const { updateChatResponseValues } = require('../handlers/handler_shared');
-            updateChatResponseValues(normalized);
+            updateChatResponseValues(chatResponseValues);
             debugLog(`[PromptQueueManager] propagateAnswerResponseValues: updated handler_shared`, 'DEBUG', 'queue');
         } catch (e) {
             debugLog(`[PromptQueueManager] propagateAnswerResponseValues: handler_shared error: ${e}`, 'WARN', 'queue');
@@ -1284,17 +1290,9 @@ export class PromptQueueManager {
         try {
             const chatStore = await_import_ChatVariablesStore() as any;
             if (chatStore && typeof chatStore.setCustomBulk === 'function') {
-                const builtIn = new Set(['quest', 'role', 'activeProjects', 'todo', 'todoFile']);
-                const customValues: Record<string, string> = {};
-                for (const [k, v] of Object.entries(normalized)) {
-                    if (builtIn.has(k)) { continue; }
-                    const key = k.startsWith('custom.') ? k.substring('custom.'.length) : k;
-                    if (!key) { continue; }
-                    customValues[key] = v;
-                }
                 if (Object.keys(customValues).length > 0) {
                     debugLog(`[PromptQueueManager] propagateAnswerResponseValues: calling setCustomBulk with ${Object.keys(customValues).length} values: ${JSON.stringify(customValues)}`, 'INFO', 'queue');
-                    chatStore.setCustomBulk(customValues, 'copilot', answerRequestId);
+                    chatStore.setCustomBulk(customValues, source, answerRequestId);
                     debugLog(`[PromptQueueManager] propagateAnswerResponseValues: setCustomBulk completed`, 'DEBUG', 'queue');
                 } else {
                     debugLog(`[PromptQueueManager] propagateAnswerResponseValues: no custom values to set (all built-in)`, 'DEBUG', 'queue');
@@ -1305,6 +1303,19 @@ export class PromptQueueManager {
         } catch (e) {
             debugLog(`[PromptQueueManager] propagateAnswerResponseValues: chatStore error: ${e}`, 'WARN', 'queue');
         }
+    }
+
+    /**
+     * Propagate responseValues carried by a *direct* (Anthropic) answer. The
+     * queue's Anthropic transport returns the model's answer text inline rather
+     * than through an answer file, so we parse the structured responseValues out
+     * of the free-form text here. Called once per direct dispatch — i.e. for
+     * every pre-prompt, the main prompt, every repeat, and every follow-up — so
+     * variable setting works on every final answer, not only the last.
+     */
+    private _propagateDirectAnswer(text: string): void {
+        if (!text) { return; }
+        this.propagateAnswerResponseValues({ responseValues: extractResponseValuesFromText(text) }, 'anthropic');
     }
 
     // ----- queue CRUD --------------------------------------------------------
@@ -2907,6 +2918,11 @@ export class PromptQueueManager {
             if (stageForAnswer) {
                 stageForAnswer.answerText = result.text;
             }
+            // Propagate responseValues on EVERY direct answer — pre-prompt,
+            // main prompt, each repeat, follow-up — so chat-variable setting and
+            // TODO analysis run on all final answers, not only the last stage.
+            // (The Copilot transport already propagates once per answer file.)
+            this._propagateDirectAnswer(result.text);
             return { mode: 'direct', answerText: result.text };
         } finally {
             if (this._activeAnthropicCts === cts) {
