@@ -46,6 +46,7 @@ import {
 } from './documentPicker.js';
 import { readMediaText } from '../utils/webviewLoader.js';
 import { wireCompletionMessages } from '../utils/completionWiring.js';
+import { resolveWorkspaceDocsDir } from '../utils/workspaceDocsDir.js';
 
 const VIEW_ID = 'tomAi.wsPanel';
 
@@ -611,6 +612,24 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
     // Documentation panel (group-based: Workspace, Projects, Notes)
     // ------------------------------------------------------------------
 
+    /** True if `dir` has at least one top-level `.md` file (the @WS panel lists
+     * docs non-recursively, so the group's "has docs" test matches that). */
+    private _dirHasTopLevelMarkdown(dir: string): boolean {
+        try {
+            return fs.existsSync(dir) && fs.readdirSync(dir).some(f => f.endsWith('.md'));
+        } catch {
+            return false;
+        }
+    }
+
+    /** fs-backed probe for {@link resolveWorkspaceDocsDir}. */
+    private _docsDirProbe(): { exists(dir: string): boolean; hasMarkdown(dir: string): boolean } {
+        return {
+            exists: (dir: string) => fs.existsSync(dir),
+            hasMarkdown: (dir: string) => this._dirHasTopLevelMarkdown(dir),
+        };
+    }
+
     private _getDocsDir(group?: string): string | null {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
@@ -621,8 +640,7 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
             return WsPaths.ai('notes') || path.join(wsRoot, '_ai', 'notes');
         }
         if (group === 'workspace') {
-            const docDir = path.join(wsRoot, 'doc');
-            return fs.existsSync(docDir) ? docDir : path.join(wsRoot, '_doc');
+            return resolveWorkspaceDocsDir(wsRoot, this._docsDirProbe());
         }
         if (group.startsWith('docproject:')) {
             const projectRelPath = group.substring('docproject:'.length);
@@ -658,9 +676,11 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
         const groups: { id: string; label: string }[] = [];
         const projectsWithDocs: { id: string; label: string }[] = this._collectDocsProjects();
 
-        const wsDocDir = path.join(wsRoot, 'doc');
-        const wsDocAltDir = path.join(wsRoot, '_doc');
-        if (fs.existsSync(wsDocDir) || fs.existsSync(wsDocAltDir)) {
+        // Offer the Workspace group only when its resolved directory actually
+        // holds markdown — otherwise a `doc/` folder that exists only for
+        // non-markdown artifacts would surface an empty group.
+        const wsDocsDir = resolveWorkspaceDocsDir(wsRoot, this._docsDirProbe());
+        if (wsDocsDir && this._dirHasTopLevelMarkdown(wsDocsDir)) {
             groups.push({ id: 'workspace', label: 'Workspace' });
         }
 

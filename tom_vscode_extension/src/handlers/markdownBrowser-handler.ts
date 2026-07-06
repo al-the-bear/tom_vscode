@@ -30,6 +30,7 @@ import {
     type DocPickerGroup,
 } from './documentPicker.js';
 import { WsPaths } from '../utils/workspacePaths.js';
+import { resolveWorkspaceDocsDir } from '../utils/workspaceDocsDir.js';
 import { debugLog } from '../utils/debugLogger.js';
 import { openInExternalApplication } from './handler_shared.js';
 import { resolveLink, type ResolvedLink, type LinkContext } from '../utils/linkResolver.js';
@@ -351,9 +352,12 @@ class MdBrowserPanel {
                 groups.push({ id: 'global', label: 'Guidelines' });
             }
 
-            const wsDocDir = path.join(wsRoot, 'doc');
-            const wsDocDir2 = path.join(wsRoot, '_doc');
-            if (fs.existsSync(wsDocDir) || fs.existsSync(wsDocDir2)) {
+            // Offer Workspace Docs only when the resolved dir actually holds
+            // markdown, so a `doc/` folder that exists only for non-markdown
+            // artifacts does not surface an empty group (prefers _doc/ — see
+            // resolveWorkspaceDocsDir).
+            const wsDocsDir = resolveWorkspaceDocsDir(wsRoot, workspaceDocsProbe());
+            if (wsDocsDir && workspaceDocsProbe().hasMarkdown(wsDocsDir)) {
                 groups.push({ id: 'workspace', label: 'Workspace Docs' });
             }
 
@@ -882,6 +886,18 @@ function resolveFilePath(filePath: string): string | undefined {
     }
 }
 
+/**
+ * fs-backed probe for {@link resolveWorkspaceDocsDir}. "hasMarkdown" is
+ * recursive here because the Markdown Browser lists markdown recursively
+ * (see {@link listMdFiles}), so the group's "has docs" test matches its listing.
+ */
+function workspaceDocsProbe(): { exists(dir: string): boolean; hasMarkdown(dir: string): boolean } {
+    return {
+        exists: (dir: string) => fs.existsSync(dir),
+        hasMarkdown: (dir: string) => fs.existsSync(dir) && listMdFiles(dir).length > 0,
+    };
+}
+
 function resolveGroupDir(group: string): string | undefined {
     const wsRoot = WsPaths.wsRoot;
     if (!wsRoot) return undefined;
@@ -892,8 +908,7 @@ function resolveGroupDir(group: string): string | undefined {
     if (group === 'copilot-instructions') return WsPaths.github();
     if (group === 'notes') return WsPaths.ai('notes');
     if (group === 'workspace') {
-        const docDir = path.join(wsRoot, 'doc');
-        return fs.existsSync(docDir) ? docDir : path.join(wsRoot, '_doc');
+        return resolveWorkspaceDocsDir(wsRoot, workspaceDocsProbe()) ?? undefined;
     }
     if (group.startsWith('project:')) {
         return path.join(wsRoot, group.substring('project:'.length), '_copilot_guidelines');

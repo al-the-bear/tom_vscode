@@ -22,7 +22,7 @@
 // `attachStatusPanelListeners`. Declared here so `no-undef` lint passes.
 /* global vscode, isExpanded, toggleSection, qtHandleMessage,
    attachStatusPanelListeners, docs_getEffectiveGroup, docs_getSelectedFile,
-   docs_setGroups, docs_setFiles, docs_updateUI */
+   docs_updateUI, docs_selectGroup */
 
 // Publish the host bridge so the shared completion component
 // (media/shared/completion.js) can reuse it without calling acquireVsCodeApi()
@@ -189,6 +189,9 @@ function onGuidelinesInput() {
 // Local state for content (textarea)
 var docsContent = '';
 var docsSaveTimer = null;
+// One-shot guard: default-select the first docs group on the initial
+// `docsGroups` message (see the docsGroups handler below).
+var docsDefaultApplied = false;
 
 function reloadDocs() {
     vscode.postMessage({ type: 'getDocsGroups' });
@@ -264,11 +267,22 @@ window.addEventListener('message', function(e) {
         guidelinesContent = msg.content || '';
         updateGuidelinesUI();
     } else if (msg.type === 'docsGroups') {
-        // Forward to documentPicker
-        docs_setGroups(msg.groups || [], msg.projects || []);
+        // The documentPicker fragment already applied these groups via its own
+        // message listener. Default-select the FIRST group once, so the initial
+        // file list matches the selected group. Previously main.js instead
+        // hard-requested the 'notes' files while the dropdown visually defaulted
+        // to 'workspace' — the panel then showed Notes files under the Workspace
+        // label, and a real Workspace selection later showed nothing.
+        if (!docsDefaultApplied) {
+            var firstDocsGroup = (msg.groups && msg.groups[0]) ? msg.groups[0].id : '';
+            if (firstDocsGroup && typeof docs_selectGroup === 'function') {
+                docsDefaultApplied = true;
+                docs_selectGroup(firstDocsGroup);
+            }
+        }
     } else if (msg.type === 'docsFiles') {
-        // Forward to documentPicker
-        docs_setFiles(msg.files || [], msg.selectedFile);
+        // Owned by the documentPicker fragment's own message listener; nothing
+        // to do here (main.js only owns the docs editor text area).
     } else if (msg.type === 'docsContent') {
         docsContent = msg.content || '';
         updateDocsContent();
@@ -308,7 +322,8 @@ setTimeout(function() {
     vscode.postMessage({ type: 'getGuidelinesGroups' });
     vscode.postMessage({ type: 'getGuidelinesFiles', group: 'global' });
     vscode.postMessage({ type: 'getDocsGroups' });
-    vscode.postMessage({ type: 'getDocsFiles', group: 'notes' });
+    // No hardcoded initial file fetch: the docsGroups handler default-selects
+    // the first group and the documentPicker fragment fetches its files.
     vscode.postMessage({ type: 'getStatusData' });
 }, 0);
 
