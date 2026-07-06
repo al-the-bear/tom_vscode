@@ -16,13 +16,13 @@
 // These symbols are provided at runtime by the accordion base script (`vscode`,
 // `isExpanded`, `toggleSection`) and the sibling fragment scripts concatenated
 // AHEAD of this file by wsPanel-handler.ts: the documentPicker fragment exposes
-// the `docs_*`/`selectDocs*` API, the questTodo fragment exposes
+// the `docs_*` API (and wires the docs group/project/quest/file selectors
+// itself), the questTodo fragment exposes
 // `qtHandleMessage`, and the status-listeners fragment exposes
 // `attachStatusPanelListeners`. Declared here so `no-undef` lint passes.
 /* global vscode, isExpanded, toggleSection, qtHandleMessage,
    attachStatusPanelListeners, docs_getEffectiveGroup, docs_getSelectedFile,
-   docs_setGroups, docs_setFiles, docs_updateUI, selectDocsGroup,
-   selectDocsProject, selectDocsFile */
+   docs_setGroups, docs_setFiles, docs_updateUI */
 
 // Publish the host bridge so the shared completion component
 // (media/shared/completion.js) can reuse it without calling acquireVsCodeApi()
@@ -296,12 +296,12 @@ setTimeout(function() {
     var guidelinesText = document.getElementById('guidelines-text');
     if (guidelinesText) guidelinesText.addEventListener('input', onGuidelinesInput);
 
-    var docsGroupSel = document.getElementById('docs-group');
-    if (docsGroupSel) docsGroupSel.addEventListener('change', function() { selectDocsGroup(docsGroupSel.value); });
-    var docsProjectSel = document.getElementById('docs-project');
-    if (docsProjectSel) docsProjectSel.addEventListener('change', function() { selectDocsProject(docsProjectSel.value); });
-    var docsFileSel = document.getElementById('docs-file');
-    if (docsFileSel) docsFileSel.addEventListener('change', function() { selectDocsFile(docsFileSel.value); });
+    // NOTE: the docs group/project/quest/file <select> change handlers are wired
+    // by the documentPicker fragment (getDocumentPickerScript, idPrefix 'docs'),
+    // which is concatenated AHEAD of this file and owns those selectors. Do NOT
+    // re-wire them here — an earlier extraction did, referencing non-existent
+    // `selectDocs*` functions and throwing a ReferenceError on every change.
+    // main.js only owns the editor text area below.
     var docsText = document.getElementById('docs-text');
     if (docsText) docsText.addEventListener('input', onDocsInput);
 
