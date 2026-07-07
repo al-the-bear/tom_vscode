@@ -307,6 +307,37 @@ No queue-side changes — transports own it.
 
 If a trail consumer ever needs to know which leaf path a particular entry came from, the raw trail payload already records the configuration (model/type) — no separate subsystem needed.
 
+### 4.9a Response-value propagation — every final answer, both transports
+
+Response values (`${chat.KEY}` store updates, custom chat variables, and the
+`#TODO=` references that mark `*.todo.yaml` entries) must propagate on **every
+final answer** of a queue item — each pre-prompt, the main prompt, every repeat,
+and every follow-up — not only the last stage. A repeating or multi-stage item
+therefore sets variables per stage/repeat.
+
+The built-in / custom split is a pure, unit-tested util —
+[`src/utils/answerResponseValues.ts`](../src/utils/answerResponseValues.ts)
+(`normalizeResponseValues`, `splitResponseValues`, `analyzeAnswerText`;
+`BUILTIN_CHAT_VARIABLE_KEYS` = `quest`, `role`, `activeProjects`, `todo`,
+`todoFile`). Both transports funnel their final answer through
+`PromptQueueManager.propagateAnswerResponseValues(answer, source)`, which pushes
+every value to the `${chat.KEY}` store (via `updateChatResponseValues`) and the
+non-built-in subset (with any leading `custom.` stripped) to
+`ChatVariablesStore.setCustomBulk(values, source, requestId)`:
+
+- **Copilot** — `onAnswerFileChanged` reads the answer file's structured
+  `responseValues` and propagates once per answer file (`source: 'copilot'`).
+  Because Copilot writes one answer file per stage/repeat, this already covered
+  every final answer.
+- **Anthropic** — the direct transport returns the model's answer text inline
+  (no answer file), so `dispatchStage`'s anthropic branch calls
+  `_propagateDirectAnswer(result.text)` after every `sendMessage`. That parses
+  `responseValues` out of the free-form text (`extractResponseValuesFromText`)
+  and propagates with `source: 'anthropic'`. `dispatchStage` runs once per
+  stage/repeat, so every final Anthropic answer is analyzed by construction —
+  closing the prior gap where the Anthropic transport never set chat variables
+  and only the last stage's answer would have been analyzed.
+
 ### 4.10 Queue editor UI — `queueEditor-handler.ts`
 
 **Header row — queue-level defaults.** The queue editor's top context bar (below the existing toolbar) renders a persistent `renderTransportPicker` in `queue-default` context with `showTargets: true`:

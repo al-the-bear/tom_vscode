@@ -43,18 +43,24 @@
         for (var i = 0; i < entries.length; i++) {
             var e = entries[i];
             var linksHtml = '';
-            if (e.todoRefs && e.todoRefs.length > 0) {
+            if (e.todoLinks && e.todoLinks.length > 0) {
                 var links = '';
-                for (var j = 0; j < e.todoRefs.length; j++) {
-                    var ref = e.todoRefs[j];
-                    var parts = ref.split('/');
-                    var todoId = parts.length >= 2 ? parts[parts.length - 1] : ref;
-                    var todoFile = parts.length >= 2 ? parts[parts.length - 2] : '';
-                    var display = todoFile ? todoId + '@' + todoFile : todoId;
-                    var encoded = encodeURIComponent(ref);
+                for (var j = 0; j < e.todoLinks.length; j++) {
+                    var link = e.todoLinks[j];
+                    var todoId = link.id || link.ref;
+                    var todoFile = link.fileName || '';
+                    var idPart = todoFile ? todoId + '@' + todoFile : todoId;
+                    var encoded = encodeURIComponent(link.ref || '');
+                    // Show the todo title (when resolved) as the primary label and
+                    // the id@file as a muted secondary reference; fall back to the
+                    // id@file alone when the todo can no longer be resolved.
+                    var labelHtml = link.title
+                        ? '<span class="entry-todo-title">' + escapeHtml(link.title) + '</span>'
+                            + '<span class="entry-todo-ref">' + escapeHtml(idPart) + '</span>'
+                        : '<span class="entry-todo-title">' + escapeHtml(idPart) + '</span>';
                     links += '<a class="entry-todo-link" data-todoref="' + encoded + '" title="Open TODO">'
                         + '<span class="codicon codicon-tasklist" style="margin-right:3px;font-size:11px;vertical-align:middle;"></span>'
-                        + escapeHtml(display) + '</a>';
+                        + labelHtml + '</a>';
                 }
                 linksHtml = '<div class="entry-todo-links">' + links + '</div>';
             }

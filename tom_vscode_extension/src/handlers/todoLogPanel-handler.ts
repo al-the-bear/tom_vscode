@@ -20,6 +20,8 @@ import {
 } from './trailEditor-handler.js';
 import { gotoWorkspaceTodo } from './trailViewer-handler.js';
 import { getTrailFolder, getCopilotSummaryTrailPaths } from './chatPanel-handler.js';
+import { readWorkspaceTodos } from '../managers/questTodoManager.js';
+import { parseTodoRef, dedupeTodoRefs } from '../utils/todoLogRefs.js';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 
 // ============================================================================
@@ -211,6 +213,11 @@ export class TodoLogViewProvider implements vscode.WebviewViewProvider {
      * Load TODO-linked answer entries from combined *.answers.md files.
      * Parses the `variables:` metadata block of each ANSWER entry,
      * extracting keys that contain "TODO" (same logic as the trail editor).
+     *
+     * Each ref is deduplicated (a single answer often carries the same TODO
+     * twice — the model's own `variables:` block plus the one the trail service
+     * appends from `responseValues`) and resolved to its todo title so the view
+     * can show what the TODO actually was, not just its id.
      */
     private _loadTodoExchanges(): TodoLogEntry[] {
         const folder = getTrailFolder();
@@ -220,28 +227,60 @@ export class TodoLogViewProvider implements vscode.WebviewViewProvider {
         for (const set of trailSets.values()) {
             set.directory = folder;
         }
-        const results: TodoLogEntry[] = [];
 
+        // First pass: collect entries with their deduped refs.
+        const staged: { entry: TodoLogEntry; refs: string[] }[] = [];
         for (const [setName, _set] of trailSets) {
             const entries = loadTrailSet(setName, trailSets);
             for (const entry of entries) {
                 if (entry.type !== 'ANSWER') continue;
-                const todoRefs = extractTodoRefsFromVariables(entry.variables);
-                if (todoRefs.length > 0) {
-                    results.push({
+                const refs = dedupeTodoRefs(extractTodoRefsFromVariables(entry.variables));
+                if (refs.length === 0) continue;
+                staged.push({
+                    entry: {
                         id: entry.requestId,
                         timestamp: entry.timestamp,
                         displayTime: entry.rawTimestamp,
                         session: setName,
-                        todoRefs,
-                    });
-                }
+                        todoLinks: [],
+                    },
+                    refs,
+                });
             }
         }
+
+        // Resolve titles once (walking the workspace is only worthwhile when
+        // there is at least one TODO-linked answer to annotate).
+        const titles = staged.length > 0 ? this._buildTodoTitleLookup() : new Map<string, string>();
+        const results = staged.map(({ entry, refs }) => {
+            entry.todoLinks = refs.map((ref) => {
+                const { fileName, id } = parseTodoRef(ref);
+                const title = titles.get(ref);
+                return { ref, id, fileName, title };
+            });
+            return entry;
+        });
 
         // Sort by timestamp descending (newest first)
         results.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
         return results;
+    }
+
+    /**
+     * Build a `${_sourceFile}/${id}` → title lookup over every `*.todo.yaml`
+     * file in the workspace. The key matches the qualified TODO ref shape, so a
+     * ref resolves to its title with a single map lookup.
+     */
+    private _buildTodoTitleLookup(): Map<string, string> {
+        const lookup = new Map<string, string>();
+        try {
+            for (const todo of readWorkspaceTodos()) {
+                if (todo._sourceFile && todo.id && todo.title) {
+                    lookup.set(`${todo._sourceFile}/${todo.id}`, todo.title);
+                }
+            }
+        } catch { /* best-effort: fall back to id-only labels */ }
+        return lookup;
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -262,13 +301,21 @@ export class TodoLogViewProvider implements vscode.WebviewViewProvider {
 // Types
 // ============================================================================
 
+/** A single TODO reference resolved for display (deduped, title-annotated). */
+interface TodoLogLink {
+    ref: string;        // full qualified ref <path>/<file>.todo.yaml/<id>
+    id: string;         // todo id (final segment)
+    fileName: string;   // base name of the .todo.yaml file
+    title?: string;     // resolved todo title, when the todo still exists
+}
+
 /** A TODO-linked answer entry for display in the TODO Log panel. */
 interface TodoLogEntry {
-    id: string;           // requestId
-    timestamp: string;    // ISO or raw timestamp for sorting
-    displayTime: string;  // formatted for display
-    session: string;      // trail set name (quest ID)
-    todoRefs: string[];   // extracted TODO paths
+    id: string;             // requestId
+    timestamp: string;      // ISO or raw timestamp for sorting
+    displayTime: string;    // formatted for display
+    session: string;        // trail set name (quest ID)
+    todoLinks: TodoLogLink[]; // resolved TODO references (deduped)
 }
 
 // ============================================================================
