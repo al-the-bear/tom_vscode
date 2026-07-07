@@ -74,8 +74,8 @@ body {
 
 .entry-todo-links {
     display: flex;
-    flex-wrap: wrap;
-    gap: 2px 6px;
+    flex-direction: column;
+    gap: 2px;
     margin-top: 3px;
 }
 
@@ -84,10 +84,26 @@ body {
     cursor: pointer;
     font-size: 11px;
     text-decoration: none;
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+    min-width: 0;
 }
 
-.entry-todo-link:hover {
+.entry-todo-link:hover .entry-todo-title {
     text-decoration: underline;
+}
+
+.entry-todo-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.entry-todo-ref {
+    color: var(--vscode-descriptionForeground);
+    font-size: 10px;
+    flex-shrink: 0;
 }
 
 .empty-state {
