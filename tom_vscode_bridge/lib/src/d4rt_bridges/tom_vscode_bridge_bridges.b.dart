@@ -1,6 +1,6 @@
 // D4rt Bridge - Generated file, do not edit
 // Sources: 34 files
-// Generated: 2026-06-28T14:31:01.610907
+// Generated: 2026-07-07T13:36:57.037961
 
 // ignore_for_file: unused_import, deprecated_member_use, prefer_function_declarations_over_variables, implementation_imports, sort_child_properties_last, non_constant_identifier_names, avoid_function_literals_in_foreach_calls, invalid_use_of_protected_member, unnecessary_non_null_assertion, invalid_use_of_visible_for_testing_member, unnecessary_cast, unused_local_variable, no_leading_underscores_for_local_identifiers, prefer_is_empty, unnecessary_question_mark, unreachable_switch_case, unintended_html_in_doc_comment, empty_constructor_bodies, prefer_const_constructors_in_immutables, prefer_final_fields, unused_field, must_call_super, no_logic_in_create_state, use_key_in_widget_constructors, annotate_overrides, non_const_argument_for_const_parameter, unnecessary_import
 
@@ -839,12 +839,22 @@ class AllBridge {
             return Function.apply(t.toJson, positional, named.map((k, v) => MapEntry(Symbol(k), v)));
           },
         },
+        staticMethods: {
+          'fromWire': (visitor, positional, named, typeArgs) {
+            return Function.apply($tom_vscode_scripting_api_6.PermissionMode.fromWire, positional, named.map((k, v) => MapEntry(Symbol(k), v)));
+          },
+        },
       ),
       BridgedEnumDefinition<$tom_vscode_scripting_api_6.PermissionBehavior>(
         name: 'PermissionBehavior',
         values: $tom_vscode_scripting_api_6.PermissionBehavior.values,
         getters: {
           'wire': (visitor, target) => (target as $tom_vscode_scripting_api_6.PermissionBehavior).wire,
+        },
+        staticMethods: {
+          'fromWire': (visitor, positional, named, typeArgs) {
+            return Function.apply($tom_vscode_scripting_api_6.PermissionBehavior.fromWire, positional, named.map((k, v) => MapEntry(Symbol(k), v)));
+          },
         },
       ),
       BridgedEnumDefinition<$tom_vscode_scripting_api_6.PermissionUpdateDestination>(
@@ -853,12 +863,22 @@ class AllBridge {
         getters: {
           'wire': (visitor, target) => (target as $tom_vscode_scripting_api_6.PermissionUpdateDestination).wire,
         },
+        staticMethods: {
+          'fromWire': (visitor, positional, named, typeArgs) {
+            return Function.apply($tom_vscode_scripting_api_6.PermissionUpdateDestination.fromWire, positional, named.map((k, v) => MapEntry(Symbol(k), v)));
+          },
+        },
       ),
       BridgedEnumDefinition<$tom_vscode_scripting_api_6.PermissionDecisionClassification>(
         name: 'PermissionDecisionClassification',
         values: $tom_vscode_scripting_api_6.PermissionDecisionClassification.values,
         getters: {
           'wire': (visitor, target) => (target as $tom_vscode_scripting_api_6.PermissionDecisionClassification).wire,
+        },
+        staticMethods: {
+          'fromWire': (visitor, positional, named, typeArgs) {
+            return Function.apply($tom_vscode_scripting_api_6.PermissionDecisionClassification.fromWire, positional, named.map((k, v) => MapEntry(Symbol(k), v)));
+          },
         },
       ),
       BridgedEnumDefinition<$tom_vscode_scripting_api_4.SettingSource>(
@@ -867,12 +887,22 @@ class AllBridge {
         getters: {
           'wire': (visitor, target) => (target as $tom_vscode_scripting_api_4.SettingSource).wire,
         },
+        staticMethods: {
+          'fromWire': (visitor, positional, named, typeArgs) {
+            return Function.apply($tom_vscode_scripting_api_4.SettingSource.fromWire, positional, named.map((k, v) => MapEntry(Symbol(k), v)));
+          },
+        },
       ),
       BridgedEnumDefinition<$tom_vscode_scripting_api_4.EffortLevel>(
         name: 'EffortLevel',
         values: $tom_vscode_scripting_api_4.EffortLevel.values,
         getters: {
           'wire': (visitor, target) => (target as $tom_vscode_scripting_api_4.EffortLevel).wire,
+        },
+        staticMethods: {
+          'fromWire': (visitor, positional, named, typeArgs) {
+            return Function.apply($tom_vscode_scripting_api_4.EffortLevel.fromWire, positional, named.map((k, v) => MapEntry(Symbol(k), v)));
+          },
         },
       ),
       BridgedEnumDefinition<$tom_vscode_scripting_api_9.ConversationMode>(
@@ -885,6 +915,11 @@ class AllBridge {
           'toString': (visitor, target, positional, named, typeArgs) {
             final t = target as $tom_vscode_scripting_api_9.ConversationMode;
             return Function.apply(t.toString, positional, named.map((k, v) => MapEntry(Symbol(k), v)));
+          },
+        },
+        staticMethods: {
+          'fromString': (visitor, positional, named, typeArgs) {
+            return Function.apply($tom_vscode_scripting_api_9.ConversationMode.fromString, positional, named.map((k, v) => MapEntry(Symbol(k), v)));
           },
         },
       ),
@@ -900,12 +935,22 @@ class AllBridge {
             return Function.apply(t.toString, positional, named.map((k, v) => MapEntry(Symbol(k), v)));
           },
         },
+        staticMethods: {
+          'fromString': (visitor, positional, named, typeArgs) {
+            return Function.apply($tom_vscode_scripting_api_9.HistoryMode.fromString, positional, named.map((k, v) => MapEntry(Symbol(k), v)));
+          },
+        },
       ),
       BridgedEnumDefinition<$tom_vscode_scripting_api_17.TodoStatus>(
         name: 'TodoStatus',
         values: $tom_vscode_scripting_api_17.TodoStatus.values,
         getters: {
           'value': (visitor, target) => (target as $tom_vscode_scripting_api_17.TodoStatus).value,
+        },
+        staticMethods: {
+          'fromString': (visitor, positional, named, typeArgs) {
+            return Function.apply($tom_vscode_scripting_api_17.TodoStatus.fromString, positional, named.map((k, v) => MapEntry(Symbol(k), v)));
+          },
         },
       ),
       BridgedEnumDefinition<$tom_vscode_scripting_api_17.TodoPriority>(
@@ -914,12 +959,22 @@ class AllBridge {
         getters: {
           'value': (visitor, target) => (target as $tom_vscode_scripting_api_17.TodoPriority).value,
         },
+        staticMethods: {
+          'fromString': (visitor, positional, named, typeArgs) {
+            return Function.apply($tom_vscode_scripting_api_17.TodoPriority.fromString, positional, named.map((k, v) => MapEntry(Symbol(k), v)));
+          },
+        },
       ),
       BridgedEnumDefinition<$tom_vscode_scripting_api_15.QueuedPromptStatus>(
         name: 'QueuedPromptStatus',
         values: $tom_vscode_scripting_api_15.QueuedPromptStatus.values,
         getters: {
           'value': (visitor, target) => (target as $tom_vscode_scripting_api_15.QueuedPromptStatus).value,
+        },
+        staticMethods: {
+          'fromString': (visitor, positional, named, typeArgs) {
+            return Function.apply($tom_vscode_scripting_api_15.QueuedPromptStatus.fromString, positional, named.map((k, v) => MapEntry(Symbol(k), v)));
+          },
         },
       ),
       BridgedEnumDefinition<$tom_vscode_scripting_api_15.QueuedPromptType>(
@@ -928,12 +983,22 @@ class AllBridge {
         getters: {
           'value': (visitor, target) => (target as $tom_vscode_scripting_api_15.QueuedPromptType).value,
         },
+        staticMethods: {
+          'fromString': (visitor, positional, named, typeArgs) {
+            return Function.apply($tom_vscode_scripting_api_15.QueuedPromptType.fromString, positional, named.map((k, v) => MapEntry(Symbol(k), v)));
+          },
+        },
       ),
       BridgedEnumDefinition<$tom_vscode_scripting_api_16.TimedRequestStatus>(
         name: 'TimedRequestStatus',
         values: $tom_vscode_scripting_api_16.TimedRequestStatus.values,
         getters: {
           'value': (visitor, target) => (target as $tom_vscode_scripting_api_16.TimedRequestStatus).value,
+        },
+        staticMethods: {
+          'fromString': (visitor, positional, named, typeArgs) {
+            return Function.apply($tom_vscode_scripting_api_16.TimedRequestStatus.fromString, positional, named.map((k, v) => MapEntry(Symbol(k), v)));
+          },
         },
       ),
       BridgedEnumDefinition<$tom_vscode_scripting_api_16.ScheduleMode>(
@@ -942,6 +1007,11 @@ class AllBridge {
         getters: {
           'value': (visitor, target) => (target as $tom_vscode_scripting_api_16.ScheduleMode).value,
         },
+        staticMethods: {
+          'fromString': (visitor, positional, named, typeArgs) {
+            return Function.apply($tom_vscode_scripting_api_16.ScheduleMode.fromString, positional, named.map((k, v) => MapEntry(Symbol(k), v)));
+          },
+        },
       ),
       BridgedEnumDefinition<$tom_vscode_scripting_api_14.DocumentFolder>(
         name: 'DocumentFolder',
@@ -949,12 +1019,22 @@ class AllBridge {
         getters: {
           'value': (visitor, target) => (target as $tom_vscode_scripting_api_14.DocumentFolder).value,
         },
+        staticMethods: {
+          'fromString': (visitor, positional, named, typeArgs) {
+            return Function.apply($tom_vscode_scripting_api_14.DocumentFolder.fromString, positional, named.map((k, v) => MapEntry(Symbol(k), v)));
+          },
+        },
       ),
       BridgedEnumDefinition<$tom_vscode_scripting_api_19.ProjectType>(
         name: 'ProjectType',
         values: $tom_vscode_scripting_api_19.ProjectType.values,
         getters: {
           'value': (visitor, target) => (target as $tom_vscode_scripting_api_19.ProjectType).value,
+        },
+        staticMethods: {
+          'fromString': (visitor, positional, named, typeArgs) {
+            return Function.apply($tom_vscode_scripting_api_19.ProjectType.fromString, positional, named.map((k, v) => MapEntry(Symbol(k), v)));
+          },
         },
       ),
     ];
@@ -1005,9 +1085,6 @@ class AllBridge {
   static List<({String source, String target, Set<String>? show, Set<String>? hide})>
   bridgeReExports() {
     return [
-      (source: 'package:tom_vscode_bridge/tom_vscode_bridge.dart', target: 'package:tom_vscode_bridge/bridge_server.dart', show: null, hide: null),
-      (source: 'package:tom_vscode_bridge/tom_vscode_bridge.dart', target: 'package:tom_vscode_bridge/script_api.dart', show: null, hide: null),
-      (source: 'package:tom_vscode_bridge/tom_vscode_bridge.dart', target: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', show: null, hide: null),
       (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_adapter.dart', show: null, hide: null),
       (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_bridge_client.dart', show: null, hide: null),
       (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_bridge_adapter.dart', show: null, hide: null),
