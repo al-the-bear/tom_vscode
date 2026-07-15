@@ -142,7 +142,10 @@
         // ---- Render Markdown ----
         function renderMarkdown(text) {
             if (typeof marked !== 'undefined' && marked.parse) {
-                return marked.parse(text || '');
+                // With CR/LF on, render single newlines as hard <br> breaks
+                // (marked `breaks`). Block structure (lists, headings, tables)
+                // is parsed first, so enumerations are not affected.
+                return marked.parse(text || '', { breaks: crlfMode });
             }
             return '<pre>' + escapeHtml(text || '') + '</pre>';
         }
@@ -269,6 +272,12 @@
                     // liveMode back from here in deserializeWebviewPanel).
                     if (incomingFilePath) {
                         vscode.setState({ filePath: incomingFilePath, liveMode: liveMode });
+                    }
+                    // The backend is authoritative for CR/LF state; sync the
+                    // local flag + button so a reload/restore renders correctly.
+                    if (typeof msg.crlf === 'boolean') {
+                        crlfMode = msg.crlf;
+                        if (crlfBtn) crlfBtn.classList.toggle('active', crlfMode);
                     }
                     filePathEl.textContent = msg.relativePath || msg.fileName || '';
                     contentArea.innerHTML = renderMarkdown(msg.content);

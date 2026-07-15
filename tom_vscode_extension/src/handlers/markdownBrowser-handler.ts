@@ -285,6 +285,10 @@ class MdBrowserPanel {
                 fileName: path.basename(absPath),
                 anchor,
                 liveMode: this._liveMode,
+                // Tells the webview to render soft (single) newlines as hard line
+                // breaks (marked `breaks`), so real newlines in the file show as
+                // line breaks without disturbing list/block structure.
+                crlf: this._crlfMode,
             });
         } catch (err) {
             debugLog(`[MdBrowser] sendFileContent error: ${err}`, 'ERROR', 'mdBrowser');
