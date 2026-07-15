@@ -111,3 +111,68 @@ body {
 
 /* Brief confirmation flash after a successful live-watch reconnect. */
 .icon-btn.reconnect-ok { color: var(--vscode-testing-iconPassed, var(--vscode-charts-green, #89d185)); }
+
+/* ---- Toggle buttons (Full ID / CR/LF) ---- */
+.toggle-btn {
+    background: none;
+    border: 1px solid var(--vscode-panel-border);
+    color: var(--vscode-foreground);
+    cursor: pointer;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    line-height: 16px;
+    white-space: nowrap;
+}
+.toggle-btn:hover {
+    background: var(--vscode-toolbar-hoverBackground);
+}
+.toggle-btn.active {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    border-color: var(--vscode-button-background);
+}
+
+/* ---- 10 discernible heading levels ----
+   Levels 1–6 render as native h1–h6; levels 7–10 render as an h6 base carrying
+   an md-h7..md-h10 class (HTML has no h7+). The per-level classes below give
+   all ten a distinct, monotonically-shrinking, visually-separable style. */
+.markdown-body .md-heading { margin: 16px 0 4px; font-weight: 600; line-height: 1.3; }
+.markdown-body .md-h1 { font-size: 2.0em; font-weight: 700; border-bottom: 2px solid var(--vscode-panel-border); padding-bottom: 4px; }
+.markdown-body .md-h2 { font-size: 1.6em; font-weight: 700; border-bottom: 1px solid var(--vscode-panel-border); padding-bottom: 3px; }
+.markdown-body .md-h3 { font-size: 1.35em; }
+.markdown-body .md-h4 { font-size: 1.15em; }
+.markdown-body .md-h5 { font-size: 1.0em; text-transform: uppercase; letter-spacing: 0.4px; }
+.markdown-body .md-h6 { font-size: 0.95em; color: var(--vscode-descriptionForeground); }
+.markdown-body .md-h7 { font-size: 0.92em; font-weight: 600; font-style: italic; color: var(--vscode-descriptionForeground); border-left: 2px solid var(--vscode-panel-border); padding-left: 8px; }
+.markdown-body .md-h8 { font-size: 0.9em; font-weight: 500; font-style: italic; color: var(--vscode-descriptionForeground); border-left: 2px solid var(--vscode-panel-border); padding-left: 14px; opacity: 0.95; }
+.markdown-body .md-h9 { font-size: 0.88em; font-weight: 500; color: var(--vscode-descriptionForeground); border-left: 2px dotted var(--vscode-panel-border); padding-left: 20px; opacity: 0.9; }
+.markdown-body .md-h10 { font-size: 0.86em; font-weight: 400; font-style: italic; color: var(--vscode-descriptionForeground); border-left: 2px dotted var(--vscode-panel-border); padding-left: 26px; opacity: 0.85; }
+
+/* ---- Heading ID badge (always shown, inline in the heading) ---- */
+.markdown-body .md-heading-id {
+    display: inline-block;
+    font-family: var(--vscode-editor-font-family);
+    font-size: 0.72em;
+    font-weight: 600;
+    font-style: normal;
+    text-transform: none;
+    letter-spacing: 0;
+    vertical-align: middle;
+    padding: 0 5px;
+    margin-right: 4px;
+    border-radius: 3px;
+    color: var(--vscode-badge-foreground);
+    background: var(--vscode-badge-background);
+}
+
+/* ---- Full (dotted) heading ID sub-line — toggled by body.show-fullid ---- */
+.markdown-body .md-heading-fullid {
+    display: none;
+    font-family: var(--vscode-editor-font-family);
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+    margin: 0 0 8px;
+    word-break: break-all;
+}
+body.show-fullid .markdown-body .md-heading-fullid { display: block; }
