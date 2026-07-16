@@ -555,6 +555,56 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             }
             await _deleteTodo(effectiveQuestId(msg.questId), msg.todoId, post, msg.sourceFile);
             return true;
+        case 'qtArchiveTodo':
+        case 'qtDeleteTodoToFile': {
+            // TRA02: move a single todo to the -archived / -deleted sibling file.
+            const isArchive = msg.type === 'qtArchiveTodo';
+            if (isSessionMode) {
+                vscode.window.showErrorMessage('Archive/delete-to-file is not available for session todos yet (TRB1).');
+                post({ type: 'qtArchiveResult', success: false });
+                return true;
+            }
+            const fp = _resolveArchiveSourcePath(
+                effectiveQuestId(msg.questId), effectiveFile(msg.file), msg.sourceFile,
+                isWorkspaceFileMode, workspaceFilePath,
+            );
+            if (!fp) {
+                vscode.window.showErrorMessage('Could not resolve the todo file for this action.');
+                post({ type: 'qtArchiveResult', success: false });
+                return true;
+            }
+            const result = isArchive
+                ? questTodo.archiveTodos(fp, [String(msg.todoId)])
+                : questTodo.deleteTodos(fp, [String(msg.todoId)]);
+            _notifyMoveResult(isArchive ? 'Archived' : 'Deleted', result);
+            post({ type: 'qtArchiveResult', success: !result.error, moved: result.moved });
+            return true;
+        }
+        case 'qtArchiveAllCompleted':
+        case 'qtDeleteAllCancelled': {
+            // TRA02: bulk move over the currently selected file scope.
+            const isArchive = msg.type === 'qtArchiveAllCompleted';
+            if (isSessionMode) {
+                vscode.window.showErrorMessage('Archive/delete-to-file is not available for session todos yet (TRB1).');
+                post({ type: 'qtArchiveResult', success: false });
+                return true;
+            }
+            const fp = _resolveArchiveSourcePath(
+                effectiveQuestId(msg.questId), effectiveFile(msg.file), undefined,
+                isWorkspaceFileMode, workspaceFilePath,
+            );
+            if (!fp) {
+                vscode.window.showErrorMessage('Select a concrete todo file first — bulk archive/delete needs a single file scope.');
+                post({ type: 'qtArchiveResult', success: false });
+                return true;
+            }
+            const result = isArchive
+                ? questTodo.archiveAllCompleted(fp)
+                : questTodo.deleteAllCancelled(fp);
+            _notifyMoveResult(isArchive ? 'Archived' : 'Deleted', result);
+            post({ type: 'qtArchiveResult', success: !result.error, moved: result.moved });
+            return true;
+        }
         case 'qtMassCreate': {
             const todos = Array.isArray(msg.todos) ? msg.todos : [];
             let created = 0;
@@ -1389,6 +1439,68 @@ function _collectSessionTodos(questId: string): Array<Record<string, unknown>> {
         }
     }
     return todos;
+}
+
+/**
+ * Resolve the absolute path of the todo file an archive/delete-to-file
+ * action (TRA02) operates on.
+ *
+ * `sourceFile` (set for single-todo actions) wins over the `file` scope and
+ * comes in different shapes depending on the view:
+ *   - quest view:            basename (`todos.x.todo.yaml`)
+ *   - __all_quests__ view:   `questId/filename`
+ *   - __all_workspace__ view: workspace-relative path
+ * Bulk actions pass no sourceFile and require a concrete `file` scope
+ * (or a real quest, which falls back to its main todo file).
+ */
+function _resolveArchiveSourcePath(
+    questId: string,
+    file: string | undefined,
+    sourceFile: string | undefined,
+    isWorkspaceFileMode: boolean,
+    workspaceFilePath: () => string | undefined,
+): string | undefined {
+    if (isWorkspaceFileMode) { return workspaceFilePath(); }
+    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!wsRoot) { return undefined; }
+    const sf = (sourceFile ?? '').trim();
+    if (sf) {
+        if (path.isAbsolute(sf)) { return sf; }
+        if (questId === '__all_workspace__') { return path.join(wsRoot, sf); }
+        if (questId === '__all_quests__' && sf.includes('/')) {
+            const idx = sf.indexOf('/');
+            const qid = sf.slice(0, idx);
+            const fn = sf.slice(idx + 1);
+            return WsPaths.ai('quests', qid, fn) || path.join(wsRoot, '_ai', 'quests', qid, fn);
+        }
+        if (questId && !questId.startsWith('__')) {
+            return WsPaths.ai('quests', questId, sf) || path.join(wsRoot, '_ai', 'quests', questId, sf);
+        }
+        return undefined;
+    }
+    if (!questId || questId.startsWith('__')) { return undefined; }
+    const fn = (file && file !== 'all') ? file : `todos.${questId}.todo.yaml`;
+    return WsPaths.ai('quests', questId, fn) || path.join(wsRoot, '_ai', 'quests', questId, fn);
+}
+
+/** Surface a TodoMoveResult as a user notification (TRA02 summary path). */
+function _notifyMoveResult(pastVerb: string, result: questTodo.TodoMoveResult): void {
+    if (result.error) {
+        vscode.window.showErrorMessage(`${pastVerb} failed: ${result.error}`);
+        return;
+    }
+    const target = result.targetFile ? path.basename(result.targetFile) : '';
+    const movedPart = result.moved.length
+        ? `${pastVerb} ${result.moved.length} todo(s) to ${target}: ${result.moved.join(', ')}`
+        : `${pastVerb}: no todos moved`;
+    if (result.skipped.length) {
+        const skippedPart = result.skipped.map(s => `${s.id} (${s.reason})`).join('; ');
+        vscode.window.showWarningMessage(`${movedPart}. Skipped: ${skippedPart}`);
+    } else if (result.moved.length) {
+        vscode.window.showInformationMessage(movedPart);
+    } else {
+        vscode.window.showInformationMessage(`${pastVerb}: nothing to move.`);
+    }
 }
 
 function _sendTodoList(questId: string, file: string | undefined, post: (m: any) => void): void {

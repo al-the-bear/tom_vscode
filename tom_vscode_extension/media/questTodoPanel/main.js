@@ -150,6 +150,28 @@ function qtNavPush(todoId) {
         if (qtCurrentQuestId === '__all_quests__' || qtCurrentQuestId === '__all_workspace__') return;
         qtShowMassAddOverlay();
     });
+    // Archive / delete-to-file buttons (TRA02)
+    var btnArchive = document.getElementById('qt-btn-archive');
+    var btnArchiveAll = document.getElementById('qt-btn-archive-all');
+    var btnDeleteFile = document.getElementById('qt-btn-delete-file');
+    var btnDeleteCancelled = document.getElementById('qt-btn-delete-cancelled');
+    if (btnArchive) btnArchive.addEventListener('click', function() {
+        var sel = qtSelectedTodoEntry();
+        if (!sel) return;
+        vscode.postMessage({ type: 'qtArchiveTodo', questId: qtCurrentQuestId, file: qtCurrentFile, todoId: sel.id, sourceFile: sel.sourceFile });
+    });
+    if (btnDeleteFile) btnDeleteFile.addEventListener('click', function() {
+        var sel = qtSelectedTodoEntry();
+        if (!sel) return;
+        vscode.postMessage({ type: 'qtDeleteTodoToFile', questId: qtCurrentQuestId, file: qtCurrentFile, todoId: sel.id, sourceFile: sel.sourceFile });
+    });
+    if (btnArchiveAll) btnArchiveAll.addEventListener('click', function() {
+        vscode.postMessage({ type: 'qtArchiveAllCompleted', questId: qtCurrentQuestId, file: qtCurrentFile });
+    });
+    if (btnDeleteCancelled) btnDeleteCancelled.addEventListener('click', function() {
+        vscode.postMessage({ type: 'qtDeleteAllCancelled', questId: qtCurrentQuestId, file: qtCurrentFile });
+    });
+    qtUpdateArchiveButtons();
     // Filter/sort bar — new icon buttons with picker overlays
     var searchInput = document.getElementById('qt-search');
     var btnFilter = document.getElementById('qt-btn-filter');
@@ -446,6 +468,85 @@ function qtRenderList() {
             vscode.postMessage({ type: 'qtRestoreFromBackup', questId: qtCurrentQuestId, todoId: tid, file: qtCurrentFile });
         });
     });
+    qtUpdateArchiveButtons();
+}
+
+// ── Archive / delete-to-file buttons (TRA02) ──
+
+/**
+ * Client-side mirror of isArchivedOrDeletedTodoFile (todoArchiveNames.ts):
+ * a todo file is TERMINAL when the FIRST dot-separated segment of its
+ * basename ends in -archived or -deleted. Terminal files can never be
+ * archive/delete sources, so all four buttons hide for them.
+ */
+function qtIsTerminalTodoFileName(name) {
+    if (!name) return false;
+    var base = String(name).split(/[\\/]/).pop() || '';
+    var dot = base.indexOf('.');
+    var seg = dot === -1 ? base : base.substring(0, dot);
+    return /-archived$/.test(seg) || /-deleted$/.test(seg);
+}
+
+/** Selected todo's list entry, with the (fresher) detail-pane status when the detail matches. */
+function qtSelectedTodoEntry() {
+    if (!qtSelectedTodoId) return null;
+    var entry = null;
+    for (var i = 0; i < qtTodos.length; i++) {
+        if (qtTodos[i].id === qtSelectedTodoId) { entry = qtTodos[i]; break; }
+    }
+    if (!entry) return null;
+    var status = entry.status;
+    if (qtDetailTodo && qtDetailTodo.id === entry.id && qtDetailTodo.status) status = qtDetailTodo.status;
+    return { id: entry.id, status: status || 'not-started', sourceFile: entry.sourceFile || '' };
+}
+
+/**
+ * Recompute visibility + enablement of the four archive/delete buttons.
+ * Called on selection change (via qtRenderList), status edits, and
+ * quest/file switches.
+ */
+function qtUpdateArchiveButtons() {
+    var btnArchive = document.getElementById('qt-btn-archive');
+    var btnArchiveAll = document.getElementById('qt-btn-archive-all');
+    var btnDelete = document.getElementById('qt-btn-delete-file');
+    var btnDeleteCancelled = document.getElementById('qt-btn-delete-cancelled');
+    if (!btnArchive || !btnArchiveAll || !btnDelete || !btnDeleteCancelled) return;
+
+    var isSession = qtViewConfig && qtViewConfig.mode === 'session';
+    var isWorkspaceFile = qtViewConfig && qtViewConfig.mode === 'workspace-file';
+    var isSpecialQuest = qtCurrentQuestId === '__all_quests__' || qtCurrentQuestId === '__all_workspace__';
+
+    // Concrete file scope (empty when browsing "All files" / aggregate views).
+    var scopeFile = '';
+    if (isWorkspaceFile) scopeFile = 'workspace.todo.yaml';
+    else if (qtCurrentFile && qtCurrentFile !== 'all') scopeFile = qtCurrentFile;
+
+    // Session todos live in window-specific files (TRB1 enables this after
+    // TRA04); backup view is a legacy surface removed by TRA03.
+    var hideAll = isSession || qtViewingBackup ||
+        (scopeFile && qtIsTerminalTodoFileName(scopeFile));
+
+    function setBtn(btn, visible, enabled) {
+        btn.style.display = (!hideAll && visible) ? '' : 'none';
+        btn.disabled = !enabled;
+        btn.style.opacity = enabled ? '1' : '0.4';
+    }
+
+    var sel = qtSelectedTodoEntry();
+    // Source file the single-todo actions would operate on.
+    var selSource = sel ? (sel.sourceFile || scopeFile) : scopeFile;
+    var selSourceTerminal = selSource ? qtIsTerminalTodoFileName(selSource) : false;
+
+    // Single-todo buttons: hide when the selected todo's own source file is
+    // terminal (aggregate views mix files); enable per status.
+    var singleVisible = !selSourceTerminal;
+    setBtn(btnArchive, singleVisible, !!sel && sel.status === 'completed');
+    setBtn(btnDelete, singleVisible, !!sel && sel.status !== 'completed');
+
+    // Bulk buttons need a concrete, non-terminal file scope.
+    var bulkVisible = !!scopeFile && (isWorkspaceFile || !isSpecialQuest);
+    setBtn(btnArchiveAll, bulkVisible, bulkVisible);
+    setBtn(btnDeleteCancelled, bulkVisible, bulkVisible);
 }
 
 function qtStatusIcon(s) {
@@ -712,6 +813,7 @@ function qtRenderDetail(todo) {
         if (cbInput) cbInput.value = '';
         if (qtDetailTodo) qtDetailTodo.status = newStatus;
         qtAutoSave();
+        qtUpdateArchiveButtons();
     });
 
     qtAttachTodoBadgeHandlers('blocked-by');
@@ -1702,6 +1804,17 @@ function qtHandleMessage(msg) {
                 vscode.postMessage({ type: 'qtCheckBackupExists', questId: qtCurrentQuestId, file: qtCurrentFile });
             }
             break;
+        case 'qtArchiveResult':
+            // Archive/delete-to-file completed (TRA02): refresh the list from
+            // the backend; the qtTodos handler clears a now-missing selection.
+            if (msg.success) {
+                vscode.postMessage({ type: 'qtGetTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
+                if (qtCurrentQuestId && qtCurrentQuestId.indexOf('__') !== 0) {
+                    // The -archived/-deleted sibling may have just been created.
+                    vscode.postMessage({ type: 'qtGetFiles', questId: qtCurrentQuestId });
+                }
+            }
+            break;
         case 'qtBackupStatus': {
             var bkBtn = document.getElementById('qt-btn-toggle-backup');
             if (bkBtn) {
@@ -1728,6 +1841,7 @@ function qtHandleMessage(msg) {
             if (cbInput) cbInput.value = qtUserName || cbInput.value || '';
             if (qtDetailTodo) qtDetailTodo.status = pending.status;
             qtAutoSave();
+            qtUpdateArchiveButtons();
             break;
         case 'qtState':
             if (msg.state) {
