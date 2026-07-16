@@ -31,7 +31,6 @@ var qtTagPickerScope = 'all';
 var qtPathExtAppAvailability = {};
 var qtPendingStatusChange = null;
 var qtCurrentTemplate = '__none__';
-var qtViewingBackup = false;
 var qtPendingSelectTodoId = '';
 
 function qtPersistState() {
@@ -211,22 +210,6 @@ function qtNavPush(todoId) {
             vscode.postMessage({ type: 'qtImportFromFile', questId: qtCurrentQuestId, file: qtCurrentFile });
         });
     }
-    // Backup toggle button
-    var btnToggleBackup = document.getElementById('qt-btn-toggle-backup');
-    if (btnToggleBackup) {
-        btnToggleBackup.addEventListener('click', function() {
-            qtViewingBackup = !qtViewingBackup;
-            if (qtViewingBackup) {
-                btnToggleBackup.classList.add('active-indicator');
-                btnToggleBackup.title = 'Switch to normal file';
-                vscode.postMessage({ type: 'qtGetBackupTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
-            } else {
-                btnToggleBackup.classList.remove('active-indicator');
-                btnToggleBackup.title = 'Switch to backup file';
-                vscode.postMessage({ type: 'qtGetTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
-            }
-        });
-    }
     if (templateSelect) templateSelect.addEventListener('change', function() {
         qtCurrentTemplate = this.value || '__none__';
     });
@@ -303,12 +286,10 @@ function qtNavPush(todoId) {
         qtCurrentQuestId = '__session__';
         qtCurrentFile = 'all';
         vscode.postMessage({ type: 'qtGetTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
-        vscode.postMessage({ type: 'qtCheckBackupExists', questId: qtCurrentQuestId, file: qtCurrentFile });
     } else if (qtViewConfig.mode === 'workspace-file') {
         qtCurrentQuestId = '__all_workspace__';
         qtCurrentFile = 'all';
         vscode.postMessage({ type: 'qtGetTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
-        vscode.postMessage({ type: 'qtCheckBackupExists', questId: qtCurrentQuestId, file: qtCurrentFile });
     } else if (qtViewConfig.fixedQuestId) {
         qtCurrentQuestId = qtViewConfig.fixedQuestId;
         // A hard fixedFile locks the view; otherwise pre-select defaultFile but
@@ -316,10 +297,8 @@ function qtNavPush(todoId) {
         qtCurrentFile = qtViewConfig.fixedFile || qtViewConfig.defaultFile || 'all';
         vscode.postMessage({ type: 'qtGetTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
         vscode.postMessage({ type: 'qtGetFiles', questId: qtCurrentQuestId });
-        vscode.postMessage({ type: 'qtCheckBackupExists', questId: qtCurrentQuestId, file: qtCurrentFile });
     } else {
         vscode.postMessage({ type: 'qtGetQuests' });
-        vscode.postMessage({ type: 'qtCheckBackupExists', questId: '', file: 'all' });
     }
 })();
 
@@ -387,18 +366,11 @@ function qtRenderList() {
         var moveWsBtn = '';
         var trashBtn = '';
         var reopenBtn = '';
-        var restoreBtn = '';
-        if (qtViewingBackup) {
-            // Backup mode: completed/cancelled -> reopen + delete; reopened -> move back to file
-            if (isDone) {
-                reopenBtn = '<button class="qt-reopen-btn" data-qt-reopen="' + qtEsc(t.id) + '" title="Reopen (set to not-started)">🔄</button>';
-                trashBtn = '<button class="qt-trash-btn" data-qt-trash="' + qtEsc(t.id) + '" title="Permanently delete">🗑️</button>';
-            } else {
-                restoreBtn = '<button class="qt-restore-btn" data-qt-restore="' + qtEsc(t.id) + '" title="Move back to todo file">↩️</button>';
-                trashBtn = '<button class="qt-trash-btn" data-qt-trash="' + qtEsc(t.id) + '" title="Permanently delete">🗑️</button>';
-            }
-        } else if (isDone) {
-            trashBtn = '<button class="qt-trash-btn" data-qt-trash="' + qtEsc(t.id) + '" title="Delete (move to backup)">🗑️</button>';
+        // Terminal (-archived / -deleted) files refuse archive/delete moves,
+        // so suppress the per-item trash button for todos sourced from them.
+        var isTerminalSrc = qtIsTerminalTodoFileName(t.sourceFile || qtCurrentFile);
+        if (isDone) {
+            trashBtn = isTerminalSrc ? '' : '<button class="qt-trash-btn" data-qt-trash="' + qtEsc(t.id) + '" title="Delete (move to -archived/-deleted file)">🗑️</button>';
             reopenBtn = '<button class="qt-reopen-btn" data-qt-reopen="' + qtEsc(t.id) + '" title="Reopen (set to not-started)">🔄</button>';
         } else {
             moveBtn = isQuestMode && qtCurrentFile === 'all' ? '<button class="qt-move-btn" data-qt-move="' + qtEsc(t.id) + '" title="Move to main quest todo file">➡️</button>' : '';
@@ -410,7 +382,7 @@ function qtRenderList() {
             '<div class="qt-todo-item-row1">' +
             '<span class="status-icon">' + icon + '</span>' +
             '<span class="ttitle">' + qtEsc(t.title || '') + '</span>' +
-            priorityBadge + moveBtn + moveWsBtn + restoreBtn + trashBtn + reopenBtn + '</div>' +
+            priorityBadge + moveBtn + moveWsBtn + trashBtn + reopenBtn + '</div>' +
             '<div class="qt-todo-item-row2">' +
             priorityDot +
             '<span class="tid">' + qtEsc(t.id) + '</span>' +
@@ -419,11 +391,11 @@ function qtRenderList() {
 
     pane.querySelectorAll('.qt-todo-item').forEach(function(el) {
         el.addEventListener('click', function(e) {
-            if (e.target.closest('.qt-move-btn') || e.target.closest('.qt-move-ws-btn') || e.target.closest('.qt-trash-btn') || e.target.closest('.qt-reopen-btn') || e.target.closest('.qt-restore-btn')) return;
+            if (e.target.closest('.qt-move-btn') || e.target.closest('.qt-move-ws-btn') || e.target.closest('.qt-trash-btn') || e.target.closest('.qt-reopen-btn')) return;
             qtSelectedTodoId = el.dataset.qtId;
             qtNavPush(qtSelectedTodoId);
             qtRenderList();
-            vscode.postMessage({ type: 'qtGetTodo', questId: qtCurrentQuestId, todoId: qtSelectedTodoId, fromBackup: qtViewingBackup });
+            vscode.postMessage({ type: 'qtGetTodo', questId: qtCurrentQuestId, todoId: qtSelectedTodoId });
             // Refresh the send button + templates so they track the prompt
             // queue's current transport even if it changed since load (Bug 3).
             vscode.postMessage({ type: 'qtGetTemplates' });
@@ -451,21 +423,14 @@ function qtRenderList() {
             var srcFile = '';
             var match = qtTodos.filter(function(t) { return t.id === tid; });
             if (match.length) srcFile = match[0].sourceFile || '';
-            vscode.postMessage({ type: 'qtDeleteTodo', questId: qtCurrentQuestId, todoId: tid, sourceFile: srcFile, fromBackup: qtViewingBackup });
+            vscode.postMessage({ type: 'qtDeleteTodo', questId: qtCurrentQuestId, todoId: tid, sourceFile: srcFile });
         });
     });
     pane.querySelectorAll('.qt-reopen-btn').forEach(function(btn) {
         btn.addEventListener('click', function(e) {
             e.stopPropagation();
             var tid = btn.dataset.qtReopen;
-            vscode.postMessage({ type: 'qtReopenTodo', questId: qtCurrentQuestId, todoId: tid, fromBackup: qtViewingBackup });
-        });
-    });
-    pane.querySelectorAll('.qt-restore-btn').forEach(function(btn) {
-        btn.addEventListener('click', function(e) {
-            e.stopPropagation();
-            var tid = btn.dataset.qtRestore;
-            vscode.postMessage({ type: 'qtRestoreFromBackup', questId: qtCurrentQuestId, todoId: tid, file: qtCurrentFile });
+            vscode.postMessage({ type: 'qtReopenTodo', questId: qtCurrentQuestId, todoId: tid });
         });
     });
     qtUpdateArchiveButtons();
@@ -522,8 +487,8 @@ function qtUpdateArchiveButtons() {
     else if (qtCurrentFile && qtCurrentFile !== 'all') scopeFile = qtCurrentFile;
 
     // Session todos live in window-specific files (TRB1 enables this after
-    // TRA04); backup view is a legacy surface removed by TRA03.
-    var hideAll = isSession || qtViewingBackup ||
+    // TRA04).
+    var hideAll = isSession ||
         (scopeFile && qtIsTerminalTodoFileName(scopeFile));
 
     function setBtn(btn, visible, enabled) {
@@ -783,7 +748,7 @@ function qtRenderDetail(todo) {
     document.getElementById('qt-d-priority').addEventListener('change', qtAutoSave);
     document.getElementById('qt-btn-delete').addEventListener('click', function() {
         var delQuestId = (todo._resolvedQuestId) || qtCurrentQuestId;
-        vscode.postMessage({ type: 'qtDeleteTodo', questId: delQuestId, todoId: todo.id, sourceFile: todo._sourceFile, fromBackup: qtViewingBackup });
+        vscode.postMessage({ type: 'qtDeleteTodo', questId: delQuestId, todoId: todo.id, sourceFile: todo._sourceFile });
     });
 
     document.getElementById('qt-d-tag-input').addEventListener('keydown', function(e) {
@@ -1749,8 +1714,6 @@ function qtHandleMessage(msg) {
             }
             break;
         case 'qtTodos':
-            // If viewing backup, ignore non-backup refreshes (e.g. from file watchers)
-            if (qtViewingBackup && !msg.fromBackup) break;
             qtTodos = msg.todos || [];
             qtRenderList();
             // If the previously-selected todo is gone (file emptied, switched,
@@ -1796,12 +1759,6 @@ function qtHandleMessage(msg) {
                 // Remove deleted item client-side and re-render immediately
                 qtTodos = qtTodos.filter(function(t) { return t.id !== msg.todoId; });
                 qtRenderList();
-                if (qtViewingBackup) {
-                    // Backup deletes need a backend refresh (no server-side push)
-                    vscode.postMessage({ type: 'qtGetBackupTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
-                }
-                // Re-check backup existence after delete (backup may now exist or be empty)
-                vscode.postMessage({ type: 'qtCheckBackupExists', questId: qtCurrentQuestId, file: qtCurrentFile });
             }
             break;
         case 'qtArchiveResult':
@@ -1815,18 +1772,6 @@ function qtHandleMessage(msg) {
                 }
             }
             break;
-        case 'qtBackupStatus': {
-            var bkBtn = document.getElementById('qt-btn-toggle-backup');
-            if (bkBtn) {
-                bkBtn.style.display = msg.exists ? '' : 'none';
-                if (!msg.exists && qtViewingBackup) {
-                    qtViewingBackup = false;
-                    bkBtn.classList.remove('active-indicator');
-                    bkBtn.title = 'Switch to backup file';
-                }
-            }
-            break;
-        }
         case 'qtStatusConfirmResult':
             if (!qtPendingStatusChange) break;
             var pending = qtPendingStatusChange;

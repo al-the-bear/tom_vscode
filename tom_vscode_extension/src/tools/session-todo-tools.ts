@@ -86,8 +86,6 @@ export interface SessionTodoToolsDeps {
     store: SessionTodoStoreAccess;
     /** Production wires `refreshSessionPanel`; tests can omit. */
     onMutate?(): void;
-    /** Optional pre-delete hook so production can back up a todo before removal. */
-    onBeforeDelete?(id: string): void;
 }
 
 // ===========================================================================
@@ -302,7 +300,6 @@ export async function deleteSessionTodoImpl(deps: SessionTodoToolsDeps, input: S
         if (!input.id) {
             return JSON.stringify({ ok: false, error: '`id` is required.' });
         }
-        deps.onBeforeDelete?.(input.id);
         const ok = deps.store.delete(input.id);
         if (!ok) {
             return JSON.stringify({
@@ -318,9 +315,9 @@ export async function deleteSessionTodoImpl(deps: SessionTodoToolsDeps, input: S
 }
 
 export const DELETE_SESSION_TODO_DESCRIPTION =
-    'Delete a **window-session** todo by id. Production backs the todo up ' +
-    'to a recovery file before deletion (so an accidental delete can be ' +
-    'restored from `_ai/backups/`). Missing id returns `{ok: false, error: ' +
+    'Delete a **window-session** todo by id. Production moves the todo to ' +
+    'the `-deleted` (or `-archived`, when completed) sibling of the session ' +
+    'todo file, so it stays recoverable. Missing id returns `{ok: false, error: ' +
     '...}`. To mark a todo "completed" without removing it from the list, ' +
     'use `tomAi_updateSessionTodo` with `status: done`. **Reminder**: ' +
     'session todos ≠ quest todos.';

@@ -3,9 +3,9 @@
  * `tomAi_*SessionTodo*` tools.
  *
  * Strategy: in-memory `SessionTodoStoreAccess` fake (Map-backed,
- * generates `wt-N` ids monotonically, mirrors the store's
- * cancelled-on-delete semantics). `onMutate` + `onBeforeDelete`
- * callbacks are spied so we can assert the side-effect hooks fire.
+ * generates `wt-N` ids monotonically; delete removes the item, mirroring
+ * the TRA03 move-to-sibling semantics of the live store). The `onMutate`
+ * callback is spied so we can assert the side-effect hook fires.
  *
  * Coverage entry #15 four-row checklist:
  *
@@ -23,7 +23,7 @@
  *        - missing id on update/delete returns structured JSON
  *          (was free-form string)
  *   c) Tests via in-memory store fake. Round-trip add → list →
- *      update → delete + observe `onMutate`/`onBeforeDelete` hooks.
+ *      update → delete + observe the `onMutate` hook.
  *   d) Timing — all five typical cases via `withTiming`.
  */
 
@@ -117,16 +117,15 @@ function makeStore(seed: SessionTodoSnapshot[] = []): FakeStore {
 }
 
 interface SpiedDeps extends SessionTodoToolsDeps {
-    spy: { mutateCalls: number; beforeDeleteCalls: string[] };
+    spy: { mutateCalls: number };
 }
 
 function makeDeps(store: FakeStore = makeStore()): SpiedDeps {
-    const spy = { mutateCalls: 0, beforeDeleteCalls: [] as string[] };
+    const spy = { mutateCalls: 0 };
     return {
         store,
         spy,
         onMutate: () => { spy.mutateCalls++; },
-        onBeforeDelete: (id) => { spy.beforeDeleteCalls.push(id); },
     };
 }
 
@@ -290,18 +289,15 @@ describe('updateSessionTodoImpl', () => {
 
 describe('deleteSessionTodoImpl', () => {
 
-    test('typical call: fires onBeforeDelete THEN deletes, returns deletedId + onMutate', async () => {
+    test('typical call: deletes, returns deletedId + onMutate', async () => {
         const added = JSON.parse(await addSessionTodoImpl(deps, { title: 'a' }));
         deps.spy.mutateCalls = 0;
-        deps.spy.beforeDeleteCalls.length = 0;
         const raw = await withTiming('tomAi_deleteSessionTodo:typical', () =>
             deleteSessionTodoImpl(deps, { id: added.id }));
         const r = JSON.parse(raw);
         assert.equal(r.ok, true);
         assert.equal(r.deletedId, added.id);
-        // onBeforeDelete fired FIRST with the id
-        assert.deepEqual(deps.spy.beforeDeleteCalls, [added.id]);
-        // Then onMutate fired AFTER successful delete
+        // onMutate fired AFTER successful delete
         assert.equal(deps.spy.mutateCalls, 1);
     });
 
@@ -316,8 +312,8 @@ describe('deleteSessionTodoImpl', () => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const r = JSON.parse(await deleteSessionTodoImpl(deps, {} as any));
         assert.match(r.error, /`id` is required/);
-        // onBeforeDelete should NOT have fired
-        assert.equal(deps.spy.beforeDeleteCalls.length, 0);
+        // onMutate should NOT have fired
+        assert.equal(deps.spy.mutateCalls, 0);
     });
 });
 
@@ -361,9 +357,8 @@ describe('session-todo — full round-trip', () => {
         const final = JSON.parse(await listSessionTodosImpl(deps, {}));
         assert.equal(final.count, 0);
 
-        // Verify lifecycle hooks fired correctly across the round-trip
-        // (add + update + delete each call onMutate; delete also calls onBeforeDelete)
+        // Verify the lifecycle hook fired correctly across the round-trip
+        // (add + update + delete each call onMutate)
         assert.equal(deps.spy.mutateCalls, 3, 'add + update + delete → 3 mutates');
-        assert.deepEqual(deps.spy.beforeDeleteCalls, [id]);
     });
 });

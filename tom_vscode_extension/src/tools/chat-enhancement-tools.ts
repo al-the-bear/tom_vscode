@@ -29,7 +29,7 @@ import * as questTodo from '../managers/questTodoManager';
 import { loadSendToChatConfig, saveSendToChatConfig } from '../handlers/handler_shared';
 import { WsPaths } from '../utils/workspacePaths';
 import { ReminderSystem } from '../managers/reminderSystem';
-import { refreshSessionPanel, backupSessionTodo } from '../handlers/questTodoPanel-handler';
+import { refreshSessionPanel, deleteSessionTodoToFile } from '../handlers/questTodoPanel-handler';
 
 // ============================================================================
 // §1.1  Notify User (Telegram)
@@ -379,7 +379,8 @@ export const MOVE_TODO_TOOL: SharedToolDefinition<MoveQuestTodoInput> = {
 // §1.4  Window Session Todo Tools — relocated to `session-todo-tools.ts`
 //       (vscode-free impls + narrow `SessionTodoStoreAccess` dep). The
 //       bridge below wires the live SessionTodoStore + side-effect hooks
-//       (`refreshSessionPanel`, `backupSessionTodo`).
+//       (`refreshSessionPanel`); delete moves the todo to the -deleted /
+//       -archived sibling file via `deleteSessionTodoToFile` (TRA03).
 // ============================================================================
 
 import {
@@ -444,13 +445,14 @@ const liveSessionTodoStore: SessionTodoStoreAccess = {
             createdAt: updated.createdAt, updatedAt: updated.updatedAt,
         };
     },
-    delete(id) { return SessionTodoStore.instance.delete(id); },
+    // TRA03: deleting via the tool moves the todo to the -deleted / -archived
+    // sibling of the session file (no soft-cancel, no backup copy).
+    delete(id) { return deleteSessionTodoToFile(id); },
 };
 
 const liveSessionTodoDeps: SessionTodoToolsDeps = {
     store: liveSessionTodoStore,
     onMutate: () => refreshSessionPanel(),
-    onBeforeDelete: (id) => backupSessionTodo(id),
 };
 
 export const SESSION_TODO_ADD_TOOL: SharedToolDefinition<SessionTodoAddInput> = {

@@ -127,12 +127,19 @@ export function refreshSessionPanel(): void {
     _sessionTodosProvider?.refresh();
 }
 
-/** Backup a session todo before deletion (called from copilot tools). */
-export function backupSessionTodo(todoId: string): void {
+/**
+ * Delete a session todo by moving it to the -deleted / -archived sibling
+ * of the session file (TRA01 semantics; called from copilot tools).
+ * Returns true when the todo was moved.
+ */
+export function deleteSessionTodoToFile(todoId: string): boolean {
     try {
         const sessionFp = SessionTodoStore.instance.filePath;
-        _moveToBackup(sessionFp, todoId);
-    } catch { /* best-effort backup */ }
+        const result = _moveTodoToSiblingByStatus(sessionFp, todoId);
+        return result.moved.length > 0;
+    } catch {
+        return false;
+    }
 }
 
 
@@ -370,17 +377,6 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             _sendTodoList(effectiveQuestId(msg.questId), effectiveFile(msg.file), post);
             return true;
         case 'qtGetTodo':
-            // When viewing backup, read from backup file instead of normal file
-            if (msg.fromBackup) {
-                const bkPath = _resolveBackupPath(isSessionMode, isWorkspaceFileMode, msg.questId, msg.file, workspaceFilePath, cfg);
-                if (bkPath && fs.existsSync(bkPath)) {
-                    const todo = questTodo.findTodoByIdInFile(bkPath, msg.todoId);
-                    post({ type: 'qtTodoDetail', todo: todo ? { ...todo } : null, questId: msg.questId, todoId: msg.todoId });
-                } else {
-                    post({ type: 'qtTodoDetail', todo: null, questId: msg.questId, todoId: msg.todoId });
-                }
-                return true;
-            }
             if (isSessionMode) {
                 const sessionQuestId = _getSessionQuestId();
                 const target = _parseSessionTodoTarget(String(msg.todoId || ''), typeof msg.sourceFile === 'string' ? msg.sourceFile : undefined);
@@ -500,27 +496,6 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             _createTodo(effectiveQuestId(msg.questId), msg.todo, effectiveFile(msg.file), post);
             return true;
         case 'qtDeleteTodo':
-            // Permanent delete from backup file (no further backup)
-            if (msg.fromBackup) {
-                const confirmBk = await vscode.window.showWarningMessage(
-                    `Permanently delete todo "${msg.todoId}" from backup?`, { modal: true }, 'Delete',
-                );
-                if (confirmBk !== 'Delete') return true;
-                const bkPath = _resolveBackupPath(isSessionMode, isWorkspaceFileMode, msg.questId, msg.file, workspaceFilePath, cfg);
-                if (bkPath && fs.existsSync(bkPath)) {
-                    const archived = _archiveDeletedBackupTodo(bkPath, msg.todoId);
-                    if (!archived) {
-                        vscode.window.showErrorMessage(`Failed to archive backup todo ${msg.todoId}; deletion aborted.`);
-                        post({ type: 'qtDeleted', success: false, todoId: msg.todoId });
-                        return true;
-                    }
-                    const okBk = questTodo.deleteTodo('__backup__', msg.todoId, bkPath);
-                    post({ type: 'qtDeleted', success: okBk, todoId: msg.todoId });
-                } else {
-                    post({ type: 'qtDeleted', success: false, todoId: msg.todoId });
-                }
-                return true;
-            }
             if (isSessionMode) {
                 const confirmSess = await vscode.window.showWarningMessage(
                     `Delete todo "${msg.todoId}" from session?`, { modal: true }, 'Delete',
@@ -530,13 +505,13 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 const sessionQuestId = _getSessionQuestId();
                 const target = _parseSessionTodoTarget(String(msg.todoId || ''), typeof msg.sourceFile === 'string' ? msg.sourceFile : undefined);
                 const sessionFp = target.sourceFile ? _sessionTodoAbsolutePath(sessionQuestId, target.sourceFile) : undefined;
+                let okSess = false;
                 if (sessionFp) {
-                    _moveToBackup(sessionFp, target.todoId);
+                    const result = _moveTodoToSiblingByStatus(sessionFp, target.todoId);
+                    okSess = result.moved.length > 0;
+                    if (!okSess) { _notifyMoveResult('Deleted', result); }
                 }
-                const ok = sessionFp
-                    ? !!questTodo.updateTodoInFile(sessionFp, target.todoId, { status: 'cancelled' })
-                    : false;
-                post({ type: 'qtDeleted', success: ok, todoId: msg.todoId });
+                post({ type: 'qtDeleted', success: okSess, todoId: msg.todoId });
                 post({ type: 'qtTodos', todos: _collectSessionTodos(sessionQuestId), questId: '__session__', file: 'all' });
                 return true;
             }
@@ -546,10 +521,12 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 );
                 if (confirmWs !== 'Delete') return true;
                 const fp = workspaceFilePath();
+                let okWs = false;
                 if (fp) {
-                    _moveToBackup(fp, msg.todoId);
+                    const result = _moveTodoToSiblingByStatus(fp, msg.todoId);
+                    okWs = result.moved.length > 0;
+                    if (!okWs) { _notifyMoveResult('Deleted', result); }
                 }
-                const okWs = fp ? questTodo.deleteTodo('__all_workspace__', msg.todoId, fp) : false;
                 post({ type: 'qtDeleted', success: okWs, todoId: msg.todoId });
                 return true;
             }
@@ -644,28 +621,6 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             return true;
         }
         case 'qtReopenTodo': {
-            // When reopening from backup, update in the backup file and re-send backup todos
-            if (msg.fromBackup) {
-                const bkPath = _resolveBackupPath(isSessionMode, isWorkspaceFileMode, msg.questId, msg.file, workspaceFilePath, cfg);
-                if (bkPath && fs.existsSync(bkPath)) {
-                    questTodo.updateTodoInFile(bkPath, msg.todoId, { status: 'not-started', completed_date: '', completed_by: '' });
-                    // Re-send backup todo list
-                    const items = questTodo.readTodoFile(bkPath).map(t => ({
-                        id: t.id, title: t.title ?? (t as any).description?.substring(0, 60),
-                        status: t.status, priority: t.priority, tags: t.tags,
-                        created: t.created, updated: t.updated,
-                        deleted_date: (t as any).deleted_date,
-                        sourceFile: path.basename(bkPath),
-                    }));
-                    post({ type: 'qtTodos', todos: items, questId: msg.questId || '__backup__', file: path.basename(bkPath), fromBackup: true });
-                    // Refresh detail
-                    const rTodo = questTodo.findTodoByIdInFile(bkPath, msg.todoId);
-                    if (rTodo) {
-                        post({ type: 'qtTodoDetail', todo: { ...rTodo }, questId: msg.questId, todoId: msg.todoId });
-                    }
-                }
-                return true;
-            }
             if (isSessionMode) {
                 const sessionQuestId = _getSessionQuestId();
                 const target = _parseSessionTodoTarget(String(msg.todoId || ''), typeof msg.sourceFile === 'string' ? msg.sourceFile : undefined);
@@ -818,60 +773,6 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
         case 'qtMoveToWorkspace':
             _moveToWorkspace(msg.questId, msg.todoId, post);
             return true;
-        case 'qtRestoreFromBackup': {
-            // Move a todo from the backup file back to the corresponding normal todo file
-            const bkPath = _resolveBackupPath(isSessionMode, isWorkspaceFileMode, msg.questId, msg.file, workspaceFilePath, cfg);
-            if (!bkPath || !fs.existsSync(bkPath)) {
-                post({ type: 'qtRestored', success: false, todoId: msg.todoId });
-                return true;
-            }
-            const todoToRestore = questTodo.findTodoByIdInFile(bkPath, msg.todoId);
-            if (!todoToRestore) {
-                post({ type: 'qtRestored', success: false, todoId: msg.todoId });
-                return true;
-            }
-            try {
-                // Prepare the todo data (clean backup-specific fields)
-                const todoData: Record<string, unknown> = { ...todoToRestore };
-                delete todoData._sourceFile;
-                delete (todoData as any).deleted_date;
-                todoData.updated = new Date().toISOString().slice(0, 10);
-                // Restore into the appropriate normal file
-                if (isSessionMode) {
-                    SessionTodoStore.instance.add(String(todoData.title || todoData.id), 'user', {
-                        details: String(todoData.description || ''),
-                        priority: (todoData.priority as 'low' | 'medium' | 'high' | 'critical') || 'medium',
-                        tags: Array.isArray(todoData.tags) ? todoData.tags : [],
-                    });
-                } else if (isWorkspaceFileMode) {
-                    const fp = workspaceFilePath();
-                    if (fp) {
-                        questTodo.createTodoInFile(fp, todoData as any, { scope: { area: 'workspace' } });
-                    }
-                } else {
-                    const qid = effectiveQuestId(msg.questId);
-                    const file = effectiveFile(msg.file);
-                    questTodo.createTodo(qid, todoData as any, file);
-                }
-                // Remove from backup
-                questTodo.deleteTodo('__backup__', msg.todoId, bkPath);
-                // Re-send backup list
-                const bkItems = questTodo.readTodoFile(bkPath).map(t => ({
-                    id: t.id, title: t.title ?? (t as any).description?.substring(0, 60),
-                    status: t.status, priority: t.priority, tags: t.tags,
-                    created: t.created, updated: t.updated,
-                    deleted_date: (t as any).deleted_date,
-                    sourceFile: path.basename(bkPath),
-                }));
-                post({ type: 'qtTodos', todos: bkItems, questId: msg.questId || '__backup__', file: path.basename(bkPath), fromBackup: true });
-                post({ type: 'qtRestored', success: true, todoId: msg.todoId });
-                vscode.window.showInformationMessage(`Todo "${msg.todoId}" restored from backup.`);
-            } catch (e) {
-                console.error('[QuestTodo] qtRestoreFromBackup failed:', e);
-                post({ type: 'qtRestored', success: false, todoId: msg.todoId });
-            }
-            return true;
-        }
         case 'qtDeleteAllSessionTodos': {
             if (!isSessionMode) {
                 return true;
@@ -944,33 +845,6 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             }
             _openYamlFile(msg.questId, msg.file);
             return true;
-        case 'qtCheckBackupExists': {
-            const bkPath = _resolveBackupPath(isSessionMode, isWorkspaceFileMode, msg.questId, msg.file, workspaceFilePath, cfg);
-            post({ type: 'qtBackupStatus', exists: !!bkPath && fs.existsSync(bkPath) });
-            return true;
-        }
-        case 'qtGetBackupTodos': {
-            const bkPath = _resolveBackupPath(isSessionMode, isWorkspaceFileMode, msg.questId, msg.file, workspaceFilePath, cfg);
-            if (!bkPath || !fs.existsSync(bkPath)) {
-                post({ type: 'qtTodos', todos: [], questId: msg.questId || '__backup__', file: 'backup', fromBackup: true });
-                post({ type: 'qtBackupStatus', exists: false });
-                return true;
-            }
-            const items = questTodo.readTodoFile(bkPath);
-            const todos = items.map(t => ({
-                id: t.id,
-                title: t.title ?? t.description?.substring(0, 60),
-                status: t.status,
-                priority: t.priority,
-                tags: t.tags,
-                created: t.created,
-                updated: t.updated,
-                deleted_date: (t as any).deleted_date,
-                sourceFile: path.basename(bkPath),
-            }));
-            post({ type: 'qtTodos', todos, questId: msg.questId || '__backup__', file: path.basename(bkPath), fromBackup: true });
-            return true;
-        }
         case 'qtGetFiles':
             if (isSessionMode) {
                 post({ type: 'qtFiles', files: ['session'], questId: '__session__' });
@@ -1503,6 +1377,19 @@ function _notifyMoveResult(pastVerb: string, result: questTodo.TodoMoveResult): 
     }
 }
 
+/**
+ * Move a single todo to the status-appropriate sibling file (TRA03 delete
+ * path): completed todos can only be archived, so they route to the
+ * `-archived` sibling; everything else goes to the `-deleted` sibling.
+ * A missing todo falls through to deleteTodos, which reports it in skipped.
+ */
+function _moveTodoToSiblingByStatus(filePath: string, todoId: string): questTodo.TodoMoveResult {
+    const todo = questTodo.findTodoByIdInFile(filePath, todoId);
+    return todo?.status === 'completed'
+        ? questTodo.archiveTodos(filePath, [todoId])
+        : questTodo.deleteTodos(filePath, [todoId]);
+}
+
 function _sendTodoList(questId: string, file: string | undefined, post: (m: any) => void): void {
     if (!questId) return;
     try {
@@ -1602,88 +1489,50 @@ function _createTodo(questId: string, todo: any, file: string | undefined, post:
     }
 }
 
-function _isBackupTodoFile(filePath: string): boolean {
-    return /(?:\.backup)+\.todo\.yaml$/.test(path.basename(filePath));
-}
-
-function _backupPathForFile(filePath: string): string {
-    const dir = path.dirname(filePath);
-    const base = path.basename(filePath);
-    const backupBase = /(?:\.backup)+\.todo\.yaml$/.test(base)
-        ? base.replace(/(?:\.backup)+\.todo\.yaml$/, '.backup.todo.yaml')
-        : base.replace(/\.todo\.yaml$/, '.backup.todo.yaml');
-    return path.join(dir, backupBase);
-}
-
-function _deletedArchivePathForBackup(filePath: string): string {
-    const dir = path.dirname(filePath);
-    const base = path.basename(filePath);
-    const archiveBase = /(?:\.backup)+\.todo\.yaml$/.test(base)
-        ? base.replace(/(?:\.backup)+\.todo\.yaml$/, '.deleted.todo.yaml')
-        : base.replace(/\.todo\.yaml$/, '.deleted.todo.yaml');
-    return path.join(dir, archiveBase);
-}
-
-function _archiveDeletedBackupTodo(filePath: string, todoId: string): boolean {
+/**
+ * Resolve the absolute todo file containing `todoId` for a quest-mode delete.
+ * Mirrors the candidate order the legacy backup path used: absolute source,
+ * workspace-relative, quest folder + basename, `_ai/quests/<sourceFile>` when
+ * it contains a slash, then a scan of the quest's todo files.
+ */
+function _resolveDeleteSourcePath(questId: string, todoId: string, sourceFile?: string): string | undefined {
     try {
-        const todo = questTodo.findTodoByIdInFile(filePath, todoId);
-        if (!todo) {
-            return false;
-        }
-
-        const archivePath = _deletedArchivePathForBackup(filePath);
-        const header: Record<string, unknown> = {};
-        if (path.basename(filePath).startsWith('workspace')) {
-            header.scope = { area: 'workspace' };
-        }
-        questTodo.ensureTodoFile(archivePath, header);
-
-        const todoData: Record<string, unknown> = { ...todo };
-        delete todoData._sourceFile;
-        todoData.status = todoData.status || 'cancelled';
-        todoData.updated = new Date().toISOString().slice(0, 10);
-        questTodo.createTodoInFile(archivePath, todoData as any, header);
-
-        console.log(`[QuestTodo] Archived backup todo ${todoId} to ${archivePath}`);
-        return true;
-    } catch (e) {
-        console.error(`[QuestTodo] Failed to archive backup todo ${todoId}:`, e);
-        return false;
-    }
-}
-
-/** Resolve the backup file path for the current panel context. */
-function _resolveBackupPath(
-    isSessionMode: boolean,
-    isWorkspaceFileMode: boolean,
-    questId: string | undefined,
-    file: string | undefined,
-    workspaceFilePath: () => string | undefined,
-    cfg: Record<string, any>,
-): string | undefined {
-    try {
-        if (isSessionMode) {
-            const sessionFp = SessionTodoStore.instance.filePath;
-            return _backupPathForFile(sessionFp);
-        }
-        if (isWorkspaceFileMode) {
-            const fp = workspaceFilePath();
-            if (!fp) return undefined;
-            return _backupPathForFile(fp);
-        }
-        // Quest mode — resolve from quest folder
-        const qid = cfg.fixedQuestId || questId;
-        if (!qid) return undefined;
         const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
         if (!wsRoot) return undefined;
-        const folder = WsPaths.ai('quests', qid) || path.join(wsRoot, '_ai', 'quests', qid);
-        const fileName = (!file || file === 'all')
-            ? `todos.${qid}.todo.yaml`
-            : file;
-        return _backupPathForFile(path.join(folder, path.basename(fileName)));
-    } catch {
-        return undefined;
+        if (sourceFile) {
+            const candidates: string[] = [];
+            if (path.isAbsolute(sourceFile)) {
+                candidates.push(sourceFile);
+            } else {
+                candidates.push(path.join(wsRoot, sourceFile));
+                if (questId && !questId.startsWith('__')) {
+                    const folder = WsPaths.ai('quests', questId) || path.join(wsRoot, '_ai', 'quests', questId);
+                    candidates.push(path.join(folder, sourceFile));
+                }
+                if (sourceFile.includes('/')) {
+                    candidates.push(path.join(wsRoot, '_ai', 'quests', sourceFile));
+                }
+            }
+            for (const absSource of candidates) {
+                if (fs.existsSync(absSource) && questTodo.findTodoByIdInFile(absSource, todoId)) {
+                    return absSource;
+                }
+            }
+        }
+        // Fallback: scan all quest files
+        if (questId && !questId.startsWith('__')) {
+            const folder = WsPaths.ai('quests', questId) || path.join(wsRoot, '_ai', 'quests', questId);
+            for (const fileName of questTodo.listTodoFiles(questId)) {
+                const fp = path.join(folder, fileName);
+                if (questTodo.findTodoByIdInFile(fp, todoId)) {
+                    return fp;
+                }
+            }
+        }
+    } catch (e) {
+        console.error('[QuestTodo] _resolveDeleteSourcePath failed:', e);
     }
+    return undefined;
 }
 
 async function _deleteTodo(questId: string, todoId: string, post: (m: any) => void, sourceFile?: string): Promise<void> {
@@ -1693,101 +1542,17 @@ async function _deleteTodo(questId: string, todoId: string, post: (m: any) => vo
         'Delete',
     );
     if (answer !== 'Delete') return;
-    // Move to backup before deleting
-    _moveToBackupByTodo(questId, todoId, sourceFile);
-    const deleted = questTodo.deleteTodo(questId, todoId, sourceFile);
-    post({ type: 'qtDeleted', success: !!deleted, todoId });
-}
-
-/** Move a todo to the backup file before deletion. */
-function _moveToBackupByTodo(questId: string, todoId: string, sourceFile?: string): void {
-    try {
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        if (!wsRoot) return;
-        // Try to resolve source file: could be absolute, relative, or just basename
-        if (sourceFile) {
-            const candidates: string[] = [];
-            if (path.isAbsolute(sourceFile)) {
-                candidates.push(sourceFile);
-            } else {
-                // Try as workspace-relative path
-                candidates.push(path.join(wsRoot, sourceFile));
-                // Try within quest folder if questId is valid
-                if (questId && !questId.startsWith('__')) {
-                    const folder = WsPaths.ai('quests', questId) || path.join(wsRoot, '_ai', 'quests', questId);
-                    candidates.push(path.join(folder, sourceFile));
-                }
-                // Try as _ai/quests/questId/sourceFile (sourceFile may include quest path prefix)
-                if (sourceFile.includes('/')) {
-                    candidates.push(path.join(wsRoot, '_ai', 'quests', sourceFile));
-                }
-            }
-            for (const absSource of candidates) {
-                if (fs.existsSync(absSource)) {
-                    const todo = questTodo.findTodoByIdInFile(absSource, todoId);
-                    if (todo) {
-                        if (_isBackupTodoFile(absSource)) {
-                            _archiveDeletedBackupTodo(absSource, todoId);
-                            return;
-                        }
-                        _moveToBackup(absSource, todoId);
-                        return;
-                    }
-                }
-            }
-        }
-        // Fallback: scan all quest files
-        if (questId && !questId.startsWith('__')) {
-            const folder = WsPaths.ai('quests', questId) || path.join(wsRoot, '_ai', 'quests', questId);
-            for (const fileName of questTodo.listTodoFiles(questId)) {
-                const fp = path.join(folder, fileName);
-                const todo = questTodo.findTodoByIdInFile(fp, todoId);
-                if (todo) {
-                    if (_isBackupTodoFile(fp)) {
-                        _archiveDeletedBackupTodo(fp, todoId);
-                        return;
-                    }
-                    _moveToBackup(fp, todoId);
-                    return;
-                }
-            }
-        }
-    } catch (e) {
-        console.error('[QuestTodo] _moveToBackupByTodo failed:', e);
+    const fp = _resolveDeleteSourcePath(questId, todoId, sourceFile);
+    if (!fp) {
+        vscode.window.showErrorMessage(`Delete failed: todo "${todoId}" not found in quest "${questId}".`);
+        post({ type: 'qtDeleted', success: false, todoId });
+        return;
     }
-}
-
-/** Copy a todo to the backup variant of the given file. */
-function _moveToBackup(filePath: string, todoId: string): void {
-    try {
-        if (_isBackupTodoFile(filePath)) {
-            _archiveDeletedBackupTodo(filePath, todoId);
-            return;
-        }
-        const todo = questTodo.findTodoByIdInFile(filePath, todoId);
-        if (!todo) {
-            console.warn(`[QuestTodo] _moveToBackup: todo ${todoId} not found in ${filePath}`);
-            return;
-        }
-        const base = path.basename(filePath);
-        const backupPath = _backupPathForFile(filePath);
-        // Create backup file if needed
-        const header: Record<string, unknown> = {};
-        if (base.startsWith('workspace')) {
-            header.scope = { area: 'workspace' };
-        }
-        questTodo.ensureTodoFile(backupPath, header);
-        // Copy the todo data into backup
-        const todoData: Record<string, unknown> = { ...todo };
-        delete todoData._sourceFile;
-        todoData.status = todoData.status || 'cancelled';
-        todoData.deleted_date = new Date().toISOString().slice(0, 10);
-        todoData.updated = new Date().toISOString().slice(0, 10);
-        questTodo.createTodoInFile(backupPath, todoData as any, header);
-        console.log(`[QuestTodo] Backed up todo ${todoId} to ${backupPath}`);
-    } catch (e) {
-        console.error(`[QuestTodo] _moveToBackup failed for ${todoId} in ${filePath}:`, e);
+    const result = _moveTodoToSiblingByStatus(fp, todoId);
+    if (result.error || result.skipped.length) {
+        _notifyMoveResult('Deleted', result);
     }
+    post({ type: 'qtDeleted', success: result.moved.length > 0, todoId });
 }
 
 function _moveTodo(questId: string, todoId: string, targetFile: string, post: (m: any) => void): void {

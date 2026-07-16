@@ -37,9 +37,8 @@
 .qt-todo-item.status-completed { opacity: 0.6; }
 .qt-todo-item.status-completed .ttitle { text-decoration: line-through; }
 .qt-todo-item.status-cancelled { opacity: 0.5; font-style: italic; }
-.qt-move-btn, .qt-move-ws-btn, .qt-restore-btn { background: none; border: none; color: var(--vscode-foreground); cursor: pointer; padding: 0 2px; font-size: 12px; opacity: 0.6; }
+.qt-move-btn, .qt-move-ws-btn { background: none; border: none; color: var(--vscode-foreground); cursor: pointer; padding: 0 2px; font-size: 12px; opacity: 0.6; }
 .qt-move-btn:hover, .qt-move-ws-btn:hover { opacity: 1; }
-.qt-restore-btn:hover { opacity: 1; color: var(--vscode-testing-iconPassed); }
 .qt-detail-form { display: flex; flex-direction: column; gap: 8px; }
 .qt-form-row { display: flex; flex-direction: column; gap: 2px; }
 .qt-form-row label { font-size: 11px; font-weight: 600; color: var(--vscode-descriptionForeground); }
