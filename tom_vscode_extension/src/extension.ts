@@ -705,8 +705,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // Initialize Chat Enhancement stores (§1.1–§1.4)
     stepStart = performance.now();
     ChatVariablesStore.init(context);
-    const windowId = `win-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    SessionTodoStore.init(context, windowId);
+    SessionTodoStore.init(context);
     timeStep('chatEnhancementStores', stepStart);
 
     // Initialize Anthropic handler (Phase 1 of anthropic_sdk_integration)

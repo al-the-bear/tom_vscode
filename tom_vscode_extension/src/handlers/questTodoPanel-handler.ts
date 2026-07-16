@@ -21,6 +21,7 @@ import * as questTodo from '../managers/questTodoManager.js';
 import { collectAllTags, readAllQuestsTodos, readWorkspaceTodos, listQuestIds, listWorkspaceTodoFiles, scanWorkspaceProjects, collectScopeValues } from '../managers/questTodoManager.js';
 import { SessionTodoStore } from '../managers/sessionTodoStore.js';
 import { WsPaths } from '../utils/workspacePaths';
+import { isSessionTodoFileName } from '../utils/sessionTodoNames';
 import { getExternalApplicationForFile, openInExternalApplication, resolvePathVariables, applyDefaultTemplate, DEFAULT_ANSWER_FILE_TEMPLATE } from './handler_shared';
 import { expandTemplate } from './promptTemplate';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
@@ -35,7 +36,6 @@ const _webviewConfigs = new WeakMap<vscode.Webview, QuestTodoViewConfig>();
 /** Storage key for persisting Quest TODO panel state per workspace. */
 const QT_STATE_KEY = 'tomAi.questTodo.panelState';
 const QT_PENDING_SELECT_KEY = 'tomAi.questTodo.pendingSelect';
-const SESSION_TODO_FILE_RE = /^\d{8}_\d{4}_win-.*\.todo\.yaml$/;
 const SESSION_TODO_ID_SEPARATOR = '::';
 
 interface QtPanelState {
@@ -1255,7 +1255,7 @@ function _listSessionTodoFiles(questId: string): string[] {
         return [];
     }
     return questTodo.listTodoFiles(questId)
-        .filter((f) => SESSION_TODO_FILE_RE.test(f));
+        .filter((f) => isSessionTodoFileName(f));
 }
 
 function _sessionTodoAbsolutePath(questId: string, sourceFile: string): string | undefined {

@@ -113,14 +113,6 @@ export function persistentTodoPath(questId: string): string {
     return path.join(questFolder(questId), `todos.${questId}.todo.yaml`);
 }
 
-/** Build a session-scoped todo file name. */
-export function sessionTodoFilename(windowId: string): string {
-    const now = new Date();
-    const d = now.toISOString().slice(0, 10).replace(/-/g, '');
-    const t = now.toISOString().slice(11, 16).replace(':', '');
-    return `${d}_${t}_${windowId}.todo.yaml`;
-}
-
 // ============================================================================
 // YAML document helpers
 // ============================================================================

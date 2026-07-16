@@ -486,8 +486,8 @@ function qtUpdateArchiveButtons() {
     if (isWorkspaceFile) scopeFile = 'workspace.todo.yaml';
     else if (qtCurrentFile && qtCurrentFile !== 'all') scopeFile = qtCurrentFile;
 
-    // Session todos live in window-specific files (TRB1 enables this after
-    // TRA04).
+    // Session todos live in the stable per-host session file (TRA04);
+    // TRB1 adds the archive/delete top-bar buttons for session mode.
     var hideAll = isSession ||
         (scopeFile && qtIsTerminalTodoFileName(scopeFile));
 
