@@ -19,6 +19,23 @@ import * as path from 'path';
 import { Document, parseDocument, YAMLMap, YAMLSeq, Scalar, isMap, isSeq } from 'yaml';
 import { WsPaths } from '../utils/workspacePaths';
 import { scanWorkspaceProjectsByDetectors } from '../utils/projectDetector';
+import { forceBlockStyle } from '../utils/todoArchive';
+
+// Archive/delete move operations (TRA01) — implemented as pure fs+yaml
+// utilities so they are unit-testable; surfaced here as manager API.
+export {
+    archiveTodos,
+    deleteTodos,
+    archiveAllCompleted,
+    deleteAllCancelled,
+    type TodoMoveResult,
+    type TodoMoveSkip,
+} from '../utils/todoArchive';
+export {
+    archivedTodoFileName,
+    deletedTodoFileName,
+    isArchivedOrDeletedTodoFile,
+} from '../utils/todoArchiveNames';
 
 // ============================================================================
 // Types (mirrors todo.schema.json)
@@ -141,22 +158,6 @@ function saveDocumentWithSchema(filePath: string, doc: Document): void {
         content = schemaComment(filePath) + content;
     }
     fs.writeFileSync(filePath, content, 'utf8');
-}
-
-/**
- * Ensure a YAML node tree uses block style (not flow/JSON style).
- * Recursively sets `flow = false` on all maps and sequences.
- */
-function forceBlockStyle(node: unknown): void {
-    if (isSeq(node)) {
-        (node as YAMLSeq).flow = false;
-        for (const item of (node as YAMLSeq).items) { forceBlockStyle(item); }
-    } else if (isMap(node)) {
-        (node as YAMLMap).flow = false;
-        for (const pair of (node as YAMLMap).items) {
-            forceBlockStyle((pair as any).value);
-        }
-    }
 }
 
 /** Convert a YAML map node to a plain QuestTodoItem. */
