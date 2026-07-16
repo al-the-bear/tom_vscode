@@ -21,6 +21,11 @@
 .qt-todo-item:hover { background: var(--vscode-list-hoverBackground); }
 .qt-todo-item.selected { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
 .qt-todo-item .status-icon { flex-shrink: 0; width: 16px; text-align: center; }
+/* Status column: status icon with the todo-stack circle underneath. */
+.qt-todo-item .qt-status-col { flex-shrink: 0; width: 16px; display: inline-flex; flex-direction: column; align-items: center; gap: 2px; align-self: flex-start; }
+.qt-stack-circle { box-sizing: border-box; width: 12px; height: 12px; border-radius: 50%; border: 1px solid var(--vscode-descriptionForeground); color: var(--vscode-descriptionForeground); background: transparent; font-size: 9px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; overflow: visible; }
+.qt-stack-circle:hover { border-color: var(--vscode-focusBorder); color: var(--vscode-focusBorder); }
+.qt-stack-circle.stacked { background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); border-color: var(--vscode-badge-background); font-weight: 600; }
 .qt-todo-item .qt-priority-dot { font-size: 10px; line-height: 1; margin-right: 4px; display: inline-flex; align-items: center; }
 .qt-todo-item .qt-priority-dot.critical { color: var(--vscode-errorForeground); }
 .qt-todo-item .qt-priority-dot.high { color: var(--vscode-editorWarning-foreground); }

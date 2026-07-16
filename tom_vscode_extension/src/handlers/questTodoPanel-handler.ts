@@ -25,7 +25,7 @@ import { isSessionTodoFileName } from '../utils/sessionTodoNames';
 import { getExternalApplicationForFile, openInExternalApplication, resolvePathVariables, applyDefaultTemplate, DEFAULT_ANSWER_FILE_TEMPLATE } from './handler_shared';
 import { expandTemplate } from './promptTemplate';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
-import { BUILTIN_TODO_TEMPLATES, buildTodoSendTemplateChoices, type TodoSendTransport } from '../utils/todoSendTargets';
+import { BUILTIN_TODO_TEMPLATES, buildStackedTodoPrompt, buildTodoSendTemplateChoices, type StackedTodoFragment, type TodoSendTransport } from '../utils/todoSendTargets';
 import { wireCompletionMessages } from '../utils/completionWiring';
 
 // Module-level state
@@ -1038,52 +1038,87 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             }
             const todoYaml = _todoYamlFragment(todo, questId, msg.sourceFile);
             const todoRef = _extractTodoRefFromYamlFragment(todoYaml) || todoId;
-            const todoPrompt = `${todoYaml}\n\nREQUIRED: Add responseValue #TODO=${todoRef}\n\n`;
-            const selectedTemplate = String(msg.template || '__none__');
-            const config = loadSendToChatConfig();
-
-            // Follow the prompt queue's selected transport (Bug 3): route to the
-            // Anthropic chat transport when the queue is set to Anthropic,
-            // otherwise open Copilot chat as before.
-            const { transport } = await _queueSendTarget();
-            if (transport === 'anthropic') {
-                const ctx = _extensionContext;
-                if (!ctx) {
-                    vscode.window.showErrorMessage('Extension context unavailable — cannot send to Anthropic.');
-                    return true;
-                }
-                const tplBody = (selectedTemplate && selectedTemplate !== '__none__')
-                    ? config?.anthropic?.userMessageTemplates?.find((t) => t.id === selectedTemplate)?.template
-                    : undefined;
-                const { runAnthropicSend } = await import('./sendToChatRouter.js');
-                const outcome = await runAnthropicSend(ctx, todoPrompt, tplBody ? { userMessageTemplate: tplBody } : {});
-                if (outcome.rejected) {
-                    vscode.window.showWarningMessage('Anthropic chat is busy — try again once the current request finishes.');
-                } else if (!outcome.ok && outcome.error) {
-                    vscode.window.showErrorMessage(`Send to Anthropic failed: ${outcome.error}`);
-                }
+            const todoPrompt = buildStackedTodoPrompt([{ yaml: todoYaml, ref: todoRef }]);
+            await _sendTodoPromptViaQueueTransport(todoPrompt, String(msg.template || '__none__'));
+            return true;
+        }
+        case 'qtQueueStackedTodos': {
+            // One prompt PER stacked todo, enqueued in stack order. Each todo is
+            // embedded exactly like the single-todo queue add: default-template
+            // wrapped yaml fragment as originalText, the selected template id
+            // (e.g. TODO Execution / execute-todo) applied by the queue at send
+            // time via its ${originalPrompt} / ${userMessage} placeholder.
+            const questId = effectiveQuestId(msg.questId);
+            const entries: Array<{ todoId?: string; sourceFile?: string }> = Array.isArray(msg.todos) ? msg.todos : [];
+            if (!entries.length) {
+                vscode.window.showErrorMessage('Todo stack is empty.');
                 return true;
             }
-
-            const wrappedText = applyDefaultTemplate(todoPrompt, 'copilot');
-            const answerFileTemplate = config?.copilot?.templates?.['__answer_file__']?.template || DEFAULT_ANSWER_FILE_TEMPLATE;
-
-            let expanded: string;
-            if (!selectedTemplate || selectedTemplate === '__none__') {
-                expanded = await expandTemplate(wrappedText);
-            } else if (selectedTemplate === '__answer_file__') {
-                expanded = await expandTemplate(answerFileTemplate, { values: { originalPrompt: wrappedText } });
-            } else {
-                const selectedTemplateText = config?.copilot?.templates?.[selectedTemplate]?.template || BUILTIN_TODO_TEMPLATES[selectedTemplate];
-                if (selectedTemplateText) {
-                    const templateExpanded = await expandTemplate(selectedTemplateText, { values: { originalPrompt: wrappedText } });
-                    expanded = await expandTemplate(answerFileTemplate, { values: { originalPrompt: templateExpanded } });
-                } else {
-                    expanded = await expandTemplate(wrappedText);
+            const selectedTemplate = (msg.template && msg.template !== '__none__') ? String(msg.template) : undefined;
+            const prepared: string[] = [];
+            const missing: string[] = [];
+            for (const entry of entries) {
+                const todoId = String(entry?.todoId || '');
+                const todo = todoId ? _findTodoForPromptAction(questId, todoId, entry?.sourceFile) : undefined;
+                if (!todo) {
+                    missing.push(todoId || '?');
+                    continue;
                 }
+                const todoYaml = _todoYamlFragment(todo, questId, entry?.sourceFile);
+                prepared.push(applyDefaultTemplate(todoYaml, 'copilot'));
             }
-
-            await vscode.commands.executeCommand('workbench.action.chat.open', { query: expanded });
+            if (!prepared.length) {
+                vscode.window.showErrorMessage(`No stacked todos found (missing: ${missing.join(', ')})`);
+                return true;
+            }
+            try {
+                const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
+                const queue = PromptQueueManager.instance;
+                for (const originalText of prepared) {
+                    await queue.enqueue({
+                        originalText,
+                        template: selectedTemplate,
+                        deferSend: true,
+                    });
+                }
+                const suffix = missing.length ? ` (skipped missing: ${missing.join(', ')})` : '';
+                vscode.window.showInformationMessage(`Added ${prepared.length} stacked todo${prepared.length === 1 ? '' : 's'} to prompt queue${suffix}`);
+            } catch {
+                vscode.window.showWarningMessage('Prompt queue not available');
+            }
+            return true;
+        }
+        case 'qtSendStackedTodos': {
+            // ALL stacked todos combine into a SINGLE prompt: the yaml fragments
+            // concatenate into one todo list, with one numbered REQUIRED
+            // responseValue line per todo (buildStackedTodoPrompt). The combined
+            // block then rides the same template embedding as a single todo.
+            const questId = effectiveQuestId(msg.questId);
+            const entries: Array<{ todoId?: string; sourceFile?: string }> = Array.isArray(msg.todos) ? msg.todos : [];
+            if (!entries.length) {
+                vscode.window.showErrorMessage('Todo stack is empty.');
+                return true;
+            }
+            const fragments: StackedTodoFragment[] = [];
+            const missing: string[] = [];
+            for (const entry of entries) {
+                const todoId = String(entry?.todoId || '');
+                const todo = todoId ? _findTodoForPromptAction(questId, todoId, entry?.sourceFile) : undefined;
+                if (!todo) {
+                    missing.push(todoId || '?');
+                    continue;
+                }
+                const todoYaml = _todoYamlFragment(todo, questId, entry?.sourceFile);
+                fragments.push({ yaml: todoYaml, ref: _extractTodoRefFromYamlFragment(todoYaml) || todoId });
+            }
+            if (!fragments.length) {
+                vscode.window.showErrorMessage(`No stacked todos found (missing: ${missing.join(', ')})`);
+                return true;
+            }
+            if (missing.length) {
+                vscode.window.showWarningMessage(`Skipping missing stacked todos: ${missing.join(', ')}`);
+            }
+            await _sendTodoPromptViaQueueTransport(buildStackedTodoPrompt(fragments), String(msg.template || '__none__'));
             return true;
         }
         case 'qtOpenInEditor': {
@@ -1614,6 +1649,56 @@ async function _queueSendTarget(): Promise<{ transport: TodoSendTransport; templ
     } catch {
         return { transport: 'copilot' };
     }
+}
+
+/**
+ * Send a fully built todo prompt (single or stacked, incl. the REQUIRED
+ * responseValue footer) via the prompt queue's currently selected transport
+ * (Bug 3): the Anthropic chat transport when the queue targets Anthropic
+ * (template body applied as the user-message wrapper), Copilot chat otherwise
+ * (template applied through the ${originalPrompt} / answer-file expansion).
+ */
+async function _sendTodoPromptViaQueueTransport(todoPrompt: string, selectedTemplate: string): Promise<void> {
+    const config = loadSendToChatConfig();
+    const { transport } = await _queueSendTarget();
+    if (transport === 'anthropic') {
+        const ctx = _extensionContext;
+        if (!ctx) {
+            vscode.window.showErrorMessage('Extension context unavailable — cannot send to Anthropic.');
+            return;
+        }
+        const tplBody = (selectedTemplate && selectedTemplate !== '__none__')
+            ? config?.anthropic?.userMessageTemplates?.find((t) => t.id === selectedTemplate)?.template
+            : undefined;
+        const { runAnthropicSend } = await import('./sendToChatRouter.js');
+        const outcome = await runAnthropicSend(ctx, todoPrompt, tplBody ? { userMessageTemplate: tplBody } : {});
+        if (outcome.rejected) {
+            vscode.window.showWarningMessage('Anthropic chat is busy — try again once the current request finishes.');
+        } else if (!outcome.ok && outcome.error) {
+            vscode.window.showErrorMessage(`Send to Anthropic failed: ${outcome.error}`);
+        }
+        return;
+    }
+
+    const wrappedText = applyDefaultTemplate(todoPrompt, 'copilot');
+    const answerFileTemplate = config?.copilot?.templates?.['__answer_file__']?.template || DEFAULT_ANSWER_FILE_TEMPLATE;
+
+    let expanded: string;
+    if (!selectedTemplate || selectedTemplate === '__none__') {
+        expanded = await expandTemplate(wrappedText);
+    } else if (selectedTemplate === '__answer_file__') {
+        expanded = await expandTemplate(answerFileTemplate, { values: { originalPrompt: wrappedText } });
+    } else {
+        const selectedTemplateText = config?.copilot?.templates?.[selectedTemplate]?.template || BUILTIN_TODO_TEMPLATES[selectedTemplate];
+        if (selectedTemplateText) {
+            const templateExpanded = await expandTemplate(selectedTemplateText, { values: { originalPrompt: wrappedText } });
+            expanded = await expandTemplate(answerFileTemplate, { values: { originalPrompt: templateExpanded } });
+        } else {
+            expanded = await expandTemplate(wrappedText);
+        }
+    }
+
+    await vscode.commands.executeCommand('workbench.action.chat.open', { query: expanded });
 }
 
 function _todoYamlFragment(todo: questTodo.QuestTodoItem, questId?: string, sourceFileHint?: string): string {

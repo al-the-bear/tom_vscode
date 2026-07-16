@@ -63,6 +63,15 @@ Archived/deleted sibling files are **terminal**: they can be viewed but never ar
 
 **Session todos** (the Session Todos view and the panel's session mode) are stored in one stable, git-tracked file per machine and quest — `_ai/quests/<quest>/session-todo.<host>.<quest>.todo.yaml` — and **persist across window reloads**. Older per-window session files are migrated into it automatically.
 
+#### Todo stack (batch send)
+
+Each list row shows a small clickable circle **under its status icon**. Clicking it adds the todo to the **todo stack**; the circle then shows the todo's 1-based stack position. **Shift-click** (with at least one todo already stacked) adds every todo between the last picked one and the clicked one, in the current list order. Clicking a stacked circle again removes that todo and renumbers the rest. The **Clear todo stack** toolbar button empties the stack.
+
+With a non-empty stack, the send buttons switch to batch mode:
+
+- **Save to Queue** — adds **one prompt per stacked todo** to the prompt queue, in stack order, each embedded via the selected template (e.g. the Execute TODO template).
+- **Send** (Copilot or Anthropic, following the queue's transport) — combines **all stacked todos into a single prompt**: the todo YAML fragments concatenate into one todo list, get one numbered `REQUIRED: Add responseValue #TODO_<n>=…` line each, and the combined block is inserted into the selected template. With no template selected, the concatenated YAML fragments (plus the response-value lines) are sent as-is.
+
 ## 3) Sending prompts
 
 ### Anthropic

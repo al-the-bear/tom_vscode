@@ -32,6 +32,14 @@ var qtPathExtAppAvailability = {};
 var qtPendingStatusChange = null;
 var qtCurrentTemplate = '__none__';
 var qtPendingSelectTodoId = '';
+// ── Todo stack (batch send/queue) ──
+// Ordered list of stacked todos ({id, sourceFile}); the circle under each
+// row's status icon shows the 1-based stack index. Save-to-Queue enqueues one
+// prompt per stacked todo (in stack order); Send combines all stacked todos
+// into a single prompt.
+var qtStack = [];
+var qtLastStackedId = '';
+var qtLastRenderOrder = [];
 
 function qtPersistState() {
     vscode.postMessage({ type: 'qtSaveState', state: {
@@ -149,6 +157,10 @@ function qtNavPush(todoId) {
         if (qtCurrentQuestId === '__all_quests__' || qtCurrentQuestId === '__all_workspace__') return;
         qtShowMassAddOverlay();
     });
+    // Clear todo stack button
+    var btnClearStack = document.getElementById('qt-btn-clear-stack');
+    if (btnClearStack) btnClearStack.addEventListener('click', function() { qtClearStack(); });
+    qtUpdateStackButtons();
     // Archive / delete-to-file buttons (TRA02)
     var btnArchive = document.getElementById('qt-btn-archive');
     var btnArchiveAll = document.getElementById('qt-btn-archive-all');
@@ -214,6 +226,17 @@ function qtNavPush(todoId) {
         qtCurrentTemplate = this.value || '__none__';
     });
     if (addQueueBtn) addQueueBtn.addEventListener('click', function() {
+        // Stacked todos win: one queue prompt per stacked todo, in stack order.
+        if (qtStack.length) {
+            vscode.postMessage({
+                type: 'qtQueueStackedTodos',
+                questId: qtCurrentQuestId,
+                file: qtCurrentFile,
+                todos: qtStackPayload(),
+                template: qtCurrentTemplate,
+            });
+            return;
+        }
         if (!qtSelectedTodoId) {
             vscode.postMessage({ type: 'qtShowError', message: 'Select a todo first.' });
             return;
@@ -229,6 +252,17 @@ function qtNavPush(todoId) {
         });
     });
     if (sendCopilotBtn) sendCopilotBtn.addEventListener('click', function() {
+        // Stacked todos win: all stacked todos combine into a SINGLE prompt.
+        if (qtStack.length) {
+            vscode.postMessage({
+                type: 'qtSendStackedTodos',
+                questId: qtCurrentQuestId,
+                file: qtCurrentFile,
+                todos: qtStackPayload(),
+                template: qtCurrentTemplate,
+            });
+            return;
+        }
         if (!qtSelectedTodoId) {
             vscode.postMessage({ type: 'qtShowError', message: 'Select a todo first.' });
             return;
@@ -302,9 +336,86 @@ function qtNavPush(todoId) {
     }
 })();
 
+// ── Todo stack helpers ──
+
+function qtStackIndexOf(id) {
+    for (var i = 0; i < qtStack.length; i++) { if (qtStack[i].id === id) return i; }
+    return -1;
+}
+
+function qtStackSourceFor(id) {
+    for (var i = 0; i < qtTodos.length; i++) { if (qtTodos[i].id === id) return qtTodos[i].sourceFile || ''; }
+    return '';
+}
+
+/**
+ * Toggle a todo's stack membership (circle click). Un-stacking renumbers the
+ * remaining entries automatically (indices derive from array position at
+ * render time). Shift-click with an existing stack adds every todo between
+ * the last picked one and the clicked one (in the current list order,
+ * walking in the click direction), skipping already-stacked entries.
+ */
+function qtToggleStack(id, shiftKey) {
+    if (!id) return;
+    var existing = qtStackIndexOf(id);
+    if (existing >= 0) {
+        qtStack.splice(existing, 1);
+        if (qtLastStackedId === id) qtLastStackedId = qtStack.length ? qtStack[qtStack.length - 1].id : '';
+        qtRenderList();
+        return;
+    }
+    if (shiftKey && qtStack.length && qtLastStackedId) {
+        var from = qtLastRenderOrder.indexOf(qtLastStackedId);
+        var to = qtLastRenderOrder.indexOf(id);
+        if (from !== -1 && to !== -1) {
+            var step = to >= from ? 1 : -1;
+            for (var ri = from + step; step > 0 ? ri <= to : ri >= to; ri += step) {
+                var rid = qtLastRenderOrder[ri];
+                if (qtStackIndexOf(rid) === -1) qtStack.push({ id: rid, sourceFile: qtStackSourceFor(rid) });
+            }
+            qtLastStackedId = id;
+            qtRenderList();
+            return;
+        }
+    }
+    qtStack.push({ id: id, sourceFile: qtStackSourceFor(id) });
+    qtLastStackedId = id;
+    qtRenderList();
+}
+
+function qtClearStack() {
+    if (!qtStack.length) return;
+    qtStack = [];
+    qtLastStackedId = '';
+    qtRenderList();
+}
+
+/** Message payload shape shared by qtQueueStackedTodos / qtSendStackedTodos. */
+function qtStackPayload() {
+    return qtStack.map(function(s) { return { todoId: s.id, sourceFile: s.sourceFile || undefined }; });
+}
+
+function qtUpdateStackButtons() {
+    var btn = document.getElementById('qt-btn-clear-stack');
+    if (!btn) return;
+    btn.disabled = !qtStack.length;
+    btn.style.opacity = qtStack.length ? '1' : '0.4';
+    btn.title = qtStack.length ? 'Clear todo stack (' + qtStack.length + ' stacked)' : 'Clear todo stack (empty)';
+}
+
 function qtRenderList() {
     var pane = document.getElementById('qt-list-pane');
     if (!pane) return;
+    // Prune stack entries whose todo vanished (reload, quest/file switch).
+    if (qtStack.length) {
+        var qtLiveIds = {};
+        for (var li = 0; li < qtTodos.length; li++) qtLiveIds[qtTodos[li].id] = true;
+        qtStack = qtStack.filter(function(s) { return !!qtLiveIds[s.id]; });
+        if (qtLastStackedId && !qtLiveIds[qtLastStackedId]) {
+            qtLastStackedId = qtStack.length ? qtStack[qtStack.length - 1].id : '';
+        }
+    }
+    qtUpdateStackButtons();
     if (!qtTodos.length) { pane.innerHTML = '<div class="qt-empty-detail">No todos found</div>'; return; }
 
     // Apply filters
@@ -353,6 +464,9 @@ function qtRenderList() {
 
     if (!filtered.length) { pane.innerHTML = '<div class="qt-empty-detail">No matching todos</div>'; return; }
 
+    // Current visual order — basis for shift-click stack ranges.
+    qtLastRenderOrder = filtered.map(function(t) { return t.id; });
+
     pane.innerHTML = filtered.map(function(t) {
         var icon = qtStatusIcon(t.status);
         var cls = 'qt-todo-item status-' + (t.status || 'not-started');
@@ -378,9 +492,14 @@ function qtRenderList() {
         }
         var priorityBadge = t.priority && (t.priority === 'critical' || t.priority === 'high') ? '<span class="priority-badge ' + t.priority + '">' + t.priority.toUpperCase() + '</span>' : '';
         var priorityDot = t.priority ? '<span class="qt-priority-dot ' + qtEsc(t.priority) + '">●</span>' : '';
+        var stackIdx = qtStackIndexOf(t.id);
+        var circleTitle = stackIdx >= 0
+            ? 'Remove from todo stack (#' + (stackIdx + 1) + ')'
+            : 'Add to todo stack (shift-click: add range from last picked)';
+        var stackCircle = '<span class="qt-stack-circle' + (stackIdx >= 0 ? ' stacked' : '') + '" data-qt-stackid="' + qtEsc(t.id) + '" title="' + circleTitle + '">' + (stackIdx >= 0 ? (stackIdx + 1) : '') + '</span>';
         return '<div class="' + cls + '" data-qt-id="' + qtEsc(t.id) + '">' +
             '<div class="qt-todo-item-row1">' +
-            '<span class="status-icon">' + icon + '</span>' +
+            '<span class="qt-status-col"><span class="status-icon">' + icon + '</span>' + stackCircle + '</span>' +
             '<span class="ttitle">' + qtEsc(t.title || '') + '</span>' +
             priorityBadge + moveBtn + moveWsBtn + trashBtn + reopenBtn + '</div>' +
             '<div class="qt-todo-item-row2">' +
@@ -391,6 +510,11 @@ function qtRenderList() {
 
     pane.querySelectorAll('.qt-todo-item').forEach(function(el) {
         el.addEventListener('click', function(e) {
+            var circleEl = e.target.closest('.qt-stack-circle');
+            if (circleEl) {
+                qtToggleStack(circleEl.getAttribute('data-qt-stackid'), e.shiftKey);
+                return;
+            }
             if (e.target.closest('.qt-move-btn') || e.target.closest('.qt-move-ws-btn') || e.target.closest('.qt-trash-btn') || e.target.closest('.qt-reopen-btn')) return;
             qtSelectedTodoId = el.dataset.qtId;
             qtNavPush(qtSelectedTodoId);
