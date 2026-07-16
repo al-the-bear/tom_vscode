@@ -167,22 +167,30 @@ import {
     UPDATE_QUEST_TODO_TOOL as UPDATE_QUEST_TODO_DEF,
     MOVE_QUEST_TODO_TOOL as MOVE_QUEST_TODO_DEF,
     DELETE_QUEST_TODO_TOOL as DELETE_QUEST_TODO_DEF,
+    ARCHIVE_QUEST_TODOS_TOOL as ARCHIVE_QUEST_TODOS_DEF,
+    DELETE_QUEST_TODOS_TOOL as DELETE_QUEST_TODOS_DEF,
     ListQuestTodosInput,
     GetQuestTodoInput,
     CreateQuestTodoInput,
     UpdateQuestTodoInput,
     MoveQuestTodoInput,
     DeleteQuestTodoInput,
+    ArchiveQuestTodosInput,
+    DeleteQuestTodosInput,
     type QuestTodoFull,
     type QuestTodoStoreAccess,
     type QuestTodoSummary,
     type QuestTodoToolsDeps,
+    type QuestTodoArchiveAccess,
+    type QuestTodoArchiveToolsDeps,
     listQuestTodosImpl,
     getQuestTodoImpl,
     createQuestTodoImpl,
     updateQuestTodoImpl,
     moveQuestTodoImpl,
     deleteQuestTodoImpl,
+    archiveQuestTodosImpl,
+    deleteQuestTodosImpl,
 } from './quest-todo-tools';
 
 function toFull(t: questTodo.QuestTodoItem): QuestTodoFull {
@@ -285,6 +293,41 @@ const liveQuestTodoDeps: QuestTodoToolsDeps = {
 export const LIST_TODOS_TOOL: SharedToolDefinition<ListQuestTodosInput> = {
     ...LIST_QUEST_TODOS_DEF,
     execute: (input) => listQuestTodosImpl(liveQuestTodoDeps, input),
+};
+
+// Archive/delete-to-sibling tools (TRA05) — bridged onto the TRA01 move
+// operations in questTodoManager. The impls validate questId/file/ids;
+// the bridge only resolves the quest-folder absolute path.
+
+function questTodoAbsolutePath(questId: string, file: string): string {
+    const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+    return path.join(folder, WsPaths.aiFolder, 'quests', questId, file);
+}
+
+const liveQuestTodoArchiveAccess: QuestTodoArchiveAccess = {
+    archiveTodos: (questId, file, todoIds) =>
+        questTodo.archiveTodos(questTodoAbsolutePath(questId, file), todoIds),
+    deleteTodos: (questId, file, todoIds) =>
+        questTodo.deleteTodos(questTodoAbsolutePath(questId, file), todoIds),
+    archiveAllCompleted: (questId, file) =>
+        questTodo.archiveAllCompleted(questTodoAbsolutePath(questId, file)),
+    deleteAllCancelled: (questId, file) =>
+        questTodo.deleteAllCancelled(questTodoAbsolutePath(questId, file)),
+};
+
+const liveQuestTodoArchiveDeps: QuestTodoArchiveToolsDeps = {
+    archive: liveQuestTodoArchiveAccess,
+    onMutate: () => refreshSessionPanel(),  // shared panel updates both session + quest views
+};
+
+export const ARCHIVE_TODOS_TOOL: SharedToolDefinition<ArchiveQuestTodosInput> = {
+    ...ARCHIVE_QUEST_TODOS_DEF,
+    execute: (input) => archiveQuestTodosImpl(liveQuestTodoArchiveDeps, input),
+};
+
+export const DELETE_TODOS_TO_FILE_TOOL: SharedToolDefinition<DeleteQuestTodosInput> = {
+    ...DELETE_QUEST_TODOS_DEF,
+    execute: (input) => deleteQuestTodosImpl(liveQuestTodoArchiveDeps, input),
 };
 
 // getCombinedTodos bridged to cross-cutting-todo-tools.ts.
@@ -1198,6 +1241,8 @@ export const CHAT_ENHANCEMENT_TOOLS: SharedToolDefinition<any>[] = [
     DELETE_REMINDER_TEMPLATE_TOOL,
     // §1.5–§1.9 — Extended tools
     DELETE_TODO_TOOL,
+    ARCHIVE_TODOS_TOOL,
+    DELETE_TODOS_TO_FILE_TOOL,
     LIST_QUESTS_TOOL,
     LIST_PROJECTS_TOOL,
     LIST_DOCUMENTS_TOOL,

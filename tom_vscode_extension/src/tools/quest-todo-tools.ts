@@ -505,13 +505,16 @@ export async function deleteQuestTodoImpl(deps: QuestTodoToolsDeps, input: Delet
 }
 
 export const DELETE_QUEST_TODO_DESCRIPTION =
-    'Delete a quest todo by id. Optional `sourceFile` hint skips the ' +
-    'file-by-file scan when you already know which YAML file holds it ' +
-    '(performance only — correctness is the same either way). YAML ' +
-    'formatting in the file is preserved across the delete. Missing id ' +
-    'returns `{ok: false, error: "..."}` rather than throwing. To mark a ' +
-    'todo "completed" without removing it, use `tomAi_updateQuestTodo` ' +
-    'with `status: completed`.';
+    'HARD-remove a quest todo by id — the todo is erased from the YAML ' +
+    'file and is NOT recoverable. **Prefer `tomAi_deleteQuestTodos` ' +
+    '(plural)**, which MOVES todos to the `-deleted` sibling file instead, ' +
+    'keeping them recoverable (and `tomAi_archiveQuestTodos` for completed ' +
+    'todos). Optional `sourceFile` hint skips the file-by-file scan when ' +
+    'you already know which YAML file holds it (performance only — ' +
+    'correctness is the same either way). YAML formatting in the file is ' +
+    'preserved across the delete. Missing id returns `{ok: false, error: ' +
+    '"..."}` rather than throwing. To mark a todo "completed" without ' +
+    'removing it, use `tomAi_updateQuestTodo` with `status: completed`.';
 
 export const DELETE_QUEST_TODO_TOOL: SharedToolDefinition<DeleteQuestTodoInput> = {
     name: 'tomAi_deleteQuestTodo',
@@ -532,6 +535,212 @@ export const DELETE_QUEST_TODO_TOOL: SharedToolDefinition<DeleteQuestTodoInput> 
 };
 
 // ===========================================================================
+// archiveQuestTodos / deleteQuestTodos — TRA05 move-to-sibling tools
+// ===========================================================================
+
+/**
+ * Result summary of a TRA01 move operation, as surfaced by the archive/
+ * delete tools. Mirrors `TodoMoveResult` from `utils/todoArchive.ts`.
+ */
+export interface TodoFileMoveSummary {
+    moved: string[];
+    skipped: Array<{ id: string; reason: string }>;
+    /** Target sibling file ('' when the operation was refused). */
+    targetFile: string;
+    /** Set when the whole operation was refused (terminal/missing source). */
+    error?: string;
+}
+
+/**
+ * Narrow dep over the TRA01 archive/delete operations, keyed by
+ * (questId, bare file name). The live bridge resolves the quest folder
+ * path and calls `questTodoManager.archiveTodos` etc.
+ */
+export interface QuestTodoArchiveAccess {
+    archiveTodos(questId: string, file: string, todoIds: string[]): TodoFileMoveSummary;
+    deleteTodos(questId: string, file: string, todoIds: string[]): TodoFileMoveSummary;
+    archiveAllCompleted(questId: string, file: string): TodoFileMoveSummary;
+    deleteAllCancelled(questId: string, file: string): TodoFileMoveSummary;
+}
+
+export interface QuestTodoArchiveToolsDeps {
+    archive: QuestTodoArchiveAccess;
+    onMutate?(): void;
+}
+
+/** Default persistent todo file for a quest. */
+function defaultQuestTodoFile(questId: string): string {
+    return `todos.${questId}.todo.yaml`;
+}
+
+/**
+ * Shared input validation for the two move tools. Returns an error
+ * string, or the resolved bare file name on success.
+ */
+function resolveMoveInput(
+    input: { questId: string; file?: string; todoIds?: string[] },
+    allFlag: boolean | undefined,
+    allFlagName: string,
+): { error: string } | { file: string; bulk: boolean } {
+    if (!input.questId) {
+        return { error: '`questId` is required.' };
+    }
+    const file = input.file ?? defaultQuestTodoFile(input.questId);
+    if (file.includes('/') || file.includes('\\')) {
+        return { error: '`file` must be a bare `*.todo.yaml` filename inside the quest folder (no slashes).' };
+    }
+    const hasIds = Array.isArray(input.todoIds) && input.todoIds.length > 0;
+    if (hasIds && allFlag) {
+        return { error: `Pass either \`todoIds\` or \`${allFlagName}: true\`, not both.` };
+    }
+    if (!hasIds && !allFlag) {
+        return { error: `Nothing to do — pass \`todoIds\` (non-empty) or \`${allFlagName}: true\`.` };
+    }
+    return { file, bulk: !hasIds };
+}
+
+function moveResultJson(
+    input: { questId: string; todoIds?: string[] },
+    file: string,
+    result: TodoFileMoveSummary,
+): string {
+    if (result.error) {
+        return JSON.stringify({ ok: false, error: result.error, questId: input.questId, file, skipped: result.skipped });
+    }
+    return JSON.stringify({
+        ok: true,
+        questId: input.questId,
+        file,
+        targetFile: result.targetFile,
+        movedCount: result.moved.length,
+        moved: result.moved,
+        skipped: result.skipped,
+    }, null, 2);
+}
+
+export interface ArchiveQuestTodosInput {
+    questId: string;
+    /** Bare `*.todo.yaml` filename. Defaults to `todos.<questId>.todo.yaml`. */
+    file?: string;
+    /** Explicit ids to archive (each must be status=completed). */
+    todoIds?: string[];
+    /** Archive every completed todo in the file instead of explicit ids. */
+    allCompleted?: boolean;
+}
+
+export async function archiveQuestTodosImpl(
+    deps: QuestTodoArchiveToolsDeps,
+    input: ArchiveQuestTodosInput,
+): Promise<string> {
+    try {
+        const resolved = resolveMoveInput(input, input.allCompleted, 'allCompleted');
+        if ('error' in resolved) {
+            return JSON.stringify({ ok: false, error: resolved.error });
+        }
+        const result = resolved.bulk
+            ? deps.archive.archiveAllCompleted(input.questId, resolved.file)
+            : deps.archive.archiveTodos(input.questId, resolved.file, input.todoIds!);
+        if (!result.error && result.moved.length > 0) { deps.onMutate?.(); }
+        return moveResultJson(input, resolved.file, result);
+    } catch (err) {
+        return JSON.stringify({ ok: false, error: (err as Error).message });
+    }
+}
+
+export const ARCHIVE_QUEST_TODOS_DESCRIPTION =
+    'Archive **completed** quest todos by MOVING them from a `*.todo.yaml` ' +
+    'file to its `-archived` sibling (first dot-segment suffixed, e.g. ' +
+    '`todos.myquest.todo.yaml` → `todos-archived.myquest.todo.yaml`), ' +
+    'stamping each with `archived: <date>`. Only `status: completed` todos ' +
+    'are eligible — others are skipped per-id with a reason (use ' +
+    '`tomAi_deleteQuestTodos` for non-completed todos). Pass EITHER ' +
+    '`todoIds` (explicit) OR `allCompleted: true` (bulk over the file). ' +
+    '`file` defaults to the persistent `todos.<questId>.todo.yaml`. A source ' +
+    'file that is itself an `-archived`/`-deleted` sibling is refused ' +
+    '(terminal files). Returns `{ok, targetFile, moved[], skipped[]}`.';
+
+export const ARCHIVE_QUEST_TODOS_TOOL: SharedToolDefinition<ArchiveQuestTodosInput> = {
+    name: 'tomAi_archiveQuestTodos',
+    displayName: 'Archive Quest Todos',
+    description: ARCHIVE_QUEST_TODOS_DESCRIPTION,
+    tags: ['todo', 'quest', 'tom-ai-chat'],
+    readOnly: false,
+    inputSchema: {
+        type: 'object',
+        required: ['questId'],
+        properties: {
+            questId: { type: 'string', description: 'Quest folder name (e.g. `vscode_extension`).' },
+            file: { type: 'string', description: 'Bare `*.todo.yaml` filename. Default: `todos.<questId>.todo.yaml`.' },
+            todoIds: { type: 'array', items: { type: 'string' }, description: 'Explicit ids to archive (status must be `completed`).' },
+            allCompleted: { type: 'boolean', description: 'Archive every completed todo in the file. Mutually exclusive with `todoIds`.' },
+        },
+    },
+    execute: async () => '{"ok":false,"error":"execute() must be installed by tool-executors.ts"}',
+};
+
+export interface DeleteQuestTodosInput {
+    questId: string;
+    /** Bare `*.todo.yaml` filename. Defaults to `todos.<questId>.todo.yaml`. */
+    file?: string;
+    /** Explicit ids to delete (each must be NON-completed). */
+    todoIds?: string[];
+    /** Delete every cancelled todo in the file instead of explicit ids. */
+    allCancelled?: boolean;
+}
+
+export async function deleteQuestTodosImpl(
+    deps: QuestTodoArchiveToolsDeps,
+    input: DeleteQuestTodosInput,
+): Promise<string> {
+    try {
+        const resolved = resolveMoveInput(input, input.allCancelled, 'allCancelled');
+        if ('error' in resolved) {
+            return JSON.stringify({ ok: false, error: resolved.error });
+        }
+        const result = resolved.bulk
+            ? deps.archive.deleteAllCancelled(input.questId, resolved.file)
+            : deps.archive.deleteTodos(input.questId, resolved.file, input.todoIds!);
+        if (!result.error && result.moved.length > 0) { deps.onMutate?.(); }
+        return moveResultJson(input, resolved.file, result);
+    } catch (err) {
+        return JSON.stringify({ ok: false, error: (err as Error).message });
+    }
+}
+
+export const DELETE_QUEST_TODOS_DESCRIPTION =
+    'Delete quest todos RECOVERABLY by MOVING them from a `*.todo.yaml` ' +
+    'file to its `-deleted` sibling (first dot-segment suffixed, e.g. ' +
+    '`todos.myquest.todo.yaml` → `todos-deleted.myquest.todo.yaml`), ' +
+    'stamping each with `deleted: <date>`. Only NON-completed todos are ' +
+    'eligible — completed todos can only be archived (use ' +
+    '`tomAi_archiveQuestTodos`); they are skipped per-id with a reason. ' +
+    'Pass EITHER `todoIds` (explicit) OR `allCancelled: true` (bulk move of ' +
+    'every `status: cancelled` todo). `file` defaults to the persistent ' +
+    '`todos.<questId>.todo.yaml`. A source file that is itself an ' +
+    '`-archived`/`-deleted` sibling is refused (terminal files). Prefer ' +
+    'this over `tomAi_deleteQuestTodo` (hard-remove) — the moved todo stays ' +
+    'recoverable. Returns `{ok, targetFile, moved[], skipped[]}`.';
+
+export const DELETE_QUEST_TODOS_TOOL: SharedToolDefinition<DeleteQuestTodosInput> = {
+    name: 'tomAi_deleteQuestTodos',
+    displayName: 'Delete Quest Todos (to file)',
+    description: DELETE_QUEST_TODOS_DESCRIPTION,
+    tags: ['todo', 'quest', 'tom-ai-chat'],
+    readOnly: false,
+    inputSchema: {
+        type: 'object',
+        required: ['questId'],
+        properties: {
+            questId: { type: 'string', description: 'Quest folder name (e.g. `vscode_extension`).' },
+            file: { type: 'string', description: 'Bare `*.todo.yaml` filename. Default: `todos.<questId>.todo.yaml`.' },
+            todoIds: { type: 'array', items: { type: 'string' }, description: 'Explicit ids to delete (status must NOT be `completed`).' },
+            allCancelled: { type: 'boolean', description: 'Delete every cancelled todo in the file. Mutually exclusive with `todoIds`.' },
+        },
+    },
+    execute: async () => '{"ok":false,"error":"execute() must be installed by tool-executors.ts"}',
+};
+
+// ===========================================================================
 // Master list
 // ===========================================================================
 
@@ -543,4 +752,6 @@ export const QUEST_TODO_TOOLS: SharedToolDefinition<any>[] = [
     UPDATE_QUEST_TODO_TOOL,
     MOVE_QUEST_TODO_TOOL,
     DELETE_QUEST_TODO_TOOL,
+    ARCHIVE_QUEST_TODOS_TOOL,
+    DELETE_QUEST_TODOS_TOOL,
 ];

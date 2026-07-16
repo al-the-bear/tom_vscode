@@ -34,16 +34,21 @@ import assert from 'node:assert/strict';
 
 import { withTiming } from './_timing.js';
 import {
+    archiveQuestTodosImpl,
     createQuestTodoImpl,
     deleteQuestTodoImpl,
+    deleteQuestTodosImpl,
     getQuestTodoImpl,
     listQuestTodosImpl,
     moveQuestTodoImpl,
     updateQuestTodoImpl,
+    type QuestTodoArchiveAccess,
+    type QuestTodoArchiveToolsDeps,
     type QuestTodoFull,
     type QuestTodoStoreAccess,
     type QuestTodoSummary,
     type QuestTodoToolsDeps,
+    type TodoFileMoveSummary,
 } from '../quest-todo-tools.js';
 
 // ---------------------------------------------------------------------------
@@ -464,6 +469,255 @@ describe('deleteQuestTodoImpl', () => {
             sourceFile: 'todos.other.todo.yaml',
         }));
         assert.equal(r.ok, true);
+    });
+});
+
+// ===========================================================================
+// archiveQuestTodos / deleteQuestTodos — TRA05 move-to-sibling tools
+// ===========================================================================
+
+/**
+ * In-memory fake over the TRA01 move layer. Simulates a quest todo file
+ * as `Map<id, status>`; moves eligible ids into a target list, skips
+ * the rest with the production reason strings. Terminal-file refusal is
+ * simulated for filenames whose first dot-segment ends `-archived` /
+ * `-deleted`.
+ */
+interface ArchiveFake extends QuestTodoArchiveAccess {
+    /** questId → file → Map<id, status> */
+    files: Map<string, Map<string, Map<string, string>>>;
+    seed(questId: string, file: string, items: Record<string, string>): void;
+    target(questId: string, file: string): string[];
+}
+
+function makeArchiveFake(): ArchiveFake {
+    const files = new Map<string, Map<string, Map<string, string>>>();
+    const targets = new Map<string, string[]>();
+
+    function fileMap(questId: string, file: string): Map<string, string> {
+        if (!files.has(questId)) { files.set(questId, new Map()); }
+        const q = files.get(questId)!;
+        if (!q.has(file)) { q.set(file, new Map()); }
+        return q.get(file)!;
+    }
+
+    function isTerminal(file: string): boolean {
+        const firstSegment = file.split('.')[0];
+        return firstSegment.endsWith('-archived') || firstSegment.endsWith('-deleted');
+    }
+
+    function siblingName(file: string, suffix: string): string {
+        const parts = file.split('.');
+        parts[0] = `${parts[0]}${suffix}`;
+        return parts.join('.');
+    }
+
+    function move(
+        questId: string, file: string, ids: string[],
+        mode: 'archive' | 'delete',
+    ): TodoFileMoveSummary {
+        if (isTerminal(file)) {
+            return { moved: [], skipped: [], targetFile: '', error: 'Source file is already an archived/deleted todo file' };
+        }
+        const src = files.get(questId)?.get(file);
+        if (!src) {
+            return { moved: [], skipped: [], targetFile: '', error: `Source todo file not found: ${questId}/${file}` };
+        }
+        const targetFile = siblingName(file, mode === 'archive' ? '-archived' : '-deleted');
+        const key = `${questId}/${targetFile}`;
+        if (!targets.has(key)) { targets.set(key, []); }
+        const moved: string[] = [];
+        const skipped: Array<{ id: string; reason: string }> = [];
+        for (const id of ids) {
+            const status = src.get(id);
+            if (status === undefined) {
+                skipped.push({ id, reason: 'Todo not found in source file' });
+            } else if (mode === 'archive' && status !== 'completed') {
+                skipped.push({ id, reason: 'Only completed todos can be archived' });
+            } else if (mode === 'delete' && status === 'completed') {
+                skipped.push({ id, reason: 'Completed todos can only be archived, not deleted' });
+            } else {
+                src.delete(id);
+                targets.get(key)!.push(id);
+                moved.push(id);
+            }
+        }
+        return { moved, skipped, targetFile };
+    }
+
+    return {
+        files,
+        seed(questId, file, items) {
+            const m = fileMap(questId, file);
+            for (const [id, status] of Object.entries(items)) { m.set(id, status); }
+        },
+        target(questId, file) { return targets.get(`${questId}/${file}`) ?? []; },
+        archiveTodos: (questId, file, todoIds) => move(questId, file, todoIds, 'archive'),
+        deleteTodos: (questId, file, todoIds) => move(questId, file, todoIds, 'delete'),
+        archiveAllCompleted(questId, file) {
+            if (isTerminal(file)) {
+                return { moved: [], skipped: [], targetFile: '', error: 'Source file is already an archived/deleted todo file' };
+            }
+            const src = files.get(questId)?.get(file);
+            if (!src) {
+                return { moved: [], skipped: [], targetFile: '', error: `Source todo file not found: ${questId}/${file}` };
+            }
+            const ids = [...src.entries()].filter(([, s]) => s === 'completed').map(([id]) => id);
+            return move(questId, file, ids, 'archive');
+        },
+        deleteAllCancelled(questId, file) {
+            if (isTerminal(file)) {
+                return { moved: [], skipped: [], targetFile: '', error: 'Source file is already an archived/deleted todo file' };
+            }
+            const src = files.get(questId)?.get(file);
+            if (!src) {
+                return { moved: [], skipped: [], targetFile: '', error: `Source todo file not found: ${questId}/${file}` };
+            }
+            const ids = [...src.entries()].filter(([, s]) => s === 'cancelled').map(([id]) => id);
+            return move(questId, file, ids, 'delete');
+        },
+    };
+}
+
+interface SpiedArchiveDeps extends QuestTodoArchiveToolsDeps {
+    archive: ArchiveFake;
+    spy: { mutateCalls: number };
+}
+
+function makeArchiveDeps(): SpiedArchiveDeps {
+    const spy = { mutateCalls: 0 };
+    const archive = makeArchiveFake();
+    return { archive, spy, onMutate: () => { spy.mutateCalls++; } };
+}
+
+describe('archiveQuestTodosImpl', () => {
+
+    test('typical call: moves completed ids to -archived sibling, skips others, fires onMutate', async () => {
+        const aDeps = makeArchiveDeps();
+        aDeps.archive.seed('q1', 'todos.q1.todo.yaml', {
+            'done-1': 'completed', 'done-2': 'completed', 'open-1': 'in-progress',
+        });
+        const raw = await withTiming('tomAi_archiveQuestTodos:typical', () =>
+            archiveQuestTodosImpl(aDeps, {
+                questId: 'q1', todoIds: ['done-1', 'done-2', 'open-1'],
+            }));
+        const r = JSON.parse(raw);
+        assert.equal(r.ok, true);
+        assert.equal(r.file, 'todos.q1.todo.yaml', 'file defaults to todos.<questId>.todo.yaml');
+        assert.equal(r.targetFile, 'todos-archived.q1.todo.yaml');
+        assert.deepEqual(r.moved, ['done-1', 'done-2']);
+        assert.equal(r.movedCount, 2);
+        assert.equal(r.skipped.length, 1);
+        assert.match(r.skipped[0].reason, /Only completed todos can be archived/);
+        assert.deepEqual(aDeps.archive.target('q1', 'todos-archived.q1.todo.yaml'), ['done-1', 'done-2']);
+        assert.equal(aDeps.spy.mutateCalls, 1);
+    });
+
+    test('allCompleted: true archives every completed todo in the file', async () => {
+        const aDeps = makeArchiveDeps();
+        aDeps.archive.seed('q1', 'todos.q1.todo.yaml', {
+            a: 'completed', b: 'not-started', c: 'completed',
+        });
+        const r = JSON.parse(await archiveQuestTodosImpl(aDeps, {
+            questId: 'q1', allCompleted: true,
+        }));
+        assert.equal(r.ok, true);
+        assert.deepEqual(r.moved.sort(), ['a', 'c']);
+    });
+
+    test('validation: missing questId; both todoIds+allCompleted; neither; slashed file', async () => {
+        const aDeps = makeArchiveDeps();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const r1 = JSON.parse(await archiveQuestTodosImpl(aDeps, {} as any));
+        assert.match(r1.error, /`questId` is required/);
+        const r2 = JSON.parse(await archiveQuestTodosImpl(aDeps, {
+            questId: 'q1', todoIds: ['x'], allCompleted: true,
+        }));
+        assert.match(r2.error, /not both/);
+        const r3 = JSON.parse(await archiveQuestTodosImpl(aDeps, { questId: 'q1' }));
+        assert.match(r3.error, /Nothing to do/);
+        const r4 = JSON.parse(await archiveQuestTodosImpl(aDeps, {
+            questId: 'q1', file: 'sub/todos.q1.todo.yaml', todoIds: ['x'],
+        }));
+        assert.match(r4.error, /bare .*filename/);
+        assert.equal(aDeps.spy.mutateCalls, 0, 'no mutate on validation failure');
+    });
+
+    test('TERMINAL SOURCE refused: -archived file passes error through, no onMutate', async () => {
+        const aDeps = makeArchiveDeps();
+        const r = JSON.parse(await archiveQuestTodosImpl(aDeps, {
+            questId: 'q1', file: 'todos-archived.q1.todo.yaml', todoIds: ['x'],
+        }));
+        assert.equal(r.ok, false);
+        assert.match(r.error, /already an archived\/deleted todo file/);
+        assert.equal(aDeps.spy.mutateCalls, 0);
+    });
+
+    test('nothing moved (all skipped): ok but onMutate NOT fired', async () => {
+        const aDeps = makeArchiveDeps();
+        aDeps.archive.seed('q1', 'todos.q1.todo.yaml', { open: 'in-progress' });
+        const r = JSON.parse(await archiveQuestTodosImpl(aDeps, {
+            questId: 'q1', todoIds: ['open'],
+        }));
+        assert.equal(r.ok, true);
+        assert.equal(r.movedCount, 0);
+        assert.equal(aDeps.spy.mutateCalls, 0);
+    });
+});
+
+describe('deleteQuestTodosImpl', () => {
+
+    test('typical call: moves non-completed ids to -deleted sibling, skips completed, fires onMutate', async () => {
+        const aDeps = makeArchiveDeps();
+        aDeps.archive.seed('q1', 'todos.q1.todo.yaml', {
+            'stale-1': 'cancelled', 'open-1': 'not-started', 'done-1': 'completed',
+        });
+        const raw = await withTiming('tomAi_deleteQuestTodos:typical', () =>
+            deleteQuestTodosImpl(aDeps, {
+                questId: 'q1', todoIds: ['stale-1', 'open-1', 'done-1'],
+            }));
+        const r = JSON.parse(raw);
+        assert.equal(r.ok, true);
+        assert.equal(r.targetFile, 'todos-deleted.q1.todo.yaml');
+        assert.deepEqual(r.moved, ['stale-1', 'open-1']);
+        assert.equal(r.skipped.length, 1);
+        assert.match(r.skipped[0].reason, /can only be archived, not deleted/);
+        assert.equal(aDeps.spy.mutateCalls, 1);
+    });
+
+    test('allCancelled: true moves only cancelled todos', async () => {
+        const aDeps = makeArchiveDeps();
+        aDeps.archive.seed('q1', 'todos.q1.todo.yaml', {
+            a: 'cancelled', b: 'not-started', c: 'cancelled', d: 'completed',
+        });
+        const r = JSON.parse(await deleteQuestTodosImpl(aDeps, {
+            questId: 'q1', allCancelled: true,
+        }));
+        assert.equal(r.ok, true);
+        assert.deepEqual(r.moved.sort(), ['a', 'c']);
+    });
+
+    test('validation: both todoIds+allCancelled rejected; explicit file honoured', async () => {
+        const aDeps = makeArchiveDeps();
+        const r1 = JSON.parse(await deleteQuestTodosImpl(aDeps, {
+            questId: 'q1', todoIds: ['x'], allCancelled: true,
+        }));
+        assert.match(r1.error, /not both/);
+        aDeps.archive.seed('q1', 'other.q1.todo.yaml', { x: 'cancelled' });
+        const r2 = JSON.parse(await deleteQuestTodosImpl(aDeps, {
+            questId: 'q1', file: 'other.q1.todo.yaml', todoIds: ['x'],
+        }));
+        assert.equal(r2.ok, true);
+        assert.equal(r2.targetFile, 'other-deleted.q1.todo.yaml');
+    });
+
+    test('MISSING SOURCE FILE: error passthrough as {ok:false}', async () => {
+        const aDeps = makeArchiveDeps();
+        const r = JSON.parse(await deleteQuestTodosImpl(aDeps, {
+            questId: 'q1', todoIds: ['x'],
+        }));
+        assert.equal(r.ok, false);
+        assert.match(r.error, /Source todo file not found/);
     });
 });
 
