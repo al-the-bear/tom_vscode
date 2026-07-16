@@ -84,16 +84,24 @@ These are tools callable by local LLM (Ollama), Copilot (via `@dartscript` chat 
 
 **Purpose:** Allow LLMs to read, create, update, and query todos from quest YAML files — both the persistent quest todo file and per-session todo files.
 
-**File structure:**
+**File structure (post-TRA, 2026-07):**
 ```
 _ai/quests/{quest-id}/
-├── todos.{quest-id}.yaml              # Persistent quest todos (main file)
-├── 20260217_1430_window1.todos.yaml   # Session-scoped todo file
-├── 20260217_1445_window2.todos.yaml   # Another session's todos
+├── todos.{quest-id}.todo.yaml                     # Persistent quest todos (main file)
+├── todos-archived.{quest-id}.todo.yaml            # Archived completed todos (terminal)
+├── todos-deleted.{quest-id}.todo.yaml             # Soft-deleted todos (terminal)
+├── session-todo.{host}.{quest-id}.todo.yaml       # Stable per-host session todos
 └── ...
 ```
 
-Session filenames: `{YYYYMMDD}_{HHMM}_{windowId}.todos.yaml`
+Archive/delete siblings are derived by suffixing the first dot-segment of the
+source name with `-archived` / `-deleted` (TRA01). Archive accepts only
+completed todos; delete-to-file accepts only non-completed todos; sibling
+files are terminal (never a move source). This replaces the earlier
+`*.backup.todo.yaml` mechanism (removed in TRA03). Session filenames are the
+stable per-host form `session-todo.<host>.<quest>.todo.yaml` (TRA04); the
+legacy `{YYYYMMDD}_{HHMM}_win-{windowId}.todo.yaml` files are lazily migrated
+into it. See `_copilot_guidelines/todo_files_and_panel.md`.
 
 **Tools:**
 - `dartscript_listTodos` — List todos from a quest, optionally filtered by status, file, or tags
@@ -119,7 +127,13 @@ Session filenames: `{YYYYMMDD}_{HHMM}_{windowId}.todos.yaml`
 
 ### 1.4 Window Session Todo Management (LLM Self-Todo)
 
-**Purpose:** A separate, window-scoped tool for the LLM to store and retrieve its own todos within a session. This prevents the LLM from forgetting postponed tasks, deferred decisions, or follow-up items during a conversation. Unlike quest todos (§1.3), these are transient by design — scoped to the VS Code window session.
+**Purpose:** A separate tool surface for the LLM to store and retrieve its own todos within a session. This prevents the LLM from forgetting postponed tasks, deferred decisions, or follow-up items during a conversation.
+
+> **Updated by TRA04 (2026-07):** session todos are no longer window-scoped or
+> transient. They live in ONE stable, git-tracked file per host+quest
+> (`_ai/quests/<quest>/session-todo.<host>.<quest>.todo.yaml`) and persist
+> across window reloads; legacy per-window files are lazily migrated in. The
+> original window-scoped design below is kept for historical context.
 
 **Rationale:** The LLM often postpones actions ("I'll fix this after completing X") or identifies follow-up items during work. Without a persistent self-reminder, these get lost when the context window fills up or the conversation is summarized. This tool gives the LLM a memory scratchpad that survives within a session.
 
@@ -163,10 +177,10 @@ interface WindowTodoItem {
 }
 ```
 
-**Lifecycle:**
-- Created during a session, automatically cleared when the VS Code window closes
-- On window start: loads from workspace state (crash recovery)
-- "Move to quest" action available (converts to a quest todo via §1.3 `dartscript_createTodo`)
+**Lifecycle (current, post-TRA04):**
+- Stored in the stable per-host session file — NOT cleared when the VS Code window closes
+- On window start: legacy per-window files (if any) are merged into the stable file
+- "Move to quest" action available (converts to a persistent quest todo)
 
 ---
 

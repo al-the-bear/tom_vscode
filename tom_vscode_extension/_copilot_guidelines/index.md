@@ -34,6 +34,7 @@ Type: TypeScript extension
 - [restart_debugging_flow.backup.md](restart_debugging_flow.backup.md)
 - [ai_conversation.md](ai_conversation.md)
 - [tool_testing.md](tool_testing.md)
+- [todo_files_and_panel.md](todo_files_and_panel.md) — TRA todo mechanics: -archived/-deleted sibling rule, panel move buttons, per-host session todo file, archive/delete LLM tools
 
 ## User-facing docs
 

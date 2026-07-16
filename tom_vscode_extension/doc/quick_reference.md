@@ -46,6 +46,13 @@
 - WORKSPACE TODOS
 - WINDOW STATUS
 
+## Quest TODO Panel — archive/delete buttons
+
+- Archive completed todo / Archive all completed → move to the `-archived` sibling file (completed todos only)
+- Delete todo (to file) / Delete all cancelled → move to the `-deleted` sibling file (non-completed todos only; recoverable)
+- Sibling naming: first dot-segment suffixed, e.g. `todos.q.todo.yaml` → `todos-archived.q.todo.yaml`; sibling files are terminal (no buttons)
+- Session todos: stable per-host file `session-todo.<host>.<quest>.todo.yaml`, persists across reloads
+
 ## Core AI Commands
 
 - `tomAi.sendToCopilot`, `tomAi.sendToCopilot.standard`, `tomAi.sendToCopilot.template`

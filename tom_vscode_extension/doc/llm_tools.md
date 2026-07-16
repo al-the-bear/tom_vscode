@@ -160,16 +160,30 @@ The legacy `_copilot_tomai/` and `_copilot_local/` folders are no longer support
 | `tomAi_createQuestTodo` | Create a new quest todo. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_updateQuestTodo` | Patch fields on a quest todo. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_moveQuestTodo` | Move between YAML files within a quest. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_deleteQuestTodo` | Delete a quest todo. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_deleteQuestTodo` | HARD-delete a quest todo (not recoverable — prefer `tomAi_deleteQuestTodos`). | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_archiveQuestTodos` | Move completed todos to the `-archived` sibling file (`todoIds` or `allCompleted`). | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_deleteQuestTodos` | Move non-completed todos to the `-deleted` sibling file (recoverable; `todoIds` or `allCancelled`). | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_listWorkspaceQuestTodos` | All `*.todo.yaml` across the workspace. | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_getCombinedTodos` | Aggregate quest + session in one call. | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_listQuests` | Enumerate quest folders under `_ai/quests/`. | ✅ | ✅ | ✅ | ✅ | ✅ |
 
-### 4.12 Session todos (per window)
+Archive/delete naming rule: the sibling file is derived by suffixing the
+**first dot-segment** of the source name (`todos.myquest.todo.yaml` →
+`todos-archived.myquest.todo.yaml` / `todos-deleted.myquest.todo.yaml`).
+Archive moves only `status: completed` todos (stamped `archived:`); delete
+moves only non-completed todos (stamped `deleted:`). Files whose first
+segment already ends in `-archived`/`-deleted` are terminal and refuse both
+operations. See `_copilot_guidelines/todo_files_and_panel.md`.
+
+### 4.12 Session todos (per host + quest)
+
+Session todos live in one stable, git-tracked file per host+quest:
+`_ai/quests/<quest>/session-todo.<host>.<quest>.todo.yaml`. They persist
+across window reloads (legacy per-window files are migrated on first access).
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
 | --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_addSessionTodo` | Add a window-scoped self-reminder. | ✅ | ✅ | ✅ | ✅ | ⚪ |
+| `tomAi_addSessionTodo` | Add a session self-reminder (persistent per-host file). | ✅ | ✅ | ✅ | ✅ | ⚪ |
 | `tomAi_listSessionTodos` | List session todos. | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_getAllSessionTodos` | Counts + all items. | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_updateSessionTodo` | Patch fields. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
