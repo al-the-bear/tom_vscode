@@ -42,7 +42,10 @@ function reminderTimeoutOptions(selectedMinutes) {
 function statusSortRank(status) {
   if (status === 'sending') return 0;
   if (status === 'pending') return 1;
-  if (status === 'staged') return 2;
-  if (status === 'sent') return 3;
-  return 4;
+  // Waiting (rate-limit parked) items are next-in-line to retry, so group
+  // them right after pending rather than at the bottom with errors.
+  if (status === 'waiting') return 2;
+  if (status === 'staged') return 3;
+  if (status === 'sent') return 4;
+  return 5;
 }

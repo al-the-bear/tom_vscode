@@ -104,6 +104,15 @@ export interface QueueExecutionState {
         message: string;
         at: string;
     };
+    /**
+     * Rate-limit "waiting" state (status === 'waiting'). `waiting-until`
+     * is the ISO instant at which the queue auto-retries the item (the
+     * parsed reset time + a 5-minute buffer); `waiting-reset-label` is
+     * the human-friendly reset time shown in the "Waiting for …" header.
+     * Persisted so the retry survives a window reload.
+     */
+    'waiting-until'?: string | null;
+    'waiting-reset-label'?: string | null;
 }
 
 /** Reference to another prompt (string ID or external file ref). */
@@ -157,7 +166,7 @@ export interface QueueMetaYaml {
     'main-prompt'?: string;
     imports?: string[];
     quest?: string;
-    status?: 'staged' | 'pending' | 'sending' | 'sent' | 'error';
+    status?: 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'waiting';
     collapsed?: boolean;
     'template-name'?: string;
     category?: 'prompt' | 'answer' | 'system';

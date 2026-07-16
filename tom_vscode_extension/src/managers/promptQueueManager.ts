@@ -34,7 +34,8 @@ import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
 import { applyRepetitionAffixes, buildNextTemplateIterationParams, convertStagedToPending, shouldAutoPauseOnEmpty } from '../utils/queueStep3Utils';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
 import { mergeQueueReload } from '../utils/queueReloadMergeUtils';
-import { applyErrorTransition, applyResetToPending, dispatchWasSuperseded, itemHasInFlightProgress, resolveAnswerContainer } from '../utils/queueErrorTransitions';
+import { applyErrorTransition, applyResetToPending, applyWaitingTransition, clearWaitingState, dispatchWasSuperseded, isWaitingDue, itemHasInFlightProgress, resolveAnswerContainer } from '../utils/queueErrorTransitions';
+import { parseResetClause } from '../utils/queueResetClause';
 import { resolveVariables } from '../utils/variableResolver.js';
 import {
     buildAnswerFilePath,
@@ -55,7 +56,7 @@ import type { ChangeSource } from './chatVariablesStore';
 // Types
 // ============================================================================
 
-export type QueuedPromptStatus = 'staged' | 'pending' | 'sending' | 'sent' | 'error';
+export type QueuedPromptStatus = 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'waiting';
 export type QueuedPromptType = 'normal' | 'timed' | 'reminder';
 
 /**
@@ -211,6 +212,22 @@ export interface QueuedPrompt {
      * resend.
      */
     warning?: QueueItemWarning;
+    /**
+     * When `status === 'waiting'`: the ISO instant at which the item
+     * should auto-retry. Set to the reset time parsed from a
+     * "resets <time> (<tz>)" rate-limit error **plus a 5-minute buffer**
+     * (see `RESET_RETRY_BUFFER_MS`). The health-check timer flips the
+     * item back to `pending` and drives `sendNext()` once this instant
+     * is reached, so the retry survives a window reload.
+     */
+    waitingUntil?: string;
+    /**
+     * Human-friendly reset time shown in the "Waiting for <date/time>"
+     * header — rendered in the source timezone of the error clause,
+     * e.g. "Sun, Jul 20, 11:00 AM". This is the reset time *stated in
+     * the message*, not the +5-minute retry instant.
+     */
+    waitingResetLabel?: string;
 }
 
 // ============================================================================
@@ -223,6 +240,13 @@ const DEFAULT_REMINDER_TEMPLATE_ID = 'default';
 const DEFAULT_REMINDER_TEXT = 'Are you still there? The previous prompt has been waiting for {{timeoutMinutes}} minutes without a response. Please continue or let me know if there\'s an issue.';
 const HEALTH_CHECK_INTERVAL_MS = 60_000;
 const ANSWER_POLL_INTERVAL_MS = 30_000;
+/**
+ * Grace period added to a parsed rate-limit reset time before the queue
+ * auto-retries a `waiting` item. The reset instant is when the *provider*
+ * lifts the limit; retrying a hair earlier just earns another block, so
+ * the queue waits 5 minutes past it.
+ */
+const RESET_RETRY_BUFFER_MS = 5 * 60_000;
 
 /**
  * Resolve a template name to its template string.
@@ -776,6 +800,31 @@ export class PromptQueueManager {
     }
 
     private async runHealthCheck(): Promise<void> {
+        // Resume rate-limit "waiting" items whose reset+buffer instant has
+        // arrived: flip them back to `pending` so the normal send path retries
+        // them. Because this runs on the health-check timer (which survives a
+        // window reload) the retry fires at the right instant even if the
+        // window was reloaded while the item was parked.
+        const nowMs = Date.now();
+        let resumedWaiting = false;
+        for (const item of this._items) {
+            if (item.status === 'waiting' && isWaitingDue(item.waitingUntil, nowMs)) {
+                clearWaitingState(item);
+                resumedWaiting = true;
+                logQueue(`Health check: reset window elapsed for item ${item.id}; resuming as pending`);
+            }
+        }
+        if (resumedWaiting) {
+            this.persist();
+            this._onDidChange.fire();
+        }
+
+        // While any item is still parked in `waiting` (its reset time has not
+        // yet arrived) the whole account is rate-limited, so hold every send —
+        // dispatching another pending prompt would just burn another blocked
+        // request. The parked item keeps its queue position and resumes above.
+        const hasBlockingWaiting = this._items.some(i => i.status === 'waiting');
+
         const pendingCount = this._items.filter(i => i.status === 'pending').length;
         const sendingCount = this._items.filter(i => i.status === 'sending').length;
         const sending = this._items.find(i => i.status === 'sending');
@@ -789,7 +838,7 @@ export class PromptQueueManager {
             responseFileTimeoutMinutes: this._responseFileTimeoutMinutes,
         });
 
-        logQueue(`Health check: items=${this._items.length}, sending=${sendingCount}, pending=${pendingCount}, autoSend=${this._autoSendEnabled}`);
+        logQueue(`Health check: items=${this._items.length}, sending=${sendingCount}, pending=${pendingCount}, autoSend=${this._autoSendEnabled}, blockingWaiting=${hasBlockingWaiting}`);
 
         if (decisions.shouldEnsureDirectory) {
             fs.mkdirSync(this.answerDirectory, { recursive: true });
@@ -801,8 +850,16 @@ export class PromptQueueManager {
             this.restartAnswerWatcher();
         }
 
-        if (decisions.shouldTriggerSendNext) {
+        if (hasBlockingWaiting) {
+            logQueue('Health check holding all sends: an item is waiting for its rate-limit reset');
+        } else if (decisions.shouldTriggerSendNext) {
             logQueue('Health check detected pending prompts without active sending; triggering sendNext');
+            await this.sendNext();
+        } else if (resumedWaiting && sendingCount === 0) {
+            // A parked item just became due but auto-send may be off (the queue
+            // could have been paused independently). Retry it directly so the
+            // reset resumes regardless of the auto-send flag.
+            logQueue('Health check resuming a rate-limited retry after its reset window');
             await this.sendNext();
         }
 
@@ -2666,12 +2723,45 @@ export class PromptQueueManager {
      * brake. The user re-enables auto-send when they're ready (via
      * the toggle, by clicking Send, or via Retry All Errors).
      */
+    /**
+     * Assemble the text scanned for a rate-limit "resets …" clause. The
+     * clause can live in the thrown error's string form *or* in the
+     * classified interruption message the Anthropic leaf attaches — scan
+     * both so the reset time is found regardless of which layer surfaced it.
+     */
+    private _errorSearchText(
+        err: unknown,
+        interruption?: { kind: QueueWarningKind; message: string } | null,
+    ): string {
+        const parts: string[] = [];
+        try { parts.push(String(err)); } catch { /* non-stringifiable */ }
+        if (interruption?.message) { parts.push(interruption.message); }
+        return parts.join('\n');
+    }
+
     private _markItemError(
         item: QueuedPrompt,
         err: unknown,
         scope: string,
         interruption?: { kind: QueueWarningKind; message: string } | null,
     ): void {
+        // Rate-limit "resets <time> (<tz>)" clause → park the item in
+        // 'waiting' and auto-retry after the stated reset time (plus a
+        // 5-minute buffer) instead of hard-failing. The item keeps its
+        // queue position; the health-check timer drives the retry, so it
+        // survives a window reload. See queueResetClause / applyWaitingTransition.
+        const clause = parseResetClause(this._errorSearchText(err, interruption));
+        if (clause) {
+            applyWaitingTransition(item, clause, {
+                retryBufferMs: RESET_RETRY_BUFFER_MS,
+                kind: interruption?.kind ?? 'rate_limit',
+            });
+            logQueue(`Item ${item.id} hit a usage limit (${scope}); waiting for ${item.waitingResetLabel}, auto-retry at ${item.waitingUntil}`);
+            this.persist();
+            this._onDidChange.fire();
+            return;
+        }
+
         const result = applyErrorTransition(item, err, { interruption: interruption ?? null });
         logQueueError(scope, err);
 
@@ -2715,6 +2805,35 @@ export class PromptQueueManager {
         logQueue(`resetItemToPending(${id}): error → pending`);
         this.persist();
         this._onDidChange.fire();
+        return true;
+    }
+
+    /**
+     * Manually cut a `waiting` (rate-limit parked) item short: clear its
+     * reset countdown, flip it back to `pending`, and — unless another item
+     * is already sending — dispatch it immediately. This is the "retry now"
+     * escape hatch for when the user knows the limit has lifted early (or
+     * simply wants to try). It bypasses the reset-time gate that the
+     * health-check driver otherwise enforces.
+     *
+     * No-op (returns false) on items whose status is not `waiting`.
+     */
+    async retryWaitingNow(id: string): Promise<boolean> {
+        const item = this._items.find(i => i.id === id);
+        if (!item) {
+            throw new Error(`Queue item ${id} not found`);
+        }
+        if (item.status !== 'waiting') {
+            logQueue(`retryWaitingNow(${id}): no-op (status was ${item.status})`);
+            return false;
+        }
+        clearWaitingState(item);
+        logQueue(`retryWaitingNow(${id}): waiting → pending (manual retry)`);
+        this.persist();
+        this._onDidChange.fire();
+        if (!this._items.some(i => i.status === 'sending')) {
+            await this.sendNext();
+        }
         return true;
     }
 
@@ -3650,6 +3769,15 @@ export class PromptQueueManager {
                 };
             }
 
+            // Rate-limit "waiting" state — restored so the health-check
+            // auto-retry resumes at the right instant after a reload.
+            if (typeof main.execution?.['waiting-until'] === 'string') {
+                prompt.waitingUntil = main.execution['waiting-until'];
+            }
+            if (typeof main.execution?.['waiting-reset-label'] === 'string') {
+                prompt.waitingResetLabel = main.execution['waiting-reset-label'];
+            }
+
             // Pre-prompts: resolve refs from the prompt-queue
             const preRefs = main['pre-prompt-refs'] || [];
             if (preRefs.length > 0) {
@@ -3767,6 +3895,7 @@ export class PromptQueueManager {
             item.requestId || item.expectedRequestId || item.sentAt || item.error
             || (item.followUpIndex && item.followUpIndex > 0)
             || item.lastDispatched || item.warning
+            || item.waitingUntil
         ) {
             mainPrompt.execution = {
                 'request-id': item.requestId || null,
@@ -3774,6 +3903,8 @@ export class PromptQueueManager {
                 'sent-at': item.sentAt || null,
                 error: item.error || null,
                 'follow-up-index': item.followUpIndex || 0,
+                ...(item.waitingUntil ? { 'waiting-until': item.waitingUntil } : {}),
+                ...(item.waitingResetLabel ? { 'waiting-reset-label': item.waitingResetLabel } : {}),
                 ...(item.lastDispatched ? {
                     'last-dispatched': {
                         kind: item.lastDispatched.kind,

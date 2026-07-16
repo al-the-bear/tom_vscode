@@ -26,7 +26,7 @@ function formatRepeatLabel(repeatCountRaw, repeatIndex, resolvedRepeatCount) {
 }
 
 function renderEntry(item, idx) {
-  var safeStatus = (item.status === 'staged' || item.status === 'pending' || item.status === 'sending' || item.status === 'sent' || item.status === 'error')
+  var safeStatus = (item.status === 'staged' || item.status === 'pending' || item.status === 'sending' || item.status === 'sent' || item.status === 'error' || item.status === 'waiting')
     ? item.status : 'staged';
   var queuePos = idx + 1;
   var typeIconClass = item.type === 'timed' ? 'codicon-watch' : item.type === 'reminder' ? 'codicon-bell' : 'codicon-comment';
@@ -42,6 +42,7 @@ function renderEntry(item, idx) {
   var isSending = safeStatus === 'sending';
   var isSent = safeStatus === 'sent';
   var isError = safeStatus === 'error';
+  var isWaiting = safeStatus === 'waiting';
   var reminderEnabled = item.reminderEnabled !== false;
   var isEditable = editorMode === 'template' || isStaged;
   var isMainPromptActive = safeStatus === 'sending' && !!item.requestId && (item.followUpIndex || 0) === 0;
@@ -54,6 +55,12 @@ function renderEntry(item, idx) {
   // persisted counter.
   if (isSending && typeof autoSend !== 'undefined' && autoSend === false) {
     statusLabel = 'SENDING (PAUSED)';
+  }
+  // Rate-limit parked item: show the human-friendly reset time from the
+  // "resets <time> (<tz>)" clause. The manager persists the stated reset
+  // label (waitingResetLabel); the item auto-retries 5 min after it.
+  if (isWaiting) {
+    statusLabel = 'WAITING FOR ' + (item.waitingResetLabel ? String(item.waitingResetLabel).toUpperCase() : 'RESET');
   }
 
   var followUps = Array.isArray(item.followUps) ? item.followUps : [];
@@ -232,6 +239,12 @@ function renderEntry(item, idx) {
           // Resend button below.
           (isError
             ? '<span class="codicon codicon-history" style="cursor:pointer;color:#000;" onclick="resetToPending(\'' + safeId + '\')" title="Set to Pending (does not send — re-enable auto-send to resume the queue)"></span>'
+            : '') +
+          // Waiting (rate-limit parked) items get a "retry now" control that
+          // cuts the reset countdown short and sends immediately. The
+          // codicon-debug-restart icon reads as 'try again now'.
+          (isWaiting
+            ? '<span class="codicon codicon-debug-restart" style="cursor:pointer;color:#000;" onclick="retryWaitingNow(\'' + safeId + '\')" title="Retry now (skip the rate-limit reset wait and send immediately)"></span>'
             : '') +
           // Resend last dispatch — available once there is a recorded
           // lastDispatched (i.e. at least one stage has been sent) and

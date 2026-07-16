@@ -479,6 +479,17 @@ async function handleMessage(msg: any): Promise<void> {
             );
           }
           break;
+        case 'retryWaitingNow':
+          // Manual escape hatch on a rate-limit-parked item: cut the reset
+          // countdown short, flip to `pending`, and send immediately.
+          try {
+            await qm.retryWaitingNow(msg.id);
+          } catch (err) {
+            vscode.window.showWarningMessage(
+              `Retry now failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+          break;
         case 'toggleReminder':
             qm.updateItemReminder(msg.id, { reminderEnabled: msg.enabled });
             break;
