@@ -499,10 +499,11 @@ function qtRenderList() {
         var stackCircle = '<span class="qt-stack-circle' + (stackIdx >= 0 ? ' stacked' : '') + '" data-qt-stackid="' + qtEsc(t.id) + '" title="' + circleTitle + '">' + (stackIdx >= 0 ? (stackIdx + 1) : '') + '</span>';
         return '<div class="' + cls + '" data-qt-id="' + qtEsc(t.id) + '">' +
             '<div class="qt-todo-item-row1">' +
-            '<span class="qt-status-col"><span class="status-icon">' + icon + '</span>' + stackCircle + '</span>' +
+            '<span class="status-icon">' + icon + '</span>' +
             '<span class="ttitle">' + qtEsc(t.title || '') + '</span>' +
             priorityBadge + moveBtn + moveWsBtn + trashBtn + reopenBtn + '</div>' +
             '<div class="qt-todo-item-row2">' +
+            stackCircle +
             priorityDot +
             '<span class="tid">' + qtEsc(t.id) + '</span>' +
             srcLabel + '</div></div>';
