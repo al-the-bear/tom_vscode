@@ -257,6 +257,7 @@ function qtNavPush(todoId) {
         qtCurrentTemplate = this.value || '__none__';
     });
     if (addQueueBtn) addQueueBtn.addEventListener('click', function() {
+        var tplId = qtSelectedTemplateId();
         // Stacked todos win: one queue prompt per stacked todo, in stack order.
         if (qtStack.length) {
             vscode.postMessage({
@@ -264,7 +265,7 @@ function qtNavPush(todoId) {
                 questId: qtCurrentQuestId,
                 file: qtCurrentFile,
                 todos: qtStackPayload(),
-                template: qtCurrentTemplate,
+                template: tplId,
             });
             return;
         }
@@ -279,10 +280,11 @@ function qtNavPush(todoId) {
             file: qtCurrentFile,
             todoId: effectiveTodoId,
             sourceFile: qtDetailTodo && qtDetailTodo._sourceFile ? qtDetailTodo._sourceFile : undefined,
-            template: qtCurrentTemplate,
+            template: tplId,
         });
     });
     if (sendCopilotBtn) sendCopilotBtn.addEventListener('click', function() {
+        var tplId = qtSelectedTemplateId();
         // Stacked todos win: all stacked todos combine into a SINGLE prompt.
         if (qtStack.length) {
             vscode.postMessage({
@@ -290,7 +292,7 @@ function qtNavPush(todoId) {
                 questId: qtCurrentQuestId,
                 file: qtCurrentFile,
                 todos: qtStackPayload(),
-                template: qtCurrentTemplate,
+                template: tplId,
             });
             return;
         }
@@ -305,7 +307,7 @@ function qtNavPush(todoId) {
             file: qtCurrentFile,
             todoId: effectiveTodoId,
             sourceFile: qtDetailTodo && qtDetailTodo._sourceFile ? qtDetailTodo._sourceFile : undefined,
-            template: qtCurrentTemplate,
+            template: tplId,
         });
     });
     // Close pickers on outside click
@@ -424,6 +426,18 @@ function qtClearStack() {
 /** Message payload shape shared by qtQueueStackedTodos / qtSendStackedTodos. */
 function qtStackPayload() {
     return qtStack.map(function(s) { return { todoId: s.id, sourceFile: s.sourceFile || undefined }; });
+}
+
+/**
+ * Resolve the template id to use for a queue/send action, read LIVE from the
+ * dropdown so the user's current pick is always honoured — the module-level
+ * qtCurrentTemplate can lag behind a template-list refresh. Falls back to the
+ * cached value, then '__none__'.
+ */
+function qtSelectedTemplateId() {
+    var sel = document.getElementById('qt-template-select');
+    if (sel && sel.value) { qtCurrentTemplate = sel.value; }
+    return qtCurrentTemplate || '__none__';
 }
 
 function qtUpdateStackButtons() {
