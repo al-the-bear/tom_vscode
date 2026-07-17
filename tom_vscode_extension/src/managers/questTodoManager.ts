@@ -30,6 +30,7 @@ export {
     deleteAllCancelled,
     type TodoMoveResult,
     type TodoMoveSkip,
+    type TodoMoveOptions,
 } from '../utils/todoArchive';
 export {
     archivedTodoFileName,

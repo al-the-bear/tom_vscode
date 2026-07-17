@@ -49,6 +49,16 @@ export interface TodoMoveResult {
     error?: string;
 }
 
+export interface TodoMoveOptions {
+    /**
+     * Move todos regardless of their status. The status-based eligibility
+     * guard (archive=completed / delete=non-completed) is bypassed. Used by
+     * the panel's Archive/Delete buttons, which act on the user's explicit
+     * selection or stack and must work for any status.
+     */
+    anyStatus?: boolean;
+}
+
 // ============================================================================
 // Shared YAML helpers
 // ============================================================================
@@ -235,10 +245,14 @@ function appendToTargetFile(
  * stamping each with `archived: <ISO date>`. Non-completed todos are
  * skipped per-todo; a terminal source file refuses the whole operation.
  */
-export function archiveTodos(sourceFilePath: string, todoIds: string[]): TodoMoveResult {
+export function archiveTodos(
+    sourceFilePath: string,
+    todoIds: string[],
+    opts?: TodoMoveOptions,
+): TodoMoveResult {
     return moveTodosToSibling(sourceFilePath, {
         todoIds,
-        eligible: s => s === 'completed',
+        eligible: opts?.anyStatus ? () => true : s => s === 'completed',
         ineligibleReason: 'Only completed todos can be archived',
         stamp: 'archived',
         targetName: archivedTodoFileName,
@@ -251,10 +265,14 @@ export function archiveTodos(sourceFilePath: string, todoIds: string[]): TodoMov
  * (they can only be archived); a terminal source file refuses the whole
  * operation.
  */
-export function deleteTodos(sourceFilePath: string, todoIds: string[]): TodoMoveResult {
+export function deleteTodos(
+    sourceFilePath: string,
+    todoIds: string[],
+    opts?: TodoMoveOptions,
+): TodoMoveResult {
     return moveTodosToSibling(sourceFilePath, {
         todoIds,
-        eligible: s => s !== 'completed',
+        eligible: opts?.anyStatus ? () => true : s => s !== 'completed',
         ineligibleReason: 'Completed todos can only be archived, not deleted',
         stamp: 'deleted',
         targetName: deletedTodoFileName,

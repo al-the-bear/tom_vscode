@@ -550,11 +550,70 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 post({ type: 'qtArchiveResult', success: false });
                 return true;
             }
+            // The panel's Archive/Delete buttons work for any status (the
+            // completed-only / non-completed-only guard is a bulk-tool rule).
             const result = isArchive
-                ? questTodo.archiveTodos(fp, [String(msg.todoId)])
-                : questTodo.deleteTodos(fp, [String(msg.todoId)]);
+                ? questTodo.archiveTodos(fp, [String(msg.todoId)], { anyStatus: true })
+                : questTodo.deleteTodos(fp, [String(msg.todoId)], { anyStatus: true });
             _notifyMoveResult(isArchive ? 'Archived' : 'Deleted', result);
             post({ type: 'qtArchiveResult', success: !result.error, moved: result.moved });
+            return true;
+        }
+        case 'qtArchiveStackedTodos':
+        case 'qtDeleteStackedTodos': {
+            // Archive/delete every stacked todo (any status) to its
+            // -archived / -deleted sibling. Requires an explicit modal
+            // confirmation since it moves a whole batch at once.
+            const isArchive = msg.type === 'qtArchiveStackedTodos';
+            if (isSessionMode) {
+                vscode.window.showErrorMessage('Archive/delete-to-file is not available for session todos yet (TRB1).');
+                post({ type: 'qtArchiveResult', success: false });
+                return true;
+            }
+            const entries: Array<{ todoId?: string; sourceFile?: string }> = Array.isArray(msg.todos) ? msg.todos : [];
+            if (!entries.length) {
+                vscode.window.showErrorMessage('Todo stack is empty.');
+                return true;
+            }
+            const verb = isArchive ? 'Archive' : 'Delete';
+            const sibling = isArchive ? '-archived' : '-deleted';
+            const confirm = await vscode.window.showWarningMessage(
+                `${verb} ${entries.length} stacked todo${entries.length === 1 ? '' : 's'}? They will be moved to the ${sibling} sibling file.`,
+                { modal: true },
+                verb,
+            );
+            if (confirm !== verb) return true;
+            // Group by resolved source file so the mover runs once per file.
+            const byFile = new Map<string, string[]>();
+            const unresolved: string[] = [];
+            for (const entry of entries) {
+                const todoId = String(entry?.todoId || '');
+                if (!todoId) continue;
+                const fp = _resolveArchiveSourcePath(
+                    effectiveQuestId(msg.questId), effectiveFile(msg.file), entry?.sourceFile,
+                    isWorkspaceFileMode, workspaceFilePath,
+                );
+                if (!fp) { unresolved.push(todoId); continue; }
+                const ids = byFile.get(fp) ?? [];
+                ids.push(todoId);
+                byFile.set(fp, ids);
+            }
+            const moved: string[] = [];
+            const skipped: questTodo.TodoMoveSkip[] = [];
+            let targetFile = '';
+            let firstError: string | undefined;
+            for (const [fp, ids] of byFile) {
+                const result = isArchive
+                    ? questTodo.archiveTodos(fp, ids, { anyStatus: true })
+                    : questTodo.deleteTodos(fp, ids, { anyStatus: true });
+                moved.push(...result.moved);
+                skipped.push(...result.skipped);
+                if (result.targetFile) targetFile = result.targetFile;
+                if (result.error && !firstError) firstError = result.error;
+            }
+            for (const id of unresolved) { skipped.push({ id, reason: 'Could not resolve source file' }); }
+            _notifyMoveResult(isArchive ? 'Archived' : 'Deleted', { moved, skipped, targetFile, error: firstError });
+            post({ type: 'qtArchiveResult', success: !firstError, moved });
             return true;
         }
         case 'qtArchiveAllCompleted':

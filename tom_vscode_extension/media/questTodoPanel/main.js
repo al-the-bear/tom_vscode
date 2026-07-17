@@ -167,11 +167,21 @@ function qtNavPush(todoId) {
     var btnDeleteFile = document.getElementById('qt-btn-delete-file');
     var btnDeleteCancelled = document.getElementById('qt-btn-delete-cancelled');
     if (btnArchive) btnArchive.addEventListener('click', function() {
+        // Stacked todos win: archive the whole stack (server confirms first).
+        if (qtStack.length) {
+            vscode.postMessage({ type: 'qtArchiveStackedTodos', questId: qtCurrentQuestId, file: qtCurrentFile, todos: qtStackPayload() });
+            return;
+        }
         var sel = qtSelectedTodoEntry();
         if (!sel) return;
         vscode.postMessage({ type: 'qtArchiveTodo', questId: qtCurrentQuestId, file: qtCurrentFile, todoId: sel.id, sourceFile: sel.sourceFile });
     });
     if (btnDeleteFile) btnDeleteFile.addEventListener('click', function() {
+        // Stacked todos win: delete the whole stack (server confirms first).
+        if (qtStack.length) {
+            vscode.postMessage({ type: 'qtDeleteStackedTodos', questId: qtCurrentQuestId, file: qtCurrentFile, todos: qtStackPayload() });
+            return;
+        }
         var sel = qtSelectedTodoEntry();
         if (!sel) return;
         vscode.postMessage({ type: 'qtDeleteTodoToFile', questId: qtCurrentQuestId, file: qtCurrentFile, todoId: sel.id, sourceFile: sel.sourceFile });
@@ -622,16 +632,22 @@ function qtUpdateArchiveButtons() {
         btn.style.opacity = enabled ? '1' : '0.4';
     }
 
+    var stackCount = qtStack.length;
     var sel = qtSelectedTodoEntry();
     // Source file the single-todo actions would operate on.
     var selSource = sel ? (sel.sourceFile || scopeFile) : scopeFile;
     var selSourceTerminal = selSource ? qtIsTerminalTodoFileName(selSource) : false;
 
-    // Single-todo buttons: hide when the selected todo's own source file is
-    // terminal (aggregate views mix files); enable per status.
-    var singleVisible = !selSourceTerminal;
-    setBtn(btnArchive, singleVisible, !!sel && sel.status === 'completed');
-    setBtn(btnDelete, singleVisible, !!sel && sel.status !== 'completed');
+    // Archive/Delete work on ANY status and act on the whole stack when one
+    // exists, otherwise on the single selected todo. Visible when a stack
+    // exists OR a non-terminal single todo is selected; the stack path is
+    // confirmed server-side before it moves anything.
+    var singleVisible = stackCount > 0 || (!!sel && !selSourceTerminal);
+    var actionable = stackCount > 0 || !!sel;
+    setBtn(btnArchive, singleVisible, actionable);
+    setBtn(btnDelete, singleVisible, actionable);
+    btnArchive.title = stackCount > 0 ? 'Archive ' + stackCount + ' stacked todo(s)' : 'Archive selected todo';
+    btnDelete.title = stackCount > 0 ? 'Delete ' + stackCount + ' stacked todo(s)' : 'Delete selected todo';
 
     // Bulk buttons need a concrete, non-terminal file scope.
     var bulkVisible = !!scopeFile && (isWorkspaceFile || !isSpecialQuest);

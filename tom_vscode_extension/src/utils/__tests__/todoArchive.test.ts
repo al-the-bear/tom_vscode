@@ -188,6 +188,49 @@ describe('deleteTodos', () => {
     });
 });
 
+describe('anyStatus option (panel Archive/Delete buttons)', () => {
+    test('archiveTodos with anyStatus moves a non-completed todo', () => {
+        const res = archiveTodos(sourceFile, ['t2'], { anyStatus: true });
+        assert.deepEqual(res.moved, ['t2']);
+        assert.deepEqual(res.skipped, []);
+        assert.equal(res.targetFile, path.join(tmp, 'todos-archived.myquest.todo.yaml'));
+        assert.deepEqual(readIds(sourceFile), ['t1', 't3', 't4', 't5']);
+        assert.match(String(readTodoMap(res.targetFile)['t2'].archived), /^\d{4}-\d{2}-\d{2}$/);
+    });
+
+    test('deleteTodos with anyStatus moves a completed todo', () => {
+        const res = deleteTodos(sourceFile, ['t1'], { anyStatus: true });
+        assert.deepEqual(res.moved, ['t1']);
+        assert.deepEqual(res.skipped, []);
+        assert.equal(res.targetFile, path.join(tmp, 'todos-deleted.myquest.todo.yaml'));
+        assert.deepEqual(readIds(sourceFile), ['t2', 't3', 't4', 't5']);
+        assert.match(String(readTodoMap(res.targetFile)['t1'].deleted), /^\d{4}-\d{2}-\d{2}$/);
+    });
+
+    test('anyStatus moves a mixed batch (all statuses) in one call', () => {
+        const res = deleteTodos(sourceFile, ['t1', 't2', 't5'], { anyStatus: true });
+        assert.deepEqual(res.moved.sort(), ['t1', 't2', 't5']);
+        assert.deepEqual(res.skipped, []);
+        assert.deepEqual(readIds(sourceFile), ['t3', 't4']);
+    });
+
+    test('anyStatus still refuses a terminal source file', () => {
+        const terminal = path.join(tmp, 'todos-archived.myquest.todo.yaml');
+        fs.writeFileSync(terminal, SOURCE_YAML, 'utf8');
+        const res = archiveTodos(terminal, ['t2'], { anyStatus: true });
+        assert.ok(res.error);
+        assert.deepEqual(res.moved, []);
+    });
+
+    test('anyStatus still reports unknown ids as skipped', () => {
+        const res = archiveTodos(sourceFile, ['t2', 'missing'], { anyStatus: true });
+        assert.deepEqual(res.moved, ['t2']);
+        assert.equal(res.skipped.length, 1);
+        assert.equal(res.skipped[0].id, 'missing');
+        assert.match(res.skipped[0].reason, /not found/i);
+    });
+});
+
 describe('bulk operations', () => {
     test('archiveAllCompleted moves exactly the completed todos', () => {
         const res = archiveAllCompleted(sourceFile);
