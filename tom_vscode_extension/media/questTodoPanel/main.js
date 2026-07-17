@@ -192,6 +192,27 @@ function qtNavPush(todoId) {
     if (btnDeleteCancelled) btnDeleteCancelled.addEventListener('click', function() {
         vscode.postMessage({ type: 'qtDeleteAllCancelled', questId: qtCurrentQuestId, file: qtCurrentFile });
     });
+    // Complete / cancel buttons (set status in place; no file move).
+    var btnComplete = document.getElementById('qt-btn-complete');
+    var btnCancel = document.getElementById('qt-btn-cancel');
+    if (btnComplete) btnComplete.addEventListener('click', function() {
+        if (qtStack.length) {
+            vscode.postMessage({ type: 'qtCompleteStackedTodos', questId: qtCurrentQuestId, file: qtCurrentFile, todos: qtStackPayload(), completedBy: qtUserName || undefined });
+            return;
+        }
+        var sel = qtSelectedTodoEntry();
+        if (!sel) return;
+        vscode.postMessage({ type: 'qtCompleteTodo', questId: qtCurrentQuestId, file: qtCurrentFile, todoId: sel.id, sourceFile: sel.sourceFile, completedBy: qtUserName || undefined });
+    });
+    if (btnCancel) btnCancel.addEventListener('click', function() {
+        if (qtStack.length) {
+            vscode.postMessage({ type: 'qtCancelStackedTodos', questId: qtCurrentQuestId, file: qtCurrentFile, todos: qtStackPayload() });
+            return;
+        }
+        var sel = qtSelectedTodoEntry();
+        if (!sel) return;
+        vscode.postMessage({ type: 'qtCancelTodo', questId: qtCurrentQuestId, file: qtCurrentFile, todoId: sel.id, sourceFile: sel.sourceFile });
+    });
     qtUpdateArchiveButtons();
     // Filter/sort bar — new icon buttons with picker overlays
     var searchInput = document.getElementById('qt-search');
@@ -610,6 +631,8 @@ function qtUpdateArchiveButtons() {
     var btnArchiveAll = document.getElementById('qt-btn-archive-all');
     var btnDelete = document.getElementById('qt-btn-delete-file');
     var btnDeleteCancelled = document.getElementById('qt-btn-delete-cancelled');
+    var btnComplete = document.getElementById('qt-btn-complete');
+    var btnCancel = document.getElementById('qt-btn-cancel');
     if (!btnArchive || !btnArchiveAll || !btnDelete || !btnDeleteCancelled) return;
 
     var isSession = qtViewConfig && qtViewConfig.mode === 'session';
@@ -648,6 +671,17 @@ function qtUpdateArchiveButtons() {
     setBtn(btnDelete, singleVisible, actionable);
     btnArchive.title = stackCount > 0 ? 'Archive ' + stackCount + ' stacked todo(s)' : 'Archive selected todo';
     btnDelete.title = stackCount > 0 ? 'Delete ' + stackCount + ' stacked todo(s)' : 'Delete selected todo';
+
+    // Complete/Cancel set the status in place (no file move). Same visibility
+    // rule as archive/delete: whole stack, otherwise a non-terminal single todo.
+    if (btnComplete) {
+        setBtn(btnComplete, singleVisible, actionable);
+        btnComplete.title = stackCount > 0 ? 'Mark ' + stackCount + ' stacked todo(s) completed' : 'Mark selected todo completed';
+    }
+    if (btnCancel) {
+        setBtn(btnCancel, singleVisible, actionable);
+        btnCancel.title = stackCount > 0 ? 'Mark ' + stackCount + ' stacked todo(s) cancelled' : 'Mark selected todo cancelled';
+    }
 
     // Bulk buttons need a concrete, non-terminal file scope.
     var bulkVisible = !!scopeFile && (isWorkspaceFile || !isSpecialQuest);
@@ -1911,6 +1945,14 @@ function qtHandleMessage(msg) {
                     // The -archived/-deleted sibling may have just been created.
                     vscode.postMessage({ type: 'qtGetFiles', questId: qtCurrentQuestId });
                 }
+            }
+            break;
+        case 'qtStatusResult':
+            // Complete/cancel set status in place: refresh the list from the
+            // backend and clear the stack after a stack operation.
+            if (msg.success) {
+                if (msg.wasStack) qtClearStack();
+                vscode.postMessage({ type: 'qtGetTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
             }
             break;
         case 'qtStatusConfirmResult':

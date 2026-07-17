@@ -641,6 +641,75 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             post({ type: 'qtArchiveResult', success: !result.error, moved: result.moved });
             return true;
         }
+        case 'qtCompleteTodo':
+        case 'qtCancelTodo':
+        case 'qtCompleteStackedTodos':
+        case 'qtCancelStackedTodos': {
+            // Set status in place to completed / cancelled (no file move).
+            // Complete asks for the completion timestamp ONCE and applies the
+            // same stamp to every todo in the batch; cancel confirms only when
+            // acting on a stack (analogous to the delete stack action).
+            const isComplete = msg.type === 'qtCompleteTodo' || msg.type === 'qtCompleteStackedTodos';
+            const isStack = msg.type === 'qtCompleteStackedTodos' || msg.type === 'qtCancelStackedTodos';
+            if (isSessionMode) {
+                vscode.window.showErrorMessage('Complete/cancel is not available for session todos yet.');
+                post({ type: 'qtStatusResult', success: false, wasStack: isStack });
+                return true;
+            }
+            const entries: Array<{ todoId?: string; sourceFile?: string }> = isStack
+                ? (Array.isArray(msg.todos) ? msg.todos : [])
+                : [{ todoId: msg.todoId, sourceFile: msg.sourceFile }];
+            const validEntries = entries.filter(e => String(e?.todoId || ''));
+            if (!validEntries.length) {
+                vscode.window.showErrorMessage(isStack ? 'Todo stack is empty.' : 'No todo selected.');
+                post({ type: 'qtStatusResult', success: false, wasStack: isStack });
+                return true;
+            }
+            const count = validEntries.length;
+            const stamp = new Date().toISOString().slice(0, 10);
+            const completedBy = isComplete ? String(msg.completedBy || '') : '';
+            // Confirmation: complete always confirms (the timestamp prompt, asked
+            // once); cancel confirms only for a stack batch.
+            if (isComplete) {
+                const confirm = await vscode.window.showWarningMessage(
+                    `Mark ${count} todo${count === 1 ? '' : 's'} completed with completion date ${stamp}${completedBy ? ' by ' + completedBy : ''}?`,
+                    { modal: true },
+                    'Complete',
+                );
+                if (confirm !== 'Complete') return true;
+            } else if (isStack) {
+                const confirm = await vscode.window.showWarningMessage(
+                    `Set ${count} stacked todo${count === 1 ? '' : 's'} to cancelled?`,
+                    { modal: true },
+                    'Set Cancelled',
+                );
+                if (confirm !== 'Set Cancelled') return true;
+            }
+            const updates: Partial<Omit<questTodo.QuestTodoItem, 'id' | '_sourceFile'>> = isComplete
+                ? { status: 'completed', completed_date: stamp, completed_by: completedBy || undefined }
+                : { status: 'cancelled' };
+            const updated: string[] = [];
+            const failed: string[] = [];
+            for (const entry of validEntries) {
+                const todoId = String(entry?.todoId || '');
+                const fp = _resolveArchiveSourcePath(
+                    effectiveQuestId(msg.questId), effectiveFile(msg.file), entry?.sourceFile,
+                    isWorkspaceFileMode, workspaceFilePath,
+                );
+                if (!fp) { failed.push(todoId); continue; }
+                const res = questTodo.updateTodoInFile(fp, todoId, updates);
+                if (res) { updated.push(todoId); } else { failed.push(todoId); }
+            }
+            const verb = isComplete ? 'Completed' : 'Cancelled';
+            if (updated.length) {
+                vscode.window.showInformationMessage(`${verb} ${updated.length} todo${updated.length === 1 ? '' : 's'}.`);
+            }
+            if (failed.length) {
+                vscode.window.showWarningMessage(`Could not update ${failed.length} todo${failed.length === 1 ? '' : 's'}.`);
+            }
+            post({ type: 'qtStatusResult', success: updated.length > 0, wasStack: isStack });
+            return true;
+        }
         case 'qtMassCreate': {
             const todos = Array.isArray(msg.todos) ? msg.todos : [];
             let created = 0;
