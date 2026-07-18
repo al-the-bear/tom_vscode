@@ -51,6 +51,23 @@ function qtPersistState() {
     }});
 }
 
+/** Source file (basename) of a todo currently in the list, or undefined. */
+function qtSourceFileForId(id) {
+    for (var i = 0; i < qtTodos.length; i++) {
+        if (qtTodos[i].id === id) return qtTodos[i].sourceFile || undefined;
+    }
+    return undefined;
+}
+
+/**
+ * Ask the backend for a todo's detail. Always includes the todo's source file
+ * so the detail resolves from whichever quest file is being browsed — not just
+ * the main todos.<quest>.todo.yaml (bug: detail pane empty on secondary files).
+ */
+function qtRequestTodoDetail(id) {
+    vscode.postMessage({ type: 'qtGetTodo', questId: qtCurrentQuestId, todoId: id, sourceFile: qtSourceFileForId(id) });
+}
+
 function qtNavPush(todoId) {
     if (!qtNavPushing) return;
     qtNavHistory = qtNavHistory.slice(0, qtNavIndex + 1);
@@ -82,7 +99,7 @@ function qtNavPush(todoId) {
         qtNavPushing = false;
         qtSelectedTodoId = todoId;
         qtRenderList();
-        vscode.postMessage({ type: 'qtGetTodo', questId: qtCurrentQuestId, todoId: todoId });
+        qtRequestTodoDetail(todoId);
         qtNavPushing = true;
         qtNavUpdateButtons();
     }
@@ -212,6 +229,28 @@ function qtNavPush(todoId) {
         var sel = qtSelectedTodoEntry();
         if (!sel) return;
         vscode.postMessage({ type: 'qtCancelTodo', questId: qtCurrentQuestId, file: qtCurrentFile, todoId: sel.id, sourceFile: sel.sourceFile });
+    });
+    // Reopen (set not-started) button — mirrors cancel.
+    var btnReopenSel = document.getElementById('qt-btn-reopen-sel');
+    if (btnReopenSel) btnReopenSel.addEventListener('click', function() {
+        if (qtStack.length) {
+            vscode.postMessage({ type: 'qtReopenStackedTodos', questId: qtCurrentQuestId, file: qtCurrentFile, todos: qtStackPayload() });
+            return;
+        }
+        var sel = qtSelectedTodoEntry();
+        if (!sel) return;
+        vscode.postMessage({ type: 'qtReopenSelectedTodo', questId: qtCurrentQuestId, file: qtCurrentFile, todoId: sel.id, sourceFile: sel.sourceFile });
+    });
+    // Move selected todo(s) to another todo file (file picker on the server).
+    var btnMoveFile = document.getElementById('qt-btn-move-file');
+    if (btnMoveFile) btnMoveFile.addEventListener('click', function() {
+        if (qtStack.length) {
+            vscode.postMessage({ type: 'qtMoveTodosToPickedFile', questId: qtCurrentQuestId, file: qtCurrentFile, todos: qtStackPayload() });
+            return;
+        }
+        var sel = qtSelectedTodoEntry();
+        if (!sel) return;
+        vscode.postMessage({ type: 'qtMoveTodosToPickedFile', questId: qtCurrentQuestId, file: qtCurrentFile, todos: [{ todoId: sel.id, sourceFile: sel.sourceFile }] });
     });
     qtUpdateArchiveButtons();
     // Filter/sort bar — new icon buttons with picker overlays
@@ -565,7 +604,7 @@ function qtRenderList() {
             qtSelectedTodoId = el.dataset.qtId;
             qtNavPush(qtSelectedTodoId);
             qtRenderList();
-            vscode.postMessage({ type: 'qtGetTodo', questId: qtCurrentQuestId, todoId: qtSelectedTodoId });
+            qtRequestTodoDetail(qtSelectedTodoId);
             // Refresh the send button + templates so they track the prompt
             // queue's current transport even if it changed since load (Bug 3).
             vscode.postMessage({ type: 'qtGetTemplates' });
@@ -600,7 +639,7 @@ function qtRenderList() {
         btn.addEventListener('click', function(e) {
             e.stopPropagation();
             var tid = btn.dataset.qtReopen;
-            vscode.postMessage({ type: 'qtReopenTodo', questId: qtCurrentQuestId, todoId: tid });
+            vscode.postMessage({ type: 'qtReopenTodo', questId: qtCurrentQuestId, todoId: tid, sourceFile: qtSourceFileForId(tid) });
         });
     });
     qtUpdateArchiveButtons();
@@ -695,6 +734,23 @@ function qtUpdateArchiveButtons() {
     if (btnCancel) {
         setBtn(btnCancel, singleVisible, actionable);
         btnCancel.title = stackCount > 0 ? 'Mark ' + stackCount + ' stacked todo(s) cancelled' : 'Mark selected todo cancelled';
+    }
+
+    // Reopen (set not-started) — same visibility rule as complete/cancel.
+    var btnReopenSel = document.getElementById('qt-btn-reopen-sel');
+    if (btnReopenSel) {
+        setBtn(btnReopenSel, singleVisible, actionable);
+        btnReopenSel.title = stackCount > 0 ? 'Mark ' + stackCount + ' stacked todo(s) not-started' : 'Mark selected todo not-started';
+    }
+
+    // Move to another todo file — only in a concrete quest (not aggregates,
+    // workspace-file, or session mode). Acts on the stack, otherwise the
+    // single selected todo.
+    var btnMoveFile = document.getElementById('qt-btn-move-file');
+    if (btnMoveFile) {
+        var moveVisible = !isWorkspaceFile && !isSpecialQuest && singleVisible;
+        setBtn(btnMoveFile, moveVisible, actionable);
+        btnMoveFile.title = stackCount > 0 ? 'Move ' + stackCount + ' stacked todo(s) to another todo file' : 'Move selected todo(s) to another todo file';
     }
 
     // Bulk buttons need a concrete, non-terminal file scope.
@@ -1920,7 +1976,7 @@ function qtHandleMessage(msg) {
                     qtSelectedTodoId = qtPendingSelectTodoId;
                     qtNavPush(qtSelectedTodoId);
                     qtRenderList();
-                    vscode.postMessage({ type: 'qtGetTodo', questId: qtCurrentQuestId, todoId: qtSelectedTodoId });
+                    qtRequestTodoDetail(qtSelectedTodoId);
                     qtPendingSelectTodoId = '';
                     vscode.postMessage({ type: 'qtConsumePendingSelect' });
                 }
@@ -1962,11 +2018,14 @@ function qtHandleMessage(msg) {
             }
             break;
         case 'qtStatusResult':
-            // Complete/cancel set status in place: refresh the list from the
-            // backend and clear the stack after a stack operation.
+            // Complete/cancel/reopen set status in place: refresh the list from
+            // the backend and clear the stack after a stack operation. Also
+            // re-fetch the open detail so the details pane reflects the new
+            // status (fix b) — a single-todo change leaves the selection intact.
             if (msg.success) {
                 if (msg.wasStack) qtClearStack();
                 vscode.postMessage({ type: 'qtGetTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
+                if (!msg.wasStack && qtSelectedTodoId) qtRequestTodoDetail(qtSelectedTodoId);
             }
             break;
         case 'qtStatusConfirmResult':
