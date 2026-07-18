@@ -31,7 +31,7 @@ import {
 } from '../storage/queueFileStorage';
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
-import { applyRepetitionAffixes, buildNextTemplateIterationParams, convertStagedToPending, shouldAutoPauseOnEmpty } from '../utils/queueStep3Utils';
+import { applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, convertStagedToPending, shouldAutoPauseOnEmpty } from '../utils/queueStep3Utils';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
 import { mergeQueueReload } from '../utils/queueReloadMergeUtils';
 import { applyErrorTransition, applyResetToPending, applyWaitingTransition, clearWaitingState, dispatchWasSuperseded, isWaitingDue, itemHasInFlightProgress, resolveAnswerContainer } from '../utils/queueErrorTransitions';
@@ -1695,11 +1695,26 @@ export class PromptQueueManager {
 
     /** Remove an item by id. */
     remove(id: string): void {
-        const removed = this._items.find(i => i.id === id);
-        this._items = this._items.filter(i => i.id !== id);
-        if (removed) {
-            logQueue(`Item removed: id=${removed.id}, type=${removed.type}, status=${removed.status}`);
+        const effect = computeRemovalEffect(this._items, id, this._autoSendEnabled);
+        this._items = effect.items;
+        if (effect.removed) {
+            logQueue(`Item removed: id=${effect.removed.id}, type=${effect.removed.type}, status=${effect.removed.status}`);
         }
+
+        // Deleting the item that is currently sending must interrupt it: abort
+        // the in-flight dispatch (otherwise the handler keeps executing a prompt
+        // that no longer exists in the queue, and the stop button can't reach it
+        // because the sending item is gone) and drop auto-send to OFF so the
+        // queue doesn't immediately fire the next pending prompt.
+        if (effect.wasSending) {
+            this._cancelActiveDispatch();
+            if (this._autoSendEnabled && !effect.nextAutoSendEnabled) {
+                this._autoSendEnabled = false;
+                this.persistSettings();
+                logQueue(`Auto-send disabled: currently-sending item ${id} was deleted`);
+            }
+        }
+
         this.persist();
         this._onDidChange.fire();
     }

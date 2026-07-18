@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
     computeRepeatDecision,
     convertStagedToPending,
+    computeRemovalEffect,
     shouldAutoPauseOnEmpty,
     applyRepetitionAffixes,
     buildNextTemplateIterationParams,
@@ -47,6 +48,57 @@ describe('Step 3 - Issue 5: sendAllStaged', () => {
 
         assert.equal(changed, 0);
         assert.deepEqual(items.map((i: any) => i.status), ['pending']);
+    });
+});
+
+describe('computeRemovalEffect - deleting the running queue item', () => {
+    test('deleting the sending item flags wasSending and forces auto-send OFF', () => {
+        const items = [
+            { id: 'a', status: 'sent' },
+            { id: 'b', status: 'sending' },
+            { id: 'c', status: 'pending' },
+        ];
+
+        const effect = computeRemovalEffect(items, 'b', true);
+
+        assert.equal(effect.wasSending, true, 'caller must abort the in-flight dispatch');
+        assert.equal(effect.nextAutoSendEnabled, false, 'auto-send must drop OFF so the next pending prompt is not auto-fired');
+        assert.equal(effect.removed?.id, 'b');
+        assert.deepEqual(effect.items.map(i => i.id), ['a', 'c'], 'the sending item is filtered out');
+    });
+
+    test('deleting a non-sending item leaves auto-send untouched', () => {
+        const items = [
+            { id: 'a', status: 'sending' },
+            { id: 'b', status: 'pending' },
+        ];
+
+        const effect = computeRemovalEffect(items, 'b', true);
+
+        assert.equal(effect.wasSending, false);
+        assert.equal(effect.nextAutoSendEnabled, true, 'removing a pending item must not pause a running queue');
+        assert.deepEqual(effect.items.map(i => i.id), ['a']);
+    });
+
+    test('deleting the sending item while auto-send is already OFF keeps it OFF', () => {
+        const items = [{ id: 'a', status: 'sending' }];
+
+        const effect = computeRemovalEffect(items, 'a', false);
+
+        assert.equal(effect.wasSending, true);
+        assert.equal(effect.nextAutoSendEnabled, false);
+        assert.deepEqual(effect.items, []);
+    });
+
+    test('removing an unknown id is a no-op with no side-effects', () => {
+        const items = [{ id: 'a', status: 'sending' }];
+
+        const effect = computeRemovalEffect(items, 'missing', true);
+
+        assert.equal(effect.removed, undefined);
+        assert.equal(effect.wasSending, false);
+        assert.equal(effect.nextAutoSendEnabled, true);
+        assert.deepEqual(effect.items.map(i => i.id), ['a']);
     });
 });
 

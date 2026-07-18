@@ -54,6 +54,52 @@ export function shouldAutoPauseOnEmpty(autoSendEnabled: boolean, pendingCount: n
     return autoPauseEnabled && autoSendEnabled && pendingCount <= 0;
 }
 
+/** Outcome of removing one queue item — see {@link computeRemovalEffect}. */
+export interface QueueRemovalEffect<T> {
+    /** The items array with the target id filtered out. */
+    items: T[];
+    /** The removed item, or `undefined` when the id matched nothing. */
+    removed: T | undefined;
+    /** True when the removed item was the one currently `sending`. */
+    wasSending: boolean;
+    /**
+     * Auto-send state the caller should adopt after the removal. Deleting the
+     * `sending` item forces it OFF so the queue does not immediately dispatch
+     * the next pending item after the user interrupted the running one;
+     * otherwise the incoming value is preserved.
+     */
+    nextAutoSendEnabled: boolean;
+}
+
+/**
+ * Pure decision for removing a queue item.
+ *
+ * Deleting the item that is currently `sending` must interrupt execution:
+ * the caller has to abort the in-flight dispatch (signalled by `wasSending`)
+ * and drop auto-send to OFF (`nextAutoSendEnabled`). Without this, the handler
+ * keeps executing a prompt that no longer exists in the queue and the stop
+ * button can't reach it (the sending item is gone), while auto-send would fire
+ * the next pending prompt as if nothing happened.
+ *
+ * Kept pure/context-free so it can be unit tested without the vscode-coupled
+ * PromptQueueManager (mirrors the `applyCrashRecovery` / `convertStagedToPending`
+ * pattern).
+ */
+export function computeRemovalEffect<T extends { id: string; status: string }>(
+    items: readonly T[],
+    id: string,
+    autoSendEnabled: boolean,
+): QueueRemovalEffect<T> {
+    const removed = items.find(i => i.id === id);
+    const wasSending = removed?.status === 'sending';
+    return {
+        items: items.filter(i => i.id !== id),
+        removed,
+        wasSending,
+        nextAutoSendEnabled: wasSending ? false : autoSendEnabled,
+    };
+}
+
 export function convertStagedToPending(items: Array<{ status: string }>): number {
     let changed = 0;
     for (const item of items) {
