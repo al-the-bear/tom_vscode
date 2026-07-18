@@ -100,7 +100,7 @@ In `@CHAT`, Copilot supports templates, prompt slots, answer-file notifications,
 
 The Copilot section in `@CHAT` includes an action bar with:
 
-- **R** (Repeat count): Number of times to repeat the prompt (text input, 24px wide)
+- **R** (Repeat count): Number of times to repeat the prompt (text input, 24px wide). Accepts a plain integer, a chat-variable name (resolved at dispatch), or a `prefix*` pattern (see [Repeat and Affix Support](#repeat-and-affix-support))
 - **W** (Answer wait minutes): Minutes to wait before auto-advancing without an answer file. When set to 0, uses classic answer-file detection. When > 0, the queue auto-advances after the specified time (text input, 24px wide)
 - **Template picker**: Select a prompt template
 - **Queue button**: Add the current prompt to the queue with the configured repeat count and wait time
@@ -154,7 +154,10 @@ Each queued prompt tracks:
 
 Prompts can repeat multiple times with customizable prefix and suffix text:
 
-- **repeatCount**: Total number of times to send the prompt
+- **repeatCount**: Total number of times to send the prompt. Accepts three forms:
+  - A **plain integer** (e.g. `3`).
+  - A **chat-variable name** — resolved to its numeric value at dispatch time (not at enqueue), so the count reflects the variable's value when the item is actually processed.
+  - A **`prefix*` pattern** (e.g. `tod*`) — resolved at dispatch to the highest number among the active quest's todo ids that match `prefix` followed by digits. Trailing non-digit characters on the id are ignored, so `tod3`, `tod3b`, and `tod3-review` all count as `3`. Empty prefixes or non-matching patterns fall back to `1`.
 - **repeatIndex**: Current iteration (0-based internally, displayed 1-based)
 - **repeatPrefix / repeatSuffix**: Template text inserted before/after each repetition, supporting placeholders `${repeatNumber}` (1-based), `${repeatIndex}` (0-based), `${repeatCount}` (total)
 
