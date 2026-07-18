@@ -50,6 +50,7 @@ import { TrailService } from '../services/trailService';
 import { WsPaths } from '../utils/workspacePaths';
 import { normalizeResponseValues, splitResponseValues } from '../utils/answerResponseValues';
 import { extractResponseValuesFromText } from '../utils/responseValues';
+import { BUILTIN_TODO_TEMPLATES } from '../utils/todoSendTargets';
 import type { ChangeSource } from './chatVariablesStore';
 
 // ============================================================================
@@ -271,6 +272,13 @@ export function resolveTemplateString(
         } else {
             const tpl = config?.copilot?.templates?.[templateName];
             if (tpl?.template) { return tpl.template; }
+            // Built-in copilot TODO templates (e.g. "TODO Execution", "Refactor")
+            // are NOT stored in config.copilot.templates — they are the dropdown
+            // options offered by the Quest TODO panel. Without this fallback a
+            // queued todo keeps only the built-in template NAME and its body
+            // (the ${originalPrompt} wrapper) never expands.
+            const builtIn = BUILTIN_TODO_TEMPLATES[templateName];
+            if (builtIn) { return builtIn; }
         }
     } catch { /* config not available */ }
     // Built-in default for __answer_file__ when not in config. This is
@@ -3675,7 +3683,12 @@ export class PromptQueueManager {
                 const doc = this._queuedPromptToDoc(item, quest, index);
                 let fileName = this._fileNameMap.get(item.id);
                 if (!fileName) {
-                    fileName = generateEntryFileName(quest, item.type, new Date(item.createdAt));
+                    // Second-resolution timestamps collide when several items are
+                    // enqueued in the same clock second (one prompt per stacked
+                    // todo). Seed the name with a slice of the unique item id so
+                    // each entry gets its own file instead of overwriting.
+                    const token = item.id.replace(/-/g, '').slice(0, 8);
+                    fileName = generateEntryFileName(quest, item.type, new Date(item.createdAt), token);
                     this._fileNameMap.set(item.id, fileName);
                 }
                 writeEntry(entryIdFromFileName(fileName), doc, fileName);
