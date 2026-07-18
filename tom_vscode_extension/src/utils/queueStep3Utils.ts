@@ -82,11 +82,14 @@ export function normalizeRepeatCountInput(value: number | string | undefined): n
  * Resolve a `prefix*` repeat-count against a set of quest-todo ids.
  *
  * When the user enters a repeat-count variable that ends in `*` (e.g. `dsa*`),
- * the count is the **highest trailing number** among quest todos whose id is
- * exactly the prefix followed by digits — `dsa1`, `dsa2`, … `dsa15` → 15. Ids
- * that don't start with the prefix, or whose suffix isn't purely numeric
- * (`dsable`, `dsa_2`), are ignored. This lets a single queued prompt run once
- * per numbered todo in a series without the user counting them by hand.
+ * the count is the **highest number** among quest todos whose id is the prefix
+ * followed by digits, with any trailing non-digit characters ignored —
+ * `dsa1`, `dsa2`, … `dsa15`, `dsa15b`, `dsa7-review` all contribute (1, 2, 15,
+ * 15, 7). The number taken is the run of digits **immediately after** the
+ * prefix. Ids that don't start with the prefix, or whose first character after
+ * the prefix isn't a digit (`dsable`, `dsa_2`), are ignored. This lets a single
+ * queued prompt run once per numbered todo in a series without the user
+ * counting them by hand.
  *
  * Returns `undefined` when `value` is not a `prefix*` pattern (so the caller
  * falls through to normal repeat-count resolution). When the pattern matches
@@ -119,10 +122,15 @@ export function resolveTodoPrefixRepeatCount(
             continue;
         }
         const suffix = id.slice(prefix.length);
-        if (!/^\d+$/.test(suffix)) {
+        // Take the run of digits immediately after the prefix; trailing
+        // non-digit characters (`dsa15b`, `dsa7-review`) are allowed and
+        // ignored. A suffix that doesn't start with a digit (`dsable`,
+        // `dsa_2`) contributes nothing.
+        const match = /^(\d+)/.exec(suffix);
+        if (!match) {
             continue;
         }
-        const n = parseInt(suffix, 10);
+        const n = parseInt(match[1], 10);
         if (n > highest) {
             highest = n;
         }
