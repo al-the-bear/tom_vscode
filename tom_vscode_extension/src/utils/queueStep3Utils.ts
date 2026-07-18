@@ -55,6 +55,30 @@ export function shouldAutoPauseOnEmpty(autoSendEnabled: boolean, pendingCount: n
 }
 
 /**
+ * Normalize a repeat-count value coming from a UI/webview input into the shape
+ * the queue persists.
+ *
+ * Non-numeric strings — chat-variable names and `prefix*` patterns (e.g.
+ * `dsa*`) — are preserved **verbatim** so they resolve at processing time
+ * (see {@link resolveTodoPrefixRepeatCount} and the manager's
+ * `resolveStableRepeatCount`). Numbers and purely-numeric strings are coerced
+ * to a non-negative integer. Anything else falls back to `0`.
+ *
+ * Extracted so every enqueue entry point (chat panel, queue editor, …) shares
+ * one rule; coercing `Number('dsa*')` at enqueue previously produced `NaN` and
+ * silently dropped the variable before the deferred resolver ever saw it.
+ */
+export function normalizeRepeatCountInput(value: number | string | undefined): number | string {
+    if (typeof value === 'string' && !/^[0-9]+$/.test(value)) {
+        return value;
+    }
+    if (typeof value === 'number' || typeof value === 'string') {
+        return Math.max(0, Math.round(Number(value) || 0));
+    }
+    return 0;
+}
+
+/**
  * Resolve a `prefix*` repeat-count against a set of quest-todo ids.
  *
  * When the user enters a repeat-count variable that ends in `*` (e.g. `dsa*`),

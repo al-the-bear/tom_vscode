@@ -9,6 +9,7 @@ import {
     applyRepetitionAffixes,
     buildNextTemplateIterationParams,
     resolveTodoPrefixRepeatCount,
+    normalizeRepeatCountInput,
 } from '../../utils/queueStep3Utils.js';
 
 describe('Step 3 - Issue 4: queue auto-pause behavior', () => {
@@ -100,6 +101,32 @@ describe('computeRemovalEffect - deleting the running queue item', () => {
         assert.equal(effect.wasSending, false);
         assert.equal(effect.nextAutoSendEnabled, true);
         assert.deepEqual(effect.items.map(i => i.id), ['a']);
+    });
+});
+
+describe('normalizeRepeatCountInput - preserve variables at enqueue', () => {
+    test('preserves a prefix* pattern verbatim so it resolves at processing time', () => {
+        assert.equal(normalizeRepeatCountInput('tod*'), 'tod*');
+        assert.equal(normalizeRepeatCountInput('dsa*'), 'dsa*');
+    });
+
+    test('preserves a plain chat-variable name verbatim', () => {
+        assert.equal(normalizeRepeatCountInput('myLoopVar'), 'myLoopVar');
+    });
+
+    test('coerces a purely-numeric string to a non-negative integer', () => {
+        assert.equal(normalizeRepeatCountInput('3'), 3);
+        assert.equal(normalizeRepeatCountInput('0'), 0);
+    });
+
+    test('coerces a number to a rounded non-negative integer', () => {
+        assert.equal(normalizeRepeatCountInput(4), 4);
+        assert.equal(normalizeRepeatCountInput(2.6), 3);
+        assert.equal(normalizeRepeatCountInput(-1), 0);
+    });
+
+    test('returns 0 for undefined', () => {
+        assert.equal(normalizeRepeatCountInput(undefined), 0);
     });
 });
 

@@ -15,6 +15,7 @@ import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import { loadSendToChatConfig, saveSendToChatConfig } from './handler_shared';
 import { openGlobalTemplateEditor } from './globalTemplateEditor-handler';
 import { renderTransportPicker } from '../utils/transportPicker';
+import { normalizeRepeatCountInput } from '../utils/queueStep3Utils';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 
 // ============================================================================
@@ -612,7 +613,7 @@ async function handleMessage(msg: any): Promise<void> {
                     reminderTimeoutMinutes: msg.reminderTimeoutMinutes,
                     reminderRepeat: !!msg.reminderRepeat,
                     reminderEnabled: !!msg.reminderEnabled,
-                    repeatCount: (typeof msg.repeatCount === 'string' && !/^[0-9]+$/.test(msg.repeatCount)) ? msg.repeatCount : (typeof msg.repeatCount === 'number' || typeof msg.repeatCount === 'string' ? Math.max(0, Math.round(Number(msg.repeatCount) || 0)) : 0),
+                    repeatCount: normalizeRepeatCountInput(msg.repeatCount),
                     repeatPrefix: typeof msg.repeatPrefix === 'string' ? msg.repeatPrefix : undefined,
                     repeatSuffix: typeof msg.repeatSuffix === 'string' ? msg.repeatSuffix : undefined,
                     deferSend: true,

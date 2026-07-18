@@ -32,6 +32,7 @@ import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
 import { WsPaths } from '../utils/workspacePaths';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import { validateStrictAiConfiguration } from '../utils/sendToChatConfig';
+import { normalizeRepeatCountInput } from '../utils/queueStep3Utils';
 import { findNearestDetectedProject, scanWorkspaceProjectsByDetectors } from '../utils/projectDetector';
 import { TrailService } from '../services/trailService';
 import { TwoTierMemoryService } from '../services/memory-service';
@@ -2613,7 +2614,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     private async _handleAddToQueue(
         text: string,
         template: string,
-        repeatCount?: number,
+        repeatCount?: number | string,
         answerWaitMinutes?: number,
         transportOpts?: {
             transport?: 'copilot' | 'anthropic';
@@ -2635,7 +2636,10 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 await queue.enqueue({
                     originalText: wrappedText,
                     template: template || undefined,
-                    repeatCount: Math.max(0, Math.round(Number(repeatCount || 0))),
+                    // Preserve non-numeric strings (chat variables, `prefix*`
+                    // patterns like `tod*`) verbatim so they resolve when the
+                    // item is processed; only coerce actual numeric input.
+                    repeatCount: normalizeRepeatCountInput(repeatCount),
                     templateRepeatCount: undefined,
                     // answerWait / reminder fields don't apply to anthropic
                     // items (spec §4.7). Leave them undefined.
