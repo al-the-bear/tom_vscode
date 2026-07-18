@@ -2242,6 +2242,86 @@
                 "toolReferenceName": "tomAi_deleteQuestTodo"
             },
             {
+                "name": "tomAi_archiveQuestTodos",
+                "tags": [
+                    "todo",
+                    "quest",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Archive Quest Todos",
+                "userDescription": "Move completed quest todos to the -archived sibling file",
+                "modelDescription": "Move completed quest todos from a *.todo.yaml file into its -archived sibling file. Only completed todos can be archived; others are reported as skipped. Pass todoIds for specific todos, or allCompleted: true to archive every completed todo in the file.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "questId"
+                    ],
+                    "properties": {
+                        "questId": {
+                            "type": "string",
+                            "description": "The quest ID."
+                        },
+                        "file": {
+                            "type": "string",
+                            "description": "Optional bare *.todo.yaml filename inside the quest folder. Defaults to todos.<questId>.todo.yaml."
+                        },
+                        "todoIds": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "description": "IDs of the todos to archive. Mutually exclusive with allCompleted."
+                        },
+                        "allCompleted": {
+                            "type": "boolean",
+                            "description": "Archive every completed todo in the file. Mutually exclusive with todoIds."
+                        }
+                    }
+                },
+                "toolReferenceName": "tomAi_archiveQuestTodos"
+            },
+            {
+                "name": "tomAi_deleteQuestTodos",
+                "tags": [
+                    "todo",
+                    "quest",
+                    "tom-ai-chat"
+                ],
+                "displayName": "Delete Quest Todos (to file)",
+                "userDescription": "Move quest todos to the -deleted sibling file",
+                "modelDescription": "Move non-completed quest todos from a *.todo.yaml file into its -deleted sibling file (recoverable soft delete). Completed todos are skipped (archive those instead). Pass todoIds for specific todos, or allCancelled: true to move every cancelled todo in the file.",
+                "canBeReferencedInPrompt": true,
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "questId"
+                    ],
+                    "properties": {
+                        "questId": {
+                            "type": "string",
+                            "description": "The quest ID."
+                        },
+                        "file": {
+                            "type": "string",
+                            "description": "Optional bare *.todo.yaml filename inside the quest folder. Defaults to todos.<questId>.todo.yaml."
+                        },
+                        "todoIds": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "description": "IDs of the todos to move to the -deleted file. Mutually exclusive with allCancelled."
+                        },
+                        "allCancelled": {
+                            "type": "boolean",
+                            "description": "Move every cancelled todo in the file. Mutually exclusive with todoIds."
+                        }
+                    }
+                },
+                "toolReferenceName": "tomAi_deleteQuestTodos"
+            },
+            {
                 "name": "tomAi_listQuests",
                 "tags": [
                     "quest",

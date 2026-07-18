@@ -46,6 +46,20 @@
 - WORKSPACE TODOS
 - WINDOW STATUS
 
+## Quest TODO Panel — archive/delete buttons
+
+- Archive completed todo / Archive all completed → move to the `-archived` sibling file (completed todos only)
+- Delete todo (to file) / Delete all cancelled → move to the `-deleted` sibling file (non-completed todos only; recoverable)
+- Sibling naming: first dot-segment suffixed, e.g. `todos.q.todo.yaml` → `todos-archived.q.todo.yaml`; sibling files are terminal (no buttons)
+- Session todos: stable per-host file `session-todo.<host>.<quest>.todo.yaml`, persists across reloads
+
+## Quest TODO Panel — todo stack
+
+- Circle under each row's status icon: click = stack todo (index shown in circle), shift-click = stack range from last pick, click again = un-stack + renumber
+- Clear todo stack: toolbar button `qt-btn-clear-stack` (clear-all icon)
+- Save to Queue with stack: one queue prompt per stacked todo, in stack order, selected template applied per todo
+- Send with stack: ONE combined prompt — yaml fragments concatenated into a single todo list + numbered `#TODO_<n>=` responseValue lines, embedded in the selected template (raw fragments when template = None)
+
 ## Core AI Commands
 
 - `tomAi.sendToCopilot`, `tomAi.sendToCopilot.standard`, `tomAi.sendToCopilot.template`

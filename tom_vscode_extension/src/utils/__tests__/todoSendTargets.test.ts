@@ -90,3 +90,43 @@ describe('buildTodoSendTemplateChoices', () => {
         assert.equal(choices.selected, '__none__');
     });
 });
+
+describe('buildStackedTodoPrompt', () => {
+    it('single todo keeps the classic #TODO= responseValue key', async () => {
+        const { buildStackedTodoPrompt } = await import('../todoSendTargets.js');
+        const prompt = buildStackedTodoPrompt([
+            { yaml: '- id: _ai/quests/q/todos.q.todo.yaml/T1\n  title: One', ref: '_ai/quests/q/todos.q.todo.yaml/T1' },
+        ]);
+        assert.ok(prompt.startsWith('- id: _ai/quests/q/todos.q.todo.yaml/T1'));
+        assert.ok(prompt.includes('REQUIRED: Add responseValue #TODO=_ai/quests/q/todos.q.todo.yaml/T1'));
+        assert.ok(!prompt.includes('#TODO_1='), 'no numbered key for a single todo');
+        assert.ok(prompt.endsWith('\n\n'), 'trailing separator preserved');
+    });
+
+    it('multiple todos: fragments concatenate into ONE yaml list, in stack order', async () => {
+        const { buildStackedTodoPrompt } = await import('../todoSendTargets.js');
+        const prompt = buildStackedTodoPrompt([
+            { yaml: '- id: f/a.todo.yaml/A\n  title: A', ref: 'f/a.todo.yaml/A' },
+            { yaml: '- id: f/a.todo.yaml/B\n  title: B', ref: 'f/a.todo.yaml/B' },
+            { yaml: '- id: f/b.todo.yaml/C\n  title: C', ref: 'f/b.todo.yaml/C' },
+        ]);
+        const yamlBlock = prompt.split('\n\nREQUIRED')[0];
+        assert.equal(
+            yamlBlock,
+            '- id: f/a.todo.yaml/A\n  title: A\n- id: f/a.todo.yaml/B\n  title: B\n- id: f/b.todo.yaml/C\n  title: C',
+            'fragments join with a single newline so they form one valid yaml list',
+        );
+        assert.ok(prompt.indexOf('/A') < prompt.indexOf('/B'), 'stack order preserved');
+    });
+
+    it('multiple todos get DISTINCT numbered #TODO_<n>= responseValue keys', async () => {
+        const { buildStackedTodoPrompt } = await import('../todoSendTargets.js');
+        const prompt = buildStackedTodoPrompt([
+            { yaml: '- id: A', ref: 'f/x.todo.yaml/A' },
+            { yaml: '- id: B', ref: 'f/x.todo.yaml/B' },
+        ]);
+        assert.ok(prompt.includes('REQUIRED: Add responseValue #TODO_1=f/x.todo.yaml/A'));
+        assert.ok(prompt.includes('REQUIRED: Add responseValue #TODO_2=f/x.todo.yaml/B'));
+        assert.ok(!/#TODO=/.test(prompt), 'no ambiguous unnumbered key when stacked');
+    });
+});

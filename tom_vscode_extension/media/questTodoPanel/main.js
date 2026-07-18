@@ -31,8 +31,15 @@ var qtTagPickerScope = 'all';
 var qtPathExtAppAvailability = {};
 var qtPendingStatusChange = null;
 var qtCurrentTemplate = '__none__';
-var qtViewingBackup = false;
 var qtPendingSelectTodoId = '';
+// ── Todo stack (batch send/queue) ──
+// Ordered list of stacked todos ({id, sourceFile}); the circle under each
+// row's status icon shows the 1-based stack index. Save-to-Queue enqueues one
+// prompt per stacked todo (in stack order); Send combines all stacked todos
+// into a single prompt.
+var qtStack = [];
+var qtLastStackedId = '';
+var qtLastRenderOrder = [];
 
 function qtPersistState() {
     vscode.postMessage({ type: 'qtSaveState', state: {
@@ -150,6 +157,63 @@ function qtNavPush(todoId) {
         if (qtCurrentQuestId === '__all_quests__' || qtCurrentQuestId === '__all_workspace__') return;
         qtShowMassAddOverlay();
     });
+    // Clear todo stack button
+    var btnClearStack = document.getElementById('qt-btn-clear-stack');
+    if (btnClearStack) btnClearStack.addEventListener('click', function() { qtClearStack(); });
+    qtUpdateStackButtons();
+    // Archive / delete-to-file buttons (TRA02)
+    var btnArchive = document.getElementById('qt-btn-archive');
+    var btnArchiveAll = document.getElementById('qt-btn-archive-all');
+    var btnDeleteFile = document.getElementById('qt-btn-delete-file');
+    var btnDeleteCancelled = document.getElementById('qt-btn-delete-cancelled');
+    if (btnArchive) btnArchive.addEventListener('click', function() {
+        // Stacked todos win: archive the whole stack (server confirms first).
+        if (qtStack.length) {
+            vscode.postMessage({ type: 'qtArchiveStackedTodos', questId: qtCurrentQuestId, file: qtCurrentFile, todos: qtStackPayload() });
+            return;
+        }
+        var sel = qtSelectedTodoEntry();
+        if (!sel) return;
+        vscode.postMessage({ type: 'qtArchiveTodo', questId: qtCurrentQuestId, file: qtCurrentFile, todoId: sel.id, sourceFile: sel.sourceFile });
+    });
+    if (btnDeleteFile) btnDeleteFile.addEventListener('click', function() {
+        // Stacked todos win: delete the whole stack (server confirms first).
+        if (qtStack.length) {
+            vscode.postMessage({ type: 'qtDeleteStackedTodos', questId: qtCurrentQuestId, file: qtCurrentFile, todos: qtStackPayload() });
+            return;
+        }
+        var sel = qtSelectedTodoEntry();
+        if (!sel) return;
+        vscode.postMessage({ type: 'qtDeleteTodoToFile', questId: qtCurrentQuestId, file: qtCurrentFile, todoId: sel.id, sourceFile: sel.sourceFile });
+    });
+    if (btnArchiveAll) btnArchiveAll.addEventListener('click', function() {
+        vscode.postMessage({ type: 'qtArchiveAllCompleted', questId: qtCurrentQuestId, file: qtCurrentFile });
+    });
+    if (btnDeleteCancelled) btnDeleteCancelled.addEventListener('click', function() {
+        vscode.postMessage({ type: 'qtDeleteAllCancelled', questId: qtCurrentQuestId, file: qtCurrentFile });
+    });
+    // Complete / cancel buttons (set status in place; no file move).
+    var btnComplete = document.getElementById('qt-btn-complete');
+    var btnCancel = document.getElementById('qt-btn-cancel');
+    if (btnComplete) btnComplete.addEventListener('click', function() {
+        if (qtStack.length) {
+            vscode.postMessage({ type: 'qtCompleteStackedTodos', questId: qtCurrentQuestId, file: qtCurrentFile, todos: qtStackPayload(), completedBy: qtUserName || undefined });
+            return;
+        }
+        var sel = qtSelectedTodoEntry();
+        if (!sel) return;
+        vscode.postMessage({ type: 'qtCompleteTodo', questId: qtCurrentQuestId, file: qtCurrentFile, todoId: sel.id, sourceFile: sel.sourceFile, completedBy: qtUserName || undefined });
+    });
+    if (btnCancel) btnCancel.addEventListener('click', function() {
+        if (qtStack.length) {
+            vscode.postMessage({ type: 'qtCancelStackedTodos', questId: qtCurrentQuestId, file: qtCurrentFile, todos: qtStackPayload() });
+            return;
+        }
+        var sel = qtSelectedTodoEntry();
+        if (!sel) return;
+        vscode.postMessage({ type: 'qtCancelTodo', questId: qtCurrentQuestId, file: qtCurrentFile, todoId: sel.id, sourceFile: sel.sourceFile });
+    });
+    qtUpdateArchiveButtons();
     // Filter/sort bar — new icon buttons with picker overlays
     var searchInput = document.getElementById('qt-search');
     var btnFilter = document.getElementById('qt-btn-filter');
@@ -189,26 +253,22 @@ function qtNavPush(todoId) {
             vscode.postMessage({ type: 'qtImportFromFile', questId: qtCurrentQuestId, file: qtCurrentFile });
         });
     }
-    // Backup toggle button
-    var btnToggleBackup = document.getElementById('qt-btn-toggle-backup');
-    if (btnToggleBackup) {
-        btnToggleBackup.addEventListener('click', function() {
-            qtViewingBackup = !qtViewingBackup;
-            if (qtViewingBackup) {
-                btnToggleBackup.classList.add('active-indicator');
-                btnToggleBackup.title = 'Switch to normal file';
-                vscode.postMessage({ type: 'qtGetBackupTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
-            } else {
-                btnToggleBackup.classList.remove('active-indicator');
-                btnToggleBackup.title = 'Switch to backup file';
-                vscode.postMessage({ type: 'qtGetTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
-            }
-        });
-    }
     if (templateSelect) templateSelect.addEventListener('change', function() {
         qtCurrentTemplate = this.value || '__none__';
     });
     if (addQueueBtn) addQueueBtn.addEventListener('click', function() {
+        var tplId = qtSelectedTemplateId();
+        // Stacked todos win: one queue prompt per stacked todo, in stack order.
+        if (qtStack.length) {
+            vscode.postMessage({
+                type: 'qtQueueStackedTodos',
+                questId: qtCurrentQuestId,
+                file: qtCurrentFile,
+                todos: qtStackPayload(),
+                template: tplId,
+            });
+            return;
+        }
         if (!qtSelectedTodoId) {
             vscode.postMessage({ type: 'qtShowError', message: 'Select a todo first.' });
             return;
@@ -220,10 +280,22 @@ function qtNavPush(todoId) {
             file: qtCurrentFile,
             todoId: effectiveTodoId,
             sourceFile: qtDetailTodo && qtDetailTodo._sourceFile ? qtDetailTodo._sourceFile : undefined,
-            template: qtCurrentTemplate,
+            template: tplId,
         });
     });
     if (sendCopilotBtn) sendCopilotBtn.addEventListener('click', function() {
+        var tplId = qtSelectedTemplateId();
+        // Stacked todos win: all stacked todos combine into a SINGLE prompt.
+        if (qtStack.length) {
+            vscode.postMessage({
+                type: 'qtSendStackedTodos',
+                questId: qtCurrentQuestId,
+                file: qtCurrentFile,
+                todos: qtStackPayload(),
+                template: tplId,
+            });
+            return;
+        }
         if (!qtSelectedTodoId) {
             vscode.postMessage({ type: 'qtShowError', message: 'Select a todo first.' });
             return;
@@ -235,7 +307,7 @@ function qtNavPush(todoId) {
             file: qtCurrentFile,
             todoId: effectiveTodoId,
             sourceFile: qtDetailTodo && qtDetailTodo._sourceFile ? qtDetailTodo._sourceFile : undefined,
-            template: qtCurrentTemplate,
+            template: tplId,
         });
     });
     // Close pickers on outside click
@@ -281,12 +353,10 @@ function qtNavPush(todoId) {
         qtCurrentQuestId = '__session__';
         qtCurrentFile = 'all';
         vscode.postMessage({ type: 'qtGetTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
-        vscode.postMessage({ type: 'qtCheckBackupExists', questId: qtCurrentQuestId, file: qtCurrentFile });
     } else if (qtViewConfig.mode === 'workspace-file') {
         qtCurrentQuestId = '__all_workspace__';
         qtCurrentFile = 'all';
         vscode.postMessage({ type: 'qtGetTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
-        vscode.postMessage({ type: 'qtCheckBackupExists', questId: qtCurrentQuestId, file: qtCurrentFile });
     } else if (qtViewConfig.fixedQuestId) {
         qtCurrentQuestId = qtViewConfig.fixedQuestId;
         // A hard fixedFile locks the view; otherwise pre-select defaultFile but
@@ -294,16 +364,103 @@ function qtNavPush(todoId) {
         qtCurrentFile = qtViewConfig.fixedFile || qtViewConfig.defaultFile || 'all';
         vscode.postMessage({ type: 'qtGetTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
         vscode.postMessage({ type: 'qtGetFiles', questId: qtCurrentQuestId });
-        vscode.postMessage({ type: 'qtCheckBackupExists', questId: qtCurrentQuestId, file: qtCurrentFile });
     } else {
         vscode.postMessage({ type: 'qtGetQuests' });
-        vscode.postMessage({ type: 'qtCheckBackupExists', questId: '', file: 'all' });
     }
 })();
+
+// ── Todo stack helpers ──
+
+function qtStackIndexOf(id) {
+    for (var i = 0; i < qtStack.length; i++) { if (qtStack[i].id === id) return i; }
+    return -1;
+}
+
+function qtStackSourceFor(id) {
+    for (var i = 0; i < qtTodos.length; i++) { if (qtTodos[i].id === id) return qtTodos[i].sourceFile || ''; }
+    return '';
+}
+
+/**
+ * Toggle a todo's stack membership (circle click). Un-stacking renumbers the
+ * remaining entries automatically (indices derive from array position at
+ * render time). Shift-click with an existing stack adds every todo between
+ * the last picked one and the clicked one (in the current list order,
+ * walking in the click direction), skipping already-stacked entries.
+ */
+function qtToggleStack(id, shiftKey) {
+    if (!id) return;
+    var existing = qtStackIndexOf(id);
+    if (existing >= 0) {
+        qtStack.splice(existing, 1);
+        if (qtLastStackedId === id) qtLastStackedId = qtStack.length ? qtStack[qtStack.length - 1].id : '';
+        qtRenderList();
+        return;
+    }
+    if (shiftKey && qtStack.length && qtLastStackedId) {
+        var from = qtLastRenderOrder.indexOf(qtLastStackedId);
+        var to = qtLastRenderOrder.indexOf(id);
+        if (from !== -1 && to !== -1) {
+            var step = to >= from ? 1 : -1;
+            for (var ri = from + step; step > 0 ? ri <= to : ri >= to; ri += step) {
+                var rid = qtLastRenderOrder[ri];
+                if (qtStackIndexOf(rid) === -1) qtStack.push({ id: rid, sourceFile: qtStackSourceFor(rid) });
+            }
+            qtLastStackedId = id;
+            qtRenderList();
+            return;
+        }
+    }
+    qtStack.push({ id: id, sourceFile: qtStackSourceFor(id) });
+    qtLastStackedId = id;
+    qtRenderList();
+}
+
+function qtClearStack() {
+    if (!qtStack.length) return;
+    qtStack = [];
+    qtLastStackedId = '';
+    qtRenderList();
+}
+
+/** Message payload shape shared by qtQueueStackedTodos / qtSendStackedTodos. */
+function qtStackPayload() {
+    return qtStack.map(function(s) { return { todoId: s.id, sourceFile: s.sourceFile || undefined }; });
+}
+
+/**
+ * Resolve the template id to use for a queue/send action, read LIVE from the
+ * dropdown so the user's current pick is always honoured — the module-level
+ * qtCurrentTemplate can lag behind a template-list refresh. Falls back to the
+ * cached value, then '__none__'.
+ */
+function qtSelectedTemplateId() {
+    var sel = document.getElementById('qt-template-select');
+    if (sel && sel.value) { qtCurrentTemplate = sel.value; }
+    return qtCurrentTemplate || '__none__';
+}
+
+function qtUpdateStackButtons() {
+    var btn = document.getElementById('qt-btn-clear-stack');
+    if (!btn) return;
+    btn.disabled = !qtStack.length;
+    btn.style.opacity = qtStack.length ? '1' : '0.4';
+    btn.title = qtStack.length ? 'Clear todo stack (' + qtStack.length + ' stacked)' : 'Clear todo stack (empty)';
+}
 
 function qtRenderList() {
     var pane = document.getElementById('qt-list-pane');
     if (!pane) return;
+    // Prune stack entries whose todo vanished (reload, quest/file switch).
+    if (qtStack.length) {
+        var qtLiveIds = {};
+        for (var li = 0; li < qtTodos.length; li++) qtLiveIds[qtTodos[li].id] = true;
+        qtStack = qtStack.filter(function(s) { return !!qtLiveIds[s.id]; });
+        if (qtLastStackedId && !qtLiveIds[qtLastStackedId]) {
+            qtLastStackedId = qtStack.length ? qtStack[qtStack.length - 1].id : '';
+        }
+    }
+    qtUpdateStackButtons();
     if (!qtTodos.length) { pane.innerHTML = '<div class="qt-empty-detail">No todos found</div>'; return; }
 
     // Apply filters
@@ -352,6 +509,9 @@ function qtRenderList() {
 
     if (!filtered.length) { pane.innerHTML = '<div class="qt-empty-detail">No matching todos</div>'; return; }
 
+    // Current visual order — basis for shift-click stack ranges.
+    qtLastRenderOrder = filtered.map(function(t) { return t.id; });
+
     pane.innerHTML = filtered.map(function(t) {
         var icon = qtStatusIcon(t.status);
         var cls = 'qt-todo-item status-' + (t.status || 'not-started');
@@ -365,18 +525,11 @@ function qtRenderList() {
         var moveWsBtn = '';
         var trashBtn = '';
         var reopenBtn = '';
-        var restoreBtn = '';
-        if (qtViewingBackup) {
-            // Backup mode: completed/cancelled -> reopen + delete; reopened -> move back to file
-            if (isDone) {
-                reopenBtn = '<button class="qt-reopen-btn" data-qt-reopen="' + qtEsc(t.id) + '" title="Reopen (set to not-started)">🔄</button>';
-                trashBtn = '<button class="qt-trash-btn" data-qt-trash="' + qtEsc(t.id) + '" title="Permanently delete">🗑️</button>';
-            } else {
-                restoreBtn = '<button class="qt-restore-btn" data-qt-restore="' + qtEsc(t.id) + '" title="Move back to todo file">↩️</button>';
-                trashBtn = '<button class="qt-trash-btn" data-qt-trash="' + qtEsc(t.id) + '" title="Permanently delete">🗑️</button>';
-            }
-        } else if (isDone) {
-            trashBtn = '<button class="qt-trash-btn" data-qt-trash="' + qtEsc(t.id) + '" title="Delete (move to backup)">🗑️</button>';
+        // Terminal (-archived / -deleted) files refuse archive/delete moves,
+        // so suppress the per-item trash button for todos sourced from them.
+        var isTerminalSrc = qtIsTerminalTodoFileName(t.sourceFile || qtCurrentFile);
+        if (isDone) {
+            trashBtn = isTerminalSrc ? '' : '<button class="qt-trash-btn" data-qt-trash="' + qtEsc(t.id) + '" title="Delete (move to -archived/-deleted file)">🗑️</button>';
             reopenBtn = '<button class="qt-reopen-btn" data-qt-reopen="' + qtEsc(t.id) + '" title="Reopen (set to not-started)">🔄</button>';
         } else {
             moveBtn = isQuestMode && qtCurrentFile === 'all' ? '<button class="qt-move-btn" data-qt-move="' + qtEsc(t.id) + '" title="Move to main quest todo file">➡️</button>' : '';
@@ -384,12 +537,18 @@ function qtRenderList() {
         }
         var priorityBadge = t.priority && (t.priority === 'critical' || t.priority === 'high') ? '<span class="priority-badge ' + t.priority + '">' + t.priority.toUpperCase() + '</span>' : '';
         var priorityDot = t.priority ? '<span class="qt-priority-dot ' + qtEsc(t.priority) + '">●</span>' : '';
+        var stackIdx = qtStackIndexOf(t.id);
+        var circleTitle = stackIdx >= 0
+            ? 'Remove from todo stack (#' + (stackIdx + 1) + ')'
+            : 'Add to todo stack (shift-click: add range from last picked)';
+        var stackCircle = '<span class="qt-stack-circle' + (stackIdx >= 0 ? ' stacked' : '') + '" data-qt-stackid="' + qtEsc(t.id) + '" title="' + circleTitle + '">' + (stackIdx >= 0 ? (stackIdx + 1) : '') + '</span>';
         return '<div class="' + cls + '" data-qt-id="' + qtEsc(t.id) + '">' +
             '<div class="qt-todo-item-row1">' +
             '<span class="status-icon">' + icon + '</span>' +
             '<span class="ttitle">' + qtEsc(t.title || '') + '</span>' +
-            priorityBadge + moveBtn + moveWsBtn + restoreBtn + trashBtn + reopenBtn + '</div>' +
+            priorityBadge + moveBtn + moveWsBtn + trashBtn + reopenBtn + '</div>' +
             '<div class="qt-todo-item-row2">' +
+            stackCircle +
             priorityDot +
             '<span class="tid">' + qtEsc(t.id) + '</span>' +
             srcLabel + '</div></div>';
@@ -397,11 +556,16 @@ function qtRenderList() {
 
     pane.querySelectorAll('.qt-todo-item').forEach(function(el) {
         el.addEventListener('click', function(e) {
-            if (e.target.closest('.qt-move-btn') || e.target.closest('.qt-move-ws-btn') || e.target.closest('.qt-trash-btn') || e.target.closest('.qt-reopen-btn') || e.target.closest('.qt-restore-btn')) return;
+            var circleEl = e.target.closest('.qt-stack-circle');
+            if (circleEl) {
+                qtToggleStack(circleEl.getAttribute('data-qt-stackid'), e.shiftKey);
+                return;
+            }
+            if (e.target.closest('.qt-move-btn') || e.target.closest('.qt-move-ws-btn') || e.target.closest('.qt-trash-btn') || e.target.closest('.qt-reopen-btn')) return;
             qtSelectedTodoId = el.dataset.qtId;
             qtNavPush(qtSelectedTodoId);
             qtRenderList();
-            vscode.postMessage({ type: 'qtGetTodo', questId: qtCurrentQuestId, todoId: qtSelectedTodoId, fromBackup: qtViewingBackup });
+            vscode.postMessage({ type: 'qtGetTodo', questId: qtCurrentQuestId, todoId: qtSelectedTodoId });
             // Refresh the send button + templates so they track the prompt
             // queue's current transport even if it changed since load (Bug 3).
             vscode.postMessage({ type: 'qtGetTemplates' });
@@ -429,23 +593,114 @@ function qtRenderList() {
             var srcFile = '';
             var match = qtTodos.filter(function(t) { return t.id === tid; });
             if (match.length) srcFile = match[0].sourceFile || '';
-            vscode.postMessage({ type: 'qtDeleteTodo', questId: qtCurrentQuestId, todoId: tid, sourceFile: srcFile, fromBackup: qtViewingBackup });
+            vscode.postMessage({ type: 'qtDeleteTodo', questId: qtCurrentQuestId, todoId: tid, sourceFile: srcFile });
         });
     });
     pane.querySelectorAll('.qt-reopen-btn').forEach(function(btn) {
         btn.addEventListener('click', function(e) {
             e.stopPropagation();
             var tid = btn.dataset.qtReopen;
-            vscode.postMessage({ type: 'qtReopenTodo', questId: qtCurrentQuestId, todoId: tid, fromBackup: qtViewingBackup });
+            vscode.postMessage({ type: 'qtReopenTodo', questId: qtCurrentQuestId, todoId: tid });
         });
     });
-    pane.querySelectorAll('.qt-restore-btn').forEach(function(btn) {
-        btn.addEventListener('click', function(e) {
-            e.stopPropagation();
-            var tid = btn.dataset.qtRestore;
-            vscode.postMessage({ type: 'qtRestoreFromBackup', questId: qtCurrentQuestId, todoId: tid, file: qtCurrentFile });
-        });
-    });
+    qtUpdateArchiveButtons();
+}
+
+// ── Archive / delete-to-file buttons (TRA02) ──
+
+/**
+ * Client-side mirror of isArchivedOrDeletedTodoFile (todoArchiveNames.ts):
+ * a todo file is TERMINAL when the FIRST dot-separated segment of its
+ * basename ends in -archived or -deleted. Terminal files can never be
+ * archive/delete sources, so all four buttons hide for them.
+ */
+function qtIsTerminalTodoFileName(name) {
+    if (!name) return false;
+    var base = String(name).split(/[\\/]/).pop() || '';
+    var dot = base.indexOf('.');
+    var seg = dot === -1 ? base : base.substring(0, dot);
+    return /-archived$/.test(seg) || /-deleted$/.test(seg);
+}
+
+/** Selected todo's list entry, with the (fresher) detail-pane status when the detail matches. */
+function qtSelectedTodoEntry() {
+    if (!qtSelectedTodoId) return null;
+    var entry = null;
+    for (var i = 0; i < qtTodos.length; i++) {
+        if (qtTodos[i].id === qtSelectedTodoId) { entry = qtTodos[i]; break; }
+    }
+    if (!entry) return null;
+    var status = entry.status;
+    if (qtDetailTodo && qtDetailTodo.id === entry.id && qtDetailTodo.status) status = qtDetailTodo.status;
+    return { id: entry.id, status: status || 'not-started', sourceFile: entry.sourceFile || '' };
+}
+
+/**
+ * Recompute visibility + enablement of the four archive/delete buttons.
+ * Called on selection change (via qtRenderList), status edits, and
+ * quest/file switches.
+ */
+function qtUpdateArchiveButtons() {
+    var btnArchive = document.getElementById('qt-btn-archive');
+    var btnArchiveAll = document.getElementById('qt-btn-archive-all');
+    var btnDelete = document.getElementById('qt-btn-delete-file');
+    var btnDeleteCancelled = document.getElementById('qt-btn-delete-cancelled');
+    var btnComplete = document.getElementById('qt-btn-complete');
+    var btnCancel = document.getElementById('qt-btn-cancel');
+    if (!btnArchive || !btnArchiveAll || !btnDelete || !btnDeleteCancelled) return;
+
+    var isSession = qtViewConfig && qtViewConfig.mode === 'session';
+    var isWorkspaceFile = qtViewConfig && qtViewConfig.mode === 'workspace-file';
+    var isSpecialQuest = qtCurrentQuestId === '__all_quests__' || qtCurrentQuestId === '__all_workspace__';
+
+    // Concrete file scope (empty when browsing "All files" / aggregate views).
+    var scopeFile = '';
+    if (isWorkspaceFile) scopeFile = 'workspace.todo.yaml';
+    else if (qtCurrentFile && qtCurrentFile !== 'all') scopeFile = qtCurrentFile;
+
+    // Session todos live in the stable per-host session file (TRA04);
+    // TRB1 adds the archive/delete top-bar buttons for session mode.
+    var hideAll = isSession ||
+        (scopeFile && qtIsTerminalTodoFileName(scopeFile));
+
+    function setBtn(btn, visible, enabled) {
+        btn.style.display = (!hideAll && visible) ? '' : 'none';
+        btn.disabled = !enabled;
+        btn.style.opacity = enabled ? '1' : '0.4';
+    }
+
+    var stackCount = qtStack.length;
+    var sel = qtSelectedTodoEntry();
+    // Source file the single-todo actions would operate on.
+    var selSource = sel ? (sel.sourceFile || scopeFile) : scopeFile;
+    var selSourceTerminal = selSource ? qtIsTerminalTodoFileName(selSource) : false;
+
+    // Archive/Delete work on ANY status and act on the whole stack when one
+    // exists, otherwise on the single selected todo. Visible when a stack
+    // exists OR a non-terminal single todo is selected; the stack path is
+    // confirmed server-side before it moves anything.
+    var singleVisible = stackCount > 0 || (!!sel && !selSourceTerminal);
+    var actionable = stackCount > 0 || !!sel;
+    setBtn(btnArchive, singleVisible, actionable);
+    setBtn(btnDelete, singleVisible, actionable);
+    btnArchive.title = stackCount > 0 ? 'Archive ' + stackCount + ' stacked todo(s)' : 'Archive selected todo';
+    btnDelete.title = stackCount > 0 ? 'Delete ' + stackCount + ' stacked todo(s)' : 'Delete selected todo';
+
+    // Complete/Cancel set the status in place (no file move). Same visibility
+    // rule as archive/delete: whole stack, otherwise a non-terminal single todo.
+    if (btnComplete) {
+        setBtn(btnComplete, singleVisible, actionable);
+        btnComplete.title = stackCount > 0 ? 'Mark ' + stackCount + ' stacked todo(s) completed' : 'Mark selected todo completed';
+    }
+    if (btnCancel) {
+        setBtn(btnCancel, singleVisible, actionable);
+        btnCancel.title = stackCount > 0 ? 'Mark ' + stackCount + ' stacked todo(s) cancelled' : 'Mark selected todo cancelled';
+    }
+
+    // Bulk buttons need a concrete, non-terminal file scope.
+    var bulkVisible = !!scopeFile && (isWorkspaceFile || !isSpecialQuest);
+    setBtn(btnArchiveAll, bulkVisible, bulkVisible);
+    setBtn(btnDeleteCancelled, bulkVisible, bulkVisible);
 }
 
 function qtStatusIcon(s) {
@@ -682,7 +937,7 @@ function qtRenderDetail(todo) {
     document.getElementById('qt-d-priority').addEventListener('change', qtAutoSave);
     document.getElementById('qt-btn-delete').addEventListener('click', function() {
         var delQuestId = (todo._resolvedQuestId) || qtCurrentQuestId;
-        vscode.postMessage({ type: 'qtDeleteTodo', questId: delQuestId, todoId: todo.id, sourceFile: todo._sourceFile, fromBackup: qtViewingBackup });
+        vscode.postMessage({ type: 'qtDeleteTodo', questId: delQuestId, todoId: todo.id, sourceFile: todo._sourceFile });
     });
 
     document.getElementById('qt-d-tag-input').addEventListener('keydown', function(e) {
@@ -712,6 +967,7 @@ function qtRenderDetail(todo) {
         if (cbInput) cbInput.value = '';
         if (qtDetailTodo) qtDetailTodo.status = newStatus;
         qtAutoSave();
+        qtUpdateArchiveButtons();
     });
 
     qtAttachTodoBadgeHandlers('blocked-by');
@@ -1647,8 +1903,6 @@ function qtHandleMessage(msg) {
             }
             break;
         case 'qtTodos':
-            // If viewing backup, ignore non-backup refreshes (e.g. from file watchers)
-            if (qtViewingBackup && !msg.fromBackup) break;
             qtTodos = msg.todos || [];
             qtRenderList();
             // If the previously-selected todo is gone (file emptied, switched,
@@ -1694,26 +1948,27 @@ function qtHandleMessage(msg) {
                 // Remove deleted item client-side and re-render immediately
                 qtTodos = qtTodos.filter(function(t) { return t.id !== msg.todoId; });
                 qtRenderList();
-                if (qtViewingBackup) {
-                    // Backup deletes need a backend refresh (no server-side push)
-                    vscode.postMessage({ type: 'qtGetBackupTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
-                }
-                // Re-check backup existence after delete (backup may now exist or be empty)
-                vscode.postMessage({ type: 'qtCheckBackupExists', questId: qtCurrentQuestId, file: qtCurrentFile });
             }
             break;
-        case 'qtBackupStatus': {
-            var bkBtn = document.getElementById('qt-btn-toggle-backup');
-            if (bkBtn) {
-                bkBtn.style.display = msg.exists ? '' : 'none';
-                if (!msg.exists && qtViewingBackup) {
-                    qtViewingBackup = false;
-                    bkBtn.classList.remove('active-indicator');
-                    bkBtn.title = 'Switch to backup file';
+        case 'qtArchiveResult':
+            // Archive/delete-to-file completed (TRA02): refresh the list from
+            // the backend; the qtTodos handler clears a now-missing selection.
+            if (msg.success) {
+                vscode.postMessage({ type: 'qtGetTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
+                if (qtCurrentQuestId && qtCurrentQuestId.indexOf('__') !== 0) {
+                    // The -archived/-deleted sibling may have just been created.
+                    vscode.postMessage({ type: 'qtGetFiles', questId: qtCurrentQuestId });
                 }
             }
             break;
-        }
+        case 'qtStatusResult':
+            // Complete/cancel set status in place: refresh the list from the
+            // backend and clear the stack after a stack operation.
+            if (msg.success) {
+                if (msg.wasStack) qtClearStack();
+                vscode.postMessage({ type: 'qtGetTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
+            }
+            break;
         case 'qtStatusConfirmResult':
             if (!qtPendingStatusChange) break;
             var pending = qtPendingStatusChange;
@@ -1728,6 +1983,7 @@ function qtHandleMessage(msg) {
             if (cbInput) cbInput.value = qtUserName || cbInput.value || '';
             if (qtDetailTodo) qtDetailTodo.status = pending.status;
             qtAutoSave();
+            qtUpdateArchiveButtons();
             break;
         case 'qtState':
             if (msg.state) {

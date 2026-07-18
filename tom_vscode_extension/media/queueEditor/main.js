@@ -130,7 +130,7 @@ function normalizeState() {
     .filter(function(item) { return !!item && typeof item === 'object'; })
     .map(function(item, index) {
       const safeId = (typeof item.id === 'string' && item.id) ? item.id : ('queue-item-' + index);
-      const safeStatus = (item.status === 'staged' || item.status === 'pending' || item.status === 'sending' || item.status === 'sent' || item.status === 'error')
+      const safeStatus = (item.status === 'staged' || item.status === 'pending' || item.status === 'sending' || item.status === 'sent' || item.status === 'error' || item.status === 'waiting')
         ? item.status
         : 'staged';
       return {
@@ -369,6 +369,7 @@ function sendNow(id) { vscode.postMessage({ type: 'sendNow', id }); }
 function continueSending(id) { vscode.postMessage({ type: 'continueSending', id }); }
 function resendLastPrompt(id) { vscode.postMessage({ type: 'resendLastPrompt', id }); }
 function resetToPending(id) { vscode.postMessage({ type: 'resetToPending', id }); }
+function retryWaitingNow(id) { vscode.postMessage({ type: 'retryWaitingNow', id }); }
 function toggleReminder(id, enabled) { vscode.postMessage({ type: 'toggleReminder', id, enabled }); }
 function openTemplateEditor() { vscode.postMessage({ type: 'openTemplateEditor' }); }
 function openQueueTemplates() { vscode.postMessage({ type: 'openQueueTemplates' }); }

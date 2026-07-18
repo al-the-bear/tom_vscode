@@ -21,10 +21,11 @@ import * as questTodo from '../managers/questTodoManager.js';
 import { collectAllTags, readAllQuestsTodos, readWorkspaceTodos, listQuestIds, listWorkspaceTodoFiles, scanWorkspaceProjects, collectScopeValues } from '../managers/questTodoManager.js';
 import { SessionTodoStore } from '../managers/sessionTodoStore.js';
 import { WsPaths } from '../utils/workspacePaths';
+import { isSessionTodoFileName } from '../utils/sessionTodoNames';
 import { getExternalApplicationForFile, openInExternalApplication, resolvePathVariables, applyDefaultTemplate, DEFAULT_ANSWER_FILE_TEMPLATE } from './handler_shared';
 import { expandTemplate } from './promptTemplate';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
-import { BUILTIN_TODO_TEMPLATES, buildTodoSendTemplateChoices, type TodoSendTransport } from '../utils/todoSendTargets';
+import { BUILTIN_TODO_TEMPLATES, buildStackedTodoPrompt, buildTodoSendTemplateChoices, type StackedTodoFragment, type TodoSendTransport } from '../utils/todoSendTargets';
 import { wireCompletionMessages } from '../utils/completionWiring';
 
 // Module-level state
@@ -35,7 +36,6 @@ const _webviewConfigs = new WeakMap<vscode.Webview, QuestTodoViewConfig>();
 /** Storage key for persisting Quest TODO panel state per workspace. */
 const QT_STATE_KEY = 'tomAi.questTodo.panelState';
 const QT_PENDING_SELECT_KEY = 'tomAi.questTodo.pendingSelect';
-const SESSION_TODO_FILE_RE = /^\d{8}_\d{4}_win-.*\.todo\.yaml$/;
 const SESSION_TODO_ID_SEPARATOR = '::';
 
 interface QtPanelState {
@@ -127,12 +127,19 @@ export function refreshSessionPanel(): void {
     _sessionTodosProvider?.refresh();
 }
 
-/** Backup a session todo before deletion (called from copilot tools). */
-export function backupSessionTodo(todoId: string): void {
+/**
+ * Delete a session todo by moving it to the -deleted / -archived sibling
+ * of the session file (TRA01 semantics; called from copilot tools).
+ * Returns true when the todo was moved.
+ */
+export function deleteSessionTodoToFile(todoId: string): boolean {
     try {
         const sessionFp = SessionTodoStore.instance.filePath;
-        _moveToBackup(sessionFp, todoId);
-    } catch { /* best-effort backup */ }
+        const result = _moveTodoToSiblingByStatus(sessionFp, todoId);
+        return result.moved.length > 0;
+    } catch {
+        return false;
+    }
 }
 
 
@@ -370,17 +377,6 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             _sendTodoList(effectiveQuestId(msg.questId), effectiveFile(msg.file), post);
             return true;
         case 'qtGetTodo':
-            // When viewing backup, read from backup file instead of normal file
-            if (msg.fromBackup) {
-                const bkPath = _resolveBackupPath(isSessionMode, isWorkspaceFileMode, msg.questId, msg.file, workspaceFilePath, cfg);
-                if (bkPath && fs.existsSync(bkPath)) {
-                    const todo = questTodo.findTodoByIdInFile(bkPath, msg.todoId);
-                    post({ type: 'qtTodoDetail', todo: todo ? { ...todo } : null, questId: msg.questId, todoId: msg.todoId });
-                } else {
-                    post({ type: 'qtTodoDetail', todo: null, questId: msg.questId, todoId: msg.todoId });
-                }
-                return true;
-            }
             if (isSessionMode) {
                 const sessionQuestId = _getSessionQuestId();
                 const target = _parseSessionTodoTarget(String(msg.todoId || ''), typeof msg.sourceFile === 'string' ? msg.sourceFile : undefined);
@@ -500,27 +496,6 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             _createTodo(effectiveQuestId(msg.questId), msg.todo, effectiveFile(msg.file), post);
             return true;
         case 'qtDeleteTodo':
-            // Permanent delete from backup file (no further backup)
-            if (msg.fromBackup) {
-                const confirmBk = await vscode.window.showWarningMessage(
-                    `Permanently delete todo "${msg.todoId}" from backup?`, { modal: true }, 'Delete',
-                );
-                if (confirmBk !== 'Delete') return true;
-                const bkPath = _resolveBackupPath(isSessionMode, isWorkspaceFileMode, msg.questId, msg.file, workspaceFilePath, cfg);
-                if (bkPath && fs.existsSync(bkPath)) {
-                    const archived = _archiveDeletedBackupTodo(bkPath, msg.todoId);
-                    if (!archived) {
-                        vscode.window.showErrorMessage(`Failed to archive backup todo ${msg.todoId}; deletion aborted.`);
-                        post({ type: 'qtDeleted', success: false, todoId: msg.todoId });
-                        return true;
-                    }
-                    const okBk = questTodo.deleteTodo('__backup__', msg.todoId, bkPath);
-                    post({ type: 'qtDeleted', success: okBk, todoId: msg.todoId });
-                } else {
-                    post({ type: 'qtDeleted', success: false, todoId: msg.todoId });
-                }
-                return true;
-            }
             if (isSessionMode) {
                 const confirmSess = await vscode.window.showWarningMessage(
                     `Delete todo "${msg.todoId}" from session?`, { modal: true }, 'Delete',
@@ -530,13 +505,13 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 const sessionQuestId = _getSessionQuestId();
                 const target = _parseSessionTodoTarget(String(msg.todoId || ''), typeof msg.sourceFile === 'string' ? msg.sourceFile : undefined);
                 const sessionFp = target.sourceFile ? _sessionTodoAbsolutePath(sessionQuestId, target.sourceFile) : undefined;
+                let okSess = false;
                 if (sessionFp) {
-                    _moveToBackup(sessionFp, target.todoId);
+                    const result = _moveTodoToSiblingByStatus(sessionFp, target.todoId);
+                    okSess = result.moved.length > 0;
+                    if (!okSess) { _notifyMoveResult('Deleted', result); }
                 }
-                const ok = sessionFp
-                    ? !!questTodo.updateTodoInFile(sessionFp, target.todoId, { status: 'cancelled' })
-                    : false;
-                post({ type: 'qtDeleted', success: ok, todoId: msg.todoId });
+                post({ type: 'qtDeleted', success: okSess, todoId: msg.todoId });
                 post({ type: 'qtTodos', todos: _collectSessionTodos(sessionQuestId), questId: '__session__', file: 'all' });
                 return true;
             }
@@ -546,15 +521,195 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 );
                 if (confirmWs !== 'Delete') return true;
                 const fp = workspaceFilePath();
+                let okWs = false;
                 if (fp) {
-                    _moveToBackup(fp, msg.todoId);
+                    const result = _moveTodoToSiblingByStatus(fp, msg.todoId);
+                    okWs = result.moved.length > 0;
+                    if (!okWs) { _notifyMoveResult('Deleted', result); }
                 }
-                const okWs = fp ? questTodo.deleteTodo('__all_workspace__', msg.todoId, fp) : false;
                 post({ type: 'qtDeleted', success: okWs, todoId: msg.todoId });
                 return true;
             }
             await _deleteTodo(effectiveQuestId(msg.questId), msg.todoId, post, msg.sourceFile);
             return true;
+        case 'qtArchiveTodo':
+        case 'qtDeleteTodoToFile': {
+            // TRA02: move a single todo to the -archived / -deleted sibling file.
+            const isArchive = msg.type === 'qtArchiveTodo';
+            if (isSessionMode) {
+                vscode.window.showErrorMessage('Archive/delete-to-file is not available for session todos yet (TRB1).');
+                post({ type: 'qtArchiveResult', success: false });
+                return true;
+            }
+            const fp = _resolveArchiveSourcePath(
+                effectiveQuestId(msg.questId), effectiveFile(msg.file), msg.sourceFile,
+                isWorkspaceFileMode, workspaceFilePath,
+            );
+            if (!fp) {
+                vscode.window.showErrorMessage('Could not resolve the todo file for this action.');
+                post({ type: 'qtArchiveResult', success: false });
+                return true;
+            }
+            // The panel's Archive/Delete buttons work for any status (the
+            // completed-only / non-completed-only guard is a bulk-tool rule).
+            const result = isArchive
+                ? questTodo.archiveTodos(fp, [String(msg.todoId)], { anyStatus: true })
+                : questTodo.deleteTodos(fp, [String(msg.todoId)], { anyStatus: true });
+            _notifyMoveResult(isArchive ? 'Archived' : 'Deleted', result);
+            post({ type: 'qtArchiveResult', success: !result.error, moved: result.moved });
+            return true;
+        }
+        case 'qtArchiveStackedTodos':
+        case 'qtDeleteStackedTodos': {
+            // Archive/delete every stacked todo (any status) to its
+            // -archived / -deleted sibling. Requires an explicit modal
+            // confirmation since it moves a whole batch at once.
+            const isArchive = msg.type === 'qtArchiveStackedTodos';
+            if (isSessionMode) {
+                vscode.window.showErrorMessage('Archive/delete-to-file is not available for session todos yet (TRB1).');
+                post({ type: 'qtArchiveResult', success: false });
+                return true;
+            }
+            const entries: Array<{ todoId?: string; sourceFile?: string }> = Array.isArray(msg.todos) ? msg.todos : [];
+            if (!entries.length) {
+                vscode.window.showErrorMessage('Todo stack is empty.');
+                return true;
+            }
+            const verb = isArchive ? 'Archive' : 'Delete';
+            const sibling = isArchive ? '-archived' : '-deleted';
+            const confirm = await vscode.window.showWarningMessage(
+                `${verb} ${entries.length} stacked todo${entries.length === 1 ? '' : 's'}? They will be moved to the ${sibling} sibling file.`,
+                { modal: true },
+                verb,
+            );
+            if (confirm !== verb) return true;
+            // Group by resolved source file so the mover runs once per file.
+            const byFile = new Map<string, string[]>();
+            const unresolved: string[] = [];
+            for (const entry of entries) {
+                const todoId = String(entry?.todoId || '');
+                if (!todoId) continue;
+                const fp = _resolveArchiveSourcePath(
+                    effectiveQuestId(msg.questId), effectiveFile(msg.file), entry?.sourceFile,
+                    isWorkspaceFileMode, workspaceFilePath,
+                );
+                if (!fp) { unresolved.push(todoId); continue; }
+                const ids = byFile.get(fp) ?? [];
+                ids.push(todoId);
+                byFile.set(fp, ids);
+            }
+            const moved: string[] = [];
+            const skipped: questTodo.TodoMoveSkip[] = [];
+            let targetFile = '';
+            let firstError: string | undefined;
+            for (const [fp, ids] of byFile) {
+                const result = isArchive
+                    ? questTodo.archiveTodos(fp, ids, { anyStatus: true })
+                    : questTodo.deleteTodos(fp, ids, { anyStatus: true });
+                moved.push(...result.moved);
+                skipped.push(...result.skipped);
+                if (result.targetFile) targetFile = result.targetFile;
+                if (result.error && !firstError) firstError = result.error;
+            }
+            for (const id of unresolved) { skipped.push({ id, reason: 'Could not resolve source file' }); }
+            _notifyMoveResult(isArchive ? 'Archived' : 'Deleted', { moved, skipped, targetFile, error: firstError });
+            post({ type: 'qtArchiveResult', success: !firstError, moved });
+            return true;
+        }
+        case 'qtArchiveAllCompleted':
+        case 'qtDeleteAllCancelled': {
+            // TRA02: bulk move over the currently selected file scope.
+            const isArchive = msg.type === 'qtArchiveAllCompleted';
+            if (isSessionMode) {
+                vscode.window.showErrorMessage('Archive/delete-to-file is not available for session todos yet (TRB1).');
+                post({ type: 'qtArchiveResult', success: false });
+                return true;
+            }
+            const fp = _resolveArchiveSourcePath(
+                effectiveQuestId(msg.questId), effectiveFile(msg.file), undefined,
+                isWorkspaceFileMode, workspaceFilePath,
+            );
+            if (!fp) {
+                vscode.window.showErrorMessage('Select a concrete todo file first — bulk archive/delete needs a single file scope.');
+                post({ type: 'qtArchiveResult', success: false });
+                return true;
+            }
+            const result = isArchive
+                ? questTodo.archiveAllCompleted(fp)
+                : questTodo.deleteAllCancelled(fp);
+            _notifyMoveResult(isArchive ? 'Archived' : 'Deleted', result);
+            post({ type: 'qtArchiveResult', success: !result.error, moved: result.moved });
+            return true;
+        }
+        case 'qtCompleteTodo':
+        case 'qtCancelTodo':
+        case 'qtCompleteStackedTodos':
+        case 'qtCancelStackedTodos': {
+            // Set status in place to completed / cancelled (no file move).
+            // Complete asks for the completion timestamp ONCE and applies the
+            // same stamp to every todo in the batch; cancel confirms only when
+            // acting on a stack (analogous to the delete stack action).
+            const isComplete = msg.type === 'qtCompleteTodo' || msg.type === 'qtCompleteStackedTodos';
+            const isStack = msg.type === 'qtCompleteStackedTodos' || msg.type === 'qtCancelStackedTodos';
+            if (isSessionMode) {
+                vscode.window.showErrorMessage('Complete/cancel is not available for session todos yet.');
+                post({ type: 'qtStatusResult', success: false, wasStack: isStack });
+                return true;
+            }
+            const entries: Array<{ todoId?: string; sourceFile?: string }> = isStack
+                ? (Array.isArray(msg.todos) ? msg.todos : [])
+                : [{ todoId: msg.todoId, sourceFile: msg.sourceFile }];
+            const validEntries = entries.filter(e => String(e?.todoId || ''));
+            if (!validEntries.length) {
+                vscode.window.showErrorMessage(isStack ? 'Todo stack is empty.' : 'No todo selected.');
+                post({ type: 'qtStatusResult', success: false, wasStack: isStack });
+                return true;
+            }
+            const count = validEntries.length;
+            const stamp = new Date().toISOString().slice(0, 10);
+            const completedBy = isComplete ? String(msg.completedBy || '') : '';
+            // Confirmation: complete always confirms (the timestamp prompt, asked
+            // once); cancel confirms only for a stack batch.
+            if (isComplete) {
+                const confirm = await vscode.window.showWarningMessage(
+                    `Mark ${count} todo${count === 1 ? '' : 's'} completed with completion date ${stamp}${completedBy ? ' by ' + completedBy : ''}?`,
+                    { modal: true },
+                    'Complete',
+                );
+                if (confirm !== 'Complete') return true;
+            } else if (isStack) {
+                const confirm = await vscode.window.showWarningMessage(
+                    `Set ${count} stacked todo${count === 1 ? '' : 's'} to cancelled?`,
+                    { modal: true },
+                    'Set Cancelled',
+                );
+                if (confirm !== 'Set Cancelled') return true;
+            }
+            const updates: Partial<Omit<questTodo.QuestTodoItem, 'id' | '_sourceFile'>> = isComplete
+                ? { status: 'completed', completed_date: stamp, completed_by: completedBy || undefined }
+                : { status: 'cancelled' };
+            const updated: string[] = [];
+            const failed: string[] = [];
+            for (const entry of validEntries) {
+                const todoId = String(entry?.todoId || '');
+                const fp = _resolveArchiveSourcePath(
+                    effectiveQuestId(msg.questId), effectiveFile(msg.file), entry?.sourceFile,
+                    isWorkspaceFileMode, workspaceFilePath,
+                );
+                if (!fp) { failed.push(todoId); continue; }
+                const res = questTodo.updateTodoInFile(fp, todoId, updates);
+                if (res) { updated.push(todoId); } else { failed.push(todoId); }
+            }
+            const verb = isComplete ? 'Completed' : 'Cancelled';
+            if (updated.length) {
+                vscode.window.showInformationMessage(`${verb} ${updated.length} todo${updated.length === 1 ? '' : 's'}.`);
+            }
+            if (failed.length) {
+                vscode.window.showWarningMessage(`Could not update ${failed.length} todo${failed.length === 1 ? '' : 's'}.`);
+            }
+            post({ type: 'qtStatusResult', success: updated.length > 0, wasStack: isStack });
+            return true;
+        }
         case 'qtMassCreate': {
             const todos = Array.isArray(msg.todos) ? msg.todos : [];
             let created = 0;
@@ -594,28 +749,6 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             return true;
         }
         case 'qtReopenTodo': {
-            // When reopening from backup, update in the backup file and re-send backup todos
-            if (msg.fromBackup) {
-                const bkPath = _resolveBackupPath(isSessionMode, isWorkspaceFileMode, msg.questId, msg.file, workspaceFilePath, cfg);
-                if (bkPath && fs.existsSync(bkPath)) {
-                    questTodo.updateTodoInFile(bkPath, msg.todoId, { status: 'not-started', completed_date: '', completed_by: '' });
-                    // Re-send backup todo list
-                    const items = questTodo.readTodoFile(bkPath).map(t => ({
-                        id: t.id, title: t.title ?? (t as any).description?.substring(0, 60),
-                        status: t.status, priority: t.priority, tags: t.tags,
-                        created: t.created, updated: t.updated,
-                        deleted_date: (t as any).deleted_date,
-                        sourceFile: path.basename(bkPath),
-                    }));
-                    post({ type: 'qtTodos', todos: items, questId: msg.questId || '__backup__', file: path.basename(bkPath), fromBackup: true });
-                    // Refresh detail
-                    const rTodo = questTodo.findTodoByIdInFile(bkPath, msg.todoId);
-                    if (rTodo) {
-                        post({ type: 'qtTodoDetail', todo: { ...rTodo }, questId: msg.questId, todoId: msg.todoId });
-                    }
-                }
-                return true;
-            }
             if (isSessionMode) {
                 const sessionQuestId = _getSessionQuestId();
                 const target = _parseSessionTodoTarget(String(msg.todoId || ''), typeof msg.sourceFile === 'string' ? msg.sourceFile : undefined);
@@ -768,60 +901,6 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
         case 'qtMoveToWorkspace':
             _moveToWorkspace(msg.questId, msg.todoId, post);
             return true;
-        case 'qtRestoreFromBackup': {
-            // Move a todo from the backup file back to the corresponding normal todo file
-            const bkPath = _resolveBackupPath(isSessionMode, isWorkspaceFileMode, msg.questId, msg.file, workspaceFilePath, cfg);
-            if (!bkPath || !fs.existsSync(bkPath)) {
-                post({ type: 'qtRestored', success: false, todoId: msg.todoId });
-                return true;
-            }
-            const todoToRestore = questTodo.findTodoByIdInFile(bkPath, msg.todoId);
-            if (!todoToRestore) {
-                post({ type: 'qtRestored', success: false, todoId: msg.todoId });
-                return true;
-            }
-            try {
-                // Prepare the todo data (clean backup-specific fields)
-                const todoData: Record<string, unknown> = { ...todoToRestore };
-                delete todoData._sourceFile;
-                delete (todoData as any).deleted_date;
-                todoData.updated = new Date().toISOString().slice(0, 10);
-                // Restore into the appropriate normal file
-                if (isSessionMode) {
-                    SessionTodoStore.instance.add(String(todoData.title || todoData.id), 'user', {
-                        details: String(todoData.description || ''),
-                        priority: (todoData.priority as 'low' | 'medium' | 'high' | 'critical') || 'medium',
-                        tags: Array.isArray(todoData.tags) ? todoData.tags : [],
-                    });
-                } else if (isWorkspaceFileMode) {
-                    const fp = workspaceFilePath();
-                    if (fp) {
-                        questTodo.createTodoInFile(fp, todoData as any, { scope: { area: 'workspace' } });
-                    }
-                } else {
-                    const qid = effectiveQuestId(msg.questId);
-                    const file = effectiveFile(msg.file);
-                    questTodo.createTodo(qid, todoData as any, file);
-                }
-                // Remove from backup
-                questTodo.deleteTodo('__backup__', msg.todoId, bkPath);
-                // Re-send backup list
-                const bkItems = questTodo.readTodoFile(bkPath).map(t => ({
-                    id: t.id, title: t.title ?? (t as any).description?.substring(0, 60),
-                    status: t.status, priority: t.priority, tags: t.tags,
-                    created: t.created, updated: t.updated,
-                    deleted_date: (t as any).deleted_date,
-                    sourceFile: path.basename(bkPath),
-                }));
-                post({ type: 'qtTodos', todos: bkItems, questId: msg.questId || '__backup__', file: path.basename(bkPath), fromBackup: true });
-                post({ type: 'qtRestored', success: true, todoId: msg.todoId });
-                vscode.window.showInformationMessage(`Todo "${msg.todoId}" restored from backup.`);
-            } catch (e) {
-                console.error('[QuestTodo] qtRestoreFromBackup failed:', e);
-                post({ type: 'qtRestored', success: false, todoId: msg.todoId });
-            }
-            return true;
-        }
         case 'qtDeleteAllSessionTodos': {
             if (!isSessionMode) {
                 return true;
@@ -894,33 +973,6 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             }
             _openYamlFile(msg.questId, msg.file);
             return true;
-        case 'qtCheckBackupExists': {
-            const bkPath = _resolveBackupPath(isSessionMode, isWorkspaceFileMode, msg.questId, msg.file, workspaceFilePath, cfg);
-            post({ type: 'qtBackupStatus', exists: !!bkPath && fs.existsSync(bkPath) });
-            return true;
-        }
-        case 'qtGetBackupTodos': {
-            const bkPath = _resolveBackupPath(isSessionMode, isWorkspaceFileMode, msg.questId, msg.file, workspaceFilePath, cfg);
-            if (!bkPath || !fs.existsSync(bkPath)) {
-                post({ type: 'qtTodos', todos: [], questId: msg.questId || '__backup__', file: 'backup', fromBackup: true });
-                post({ type: 'qtBackupStatus', exists: false });
-                return true;
-            }
-            const items = questTodo.readTodoFile(bkPath);
-            const todos = items.map(t => ({
-                id: t.id,
-                title: t.title ?? t.description?.substring(0, 60),
-                status: t.status,
-                priority: t.priority,
-                tags: t.tags,
-                created: t.created,
-                updated: t.updated,
-                deleted_date: (t as any).deleted_date,
-                sourceFile: path.basename(bkPath),
-            }));
-            post({ type: 'qtTodos', todos, questId: msg.questId || '__backup__', file: path.basename(bkPath), fromBackup: true });
-            return true;
-        }
         case 'qtGetFiles':
             if (isSessionMode) {
                 post({ type: 'qtFiles', files: ['session'], questId: '__session__' });
@@ -1114,52 +1166,87 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             }
             const todoYaml = _todoYamlFragment(todo, questId, msg.sourceFile);
             const todoRef = _extractTodoRefFromYamlFragment(todoYaml) || todoId;
-            const todoPrompt = `${todoYaml}\n\nREQUIRED: Add responseValue #TODO=${todoRef}\n\n`;
-            const selectedTemplate = String(msg.template || '__none__');
-            const config = loadSendToChatConfig();
-
-            // Follow the prompt queue's selected transport (Bug 3): route to the
-            // Anthropic chat transport when the queue is set to Anthropic,
-            // otherwise open Copilot chat as before.
-            const { transport } = await _queueSendTarget();
-            if (transport === 'anthropic') {
-                const ctx = _extensionContext;
-                if (!ctx) {
-                    vscode.window.showErrorMessage('Extension context unavailable — cannot send to Anthropic.');
-                    return true;
-                }
-                const tplBody = (selectedTemplate && selectedTemplate !== '__none__')
-                    ? config?.anthropic?.userMessageTemplates?.find((t) => t.id === selectedTemplate)?.template
-                    : undefined;
-                const { runAnthropicSend } = await import('./sendToChatRouter.js');
-                const outcome = await runAnthropicSend(ctx, todoPrompt, tplBody ? { userMessageTemplate: tplBody } : {});
-                if (outcome.rejected) {
-                    vscode.window.showWarningMessage('Anthropic chat is busy — try again once the current request finishes.');
-                } else if (!outcome.ok && outcome.error) {
-                    vscode.window.showErrorMessage(`Send to Anthropic failed: ${outcome.error}`);
-                }
+            const todoPrompt = buildStackedTodoPrompt([{ yaml: todoYaml, ref: todoRef }]);
+            await _sendTodoPromptViaQueueTransport(todoPrompt, String(msg.template || '__none__'));
+            return true;
+        }
+        case 'qtQueueStackedTodos': {
+            // One prompt PER stacked todo, enqueued in stack order. Each todo is
+            // embedded exactly like the single-todo queue add: default-template
+            // wrapped yaml fragment as originalText, the selected template id
+            // (e.g. TODO Execution / execute-todo) applied by the queue at send
+            // time via its ${originalPrompt} / ${userMessage} placeholder.
+            const questId = effectiveQuestId(msg.questId);
+            const entries: Array<{ todoId?: string; sourceFile?: string }> = Array.isArray(msg.todos) ? msg.todos : [];
+            if (!entries.length) {
+                vscode.window.showErrorMessage('Todo stack is empty.');
                 return true;
             }
-
-            const wrappedText = applyDefaultTemplate(todoPrompt, 'copilot');
-            const answerFileTemplate = config?.copilot?.templates?.['__answer_file__']?.template || DEFAULT_ANSWER_FILE_TEMPLATE;
-
-            let expanded: string;
-            if (!selectedTemplate || selectedTemplate === '__none__') {
-                expanded = await expandTemplate(wrappedText);
-            } else if (selectedTemplate === '__answer_file__') {
-                expanded = await expandTemplate(answerFileTemplate, { values: { originalPrompt: wrappedText } });
-            } else {
-                const selectedTemplateText = config?.copilot?.templates?.[selectedTemplate]?.template || BUILTIN_TODO_TEMPLATES[selectedTemplate];
-                if (selectedTemplateText) {
-                    const templateExpanded = await expandTemplate(selectedTemplateText, { values: { originalPrompt: wrappedText } });
-                    expanded = await expandTemplate(answerFileTemplate, { values: { originalPrompt: templateExpanded } });
-                } else {
-                    expanded = await expandTemplate(wrappedText);
+            const selectedTemplate = (msg.template && msg.template !== '__none__') ? String(msg.template) : undefined;
+            const prepared: string[] = [];
+            const missing: string[] = [];
+            for (const entry of entries) {
+                const todoId = String(entry?.todoId || '');
+                const todo = todoId ? _findTodoForPromptAction(questId, todoId, entry?.sourceFile) : undefined;
+                if (!todo) {
+                    missing.push(todoId || '?');
+                    continue;
                 }
+                const todoYaml = _todoYamlFragment(todo, questId, entry?.sourceFile);
+                prepared.push(applyDefaultTemplate(todoYaml, 'copilot'));
             }
-
-            await vscode.commands.executeCommand('workbench.action.chat.open', { query: expanded });
+            if (!prepared.length) {
+                vscode.window.showErrorMessage(`No stacked todos found (missing: ${missing.join(', ')})`);
+                return true;
+            }
+            try {
+                const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
+                const queue = PromptQueueManager.instance;
+                for (const originalText of prepared) {
+                    await queue.enqueue({
+                        originalText,
+                        template: selectedTemplate,
+                        deferSend: true,
+                    });
+                }
+                const suffix = missing.length ? ` (skipped missing: ${missing.join(', ')})` : '';
+                vscode.window.showInformationMessage(`Added ${prepared.length} stacked todo${prepared.length === 1 ? '' : 's'} to prompt queue${suffix}`);
+            } catch {
+                vscode.window.showWarningMessage('Prompt queue not available');
+            }
+            return true;
+        }
+        case 'qtSendStackedTodos': {
+            // ALL stacked todos combine into a SINGLE prompt: the yaml fragments
+            // concatenate into one todo list, with one numbered REQUIRED
+            // responseValue line per todo (buildStackedTodoPrompt). The combined
+            // block then rides the same template embedding as a single todo.
+            const questId = effectiveQuestId(msg.questId);
+            const entries: Array<{ todoId?: string; sourceFile?: string }> = Array.isArray(msg.todos) ? msg.todos : [];
+            if (!entries.length) {
+                vscode.window.showErrorMessage('Todo stack is empty.');
+                return true;
+            }
+            const fragments: StackedTodoFragment[] = [];
+            const missing: string[] = [];
+            for (const entry of entries) {
+                const todoId = String(entry?.todoId || '');
+                const todo = todoId ? _findTodoForPromptAction(questId, todoId, entry?.sourceFile) : undefined;
+                if (!todo) {
+                    missing.push(todoId || '?');
+                    continue;
+                }
+                const todoYaml = _todoYamlFragment(todo, questId, entry?.sourceFile);
+                fragments.push({ yaml: todoYaml, ref: _extractTodoRefFromYamlFragment(todoYaml) || todoId });
+            }
+            if (!fragments.length) {
+                vscode.window.showErrorMessage(`No stacked todos found (missing: ${missing.join(', ')})`);
+                return true;
+            }
+            if (missing.length) {
+                vscode.window.showWarningMessage(`Skipping missing stacked todos: ${missing.join(', ')}`);
+            }
+            await _sendTodoPromptViaQueueTransport(buildStackedTodoPrompt(fragments), String(msg.template || '__none__'));
             return true;
         }
         case 'qtOpenInEditor': {
@@ -1331,7 +1418,7 @@ function _listSessionTodoFiles(questId: string): string[] {
         return [];
     }
     return questTodo.listTodoFiles(questId)
-        .filter((f) => SESSION_TODO_FILE_RE.test(f));
+        .filter((f) => isSessionTodoFileName(f));
 }
 
 function _sessionTodoAbsolutePath(questId: string, sourceFile: string): string | undefined {
@@ -1389,6 +1476,81 @@ function _collectSessionTodos(questId: string): Array<Record<string, unknown>> {
         }
     }
     return todos;
+}
+
+/**
+ * Resolve the absolute path of the todo file an archive/delete-to-file
+ * action (TRA02) operates on.
+ *
+ * `sourceFile` (set for single-todo actions) wins over the `file` scope and
+ * comes in different shapes depending on the view:
+ *   - quest view:            basename (`todos.x.todo.yaml`)
+ *   - __all_quests__ view:   `questId/filename`
+ *   - __all_workspace__ view: workspace-relative path
+ * Bulk actions pass no sourceFile and require a concrete `file` scope
+ * (or a real quest, which falls back to its main todo file).
+ */
+function _resolveArchiveSourcePath(
+    questId: string,
+    file: string | undefined,
+    sourceFile: string | undefined,
+    isWorkspaceFileMode: boolean,
+    workspaceFilePath: () => string | undefined,
+): string | undefined {
+    if (isWorkspaceFileMode) { return workspaceFilePath(); }
+    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!wsRoot) { return undefined; }
+    const sf = (sourceFile ?? '').trim();
+    if (sf) {
+        if (path.isAbsolute(sf)) { return sf; }
+        if (questId === '__all_workspace__') { return path.join(wsRoot, sf); }
+        if (questId === '__all_quests__' && sf.includes('/')) {
+            const idx = sf.indexOf('/');
+            const qid = sf.slice(0, idx);
+            const fn = sf.slice(idx + 1);
+            return WsPaths.ai('quests', qid, fn) || path.join(wsRoot, '_ai', 'quests', qid, fn);
+        }
+        if (questId && !questId.startsWith('__')) {
+            return WsPaths.ai('quests', questId, sf) || path.join(wsRoot, '_ai', 'quests', questId, sf);
+        }
+        return undefined;
+    }
+    if (!questId || questId.startsWith('__')) { return undefined; }
+    const fn = (file && file !== 'all') ? file : `todos.${questId}.todo.yaml`;
+    return WsPaths.ai('quests', questId, fn) || path.join(wsRoot, '_ai', 'quests', questId, fn);
+}
+
+/** Surface a TodoMoveResult as a user notification (TRA02 summary path). */
+function _notifyMoveResult(pastVerb: string, result: questTodo.TodoMoveResult): void {
+    if (result.error) {
+        vscode.window.showErrorMessage(`${pastVerb} failed: ${result.error}`);
+        return;
+    }
+    const target = result.targetFile ? path.basename(result.targetFile) : '';
+    const movedPart = result.moved.length
+        ? `${pastVerb} ${result.moved.length} todo(s) to ${target}: ${result.moved.join(', ')}`
+        : `${pastVerb}: no todos moved`;
+    if (result.skipped.length) {
+        const skippedPart = result.skipped.map(s => `${s.id} (${s.reason})`).join('; ');
+        vscode.window.showWarningMessage(`${movedPart}. Skipped: ${skippedPart}`);
+    } else if (result.moved.length) {
+        vscode.window.showInformationMessage(movedPart);
+    } else {
+        vscode.window.showInformationMessage(`${pastVerb}: nothing to move.`);
+    }
+}
+
+/**
+ * Move a single todo to the status-appropriate sibling file (TRA03 delete
+ * path): completed todos can only be archived, so they route to the
+ * `-archived` sibling; everything else goes to the `-deleted` sibling.
+ * A missing todo falls through to deleteTodos, which reports it in skipped.
+ */
+function _moveTodoToSiblingByStatus(filePath: string, todoId: string): questTodo.TodoMoveResult {
+    const todo = questTodo.findTodoByIdInFile(filePath, todoId);
+    return todo?.status === 'completed'
+        ? questTodo.archiveTodos(filePath, [todoId])
+        : questTodo.deleteTodos(filePath, [todoId]);
 }
 
 function _sendTodoList(questId: string, file: string | undefined, post: (m: any) => void): void {
@@ -1490,88 +1652,50 @@ function _createTodo(questId: string, todo: any, file: string | undefined, post:
     }
 }
 
-function _isBackupTodoFile(filePath: string): boolean {
-    return /(?:\.backup)+\.todo\.yaml$/.test(path.basename(filePath));
-}
-
-function _backupPathForFile(filePath: string): string {
-    const dir = path.dirname(filePath);
-    const base = path.basename(filePath);
-    const backupBase = /(?:\.backup)+\.todo\.yaml$/.test(base)
-        ? base.replace(/(?:\.backup)+\.todo\.yaml$/, '.backup.todo.yaml')
-        : base.replace(/\.todo\.yaml$/, '.backup.todo.yaml');
-    return path.join(dir, backupBase);
-}
-
-function _deletedArchivePathForBackup(filePath: string): string {
-    const dir = path.dirname(filePath);
-    const base = path.basename(filePath);
-    const archiveBase = /(?:\.backup)+\.todo\.yaml$/.test(base)
-        ? base.replace(/(?:\.backup)+\.todo\.yaml$/, '.deleted.todo.yaml')
-        : base.replace(/\.todo\.yaml$/, '.deleted.todo.yaml');
-    return path.join(dir, archiveBase);
-}
-
-function _archiveDeletedBackupTodo(filePath: string, todoId: string): boolean {
+/**
+ * Resolve the absolute todo file containing `todoId` for a quest-mode delete.
+ * Mirrors the candidate order the legacy backup path used: absolute source,
+ * workspace-relative, quest folder + basename, `_ai/quests/<sourceFile>` when
+ * it contains a slash, then a scan of the quest's todo files.
+ */
+function _resolveDeleteSourcePath(questId: string, todoId: string, sourceFile?: string): string | undefined {
     try {
-        const todo = questTodo.findTodoByIdInFile(filePath, todoId);
-        if (!todo) {
-            return false;
-        }
-
-        const archivePath = _deletedArchivePathForBackup(filePath);
-        const header: Record<string, unknown> = {};
-        if (path.basename(filePath).startsWith('workspace')) {
-            header.scope = { area: 'workspace' };
-        }
-        questTodo.ensureTodoFile(archivePath, header);
-
-        const todoData: Record<string, unknown> = { ...todo };
-        delete todoData._sourceFile;
-        todoData.status = todoData.status || 'cancelled';
-        todoData.updated = new Date().toISOString().slice(0, 10);
-        questTodo.createTodoInFile(archivePath, todoData as any, header);
-
-        console.log(`[QuestTodo] Archived backup todo ${todoId} to ${archivePath}`);
-        return true;
-    } catch (e) {
-        console.error(`[QuestTodo] Failed to archive backup todo ${todoId}:`, e);
-        return false;
-    }
-}
-
-/** Resolve the backup file path for the current panel context. */
-function _resolveBackupPath(
-    isSessionMode: boolean,
-    isWorkspaceFileMode: boolean,
-    questId: string | undefined,
-    file: string | undefined,
-    workspaceFilePath: () => string | undefined,
-    cfg: Record<string, any>,
-): string | undefined {
-    try {
-        if (isSessionMode) {
-            const sessionFp = SessionTodoStore.instance.filePath;
-            return _backupPathForFile(sessionFp);
-        }
-        if (isWorkspaceFileMode) {
-            const fp = workspaceFilePath();
-            if (!fp) return undefined;
-            return _backupPathForFile(fp);
-        }
-        // Quest mode — resolve from quest folder
-        const qid = cfg.fixedQuestId || questId;
-        if (!qid) return undefined;
         const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
         if (!wsRoot) return undefined;
-        const folder = WsPaths.ai('quests', qid) || path.join(wsRoot, '_ai', 'quests', qid);
-        const fileName = (!file || file === 'all')
-            ? `todos.${qid}.todo.yaml`
-            : file;
-        return _backupPathForFile(path.join(folder, path.basename(fileName)));
-    } catch {
-        return undefined;
+        if (sourceFile) {
+            const candidates: string[] = [];
+            if (path.isAbsolute(sourceFile)) {
+                candidates.push(sourceFile);
+            } else {
+                candidates.push(path.join(wsRoot, sourceFile));
+                if (questId && !questId.startsWith('__')) {
+                    const folder = WsPaths.ai('quests', questId) || path.join(wsRoot, '_ai', 'quests', questId);
+                    candidates.push(path.join(folder, sourceFile));
+                }
+                if (sourceFile.includes('/')) {
+                    candidates.push(path.join(wsRoot, '_ai', 'quests', sourceFile));
+                }
+            }
+            for (const absSource of candidates) {
+                if (fs.existsSync(absSource) && questTodo.findTodoByIdInFile(absSource, todoId)) {
+                    return absSource;
+                }
+            }
+        }
+        // Fallback: scan all quest files
+        if (questId && !questId.startsWith('__')) {
+            const folder = WsPaths.ai('quests', questId) || path.join(wsRoot, '_ai', 'quests', questId);
+            for (const fileName of questTodo.listTodoFiles(questId)) {
+                const fp = path.join(folder, fileName);
+                if (questTodo.findTodoByIdInFile(fp, todoId)) {
+                    return fp;
+                }
+            }
+        }
+    } catch (e) {
+        console.error('[QuestTodo] _resolveDeleteSourcePath failed:', e);
     }
+    return undefined;
 }
 
 async function _deleteTodo(questId: string, todoId: string, post: (m: any) => void, sourceFile?: string): Promise<void> {
@@ -1581,101 +1705,17 @@ async function _deleteTodo(questId: string, todoId: string, post: (m: any) => vo
         'Delete',
     );
     if (answer !== 'Delete') return;
-    // Move to backup before deleting
-    _moveToBackupByTodo(questId, todoId, sourceFile);
-    const deleted = questTodo.deleteTodo(questId, todoId, sourceFile);
-    post({ type: 'qtDeleted', success: !!deleted, todoId });
-}
-
-/** Move a todo to the backup file before deletion. */
-function _moveToBackupByTodo(questId: string, todoId: string, sourceFile?: string): void {
-    try {
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        if (!wsRoot) return;
-        // Try to resolve source file: could be absolute, relative, or just basename
-        if (sourceFile) {
-            const candidates: string[] = [];
-            if (path.isAbsolute(sourceFile)) {
-                candidates.push(sourceFile);
-            } else {
-                // Try as workspace-relative path
-                candidates.push(path.join(wsRoot, sourceFile));
-                // Try within quest folder if questId is valid
-                if (questId && !questId.startsWith('__')) {
-                    const folder = WsPaths.ai('quests', questId) || path.join(wsRoot, '_ai', 'quests', questId);
-                    candidates.push(path.join(folder, sourceFile));
-                }
-                // Try as _ai/quests/questId/sourceFile (sourceFile may include quest path prefix)
-                if (sourceFile.includes('/')) {
-                    candidates.push(path.join(wsRoot, '_ai', 'quests', sourceFile));
-                }
-            }
-            for (const absSource of candidates) {
-                if (fs.existsSync(absSource)) {
-                    const todo = questTodo.findTodoByIdInFile(absSource, todoId);
-                    if (todo) {
-                        if (_isBackupTodoFile(absSource)) {
-                            _archiveDeletedBackupTodo(absSource, todoId);
-                            return;
-                        }
-                        _moveToBackup(absSource, todoId);
-                        return;
-                    }
-                }
-            }
-        }
-        // Fallback: scan all quest files
-        if (questId && !questId.startsWith('__')) {
-            const folder = WsPaths.ai('quests', questId) || path.join(wsRoot, '_ai', 'quests', questId);
-            for (const fileName of questTodo.listTodoFiles(questId)) {
-                const fp = path.join(folder, fileName);
-                const todo = questTodo.findTodoByIdInFile(fp, todoId);
-                if (todo) {
-                    if (_isBackupTodoFile(fp)) {
-                        _archiveDeletedBackupTodo(fp, todoId);
-                        return;
-                    }
-                    _moveToBackup(fp, todoId);
-                    return;
-                }
-            }
-        }
-    } catch (e) {
-        console.error('[QuestTodo] _moveToBackupByTodo failed:', e);
+    const fp = _resolveDeleteSourcePath(questId, todoId, sourceFile);
+    if (!fp) {
+        vscode.window.showErrorMessage(`Delete failed: todo "${todoId}" not found in quest "${questId}".`);
+        post({ type: 'qtDeleted', success: false, todoId });
+        return;
     }
-}
-
-/** Copy a todo to the backup variant of the given file. */
-function _moveToBackup(filePath: string, todoId: string): void {
-    try {
-        if (_isBackupTodoFile(filePath)) {
-            _archiveDeletedBackupTodo(filePath, todoId);
-            return;
-        }
-        const todo = questTodo.findTodoByIdInFile(filePath, todoId);
-        if (!todo) {
-            console.warn(`[QuestTodo] _moveToBackup: todo ${todoId} not found in ${filePath}`);
-            return;
-        }
-        const base = path.basename(filePath);
-        const backupPath = _backupPathForFile(filePath);
-        // Create backup file if needed
-        const header: Record<string, unknown> = {};
-        if (base.startsWith('workspace')) {
-            header.scope = { area: 'workspace' };
-        }
-        questTodo.ensureTodoFile(backupPath, header);
-        // Copy the todo data into backup
-        const todoData: Record<string, unknown> = { ...todo };
-        delete todoData._sourceFile;
-        todoData.status = todoData.status || 'cancelled';
-        todoData.deleted_date = new Date().toISOString().slice(0, 10);
-        todoData.updated = new Date().toISOString().slice(0, 10);
-        questTodo.createTodoInFile(backupPath, todoData as any, header);
-        console.log(`[QuestTodo] Backed up todo ${todoId} to ${backupPath}`);
-    } catch (e) {
-        console.error(`[QuestTodo] _moveToBackup failed for ${todoId} in ${filePath}:`, e);
+    const result = _moveTodoToSiblingByStatus(fp, todoId);
+    if (result.error || result.skipped.length) {
+        _notifyMoveResult('Deleted', result);
     }
+    post({ type: 'qtDeleted', success: result.moved.length > 0, todoId });
 }
 
 function _moveTodo(questId: string, todoId: string, targetFile: string, post: (m: any) => void): void {
@@ -1737,6 +1777,56 @@ async function _queueSendTarget(): Promise<{ transport: TodoSendTransport; templ
     } catch {
         return { transport: 'copilot' };
     }
+}
+
+/**
+ * Send a fully built todo prompt (single or stacked, incl. the REQUIRED
+ * responseValue footer) via the prompt queue's currently selected transport
+ * (Bug 3): the Anthropic chat transport when the queue targets Anthropic
+ * (template body applied as the user-message wrapper), Copilot chat otherwise
+ * (template applied through the ${originalPrompt} / answer-file expansion).
+ */
+async function _sendTodoPromptViaQueueTransport(todoPrompt: string, selectedTemplate: string): Promise<void> {
+    const config = loadSendToChatConfig();
+    const { transport } = await _queueSendTarget();
+    if (transport === 'anthropic') {
+        const ctx = _extensionContext;
+        if (!ctx) {
+            vscode.window.showErrorMessage('Extension context unavailable — cannot send to Anthropic.');
+            return;
+        }
+        const tplBody = (selectedTemplate && selectedTemplate !== '__none__')
+            ? config?.anthropic?.userMessageTemplates?.find((t) => t.id === selectedTemplate)?.template
+            : undefined;
+        const { runAnthropicSend } = await import('./sendToChatRouter.js');
+        const outcome = await runAnthropicSend(ctx, todoPrompt, tplBody ? { userMessageTemplate: tplBody } : {});
+        if (outcome.rejected) {
+            vscode.window.showWarningMessage('Anthropic chat is busy — try again once the current request finishes.');
+        } else if (!outcome.ok && outcome.error) {
+            vscode.window.showErrorMessage(`Send to Anthropic failed: ${outcome.error}`);
+        }
+        return;
+    }
+
+    const wrappedText = applyDefaultTemplate(todoPrompt, 'copilot');
+    const answerFileTemplate = config?.copilot?.templates?.['__answer_file__']?.template || DEFAULT_ANSWER_FILE_TEMPLATE;
+
+    let expanded: string;
+    if (!selectedTemplate || selectedTemplate === '__none__') {
+        expanded = await expandTemplate(wrappedText);
+    } else if (selectedTemplate === '__answer_file__') {
+        expanded = await expandTemplate(answerFileTemplate, { values: { originalPrompt: wrappedText } });
+    } else {
+        const selectedTemplateText = config?.copilot?.templates?.[selectedTemplate]?.template || BUILTIN_TODO_TEMPLATES[selectedTemplate];
+        if (selectedTemplateText) {
+            const templateExpanded = await expandTemplate(selectedTemplateText, { values: { originalPrompt: wrappedText } });
+            expanded = await expandTemplate(answerFileTemplate, { values: { originalPrompt: templateExpanded } });
+        } else {
+            expanded = await expandTemplate(wrappedText);
+        }
+    }
+
+    await vscode.commands.executeCommand('workbench.action.chat.open', { query: expanded });
 }
 
 function _todoYamlFragment(todo: questTodo.QuestTodoItem, questId?: string, sourceFileHint?: string): string {

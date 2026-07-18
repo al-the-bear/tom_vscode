@@ -50,6 +50,28 @@ The Window Status panel is an Explorer sidebar view showing the state of all ope
 
 Explorer adds note and todo views: VS Code Notes, Quest Notes, Quest Todos, Session Todos, TODO Log, Workspace Notes, Workspace Todos, Window Status.
 
+### Quest TODO Panel
+
+The Quest TODO panel (the `@WS` Quest TODO section, and the editor that opens for any `*.todo.yaml` file) manages quest todos with status tracking. Four top-bar buttons move todos between files instead of destroying them:
+
+- **Archive completed todo** — moves the selected *completed* todo to the file's `-archived` sibling (e.g. `todos.myquest.todo.yaml` → `todos-archived.myquest.todo.yaml`), stamping it with the archive date. Enabled only for completed todos.
+- **Archive all completed** — bulk-archives every completed todo in the current file.
+- **Delete todo (to file)** — moves the selected *non-completed* todo to the `-deleted` sibling, stamping the deletion date. Completed todos can only be archived, not deleted.
+- **Delete all cancelled** — bulk-moves every cancelled todo to the `-deleted` sibling.
+
+Archived/deleted sibling files are **terminal**: they can be viewed but never archived or deleted *from*, and the buttons hide when browsing them. A todo moved to the `-deleted` file remains recoverable (unlike the per-row hard-delete). There is no separate backup file mechanism anymore.
+
+**Session todos** (the Session Todos view and the panel's session mode) are stored in one stable, git-tracked file per machine and quest — `_ai/quests/<quest>/session-todo.<host>.<quest>.todo.yaml` — and **persist across window reloads**. Older per-window session files are migrated into it automatically.
+
+#### Todo stack (batch send)
+
+Each list row shows a small clickable circle **under its status icon**. Clicking it adds the todo to the **todo stack**; the circle then shows the todo's 1-based stack position. **Shift-click** (with at least one todo already stacked) adds every todo between the last picked one and the clicked one, in the current list order. Clicking a stacked circle again removes that todo and renumbers the rest. The **Clear todo stack** toolbar button empties the stack.
+
+With a non-empty stack, the send buttons switch to batch mode:
+
+- **Save to Queue** — adds **one prompt per stacked todo** to the prompt queue, in stack order, each embedded via the selected template (e.g. the Execute TODO template).
+- **Send** (Copilot or Anthropic, following the queue's transport) — combines **all stacked todos into a single prompt**: the todo YAML fragments concatenate into one todo list, get one numbered `REQUIRED: Add responseValue #TODO_<n>=…` line each, and the combined block is inserted into the selected template. With no template selected, the concatenated YAML fragments (plus the response-value lines) are sent as-is.
+
 ## 3) Sending prompts
 
 ### Anthropic

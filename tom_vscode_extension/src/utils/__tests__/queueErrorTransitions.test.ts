@@ -4,7 +4,10 @@ import assert from 'node:assert/strict';
 import {
     applyErrorTransition,
     applyResetToPending,
+    applyWaitingTransition,
+    clearWaitingState,
     dispatchWasSuperseded,
+    isWaitingDue,
     itemHasInFlightProgress,
     resolveAnswerContainer,
 } from '../queueErrorTransitions.js';
@@ -356,5 +359,72 @@ describe('resolveAnswerContainer — route a captured answer to the last-dispatc
             lastDispatched: { kind: 'followUp' },
         };
         assert.equal(resolveAnswerContainer(item), undefined);
+    });
+});
+
+describe('applyWaitingTransition — park a rate-limited item', () => {
+    const clause = { resetAtMs: Date.UTC(2026, 6, 16, 19, 30, 0), displayLabel: 'Thu, Jul 16, 9:30 PM' };
+
+    test('sets waiting status, clears error, and schedules retry buffer past the reset', () => {
+        const item: any = { status: 'sending', error: 'You have hit your limit' };
+        applyWaitingTransition(item, clause, { retryBufferMs: 5 * 60_000, nowIso: '2026-07-16T12:00:00.000Z' });
+        assert.equal(item.status, 'waiting');
+        assert.equal(item.error, undefined);
+        // retry instant = reset + 5 min.
+        assert.equal(item.waitingUntil, new Date(clause.resetAtMs + 5 * 60_000).toISOString());
+        assert.equal(item.waitingResetLabel, clause.displayLabel);
+    });
+
+    test('stamps a rate_limit warning by default, quoting the reset label and buffer minutes', () => {
+        const item: any = { status: 'sending' };
+        applyWaitingTransition(item, clause, { retryBufferMs: 5 * 60_000, nowIso: '2026-07-16T12:00:00.000Z' });
+        assert.equal(item.warning.kind, 'rate_limit');
+        assert.equal(item.warning.at, '2026-07-16T12:00:00.000Z');
+        assert.match(item.warning.message, /Thu, Jul 16, 9:30 PM/);
+        assert.match(item.warning.message, /5 min after reset/);
+    });
+
+    test('honours an explicit warning kind override', () => {
+        const item: any = { status: 'sending' };
+        applyWaitingTransition(item, clause, { retryBufferMs: 60_000, kind: 'quota_exceeded', nowIso: '2026-07-16T12:00:00.000Z' });
+        assert.equal(item.warning.kind, 'quota_exceeded');
+        assert.match(item.warning.message, /1 min after reset/);
+    });
+});
+
+describe('clearWaitingState — resume a waiting item as pending', () => {
+    test('flips waiting → pending and clears all waiting bookkeeping', () => {
+        const item: any = {
+            status: 'waiting',
+            waitingUntil: '2026-07-16T19:35:00.000Z',
+            waitingResetLabel: 'Thu, Jul 16, 9:30 PM',
+            warning: { kind: 'rate_limit', message: 'x', at: '2026-07-16T12:00:00.000Z' },
+            error: undefined,
+        };
+        clearWaitingState(item);
+        assert.equal(item.status, 'pending');
+        assert.equal(item.waitingUntil, undefined);
+        assert.equal(item.waitingResetLabel, undefined);
+        assert.equal(item.warning, undefined);
+        assert.equal(item.error, undefined);
+    });
+});
+
+describe('isWaitingDue — retry gate predicate', () => {
+    const until = '2026-07-16T19:35:00.000Z';
+    const untilMs = Date.parse(until);
+
+    test('false before the retry instant', () => {
+        assert.equal(isWaitingDue(until, untilMs - 1), false);
+    });
+
+    test('true at or after the retry instant', () => {
+        assert.equal(isWaitingDue(until, untilMs), true);
+        assert.equal(isWaitingDue(until, untilMs + 1), true);
+    });
+
+    test('defensive: missing or unparseable waitingUntil is treated as due', () => {
+        assert.equal(isWaitingDue(undefined, 0), true);
+        assert.equal(isWaitingDue('not-a-date', Date.now()), true);
     });
 });

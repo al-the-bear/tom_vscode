@@ -23,6 +23,9 @@
   .status-bar.sending { background: #4caf50; }
   .status-bar.sent { background: #bdbdbd; }
   .status-bar.error { background: #e57373; }
+  /* Rate-limit parked ("Waiting for <reset time>") — a distinct violet so it
+     reads apart from pending green, error red and sent grey. */
+  .status-bar.waiting { background: #b39ddb; }
   .status-bar.reminder { background: #ff9800; }
   .status-bar.template-mode { background: var(--vscode-textBlockQuote-background); color: var(--fg); font-weight: normal; }
   textarea { width: 100%; min-height: 50px; resize: vertical; font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--border); padding: 4px; box-sizing: border-box; }

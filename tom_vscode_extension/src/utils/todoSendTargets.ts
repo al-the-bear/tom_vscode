@@ -41,6 +41,37 @@ export const BUILTIN_TODO_TEMPLATES: Record<string, string> = {
     'Refactor': 'Quest: ${chat.quest}\n\nRefactor this code for better quality:\n${originalPrompt}\n\nFocus on:\n- Readability\n- Maintainability\n- Performance\n- Best practices',
 };
 
+/** One stacked todo, ready for prompt embedding. */
+export interface StackedTodoFragment {
+    /** YAML list fragment for the todo (a single `- id: ...` entry). */
+    yaml: string;
+    /** Qualified todo ref (`<ws-path>/<file>.todo.yaml/<id>`), or the bare id. */
+    ref: string;
+}
+
+/**
+ * Build the combined prompt body for a STACK of todos sent as one message.
+ *
+ * Each fragment is a one-entry YAML list (`- id: ...`), so joining them with a
+ * newline yields a single valid YAML todo list. The `REQUIRED responseValue`
+ * footer gets one line per todo; keys must be DISTINCT so the answer scanner
+ * can resolve each todo separately — a single todo keeps the classic `#TODO=`
+ * key, multiple todos use `#TODO_1=`, `#TODO_2=`, … in stack order.
+ *
+ * Pure so it can be unit tested; the handler feeds it the fragments it built
+ * with `_todoYamlFragment` and routes the result through the same template
+ * embedding (`${originalPrompt}` / `${userMessage}`) as a single todo.
+ */
+export function buildStackedTodoPrompt(fragments: StackedTodoFragment[]): string {
+    const yamlBlock = fragments.map((f) => f.yaml.trim()).join('\n');
+    const required = fragments.length === 1
+        ? `REQUIRED: Add responseValue #TODO=${fragments[0].ref}`
+        : fragments
+            .map((f, i) => `REQUIRED: Add responseValue #TODO_${i + 1}=${f.ref}`)
+            .join('\n');
+    return `${yamlBlock}\n\n${required}\n\n`;
+}
+
 /** Minimal slice of {@link SendToChatConfig} the builder reads. */
 export interface TodoTemplateSourceConfig {
     copilot?: {

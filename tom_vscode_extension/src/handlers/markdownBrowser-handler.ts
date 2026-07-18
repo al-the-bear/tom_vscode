@@ -35,6 +35,7 @@ import { debugLog } from '../utils/debugLogger.js';
 import { openInExternalApplication } from './handler_shared.js';
 import { resolveLink, type ResolvedLink, type LinkContext } from '../utils/linkResolver.js';
 import { readMediaText } from '../utils/webviewLoader.js';
+import { transformMarkdown } from '../utils/markdownHeadings.js';
 
 // ============================================================================
 // Constants
@@ -143,6 +144,12 @@ class MdBrowserPanel {
     private readonly _history: NavigationHistory;
     private readonly _context: vscode.ExtensionContext;
     private _liveMode: boolean;
+    /**
+     * When true, {@link _sendFileContent} runs the CR/LF conversion (escaped and
+     * literal line-break characters become real newlines) before rendering.
+     * Toggled from the webview's "CR/LF" button via the `setCrlf` message.
+     */
+    private _crlfMode = false;
     private _pendingInitialFile?: string;
     private _fileWatcher?: vscode.FileSystemWatcher;
     private _fileWatcherDebounce?: ReturnType<typeof setTimeout>;
@@ -261,7 +268,11 @@ class MdBrowserPanel {
 
     private _sendFileContent(absPath: string, anchor?: string): void {
         try {
-            const content = fs.readFileSync(absPath, 'utf-8');
+            const raw = fs.readFileSync(absPath, 'utf-8');
+            // Rewrite headings (10 levels + id badge + full id) and, when the
+            // CR/LF toggle is on, convert escaped/literal line breaks — see
+            // transformMarkdown. marked renders the result client-side.
+            const content = transformMarkdown(raw, { convertLineBreaks: this._crlfMode });
             const wsRoot = WsPaths.wsRoot || '';
             const relativePath = wsRoot ? path.relative(wsRoot, absPath) : path.basename(absPath);
 
@@ -274,6 +285,10 @@ class MdBrowserPanel {
                 fileName: path.basename(absPath),
                 anchor,
                 liveMode: this._liveMode,
+                // Tells the webview to render soft (single) newlines as hard line
+                // breaks (marked `breaks`), so real newlines in the file show as
+                // line breaks without disturbing list/block structure.
+                crlf: this._crlfMode,
             });
         } catch (err) {
             debugLog(`[MdBrowser] sendFileContent error: ${err}`, 'ERROR', 'mdBrowser');
@@ -658,6 +673,17 @@ class MdBrowserPanel {
                     const current = this._history.current;
                     if (current && fs.existsSync(current.filePath)) {
                         openInExternalApplication(current.filePath);
+                    }
+                    break;
+                }
+
+                case 'setCrlf': {
+                    // Toggle the CR/LF conversion and re-render the current file
+                    // so escaped/literal line breaks flip on or off in place.
+                    this._crlfMode = msg.value === true;
+                    const current = this._history.current;
+                    if (current && fs.existsSync(current.filePath)) {
+                        this._sendFileContent(current.filePath);
                     }
                     break;
                 }

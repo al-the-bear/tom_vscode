@@ -118,8 +118,10 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_updatePromptTemplate',
     ],
     'Quests': [
+        'tomAi_archiveQuestTodos',
         'tomAi_createQuestTodo',
         'tomAi_deleteQuestTodo',
+        'tomAi_deleteQuestTodos',
         'tomAi_getCombinedTodos',
         'tomAi_getQuestTodo',
         'tomAi_listQuests',

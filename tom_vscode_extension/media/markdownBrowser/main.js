@@ -22,8 +22,19 @@
         var openExternalBtn = document.getElementById('openExternalBtn');
         var reloadBtn = document.getElementById('reloadBtn');
         var reconnectBtn = document.getElementById('reconnectBtn');
+        var fullIdBtn = document.getElementById('fullIdBtn');
+        var crlfBtn = document.getElementById('crlfBtn');
         var contentArea = document.getElementById('contentArea');
         var filePathEl = document.getElementById('filePath');
+
+        // Toggle state for the two heading extensions:
+        //   fullIdMode: show the dotted full-id sub-line under every heading
+        //     (pure CSS via body.show-fullid — no re-render needed).
+        //   crlfMode: convert escaped/literal line breaks to real newlines.
+        //     The conversion happens server-side, so toggling asks the backend
+        //     to re-send the current file (see the 'setCrlf' message).
+        var fullIdMode = false;
+        var crlfMode = false;
 
         var currentFilePath = '';
         // liveMode + follow-tail state.
@@ -81,10 +92,60 @@
             });
         }
 
+        // ---- Heading Toggles ----
+        if (fullIdBtn) {
+            fullIdBtn.addEventListener('click', function() {
+                fullIdMode = !fullIdMode;
+                document.body.classList.toggle('show-fullid', fullIdMode);
+                fullIdBtn.classList.toggle('active', fullIdMode);
+            });
+        }
+        if (crlfBtn) {
+            crlfBtn.addEventListener('click', function() {
+                crlfMode = !crlfMode;
+                crlfBtn.classList.toggle('active', crlfMode);
+                // The backend owns the conversion; ask it to re-render the file.
+                vscode.postMessage({ type: 'setCrlf', value: crlfMode });
+            });
+        }
+
+        // ---- Heading Enhancement ----
+        // The backend rewrote each heading into a capped (<=h6) markdown heading
+        // carrying an invisible `.md-heading-meta` marker (data-level, data-fullid)
+        // and a `.md-heading-id` badge. Promote the true level to a per-level
+        // class (md-h1..md-h10) and build the toggle-able full-id sub-line.
+        function enhanceHeadings() {
+            if (!contentArea) return;
+            var metas = contentArea.querySelectorAll('.md-heading-meta');
+            for (var i = 0; i < metas.length; i++) {
+                var meta = metas[i];
+                var heading = meta.closest('h1, h2, h3, h4, h5, h6');
+                var level = parseInt(meta.getAttribute('data-level') || '0', 10);
+                var fullId = meta.getAttribute('data-fullid') || '';
+                if (heading) {
+                    heading.classList.add('md-heading');
+                    if (level >= 1 && level <= 10) {
+                        heading.classList.add('md-h' + level);
+                    }
+                    heading.setAttribute('data-level', String(level));
+                    if (fullId) {
+                        var sub = document.createElement('div');
+                        sub.className = 'md-heading-fullid';
+                        sub.textContent = fullId;
+                        heading.insertAdjacentElement('afterend', sub);
+                    }
+                }
+                if (meta.parentNode) meta.parentNode.removeChild(meta);
+            }
+        }
+
         // ---- Render Markdown ----
         function renderMarkdown(text) {
             if (typeof marked !== 'undefined' && marked.parse) {
-                return marked.parse(text || '');
+                // With CR/LF on, render single newlines as hard <br> breaks
+                // (marked `breaks`). Block structure (lists, headings, tables)
+                // is parsed first, so enumerations are not affected.
+                return marked.parse(text || '', { breaks: crlfMode });
             }
             return '<pre>' + escapeHtml(text || '') + '</pre>';
         }
@@ -212,8 +273,15 @@
                     if (incomingFilePath) {
                         vscode.setState({ filePath: incomingFilePath, liveMode: liveMode });
                     }
+                    // The backend is authoritative for CR/LF state; sync the
+                    // local flag + button so a reload/restore renders correctly.
+                    if (typeof msg.crlf === 'boolean') {
+                        crlfMode = msg.crlf;
+                        if (crlfBtn) crlfBtn.classList.toggle('active', crlfMode);
+                    }
                     filePathEl.textContent = msg.relativePath || msg.fileName || '';
                     contentArea.innerHTML = renderMarkdown(msg.content);
+                    enhanceHeadings();
                     initMermaid();
                     interceptLinks();
 

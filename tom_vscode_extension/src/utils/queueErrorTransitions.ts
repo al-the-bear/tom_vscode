@@ -117,6 +117,90 @@ export function applyErrorTransition(
     };
 }
 
+// ---------------------------------------------------------------------------
+// Rate-limit "waiting" transitions
+// ---------------------------------------------------------------------------
+
+export interface WaitingTransitionItem {
+    status?: string;
+    error?: string;
+    warning?: QueueItemWarningLike;
+    waitingUntil?: string;
+    waitingResetLabel?: string;
+}
+
+/** Minimal reset-clause shape consumed by `applyWaitingTransition`. */
+export interface ResetClauseLike {
+    /** Reset instant stated by the provider, UTC epoch ms. */
+    resetAtMs: number;
+    /** Friendly label in the source timezone (drives the header). */
+    displayLabel: string;
+}
+
+export interface ApplyWaitingTransitionOptions {
+    /** Grace period added to the reset instant before auto-retry. */
+    retryBufferMs: number;
+    /** Warning kind to stamp — defaults to `rate_limit`. */
+    kind?: QueueWarningKindLike;
+    /** Override for `warning.at`; production callers omit it. */
+    nowIso?: string;
+}
+
+/**
+ * Park a queue item in the `waiting` state after a rate-limit / quota
+ * error that carried a parseable "resets …" clause. Instead of the
+ * normal `error` transition (which would flip auto-send off and burn no
+ * further quota until the user intervenes), the item keeps its queue
+ * position and is scheduled to auto-retry `retryBufferMs` after the
+ * stated reset instant.
+ *
+ * Clears any prior `error` marker (this is a soft wait, not a hard
+ * failure) and stamps a warning chip so the reason is visible. Pure —
+ * the caller persists / fires events / drives the retry timer.
+ */
+export function applyWaitingTransition(
+    item: WaitingTransitionItem,
+    clause: ResetClauseLike,
+    options: ApplyWaitingTransitionOptions,
+): void {
+    const bufferMinutes = Math.round(options.retryBufferMs / 60_000);
+    item.status = 'waiting';
+    item.error = undefined;
+    item.waitingUntil = new Date(clause.resetAtMs + options.retryBufferMs).toISOString();
+    item.waitingResetLabel = clause.displayLabel;
+    item.warning = {
+        kind: options.kind ?? 'rate_limit',
+        message: `Limit reached — waiting until ${clause.displayLabel}; retrying ${bufferMinutes} min after reset`,
+        at: options.nowIso ?? new Date().toISOString(),
+    };
+}
+
+/**
+ * Return a `waiting` item to `pending` so the dispatcher picks it up.
+ * Clears the waiting bookkeeping and the interruption warning. Used
+ * both by the health-check auto-retry (when the wait elapses) and by a
+ * manual "retry now" action. Pure — caller persists and drives sendNext.
+ */
+export function clearWaitingState(item: WaitingTransitionItem): void {
+    item.status = 'pending';
+    item.waitingUntil = undefined;
+    item.waitingResetLabel = undefined;
+    item.warning = undefined;
+    item.error = undefined;
+}
+
+/**
+ * True iff a `waiting` item's retry instant has arrived. A missing or
+ * unparseable `waitingUntil` is treated as due (defensive — never strand
+ * an item in `waiting` forever).
+ */
+export function isWaitingDue(waitingUntilIso: string | undefined, nowMs: number): boolean {
+    if (!waitingUntilIso) { return true; }
+    const t = new Date(waitingUntilIso).getTime();
+    if (Number.isNaN(t)) { return true; }
+    return nowMs >= t;
+}
+
 export interface ResetToPendingLastDispatched {
     kind: 'prePrompt' | 'main' | 'followUp';
     prePromptIndex?: number;
