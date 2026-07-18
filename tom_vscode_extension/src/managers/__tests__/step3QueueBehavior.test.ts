@@ -8,6 +8,7 @@ import {
     shouldAutoPauseOnEmpty,
     applyRepetitionAffixes,
     buildNextTemplateIterationParams,
+    resolveTodoPrefixRepeatCount,
 } from '../../utils/queueStep3Utils.js';
 
 describe('Step 3 - Issue 4: queue auto-pause behavior', () => {
@@ -99,6 +100,41 @@ describe('computeRemovalEffect - deleting the running queue item', () => {
         assert.equal(effect.wasSending, false);
         assert.equal(effect.nextAutoSendEnabled, true);
         assert.deepEqual(effect.items.map(i => i.id), ['a']);
+    });
+});
+
+describe('resolveTodoPrefixRepeatCount - prefix* repeat count', () => {
+    const todoIds = ['dsa1', 'dsa2', 'dsa15', 'dsable', 'dsa_3', 'xyz4', 'dsa10'];
+
+    test('returns the highest trailing number among ids matching the prefix', () => {
+        assert.equal(resolveTodoPrefixRepeatCount('dsa*', todoIds), 15);
+    });
+
+    test('ignores ids whose suffix is not purely numeric', () => {
+        // dsable / dsa_3 must not contribute; xyz4 has a different prefix.
+        assert.equal(resolveTodoPrefixRepeatCount('dsa*', ['dsable', 'dsa_3', 'dsa7']), 7);
+    });
+
+    test('returns 1 when the prefix matches no numbered todo', () => {
+        assert.equal(resolveTodoPrefixRepeatCount('zzz*', todoIds), 1);
+    });
+
+    test('trims surrounding whitespace before matching', () => {
+        assert.equal(resolveTodoPrefixRepeatCount('  dsa*  ', todoIds), 15);
+    });
+
+    test('returns undefined when the value does not end with *', () => {
+        assert.equal(resolveTodoPrefixRepeatCount('dsa', todoIds), undefined);
+        assert.equal(resolveTodoPrefixRepeatCount('5', todoIds), undefined);
+    });
+
+    test('returns undefined for a bare * with no prefix', () => {
+        assert.equal(resolveTodoPrefixRepeatCount('*', todoIds), undefined);
+    });
+
+    test('returns undefined for non-string values', () => {
+        assert.equal(resolveTodoPrefixRepeatCount(3, todoIds), undefined);
+        assert.equal(resolveTodoPrefixRepeatCount(undefined, todoIds), undefined);
     });
 });
 

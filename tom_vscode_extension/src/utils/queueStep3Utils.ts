@@ -54,6 +54,58 @@ export function shouldAutoPauseOnEmpty(autoSendEnabled: boolean, pendingCount: n
     return autoPauseEnabled && autoSendEnabled && pendingCount <= 0;
 }
 
+/**
+ * Resolve a `prefix*` repeat-count against a set of quest-todo ids.
+ *
+ * When the user enters a repeat-count variable that ends in `*` (e.g. `dsa*`),
+ * the count is the **highest trailing number** among quest todos whose id is
+ * exactly the prefix followed by digits — `dsa1`, `dsa2`, … `dsa15` → 15. Ids
+ * that don't start with the prefix, or whose suffix isn't purely numeric
+ * (`dsable`, `dsa_2`), are ignored. This lets a single queued prompt run once
+ * per numbered todo in a series without the user counting them by hand.
+ *
+ * Returns `undefined` when `value` is not a `prefix*` pattern (so the caller
+ * falls through to normal repeat-count resolution). When the pattern matches
+ * but no numbered todo is found, returns `1` — a single run, never zero.
+ *
+ * Pure / context-free so it can be unit tested without the vscode-coupled
+ * PromptQueueManager (mirrors the `computeRemovalEffect` pattern). Resolution
+ * against the live quest todos must happen at **processing** time, not enqueue
+ * time, so the manager reads the todo ids fresh and calls this helper from the
+ * processing chokepoint.
+ */
+export function resolveTodoPrefixRepeatCount(
+    value: number | string | undefined,
+    todoIds: readonly string[],
+): number | undefined {
+    if (typeof value !== 'string') {
+        return undefined;
+    }
+    const trimmed = value.trim();
+    if (!trimmed.endsWith('*')) {
+        return undefined;
+    }
+    const prefix = trimmed.slice(0, -1);
+    if (prefix.length === 0) {
+        return undefined;
+    }
+    let highest = 0;
+    for (const id of todoIds) {
+        if (!id.startsWith(prefix)) {
+            continue;
+        }
+        const suffix = id.slice(prefix.length);
+        if (!/^\d+$/.test(suffix)) {
+            continue;
+        }
+        const n = parseInt(suffix, 10);
+        if (n > highest) {
+            highest = n;
+        }
+    }
+    return Math.max(1, highest);
+}
+
 /** Outcome of removing one queue item — see {@link computeRemovalEffect}. */
 export interface QueueRemovalEffect<T> {
     /** The items array with the target id filtered out. */

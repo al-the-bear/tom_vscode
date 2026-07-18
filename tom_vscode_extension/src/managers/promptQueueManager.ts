@@ -31,7 +31,7 @@ import {
 } from '../storage/queueFileStorage';
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
-import { applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, convertStagedToPending, shouldAutoPauseOnEmpty } from '../utils/queueStep3Utils';
+import { applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, convertStagedToPending, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty } from '../utils/queueStep3Utils';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
 import { mergeQueueReload } from '../utils/queueReloadMergeUtils';
 import { applyErrorTransition, applyResetToPending, applyWaitingTransition, clearWaitingState, dispatchWasSuperseded, isWaitingDue, itemHasInFlightProgress, resolveAnswerContainer } from '../utils/queueErrorTransitions';
@@ -2951,6 +2951,22 @@ export class PromptQueueManager {
             return normalizedCached;
         }
 
+        // `prefix*` repeat counts (e.g. `dsa*`) resolve at processing time
+        // against the active quest's todos: the count is the highest trailing
+        // number among ids matching the prefix. Resolved here — never at
+        // enqueue — so a series can grow between queuing and dispatch. Takes
+        // priority over the variable-recovery branch below because it is
+        // deterministic against the live todos rather than a sentCount guess.
+        if (typeof repeatCountRaw === 'string' && repeatCountRaw.trim().endsWith('*')) {
+            const questId = await_import_ChatVariablesStore()?.quest;
+            const todoIds = questId ? readQuestTodoIds(questId) : [];
+            const prefixCount = resolveTodoPrefixRepeatCount(repeatCountRaw, todoIds);
+            if (prefixCount !== undefined) {
+                logQueue(`${scope} dispatch: resolved prefix repeat '${repeatCountRaw}' -> ${prefixCount} from quest '${questId ?? 'none'}' todos`);
+                return prefixCount;
+            }
+        }
+
         const isVariableRepeat = typeof repeatCountRaw === 'string' && isNaN(parseInt(repeatCountRaw, 10));
         if (isVariableRepeat && sentCount > 0) {
             // Keep variable-driven repeats from expanding if cache was lost mid-run.
@@ -4092,6 +4108,20 @@ function await_import_ChatVariablesStore(): { quest: string } | undefined {
         const { ChatVariablesStore } = require('../managers/chatVariablesStore');
         return ChatVariablesStore.instance;
     } catch { return undefined; }
+}
+
+/**
+ * Lazily read all todo ids for a quest. Lazy `require` mirrors the
+ * ChatVariablesStore pattern above so the manager doesn't pull the
+ * questTodoManager into its import graph. Returns `[]` on any failure so
+ * prefix resolution degrades to a single run rather than throwing.
+ */
+function readQuestTodoIds(questId: string): string[] {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { readAllTodos } = require('../managers/questTodoManager');
+        return (readAllTodos(questId) as Array<{ id: string }>).map(t => t.id);
+    } catch { return []; }
 }
 
 function getWindowStatusWindowId(): string {
