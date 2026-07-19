@@ -1,6 +1,6 @@
 name: tom_vscode_scripting_api
 description: Dart abstractions for VS Code extension APIs, providing a bridge-agnostic interface for VS Code scripting.
-version: 1.1.0
+version: 1.1.1
 repository: https://github.com/al-the-bear/tom_vscode
 homepage: https://github.com/al-the-bear/tom_vscode/tree/main/tom_vscode_scripting_api
 topics:
