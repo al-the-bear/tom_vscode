@@ -32,6 +32,7 @@ import {
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
 import { applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, convertStagedToPending, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty } from '../utils/queueStep3Utils';
+import { runMainStageWithRefresh } from '../utils/questRefreshDispatch.js';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
 import { mergeQueueReload } from '../utils/queueReloadMergeUtils';
 import { applyErrorTransition, applyResetToPending, applyWaitingTransition, clearWaitingState, dispatchWasSuperseded, isWaitingDue, itemHasInFlightProgress, resolveAnswerContainer } from '../utils/queueErrorTransitions';
@@ -3026,8 +3027,15 @@ export class PromptQueueManager {
         // Quest Refresh exemption forwarded to `sendMessage`. Only the **main**
         // queue stage counts toward the refresh interval; pre-prompts,
         // follow-ups, and resends pass `true` so they neither count nor trigger
-        // a refresh.
+        // a refresh. Since qr1 the main stage also passes `true` — the refresh
+        // runs as a separate sequential step in the dispatch loop, not via the
+        // re-entrant `sendMessage` hook.
         skipQuestRefresh = true,
+        // Propagate this answer's responseValues (chat variables / TODO
+        // analysis). `true` for real queue stages; `false` for the internal
+        // Quest Refresh dispatch, whose maintenance answer must not drive
+        // downstream chat-variable / TODO side-effects.
+        propagateAnswer = true,
     ): Promise<{ mode: 'polled' } | { mode: 'direct'; answerText: string }> {
         if (resolved.transport === 'copilot') {
             await vscode.commands.executeCommand('workbench.action.chat.open', { query: expandedText });
@@ -3080,7 +3088,10 @@ export class PromptQueueManager {
             // main prompt, each repeat, follow-up — so chat-variable setting and
             // TODO analysis run on all final answers, not only the last stage.
             // (The Copilot transport already propagates once per answer file.)
-            this._propagateDirectAnswer(result.text);
+            // The internal Quest Refresh dispatch opts out (`propagateAnswer`).
+            if (propagateAnswer) {
+                this._propagateDirectAnswer(result.text);
+            }
             return { mode: 'direct', answerText: result.text };
         } finally {
             if (this._activeAnthropicCts === cts) {
@@ -3088,6 +3099,48 @@ export class PromptQueueManager {
             }
             cts.dispose();
         }
+    }
+
+    /**
+     * Dispatch the **main** queue stage, running a Quest Refresh first when due.
+     *
+     * qr1: the refresh used to fire re-entrantly inside the queued turn's own
+     * `sendMessage` (the queue never modelled that nested send, and a failing
+     * refresh dropped the user's prompt). It now runs here as an explicit,
+     * sequential step via {@link runMainStageWithRefresh}: the refresh is its
+     * own dispatch, its failure is isolated, then the main prompt is sent with
+     * `skipQuestRefresh:true` so `sendMessage`'s own hook stays inert for the
+     * queue. The interactive send path keeps that hook (it works there).
+     *
+     * Only the anthropic transport participates — copilot has no anthropic
+     * refresh, so it dispatches directly.
+     */
+    private async _dispatchMainStageWithRefresh(
+        item: QueuedPrompt,
+        resolved: ReturnType<typeof this.resolveStageTransport>,
+    ): Promise<{ mode: 'polled' } | { mode: 'direct'; answerText: string }> {
+        if (resolved.transport !== 'anthropic') {
+            return this.dispatchStage(item.expandedText, resolved, item, true);
+        }
+        const { QuestRefreshService } = await import('../services/quest-refresh-service.js');
+        const { QuestRefreshStore } = await import('./questRefreshStore.js');
+        const quest = WsPaths.getWorkspaceQuestId();
+        return runMainStageWithRefresh({
+            shouldRefresh: () => QuestRefreshService.instance.shouldAutoRefresh('anthropic', quest),
+            runRefresh: () => QuestRefreshService.instance.runRefresh(
+                'anthropic',
+                // The refresh prompt is its own sequential dispatch: skip the
+                // refresh hook (no count / no recursion) and don't propagate its
+                // maintenance answer's responseValues.
+                (refreshText) => this.dispatchStage(refreshText, resolved, undefined, true, false).then(() => undefined),
+                quest,
+            ),
+            incrementCount: () => { QuestRefreshStore.instance.incrementCount('anthropic', quest); },
+            onRefreshError: (err) => logQueue(
+                `Quest Refresh failed — queued prompt still sent: ${err instanceof Error ? err.message : String(err)}`,
+            ),
+            sendMain: () => this.dispatchStage(item.expandedText, resolved, item, true),
+        });
     }
 
     /**
@@ -3284,8 +3337,10 @@ export class PromptQueueManager {
                 dispatchedAt: new Date().toISOString(),
             };
             // Main stage: counts toward the Quest Refresh interval (and may
-            // trigger an auto-refresh before it sends).
-            const dispatchResult = await this.dispatchStage(item.expandedText, resolved, item, false);
+            // trigger an auto-refresh before it sends). qr1 — the refresh runs
+            // as an explicit sequential pre-step here, not via a re-entrant
+            // `sendMessage` hook, so a failing refresh can't drop this prompt.
+            const dispatchResult = await this._dispatchMainStageWithRefresh(item, resolved);
             this._onPromptSent.fire(item);
             this.updateWindowStatus('prompt-sent', resolved.transport);
             logQueue(`Main prompt sent (${mainSentCount + 1}/${mainRepeatCount}) via ${resolved.transport}`);
