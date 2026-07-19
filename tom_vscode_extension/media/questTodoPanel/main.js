@@ -20,7 +20,7 @@ var qtTagPickerCallback = null;
 var qtFilterSearch = '';
 var qtFilterState = { status: [], priority: [], tags: [], createdFrom: '', createdTo: '', updatedFrom: '', updatedTo: '', completedFrom: '', completedTo: '' };
 var qtSortFields = []; // [{field,asc}]
-var SORTABLE_FIELDS = ['status','priority','title','created','updated','completed_date'];
+var SORTABLE_FIELDS = ['quest','status','priority','title','created','updated','completed_date'];
 var qtUserName = '';
 var qtNavHistory = [];
 var qtNavIndex = -1;
@@ -57,6 +57,19 @@ function qtSourceFileForId(id) {
         if (qtTodos[i].id === id) return qtTodos[i].sourceFile || undefined;
     }
     return undefined;
+}
+
+/**
+ * Quest id a todo belongs to, for the "quest" sort field. In the all-quests
+ * aggregate the backend prefixes each todo's sourceFile with `<questId>/`
+ * (readAllQuestsTodos), so the quest is the segment before the first slash;
+ * in any single-quest view every todo shares the current quest.
+ */
+function qtQuestKey(t) {
+    var sf = (t && t.sourceFile) || '';
+    var slash = sf.indexOf('/');
+    if (slash > 0) return sf.substring(0, slash);
+    return qtCurrentQuestId || '';
 }
 
 /**
@@ -532,6 +545,7 @@ function qtRenderList() {
                 var sf = qtSortFields[si];
                 var cmp = 0;
                 switch (sf.field) {
+                    case 'quest': cmp = qtQuestKey(a).localeCompare(qtQuestKey(b)); break;
                     case 'status': cmp = (staOrd[a.status] || 9) - (staOrd[b.status] || 9); break;
                     case 'priority': cmp = (priOrd[a.priority] || 9) - (priOrd[b.priority] || 9); break;
                     case 'title': cmp = (a.title || '').localeCompare(b.title || ''); break;
