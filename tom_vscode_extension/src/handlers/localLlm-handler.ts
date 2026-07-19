@@ -44,6 +44,7 @@ import { TwoTierMemoryService } from '../services/memory-service';
 import { LiveTrailWriter, LOCAL_LLM_LIVE_TRAIL_FILENAME } from '../services/live-trail';
 import { QuestRefreshStore } from '../managers/questRefreshStore';
 import { QuestRefreshService } from '../services/quest-refresh-service';
+import { shouldRunInteractiveRefreshHook, runInteractiveRefreshHook } from '../utils/questRefreshDispatch';
 
 // `LOCAL_LLM_LIVE_TRAIL_FILENAME` now lives in `../services/live-trail` so
 // stateless consumers (Quest Refresh) can resolve the same path without
@@ -2183,17 +2184,18 @@ export class LocalLlmManager {
         // `skipQuestRefresh = true` so only genuine panel sends advance the
         // counter.
         const refreshQuest = WsPaths.getWorkspaceQuestId();
-        if (!skipQuestRefresh) {
-            if (QuestRefreshService.instance.shouldAutoRefresh('localLlm', refreshQuest)) {
-                await QuestRefreshService.instance.runRefresh(
+        if (shouldRunInteractiveRefreshHook({ skipQuestRefresh })) {
+            await runInteractiveRefreshHook({
+                shouldRefresh: () => QuestRefreshService.instance.shouldAutoRefresh('localLlm', refreshQuest),
+                runRefresh: () => QuestRefreshService.instance.runRefresh(
                     'localLlm',
                     (refreshText) => this.process(
                         refreshText, profileKey, modelConfigKey, editor, cancellationToken, onToolCall, true,
                     ).then(() => undefined),
                     refreshQuest,
-                );
-            }
-            QuestRefreshStore.instance.incrementCount('localLlm', refreshQuest);
+                ),
+                incrementCount: () => QuestRefreshStore.instance.incrementCount('localLlm', refreshQuest),
+            });
         }
 
         // Load trail config for new session

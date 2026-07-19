@@ -23,6 +23,7 @@ import { ToolTrail, setActiveToolTrail, type ToolTrailEntry } from '../services/
 import { LiveTrailWriter, type PromptSource } from '../services/live-trail';
 import { QuestRefreshStore } from '../managers/questRefreshStore';
 import { QuestRefreshService } from '../services/quest-refresh-service';
+import { shouldRunInteractiveRefreshHook, runInteractiveRefreshHook } from '../utils/questRefreshDispatch';
 import { classifyAnthropicError, Interruption } from '../utils/anthropicErrorClassifier';
 import { withRetryBudget } from '../utils/retryWithBudget';
 import { runWithToolContext } from '../services/tool-execution-context';
@@ -1664,9 +1665,10 @@ export class AnthropicHandler {
         // here for a queued turn re-entered `sendMessage` inside itself — a
         // nested send the queue state machine never modelled, whose failure
         // dropped the user's prompt (qr1).
-        if (!options.isolated && !options.skipQuestRefresh) {
-            if (QuestRefreshService.instance.shouldAutoRefresh('anthropic', quest)) {
-                await QuestRefreshService.instance.runRefresh(
+        if (shouldRunInteractiveRefreshHook(options)) {
+            await runInteractiveRefreshHook({
+                shouldRefresh: () => QuestRefreshService.instance.shouldAutoRefresh('anthropic', quest),
+                runRefresh: () => QuestRefreshService.instance.runRefresh(
                     'anthropic',
                     (refreshText) => this.sendMessage({
                         ...options,
@@ -1674,9 +1676,9 @@ export class AnthropicHandler {
                         skipQuestRefresh: true,
                     }).then(() => undefined),
                     quest,
-                );
-            }
-            QuestRefreshStore.instance.incrementCount('anthropic', quest);
+                ),
+                incrementCount: () => QuestRefreshStore.instance.incrementCount('anthropic', quest),
+            });
         }
 
         const windowId = vscode.env.sessionId;

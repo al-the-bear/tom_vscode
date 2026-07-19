@@ -57,3 +57,61 @@ export async function runMainStageWithRefresh<T>(hooks: MainStageRefreshHooks<T>
     }
     return hooks.sendMain();
 }
+
+// ---------------------------------------------------------------------------
+// Interactive send path (chat panel Send, Send-to-Chat, Telegram, localLlm).
+//
+// Interactive sends still run Quest Refresh from inside their own send path —
+// that path is not a queued, state-machine-tracked turn, so the re-entrancy
+// problem qr1 fixed for the queue does not apply. These two pure helpers pin
+// the boundary ("which sends run the interactive hook") and the hook's own
+// order (refresh-then-count) so both can be unit-tested without the handlers'
+// vscode / SDK dependencies.
+// ---------------------------------------------------------------------------
+
+/** Inputs deciding whether a send runs the INTERACTIVE Quest Refresh hook. */
+export interface InteractiveRefreshGate {
+    /** Isolated sub-agent runs never refresh. Absent ⇒ not isolated. */
+    isolated?: boolean;
+    /** The refresh prompt itself + programmatic / queue sends opt out. */
+    skipQuestRefresh?: boolean;
+}
+
+/**
+ * Whether an interactive send should run the Quest Refresh hook inside its own
+ * send path. `false` for isolated sub-agent runs, for the refresh prompt itself,
+ * and for prompt-queue / programmatic sends — those pass `skipQuestRefresh` and
+ * (for the queue) run the refresh as a separate dispatch step via
+ * {@link runMainStageWithRefresh} (qr1). Because the queue send passes
+ * `skipQuestRefresh:true`, this predicate returns `false` for it, which is what
+ * guarantees the queue never *also* triggers/counts through the interactive
+ * hook (no double count / double trigger).
+ */
+export function shouldRunInteractiveRefreshHook(gate: InteractiveRefreshGate): boolean {
+    return !gate.isolated && !gate.skipQuestRefresh;
+}
+
+/** Collaborators for one interactive Quest Refresh hook run. */
+export interface InteractiveRefreshHooks {
+    /** Whether a refresh is due before this prompt. */
+    shouldRefresh: () => boolean;
+    /** Run one refresh cycle through this panel's own send path (awaited). */
+    runRefresh: () => Promise<void>;
+    /** Count this prompt toward the interval. */
+    incrementCount: () => void;
+}
+
+/**
+ * Run the interactive Quest Refresh hook: refresh (if due), then count.
+ *
+ * Unlike the queue path ({@link runMainStageWithRefresh}) a refresh failure is
+ * NOT isolated here — it propagates so the user sees it, and the counter is not
+ * incremented for a send whose refresh threw (matching the pre-extraction inline
+ * behaviour). Callers must gate this with {@link shouldRunInteractiveRefreshHook}.
+ */
+export async function runInteractiveRefreshHook(hooks: InteractiveRefreshHooks): Promise<void> {
+    if (hooks.shouldRefresh()) {
+        await hooks.runRefresh();
+    }
+    hooks.incrementCount();
+}

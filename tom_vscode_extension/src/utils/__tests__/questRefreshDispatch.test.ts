@@ -10,7 +10,11 @@
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { runMainStageWithRefresh } from '../questRefreshDispatch.js';
+import {
+    runMainStageWithRefresh,
+    shouldRunInteractiveRefreshHook,
+    runInteractiveRefreshHook,
+} from '../questRefreshDispatch.js';
 
 describe('runMainStageWithRefresh', () => {
     test('refresh failure does NOT block the main prompt (qr1 regression)', async () => {
@@ -86,5 +90,70 @@ describe('runMainStageWithRefresh', () => {
         });
         assert.equal(result, 'answer');
         assert.equal(counted, 1);
+    });
+});
+
+describe('shouldRunInteractiveRefreshHook', () => {
+    test('an ordinary interactive send runs the hook', () => {
+        assert.equal(shouldRunInteractiveRefreshHook({}), true);
+        assert.equal(shouldRunInteractiveRefreshHook({ isolated: false, skipQuestRefresh: false }), true);
+    });
+
+    test('a queue / programmatic send (skipQuestRefresh) does NOT run the hook', () => {
+        // This is the no-double-count / no-double-trigger guarantee: the queue
+        // sends its main prompt with skipQuestRefresh:true and runs the refresh
+        // as a separate dispatch step, so the interactive hook must stay inert.
+        assert.equal(shouldRunInteractiveRefreshHook({ skipQuestRefresh: true }), false);
+    });
+
+    test('an isolated sub-agent run does NOT run the hook', () => {
+        assert.equal(shouldRunInteractiveRefreshHook({ isolated: true }), false);
+        assert.equal(shouldRunInteractiveRefreshHook({ isolated: true, skipQuestRefresh: false }), false);
+    });
+
+    test('isolated AND skipQuestRefresh is inert', () => {
+        assert.equal(shouldRunInteractiveRefreshHook({ isolated: true, skipQuestRefresh: true }), false);
+    });
+});
+
+describe('runInteractiveRefreshHook', () => {
+    test('runs refresh before counting when due', async () => {
+        const order: string[] = [];
+        let counted = 0;
+        await runInteractiveRefreshHook({
+            shouldRefresh: () => true,
+            runRefresh: async () => { order.push('refresh'); },
+            incrementCount: () => { counted += 1; order.push('count'); },
+        });
+        assert.deepEqual(order, ['refresh', 'count']);
+        assert.equal(counted, 1);
+    });
+
+    test('skips refresh but still counts when not due', async () => {
+        let refreshCalls = 0;
+        let counted = 0;
+        await runInteractiveRefreshHook({
+            shouldRefresh: () => false,
+            runRefresh: async () => { refreshCalls += 1; },
+            incrementCount: () => { counted += 1; },
+        });
+        assert.equal(refreshCalls, 0);
+        assert.equal(counted, 1);
+    });
+
+    test('a refresh failure PROPAGATES and the prompt is NOT counted (interactive, unlike the queue)', async () => {
+        let counted = 0;
+        await assert.rejects(
+            () => runInteractiveRefreshHook({
+                shouldRefresh: () => true,
+                runRefresh: async () => { throw new Error('interactive refresh boom'); },
+                incrementCount: () => { counted += 1; },
+            }),
+            /interactive refresh boom/,
+        );
+        // The failing refresh threw before the count — matches the original
+        // inline hook, and is the deliberate contrast with the queue path,
+        // where the same failure is swallowed so the prompt still sends.
+        assert.equal(counted, 0);
     });
 });
