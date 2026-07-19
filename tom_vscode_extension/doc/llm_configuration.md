@@ -527,3 +527,23 @@ When a Local LLM call still hits the context limit:
 - **Compaction** — running an LLM to rewrite older raw turns into the
   `compactedSummary`. Driven by the template selected by
   `compactionTemplateId`. Runs every turn that overflows the raw-turn budget.
+
+---
+
+## 11. Telegram — per-quest configuration location
+
+The Telegram remote-control / notification channel is configured **per quest**,
+not in the central `.tom/tom_vscode_extension.json`. Its settings are owned by
+`extensionConfigStore.ts` (read/written via `telegram-config.ts`) and split
+across two consolidated per-quest files by whether the value is host-invariant:
+
+| File | Scope | Telegram keys |
+| --- | --- | --- |
+| `_ai/quests/{quest}/extension_config.{quest}.yaml` | machine-INDEPENDENT | `allowedUserIds`, `defaultChatId`, `pollIntervalMs`, `notifyOnStart` / `notifyOnTurn` / `notifyOnEnd`, `includeResponseText`, `maxResponseChars` |
+| `_ai/quests/{quest}/extension_config.{hostSlug}.{quest}.yaml` | machine-SPECIFIC | `enabled`, `autostart`, `botTokenEnv` |
+
+The raw bot token is **never persisted** — it is resolved at load time from
+`process.env[botTokenEnv]`. Telegram allows only **one `getUpdates` consumer per
+bot token**, so each quest needs its own bot. Full command reference, the
+live-conversation forwarder, the Status Page section, and the one-receiver
+constraint are documented in **[`telegram_integration.md`](telegram_integration.md)**.
