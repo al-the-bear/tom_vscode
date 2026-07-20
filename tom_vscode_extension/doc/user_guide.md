@@ -61,6 +61,11 @@ The Quest TODO panel (the `@WS` Quest TODO section, and the editor that opens fo
 
 Archived/deleted sibling files are **terminal**: they can be viewed but never archived or deleted *from*, and the buttons hide when browsing them. A todo moved to the `-deleted` file remains recoverable (unlike the per-row hard-delete). There is no separate backup file mechanism anymore.
 
+A further set of top-bar buttons changes a todo **without** moving it to a terminal file:
+
+- **Mark selected todo completed** / **Mark selected todo cancelled** / **Mark selected todo not-started** — set the selected todo's status in place (the completed action also stamps the completion date). With a non-empty todo stack they act on the whole stack after a single confirmation.
+- **Move selected to other todo file** — opens a quick pick of the quest's other `*.todo.yaml` files (including the `-archived` and `-deleted` siblings), plus a *New todo file…* option, and moves the selected todo (or the whole stack) into the chosen file. Available only in concrete quest mode. Clicking a todo in any of the quest's todo files loads its details, and the details pane refreshes automatically after a status change.
+
 **Session todos** (the Session Todos view and the panel's session mode) are stored in one stable, git-tracked file per machine and quest — `_ai/quests/<quest>/session-todo.<host>.<quest>.todo.yaml` — and **persist across window reloads**. Older per-window session files are migrated into it automatically.
 
 #### Todo stack (batch send)
@@ -100,7 +105,7 @@ In `@CHAT`, Copilot supports templates, prompt slots, answer-file notifications,
 
 The Copilot section in `@CHAT` includes an action bar with:
 
-- **R** (Repeat count): Number of times to repeat the prompt (text input, 24px wide)
+- **R** (Repeat count): Number of times to repeat the prompt (text input, 24px wide). Accepts a plain integer, a chat-variable name (resolved at dispatch), or a `prefix*` pattern (see [Repeat and Affix Support](#repeat-and-affix-support))
 - **W** (Answer wait minutes): Minutes to wait before auto-advancing without an answer file. When set to 0, uses classic answer-file detection. When > 0, the queue auto-advances after the specified time (text input, 24px wide)
 - **Template picker**: Select a prompt template
 - **Queue button**: Add the current prompt to the queue with the configured repeat count and wait time
@@ -154,7 +159,10 @@ Each queued prompt tracks:
 
 Prompts can repeat multiple times with customizable prefix and suffix text:
 
-- **repeatCount**: Total number of times to send the prompt
+- **repeatCount**: Total number of times to send the prompt. Accepts three forms:
+  - A **plain integer** (e.g. `3`).
+  - A **chat-variable name** — resolved to its numeric value at dispatch time (not at enqueue), so the count reflects the variable's value when the item is actually processed.
+  - A **`prefix*` pattern** (e.g. `tod*`) — resolved at dispatch to the highest number among the active quest's todo ids that match `prefix` followed by digits. Trailing non-digit characters on the id are ignored, so `tod3`, `tod3b`, and `tod3-review` all count as `3`. Empty prefixes or non-matching patterns fall back to `1`.
 - **repeatIndex**: Current iteration (0-based internally, displayed 1-based)
 - **repeatPrefix / repeatSuffix**: Template text inserted before/after each repetition, supporting placeholders `${repeatNumber}` (1-based), `${repeatIndex}` (0-based), `${repeatCount}` (total)
 

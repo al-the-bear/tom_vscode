@@ -9,7 +9,7 @@ environment:
 # Add regular dependencies here.
 dependencies:
   path: ^1.9.0
-  tom_vscode_scripting_api: ">=1.1.0"
+  tom_vscode_scripting_api: ">=1.1.1"
   tom_d4rt: ">=1.11.0"
   tom_d4rt_dcli: ">=1.1.6"
 
@@ -18,10 +18,4 @@ dev_dependencies:
   test: ^1.25.6
   build_runner: ^2.10.4
   build: ^4.0.3
-
-dependency_overrides:
-  runtime_native_semaphores:
-    git:
-      url: https://github.com/al-the-bear/native_semaphores.git
-      ref: fork-fix
 

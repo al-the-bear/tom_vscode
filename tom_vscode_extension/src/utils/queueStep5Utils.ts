@@ -5,6 +5,15 @@ export interface QueueEntryFileNameInput {
     quest: string;
     type: string;
     entrySuffix: string;
+    /**
+     * Optional per-entry uniqueness token appended to the second-resolution
+     * timestamp. Without it, two entries created in the same clock second
+     * collide on filename — and since the filename IS the on-disk entry id,
+     * the second write overwrites the first (only the last survives). Callers
+     * that enqueue in a tight loop (e.g. one prompt per stacked todo) must pass
+     * a token derived from the item id so every entry lands in its own file.
+     */
+    uniqueToken?: string;
 }
 
 export function sanitizeHostnameForFile(hostname: string): string {
@@ -28,7 +37,8 @@ export function buildQueueEntryFileName(input: QueueEntryFileNameInput): string 
     const t = sanitizeFilePart(input.type || 'prompt');
     const host = sanitizeHostnameForFile(input.hostname);
     const ws = sanitizeFilePart(input.workspaceName || 'default');
-    return `${host}_${ws}_${yy}${mm}${dd}_${hh}${min}${ss}_${q}.${t}${input.entrySuffix}`;
+    const token = input.uniqueToken ? `-${sanitizeFilePart(input.uniqueToken)}` : '';
+    return `${host}_${ws}_${yy}${mm}${dd}_${hh}${min}${ss}${token}_${q}.${t}${input.entrySuffix}`;
 }
 
 export function buildTimedFileName(hostname: string, workspaceName: string): string {

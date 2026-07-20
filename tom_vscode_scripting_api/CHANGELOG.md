@@ -1,3 +1,13 @@
+## 1.1.1
+
+- Fixed `TextEditor.fromJson` crashing (`RangeError`) on an empty
+  `visibleRanges` array. It previously indexed `visibleRanges[0]` whenever the
+  field was non-null, but the bridge reports `visibleRanges: []` for a freshly
+  revealed editor (e.g. the `showTextDocument` path), so the whole editor
+  snapshot failed to parse. An empty, absent, or non-list `visibleRanges` now
+  deserializes to `null`. Added a regression test suite
+  (`test/vscode_types_test.dart`).
+
 ## 1.1.0
 
 - Added an Agent SDK type surface mirroring `@anthropic-ai/claude-agent-sdk`:

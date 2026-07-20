@@ -387,12 +387,18 @@ export function writeQueueSettings(settings: QueueSettings): boolean {
 
 /**
  * Generate a queue entry filename.
- * Format: `<hostname>_<workspace>_<YYMMDD_HHMMSS>_<quest>.<type>.entry.queue.yaml`
+ * Format: `<hostname>_<workspace>_<YYMMDD_HHMMSS>[-<token>]_<quest>.<type>.entry.queue.yaml`
+ *
+ * `uniqueToken` disambiguates entries created within the same clock second
+ * (the timestamp is second-resolution). Pass a per-item token — e.g. a slice
+ * of the item id — when enqueuing in a loop, or same-second entries collide on
+ * filename and overwrite each other on disk.
  */
 export function generateEntryFileName(
     quest?: string,
     type?: string,
     timestamp?: Date,
+    uniqueToken?: string,
 ): string {
     return buildQueueEntryFileName({
         hostname: os.hostname(),
@@ -401,6 +407,7 @@ export function generateEntryFileName(
         quest: quest || 'default',
         type: type || 'prompt',
         entrySuffix: ENTRY_SUFFIX,
+        uniqueToken,
     });
 }
 

@@ -23,6 +23,7 @@ import { ToolTrail, setActiveToolTrail, type ToolTrailEntry } from '../services/
 import { LiveTrailWriter, type PromptSource } from '../services/live-trail';
 import { QuestRefreshStore } from '../managers/questRefreshStore';
 import { QuestRefreshService } from '../services/quest-refresh-service';
+import { shouldRunInteractiveRefreshHook, runInteractiveRefreshHook } from '../utils/questRefreshDispatch';
 import { classifyAnthropicError, Interruption } from '../utils/anthropicErrorClassifier';
 import { withRetryBudget } from '../utils/retryWithBudget';
 import { runWithToolContext } from '../services/tool-execution-context';
@@ -1650,17 +1651,24 @@ export class AnthropicHandler {
 
         const quest = WsPaths.getWorkspaceQuestId();
 
-        // Quest Refresh auto-trigger (anthropic panel). Before counting this
-        // upcoming user prompt, fire a refresh if the interval has elapsed:
-        // send the refresh prompt through this same transport (with
-        // `skipQuestRefresh` so it neither counts nor recurses), await it,
-        // truncate the live-trail back to base, reset the counter — then count
-        // this prompt and proceed. Isolated sub-agent runs and the refresh
-        // prompt itself are exempt. This single hook covers both the chat panel
-        // and the prompt queue, since the queue dispatches through sendMessage.
-        if (!options.isolated && !options.skipQuestRefresh) {
-            if (QuestRefreshService.instance.shouldAutoRefresh('anthropic', quest)) {
-                await QuestRefreshService.instance.runRefresh(
+        // Quest Refresh auto-trigger for INTERACTIVE sends (chat panel Send,
+        // Send-to-Chat, Telegram). Before counting this upcoming user prompt,
+        // fire a refresh if the interval has elapsed: send the refresh prompt
+        // through this same transport (with `skipQuestRefresh` so it neither
+        // counts nor recurses), await it, truncate the live-trail back to base,
+        // reset the counter — then count this prompt and proceed. Isolated
+        // sub-agent runs and the refresh prompt itself are exempt.
+        //
+        // The prompt QUEUE does NOT use this hook: it passes `skipQuestRefresh`
+        // and runs the refresh as an explicit sequential step in its dispatch
+        // loop (`PromptQueueManager._dispatchMainStageWithRefresh`). Firing it
+        // here for a queued turn re-entered `sendMessage` inside itself — a
+        // nested send the queue state machine never modelled, whose failure
+        // dropped the user's prompt (qr1).
+        if (shouldRunInteractiveRefreshHook(options)) {
+            await runInteractiveRefreshHook({
+                shouldRefresh: () => QuestRefreshService.instance.shouldAutoRefresh('anthropic', quest),
+                runRefresh: () => QuestRefreshService.instance.runRefresh(
                     'anthropic',
                     (refreshText) => this.sendMessage({
                         ...options,
@@ -1668,9 +1676,9 @@ export class AnthropicHandler {
                         skipQuestRefresh: true,
                     }).then(() => undefined),
                     quest,
-                );
-            }
-            QuestRefreshStore.instance.incrementCount('anthropic', quest);
+                ),
+                incrementCount: () => QuestRefreshStore.instance.incrementCount('anthropic', quest),
+            });
         }
 
         const windowId = vscode.env.sessionId;

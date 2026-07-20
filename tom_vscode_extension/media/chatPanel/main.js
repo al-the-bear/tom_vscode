@@ -1397,6 +1397,19 @@ function sendCopilotPrompt() {
     vscode.postMessage({ type: 'sendCopilot', text: text, template: template, slot: slot });
 }
 
+// Normalize a repeat-count input value for the queue. Purely-numeric input
+// becomes an integer (min 1); any other non-empty string (a chat-variable
+// name, or a `prefix*` pattern like `tod*`) is preserved verbatim so it
+// resolves at processing time in the queue. Empty input falls back to 1.
+// Coercing with parseInt here previously turned `tod*` into 1 before it ever
+// left the webview.
+function normalizeRepeatField(raw) {
+    var v = String(raw === null || raw === undefined ? '' : raw).trim();
+    if (v === '') { return 1; }
+    if (/^[0-9]+$/.test(v)) { return Math.max(1, parseInt(v, 10)); }
+    return v;
+}
+
 function addCopilotToQueue() {
     var text = document.getElementById('copilot-text');
     text = text ? text.value : '';
@@ -1404,7 +1417,7 @@ function addCopilotToQueue() {
     var template = document.getElementById('copilot-template');
     template = template ? template.value : '';
     var repeatEl = document.getElementById('copilot-repeat-count');
-    var repeatCount = Math.max(1, parseInt(String((repeatEl ? repeatEl.value : '1') || '1'), 10) || 1);
+    var repeatCount = normalizeRepeatField(repeatEl ? repeatEl.value : '1');
     var waitEl = document.getElementById('copilot-answer-wait');
     var answerWaitMinutes = Math.max(0, parseInt(String(waitEl ? waitEl.value : '0'), 10) || 0);
     var slot = ensureSlotState('copilot').activeSlot;
@@ -1426,8 +1439,7 @@ function addAnthropicToQueue() {
     var templateEl = document.getElementById('anthropic-userMessage');
     var templateName = templateEl ? templateEl.value : '';
     var repeatEl = document.getElementById('anthropic-repeat-count');
-    var repeatVal = repeatEl ? repeatEl.value : '1';
-    var repeatCount = Math.max(1, parseInt(String(repeatVal || '1'), 10) || 1);
+    var repeatCount = normalizeRepeatField(repeatEl ? repeatEl.value : '1');
     vscode.postMessage({
         type: 'addToQueue',
         text: text,

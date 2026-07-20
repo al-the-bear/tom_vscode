@@ -4,9 +4,12 @@ import assert from 'node:assert/strict';
 import {
     computeRepeatDecision,
     convertStagedToPending,
+    computeRemovalEffect,
     shouldAutoPauseOnEmpty,
     applyRepetitionAffixes,
     buildNextTemplateIterationParams,
+    resolveTodoPrefixRepeatCount,
+    normalizeRepeatCountInput,
 } from '../../utils/queueStep3Utils.js';
 
 describe('Step 3 - Issue 4: queue auto-pause behavior', () => {
@@ -47,6 +50,132 @@ describe('Step 3 - Issue 5: sendAllStaged', () => {
 
         assert.equal(changed, 0);
         assert.deepEqual(items.map((i: any) => i.status), ['pending']);
+    });
+});
+
+describe('computeRemovalEffect - deleting the running queue item', () => {
+    test('deleting the sending item flags wasSending and forces auto-send OFF', () => {
+        const items = [
+            { id: 'a', status: 'sent' },
+            { id: 'b', status: 'sending' },
+            { id: 'c', status: 'pending' },
+        ];
+
+        const effect = computeRemovalEffect(items, 'b', true);
+
+        assert.equal(effect.wasSending, true, 'caller must abort the in-flight dispatch');
+        assert.equal(effect.nextAutoSendEnabled, false, 'auto-send must drop OFF so the next pending prompt is not auto-fired');
+        assert.equal(effect.removed?.id, 'b');
+        assert.deepEqual(effect.items.map(i => i.id), ['a', 'c'], 'the sending item is filtered out');
+    });
+
+    test('deleting a non-sending item leaves auto-send untouched', () => {
+        const items = [
+            { id: 'a', status: 'sending' },
+            { id: 'b', status: 'pending' },
+        ];
+
+        const effect = computeRemovalEffect(items, 'b', true);
+
+        assert.equal(effect.wasSending, false);
+        assert.equal(effect.nextAutoSendEnabled, true, 'removing a pending item must not pause a running queue');
+        assert.deepEqual(effect.items.map(i => i.id), ['a']);
+    });
+
+    test('deleting the sending item while auto-send is already OFF keeps it OFF', () => {
+        const items = [{ id: 'a', status: 'sending' }];
+
+        const effect = computeRemovalEffect(items, 'a', false);
+
+        assert.equal(effect.wasSending, true);
+        assert.equal(effect.nextAutoSendEnabled, false);
+        assert.deepEqual(effect.items, []);
+    });
+
+    test('removing an unknown id is a no-op with no side-effects', () => {
+        const items = [{ id: 'a', status: 'sending' }];
+
+        const effect = computeRemovalEffect(items, 'missing', true);
+
+        assert.equal(effect.removed, undefined);
+        assert.equal(effect.wasSending, false);
+        assert.equal(effect.nextAutoSendEnabled, true);
+        assert.deepEqual(effect.items.map(i => i.id), ['a']);
+    });
+});
+
+describe('normalizeRepeatCountInput - preserve variables at enqueue', () => {
+    test('preserves a prefix* pattern verbatim so it resolves at processing time', () => {
+        assert.equal(normalizeRepeatCountInput('tod*'), 'tod*');
+        assert.equal(normalizeRepeatCountInput('dsa*'), 'dsa*');
+    });
+
+    test('preserves a plain chat-variable name verbatim', () => {
+        assert.equal(normalizeRepeatCountInput('myLoopVar'), 'myLoopVar');
+    });
+
+    test('coerces a purely-numeric string to a non-negative integer', () => {
+        assert.equal(normalizeRepeatCountInput('3'), 3);
+        assert.equal(normalizeRepeatCountInput('0'), 0);
+    });
+
+    test('coerces a number to a rounded non-negative integer', () => {
+        assert.equal(normalizeRepeatCountInput(4), 4);
+        assert.equal(normalizeRepeatCountInput(2.6), 3);
+        assert.equal(normalizeRepeatCountInput(-1), 0);
+    });
+
+    test('returns 0 for undefined', () => {
+        assert.equal(normalizeRepeatCountInput(undefined), 0);
+    });
+});
+
+describe('resolveTodoPrefixRepeatCount - prefix* repeat count', () => {
+    const todoIds = ['dsa1', 'dsa2', 'dsa15', 'dsable', 'dsa_3', 'xyz4', 'dsa10'];
+
+    test('returns the highest trailing number among ids matching the prefix', () => {
+        assert.equal(resolveTodoPrefixRepeatCount('dsa*', todoIds), 15);
+    });
+
+    test('ignores ids whose suffix does not start with a digit', () => {
+        // dsable / dsa_3 must not contribute (no leading digit after prefix);
+        // xyz4 has a different prefix.
+        assert.equal(resolveTodoPrefixRepeatCount('dsa*', ['dsable', 'dsa_3', 'dsa7']), 7);
+    });
+
+    test('counts ids of form prefix+number+non-digit-trailing (leading digits win)', () => {
+        // dsa15b -> 15, dsa7-review -> 7, dsa3foo -> 3. Highest is 15.
+        assert.equal(
+            resolveTodoPrefixRepeatCount('dsa*', ['dsa3foo', 'dsa7-review', 'dsa15b']),
+            15,
+        );
+    });
+
+    test('takes only the leading digit run, ignoring later digits', () => {
+        // dsa2x9 -> 2 (not 29), dsa4 -> 4. Highest is 4.
+        assert.equal(resolveTodoPrefixRepeatCount('dsa*', ['dsa2x9', 'dsa4']), 4);
+    });
+
+    test('returns 1 when the prefix matches no numbered todo', () => {
+        assert.equal(resolveTodoPrefixRepeatCount('zzz*', todoIds), 1);
+    });
+
+    test('trims surrounding whitespace before matching', () => {
+        assert.equal(resolveTodoPrefixRepeatCount('  dsa*  ', todoIds), 15);
+    });
+
+    test('returns undefined when the value does not end with *', () => {
+        assert.equal(resolveTodoPrefixRepeatCount('dsa', todoIds), undefined);
+        assert.equal(resolveTodoPrefixRepeatCount('5', todoIds), undefined);
+    });
+
+    test('returns undefined for a bare * with no prefix', () => {
+        assert.equal(resolveTodoPrefixRepeatCount('*', todoIds), undefined);
+    });
+
+    test('returns undefined for non-string values', () => {
+        assert.equal(resolveTodoPrefixRepeatCount(3, todoIds), undefined);
+        assert.equal(resolveTodoPrefixRepeatCount(undefined, todoIds), undefined);
     });
 });
 

@@ -54,6 +54,136 @@ export function shouldAutoPauseOnEmpty(autoSendEnabled: boolean, pendingCount: n
     return autoPauseEnabled && autoSendEnabled && pendingCount <= 0;
 }
 
+/**
+ * Normalize a repeat-count value coming from a UI/webview input into the shape
+ * the queue persists.
+ *
+ * Non-numeric strings — chat-variable names and `prefix*` patterns (e.g.
+ * `dsa*`) — are preserved **verbatim** so they resolve at processing time
+ * (see {@link resolveTodoPrefixRepeatCount} and the manager's
+ * `resolveStableRepeatCount`). Numbers and purely-numeric strings are coerced
+ * to a non-negative integer. Anything else falls back to `0`.
+ *
+ * Extracted so every enqueue entry point (chat panel, queue editor, …) shares
+ * one rule; coercing `Number('dsa*')` at enqueue previously produced `NaN` and
+ * silently dropped the variable before the deferred resolver ever saw it.
+ */
+export function normalizeRepeatCountInput(value: number | string | undefined): number | string {
+    if (typeof value === 'string' && !/^[0-9]+$/.test(value)) {
+        return value;
+    }
+    if (typeof value === 'number' || typeof value === 'string') {
+        return Math.max(0, Math.round(Number(value) || 0));
+    }
+    return 0;
+}
+
+/**
+ * Resolve a `prefix*` repeat-count against a set of quest-todo ids.
+ *
+ * When the user enters a repeat-count variable that ends in `*` (e.g. `dsa*`),
+ * the count is the **highest number** among quest todos whose id is the prefix
+ * followed by digits, with any trailing non-digit characters ignored —
+ * `dsa1`, `dsa2`, … `dsa15`, `dsa15b`, `dsa7-review` all contribute (1, 2, 15,
+ * 15, 7). The number taken is the run of digits **immediately after** the
+ * prefix. Ids that don't start with the prefix, or whose first character after
+ * the prefix isn't a digit (`dsable`, `dsa_2`), are ignored. This lets a single
+ * queued prompt run once per numbered todo in a series without the user
+ * counting them by hand.
+ *
+ * Returns `undefined` when `value` is not a `prefix*` pattern (so the caller
+ * falls through to normal repeat-count resolution). When the pattern matches
+ * but no numbered todo is found, returns `1` — a single run, never zero.
+ *
+ * Pure / context-free so it can be unit tested without the vscode-coupled
+ * PromptQueueManager (mirrors the `computeRemovalEffect` pattern). Resolution
+ * against the live quest todos must happen at **processing** time, not enqueue
+ * time, so the manager reads the todo ids fresh and calls this helper from the
+ * processing chokepoint.
+ */
+export function resolveTodoPrefixRepeatCount(
+    value: number | string | undefined,
+    todoIds: readonly string[],
+): number | undefined {
+    if (typeof value !== 'string') {
+        return undefined;
+    }
+    const trimmed = value.trim();
+    if (!trimmed.endsWith('*')) {
+        return undefined;
+    }
+    const prefix = trimmed.slice(0, -1);
+    if (prefix.length === 0) {
+        return undefined;
+    }
+    let highest = 0;
+    for (const id of todoIds) {
+        if (!id.startsWith(prefix)) {
+            continue;
+        }
+        const suffix = id.slice(prefix.length);
+        // Take the run of digits immediately after the prefix; trailing
+        // non-digit characters (`dsa15b`, `dsa7-review`) are allowed and
+        // ignored. A suffix that doesn't start with a digit (`dsable`,
+        // `dsa_2`) contributes nothing.
+        const match = /^(\d+)/.exec(suffix);
+        if (!match) {
+            continue;
+        }
+        const n = parseInt(match[1], 10);
+        if (n > highest) {
+            highest = n;
+        }
+    }
+    return Math.max(1, highest);
+}
+
+/** Outcome of removing one queue item — see {@link computeRemovalEffect}. */
+export interface QueueRemovalEffect<T> {
+    /** The items array with the target id filtered out. */
+    items: T[];
+    /** The removed item, or `undefined` when the id matched nothing. */
+    removed: T | undefined;
+    /** True when the removed item was the one currently `sending`. */
+    wasSending: boolean;
+    /**
+     * Auto-send state the caller should adopt after the removal. Deleting the
+     * `sending` item forces it OFF so the queue does not immediately dispatch
+     * the next pending item after the user interrupted the running one;
+     * otherwise the incoming value is preserved.
+     */
+    nextAutoSendEnabled: boolean;
+}
+
+/**
+ * Pure decision for removing a queue item.
+ *
+ * Deleting the item that is currently `sending` must interrupt execution:
+ * the caller has to abort the in-flight dispatch (signalled by `wasSending`)
+ * and drop auto-send to OFF (`nextAutoSendEnabled`). Without this, the handler
+ * keeps executing a prompt that no longer exists in the queue and the stop
+ * button can't reach it (the sending item is gone), while auto-send would fire
+ * the next pending prompt as if nothing happened.
+ *
+ * Kept pure/context-free so it can be unit tested without the vscode-coupled
+ * PromptQueueManager (mirrors the `applyCrashRecovery` / `convertStagedToPending`
+ * pattern).
+ */
+export function computeRemovalEffect<T extends { id: string; status: string }>(
+    items: readonly T[],
+    id: string,
+    autoSendEnabled: boolean,
+): QueueRemovalEffect<T> {
+    const removed = items.find(i => i.id === id);
+    const wasSending = removed?.status === 'sending';
+    return {
+        items: items.filter(i => i.id !== id),
+        removed,
+        wasSending,
+        nextAutoSendEnabled: wasSending ? false : autoSendEnabled,
+    };
+}
+
 export function convertStagedToPending(items: Array<{ status: string }>): number {
     let changed = 0;
     for (const item of items) {

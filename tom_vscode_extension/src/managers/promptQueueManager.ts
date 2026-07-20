@@ -31,7 +31,8 @@ import {
 } from '../storage/queueFileStorage';
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
-import { applyRepetitionAffixes, buildNextTemplateIterationParams, convertStagedToPending, shouldAutoPauseOnEmpty } from '../utils/queueStep3Utils';
+import { applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, convertStagedToPending, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty } from '../utils/queueStep3Utils';
+import { runMainStageWithRefresh } from '../utils/questRefreshDispatch.js';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
 import { mergeQueueReload } from '../utils/queueReloadMergeUtils';
 import { applyErrorTransition, applyResetToPending, applyWaitingTransition, clearWaitingState, dispatchWasSuperseded, isWaitingDue, itemHasInFlightProgress, resolveAnswerContainer } from '../utils/queueErrorTransitions';
@@ -50,6 +51,7 @@ import { TrailService } from '../services/trailService';
 import { WsPaths } from '../utils/workspacePaths';
 import { normalizeResponseValues, splitResponseValues } from '../utils/answerResponseValues';
 import { extractResponseValuesFromText } from '../utils/responseValues';
+import { BUILTIN_TODO_TEMPLATES } from '../utils/todoSendTargets';
 import type { ChangeSource } from './chatVariablesStore';
 
 // ============================================================================
@@ -271,6 +273,13 @@ export function resolveTemplateString(
         } else {
             const tpl = config?.copilot?.templates?.[templateName];
             if (tpl?.template) { return tpl.template; }
+            // Built-in copilot TODO templates (e.g. "TODO Execution", "Refactor")
+            // are NOT stored in config.copilot.templates — they are the dropdown
+            // options offered by the Quest TODO panel. Without this fallback a
+            // queued todo keeps only the built-in template NAME and its body
+            // (the ${originalPrompt} wrapper) never expands.
+            const builtIn = BUILTIN_TODO_TEMPLATES[templateName];
+            if (builtIn) { return builtIn; }
         }
     } catch { /* config not available */ }
     // Built-in default for __answer_file__ when not in config. This is
@@ -1687,11 +1696,26 @@ export class PromptQueueManager {
 
     /** Remove an item by id. */
     remove(id: string): void {
-        const removed = this._items.find(i => i.id === id);
-        this._items = this._items.filter(i => i.id !== id);
-        if (removed) {
-            logQueue(`Item removed: id=${removed.id}, type=${removed.type}, status=${removed.status}`);
+        const effect = computeRemovalEffect(this._items, id, this._autoSendEnabled);
+        this._items = effect.items;
+        if (effect.removed) {
+            logQueue(`Item removed: id=${effect.removed.id}, type=${effect.removed.type}, status=${effect.removed.status}`);
         }
+
+        // Deleting the item that is currently sending must interrupt it: abort
+        // the in-flight dispatch (otherwise the handler keeps executing a prompt
+        // that no longer exists in the queue, and the stop button can't reach it
+        // because the sending item is gone) and drop auto-send to OFF so the
+        // queue doesn't immediately fire the next pending prompt.
+        if (effect.wasSending) {
+            this._cancelActiveDispatch();
+            if (this._autoSendEnabled && !effect.nextAutoSendEnabled) {
+                this._autoSendEnabled = false;
+                this.persistSettings();
+                logQueue(`Auto-send disabled: currently-sending item ${id} was deleted`);
+            }
+        }
+
         this.persist();
         this._onDidChange.fire();
     }
@@ -2928,6 +2952,22 @@ export class PromptQueueManager {
             return normalizedCached;
         }
 
+        // `prefix*` repeat counts (e.g. `dsa*`) resolve at processing time
+        // against the active quest's todos: the count is the highest trailing
+        // number among ids matching the prefix. Resolved here — never at
+        // enqueue — so a series can grow between queuing and dispatch. Takes
+        // priority over the variable-recovery branch below because it is
+        // deterministic against the live todos rather than a sentCount guess.
+        if (typeof repeatCountRaw === 'string' && repeatCountRaw.trim().endsWith('*')) {
+            const questId = await_import_ChatVariablesStore()?.quest;
+            const todoIds = questId ? readQuestTodoIds(questId) : [];
+            const prefixCount = resolveTodoPrefixRepeatCount(repeatCountRaw, todoIds);
+            if (prefixCount !== undefined) {
+                logQueue(`${scope} dispatch: resolved prefix repeat '${repeatCountRaw}' -> ${prefixCount} from quest '${questId ?? 'none'}' todos`);
+                return prefixCount;
+            }
+        }
+
         const isVariableRepeat = typeof repeatCountRaw === 'string' && isNaN(parseInt(repeatCountRaw, 10));
         if (isVariableRepeat && sentCount > 0) {
             // Keep variable-driven repeats from expanding if cache was lost mid-run.
@@ -2987,8 +3027,15 @@ export class PromptQueueManager {
         // Quest Refresh exemption forwarded to `sendMessage`. Only the **main**
         // queue stage counts toward the refresh interval; pre-prompts,
         // follow-ups, and resends pass `true` so they neither count nor trigger
-        // a refresh.
+        // a refresh. Since qr1 the main stage also passes `true` — the refresh
+        // runs as a separate sequential step in the dispatch loop, not via the
+        // re-entrant `sendMessage` hook.
         skipQuestRefresh = true,
+        // Propagate this answer's responseValues (chat variables / TODO
+        // analysis). `true` for real queue stages; `false` for the internal
+        // Quest Refresh dispatch, whose maintenance answer must not drive
+        // downstream chat-variable / TODO side-effects.
+        propagateAnswer = true,
     ): Promise<{ mode: 'polled' } | { mode: 'direct'; answerText: string }> {
         if (resolved.transport === 'copilot') {
             await vscode.commands.executeCommand('workbench.action.chat.open', { query: expandedText });
@@ -3041,7 +3088,10 @@ export class PromptQueueManager {
             // main prompt, each repeat, follow-up — so chat-variable setting and
             // TODO analysis run on all final answers, not only the last stage.
             // (The Copilot transport already propagates once per answer file.)
-            this._propagateDirectAnswer(result.text);
+            // The internal Quest Refresh dispatch opts out (`propagateAnswer`).
+            if (propagateAnswer) {
+                this._propagateDirectAnswer(result.text);
+            }
             return { mode: 'direct', answerText: result.text };
         } finally {
             if (this._activeAnthropicCts === cts) {
@@ -3049,6 +3099,48 @@ export class PromptQueueManager {
             }
             cts.dispose();
         }
+    }
+
+    /**
+     * Dispatch the **main** queue stage, running a Quest Refresh first when due.
+     *
+     * qr1: the refresh used to fire re-entrantly inside the queued turn's own
+     * `sendMessage` (the queue never modelled that nested send, and a failing
+     * refresh dropped the user's prompt). It now runs here as an explicit,
+     * sequential step via {@link runMainStageWithRefresh}: the refresh is its
+     * own dispatch, its failure is isolated, then the main prompt is sent with
+     * `skipQuestRefresh:true` so `sendMessage`'s own hook stays inert for the
+     * queue. The interactive send path keeps that hook (it works there).
+     *
+     * Only the anthropic transport participates — copilot has no anthropic
+     * refresh, so it dispatches directly.
+     */
+    private async _dispatchMainStageWithRefresh(
+        item: QueuedPrompt,
+        resolved: ReturnType<typeof this.resolveStageTransport>,
+    ): Promise<{ mode: 'polled' } | { mode: 'direct'; answerText: string }> {
+        if (resolved.transport !== 'anthropic') {
+            return this.dispatchStage(item.expandedText, resolved, item, true);
+        }
+        const { QuestRefreshService } = await import('../services/quest-refresh-service.js');
+        const { QuestRefreshStore } = await import('./questRefreshStore.js');
+        const quest = WsPaths.getWorkspaceQuestId();
+        return runMainStageWithRefresh({
+            shouldRefresh: () => QuestRefreshService.instance.shouldAutoRefresh('anthropic', quest),
+            runRefresh: () => QuestRefreshService.instance.runRefresh(
+                'anthropic',
+                // The refresh prompt is its own sequential dispatch: skip the
+                // refresh hook (no count / no recursion) and don't propagate its
+                // maintenance answer's responseValues.
+                (refreshText) => this.dispatchStage(refreshText, resolved, undefined, true, false).then(() => undefined),
+                quest,
+            ),
+            incrementCount: () => { QuestRefreshStore.instance.incrementCount('anthropic', quest); },
+            onRefreshError: (err) => logQueue(
+                `Quest Refresh failed — queued prompt still sent: ${err instanceof Error ? err.message : String(err)}`,
+            ),
+            sendMain: () => this.dispatchStage(item.expandedText, resolved, item, true),
+        });
     }
 
     /**
@@ -3245,8 +3337,10 @@ export class PromptQueueManager {
                 dispatchedAt: new Date().toISOString(),
             };
             // Main stage: counts toward the Quest Refresh interval (and may
-            // trigger an auto-refresh before it sends).
-            const dispatchResult = await this.dispatchStage(item.expandedText, resolved, item, false);
+            // trigger an auto-refresh before it sends). qr1 — the refresh runs
+            // as an explicit sequential pre-step here, not via a re-entrant
+            // `sendMessage` hook, so a failing refresh can't drop this prompt.
+            const dispatchResult = await this._dispatchMainStageWithRefresh(item, resolved);
             this._onPromptSent.fire(item);
             this.updateWindowStatus('prompt-sent', resolved.transport);
             logQueue(`Main prompt sent (${mainSentCount + 1}/${mainRepeatCount}) via ${resolved.transport}`);
@@ -3675,7 +3769,12 @@ export class PromptQueueManager {
                 const doc = this._queuedPromptToDoc(item, quest, index);
                 let fileName = this._fileNameMap.get(item.id);
                 if (!fileName) {
-                    fileName = generateEntryFileName(quest, item.type, new Date(item.createdAt));
+                    // Second-resolution timestamps collide when several items are
+                    // enqueued in the same clock second (one prompt per stacked
+                    // todo). Seed the name with a slice of the unique item id so
+                    // each entry gets its own file instead of overwriting.
+                    const token = item.id.replace(/-/g, '').slice(0, 8);
+                    fileName = generateEntryFileName(quest, item.type, new Date(item.createdAt), token);
                     this._fileNameMap.set(item.id, fileName);
                 }
                 writeEntry(entryIdFromFileName(fileName), doc, fileName);
@@ -4064,6 +4163,20 @@ function await_import_ChatVariablesStore(): { quest: string } | undefined {
         const { ChatVariablesStore } = require('../managers/chatVariablesStore');
         return ChatVariablesStore.instance;
     } catch { return undefined; }
+}
+
+/**
+ * Lazily read all todo ids for a quest. Lazy `require` mirrors the
+ * ChatVariablesStore pattern above so the manager doesn't pull the
+ * questTodoManager into its import graph. Returns `[]` on any failure so
+ * prefix resolution degrades to a single run rather than throwing.
+ */
+function readQuestTodoIds(questId: string): string[] {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { readAllTodos } = require('../managers/questTodoManager');
+        return (readAllTodos(questId) as Array<{ id: string }>).map(t => t.id);
+    } catch { return []; }
 }
 
 function getWindowStatusWindowId(): string {

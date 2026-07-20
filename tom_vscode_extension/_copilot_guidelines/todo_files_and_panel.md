@@ -2,8 +2,8 @@
 
 Maintainer reference for the todo-file mechanics introduced by the TRA
 restructuring (TRA01–TRA05, 2026-07). Covers the archive/delete sibling-file
-rule, the panel's four top-bar move buttons, the stable per-host session todo
-file, and the LLM/MCP move tools.
+rule, the panel's archive/delete/status/move top-bar buttons, the stable
+per-host session todo file, and the LLM/MCP move tools.
 
 Key source files:
 
@@ -65,19 +65,37 @@ four move buttons in the top bar (`fragment.html`, ids `qt-btn-*`):
 | Delete todo (to file) | trash | selected todo → `-deleted` sibling | selection with any non-completed status |
 | Delete all cancelled | trash + circle-slash | bulk `deleteAllCancelled` on current file | concrete non-terminal file scope |
 
+In-place status + move buttons (no move to a terminal file):
+
+| Button | Icon | Action | Enabled when |
+| --- | --- | --- | --- |
+| Mark selected todo completed | check | set `status: completed` + stamp `completed_date` | selection or stack |
+| Mark selected todo cancelled | circle-slash | set `status: cancelled` | selection or stack |
+| Mark selected todo not-started | issue-reopened | set `status: not-started`, clear `completed_*` | selection or stack |
+| Move selected to other todo file | file-symlink-file | quick pick of the quest's other `*.todo.yaml` files, including the `-archived`/`-deleted` siblings (+ *New file…*) → move todo(s) | selection or stack, concrete quest mode only |
+
 Visibility rules (`qtUpdateArchiveButtons()` in `media/questTodoPanel/main.js`):
 
 - **Terminal files show no buttons** — the webview mirrors
   `isArchivedOrDeletedTodoFile` client-side (`qtIsTerminalTodoFileName`).
 - In aggregate views ("All files", all-quests) the single-todo buttons follow
   the *selected todo's own* source file; bulk buttons need a concrete file.
-- **Session mode currently hides all four buttons** — enabling them for the
-  stable session file is TRB1.
+- The move button is hidden in workspace-file and aggregate (`__all_*`) modes.
+- Session mode hides the move buttons; the archive/delete buttons were enabled
+  for the stable session file (TRB1, done).
 - Per-row trash icons are suppressed for rows whose source file is terminal.
 
 The handler answers `qtArchiveTodo` / `qtDeleteTodoToFile` /
 `qtArchiveAllCompleted` / `qtDeleteAllCancelled` messages with an
-`qtArchiveResult` refresh.
+`qtArchiveResult` refresh, and `qtCompleteTodo` / `qtCancelTodo` /
+`qtReopenSelectedTodo` (+ their `…StackedTodos` variants) with a
+`qtStatusResult` refresh. `qtMoveTodosToPickedFile` runs the quick pick and
+refreshes via `qtArchiveResult`. The candidate list for the move picker is the
+pure helper `computeMoveTargetFiles` (`src/utils/questTodoMoveTargets.ts`,
+offers every `*.todo.yaml` file — including the `-archived`/`-deleted` siblings
+— minus the single common source file; 6 unit tests).
+Detail requests thread the todo's `sourceFile` (`qtGetTodo` → `_sendTodoDetail`
+→ `_resolveDeleteSourcePath`) so todos in secondary files resolve correctly.
 
 ## 3. Session todos — stable per-host file (TRA04)
 
