@@ -11,7 +11,9 @@ import {
     clearRetryBookkeeping,
     applyStopRetrying,
     isPreviousMessageIdError,
+    rollbackInFlightRepetition,
     type RetryTransitionItem,
+    type RollbackTargetItem,
 } from '../queueRetryTransitions.js';
 
 describe('RETRY_BACKOFF_MS schedule', () => {
@@ -164,6 +166,89 @@ describe('isPreviousMessageIdError', () => {
         assert.equal(isPreviousMessageIdError('Rate limit hit'), false);
         assert.equal(isPreviousMessageIdError(''), false);
         assert.equal(isPreviousMessageIdError(undefined), false);
+    });
+});
+
+describe('rollbackInFlightRepetition', () => {
+    test('no-op (false) when nothing is in flight', () => {
+        const item: RollbackTargetItem = { repeatIndex: 3 };
+        assert.equal(rollbackInFlightRepetition(item), false);
+        assert.equal(item.repeatIndex, 3);
+    });
+
+    test('main stage: restores repeatIndex to the pre-dispatch value', () => {
+        // The dispatcher advanced repeatIndex 0 → 1 before the failed send.
+        const item: RollbackTargetItem = {
+            repeatIndex: 1,
+            inFlightRepetition: { stage: 'main', prevRepeatIndex: 0 },
+        };
+        assert.equal(rollbackInFlightRepetition(item), true);
+        assert.equal(item.repeatIndex, 0, 'retry must re-send the same repetition');
+        assert.equal(item.inFlightRepetition, undefined, 'snapshot consumed');
+    });
+
+    test('main stage: a mid-loop failure restores the failed rep, not rep 0', () => {
+        // Reps 0 and 1 succeeded; rep 2 (repeatIndex 2 → 3) failed.
+        const item: RollbackTargetItem = {
+            repeatIndex: 3,
+            inFlightRepetition: { stage: 'main', prevRepeatIndex: 2 },
+        };
+        rollbackInFlightRepetition(item);
+        assert.equal(item.repeatIndex, 2, 'resend rep 2, keep reps 0 and 1 done');
+    });
+
+    test('seven consecutive rollbacks never advance the index', () => {
+        // Simulate the reported bug: each retry re-dispatches, advances, fails.
+        const item: RollbackTargetItem = { repeatIndex: 0 };
+        for (let attempt = 0; attempt < 7; attempt++) {
+            // dispatch advances the counter optimistically…
+            const prev = item.repeatIndex ?? 0;
+            item.repeatIndex = prev + 1;
+            item.inFlightRepetition = { stage: 'main', prevRepeatIndex: prev };
+            // …the send fails and the item is parked → rollback.
+            rollbackInFlightRepetition(item);
+        }
+        assert.equal(item.repeatIndex, 0, 'after 7 failed retries the loop index must be unchanged');
+    });
+
+    test('pre-prompt stage: restores that pre-prompt’s repeatIndex only', () => {
+        const item: RollbackTargetItem = {
+            prePrompts: [{ repeatIndex: 5 }, { repeatIndex: 2 }],
+            inFlightRepetition: { stage: 'prePrompt', stageIndex: 1, prevRepeatIndex: 1 },
+        };
+        rollbackInFlightRepetition(item);
+        assert.equal(item.prePrompts?.[0].repeatIndex, 5, 'other pre-prompt untouched');
+        assert.equal(item.prePrompts?.[1].repeatIndex, 1);
+    });
+
+    test('follow-up stage: restores the follow-up counter and followUpIndex', () => {
+        // The dispatch sent the last repeat of follow-up 0, advancing both its
+        // repeatIndex (2 → 3) and item.followUpIndex (0 → 1); the send failed.
+        const item: RollbackTargetItem = {
+            followUpIndex: 1,
+            followUps: [{ repeatIndex: 3 }, { repeatIndex: 0 }],
+            inFlightRepetition: {
+                stage: 'followUp', stageIndex: 0, prevRepeatIndex: 2, prevFollowUpIndex: 0,
+            },
+        };
+        rollbackInFlightRepetition(item);
+        assert.equal(item.followUps?.[0].repeatIndex, 2, 'resend the same follow-up repeat');
+        assert.equal(item.followUpIndex, 0, 'do not advance to the next follow-up');
+    });
+
+    test('follow-up stage: mid-loop failure leaves followUpIndex untouched', () => {
+        // A non-final repeat of follow-up 0 failed — followUpIndex was NOT
+        // advanced, so the snapshot carries prevFollowUpIndex === current.
+        const item: RollbackTargetItem = {
+            followUpIndex: 0,
+            followUps: [{ repeatIndex: 2 }],
+            inFlightRepetition: {
+                stage: 'followUp', stageIndex: 0, prevRepeatIndex: 1, prevFollowUpIndex: 0,
+            },
+        };
+        rollbackInFlightRepetition(item);
+        assert.equal(item.followUps?.[0].repeatIndex, 1);
+        assert.equal(item.followUpIndex, 0);
     });
 });
 

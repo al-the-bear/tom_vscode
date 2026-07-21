@@ -208,6 +208,87 @@ export function isPreviousMessageIdError(text: string | undefined): boolean {
     return /previous_message_id/i.test(text);
 }
 
+// ============================================================================
+// In-flight repetition rollback
+// ============================================================================
+//
+// The dispatcher advances a stage's repetition counter *optimistically* — the
+// moment it starts a send, before it knows whether the send will succeed. On a
+// genuine failure the item is parked (in `retry` or `waiting`) and later
+// re-dispatched; without a rollback the re-dispatch would send the *next*
+// repetition, so a 7-attempt retry cascade would walk the loop index forward
+// by 7 and continue at the wrong iteration. To keep a retry re-sending the
+// *same* failed prompt, the dispatcher records exactly which counter it bumped
+// (an `InFlightRepetition` snapshot) and this helper restores it when the send
+// fails.
+
+/** Which stage's counter the in-flight dispatch advanced. */
+export type InFlightStage = 'prePrompt' | 'main' | 'followUp';
+
+/**
+ * Snapshot of the single counter advance an in-flight dispatch made, captured
+ * so a failed send can be rolled back to re-send the same repetition. Set by
+ * the dispatcher immediately after it bumps a stage counter; consumed (and
+ * cleared) by `rollbackInFlightRepetition` when the send fails.
+ */
+export interface InFlightRepetition {
+    stage: InFlightStage;
+    /** For `prePrompt`/`followUp`: index into the respective array. */
+    stageIndex?: number;
+    /** The stage's repeat counter value *before* the dispatch advanced it. */
+    prevRepeatIndex: number;
+    /**
+     * For `followUp` only: `item.followUpIndex` before the dispatch's
+     * conditional advance (a follow-up whose last repeat just went out also
+     * advances the item to the next follow-up). Restored alongside the
+     * follow-up's own repeat counter.
+     */
+    prevFollowUpIndex?: number;
+}
+
+/** Item shape mutated by `rollbackInFlightRepetition`. Subset of `QueuedPrompt`. */
+export interface RollbackTargetItem {
+    repeatIndex?: number;
+    followUpIndex?: number;
+    prePrompts?: { repeatIndex?: number }[];
+    followUps?: { repeatIndex?: number }[];
+    inFlightRepetition?: InFlightRepetition;
+}
+
+/**
+ * Undo the counter advance recorded by the in-flight dispatch so a parked
+ * (retry / waiting) item re-sends the *same* repetition rather than skipping to
+ * the next one. No-op (returns false) when there is no snapshot — e.g. the send
+ * failed during prompt expansion, before any counter was bumped, so nothing
+ * needs restoring. Clears the snapshot after applying it.
+ *
+ * Pure — mutates the passed item in place, no I/O.
+ */
+export function rollbackInFlightRepetition(item: RollbackTargetItem): boolean {
+    const snap = item.inFlightRepetition;
+    if (!snap) { return false; }
+    switch (snap.stage) {
+        case 'main':
+            item.repeatIndex = snap.prevRepeatIndex;
+            break;
+        case 'prePrompt': {
+            const pp = snap.stageIndex !== undefined ? item.prePrompts?.[snap.stageIndex] : undefined;
+            if (pp) { pp.repeatIndex = snap.prevRepeatIndex; }
+            break;
+        }
+        case 'followUp': {
+            const fu = snap.stageIndex !== undefined ? item.followUps?.[snap.stageIndex] : undefined;
+            if (fu) { fu.repeatIndex = snap.prevRepeatIndex; }
+            if (snap.prevFollowUpIndex !== undefined) {
+                item.followUpIndex = snap.prevFollowUpIndex;
+            }
+            break;
+        }
+    }
+    item.inFlightRepetition = undefined;
+    return true;
+}
+
 /** First non-empty line of a string, trimmed and capped — for warning chips. */
 function firstLine(s: string | undefined): string | undefined {
     if (!s) { return undefined; }

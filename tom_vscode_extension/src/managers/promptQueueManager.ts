@@ -36,7 +36,7 @@ import { runMainStageWithRefresh } from '../utils/questRefreshDispatch.js';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
 import { mergeQueueReload } from '../utils/queueReloadMergeUtils';
 import { applyErrorTransition, applyResetToPending, applyWaitingTransition, clearWaitingState, dispatchWasSuperseded, isWaitingDue, itemHasInFlightProgress, resolveAnswerContainer } from '../utils/queueErrorTransitions';
-import { applyRetryScheduling, applyStopRetrying, clearRetryBookkeeping, computeRetryDecision, fireRetry, isPreviousMessageIdError, isRetryDue } from '../utils/queueRetryTransitions';
+import { applyRetryScheduling, applyStopRetrying, clearRetryBookkeeping, computeRetryDecision, fireRetry, isPreviousMessageIdError, isRetryDue, rollbackInFlightRepetition, type InFlightRepetition } from '../utils/queueRetryTransitions';
 import { parseResetClause } from '../utils/queueResetClause';
 import { resolveVariables } from '../utils/variableResolver.js';
 import {
@@ -259,6 +259,18 @@ export interface QueuedPrompt {
      * it on reload by re-entering the dispatch path.
      */
     awaitingAnswer?: boolean;
+    /**
+     * Snapshot of the single repetition-counter advance the in-flight dispatch
+     * made, so a failed send can be rolled back to re-send the *same* prompt
+     * (see `rollbackInFlightRepetition`). The dispatcher advances a stage's
+     * counter optimistically before the send resolves; on a genuine failure the
+     * item is parked in `retry`/`waiting` and later re-dispatched — without this
+     * rollback the re-dispatch would skip to the next repetition, so a retry
+     * cascade would walk the loop index forward instead of retrying the failure.
+     * Transient runtime state (not persisted); cleared at the top of every
+     * dispatch attempt and consumed on rollback.
+     */
+    inFlightRepetition?: InFlightRepetition;
 }
 
 // ============================================================================
@@ -2885,6 +2897,12 @@ export class PromptQueueManager {
         // survives a window reload. See queueResetClause / applyWaitingTransition.
         // The dispatch that was in flight has now failed — no longer awaiting.
         item.awaitingAnswer = false;
+        // Roll back the optimistic repetition-counter advance the failed
+        // dispatch made, so whichever recovery path runs (waiting / retry /
+        // hard error) re-sends the *same* prompt rather than skipping to the
+        // next repetition. No-op when the send failed before any counter was
+        // bumped (e.g. during prompt expansion).
+        rollbackInFlightRepetition(item);
         const searchText = this._errorSearchText(err, interruption);
         const clause = parseResetClause(searchText);
         if (clause) {
@@ -3445,9 +3463,17 @@ export class PromptQueueManager {
             // item is idle (its header goes amber). The current iteration has
             // already completed — that's what let us reach the pause gate.
             item.awaitingAnswer = false;
+            item.inFlightRepetition = undefined;
             logQueue(`dispatchNext: auto-send paused, leaving item ${item.id} in 'sending' with progress preserved`);
             return 'paused';
         }
+
+        // Entering a fresh dispatch attempt: any snapshot from the previous
+        // (now-succeeded) dispatch is moot. Clear it so that a failure during
+        // prompt expansion — before this attempt advances any counter — does
+        // not roll back the *previous* repetition. The snapshot is re-set the
+        // instant this attempt bumps a stage counter.
+        item.inFlightRepetition = undefined;
 
         // Stage 1: Pre-prompts with individual repeat support.
         // Each stage uses a stable numeric repeat target for normal loop control.
@@ -3481,6 +3507,9 @@ export class PromptQueueManager {
                 );
                 pp.status = 'sent';
                 pp.repeatIndex = ppSentCount + 1;
+                // Record the advance so a failed send can roll back to re-send
+                // this same pre-prompt repetition (not the next one).
+                item.inFlightRepetition = { stage: 'prePrompt', stageIndex: ppIndex, prevRepeatIndex: ppSentCount };
                 item.expandedText = prePromptExpanded;
                 item.expectedRequestId = resolved.transport === 'copilot'
                     ? this._extractRequestIdFromExpandedPrompt(prePromptExpanded)
@@ -3558,6 +3587,9 @@ export class PromptQueueManager {
             }
             item.expectedRequestId = newRequestId;
             item.repeatIndex = mainSentCount + 1;
+            // Record the advance so a failed send can roll back to re-send this
+            // same main-prompt repetition instead of skipping to the next.
+            item.inFlightRepetition = { stage: 'main', prevRepeatIndex: mainSentCount };
             item.sentAt = new Date().toISOString();
             item.awaitingAnswer = true; // in flight — a prompt is being processed
             item.reminderSentCount = 0;
@@ -3628,6 +3660,15 @@ export class PromptQueueManager {
                 if (nextFollowUp.repeatIndex >= fuRepeatCount) {
                     item.followUpIndex = currentFuIndex + 1;
                 }
+                // Record the advance (this follow-up's repeat counter plus any
+                // followUpIndex bump) so a failed send can roll back to re-send
+                // this same follow-up repetition instead of skipping ahead.
+                item.inFlightRepetition = {
+                    stage: 'followUp',
+                    stageIndex: currentFuIndex,
+                    prevRepeatIndex: fuSentCount,
+                    prevFollowUpIndex: currentFuIndex,
+                };
                 item.sentAt = new Date().toISOString();
                 item.awaitingAnswer = true; // in flight — a prompt is being processed
                 item.reminderSentCount = 0;
@@ -3668,6 +3709,7 @@ export class PromptQueueManager {
 
         // No more stages left.
         item.awaitingAnswer = false;
+        item.inFlightRepetition = undefined;
         return 'done';
     }
 
