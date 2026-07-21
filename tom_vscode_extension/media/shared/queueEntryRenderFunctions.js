@@ -49,13 +49,14 @@ function renderEntry(item, idx) {
   var isMainPromptActive = safeStatus === 'sending' && !!item.requestId && (item.followUpIndex || 0) === 0;
   var statusBarCls = item.type === 'reminder' ? 'reminder' : safeStatus;
   var statusLabel = safeStatus.toUpperCase();
-  // "SENDING (PAUSED)" — only meaningful in the queue editor (the
-  // template editor doesn't define `autoSend`). The in-flight rep
-  // has finished or will finish naturally; the pause gate refuses to
-  // start the *next* one. Clicking auto-send resumes from the
-  // persisted counter.
+  // Paused sending item — only meaningful in the queue editor (the template
+  // editor doesn't define `autoSend`). Distinguish two cases so the user can
+  // tell whether the current iteration is still running or already done:
+  //   • awaitingAnswer → a prompt is still in flight → "SENDING (PAUSED)" (green)
+  //   • else           → iteration done, idle, waiting to resume → "PAUSED" (amber)
+  // Clicking auto-send resumes from the persisted counter.
   if (isSending && typeof autoSend !== 'undefined' && autoSend === false) {
-    statusLabel = 'SENDING (PAUSED)';
+    statusLabel = item.awaitingAnswer ? 'SENDING (PAUSED)' : 'PAUSED';
   }
   // Rate-limit parked item: show the human-friendly reset time from the
   // "resets <time> (<tz>)" clause. The manager persists the stated reset
@@ -73,6 +74,19 @@ function renderEntry(item, idx) {
       if (!isNaN(rd.getTime())) { retryNextTime = rd.toLocaleTimeString(); }
     }
     statusLabel = 'RETRYING ' + retryAttemptNum + '/7' + (retryNextTime ? ' — NEXT ' + retryNextTime.toUpperCase() : '');
+  }
+
+  // Green→amber header for the head-of-queue item. The queue is "active" while
+  // it will proceed on its own (auto-send on) OR a prompt is genuinely in
+  // flight (some sending item is awaiting an answer). When neither holds the
+  // queue is idle/paused, so the currently-sending item (between iterations)
+  // and the next pending item turn amber — a stopped queue is visually
+  // distinct from a running one, and the amber says "waiting to be started".
+  var queueActive = (typeof autoSend !== 'undefined' && autoSend === true)
+    || (typeof currentItems !== 'undefined' && Array.isArray(currentItems)
+        && currentItems.some(function(it) { return it && it.status === 'sending' && it.awaitingAnswer; }));
+  if (!queueActive && item.type !== 'reminder' && (isSending || isPending)) {
+    statusBarCls += ' idle';
   }
 
   var followUps = Array.isArray(item.followUps) ? item.followUps : [];

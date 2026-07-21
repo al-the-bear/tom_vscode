@@ -31,6 +31,11 @@
      transient parked-and-will-auto-retry state, distinct from hard error red. */
   .status-bar.retry { background: #b39ddb; }
   .status-bar.reminder { background: #ff9800; }
+  /* Queue idle/paused: the current sending item (between iterations) or the
+     next pending item turns amber when nothing is being processed, so a
+     stopped/idle queue reads apart from an actively-running (green) one.
+     Declared after .pending/.sending so it wins by source order on a shared bar. */
+  .status-bar.idle { background: #ffc107; }
   .status-bar.template-mode { background: var(--vscode-textBlockQuote-background); color: var(--fg); font-weight: normal; }
   textarea { width: 100%; min-height: 50px; resize: vertical; font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--border); padding: 4px; box-sizing: border-box; }
   .empty { text-align: center; opacity: 0.5; padding: 20px; }

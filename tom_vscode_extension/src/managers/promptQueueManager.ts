@@ -247,6 +247,18 @@ export interface QueuedPrompt {
      * survives a window reload (mirrors `waitingUntil`).
      */
     retryUntil?: string;
+    /**
+     * True while a dispatched prompt is genuinely in flight — set at each
+     * dispatch (a Copilot polled answer-file wait, or an Anthropic direct
+     * await) and cleared the moment the queue stops actively processing this
+     * item (pause gate, completion, or error). Drives the webview's green→amber
+     * header: a `sending` item stays green while `awaitingAnswer`, and turns
+     * amber once it is idle/paused between iterations — so a stopped queue shows
+     * at a glance whether the current iteration is still running or already
+     * done. Transient runtime state (not persisted); the resume path re-derives
+     * it on reload by re-entering the dispatch path.
+     */
+    awaitingAnswer?: boolean;
 }
 
 // ============================================================================
@@ -2871,6 +2883,8 @@ export class PromptQueueManager {
         // 5-minute buffer) instead of hard-failing. The item keeps its
         // queue position; the health-check timer drives the retry, so it
         // survives a window reload. See queueResetClause / applyWaitingTransition.
+        // The dispatch that was in flight has now failed — no longer awaiting.
+        item.awaitingAnswer = false;
         const searchText = this._errorSearchText(err, interruption);
         const clause = parseResetClause(searchText);
         if (clause) {
@@ -3427,6 +3441,10 @@ export class PromptQueueManager {
         // proceeds — that's how the user explicitly Sends a single
         // item via sendNow without having to flip auto-send on.
         if (!this._autoSendEnabled && this._itemHasInFlightProgress(item)) {
+            // Between iterations and paused: no prompt is in flight, so the
+            // item is idle (its header goes amber). The current iteration has
+            // already completed — that's what let us reach the pause gate.
+            item.awaitingAnswer = false;
             logQueue(`dispatchNext: auto-send paused, leaving item ${item.id} in 'sending' with progress preserved`);
             return 'paused';
         }
@@ -3468,6 +3486,7 @@ export class PromptQueueManager {
                     ? this._extractRequestIdFromExpandedPrompt(prePromptExpanded)
                     : undefined;
                 item.sentAt = new Date().toISOString();
+                item.awaitingAnswer = true; // in flight — a prompt is being processed
                 item.reminderSentCount = 0;
                 item.lastReminderAt = undefined;
                 this.persist();
@@ -3540,6 +3559,7 @@ export class PromptQueueManager {
             item.expectedRequestId = newRequestId;
             item.repeatIndex = mainSentCount + 1;
             item.sentAt = new Date().toISOString();
+            item.awaitingAnswer = true; // in flight — a prompt is being processed
             item.reminderSentCount = 0;
             item.lastReminderAt = undefined;
             this.persist();
@@ -3609,6 +3629,7 @@ export class PromptQueueManager {
                     item.followUpIndex = currentFuIndex + 1;
                 }
                 item.sentAt = new Date().toISOString();
+                item.awaitingAnswer = true; // in flight — a prompt is being processed
                 item.reminderSentCount = 0;
                 item.lastReminderAt = undefined;
                 this.persist();
@@ -3646,6 +3667,7 @@ export class PromptQueueManager {
         }
 
         // No more stages left.
+        item.awaitingAnswer = false;
         return 'done';
     }
 
