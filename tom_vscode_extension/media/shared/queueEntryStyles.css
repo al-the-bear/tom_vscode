@@ -14,6 +14,7 @@
   /* Sent items: dim only the header bar so the answer + content stay readable. */
   .queue-item.sent > .item-header { opacity: 0.55; }
   .queue-item.error { border-left: 3px solid var(--vscode-inputValidation-errorBorder, #f44); }
+  .queue-item.retry { border-left: 3px solid #b39ddb; }
   .queue-item.reminder { border-left: 3px solid orange; }
   .item-header { display: flex; align-items: center; margin-bottom: 4px; }
   .item-meta { font-size: 0.8em; opacity: 0.7; }
@@ -26,6 +27,9 @@
   /* Rate-limit parked ("Waiting for <reset time>") — a distinct violet so it
      reads apart from pending green, error red and sent grey. */
   .status-bar.waiting { background: #b39ddb; }
+  /* Backoff-parked ("Retrying n/7") — same violet as waiting: both are a
+     transient parked-and-will-auto-retry state, distinct from hard error red. */
+  .status-bar.retry { background: #b39ddb; }
   .status-bar.reminder { background: #ff9800; }
   .status-bar.template-mode { background: var(--vscode-textBlockQuote-background); color: var(--fg); font-weight: normal; }
   textarea { width: 100%; min-height: 50px; resize: vertical; font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--border); padding: 4px; box-sizing: border-box; }

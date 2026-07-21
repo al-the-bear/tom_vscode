@@ -40,12 +40,17 @@ function reminderTimeoutOptions(selectedMinutes) {
 }
 
 function statusSortRank(status) {
-  if (status === 'sending') return 0;
-  if (status === 'pending') return 1;
-  // Waiting (rate-limit parked) items are next-in-line to retry, so group
-  // them right after pending rather than at the bottom with errors.
+  // The states that STOP the queue cluster at the very top so a halted queue
+  // is immediately visible: an exhausted `error`, a backoff-parked `retry`,
+  // and a rate-limit-parked `waiting` all keep their place at the head rather
+  // than being demoted below the pending run. (In practice only one of these
+  // coexists with the live run, since a blocked head means nothing is sending.)
+  if (status === 'error') return 0;
+  if (status === 'retry') return 1;
   if (status === 'waiting') return 2;
-  if (status === 'staged') return 3;
-  if (status === 'sent') return 4;
-  return 5;
+  if (status === 'sending') return 3;
+  if (status === 'pending') return 4;
+  if (status === 'staged') return 5;
+  if (status === 'sent') return 6;
+  return 7;
 }

@@ -502,6 +502,38 @@ async function handleMessage(msg: any): Promise<void> {
             );
           }
           break;
+        case 'retryRetryingNow':
+          // Manual escape hatch on a retry-parked item: cut the backoff
+          // countdown short, flip to `pending`, and send immediately.
+          try {
+            await qm.retryRetryingNow(msg.id);
+          } catch (err) {
+            vscode.window.showWarningMessage(
+              `Retry now failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+          break;
+        case 'stopRetrying':
+          // Give up on a retry-parked item: promote it to `error` and pause
+          // the queue (mirrors the exhausted-schedule path).
+          try {
+            qm.stopRetrying(msg.id);
+          } catch (err) {
+            vscode.window.showWarningMessage(
+              `Stop retrying failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+          break;
+        case 'setQueueStartDelay':
+          // Header dropdown: defer the queue start by N minutes (0 = clear).
+          try {
+            qm.setQueueStartDelay(typeof msg.minutes === 'number' ? msg.minutes : 0);
+          } catch (err) {
+            vscode.window.showWarningMessage(
+              `Set start delay failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+          break;
         case 'toggleReminder':
             qm.updateItemReminder(msg.id, { reminderEnabled: msg.enabled });
             break;
@@ -872,6 +904,7 @@ function buildState(): Record<string, unknown> {
     let queueDefaultTransport: 'copilot' | 'anthropic' = 'copilot';
     let queueDefaultAnthropicProfileId = '';
     let queueDefaultMessageTemplateId = '';
+    let queueStartAt: string | undefined;
 
     try {
         const qm = PromptQueueManager.instance;
@@ -885,6 +918,7 @@ function buildState(): Record<string, unknown> {
         queueDefaultTransport = qm.defaultTransport;
         queueDefaultAnthropicProfileId = qm.defaultAnthropicProfileId || '';
         queueDefaultMessageTemplateId = qm.defaultMessageTemplateId || '';
+        queueStartAt = qm.queueStartAt;
         console.log('[QueueEditor] buildState: items count =', items.length);
     } catch (e) {
         console.error('[QueueEditor] buildState: PromptQueueManager not ready:', e);
@@ -961,6 +995,9 @@ function buildState(): Record<string, unknown> {
         queueDefaultTransport,
         queueDefaultAnthropicProfileId,
         queueDefaultMessageTemplateId,
+        // Deferred queue start: ISO instant (or undefined) the header
+        // "Start in N minutes" dropdown reflects.
+        queueStartAt,
         collapsedIds: Array.from(_collapsedItemIds),
         context: { quest, role, activeProjects },
     };

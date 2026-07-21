@@ -36,6 +36,7 @@ import { runMainStageWithRefresh } from '../utils/questRefreshDispatch.js';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
 import { mergeQueueReload } from '../utils/queueReloadMergeUtils';
 import { applyErrorTransition, applyResetToPending, applyWaitingTransition, clearWaitingState, dispatchWasSuperseded, isWaitingDue, itemHasInFlightProgress, resolveAnswerContainer } from '../utils/queueErrorTransitions';
+import { applyRetryScheduling, applyStopRetrying, clearRetryBookkeeping, computeRetryDecision, fireRetry, isPreviousMessageIdError, isRetryDue } from '../utils/queueRetryTransitions';
 import { parseResetClause } from '../utils/queueResetClause';
 import { resolveVariables } from '../utils/variableResolver.js';
 import {
@@ -58,7 +59,7 @@ import type { ChangeSource } from './chatVariablesStore';
 // Types
 // ============================================================================
 
-export type QueuedPromptStatus = 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'waiting';
+export type QueuedPromptStatus = 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'waiting' | 'retry';
 export type QueuedPromptType = 'normal' | 'timed' | 'reminder';
 
 /**
@@ -230,6 +231,22 @@ export interface QueuedPrompt {
      * the message*, not the +5-minute retry instant.
      */
     waitingResetLabel?: string;
+    /**
+     * When `status === 'retry'`: number of retries already consumed in the
+     * current failure cascade (0-based index into `RETRY_BACKOFF_MS`). Set by
+     * `applyRetryScheduling`, preserved by `fireRetry` so a fired retry that
+     * fails again continues the backoff instead of restarting at 30s, and
+     * cleared on the next successful dispatch so a later repetition starts a
+     * fresh cascade.
+     */
+    retryAttempt?: number;
+    /**
+     * When `status === 'retry'`: the ISO instant at which the next retry
+     * should fire. The health-check timer flips the item back to `pending`
+     * and drives `sendNext()` once this instant is reached, so the retry
+     * survives a window reload (mirrors `waitingUntil`).
+     */
+    retryUntil?: string;
 }
 
 // ============================================================================
@@ -392,6 +409,12 @@ export class PromptQueueManager {
     private _autoPauseEnabled = true;
     private _autoContinueEnabled = false;
     private _responseFileTimeoutMinutes = 60;
+    /**
+     * Deferred queue start: ISO instant before which all sends are held. Set
+     * by the header "Start in N minutes" dropdown; cleared (and auto-send
+     * re-enabled) by the health-check once it passes. undefined = no deferral.
+     */
+    private _queueStartAt: string | undefined;
     private _defaultReminderTemplateId: string | undefined;
     // Queue-level default transport (spec §4.10). New items that don't
     // pin a transport inherit this at enqueue-time.
@@ -823,16 +846,54 @@ export class PromptQueueManager {
                 logQueue(`Health check: reset window elapsed for item ${item.id}; resuming as pending`);
             }
         }
-        if (resumedWaiting) {
+
+        // Fire due `retry` items: flip them back to `pending` (preserving the
+        // backoff attempt) so the normal send path retries them. Because this
+        // runs on the health-check timer the retry fires at the right instant
+        // even across a window reload. See queueRetryTransitions.fireRetry.
+        let resumedRetry = false;
+        for (const item of this._items) {
+            if (item.status === 'retry' && isRetryDue(item.retryUntil, nowMs)) {
+                fireRetry(item);
+                resumedRetry = true;
+                logQueue(`Health check: retry countdown elapsed for item ${item.id}; resuming as pending`);
+            }
+        }
+
+        // Deferred queue start: while the armed start instant is still in the
+        // future, hold every send. When it passes, enable auto-send, clear the
+        // deferral (the header dropdown resets to "No start time"), and let the
+        // drain below fire. Survives a reload because the instant is persisted.
+        let queueStartArmed = false;
+        let queueStartJustFired = false;
+        if (this._queueStartAt) {
+            const startMs = new Date(this._queueStartAt).getTime();
+            if (!Number.isNaN(startMs) && nowMs < startMs) {
+                queueStartArmed = true;
+            } else {
+                queueStartJustFired = true;
+                this._queueStartAt = undefined;
+                if (!this._autoSendEnabled) {
+                    this._autoSendEnabled = true;
+                }
+                logQueue('Queue start delay elapsed; enabling auto-send and draining the queue');
+            }
+        }
+
+        if (resumedWaiting || resumedRetry || queueStartJustFired) {
+            this.persistSettings();
             this.persist();
             this._onDidChange.fire();
         }
 
-        // While any item is still parked in `waiting` (its reset time has not
-        // yet arrived) the whole account is rate-limited, so hold every send —
-        // dispatching another pending prompt would just burn another blocked
-        // request. The parked item keeps its queue position and resumes above.
-        const hasBlockingWaiting = this._items.some(i => i.status === 'waiting');
+        // While any item is still parked in `waiting` (rate-limit reset not yet
+        // due) or `retry` (backoff countdown not yet due), or a deferred queue
+        // start has not yet arrived, hold every send: the parked item keeps its
+        // queue position at the top and the queue stays visibly stopped rather
+        // than draining past the stuck prompt. The health-check above resumes
+        // the parked item / clears the deferral when its instant arrives.
+        const hasBlockingWaiting = queueStartArmed
+            || this._items.some(i => i.status === 'waiting' || i.status === 'retry');
 
         const pendingCount = this._items.filter(i => i.status === 'pending').length;
         const sendingCount = this._items.filter(i => i.status === 'sending').length;
@@ -860,15 +921,18 @@ export class PromptQueueManager {
         }
 
         if (hasBlockingWaiting) {
-            logQueue('Health check holding all sends: an item is waiting for its rate-limit reset');
+            logQueue(queueStartArmed
+                ? 'Health check holding all sends: deferred queue start not yet reached'
+                : 'Health check holding all sends: an item is waiting for its rate-limit reset or retry backoff');
         } else if (decisions.shouldTriggerSendNext) {
             logQueue('Health check detected pending prompts without active sending; triggering sendNext');
             await this.sendNext();
-        } else if (resumedWaiting && sendingCount === 0) {
-            // A parked item just became due but auto-send may be off (the queue
-            // could have been paused independently). Retry it directly so the
-            // reset resumes regardless of the auto-send flag.
-            logQueue('Health check resuming a rate-limited retry after its reset window');
+        } else if ((resumedWaiting || resumedRetry || queueStartJustFired) && sendingCount === 0) {
+            // A parked item (waiting reset OR retry backoff) just became due, or
+            // a deferred queue start just elapsed, but auto-send may be off (the
+            // queue could have been paused independently). Drive the drain
+            // directly so it resumes regardless of the auto-send flag.
+            logQueue('Health check resuming after a parked window (rate-limit reset, retry backoff, or deferred start)');
             await this.sendNext();
         }
 
@@ -1512,6 +1576,35 @@ export class PromptQueueManager {
     set autoPauseEnabled(v: boolean) {
         this._autoPauseEnabled = v;
         logQueue(`Auto-pause toggled: ${v ? 'on' : 'off'}`);
+        this.persistSettings();
+        this._onDidChange.fire();
+    }
+
+    /**
+     * ISO instant before which the queue holds every send (deferred start), or
+     * undefined when no start delay is armed. Surfaced to the header dropdown
+     * so it can render the pending delay; cleared by the health-check once due.
+     */
+    get queueStartAt(): string | undefined { return this._queueStartAt; }
+
+    /**
+     * Arm (or clear) a deferred queue start from the header "Start in N
+     * minutes" dropdown. `minutes <= 0` (or NaN) clears the deferral and lets
+     * the queue drain immediately. Otherwise the queue holds all sends until
+     * `now + minutes`; the health-check enables auto-send, drains, and clears
+     * the deferral once that instant passes. Persisted so it survives a reload.
+     */
+    setQueueStartDelay(minutes: number): void {
+        const mins = Math.floor(minutes);
+        if (!Number.isFinite(mins) || mins <= 0) {
+            if (this._queueStartAt !== undefined) {
+                this._queueStartAt = undefined;
+                logQueue('Queue start delay cleared');
+            }
+        } else {
+            this._queueStartAt = new Date(Date.now() + mins * 60_000).toISOString();
+            logQueue(`Queue start delayed by ${mins} min → holding sends until ${this._queueStartAt}`);
+        }
         this.persistSettings();
         this._onDidChange.fire();
     }
@@ -2473,6 +2566,14 @@ export class PromptQueueManager {
     }
 
     async sendNext(): Promise<void> {
+        // Deferred queue start: hold the automatic drain until the armed start
+        // instant passes. The health-check clears the deferral and re-drives
+        // sendNext when due. (Explicit per-item "send now" bypasses this — it
+        // calls sendItem directly — so the delay only gates the auto-drain.)
+        if (this._isQueueStartDeferred()) {
+            logQueue(`sendNext: held — deferred queue start until ${this._queueStartAt}`);
+            return;
+        }
         const next = this._items.find(i => i.status === 'pending');
         if (!next) {
             logQueue('sendNext: no pending items');
@@ -2491,6 +2592,18 @@ export class PromptQueueManager {
         }
         logQueue(`sendNext: sending item ${next.id}`);
         await this.sendItem(next);
+    }
+
+    /**
+     * True while a deferred queue start is armed and its instant has not yet
+     * passed. A missing/unparseable `_queueStartAt` is treated as not deferred
+     * (never strand the queue). The health-check owns clearing the deferral.
+     */
+    private _isQueueStartDeferred(): boolean {
+        if (!this._queueStartAt) { return false; }
+        const startMs = new Date(this._queueStartAt).getTime();
+        if (Number.isNaN(startMs)) { return false; }
+        return Date.now() < startMs;
     }
 
     private async sendItem(item: QueuedPrompt): Promise<void> {
@@ -2758,7 +2871,8 @@ export class PromptQueueManager {
         // 5-minute buffer) instead of hard-failing. The item keeps its
         // queue position; the health-check timer drives the retry, so it
         // survives a window reload. See queueResetClause / applyWaitingTransition.
-        const clause = parseResetClause(this._errorSearchText(err, interruption));
+        const searchText = this._errorSearchText(err, interruption);
+        const clause = parseResetClause(searchText);
         if (clause) {
             applyWaitingTransition(item, clause, {
                 retryBufferMs: RESET_RETRY_BUFFER_MS,
@@ -2770,6 +2884,34 @@ export class PromptQueueManager {
             return;
         }
 
+        // Generic (non-rate-limit) failure: instead of hard-failing straight to
+        // `error`, park the item in `retry` on a fixed backoff schedule
+        // (30s, +15m, +30m, +45m, +60m, +60m, +60m — 7 attempts). The item
+        // keeps its queue position; the health-check timer fires due retries so
+        // a reload doesn't strand it. Only once the schedule is exhausted does
+        // the item drop to `error` and the queue pause. See queueRetryTransitions.
+        const decision = computeRetryDecision(item.retryAttempt);
+        if (decision.kind === 'retry') {
+            // The Claude Agent SDK "stale previous_message_id" 400 survives an
+            // ordinary session reset — the bad id lives in default.session.json.
+            // Delete it *now*, before the retry fires, so the next dispatch
+            // starts a clean SDK session. See isPreviousMessageIdError.
+            if (isPreviousMessageIdError(searchText)) {
+                this._clearAgentSdkSessionForRetry(item, scope);
+            }
+            applyRetryScheduling(item, decision, {
+                nowMs: Date.now(),
+                interruption: interruption ?? null,
+                errorText: searchText,
+            });
+            logQueueError(scope, err);
+            logQueue(`Item ${item.id} failed (${scope}); scheduled retry ${decision.attempt}/${decision.total} at ${item.retryUntil}`);
+            this.persist();
+            this._onDidChange.fire();
+            return;
+        }
+
+        // Schedule exhausted → hard-fail and pause the queue (existing behaviour).
         const result = applyErrorTransition(item, err, { interruption: interruption ?? null });
         logQueueError(scope, err);
 
@@ -2781,6 +2923,26 @@ export class PromptQueueManager {
 
         this.persist();
         this._onDidChange.fire();
+    }
+
+    /**
+     * Delete the Agent SDK session file (`default.session.json`) for the active
+     * quest so the next retry of `item` starts a fresh SDK session. Called only
+     * for the "stale previous_message_id" 400, whose bad id survives a normal
+     * reset. Lazy `require` mirrors the other manager helpers so the memory
+     * service (which pulls in heavy history machinery) stays out of the import
+     * graph. Best-effort — a failure here must not block the retry.
+     */
+    private _clearAgentSdkSessionForRetry(item: QueuedPrompt, scope: string): void {
+        try {
+            const questId = await_import_ChatVariablesStore()?.quest || undefined;
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { TwoTierMemoryService } = require('../services/memory-service');
+            TwoTierMemoryService.instance.clearAgentSdkSessionId(questId, 'default');
+            logQueue(`Item ${item.id} (${scope}): cleared Agent SDK session (previous_message_id 400) for quest '${questId ?? 'none'}' before retry`);
+        } catch (e) {
+            logQueue(`Item ${item.id} (${scope}): failed to clear Agent SDK session before retry: ${String(e)}`);
+        }
     }
 
     /**
@@ -2842,6 +3004,64 @@ export class PromptQueueManager {
         if (!this._items.some(i => i.status === 'sending')) {
             await this.sendNext();
         }
+        return true;
+    }
+
+    /**
+     * Manually fire a parked `retry` item now: flip it back to `pending`
+     * (preserving the backoff attempt so a further failure continues the
+     * cascade) and — unless another item is already sending — dispatch it
+     * immediately. This is the per-item "retry now" button, bypassing the
+     * backoff countdown the health-check driver otherwise enforces.
+     *
+     * No-op (returns false) on items whose status is not `retry`.
+     */
+    async retryRetryingNow(id: string): Promise<boolean> {
+        const item = this._items.find(i => i.id === id);
+        if (!item) {
+            throw new Error(`Queue item ${id} not found`);
+        }
+        if (item.status !== 'retry') {
+            logQueue(`retryRetryingNow(${id}): no-op (status was ${item.status})`);
+            return false;
+        }
+        fireRetry(item);
+        logQueue(`retryRetryingNow(${id}): retry → pending (manual retry, attempt ${item.retryAttempt ?? 0})`);
+        this.persist();
+        this._onDidChange.fire();
+        if (!this._items.some(i => i.status === 'sending')) {
+            await this.sendNext();
+        }
+        return true;
+    }
+
+    /**
+     * Give up retrying a parked `retry` item (the per-item "Stop retrying"
+     * button): promote it to `error`, stop the countdown, and pause the queue —
+     * mirroring the exhausted-schedule path so the user reviews the failure and
+     * explicitly re-arms. The item keeps its queue position and its warning
+     * chip so the cause stays visible.
+     *
+     * No-op (returns false) on items whose status is not `retry`.
+     */
+    stopRetrying(id: string): boolean {
+        const item = this._items.find(i => i.id === id);
+        if (!item) {
+            throw new Error(`Queue item ${id} not found`);
+        }
+        const ok = applyStopRetrying(item);
+        if (!ok) {
+            logQueue(`stopRetrying(${id}): no-op (status was ${item.status})`);
+            return false;
+        }
+        if (this._autoSendEnabled) {
+            this._autoSendEnabled = false;
+            this.persistSettings();
+            logQueue(`Auto-send disabled by stopRetrying on item ${item.id}`);
+        }
+        logQueue(`stopRetrying(${id}): retry → error (queue paused)`);
+        this.persist();
+        this._onDidChange.fire();
         return true;
     }
 
@@ -3023,6 +3243,7 @@ export class PromptQueueManager {
     ): Promise<{ mode: 'polled' } | { mode: 'direct'; answerText: string }> {
         if (resolved.transport === 'copilot') {
             await vscode.commands.executeCommand('workbench.action.chat.open', { query: expandedText });
+            this._clearRetryOnDispatchSuccess();
             return { mode: 'polled' };
         }
 
@@ -3076,6 +3297,7 @@ export class PromptQueueManager {
             if (propagateAnswer) {
                 this._propagateDirectAnswer(result.text);
             }
+            this._clearRetryOnDispatchSuccess();
             return { mode: 'direct', answerText: result.text };
         } finally {
             if (this._activeAnthropicCts === cts) {
@@ -3083,6 +3305,21 @@ export class PromptQueueManager {
             }
             cts.dispose();
         }
+    }
+
+    /**
+     * A stage dispatch just succeeded — clear the retry backoff cascade on the
+     * currently-sending item so a *later* failure (e.g. a subsequent
+     * repetition) starts a fresh cascade at 30s instead of continuing a stale
+     * one. Only touches the retry bookkeeping (attempt + countdown); if there
+     * is nothing to clear this is a cheap no-op and no change event fires.
+     */
+    private _clearRetryOnDispatchSuccess(): void {
+        const sending = this._items.find(i => i.status === 'sending');
+        if (!sending) { return; }
+        if (sending.retryAttempt === undefined && sending.retryUntil === undefined) { return; }
+        clearRetryBookkeeping(sending);
+        this.persist();
     }
 
     /**
@@ -3518,6 +3755,7 @@ export class PromptQueueManager {
             'default-anthropic-profile-id': this._defaultAnthropicProfileId,
             'default-anthropic-config-id': this._defaultAnthropicConfigId,
             'default-message-template-id': this._defaultMessageTemplateId,
+            'queue-start-at': this._queueStartAt,
         });
     }
 
@@ -3554,6 +3792,9 @@ export class PromptQueueManager {
             }
             if (typeof settings['default-message-template-id'] === 'string') {
                 this._defaultMessageTemplateId = settings['default-message-template-id'] || undefined;
+            }
+            if (typeof settings['queue-start-at'] === 'string') {
+                this._queueStartAt = settings['queue-start-at'] || undefined;
             }
             console.log('[PromptQueueManager] restoreSettings:', {
                 timeout: this._responseFileTimeoutMinutes,
@@ -3861,6 +4102,16 @@ export class PromptQueueManager {
                 prompt.waitingResetLabel = main.execution['waiting-reset-label'];
             }
 
+            // Retry "backoff" state — restored so the health-check auto-fire
+            // resumes at the right instant and continues the backoff cascade
+            // (not restart at 30s) after a reload.
+            if (typeof main.execution?.['retry-attempt'] === 'number') {
+                prompt.retryAttempt = main.execution['retry-attempt'];
+            }
+            if (typeof main.execution?.['retry-until'] === 'string') {
+                prompt.retryUntil = main.execution['retry-until'];
+            }
+
             // Pre-prompts: resolve refs from the prompt-queue
             const preRefs = main['pre-prompt-refs'] || [];
             if (preRefs.length > 0) {
@@ -3979,6 +4230,7 @@ export class PromptQueueManager {
             || (item.followUpIndex && item.followUpIndex > 0)
             || item.lastDispatched || item.warning
             || item.waitingUntil
+            || item.retryUntil || item.retryAttempt
         ) {
             mainPrompt.execution = {
                 'request-id': item.requestId || null,
@@ -3988,6 +4240,8 @@ export class PromptQueueManager {
                 'follow-up-index': item.followUpIndex || 0,
                 ...(item.waitingUntil ? { 'waiting-until': item.waitingUntil } : {}),
                 ...(item.waitingResetLabel ? { 'waiting-reset-label': item.waitingResetLabel } : {}),
+                ...(item.retryAttempt ? { 'retry-attempt': item.retryAttempt } : {}),
+                ...(item.retryUntil ? { 'retry-until': item.retryUntil } : {}),
                 ...(item.lastDispatched ? {
                     'last-dispatched': {
                         kind: item.lastDispatched.kind,

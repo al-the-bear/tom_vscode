@@ -52,6 +52,18 @@
   <button onclick="clearErrors()" title="Remove every item currently in error state">Delete Errors</button>
   <button onclick="clearSent()">Clear Sent</button>
   <button onclick="clearAll()">Clear All</button>
+  <label style="font-size:0.85em;opacity:0.85;">Start:</label>
+  <select id="queueStartDelay" onchange="setQueueStartDelay(this.value)" title="Defer the queue: auto-send starts once this delay has elapsed, then resets to 'No start time'.">
+    <option value="0">No start time</option>
+    <option value="15">Start in 15 min</option>
+    <option value="30">Start in 30 min</option>
+    <option value="60">Start in 60 min</option>
+    <option value="90">Start in 90 min</option>
+    <option value="180">Start in 180 min</option>
+    <option value="270">Start in 270 min</option>
+    <option value="360">Start in 360 min</option>
+    <option value="420">Start in 420 min</option>
+  </select>
   <label style="font-size:0.85em;opacity:0.85;">Answer Timeout:</label>
   <select id="responseTimeout" onchange="setResponseTimeout(this.value)">
     <option value="5">5 Minutes</option>

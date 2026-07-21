@@ -26,7 +26,7 @@ function formatRepeatLabel(repeatCountRaw, repeatIndex, resolvedRepeatCount) {
 }
 
 function renderEntry(item, idx) {
-  var safeStatus = (item.status === 'staged' || item.status === 'pending' || item.status === 'sending' || item.status === 'sent' || item.status === 'error' || item.status === 'waiting')
+  var safeStatus = (item.status === 'staged' || item.status === 'pending' || item.status === 'sending' || item.status === 'sent' || item.status === 'error' || item.status === 'waiting' || item.status === 'retry')
     ? item.status : 'staged';
   var queuePos = idx + 1;
   var typeIconClass = item.type === 'timed' ? 'codicon-watch' : item.type === 'reminder' ? 'codicon-bell' : 'codicon-comment';
@@ -43,6 +43,7 @@ function renderEntry(item, idx) {
   var isSent = safeStatus === 'sent';
   var isError = safeStatus === 'error';
   var isWaiting = safeStatus === 'waiting';
+  var isRetry = safeStatus === 'retry';
   var reminderEnabled = item.reminderEnabled !== false;
   var isEditable = editorMode === 'template' || isStaged;
   var isMainPromptActive = safeStatus === 'sending' && !!item.requestId && (item.followUpIndex || 0) === 0;
@@ -61,6 +62,17 @@ function renderEntry(item, idx) {
   // label (waitingResetLabel); the item auto-retries 5 min after it.
   if (isWaiting) {
     statusLabel = 'WAITING FOR ' + (item.waitingResetLabel ? String(item.waitingResetLabel).toUpperCase() : 'RESET');
+  }
+  // Retry-parked item: show attempt count + the next-retry clock time so the
+  // user can see the backoff progress (e.g. "RETRYING 2/7 — NEXT 11:05:30").
+  if (isRetry) {
+    var retryAttemptNum = Math.max(0, parseInt(String(item.retryAttempt || 0), 10) || 0);
+    var retryNextTime = '';
+    if (item.retryUntil) {
+      var rd = new Date(item.retryUntil);
+      if (!isNaN(rd.getTime())) { retryNextTime = rd.toLocaleTimeString(); }
+    }
+    statusLabel = 'RETRYING ' + retryAttemptNum + '/7' + (retryNextTime ? ' — NEXT ' + retryNextTime.toUpperCase() : '');
   }
 
   var followUps = Array.isArray(item.followUps) ? item.followUps : [];
@@ -258,13 +270,20 @@ function renderEntry(item, idx) {
           (isWaiting
             ? '<span class="codicon codicon-debug-restart" style="cursor:pointer;color:#000;" onclick="retryWaitingNow(\'' + safeId + '\')" title="Retry now (skip the rate-limit reset wait and send immediately)"></span>'
             : '') +
+          // Retry (backoff-parked) items get a "retry now" control that cuts
+          // the backoff countdown short and sends immediately, plus a "stop
+          // retrying" control that gives up (→ error) and pauses the queue.
+          (isRetry
+            ? '<span class="codicon codicon-debug-restart" style="cursor:pointer;color:#000;" onclick="retryRetryingNow(\'' + safeId + '\')" title="Retry now (skip the backoff wait and send immediately)"></span>'
+              + '<span class="codicon codicon-stop-circle" style="cursor:pointer;color:#000;" onclick="stopRetrying(\'' + safeId + '\')" title="Stop retrying (give up — mark as error and pause the queue)"></span>'
+            : '') +
           // Resend last dispatch — available once there is a recorded
           // lastDispatched (i.e. at least one stage has been sent) and
           // the item isn't currently in-flight or errored. Re-sends
           // the exact expanded text byte-for-byte; repetition
           // counters are not touched, so the queue continues from
           // where it was.
-          (item.lastDispatched && !isSending && !isError
+          (item.lastDispatched && !isSending && !isError && !isRetry
             ? '<span class="codicon codicon-refresh" style="cursor:pointer;color:#000;" onclick="resendLastPrompt(\'' + safeId + '\')" title="Resend last prompt (keeps repetition counters)"></span>'
             : '') +
           (isPending ? '<span class="codicon codicon-arrow-up" style="cursor:pointer;color:#000;" onclick="moveUp(\'' + safeId + '\')" title="Move up (closer to queue top — sent sooner)"></span>' : '') +
