@@ -31,7 +31,7 @@ import {
 } from '../storage/queueFileStorage';
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
-import { applyQueueDefaultTransportToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, convertStagedToPending, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty } from '../utils/queueStep3Utils';
+import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty } from '../utils/queueStep3Utils';
 import { runMainStageWithRefresh } from '../utils/questRefreshDispatch.js';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
 import { mergeQueueReload } from '../utils/queueReloadMergeUtils';
@@ -2417,54 +2417,14 @@ export class PromptQueueManager {
         const item = this._items.find(i => i.id === id);
         if (!item) { return; }
 
-        const isSending = item.status === 'sending';
-        const allowFullEdit = this.isEditableStatus(item.status);
-        if (!allowFullEdit && !isSending) { return; }
+        // staged/pending → every field; sending/waiting → loop counters only
+        // (so a running loop can be steered, applying next repetition); terminal
+        // → frozen. computeRepeatEditability + applyRepeatEditToItem hold the
+        // decision + field logic (pure, unit-tested in repeatEditability.test).
+        const mode = computeRepeatEditability(item.status);
+        if (mode === 'none') { return; }
 
-        if (patch.repeatCount !== undefined) {
-            // Accept both number and string (variable name)
-            if (typeof patch.repeatCount === 'string' && isNaN(parseInt(patch.repeatCount, 10))) {
-                // String variable name
-                item.repeatCount = patch.repeatCount;
-                item.resolvedRepeatCount = undefined;
-            } else {
-                const requested = Math.max(0, Math.round(typeof patch.repeatCount === 'string' ? parseInt(patch.repeatCount, 10) || 0 : patch.repeatCount || 0));
-                item.repeatCount = requested;
-                item.resolvedRepeatCount = undefined;
-            }
-        }
-        if (!allowFullEdit) {
-            this.persist();
-            this._onDidChange.fire();
-            return;
-        }
-        if (patch.repeatIndex !== undefined) {
-            item.repeatIndex = Math.max(0, Math.round(patch.repeatIndex || 0));
-        }
-        if (patch.repeatPrefix !== undefined) {
-            item.repeatPrefix = patch.repeatPrefix;
-        }
-        if (patch.repeatSuffix !== undefined) {
-            item.repeatSuffix = patch.repeatSuffix;
-        }
-        if (patch.answerWaitMinutes !== undefined) {
-            item.answerWaitMinutes = patch.answerWaitMinutes > 0 ? patch.answerWaitMinutes : undefined;
-        }
-        if (patch.templateRepeatCount !== undefined) {
-            // Accept both number and string (variable name)
-            if (typeof patch.templateRepeatCount === 'string' && isNaN(parseInt(patch.templateRepeatCount, 10))) {
-                item.templateRepeatCount = patch.templateRepeatCount;
-            } else {
-                const val = typeof patch.templateRepeatCount === 'string' ? parseInt(patch.templateRepeatCount, 10) || 0 : patch.templateRepeatCount || 0;
-                item.templateRepeatCount = val > 0 ? val : undefined;
-            }
-        }
-        if (patch.templateRepeatIndex !== undefined) {
-            // 0-based — clamped non-negative. Persisted as-is; the
-            // dispatcher's `computeRepeatDecision` decides whether the
-            // item is still in range relative to templateRepeatCount.
-            item.templateRepeatIndex = Math.max(0, Math.round(patch.templateRepeatIndex || 0));
-        }
+        applyRepeatEditToItem(item, patch, mode);
 
         this.persist();
         this._onDidChange.fire();

@@ -94,14 +94,21 @@ function renderEntry(item, idx) {
         + '<input type="text" value="' + escapeHtml(repeatCountDisplay)
         + '" style="width:38px" title="Update main prompt repeat count (Enter)" placeholder="1 or var" onclick="event.stopPropagation()"'
         + ' onkeydown="submitRepeatCountFromStatus(event, \'' + safeId + '\', ' + repeatIndex + ', this)">';
+    } else if (isSending) {
+      // Sending: expose the current rep index (1-based, editable) alongside
+      // the count so the running loop can be steered — the change applies on
+      // the next repetition. Mirrors the staged/pending "index/count" pair.
+      repeatProgress = '  [MP <input type="text" value="' + mpStartNumber
+        + '" style="width:28px" title="Current main-prompt rep number — 1-based; takes effect on the next repetition" placeholder="1"'
+        + ' onclick="event.stopPropagation()" onkeydown="submitRepeatStartIndexFromStatus(event, \'' + safeId + '\', this)">/'
+        + '<input type="text" value="' + escapeHtml(repeatCountDisplay)
+        + '" style="width:38px" title="Update main prompt repeat count (Enter)" placeholder="1 or var" onclick="event.stopPropagation()"'
+        + ' onkeydown="submitRepeatCountFromStatus(event, \'' + safeId + '\', ' + repeatIndex + ', this)">';
     } else {
       if (mainRepeatLabel) {
         repeatProgress = '  [MP ' + mainRepeatLabel;
       } else {
         repeatProgress = '  [MP ';
-      }
-      if (isSending) {
-        repeatProgress += ' <input type="text" value="' + escapeHtml(repeatCountDisplay) + '" style="width:38px" title="Update main prompt repeat count (Enter)" placeholder="1 or var" onclick="event.stopPropagation()" onkeydown="submitRepeatCountFromStatus(event, \'' + safeId + '\', ' + repeatIndex + ', this)">';
       }
     }
     if (isSending && mainRepeatLabel) {
@@ -131,7 +138,12 @@ function renderEntry(item, idx) {
       + '<input type="text" value="' + escapeHtml(tplRepeatCountDisplay) + '" style="width:38px" title="Update template repeat total (Enter)" placeholder="1 or var" onclick="event.stopPropagation()" onkeydown="submitTemplateRepeatFromStatus(event, \'' + safeId + '\', this)">'
       + ']';
   } else if (isSending) {
-    tplRepeatProgress = '  [T ' + tplCurrent + '/'
+    // Sending: expose the current template iteration index (0-based, editable)
+    // alongside the total so the running template loop can be steered — the
+    // change applies on the next iteration. Mirrors the staged/pending pair.
+    tplRepeatProgress = '  [T <input type="text" value="' + tplCurrent
+      + '" style="width:28px" title="Current template iteration index — 0-based; takes effect on the next iteration" placeholder="0"'
+      + ' onclick="event.stopPropagation()" onkeydown="submitTemplateStartIndexFromStatus(event, \'' + safeId + '\', this)">/'
       + '<input type="text" value="' + escapeHtml(tplRepeatCountDisplay) + '" style="width:38px" title="Update template repeat total (Enter)" placeholder="1 or var" onclick="event.stopPropagation()" onkeydown="submitTemplateRepeatFromStatus(event, \'' + safeId + '\', this)">'
       + ((tplRepeatCount > 1 || tplRepeatIsVar) ? ' <span class="codicon codicon-debug-step-over" style="cursor:pointer;font-size:11px;" onclick="event.stopPropagation();continueSending(\'' + safeId + '\')" title="Skip to next template iteration"></span>' : '')
       + ']';

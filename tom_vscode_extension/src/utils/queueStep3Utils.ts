@@ -79,6 +79,106 @@ export function normalizeRepeatCountInput(value: number | string | undefined): n
 }
 
 /**
+ * How editable a queue item's repeat controls are, keyed on its status.
+ *
+ * - `full`     — every repeat field (counters + prefix/suffix/answer-wait).
+ *                Applies while the item is still ahead of dispatch.
+ * - `counters` — only the loop counters (main + template repeat count and
+ *                current index). Applies while the item is in flight so the
+ *                user can steer a running loop; the change takes effect on the
+ *                next repetition. Structural fields (prefix/suffix/answer-wait)
+ *                are frozen for the run.
+ * - `none`     — terminal / non-editable.
+ */
+export type RepeatEditMode = 'full' | 'counters' | 'none';
+
+export function computeRepeatEditability(status: string): RepeatEditMode {
+    if (status === 'staged' || status === 'pending') { return 'full'; }
+    if (status === 'sending' || status === 'waiting') { return 'counters'; }
+    return 'none';
+}
+
+/**
+ * The repeat fields a queue item exposes to editing. Structurally a subset of
+ * `QueuedPrompt`, kept vscode-free so the edit logic is unit-testable.
+ */
+export interface RepeatEditTarget {
+    repeatCount?: number | string;
+    resolvedRepeatCount?: number;
+    repeatIndex?: number;
+    repeatPrefix?: string;
+    repeatSuffix?: string;
+    answerWaitMinutes?: number;
+    templateRepeatCount?: number | string;
+    templateRepeatIndex?: number;
+}
+
+/** The patch shape accepted by `updateItemRepeat` messages. */
+export interface RepeatEditPatch {
+    repeatCount?: number | string;
+    repeatIndex?: number;
+    repeatPrefix?: string;
+    repeatSuffix?: string;
+    answerWaitMinutes?: number;
+    templateRepeatCount?: number | string;
+    templateRepeatIndex?: number;
+}
+
+/**
+ * Apply a repeat-field patch to a queue item, honouring the editability `mode`.
+ *
+ * The counter fields (main/template repeat count + current index) are applied
+ * in both `full` and `counters` mode — this is what lets a *sending* item's
+ * index and template counters be steered mid-loop, and what makes a *pending*
+ * item's status-bar inputs actually stick (both were silently dropped before,
+ * because the old gate only wrote counters for `staged`). The structural fields
+ * (prefix/suffix/answer-wait) are applied only in `full` mode; `none` is a
+ * no-op. Mutates `target` in place; pure otherwise.
+ */
+export function applyRepeatEditToItem(target: RepeatEditTarget, patch: RepeatEditPatch, mode: RepeatEditMode): void {
+    if (mode === 'none') { return; }
+
+    if (patch.repeatCount !== undefined) {
+        // Accept both number and string (variable name); either way the cached
+        // resolved value is stale and must be recomputed on next dispatch.
+        if (typeof patch.repeatCount === 'string' && isNaN(parseInt(patch.repeatCount, 10))) {
+            target.repeatCount = patch.repeatCount;
+        } else {
+            target.repeatCount = Math.max(0, Math.round(typeof patch.repeatCount === 'string' ? parseInt(patch.repeatCount, 10) || 0 : patch.repeatCount || 0));
+        }
+        target.resolvedRepeatCount = undefined;
+    }
+    if (patch.repeatIndex !== undefined) {
+        target.repeatIndex = Math.max(0, Math.round(patch.repeatIndex || 0));
+    }
+    if (patch.templateRepeatCount !== undefined) {
+        if (typeof patch.templateRepeatCount === 'string' && isNaN(parseInt(patch.templateRepeatCount, 10))) {
+            target.templateRepeatCount = patch.templateRepeatCount;
+        } else {
+            const val = typeof patch.templateRepeatCount === 'string' ? parseInt(patch.templateRepeatCount, 10) || 0 : patch.templateRepeatCount || 0;
+            target.templateRepeatCount = val > 0 ? val : undefined;
+        }
+    }
+    if (patch.templateRepeatIndex !== undefined) {
+        // 0-based — clamped non-negative. The dispatcher's computeRepeatDecision
+        // decides whether the item is still in range vs templateRepeatCount.
+        target.templateRepeatIndex = Math.max(0, Math.round(patch.templateRepeatIndex || 0));
+    }
+
+    if (mode !== 'full') { return; }
+
+    if (patch.repeatPrefix !== undefined) {
+        target.repeatPrefix = patch.repeatPrefix;
+    }
+    if (patch.repeatSuffix !== undefined) {
+        target.repeatSuffix = patch.repeatSuffix;
+    }
+    if (patch.answerWaitMinutes !== undefined) {
+        target.answerWaitMinutes = patch.answerWaitMinutes > 0 ? patch.answerWaitMinutes : undefined;
+    }
+}
+
+/**
  * Resolve a `prefix*` repeat-count against a set of quest-todo ids.
  *
  * When the user enters a repeat-count variable that ends in `*` (e.g. `dsa*`),
