@@ -259,6 +259,13 @@ function renderEntry(item, idx) {
           (isPending ? '<span class="codicon codicon-arrow-down" style="cursor:pointer;color:#000;" onclick="moveDown(\'' + safeId + '\')" title="Move down (closer to queue end — sent later)"></span>' : '') +
           (isPending ? '<span class="codicon codicon-arrow-circle-up" style="cursor:pointer;color:#000;" onclick="moveToFront(\'' + safeId + '\')" title="Send next (move to front of pending queue)"></span>' : '') +
           (isSending ? '<span class="codicon ' + (reminderEnabled ? 'codicon-bell' : 'codicon-bell-slash') + '" style="cursor:pointer;color:' + (reminderEnabled ? '#000' : '#888') + ';" onclick="toggleReminder(\'' + safeId + '\', ' + !reminderEnabled + ')" title="' + (reminderEnabled ? 'Reminders ON - click to disable' : 'Reminders OFF - click to enable') + '"></span>' : '') +
+          // Adopt queue settings — copies the queue-level default
+          // transport + profile (the dropdowns above the queue) onto this
+          // item. Shown in every status (including a repeating item): for
+          // a sending item the next repetition uses the new transport/
+          // profile. Distinct from the staged-only gear below, which opens
+          // the full transport picker.
+          '<span class="codicon codicon-arrow-circle-down" style="cursor:pointer;color:#000;" onclick="applyQueueDefaultTransport(\'' + safeId + '\')" title="Set transport/profile to the queue default (dropdowns above). Works while repeating — the next repetition uses it."></span>' +
           // Staged-only: once an item is pending or sending, the
           // manager rejects transport updates (isEditableStatus). Hide
           // the gear so users don't click a no-op.

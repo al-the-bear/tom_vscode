@@ -31,7 +31,7 @@ import {
 } from '../storage/queueFileStorage';
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
-import { applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, convertStagedToPending, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty } from '../utils/queueStep3Utils';
+import { applyQueueDefaultTransportToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, convertStagedToPending, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty } from '../utils/queueStep3Utils';
 import { runMainStageWithRefresh } from '../utils/questRefreshDispatch.js';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
 import { mergeQueueReload } from '../utils/queueReloadMergeUtils';
@@ -1835,6 +1835,30 @@ export class PromptQueueManager {
         if ('anthropicConfigId' in patch) {
             item.anthropicConfigId = patch.anthropicConfigId || undefined;
         }
+        this.persist();
+        this._onDidChange.fire();
+    }
+
+    /**
+     * Adopt the queue-level default transport + Anthropic profile (the
+     * selection shown in the dropdowns above the queue) onto a single item.
+     *
+     * Unlike {@link updateItemTransport}, this is intentionally allowed for an
+     * item in ANY status — including a currently sending/repeating item.
+     * Only the transport and Anthropic profile/config are changed; the item's
+     * status, repetition counters, template and text are left intact. For a
+     * repeating item the in-flight dispatch has already resolved its
+     * transport, so the change takes effect on the next repetition, whose
+     * {@link resolveStageTransport} then reads the freshly-adopted values.
+     */
+    applyQueueDefaultsToItem(id: string): void {
+        const item = this._items.find(i => i.id === id);
+        if (!item) { return; }
+        applyQueueDefaultTransportToItem(item, {
+            transport: this._defaultTransport,
+            anthropicProfileId: this._defaultAnthropicProfileId,
+            anthropicConfigId: this._defaultAnthropicConfigId,
+        });
         this.persist();
         this._onDidChange.fire();
     }

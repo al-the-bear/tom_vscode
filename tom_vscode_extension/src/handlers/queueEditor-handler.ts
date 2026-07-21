@@ -240,6 +240,17 @@ async function handleMessage(msg: any): Promise<void> {
           sendState();
           return;
         }
+        case 'applyQueueDefaultTransport': {
+          // Header-bar "adopt queue settings" button. Copies the queue-level
+          // default transport + Anthropic profile (the dropdowns above the
+          // queue) onto this item. Allowed in any status — for a currently
+          // repeating item the next repetition picks up the new values.
+          const id = typeof msg.id === 'string' ? msg.id : '';
+          if (!id) { return; }
+          PromptQueueManager.instance.applyQueueDefaultsToItem(id);
+          sendState();
+          return;
+        }
         case 'editItemTransport':
         case 'editPrePromptTransport':
         case 'editFollowUpTransport': {

@@ -377,3 +377,43 @@ export function applyRepetitionAffixes(input: RepetitionAffixInput): string {
 
     return segments.join('\n\n');
 }
+
+/** Queue-level transport defaults, as surfaced by the dropdowns above the queue. */
+export interface QueueTransportDefaults {
+    transport: 'copilot' | 'anthropic';
+    anthropicProfileId?: string;
+    anthropicConfigId?: string;
+}
+
+/** Minimal shape of a queued item's transport/profile override fields. */
+export interface QueueTransportTarget {
+    transport?: 'copilot' | 'anthropic';
+    anthropicProfileId?: string;
+    anthropicConfigId?: string;
+}
+
+/**
+ * Copy the queue-level default transport + Anthropic profile (and its derived
+ * config) onto a single item, mutating and returning it.
+ *
+ * This is the "adopt queue settings" action wired to the per-item header
+ * button. Unlike the staged-only per-item override (`updateItemTransport`),
+ * it is meant to run for an item in ANY status — including a currently
+ * sending/repeating item — so the caller applies it without an
+ * editable-status guard. Only the transport and Anthropic profile/config are
+ * touched; status, repetition counters, template and text are deliberately
+ * left intact, so a repeating item keeps its place and its next repetition's
+ * transport resolution reads the freshly-adopted values.
+ *
+ * Empty/whitespace profile and config ids collapse to `undefined` so the item
+ * mirrors the queue default exactly (no stale override left behind).
+ */
+export function applyQueueDefaultTransportToItem<T extends QueueTransportTarget>(
+    item: T,
+    defaults: QueueTransportDefaults,
+): T {
+    item.transport = defaults.transport === 'anthropic' ? 'anthropic' : 'copilot';
+    item.anthropicProfileId = defaults.anthropicProfileId?.trim() ? defaults.anthropicProfileId : undefined;
+    item.anthropicConfigId = defaults.anthropicConfigId?.trim() ? defaults.anthropicConfigId : undefined;
+    return item;
+}
