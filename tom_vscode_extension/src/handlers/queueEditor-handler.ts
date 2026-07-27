@@ -17,6 +17,7 @@ import { openGlobalTemplateEditor } from './globalTemplateEditor-handler';
 import { renderTransportPicker } from '../utils/transportPicker';
 import { normalizeRepeatCountInput } from '../utils/queueStep3Utils';
 import { loadWebviewHtml } from '../utils/webviewLoader';
+import { QuestRefreshService } from '../services/quest-refresh-service';
 
 // ============================================================================
 // State
@@ -24,6 +25,7 @@ import { loadWebviewHtml } from '../utils/webviewLoader';
 
 let _panel: vscode.WebviewPanel | undefined;
 let _queueListener: vscode.Disposable | undefined;
+let _questRefreshListener: vscode.Disposable | undefined;
 let _ctx: vscode.ExtensionContext | undefined;
 const QUEUE_COLLAPSED_STATE_KEY = 'tomAi.queueEditor.collapsedItemIds';
 let _collapsedItemIds = new Set<string>();
@@ -150,10 +152,21 @@ function bindQueueEditorPanel(ctx: vscode.ExtensionContext, panel: vscode.Webvie
         console.error('[QueueEditor] Failed to bind onDidChange:', e);
     }
 
+    // Re-push state when a Quest Refresh starts/ends so the webview can show
+    // (or hide) its orange "refresh running" banner. The refresh fires outside
+    // the queue's own change events, so it needs a separate subscription.
+    try {
+        _questRefreshListener = QuestRefreshService.instance.onDidChangeRefreshing(() => sendState());
+    } catch (e) {
+        console.error('[QueueEditor] Failed to bind onDidChangeRefreshing:', e);
+    }
+
     _panel.onDidDispose(() => {
         _panel = undefined;
         _queueListener?.dispose();
         _queueListener = undefined;
+        _questRefreshListener?.dispose();
+        _questRefreshListener = undefined;
     });
 }
 
@@ -939,6 +952,11 @@ function buildState(): Record<string, unknown> {
         activeProjects = store.activeProjects || [];
     } catch { /* */ }
 
+    let questRefreshActive = false;
+    try {
+        questRefreshActive = QuestRefreshService.instance.isRefreshing;
+    } catch { /* service not ready */ }
+
     let promptTemplates: string[] = [];
     let anthropicProfiles: Array<{ id: string; name?: string }> = [];
     let anthropicConfigs: Array<{ id: string; name?: string; transport?: string }> = [];
@@ -1000,6 +1018,9 @@ function buildState(): Record<string, unknown> {
         queueStartAt,
         collapsedIds: Array.from(_collapsedItemIds),
         context: { quest, role, activeProjects },
+        // Drives the webview's orange "Quest refresh is running…" banner
+        // between the queue header and the first item.
+        questRefreshActive,
     };
 }
 

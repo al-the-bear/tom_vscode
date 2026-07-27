@@ -135,6 +135,12 @@
   </div>
 </div>
 
+<!-- Orange banner shown while a Quest Refresh dispatch is in flight, so a
+     paused/idle-looking queue reads as "intentionally busy" rather than stuck.
+     Hidden by default; main.js toggles it from state.questRefreshActive. -->
+<div id="questRefreshBanner" role="status" style="display:none;margin:6px 0;padding:8px 12px;border-radius:4px;background:#b5730a;color:#fff;font-size:0.9em;font-weight:600;">
+  🔄 Quest refresh is running… configure in the Extension Status Page
+</div>
 <div class="queue-list" id="queueList"><div class="empty">Loading…</div></div>
 <noscript><div class="empty" style="color:var(--vscode-errorForeground,#f85149);">JavaScript is disabled in this webview.</div></noscript>
 

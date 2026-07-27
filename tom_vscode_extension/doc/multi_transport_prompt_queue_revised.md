@@ -660,6 +660,63 @@ all pure (no `vscode` imports) and unit-tested in
 the manager owns persistence and change-event firing, keeping the helpers free
 of side effects.
 
+#### Backoff retry, deferred start, and idle signalling
+
+Four refinements layer on top of the pause/resume/error model above. The retry
+logic is pure and unit-tested in
+[`src/utils/queueRetryTransitions.ts`](../src/utils/queueRetryTransitions.ts)
+(no `vscode` imports).
+
+- **`'retry'` status with a backoff cascade.** A genuine send failure no longer
+  stops after a few immediate attempts. `_markItemError` parks the item in the
+  new `'retry'` status and schedules re-sends at `RETRY_BACKOFF_MS` = 30 s, then
+  +15/30/45/60/60/60 min (7 attempts, ≈ 4 h 30 m). Retry items keep their queue
+  position; `statusSortRank` clusters `error`/`retry`/`waiting` at the top so a
+  stalled queue is visible, and retry reuses the waiting **violet** (`#b39ddb`).
+  Per-item **retry-now** (`retryRetryingNow`) and **stop-retrying**
+  (`stopRetrying`, → paused `error`) icons are wired through the handler and
+  manager; schedule exhaustion falls through to the existing paused-error
+  transition. `computeRetryDecision`, `applyRetryScheduling`, `fireRetry`,
+  `isRetryDue`, `applyStopRetrying`, and `isPreviousMessageIdError` carry the
+  logic. The agent-SDK `previous_message_id … must start with msg_` 400 is
+  classified via `isPreviousMessageIdError`; before the first retry the transport
+  deletes `default.session.json` (`clearAgentSdkSessionId`) so the SDK
+  re-handshakes clean instead of hard-failing the prompt.
+
+- **`inFlightRepetition` rollback.** The dispatch loop advances a stage's
+  repetition counter optimistically (`repeatIndex = mainSentCount + 1`, and the
+  pre-prompt / follow-up equivalents) *before* the send resolves. A transient
+  `inFlightRepetition` snapshot records that single advance; `_markItemError`
+  calls the pure `rollbackInFlightRepetition` before every waiting / retry /
+  hard-error transition so a retry re-sends the **same** failed rep instead of
+  walking the loop forward. The snapshot is cleared at the top of each dispatch
+  attempt and on the done path.
+
+- **Deferred queue start.** A header **"Start in N minutes"** dropdown
+  (`setQueueStartDelay` / `queueStartAt`; No start time / 15/30/60/90/180/270/
+  360/420) holds every send in `sendNext` + the health check until the target
+  instant passes, then clears itself and re-enables auto-send. `queueStartAt`
+  persists across reload via `queue-settings.yaml`.
+
+- **Idle-amber header.** A transient `awaitingAnswer` flag (set at all three
+  dispatch points, cleared at the pause gate, the done path, and
+  `_markItemError`) lets the webview tell a genuinely in-flight iteration from an
+  idle gap between repetitions. The sending item's status-bar header (and the
+  next pending item's) stays **green** while a prompt is processing and takes the
+  amber `.status-bar.idle` background (`#ffc107`) once the queue is paused with
+  nothing in flight (`queueActive = autoSend || some(sending && awaitingAnswer)`).
+  The sending label splits into **`SENDING (PAUSED)`** (iteration still running)
+  vs **`PAUSED`** (idle).
+
+- **Quest-refresh running banner.** While a Quest Refresh prompt is being
+  dispatched — from either the queue's own refresh step or an interactive send —
+  `QuestRefreshService` exposes `isRefreshing` and fires `onDidChangeRefreshing`.
+  The queue editor subscribes and paints an orange banner between the queue
+  header and the first item, so a refresh-induced pause reads as intentional
+  rather than stuck. `isRefreshing` is set only when there is an actual refresh
+  prompt to dispatch (the blank trim-and-reset case stays instant) and cleared in
+  the `finally`, so a failed refresh never leaves the banner stuck on.
+
 ## 5. Edge cases and non-obvious bits
 
 - **Template expansion placeholders** (`${repeatNumber}`, `${repeatIndex}`, chat variables): handled at expand-time inside `_buildExpandedText` at [promptQueueManager.ts:434](../src/managers/promptQueueManager.ts#L434) — unchanged. Chat-variable-driven `repeatCount` keeps working identically on both transports.

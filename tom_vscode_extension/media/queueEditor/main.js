@@ -120,6 +120,9 @@ let queueDefaultTransport = __INITIAL__.queueDefaultTransport || 'copilot';
 let queueDefaultAnthropicProfileId = __INITIAL__.queueDefaultAnthropicProfileId || '';
 let queueDefaultMessageTemplateId = __INITIAL__.queueDefaultMessageTemplateId || '';
 let currentContext = __INITIAL__.context || { quest: '', role: '', activeProjects: [] };
+// Whether a Quest Refresh dispatch is in flight — drives the orange banner
+// between the queue header and the first item.
+let questRefreshActive = __INITIAL__.questRefreshActive === true;
 let detailsExpanded = {};
 var editorMode = 'queue';
 if (Array.isArray(__INITIAL__.collapsedIds)) {
@@ -209,6 +212,7 @@ window.addEventListener('message', e => {
       queueDefaultAnthropicProfileId = msg.queueDefaultAnthropicProfileId || '';
       queueDefaultMessageTemplateId = msg.queueDefaultMessageTemplateId || '';
       currentContext = msg.context || { quest: '', role: '', activeProjects: [] };
+      questRefreshActive = msg.questRefreshActive === true;
       normalizeState();
       render();
       populateAddForm();
@@ -258,7 +262,14 @@ function openChatVariables() {
   vscode.postMessage({ type: 'openChatVariablesEditor' });
 }
 
+function updateQuestRefreshBanner() {
+  const banner = document.getElementById('questRefreshBanner');
+  if (!banner) { return; }
+  banner.style.display = questRefreshActive ? 'block' : 'none';
+}
+
 function render() {
+  updateQuestRefreshBanner();
   const btn = document.getElementById('autoSendBtn');
   btn.innerHTML = autoSend ? '<span class="codicon codicon-debug-pause"></span>' : '<span class="codicon codicon-play"></span>';
   btn.title = autoSend ? 'Auto-Send ON (click to pause)' : 'Auto-Send OFF (click to resume)';

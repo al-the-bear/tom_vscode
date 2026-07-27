@@ -381,3 +381,8 @@ Write-Host ""
 Write-Host "================================================"
 Write-Host "Installation complete!"
 Write-Host "================================================"
+# Finish timestamp as the last line of output. A wrapper (compile_and_install.ps1)
+# sets TOM_SKIP_FINISH_TS=1 and prints its own, so the timestamp appears once.
+if ($env:TOM_SKIP_FINISH_TS -ne '1') {
+    Write-Host "Finished at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+}

@@ -19,8 +19,14 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 $env:TOM_BRIDGE_FROM_SOURCE = '1'
+# Own the final "Finished" line so it reflects this wrapper's completion and
+# prints exactly once (install_extension.ps1 skips its own when this is set).
+$env:TOM_SKIP_FINISH_TS = '1'
 try {
     & (Join-Path $ScriptDir 'install_extension.ps1')
 } finally {
     Remove-Item Env:TOM_BRIDGE_FROM_SOURCE -ErrorAction SilentlyContinue
+    Remove-Item Env:TOM_SKIP_FINISH_TS -ErrorAction SilentlyContinue
 }
+
+Write-Host "🕒 Finished at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"

@@ -17,4 +17,12 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 export TOM_BRIDGE_FROM_SOURCE=1
-exec "$SCRIPT_DIR/install_extension.sh" "$@"
+
+# Own the final "Finished" line so it reflects this wrapper's completion and
+# prints exactly once (install_extension.sh skips its own when this is set).
+# Not `exec`, so control returns here to emit the timestamp; set -e propagates a
+# base-script failure before the timestamp, keeping it a success-only marker.
+export TOM_SKIP_FINISH_TS=1
+"$SCRIPT_DIR/install_extension.sh" "$@"
+
+echo "🕒 Finished at $(date '+%Y-%m-%d %H:%M:%S %Z')"

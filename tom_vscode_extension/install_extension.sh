@@ -299,3 +299,9 @@ else
     echo "❌ Failed to package extension"
     exit 1
 fi
+
+# Finish timestamp as the last line of output. A wrapper (compile_and_install.sh)
+# sets TOM_SKIP_FINISH_TS=1 and prints its own, so the timestamp appears once.
+if [ "${TOM_SKIP_FINISH_TS:-0}" != "1" ]; then
+    echo "🕒 Finished at $(date '+%Y-%m-%d %H:%M:%S %Z')"
+fi
