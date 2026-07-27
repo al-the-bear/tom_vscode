@@ -46,6 +46,16 @@
 - WORKSPACE TODOS
 - WINDOW STATUS
 
+## Quest TODO Panel — prefix groups
+
+- Group key = todo id up to its first digit (`qr3-2026…` → `qr`); no digit, or a leading digit → the **Unprefixed** group, always rendered last
+- Prefixes are verbatim: case-sensitive, separators kept (`qr` and `qr-` are different groups)
+- Separator line per group: chevron + prefix + count in brackets; click to expand/collapse
+- Named groups keep first-appearance order, so the active filter/sort still drives the layout
+- List opens fully collapsed on every script load (window reload / VS Code restart); expansion is never persisted
+- Collapse all: toolbar button `qt-btn-collapse-all` (collapse-all icon)
+- Shift-click stack ranges only span **visible** rows — a collapsed group is never traversed
+
 ## Quest TODO Panel — archive/delete buttons
 
 - Archive completed todo / Archive all completed → move to the `-archived` sibling file (completed todos only)

@@ -196,10 +196,16 @@ export { getQuestTodoCss, getQuestTodoHtmlFragment };
  * restructuring); here we only prepend the single config-dependent line. The
  * body uses the global `vscode` handle defined by each host shell (popout /
  * embedded / accordion), so it does not call acquireVsCodeApi() itself.
+ *
+ * `grouping.js` comes first: it holds the pure prefix-grouping rule that
+ * `main.js` calls while rendering the list. It is a separate file precisely
+ * because it has no DOM or host dependency, which lets it be unit-tested in a
+ * bare sandbox (see `src/utils/__tests__/questTodoPrefixGroups.test.ts`).
  */
 export function getQuestTodoScript(config?: QuestTodoViewConfig): string {
     const cfgJson = JSON.stringify(config ?? {});
     return `\n// ── Quest TODO variables ──\nvar qtViewConfig = ${cfgJson};\n`
+        + readMediaText('questTodoPanel', 'grouping.js')
         + readMediaText('questTodoPanel', 'main.js');
 }
 

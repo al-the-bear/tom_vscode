@@ -97,6 +97,52 @@ offers every `*.todo.yaml` file — including the `-archived`/`-deleted` sibling
 Detail requests thread the todo's `sourceFile` (`qtGetTodo` → `_sendTodoDetail`
 → `_resolveDeleteSourcePath`) so todos in secondary files resolve correctly.
 
+## 2a. List pane — prefix groups
+
+The list pane groups todos by the **prefix of their id**: the leading run of
+characters before the id's first digit (`qr3-20260723…` → `qr`,
+`vex1_agäo-…` → `vex`). Ids that start with a digit, and ids with no digit at
+all, fall into a single catch-all group labelled **Unprefixed**. Prefixes are
+taken verbatim — case-sensitive, separators kept — so `qr` and `qr-` are
+different groups; the rule is the literal leading non-digit run, not a
+normalised key.
+
+Each group is headed by a thin separator row (`.qt-group-header`) carrying a
+chevron twisty, the prefix and the group size in brackets. Clicking the row
+toggles the group. Named groups render in **first-appearance order**, so the
+active filter/sort still drives the layout; `Unprefixed` is always appended
+last.
+
+Where the pieces live:
+
+| Piece | Location |
+| --- | --- |
+| Grouping rule (pure) | `media/questTodoPanel/grouping.js` — `qtTodoPrefix`, `qtGroupTodosByPrefix` |
+| Rendering + toggle state | `media/questTodoPanel/main.js` — `qtRenderGroupHeader`, `qtRenderTodoRow`, `qtIsGroupExpanded`, `qtToggleGroup`, `qtCollapseAllGroups`, `qtExpandGroupForTodo` |
+| Separator styling | `media/questTodoPanel/style.css` — `.qt-group-header` (the `::after` hairline is what makes it read as a separator rather than a row) |
+| Collapse-all button | `fragment.html` `#qt-btn-collapse-all` (collapse-all icon) |
+| Script composition | `getQuestTodoScript()` prepends `grouping.js` before `main.js` |
+
+`grouping.js` is a **separate file on purpose**: it has no DOM and no `vscode`
+handle, so `src/utils/__tests__/questTodoPrefixGroups.test.ts` loads it into a
+bare `vm` sandbox and tests the shipped file directly — there is no TS mirror
+that could drift (contrast `qtIsTerminalTodoFileName`, which *is* a mirror).
+`questTodoGroupRender.dom.test.ts` loads `fragment.html` + both scripts into
+jsdom and covers the rendering, the toggles and the collapse-all button.
+
+Collapse state rules:
+
+- `qtExpandedGroups` is **in-memory only** and deliberately not part of
+  `qtPersistState`. The panel must come up fully collapsed after a window
+  reload or a VS Code restart, and since the webview script is re-evaluated on
+  both, an empty set on every fresh load *is* that state.
+- Expansion survives a data refresh (`qtTodos` push) within the session — only
+  a script reload or the **Collapse all** button closes the groups.
+- `qtLastRenderOrder` holds only the **visible** rows, so a shift-click stack
+  range can never reach into a collapsed group.
+- The reveal path (`qtPendingSelect`) calls `qtExpandGroupForTodo` first, so an
+  explicit "show me this todo" request never lands on a hidden row.
+
 ## 3. Session todos — stable per-host file (TRA04)
 
 Session todos live in **one stable, git-tracked file per host+quest** inside

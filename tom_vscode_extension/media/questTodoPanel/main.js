@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global vscode, qtViewConfig */
+/* global vscode, qtViewConfig, qtGroupTodosByPrefix, qtTodoPrefix */
 // Quest TODO panel client script — static body extracted from
 // getQuestTodoScript() in src/handlers/questTodoPanel-handler.ts (Phase B.5
 // webview restructuring). The single config-dependent line
@@ -40,6 +40,13 @@ var qtPendingSelectTodoId = '';
 var qtStack = [];
 var qtLastStackedId = '';
 var qtLastRenderOrder = [];
+// ── Prefix groups ──
+// Which groups are currently open, keyed by '#' + prefix (see
+// qtGroupTodosByPrefix for why the keys are namespaced). Deliberately NOT
+// persisted through qtPersistState: the list must come up fully collapsed
+// after a window reload or a VS Code restart, and an empty set on every fresh
+// script load IS that state — nothing to store, nothing to migrate.
+var qtExpandedGroups = {};
 
 function qtPersistState() {
     vscode.postMessage({ type: 'qtSaveState', state: {
@@ -187,6 +194,9 @@ function qtNavPush(todoId) {
         if (qtCurrentQuestId === '__all_quests__' || qtCurrentQuestId === '__all_workspace__') return;
         qtShowMassAddOverlay();
     });
+    // Collapse-all button — closes every prefix group in the list pane.
+    var btnCollapseAll = document.getElementById('qt-btn-collapse-all');
+    if (btnCollapseAll) btnCollapseAll.addEventListener('click', function() { qtCollapseAllGroups(); });
     // Clear todo stack button
     var btnClearStack = document.getElementById('qt-btn-clear-stack');
     if (btnClearStack) btnClearStack.addEventListener('click', function() { qtClearStack(); });
@@ -492,6 +502,93 @@ function qtSelectedTemplateId() {
     return qtCurrentTemplate || '__none__';
 }
 
+/** Is the group with this prefix currently expanded? Unknown ⇒ collapsed. */
+function qtIsGroupExpanded(prefix) {
+    return Object.prototype.hasOwnProperty.call(qtExpandedGroups, '#' + prefix);
+}
+
+/** Open/close one prefix group and re-render the list. */
+function qtToggleGroup(prefix) {
+    var key = '#' + prefix;
+    if (Object.prototype.hasOwnProperty.call(qtExpandedGroups, key)) {
+        delete qtExpandedGroups[key];
+    } else {
+        qtExpandedGroups[key] = true;
+    }
+    qtRenderList();
+}
+
+/** Close every prefix group — the "Collapse all" action-bar button. */
+function qtCollapseAllGroups() {
+    qtExpandedGroups = {};
+    qtRenderList();
+}
+
+/**
+ * Open the group a todo belongs to. The reveal path (`qtPendingSelect`) is an
+ * explicit "show me this todo" request from elsewhere in the extension, so it
+ * must not leave the row hidden inside a collapsed group — that would look
+ * like the reveal did nothing.
+ */
+function qtExpandGroupForTodo(id) {
+    qtExpandedGroups['#' + qtTodoPrefix(id)] = true;
+}
+
+/** One todo row of the list pane. */
+function qtRenderTodoRow(t) {
+    var icon = qtStatusIcon(t.status);
+    var cls = 'qt-todo-item status-' + (t.status || 'not-started');
+    if (t.id === qtSelectedTodoId) cls += ' selected';
+    var showSrc = (qtCurrentFile === 'all' || qtCurrentQuestId === '__all_quests__' || qtCurrentQuestId === '__all_workspace__') && t.sourceFile;
+    var srcLabel = showSrc ? '<span class="source-file">' + qtEsc(t.sourceFile) + '</span>' : '';
+    var isSpecialMode = qtCurrentQuestId === '__all_quests__' || qtCurrentQuestId === '__all_workspace__';
+    var isQuestMode = !isSpecialMode && qtCurrentQuestId;
+    var isDone = t.status === 'completed' || t.status === 'cancelled';
+    var moveBtn = '';
+    var moveWsBtn = '';
+    var trashBtn = '';
+    var reopenBtn = '';
+    // Terminal (-archived / -deleted) files refuse archive/delete moves,
+    // so suppress the per-item trash button for todos sourced from them.
+    var isTerminalSrc = qtIsTerminalTodoFileName(t.sourceFile || qtCurrentFile);
+    if (isDone) {
+        trashBtn = isTerminalSrc ? '' : '<button class="qt-trash-btn" data-qt-trash="' + qtEsc(t.id) + '" title="Delete (move to -archived/-deleted file)">🗑️</button>';
+        reopenBtn = '<button class="qt-reopen-btn" data-qt-reopen="' + qtEsc(t.id) + '" title="Reopen (set to not-started)">🔄</button>';
+    } else {
+        moveBtn = isQuestMode && qtCurrentFile === 'all' ? '<button class="qt-move-btn" data-qt-move="' + qtEsc(t.id) + '" title="Move to main quest todo file">➡️</button>' : '';
+        moveWsBtn = '<button class="qt-move-ws-btn" data-qt-movews="' + qtEsc(t.id) + '" title="Move to workspace todos">⬆️</button>';
+    }
+    var priorityBadge = t.priority && (t.priority === 'critical' || t.priority === 'high') ? '<span class="priority-badge ' + t.priority + '">' + t.priority.toUpperCase() + '</span>' : '';
+    var priorityDot = t.priority ? '<span class="qt-priority-dot ' + qtEsc(t.priority) + '">●</span>' : '';
+    var stackIdx = qtStackIndexOf(t.id);
+    var circleTitle = stackIdx >= 0
+        ? 'Remove from todo stack (#' + (stackIdx + 1) + ')'
+        : 'Add to todo stack (shift-click: add range from last picked)';
+    var stackCircle = '<span class="qt-stack-circle' + (stackIdx >= 0 ? ' stacked' : '') + '" data-qt-stackid="' + qtEsc(t.id) + '" title="' + circleTitle + '">' + (stackIdx >= 0 ? (stackIdx + 1) : '') + '</span>';
+    return '<div class="' + cls + '" data-qt-id="' + qtEsc(t.id) + '">' +
+        '<div class="qt-todo-item-row1">' +
+        '<span class="status-icon">' + icon + '</span>' +
+        '<span class="ttitle">' + qtEsc(t.title || '') + '</span>' +
+        priorityBadge + moveBtn + moveWsBtn + trashBtn + reopenBtn + '</div>' +
+        '<div class="qt-todo-item-row2">' +
+        stackCircle +
+        priorityDot +
+        '<span class="tid">' + qtEsc(t.id) + '</span>' +
+        srcLabel + '</div></div>';
+}
+
+/** The thin separator line that heads one prefix group. */
+function qtRenderGroupHeader(group, expanded) {
+    var count = group.todos.length;
+    return '<div class="qt-group-header' + (expanded ? '' : ' collapsed') + '"' +
+        ' data-qt-group="' + qtEsc(group.prefix) + '"' +
+        ' title="' + (expanded ? 'Collapse' : 'Expand') + ' ' + qtEsc(group.label) + ' (' + count + ')">' +
+        '<span class="codicon codicon-chevron-down"></span>' +
+        '<span class="qt-group-label">' + qtEsc(group.label) + '</span>' +
+        '<span class="qt-group-count">(' + count + ')</span>' +
+        '</div>';
+}
+
 function qtUpdateStackButtons() {
     var btn = document.getElementById('qt-btn-clear-stack');
     if (!btn) return;
@@ -562,51 +659,32 @@ function qtRenderList() {
 
     if (!filtered.length) { pane.innerHTML = '<div class="qt-empty-detail">No matching todos</div>'; return; }
 
-    // Current visual order — basis for shift-click stack ranges.
-    qtLastRenderOrder = filtered.map(function(t) { return t.id; });
-
-    pane.innerHTML = filtered.map(function(t) {
-        var icon = qtStatusIcon(t.status);
-        var cls = 'qt-todo-item status-' + (t.status || 'not-started');
-        if (t.id === qtSelectedTodoId) cls += ' selected';
-        var showSrc = (qtCurrentFile === 'all' || qtCurrentQuestId === '__all_quests__' || qtCurrentQuestId === '__all_workspace__') && t.sourceFile;
-        var srcLabel = showSrc ? '<span class="source-file">' + qtEsc(t.sourceFile) + '</span>' : '';
-        var isSpecialMode = qtCurrentQuestId === '__all_quests__' || qtCurrentQuestId === '__all_workspace__';
-        var isQuestMode = !isSpecialMode && qtCurrentQuestId;
-        var isDone = t.status === 'completed' || t.status === 'cancelled';
-        var moveBtn = '';
-        var moveWsBtn = '';
-        var trashBtn = '';
-        var reopenBtn = '';
-        // Terminal (-archived / -deleted) files refuse archive/delete moves,
-        // so suppress the per-item trash button for todos sourced from them.
-        var isTerminalSrc = qtIsTerminalTodoFileName(t.sourceFile || qtCurrentFile);
-        if (isDone) {
-            trashBtn = isTerminalSrc ? '' : '<button class="qt-trash-btn" data-qt-trash="' + qtEsc(t.id) + '" title="Delete (move to -archived/-deleted file)">🗑️</button>';
-            reopenBtn = '<button class="qt-reopen-btn" data-qt-reopen="' + qtEsc(t.id) + '" title="Reopen (set to not-started)">🔄</button>';
-        } else {
-            moveBtn = isQuestMode && qtCurrentFile === 'all' ? '<button class="qt-move-btn" data-qt-move="' + qtEsc(t.id) + '" title="Move to main quest todo file">➡️</button>' : '';
-            moveWsBtn = '<button class="qt-move-ws-btn" data-qt-movews="' + qtEsc(t.id) + '" title="Move to workspace todos">⬆️</button>';
+    // Group by id prefix. Named groups keep the order the active sort put them
+    // in; the "Unprefixed" catch-all is appended last.
+    var groups = qtGroupTodosByPrefix(filtered);
+    var html = '';
+    // Visual order — basis for shift-click stack ranges. Only rows the user can
+    // actually see belong in it, so a range never reaches into a collapsed
+    // group and silently stacks todos that are not on screen.
+    var renderOrder = [];
+    for (var gi = 0; gi < groups.length; gi++) {
+        var group = groups[gi];
+        var expanded = qtIsGroupExpanded(group.prefix);
+        html += qtRenderGroupHeader(group, expanded);
+        if (!expanded) continue;
+        for (var gt = 0; gt < group.todos.length; gt++) {
+            html += qtRenderTodoRow(group.todos[gt]);
+            renderOrder.push(group.todos[gt].id);
         }
-        var priorityBadge = t.priority && (t.priority === 'critical' || t.priority === 'high') ? '<span class="priority-badge ' + t.priority + '">' + t.priority.toUpperCase() + '</span>' : '';
-        var priorityDot = t.priority ? '<span class="qt-priority-dot ' + qtEsc(t.priority) + '">●</span>' : '';
-        var stackIdx = qtStackIndexOf(t.id);
-        var circleTitle = stackIdx >= 0
-            ? 'Remove from todo stack (#' + (stackIdx + 1) + ')'
-            : 'Add to todo stack (shift-click: add range from last picked)';
-        var stackCircle = '<span class="qt-stack-circle' + (stackIdx >= 0 ? ' stacked' : '') + '" data-qt-stackid="' + qtEsc(t.id) + '" title="' + circleTitle + '">' + (stackIdx >= 0 ? (stackIdx + 1) : '') + '</span>';
-        return '<div class="' + cls + '" data-qt-id="' + qtEsc(t.id) + '">' +
-            '<div class="qt-todo-item-row1">' +
-            '<span class="status-icon">' + icon + '</span>' +
-            '<span class="ttitle">' + qtEsc(t.title || '') + '</span>' +
-            priorityBadge + moveBtn + moveWsBtn + trashBtn + reopenBtn + '</div>' +
-            '<div class="qt-todo-item-row2">' +
-            stackCircle +
-            priorityDot +
-            '<span class="tid">' + qtEsc(t.id) + '</span>' +
-            srcLabel + '</div></div>';
-    }).join('');
+    }
+    qtLastRenderOrder = renderOrder;
+    pane.innerHTML = html;
 
+    pane.querySelectorAll('.qt-group-header').forEach(function(hdr) {
+        hdr.addEventListener('click', function() {
+            qtToggleGroup(hdr.getAttribute('data-qt-group') || '');
+        });
+    });
     pane.querySelectorAll('.qt-todo-item').forEach(function(el) {
         el.addEventListener('click', function(e) {
             var circleEl = e.target.closest('.qt-stack-circle');
@@ -1989,6 +2067,7 @@ function qtHandleMessage(msg) {
                 if (exists) {
                     qtSelectedTodoId = qtPendingSelectTodoId;
                     qtNavPush(qtSelectedTodoId);
+                    qtExpandGroupForTodo(qtSelectedTodoId);
                     qtRenderList();
                     qtRequestTodoDetail(qtSelectedTodoId);
                     qtPendingSelectTodoId = '';

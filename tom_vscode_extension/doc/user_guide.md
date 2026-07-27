@@ -52,7 +52,17 @@ Explorer adds note and todo views: VS Code Notes, Quest Notes, Quest Todos, Sess
 
 ### Quest TODO Panel
 
-The Quest TODO panel (the `@WS` Quest TODO section, and the editor that opens for any `*.todo.yaml` file) manages quest todos with status tracking. Four top-bar buttons move todos between files instead of destroying them:
+The Quest TODO panel (the `@WS` Quest TODO section, and the editor that opens for any `*.todo.yaml` file) manages quest todos with status tracking.
+
+#### Prefix groups
+
+The list is grouped by **todo-id prefix** — the characters before the id's first digit, so `qr1-…` and `qr3-…` share the group `qr`. Ids that start with a digit, or contain no digit at all, collect in a group called **Unprefixed**, which always sits last. Each group is headed by a thin separator line showing the prefix, the number of todos in brackets, and a triangle that expands or collapses the group.
+
+The list opens **fully collapsed** — after a window reload or a VS Code restart you see only the separator lines. Expand the groups you need; the **Collapse all** toolbar button closes them again. Expanding a group sticks for the rest of the session, including across todo refreshes.
+
+#### Moving todos between files
+
+Four top-bar buttons move todos between files instead of destroying them:
 
 - **Archive completed todo** — moves the selected *completed* todo to the file's `-archived` sibling (e.g. `todos.myquest.todo.yaml` → `todos-archived.myquest.todo.yaml`), stamping it with the archive date. Enabled only for completed todos.
 - **Archive all completed** — bulk-archives every completed todo in the current file.
