@@ -2880,7 +2880,8 @@
     },
     "scripts": {
         "vscode:prepublish": "npm run compile",
-        "compile": "tsc -p ./ && node scripts/copy-config.cjs",
+        "clean": "node scripts/clean-out.cjs",
+        "compile": "npm run clean && tsc -p ./ && node scripts/copy-config.cjs",
         "watch": "tsc -watch -p ./",
         "pretest": "npm run compile && npm run typecheck:media",
         "test:tools": "node --test --test-concurrency=1 out/tools/__tests__/*.test.js",
