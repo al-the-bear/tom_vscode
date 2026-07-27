@@ -32,6 +32,10 @@ import {
     describeIdPrefixParts,
     generateIdPrefixImpl,
 } from '../id-prefix-tools.js';
+// Neither of these imports pulls in `vscode`, so the encoder tests stay free of
+// the extension-host stub.
+import { AVAILABLE_LLM_TOOLS } from '../../utils/constants.js';
+import { categorizeTools } from '../../utils/toolCategories.js';
 
 // ---------------------------------------------------------------------------
 // Position 1 — year
@@ -243,5 +247,41 @@ describe('tomAi_generateIdPrefix', () => {
         assert.equal(r.prefix, buildIdPrefix(new Date()));
         assert.equal(GENERATE_ID_PREFIX_TOOL.readOnly, true);
         assert.equal(GENERATE_ID_PREFIX_TOOL.name, 'tomAi_generateIdPrefix');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Selectability — the tool must be reachable under BOTH profile shapes
+// ---------------------------------------------------------------------------
+
+/**
+ * Being spread into `ALL_SHARED_TOOLS` only serves profiles with
+ * `toolsEnabled !== false`. A profile that sets `toolsEnabled: false` receives
+ * exactly the tools its `enabledTools` allow-list names, and that allow-list is
+ * built by ticking boxes in the status-page picker / profile editor / template
+ * editors / MCP card — every one of which renders `AVAILABLE_LLM_TOOLS`.
+ *
+ * So a tool absent from that constant cannot be ticked anywhere, and under an
+ * allow-list profile the workspace-wide "always call this before inventing an
+ * id" rule would be impossible to satisfy. Neither list alone is sufficient
+ * evidence that the tool is usable; assert both.
+ */
+describe('tomAi_generateIdPrefix — reachable from the picker UI', () => {
+    test('is offered by the picker option set', () => {
+        assert.ok(
+            (AVAILABLE_LLM_TOOLS as readonly string[]).includes('tomAi_generateIdPrefix'),
+            'tomAi_generateIdPrefix missing from AVAILABLE_LLM_TOOLS — allow-list profiles cannot enable it',
+        );
+    });
+
+    test('is grouped rather than falling through to "Other"', () => {
+        const groups = categorizeTools(['tomAi_generateIdPrefix']);
+        assert.equal(groups.length, 1);
+        assert.notEqual(
+            groups[0].category,
+            'Other',
+            'tomAi_generateIdPrefix has no CATEGORY_MAP entry, so the picker buries it under "Other"',
+        );
+        assert.deepEqual(groups[0].tools.map((t) => t.value), ['tomAi_generateIdPrefix']);
     });
 });

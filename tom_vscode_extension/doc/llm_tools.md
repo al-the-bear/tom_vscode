@@ -208,12 +208,9 @@ Implementation: `src/tools/id-prefix-tools.ts` (pure `buildIdPrefix` /
 that this tool must be called before inventing **any** id lives in `CLAUDE.md` /
 `.github/copilot-instructions.md`.
 
-> **Not yet selectable in allow-list profiles.** The tool is in
-> `ALL_SHARED_TOOLS`, so profiles with `toolsEnabled: true` get it, but it is
-> still missing from `AVAILABLE_LLM_TOOLS` (`src/utils/constants.ts`) — the
-> option set behind every tool picker. A profile using an explicit
-> `enabledTools` allow-list therefore cannot tick it. Tracked as
-> `qr1-20260727-register-generateidprefix-in-available-llm-tools`.
+The tool is reachable under both profile shapes: it is in `ALL_SHARED_TOOLS`
+(so `toolsEnabled: true` profiles get it) and in `AVAILABLE_LLM_TOOLS` under the
+**Ids** category, so allow-list profiles can tick it in every picker.
 
 ### 4.12 Session todos (per host + quest)
 
@@ -464,6 +461,17 @@ Every new tool needs:
 6. At least one `withTiming('<toolName>:<case>', …)` call in the family's test file, conventionally `:typical`. `npm run audit:tools` fails the build without it and enforces a 5 s ceiling.
 7. For Agent SDK duplicates: add to `DUPLICATES_OF_CLAUDE_CODE_BUILTINS` in `anthropic-handler.ts`.
 8. A row in the right family table in this document.
+
+Because step 4 is unguarded, the two lists have drifted: `AVAILABLE_LLM_TOOLS`
+is currently a **strict subset** of `ALL_SHARED_TOOLS` — 132 tools are
+registered, 106 are selectable. The 26 registered-but-unselectable tools are the
+queue family (`tomAi_addQueueItem`, `tomAi_listQueue`, `tomAi_sendQueuedPrompt`,
+…), the timed-request family, past-tool access (`tomAi_listPastToolCalls`,
+`tomAi_searchPastToolResults`, `tomAi_readPastToolResult`), prompt history
+(`tomAi_listPromptPairs`, `tomAi_getPromptPair`), and
+`tomAi_getActiveQuest` / `tomAi_listProjects` / `tomAi_listDocuments`. They work
+under `toolsEnabled: true` and are unreachable under an allow-list profile.
+There are no entries in the other direction.
 
 ## 9. Scripting-API access and gating
 

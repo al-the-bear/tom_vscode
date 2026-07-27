@@ -66,6 +66,9 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_readProjectGuideline',
         'tomAi_searchProjectGuidelines',
     ],
+    'Ids': [
+        'tomAi_generateIdPrefix',
+    ],
     'Issues': [
         'tomAi_addIssueComment',
         'tomAi_createIssue',

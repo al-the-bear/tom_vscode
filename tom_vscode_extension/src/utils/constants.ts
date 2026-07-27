@@ -27,10 +27,19 @@ export const GLOB_PROMPT = '**/*.prompt.md';
 export const GLOB_CHAT = '**/*.chat.md';
 
 /**
- * Canonical list of tool names that can be exposed to LLM configurations.
- * Derived from ALL_SHARED_TOOLS in tool-executors.ts — update both together
- * when adding new tools.
- * Used in the status page tool picker and the Anthropic profile editor.
+ * The option set every tool picker renders — status page, Anthropic profile
+ * editor, the global template editors, and the MCP server card. A profile with
+ * `toolsEnabled: false` gets exactly the tools its `enabledTools` allow-list
+ * names, and that allow-list is built by ticking these boxes, so a tool absent
+ * here is unreachable under such a profile no matter what `ALL_SHARED_TOOLS`
+ * holds.
+ *
+ * It should therefore mirror ALL_SHARED_TOOLS in tool-executors.ts — add new
+ * tools to both. Nothing enforces that today, and the two have drifted: this
+ * list is currently a strict subset (the queue, timed-request, past-tool-access
+ * and prompt-history families are registered but not selectable). Adding a name
+ * here without a CATEGORY_MAP entry in utils/toolCategories.ts is legal but
+ * buries it under "Other".
  */
 export const AVAILABLE_LLM_TOOLS = [
     // Read-only file / workspace tools
@@ -168,4 +177,6 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_createReminderTemplate',
     'tomAi_updateReminderTemplate',
     'tomAi_deleteReminderTemplate',
+    // Id generation
+    'tomAi_generateIdPrefix',
 ] as const;
