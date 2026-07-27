@@ -175,6 +175,46 @@ moves only non-completed todos (stamped `deleted:`). Files whose first
 segment already ends in `-archived`/`-deleted` are terminal and refuse both
 operations. See `_copilot_guidelines/todo_files_and_panel.md`.
 
+### 4.11a Id generation
+
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
+| --- | --- | :-: | :-: | :-: | :-: | :-: |
+| `tomAi_generateIdPrefix` | Date-based, letters-only code that makes hand-authored ids collision-free. | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+Hand-authored ids used to collide: two sessions — or two machines — inventing
+`vex1` on different days produced the same id for unrelated work, and because
+the `_ai` layer is shared fleet-wide the clash surfaced only after a merge. The
+tool takes no input and stamps a 4-letter code derived from the **local** clock,
+which the model appends to the base id the user supplied:
+`<baseId>_<prefix>-<short-description>` (e.g. `vex1_agäo-add-retry-backoff`).
+
+| Position | Field | Mapping |
+| --- | --- | --- |
+| 1 | Year | `a`=2026 … `z`=2051 |
+| 2 | Month | `a`=January … `l`=December |
+| 3 | Day of month | `a`=1 … `z`=26, then `ä`=27, `ñ`=28, `ö`=29, `ß`=30, `ü`=31 |
+| 4 | Hour | `a`=0 … `x`=23 (24-hour clock) |
+
+The code is **deterministic within a clock hour** — two calls in the same hour
+return the same code by design, so re-running a step reproduces the id instead
+of minting a second one. Uniqueness across time comes from the hour changing;
+uniqueness within an hour comes from the base id. Years outside `a`–`z` and
+invalid dates are rejected with an error envelope rather than emitting
+`undefined` letters. The five extended day letters are single UTF-16 code units,
+which keeps the code exactly four characters and safe to index positionally.
+
+Implementation: `src/tools/id-prefix-tools.ts` (pure `buildIdPrefix` /
+`describeIdPrefixParts` encoder plus the tool wrapper). The workspace-wide rule
+that this tool must be called before inventing **any** id lives in `CLAUDE.md` /
+`.github/copilot-instructions.md`.
+
+> **Not yet selectable in allow-list profiles.** The tool is in
+> `ALL_SHARED_TOOLS`, so profiles with `toolsEnabled: true` get it, but it is
+> still missing from `AVAILABLE_LLM_TOOLS` (`src/utils/constants.ts`) — the
+> option set behind every tool picker. A profile using an explicit
+> `enabledTools` allow-list therefore cannot tick it. Tracked as
+> `qr1-20260727-register-generateidprefix-in-available-llm-tools`.
+
 ### 4.12 Session todos (per host + quest)
 
 Session todos live in one stable, git-tracked file per host+quest:
@@ -408,6 +448,7 @@ Tools are grouped by functional family, one file per family under `src/tools/`:
 | `git-tools.ts` | Git read (`git`), `gitShow`, allow-listed `gitExec` |
 | `planning-tools.ts` | Plan-mode signals + sub-agent delegation |
 | `notebook-tools.ts` | Jupyter `notebookEdit`, `notebookRun` |
+| `id-prefix-tools.ts` | Date-based prefix for collision-free hand-authored ids |
 | `issue-tools.ts` | Issues subpanel (read + write) |
 | `test-tools.ts` | Tests subpanel / testkit (read + write) |
 | `chat-enhancement-tools.ts` | Notify, quest/session todos, queue, timed, templates, reminders |
@@ -418,9 +459,11 @@ Every new tool needs:
 1. A `SharedToolDefinition` in the appropriate `src/tools/<family>-tools.ts`.
 2. Added to the family file's exported list (e.g. `NOTEBOOK_TOOLS`).
 3. The family list spread into `ALL_SHARED_TOOLS` in `src/tools/tool-executors.ts`.
-4. Entry in `AVAILABLE_LLM_TOOLS` (`src/utils/constants.ts`).
-5. For Agent SDK duplicates: add to `DUPLICATES_OF_CLAUDE_CODE_BUILTINS` in `anthropic-handler.ts`.
-6. A row in the right family table in this document.
+4. Entry in `AVAILABLE_LLM_TOOLS` (`src/utils/constants.ts`). **Easy to miss and currently unguarded** — a tool absent here is invisible to every picker (status page, Anthropic profile editor, global-template editors, MCP server card), so allow-list profiles can never enable it even though it is registered and callable.
+5. A category in `CATEGORY_MAP` (`src/utils/toolCategories.ts`). Optional in effect — unmapped names fall through to "Other" — but leaving it out degrades the grouped-checkbox UI.
+6. At least one `withTiming('<toolName>:<case>', …)` call in the family's test file, conventionally `:typical`. `npm run audit:tools` fails the build without it and enforces a 5 s ceiling.
+7. For Agent SDK duplicates: add to `DUPLICATES_OF_CLAUDE_CODE_BUILTINS` in `anthropic-handler.ts`.
+8. A row in the right family table in this document.
 
 ## 9. Scripting-API access and gating
 
