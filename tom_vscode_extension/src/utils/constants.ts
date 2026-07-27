@@ -34,12 +34,11 @@ export const GLOB_CHAT = '**/*.chat.md';
  * here is unreachable under such a profile no matter what `ALL_SHARED_TOOLS`
  * holds.
  *
- * It should therefore mirror ALL_SHARED_TOOLS in tool-executors.ts — add new
- * tools to both. Nothing enforces that today, and the two have drifted: this
- * list is currently a strict subset (the queue, timed-request, past-tool-access
- * and prompt-history families are registered but not selectable). Adding a name
- * here without a CATEGORY_MAP entry in utils/toolCategories.ts is legal but
- * buries it under "Other".
+ * It therefore mirrors ALL_SHARED_TOOLS in tool-executors.ts, minus the
+ * deliberate exclusions listed in DELIBERATELY_UNSELECTABLE_TOOLS below. That
+ * relationship is enforced — see tools/__tests__/tool-registry-parity.test.ts —
+ * so a new tool must be added here (with a CATEGORY_MAP entry in
+ * utils/toolCategories.ts) or excluded on purpose; it cannot be forgotten.
  */
 export const AVAILABLE_LLM_TOOLS = [
     // Read-only file / workspace tools
@@ -139,6 +138,10 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_listWorkspaceQuestTodos',
     'tomAi_getCombinedTodos',
     'tomAi_listQuests',
+    // Quest / workspace introspection
+    'tomAi_getActiveQuest',
+    'tomAi_listProjects',
+    'tomAi_listDocuments',
     // Session todos
     'tomAi_addSessionTodo',
     'tomAi_listSessionTodos',
@@ -179,4 +182,50 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_deleteReminderTemplate',
     // Id generation
     'tomAi_generateIdPrefix',
+    // Queue + timed requests — observation only; the mutators and the dispatch
+    // entry points are in DELIBERATELY_UNSELECTABLE_TOOLS below.
+    'tomAi_listQueue',
+    'tomAi_listTimedRequests',
+    // Past tool calls + prompt history (read-only trail access)
+    'tomAi_listPastToolCalls',
+    'tomAi_searchPastToolResults',
+    'tomAi_readPastToolResult',
+    'tomAi_listPromptPairs',
+    'tomAi_getPromptPair',
+] as const;
+
+/**
+ * Registered in ALL_SHARED_TOOLS but deliberately kept out of the pickers, so
+ * they are reachable only under `toolsEnabled: true`.
+ *
+ * These are the queue and timer *control plane*: they let a caller enqueue,
+ * edit, dispatch and re-send prompts, and switch the timer engine on and off.
+ * A model that can tick them in its own profile can drive its own prompt loop —
+ * which is a legitimate thing to want for an autonomous agent, but not
+ * something an allow-list profile should be able to acquire by accident. The
+ * read-only counterparts (`tomAi_listQueue`, `tomAi_listTimedRequests`) are
+ * selectable: observing the queue carries no such risk.
+ *
+ * This is an exclusion, not a backlog. To make one of these selectable, move
+ * the name into AVAILABLE_LLM_TOOLS and give it a CATEGORY_MAP entry.
+ */
+export const DELIBERATELY_UNSELECTABLE_TOOLS = [
+    // Queue — mutation and dispatch
+    'tomAi_addQueueItem',
+    'tomAi_updateQueueItem',
+    'tomAi_removeQueueItem',
+    'tomAi_setQueueItemStatus',
+    'tomAi_addQueueFollowUp',
+    'tomAi_updateQueueFollowUp',
+    'tomAi_removeQueueFollowUp',
+    'tomAi_addQueuePrePrompt',
+    'tomAi_updateQueuePrePrompt',
+    'tomAi_removeQueuePrePrompt',
+    'tomAi_sendQueuedPrompt',
+    'tomAi_resendQueueItem',
+    // Timed requests — mutation and the engine kill switch
+    'tomAi_addTimedRequest',
+    'tomAi_updateTimedRequest',
+    'tomAi_removeTimedRequest',
+    'tomAi_setTimerEngineState',
 ] as const;

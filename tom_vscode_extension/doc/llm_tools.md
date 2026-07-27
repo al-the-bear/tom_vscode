@@ -456,22 +456,39 @@ Every new tool needs:
 1. A `SharedToolDefinition` in the appropriate `src/tools/<family>-tools.ts`.
 2. Added to the family file's exported list (e.g. `NOTEBOOK_TOOLS`).
 3. The family list spread into `ALL_SHARED_TOOLS` in `src/tools/tool-executors.ts`.
-4. Entry in `AVAILABLE_LLM_TOOLS` (`src/utils/constants.ts`). **Easy to miss and currently unguarded** — a tool absent here is invisible to every picker (status page, Anthropic profile editor, global-template editors, MCP server card), so allow-list profiles can never enable it even though it is registered and callable.
-5. A category in `CATEGORY_MAP` (`src/utils/toolCategories.ts`). Optional in effect — unmapped names fall through to "Other" — but leaving it out degrades the grouped-checkbox UI.
+4. Entry in `AVAILABLE_LLM_TOOLS` (`src/utils/constants.ts`) — a tool absent here is invisible to every picker (status page, Anthropic profile editor, global-template editors, MCP server card), so allow-list profiles can never enable it even though it is registered and callable. If the tool is meant to stay behind `toolsEnabled: true`, put it in `DELIBERATELY_UNSELECTABLE_TOOLS` instead, with a reason.
+5. A category in `CATEGORY_MAP` (`src/utils/toolCategories.ts`) — unmapped names would fall through to "Other", which the parity guard rejects.
 6. At least one `withTiming('<toolName>:<case>', …)` call in the family's test file, conventionally `:typical`. `npm run audit:tools` fails the build without it and enforces a 5 s ceiling.
 7. For Agent SDK duplicates: add to `DUPLICATES_OF_CLAUDE_CODE_BUILTINS` in `anthropic-handler.ts`.
 8. A row in the right family table in this document.
 
-Because step 4 is unguarded, the two lists have drifted: `AVAILABLE_LLM_TOOLS`
-is currently a **strict subset** of `ALL_SHARED_TOOLS` — 132 tools are
-registered, 106 are selectable. The 26 registered-but-unselectable tools are the
-queue family (`tomAi_addQueueItem`, `tomAi_listQueue`, `tomAi_sendQueuedPrompt`,
-…), the timed-request family, past-tool access (`tomAi_listPastToolCalls`,
-`tomAi_searchPastToolResults`, `tomAi_readPastToolResult`), prompt history
-(`tomAi_listPromptPairs`, `tomAi_getPromptPair`), and
-`tomAi_getActiveQuest` / `tomAi_listProjects` / `tomAi_listDocuments`. They work
-under `toolsEnabled: true` and are unreachable under an allow-list profile.
-There are no entries in the other direction.
+Steps 4 and 5 are enforced by `src/tools/__tests__/tool-registry-parity.test.ts`.
+It asserts that `ALL_SHARED_TOOLS` equals `AVAILABLE_LLM_TOOLS` plus
+`DELIBERATELY_UNSELECTABLE_TOOLS` exactly, that nothing is selectable without
+being registered, and that every selectable tool carries a `CATEGORY_MAP` entry.
+Forgetting step 4 or 5 now fails the suite instead of silently producing a tool
+that works under `toolsEnabled: true` and is invisible everywhere else.
+
+### Deliberately unselectable tools
+
+Of the 132 registered tools, **116 are selectable** and **16 are withheld from
+the pickers on purpose** (`DELIBERATELY_UNSELECTABLE_TOOLS` in
+`src/utils/constants.ts`): the twelve queue mutators and dispatch entry points
+(`tomAi_addQueueItem`, `tomAi_updateQueueItem`, `tomAi_removeQueueItem`,
+`tomAi_setQueueItemStatus`, the three follow-up and three pre-prompt tools,
+`tomAi_sendQueuedPrompt`, `tomAi_resendQueueItem`) plus
+`tomAi_addTimedRequest`, `tomAi_updateTimedRequest`,
+`tomAi_removeTimedRequest` and `tomAi_setTimerEngineState`.
+
+These are the queue and timer **control plane**. A model that can tick them in
+its own profile can enqueue and dispatch its own prompts and switch the timer
+engine on or off — a reasonable capability to grant an autonomous agent
+deliberately, but not one an allow-list profile should acquire by accident. They
+remain fully available under `toolsEnabled: true`. Their read-only counterparts
+`tomAi_listQueue` and `tomAi_listTimedRequests` **are** selectable, under the
+**Queue & Timers (read)** category: observing the queue carries no such risk.
+The guard enforces that split — a `readOnly` tool appearing in the exclusion
+list fails the suite.
 
 ## 9. Scripting-API access and gating
 

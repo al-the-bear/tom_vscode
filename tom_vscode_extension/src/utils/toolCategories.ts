@@ -99,6 +99,13 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_notebookEdit',
         'tomAi_notebookRun',
     ],
+    'Past Calls & Prompts': [
+        'tomAi_getPromptPair',
+        'tomAi_listPastToolCalls',
+        'tomAi_listPromptPairs',
+        'tomAi_readPastToolResult',
+        'tomAi_searchPastToolResults',
+    ],
     'Pattern Prompts': [
         'tomAi_listPatternPrompts',
         'tomAi_readPatternPrompt',
@@ -120,13 +127,23 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_listPromptTemplates',
         'tomAi_updatePromptTemplate',
     ],
+    // Read-only queue/timer introspection only. The mutators and the dispatch
+    // entry points are held back on purpose — see
+    // constants.ts::DELIBERATELY_UNSELECTABLE_TOOLS.
+    'Queue & Timers (read)': [
+        'tomAi_listQueue',
+        'tomAi_listTimedRequests',
+    ],
     'Quests': [
         'tomAi_archiveQuestTodos',
         'tomAi_createQuestTodo',
         'tomAi_deleteQuestTodo',
         'tomAi_deleteQuestTodos',
+        'tomAi_getActiveQuest',
         'tomAi_getCombinedTodos',
         'tomAi_getQuestTodo',
+        'tomAi_listDocuments',
+        'tomAi_listProjects',
         'tomAi_listQuests',
         'tomAi_listQuestTodos',
         'tomAi_listWorkspaceQuestTodos',
