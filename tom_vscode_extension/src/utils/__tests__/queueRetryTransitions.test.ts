@@ -131,6 +131,31 @@ describe('clearRetryBookkeeping', () => {
         assert.equal(item.retryUntil, undefined);
         assert.equal(item.status, 'sending');
     });
+
+    test('leaves the in-flight repetition snapshot alone', () => {
+        // Deliberate asymmetry — do not "fix" this by clearing the snapshot
+        // here. The two fields answer different questions: the retry
+        // bookkeeping asks "did the transport accept the send?", which is
+        // answered the moment `dispatchStage` returns; the snapshot asks "did
+        // this repetition complete?", which for a polled (Copilot) transport is
+        // not answered until the answer file lands, minutes later. Clearing it
+        // on send success would discard the rollback in exactly the case it
+        // exists for — a watchdog timeout on a prompt that went out fine.
+        const item: RetryTransitionItem & RollbackTargetItem = {
+            status: 'sending',
+            retryAttempt: 2,
+            repeatIndex: 1,
+            inFlightRepetition: { stage: 'main', prevRepeatIndex: 0 },
+        };
+
+        clearRetryBookkeeping(item);
+
+        assert.deepEqual(
+            item.inFlightRepetition,
+            { stage: 'main', prevRepeatIndex: 0 },
+            'a dispatched-but-unanswered repetition must stay rollback-able',
+        );
+    });
 });
 
 describe('applyStopRetrying', () => {

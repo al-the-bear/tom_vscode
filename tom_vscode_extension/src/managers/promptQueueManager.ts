@@ -2392,6 +2392,11 @@ export class PromptQueueManager {
             item.requestId = undefined;
             item.expectedRequestId = undefined;
             item.followUpIndex = 0;
+            // The cancelled dispatch is over, so its counter snapshot is spent.
+            // Leaving it set would let a *later* failure (a Resend that fails,
+            // say) roll back a repetition that was actually dispatched — see
+            // the lifecycle contract on `InFlightRepetition`.
+            item.inFlightRepetition = undefined;
             item.sentAt = undefined;
             item.reminderSentCount = 0;
             item.lastReminderAt = undefined;
@@ -2780,6 +2785,13 @@ export class PromptQueueManager {
         // Clear prior failure markers so the UI reflects the in-flight resend.
         item.error = undefined;
         item.warning = undefined;
+        // A resend is a fresh dispatch attempt that advances no counter, so any
+        // snapshot still hanging off the item belongs to an earlier dispatch and
+        // is moot — same rule as the top of `dispatchNextStageForSendingItem`.
+        // Without this, a resend that fails would hit `rollbackInFlightRepetition`
+        // and silently rewind a counter, contradicting the contract above that
+        // repetition counters are not touched.
+        item.inFlightRepetition = undefined;
         item.status = 'sending';
         item.sentAt = new Date().toISOString();
         item.reminderSentCount = 0;

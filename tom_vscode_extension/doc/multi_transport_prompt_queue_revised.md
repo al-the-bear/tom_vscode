@@ -689,8 +689,18 @@ logic is pure and unit-tested in
   `inFlightRepetition` snapshot records that single advance; `_markItemError`
   calls the pure `rollbackInFlightRepetition` before every waiting / retry /
   hard-error transition so a retry re-sends the **same** failed rep instead of
-  walking the loop forward. The snapshot is cleared at the top of each dispatch
-  attempt and on the done path.
+  walking the loop forward.
+
+  A snapshot must never outlive the dispatch it describes: while it is set, any
+  `_markItemError` rewinds that counter, so a leftover snapshot turns an
+  unrelated later failure into a silent rewind. It is therefore cleared at every
+  transition that ends a dispatch — the pause gate, the top of each fresh
+  attempt and the done path in `dispatchNextStageForSendingItem`; `setStatus`
+  sending → staged (and so `stopActiveItem`); `resendLastPrompt`, which advances
+  no counter of its own; and `applyCrashRecovery`. Dispatch **success** is
+  deliberately not a clear point: `_clearRetryOnDispatchSuccess` wipes the retry
+  bookkeeping but leaves the snapshot, because a polled Copilot send that
+  returned is still unanswered and its advance is not yet final.
 
 - **Deferred queue start.** A header **"Start in N minutes"** dropdown
   (`setQueueStartDelay` / `queueStartAt`; No start time / 15/30/60/90/180/270/
