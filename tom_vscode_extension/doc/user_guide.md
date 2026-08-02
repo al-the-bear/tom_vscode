@@ -35,10 +35,13 @@ The Logs section of @WS shows the active quest's log-style markdown files from
 - **Remembered selection**: the active sub-tab is restored after a window reload
 - **Auto-refresh**: re-reads every 2.5 s while the section is expanded; a file
   that has not changed costs no read
-- **Tail view**: files above 256 KB are shown from the last 256 KB (marked
-  `(tail)` in the status bar) — the trail alone routinely passes half a megabyte
-- **Follow-tail scrolling**: a reader sitting at the bottom stays there as the
-  file grows; scrolling up to study something holds that position
+- **256 KB window**: a larger file is shown from the end its newest content is
+  at — the last 256 KB of the two trail tabs (marked `(tail)`), the first 256 KB
+  of every other tab (marked `(head)`), because those documents are prepended to
+  or rewritten wholesale rather than appended to
+- **Follow scrolling**: the view opens at that same end, and a reader still
+  sitting there stays there as the file grows; scrolling away to study something
+  holds that position
 - **Toolbar**: **Refresh** re-reads the selected file from disk; **Open in
   editor** opens it in a normal text editor
 - **Missing files**: not every quest has every document; a missing one is

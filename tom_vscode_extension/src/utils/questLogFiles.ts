@@ -8,9 +8,10 @@
  * the mapping be pinned down by unit tests.
  *
  * The viewer polls these files every few seconds and some of them are large
- * (the live trail routinely passes half a megabyte), so it reads only the last
- * {@link MAX_QUEST_LOG_BYTES} — see {@link computeTailStart} and
- * {@link trimToLineStart}.
+ * (the live trail routinely passes half a megabyte), so it reads only
+ * {@link MAX_QUEST_LOG_BYTES} of each — the slice taken from whichever end the
+ * file's newest content is at (see {@link QuestLogTab.newestAt}), snapped to a
+ * line boundary by {@link trimToLineStart} / {@link trimToLineEnd}.
  */
 
 import { sanitizeQuestSegment } from './questPaths.js';
@@ -33,6 +34,12 @@ export type QuestLogTabId =
  */
 export type QuestLogView = 'rendered' | 'source';
 
+/**
+ * Which end of a file holds its newest content. The viewer reads its slice from
+ * that end and opens the view scrolled to it.
+ */
+export type QuestLogNewestAt = 'end' | 'start';
+
 /** One entry of the Logs tab strip. */
 export interface QuestLogTab {
     readonly id: QuestLogTabId;
@@ -41,6 +48,12 @@ export interface QuestLogTab {
     /** Codicon name (without the `codicon-` prefix). */
     readonly icon: string;
     readonly view: QuestLogView;
+    /**
+     * Where this file's newest content is. The trail is appended to, so it is
+     * read from the end; every quest document is prepended to or rewritten
+     * wholesale, so it is read from the start.
+     */
+    readonly newestAt: QuestLogNewestAt;
 }
 
 /**
@@ -49,24 +62,24 @@ export interface QuestLogTab {
  * rendered view hides the structure you are debugging.
  */
 export const QUEST_LOG_TABS: readonly QuestLogTab[] = [
-    { id: 'mdTrail', label: 'MD Trail', icon: 'preview', view: 'rendered' },
-    { id: 'trail', label: 'Trail', icon: 'pulse', view: 'source' },
-    { id: 'prompts', label: 'Prompts', icon: 'comment', view: 'source' },
-    { id: 'answers', label: 'Answers', icon: 'comment-discussion', view: 'source' },
-    { id: 'progress', label: 'Progress', icon: 'graph', view: 'source' },
-    { id: 'overview', label: 'Overview', icon: 'book', view: 'source' },
-    { id: 'notes', label: 'Notes', icon: 'note', view: 'source' },
-    { id: 'refresh', label: 'Refresh', icon: 'refresh', view: 'source' },
-    { id: 'docUpdate', label: 'DocUpdate', icon: 'file-symlink-file', view: 'source' },
+    { id: 'mdTrail', label: 'MD Trail', icon: 'preview', view: 'rendered', newestAt: 'end' },
+    { id: 'trail', label: 'Trail', icon: 'pulse', view: 'source', newestAt: 'end' },
+    { id: 'prompts', label: 'Prompts', icon: 'comment', view: 'source', newestAt: 'start' },
+    { id: 'answers', label: 'Answers', icon: 'comment-discussion', view: 'source', newestAt: 'start' },
+    { id: 'progress', label: 'Progress', icon: 'graph', view: 'source', newestAt: 'start' },
+    { id: 'overview', label: 'Overview', icon: 'book', view: 'source', newestAt: 'start' },
+    { id: 'notes', label: 'Notes', icon: 'note', view: 'source', newestAt: 'start' },
+    { id: 'refresh', label: 'Refresh', icon: 'refresh', view: 'source', newestAt: 'start' },
+    { id: 'docUpdate', label: 'DocUpdate', icon: 'file-symlink-file', view: 'source', newestAt: 'start' },
 ];
 
 /** Tab selected when nothing has been persisted yet. */
 export const DEFAULT_QUEST_LOG_TAB_ID: QuestLogTabId = 'mdTrail';
 
 /**
- * Upper bound on how much of a log file is read per refresh. The live trail
- * grows without bound; the viewer only ever shows its end, so reading more
- * would cost I/O and webview memory for content nobody scrolls back to.
+ * Upper bound on how much of a log file is read per refresh. These files grow
+ * without bound; the viewer only ever shows the newest end of one, so reading
+ * more would cost I/O and webview memory for content nobody scrolls to.
  */
 export const MAX_QUEST_LOG_BYTES = 256 * 1024;
 
@@ -117,4 +130,13 @@ export function computeTailStart(size: number, maxBytes: number = MAX_QUEST_LOG_
 export function trimToLineStart(text: string): string {
     const nl = text.indexOf('\n');
     return nl < 0 ? text : text.slice(nl + 1);
+}
+
+/**
+ * Drop the trailing partial line of a head slice — the mirror of
+ * {@link trimToLineStart} for the files that are read from their start.
+ */
+export function trimToLineEnd(text: string): string {
+    const nl = text.lastIndexOf('\n');
+    return nl < 0 ? text : text.slice(0, nl + 1);
 }

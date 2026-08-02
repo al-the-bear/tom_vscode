@@ -12,7 +12,7 @@
 
 /** Poll interval. The requirement is "at least every 3 seconds". */
 var QLOG_POLL_MS = 2500;
-/** How close to the bottom still counts as "following the tail", in pixels. */
+/** How close to a file's newest end still counts as "following it", in pixels. */
 var QLOG_STICKY_SLACK = 40;
 
 var qlogActiveTab = qlogDefaultTab;
@@ -98,9 +98,13 @@ function qlogFormatBytes(bytes) {
 }
 
 /**
- * Swap in freshly rendered content. The trail is append-only and the point of
- * the view is to watch it grow, so a reader sitting at the bottom is kept
- * there; a reader who scrolled up to study something keeps their position.
+ * Swap in freshly rendered content, keeping the reader where they were.
+ *
+ * The point of the view is to watch a file grow, and `newestAt` says at which
+ * end it grows: the trail is appended to, the quest documents are prepended to
+ * or rewritten wholesale. So the view opens at that end and a reader still
+ * sitting there is kept there — while a reader who scrolled away to study
+ * something keeps their position.
  */
 function qlogApplyContent(msg) {
     var body = document.getElementById('qlog-body');
@@ -116,16 +120,19 @@ function qlogApplyContent(msg) {
         return;
     }
 
-    var wasAtBottom = body.scrollHeight - body.scrollTop - body.clientHeight <= QLOG_STICKY_SLACK;
+    var atStart = msg.newestAt === 'start';
+    var wasFollowing = atStart
+        ? body.scrollTop <= QLOG_STICKY_SLACK
+        : body.scrollHeight - body.scrollTop - body.clientHeight <= QLOG_STICKY_SLACK;
     var firstLoad = qlogLoadedTab !== msg.tab;
     body.innerHTML = msg.html || '<div class="qlog-empty">(empty)</div>';
-    if (firstLoad || wasAtBottom) { body.scrollTop = body.scrollHeight; }
+    if (firstLoad || wasFollowing) { body.scrollTop = atStart ? 0 : body.scrollHeight; }
     qlogLoadedTab = msg.tab;
 
     var stamp = new Date().toLocaleTimeString();
     qlogSetStatus(
         msg.fileName + ' · ' + qlogFormatBytes(msg.bytes)
-        + (msg.truncated ? ' (tail)' : '') + ' · ' + stamp,
+        + (msg.truncated ? (atStart ? ' (head)' : ' (tail)') : '') + ' · ' + stamp,
     );
 }
 

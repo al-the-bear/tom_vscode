@@ -13,8 +13,9 @@
  *   - **The files are large and polled.** The trail alone routinely passes half
  *     a megabyte and the webview refreshes every few seconds, so each request
  *     first compares `size`/`mtime` against what the tab was last sent and
- *     answers `qlogUnchanged` when nothing moved. When it did move, only the
- *     last `MAX_QUEST_LOG_BYTES` are read.
+ *     answers `qlogUnchanged` when nothing moved. When it did move, only
+ *     `MAX_QUEST_LOG_BYTES` are read — from whichever end of the file its
+ *     newest content is at.
  *   - **The content is untrusted.** It quotes user prompts and model answers
  *     verbatim and is assigned with `innerHTML` into a CSP-free accordion, so
  *     both render paths escape (see `questLogMarkdown` / `markdownSourceHighlight`).
@@ -37,10 +38,13 @@ import { highlightMarkdownSource } from '../utils/markdownSourceHighlight.js';
 import {
     QUEST_LOG_TABS,
     DEFAULT_QUEST_LOG_TAB_ID,
+    MAX_QUEST_LOG_BYTES,
     computeTailStart,
     isQuestLogTabId,
     questLogFileName,
     trimToLineStart,
+    trimToLineEnd,
+    type QuestLogNewestAt,
     type QuestLogTabId,
 } from '../utils/questLogFiles.js';
 
@@ -102,23 +106,30 @@ function resolveQuestLogPath(tab: QuestLogTabId): { questId: string; filePath: s
 }
 
 /**
- * Read at most {@link MAX_QUEST_LOG_BYTES} from the end of a file.
+ * Read at most {@link MAX_QUEST_LOG_BYTES} from the end of the file `newestAt`
+ * names — the tail for the appended-to trail, the head for the quest documents,
+ * which are prepended to or rewritten wholesale.
  *
- * The slice starts at a byte offset, which can land inside a multi-byte
- * character as easily as inside a line — dropping the leading partial line
- * discards both problems at once.
+ * The slice is bounded by a byte offset, which can land inside a multi-byte
+ * character as easily as inside a line — dropping the partial line at the cut
+ * end discards both problems at once.
  */
-function readQuestLogTail(filePath: string, size: number): { text: string; truncated: boolean } {
-    const start = computeTailStart(size);
-    if (start === 0) {
+function readQuestLogSlice(
+    filePath: string,
+    size: number,
+    newestAt: QuestLogNewestAt,
+): { text: string; truncated: boolean } {
+    const length = Math.min(Math.max(size, 0), MAX_QUEST_LOG_BYTES);
+    if (length === size) {
         return { text: fs.readFileSync(filePath, 'utf8'), truncated: false };
     }
+    const start = newestAt === 'end' ? computeTailStart(size) : 0;
     const fd = fs.openSync(filePath, 'r');
     try {
-        const length = size - start;
         const buffer = Buffer.alloc(length);
         const read = fs.readSync(fd, buffer, 0, length, start);
-        return { text: trimToLineStart(buffer.subarray(0, read).toString('utf8')), truncated: true };
+        const raw = buffer.subarray(0, read).toString('utf8');
+        return { text: newestAt === 'end' ? trimToLineStart(raw) : trimToLineEnd(raw), truncated: true };
     } finally {
         fs.closeSync(fd);
     }
@@ -151,7 +162,9 @@ export async function handleQuestLogsMessage(message: any, webview: vscode.Webvi
 }
 
 function sendQuestLogContent(webview: vscode.Webview, tab: QuestLogTabId, force: boolean): void {
-    const view = QUEST_LOG_TABS.find(t => t.id === tab)?.view ?? 'source';
+    const entry = QUEST_LOG_TABS.find(t => t.id === tab);
+    const view = entry?.view ?? 'source';
+    const newestAt: QuestLogNewestAt = entry?.newestAt ?? 'end';
     const { questId, filePath, fileName } = resolveQuestLogPath(tab);
 
     let stat: fs.Stats;
@@ -160,7 +173,7 @@ function sendQuestLogContent(webview: vscode.Webview, tab: QuestLogTabId, force:
     } catch {
         lastSent.delete(tab);
         webview.postMessage({
-            type: 'qlogContent', tab, questId, fileName, filePath,
+            type: 'qlogContent', tab, questId, fileName, filePath, newestAt,
             exists: false, html: '', truncated: false, bytes: 0,
         });
         return;
@@ -177,13 +190,13 @@ function sendQuestLogContent(webview: vscode.Webview, tab: QuestLogTabId, force:
     }
 
     try {
-        const { text, truncated } = readQuestLogTail(filePath, stat.size);
+        const { text, truncated } = readQuestLogSlice(filePath, stat.size, newestAt);
         const html = view === 'rendered'
             ? renderQuestLogMarkdown(text)
             : `<pre class="qlog-source">${highlightMarkdownSource(text)}</pre>`;
         lastSent.set(tab, { filePath, size: stat.size, mtimeMs: stat.mtimeMs });
         webview.postMessage({
-            type: 'qlogContent', tab, questId, fileName, filePath,
+            type: 'qlogContent', tab, questId, fileName, filePath, newestAt,
             exists: true, html, truncated, bytes: stat.size,
         });
     } catch (err) {
@@ -192,7 +205,7 @@ function sendQuestLogContent(webview: vscode.Webview, tab: QuestLogTabId, force:
         // retries rather than reporting the stale content as current.
         lastSent.delete(tab);
         webview.postMessage({
-            type: 'qlogContent', tab, questId, fileName, filePath,
+            type: 'qlogContent', tab, questId, fileName, filePath, newestAt,
             exists: false, html: '', truncated: false, bytes: 0,
             error: err instanceof Error ? err.message : String(err),
         });

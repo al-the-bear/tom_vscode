@@ -10,9 +10,13 @@
  *   - **Every tab resolves to exactly one deterministic file name.** The quest
  *     folder has no globbing: `progress.<quest>.md`, `<quest>.anthropic.
  *     prompts.md`, and the two trail tabs both point at `live-trail.md`.
- *   - **The tail window never splits a line.** The viewer reads only the last
- *     slice of a multi-hundred-KB trail; starting mid-line would corrupt the
- *     first rendered line, so the start offset is snapped forward to a newline.
+ *   - **The read window never splits a line.** The viewer reads only one slice
+ *     of a multi-hundred-KB file; cutting mid-line would corrupt the first or
+ *     last rendered line, so the slice is snapped to a newline at whichever end
+ *     was cut.
+ *   - **Each tab is read from the end its newest content is at.** The trail is
+ *     appended to, so its slice is the file's tail; the quest documents are
+ *     prepended to or rewritten wholesale, so theirs is the file's head.
  */
 
 import test, { describe } from 'node:test';
@@ -26,6 +30,7 @@ import {
     questLogFileName,
     computeTailStart,
     trimToLineStart,
+    trimToLineEnd,
     type QuestLogTabId,
 } from '../questLogFiles.js';
 
@@ -58,6 +63,18 @@ describe('QUEST_LOG_TABS catalogue', () => {
     test('the default tab is MD Trail and is part of the catalogue', () => {
         assert.equal(DEFAULT_QUEST_LOG_TAB_ID, 'mdTrail');
         assert.equal(QUEST_LOG_TABS.some(t => t.id === DEFAULT_QUEST_LOG_TAB_ID), true);
+    });
+
+    test('only the two trail tabs are read from the end of their file', () => {
+        // live-trail.md is appended to, so its newest content is at the bottom.
+        // Every quest document is either prepended to or rewritten wholesale,
+        // so reading its tail would show the oldest content and open the view
+        // scrolled away from what the reader wants.
+        const fromEnd = QUEST_LOG_TABS.filter(t => t.newestAt === 'end').map(t => t.id);
+        assert.deepEqual(fromEnd, ['mdTrail', 'trail']);
+
+        const fromStart = QUEST_LOG_TABS.filter(t => t.newestAt === 'start').map(t => t.id);
+        assert.deepEqual(fromStart, ['prompts', 'answers', 'progress', 'overview', 'notes', 'refresh', 'docUpdate']);
     });
 
     test('every tab carries a codicon name for the tab strip', () => {
@@ -137,6 +154,20 @@ describe('trimToLineStart', () => {
         // No leading partial line to drop — the caller only trims when it
         // actually sliced into the middle of the file.
         assert.equal(trimToLineStart('\nsecond'), 'second');
+    });
+});
+
+describe('trimToLineEnd', () => {
+    test('drops the partial last line so the view never ends mid-sentence', () => {
+        assert.equal(trimToLineEnd('first\nsecond\nthi'), 'first\nsecond\n');
+    });
+
+    test('returns the text unchanged when it has no newline to snap to', () => {
+        assert.equal(trimToLineEnd('single fragment'), 'single fragment');
+    });
+
+    test('leaves text that already ends on a line boundary alone', () => {
+        assert.equal(trimToLineEnd('first\nsecond\n'), 'first\nsecond\n');
     });
 });
 

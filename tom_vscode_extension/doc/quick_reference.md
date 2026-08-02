@@ -152,22 +152,23 @@
 #### Logs sub-tabs
 
 Read-only viewers over the active quest's files in `_ai/quests/{quest}/`. The
-selected sub-tab survives a window reload; the content refreshes every 2.5 s and
-large files are shown as their last 256 KB. Two toolbar buttons act on the
-selected sub-tab: **Refresh** re-reads from disk, **Open in editor** opens the
-file in a normal text editor.
+selected sub-tab survives a window reload; the content refreshes every 2.5 s. A
+file larger than 256 KB is read from — and the view opens at — the end its
+newest content is at (the *Opens at* column below). Two toolbar buttons act on
+the selected sub-tab: **Refresh** re-reads from disk, **Open in editor** opens
+the file in a normal text editor.
 
-| Sub-tab | File | View |
-| --- | --- | --- |
-| MD Trail | `live-trail.md` | Rendered markdown |
-| Trail | `live-trail.md` | Source, syntax-highlighted |
-| Prompts | `{quest}.anthropic.prompts.md` | Source |
-| Answers | `{quest}.anthropic.answers.md` | Source |
-| Progress | `progress.{quest}.md` | Source |
-| Overview | `overview.{quest}.md` | Source |
-| Notes | `quest-notes.{quest}.md` | Source |
-| Refresh | `quest_refresh.{quest}.md` | Source |
-| DocUpdate | `quest_documentation_update.{quest}.md` | Source |
+| Sub-tab | File | View | Opens at |
+| --- | --- | --- | --- |
+| MD Trail | `live-trail.md` | Rendered markdown | Bottom (appended to) |
+| Trail | `live-trail.md` | Source, syntax-highlighted | Bottom (appended to) |
+| Prompts | `{quest}.anthropic.prompts.md` | Source | Top |
+| Answers | `{quest}.anthropic.answers.md` | Source | Top |
+| Progress | `progress.{quest}.md` | Source | Top |
+| Overview | `overview.{quest}.md` | Source | Top |
+| Notes | `quest-notes.{quest}.md` | Source | Top |
+| Refresh | `quest_refresh.{quest}.md` | Source | Top |
+| DocUpdate | `quest_documentation_update.{quest}.md` | Source | Top |
 
 Not every quest has every file; a missing one is reported in the viewer.
 
