@@ -155,7 +155,7 @@ How long it retries depends on the transport, but all of them honour the profile
 | Transport | Mechanism | Bound | Backoff |
 | --- | --- | --- | --- |
 | `direct`, `localLlm` | `withRetryBudget` (`src/utils/retryWithBudget.ts`) | time budget = `retryMaxTotalWaitMinutes` | exponential, capped 5 min/step |
-| `agentSdk` | `runAgentSdkQuery` loop + `planAgentSdkRetry` (`src/services/agent-sdk-retry.ts`) | **busy** errors: same time budget; **non-busy** "resume interrupted work" errors: `anthropic.transportRetry.maxAttempts` (default 3) | exponential (`computeBackoffMs`), capped 5 min/step, bounded by remaining budget |
+| `agentSdk` | `runAgentSdkQuery` loop + `planAgentSdkRetry` (`src/services/agent-sdk-retry.ts`) | **busy** errors: same time budget; **non-busy** "resume interrupted work" errors: `anthropic.transportRetry.maxAttempts` (default 3) | a reported **rate-limit reset** when there is one (see below), otherwise exponential (`computeBackoffMs`), capped 5 min/step, bounded by remaining budget |
 
 On the `agentSdk` path a busy error keeps retrying past the small `maxAttempts` cap until the time budget is spent — a sustained 529 needs many spaced-out retries, not three instant ones. Each backoff sleep is cancellable (Stop button / cancellation token) and pushes a status line (`Anthropic API busy (Agent SDK) — retrying in …`) to the panel via `_onStatusUpdate`, plus a `[retry]` line to the Tom Tool Log. The `transportRetry` *template* (§5) still governs the continuation prompt sent when a retry **resumes** the failed session.
 
@@ -167,6 +167,36 @@ Every retry is also written into the quest's `live-trail.md` as a `### 🔁 retr
 - `agentSdk` — `runAgentSdkQuery` calls `liveTrail.appendRetry` for **every** retry: busy errors (with the backoff status) and the non-busy "resume interrupted work" retries (with a `Retrying after error …` note).
 
 The retry entry does **not** close the prompt block — the turn continues — unlike the terminal `### ✅ DONE` / `### ⚠️ ERROR` / interruption banners. The Telegram trail forwarder mirrors it as a `🔁 retry — …` line so a remote follower sees the failure too.
+
+### Subscription rate limits schedule the retry exactly (`agentSdk`)
+
+Under claude.ai **subscription** auth the Agent SDK pushes a `rate_limit_event` on the query stream whenever the window state changes, carrying `status` (`allowed` / `allowed_warning` / `rejected`), the window kind (`five_hour`, `seven_day`, `seven_day_opus`, `seven_day_sonnet`, `overage`), `utilization`, and `resetsAt`. `runAgentSdkAttempt` keeps the latest one; the retry loop reads it when the attempt fails.
+
+When the last reported status was **`rejected`** we know the exact instant a retry can be accepted, so the loop schedules against it instead of guessing:
+
+- **Wait = `resetsAt` + 2 minutes** (`RATE_LIMIT_RESET_SKEW_MS` in `agent-sdk-retry.ts`), the skew absorbing clock drift between the extension host and the API. Retrying before the reset can only earn another rejection, so this wait **outranks exponential backoff** — even when no time budget is configured.
+- **A reset beyond the remaining budget gives up immediately.** `planAgentSdkRetry` returns `give-up` when `elapsed + rateLimitWait > maxTotalWaitMs`: every attempt inside the budget is certain to be rejected, so sleeping through it only delays a failure the user could already act on.
+- A rejected window counts as "busy" regardless of the error text, so the reset-aware path engages even when the thrown message isn't recognisable to `isRetryableBusyError`.
+- The status line and the `### 🔁 retry` trail entry name the window, its utilization and its reset time — e.g. `Anthropic five_hour limit rejected (98% used, resets 2026-08-02T17:00:00.000Z, in 42m10s) — retrying in 44m10s`.
+
+Under **API-key** auth this message never arrives; the loop falls back to exponential backoff unchanged. The decision logic (`rateLimitResetAtMs`, `computeRateLimitWaitMs`, `describeRateLimit`, `formatRetryDuration`) lives in the pure, `vscode`-free `src/services/agent-sdk-retry.ts` and is unit-tested there. `resetsAt` is accepted in either seconds or milliseconds — the SDK types don't state a unit, so values below `1e12` are treated as seconds.
+
+### Token / cost accounting in the live-trail (`agentSdk`)
+
+The Agent SDK reports the turn's accounting exactly once, in its final `result` message. The transport maps it onto `LiveTrailUsage` (`toLiveTrailUsage`) and writes a `### 📊 usage` block **just before** the closing `### ✅ DONE`, so the numbers sit next to the work that incurred them:
+
+```markdown
+### 📊 usage
+
+- tokens: in 1,234 · out 567 · cache read 8,901 · cache write 42
+- cost: $0.0421 · api 12.3s
+
+| model | in | out | cache read | cache write | cost | ctx |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| claude-opus-4-7 | 1,234 | 567 | 8,901 | 42 | $0.0421 | 1,000,000 |
+```
+
+The aggregate `usage` arrives in the wire format's snake_case while `modelUsage` uses camelCase; the transport normalises both onto the trail's single vocabulary. Rendering is `formatLiveTrailUsage` — a pure function in `live-trail.ts`, unit-tested — and a usage object with nothing to report renders nothing rather than an empty heading. `LiveTrailWriter.appendUsage` also emits a `{ kind: 'usage', usage }` event; the Telegram coalescer deliberately drops it (a remote follower wants the answer, not the invoice).
 
 ## Related sections of the spec
 

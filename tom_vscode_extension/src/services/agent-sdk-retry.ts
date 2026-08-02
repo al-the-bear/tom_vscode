@@ -57,6 +57,15 @@ export interface AgentSdkRetryInput {
      * `maxAttempts` count bound (legacy behavior).
      */
     maxTotalWaitMs?: number;
+    /**
+     * Exact wait (ms) before a retry *can* be accepted, derived from the
+     * subscription rate-limit window the Agent SDK reports — see
+     * {@link computeRateLimitWaitMs}. When the reset lands beyond the remaining
+     * time budget the retry is abandoned immediately: every attempt inside the
+     * budget is certain to be rejected again, so sleeping through it only
+     * delays a failure the caller could already act on.
+     */
+    rateLimitWaitMs?: number;
 }
 
 /**
@@ -83,7 +92,18 @@ export function planAgentSdkRetry(input: AgentSdkRetryInput): AgentSdkRetryPlan 
         typeof input.maxTotalWaitMs === 'number' &&
         input.maxTotalWaitMs > 0;
     if (budgetBounded) {
-        if ((input.elapsedMs ?? 0) >= (input.maxTotalWaitMs as number)) {
+        const elapsedMs = input.elapsedMs ?? 0;
+        const maxTotalWaitMs = input.maxTotalWaitMs as number;
+        if (elapsedMs >= maxTotalWaitMs) {
+            return { kind: 'give-up' };
+        }
+        // A rate-limit window that does not reset before the budget runs out
+        // cannot be waited out. Give up now rather than sleep towards a retry
+        // that is guaranteed to be rejected.
+        if (
+            typeof input.rateLimitWaitMs === 'number' &&
+            elapsedMs + input.rateLimitWaitMs > maxTotalWaitMs
+        ) {
             return { kind: 'give-up' };
         }
     } else if (input.attemptsMade >= input.maxAttempts) {
@@ -96,6 +116,119 @@ export function planAgentSdkRetry(input: AgentSdkRetryInput): AgentSdkRetryPlan 
         return { kind: 'retry-fresh' };
     }
     return { kind: 'retry-resume', sessionId };
+}
+
+// ============================================================================
+// Subscription rate limits (Agent SDK `rate_limit_event`)
+// ============================================================================
+
+/**
+ * The subset of the Agent SDK's `SDKRateLimitInfo` this module reasons about.
+ * Declared structurally so `agent-sdk-retry.ts` stays free of the SDK import
+ * and remains loadable under `node --test`.
+ *
+ * These are **claude.ai subscription** limits, not API-key rate limits: the
+ * `rateLimitType` names the window that was hit — the rolling 5-hour session
+ * window (`five_hour`) or one of the weekly ones (`seven_day`,
+ * `seven_day_opus`, `seven_day_sonnet`) — and `resetsAt` says when it clears.
+ */
+export interface SdkRateLimitInfoLike {
+    status: 'allowed' | 'allowed_warning' | 'rejected';
+    /** Instant the window resets. Unix **seconds** as the SDK reports it. */
+    resetsAt?: number;
+    rateLimitType?: string;
+    /** Fraction of the window consumed, 0..1. */
+    utilization?: number;
+}
+
+/**
+ * Extra wait added on top of a rate-limit reset before retrying. The reset
+ * instant comes from the server's clock, so retrying at exactly `resetsAt`
+ * races any skew between it and ours; two minutes is comfortably more than
+ * any plausible drift and costs nothing against a window measured in hours.
+ */
+export const RATE_LIMIT_RESET_SKEW_MS = 2 * 60 * 1000;
+
+/**
+ * Values below this are read as Unix **seconds**, at or above it as
+ * milliseconds. The two scales are five orders of magnitude apart around the
+ * present day (~1.7e9 s vs ~1.7e12 ms), so the split is unambiguous for any
+ * timestamp between 2001 and the year 33658.
+ */
+const MS_EPOCH_THRESHOLD = 1e12;
+
+/**
+ * Normalise `resetsAt` to epoch milliseconds, tolerating either scale.
+ * Returns `undefined` when there is no usable reset instant.
+ */
+export function rateLimitResetAtMs(info: SdkRateLimitInfoLike | undefined): number | undefined {
+    const raw = info?.resetsAt;
+    if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) {
+        return undefined;
+    }
+    return raw < MS_EPOCH_THRESHOLD ? raw * 1000 : raw;
+}
+
+/**
+ * How long to wait before a retry can be accepted, given the last rate-limit
+ * info seen on the stream.
+ *
+ * Only a **rejected** window produces a wait: `allowed` and `allowed_warning`
+ * mean the request would still go through, so pinning the retry to their reset
+ * would stall a call that was never blocked. A rejected window with no
+ * `resetsAt` gives `undefined` too — there is nothing to schedule against, so
+ * the caller falls back to exponential backoff.
+ *
+ * @returns milliseconds to wait (never negative), or `undefined` when the
+ *          rate-limit info does not determine a retry instant.
+ */
+export function computeRateLimitWaitMs(
+    info: SdkRateLimitInfoLike | undefined,
+    nowMs: number,
+    skewMs: number = RATE_LIMIT_RESET_SKEW_MS,
+): number | undefined {
+    if (info?.status !== 'rejected') { return undefined; }
+    const resetAtMs = rateLimitResetAtMs(info);
+    if (resetAtMs === undefined) { return undefined; }
+    return Math.max(0, resetAtMs + skewMs - nowMs);
+}
+
+/**
+ * One-line, user-facing description of a rate-limit state for the retry status
+ * line, the live-trail and the tool log — e.g.
+ * `five_hour limit rejected (100% used, resets 2026-08-02T13:00:00.000Z)`.
+ * Returns `''` when there is no info to describe.
+ */
+export function describeRateLimit(info: SdkRateLimitInfoLike | undefined, nowMs: number): string {
+    if (!info) { return ''; }
+    const window = info.rateLimitType ? `${info.rateLimitType} limit` : 'rate limit';
+    const parts: string[] = [];
+    if (typeof info.utilization === 'number' && Number.isFinite(info.utilization)) {
+        parts.push(`${Math.round(info.utilization * 100)}% used`);
+    }
+    const resetAtMs = rateLimitResetAtMs(info);
+    if (resetAtMs !== undefined) {
+        parts.push(`resets ${new Date(resetAtMs).toISOString()}`);
+        if (resetAtMs > nowMs) {
+            parts.push(`in ${formatRetryDuration(resetAtMs - nowMs)}`);
+        }
+    }
+    const detail = parts.length > 0 ? ` (${parts.join(', ')})` : '';
+    return `${window} ${info.status}${detail}`;
+}
+
+/**
+ * Render a millisecond duration as `1h2m3s` / `4m5s` / `6s`. Shared by the
+ * retry status lines and {@link describeRateLimit} so both read identically.
+ */
+export function formatRetryDuration(ms: number): string {
+    const totalSec = Math.max(0, Math.round(ms / 1000));
+    const hours = Math.floor(totalSec / 3600);
+    const minutes = Math.floor((totalSec % 3600) / 60);
+    const seconds = totalSec % 60;
+    if (hours > 0) { return `${hours}h${minutes}m${seconds}s`; }
+    if (minutes > 0) { return `${minutes}m${seconds}s`; }
+    return `${seconds}s`;
 }
 
 /** Tunables for {@link computeBackoffMs}. */

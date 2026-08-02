@@ -30,7 +30,7 @@ const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'live-trail-'));
 installVscodeStub({ workspaceFolders: [tmpRoot] });
 
 // Safe to import after the stub is wired into the resolver.
-import { LiveTrailWriter, type LiveTrailEvent } from '../live-trail.js';
+import { LiveTrailWriter, formatLiveTrailUsage, type LiveTrailEvent } from '../live-trail.js';
 
 function newWriter(quest: string): LiveTrailWriter {
     const w = new LiveTrailWriter(quest);
@@ -96,6 +96,140 @@ describe('LiveTrailWriter.appendRetry', () => {
         const w = newWriter(quest);
         const before = fs.readFileSync(w.getFilePath(), 'utf-8');
         w.appendRetry('');
+        const after = fs.readFileSync(w.getFilePath(), 'utf-8');
+        assert.equal(after, before);
+    });
+});
+
+describe('formatLiveTrailUsage', () => {
+    it('renders the aggregate token counts', () => {
+        const md = formatLiveTrailUsage({
+            totals: {
+                inputTokens: 1234,
+                outputTokens: 567,
+                cacheReadInputTokens: 8901,
+                cacheCreationInputTokens: 42,
+            },
+        });
+        assert.match(md, /### 📊 usage/);
+        assert.match(md, /in 1,234/);
+        assert.match(md, /out 567/);
+        assert.match(md, /cache read 8,901/);
+        assert.match(md, /cache write 42/);
+    });
+
+    it('renders one table row per model with its own cost', () => {
+        const md = formatLiveTrailUsage({
+            models: [
+                {
+                    model: 'claude-opus-4-7',
+                    inputTokens: 100,
+                    outputTokens: 20,
+                    cacheReadInputTokens: 3000,
+                    cacheCreationInputTokens: 0,
+                    costUSD: 0.0421,
+                    contextWindow: 1000000,
+                },
+                {
+                    model: 'claude-haiku-4-5',
+                    inputTokens: 5,
+                    outputTokens: 1,
+                    cacheReadInputTokens: 0,
+                    cacheCreationInputTokens: 0,
+                    costUSD: 0.0001,
+                },
+            ],
+        });
+        assert.match(md, /\| claude-opus-4-7 \|/);
+        assert.match(md, /\| claude-haiku-4-5 \|/);
+        assert.match(md, /\$0\.0421/);
+        assert.match(md, /1,000,000/);
+    });
+
+    it('renders the total cost and API time when supplied', () => {
+        const md = formatLiveTrailUsage({
+            totals: { inputTokens: 1, outputTokens: 1 },
+            totalCostUsd: 1.5,
+            durationApiMs: 12_300,
+        });
+        assert.match(md, /\$1\.5000/);
+        assert.match(md, /12\.3s/);
+    });
+
+    it('omits the model table when there is no per-model breakdown', () => {
+        const md = formatLiveTrailUsage({ totals: { inputTokens: 10, outputTokens: 2 } });
+        assert.doesNotMatch(md, /\| model \|/);
+    });
+
+    it('omits the totals line when there are no token counts', () => {
+        const md = formatLiveTrailUsage({
+            models: [{ model: 'claude-opus-4-7', inputTokens: 1, outputTokens: 1 }],
+        });
+        assert.doesNotMatch(md, /tokens:/);
+        assert.match(md, /\| model \|/);
+    });
+
+    it('returns an empty string when there is nothing to report', () => {
+        assert.equal(formatLiveTrailUsage({}), '');
+        assert.equal(formatLiveTrailUsage({ models: [] }), '');
+    });
+
+    it('treats an all-zero totals block as reportable (a turn really can cost nothing new)', () => {
+        const md = formatLiveTrailUsage({
+            totals: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
+        });
+        assert.match(md, /in 0/);
+    });
+});
+
+describe('LiveTrailWriter.appendUsage', () => {
+    let quest: string;
+    beforeEach(() => {
+        quest = `q_${Math.random().toString(36).slice(2)}`;
+    });
+
+    it('appends the usage block to the trail file', () => {
+        const w = newWriter(quest);
+        w.appendUsage({
+            totals: { inputTokens: 10, outputTokens: 20 },
+            models: [{ model: 'claude-opus-4-7', inputTokens: 10, outputTokens: 20, costUSD: 0.5 }],
+            totalCostUsd: 0.5,
+        });
+        const body = fs.readFileSync(w.getFilePath(), 'utf-8');
+        assert.match(body, /### 📊 usage/);
+        assert.match(body, /claude-opus-4-7/);
+    });
+
+    it('does not close the prompt block — DONE still follows', () => {
+        const w = newWriter(quest);
+        w.appendUsage({ totals: { inputTokens: 1, outputTokens: 1 } });
+        w.endPrompt({ rounds: 1, toolCalls: 0, durationMs: 5 });
+        const body = fs.readFileSync(w.getFilePath(), 'utf-8');
+        assert.ok(
+            body.indexOf('### 📊 usage') < body.indexOf('### ✅ DONE'),
+            'usage must be written before the DONE marker',
+        );
+    });
+
+    it('emits a usage event carrying the payload', () => {
+        const events: LiveTrailEvent[] = [];
+        const sub = LiveTrailWriter.addObserver((e) => events.push(e));
+        try {
+            const w = newWriter(quest);
+            w.appendUsage({ totals: { inputTokens: 7, outputTokens: 3 }, totalCostUsd: 0.25 });
+            const usage = events.find((e) => e.kind === 'usage');
+            assert.ok(usage, 'expected a usage event');
+            assert.equal(usage.kind === 'usage' && usage.usage.totalCostUsd, 0.25);
+            assert.equal(usage.questId, quest);
+        } finally {
+            sub.dispose();
+        }
+    });
+
+    it('is a no-op when there is nothing to report', () => {
+        const w = newWriter(quest);
+        const before = fs.readFileSync(w.getFilePath(), 'utf-8');
+        w.appendUsage({});
         const after = fs.readFileSync(w.getFilePath(), 'utf-8');
         assert.equal(after, before);
     });

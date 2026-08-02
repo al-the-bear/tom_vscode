@@ -10,6 +10,11 @@
  *     unknown/no-session error even though a session id was captured.
  *   - planAgentSdkRetry retry-resume: with the captured session id, preferring
  *     capturedSessionId over resumeSessionId.
+ *   - rateLimitResetAtMs / computeRateLimitWaitMs / describeRateLimit: the
+ *     subscription rate-limit info the Agent SDK pushes as `rate_limit_event`,
+ *     turned into an exact "retry at reset + skew" wait.
+ *   - planAgentSdkRetry: a reset that lands beyond the retry budget gives up
+ *     immediately instead of burning attempts that are certain to be rejected.
  *
  * The module under test imports neither `vscode` nor the Agent SDK, so it
  * loads directly under `node --test` without a stub.
@@ -24,6 +29,10 @@ import {
     computeBackoffMs,
     DEFAULT_TRANSPORT_RETRY_TEMPLATE,
     selectTransportRetryTemplateBody,
+    RATE_LIMIT_RESET_SKEW_MS,
+    rateLimitResetAtMs,
+    computeRateLimitWaitMs,
+    describeRateLimit,
 } from '../agent-sdk-retry.js';
 
 describe('isUnknownSessionError', () => {
@@ -321,5 +330,148 @@ describe('selectTransportRetryTemplateBody', () => {
             ],
         });
         assert.equal(body, DEFAULT_TRANSPORT_RETRY_TEMPLATE);
+    });
+});
+
+describe('rateLimitResetAtMs', () => {
+    test('reads a Unix-seconds resetsAt as milliseconds', () => {
+        // 2026-08-02T12:00:00Z
+        const seconds = 1785672000;
+        assert.equal(rateLimitResetAtMs({ status: 'rejected', resetsAt: seconds }), seconds * 1000);
+    });
+
+    test('passes a millisecond resetsAt through unchanged', () => {
+        const ms = 1785672000000;
+        assert.equal(rateLimitResetAtMs({ status: 'rejected', resetsAt: ms }), ms);
+    });
+
+    test('returns undefined when resetsAt is absent', () => {
+        assert.equal(rateLimitResetAtMs({ status: 'rejected' }), undefined);
+    });
+
+    test('returns undefined for non-finite / non-positive resetsAt', () => {
+        assert.equal(rateLimitResetAtMs({ status: 'rejected', resetsAt: 0 }), undefined);
+        assert.equal(rateLimitResetAtMs({ status: 'rejected', resetsAt: -1 }), undefined);
+        assert.equal(rateLimitResetAtMs({ status: 'rejected', resetsAt: Number.NaN }), undefined);
+    });
+
+    test('returns undefined when there is no info at all', () => {
+        assert.equal(rateLimitResetAtMs(undefined), undefined);
+    });
+});
+
+describe('computeRateLimitWaitMs', () => {
+    const now = 1785672000000;  // 2026-08-02T12:00:00Z, in ms
+
+    test('waits until the reset plus the skew allowance', () => {
+        const resetsAt = now / 1000 + 3600;  // one hour from now, in seconds
+        assert.equal(
+            computeRateLimitWaitMs({ status: 'rejected', resetsAt }, now),
+            3600_000 + RATE_LIMIT_RESET_SKEW_MS,
+        );
+    });
+
+    test('the default skew allowance is two minutes', () => {
+        assert.equal(RATE_LIMIT_RESET_SKEW_MS, 2 * 60_000);
+    });
+
+    test('an explicit skew overrides the default', () => {
+        const resetsAt = now / 1000 + 60;
+        assert.equal(
+            computeRateLimitWaitMs({ status: 'rejected', resetsAt }, now, 5_000),
+            65_000,
+        );
+    });
+
+    test('clamps to zero when the reset is already past', () => {
+        const resetsAt = now / 1000 - 3600;
+        assert.equal(computeRateLimitWaitMs({ status: 'rejected', resetsAt }, now), 0);
+    });
+
+    test('returns undefined while the limit is merely a warning — that request would go through', () => {
+        const resetsAt = now / 1000 + 3600;
+        assert.equal(computeRateLimitWaitMs({ status: 'allowed_warning', resetsAt }, now), undefined);
+        assert.equal(computeRateLimitWaitMs({ status: 'allowed', resetsAt }, now), undefined);
+    });
+
+    test('returns undefined when rejected without a reset time — nothing to schedule against', () => {
+        assert.equal(computeRateLimitWaitMs({ status: 'rejected' }, now), undefined);
+    });
+
+    test('returns undefined when there is no info at all', () => {
+        assert.equal(computeRateLimitWaitMs(undefined, now), undefined);
+    });
+});
+
+describe('describeRateLimit', () => {
+    const now = 1785672000000;
+
+    test('names the limit window and the utilization', () => {
+        const text = describeRateLimit(
+            { status: 'rejected', rateLimitType: 'five_hour', resetsAt: now / 1000 + 3600, utilization: 1 },
+            now,
+        );
+        assert.match(text, /five_hour/);
+        assert.match(text, /100%/);
+    });
+
+    test('renders the reset instant as an ISO timestamp', () => {
+        const text = describeRateLimit(
+            { status: 'rejected', rateLimitType: 'seven_day', resetsAt: now / 1000 + 3600 },
+            now,
+        );
+        assert.match(text, /2026-08-02T13:00:00/);
+    });
+
+    test('falls back to the bare status when no window is named', () => {
+        assert.match(describeRateLimit({ status: 'rejected' }, now), /rejected/);
+    });
+
+    test('returns an empty string when there is no info', () => {
+        assert.equal(describeRateLimit(undefined, now), '');
+    });
+});
+
+describe('planAgentSdkRetry — a rate-limit reset beyond the budget', () => {
+    test('gives up when the reset lands past the remaining budget', () => {
+        // 4h of budget, 10m already spent, and the window does not reset for
+        // another 5h — no retry inside the budget can possibly be accepted.
+        const plan = planAgentSdkRetry({
+            attemptsMade: 1,
+            maxAttempts: 99,
+            errorMessage: 'API Error: 429 rate limit',
+            capturedSessionId: 'sess-1',
+            errorIsBusy: true,
+            elapsedMs: 10 * 60_000,
+            maxTotalWaitMs: 240 * 60_000,
+            rateLimitWaitMs: 300 * 60_000,
+        });
+        assert.deepEqual(plan, { kind: 'give-up' });
+    });
+
+    test('retries when the reset still fits inside the remaining budget', () => {
+        const plan = planAgentSdkRetry({
+            attemptsMade: 1,
+            maxAttempts: 99,
+            errorMessage: 'API Error: 429 rate limit',
+            capturedSessionId: 'sess-1',
+            errorIsBusy: true,
+            elapsedMs: 10 * 60_000,
+            maxTotalWaitMs: 240 * 60_000,
+            rateLimitWaitMs: 30 * 60_000,
+        });
+        assert.deepEqual(plan, { kind: 'retry-resume', sessionId: 'sess-1' });
+    });
+
+    test('ignores the reset wait when no budget is configured — the count bound rules', () => {
+        const plan = planAgentSdkRetry({
+            attemptsMade: 1,
+            maxAttempts: 3,
+            errorMessage: 'API Error: 429 rate limit',
+            capturedSessionId: 'sess-1',
+            errorIsBusy: true,
+            rateLimitWaitMs: 300 * 60_000,
+        });
+        assert.deepEqual(plan, { kind: 'retry-resume', sessionId: 'sess-1' });
     });
 });

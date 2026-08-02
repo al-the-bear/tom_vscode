@@ -58,14 +58,83 @@ interface SDKUserMessage {
     type: 'user';
     message: unknown;
 }
+/**
+ * Aggregate token counts on the SDK's `result` message (`usage`). Mirrors the
+ * Anthropic `Usage` shape; every field is optional here because we only read
+ * it for reporting and must not break if the SDK adds or drops one.
+ */
+interface SDKRawUsage {
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+}
+/** Per-model breakdown on the SDK's `result` message (`modelUsage`). */
+interface SDKModelUsage {
+    inputTokens?: number;
+    outputTokens?: number;
+    cacheReadInputTokens?: number;
+    cacheCreationInputTokens?: number;
+    costUSD?: number;
+    contextWindow?: number;
+}
 interface SDKResultMessage {
     type: 'result';
     subtype: string;
     num_turns: number;
     stop_reason?: string | null;
     result?: string;
+    usage?: SDKRawUsage;
+    modelUsage?: Record<string, SDKModelUsage>;
+    total_cost_usd?: number;
+    duration_api_ms?: number;
 }
-type SDKMessage = SDKAssistantMessage | SDKUserMessage | SDKResultMessage | { type: string };
+/**
+ * Subscription rate-limit state, pushed by the SDK whenever it changes (see
+ * `SDKRateLimitEvent` in `@anthropic-ai/claude-agent-sdk`). Only emitted for
+ * claude.ai subscription auth — under an API key this message never arrives
+ * and the retry loop falls back to exponential backoff.
+ */
+interface SDKRateLimitEvent {
+    type: 'rate_limit_event';
+    rate_limit_info: SdkRateLimitInfoLike;
+}
+type SDKMessage =
+    | SDKAssistantMessage
+    | SDKUserMessage
+    | SDKResultMessage
+    | SDKRateLimitEvent
+    | { type: string };
+
+/**
+ * Normalise the SDK's result accounting onto the live-trail's vocabulary.
+ *
+ * The SDK reports the same numbers twice in two different shapes: the
+ * aggregate `usage` uses the wire format's snake_case, while the per-model
+ * `modelUsage` map uses camelCase. The trail speaks one vocabulary, so the
+ * aggregate is renamed onto the per-model names here rather than teaching the
+ * formatter both.
+ */
+function toLiveTrailUsage(res: SDKResultMessage): LiveTrailUsage {
+    const raw = res.usage;
+    const totals = raw
+        ? {
+            inputTokens: raw.input_tokens,
+            outputTokens: raw.output_tokens,
+            cacheReadInputTokens: raw.cache_read_input_tokens,
+            cacheCreationInputTokens: raw.cache_creation_input_tokens,
+        }
+        : undefined;
+    const models: LiveTrailModelUsage[] = Object.entries(res.modelUsage ?? {}).map(
+        ([model, usage]) => ({ model, ...usage }),
+    );
+    return {
+        ...(totals ? { totals } : {}),
+        ...(models.length > 0 ? { models } : {}),
+        ...(typeof res.total_cost_usd === 'number' ? { totalCostUsd: res.total_cost_usd } : {}),
+        ...(typeof res.duration_api_ms === 'number' ? { durationApiMs: res.duration_api_ms } : {}),
+    };
+}
 
 interface McpToolDefinition {
     name: string;
@@ -132,10 +201,14 @@ import {
     isUnknownSessionError,
     planAgentSdkRetry,
     computeBackoffMs,
+    computeRateLimitWaitMs,
+    describeRateLimit,
+    formatRetryDuration,
     DEFAULT_TRANSPORT_RETRY_TEMPLATE,
     selectTransportRetryTemplateBody,
 } from '../services/agent-sdk-retry';
-import type { AgentSdkRetryPlan } from '../services/agent-sdk-retry';
+import type { AgentSdkRetryPlan, SdkRateLimitInfoLike } from '../services/agent-sdk-retry';
+import type { LiveTrailUsage, LiveTrailModelUsage } from '../services/live-trail';
 import { isRetryableBusyError } from '../utils/retryableError';
 import { toolLog } from '../utils/toolLog';
 import {
@@ -221,6 +294,8 @@ export interface AgentSdkSendParams {
         appendToolResult(resultPreview: string, fullLength: number): void;
         /** Record a transient-failure retry mid-turn (status line + cause). */
         appendRetry(message: string, cause?: string): void;
+        /** Record the turn's token / cost accounting, just before it ends. */
+        appendUsage(usage: LiveTrailUsage): void;
     };
     /**
      * When provided, passed as `resume` to the SDK so the agent continues a
@@ -515,21 +590,31 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
     for (;;) {
         attemptsMade++;
         const sessionOut: { capturedSessionId?: string } = {};
+        const rateLimitOut: { info?: SdkRateLimitInfoLike } = {};
         try {
             return await runAgentSdkAttempt(params, {
                 userText: attemptPrompt,
                 resumeSessionId: attemptResumeSessionId,
                 sessionOut,
+                rateLimitOut,
             });
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : String(err);
-            const errorIsBusy = isRetryableBusyError(err);
+            const now = Date.now();
+            // When the SDK told us the subscription window is exhausted we know
+            // *exactly* when a retry can be accepted, so schedule against that
+            // instead of guessing with exponential backoff.
+            const rateLimitWaitMs = computeRateLimitWaitMs(rateLimitOut.info, now);
+            // A rejected window is a "busy" condition even when the resulting
+            // error text does not look like one — otherwise the reset-aware
+            // path below would never engage for it.
+            const errorIsBusy = isRetryableBusyError(err) || rateLimitWaitMs !== undefined;
             if (errorIsBusy && firstBusyFailureAt === undefined) {
-                firstBusyFailureAt = Date.now();
+                firstBusyFailureAt = now;
             }
             const elapsedMs = firstBusyFailureAt === undefined
                 ? 0
-                : Date.now() - firstBusyFailureAt;
+                : now - firstBusyFailureAt;
             const plan = planAgentSdkRetry({
                 attemptsMade,
                 maxAttempts,
@@ -540,9 +625,15 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
                 errorIsBusy,
                 elapsedMs,
                 maxTotalWaitMs,
+                rateLimitWaitMs,
             });
             if (plan.kind === 'give-up') {
-                if (errorIsBusy && typeof maxTotalWaitMs === 'number' && maxTotalWaitMs > 0) {
+                if (rateLimitWaitMs !== undefined) {
+                    const status = `Anthropic ${describeRateLimit(rateLimitOut.info, now)} — the window does not reset within the ${formatRetryDuration(maxTotalWaitMs ?? 0)} retry budget; giving up`;
+                    params.retry?.onRetryStatus?.(status);
+                    params.liveTrail?.appendRetry(status, errorMessage);
+                    toolLog(`[retry] ${status} — cause: ${errorMessage}`);
+                } else if (errorIsBusy && typeof maxTotalWaitMs === 'number' && maxTotalWaitMs > 0) {
                     toolLog(`[retry] Anthropic API busy (Agent SDK) — budget exhausted after ${formatRetryDuration(elapsedMs)} over ${attemptsMade} attempt(s); giving up: ${errorMessage}`);
                 }
                 throw err;
@@ -561,12 +652,21 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
                     ? params.retry.buildContinuationPrompt(errorMessage)
                     : params.userText;
             }
-            // Space out busy retries with exponential backoff bounded by the
-            // remaining time budget; non-busy "resume interrupted work" retries
-            // keep the legacy immediate behavior. Either way, mirror the retry
-            // into the live-trail so the user sees the error + retry without
-            // opening the Tom Tool Log.
-            if (errorIsBusy && typeof maxTotalWaitMs === 'number' && maxTotalWaitMs > 0) {
+            // Space out busy retries. A known subscription-window reset gives an
+            // exact instant to retry at and always wins — even with no time
+            // budget configured, because hammering before the reset can only
+            // produce more rejections. Otherwise fall back to exponential
+            // backoff bounded by the remaining budget; non-busy "resume
+            // interrupted work" retries keep the legacy immediate behavior.
+            // Either way, mirror the retry into the live-trail so the user sees
+            // the error + retry without opening the Tom Tool Log.
+            if (rateLimitWaitMs !== undefined) {
+                const status = `Anthropic ${describeRateLimit(rateLimitOut.info, now)} — retrying in ${formatRetryDuration(rateLimitWaitMs)} (attempt ${attemptsMade + 1}, ${resumeNote})`;
+                params.retry?.onRetryStatus?.(status);
+                params.liveTrail?.appendRetry(status, errorMessage);
+                toolLog(`[retry] ${status} — cause: ${errorMessage}`);
+                await sleepCancellable(rateLimitWaitMs, params.cancellationToken);
+            } else if (errorIsBusy && typeof maxTotalWaitMs === 'number' && maxTotalWaitMs > 0) {
                 const remainingBudgetMs = maxTotalWaitMs - elapsedMs;
                 const waitMs = Math.min(
                     computeBackoffMs(busyRetryIndex, {
@@ -605,23 +705,14 @@ function sleepCancellable(ms: number, ct?: vscode.CancellationToken): Promise<vo
     });
 }
 
-/** Render a millisecond duration as `1h2m3s` / `4m5s` / `6s`. */
-function formatRetryDuration(ms: number): string {
-    const totalSec = Math.max(0, Math.round(ms / 1000));
-    const hours = Math.floor(totalSec / 3600);
-    const minutes = Math.floor((totalSec % 3600) / 60);
-    const seconds = totalSec % 60;
-    if (hours > 0) { return `${hours}h${minutes}m${seconds}s`; }
-    if (minutes > 0) { return `${minutes}m${seconds}s`; }
-    return `${seconds}s`;
-}
-
 /**
  * One Agent SDK attempt: streams the query, mirrors it to the raw + tool
  * trail, and either returns the result or throws on stream error. The
  * `attempt` argument carries the per-attempt prompt + resume id (which the
- * retry loop varies between attempts) and a `sessionOut` holder the attempt
- * fills with the captured session id so the loop can resume it on failure.
+ * retry loop varies between attempts) and two out-holders the attempt fills
+ * from the stream: `sessionOut` with the captured session id so the loop can
+ * resume it on failure, and `rateLimitOut` with the last subscription
+ * rate-limit state so the loop can schedule the retry against its reset.
  */
 async function runAgentSdkAttempt(
     params: AgentSdkSendParams,
@@ -629,6 +720,7 @@ async function runAgentSdkAttempt(
         userText: string;
         resumeSessionId?: string;
         sessionOut: { capturedSessionId?: string };
+        rateLimitOut?: { info?: SdkRateLimitInfoLike };
     },
 ): Promise<AgentSdkResult> {
     const { configuration, tools, systemPrompt, cancellationToken, context } = params;
@@ -911,6 +1003,20 @@ async function runAgentSdkAttempt(
                     }
                     break;
                 }
+                case 'rate_limit_event': {
+                    // Subscription-window state (five-hour / weekly). Pushed
+                    // whenever it changes, so keep the latest: the retry loop
+                    // reads it to schedule against `resetsAt` instead of
+                    // guessing with exponential backoff.
+                    const info = (msg as SDKRateLimitEvent).rate_limit_info;
+                    if (info && typeof info.status === 'string') {
+                        if (attempt.rateLimitOut) { attempt.rateLimitOut.info = info; }
+                        if (info.status !== 'allowed') {
+                            toolLog(`[agent-sdk] Anthropic ${describeRateLimit(info, Date.now())}`);
+                        }
+                    }
+                    break;
+                }
                 case 'result': {
                     const res = msg as SDKResultMessage;
                     stopReason = res.stop_reason ?? res.subtype;
@@ -918,6 +1024,9 @@ async function runAgentSdkAttempt(
                     if ('result' in res && typeof res.result === 'string' && res.result) {
                         lastText = res.result;
                     }
+                    // Token / cost accounting for the whole turn — the SDK only
+                    // reports it here, so record it before the stream closes.
+                    params.liveTrail?.appendUsage(toLiveTrailUsage(res));
                     break;
                 }
                 default:
