@@ -243,7 +243,7 @@ Handler: `wsPanel-handler.ts`
 |---------|------|---------|
 | Guidelines | `book` | Copilot guidelines browser with project/quest dropdowns |
 | Documentation | `note` | Project documentation browser |
-| Logs | `output` | Extension output logs |
+| Logs | `output` | Active quest's log files — nine sub-tabs (MD Trail, Trail, Prompts, Answers, Progress, Overview, Notes, Refresh, DocUpdate) via `questLogs-handler.ts` |
 | Settings | `settings-gear` | Embedded status page and configuration |
 | Issues | `issues` | GitHub issue tracking |
 | Tests | `beaker` | Test results |

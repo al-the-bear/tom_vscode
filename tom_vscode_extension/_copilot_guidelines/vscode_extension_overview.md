@@ -72,6 +72,8 @@ Note: AI Conversation is **not queue-compatible** (each turn is a fresh chat); t
 
 Workspace operations surface. Sections: Guidelines, Documentation, Logs, Settings, Issues, Tests, Quest TODO. Links into `_copilot_guidelines/` and `_ai/notes/`; embeds the quest todo panel with a refresh watcher.
 
+**Logs** is a read-only viewer over the active quest's own files (`questLogs-handler.ts` + `media/questLogs/`), with nine sub-tabs: MD Trail, Trail, Prompts, Answers, Progress, Overview, Notes, Refresh, DocUpdate. The tab catalogue is the pure table `QUEST_LOG_TABS` in `utils/questLogFiles.ts`; each entry declares its `view` (`rendered` markdown vs. highlighted source) and its `newestAt` end. A file larger than 256 KB is read as a window from that end — the **tail** for the two `live-trail.md` tabs (appended to) and the **head** for the seven quest documents (prepended to or rewritten wholesale) — and the view opens scrolled to it, staying pinned there while the reader has not scrolled away.
+
 ## 4. `@TOM` sidebar tree views
 
 - VS CODE NOTES
