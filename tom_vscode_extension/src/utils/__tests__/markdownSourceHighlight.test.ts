@@ -1,7 +1,7 @@
 /**
  * Tests for the markdown *source* highlighter used by the @WS panel's Logs
- * section. Eight of the nine log sub-tabs show the raw markdown of a quest file
- * with syntax colouring — not rendered markdown — so this module turns a
+ * section. Every log sub-tab except MD Trail shows the raw markdown of a quest
+ * file with syntax colouring — not rendered markdown — so this module turns a
  * markdown string into escaped HTML with `<span class="mdh-*">` markers.
  *
  * Two contracts carry the weight:

@@ -4,7 +4,7 @@
  * Most of the Logs sub-tabs show a quest file as raw markdown rather than
  * rendered output, so the reader sees exactly what is on disk. There is no
  * syntax-highlighting library in this extension's dependency tree, and pulling
- * one in for nine read-only panes would be a poor trade — this module is a
+ * one in for a handful of read-only panes would be a poor trade — this is a
  * few dozen lines of line-based classification that covers the constructs the
  * quest files actually use.
  *

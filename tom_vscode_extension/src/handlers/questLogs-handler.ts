@@ -4,7 +4,8 @@
  * Presents the active quest's log-style markdown files as a strip of sub-tabs
  * (see {@link QUEST_LOG_TABS}): the live trail rendered, the same trail as
  * highlighted source, the Anthropic prompt/answer trails, and the quest's
- * progress / overview / notes / refresh / doc-update documents. The view is
+ * progress / overview / notes / refresh / doc-update / deferred-steps
+ * documents. The view is
  * read-only; the toolbar's *Open in editor* button hands the file to a normal
  * text editor when the user wants to change something.
  *

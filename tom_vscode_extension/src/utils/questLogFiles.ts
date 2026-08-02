@@ -26,7 +26,8 @@ export type QuestLogTabId =
     | 'overview'
     | 'notes'
     | 'refresh'
-    | 'docUpdate';
+    | 'docUpdate'
+    | 'deferred';
 
 /**
  * How a tab presents its file: `rendered` runs it through the markdown
@@ -49,9 +50,11 @@ export interface QuestLogTab {
     readonly icon: string;
     readonly view: QuestLogView;
     /**
-     * Where this file's newest content is. The trail is appended to, so it is
-     * read from the end; every quest document is prepended to or rewritten
-     * wholesale, so it is read from the start.
+     * Where this file's newest content is — a property of how each file is
+     * written, not a display preference. The trail and the deferred-steps
+     * document are appended to, so they are read from the end; the remaining
+     * quest documents are prepended to or rewritten wholesale, so they are read
+     * from the start.
      */
     readonly newestAt: QuestLogNewestAt;
 }
@@ -71,6 +74,9 @@ export const QUEST_LOG_TABS: readonly QuestLogTab[] = [
     { id: 'notes', label: 'Notes', icon: 'note', view: 'source', newestAt: 'start' },
     { id: 'refresh', label: 'Refresh', icon: 'refresh', view: 'source', newestAt: 'start' },
     { id: 'docUpdate', label: 'DocUpdate', icon: 'file-symlink-file', view: 'source', newestAt: 'start' },
+    // Deferred steps are added *after* the ones already recorded, so unlike its
+    // neighbours this document grows at the bottom.
+    { id: 'deferred', label: 'Deferred', icon: 'bookmark', view: 'source', newestAt: 'end' },
 ];
 
 /** Tab selected when nothing has been persisted yet. */
@@ -109,6 +115,8 @@ export function questLogFileName(tab: QuestLogTabId, questId: string | undefined
             return `quest_refresh.${quest}.md`;
         case 'docUpdate':
             return `quest_documentation_update.${quest}.md`;
+        case 'deferred':
+            return `completion_steps.${quest}.md`;
     }
 }
 

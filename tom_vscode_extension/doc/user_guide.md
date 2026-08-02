@@ -9,7 +9,7 @@ The extension combines VS Code automation, bridge-based scripting, Copilot workf
 Current bottom panel layout:
 
 - `@CHAT` (`tomAi.chatPanel`): five subpanels — **Anthropic**, **Tom AI Chat**, **AI Conversation**, **Copilot**, **Local LLM**. Shared features: prompt queue side panel, document picker, live-trail button (Anthropic), session-history button, memory/config buttons, accordion/pin/rotate layout.
-- `@WS` (`tomAi.wsPanel`): Guidelines, Documentation, Logs, Settings, Issues, Tests, Quest TODO. The Logs section carries its own strip of sub-tabs over the active quest's log files — see [Logs Panel](#logs-panel).
+- `@WS` (`tomAi.wsPanel`): Guidelines, Documentation, Logs, Settings, Issues, Tests, Quest TODO. The Logs section carries its own strip of ten sub-tabs over the active quest's log files — see [Logs Panel](#logs-panel).
 
 AI Conversation is the only subpanel that is **not** queue-compatible — each AI Conversation turn runs as an ad-hoc chat.
 
@@ -31,14 +31,15 @@ The Logs section of @WS shows the active quest's log-style markdown files from
   (`{quest}.anthropic.prompts.md` / `.answers.md`), **Progress**, **Overview**,
   **Notes** (`quest-notes.{quest}.md`), **Refresh**
   (`quest_refresh.{quest}.md`), **DocUpdate**
-  (`quest_documentation_update.{quest}.md`)
+  (`quest_documentation_update.{quest}.md`), **Deferred**
+  (`completion_steps.{quest}.md`)
 - **Remembered selection**: the active sub-tab is restored after a window reload
 - **Auto-refresh**: re-reads every 2.5 s while the section is expanded; a file
   that has not changed costs no read
 - **256 KB window**: a larger file is shown from the end its newest content is
-  at — the last 256 KB of the two trail tabs (marked `(tail)`), the first 256 KB
-  of every other tab (marked `(head)`), because those documents are prepended to
-  or rewritten wholesale rather than appended to
+  at — the last 256 KB (marked `(tail)`) of the two trail tabs and of
+  **Deferred**, which are appended to, and the first 256 KB (marked `(head)`) of
+  the remaining tabs, whose documents are prepended to or rewritten wholesale
 - **Follow scrolling**: the view opens at that same end, and a reader still
   sitting there stays there as the file grows; scrolling away to study something
   holds that position

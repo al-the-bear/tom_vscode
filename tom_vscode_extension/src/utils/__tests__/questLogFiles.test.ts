@@ -1,7 +1,7 @@
 /**
  * Tests for the quest log-file catalogue that backs the @WS panel's Logs
- * section (nine sub-tabs: MD Trail, Trail, Prompts, Answers, Progress,
- * Overview, Notes, Refresh, DocUpdate).
+ * section (ten sub-tabs: MD Trail, Trail, Prompts, Answers, Progress,
+ * Overview, Notes, Refresh, DocUpdate, Deferred).
  *
  * The catalogue is pure — no `vscode`, no `fs` — so the sub-tab → file-name
  * mapping, the quest-id sanitisation and the tail window can be pinned down
@@ -35,17 +35,23 @@ import {
 } from '../questLogFiles.js';
 
 describe('QUEST_LOG_TABS catalogue', () => {
-    test('declares exactly the nine requested sub-tabs, in order', () => {
+    test('declares exactly the ten requested sub-tabs, in order', () => {
         assert.deepEqual(
             QUEST_LOG_TABS.map(t => t.id),
-            ['mdTrail', 'trail', 'prompts', 'answers', 'progress', 'overview', 'notes', 'refresh', 'docUpdate'],
+            [
+                'mdTrail', 'trail', 'prompts', 'answers', 'progress',
+                'overview', 'notes', 'refresh', 'docUpdate', 'deferred',
+            ],
         );
     });
 
     test('labels match the names the panel shows', () => {
         assert.deepEqual(
             QUEST_LOG_TABS.map(t => t.label),
-            ['MD Trail', 'Trail', 'Prompts', 'Answers', 'Progress', 'Overview', 'Notes', 'Refresh', 'DocUpdate'],
+            [
+                'MD Trail', 'Trail', 'Prompts', 'Answers', 'Progress',
+                'Overview', 'Notes', 'Refresh', 'DocUpdate', 'Deferred',
+            ],
         );
     });
 
@@ -65,13 +71,14 @@ describe('QUEST_LOG_TABS catalogue', () => {
         assert.equal(QUEST_LOG_TABS.some(t => t.id === DEFAULT_QUEST_LOG_TAB_ID), true);
     });
 
-    test('only the two trail tabs are read from the end of their file', () => {
-        // live-trail.md is appended to, so its newest content is at the bottom.
-        // Every quest document is either prepended to or rewritten wholesale,
-        // so reading its tail would show the oldest content and open the view
-        // scrolled away from what the reader wants.
+    test('each tab is read from the end its own file grows at', () => {
+        // live-trail.md is appended to, so its newest content is at the bottom,
+        // and so is completion_steps.<quest>.md — deferred steps are added after
+        // the ones already there. The remaining quest documents are prepended to
+        // or rewritten wholesale, so reading their tail would show the oldest
+        // content and open the view scrolled away from what the reader wants.
         const fromEnd = QUEST_LOG_TABS.filter(t => t.newestAt === 'end').map(t => t.id);
-        assert.deepEqual(fromEnd, ['mdTrail', 'trail']);
+        assert.deepEqual(fromEnd, ['mdTrail', 'trail', 'deferred']);
 
         const fromStart = QUEST_LOG_TABS.filter(t => t.newestAt === 'start').map(t => t.id);
         assert.deepEqual(fromStart, ['prompts', 'answers', 'progress', 'overview', 'notes', 'refresh', 'docUpdate']);
@@ -112,6 +119,7 @@ describe('questLogFileName', () => {
         ['notes', 'quest-notes.vscode_extension.md'],
         ['refresh', 'quest_refresh.vscode_extension.md'],
         ['docUpdate', 'quest_documentation_update.vscode_extension.md'],
+        ['deferred', 'completion_steps.vscode_extension.md'],
     ];
 
     for (const [id, expected] of cases) {
