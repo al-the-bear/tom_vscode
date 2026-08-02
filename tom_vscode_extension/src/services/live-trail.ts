@@ -21,6 +21,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { WsPaths } from '../utils/workspacePaths';
 import { InterruptionKind, interruptionLabel } from '../utils/anthropicErrorClassifier';
+import { sanitizeQuestSegment } from '../utils/questPaths';
 
 const HEADER_COMMENT = '<!-- tom-ai live-trail -->';
 /** Per-kind marker used by `endPromptWithInterruption` — all yellow family. */
@@ -296,7 +297,7 @@ export class LiveTrailWriter {
         this.questId = questId || 'default';
         const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
         const questsRoot = WsPaths.ai('quests') ?? path.join(wsRoot, WsPaths.aiFolder, 'quests');
-        const safeQuest = (questId || 'default').replace(/[^A-Za-z0-9_.-]/g, '_');
+        const safeQuest = sanitizeQuestSegment(questId);
         // Sanitize the filename the same way the quest segment is sanitized
         // — defensive: callers pass a literal string, but accepting a
         // user-supplied value via a future API would otherwise let a

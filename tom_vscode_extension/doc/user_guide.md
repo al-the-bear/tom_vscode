@@ -9,7 +9,7 @@ The extension combines VS Code automation, bridge-based scripting, Copilot workf
 Current bottom panel layout:
 
 - `@CHAT` (`tomAi.chatPanel`): five subpanels — **Anthropic**, **Tom AI Chat**, **AI Conversation**, **Copilot**, **Local LLM**. Shared features: prompt queue side panel, document picker, live-trail button (Anthropic), session-history button, memory/config buttons, accordion/pin/rotate layout.
-- `@WS` (`tomAi.wsPanel`): Guidelines, Documentation, Logs, Settings, Issues, Tests, Quest TODO.
+- `@WS` (`tomAi.wsPanel`): Guidelines, Documentation, Logs, Settings, Issues, Tests, Quest TODO. The Logs section carries its own strip of sub-tabs over the active quest's log files — see [Logs Panel](#logs-panel).
 
 AI Conversation is the only subpanel that is **not** queue-compatible — each AI Conversation turn runs as an ad-hoc chat.
 
@@ -20,6 +20,29 @@ The Guidelines panel in @WS provides a document browser for copilot guidelines. 
 - **Project dropdown**: Filter guidelines by project (shows projects with `_copilot_guidelines/` folders)
 - **Quest dropdown**: Filter guidelines by quest (shows quests when quest project type selected)
 - **Link navigation**: Click links to navigate within the panel or open in Markdown Browser
+
+### Logs Panel
+
+The Logs section of @WS shows the active quest's log-style markdown files from
+`_ai/quests/{quest}/`. It is read-only; use the toolbar to edit.
+
+- **Sub-tabs**: **MD Trail** (`live-trail.md`, rendered), **Trail** (the same
+  file as highlighted source), **Prompts** / **Answers**
+  (`{quest}.anthropic.prompts.md` / `.answers.md`), **Progress**, **Overview**,
+  **Notes** (`quest-notes.{quest}.md`), **Refresh**
+  (`quest_refresh.{quest}.md`), **DocUpdate**
+  (`quest_documentation_update.{quest}.md`)
+- **Remembered selection**: the active sub-tab is restored after a window reload
+- **Auto-refresh**: re-reads every 2.5 s while the section is expanded; a file
+  that has not changed costs no read
+- **Tail view**: files above 256 KB are shown from the last 256 KB (marked
+  `(tail)` in the status bar) — the trail alone routinely passes half a megabyte
+- **Follow-tail scrolling**: a reader sitting at the bottom stays there as the
+  file grows; scrolling up to study something holds that position
+- **Toolbar**: **Refresh** re-reads the selected file from disk; **Open in
+  editor** opens it in a normal text editor
+- **Missing files**: not every quest has every document; a missing one is
+  reported in the viewer rather than treated as an error
 
 ### Markdown Browser
 

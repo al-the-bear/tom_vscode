@@ -143,11 +143,33 @@
 | --- | --- | --- |
 | Guidelines | `book` | Copilot guidelines browser with project/quest dropdowns |
 | Documentation | `note` | Project documentation |
-| Logs | `output` | Extension logs |
+| Logs | `output` | Active quest's log files — see [Logs sub-tabs](#logs-sub-tabs) |
 | Settings | `settings-gear` | Embedded status page and configuration |
 | Issues | `issues` | Issue tracking |
 | Tests | `beaker` | Test results |
 | Quest TODO | `tasklist` | Quest todo list |
+
+#### Logs sub-tabs
+
+Read-only viewers over the active quest's files in `_ai/quests/{quest}/`. The
+selected sub-tab survives a window reload; the content refreshes every 2.5 s and
+large files are shown as their last 256 KB. Two toolbar buttons act on the
+selected sub-tab: **Refresh** re-reads from disk, **Open in editor** opens the
+file in a normal text editor.
+
+| Sub-tab | File | View |
+| --- | --- | --- |
+| MD Trail | `live-trail.md` | Rendered markdown |
+| Trail | `live-trail.md` | Source, syntax-highlighted |
+| Prompts | `{quest}.anthropic.prompts.md` | Source |
+| Answers | `{quest}.anthropic.answers.md` | Source |
+| Progress | `progress.{quest}.md` | Source |
+| Overview | `overview.{quest}.md` | Source |
+| Notes | `quest-notes.{quest}.md` | Source |
+| Refresh | `quest_refresh.{quest}.md` | Source |
+| DocUpdate | `quest_documentation_update.{quest}.md` | Source |
+
+Not every quest has every file; a missing one is reported in the viewer.
 
 ## Prompt Queue
 

@@ -28,6 +28,7 @@ src/
     markdownBrowser-handler.ts    MD Browser custom editor
     statusPage-handler.ts         @Tom configuration / health page
     questTodoPanel-handler.ts     quest todo custom editor + panel
+    questLogs-handler.ts          @WS Logs section — quest log-file viewer
     trailViewer-handler.ts        *.prompts.md / *.answers.md viewer
     [globalTemplateEditor, issuesPanel, memoryPanel, contextSettingsEditor,
      queueEditor, timedRequests-editor, sidebarNotes, etc.]

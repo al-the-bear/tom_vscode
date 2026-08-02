@@ -30,6 +30,7 @@ import { setMetadataValue } from './tomAiChat-utils';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
 import { WsPaths } from '../utils/workspacePaths';
+import { sanitizeQuestSegment } from '../utils/questPaths';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import { validateStrictAiConfiguration } from '../utils/sendToChatConfig';
 import { normalizeRepeatCountInput } from '../utils/queueStep3Utils';
@@ -2066,7 +2067,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         // Resolve the quest folder the same way LiveTrailWriter does.
         const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
         const questsRoot = WsPaths.ai('quests') ?? path.join(wsRoot, WsPaths.aiFolder, 'quests');
-        const safeQuest = (questId || 'default').replace(/[^A-Za-z0-9_.-]/g, '_');
+        const safeQuest = sanitizeQuestSegment(questId);
         const fileName = section === 'localLlm' ? 'live-trail-localLLM.md' : 'live-trail.md';
         const transportLabel = section === 'localLlm' ? 'Local LLM' : 'Anthropic';
         const target = path.join(questsRoot, safeQuest, fileName);

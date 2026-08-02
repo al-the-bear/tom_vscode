@@ -29,6 +29,12 @@ import {
     registerQuestTodoPopoutSerializer,
 } from './questTodoPanel-handler.js';
 import {
+    getQuestLogsHtmlFragment,
+    getQuestLogsCss,
+    getQuestLogsScript,
+    handleQuestLogsMessage,
+} from './questLogs-handler.js';
+import {
     gatherStatusData,
     getEmbeddedStatusHtml,
     getEmbeddedStatusStyles,
@@ -124,6 +130,12 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
     // ------------------------------------------------------------------
 
     private async _handleMessage(message: any, webview: vscode.Webview): Promise<void> {
+        // Quest Logs messages (prefixed with 'qlog')
+        if (typeof message.type === 'string' && message.type.startsWith('qlog')) {
+            await handleQuestLogsMessage(message, webview);
+            return;
+        }
+
         // Quest TODO messages (prefixed with 'qt')
         if (typeof message.type === 'string' && message.type.startsWith('qt')) {
             await handleQuestTodoMessage(message, webview);
@@ -203,14 +215,8 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
         }
 
         if (message.type === 'action') {
-            // WS simple-section actions (tasks / logs)
+            // WS simple-section actions
             switch (message.action) {
-                case 'refreshLogs':
-                    vscode.window.showInformationMessage('WS: Refresh Logs clicked');
-                    break;
-                case 'exportLogs':
-                    vscode.window.showInformationMessage('WS: Export Logs clicked');
-                    break;
                 case 'openWorkspaceTodoExplorer':
                     await vscode.commands.executeCommand('tomAi.workspaceTodos.focus');
                     break;
@@ -301,13 +307,7 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
                 id: 'logs',
                 title: 'Logs',
                 icon: 'output',
-                content: `
-<div class="toolbar">
-    <button class="icon-btn" data-action="refreshLogs" title="Refresh"><span class="codicon codicon-refresh"></span></button>
-    <button class="icon-btn" data-action="exportLogs" title="Export Logs"><span class="codicon codicon-go-to-file"></span></button>
-</div>
-<textarea readonly placeholder="Log output will appear here..."></textarea>
-<div class="status-bar">Logs panel ready</div>`,
+                content: getQuestLogsHtmlFragment(),
             },
             {
                 id: 'settings',
@@ -346,6 +346,7 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
         const additionalCss = [
             getIssuesCss(),
             getQuestTodoCss(),
+            getQuestLogsCss(),
             getDocumentPickerCss(),
             readMediaText('wsPanel', 'style.css'),
             getEmbeddedStatusStyles(),
@@ -355,6 +356,7 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
             getIssuesScript('issues', 'issues'),
             getIssuesScript('tests', 'tests'),
             getQuestTodoScript(),
+            getQuestLogsScript(),
             getDocumentPickerScript({ idPrefix: 'docs', allowOtherFile: true, showGroupSelector: true }),
             getStatusPanelListenersScript(),
             readMediaText('wsPanel', 'main.js'),
