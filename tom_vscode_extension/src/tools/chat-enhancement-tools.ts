@@ -245,35 +245,22 @@ const liveQuestTodoStore: QuestTodoStoreAccess = {
         const t = questTodo.findTodoById(questId, todoId);
         return t ? toFull(t) : undefined;
     },
+    // Forward the todo as one object. `questTodoManager.createTodo` builds the
+    // persisted YAML node from an explicit field list of its own, so a second
+    // hand-maintained whitelist here adds no safety — it only gives every field
+    // added later somewhere to go missing. `decisions` did exactly that: the
+    // tool accepted it, the response echoed success, and the questions never
+    // reached disk, leaving todos that claimed to be waiting on a decision no
+    // one could read.
     create(questId, todo, file): QuestTodoFull {
-        const created = questTodo.createTodo(questId, {
-            id: todo.id,
-            title: todo.title,
-            description: todo.description,
-            status: todo.status,
-            priority: todo.priority,
-            tags: todo.tags,
-            notes: todo.notes,
-            dependencies: todo.dependencies,
-            blocked_by: todo.blocked_by,
-            scope: todo.scope,
-            references: todo.references,
-        }, file);
+        const created = questTodo.createTodo(questId, todo as Omit<questTodo.QuestTodoItem, '_sourceFile'>, file);
         return toFull(created);
     },
+    // Same rule as `create`: forward the patch whole. Answering a decision goes
+    // through this path, so a whitelist here would have made the answers as
+    // unsaveable as the questions.
     update(questId, todoId, updates) {
-        const updated = questTodo.updateTodo(questId, todoId, {
-            title: updates.title,
-            description: updates.description,
-            status: updates.status as questTodo.QuestTodoItem['status'],
-            priority: updates.priority as questTodo.QuestTodoItem['priority'],
-            tags: updates.tags,
-            notes: updates.notes,
-            completed_date: updates.completed_date,
-            completed_by: updates.completed_by,
-            dependencies: updates.dependencies,
-            blocked_by: updates.blocked_by,
-        });
+        const updated = questTodo.updateTodo(questId, todoId, updates as Partial<questTodo.QuestTodoItem>);
         return updated ? toFull(updated) : undefined;
     },
     move(questId, todoId, targetFile) {
