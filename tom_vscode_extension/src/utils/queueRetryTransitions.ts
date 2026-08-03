@@ -272,11 +272,22 @@ export interface InFlightRepetition {
      * follow-up's own repeat counter.
      */
     prevFollowUpIndex?: number;
+    /**
+     * TODO ITERATION only: the quest todo this dispatch marked `in-progress`.
+     * Reverting it is I/O, so it does not happen here — the caller reads this
+     * field *before* calling `rollbackInFlightRepetition` (which clears the
+     * snapshot) and writes the todo back to `not-started`, so the failed send
+     * re-picks the same todo instead of silently skipping it.
+     */
+    todoId?: string;
+    /** TODO ITERATION only: `item.repeatTodoId` before the dispatch set it. */
+    prevRepeatTodoId?: string;
 }
 
 /** Item shape mutated by `rollbackInFlightRepetition`. Subset of `QueuedPrompt`. */
 export interface RollbackTargetItem {
     repeatIndex?: number;
+    repeatTodoId?: string;
     followUpIndex?: number;
     prePrompts?: { repeatIndex?: number }[];
     followUps?: { repeatIndex?: number }[];
@@ -298,6 +309,12 @@ export function rollbackInFlightRepetition(item: RollbackTargetItem): boolean {
     switch (snap.stage) {
         case 'main':
             item.repeatIndex = snap.prevRepeatIndex;
+            // TODO ITERATION: stop advertising the todo whose dispatch failed.
+            // Only when this dispatch actually picked one — counter-mode
+            // snapshots carry no todo and must not touch the field.
+            if (snap.todoId !== undefined) {
+                item.repeatTodoId = snap.prevRepeatTodoId;
+            }
             break;
         case 'prePrompt': {
             const pp = snap.stageIndex !== undefined ? item.prePrompts?.[snap.stageIndex] : undefined;

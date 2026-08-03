@@ -178,18 +178,155 @@ export function applyRepeatEditToItem(target: RepeatEditTarget, patch: RepeatEdi
     }
 }
 
+/** The subset of a quest todo the `prefix*` iteration needs. */
+export interface TodoIterationSource {
+    id: string;
+    status?: string;
+    title?: string;
+}
+
+/** A quest todo that matched a `prefix*` pattern, with its parsed number. */
+export interface TodoIterationEntry {
+    /** Full todo id, e.g. `dsa2-a`. */
+    id: string;
+    /** The digit run immediately after the prefix, e.g. `2`. */
+    index: number;
+    /** Todo title/description, when the source carried one. */
+    title?: string;
+    /** Normalised status — lower-case, dashes, never empty. */
+    status: string;
+}
+
+/** The one status that makes a todo eligible for dispatch. */
+const NOT_STARTED = 'not-started';
+
+/**
+ * Parse a `prefix*` repeat-count value into its prefix.
+ *
+ * Returns `undefined` for anything that is not such a pattern — a plain count,
+ * a chat-variable name, a non-string, or a bare `*` (an empty prefix would
+ * match every todo, which is never what the user meant).
+ */
+export function parseTodoPrefixPattern(value: unknown): string | undefined {
+    if (typeof value !== 'string') {
+        return undefined;
+    }
+    const trimmed = value.trim();
+    if (!trimmed.endsWith('*')) {
+        return undefined;
+    }
+    const prefix = trimmed.slice(0, -1);
+    return prefix.length > 0 ? prefix : undefined;
+}
+
+/** Normalise a hand-editable YAML status to the canonical dashed lower-case form. */
+function normaliseStatus(status: string | undefined): string {
+    const normalised = (status || '').trim().toLowerCase().replace(/_/g, '-');
+    return normalised.length > 0 ? normalised : NOT_STARTED;
+}
+
+/**
+ * Collect the todos matching `prefix` + digits, ordered for iteration.
+ *
+ * The number is the run of digits **immediately after** the prefix; trailing
+ * characters are allowed and ignored, so `dsa15b` and `dsa7-review` contribute
+ * 15 and 7. Ids that don't start with the prefix, or whose first character
+ * after it isn't a digit (`dsable`, `dsa_2`), are dropped.
+ *
+ * The order is number ascending, then id alphabetically — so a series that
+ * shares a number (`dsa2-a`, `dsa2-b`) is walked in a stable, predictable
+ * order rather than in readdir order.
+ */
+export function collectPrefixTodos(
+    prefix: string,
+    todos: readonly TodoIterationSource[],
+): TodoIterationEntry[] {
+    const entries: TodoIterationEntry[] = [];
+    for (const todo of todos) {
+        const id = todo?.id;
+        if (typeof id !== 'string' || !id.startsWith(prefix)) {
+            continue;
+        }
+        const match = /^(\d+)/.exec(id.slice(prefix.length));
+        if (!match) {
+            continue;
+        }
+        entries.push({
+            id,
+            index: parseInt(match[1], 10),
+            title: todo.title,
+            status: normaliseStatus(todo.status),
+        });
+    }
+    entries.sort((a, b) => (a.index - b.index) || a.id.localeCompare(b.id));
+    return entries;
+}
+
+/**
+ * Pick the todo a `prefix*` iteration should dispatch next.
+ *
+ * Only `not-started` qualifies: `in-progress` means "we already dispatched
+ * this one", and completed / cancelled / blocked todos are not work to do.
+ * Because the dispatcher marks the picked todo `in-progress`, the candidate
+ * set strictly shrinks — that is what makes the walk terminate.
+ *
+ * Returns `undefined` when the value is not a `prefix*` pattern, when nothing
+ * matches the prefix, or when every matching todo has already been picked up.
+ */
+export function pickNextTodoForIteration(
+    value: unknown,
+    todos: readonly TodoIterationSource[],
+): TodoIterationEntry | undefined {
+    const prefix = parseTodoPrefixPattern(value);
+    if (prefix === undefined) {
+        return undefined;
+    }
+    return collectPrefixTodos(prefix, todos).find(e => e.status === NOT_STARTED);
+}
+
+/** What the main stage should send next — see {@link planMainStageDispatch}. */
+export type MainStageDispatchPlan =
+    | { mode: 'counter'; repeatIndex: number }
+    | { mode: 'todo'; todo: TodoIterationEntry }
+    | { mode: 'exhausted' };
+
+/**
+ * Decide whether the main stage has another prompt to send, and what drives it.
+ *
+ * **Counter mode** (numeric or variable repeat count) sends while
+ * `sentCount < repeatCount`, and reports the 0-based index of the repetition
+ * about to go out.
+ *
+ * **Todo-iteration mode** (a `prefix*` repeat count) ignores `sentCount`
+ * entirely: the loop runs while a `not-started` todo matching the prefix is
+ * left. `repeatCount` stays meaningful only as the *displayed* series size.
+ * Because the dispatcher marks the picked todo `in-progress`, the candidate
+ * set strictly shrinks — the walk cannot loop forever.
+ *
+ * A prefix that matches no todo at all is `exhausted`, not a single run: a
+ * "work on ${repeatTodoId}" prompt with no todo to name is worse than no
+ * prompt. The caller logs that case.
+ */
+export function planMainStageDispatch(
+    repeatCountRaw: number | string | undefined,
+    sentCount: number,
+    repeatCount: number,
+    todos: readonly TodoIterationSource[],
+): MainStageDispatchPlan {
+    if (parseTodoPrefixPattern(repeatCountRaw) !== undefined) {
+        const todo = pickNextTodoForIteration(repeatCountRaw, todos);
+        return todo ? { mode: 'todo', todo } : { mode: 'exhausted' };
+    }
+    return sentCount < repeatCount ? { mode: 'counter', repeatIndex: sentCount } : { mode: 'exhausted' };
+}
+
 /**
  * Resolve a `prefix*` repeat-count against a set of quest-todo ids.
  *
- * When the user enters a repeat-count variable that ends in `*` (e.g. `dsa*`),
- * the count is the **highest number** among quest todos whose id is the prefix
- * followed by digits, with any trailing non-digit characters ignored —
- * `dsa1`, `dsa2`, … `dsa15`, `dsa15b`, `dsa7-review` all contribute (1, 2, 15,
- * 15, 7). The number taken is the run of digits **immediately after** the
- * prefix. Ids that don't start with the prefix, or whose first character after
- * the prefix isn't a digit (`dsable`, `dsa_2`), are ignored. This lets a single
- * queued prompt run once per numbered todo in a series without the user
- * counting them by hand.
+ * The count is the **highest number** among the matching todos — see
+ * {@link collectPrefixTodos} for the matching rule. It is the size of the
+ * series, not the work left: status is deliberately ignored, so the displayed
+ * total stays put while the iteration walks past already-completed todos.
  *
  * Returns `undefined` when `value` is not a `prefix*` pattern (so the caller
  * falls through to normal repeat-count resolution). When the pattern matches
@@ -205,36 +342,12 @@ export function resolveTodoPrefixRepeatCount(
     value: number | string | undefined,
     todoIds: readonly string[],
 ): number | undefined {
-    if (typeof value !== 'string') {
+    const prefix = parseTodoPrefixPattern(value);
+    if (prefix === undefined) {
         return undefined;
     }
-    const trimmed = value.trim();
-    if (!trimmed.endsWith('*')) {
-        return undefined;
-    }
-    const prefix = trimmed.slice(0, -1);
-    if (prefix.length === 0) {
-        return undefined;
-    }
-    let highest = 0;
-    for (const id of todoIds) {
-        if (!id.startsWith(prefix)) {
-            continue;
-        }
-        const suffix = id.slice(prefix.length);
-        // Take the run of digits immediately after the prefix; trailing
-        // non-digit characters (`dsa15b`, `dsa7-review`) are allowed and
-        // ignored. A suffix that doesn't start with a digit (`dsable`,
-        // `dsa_2`) contributes nothing.
-        const match = /^(\d+)/.exec(suffix);
-        if (!match) {
-            continue;
-        }
-        const n = parseInt(match[1], 10);
-        if (n > highest) {
-            highest = n;
-        }
-    }
+    const entries = collectPrefixTodos(prefix, todoIds.map(id => ({ id })));
+    const highest = entries.length > 0 ? entries[entries.length - 1].index : 0;
     return Math.max(1, highest);
 }
 

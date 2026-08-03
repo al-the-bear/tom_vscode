@@ -199,9 +199,21 @@ Prompts can repeat multiple times with customizable prefix and suffix text:
 - **repeatCount**: Total number of times to send the prompt. Accepts three forms:
   - A **plain integer** (e.g. `3`).
   - A **chat-variable name** — resolved to its numeric value at dispatch time (not at enqueue), so the count reflects the variable's value when the item is actually processed.
-  - A **`prefix*` pattern** (e.g. `tod*`) — resolved at dispatch to the highest number among the active quest's todo ids that match `prefix` followed by digits. Trailing non-digit characters on the id are ignored, so `tod3`, `tod3b`, and `tod3-review` all count as `3`. Empty prefixes or non-matching patterns fall back to `1`. Only the quest's **live** todo files are scanned — todos in the `-archived` / `-deleted` siblings do not contribute to the count.
+  - A **`prefix*` pattern** (e.g. `tod*`) — switches the main prompt into **todo iteration**, described below. The displayed count is the highest number among the active quest's todo ids that match `prefix` followed by digits. Trailing non-digit characters on the id are ignored, so `tod3`, `tod3b`, and `tod3-review` all count as `3`. Only the quest's **live** todo files are scanned — todos in the `-archived` / `-deleted` siblings do not contribute.
 - **repeatIndex**: Current iteration (0-based internally, displayed 1-based)
 - **repeatPrefix / repeatSuffix**: Template text inserted before/after each repetition, supporting placeholders `${repeatNumber}` (1-based), `${repeatIndex}` (0-based), `${repeatCount}` (total)
+
+#### Todo iteration (`prefix*`)
+
+A `prefix*` repeat count does not repeat a fixed number of times — it **walks the active quest's numbered todos**, one per dispatch. This applies to the **main prompt only**; a `prefix*` entered on a pre-prompt or follow-up keeps the plain counter behaviour.
+
+- **Which todo goes next**: the lowest-numbered todo whose status is `not-started`. Todos sharing a number (`dsa2-a`, `dsa2-b`) are walked in alphabetical order. The walk starts at the first number that actually exists — a series of `dsa7`, `dsa9` starts at 7.
+- **Claiming**: before the prompt is sent, the picked todo is set to `in-progress`. That is what makes the walk terminate — a claimed todo no longer qualifies, so every dispatch shrinks the candidate set. Todos that are already `in-progress`, `blocked`, `completed`, or `cancelled` are skipped.
+- **If the send fails**: the todo is handed back to `not-started`, so the retry picks up the same todo rather than skipping it.
+- **When nothing is left**: the main stage ends and the item proceeds to its follow-ups. A `prefix*` that matches no todo at all sends nothing and logs why — it does not fall back to a single run.
+- **Placeholders**: `${repeatTodoId}` is the picked todo's full id, `${repeatTodoTitle}` its title (its description when it has none), and `${repeatNumber}` its number. All three work in the prompt text and in the repeat prefix/suffix.
+- **In the queue entry header**: the current todo's full id appears as a badge next to the `[MP …]` progress, e.g. `SENDING [MP 7/9] [dsa7-review]`. The rep-number is read-only in this mode, since the walk is driven by todo status rather than by the counter.
+- **Caveat**: if a prompt resets its todo back to `not-started`, that todo will be picked up again.
 
 ### Answer Detection
 

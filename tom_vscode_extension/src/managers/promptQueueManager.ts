@@ -31,7 +31,7 @@ import {
 } from '../storage/queueFileStorage';
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
-import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty } from '../utils/queueStep3Utils';
+import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, parseTodoPrefixPattern, planMainStageDispatch, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty, type TodoIterationSource } from '../utils/queueStep3Utils';
 import { runMainStageWithRefresh } from '../utils/questRefreshDispatch.js';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
 import { mergeQueueReload } from '../utils/queueReloadMergeUtils';
@@ -190,6 +190,12 @@ export interface QueuedPrompt {
     repeatCount?: number | string;
     resolvedRepeatCount?: number; // Cached resolved value when repeatCount is a variable name
     repeatIndex?: number;
+    /**
+     * TODO ITERATION only (`prefix*` repeat count): the id of the quest todo
+     * the last main-prompt dispatch picked up. Persisted so the queue entry
+     * can name it after a reload; the title is re-derived at pick time.
+     */
+    repeatTodoId?: string;
     repeatPrefix?: string;
     repeatSuffix?: string;
     templateRepeatCount?: number | string; // Repeat the entire template this many times
@@ -559,11 +565,44 @@ export class PromptQueueManager {
             || expanded.includes(`"requestId": "${requestId}"`);
     }
 
+    /** The quest the queue resolves todos against, or `undefined` when none is set. */
+    private activeQuestId(): string | undefined {
+        return await_import_ChatVariablesStore()?.quest;
+    }
+
+    /**
+     * Claim a quest todo for the dispatch that is about to go out. Returns
+     * `false` when the status could not be written — see
+     * {@link writeQuestTodoStatus} for why the caller must then stop.
+     */
+    private markQuestTodoInProgress(todoId: string): boolean {
+        const questId = this.activeQuestId();
+        if (!questId) {
+            logQueue(`MP dispatch: no active quest — cannot claim todo '${todoId}'`);
+            return false;
+        }
+        return writeQuestTodoStatus(questId, todoId, 'in-progress');
+    }
+
+    /** Release a todo claimed by a dispatch that then failed to send. */
+    private releaseQuestTodo(todoId: string): void {
+        const questId = this.activeQuestId();
+        if (questId) { writeQuestTodoStatus(questId, todoId, 'not-started'); }
+    }
+
     private async _buildExpandedText(
         originalText: string,
         template?: string,
         answerWrapper?: boolean,
-        repetition?: { repeatCount?: number; repeatIndex?: number; repeatPrefix?: string; repeatSuffix?: string },
+        repetition?: {
+            repeatCount?: number;
+            repeatIndex?: number;
+            repeatPrefix?: string;
+            repeatSuffix?: string;
+            /** TODO ITERATION: the todo this dispatch is working on. */
+            repeatTodoId?: string;
+            repeatTodoTitle?: string;
+        },
         transport: QueuedTransport = 'copilot',
         templateRepetition?: { templateRepeatCount?: number; templateRepeatIndex?: number },
     ): Promise<string> {
@@ -602,6 +641,11 @@ export class PromptQueueManager {
                 templateRepeatCount: String(templateRepeatCount),
                 templateRepeatIndex: String(templateRepeatIndex),
                 templateRepeatNumber: String(templateRepeatNumber),
+                // TODO ITERATION: empty outside `prefix*` mode, so a prompt
+                // that references them in counter mode gets '' rather than a
+                // leaked `${...}`.
+                repeatTodoId: repetition?.repeatTodoId ?? '',
+                repeatTodoTitle: repetition?.repeatTodoTitle ?? '',
             },
         });
 
@@ -2914,7 +2958,14 @@ export class PromptQueueManager {
         // hard error) re-sends the *same* prompt rather than skipping to the
         // next repetition. No-op when the send failed before any counter was
         // bumped (e.g. during prompt expansion).
+        //
+        // TODO ITERATION: read the claimed todo *before* the rollback consumes
+        // the snapshot, then hand it back to `not-started` so the retry picks
+        // up the same todo rather than skipping past it. Rolling the counter
+        // back without releasing the todo would lose it silently.
+        const claimedTodoId = item.inFlightRepetition?.todoId;
         rollbackInFlightRepetition(item);
+        if (claimedTodoId) { this.releaseQuestTodo(claimedTodoId); }
         const searchText = this._errorSearchText(err, interruption);
         const clause = parseResetClause(searchText);
         if (clause) {
@@ -3571,7 +3622,32 @@ export class PromptQueueManager {
             this.persist();
             this._onDidChange.fire();
         }
-        if (mainSentCount < mainRepeatCount) {
+        // TODO ITERATION (`prefix*` repeat count): the loop is driven by the
+        // quest's numbered todos rather than by a counter. `planMainStageDispatch`
+        // reduces both modes to one gate.
+        const isTodoIteration = parseTodoPrefixPattern(item.repeatCount) !== undefined;
+        const iterationQuestId = isTodoIteration ? this.activeQuestId() : undefined;
+        const plan = planMainStageDispatch(
+            item.repeatCount,
+            mainSentCount,
+            mainRepeatCount,
+            iterationQuestId ? readQuestTodoEntries(iterationQuestId) : [],
+        );
+        // The todo that this dispatch will work on, already marked in-progress.
+        // Marking happens BEFORE the send: an in-progress todo no longer
+        // qualifies, and that is what makes the walk terminate. A write that
+        // doesn't stick would have the same todo picked on every pass, so it
+        // ends the iteration rather than spinning.
+        const iterationTodo = plan.mode === 'todo' && this.markQuestTodoInProgress(plan.todo.id)
+            ? plan.todo
+            : undefined;
+        const hasMainToSend = plan.mode === 'counter' || iterationTodo !== undefined;
+        if (isTodoIteration && !hasMainToSend && mainSentCount === 0) {
+            // Nothing ever went out. Silence here looks like a dropped prompt,
+            // so name the reason.
+            logQueue(`MP dispatch: todo iteration '${String(item.repeatCount)}' has no dispatchable todo — main prompt skipped`);
+        }
+        if (hasMainToSend) {
             const resolved = this.resolveStageTransport(item);
             // Anthropic path skips the answerWrapper (Copilot-only).
             const effectiveWrap = resolved.transport === 'copilot' ? item.answerWrapper : false;
@@ -3581,9 +3657,14 @@ export class PromptQueueManager {
                 effectiveWrap,
                 {
                     repeatCount: mainRepeatCount,
-                    repeatIndex: mainSentCount,
+                    // In todo mode the "repetition number" is the todo's own
+                    // number, so `${repeatNumber}` prints `7` for `dsa7` —
+                    // uniform with counter mode, where it prints the rep.
+                    repeatIndex: iterationTodo ? iterationTodo.index - 1 : mainSentCount,
                     repeatPrefix: item.repeatPrefix,
                     repeatSuffix: item.repeatSuffix,
+                    repeatTodoId: iterationTodo?.id,
+                    repeatTodoTitle: iterationTodo?.title,
                 },
                 resolved.transport,
                 {
@@ -3598,10 +3679,19 @@ export class PromptQueueManager {
                 item.requestId = newRequestId; // Preserve first request ID
             }
             item.expectedRequestId = newRequestId;
-            item.repeatIndex = mainSentCount + 1;
+            // In todo mode the counter follows the todo's own number, so the
+            // entry reads "todo 7 of 9" rather than "rep 3 of 9".
+            const prevRepeatTodoId = item.repeatTodoId;
+            item.repeatIndex = iterationTodo ? iterationTodo.index : mainSentCount + 1;
+            item.repeatTodoId = iterationTodo?.id ?? item.repeatTodoId;
             // Record the advance so a failed send can roll back to re-send this
             // same main-prompt repetition instead of skipping to the next.
-            item.inFlightRepetition = { stage: 'main', prevRepeatIndex: mainSentCount };
+            item.inFlightRepetition = {
+                stage: 'main',
+                prevRepeatIndex: mainSentCount,
+                todoId: iterationTodo?.id,
+                prevRepeatTodoId,
+            };
             item.sentAt = new Date().toISOString();
             item.awaitingAnswer = true; // in flight — a prompt is being processed
             item.reminderSentCount = 0;
@@ -3628,7 +3718,9 @@ export class PromptQueueManager {
             const dispatchResult = await this._dispatchMainStageWithRefresh(item, resolved);
             this._onPromptSent.fire(item);
             this.updateWindowStatus('prompt-sent', resolved.transport);
-            logQueue(`Main prompt sent (${mainSentCount + 1}/${mainRepeatCount}) via ${resolved.transport}`);
+            logQueue(iterationTodo
+                ? `Main prompt sent for todo ${iterationTodo.id} (${iterationTodo.index}/${mainRepeatCount}) via ${resolved.transport}`
+                : `Main prompt sent (${mainSentCount + 1}/${mainRepeatCount}) via ${resolved.transport}`);
             if (dispatchResult.mode === 'direct') {
                 this.persist();
                 this._onDidChange.fire();
@@ -4131,6 +4223,7 @@ export class PromptQueueManager {
                 repeatCount: typeof main['repeat-count'] === 'string' ? main['repeat-count'] : Math.max(0, Math.round(Number(main['repeat-count'] || 0))),
                 resolvedRepeatCount: main['resolved-repeat-count'] ? Math.max(1, Math.round(Number(main['resolved-repeat-count']))) : undefined,
                 repeatIndex: Math.max(0, Math.round(Number(main['repeat-index'] || 0))),
+                repeatTodoId: main['repeat-todo-id'] || undefined,
                 repeatPrefix: main['repeat-prefix'],
                 repeatSuffix: main['repeat-suffix'],
                 templateRepeatCount: typeof main['template-repeat-count'] === 'string' ? main['template-repeat-count'] : (main['template-repeat-count'] ? Math.max(0, Math.round(Number(main['template-repeat-count']))) : undefined),
@@ -4265,6 +4358,7 @@ export class PromptQueueManager {
             'repeat-count': item.repeatCount || 0,
             'resolved-repeat-count': item.resolvedRepeatCount,
             'repeat-index': Math.max(0, Math.round(item.repeatIndex || 0)),
+            'repeat-todo-id': item.repeatTodoId,
             'repeat-prefix': item.repeatPrefix,
             'repeat-suffix': item.repeatSuffix,
             'template-repeat-count': item.templateRepeatCount,
@@ -4480,17 +4574,45 @@ function await_import_ChatVariablesStore(): { quest: string } | undefined {
 }
 
 /**
- * Lazily read all todo ids for a quest. Lazy `require` mirrors the
- * ChatVariablesStore pattern above so the manager doesn't pull the
- * questTodoManager into its import graph. Returns `[]` on any failure so
- * prefix resolution degrades to a single run rather than throwing.
+ * Lazily read the live todos of a quest, reduced to what the `prefix*`
+ * iteration needs. Lazy `require` mirrors the ChatVariablesStore pattern above
+ * so the manager doesn't pull the questTodoManager into its import graph.
+ * Returns `[]` on any failure so prefix resolution degrades to "no work left"
+ * rather than throwing out of the dispatch path.
+ *
+ * The read is scoped to the **live** todo files — the `-archived` / `-deleted`
+ * siblings are excluded by `readAllTodos`' default scope, so a retired todo
+ * neither inflates the series count nor gets dispatched again.
  */
-function readQuestTodoIds(questId: string): string[] {
+function readQuestTodoEntries(questId: string): TodoIterationSource[] {
     try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { readAllTodos } = require('../managers/questTodoManager');
-        return (readAllTodos(questId) as Array<{ id: string }>).map(t => t.id);
+        const todos = readAllTodos(questId) as Array<{ id: string; title?: string; description?: string; status?: string }>;
+        return todos.map(t => ({ id: t.id, title: t.title || t.description, status: t.status }));
     } catch { return []; }
+}
+
+/** Ids only — the shape {@link resolveTodoPrefixRepeatCount} consumes. */
+function readQuestTodoIds(questId: string): string[] {
+    return readQuestTodoEntries(questId).map(t => t.id);
+}
+
+/**
+ * Write a status onto a quest todo. Returns `false` when the write did not
+ * stick (unknown id, unreadable file, …) — the todo-iteration dispatcher must
+ * treat that as a hard stop, because a status that can't be written means the
+ * same todo would be picked again on every pass.
+ */
+function writeQuestTodoStatus(questId: string, todoId: string, status: string): boolean {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { updateTodo } = require('../managers/questTodoManager');
+        return updateTodo(questId, todoId, { status }) !== undefined;
+    } catch (err) {
+        logQueueError(`Failed to set todo '${todoId}' to '${status}'`, err);
+        return false;
+    }
 }
 
 function getWindowStatusWindowId(): string {

@@ -1227,6 +1227,11 @@ Use <code>#key=description</code> notation in prompts to request specific respon
 <code>\${repeatNumber}</code> – 1-based counter of the current repeat (<code>\${repeatIndex} + 1</code>); use this in human-facing text like "Run 3 of 5"<br>
 These also resolve inside <code>repeatPrefix</code> / <code>repeatSuffix</code> affixes.<br>
 <br>
+<em>Todo Iteration (main prompt only; repeat count entered as <code>prefix*</code>, e.g. <code>dsa*</code>):</em><br>
+<code>\${repeatTodoId}</code> – Full id of the quest todo this dispatch is working on (e.g. <code>dsa7-review</code>)<br>
+<code>\${repeatTodoTitle}</code> – That todo's title (its description when it has no title)<br>
+Each dispatch takes the lowest-numbered <code>not-started</code> todo matching the prefix and marks it <code>in-progress</code>; <code>\${repeatNumber}</code> is the todo's own number. Both resolve to an empty string outside todo iteration.<br>
+<br>
 <em>Template Repetition (outer — whole pre-prompt → main → follow-up sequence):</em><br>
 <code>\${templateRepeatCount}</code> – Total times the full template will replay<br>
 <code>\${templateRepeatIndex}</code> – 0-based index of the current template replay<br>

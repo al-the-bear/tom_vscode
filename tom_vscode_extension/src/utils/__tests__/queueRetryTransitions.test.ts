@@ -212,6 +212,48 @@ describe('rollbackInFlightRepetition', () => {
         assert.equal(item.inFlightRepetition, undefined, 'snapshot consumed');
     });
 
+    test('main stage: todo iteration restores the previously shown todo id', () => {
+        // The dispatcher picked `dsa4` (index 4) and stamped it on the item.
+        // The send failed, so the entry must stop advertising `dsa4` and go
+        // back to whatever it showed before. Reverting the todo's *status* is
+        // I/O and stays with the caller — the snapshot only carries the id.
+        const item: RollbackTargetItem = {
+            repeatIndex: 4,
+            repeatTodoId: 'dsa4',
+            inFlightRepetition: {
+                stage: 'main',
+                prevRepeatIndex: 3,
+                todoId: 'dsa4',
+                prevRepeatTodoId: 'dsa3',
+            },
+        };
+        assert.equal(item.inFlightRepetition?.todoId, 'dsa4', 'caller can read the id before rollback clears it');
+        assert.equal(rollbackInFlightRepetition(item), true);
+        assert.equal(item.repeatTodoId, 'dsa3');
+        assert.equal(item.repeatIndex, 3);
+    });
+
+    test('main stage: a first-todo failure clears the todo id entirely', () => {
+        const item: RollbackTargetItem = {
+            repeatIndex: 1,
+            repeatTodoId: 'dsa1',
+            inFlightRepetition: { stage: 'main', prevRepeatIndex: 0, todoId: 'dsa1' },
+        };
+        rollbackInFlightRepetition(item);
+        assert.equal(item.repeatTodoId, undefined, 'nothing was in flight before, so nothing to show');
+    });
+
+    test('main stage: counter mode leaves repeatTodoId untouched', () => {
+        // No todo snapshot → the field is not part of this rollback at all.
+        const item: RollbackTargetItem = {
+            repeatIndex: 2,
+            repeatTodoId: 'stale',
+            inFlightRepetition: { stage: 'main', prevRepeatIndex: 1 },
+        };
+        rollbackInFlightRepetition(item);
+        assert.equal(item.repeatTodoId, 'stale');
+    });
+
     test('main stage: a mid-loop failure restores the failed rep, not rep 0', () => {
         // Reps 0 and 1 succeeded; rep 2 (repeatIndex 2 → 3) failed.
         const item: RollbackTargetItem = {

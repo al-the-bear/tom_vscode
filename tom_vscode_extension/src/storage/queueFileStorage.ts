@@ -139,6 +139,8 @@ export interface QueuePromptYaml {
     'answer-wrapper'?: boolean;
     'repeat-count'?: number | string;
     'repeat-index'?: number;
+    /** TODO ITERATION (`prefix*`): id of the quest todo the last dispatch took. */
+    'repeat-todo-id'?: string;
     'resolved-repeat-count'?: number;
     'repeat-prefix'?: string;
     'repeat-suffix'?: string;

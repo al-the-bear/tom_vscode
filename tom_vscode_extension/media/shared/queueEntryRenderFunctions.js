@@ -109,7 +109,24 @@ function renderEntry(item, idx) {
   var mainRepeatLabel = formatRepeatLabel(repeatCountRaw, item.repeatIndex, item.resolvedRepeatCount);
   var repeatProgress = '';
   var mpStartNumber = Math.max(1, repeatIndex + 1);
-  if (mainRepeatLabel || isSending || isStaged || isPending) {
+  // TODO ITERATION (`prefix*` repeat count): the walk is driven by the quest
+  // todos' status, not by the counter — so the rep-number input would steer
+  // nothing. Show the current todo's number read-only instead, and name the
+  // todo itself in a badge next to it.
+  var isTodoIteration = typeof repeatCountRaw === 'string' && /\*\s*$/.test(repeatCountRaw) && repeatCountRaw.trim().length > 1;
+  if (isTodoIteration) {
+    repeatProgress = '  [MP <span title="Current todo number in the ' + escapeHtml(String(repeatCountRaw))
+      + ' series — read-only: the walk advances by todo status, not by this counter">' + repeatIndex + '</span>/'
+      + '<input type="text" value="' + escapeHtml(repeatCountDisplay)
+      + '" style="width:38px" title="Update main prompt repeat count (Enter)" placeholder="1 or var" onclick="event.stopPropagation()"'
+      + ' onkeydown="submitRepeatCountFromStatus(event, \'' + safeId + '\', ' + repeatIndex + ', this)">'
+      + (isSending ? ' <span class="codicon codicon-debug-step-over" style="cursor:pointer;font-size:11px;" onclick="event.stopPropagation();continueSending(\'' + safeId + '\')" title="Skip to next todo"></span>' : '')
+      + ']';
+    if (item.repeatTodoId) {
+      repeatProgress += '  <span style="background:#6f42c1;color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;" title="Quest todo this main prompt is working on">['
+        + escapeHtml(String(item.repeatTodoId)) + ']</span>';
+    }
+  } else if (mainRepeatLabel || isSending || isStaged || isPending) {
     if (isStaged || isPending) {
       // Replace the static "current rep number" portion of the label with
       // an editable input. The label was only synthesised above for the
