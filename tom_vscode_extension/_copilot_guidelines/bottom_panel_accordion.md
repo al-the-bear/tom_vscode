@@ -30,8 +30,9 @@ Use `getAccordionHtml(...)` with:
 
 - Keep section IDs stable across releases — they key persisted layout state.
 - **`vscode.setState` is shared.** The accordion stores `expanded` / `pinned`
-  there, and section fragments store their own keys alongside (the Logs viewer's
-  selected sub-tab, for one). Every writer must merge into
+  there, and section fragments store their own keys alongside — and a fragment
+  may own more than one (the Logs viewer persists both its selected sub-tab and,
+  for the tab that has a dropdown, the selected variant). Every writer must merge into
   `vscode.getState()` rather than replacing the object — `saveState()` in
   `media/accordionPanel/main.js` does, and a fragment that does not will have
   its key dropped the next time a section is toggled.
