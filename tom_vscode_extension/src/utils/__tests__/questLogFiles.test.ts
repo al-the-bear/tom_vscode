@@ -92,7 +92,7 @@ describe('QUEST_LOG_TABS catalogue', () => {
 
     test('each tab is read from the end its own file grows at', () => {
         // live-trail.md is appended to, so its newest content is at the bottom,
-        // and so is completion_steps.<quest>.md — deferred steps are added after
+        // and so is deferred.<quest>.md — deferred steps are added after
         // the ones already there. The remaining quest documents are prepended to
         // or rewritten wholesale, so reading their tail would show the oldest
         // content and open the view scrolled away from what the reader wants.
@@ -143,7 +143,7 @@ describe('questLogLocation', () => {
         ['notes', 'quest-notes.vscode_extension.md'],
         ['refresh', 'quest_refresh.vscode_extension.md'],
         ['docUpdate', 'quest_documentation_update.vscode_extension.md'],
-        ['deferred', 'completion_steps.vscode_extension.md'],
+        ['deferred', 'deferred.vscode_extension.md'],
     ];
 
     for (const [id, expected] of cases) {

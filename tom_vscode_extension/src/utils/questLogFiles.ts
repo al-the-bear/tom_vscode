@@ -270,7 +270,7 @@ export function questLogLocation(
         case 'docUpdate':
             return { area: 'quest', fileName: `quest_documentation_update.${quest}.md` };
         case 'deferred':
-            return { area: 'quest', fileName: `completion_steps.${quest}.md` };
+            return { area: 'quest', fileName: `deferred.${quest}.md` };
         case 'currentPrompt': {
             const id = isQuestLogVariantId(variant) ? variant : DEFAULT_QUEST_LOG_VARIANT_ID;
             const entry = CURRENT_PROMPT_VARIANTS.find(v => v.id === id)!;

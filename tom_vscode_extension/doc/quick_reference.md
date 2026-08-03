@@ -170,7 +170,7 @@ the file in a normal text editor.
 | Notes | `quest-notes.{quest}.md` | Source | Top |
 | Refresh | `quest_refresh.{quest}.md` | Source | Top |
 | DocUpdate | `quest_documentation_update.{quest}.md` | Source | Top |
-| Deferred | `completion_steps.{quest}.md` | Source | Bottom (appended to) |
+| Deferred | `deferred.{quest}.md` | Source | Bottom (appended to) |
 | Current Prompt | `_ai/trail/anthropic/{quest}/current_prompt.*.md` | Source | Top |
 
 Not every quest has every file; a missing one is reported in the viewer.

@@ -509,7 +509,7 @@ export class DartBridgeClient {
      * The server→client RPC channel (todo #4), created on first use. Its send
      * sink writes the request frame to the bridge process's stdin; the bridge
      * relays it over the CLI socket to the connected Dart client (the relay is
-     * tracked separately — see completion_steps). Responses are routed back in
+     * tracked separately — see the quest's deferred file). Responses are routed back in
      * `handleMessage`.
      */
     private getServerToClientRpc(): ServerToClientRpc {

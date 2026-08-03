@@ -33,7 +33,7 @@ read-only; use the toolbar to edit.
   **Notes** (`quest-notes.{quest}.md`), **Refresh**
   (`quest_refresh.{quest}.md`), **DocUpdate**
   (`quest_documentation_update.{quest}.md`), **Deferred**
-  (`completion_steps.{quest}.md`), **Current Prompt** (see below)
+  (`deferred.{quest}.md`), **Current Prompt** (see below)
 - **Remembered selection**: the active sub-tab is restored after a window reload
 - **Auto-refresh**: re-reads every 2.5 s while the section is expanded; a file
   that has not changed costs no read
