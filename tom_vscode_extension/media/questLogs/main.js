@@ -1,14 +1,20 @@
 // @ts-nocheck
-/* global vscode, isExpanded, qlogTabIds, qlogDefaultTab */
+/* global vscode, isExpanded, qlogTabIds, qlogDefaultTab, qlogVariantTabs, qlogVariantIds, qlogDefaultVariant */
 // Quest Logs client script — the Logs section of the @WS accordion panel.
 // Static body of getQuestLogsScript() in src/handlers/questLogs-handler.ts; the
-// two config lines (`qlogTabIds`, `qlogDefaultTab`) are prepended by that
-// function. Uses the ambient `vscode` handle and `isExpanded` from the
-// accordion base script, so it does NOT call acquireVsCodeApi() itself.
+// config lines (`qlogTabIds`, `qlogDefaultTab`, `qlogVariantTabs`,
+// `qlogVariantIds`, `qlogDefaultVariant`) are prepended by that function. Uses
+// the ambient `vscode` handle and `isExpanded` from the accordion base script,
+// so it does NOT call acquireVsCodeApi() itself.
 //
 // The client keeps no copy of the file: it asks the host for HTML and swaps it
 // in. The host answers `qlogUnchanged` when the file has not moved, which is
 // what makes a 2.5 s poll of a half-megabyte trail cheap.
+//
+// Most tabs are one file. Current Prompt is six, picked from a dropdown, so
+// every message carries a `variant` alongside the tab and every reply is
+// matched on both — switching the dropdown mid-poll must not paint the previous
+// selection's text under the new label.
 
 /** Poll interval. The requirement is "at least every 3 seconds". */
 var QLOG_POLL_MS = 2500;
@@ -16,30 +22,51 @@ var QLOG_POLL_MS = 2500;
 var QLOG_STICKY_SLACK = 40;
 
 var qlogActiveTab = qlogDefaultTab;
+var qlogActiveVariant = qlogDefaultVariant;
 var qlogPollTimer = null;
-/** Set once the current tab has content, so tab switches can show a spinner. */
-var qlogLoadedTab = '';
+/** Identity of the view that has content, so switches can show a spinner. */
+var qlogLoadedView = '';
 
 function qlogIsKnownTab(id) {
     return typeof id === 'string' && qlogTabIds.indexOf(id) >= 0;
 }
 
+function qlogIsKnownVariant(id) {
+    return typeof id === 'string' && qlogVariantIds.indexOf(id) >= 0;
+}
+
+/** Whether the active tab picks its file from the dropdown. */
+function qlogTabHasVariants() {
+    return qlogVariantTabs.indexOf(qlogActiveTab) >= 0;
+}
+
 /**
- * Restore the tab selected before the last window reload. State is merged
- * rather than replaced — `vscode.setState` overwrites the whole object and the
- * accordion stores its expanded/pinned sections in the same place.
+ * What is on screen — the same identity the host keys its change-detection
+ * cache by. For a one-file tab that is just the tab id.
+ */
+function qlogViewKey() {
+    return qlogTabHasVariants() ? qlogActiveTab + ':' + qlogActiveVariant : qlogActiveTab;
+}
+
+/**
+ * Restore the tab and dropdown selection from before the last window reload.
+ * State is merged rather than replaced — `vscode.setState` overwrites the whole
+ * object and the accordion stores its expanded/pinned sections in the same
+ * place.
  */
 function qlogLoadState() {
     try {
         var s = vscode.getState();
         if (s && qlogIsKnownTab(s.qlogTab)) { qlogActiveTab = s.qlogTab; }
-    } catch (e) { /* first run — keep the default */ }
+        if (s && qlogIsKnownVariant(s.qlogVariant)) { qlogActiveVariant = s.qlogVariant; }
+    } catch (e) { /* first run — keep the defaults */ }
 }
 
 function qlogSaveState() {
     try {
         var s = vscode.getState() || {};
         s.qlogTab = qlogActiveTab;
+        s.qlogVariant = qlogActiveVariant;
         vscode.setState(s);
     } catch (e) { /* state is a convenience, never a correctness requirement */ }
 }
@@ -64,21 +91,41 @@ function qlogRenderTabStrip() {
     }
 }
 
-function qlogSelectTab(id) {
-    if (!qlogIsKnownTab(id) || id === qlogActiveTab) { return; }
-    qlogActiveTab = id;
-    qlogLoadedTab = '';
+/** Show the dropdown only for a tab that actually has variants. */
+function qlogRenderVariantPicker() {
+    var picker = document.getElementById('qlog-variant');
+    if (!picker) { return; }
+    picker.hidden = !qlogTabHasVariants();
+    if (picker.value !== qlogActiveVariant) { picker.value = qlogActiveVariant; }
+}
+
+/** Clear the viewer and fetch, shared by tab and dropdown switches. */
+function qlogShowSelection() {
+    qlogLoadedView = '';
     qlogSaveState();
     qlogRenderTabStrip();
+    qlogRenderVariantPicker();
     var body = document.getElementById('qlog-body');
     if (body) { body.innerHTML = '<div class="qlog-empty">Loading…</div>'; }
     qlogRequest(true);
 }
 
+function qlogSelectTab(id) {
+    if (!qlogIsKnownTab(id) || id === qlogActiveTab) { return; }
+    qlogActiveTab = id;
+    qlogShowSelection();
+}
+
+function qlogSelectVariant(id) {
+    if (!qlogIsKnownVariant(id) || id === qlogActiveVariant) { return; }
+    qlogActiveVariant = id;
+    qlogShowSelection();
+}
+
 /**
- * Ask the host for the active tab's content.
+ * Ask the host for the active view's content.
  *
- * `force` is set whenever this pane is not already showing the tab, not just
+ * `force` is set whenever this pane is not already showing that view, not just
  * when the user pressed refresh. The host answers `qlogUnchanged` by comparing
  * against what it last *sent*, and its memory outlives this webview — after the
  * panel is recreated a plain poll would be answered "nothing changed" against
@@ -86,8 +133,13 @@ function qlogSelectTab(id) {
  */
 function qlogRequest(force) {
     if (!qlogSectionVisible()) { return; }
-    var stale = qlogLoadedTab !== qlogActiveTab;
-    vscode.postMessage({ type: 'qlogRequest', tab: qlogActiveTab, force: !!force || stale });
+    var stale = qlogLoadedView !== qlogViewKey();
+    vscode.postMessage({
+        type: 'qlogRequest',
+        tab: qlogActiveTab,
+        variant: qlogActiveVariant,
+        force: !!force || stale,
+    });
 }
 
 function qlogFormatBytes(bytes) {
@@ -116,7 +168,7 @@ function qlogApplyContent(msg) {
             ? (msg.fileName + ' — ' + msg.error)
             : (msg.fileName + ' — not found in quest "' + msg.questId + '"');
         qlogSetStatus(msg.fileName + ' — not available');
-        qlogLoadedTab = msg.tab;
+        qlogLoadedView = qlogViewKey();
         return;
     }
 
@@ -124,10 +176,10 @@ function qlogApplyContent(msg) {
     var wasFollowing = atStart
         ? body.scrollTop <= QLOG_STICKY_SLACK
         : body.scrollHeight - body.scrollTop - body.clientHeight <= QLOG_STICKY_SLACK;
-    var firstLoad = qlogLoadedTab !== msg.tab;
+    var firstLoad = qlogLoadedView !== qlogViewKey();
     body.innerHTML = msg.html || '<div class="qlog-empty">(empty)</div>';
     if (firstLoad || wasFollowing) { body.scrollTop = atStart ? 0 : body.scrollHeight; }
-    qlogLoadedTab = msg.tab;
+    qlogLoadedView = qlogViewKey();
 
     var stamp = new Date().toLocaleTimeString();
     qlogSetStatus(
@@ -139,7 +191,9 @@ function qlogApplyContent(msg) {
 window.addEventListener('message', function (e) {
     var msg = e.data;
     if (!msg || msg.type !== 'qlogContent') { return; }
+    // A reply in flight when the selection changed describes the old file.
     if (msg.tab !== qlogActiveTab) { return; }
+    if (qlogTabHasVariants() && msg.variant !== qlogActiveVariant) { return; }
     qlogApplyContent(msg);
 });
 
@@ -147,6 +201,7 @@ qlogLoadState();
 
 setTimeout(function () {
     qlogRenderTabStrip();
+    qlogRenderVariantPicker();
 
     var strip = document.getElementById('qlog-tabs');
     if (strip) {
@@ -156,13 +211,22 @@ setTimeout(function () {
         });
     }
 
+    var picker = document.getElementById('qlog-variant');
+    if (picker) {
+        picker.addEventListener('change', function () { qlogSelectVariant(picker.value); });
+    }
+
     var refreshBtn = document.getElementById('qlog-refresh');
     if (refreshBtn) { refreshBtn.addEventListener('click', function () { qlogRequest(true); }); }
 
     var openBtn = document.getElementById('qlog-open');
     if (openBtn) {
         openBtn.addEventListener('click', function () {
-            vscode.postMessage({ type: 'qlogOpenInEditor', tab: qlogActiveTab });
+            vscode.postMessage({
+                type: 'qlogOpenInEditor',
+                tab: qlogActiveTab,
+                variant: qlogActiveVariant,
+            });
         });
     }
 

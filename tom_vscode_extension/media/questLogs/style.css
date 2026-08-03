@@ -14,7 +14,7 @@
  */
 
 /* ── Tab strip ─────────────────────────────────────────── */
-/* Nine tabs in a section that can be dragged down to 120px wide, so the strip
+/* Eleven tabs in a section that can be dragged down to 120px wide, so the strip
    wraps rather than clipping. min-width:0 lets it shrink inside the toolbar. */
 .qlog-tabs { display: flex; flex-wrap: wrap; gap: 2px; flex: 1; min-width: 0; }
 .qlog-tab { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; height: 20px; background: none; border: none; border-bottom: 2px solid transparent; color: var(--vscode-foreground); opacity: 0.7; cursor: pointer; font-size: 11px; font-family: inherit; white-space: nowrap; }
@@ -25,6 +25,12 @@
    and the tooltip still identify the tab. */
 .qlog-tab-label { overflow: hidden; text-overflow: ellipsis; }
 .qlog-toolbar { align-items: flex-start; }
+
+/* ── Variant dropdown (Current Prompt) ─────────────────── */
+/* Hidden for every other tab. `[hidden]` needs the explicit rule because the
+   toolbar sets its children to display:flex, which overrides the UA default. */
+.qlog-variant { height: 20px; max-width: 150px; padding: 0 4px; font-size: 11px; font-family: inherit; background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border, transparent); border-radius: 2px; cursor: pointer; }
+.qlog-variant[hidden] { display: none; }
 
 /* ── Viewer body ───────────────────────────────────────── */
 .qlog-body { flex: 1; overflow: auto; padding: 6px 8px; background: var(--vscode-editor-background); border: 1px solid var(--vscode-panel-border); border-radius: 3px; font-size: 12px; line-height: 1.45; }

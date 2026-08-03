@@ -35,6 +35,12 @@ export class FsUtils {
         }
     }
 
+    /** Write plain text, creating the containing directory if it is missing. */
+    static safeWriteText(filePath: string, text: string): void {
+        this.ensureDir(path.dirname(filePath));
+        fs.writeFileSync(filePath, text, 'utf-8');
+    }
+
     static safeWriteJson(filePath: string, data: unknown, indent = 2): void {
         this.ensureDir(path.dirname(filePath));
         fs.writeFileSync(filePath, JSON.stringify(data, null, indent), 'utf-8');

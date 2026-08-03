@@ -151,7 +151,8 @@
 
 #### Logs sub-tabs
 
-Read-only viewers over the active quest's files in `_ai/quests/{quest}/`. The
+Read-only viewers over the active quest's files in `_ai/quests/{quest}/` — plus
+**Current Prompt**, which reads the quest's gitignored trail folder. The
 selected sub-tab survives a window reload; the content refreshes every 2.5 s. A
 file larger than 256 KB is read from — and the view opens at — the end its
 newest content is at (the *Opens at* column below). Two toolbar buttons act on
@@ -170,8 +171,22 @@ the file in a normal text editor.
 | Refresh | `quest_refresh.{quest}.md` | Source | Top |
 | DocUpdate | `quest_documentation_update.{quest}.md` | Source | Top |
 | Deferred | `completion_steps.{quest}.md` | Source | Bottom (appended to) |
+| Current Prompt | `_ai/trail/anthropic/{quest}/current_prompt.*.md` | Source | Top |
 
 Not every quest has every file; a missing one is reported in the viewer.
+
+**Current Prompt** is the one sub-tab that shows several files, picked from a
+toolbar dropdown that appears only while it is selected. The six options are the
+three parts of a dispatched prompt for each of the two that can run in parallel:
+
+| Option | File | Content |
+| --- | --- | --- |
+| Chat / Queue Literal Prompt | `current_prompt.{chat\|queue}.literal.md` | What the user typed, pre-expansion |
+| Chat / Queue User Prompt | `current_prompt.{chat\|queue}.user.md` | The user message sent to the model |
+| Chat / Queue System Prompt | `current_prompt.{chat\|queue}.system.md` | The system prompt; empty when there is none |
+
+All three are rewritten on every send, so nothing lingers from the previous
+prompt. The dropdown selection is remembered alongside the sub-tab.
 
 ## Prompt Queue
 

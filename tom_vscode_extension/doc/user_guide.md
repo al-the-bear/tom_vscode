@@ -9,7 +9,7 @@ The extension combines VS Code automation, bridge-based scripting, Copilot workf
 Current bottom panel layout:
 
 - `@CHAT` (`tomAi.chatPanel`): five subpanels — **Anthropic**, **Tom AI Chat**, **AI Conversation**, **Copilot**, **Local LLM**. Shared features: prompt queue side panel, document picker, live-trail button (Anthropic), session-history button, memory/config buttons, accordion/pin/rotate layout.
-- `@WS` (`tomAi.wsPanel`): Guidelines, Documentation, Logs, Settings, Issues, Tests, Quest TODO. The Logs section carries its own strip of ten sub-tabs over the active quest's log files — see [Logs Panel](#logs-panel).
+- `@WS` (`tomAi.wsPanel`): Guidelines, Documentation, Logs, Settings, Issues, Tests, Quest TODO. The Logs section carries its own strip of eleven sub-tabs over the active quest's log files and the running prompt — see [Logs Panel](#logs-panel).
 
 AI Conversation is the only subpanel that is **not** queue-compatible — each AI Conversation turn runs as an ad-hoc chat.
 
@@ -24,7 +24,8 @@ The Guidelines panel in @WS provides a document browser for copilot guidelines. 
 ### Logs Panel
 
 The Logs section of @WS shows the active quest's log-style markdown files from
-`_ai/quests/{quest}/`. It is read-only; use the toolbar to edit.
+`_ai/quests/{quest}/`, plus the prompt that is running right now. It is
+read-only; use the toolbar to edit.
 
 - **Sub-tabs**: **MD Trail** (`live-trail.md`, rendered), **Trail** (the same
   file as highlighted source), **Prompts** / **Answers**
@@ -32,7 +33,7 @@ The Logs section of @WS shows the active quest's log-style markdown files from
   **Notes** (`quest-notes.{quest}.md`), **Refresh**
   (`quest_refresh.{quest}.md`), **DocUpdate**
   (`quest_documentation_update.{quest}.md`), **Deferred**
-  (`completion_steps.{quest}.md`)
+  (`completion_steps.{quest}.md`), **Current Prompt** (see below)
 - **Remembered selection**: the active sub-tab is restored after a window reload
 - **Auto-refresh**: re-reads every 2.5 s while the section is expanded; a file
   that has not changed costs no read
@@ -43,6 +44,32 @@ The Logs section of @WS shows the active quest's log-style markdown files from
 - **Follow scrolling**: the view opens at that same end, and a reader still
   sitting there stays there as the file grows; scrolling away to study something
   holds that position
+
+#### Current Prompt sub-tab
+
+Shows the prompt currently in flight, replaced on every send. A dropdown in the
+toolbar — visible only on this sub-tab — picks which of six views to show:
+
+| Option | Shows |
+| --- | --- |
+| Chat / Queue **Literal Prompt** | What you typed, before placeholders were expanded and before keyword triggers were stripped |
+| Chat / Queue **User Prompt** | The user message that actually went to the model |
+| Chat / Queue **System Prompt** | The assembled system prompt — empty when the profile has none |
+
+Comparing the literal against the user prompt is the fastest way to see what a
+template or a placeholder did to your text.
+
+A queue item and a chat message can run at the same time, so the two keep
+separate sets: the **Chat** options never show a queue item's prompt and vice
+versa. The dropdown selection is remembered across a window reload alongside the
+sub-tab.
+
+The files behind it live in the quest's Anthropic trail folder
+(`_ai/trail/anthropic/{quest}/current_prompt.*.md`), which is gitignored — they
+change on every prompt, so they are deliberately kept out of the tracked quest
+folder. They are written for every Anthropic transport (direct SDK, Agent SDK,
+vscodeLm) and persist after the answer arrives, so the tab still shows the last
+prompt sent when nothing is running.
 - **Toolbar**: **Refresh** re-reads the selected file from disk; **Open in
   editor** opens it in a normal text editor
 - **Missing files**: not every quest has every document; a missing one is
