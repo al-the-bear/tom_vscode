@@ -2,7 +2,8 @@
  * Tests for `parseChatQuestionsConfig` — the pure normaliser behind the
  * "Chat questions" settings (`tomAi_askUser`). It must always return a usable
  * config: defaults for missing/wrong-typed fields, and `maxWaitMinutes`
- * clamped to a whole number ≥ 1.
+ * clamped to a whole number ≥ 0, where 0 means "no ceiling — wait for the user
+ * however long it takes".
  *
  * `chatQuestions-config.ts` imports `vscode` (for the read/write toasts) and
  * `WsPaths` at module top, so the shared stub is installed before the import.
@@ -46,10 +47,17 @@ describe('parseChatQuestionsConfig', () => {
         assert.equal(parseChatQuestionsConfig({ maxWaitMinutes: 7.9 }).maxWaitMinutes, 7);
     });
 
-    test('maxWaitMinutes below 1 is clamped to 1', () => {
-        assert.equal(parseChatQuestionsConfig({ maxWaitMinutes: 0 }).maxWaitMinutes, 1);
-        assert.equal(parseChatQuestionsConfig({ maxWaitMinutes: -5 }).maxWaitMinutes, 1);
-        assert.equal(parseChatQuestionsConfig({ maxWaitMinutes: 0.4 }).maxWaitMinutes, 1);
+    test('the shipped default is 0 — no ceiling', () => {
+        // A question the user has not read yet must not answer itself. Anything
+        // other than 0 here would resurrect the old behaviour, where a prompt
+        // left running overnight came back with a fallback it invented.
+        assert.equal(CHAT_QUESTIONS_DEFAULTS.maxWaitMinutes, 0);
+    });
+
+    test('maxWaitMinutes below 0 is clamped to 0 (wait indefinitely)', () => {
+        assert.equal(parseChatQuestionsConfig({ maxWaitMinutes: 0 }).maxWaitMinutes, 0);
+        assert.equal(parseChatQuestionsConfig({ maxWaitMinutes: -5 }).maxWaitMinutes, 0);
+        assert.equal(parseChatQuestionsConfig({ maxWaitMinutes: 0.4 }).maxWaitMinutes, 0);
     });
 
     test('non-finite / wrong-typed maxWaitMinutes → default minutes', () => {

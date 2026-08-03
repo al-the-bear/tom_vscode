@@ -36,6 +36,8 @@ export type QuestLogTabId =
     | 'refresh'
     | 'docUpdate'
     | 'deferred'
+    | 'questions'
+    | 'decisions'
     | 'currentPrompt';
 
 /**
@@ -74,10 +76,10 @@ export interface QuestLogTab {
     readonly view: QuestLogView;
     /**
      * Where this file's newest content is — a property of how each file is
-     * written, not a display preference. The trail and the deferred-steps
-     * document are appended to, so they are read from the end; the remaining
-     * quest documents are prepended to or rewritten wholesale, so they are read
-     * from the start.
+     * written, not a display preference. The trail and the three journals
+     * (deferred steps, questions, decisions) are appended to, so they are read
+     * from the end; the remaining quest documents are prepended to or rewritten
+     * wholesale, so they are read from the start.
      */
     readonly newestAt: QuestLogNewestAt;
     /**
@@ -208,9 +210,12 @@ export const QUEST_LOG_TABS: readonly QuestLogTab[] = [
     { id: 'notes', label: 'Notes', icon: 'note', view: 'source', newestAt: 'start' },
     { id: 'refresh', label: 'Refresh', icon: 'refresh', view: 'source', newestAt: 'start' },
     { id: 'docUpdate', label: 'DocUpdate', icon: 'file-symlink-file', view: 'source', newestAt: 'start' },
-    // Deferred steps are added *after* the ones already recorded, so unlike its
-    // neighbours this document grows at the bottom.
+    // The three journals. Unlike their neighbours these are appended to — a
+    // deferred step, an answered question and a recorded decision are all added
+    // after the ones already there — so they grow at the bottom.
     { id: 'deferred', label: 'Deferred', icon: 'bookmark', view: 'source', newestAt: 'end' },
+    { id: 'questions', label: 'Questions', icon: 'question', view: 'source', newestAt: 'end' },
+    { id: 'decisions', label: 'Decisions', icon: 'checklist', view: 'source', newestAt: 'end' },
     // The only tab that shows *now* rather than history: the prompt currently
     // running, replaced on every send. Its files are rewritten wholesale, so
     // like the quest documents it is read and opened from the top.
@@ -271,6 +276,10 @@ export function questLogLocation(
             return { area: 'quest', fileName: `quest_documentation_update.${quest}.md` };
         case 'deferred':
             return { area: 'quest', fileName: `deferred.${quest}.md` };
+        case 'questions':
+            return { area: 'quest', fileName: `questions.${quest}.md` };
+        case 'decisions':
+            return { area: 'quest', fileName: `decisions.${quest}.md` };
         case 'currentPrompt': {
             const id = isQuestLogVariantId(variant) ? variant : DEFAULT_QUEST_LOG_VARIANT_ID;
             const entry = CURRENT_PROMPT_VARIANTS.find(v => v.id === id)!;

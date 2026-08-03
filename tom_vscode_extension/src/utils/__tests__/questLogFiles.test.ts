@@ -1,7 +1,8 @@
 /**
  * Tests for the quest log-file catalogue that backs the @WS panel's Logs
- * section (eleven sub-tabs: MD Trail, Trail, Prompts, Answers, Progress,
- * Overview, Notes, Refresh, DocUpdate, Deferred, Current Prompt).
+ * section (thirteen sub-tabs: MD Trail, Trail, Prompts, Answers, Progress,
+ * Overview, Notes, Refresh, DocUpdate, Deferred, Questions, Decisions,
+ * Current Prompt).
  *
  * The catalogue is pure — no `vscode`, no `fs` — so the sub-tab → file mapping,
  * the quest-id sanitisation and the tail window can be pinned down here rather
@@ -10,8 +11,8 @@
  *   - **Every tab resolves to exactly one deterministic file.** The quest
  *     folder has no globbing: `progress.<quest>.md`, `<quest>.anthropic.
  *     prompts.md`, and the two trail tabs both point at `live-trail.md`.
- *   - **A tab names the *area* it reads from, not just a file name.** Ten tabs
- *     read the quest folder; Current Prompt reads the trail folder, which is
+ *   - **A tab names the *area* it reads from, not just a file name.** Twelve
+ *     tabs read the quest folder; Current Prompt reads the trail folder, which is
  *     gitignored — the whole point of putting a file rewritten on every send
  *     there rather than in the fleet-shared quest folder.
  *   - **The read window never splits a line.** The viewer reads only one slice
@@ -45,13 +46,13 @@ import {
 } from '../questLogFiles.js';
 
 describe('QUEST_LOG_TABS catalogue', () => {
-    test('declares exactly the eleven sub-tabs, in order', () => {
+    test('declares exactly the thirteen sub-tabs, in order', () => {
         assert.deepEqual(
             QUEST_LOG_TABS.map(t => t.id),
             [
                 'mdTrail', 'trail', 'prompts', 'answers', 'progress',
                 'overview', 'notes', 'refresh', 'docUpdate', 'deferred',
-                'currentPrompt',
+                'questions', 'decisions', 'currentPrompt',
             ],
         );
     });
@@ -62,7 +63,7 @@ describe('QUEST_LOG_TABS catalogue', () => {
             [
                 'MD Trail', 'Trail', 'Prompts', 'Answers', 'Progress',
                 'Overview', 'Notes', 'Refresh', 'DocUpdate', 'Deferred',
-                'Current Prompt',
+                'Questions', 'Decisions', 'Current Prompt',
             ],
         );
     });
@@ -92,14 +93,15 @@ describe('QUEST_LOG_TABS catalogue', () => {
 
     test('each tab is read from the end its own file grows at', () => {
         // live-trail.md is appended to, so its newest content is at the bottom,
-        // and so is deferred.<quest>.md — deferred steps are added after
-        // the ones already there. The remaining quest documents are prepended to
-        // or rewritten wholesale, so reading their tail would show the oldest
-        // content and open the view scrolled away from what the reader wants.
-        // The current-prompt files are rewritten wholesale on every send, so
-        // they too are read — and opened — at the top.
+        // and so are the three journals — deferred steps, answered questions and
+        // recorded decisions are all added after the ones already there. The
+        // remaining quest documents are prepended to or rewritten wholesale, so
+        // reading their tail would show the oldest content and open the view
+        // scrolled away from what the reader wants. The current-prompt files are
+        // rewritten wholesale on every send, so they too are read — and opened —
+        // at the top.
         const fromEnd = QUEST_LOG_TABS.filter(t => t.newestAt === 'end').map(t => t.id);
-        assert.deepEqual(fromEnd, ['mdTrail', 'trail', 'deferred']);
+        assert.deepEqual(fromEnd, ['mdTrail', 'trail', 'deferred', 'questions', 'decisions']);
 
         const fromStart = QUEST_LOG_TABS.filter(t => t.newestAt === 'start').map(t => t.id);
         assert.deepEqual(fromStart, [
@@ -144,6 +146,8 @@ describe('questLogLocation', () => {
         ['refresh', 'quest_refresh.vscode_extension.md'],
         ['docUpdate', 'quest_documentation_update.vscode_extension.md'],
         ['deferred', 'deferred.vscode_extension.md'],
+        ['questions', 'questions.vscode_extension.md'],
+        ['decisions', 'decisions.vscode_extension.md'],
     ];
 
     for (const [id, expected] of cases) {

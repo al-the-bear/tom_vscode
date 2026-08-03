@@ -187,8 +187,15 @@ export async function collectInteractiveAnswers(
             matchOnDescription: true,
             ignoreFocusOut: true,
         });
-        if (picked === undefined) {
-            return null; // dismissed → autonomous fallback
+        // `undefined` is a dismissal; a symbol is `QUICK_PICK_TIMED_OUT`. Either
+        // way we have no answer, so fall back to the template. (No `timeoutMs`
+        // is requested here, so the timed-out case is unreachable in practice —
+        // the check exists so it can never be mistaken for a picked item.) The
+        // symbol is matched by type rather than imported by value, because
+        // importing it would pull `vscode` into this deliberately runtime-pure
+        // module.
+        if (picked === undefined || typeof picked === 'symbol') {
+            return null;
         }
 
         const pickedArr = Array.isArray(picked) ? picked : [picked];

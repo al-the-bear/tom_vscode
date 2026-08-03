@@ -3,9 +3,17 @@
  *
  * The `tomAi_askUser` tool blocks the LLM round (and therefore the prompt queue)
  * by returning a Promise that does not resolve until the user answers — from the
- * VS Code webview OR from Telegram — or a configurable timeout fires. Because the
- * Anthropic round loop `await`s the tool result, this Promise *is* the queue
- * pause: no separate pause machinery is needed.
+ * VS Code webview OR from Telegram. Because the Anthropic round loop `await`s
+ * the tool result, this Promise *is* the queue pause: no separate pause
+ * machinery is needed.
+ *
+ * ## Waiting is open-ended by default
+ *
+ * An ask has **no deadline** unless the caller asks for one ({@link
+ * BeginAskParams.timeoutMs}). A question the user has not read yet must not
+ * answer itself: expiring into a fallback prompt turns "I asked and waited" into
+ * "I asked, nobody saw it, and I proceeded on a guess". A timeout is therefore
+ * something the model opts into per call, or the user configures as a ceiling.
  *
  * ## Singleton by construction
  *
@@ -20,7 +28,7 @@
  *
  *   - VS Code webview submit  → `submit(id, text, 'vscode')`
  *   - Telegram free-text reply → `submit(id, text, 'telegram')`
- *   - Timeout                  → resolves with the configured fallback prompt
+ *   - Timeout, when one was requested → resolves with the fallback prompt
  *   - Queue cancel / dispose   → `cancel()` resolves with a short cancel note
  *
  * The first resolver clears the timer, invokes `onResolve` (so the bridge can
@@ -42,16 +50,22 @@ export interface PendingAsk {
     title?: string;
     /** Epoch ms the ask was created. */
     createdAt: number;
-    /** Epoch ms the timeout will fire. */
-    timeoutAt: number;
+    /**
+     * Epoch ms the timeout will fire, or `undefined` when the ask waits
+     * indefinitely — which is what tells the webview there is no countdown.
+     */
+    timeoutAt?: number;
 }
 
 /** Parameters for {@link AskUserRegistry.begin}. */
 export interface BeginAskParams {
     questions: string[];
     title?: string;
-    /** How long to wait before resolving with `fallbackPrompt`. */
-    timeoutMs: number;
+    /**
+     * How long to wait before resolving with `fallbackPrompt`. Omitted, zero or
+     * negative means **wait indefinitely** — no timer is armed at all.
+     */
+    timeoutMs?: number;
     /** The tool reply used when the timeout fires (editable in settings). */
     fallbackPrompt: string;
     /** Called once, synchronously, when the ask opens (surface UI + Telegram). */
@@ -125,15 +139,20 @@ export class AskUserRegistry {
             return Promise.reject(new Error('An askUser request is already pending — only one may be in flight at a time.'));
         }
         const createdAt = this.now();
+        // A missing / non-positive timeout is the "wait indefinitely" default,
+        // not a deadline that has already passed.
+        const timeoutMs = typeof params.timeoutMs === 'number' && params.timeoutMs > 0
+            ? params.timeoutMs
+            : undefined;
         const pending: PendingAsk = {
             requestId: this.genId(),
             questions: params.questions.slice(),
             title: params.title,
             createdAt,
-            timeoutAt: createdAt + params.timeoutMs,
+            timeoutAt: timeoutMs === undefined ? undefined : createdAt + timeoutMs,
         };
         return new Promise<string>((resolve) => {
-            const timer = this.setTimer(params.timeoutMs, () => {
+            const timer = timeoutMs === undefined ? undefined : this.setTimer(timeoutMs, () => {
                 this.finish('timeout', params.fallbackPrompt);
             });
             this.active = {

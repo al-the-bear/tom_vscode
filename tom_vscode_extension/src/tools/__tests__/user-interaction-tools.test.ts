@@ -15,6 +15,8 @@
  *   - canPickMany empty selection (`[]`) vs cancellation (`undefined`) —
  *     both used to look the same to the caller; now distinguishable via
  *     `{dismissed, selected}`.
+ *   - timing out vs the user dismissing — a third outcome, and a different
+ *     one: nobody was there, as opposed to somebody who said no.
  *   - PickerItemInput.value fallback to label when omitted.
  *   - matchOnDescription default = true (forwarded to options).
  */
@@ -34,11 +36,14 @@ installVscodeStub({});
 
 import {
     askUserPickerImpl,
+    QUICK_PICK_TIMED_OUT,
     type UserPrompter,
     type PickerItem,
     type QuickPickOpts,
+    type QuickPickResult,
     type AskUserPickerInput,
 } from '../user-interaction-tools.js';
+import type { QuestionLogEntry } from '../../utils/questionsLogFormat.js';
 
 // ===========================================================================
 // Stubbed prompter
@@ -49,7 +54,7 @@ interface StubPickerCall { items: PickerItem[]; opts: QuickPickOpts }
 interface StubPrompter extends UserPrompter {
     pickerCalls: StubPickerCall[];
     /** What `showQuickPick` returns next. */
-    nextPick: PickerItem | PickerItem[] | undefined;
+    nextPick: QuickPickResult;
     throwOnPick?: Error;
 }
 
@@ -207,5 +212,155 @@ describe('askUserPickerImpl', () => {
         const r = JSON.parse(await askUserPickerImpl(p, { items: ['a'] }));
         assert.equal(r.dismissed, true);
         assert.equal(r.selected, null);
+    });
+});
+
+// ===========================================================================
+// Deadline — the picker blocks the queue exactly like `tomAi_askUser`
+// ===========================================================================
+
+describe('askUserPickerImpl — deadline', () => {
+
+    test('no ceiling and no per-call timeout → the prompter gets no deadline', async () => {
+        const p = makePrompter();
+        p.nextPick = { label: 'a', value: 'a' };
+        await askUserPickerImpl(p, { items: ['a'] });
+        assert.equal(p.pickerCalls[0].opts.timeoutMs, undefined);
+    });
+
+    test('per-call timeoutMinutes is forwarded as milliseconds', async () => {
+        const p = makePrompter();
+        p.nextPick = { label: 'a', value: 'a' };
+        await askUserPickerImpl(p, { items: ['a'], timeoutMinutes: 3 });
+        assert.equal(p.pickerCalls[0].opts.timeoutMs, 3 * 60_000);
+    });
+
+    test('the configured ceiling caps the per-call request', async () => {
+        const p = makePrompter();
+        p.nextPick = { label: 'a', value: 'a' };
+        await askUserPickerImpl(p, { items: ['a'], timeoutMinutes: 60 }, { ceilingMinutes: 10 });
+        assert.equal(p.pickerCalls[0].opts.timeoutMs, 10 * 60_000);
+    });
+
+    test('the ceiling alone arms a deadline', async () => {
+        const p = makePrompter();
+        p.nextPick = { label: 'a', value: 'a' };
+        await askUserPickerImpl(p, { items: ['a'] }, { ceilingMinutes: 5 });
+        assert.equal(p.pickerCalls[0].opts.timeoutMs, 5 * 60_000);
+    });
+
+    test('a timeout is its own outcome — not a dismissal', async () => {
+        // Dismissed means the user saw the question and declined. Timed out
+        // means nobody was there. The model must be able to tell them apart.
+        const p = makePrompter();
+        p.nextPick = QUICK_PICK_TIMED_OUT;
+        const r = JSON.parse(await askUserPickerImpl(p, { items: ['a'], timeoutMinutes: 1 }));
+        assert.equal(r.ok, true);
+        assert.equal(r.timedOut, true);
+        assert.equal(r.dismissed, false);
+        assert.equal(r.selected, null);
+    });
+
+    test('a normal outcome reports timedOut: false', async () => {
+        const p = makePrompter();
+        p.nextPick = { label: 'a', value: 'a' };
+        const picked = JSON.parse(await askUserPickerImpl(p, { items: ['a'] }));
+        assert.equal(picked.timedOut, false);
+        p.nextPick = undefined;
+        const dismissed = JSON.parse(await askUserPickerImpl(p, { items: ['a'] }));
+        assert.equal(dismissed.timedOut, false);
+    });
+});
+
+// ===========================================================================
+// Questions journal
+// ===========================================================================
+
+describe('askUserPickerImpl — questions journal', () => {
+
+    function makeLogger() {
+        const logged: QuestionLogEntry[] = [];
+        let clock = 500_000;
+        return {
+            logged,
+            tick(ms: number) { clock += ms; },
+            deps: { log: (e: QuestionLogEntry) => logged.push(e), now: () => clock },
+        };
+    }
+
+    test('a pick is journalled with the prompt, the chosen labels and the timings', async () => {
+        const p = makePrompter();
+        p.nextPick = { label: 'Postgres', value: 'pg' };
+        const l = makeLogger();
+        const askedAt = l.deps.now();
+        // The stub resolves synchronously, so advance the clock inside it.
+        p.showQuickPick = async (items, opts) => {
+            p.pickerCalls.push({ items, opts });
+            l.tick(30_000);
+            return p.nextPick;
+        };
+        await askUserPickerImpl(p, { items: ['Postgres', 'MySQL'], prompt: 'Which database?' }, l.deps);
+
+        assert.equal(l.logged.length, 1);
+        const e = l.logged[0];
+        assert.equal(e.tool, 'tomAi_askUserPicker');
+        assert.deepEqual([...e.questions], ['Which database?']);
+        assert.equal(e.answer, 'Postgres');
+        assert.equal(e.source, 'vscode');
+        assert.equal(e.askedAt, askedAt);
+        assert.equal(e.answeredAt, askedAt + 30_000);
+    });
+
+    test('a multi-select pick is journalled with every chosen label', async () => {
+        const p = makePrompter();
+        p.nextPick = [{ label: 'a', value: 'a' }, { label: 'b', value: 'b' }];
+        const l = makeLogger();
+        await askUserPickerImpl(p, { items: ['a', 'b'], canPickMany: true }, l.deps);
+        assert.match(l.logged[0].answer, /\ba\b/);
+        assert.match(l.logged[0].answer, /\bb\b/);
+    });
+
+    test('a dismissal is journalled as a cancel, not as a silent nothing', async () => {
+        const p = makePrompter();
+        p.nextPick = undefined;
+        const l = makeLogger();
+        await askUserPickerImpl(p, { items: ['a'] }, l.deps);
+        assert.equal(l.logged.length, 1);
+        assert.equal(l.logged[0].source, 'cancel');
+    });
+
+    test('a timeout is journalled as a timeout', async () => {
+        const p = makePrompter();
+        p.nextPick = QUICK_PICK_TIMED_OUT;
+        const l = makeLogger();
+        await askUserPickerImpl(p, { items: ['a'], timeoutMinutes: 1 }, l.deps);
+        assert.equal(l.logged[0].source, 'timeout');
+    });
+
+    test('a rejected call and a crashed prompter are not journalled', async () => {
+        const p = makePrompter();
+        const l = makeLogger();
+        await askUserPickerImpl(p, { items: [] }, l.deps);
+        p.throwOnPick = new Error('boom');
+        await askUserPickerImpl(p, { items: ['a'] }, l.deps);
+        assert.equal(l.logged.length, 0);
+    });
+
+    test('a journal failure does not break the pick', async () => {
+        const p = makePrompter();
+        p.nextPick = { label: 'a', value: 'a' };
+        const r = JSON.parse(await askUserPickerImpl(p, { items: ['a'] }, {
+            log: () => { throw new Error('disk full'); },
+        }));
+        assert.equal(r.ok, true);
+        assert.equal(r.selected.value, 'a');
+    });
+
+    test('the title is preferred over the prompt as the journal heading', async () => {
+        const p = makePrompter();
+        p.nextPick = { label: 'a', value: 'a' };
+        const l = makeLogger();
+        await askUserPickerImpl(p, { items: ['a'], prompt: 'pick one', title: 'Database' }, l.deps);
+        assert.equal(l.logged[0].title, 'Database');
     });
 });

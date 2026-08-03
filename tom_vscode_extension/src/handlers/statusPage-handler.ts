@@ -2760,7 +2760,7 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
             </div>
             <div class="sp-settings-row">
                 <label>Max wait (min):</label>
-                <input type="number" id="sp-cq-maxWaitMinutes" value="${status.chatQuestions.maxWaitMinutes}" min="1" step="1">
+                <input type="number" id="sp-cq-maxWaitMinutes" value="${status.chatQuestions.maxWaitMinutes}" min="0" step="1" title="0 = wait indefinitely for your answer">
             </div>
             <div class="sp-settings-row" style="align-items:flex-start">
                 <label>Timeout reply:</label>

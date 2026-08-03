@@ -78,7 +78,7 @@ function attachStatusPanelListeners(skipEditorInit) {
                 };
             } else if (action === 'updateChatQuestions') {
                 msgData.settings = {
-                    maxWaitMinutes: parseInt((document.getElementById('sp-cq-maxWaitMinutes') || {}).value || '15'),
+                    maxWaitMinutes: parseInt((document.getElementById('sp-cq-maxWaitMinutes') || {}).value || '0'),
                     fallbackPrompt: (document.getElementById('sp-cq-fallbackPrompt') || {}).value || ''
                 };
             } else if (action === 'updateAskCopilot') {
