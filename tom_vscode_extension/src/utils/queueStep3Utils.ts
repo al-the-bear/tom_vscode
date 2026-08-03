@@ -54,31 +54,36 @@ export function shouldAutoPauseOnEmpty(autoSendEnabled: boolean, pendingCount: n
     return autoPauseEnabled && autoSendEnabled && pendingCount <= 0;
 }
 
-/** What a completed item's "pause after this" flag means for its queue. */
-export interface PauseAfterDecision {
+/** What happens to the queue once an item has finished its last stage. */
+export interface QueueAdvanceDecision {
+    /** Start the next pending item. */
+    advance: boolean;
     /** Flip auto-send off and persist the setting. */
     disableAutoSend: boolean;
-    /** Do not start the next pending item. */
-    holdQueue: boolean;
 }
 
 /**
- * Decide what happens to the queue when an item that carries the "pause after
- * this" flag finishes its last stage / repetition.
+ * Decide whether the queue moves on after a completed item.
  *
- * `holdQueue` is reported independently of `autoSendEnabled` on purpose: the
- * Anthropic completion paths advance with a bare `sendNext()` that does not
- * consult the auto-send flag, so a caller that only re-read the flag after
- * flipping it would still start the next item.
+ * There are two independent reasons not to: the queue is paused
+ * (`autoSendEnabled` off), or the item carries the per-item "pause after
+ * this" flag. Both are answered here rather than at the call sites, because
+ * answering them separately is precisely how the queue used to keep running
+ * while paused — the Anthropic completion tails checked the flag but not the
+ * toggle. One question, one answer, one place.
+ *
+ * `disableAutoSend` is the flag's side effect: pausing via `pauseAfter` puts
+ * the queue in the same visible, reload-surviving state as pausing by hand,
+ * instead of a silent one-off skip.
  */
-export function decidePauseAfterCompletion(
+export function decideAdvanceAfterCompletion(
     pauseAfter: boolean | undefined,
     autoSendEnabled: boolean,
-): PauseAfterDecision {
-    if (!pauseAfter) {
-        return { disableAutoSend: false, holdQueue: false };
+): QueueAdvanceDecision {
+    if (pauseAfter) {
+        return { advance: false, disableAutoSend: autoSendEnabled };
     }
-    return { disableAutoSend: autoSendEnabled, holdQueue: true };
+    return { advance: autoSendEnabled, disableAutoSend: false };
 }
 
 /**

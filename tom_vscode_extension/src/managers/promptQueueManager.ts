@@ -31,7 +31,7 @@ import {
 } from '../storage/queueFileStorage';
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
-import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, decidePauseAfterCompletion, parseTodoPrefixPattern, planMainStageDispatch, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty, type TodoIterationSource } from '../utils/queueStep3Utils';
+import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, decideAdvanceAfterCompletion, parseTodoPrefixPattern, planMainStageDispatch, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty, type TodoIterationSource } from '../utils/queueStep3Utils';
 import { runMainStageWithRefresh } from '../utils/questRefreshDispatch.js';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
 import { mergeQueueReload } from '../utils/queueReloadMergeUtils';
@@ -1210,7 +1210,7 @@ export class PromptQueueManager {
                         this.persist();
                         this._onDidChange.fire();
 
-                        if (!this._holdQueueForPauseAfter(sending) && this._autoSendEnabled) {
+                        if (this._shouldAdvanceQueueAfter(sending)) {
                             const pendingCount = this._items.filter(i => i.status === 'pending').length;
                             if (shouldAutoPauseOnEmpty(this._autoSendEnabled, pendingCount, this._autoPauseEnabled)) {
                                 this._autoSendEnabled = false;
@@ -1417,7 +1417,7 @@ export class PromptQueueManager {
                 this.persist();
                 this._onDidChange.fire();
 
-                if (!this._holdQueueForPauseAfter(sending) && this._autoSendEnabled) {
+                if (this._shouldAdvanceQueueAfter(sending)) {
                     const pendingCount = this._items.filter(i => i.status === 'pending').length;
                     if (shouldAutoPauseOnEmpty(this._autoSendEnabled, pendingCount, this._autoPauseEnabled)) {
                         this._autoSendEnabled = false;
@@ -1600,7 +1600,7 @@ export class PromptQueueManager {
                 this.persist();
                 this._onDidChange.fire();
                 logQueue(`Resumed item ${item.id} completed (anthropic transport — no polling)`);
-                if (!this._holdQueueForPauseAfter(liveItem)) {
+                if (this._shouldAdvanceQueueAfter(liveItem)) {
                     void this.sendNext();
                 }
             } else {
@@ -2394,10 +2394,10 @@ export class PromptQueueManager {
         this.persist();
         this._onDidChange.fire();
 
-        // Continue is a completion path like any other: an item that asked to
-        // pause the queue after itself must do so even when the user drove it
-        // over the finish line by hand.
-        if (!this._holdQueueForPauseAfter(sending) && this._autoSendEnabled) {
+        // Continue is a completion path like any other: driving the item over
+        // the finish line by hand does not entitle the queue to start the next
+        // one — a paused queue stays paused, and "pause after this" still bites.
+        if (this._shouldAdvanceQueueAfter(sending)) {
             const pendingCount = this._items.filter(i => i.status === 'pending').length;
             if (shouldAutoPauseOnEmpty(this._autoSendEnabled, pendingCount, this._autoPauseEnabled)) {
                 this._autoSendEnabled = false;
@@ -2663,24 +2663,31 @@ export class PromptQueueManager {
     // ----- sending -----------------------------------------------------------
 
     /**
-     * Honour a just-completed item's "pause after this" flag.
+     * The one gate every completion path asks before starting the next item:
+     * is the queue still running, and did this item ask to stop after itself?
      *
-     * Call this at every point where an item reaches `'sent'`, **before** the
-     * code that advances the queue, and skip that advance when it returns
-     * true. Flipping auto-send off is not sufficient on its own: the
-     * Anthropic completion paths call `sendNext()` without consulting the
-     * flag, so the hold has to be observed explicitly.
+     * Call it at each point where an item reaches `'sent'` and advance only
+     * when it returns true. `sendNext()` deliberately does **not** check
+     * auto-send itself — the explicit escape hatches (health-check resume,
+     * per-item "retry now", "retry all errors") rely on being able to kick a
+     * paused queue. That makes checking it here mandatory rather than
+     * optional, which is why the check lives in one method instead of being
+     * re-written at six call sites.
      */
-    private _holdQueueForPauseAfter(item: QueuedPrompt): boolean {
-        const decision = decidePauseAfterCompletion(item.pauseAfter, this._autoSendEnabled);
-        if (!decision.holdQueue) { return false; }
+    private _shouldAdvanceQueueAfter(item: QueuedPrompt): boolean {
+        const decision = decideAdvanceAfterCompletion(item.pauseAfter, this._autoSendEnabled);
         if (decision.disableAutoSend) {
             this._autoSendEnabled = false;
             this.persistSettings();
             this._onDidChange.fire();
         }
-        logQueue(`Queue held after item ${item.id} — "pause after this" is set`);
-        return true;
+        if (!decision.advance) {
+            logQueue(
+                `Queue held after item ${item.id} — `
+                + (item.pauseAfter ? '"pause after this" is set' : 'auto-send is off'),
+            );
+        }
+        return decision.advance;
     }
 
     private async delaySendNext(): Promise<void> {
@@ -2825,9 +2832,10 @@ export class PromptQueueManager {
                 this.persist();
                 this._onDidChange.fire();
                 logQueue(`Prompt ${item.id} completed (anthropic transport — no polling)`);
-                // Advance to the next queued item — unless this one asked the
-                // queue to stop after it.
-                if (!this._holdQueueForPauseAfter(liveItem)) {
+                // Anthropic completes inline rather than via the answer file,
+                // but it is still just a completion: same gate as every other
+                // tail, so a paused queue does not march on from here.
+                if (this._shouldAdvanceQueueAfter(liveItem)) {
                     void this.sendNext();
                 }
             } else {
@@ -2941,7 +2949,7 @@ export class PromptQueueManager {
                     await this._enqueueNextTemplateIterationIfNeeded(liveItem, 'resend/anthropic');
                     this.persist();
                     this._onDidChange.fire();
-                    if (!this._holdQueueForPauseAfter(liveItem)) {
+                    if (this._shouldAdvanceQueueAfter(liveItem)) {
                         void this.sendNext();
                     }
                 } else if (outcome === 'paused') {

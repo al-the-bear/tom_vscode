@@ -233,6 +233,17 @@ The queue uses RequestId-based answer file matching:
 | Auto-pause | On | Pause auto-send when queue empties |
 | Auto-continue | Off | Auto-continue processing after receiving an answer |
 
+Turning **Auto-send** off never interrupts the item that is already running —
+it finishes its stages and then the queue stops instead of starting the next
+one. This holds for every transport and however the running item finishes
+(answer file, answer-wait timeout, manual **Continue**, or a resend).
+
+A few explicit actions deliberately start an item even while auto-send is off,
+because that is what they are for: **Send now** on an item, the per-item
+**Retry now** on a waiting or retrying item, and **Retry All Errors** (which
+turns auto-send back on for the cascade). The background health check also
+resumes an item whose rate-limit or retry window has just elapsed.
+
 ### Pause after this
 
 Every queue item carries a **pause icon** in its header. Clicking it arms
