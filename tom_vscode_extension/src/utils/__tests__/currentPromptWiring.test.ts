@@ -8,16 +8,24 @@
  * browser JS. So the three invariants that make the feature work rather than
  * merely exist are asserted against the sources.
  *
- *   1. **Capture happens once, at the convergence point.** Every transport —
+ *   1. **The capture has two phases, and the first one is early.** A send
+ *      cannot know its user message or system prompt until it has waited for
+ *      the previous turn's compaction and memory extraction — routinely a
+ *      minute or more. A single capture at the point where all three texts
+ *      exist therefore leaves the tab describing the *previous* send for that
+ *      whole window, which reads as "the current prompt never changes". So
+ *      `beginCurrentPrompt` claims the files the moment the send starts, and
+ *      `writeCurrentPrompt` completes them once the texts resolve.
+ *   2. **Phase two happens once, at the convergence point.** Every transport —
  *      direct SDK, Agent SDK, vscodeLm, the Local LLM bridge — is dispatched
  *      from `sendMessage()` *after* the block that resolves the system prompt
  *      and the expanded user message. Capturing there covers all of them; a
  *      capture moved into a transport branch would silently stop covering the
  *      others.
- *   2. **The literal is what the user typed.** `options.userText`, not the
+ *   3. **The literal is what the user typed.** `options.userText`, not the
  *      keyword-stripped `effectiveUserText` the model receives — telling those
  *      two apart is the entire reason the tab offers both.
- *   3. **The reader threads the variant through.** A dropdown over one tab
+ *   4. **The reader threads the variant through.** A dropdown over one tab
  *      breaks the old "one tab = one file" assumption; every hop from the
  *      client's request to the host's change-detection cache has to carry it.
  */
@@ -35,15 +43,62 @@ describe('the Anthropic send path captures the running prompt', () => {
     const handler = read('src', 'handlers', 'anthropic-handler.ts');
     const lines = handler.split('\n');
 
+    const codeLines = lines.filter(l => !/^\s*(\*|\/\/|\/\*)/.test(l));
+    // Matched against call sites, so method anchors carry their `this.` — the
+    // declaration of a private method sits far above every call to it.
+    const indexOfCall = (pattern: RegExp): number => codeLines.findIndex(l => pattern.test(l));
+    const BEGIN = /\bbeginCurrentPrompt\(/;
+    const WRITE = /\bwriteCurrentPrompt\(/;
+    const BACKGROUND_WAIT = /this\.awaitInFlightBackgroundWork\(/;
+
     test('calls writeCurrentPrompt exactly once', () => {
         // More than once means a transport branch grew its own copy, and the
         // two will drift. Zero means the tab shows the last extension host's
         // leftovers forever.
-        const calls = lines.filter(l => /writeCurrentPrompt\(/.test(l) && !/^\s*(\*|\/\/)/.test(l));
+        const calls = codeLines.filter(l => /writeCurrentPrompt\(/.test(l));
         assert.equal(
             calls.length,
             1,
             `expected one writeCurrentPrompt call, found ${calls.length}`,
+        );
+    });
+
+    test('claims the files with beginCurrentPrompt before waiting on anything slow', () => {
+        // `awaitInFlightBackgroundWork` is the long pole: it waits for the
+        // previous turn's history compaction and memory extraction, which are
+        // API calls. Everything after it — including the system prompt this
+        // send will use — is minutes away on a bad day. Claiming the files
+        // before it is what stops the tab describing the previous send for
+        // that whole window.
+        const beginIdx = indexOfCall(BEGIN);
+        const waitIdx = indexOfCall(BACKGROUND_WAIT);
+        assert.ok(beginIdx >= 0, 'nothing claims the current-prompt files at the start of the send');
+        assert.ok(waitIdx >= 0, 'awaitInFlightBackgroundWork anchor not found — has sendMessage been restructured?');
+        assert.ok(
+            beginIdx < waitIdx,
+            `beginCurrentPrompt (code line ${beginIdx + 1}) runs after the background-work wait `
+            + `(code line ${waitIdx + 1}), so the tab keeps showing the previous send until that wait ends`,
+        );
+    });
+
+    test('phase one carries the same origin and literal that phase two will', () => {
+        // A begin that filed under 'chat' while the send filed under 'queue'
+        // would blank one pair of files and leave the other pair stale — worse
+        // than not writing at all.
+        const beginIdx = indexOfCall(BEGIN);
+        const call = codeLines.slice(beginIdx, beginIdx + 8).join('\n');
+        assert.match(call, /literal:\s*options\.userText\b/, 'phase one must claim the literal the user typed');
+        assert.match(
+            call,
+            /source:\s*options\.source\s*\?\?\s*'chat'/,
+            'phase one must resolve the origin exactly as phase two does',
+        );
+    });
+
+    test('phase one runs before phase two', () => {
+        assert.ok(
+            indexOfCall(BEGIN) < indexOfCall(WRITE),
+            'the placeholder write must not land on top of the finished capture',
         );
     });
 

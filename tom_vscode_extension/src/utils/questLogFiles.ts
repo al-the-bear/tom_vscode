@@ -197,6 +197,41 @@ export function currentPromptFiles(
 }
 
 /**
+ * Stand-in for a text the send has not resolved yet.
+ *
+ * Not the empty string: empty is a legitimate value for the system prompt (a
+ * profile without one), and the reader would have no way to tell "this profile
+ * has no system prompt" from "we don't know yet".
+ */
+export const CURRENT_PROMPT_PENDING =
+    '(not resolved yet — this send is still waiting on the previous turn'
+    + ' before it can expand its user message and assemble its system prompt)\n';
+
+/**
+ * The files a send claims when it *starts*, before it knows what it will send.
+ *
+ * Only the literal is final at that point; the user message still has to be
+ * expanded and the system prompt assembled, and both wait on the previous
+ * turn's history compaction and memory extraction — a minute or more of real
+ * time. Leaving the three files alone until then would keep presenting the
+ * previous send as the current one, so all three are replaced here and the two
+ * unknowns are filled with {@link CURRENT_PROMPT_PENDING}.
+ *
+ * Same files, same order as {@link currentPromptFiles}: this is the first of
+ * two writes, not a different set.
+ */
+export function pendingCurrentPromptFiles(
+    source: QuestLogPromptSource,
+    literal: string,
+): CurrentPromptFile[] {
+    return currentPromptFiles(source, {
+        literal,
+        user: CURRENT_PROMPT_PENDING,
+        system: CURRENT_PROMPT_PENDING,
+    });
+}
+
+/**
  * The Logs sub-tabs, in display order. The trail appears twice on purpose —
  * once rendered for reading, once as source for copying and for the times the
  * rendered view hides the structure you are debugging.

@@ -33,7 +33,9 @@ import {
     DEFAULT_QUEST_LOG_TAB_ID,
     DEFAULT_QUEST_LOG_VARIANT_ID,
     MAX_QUEST_LOG_BYTES,
+    CURRENT_PROMPT_PENDING,
     currentPromptFiles,
+    pendingCurrentPromptFiles,
     isQuestLogTabId,
     isQuestLogVariantId,
     questLogLocation,
@@ -388,6 +390,48 @@ describe('currentPromptFiles', () => {
             system: undefined as unknown as string,
         });
         assert.deepEqual(files.map(f => f.text), ['', '', '']);
+    });
+});
+
+/**
+ * Phase one of the capture. A send does not know its user message or system
+ * prompt when it starts — resolving them means waiting for the previous turn's
+ * compaction and memory extraction, which routinely takes a minute or more.
+ * Writing nothing until then leaves all three files describing the *previous*
+ * send while the panel already says "sending", which is precisely the "the
+ * current prompt remains the same" report this exists to answer.
+ */
+describe('pendingCurrentPromptFiles', () => {
+    test('writes all three files, so none can survive from the previous send', () => {
+        const files = pendingCurrentPromptFiles('queue', 'what I typed');
+        assert.deepEqual(files.map(f => f.fileName), [
+            'current_prompt.queue.literal.md',
+            'current_prompt.queue.user.md',
+            'current_prompt.queue.system.md',
+        ]);
+    });
+
+    test('the literal is already final — it is what the user typed', () => {
+        const [literal] = pendingCurrentPromptFiles('chat', 'what I typed');
+        assert.equal(literal.text, 'what I typed');
+    });
+
+    test('the two unresolved texts say so rather than being left stale or blank', () => {
+        // Blank would be indistinguishable from "this profile has no system
+        // prompt", and stale is the bug. The marker says which of the two it is.
+        const [, user, system] = pendingCurrentPromptFiles('chat', 'hi');
+        assert.equal(user.text, CURRENT_PROMPT_PENDING);
+        assert.equal(system.text, CURRENT_PROMPT_PENDING);
+    });
+
+    test('covers exactly the same files the finished capture replaces', () => {
+        // Phase one has to clear every file phase two will write, or the part it
+        // skipped keeps showing the previous send until phase two lands.
+        const pending = pendingCurrentPromptFiles('queue', 'hi').map(f => f.fileName);
+        const finished = currentPromptFiles('queue', {
+            literal: 'hi', user: 'expanded', system: 'you are…',
+        }).map(f => f.fileName);
+        assert.deepEqual(pending, finished);
     });
 });
 

@@ -21,7 +21,7 @@ import { TrailService } from '../services/trailService';
 import { ANTHROPIC_SUBSYSTEM } from '../services/trailSubsystems';
 import { ToolTrail, setActiveToolTrail, type ToolTrailEntry } from '../services/tool-trail';
 import { LiveTrailWriter, type PromptSource } from '../services/live-trail';
-import { writeCurrentPrompt } from '../services/current-prompt-dump';
+import { beginCurrentPrompt, writeCurrentPrompt } from '../services/current-prompt-dump';
 import { QuestRefreshStore } from '../managers/questRefreshStore';
 import { QuestRefreshService } from '../services/quest-refresh-service';
 import { shouldRunInteractiveRefreshHook, runInteractiveRefreshHook } from '../utils/questRefreshDispatch';
@@ -1681,6 +1681,25 @@ export class AnthropicHandler {
                 incrementCount: () => QuestRefreshStore.instance.incrementCount('anthropic', quest),
             });
         }
+
+        // Claim the @WS → Logs → Current Prompt files for *this* send before
+        // anything slow runs. Everything below — the background-work wait, the
+        // history seed, the system-prompt assembly — sits between the user
+        // pressing send and the point where all three texts exist, and that gap
+        // is measured in minutes when the previous turn left a compaction pass
+        // behind (which is exactly what cancelling a turn does). Until this
+        // call existed, the tab spent that whole gap showing the *previous*
+        // prompt, so a cancelled-then-edited-then-resent queue item looked like
+        // it had never been resent at all.
+        //
+        // Placed after the refresh hook because the refresh is its own send and
+        // claims the files for itself while it runs; taking them back here is
+        // what makes the handover truthful in both directions.
+        beginCurrentPrompt({
+            source: options.source ?? 'chat',
+            literal: options.userText,
+            questId: quest,
+        });
 
         const windowId = vscode.env.sessionId;
         const requestId = this.generateRequestId();

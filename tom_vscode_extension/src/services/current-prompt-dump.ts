@@ -20,6 +20,11 @@
  * queue item runs while the user sends a chat message, and one overwriting the
  * other would make the tab lie about whichever it clobbered.
  *
+ * Each send writes twice — {@link beginCurrentPrompt} when it starts, then
+ * {@link writeCurrentPrompt} when its texts are resolved. The gap between those
+ * two moments is not small (see `beginCurrentPrompt`), and leaving the previous
+ * send's files in place across it is what makes the tab look frozen.
+ *
  * The files live in the trail area, which is gitignored. They must not go in
  * the quest folder — that is tracked in the fleet-shared `_ai` repo, and a file
  * rewritten on every prompt would produce a merge conflict per send across four
@@ -37,6 +42,8 @@ import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 import { resolveTrailPath } from './trailPathResolver';
 import {
     currentPromptFiles,
+    pendingCurrentPromptFiles,
+    type CurrentPromptFile,
     type CurrentPromptTexts,
     type QuestLogPromptSource,
 } from '../utils/questLogFiles';
@@ -67,16 +74,49 @@ export interface CurrentPromptCapture extends CurrentPromptTexts {
 }
 
 /**
- * Replace this origin's three files with the prompt about to be sent.
+ * What a send knows about itself the moment it starts: its origin, its quest,
+ * and the text the user typed.
+ */
+export interface CurrentPromptClaim {
+    source: QuestLogPromptSource;
+    literal: string;
+    questId?: string;
+}
+
+/**
+ * Phase one — claim this origin's files as soon as the send begins.
+ *
+ * A send does not know its user message or system prompt when it starts: both
+ * wait on the previous turn's history compaction and memory extraction, which
+ * are API calls and routinely take a minute. Writing only once, when all three
+ * texts exist, means the tab describes the *previous* send for that entire
+ * window — the send is already marked running, and the panel still shows what
+ * ran before it. Cancelling a turn makes the window longest of all, because the
+ * cancelled turn leaves exactly that background work pending.
+ *
+ * So the literal lands immediately and the other two are marked unresolved;
+ * {@link writeCurrentPrompt} replaces all three the moment they exist.
+ */
+export function beginCurrentPrompt(claim: CurrentPromptClaim): void {
+    writeFiles(pendingCurrentPromptFiles(claim.source, claim.literal), claim.questId);
+}
+
+/**
+ * Phase two — replace this origin's three files with the prompt about to be
+ * sent.
  *
  * All three are written every time, including an empty system prompt: leaving
  * the previous send's text in place would present it as current, which is worse
  * than showing nothing.
  */
 export function writeCurrentPrompt(capture: CurrentPromptCapture): void {
+    writeFiles(currentPromptFiles(capture.source, capture), capture.questId);
+}
+
+function writeFiles(files: CurrentPromptFile[], questId?: string): void {
     try {
-        const dir = currentPromptDir(capture.questId);
-        for (const file of currentPromptFiles(capture.source, capture)) {
+        const dir = currentPromptDir(questId);
+        for (const file of files) {
             FsUtils.safeWriteText(path.join(dir, file.fileName), file.text);
         }
     } catch {
