@@ -21,6 +21,7 @@ import * as questTodo from '../managers/questTodoManager.js';
 import { collectAllTags, readAllQuestsTodos, readWorkspaceTodos, listQuestIds, listWorkspaceTodoFiles, scanWorkspaceProjects, collectScopeValues } from '../managers/questTodoManager.js';
 import { SessionTodoStore } from '../managers/sessionTodoStore.js';
 import { WsPaths } from '../utils/workspacePaths';
+import { questTrailFolder } from '../utils/questPaths.js';
 import { isSessionTodoFileName } from '../utils/sessionTodoNames';
 import { computeMoveTargetFiles } from '../utils/questTodoMoveTargets';
 import { getExternalApplicationForFile, openInExternalApplication, resolvePathVariables, applyDefaultTemplate, DEFAULT_ANSWER_FILE_TEMPLATE } from './handler_shared';
@@ -1153,10 +1154,11 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             if (!wsRoot) return true;
             const questId = WsPaths.getWorkspaceQuestId();
             const questFolder = WsPaths.ai('quests', questId) || path.join(wsRoot, '_ai', 'quests', questId);
-            if (!fs.existsSync(questFolder)) {
-                fs.mkdirSync(questFolder, { recursive: true });
+            const trailFolder = questTrailFolder(questFolder);
+            if (!fs.existsSync(trailFolder)) {
+                fs.mkdirSync(trailFolder, { recursive: true });
             }
-            const promptsPath = path.join(questFolder, `${questId}.copilot.prompts.md`);
+            const promptsPath = path.join(trailFolder, `${questId}.copilot.prompts.md`);
             if (!fs.existsSync(promptsPath)) {
                 fs.writeFileSync(promptsPath, '', 'utf-8');
             }

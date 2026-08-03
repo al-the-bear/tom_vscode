@@ -163,8 +163,8 @@ the file in a normal text editor.
 | --- | --- | --- | --- |
 | MD Trail | `live-trail.md` | Rendered markdown | Bottom (appended to) |
 | Trail | `live-trail.md` | Source, syntax-highlighted | Bottom (appended to) |
-| Prompts | `{quest}.anthropic.prompts.md` | Source | Top |
-| Answers | `{quest}.anthropic.answers.md` | Source | Top |
+| Prompts | `history/{quest}.anthropic.prompts.md` | Source | Top |
+| Answers | `history/{quest}.anthropic.answers.md` | Source | Top |
 | Progress | `progress.{quest}.md` | Source | Top |
 | Overview | `overview.{quest}.md` | Source | Top |
 | Notes | `quest-notes.{quest}.md` | Source | Top |

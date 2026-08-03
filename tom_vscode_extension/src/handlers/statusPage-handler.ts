@@ -34,6 +34,7 @@ import {
     AskBigBrotherConfig,
 } from '../tools/local-llm-tools-config';
 import { WsPaths } from '../utils/workspacePaths';
+import { questTrailFolder } from '../utils/questPaths.js';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 import { validateStrictAiConfiguration, SendToChatConfig, getSendToChatTarget, getQuestRefreshSettings, type QuestRefreshPanel } from '../utils/sendToChatConfig';
 import { QuestRefreshStore } from '../managers/questRefreshStore';
@@ -1238,7 +1239,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
             const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
             const questFolder = WsPaths.ai('quests', questId) || (wsRoot ? path.join(wsRoot, '_ai', 'quests', questId) : '');
             if (questFolder) {
-                const promptsPath = path.join(questFolder, `${questId}.copilot.prompts.md`);
+                const promptsPath = path.join(questTrailFolder(questFolder), `${questId}.copilot.prompts.md`);
                 if (!fs.existsSync(promptsPath)) {
                     vscode.window.showInformationMessage('No summary trail exists yet. Send a prompt first.');
                     break;

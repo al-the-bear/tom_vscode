@@ -29,7 +29,7 @@ read-only; use the toolbar to edit.
 
 - **Sub-tabs**: **MD Trail** (`live-trail.md`, rendered), **Trail** (the same
   file as highlighted source), **Prompts** / **Answers**
-  (`{quest}.anthropic.prompts.md` / `.answers.md`), **Progress**, **Overview**,
+  (`history/{quest}.anthropic.prompts.md` / `.answers.md`), **Progress**, **Overview**,
   **Notes** (`quest-notes.{quest}.md`), **Refresh**
   (`quest_refresh.{quest}.md`), **DocUpdate**
   (`quest_documentation_update.{quest}.md`), **Deferred**

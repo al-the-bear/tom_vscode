@@ -33,7 +33,7 @@ import * as vscode from 'vscode';
 import { readMediaText } from '../utils/webviewLoader.js';
 import { WsPaths } from '../utils/workspacePaths.js';
 import { TwoTierMemoryService } from '../services/memory-service.js';
-import { sanitizeQuestSegment } from '../utils/questPaths.js';
+import { questTrailFolder, sanitizeQuestSegment } from '../utils/questPaths.js';
 import { renderQuestLogMarkdown } from '../utils/questLogMarkdown.js';
 import { highlightMarkdownSource } from '../utils/markdownSourceHighlight.js';
 import { currentPromptDir } from '../services/current-prompt-dump.js';
@@ -121,9 +121,10 @@ export function getQuestLogsScript(): string {
  * Absolute path of the file behind a sub-tab, plus the quest it belongs to.
  *
  * The catalogue names the *area*; resolving it to a directory is this
- * function's only real job. `quest` is the quest folder; `trail` is the quest's
- * Anthropic trail bucket, resolved by the module that writes into it so the two
- * ends of the current-prompt files never derive the path differently.
+ * function's only real job. `quest` is the quest folder and `questHistory` its
+ * `history/` subfolder; `trail` is the quest's Anthropic trail bucket, resolved
+ * by the module that writes into it so the two ends of the current-prompt files
+ * never derive the path differently.
  */
 function resolveQuestLogPath(
     tab: QuestLogTabId,
@@ -138,10 +139,12 @@ function resolveQuestLogPath(
 
     const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
     const questsRoot = WsPaths.ai('quests') ?? path.join(wsRoot, WsPaths.aiFolder, 'quests');
+    const questFolder = path.join(questsRoot, sanitizeQuestSegment(questId));
+    const dir = area === 'questHistory' ? questTrailFolder(questFolder) : questFolder;
     return {
         questId: questId || 'default',
         fileName,
-        filePath: path.join(questsRoot, sanitizeQuestSegment(questId), fileName),
+        filePath: path.join(dir, fileName),
     };
 }
 

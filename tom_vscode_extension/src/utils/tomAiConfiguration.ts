@@ -123,8 +123,8 @@ export class TomAiConfiguration {
                 },
                 summary: {
                     enabled: true,
-                    promptsFilePattern: '${ai}/quests/${quest}/${quest}.${subsystem}.prompts.md',
-                    answersFilePattern: '${ai}/quests/${quest}/${quest}.${subsystem}.answers.md',
+                    promptsFilePattern: '${ai}/quests/${quest}/history/${quest}.${subsystem}.prompts.md',
+                    answersFilePattern: '${ai}/quests/${quest}/history/${quest}.${subsystem}.answers.md',
                 },
             },
             bridge: {

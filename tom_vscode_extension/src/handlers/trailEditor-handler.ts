@@ -13,6 +13,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { WsPaths } from '../utils/workspacePaths';
+import { questTrailFolder } from '../utils/questPaths.js';
 import { debugLog } from '../utils/debugLogger';
 import { readMediaText } from '../utils/webviewLoader.js';
 import { readWorkspaceTodos } from '../managers/questTodoManager.js';
@@ -305,7 +306,7 @@ function discoverTrailSetsAcrossWorkspace(openedFolder: string): Map<string, Tra
         if (!entry.isDirectory()) {
             continue;
         }
-        mergeFromFolder(path.join(questsRoot, entry.name));
+        mergeFromFolder(questTrailFolder(path.join(questsRoot, entry.name)));
     }
 
     return merged;

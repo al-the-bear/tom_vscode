@@ -281,8 +281,8 @@ export class TrailService {
         const summary = (trail.summary ?? {}) as SummaryTrailConfig;
         return {
             enabled: summary.enabled !== false,
-            promptsFilePattern: summary.promptsFilePattern ?? '${ai}/quests/${quest}/${quest}.${subsystem}.prompts.md',
-            answersFilePattern: summary.answersFilePattern ?? '${ai}/quests/${quest}/${quest}.${subsystem}.answers.md',
+            promptsFilePattern: summary.promptsFilePattern ?? '${ai}/quests/${quest}/history/${quest}.${subsystem}.prompts.md',
+            answersFilePattern: summary.answersFilePattern ?? '${ai}/quests/${quest}/history/${quest}.${subsystem}.answers.md',
         };
     }
 

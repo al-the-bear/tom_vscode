@@ -30,6 +30,8 @@ import {
 
 let tmp: string;
 let questFolder: string;
+/** `<questFolder>/history/` — where the summary trail files actually live. */
+let trailFolder: string;
 const QUEST_ID = 'demo_quest';
 
 function w(rel: string): string { return path.join(tmp, rel); }
@@ -53,11 +55,12 @@ function makeSummaryFile(filePath: string, kind: 'PROMPT' | 'ANSWER', entries: A
 before(() => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-history-'));
     questFolder = path.join(tmp, '_ai', 'quests', QUEST_ID);
-    fs.mkdirSync(questFolder, { recursive: true });
+    trailFolder = path.join(questFolder, 'history');
+    fs.mkdirSync(trailFolder, { recursive: true });
 
     // ---- Anthropic subsystem: three exchanges ----
-    const anthropicPrompts = path.join(questFolder, `${QUEST_ID}.anthropic.prompts.md`);
-    const anthropicAnswers = path.join(questFolder, `${QUEST_ID}.anthropic.answers.md`);
+    const anthropicPrompts = path.join(trailFolder, `${QUEST_ID}.anthropic.prompts.md`);
+    const anthropicAnswers = path.join(trailFolder, `${QUEST_ID}.anthropic.answers.md`);
     makeSummaryFile(anthropicPrompts, 'PROMPT', [
         { id: 'req-A1', ts: '2026-01-01T10:00:00.000Z', seq: 1, body: 'First Anthropic prompt body.' },
         { id: 'req-A2', ts: '2026-01-01T10:05:00.000Z', seq: 2, body: 'Second Anthropic prompt body with some more text.' },
@@ -71,8 +74,8 @@ before(() => {
 
     // ---- LocalLLM subsystem (named after a config) ----
     const llmName = 'localllm-bomber-gemma4';
-    const llmPrompts = path.join(questFolder, `${QUEST_ID}.${llmName}.prompts.md`);
-    const llmAnswers = path.join(questFolder, `${QUEST_ID}.${llmName}.answers.md`);
+    const llmPrompts = path.join(trailFolder, `${QUEST_ID}.${llmName}.prompts.md`);
+    const llmAnswers = path.join(trailFolder, `${QUEST_ID}.${llmName}.answers.md`);
     makeSummaryFile(llmPrompts, 'PROMPT', [
         { id: 'req-L1', ts: '2026-01-01T11:00:00.000Z', seq: 1, body: 'LLM prompt one.' },
         { id: 'req-L2', ts: '2026-01-01T11:00:30.000Z', seq: 2, body: 'LLM prompt two with longer body.' },
@@ -83,7 +86,7 @@ before(() => {
     ]);
 
     // ---- A stray non-summary file that should be ignored ----
-    fs.writeFileSync(path.join(questFolder, `${QUEST_ID}.anthropic.unrelated.md`), 'noise');
+    fs.writeFileSync(path.join(trailFolder, `${QUEST_ID}.anthropic.unrelated.md`), 'noise');
 });
 
 after(() => {
@@ -111,7 +114,7 @@ describe('parseTrailFile', () => {
     });
 
     test('parses multiple entries in file order (newest first)', () => {
-        const file = path.join(questFolder, `${QUEST_ID}.anthropic.prompts.md`);
+        const file = path.join(trailFolder, `${QUEST_ID}.anthropic.prompts.md`);
         const entries = parseTrailFile(fs.readFileSync(file, 'utf-8'));
         assert.equal(entries.length, 3);
         // Newest first because that's how the file is built
@@ -121,7 +124,7 @@ describe('parseTrailFile', () => {
     });
 
     test('preserves body content (minus the TEMPLATE footer for prompts)', () => {
-        const file = path.join(questFolder, `${QUEST_ID}.anthropic.prompts.md`);
+        const file = path.join(trailFolder, `${QUEST_ID}.anthropic.prompts.md`);
         const entries = parseTrailFile(fs.readFileSync(file, 'utf-8'));
         assert.equal(entries[0].body, 'Third Anthropic prompt — final.');
         assert.match(entries[1].body, /Second Anthropic prompt body/);
@@ -155,7 +158,7 @@ describe('readTrailFile', () => {
         assert.deepEqual(readTrailFile(path.join(tmp, 'nope.md')), []);
     });
     test('reads and parses an existing file', () => {
-        const entries = readTrailFile(path.join(questFolder, `${QUEST_ID}.anthropic.prompts.md`));
+        const entries = readTrailFile(path.join(trailFolder, `${QUEST_ID}.anthropic.prompts.md`));
         assert.equal(entries.length, 3);
     });
 });
@@ -169,6 +172,29 @@ describe('findSubsystemFiles', () => {
         const files = findSubsystemFiles(questFolder, QUEST_ID);
         const names = files.map((f) => f.subsystem).sort();
         assert.deepEqual(names, ['anthropic', 'localllm-bomber-gemma4']);
+    });
+
+    test('resolves the pair inside the quest history folder', () => {
+        // The caller passes the quest folder; the files live one level down.
+        const [anthropic] = findSubsystemFiles(questFolder, QUEST_ID, 'anthropic');
+        assert.equal(anthropic.promptsFile, path.join(trailFolder, `${QUEST_ID}.anthropic.prompts.md`));
+        assert.equal(anthropic.answersFile, path.join(trailFolder, `${QUEST_ID}.anthropic.answers.md`));
+    });
+
+    test('does not pick up a stale pair left directly in the quest folder', () => {
+        // Files from before the move must not be discovered — a mixed result
+        // would pair a fresh prompt with a stale answer and read as history.
+        const stalePrompts = path.join(questFolder, `${QUEST_ID}.stale.prompts.md`);
+        const staleAnswers = path.join(questFolder, `${QUEST_ID}.stale.answers.md`);
+        fs.writeFileSync(stalePrompts, '=== PROMPT req-S1 2026-01-01T09:00:00.000Z 1 ===\n\nstale\n\n', 'utf-8');
+        fs.writeFileSync(staleAnswers, '=== ANSWER req-S1 2026-01-01T09:00:01.000Z 1 ===\n\nstale\n\n', 'utf-8');
+        try {
+            const names = findSubsystemFiles(questFolder, QUEST_ID).map((f) => f.subsystem);
+            assert.ok(!names.includes('stale'), `expected no 'stale' subsystem, got ${names.join(', ')}`);
+        } finally {
+            fs.rmSync(stalePrompts, { force: true });
+            fs.rmSync(staleAnswers, { force: true });
+        }
     });
 
     test('subsystemFilter exact match', () => {
@@ -231,8 +257,8 @@ describe('matchesSubsystemFilter', () => {
 
 describe('pairPromptsAndAnswers', () => {
     test('pairs by requestId', () => {
-        const prompts = readTrailFile(path.join(questFolder, `${QUEST_ID}.anthropic.prompts.md`));
-        const answers = readTrailFile(path.join(questFolder, `${QUEST_ID}.anthropic.answers.md`));
+        const prompts = readTrailFile(path.join(trailFolder, `${QUEST_ID}.anthropic.prompts.md`));
+        const answers = readTrailFile(path.join(trailFolder, `${QUEST_ID}.anthropic.answers.md`));
         const pairs = pairPromptsAndAnswers(prompts, answers, 'anthropic', QUEST_ID);
         assert.equal(pairs.length, 3);
         // Newest first
@@ -250,8 +276,8 @@ describe('pairPromptsAndAnswers', () => {
     });
 
     test('preview is clipped + collapses whitespace', () => {
-        const prompts = readTrailFile(path.join(questFolder, `${QUEST_ID}.anthropic.prompts.md`));
-        const answers = readTrailFile(path.join(questFolder, `${QUEST_ID}.anthropic.answers.md`));
+        const prompts = readTrailFile(path.join(trailFolder, `${QUEST_ID}.anthropic.prompts.md`));
+        const answers = readTrailFile(path.join(trailFolder, `${QUEST_ID}.anthropic.answers.md`));
         const pairs = pairPromptsAndAnswers(prompts, answers, 'anthropic', QUEST_ID, 12);
         const a2 = pairs.find((p) => p.requestId === 'req-A2')!;
         assert.ok(a2.promptPreview.length <= 13); // 12 + the ellipsis
@@ -259,8 +285,8 @@ describe('pairPromptsAndAnswers', () => {
     });
 
     test('index re-stamped within the result', () => {
-        const prompts = readTrailFile(path.join(questFolder, `${QUEST_ID}.anthropic.prompts.md`));
-        const answers = readTrailFile(path.join(questFolder, `${QUEST_ID}.anthropic.answers.md`));
+        const prompts = readTrailFile(path.join(trailFolder, `${QUEST_ID}.anthropic.prompts.md`));
+        const answers = readTrailFile(path.join(trailFolder, `${QUEST_ID}.anthropic.answers.md`));
         const pairs = pairPromptsAndAnswers(prompts, answers, 'anthropic', QUEST_ID);
         assert.equal(pairs[0].index, 0);
         assert.equal(pairs[1].index, 1);

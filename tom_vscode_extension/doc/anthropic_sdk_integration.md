@@ -55,7 +55,7 @@ graph TD
 
     subgraph TrailLayer["Trail Layer — two tiers"]
         RAW["Raw trail (debug)\n_ai/trail/{subsystem}/{quest}/\none file per prompt/tool/response\nViewer: Raw Trail Viewer"]
-        COMPACT["Compact trail (history)\n_ai/quests/{quest}/\nquest.localllm-configname.prompts.md\nViewer: Summary Trail Editor"]
+        COMPACT["Compact trail (history)\n_ai/quests/{quest}/history/\nquest.localllm-configname.prompts.md\nViewer: Summary Trail Editor"]
     end
 
     LH --> RAW
@@ -113,7 +113,7 @@ graph TD
     subgraph TrailLayer["Trail Layer"]
         RAWL["_ai/trail/localllm/{quest}/\n(existing subsystem, unchanged)"]
         RAWA["_ai/trail/anthropic/{quest}/ ✨new\none file per exchange"]
-        COMPACT["_ai/quests/{quest}/\nquest.anthropic.prompts.md ✨\nquest.anthropic.answers.md ✨\nquest.compaction.prompts.md ✨\nquest.compaction.answers.md ✨\n(existing localllm compact trails unchanged)"]
+        COMPACT["_ai/quests/{quest}/history/\nquest.anthropic.prompts.md ✨\nquest.anthropic.answers.md ✨\nquest.compaction.prompts.md ✨\nquest.compaction.answers.md ✨\n(existing localllm compact trails unchanged)"]
         RTV["Raw Trail Viewer\ntomAi.editor.rawTrailViewer"]
         STE["Summary Trail Editor\ntomAi.trailViewer"]
     end
@@ -154,7 +154,7 @@ The trail system has always had two distinct tiers that serve different purposes
 | Tier | Location | Format | Viewer | Purpose |
 | --- | --- | --- | --- | --- |
 | **Raw trail** | `_ai/trail/{subsystem}/{quest}/` | One file per prompt/response/tool call | Raw Trail Viewer (`trailViewer-handler.ts`) | Debugging, full fidelity |
-| **Compact trail** | `_ai/quests/{quest}/` | Accumulated `.prompts.md` / `.answers.md` | Summary Trail Editor (`trailEditor-handler.ts`) | History, searchable log |
+| **Compact trail** | `_ai/quests/{quest}/history/` | Accumulated `.prompts.md` / `.answers.md` | Summary Trail Editor (`trailEditor-handler.ts`) | History, searchable log |
 
 ### 4.2 Raw trail — existing structure and Anthropic addition
 
@@ -192,19 +192,21 @@ The path for Anthropic is configured via `tomAi.trail.raw.paths.anthropic` (defa
 
 ### 4.3 Compact trail — per quest, naming convention
 
-The compact trail accumulates in the quest folder. The file name encodes the provider and (for Local LLM) the config name:
+The compact trail accumulates in the quest's `history/` subfolder, beside the
+other generated trail files and covered by the same gitignore rule. The file
+name encodes the provider and (for Local LLM) the config name:
 
 ```text
-_ai/quests/vscode_extension/
+_ai/quests/vscode_extension/history/
     vscode_extension.localllm-bomber-qwen3-30b.prompts.md    ← existing, per config
     vscode_extension.localllm-bomber-qwen3-30b.answers.md
     vscode_extension.copilot.prompts.md                       ← existing
     vscode_extension.copilot.answers.md
 
-    vscode_extension.anthropic.prompts.md                     ← new: all Anthropic, per quest only
+    vscode_extension.anthropic.prompts.md                     ← all Anthropic, per quest only
     vscode_extension.anthropic.answers.md                     ← model/config recorded in entry metadata
 
-    vscode_extension.compaction.prompts.md                    ← new: compaction LLM calls
+    vscode_extension.compaction.prompts.md                    ← compaction LLM calls
     vscode_extension.compaction.answers.md
 ```
 
@@ -251,7 +253,7 @@ Panel button: **Trail** (icon: `codicon-list-flat`) — present on LOCAL LLM, Co
 **Provider ID:** `tomAi.trailViewer` (custom text editor)
 **Trigger:** Right-click `*.prompts.md` or `*.answers.md` → "Open With" → "Trail Viewer", or the panel's Trail Files button.
 **What it shows:** Quest dropdown, chronological entry list parsed from `=== PROMPT/ANSWER ... ===` markers, markdown rendering of selected entry, metadata panel (templateName, comments, references, responseValues).
-**Discovery:** Scans `_ai/quests/` for `*.prompts.md` / `*.answers.md` pairs. The new `{quest}.anthropic.prompts.md` and `{quest}.anthropic.answers.md` files appear automatically.
+**Discovery:** Scans `_ai/quests/*/history/` for `*.prompts.md` / `*.answers.md` pairs, so `{quest}.anthropic.prompts.md` and `{quest}.anthropic.answers.md` appear automatically.
 
 Panel button: **Trail Files** (icon: `codicon-history`) — present on LOCAL LLM, Copilot, and (new) ANTHROPIC sections, opens the compact trail file for the current quest/subsystem.
 

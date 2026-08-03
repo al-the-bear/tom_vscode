@@ -10,10 +10,11 @@
  * side that writes and the side that reads cannot drift apart — a mismatch
  * there would not fail anywhere, it would just show an empty tab forever.
  *
- * Files live in one of two {@link QuestLogArea}s. Most are quest documents; the
- * current-prompt files are rewritten on every send, and the quest folder is
- * tracked in the fleet-shared `_ai` repo, so they belong in the gitignored
- * trail area instead.
+ * Files live in one of three {@link QuestLogArea}s. Most are quest documents.
+ * The other two hold machine-written files, which the fleet-shared `_ai` repo
+ * does not track: the summary prompt/answer pair grows on every exchange and
+ * lives in the quest's `history/` folder, and the current-prompt files are
+ * rewritten on every send and live in the trail area.
  *
  * The viewer polls these files every few seconds and some of them are large
  * (the live trail routinely passes half a megabyte), so it reads only
@@ -42,11 +43,11 @@ export type QuestLogTabId =
 
 /**
  * Which directory a tab's file lives in: the active quest's folder under
- * `_ai/quests/<quest>/`, or its Anthropic trail bucket under
- * `_ai/trail/anthropic/<quest>/`. The handler owns the absolute paths; this
- * module only says which of the two applies.
+ * `_ai/quests/<quest>/`, that folder's `history/` subfolder, or the quest's
+ * Anthropic trail bucket under `_ai/trail/anthropic/<quest>/`. The handler owns
+ * the absolute paths; this module only says which of the three applies.
  */
-export type QuestLogArea = 'quest' | 'trail';
+export type QuestLogArea = 'quest' | 'questHistory' | 'trail';
 
 /** Where a tab reads from — the pair the handler joins into a path. */
 export interface QuestLogLocation {
@@ -261,9 +262,9 @@ export function questLogLocation(
         case 'trail':
             return { area: 'quest', fileName: 'live-trail.md' };
         case 'prompts':
-            return { area: 'quest', fileName: `${quest}.anthropic.prompts.md` };
+            return { area: 'questHistory', fileName: `${quest}.anthropic.prompts.md` };
         case 'answers':
-            return { area: 'quest', fileName: `${quest}.anthropic.answers.md` };
+            return { area: 'questHistory', fileName: `${quest}.anthropic.answers.md` };
         case 'progress':
             return { area: 'quest', fileName: `progress.${quest}.md` };
         case 'overview':

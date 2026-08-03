@@ -10,6 +10,33 @@
  * stays with the callers, which each have their own fallback root.
  */
 
+import * as path from 'path';
+
+/**
+ * Subfolder of a quest folder that holds its generated trail files — the
+ * compacted history plus the `<quest>.<subsystem>.{prompts,answers}.md` summary
+ * pair.
+ *
+ * These are machine-written, grow without bound, and are gitignored, so they do
+ * not belong beside the hand-maintained quest documents. The writers resolve
+ * the folder from the configured `trail.summary.*FilePattern`; every reader
+ * that scans for the files instead of resolving one by name goes through
+ * {@link questTrailFolder}, so both ends name the same segment.
+ */
+export const QUEST_TRAIL_SUBFOLDER = 'history';
+
+/**
+ * The trail folder of the quest whose folder is `questFolder`.
+ *
+ * An empty input is passed straight back: callers that could not resolve a
+ * workspace root hand on `''`, and joining that would silently produce a
+ * relative `history` rooted at the process's cwd.
+ */
+export function questTrailFolder(questFolder: string): string {
+    if (!questFolder) { return ''; }
+    return path.join(questFolder, QUEST_TRAIL_SUBFOLDER);
+}
+
 /**
  * Normalise a quest id into a file-name-safe segment.
  *

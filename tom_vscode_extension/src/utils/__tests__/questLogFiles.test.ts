@@ -138,8 +138,6 @@ describe('questLogLocation', () => {
     const cases: [QuestLogTabId, string][] = [
         ['mdTrail', 'live-trail.md'],
         ['trail', 'live-trail.md'],
-        ['prompts', 'vscode_extension.anthropic.prompts.md'],
-        ['answers', 'vscode_extension.anthropic.answers.md'],
         ['progress', 'progress.vscode_extension.md'],
         ['overview', 'overview.vscode_extension.md'],
         ['notes', 'quest-notes.vscode_extension.md'],
@@ -155,6 +153,23 @@ describe('questLogLocation', () => {
             assert.deepEqual(
                 questLogLocation(id, 'vscode_extension'),
                 { area: 'quest', fileName: expected },
+            );
+        });
+    }
+
+    const historyCases: [QuestLogTabId, string][] = [
+        ['prompts', 'vscode_extension.anthropic.prompts.md'],
+        ['answers', 'vscode_extension.anthropic.answers.md'],
+    ];
+
+    for (const [id, expected] of historyCases) {
+        test(`${id} → quest history folder / ${expected}`, () => {
+            // The summary trail files are machine-generated and gitignored, so
+            // they sit in the quest's history/ folder rather than beside the
+            // hand-maintained quest documents.
+            assert.deepEqual(
+                questLogLocation(id, 'vscode_extension'),
+                { area: 'questHistory', fileName: expected },
             );
         });
     }

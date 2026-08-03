@@ -237,8 +237,8 @@ describe('mkQuestFolder', () => {
     test('default: one anthropic subsystem with 5 paired exchanges', () => {
         const q = mkQuestFolder('demo_quest');
         try {
-            const promptsFile = path.join(q.questFolder, 'demo_quest.anthropic.prompts.md');
-            const answersFile = path.join(q.questFolder, 'demo_quest.anthropic.answers.md');
+            const promptsFile = path.join(q.trailFolder, 'demo_quest.anthropic.prompts.md');
+            const answersFile = path.join(q.trailFolder, 'demo_quest.anthropic.answers.md');
             assert.ok(fs.existsSync(promptsFile));
             assert.ok(fs.existsSync(answersFile));
             const promptContent = fs.readFileSync(promptsFile, 'utf-8');
@@ -258,8 +258,8 @@ describe('mkQuestFolder', () => {
         const q = mkQuestFolder('demo_quest', { subsystems: ['anthropic', 'localllm-foo'], exchangesPerSubsystem: 2 });
         try {
             for (const sub of ['anthropic', 'localllm-foo']) {
-                assert.ok(fs.existsSync(path.join(q.questFolder, `demo_quest.${sub}.prompts.md`)));
-                assert.ok(fs.existsSync(path.join(q.questFolder, `demo_quest.${sub}.answers.md`)));
+                assert.ok(fs.existsSync(path.join(q.trailFolder, `demo_quest.${sub}.prompts.md`)));
+                assert.ok(fs.existsSync(path.join(q.trailFolder, `demo_quest.${sub}.answers.md`)));
             }
         } finally {
             q.cleanup();
