@@ -51,12 +51,17 @@
  */
 
 import { SharedToolDefinition } from './shared-tool-registry';
+// Type-only imports — erased at compile time, so this module stays free of the
+// `vscode` runtime import that `questTodoManager` carries.
+import type { QuestTodoStatus } from '../managers/questTodoManager';
+import type { TodoDecision } from '../utils/todoDecisions';
+
+export type { QuestTodoStatus, TodoDecision };
 
 // ===========================================================================
 // Shape — what tools surface to the model
 // ===========================================================================
 
-export type QuestTodoStatus = 'not-started' | 'in-progress' | 'blocked' | 'completed' | 'cancelled';
 export type QuestTodoPriority = 'low' | 'medium' | 'high' | 'critical';
 
 /**
@@ -75,6 +80,8 @@ export interface QuestTodoFull {
     references?: Array<{ type?: string; path?: string; url?: string; description?: string; lines?: string }>;
     dependencies?: string[];
     blocked_by?: string[];
+    /** Decisions the user has to make before the todo can be started. */
+    decisions?: TodoDecision[];
     notes?: string;
     created?: string;
     updated?: string;
@@ -114,6 +121,28 @@ export interface QuestTodoToolsDeps {
     onMutate?(): void;
 }
 
+/**
+ * Schema fragment for the `decisions` list. Shared by create and update so the
+ * model is told the same shape whichever way it writes one.
+ */
+const DECISIONS_SCHEMA = {
+    type: 'array',
+    description:
+        'Decisions the user has to make before this todo can be started. ' +
+        'Pair with `status: "decision-needed"` while any `decision` is still empty.',
+    items: {
+        type: 'object',
+        required: ['summary'],
+        properties: {
+            summary: { type: 'string', description: 'One line naming what has to be decided.' },
+            decision_needed: { type: 'string', description: 'The full question, its context and the options.' },
+            decision: { type: 'string', description: "What the user decided. Leave out until they've answered." },
+        },
+    },
+} as const;
+
+const STATUS_ENUM = ['not-started', 'in-progress', 'blocked', 'decision-needed', 'completed', 'cancelled'] as const;
+
 // ===========================================================================
 // listQuestTodos
 // ===========================================================================
@@ -151,7 +180,8 @@ export const LIST_QUEST_TODOS_DESCRIPTION =
     '`tomAi_listSessionTodos`. `file: "all"` (default) aggregates across ' +
     'every `*.todo.yaml` file in the quest folder; pass a specific file name ' +
     '(e.g. `"todos.vscode_extension.todo.yaml"`) to scope to one. **`status`** ' +
-    '(`not-started` / `in-progress` / `blocked` / `completed` / `cancelled`) ' +
+    '(`not-started` / `in-progress` / `blocked` / `decision-needed` / ' +
+    '`completed` / `cancelled`) ' +
     'and **`tags`** (any-match) filter the result. Response is the **summary** ' +
     'shape (`id`, `title`, `description`, `status`, `priority`, `tags`, ' +
     '`sourceFile`) — call `tomAi_getQuestTodo` for the full record including ' +
@@ -168,7 +198,7 @@ export const LIST_QUEST_TODOS_TOOL: SharedToolDefinition<ListQuestTodosInput> = 
         required: ['questId'],
         properties: {
             questId: { type: 'string', description: 'Quest folder name (e.g. `vscode_extension`).' },
-            status: { type: 'string', enum: ['not-started', 'in-progress', 'blocked', 'completed', 'cancelled'] },
+            status: { type: 'string', enum: STATUS_ENUM },
             file: { type: 'string', description: '`"all"` (default) or a specific `*.todo.yaml` filename.' },
             tags: { type: 'array', items: { type: 'string' }, description: 'Any-match tag filter.' },
         },
@@ -250,6 +280,7 @@ export interface CreateQuestTodoInput {
         scope?: QuestTodoFull['scope'];
         references?: QuestTodoFull['references'];
         blocked_by?: string[];
+        decisions?: TodoDecision[];
     };
 }
 
@@ -292,11 +323,15 @@ export const CREATE_QUEST_TODO_DESCRIPTION =
     'Collisions are rejected with a pointer to `tomAi_updateQuestTodo`. ' +
     '`file` defaults to the persistent `todos.<questId>.todo.yaml`; pass a ' +
     'different `*.todo.yaml` filename to target a per-topic file. **Status ' +
-    'enum**: `not-started` (default) / `in-progress` / `blocked` / `completed` ' +
-    '/ `cancelled`. **Priority enum**: `low` / `medium` / `high` / `critical`. ' +
-    'Optional fields (`scope`, `references`, `dependencies`, `blocked_by`, ' +
-    '`notes`) are persisted verbatim. YAML formatting in existing files is ' +
-    'preserved across the create.';
+    'enum**: `not-started` (default) / `in-progress` / `blocked` / ' +
+    '`decision-needed` / `completed` / `cancelled`. **Priority enum**: `low` / ' +
+    '`medium` / `high` / `critical`. **Before creating a todo, work out what ' +
+    'the user still has to decide**: list each open question in `decisions` ' +
+    '(`summary` + `decision_needed`, leaving `decision` empty) and set ' +
+    '`status: "decision-needed"` instead of `not-started`, so nobody starts ' +
+    'the todo on a guess. Optional fields (`scope`, `references`, ' +
+    '`dependencies`, `blocked_by`, `notes`) are persisted verbatim. YAML ' +
+    'formatting in existing files is preserved across the create.';
 
 export const CREATE_QUEST_TODO_TOOL: SharedToolDefinition<CreateQuestTodoInput> = {
     name: 'tomAi_createQuestTodo',
@@ -316,13 +351,14 @@ export const CREATE_QUEST_TODO_TOOL: SharedToolDefinition<CreateQuestTodoInput> 
                 properties: {
                     id: { type: 'string', description: 'Model-chosen stable id. Lowercase, hyphen-separated by convention.' },
                     description: { type: 'string' },
-                    status: { type: 'string', enum: ['not-started', 'in-progress', 'blocked', 'completed', 'cancelled'], description: 'Default `not-started`.' },
+                    status: { type: 'string', enum: STATUS_ENUM, description: 'Default `not-started`. Use `decision-needed` when `decisions` are unanswered.' },
                     title: { type: 'string' },
                     priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
                     tags: { type: 'array', items: { type: 'string' } },
                     notes: { type: 'string' },
                     dependencies: { type: 'array', items: { type: 'string' } },
                     blocked_by: { type: 'array', items: { type: 'string' } },
+                    decisions: DECISIONS_SCHEMA,
                 },
             },
         },
@@ -348,6 +384,7 @@ export interface UpdateQuestTodoInput {
         completed_by?: string;
         dependencies?: string[];
         blocked_by?: string[];
+        decisions?: TodoDecision[];
     };
 }
 
@@ -376,9 +413,13 @@ export const UPDATE_QUEST_TODO_DESCRIPTION =
     '`references`, `created` timestamps, `_sourceFile`, and any unknown fields ' +
     'an earlier hand-edit added all survive the update. Pass only the fields ' +
     'you want to change. Status enum: `not-started`/`in-progress`/`blocked`/' +
-    '`completed`/`cancelled`. Priority enum: `low`/`medium`/`high`/`critical`. ' +
-    'Missing id surfaces structured `{ok: false, error: "..."}`. For id changes ' +
-    'or moving across files, use `tomAi_moveQuestTodo` or delete+create.';
+    '`decision-needed`/`completed`/`cancelled`. Priority enum: `low`/`medium`/' +
+    '`high`/`critical`. To close a `decision-needed` todo, write the user\'s ' +
+    'answers into `decisions[].decision` and move the status back to ' +
+    '`not-started` in the same call — passing `decisions` replaces the whole ' +
+    'list, omitting it leaves it untouched. Missing id surfaces structured ' +
+    '`{ok: false, error: "..."}`. For id changes or moving across files, use ' +
+    '`tomAi_moveQuestTodo` or delete+create.';
 
 export const UPDATE_QUEST_TODO_TOOL: SharedToolDefinition<UpdateQuestTodoInput> = {
     name: 'tomAi_updateQuestTodo',
@@ -397,10 +438,11 @@ export const UPDATE_QUEST_TODO_TOOL: SharedToolDefinition<UpdateQuestTodoInput> 
                 properties: {
                     title: { type: 'string' },
                     description: { type: 'string' },
-                    status: { type: 'string', enum: ['not-started', 'in-progress', 'blocked', 'completed', 'cancelled'] },
+                    status: { type: 'string', enum: STATUS_ENUM },
                     priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
                     tags: { type: 'array', items: { type: 'string' } },
                     notes: { type: 'string' },
+                    decisions: DECISIONS_SCHEMA,
                     completed_date: { type: 'string' },
                     completed_by: { type: 'string' },
                     dependencies: { type: 'array', items: { type: 'string' } },

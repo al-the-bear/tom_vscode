@@ -143,6 +143,42 @@ Collapse state rules:
 - The reveal path (`qtPendingSelect`) calls `qtExpandGroupForTodo` first, so an
   explicit "show me this todo" request never lands on a hidden row.
 
+## 2b. Decisions — the `decision-needed` status and the `decisions[]` block
+
+A todo whose approach depends on a choice **the user** has not made yet cannot
+be started: starting it means guessing. Two schema features carry that.
+
+- **`status: decision-needed`** — the todo is waiting on the user. It renders
+  with a **question-mark** icon in the list pane and appears in the status
+  dropdown of the edit form alongside the other statuses.
+- **`decisions[]`** — a list of what has to be settled. Each entry has three
+  fields: `summary` (one line, the collapsed label), `decision_needed` (the full
+  question with its context and options), and `decision` (the answer, absent
+  until the user gives one). The edit form renders them as an accordion — open
+  shows all three fields, closed shows only the summary. Parsing/normalising is
+  the pure `src/utils/todoDecisions.ts`; the tools
+  (`tomAi_createQuestTodo` / `tomAi_updateQuestTodo` / `tomAi_getQuestTodo` /
+  `tomAi_listQuestTodos`) round-trip both. On update, passing `decisions`
+  **replaces** the whole list; omitting it leaves the list untouched.
+
+Note the two spellings, which coexist across the todo schema: the *status* value
+is hyphenated (`decision-needed`), the *object property* is snake_case
+(`decision_needed`).
+
+Two behaviours hang off the status:
+
+- **Archiving journals the decisions.** `todoArchive.ts` copies each archived
+  todo's `decisions[]` into `decisions.<quest>.md` (the @WS → Logs → Decisions
+  tab) with the todo id and the archive timestamp, so the reasoning outlives the
+  todo. It is a **copy** — the archived todo keeps its block — and only
+  *archiving* journals; deleting a todo throws it away, and recording its open
+  questions as decisions the project made would be a lie. An unanswered decision
+  is written as `_(not decided)_` rather than dropped.
+- **Queue iteration refuses to run the series.** A `prefix*` main prompt whose
+  matched todos include a `decision-needed` one pauses the queue and marks the
+  item `decision-needed` — see `planMainStageDispatch` in
+  `doc/multi_transport_prompt_queue_revised.md` § 5.
+
 ## 3. Session todos — stable per-host file (TRA04)
 
 Session todos live in **one stable, git-tracked file per host+quest** inside

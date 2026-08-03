@@ -18,6 +18,7 @@ import {
     deleteTodos,
     archiveAllCompleted,
     deleteAllCancelled,
+    decisionsJournalPathFor,
 } from '../todoArchive.js';
 
 const SCHEMA_LINE = '# yaml-language-server: $schema=../../schemas/yaml/todo.schema.json';
@@ -34,6 +35,12 @@ todos:
     notes: keep these notes
     completed_date: 2026-02-01
     created: 2026-01-01
+    decisions:
+      - summary: sqlite or postgres
+        decision_needed: Local dev wants sqlite; the fleet needs concurrent writers.
+        decision: postgres
+      - summary: retry budget
+        decision_needed: How many retries before giving up?
   - id: t2
     description: In progress todo
     status: in-progress
@@ -262,5 +269,92 @@ describe('bulk operations', () => {
         fs.writeFileSync(terminal, SOURCE_YAML, 'utf8');
         assert.ok(archiveAllCompleted(terminal).error);
         assert.ok(deleteAllCancelled(terminal).error);
+    });
+});
+
+describe('decisions journal', () => {
+    // Archiving is where a decision would otherwise be lost: the todo leaves the
+    // active file and takes its `decisions:` block with it. The journal is the
+    // copy that stays behind.
+    let journal: string;
+
+    beforeEach(() => {
+        journal = decisionsJournalPathFor(sourceFile);
+    });
+
+    test('archiving a todo with decisions writes them to decisions.<quest>.md', () => {
+        assert.equal(journal, path.join(tmp, 'decisions.myquest.md'));
+
+        archiveTodos(sourceFile, ['t1']);
+
+        assert.equal(fs.existsSync(journal), true, 'journal created');
+        const md = fs.readFileSync(journal, 'utf8');
+        assert.match(md, /t1/, 'todo id recorded');
+        assert.match(md, /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/, 'date and time recorded');
+        assert.match(md, /sqlite or postgres/);
+        assert.match(md, /postgres/);
+    });
+
+    test('an unresolved decision is journalled too, marked undecided', () => {
+        archiveTodos(sourceFile, ['t1']);
+        const md = fs.readFileSync(journal, 'utf8');
+        assert.match(md, /retry budget/);
+        assert.match(md, /not decided/i);
+    });
+
+    test('archiving a todo without decisions writes no journal', () => {
+        archiveTodos(sourceFile, ['t4']);
+        assert.equal(fs.existsSync(journal), false);
+    });
+
+    test('the todo keeps its decisions in the archive file', () => {
+        // The journal is a copy, not a move — the archived todo must still be a
+        // complete record of itself.
+        const res = archiveTodos(sourceFile, ['t1']);
+        const archived = readTodoMap(res.targetFile)['t1'];
+        assert.equal(Array.isArray(archived.decisions), true);
+        assert.equal((archived.decisions as unknown[]).length, 2);
+    });
+
+    test('a second archive appends rather than clobbering', () => {
+        archiveTodos(sourceFile, ['t1']);
+        const first = fs.readFileSync(journal, 'utf8');
+        // Give t4 a decision and archive it too.
+        const raw = fs.readFileSync(sourceFile, 'utf8').replace(
+            '  - id: t4\n    description: Second completed todo\n',
+            '  - id: t4\n    description: Second completed todo\n    decisions:\n      - summary: second decision\n        decision: yes\n',
+        );
+        fs.writeFileSync(sourceFile, raw, 'utf8');
+        archiveTodos(sourceFile, ['t4']);
+
+        const md = fs.readFileSync(journal, 'utf8');
+        assert.ok(md.startsWith(first), 'earlier entry preserved verbatim at the top');
+        assert.match(md, /second decision/);
+    });
+
+    test('the header is written once, not per entry', () => {
+        archiveTodos(sourceFile, ['t1']);
+        const raw = fs.readFileSync(sourceFile, 'utf8').replace(
+            '  - id: t4\n    description: Second completed todo\n',
+            '  - id: t4\n    description: Second completed todo\n    decisions:\n      - summary: second decision\n        decision: yes\n',
+        );
+        fs.writeFileSync(sourceFile, raw, 'utf8');
+        archiveTodos(sourceFile, ['t4']);
+
+        const md = fs.readFileSync(journal, 'utf8');
+        assert.equal(md.split('\n').filter(l => l.startsWith('# ')).length, 1);
+    });
+
+    test('archiveAllCompleted journals every decision-carrying todo it moves', () => {
+        archiveAllCompleted(sourceFile);
+        const md = fs.readFileSync(journal, 'utf8');
+        assert.match(md, /sqlite or postgres/);
+    });
+
+    test('deleting a todo does not journal its decisions', () => {
+        // A deleted todo was thrown away; recording its open questions as
+        // decisions the project made would be a lie.
+        deleteTodos(sourceFile, ['t1'], { anyStatus: true });
+        assert.equal(fs.existsSync(journal), false);
     });
 });

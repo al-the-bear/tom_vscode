@@ -31,7 +31,7 @@ import {
 } from '../storage/queueFileStorage';
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
-import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, decideAdvanceAfterCompletion, parseTodoPrefixPattern, planMainStageDispatch, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty, type TodoIterationSource } from '../utils/queueStep3Utils';
+import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, decideAdvanceAfterCompletion, parseTodoPrefixPattern, planMainStageDispatch, releaseDecisionNeededItems, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty, type TodoIterationSource } from '../utils/queueStep3Utils';
 import { runMainStageWithRefresh } from '../utils/questRefreshDispatch.js';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
 import { mergeQueueReload } from '../utils/queueReloadMergeUtils';
@@ -59,7 +59,14 @@ import type { ChangeSource } from './chatVariablesStore';
 // Types
 // ============================================================================
 
-export type QueuedPromptStatus = 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'waiting' | 'retry';
+/**
+ * `'decision-needed'` is the todo-iteration block: the `prefix*` series this
+ * item walks contains a todo whose questions the user has not answered, so the
+ * item is held rather than run on a guess. Restarting the queue puts it back to
+ * `'pending'` (see `releaseDecisionNeededItems`), where it re-enters the same
+ * gate and blocks again while the decisions are still open.
+ */
+export type QueuedPromptStatus = 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'waiting' | 'retry' | 'decision-needed';
 export type QueuedPromptType = 'normal' | 'timed' | 'reminder';
 
 /**
@@ -71,12 +78,21 @@ export type QueuedPromptType = 'normal' | 'timed' | 'reminder';
  *     Anthropic: the dispatch loop already recursed inline).
  *   - `'done'`       — all stages + all repetitions are complete.
  *     Callers mark the item `'sent'` and advance the queue.
- *   - `'paused'`     — auto-send is OFF AND this item has at least
- *     one prior dispatch on record. The in-flight repetition (if
- *     any) finishes naturally, but no further repetition starts.
- *     Callers MUST leave the item in `'sending'` so the webview
- *     can render "SENDING (PAUSED)" and `set autoSendEnabled(true)`
- *     knows where to resume.
+ *   - `'paused'`     — no further repetition starts, for one of two
+ *     reasons. (a) Auto-send is OFF and this item has at least one
+ *     prior dispatch on record: the in-flight repetition (if any)
+ *     finishes naturally and callers MUST leave the item in
+ *     `'sending'` so the webview can render "SENDING (PAUSED)" and
+ *     `set autoSendEnabled(true)` knows where to resume. (b) The
+ *     item's `prefix*` todo series has an unanswered `decision-needed`
+ *     todo: the gate has already moved the item to `'decision-needed'`
+ *     and switched auto-send off before returning.
+ *
+ * Both reasons share one outcome deliberately. Every caller of this
+ * method reacts to `'paused'` by logging and leaving the item alone,
+ * which is exactly right for both; a distinct fourth value would have
+ * to be handled at each of them, and a missed one marks the item
+ * `'sent'` — silently completing a queue item that never ran.
  */
 export type DispatchOutcome = 'dispatched' | 'done' | 'paused';
 
@@ -1541,6 +1557,17 @@ export class PromptQueueManager {
             // `dispatchNextStageForSendingItem` catches the next
             // repetition; any in-flight rep finishes naturally.
             return;
+        }
+
+        // Restarting retries the items held on an open decision: back to
+        // 'pending', where they re-enter the same gate and block again if the
+        // decisions are still open. Only `status` is touched, so an item that
+        // had already dispatched repetitions resumes on its counters.
+        const released = releaseDecisionNeededItems(this._items);
+        if (released > 0) {
+            logQueue(`Auto-send re-enabled: releasing ${released} item(s) held on a decision back to pending`);
+            this.persist();
+            this._onDidChange.fire();
         }
 
         // Re-enabling auto-send. Resume an item that was paused
@@ -3698,6 +3725,22 @@ export class PromptQueueManager {
             mainRepeatCount,
             iterationQuestId ? readQuestTodoEntries(iterationQuestId) : [],
         );
+        if (plan.mode === 'decision-needed') {
+            // Some todo of the series is still waiting on the user. Hold the
+            // whole item: running a sibling now would work from a guess about
+            // the very thing being decided. Auto-send goes OFF so the queue
+            // does not simply move on to the next item and bury the question.
+            const waiting = plan.todos.map(t => (t.title ? `${t.id} (${t.title})` : t.id)).join(', ');
+            logQueue(`MP dispatch: todo iteration '${String(item.repeatCount)}' blocked — decision needed on ${waiting}`);
+            item.status = 'decision-needed';
+            item.awaitingAnswer = false;
+            item.inFlightRepetition = undefined;
+            this._autoSendEnabled = false;
+            this.persistSettings();
+            this.persist();
+            this._onDidChange.fire();
+            return 'paused';
+        }
         // The todo that this dispatch will work on, already marked in-progress.
         // Marking happens BEFORE the send: an in-progress todo no longer
         // qualifies, and that is what makes the walk terminate. A write that

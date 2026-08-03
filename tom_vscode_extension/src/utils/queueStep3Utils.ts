@@ -232,6 +232,9 @@ export interface TodoIterationEntry {
 /** The one status that makes a todo eligible for dispatch. */
 const NOT_STARTED = 'not-started';
 
+/** The status that says "the user has not answered this todo's questions yet". */
+const DECISION_NEEDED = 'decision-needed';
+
 /**
  * Parse a `prefix*` repeat-count value into its prefix.
  *
@@ -316,10 +319,28 @@ export function pickNextTodoForIteration(
     return collectPrefixTodos(prefix, todos).find(e => e.status === NOT_STARTED);
 }
 
+/**
+ * The todos of a `prefix*` series that are still waiting on the user.
+ *
+ * Returned in series order so the manager can name them in the order the user
+ * will find them in the todo file.
+ */
+export function collectDecisionNeededTodos(
+    value: unknown,
+    todos: readonly TodoIterationSource[],
+): TodoIterationEntry[] {
+    const prefix = parseTodoPrefixPattern(value);
+    if (prefix === undefined) {
+        return [];
+    }
+    return collectPrefixTodos(prefix, todos).filter(e => e.status === DECISION_NEEDED);
+}
+
 /** What the main stage should send next — see {@link planMainStageDispatch}. */
 export type MainStageDispatchPlan =
     | { mode: 'counter'; repeatIndex: number }
     | { mode: 'todo'; todo: TodoIterationEntry }
+    | { mode: 'decision-needed'; todos: TodoIterationEntry[] }
     | { mode: 'exhausted' };
 
 /**
@@ -338,6 +359,13 @@ export type MainStageDispatchPlan =
  * A prefix that matches no todo at all is `exhausted`, not a single run: a
  * "work on ${repeatTodoId}" prompt with no todo to name is worse than no
  * prompt. The caller logs that case.
+ *
+ * **Unmade decisions hold the whole series.** A `decision-needed` todo anywhere
+ * in the matched set reports `decision-needed`, ahead of both the pick and the
+ * exhausted check. Running a *sibling* todo past an open question means working
+ * from a guess about the very thing still being decided; and reporting
+ * `exhausted` would quietly finish the queue item with the question never
+ * surfacing.
  */
 export function planMainStageDispatch(
     repeatCountRaw: number | string | undefined,
@@ -346,6 +374,10 @@ export function planMainStageDispatch(
     todos: readonly TodoIterationSource[],
 ): MainStageDispatchPlan {
     if (parseTodoPrefixPattern(repeatCountRaw) !== undefined) {
+        const waiting = collectDecisionNeededTodos(repeatCountRaw, todos);
+        if (waiting.length > 0) {
+            return { mode: 'decision-needed', todos: waiting };
+        }
         const todo = pickNextTodoForIteration(repeatCountRaw, todos);
         return todo ? { mode: 'todo', todo } : { mode: 'exhausted' };
     }
@@ -427,6 +459,29 @@ export function computeRemovalEffect<T extends { id: string; status: string }>(
         wasSending,
         nextAutoSendEnabled: wasSending ? false : autoSendEnabled,
     };
+}
+
+/**
+ * Put every `decision-needed` item back to `pending`, and report how many moved.
+ *
+ * Called when the user restarts the queue: the item re-enters the dispatch gate
+ * and blocks again if the decisions are still open, so restarting is a *retry*
+ * rather than an override. Only `status` is touched, so an item that had already
+ * dispatched repetitions resumes on its counters instead of re-sending from the
+ * top.
+ *
+ * Pure/context-free so it can be unit tested without the vscode-coupled
+ * PromptQueueManager (mirrors the `convertStagedToPending` pattern).
+ */
+export function releaseDecisionNeededItems(items: Array<{ status: string }>): number {
+    let changed = 0;
+    for (const item of items) {
+        if (item.status === DECISION_NEEDED) {
+            item.status = 'pending';
+            changed += 1;
+        }
+    }
+    return changed;
 }
 
 export function convertStagedToPending(items: Array<{ status: string }>): number {

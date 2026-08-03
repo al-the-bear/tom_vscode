@@ -171,6 +171,8 @@ the file in a normal text editor.
 | Refresh | `quest_refresh.{quest}.md` | Source | Top |
 | DocUpdate | `quest_documentation_update.{quest}.md` | Source | Top |
 | Deferred | `deferred.{quest}.md` | Source | Bottom (appended to) |
+| Questions | `questions.{quest}.md` | Source | Bottom (appended to) |
+| Decisions | `decisions.{quest}.md` | Source | Bottom (appended to) |
 | Current Prompt | `_ai/trail/anthropic/{quest}/current_prompt.*.md` | Source | Top |
 
 Not every quest has every file; a missing one is reported in the viewer.
@@ -210,6 +212,9 @@ Open: `Ctrl+Shift+6` or `@T: Open Prompt Queue`
 | Sending | Animated | Sent to Copilot, waiting for answer |
 | Sent | Gray | Completed |
 | Error | Red | Failed |
+| Waiting | Violet | Parked on a rate limit, retries automatically |
+| Retry | Violet | Parked on a backoff, retries automatically |
+| Decision-needed | Amber | Its `prefix*` todo series contains an undecided todo; auto-send is off. Restarting the queue returns it to Pending and re-checks |
 
 ### Queue Entry Types
 

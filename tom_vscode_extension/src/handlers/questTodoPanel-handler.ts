@@ -1723,6 +1723,7 @@ function _saveTodo(questId: string, todoId: string, updates: any, post: (m: any)
             normalize(current.notes) === normalize(updates.notes) &&
             JSON.stringify(normalize(current.scope)) === JSON.stringify(normalize(updates.scope)) &&
             JSON.stringify(normalize(current.references)) === JSON.stringify(normalize(updates.references)) &&
+            JSON.stringify(normalize(current.decisions)) === JSON.stringify(normalize(questTodo.normaliseTodoDecisions(updates.decisions))) &&
             normalize(current.completed_date) === normalize(updates.completed_date) &&
             normalize(current.completed_by) === normalize(updates.completed_by);
         if (same) {

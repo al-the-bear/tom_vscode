@@ -306,6 +306,7 @@ function render() {
   const pending = currentItems.filter(i => i.status === 'pending').length;
   const sending = currentItems.filter(i => i.status === 'sending').length;
   const sent = currentItems.filter(i => i.status === 'sent').length;
+  const blocked = currentItems.filter(i => i.status === 'decision-needed').length;
 
   const stopBtn = document.getElementById('stopActiveBtn');
   if (stopBtn) {
@@ -318,7 +319,11 @@ function render() {
       : 'Stop — no prompt is currently running';
   }
   document.getElementById('countLabel').textContent =
-    'Sending: ' + sending + '  |  Pending: ' + pending + '  |  Staged: ' + staged + '  |  Sent: ' + sent + '  |  Timeout: ' + (responseTimeoutMinutes || 60) + 'm';
+    'Sending: ' + sending + '  |  Pending: ' + pending + '  |  Staged: ' + staged + '  |  Sent: ' + sent
+    // Only shown when non-zero: a blocked queue looks idle otherwise, and the
+    // count is the one number that explains why nothing is moving.
+    + (blocked > 0 ? '  |  Decision needed: ' + blocked : '')
+    + '  |  Timeout: ' + (responseTimeoutMinutes || 60) + 'm';
 
   const list = document.getElementById('queueList');
   if (currentItems.length === 0) {

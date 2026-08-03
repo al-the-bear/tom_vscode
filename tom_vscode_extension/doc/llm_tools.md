@@ -288,8 +288,10 @@ Two-tier: `shared/` (cross-quest) and `{quest}/` (per-quest).
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
 | --- | --- | :-: | :-: | :-: | :-: | :-: |
 | `tomAi_notifyUser` | Notification (Telegram if configured, else VS Code). | ✅ | ✅ | ✅ | ✅ | ⚪ |
-| `tomAi_askUser` | **THE** way to ask the user and get an answer. Blocking: pauses the queue and asks up to 15 questions in a webview + Telegram; returns the user's verbatim reply (or a fallback prompt on timeout). | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_askUserPicker` | `showQuickPick` selection — requires a human. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_askUser` | **THE** way to ask the user and get an answer. Blocking: asks up to 15 questions in a webview + Telegram and returns the user's verbatim reply. Waits **indefinitely** by default — the block *is* the pause, so a prompt running in the queue holds there until the user answers. Pass `timeoutMinutes` to continue automatically instead. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_askUserPicker` | `showQuickPick` selection — requires a human. Same indefinite-by-default wait and optional `timeoutMinutes`. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+
+Both log to the quest's **Questions** journal (`questions.<quest>.md`, @WS → Logs → Questions): the question as asked and the answer as given, or the fact that the wait timed out.
 
 ### 4.19 Planning and delegation
 

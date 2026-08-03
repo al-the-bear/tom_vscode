@@ -9,7 +9,7 @@ The extension combines VS Code automation, bridge-based scripting, Copilot workf
 Current bottom panel layout:
 
 - `@CHAT` (`tomAi.chatPanel`): five subpanels — **Anthropic**, **Tom AI Chat**, **AI Conversation**, **Copilot**, **Local LLM**. Shared features: prompt queue side panel, document picker, live-trail button (Anthropic), session-history button, memory/config buttons, accordion/pin/rotate layout.
-- `@WS` (`tomAi.wsPanel`): Guidelines, Documentation, Logs, Settings, Issues, Tests, Quest TODO. The Logs section carries its own strip of eleven sub-tabs over the active quest's log files and the running prompt — see [Logs Panel](#logs-panel).
+- `@WS` (`tomAi.wsPanel`): Guidelines, Documentation, Logs, Settings, Issues, Tests, Quest TODO. The Logs section carries its own strip of thirteen sub-tabs over the active quest's log files and the running prompt — see [Logs Panel](#logs-panel).
 
 AI Conversation is the only subpanel that is **not** queue-compatible — each AI Conversation turn runs as an ad-hoc chat.
 
@@ -33,14 +33,18 @@ read-only; use the toolbar to edit.
   **Notes** (`quest-notes.{quest}.md`), **Refresh**
   (`quest_refresh.{quest}.md`), **DocUpdate**
   (`quest_documentation_update.{quest}.md`), **Deferred**
-  (`deferred.{quest}.md`), **Current Prompt** (see below)
+  (`deferred.{quest}.md`), **Questions** (`questions.{quest}.md` — every
+  question the model asked you and the answer you gave), **Decisions**
+  (`decisions.{quest}.md` — the decisions carried by each todo, copied here when
+  the todo is archived), **Current Prompt** (see below)
 - **Remembered selection**: the active sub-tab is restored after a window reload
 - **Auto-refresh**: re-reads every 2.5 s while the section is expanded; a file
   that has not changed costs no read
 - **256 KB window**: a larger file is shown from the end its newest content is
-  at — the last 256 KB (marked `(tail)`) of the two trail tabs and of
-  **Deferred**, which are appended to, and the first 256 KB (marked `(head)`) of
-  the remaining tabs, whose documents are prepended to or rewritten wholesale
+  at — the last 256 KB (marked `(tail)`) of the two trail tabs and of the three
+  journals (**Deferred**, **Questions**, **Decisions**), which are appended to,
+  and the first 256 KB (marked `(head)`) of the remaining tabs, whose documents
+  are prepended to or rewritten wholesale
 - **Follow scrolling**: the view opens at that same end, and a reader still
   sitting there stays there as the file grows; scrolling away to study something
   holds that position
@@ -125,10 +129,18 @@ Four top-bar buttons move todos between files instead of destroying them:
 
 Archived/deleted sibling files are **terminal**: they can be viewed but never archived or deleted *from*, and the buttons hide when browsing them. A todo moved to the `-deleted` file remains recoverable (unlike the per-row hard-delete). There is no separate backup file mechanism anymore.
 
+Archiving also **copies** any decisions the todo carried into the quest's `decisions.<quest>.md` journal (@WS → Logs → Decisions), stamped with the todo id and the archive timestamp. It is a copy, not a move — the archived todo keeps its decisions. Deleting does not journal, on the grounds that a deleted todo's decisions were never acted on.
+
 A further set of top-bar buttons changes a todo **without** moving it to a terminal file:
 
 - **Mark selected todo completed** / **Mark selected todo cancelled** / **Mark selected todo not-started** — set the selected todo's status in place (the completed action also stamps the completion date). With a non-empty todo stack they act on the whole stack after a single confirmation.
 - **Move selected to other todo file** — opens a quick pick of the quest's other `*.todo.yaml` files (including the `-archived` and `-deleted` siblings), plus a *New todo file…* option, and moves the selected todo (or the whole stack) into the chosen file. Available only in concrete quest mode. Clicking a todo in any of the quest's todo files loads its details, and the details pane refreshes automatically after a status change.
+
+#### Decisions and the `decision-needed` status
+
+A todo can carry a list of **decisions** — open questions that must be answered before the work can start. Each entry has three fields: a one-line **summary**, the **decision needed** (what exactly has to be decided, and the options), and the **decision** itself once made. In the details pane they render as a collapsible list: collapsed you see just the summary line, expanded all three fields.
+
+A todo with unanswered decisions belongs in status **`decision-needed`** (❓), which sorts directly after `blocked` and ahead of `not-started`. It is a normal dropdown choice and the four quest-todo tools round-trip it, so the model can create a todo already in that state — the workspace rule is that a todo whose scope contains a user decision is created as `decision-needed` with the decisions filled in, rather than as `not-started`. `prefix*` queue iteration refuses to run a series containing one; see [Todo iteration](#todo-iteration-prefix).
 
 **Session todos** (the Session Todos view and the panel's session mode) are stored in one stable, git-tracked file per machine and quest — `_ai/quests/<quest>/session-todo.<host>.<quest>.todo.yaml` — and **persist across window reloads**. Older per-window session files are migrated into it automatically.
 
@@ -236,6 +248,7 @@ A `prefix*` repeat count does not repeat a fixed number of times — it **walks 
 
 - **Which todo goes next**: the lowest-numbered todo whose status is `not-started`. Todos sharing a number (`dsa2-a`, `dsa2-b`) are walked in alphabetical order. The walk starts at the first number that actually exists — a series of `dsa7`, `dsa9` starts at 7.
 - **Claiming**: before the prompt is sent, the picked todo is set to `in-progress`. That is what makes the walk terminate — a claimed todo no longer qualifies, so every dispatch shrinks the candidate set. Todos that are already `in-progress`, `blocked`, `completed`, or `cancelled` are skipped.
+- **An open decision holds the whole series**: if *any* matched todo is `decision-needed`, nothing is dispatched. The queue item goes to `DECISION-NEEDED`, auto-send switches off, and the ids that are waiting are logged. Answer the decisions (set the todo back to `not-started`) and restart the queue: the held items return to `PENDING` and re-enter the same check, blocking again if anything is still undecided. Restarting is a retry, not an override.
 - **If the send fails**: the todo is handed back to `not-started`, so the retry picks up the same todo rather than skipping it.
 - **When nothing is left**: the main stage ends and the item proceeds to its follow-ups. A `prefix*` that matches no todo at all sends nothing and logs why — it does not fall back to a single run.
 - **Placeholders**: `${repeatTodoId}` is the picked todo's full id, `${repeatTodoTitle}` its title (its description when it has none), and `${repeatNumber}` its number. All three work in the prompt text and in the repeat prefix/suffix.

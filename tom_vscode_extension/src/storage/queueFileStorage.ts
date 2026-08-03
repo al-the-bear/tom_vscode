@@ -176,7 +176,7 @@ export interface QueueMetaYaml {
     'main-prompt'?: string;
     imports?: string[];
     quest?: string;
-    status?: 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'waiting' | 'retry';
+    status?: 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'waiting' | 'retry' | 'decision-needed';
     /** "Pause after this": hold the queue once this item has finished. */
     'pause-after'?: boolean;
     collapsed?: boolean;

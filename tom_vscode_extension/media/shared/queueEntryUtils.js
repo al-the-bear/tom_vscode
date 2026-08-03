@@ -41,16 +41,19 @@ function reminderTimeoutOptions(selectedMinutes) {
 
 function statusSortRank(status) {
   // The states that STOP the queue cluster at the very top so a halted queue
-  // is immediately visible: an exhausted `error`, a backoff-parked `retry`,
-  // and a rate-limit-parked `waiting` all keep their place at the head rather
-  // than being demoted below the pending run. (In practice only one of these
-  // coexists with the live run, since a blocked head means nothing is sending.)
-  if (status === 'error') return 0;
-  if (status === 'retry') return 1;
-  if (status === 'waiting') return 2;
-  if (status === 'sending') return 3;
-  if (status === 'pending') return 4;
-  if (status === 'staged') return 5;
-  if (status === 'sent') return 6;
-  return 7;
+  // is immediately visible: a `decision-needed` block, an exhausted `error`, a
+  // backoff-parked `retry`, and a rate-limit-parked `waiting` all keep their
+  // place at the head rather than being demoted below the pending run. (In
+  // practice only one of these coexists with the live run, since a blocked head
+  // means nothing is sending.) `decision-needed` leads: it is the only one that
+  // cannot clear on its own — it waits on the user answering a todo.
+  if (status === 'decision-needed') return 0;
+  if (status === 'error') return 1;
+  if (status === 'retry') return 2;
+  if (status === 'waiting') return 3;
+  if (status === 'sending') return 4;
+  if (status === 'pending') return 5;
+  if (status === 'staged') return 6;
+  if (status === 'sent') return 7;
+  return 8;
 }

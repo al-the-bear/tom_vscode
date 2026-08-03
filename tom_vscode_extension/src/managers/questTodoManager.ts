@@ -21,6 +21,9 @@ import { WsPaths } from '../utils/workspacePaths';
 import { scanWorkspaceProjectsByDetectors } from '../utils/projectDetector';
 import { forceBlockStyle } from '../utils/todoArchive';
 import { ALL_TODO_FILES, matchesTodoFileScope, type TodoFileScope } from '../utils/todoArchiveNames';
+import { normaliseTodoDecisions, type TodoDecision } from '../utils/todoDecisions';
+
+export { normaliseTodoDecisions, isDecisionResolved, hasUnresolvedDecisions, type TodoDecision } from '../utils/todoDecisions';
 
 // Archive/delete move operations (TRA01) — implemented as pure fs+yaml
 // utilities so they are unit-testable; surfaced here as manager API.
@@ -64,17 +67,27 @@ export interface QuestTodoReference {
     lines?: string;
 }
 
+export type QuestTodoStatus =
+    | 'not-started'
+    | 'in-progress'
+    | 'blocked'
+    | 'decision-needed'
+    | 'completed'
+    | 'cancelled';
+
 export interface QuestTodoItem {
     id: string;
     title?: string;
     description: string;
-    status: 'not-started' | 'in-progress' | 'blocked' | 'completed' | 'cancelled';
+    status: QuestTodoStatus;
     priority?: 'low' | 'medium' | 'high' | 'critical';
     tags?: string[];
     scope?: QuestTodoScope;
     references?: QuestTodoReference[];
     dependencies?: string[];
     blocked_by?: string[];
+    /** Decisions the user has to make before this todo can be started. */
+    decisions?: TodoDecision[];
     notes?: string;
     created?: string;
     updated?: string;
@@ -165,6 +178,22 @@ function saveDocumentWithSchema(filePath: string, doc: Document): void {
     fs.writeFileSync(filePath, content, 'utf8');
 }
 
+/**
+ * Write the `decisions` list onto a todo node, or remove the key when there is
+ * nothing left to decide. Normalised on the way in so a hand-edited or
+ * tool-supplied list cannot persist unlabelled rows.
+ */
+function setDecisions(doc: Document, item: YAMLMap, decisions: TodoDecision[] | undefined): void {
+    const normalised = normaliseTodoDecisions(decisions);
+    if (!normalised) {
+        item.delete('decisions');
+        return;
+    }
+    const node = doc.createNode(normalised);
+    forceBlockStyle(node);
+    item.set('decisions', node);
+}
+
 /** Convert a YAML map node to a plain QuestTodoItem. */
 function nodeToTodo(node: YAMLMap, sourceFile?: string): QuestTodoItem {
     const get = (key: string): unknown => node.get(key);
@@ -236,6 +265,12 @@ function nodeToTodo(node: YAMLMap, sourceFile?: string): QuestTodoItem {
             description: m.get('description') as string | undefined,
             lines: m.get('lines') as string | undefined,
         }));
+    }
+
+    // decisions — normalised so every reader gets a labelled list or nothing.
+    const decisionsNode = node.get('decisions', true);
+    if (isSeq(decisionsNode)) {
+        item.decisions = normaliseTodoDecisions(decisionsNode.toJSON());
     }
 
     if (sourceFile) { item._sourceFile = sourceFile; }
@@ -322,6 +357,8 @@ export function createTodoInFile(
     if (todo.notes) { plain.notes = todo.notes; }
     if (todo.dependencies && todo.dependencies.length) { plain.dependencies = todo.dependencies; }
     if (todo.blocked_by && todo.blocked_by.length) { plain.blocked_by = todo.blocked_by; }
+    const decisions = normaliseTodoDecisions(todo.decisions);
+    if (decisions) { plain.decisions = decisions; }
     if (todo.scope) { plain.scope = todo.scope; }
     if (todo.references && todo.references.length) { plain.references = todo.references; }
     if (todo.completed_date) { plain.completed_date = todo.completed_date; }
@@ -368,6 +405,7 @@ export function updateTodoInFile(
         if (updates.tags !== undefined) { item.set('tags', updates.tags?.length ? doc.createNode(updates.tags) : undefined); }
         if (updates.dependencies !== undefined) { item.set('dependencies', updates.dependencies?.length ? doc.createNode(updates.dependencies) : undefined); }
         if (updates.blocked_by !== undefined) { item.set('blocked_by', updates.blocked_by?.length ? doc.createNode(updates.blocked_by) : undefined); }
+        if (updates.decisions !== undefined) { setDecisions(doc, item, updates.decisions); }
         if (updates.completed_date !== undefined) { item.set('completed_date', updates.completed_date || undefined); }
         if (updates.completed_by !== undefined) { item.set('completed_by', updates.completed_by || undefined); }
         if (updates.scope !== undefined) {
@@ -564,6 +602,8 @@ export function createTodo(
     if (todo.tags && todo.tags.length) { plain.tags = todo.tags; }
     if (todo.notes) { plain.notes = todo.notes; }
     if (todo.dependencies && todo.dependencies.length) { plain.dependencies = todo.dependencies; }
+    const decisions = normaliseTodoDecisions(todo.decisions);
+    if (decisions) { plain.decisions = decisions; }
     plain.created = todo.created || new Date().toISOString().slice(0, 10);
 
     const newNode = doc.createNode(plain);
@@ -610,6 +650,7 @@ export function updateTodo(
                 if (updates.tags !== undefined) { item.set('tags', updates.tags?.length ? doc.createNode(updates.tags) : undefined); }
                 if (updates.dependencies !== undefined) { item.set('dependencies', updates.dependencies?.length ? doc.createNode(updates.dependencies) : undefined); }
                 if (updates.blocked_by !== undefined) { item.set('blocked_by', updates.blocked_by?.length ? doc.createNode(updates.blocked_by) : undefined); }
+                if (updates.decisions !== undefined) { setDecisions(doc, item, updates.decisions); }
                 if (updates.completed_date !== undefined) { item.set('completed_date', updates.completed_date || undefined); }
                 if (updates.completed_by !== undefined) { item.set('completed_by', updates.completed_by || undefined); }
                 if (updates.scope !== undefined) {

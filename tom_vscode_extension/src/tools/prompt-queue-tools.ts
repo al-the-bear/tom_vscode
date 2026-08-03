@@ -64,7 +64,7 @@ import { SharedToolDefinition } from './shared-tool-registry';
 // Shared shapes
 // ===========================================================================
 
-export type QueueStatus = 'staged' | 'pending' | 'sending' | 'sent' | 'error';
+export type QueueStatus = 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'decision-needed';
 export type QueueTransport = 'copilot' | 'anthropic';
 
 export interface PrePromptSpec {
@@ -606,7 +606,9 @@ export async function setQueueItemStatusImpl(access: PromptQueueAccess, input: S
 export const SET_QUEUE_ITEM_STATUS_DESCRIPTION =
     'Flip queue item status between `staged` (held back from the run loop) ' +
     'and `pending` (eligible for dispatch). Other statuses (`sending`, ' +
-    '`sent`, `error`) are state-machine-managed and cannot be set manually. ' +
+    '`sent`, `error`, `decision-needed`) are state-machine-managed and cannot ' +
+    'be set manually — an item held on `decision-needed` is released by ' +
+    'answering the todo decisions and restarting the queue. ' +
     'Use this to temporarily unstage a pending item without removing it.';
 
 export const SET_QUEUE_ITEM_STATUS_TOOL: SharedToolDefinition<SetQueueItemStatusInput> = {

@@ -16,6 +16,10 @@ var qtDetailTodo = null;
 var qtFormScope = null;
 var qtFormRefs = [];
 var qtFormTags = [];
+// Decisions the user still has to make. `qtDecisionOpen` is index-aligned and
+// spliced in lock-step so an expanded row stays expanded across a re-render.
+var qtFormDecisions = [];
+var qtDecisionOpen = [];
 var qtTagPickerCallback = null;
 var qtFilterSearch = '';
 var qtFilterState = { status: [], priority: [], tags: [], createdFrom: '', createdTo: '', updatedFrom: '', updatedTo: '', completedFrom: '', completedTo: '' };
@@ -636,15 +640,20 @@ function qtRenderList() {
     // Apply multi-field sort
     if (qtSortFields.length) {
         var priOrd = { critical: 0, high: 1, medium: 2, low: 3 };
-        var staOrd = { 'in-progress': 0, 'blocked': 1, 'not-started': 2, 'completed': 3, 'cancelled': 4 };
+        var staOrd = { 'in-progress': 0, 'blocked': 1, 'decision-needed': 2, 'not-started': 3, 'completed': 4, 'cancelled': 5 };
+        // Rank 0 is falsy, so `|| 9` would sort the *first* rank last. Look the
+        // key up instead of leaning on truthiness.
+        var rank = function(table, key) {
+            return Object.prototype.hasOwnProperty.call(table, key) ? table[key] : 9;
+        };
         filtered = filtered.slice().sort(function(a, b) {
             for (var si = 0; si < qtSortFields.length; si++) {
                 var sf = qtSortFields[si];
                 var cmp = 0;
                 switch (sf.field) {
                     case 'quest': cmp = qtQuestKey(a).localeCompare(qtQuestKey(b)); break;
-                    case 'status': cmp = (staOrd[a.status] || 9) - (staOrd[b.status] || 9); break;
-                    case 'priority': cmp = (priOrd[a.priority] || 9) - (priOrd[b.priority] || 9); break;
+                    case 'status': cmp = rank(staOrd, a.status) - rank(staOrd, b.status); break;
+                    case 'priority': cmp = rank(priOrd, a.priority) - rank(priOrd, b.priority); break;
                     case 'title': cmp = (a.title || '').localeCompare(b.title || ''); break;
                     case 'created': cmp = (a.created || '').localeCompare(b.created || ''); break;
                     case 'updated': cmp = (b.updated || '').localeCompare(a.updated || ''); break;
@@ -856,6 +865,7 @@ function qtStatusIcon(s) {
         case 'in-progress': return '🔄';
         case 'completed': return '✅';
         case 'blocked': return '⛔';
+        case 'decision-needed': return '❓';
         case 'cancelled': return '🚫';
         default: return '⬜';
     }
@@ -886,7 +896,7 @@ function qtUpdateFilterIndicator() {
 function qtRenderFilterPicker() {
     var el = document.getElementById('qt-filter-picker');
     if (!el) return;
-    var statuses = ['not-started','in-progress','blocked','completed','cancelled'];
+    var statuses = ['not-started','in-progress','blocked','decision-needed','completed','cancelled'];
     var priorities = ['critical','high','medium','low'];
     // Collect all tags from current todos
     var allTags = [];
@@ -1049,6 +1059,9 @@ function qtRenderDetail(todo) {
     qtFormTags = (todo.tags || []).slice();
     qtFormScope = todo.scope ? JSON.parse(JSON.stringify(todo.scope)) : null;
     qtFormRefs = todo.references ? JSON.parse(JSON.stringify(todo.references)) : [];
+    qtFormDecisions = todo.decisions ? JSON.parse(JSON.stringify(todo.decisions)) : [];
+    // Start collapsed — the point of the summary is to scan the list at a glance.
+    qtDecisionOpen = qtFormDecisions.map(function() { return false; });
 
     var blockedByBadges = qtRenderTodoBadges(todo.blocked_by || [], 'blocked-by');
     var depsBadges = qtRenderTodoBadges(todo.dependencies || [], 'deps');
@@ -1070,6 +1083,7 @@ function qtRenderDetail(todo) {
         qtFormRow('Blocked By', '<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;" id="qt-d-blocked-wrap">' + blockedByBadges +
             '<button class="qt-edit-btn" id="qt-d-blocked-add" title="Add blocked-by">➕</button></div>') +
         qtFormRow('Notes', '<textarea id="qt-d-notes" data-completion="on">' + qtEsc(todo.notes || '') + '</textarea>') +
+        qtRenderDecisionsSection() +
         qtRenderScopeSection(qtFormScope) +
         qtRenderRefsSection(qtFormRefs) +
         qtRenderDatesSection(todo) +
@@ -1125,6 +1139,7 @@ function qtRenderDetail(todo) {
 
     qtAttachTagRemoveHandlers();
     qtAttachSectionHandlers();
+    qtAttachDecisionHandlers();
     qtAttachScopeFileHandlers();
     qtAttachRefHandlers();
 
@@ -1449,6 +1464,95 @@ function qtRenderRefsSection(refs) {
         '<span class="codicon codicon-chevron-down"></span> References ' +
         '<button class="qt-edit-btn" id="qt-ref-add-btn" title="Add reference">➕</button></div>' +
         '<div class="qt-section-body" data-qt-section-body="refs">' + body + '</div>';
+}
+
+// ── Decisions section ──
+// One collapsible row per decision: collapsed shows only the summary, expanded
+// shows all three fields. The user scans the list by summary, so a row without
+// one would be unidentifiable — hence the `(unnamed decision)` placeholder.
+function qtDecisionRowHtml(d, i) {
+    var open = qtDecisionOpen[i] === true;
+    var resolved = !!(d.decision && d.decision.trim());
+    var summary = (d.summary && d.summary.trim()) ? d.summary : '(unnamed decision)';
+    return '<div class="qt-decision-item">' +
+        '<div class="qt-decision-header' + (open ? '' : ' collapsed') + '" data-qt-decision-idx="' + i + '">' +
+        '<span class="codicon codicon-chevron-down"></span>' +
+        '<span class="qt-decision-mark" title="' + (resolved ? 'Decided' : 'Waiting on you') + '">' + (resolved ? '\u2705' : '\u2753') + '</span>' +
+        '<span class="qt-decision-summary" data-qt-decision-label="' + i + '">' + qtEsc(summary) + '</span>' +
+        '<button class="qt-edit-btn qt-decision-rm-btn" data-qt-decision-idx="' + i + '" title="Remove decision">\uD83D\uDDD1\uFE0F</button></div>' +
+        '<div class="qt-decision-body' + (open ? '' : ' hidden') + '" data-qt-decision-body="' + i + '">' +
+        qtFormRow('Summary', '<input class="qt-decision-field" data-qt-decision-idx="' + i + '" data-qt-decision-field="summary" value="' + qtEsc(d.summary || '') + '">') +
+        qtFormRow('Decision needed', '<textarea class="qt-decision-field" data-qt-decision-idx="' + i + '" data-qt-decision-field="decision_needed" data-completion="on">' + qtEsc(d.decision_needed || '') + '</textarea>') +
+        qtFormRow('Decision', '<textarea class="qt-decision-field" data-qt-decision-idx="' + i + '" data-qt-decision-field="decision" data-completion="on">' + qtEsc(d.decision || '') + '</textarea>') +
+        '</div></div>';
+}
+
+function qtDecisionsBodyHtml() {
+    if (!qtFormDecisions.length) { return '<div class="qt-scope-summary">(none)</div>'; }
+    return '<div class="qt-decision-list">' + qtFormDecisions.map(qtDecisionRowHtml).join('') + '</div>';
+}
+
+function qtRenderDecisionsSection() {
+    return '<div class="qt-section-header" data-qt-section="decisions">' +
+        '<span class="codicon codicon-chevron-down"></span> Decisions ' +
+        '<button class="qt-edit-btn" id="qt-decision-add-btn" title="Add decision">\u2795</button></div>' +
+        '<div class="qt-section-body" data-qt-section-body="decisions">' + qtDecisionsBodyHtml() + '</div>';
+}
+
+function qtRefreshDecisionsBody() {
+    var body = document.querySelector('[data-qt-section-body="decisions"]');
+    if (!body) return;
+    body.innerHTML = qtDecisionsBodyHtml();
+    qtAttachDecisionHandlers();
+}
+
+function qtAttachDecisionHandlers() {
+    var addBtn = document.getElementById('qt-decision-add-btn');
+    if (addBtn && !addBtn.dataset.qtWired) {
+        addBtn.dataset.qtWired = '1';
+        addBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            qtFormDecisions.push({ summary: '' });
+            // A new row has nothing to show collapsed, so open it to be filled in.
+            qtDecisionOpen.push(true);
+            qtRefreshDecisionsBody();
+            qtAutoSave();
+        });
+    }
+    document.querySelectorAll('.qt-decision-header').forEach(function(hdr) {
+        hdr.addEventListener('click', function(e) {
+            if (e.target.closest('.qt-edit-btn')) return;
+            var i = parseInt(hdr.dataset.qtDecisionIdx, 10);
+            qtDecisionOpen[i] = !qtDecisionOpen[i];
+            hdr.classList.toggle('collapsed');
+            var body = document.querySelector('[data-qt-decision-body="' + i + '"]');
+            if (body) body.classList.toggle('hidden');
+        });
+    });
+    document.querySelectorAll('.qt-decision-rm-btn').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var i = parseInt(btn.dataset.qtDecisionIdx, 10);
+            qtFormDecisions.splice(i, 1);
+            qtDecisionOpen.splice(i, 1);
+            qtRefreshDecisionsBody();
+            qtAutoSave();
+        });
+    });
+    document.querySelectorAll('.qt-decision-field').forEach(function(el) {
+        el.addEventListener('input', function() {
+            var i = parseInt(el.dataset.qtDecisionIdx, 10);
+            var d = qtFormDecisions[i];
+            if (!d) return;
+            d[el.dataset.qtDecisionField] = el.value;
+            if (el.dataset.qtDecisionField === 'summary') {
+                // Keep the collapsed label honest while it is being typed.
+                var label = document.querySelector('[data-qt-decision-label="' + i + '"]');
+                if (label) label.textContent = el.value.trim() || '(unnamed decision)';
+            }
+            qtAutoSave();
+        });
+    });
 }
 
 function qtRenderDatesSection(todo) {
@@ -1880,6 +1984,7 @@ function qtCollectFormData() {
         notes: document.getElementById('qt-d-notes') ? document.getElementById('qt-d-notes').value || undefined : undefined,
         scope: qtFormScope || undefined,
         references: qtFormRefs.length ? qtFormRefs : undefined,
+        decisions: qtFormDecisions.length ? qtFormDecisions : undefined,
         created: createdValue || undefined,
         completed_date: completedDateValue || undefined,
         completed_by: completedByValue || undefined,
@@ -1891,6 +1996,8 @@ function qtShowNewTodoForm(id) {
     qtFormTags = [];
     qtFormScope = null;
     qtFormRefs = [];
+    qtFormDecisions = [];
+    qtDecisionOpen = [];
     qtRenderList();
     var pane = document.getElementById('qt-detail-pane');
     if (!pane) return;
@@ -2012,7 +2119,7 @@ function qtShowMassAddOverlay() {
 }
 function qtEsc(s) { if (!s) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function qtStatusOptions(cur) {
-    var opts = ['not-started','in-progress','blocked','completed','cancelled'];
+    var opts = ['not-started','in-progress','blocked','decision-needed','completed','cancelled'];
     return opts.map(function(o) { return '<option value="' + o + '"' + (o === cur ? ' selected' : '') + '>' + o + '</option>'; }).join('');
 }
 function qtPriorityOptions(cur) {

@@ -95,6 +95,14 @@
 .qt-ref-item button { background: none; border: none; color: var(--vscode-foreground); cursor: pointer; padding: 0 2px; font-size: 11px; opacity: 0.6; }
 .qt-ref-item button:hover { opacity: 1; }
 .qt-scope-summary { font-size: 11px; color: var(--vscode-descriptionForeground); padding: 2px 0; }
+.qt-decision-list { display: flex; flex-direction: column; gap: 4px; }
+.qt-decision-item { background: var(--vscode-textBlockQuote-background); border-radius: 3px; padding: 2px 6px; }
+.qt-decision-header { display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 11px; padding: 3px 0; user-select: none; }
+.qt-decision-header .codicon { font-size: 12px; transition: transform 0.15s; }
+.qt-decision-header.collapsed .codicon { transform: rotate(-90deg); }
+.qt-decision-summary { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qt-decision-body { padding: 2px 0 4px 16px; }
+.qt-decision-body.hidden { display: none; }
 .qt-popup-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 1000; display: none; }
 .qt-popup-overlay.visible { display: flex; align-items: center; justify-content: center; }
 .qt-popup { background: var(--vscode-editor-background); border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 12px; min-width: 280px; max-width: 400px; max-height: 80vh; overflow-y: auto; box-shadow: 0 4px 16px rgba(0,0,0,0.3); }

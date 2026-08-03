@@ -15,6 +15,8 @@
   .queue-item.sent > .item-header { opacity: 0.55; }
   .queue-item.error { border-left: 3px solid var(--vscode-inputValidation-errorBorder, #f44); }
   .queue-item.retry { border-left: 3px solid #b39ddb; }
+  /* Held on an unanswered todo decision — amber, the "waiting on you" colour. */
+  .queue-item.decision-needed { border-left: 3px solid #ffb300; }
   .queue-item.reminder { border-left: 3px solid orange; }
   .item-header { display: flex; align-items: center; margin-bottom: 4px; }
   .item-meta { font-size: 0.8em; opacity: 0.7; }
@@ -30,6 +32,9 @@
   /* Backoff-parked ("Retrying n/7") — same violet as waiting: both are a
      transient parked-and-will-auto-retry state, distinct from hard error red. */
   .status-bar.retry { background: #b39ddb; }
+  /* Held on an unanswered todo decision. Amber rather than the parked violet:
+     this one does NOT clear on its own — it waits on the user answering. */
+  .status-bar.decision-needed { background: #ffb300; }
   .status-bar.reminder { background: #ff9800; }
   /* Queue idle/paused: the current sending item (between iterations) or the
      next pending item turns amber when nothing is being processed, so a

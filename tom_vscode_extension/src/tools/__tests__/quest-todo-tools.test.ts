@@ -49,6 +49,11 @@ import {
     type QuestTodoSummary,
     type QuestTodoToolsDeps,
     type TodoFileMoveSummary,
+    CREATE_QUEST_TODO_DESCRIPTION,
+    CREATE_QUEST_TODO_TOOL,
+    LIST_QUEST_TODOS_TOOL,
+    UPDATE_QUEST_TODO_DESCRIPTION,
+    UPDATE_QUEST_TODO_TOOL,
 } from '../quest-todo-tools.js';
 
 // ---------------------------------------------------------------------------
@@ -324,6 +329,28 @@ describe('createQuestTodoImpl', () => {
         const r2 = JSON.parse(await createQuestTodoImpl(deps, { questId: 'q1', todo: { id: 'x' } } as any));
         assert.match(r2.error, /`todo\.description` is required/);
     });
+
+    test('a todo can be created waiting on decisions', async () => {
+        // The whole point of the status: the model records what it does not
+        // know instead of guessing, and the todo cannot be picked up until the
+        // user has answered.
+        const r = JSON.parse(await createQuestTodoImpl(deps, {
+            questId: 'q1',
+            todo: {
+                id: 'needs-input',
+                description: 'migrate the store',
+                status: 'decision-needed',
+                decisions: [
+                    { summary: 'Which database?', decision_needed: 'Postgres or MySQL' },
+                ],
+            },
+        }));
+        assert.equal(r.ok, true);
+        assert.equal(r.todo.status, 'decision-needed');
+        assert.deepEqual(r.todo.decisions, [
+            { summary: 'Which database?', decision_needed: 'Postgres or MySQL' },
+        ]);
+    });
 });
 
 // ===========================================================================
@@ -377,6 +404,88 @@ describe('updateQuestTodoImpl', () => {
         }));
         assert.equal(r.ok, false);
         assert.match(r.error, /not found.*tomAi_listQuestTodos/);
+    });
+
+    test('recording the answers releases the todo', async () => {
+        // The round-trip that closes a decision: the user answers, the model
+        // writes the answer back and moves the todo out of decision-needed.
+        await createQuestTodoImpl(deps, {
+            questId: 'q1',
+            todo: {
+                id: 'waiting',
+                description: 'migrate the store',
+                status: 'decision-needed',
+                decisions: [{ summary: 'Which database?', decision_needed: 'Postgres or MySQL' }],
+            },
+        });
+        await updateQuestTodoImpl(deps, {
+            questId: 'q1', todoId: 'waiting',
+            updates: {
+                status: 'not-started',
+                decisions: [{ summary: 'Which database?', decision_needed: 'Postgres or MySQL', decision: 'Postgres' }],
+            },
+        });
+        const r = JSON.parse(await getQuestTodoImpl(deps, { questId: 'q1', todoId: 'waiting' }));
+        assert.equal(r.todo.status, 'not-started');
+        assert.equal(r.todo.decisions[0].decision, 'Postgres');
+    });
+
+    test('an update that says nothing about decisions leaves them alone', async () => {
+        await createQuestTodoImpl(deps, {
+            questId: 'q1',
+            todo: {
+                id: 'keeps-them',
+                description: 'x',
+                status: 'decision-needed',
+                decisions: [{ summary: 'Which database?' }],
+            },
+        });
+        await updateQuestTodoImpl(deps, {
+            questId: 'q1', todoId: 'keeps-them', updates: { title: 'renamed' },
+        });
+        const r = JSON.parse(await getQuestTodoImpl(deps, { questId: 'q1', todoId: 'keeps-them' }));
+        assert.deepEqual(r.todo.decisions, [{ summary: 'Which database?' }]);
+    });
+});
+
+// ===========================================================================
+// The model-facing contract for decisions
+// ===========================================================================
+
+describe('decision-needed is offered to the model', () => {
+
+    const statusEnums: Array<[string, unknown]> = [
+        ['list', (LIST_QUEST_TODOS_TOOL.inputSchema.properties as any).status],
+        ['create', ((CREATE_QUEST_TODO_TOOL.inputSchema.properties as any).todo.properties).status],
+        ['update', ((UPDATE_QUEST_TODO_TOOL.inputSchema.properties as any).updates.properties).status],
+    ];
+
+    for (const [name, prop] of statusEnums) {
+        test(`the ${name} tool's status enum offers decision-needed`, () => {
+            assert.ok((prop as { enum: string[] }).enum.includes('decision-needed'),
+                'a status the model cannot name is a status it cannot set');
+        });
+    }
+
+    test('create and update both expose the decisions list', () => {
+        for (const props of [
+            ((CREATE_QUEST_TODO_TOOL.inputSchema.properties as any).todo.properties),
+            ((UPDATE_QUEST_TODO_TOOL.inputSchema.properties as any).updates.properties),
+        ]) {
+            const decisions = props.decisions;
+            assert.equal(decisions?.type, 'array');
+            const fields = Object.keys(decisions.items.properties);
+            assert.deepEqual(fields.sort(), ['decision', 'decision_needed', 'summary']);
+            assert.deepEqual(decisions.items.required, ['summary'],
+                'a decision without a summary cannot be identified in the collapsed list');
+        }
+    });
+
+    test('the descriptions tell the model when to use the status', () => {
+        for (const description of [CREATE_QUEST_TODO_DESCRIPTION, UPDATE_QUEST_TODO_DESCRIPTION]) {
+            assert.match(description, /decision-needed/);
+            assert.match(description, /decisions/);
+        }
     });
 });
 
