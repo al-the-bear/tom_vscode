@@ -18,7 +18,7 @@
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { planMainStageDispatch, releaseDecisionNeededItems } from '../queueStep3Utils.js';
+import { planMainStageDispatch, releaseResolvedDecisionItems } from '../queueStep3Utils.js';
 
 /** Terse fixture builder: `t('dsa2', 'not-started', 'Fix the thing')`. */
 function t(id: string, status?: string, title?: string) {
@@ -159,41 +159,89 @@ describe('planMainStageDispatch — a series with unmade decisions', () => {
     });
 });
 
-describe('releaseDecisionNeededItems — restarting the queue', () => {
-    // Restarting the queue retries a blocked item: it goes back to `pending`
-    // and re-enters the dispatch gate, which blocks it again if the decisions
-    // are still open. Nothing else about the item is touched, so an item with
-    // prior repetitions resumes rather than re-sending from the top.
+describe('releaseResolvedDecisionItems — restarting the queue', () => {
+    // A held item is released only once its series has no open decision left.
+    //
+    // Releasing unconditionally looks harmless — the gate would just block the
+    // item again — but it is what made the play button a no-op: the released
+    // item is the first `pending` one in array order, so `sendNext` picks it,
+    // the gate re-blocks it and turns auto-send OFF again. The queue never got
+    // as far as the prompts that had nothing to decide. Releasing only what is
+    // genuinely resolved leaves the blocked item held and lets the rest drain.
+    //
+    // Nothing but `status` is touched, so an item with prior repetitions
+    // resumes on its counters rather than re-sending from the top.
 
-    test('a blocked item goes back to pending', () => {
-        const items = [{ id: 'a', status: 'decision-needed' }];
-        assert.equal(releaseDecisionNeededItems(items), 1);
+    /** Terse fixture: a held queue item walking the `dsa*` series. */
+    function held(id: string, repeatCount: unknown = 'dsa*') {
+        return { id, status: 'decision-needed', repeatCount: repeatCount as string };
+    }
+
+    test('a held item whose decisions are all answered goes back to pending', () => {
+        const items = [held('a')];
+        const released = releaseResolvedDecisionItems(items, [t('dsa1', 'not-started')]);
+        assert.deepEqual(released.map(i => i.id), ['a']);
+        assert.equal(items[0].status, 'pending');
+    });
+
+    test('a held item with an open decision stays held', () => {
+        const items = [held('a')];
+        const released = releaseResolvedDecisionItems(items, [
+            t('dsa1', 'not-started'), t('dsa2', 'decision-needed'),
+        ]);
+        assert.deepEqual(released, []);
+        assert.equal(items[0].status, 'decision-needed');
+    });
+
+    test('only the resolved item of a mixed set is released', () => {
+        const items = [held('a', 'dsa*'), held('b', 'dec*')];
+        const released = releaseResolvedDecisionItems(items, [
+            t('dsa1', 'not-started'), t('dec1', 'decision-needed'),
+        ]);
+        assert.deepEqual(released.map(i => i.id), ['a']);
+        assert.deepEqual(items.map(i => i.status), ['pending', 'decision-needed']);
+    });
+
+    test('an open decision outside the item’s own series does not hold it', () => {
+        // Each item walks its own prefix; another series’ unanswered question
+        // is none of its business.
+        const items = [held('a', 'dsa*')];
+        assert.equal(releaseResolvedDecisionItems(items, [t('other1', 'decision-needed')]).length, 1);
         assert.equal(items[0].status, 'pending');
     });
 
     test('leaves every other status alone', () => {
         const items = [
-            { id: 'a', status: 'staged' },
-            { id: 'b', status: 'decision-needed' },
-            { id: 'c', status: 'sending' },
-            { id: 'd', status: 'sent' },
-            { id: 'e', status: 'error' },
+            { id: 'a', status: 'staged', repeatCount: 'dsa*' },
+            held('b'),
+            { id: 'c', status: 'sending', repeatCount: 'dsa*' },
+            { id: 'd', status: 'sent', repeatCount: 'dsa*' },
+            { id: 'e', status: 'error', repeatCount: 'dsa*' },
         ];
-        assert.equal(releaseDecisionNeededItems(items), 1);
+        assert.deepEqual(releaseResolvedDecisionItems(items, []).map(i => i.id), ['b']);
         assert.deepEqual(items.map(i => i.status), ['staged', 'pending', 'sending', 'sent', 'error']);
     });
 
-    test('releases every blocked item, not only the first', () => {
-        const items = [
-            { id: 'a', status: 'decision-needed' },
-            { id: 'b', status: 'decision-needed' },
-        ];
-        assert.equal(releaseDecisionNeededItems(items), 2);
+    test('an empty todo set releases — never strand an item on a file we cannot read', () => {
+        // No todos means no open decision we know of. The gate then reports
+        // `exhausted` and the item finishes, which is recoverable; holding it
+        // forever is not.
+        const items = [held('a')];
+        assert.equal(releaseResolvedDecisionItems(items, []).length, 1);
+        assert.equal(items[0].status, 'pending');
+    });
+
+    test('a held item without a prefix* repeat count is released', () => {
+        // Defensive: only todo iteration can reach the block, so such an item
+        // is a leftover from an edited repeat count. Nothing can ever resolve
+        // it, so holding it would strand it.
+        const items = [held('a', 3), { id: 'b', status: 'decision-needed', repeatCount: undefined }];
+        assert.deepEqual(releaseResolvedDecisionItems(items, [t('dsa1', 'decision-needed')]).map(i => i.id), ['a', 'b']);
         assert.deepEqual(items.map(i => i.status), ['pending', 'pending']);
     });
 
-    test('reports zero when nothing was blocked', () => {
-        const items = [{ id: 'a', status: 'pending' }];
-        assert.equal(releaseDecisionNeededItems(items), 0);
+    test('reports nothing when no item was held', () => {
+        const items = [{ id: 'a', status: 'pending', repeatCount: 'dsa*' }];
+        assert.deepEqual(releaseResolvedDecisionItems(items, []), []);
     });
 });

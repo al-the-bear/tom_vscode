@@ -501,27 +501,54 @@ export function computeRemovalEffect<T extends { id: string; status: string }>(
     };
 }
 
+/** The part of a queue item that decides whether its decision block is over. */
+export interface DecisionHeldItem {
+    status: string;
+    /** The raw repeat count — a `prefix*` pattern names the series to check. */
+    repeatCount?: number | string;
+}
+
 /**
- * Put every `decision-needed` item back to `pending`, and report how many moved.
+ * Put back to `pending` every `decision-needed` item whose series no longer has
+ * an unanswered todo, and return the ones that moved (so the caller can name
+ * them in the log).
  *
- * Called when the user restarts the queue: the item re-enters the dispatch gate
- * and blocks again if the decisions are still open, so restarting is a *retry*
- * rather than an override. Only `status` is touched, so an item that had already
- * dispatched repetitions resumes on its counters instead of re-sending from the
- * top.
+ * **Why the condition matters.** Releasing every held item unconditionally
+ * reads as harmless — the dispatch gate would simply block it again. It is not:
+ * the released item is typically the *first* `pending` item in array order, so
+ * `sendNext` picks it, the gate re-blocks it and switches auto-send back OFF.
+ * The queue never reaches the prompts that have nothing to decide, and pressing
+ * play looks like it does nothing. Releasing only what is genuinely resolved
+ * leaves the blocked item held and lets the rest of the queue drain.
+ *
+ * An item is released when {@link collectDecisionNeededTodos} finds no waiting
+ * todo — which also covers the cases where nothing *can* resolve it: a repeat
+ * count that is not a `prefix*` pattern, or a todo set that came back empty.
+ * Both are recoverable (the gate reports `exhausted` and the item finishes);
+ * holding such an item forever is not.
+ *
+ * Only `status` is touched, so an item that had already dispatched repetitions
+ * resumes on its counters instead of re-sending from the top.
  *
  * Pure/context-free so it can be unit tested without the vscode-coupled
  * PromptQueueManager (mirrors the `convertStagedToPending` pattern).
  */
-export function releaseDecisionNeededItems(items: Array<{ status: string }>): number {
-    let changed = 0;
+export function releaseResolvedDecisionItems<T extends DecisionHeldItem>(
+    items: readonly T[],
+    todos: readonly TodoIterationSource[],
+): T[] {
+    const released: T[] = [];
     for (const item of items) {
-        if (item.status === DECISION_NEEDED) {
-            item.status = 'pending';
-            changed += 1;
+        if (item.status !== DECISION_NEEDED) {
+            continue;
         }
+        if (collectDecisionNeededTodos(item.repeatCount, todos).length > 0) {
+            continue;
+        }
+        item.status = 'pending';
+        released.push(item);
     }
-    return changed;
+    return released;
 }
 
 export function convertStagedToPending(items: Array<{ status: string }>): number {

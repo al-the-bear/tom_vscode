@@ -31,7 +31,7 @@ import {
 } from '../storage/queueFileStorage';
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
-import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, decideAdvanceAfterCompletion, parseTodoPrefixPattern, planMainStageDispatch, releaseDecisionNeededItems, resolveResendText, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty, type TodoIterationSource } from '../utils/queueStep3Utils';
+import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, decideAdvanceAfterCompletion, parseTodoPrefixPattern, planMainStageDispatch, releaseResolvedDecisionItems, resolveResendText, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty, type TodoIterationSource } from '../utils/queueStep3Utils';
 import { runMainStageWithRefresh } from '../utils/questRefreshDispatch.js';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
 import { mergeQueueReload } from '../utils/queueReloadMergeUtils';
@@ -63,8 +63,9 @@ import type { ChangeSource } from './chatVariablesStore';
  * `'decision-needed'` is the todo-iteration block: the `prefix*` series this
  * item walks contains a todo whose questions the user has not answered, so the
  * item is held rather than run on a guess. Restarting the queue puts it back to
- * `'pending'` (see `releaseDecisionNeededItems`), where it re-enters the same
- * gate and blocks again while the decisions are still open.
+ * `'pending'` once its series has no unanswered todo left (see
+ * `releaseResolvedDecisionItems`); while the decisions are still open the item
+ * stays held and the rest of the queue runs past it.
  */
 export type QueuedPromptStatus = 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'waiting' | 'retry' | 'decision-needed';
 export type QueuedPromptType = 'normal' | 'timed' | 'reminder';
@@ -1559,17 +1560,6 @@ export class PromptQueueManager {
             return;
         }
 
-        // Restarting retries the items held on an open decision: back to
-        // 'pending', where they re-enter the same gate and block again if the
-        // decisions are still open. Only `status` is touched, so an item that
-        // had already dispatched repetitions resumes on its counters.
-        const released = releaseDecisionNeededItems(this._items);
-        if (released > 0) {
-            logQueue(`Auto-send re-enabled: releasing ${released} item(s) held on a decision back to pending`);
-            this.persist();
-            this._onDidChange.fire();
-        }
-
         // Re-enabling auto-send. Resume an item that was paused
         // mid-flight (status === 'sending' with prior progress)
         // before falling through to `sendNext` for the next pending
@@ -1586,10 +1576,34 @@ export class PromptQueueManager {
             return;
         }
 
-        // No paused item to resume — start the next pending item.
-        if (this._items.some(i => i.status === 'pending') && !this._items.some(i => i.status === 'sending')) {
+        // No paused item to resume — start the next pending item. A held
+        // `decision-needed` item counts as work: `sendNext` releases it first
+        // if its decisions have been answered in the meantime.
+        const hasWork = this._items.some(i => i.status === 'pending' || i.status === 'decision-needed');
+        if (hasWork && !this._items.some(i => i.status === 'sending')) {
             void this.sendNext();
         }
+    }
+
+    /**
+     * Put back to `pending` the items whose decision block is over, just before
+     * picking the next one to send.
+     *
+     * Held items are re-checked here rather than when auto-send is switched on,
+     * because the answer can arrive at any point — while the queue is draining
+     * other prompts, not only while it is paused. Reading the todos on every
+     * drain step is cheap next to dispatching a prompt, and the alternative
+     * (release on resume) re-blocked the item immediately and switched auto-send
+     * back off, which is what made the play button look like a no-op.
+     */
+    private _releaseResolvedDecisionItems(): void {
+        if (!this._items.some(i => i.status === 'decision-needed')) { return; }
+        const questId = this.activeQuestId();
+        const released = releaseResolvedDecisionItems(this._items, questId ? readQuestTodoEntries(questId) : []);
+        if (released.length === 0) { return; }
+        logQueue(`Decisions answered — releasing ${released.map(i => i.id).join(', ')} back to pending`);
+        this.persist();
+        this._onDidChange.fire();
     }
 
     /**
@@ -2733,6 +2747,7 @@ export class PromptQueueManager {
             logQueue(`sendNext: held — deferred queue start until ${this._queueStartAt}`);
             return;
         }
+        this._releaseResolvedDecisionItems();
         const next = this._items.find(i => i.status === 'pending');
         if (!next) {
             logQueue('sendNext: no pending items');
