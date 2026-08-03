@@ -1,6 +1,6 @@
 // D4rt Bridge - Generated file, do not edit
 // Sources: 34 files
-// Generated: 2026-07-18T07:12:50.608868
+// Generated: 2026-08-03T11:46:42.790288
 
 // ignore_for_file: unused_import, deprecated_member_use, prefer_function_declarations_over_variables, implementation_imports, sort_child_properties_last, non_constant_identifier_names, avoid_function_literals_in_foreach_calls, invalid_use_of_protected_member, unnecessary_non_null_assertion, invalid_use_of_visible_for_testing_member, unnecessary_cast, unused_local_variable, no_leading_underscores_for_local_identifiers, prefer_is_empty, unnecessary_question_mark, unreachable_switch_case, unintended_html_in_doc_comment, empty_constructor_bodies, prefer_const_constructors_in_immutables, prefer_final_fields, unused_field, must_call_super, no_logic_in_create_state, use_key_in_widget_constructors, annotate_overrides, non_const_argument_for_const_parameter, unnecessary_import
 
@@ -735,7 +735,7 @@ class AllBridge {
   /// Fed to `BridgedClass.registerSupertypes` so interpreted subclasses
   /// of bridged classes pass `is`/subtype checks against bridged
   /// ancestors and the interface-proxy supertype walk resolves up the
-  /// chain (MCI#1 / A1).
+  /// chain.
   static Map<String, List<String>> classSupertypes() {
     return {
       'VSCodeBridgeServer': ['VSCodeAdapter'],
@@ -1085,6 +1085,9 @@ class AllBridge {
   static List<({String source, String target, Set<String>? show, Set<String>? hide})>
   bridgeReExports() {
     return [
+      (source: 'package:tom_vscode_bridge/tom_vscode_bridge.dart', target: 'package:tom_vscode_bridge/bridge_server.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_bridge/tom_vscode_bridge.dart', target: 'package:tom_vscode_bridge/script_api.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_bridge/tom_vscode_bridge.dart', target: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', show: null, hide: null),
       (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_adapter.dart', show: null, hide: null),
       (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_bridge_client.dart', show: null, hide: null),
       (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_bridge_adapter.dart', show: null, hide: null),
@@ -1141,7 +1144,7 @@ class AllBridge {
       );
     }
 
-    // MCI#1 / A1: Register the flattened native supertype table so
+    // Register the flattened native supertype table so
     // interpreted subclasses pass subtype checks against bridged
     // ancestors. Idempotent — safe to call per barrel.
     BridgedClass.registerSupertypes(classSupertypes());
