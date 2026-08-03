@@ -126,7 +126,9 @@ export class TomScriptingBridgeHandler {
     }
 
     private async todoListFiles(questId: string): Promise<any> {
-        const files = questTodo.listTodoFiles(questId);
+        // Enumeration primitive — scripts get the full picture, including the
+        // archive/delete siblings; the aggregating reads stay live-only.
+        const files = questTodo.listTodoFiles(questId, questTodo.ALL_TODO_FILES);
         return { files, questId };
     }
 

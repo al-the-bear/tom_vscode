@@ -315,7 +315,9 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             // Determine the default file — prefer persisted, then primary, then single-file
             let defaultFile = '';
             if (resolvedQuest) {
-                const questFiles = questTodo.listTodoFiles(resolvedQuest);
+                // Same scope as the picker — a persisted selection pointing at
+                // an archive file must still be recognised on reload.
+                const questFiles = questTodo.listTodoFiles(resolvedQuest, questTodo.ALL_TODO_FILES);
                 // Use persisted file if it still exists in this quest
                 if (saved.file && saved.file !== 'all' && saved.questId === resolvedQuest && questFiles.indexOf(saved.file) >= 0) {
                     defaultFile = saved.file;
@@ -1485,7 +1487,9 @@ function _sendFileList(questId: string, post: (m: any) => void): void {
             // For all-quests, show quest IDs as pseudo-files
             files = listQuestIds().map(q => q + '/');
         } else {
-            files = questTodo.listTodoFiles(questId);
+            // The picker is how the user BROWSES to the archive/delete
+            // siblings, so it lists every todo file of the quest.
+            files = questTodo.listTodoFiles(questId, questTodo.ALL_TODO_FILES);
         }
         post({ type: 'qtFiles', files, questId });
     } catch { /* quest folder may not exist */ }
@@ -1774,7 +1778,7 @@ function _resolveDeleteSourcePath(questId: string, todoId: string, sourceFile?: 
         // Fallback: scan all quest files
         if (questId && !questId.startsWith('__')) {
             const folder = WsPaths.ai('quests', questId) || path.join(wsRoot, '_ai', 'quests', questId);
-            for (const fileName of questTodo.listTodoFiles(questId)) {
+            for (const fileName of questTodo.listTodoFiles(questId, questTodo.ALL_TODO_FILES)) {
                 const fp = path.join(folder, fileName);
                 if (questTodo.findTodoByIdInFile(fp, todoId)) {
                     return fp;

@@ -199,7 +199,7 @@ Prompts can repeat multiple times with customizable prefix and suffix text:
 - **repeatCount**: Total number of times to send the prompt. Accepts three forms:
   - A **plain integer** (e.g. `3`).
   - A **chat-variable name** — resolved to its numeric value at dispatch time (not at enqueue), so the count reflects the variable's value when the item is actually processed.
-  - A **`prefix*` pattern** (e.g. `tod*`) — resolved at dispatch to the highest number among the active quest's todo ids that match `prefix` followed by digits. Trailing non-digit characters on the id are ignored, so `tod3`, `tod3b`, and `tod3-review` all count as `3`. Empty prefixes or non-matching patterns fall back to `1`.
+  - A **`prefix*` pattern** (e.g. `tod*`) — resolved at dispatch to the highest number among the active quest's todo ids that match `prefix` followed by digits. Trailing non-digit characters on the id are ignored, so `tod3`, `tod3b`, and `tod3-review` all count as `3`. Empty prefixes or non-matching patterns fall back to `1`. Only the quest's **live** todo files are scanned — todos in the `-archived` / `-deleted` siblings do not contribute to the count.
 - **repeatIndex**: Current iteration (0-based internally, displayed 1-based)
 - **repeatPrefix / repeatSuffix**: Template text inserted before/after each repetition, supporting placeholders `${repeatNumber}` (1-based), `${repeatIndex}` (0-based), `${repeatCount}` (total)
 

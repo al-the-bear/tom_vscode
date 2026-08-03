@@ -233,7 +233,10 @@ async function _sendContextData(): Promise<void> {
         currentTodoFile = store.todoFile || '';
     } catch { /* */ }
 
-    // Scan ALL quests for *.todo.yaml files (same filter as questTodoManager.listTodoFiles)
+    // Scan ALL quests for *.todo.yaml files. This is a picker, so — unlike
+    // the live-only default of questTodoManager.listTodoFiles — it lists the
+    // `-archived` / `-deleted` siblings too: binding ${tomAi.todoFile} to an
+    // archive file is a legitimate, explicit choice.
     if (wsRoot) {
         // Also include workspace-level todo file
         const wsToDoFile = path.join(wsRoot, 'workspace.todo.yaml');

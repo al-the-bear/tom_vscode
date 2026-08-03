@@ -20,6 +20,7 @@ import { Document, parseDocument, YAMLMap, YAMLSeq, Scalar, isMap, isSeq } from 
 import { WsPaths } from '../utils/workspacePaths';
 import { scanWorkspaceProjectsByDetectors } from '../utils/projectDetector';
 import { forceBlockStyle } from '../utils/todoArchive';
+import { ALL_TODO_FILES, matchesTodoFileScope, type TodoFileScope } from '../utils/todoArchiveNames';
 
 // Archive/delete move operations (TRA01) — implemented as pure fs+yaml
 // utilities so they are unit-testable; surfaced here as manager API.
@@ -33,9 +34,14 @@ export {
     type TodoMoveOptions,
 } from '../utils/todoArchive';
 export {
+    ALL_TODO_FILES,
     archivedTodoFileName,
     deletedTodoFileName,
     isArchivedOrDeletedTodoFile,
+    isArchivedTodoFile,
+    isDeletedTodoFile,
+    matchesTodoFileScope,
+    type TodoFileScope,
 } from '../utils/todoArchiveNames';
 
 // ============================================================================
@@ -100,12 +106,18 @@ function questFolder(questId: string): string {
     return WsPaths.ai('quests', questId) || path.join(getWorkspaceRoot(), '_ai', 'quests', questId);
 }
 
-/** Return all todo YAML files for a quest (persistent + session). */
-export function listTodoFiles(questId: string): string[] {
+/**
+ * Return the todo YAML files of a quest, scoped by `scope` (TRA13).
+ *
+ * By default this lists the LIVE todo files only — the quest and session
+ * files. The `-archived` / `-deleted` terminal siblings are retired and
+ * are excluded unless the caller asks for them; see `TodoFileScope`.
+ */
+export function listTodoFiles(questId: string, scope?: TodoFileScope): string[] {
     const folder = questFolder(questId);
     if (!fs.existsSync(folder)) { return []; }
     return fs.readdirSync(folder).filter(f =>
-        f.endsWith('.todo.yaml'),
+        f.endsWith('.todo.yaml') && matchesTodoFileScope(f, scope),
     ).sort();
 }
 
@@ -389,10 +401,13 @@ export function updateTodoInFile(
 }
 
 /**
- * Read todos from all files in a quest folder.
+ * Read todos from the quest's live todo files (see `listTodoFiles`).
+ *
+ * Pass `ALL_TODO_FILES` to include archived/deleted todos — needed when
+ * resolving a todo by id, not when counting or iterating "the todos".
  */
-export function readAllTodos(questId: string): QuestTodoItem[] {
-    const files = listTodoFiles(questId);
+export function readAllTodos(questId: string, scope?: TodoFileScope): QuestTodoItem[] {
+    const files = listTodoFiles(questId, scope);
     const folder = questFolder(questId);
     const all: QuestTodoItem[] = [];
     for (const f of files) {
@@ -494,7 +509,9 @@ export function listWorkspaceTodoFiles(): string[] {
  * Returns the item with `_sourceFile` set, or undefined.
  */
 export function findTodoById(questId: string, todoId: string): QuestTodoItem | undefined {
-    return readAllTodos(questId).find(t => t.id === todoId);
+    // Resolving an id must still reach a todo that was archived or deleted —
+    // otherwise the caller cannot tell "no such todo" from "retired todo".
+    return readAllTodos(questId, ALL_TODO_FILES).find(t => t.id === todoId);
 }
 
 /**
@@ -572,9 +589,10 @@ export function updateTodo(
     todoId: string,
     updates: Partial<Omit<QuestTodoItem, 'id' | '_sourceFile'>>,
 ): QuestTodoItem | undefined {
-    // Find which file contains this todo
+    // Find which file contains this todo — including retired files, so an
+    // archived todo can still be edited rather than silently not found.
     const folder = questFolder(questId);
-    for (const fileName of listTodoFiles(questId)) {
+    for (const fileName of listTodoFiles(questId, ALL_TODO_FILES)) {
         const filePath = path.join(folder, fileName);
         const doc = loadDocument(filePath);
         const todosNode = doc.get('todos', true);
@@ -679,7 +697,8 @@ export function deleteTodo(
 
     if (questId && !questId.startsWith('__')) {
         const folder = questFolder(questId);
-        for (const fileName of listTodoFiles(questId)) {
+        // Retired files included: purging a todo from the archive is valid.
+        for (const fileName of listTodoFiles(questId, ALL_TODO_FILES)) {
             if (deleteFromFile(path.join(folder, fileName))) return true;
         }
     }
@@ -710,8 +729,9 @@ export function moveTodo(
     }
     const folder = questFolder(questId);
 
-    // 1. Find and remove from source
-    for (const fileName of listTodoFiles(questId)) {
+    // 1. Find and remove from source — retired files included, so moving a
+    //    todo OUT of the archive (un-archiving) works.
+    for (const fileName of listTodoFiles(questId, ALL_TODO_FILES)) {
         const filePath = path.join(folder, fileName);
         const doc = loadDocument(filePath);
         const todosNode = doc.get('todos', true);
@@ -749,8 +769,9 @@ export function moveToWorkspaceTodo(
     if (!wsRoot) return undefined;
     const folder = questFolder(questId);
 
-    // 1. Find and remove from source
-    for (const fileName of listTodoFiles(questId)) {
+    // 1. Find and remove from source — retired files included, so moving a
+    //    todo OUT of the archive (un-archiving) works.
+    for (const fileName of listTodoFiles(questId, ALL_TODO_FILES)) {
         const filePath = path.join(folder, fileName);
         const doc = loadDocument(filePath);
         const todosNode = doc.get('todos', true);
