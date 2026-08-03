@@ -26,8 +26,7 @@ function formatRepeatLabel(repeatCountRaw, repeatIndex, resolvedRepeatCount) {
 }
 
 function renderEntry(item, idx) {
-  var safeStatus = (item.status === 'staged' || item.status === 'pending' || item.status === 'sending' || item.status === 'sent' || item.status === 'error' || item.status === 'waiting' || item.status === 'retry' || item.status === 'decision-needed')
-    ? item.status : 'staged';
+  var safeStatus = normalizeQueueStatus(item.status);
   var queuePos = idx + 1;
   var typeIconClass = item.type === 'timed' ? 'codicon-watch' : item.type === 'reminder' ? 'codicon-bell' : 'codicon-comment';
   var cls = [safeStatus];

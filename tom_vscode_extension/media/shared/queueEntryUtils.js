@@ -39,6 +39,22 @@ function reminderTimeoutOptions(selectedMinutes) {
   return rendered || '<option value="60">60 min</option>';
 }
 
+// The queue statuses the webview knows how to render (QueuedPromptStatus in
+// src/types). Anything else — an older persisted state, a typo, a status added
+// host-side but not here — falls back to `staged`, the one state that is always
+// safe to show and act on.
+//
+// ONE list, used by both the panel's normalizeState() and renderEntry(): they
+// used to carry a copy each, and when `decision-needed` was added only one copy
+// was updated. The normaliser then rewrote every blocked item to `staged`
+// before render, so the "Decision needed" count read 0 and the blocked item
+// sorted to the bottom of the list instead of the top.
+var QUEUE_STATUSES = ['staged', 'pending', 'sending', 'sent', 'error', 'waiting', 'retry', 'decision-needed'];
+
+function normalizeQueueStatus(status) {
+  return QUEUE_STATUSES.indexOf(status) >= 0 ? status : 'staged';
+}
+
 function statusSortRank(status) {
   // The states that STOP the queue cluster at the very top so a halted queue
   // is immediately visible: a `decision-needed` block, an exhausted `error`, a

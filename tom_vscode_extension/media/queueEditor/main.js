@@ -137,13 +137,10 @@ function normalizeState() {
     .filter(function(item) { return !!item && typeof item === 'object'; })
     .map(function(item, index) {
       const safeId = (typeof item.id === 'string' && item.id) ? item.id : ('queue-item-' + index);
-      const safeStatus = (item.status === 'staged' || item.status === 'pending' || item.status === 'sending' || item.status === 'sent' || item.status === 'error' || item.status === 'waiting' || item.status === 'retry')
-        ? item.status
-        : 'staged';
       return {
         ...item,
         id: safeId,
-        status: safeStatus,
+        status: normalizeQueueStatus(item.status),
         template: typeof item.template === 'string' ? item.template : '(None)',
         originalText: typeof item.originalText === 'string' ? item.originalText : '',
         followUps: Array.isArray(item.followUps) ? item.followUps : [],
