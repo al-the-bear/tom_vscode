@@ -26,12 +26,12 @@
  */
 
 import type { UserPrompter, PickerItem } from '../tools/user-interaction-tools';
+import { pickWithFreeTextOption, OTHER_OPTION_LABEL } from './free-text-picker';
 
 /** The built-in tool name the SDK uses (no `mcp__` prefix on built-ins). */
 export const ASK_USER_QUESTION_TOOL_NAME = 'AskUserQuestion';
 
-/** Label appended to every question's option list for free-text entry. */
-export const OTHER_OPTION_LABEL = 'Other…';
+export { OTHER_OPTION_LABEL };
 
 export interface AskUserQuestionOption {
     label: string;
@@ -178,51 +178,32 @@ export async function collectInteractiveAnswers(
             description: o.description,
             value: o.label,
         }));
-        items.push({ label: OTHER_OPTION_LABEL, value: OTHER_OPTION_LABEL });
+        const title = q.header || 'Question';
 
-        const picked = await prompter.showQuickPick(items, {
-            title: q.header || 'Question',
-            placeHolder: q.question,
-            canPickMany: q.multiSelect,
-            matchOnDescription: true,
-            ignoreFocusOut: true,
-        });
-        // `undefined` is a dismissal; a symbol is `QUICK_PICK_TIMED_OUT`. Either
-        // way we have no answer, so fall back to the template. (No `timeoutMs`
-        // is requested here, so the timed-out case is unreachable in practice —
-        // the check exists so it can never be mistaken for a picked item.) The
-        // symbol is matched by type rather than imported by value, because
-        // importing it would pull `vscode` into this deliberately runtime-pure
-        // module.
-        if (picked === undefined || typeof picked === 'symbol') {
+        const picked = await pickWithFreeTextOption(
+            prompter,
+            items,
+            {
+                title,
+                placeHolder: q.question,
+                canPickMany: q.multiSelect,
+                matchOnDescription: true,
+                ignoreFocusOut: true,
+            },
+            { prompt: q.question, title },
+        );
+        // Dismissal and timeout both mean "no answer", so both fall back to the
+        // template. (No `timeoutMs` is requested here, so the timed-out case is
+        // unreachable in practice — handling it keeps it from ever being
+        // mistaken for a pick.)
+        if (picked.kind !== 'picked') {
             return null;
         }
-
-        const pickedArr = Array.isArray(picked) ? picked : [picked];
-        const selections: string[] = [];
-        let needsFreeText = false;
-        for (const p of pickedArr) {
-            if (p.value === OTHER_OPTION_LABEL) {
-                needsFreeText = true;
-            } else {
-                selections.push(p.value);
-            }
-        }
-        if (needsFreeText) {
-            const free = await prompter.showInputBox({
-                prompt: q.question,
-                placeHolder: 'Type your answer…',
-                title: q.header || 'Question',
-                ignoreFocusOut: true,
-            });
-            if (free === undefined) {
-                return null; // dismissed the free-text box → autonomous fallback
-            }
-            if (free.trim().length > 0) {
-                selections.push(free.trim());
-            }
-        }
-        answers.push({ header: q.header, question: q.question, selections });
+        answers.push({
+            header: q.header,
+            question: q.question,
+            selections: picked.selections.map((s) => s.value),
+        });
     }
     return formatInteractiveAnswers(answers);
 }

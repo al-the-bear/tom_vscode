@@ -41,8 +41,10 @@ import {
     type PickerItem,
     type QuickPickOpts,
     type QuickPickResult,
+    type InputBoxOpts,
     type AskUserPickerInput,
 } from '../user-interaction-tools.js';
+import { OTHER_OPTION_LABEL } from '../../services/free-text-picker.js';
 import type { QuestionLogEntry } from '../../utils/questionsLogFormat.js';
 
 // ===========================================================================
@@ -56,23 +58,33 @@ interface StubPrompter extends UserPrompter {
     /** What `showQuickPick` returns next. */
     nextPick: QuickPickResult;
     throwOnPick?: Error;
+    /** Options every `showInputBox` call was made with, in order. */
+    inputCalls: InputBoxOpts[];
+    /** What `showInputBox` returns next (the "Other…" free-text answer). */
+    nextInput: string | undefined;
 }
 
 function makePrompter(): StubPrompter {
     const p: StubPrompter = {
         pickerCalls: [],
         nextPick: undefined,
+        inputCalls: [],
+        nextInput: undefined,
         async showQuickPick(items, opts) {
             p.pickerCalls.push({ items, opts });
             if (p.throwOnPick) { throw p.throwOnPick; }
             return p.nextPick;
         },
-        // Not exercised by the picker tests, but required by the
-        // `UserPrompter` contract (the Agent-SDK question interceptor uses it).
-        async showInputBox() { return undefined; },
+        async showInputBox(opts) {
+            p.inputCalls.push(opts);
+            return p.nextInput;
+        },
     };
     return p;
 }
+
+/** The picked item for the appended free-text entry. */
+const OTHER: PickerItem = { label: OTHER_OPTION_LABEL, value: OTHER_OPTION_LABEL };
 
 // ===========================================================================
 // `tomAi_askUserPicker`
@@ -104,7 +116,13 @@ describe('askUserPickerImpl', () => {
         });
         assert.deepEqual(
             p.pickerCalls[0].items.map((i) => ({ label: i.label, value: i.value })),
-            [{ label: 'A', value: 'A' }, { label: 'B', value: 'b-val' }],
+            [
+                { label: 'A', value: 'A' },
+                { label: 'B', value: 'b-val' },
+                // Every picker ends with the free-text entry — see the
+                // "free-text answers" block below.
+                { label: OTHER_OPTION_LABEL, value: OTHER_OPTION_LABEL },
+            ],
         );
     });
 
@@ -212,6 +230,103 @@ describe('askUserPickerImpl', () => {
         const r = JSON.parse(await askUserPickerImpl(p, { items: ['a'] }));
         assert.equal(r.dismissed, true);
         assert.equal(r.selected, null);
+    });
+});
+
+// ===========================================================================
+// Free-text answers — the offered options are a guess, not the vocabulary
+// ===========================================================================
+
+describe('askUserPickerImpl — free-text answers', () => {
+
+    test('an "Other…" entry is appended to every item list', async () => {
+        const p = makePrompter();
+        p.nextPick = { label: 'alpha', value: 'alpha' };
+        await askUserPickerImpl(p, { items: ['alpha', 'beta'] });
+        assert.deepEqual(
+            p.pickerCalls[0].items.map((i) => i.label),
+            ['alpha', 'beta', OTHER_OPTION_LABEL],
+        );
+    });
+
+    test('a caller that already offers "Other…" does not get a duplicate', async () => {
+        const p = makePrompter();
+        p.nextPick = { label: 'alpha', value: 'alpha' };
+        await askUserPickerImpl(p, { items: ['alpha', OTHER_OPTION_LABEL] });
+        assert.deepEqual(
+            p.pickerCalls[0].items.map((i) => i.label),
+            ['alpha', OTHER_OPTION_LABEL],
+        );
+    });
+
+    test('picking "Other…" opens an input box and returns what the user typed', async () => {
+        const p = makePrompter();
+        p.nextPick = OTHER;
+        p.nextInput = '  SQLite  ';
+        const r = JSON.parse(await askUserPickerImpl(p, {
+            items: ['Postgres', 'MySQL'],
+            prompt: 'Which database?',
+            title: 'Database',
+        }));
+        assert.equal(p.inputCalls.length, 1, 'the free-text box was shown');
+        assert.equal(p.inputCalls[0].prompt, 'Which database?');
+        assert.equal(p.inputCalls[0].title, 'Database');
+        assert.equal(p.inputCalls[0].ignoreFocusOut, true);
+        assert.equal(r.dismissed, false);
+        // Trimmed, and it becomes both label and value — there is no
+        // caller-side vocabulary for an answer the caller did not foresee.
+        assert.deepEqual(r.selected, { label: 'SQLite', value: 'SQLite' });
+    });
+
+    test('no input box is shown when the user picks a listed option', async () => {
+        const p = makePrompter();
+        p.nextPick = { label: 'Postgres', value: 'pg' };
+        await askUserPickerImpl(p, { items: ['Postgres'] });
+        assert.equal(p.inputCalls.length, 0);
+    });
+
+    test('multi-select: the typed answer joins the ticked options', async () => {
+        const p = makePrompter();
+        p.nextPick = [{ label: 'A', value: 'a-val' }, OTHER];
+        p.nextInput = 'C';
+        const r = JSON.parse(await askUserPickerImpl(p, {
+            items: ['A', 'B'], canPickMany: true,
+        }));
+        assert.deepEqual(r.selected, [
+            { label: 'A', value: 'a-val' },
+            { label: 'C', value: 'C' },
+        ]);
+    });
+
+    test('dismissing the free-text box dismisses the whole question', async () => {
+        // A half-answer is indistinguishable from a deliberate one, so the
+        // caller gets a dismissal rather than the options ticked so far.
+        const p = makePrompter();
+        p.nextPick = [{ label: 'A', value: 'A' }, OTHER];
+        p.nextInput = undefined;
+        const r = JSON.parse(await askUserPickerImpl(p, { items: ['A'], canPickMany: true }));
+        assert.equal(r.dismissed, true);
+        assert.equal(r.selected, null);
+    });
+
+    test('a blank free-text answer is an answer with nothing in it, not a pick', async () => {
+        const p = makePrompter();
+        p.nextPick = OTHER;
+        p.nextInput = '   ';
+        const r = JSON.parse(await askUserPickerImpl(p, { items: ['A'] }));
+        assert.equal(r.selected, null);
+    });
+
+    test('the typed answer is what lands in the questions journal', async () => {
+        const p = makePrompter();
+        p.nextPick = OTHER;
+        p.nextInput = 'DuckDB';
+        const logged: QuestionLogEntry[] = [];
+        await askUserPickerImpl(p, { items: ['Postgres'], prompt: 'Which database?' }, {
+            log: (e) => logged.push(e),
+        });
+        assert.equal(logged.length, 1);
+        assert.equal(logged[0].answer, 'DuckDB');
     });
 });
 

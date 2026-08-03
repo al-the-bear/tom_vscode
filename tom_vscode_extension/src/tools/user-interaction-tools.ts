@@ -13,6 +13,15 @@
  *     always returns an array for the multi-select case (even when the
  *     user picked nothing — which is distinct from dismissing the picker).
  *
+ * ## Free-text answers
+ *
+ *   - The offered items are the caller's guess at the answer, and the real
+ *     answer is regularly none of them. Every picker therefore ends with an
+ *     "Other…" entry that opens a free-text box
+ *     (`services/free-text-picker.ts`, shared with the Agent-SDK question
+ *     interceptor). `selected.value` may consequently be text the caller never
+ *     offered — that is the point, not a violation.
+ *
  * ## Blocking + cancellation behaviour
  *
  *   - The picker is **blocking**: it awaits user input and resolves only when
@@ -36,6 +45,7 @@ import { resolveAskTimeoutMs } from '../utils/askTimeout';
 import { QuestionLogEntry } from '../utils/questionsLogFormat';
 import { appendQuestionLogEntry } from '../services/questionsLog';
 import { readChatQuestionsConfig } from '../handlers/chatQuestions-config';
+import { pickWithFreeTextOption, OTHER_OPTION_LABEL } from '../services/free-text-picker';
 
 // ===========================================================================
 // Narrow dep (the only seam between vscode and the impls)
@@ -187,37 +197,39 @@ export async function askUserPickerImpl(
     };
 
     try {
-        const result = await prompter.showQuickPick(items, {
-            placeHolder: input.prompt,
-            title: input.title,
-            canPickMany: multiSelect,
-            matchOnDescription: input.matchOnDescription ?? true,
-            ignoreFocusOut: true,
-            timeoutMs: resolveAskTimeoutMs(deps.ceilingMinutes, input.timeoutMinutes),
-        });
-        if (result === QUICK_PICK_TIMED_OUT) {
+        const result = await pickWithFreeTextOption(
+            prompter,
+            items,
+            {
+                placeHolder: input.prompt,
+                title: input.title,
+                canPickMany: multiSelect,
+                matchOnDescription: input.matchOnDescription ?? true,
+                ignoreFocusOut: true,
+                timeoutMs: resolveAskTimeoutMs(deps.ceilingMinutes, input.timeoutMinutes),
+            },
+            { prompt: input.prompt, title: input.title },
+        );
+        if (result.kind === 'timedOut') {
             journal('timeout', '_(timed out — nobody answered)_');
             return ok({ dismissed: false, timedOut: true, multiSelect, selected: null });
         }
-        if (result === undefined) {
+        if (result.kind === 'dismissed') {
             journal('cancel', '_(dismissed without choosing)_');
             return ok({ dismissed: true, timedOut: false, multiSelect, selected: null });
         }
         if (multiSelect) {
-            // VS Code returns [] when the user pressed OK without selecting
-            // anything — distinct from dismissal.  Pass the empty array
-            // through faithfully.
-            const arr = Array.isArray(result) ? result : [result];
-            const selected: SelectedItemOut[] = arr.map((r) => ({ label: r.label, value: r.value }));
+            // The user may press OK without ticking anything — an empty array,
+            // distinct from dismissal. Pass it through faithfully.
+            const selected: SelectedItemOut[] = result.selections.map((r) => ({ label: r.label, value: r.value }));
             journal('vscode', selected.map((s) => s.label).join(', ') || '_(nothing selected)_');
             return ok({ dismissed: false, timedOut: false, multiSelect: true, selected });
         }
-        // Single-select: VS Code returns a single item (never an array
-        // when `canPickMany: false`).  Defensive flatten anyway.
-        const chosen = Array.isArray(result) ? result[0] : result;
+        const chosen = result.selections[0];
         if (!chosen) {
-            // Defensive: if the prompter handed us an empty array on single-select
-            // (out of contract), treat as dismissed.
+            // Nothing to report: either the prompter handed us an empty
+            // single-select (out of contract), or the user took "Other…" and
+            // submitted a blank box.
             journal('cancel', '_(dismissed without choosing)_');
             return ok({ dismissed: true, timedOut: false, multiSelect: false, selected: null });
         }
@@ -231,6 +243,12 @@ export async function askUserPickerImpl(
 
 export const ASK_USER_PICKER_DESCRIPTION =
     'Show a VS Code QuickPick and let the user choose one or more items. ' +
+    `An "${OTHER_OPTION_LABEL}" entry is appended to your list automatically — do NOT ` +
+    'add one yourself. Taking it opens a free-text box, so the user can always ' +
+    'answer in their own words. Consequence: `selected.value` may be text that ' +
+    'is not among the `items` you offered (for a free-text answer `label` and ' +
+    '`value` are both the typed text). Never assume the answer is one of your ' +
+    'options. ' +
     '**BLOCKING** — awaits the user, and by default waits **indefinitely**; ' +
     'this works the same for a prompt running in the prompt queue. Set the ' +
     'optional `timeoutMinutes` to give up after a while and continue on your ' +

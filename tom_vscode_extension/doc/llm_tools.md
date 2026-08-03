@@ -291,6 +291,8 @@ Two-tier: `shared/` (cross-quest) and `{quest}/` (per-quest).
 | `tomAi_askUser` | **THE** way to ask the user and get an answer. Blocking: asks up to 15 questions in a webview + Telegram and returns the user's verbatim reply. Waits **indefinitely** by default — the block *is* the pause, so a prompt running in the queue holds there until the user answers. Pass `timeoutMinutes` to continue automatically instead. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_askUserPicker` | `showQuickPick` selection — requires a human. Same indefinite-by-default wait and optional `timeoutMinutes`. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 
+**The picker always allows a free-text answer.** An **"Other…"** entry is appended to `items` automatically (`src/services/free-text-picker.ts`); taking it opens an input box and the typed text becomes the selection, with `label` and `value` both set to it. A list of options is a guess about what the answer might be, and the real answer is regularly none of them — so `selected.value` may be text that was never among the offered items, and callers must not assume otherwise. The Agent SDK's built-in `AskUserQuestion` interceptor uses the same affordance.
+
 Both log to the quest's **Questions** journal (`questions.<quest>.md`, @WS → Logs → Questions): the question as asked and the answer as given, or the fact that the wait timed out.
 
 ### 4.19 Planning and delegation
