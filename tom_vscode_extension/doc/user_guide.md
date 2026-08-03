@@ -233,6 +233,26 @@ The queue uses RequestId-based answer file matching:
 | Auto-pause | On | Pause auto-send when queue empties |
 | Auto-continue | Off | Auto-continue processing after receiving an answer |
 
+### Pause after this
+
+Every queue item carries a **pause icon** in its header. Clicking it arms
+"pause after this" and the icon switches to an inverted (white-on-black)
+state so the armed item is unmistakable at a glance. Click again to disarm.
+
+The armed item still runs to completion — all pre-prompts, every repetition of
+its main prompt, and all follow-ups. Only *after* its last stage does the queue
+stop: auto-send flips off and the next pending item is not started. Items that
+repeat only once behave the same way.
+
+The hold is honoured on every path an item can finish on, including a manual
+**Continue** on the item and a resend — an item never slips past the pause
+because of *how* it happened to finish.
+
+The flag stays on the item rather than being consumed, so re-staging and
+sending it again pauses the queue again. Clear it with the same button; it
+remains visible (inverted) on a finished item precisely so a leftover flag
+cannot hide.
+
 ### Watchdog and Health Check
 
 A background watchdog runs every 60 seconds to ensure queue reliability:
@@ -249,7 +269,7 @@ Open with `Ctrl+Shift+6` or `@T: Open Prompt Queue`. The editor provides:
 - **Toolbar**: Auto-send, Auto-start, Auto-pause, Auto-continue toggles, Restart Queue button
 - **Entry list**: Per-item cards with status color coding, type badges, progress indicators
 - **Staged item form**: Template, repeat count, answer wait minutes, repeat prefix/suffix, pre-prompts
-- **Per-item controls**: Preview, send now, move up/down, delete, toggle reminder
+- **Per-item controls**: Preview, send now, move up/down, delete, toggle reminder, pause after this
 
 ## 5) Timed Requests
 

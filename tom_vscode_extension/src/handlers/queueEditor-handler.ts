@@ -550,6 +550,9 @@ async function handleMessage(msg: any): Promise<void> {
         case 'toggleReminder':
             qm.updateItemReminder(msg.id, { reminderEnabled: msg.enabled });
             break;
+        case 'setPauseAfter':
+            qm.setPauseAfter(msg.id, !!msg.pauseAfter);
+            break;
         case 'setItemStatus':
           if (msg.status === 'staged' || msg.status === 'pending') {
             qm.setStatus(msg.id, msg.status);

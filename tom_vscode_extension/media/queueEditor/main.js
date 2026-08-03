@@ -396,6 +396,7 @@ function retryRetryingNow(id) { vscode.postMessage({ type: 'retryRetryingNow', i
 function stopRetrying(id) { vscode.postMessage({ type: 'stopRetrying', id }); }
 function setQueueStartDelay(minutes) { vscode.postMessage({ type: 'setQueueStartDelay', minutes: parseInt(String(minutes), 10) || 0 }); }
 function toggleReminder(id, enabled) { vscode.postMessage({ type: 'toggleReminder', id, enabled }); }
+function setPauseAfter(id, pauseAfter) { vscode.postMessage({ type: 'setPauseAfter', id, pauseAfter }); }
 function openTemplateEditor() { vscode.postMessage({ type: 'openTemplateEditor' }); }
 function openQueueTemplates() { vscode.postMessage({ type: 'openQueueTemplates' }); }
 function addPrompt() {

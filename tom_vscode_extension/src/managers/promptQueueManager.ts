@@ -31,7 +31,7 @@ import {
 } from '../storage/queueFileStorage';
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
-import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, parseTodoPrefixPattern, planMainStageDispatch, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty, type TodoIterationSource } from '../utils/queueStep3Utils';
+import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, decidePauseAfterCompletion, parseTodoPrefixPattern, planMainStageDispatch, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty, type TodoIterationSource } from '../utils/queueStep3Utils';
 import { runMainStageWithRefresh } from '../utils/questRefreshDispatch.js';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
 import { mergeQueueReload } from '../utils/queueReloadMergeUtils';
@@ -201,6 +201,13 @@ export interface QueuedPrompt {
     templateRepeatCount?: number | string; // Repeat the entire template this many times
     templateRepeatIndex?: number;  // Current template repeat iteration (0-based)
     answerWaitMinutes?: number;   // If > 0, auto-advance after N minutes instead of waiting for answer file
+    /**
+     * "Pause after this": when set, the queue stops once this item has
+     * finished its **last** stage / repetition — the item itself always runs
+     * to completion. Sticky, not one-shot: it stays on the item, so sending
+     * it again pauses the queue again, which is what the flag says on the tin.
+     */
+    pauseAfter?: boolean;
     // Multi-transport fields (design doc §4.1). Items without `transport`
     // resolve to 'copilot' at dispatch time — byte-identical to the
     // pre-multi-transport behaviour.
@@ -1203,7 +1210,7 @@ export class PromptQueueManager {
                         this.persist();
                         this._onDidChange.fire();
 
-                        if (this._autoSendEnabled) {
+                        if (!this._holdQueueForPauseAfter(sending) && this._autoSendEnabled) {
                             const pendingCount = this._items.filter(i => i.status === 'pending').length;
                             if (shouldAutoPauseOnEmpty(this._autoSendEnabled, pendingCount, this._autoPauseEnabled)) {
                                 this._autoSendEnabled = false;
@@ -1410,7 +1417,7 @@ export class PromptQueueManager {
                 this.persist();
                 this._onDidChange.fire();
 
-                if (this._autoSendEnabled) {
+                if (!this._holdQueueForPauseAfter(sending) && this._autoSendEnabled) {
                     const pendingCount = this._items.filter(i => i.status === 'pending').length;
                     if (shouldAutoPauseOnEmpty(this._autoSendEnabled, pendingCount, this._autoPauseEnabled)) {
                         this._autoSendEnabled = false;
@@ -1593,7 +1600,9 @@ export class PromptQueueManager {
                 this.persist();
                 this._onDidChange.fire();
                 logQueue(`Resumed item ${item.id} completed (anthropic transport — no polling)`);
-                void this.sendNext();
+                if (!this._holdQueueForPauseAfter(liveItem)) {
+                    void this.sendNext();
+                }
             } else {
                 logQueue(`Resumed item ${item.id} sent, waiting for answer at ${this.getAnswerFilePathForRequestId(item.expectedRequestId)}`);
             }
@@ -2050,6 +2059,25 @@ export class PromptQueueManager {
     }
 
     /**
+     * Toggle "pause after this" on an item: it runs to the end of its repeat
+     * loop, then the queue stops instead of starting the next item.
+     *
+     * Settable in **every** status — the point of the flag is that the user
+     * can arm it on the item that is already sending, once they notice they
+     * want to stop after it. Returns the flag's new value, or `undefined`
+     * when the id is unknown.
+     */
+    setPauseAfter(id: string, pauseAfter: boolean): boolean | undefined {
+        const item = this._items.find(i => i.id === id);
+        if (!item) { return undefined; }
+        item.pauseAfter = pauseAfter || undefined;
+        this.persist();
+        this._onDidChange.fire();
+        logQueue(`Pause-after ${pauseAfter ? 'set' : 'cleared'} on item ${id}`);
+        return !!item.pauseAfter;
+    }
+
+    /**
      * Patch the main item's repetition / answer-wait fields. Editable while the
      * item is in an editable status (staged or pending).
      */
@@ -2366,7 +2394,10 @@ export class PromptQueueManager {
         this.persist();
         this._onDidChange.fire();
 
-        if (this._autoSendEnabled) {
+        // Continue is a completion path like any other: an item that asked to
+        // pause the queue after itself must do so even when the user drove it
+        // over the finish line by hand.
+        if (!this._holdQueueForPauseAfter(sending) && this._autoSendEnabled) {
             const pendingCount = this._items.filter(i => i.status === 'pending').length;
             if (shouldAutoPauseOnEmpty(this._autoSendEnabled, pendingCount, this._autoPauseEnabled)) {
                 this._autoSendEnabled = false;
@@ -2631,6 +2662,27 @@ export class PromptQueueManager {
 
     // ----- sending -----------------------------------------------------------
 
+    /**
+     * Honour a just-completed item's "pause after this" flag.
+     *
+     * Call this at every point where an item reaches `'sent'`, **before** the
+     * code that advances the queue, and skip that advance when it returns
+     * true. Flipping auto-send off is not sufficient on its own: the
+     * Anthropic completion paths call `sendNext()` without consulting the
+     * flag, so the hold has to be observed explicitly.
+     */
+    private _holdQueueForPauseAfter(item: QueuedPrompt): boolean {
+        const decision = decidePauseAfterCompletion(item.pauseAfter, this._autoSendEnabled);
+        if (!decision.holdQueue) { return false; }
+        if (decision.disableAutoSend) {
+            this._autoSendEnabled = false;
+            this.persistSettings();
+            this._onDidChange.fire();
+        }
+        logQueue(`Queue held after item ${item.id} — "pause after this" is set`);
+        return true;
+    }
+
     private async delaySendNext(): Promise<void> {
         // Note: We don't use _processing guard here anymore because it could cause 
         // repeat items to get stuck. sendNext() has its own guard against concurrent sending.
@@ -2773,8 +2825,11 @@ export class PromptQueueManager {
                 this.persist();
                 this._onDidChange.fire();
                 logQueue(`Prompt ${item.id} completed (anthropic transport — no polling)`);
-                // Advance to the next queued item.
-                void this.sendNext();
+                // Advance to the next queued item — unless this one asked the
+                // queue to stop after it.
+                if (!this._holdQueueForPauseAfter(liveItem)) {
+                    void this.sendNext();
+                }
             } else {
                 logQueue(`Prompt ${item.id} sent, waiting for answer at ${this.getAnswerFilePathForRequestId(item.expectedRequestId)}`);
             }
@@ -2886,7 +2941,9 @@ export class PromptQueueManager {
                     await this._enqueueNextTemplateIterationIfNeeded(liveItem, 'resend/anthropic');
                     this.persist();
                     this._onDidChange.fire();
-                    void this.sendNext();
+                    if (!this._holdQueueForPauseAfter(liveItem)) {
+                        void this.sendNext();
+                    }
                 } else if (outcome === 'paused') {
                     logQueue(`resendLastPrompt(${item.id}): paused after resending the failed rep — held in 'sending' for resume`);
                 }
@@ -4206,6 +4263,7 @@ export class PromptQueueManager {
                 originalText: main['prompt-text'] || '',
                 expandedText: main['expanded-text'] || main['prompt-text'] || '',
                 status: (meta.status as QueuedPromptStatus) || 'pending',
+                pauseAfter: meta['pause-after'] === true ? true : undefined,
                 type: 'normal',
                 createdAt: (meta.created as string) || new Date().toISOString(),
                 sentAt: main.execution?.['sent-at'] || undefined,
@@ -4524,6 +4582,8 @@ export class PromptQueueManager {
                 id: item.id,
                 quest: quest || undefined,
                 status: item.status,
+                // Omitted when unset so untouched entries round-trip unchanged.
+                ...(item.pauseAfter ? { 'pause-after': true } : {}),
                 created: item.createdAt,
                 'main-prompt': 'P1',
                 'queue-order-index': Number.isFinite(orderIndex as number) ? orderIndex : undefined,

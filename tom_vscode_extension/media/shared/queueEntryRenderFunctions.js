@@ -45,6 +45,7 @@ function renderEntry(item, idx) {
   var isWaiting = safeStatus === 'waiting';
   var isRetry = safeStatus === 'retry';
   var reminderEnabled = item.reminderEnabled !== false;
+  var pauseAfter = item.pauseAfter === true;
   var isEditable = editorMode === 'template' || isStaged;
   var isMainPromptActive = safeStatus === 'sending' && !!item.requestId && (item.followUpIndex || 0) === 0;
   var statusBarCls = item.type === 'reminder' ? 'reminder' : safeStatus;
@@ -321,6 +322,23 @@ function renderEntry(item, idx) {
           (isPending ? '<span class="codicon codicon-arrow-down" style="cursor:pointer;color:#000;" onclick="moveDown(\'' + safeId + '\')" title="Move down (closer to queue end — sent later)"></span>' : '') +
           (isPending ? '<span class="codicon codicon-arrow-circle-up" style="cursor:pointer;color:#000;" onclick="moveToFront(\'' + safeId + '\')" title="Send next (move to front of pending queue)"></span>' : '') +
           (isSending ? '<span class="codicon ' + (reminderEnabled ? 'codicon-bell' : 'codicon-bell-slash') + '" style="cursor:pointer;color:' + (reminderEnabled ? '#000' : '#888') + ';" onclick="toggleReminder(\'' + safeId + '\', ' + !reminderEnabled + ')" title="' + (reminderEnabled ? 'Reminders ON - click to disable' : 'Reminders OFF - click to enable') + '"></span>' : '') +
+          // Pause after this — let the item finish its repeat loop, then hold
+          // the queue instead of starting the next item. Shown wherever the
+          // item can still run, plus on any item that carries the flag so a
+          // leftover one is never invisible. Armed state renders inverted
+          // (white on black) because a plain colour change is too subtle to
+          // read against the status bar's own colour.
+          (isStaged || isPending || isSending || pauseAfter
+            ? '<span class="codicon codicon-debug-pause" style="cursor:pointer;'
+              + (pauseAfter
+                ? 'color:#fff;background:#000;border-radius:3px;padding:1px 3px;'
+                : 'color:#000;')
+              + '" onclick="setPauseAfter(\'' + safeId + '\', ' + !pauseAfter + ')" title="'
+              + (pauseAfter
+                ? 'Pause after this is ON — this item finishes its repeats, then the queue stops. Click to turn off.'
+                : 'Pause after this — let this item finish, then hold the queue instead of sending the next item')
+              + '"></span>'
+            : '') +
           // Adopt queue settings — copies the queue-level default
           // transport + profile (the dropdowns above the queue) onto this
           // item. Shown in every status (including a repeating item): for

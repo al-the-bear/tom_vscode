@@ -54,6 +54,33 @@ export function shouldAutoPauseOnEmpty(autoSendEnabled: boolean, pendingCount: n
     return autoPauseEnabled && autoSendEnabled && pendingCount <= 0;
 }
 
+/** What a completed item's "pause after this" flag means for its queue. */
+export interface PauseAfterDecision {
+    /** Flip auto-send off and persist the setting. */
+    disableAutoSend: boolean;
+    /** Do not start the next pending item. */
+    holdQueue: boolean;
+}
+
+/**
+ * Decide what happens to the queue when an item that carries the "pause after
+ * this" flag finishes its last stage / repetition.
+ *
+ * `holdQueue` is reported independently of `autoSendEnabled` on purpose: the
+ * Anthropic completion paths advance with a bare `sendNext()` that does not
+ * consult the auto-send flag, so a caller that only re-read the flag after
+ * flipping it would still start the next item.
+ */
+export function decidePauseAfterCompletion(
+    pauseAfter: boolean | undefined,
+    autoSendEnabled: boolean,
+): PauseAfterDecision {
+    if (!pauseAfter) {
+        return { disableAutoSend: false, holdQueue: false };
+    }
+    return { disableAutoSend: autoSendEnabled, holdQueue: true };
+}
+
 /**
  * Normalize a repeat-count value coming from a UI/webview input into the shape
  * the queue persists.
