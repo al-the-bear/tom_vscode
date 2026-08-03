@@ -384,6 +384,46 @@ export function planMainStageDispatch(
     return sentCount < repeatCount ? { mode: 'counter', repeatIndex: sentCount } : { mode: 'exhausted' };
 }
 
+/** The part of `LastDispatchedInfo` that decides what a resend puts on the wire. */
+export interface ResendSnapshot {
+    kind: 'prePrompt' | 'main' | 'followUp';
+    /** The expanded text `dispatchStage` was called with last time. */
+    expandedText: string;
+}
+
+/**
+ * Decide which text a Resend should dispatch: the recorded snapshot, or the
+ * item's current prompt.
+ *
+ * The snapshot is the right answer for a *retry* — a dispatch lost to a
+ * transport error should go out byte-identical. But the queue also invites a
+ * different move: cancel a running item, correct the prompt, send it again.
+ * That path reverts the item to `staged` and rebuilds `expandedText` from the
+ * corrected `originalText`, and replaying the snapshot there sends the text the
+ * user just cancelled — the edit visible in the item and absent from the wire.
+ *
+ * So for the **main** stage the current text wins: an edit is an explicit
+ * statement of what should now be sent, and when nothing was edited the two
+ * values are equal anyway, leaving the retry byte-identical.
+ *
+ * The other two stages keep the snapshot. `expandedText` is a scratch field the
+ * pre-prompt and follow-up builders overwrite in place, so it holds whichever
+ * stage ran last — never a substitute for the stage being replayed.
+ *
+ * `undefined` (the field is optional on the persisted shape) falls back to the
+ * snapshot so a resend cannot dispatch nothing. An empty *string* is a real
+ * edit and is sent as one.
+ */
+export function resolveResendText(
+    snapshot: ResendSnapshot,
+    currentExpandedText: string | undefined,
+): string {
+    if (snapshot.kind !== 'main' || currentExpandedText === undefined) {
+        return snapshot.expandedText;
+    }
+    return currentExpandedText;
+}
+
 /**
  * Resolve a `prefix*` repeat-count against a set of quest-todo ids.
  *

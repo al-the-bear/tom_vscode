@@ -31,7 +31,7 @@ import {
 } from '../storage/queueFileStorage';
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
-import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, decideAdvanceAfterCompletion, parseTodoPrefixPattern, planMainStageDispatch, releaseDecisionNeededItems, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty, type TodoIterationSource } from '../utils/queueStep3Utils';
+import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, decideAdvanceAfterCompletion, parseTodoPrefixPattern, planMainStageDispatch, releaseDecisionNeededItems, resolveResendText, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty, type TodoIterationSource } from '../utils/queueStep3Utils';
 import { runMainStageWithRefresh } from '../utils/questRefreshDispatch.js';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
 import { mergeQueueReload } from '../utils/queueReloadMergeUtils';
@@ -2948,13 +2948,24 @@ export class PromptQueueManager {
             if (last.transport === 'copilot') {
                 this.clearExpectedAnswerFiles(item.expectedRequestId);
             }
-            const dispatchResult = await this.dispatchStage(last.expandedText, resolved, container);
+            // An edit made after the last dispatch wins over the snapshot for
+            // the main stage — cancel / correct / resend is a workflow the
+            // queue invites, and replaying the snapshot there sent the very
+            // text the user had just cancelled. See `resolveResendText`.
+            const resendText = resolveResendText(last, item.expandedText);
+            const dispatchResult = await this.dispatchStage(resendText, resolved, container);
             if (dispatchWasSuperseded(epoch, this._dispatchEpoch)) {
                 logQueue(`resendLastPrompt(${item.id}): dispatch superseded by an explicit action — original frame stands down`);
                 return;
             }
-            // Refresh the timestamp so the user can see the resend happened.
-            item.lastDispatched = { ...last, dispatchedAt: new Date().toISOString() };
+            // Refresh the timestamp so the user can see the resend happened,
+            // and record the text that actually went out — otherwise a second
+            // resend would replay the superseded snapshot all over again.
+            item.lastDispatched = {
+                ...last,
+                expandedText: resendText,
+                dispatchedAt: new Date().toISOString(),
+            };
             this._onPromptSent.fire(item);
             this.updateWindowStatus('prompt-sent', last.transport);
             this.persist();
