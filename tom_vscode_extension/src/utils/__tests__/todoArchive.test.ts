@@ -357,4 +357,41 @@ describe('decisions journal', () => {
         deleteTodos(sourceFile, ['t1'], { anyStatus: true });
         assert.equal(fs.existsSync(journal), false);
     });
+
+    /** Give an existing fixture todo a `decisions:` block. */
+    function addDecisionTo(id: string, summary: string): void {
+        const raw = fs.readFileSync(sourceFile, 'utf8');
+        const anchor = `  - id: ${id}\n`;
+        fs.writeFileSync(sourceFile, raw.replace(
+            anchor,
+            `${anchor}    decisions:\n      - summary: ${summary}\n        decision: yes\n`,
+        ), 'utf8');
+    }
+
+    test('archiving a todo that is not completed does not journal its decisions', () => {
+        // The panel's Archive button archives the user's selection whatever its
+        // status. Only a completed todo's decisions are ones the project acted
+        // on; an abandoned todo's are questions it never got to.
+        addDecisionTo('t2', 'unfinished decision');
+        archiveTodos(sourceFile, ['t2'], { anyStatus: true });
+        assert.equal(fs.existsSync(journal), false);
+    });
+
+    test('a mixed archive journals the completed todo only', () => {
+        addDecisionTo('t2', 'unfinished decision');
+        archiveTodos(sourceFile, ['t1', 't2'], { anyStatus: true });
+
+        const md = fs.readFileSync(journal, 'utf8');
+        assert.match(md, /sqlite or postgres/, 'the completed todo is journalled');
+        assert.doesNotMatch(md, /unfinished decision/, 'the in-progress one is not');
+    });
+
+    test('the non-completed todo still keeps its decisions in the archive file', () => {
+        // Not journalling is about the journal, not about the todo — the
+        // archived record stays complete either way.
+        addDecisionTo('t2', 'unfinished decision');
+        const res = archiveTodos(sourceFile, ['t2'], { anyStatus: true });
+        const archived = readTodoMap(res.targetFile)['t2'];
+        assert.equal((archived.decisions as unknown[]).length, 1);
+    });
 });

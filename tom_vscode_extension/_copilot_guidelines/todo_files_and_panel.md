@@ -167,13 +167,17 @@ is hyphenated (`decision-needed`), the *object property* is snake_case
 
 Two behaviours hang off the status:
 
-- **Archiving journals the decisions.** `todoArchive.ts` copies each archived
-  todo's `decisions[]` into `decisions.<quest>.md` (the @WS → Logs → Decisions
-  tab) with the todo id and the archive timestamp, so the reasoning outlives the
-  todo. It is a **copy** — the archived todo keeps its block — and only
-  *archiving* journals; deleting a todo throws it away, and recording its open
-  questions as decisions the project made would be a lie. An unanswered decision
-  is written as `_(not decided)_` rather than dropped.
+- **Archiving a completed todo journals its decisions.** `todoArchive.ts` copies
+  the `decisions[]` of each archived todo into `decisions.<quest>.md` (the
+  @WS → Logs → Decisions tab) with the todo id and the archive timestamp, so the
+  reasoning outlives the todo. It is a **copy** — the archived todo keeps its
+  block — and two things narrow what gets written. Only *archiving* journals:
+  deleting a todo throws it away, and recording its open questions as decisions
+  the project made would be a lie. And only todos whose status is `completed`
+  are journalled: the panel's Archive button archives the selection whatever its
+  status, and a todo archived half-done was abandoned rather than concluded. An
+  unanswered decision on a completed todo is written as `_(not decided)_` rather
+  than dropped.
 - **Queue iteration refuses to run the series.** A `prefix*` main prompt whose
   matched todos include a `decision-needed` one pauses the queue and marks the
   item `decision-needed` — see `planMainStageDispatch` in

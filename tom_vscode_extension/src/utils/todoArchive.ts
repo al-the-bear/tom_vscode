@@ -138,6 +138,12 @@ export function decisionsJournalPathFor(sourceFilePath: string, questId?: string
  * itself, and the journal is what you can still find once nobody remembers
  * which todo it was.
  *
+ * **Only `completed` todos are journalled.** Archiving is normally the end of a
+ * finished todo, but the panel's Archive button acts on the user's selection
+ * whatever its status (`anyStatus`) — and a todo archived half-done was
+ * abandoned, not concluded. Its `decisions[]` are questions the project never
+ * got to; filing them under "what was decided" would misrepresent them.
+ *
  * Best-effort — a journal that could fail the archive it was recording would
  * be worse than no journal.
  */
@@ -149,6 +155,7 @@ function journalDecisions(
     try {
         const at = Date.now();
         const entries = todos.map(plain => {
+            if (String(plain.status ?? 'not-started') !== 'completed') { return ''; }
             const decisions = normaliseTodoDecisions(plain.decisions);
             if (!decisions) { return ''; }
             const title = plain.title ?? plain.description;
@@ -263,7 +270,8 @@ function moveTodosToSibling(sourceFilePath: string, spec: MoveSpec): TodoMoveRes
     appendToTargetFile(targetFile, movedPlain, raw, sourceDoc);
 
     // Archiving retires a todo; deleting throws it away. Only the former is a
-    // decision the project stands by, so only the former is journalled.
+    // decision the project stands by, so only the former is journalled — and
+    // within it, only the todos that actually completed (see journalDecisions).
     if (spec.stamp === 'archived') {
         journalDecisions(sourceFilePath, movedPlain, sourceDoc);
     }

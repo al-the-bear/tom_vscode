@@ -1,7 +1,8 @@
 /**
  * Markdown shapes for the **Decisions** journal — `decisions.<quest>.md`, one
- * entry per archived todo that carried decisions, shown in the @WS panel's Logs
- * section next to the Questions journal.
+ * entry per archived *completed* todo that carried decisions, shown in the @WS
+ * panel's Logs section next to the Questions journal. (`todoArchive.ts` owns
+ * that eligibility rule; this module formats whatever it is handed.)
  *
  * A todo holds its open questions in `decisions[]` while it is alive. Archiving
  * moves the todo out of the active file, and with it the record of what was
@@ -90,8 +91,10 @@ export function decisionsJournalHeader(questId: string): string {
         `# Decisions — ${questId}`,
         '',
         'What was decided on the todos of this quest, copied here when each todo',
-        'was archived so the reasoning outlives the todo. Entries that say',
-        '_(not decided)_ were archived with the question still open.',
+        'was archived so the reasoning outlives the todo. Only todos that reached',
+        '`completed` are recorded — one archived half-done was abandoned, not',
+        'concluded. Entries that say _(not decided)_ were archived with the',
+        'question still open.',
         'Appended to: the newest entry is at the bottom.',
         '',
         '',

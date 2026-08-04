@@ -36,7 +36,7 @@ read-only; use the toolbar to edit.
   (`deferred.{quest}.md`), **Questions** (`questions.{quest}.md` — every
   question the model asked you and the answer you gave), **Decisions**
   (`decisions.{quest}.md` — the decisions carried by each todo, copied here when
-  the todo is archived), **Current Prompt** (see below)
+  the todo is archived as completed), **Current Prompt** (see below)
 - **Remembered selection**: the active sub-tab is restored after a window reload
 - **Auto-refresh**: re-reads every 2.5 s while the section is expanded; a file
   that has not changed costs no read
@@ -129,7 +129,7 @@ Four top-bar buttons move todos between files instead of destroying them:
 
 Archived/deleted sibling files are **terminal**: they can be viewed but never archived or deleted *from*, and the buttons hide when browsing them. A todo moved to the `-deleted` file remains recoverable (unlike the per-row hard-delete). There is no separate backup file mechanism anymore.
 
-Archiving also **copies** any decisions the todo carried into the quest's `decisions.<quest>.md` journal (@WS → Logs → Decisions), stamped with the todo id and the archive timestamp. It is a copy, not a move — the archived todo keeps its decisions. Deleting does not journal, on the grounds that a deleted todo's decisions were never acted on.
+Archiving a **completed** todo also **copies** any decisions it carried into the quest's `decisions.<quest>.md` journal (@WS → Logs → Decisions), stamped with the todo id and the archive timestamp. It is a copy, not a move — the archived todo keeps its decisions. Two cases are deliberately left out: deleting never journals (a deleted todo's decisions were never acted on), and neither does archiving a todo that has not reached `completed` — the Archive button works on any status, and a todo archived half-done was abandoned rather than concluded.
 
 A further set of top-bar buttons changes a todo **without** moving it to a terminal file:
 
