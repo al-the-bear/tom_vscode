@@ -103,6 +103,22 @@ function formatTokenCount(n: number | undefined): string {
     return typeof n === 'number' && Number.isFinite(n) ? n.toLocaleString('en-US') : '';
 }
 
+/**
+ * `YYYYMMDD_HHMMSS` in local time — the stamp format of the `## 🚀 PROMPT …`
+ * block header.
+ *
+ * Shared with the usage table's `when` column on purpose: the header records
+ * when a turn *started* and the column when its accounting arrived, so having
+ * both in one format is what lets a reader line them up.
+ */
+export function formatPromptHeaderTimestamp(d: Date): string {
+    const pad = (n: number, w = 2): string => String(n).padStart(w, '0');
+    return (
+        `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_` +
+        `${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
+    );
+}
+
 /** Whether a token-count block carries any number worth printing. */
 function hasTokenCounts(counts: LiveTrailTokenCounts | undefined): boolean {
     if (!counts) { return false; }
@@ -120,9 +136,15 @@ function hasTokenCounts(counts: LiveTrailTokenCounts | undefined): boolean {
  * omitted, and a payload with nothing at all renders as `''` so the caller can
  * skip the write entirely.
  *
+ * `at` is the moment the accounting was recorded, stamped into the table's
+ * `when` column. It is a parameter rather than a `new Date()` inside, both to
+ * keep the function pure and because it is genuinely distinct from the block
+ * header's timestamp: the header marks when the turn started, and a turn that
+ * runs for minutes finishes far from where it began.
+ *
  * Pure, so the exact markdown is unit-testable without touching the filesystem.
  */
-export function formatLiveTrailUsage(usage: LiveTrailUsage): string {
+export function formatLiveTrailUsage(usage: LiveTrailUsage, at: Date): string {
     const lines: string[] = [];
 
     if (hasTokenCounts(usage.totals)) {
@@ -147,8 +169,9 @@ export function formatLiveTrailUsage(usage: LiveTrailUsage): string {
     const models = usage.models ?? [];
     if (models.length > 0) {
         lines.push('');
-        lines.push('| model | in | out | cache read | cache write | cost | ctx |');
-        lines.push('| --- | ---: | ---: | ---: | ---: | ---: | ---: |');
+        const when = formatPromptHeaderTimestamp(at);
+        lines.push('| model | in | out | cache read | cache write | cost | ctx | when |');
+        lines.push('| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |');
         for (const m of models) {
             const cost = typeof m.costUSD === 'number' && Number.isFinite(m.costUSD)
                 ? `$${m.costUSD.toFixed(4)}`
@@ -156,7 +179,7 @@ export function formatLiveTrailUsage(usage: LiveTrailUsage): string {
             lines.push(
                 `| ${m.model} | ${formatTokenCount(m.inputTokens)} | ${formatTokenCount(m.outputTokens)} | ` +
                 `${formatTokenCount(m.cacheReadInputTokens)} | ${formatTokenCount(m.cacheCreationInputTokens)} | ` +
-                `${cost} | ${formatTokenCount(m.contextWindow)} |`,
+                `${cost} | ${formatTokenCount(m.contextWindow)} | ${when} |`,
             );
         }
     }
@@ -351,7 +374,7 @@ export class LiveTrailWriter {
             this.startedAtMs = Date.now();
             this.currentlyInAssistantText = false;
             this.currentlyInThinking = false;
-            const ts = this.formatTimestamp(new Date());
+            const ts = formatPromptHeaderTimestamp(new Date());
             const userPreview = this.clip(info.userText, USER_TEXT_PREVIEW_CHARS)
                 .replace(/\r?\n/g, '\n> ');
             const lines = [
@@ -463,7 +486,7 @@ export class LiveTrailWriter {
      */
     appendUsage(usage: LiveTrailUsage): void {
         try {
-            const md = formatLiveTrailUsage(usage);
+            const md = formatLiveTrailUsage(usage, new Date());
             if (!md) { return; }
             this.append(md);
             this.currentlyInAssistantText = false;
@@ -619,13 +642,5 @@ export class LiveTrailWriter {
         if (typeof s !== 'string') { s = String(s ?? ''); }
         if (s.length <= max) { return s; }
         return s.slice(0, max) + '\n…(trimmed)';
-    }
-
-    private formatTimestamp(d: Date): string {
-        const pad = (n: number, w = 2): string => String(n).padStart(w, '0');
-        return (
-            `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_` +
-            `${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
-        );
     }
 }

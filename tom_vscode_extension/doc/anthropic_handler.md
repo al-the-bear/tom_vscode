@@ -191,10 +191,14 @@ The Agent SDK reports the turn's accounting exactly once, in its final `result` 
 - tokens: in 1,234 · out 567 · cache read 8,901 · cache write 42
 - cost: $0.0421 · api 12.3s
 
-| model | in | out | cache read | cache write | cost | ctx |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| claude-opus-4-7 | 1,234 | 567 | 8,901 | 42 | $0.0421 | 1,000,000 |
+| model | in | out | cache read | cache write | cost | ctx | when |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| claude-opus-4-7 | 1,234 | 567 | 8,901 | 42 | $0.0421 | 1,000,000 | 20260804_092114 |
 ```
+
+Both cost figures are **US dollars**, not cents — `costUSD` / `total_cost_usd` come from the SDK in dollars and are printed to four decimal places.
+
+The `when` column stamps the moment the accounting was recorded, in the same `YYYYMMDD_HHMMSS` format as the enclosing `## 🚀 PROMPT …` header so the two can be read together. They are deliberately not the same instant: the header marks when the turn *started*, and a turn that runs for minutes finishes far from where it began. `formatLiveTrailUsage` takes that time as an argument rather than reading the clock, which is what keeps it pure.
 
 The aggregate `usage` arrives in the wire format's snake_case while `modelUsage` uses camelCase; the transport normalises both onto the trail's single vocabulary. Rendering is `formatLiveTrailUsage` — a pure function in `live-trail.ts`, unit-tested — and a usage object with nothing to report renders nothing rather than an empty heading. `LiveTrailWriter.appendUsage` also emits a `{ kind: 'usage', usage }` event; the Telegram coalescer deliberately drops it (a remote follower wants the answer, not the invoice).
 

@@ -30,7 +30,19 @@ const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'live-trail-'));
 installVscodeStub({ workspaceFolders: [tmpRoot] });
 
 // Safe to import after the stub is wired into the resolver.
-import { LiveTrailWriter, formatLiveTrailUsage, type LiveTrailEvent } from '../live-trail.js';
+import {
+    LiveTrailWriter,
+    formatLiveTrailUsage,
+    formatPromptHeaderTimestamp,
+    type LiveTrailEvent,
+} from '../live-trail.js';
+
+/**
+ * Fixed "recorded at" instant for the usage tests. `formatLiveTrailUsage`
+ * takes the time as an argument rather than reading the clock, so every
+ * assertion below is deterministic.
+ */
+const AT = new Date(2026, 7, 4, 9, 5, 3);
 
 function newWriter(quest: string): LiveTrailWriter {
     const w = new LiveTrailWriter(quest);
@@ -110,7 +122,7 @@ describe('formatLiveTrailUsage', () => {
                 cacheReadInputTokens: 8901,
                 cacheCreationInputTokens: 42,
             },
-        });
+        }, AT);
         assert.match(md, /### 📊 usage/);
         assert.match(md, /in 1,234/);
         assert.match(md, /out 567/);
@@ -139,7 +151,7 @@ describe('formatLiveTrailUsage', () => {
                     costUSD: 0.0001,
                 },
             ],
-        });
+        }, AT);
         assert.match(md, /\| claude-opus-4-7 \|/);
         assert.match(md, /\| claude-haiku-4-5 \|/);
         assert.match(md, /\$0\.0421/);
@@ -151,34 +163,64 @@ describe('formatLiveTrailUsage', () => {
             totals: { inputTokens: 1, outputTokens: 1 },
             totalCostUsd: 1.5,
             durationApiMs: 12_300,
-        });
+        }, AT);
         assert.match(md, /\$1\.5000/);
         assert.match(md, /12\.3s/);
     });
 
     it('omits the model table when there is no per-model breakdown', () => {
-        const md = formatLiveTrailUsage({ totals: { inputTokens: 10, outputTokens: 2 } });
+        const md = formatLiveTrailUsage({ totals: { inputTokens: 10, outputTokens: 2 } }, AT);
         assert.doesNotMatch(md, /\| model \|/);
     });
 
     it('omits the totals line when there are no token counts', () => {
         const md = formatLiveTrailUsage({
             models: [{ model: 'claude-opus-4-7', inputTokens: 1, outputTokens: 1 }],
-        });
+        }, AT);
         assert.doesNotMatch(md, /tokens:/);
         assert.match(md, /\| model \|/);
     });
 
     it('returns an empty string when there is nothing to report', () => {
-        assert.equal(formatLiveTrailUsage({}), '');
-        assert.equal(formatLiveTrailUsage({ models: [] }), '');
+        assert.equal(formatLiveTrailUsage({}, AT), '');
+        assert.equal(formatLiveTrailUsage({ models: [] }, AT), '');
     });
 
     it('treats an all-zero totals block as reportable (a turn really can cost nothing new)', () => {
         const md = formatLiveTrailUsage({
             totals: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
-        });
+        }, AT);
         assert.match(md, /in 0/);
+    });
+
+    it('stamps each model row with the time the usage was recorded', () => {
+        const md = formatLiveTrailUsage({
+            models: [{ model: 'claude-opus-4-7', inputTokens: 1, outputTokens: 1 }],
+        }, AT);
+        assert.match(md, /\| when \|/);
+        assert.match(md, /\| 20260804_090503 \|/);
+    });
+
+    it('uses the same stamp format as the prompt header, so the two can be correlated', () => {
+        // The header stamps when the turn *started*; this column stamps when
+        // its accounting arrived, and a long turn puts minutes between them.
+        const at = new Date(2026, 7, 4, 12, 58, 36);
+        const md = formatLiveTrailUsage({
+            models: [{ model: 'claude-opus-4-7', inputTokens: 1, outputTokens: 1 }],
+        }, at);
+        const header = formatPromptHeaderTimestamp(at);
+        assert.equal(header, '20260804_125836');
+        assert.ok(md.includes(`| ${header} |`));
+    });
+
+    it('gives every row of a multi-model turn the same stamp', () => {
+        const md = formatLiveTrailUsage({
+            models: [
+                { model: 'claude-opus-4-7', inputTokens: 1, outputTokens: 1 },
+                { model: 'claude-haiku-4-5', inputTokens: 2, outputTokens: 2 },
+            ],
+        }, AT);
+        assert.equal(md.match(/20260804_090503/g)?.length, 2);
     });
 });
 
