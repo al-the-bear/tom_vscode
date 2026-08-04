@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildMetadataBlock, parseChatText, TOOL_SEPARATOR } from '../tomAiChat-utils';
+
+// `tomAiChat-utils.ts` pulls in `vscode` at module top; the functions under
+// test do not touch it. Install the stub before importing.
+import { installVscodeStub } from '../../tools/__tests__/_vscode-stub.js';
+installVscodeStub({});
+
+import { buildMetadataBlock, parseChatText, TOOL_SEPARATOR } from '../tomAiChat-utils.js';
 
 const sampleChat = (chatId: string) => [
     'toolInvocationToken: ',

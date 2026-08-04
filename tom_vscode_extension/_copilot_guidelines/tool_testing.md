@@ -71,7 +71,7 @@ try {
 ```
 
 Covered surface: `workspace` (workspaceFolders, getConfiguration, fs,
-findFiles, applyEdit, onDidChangeConfiguration), `window`
+findFiles, applyEdit, onDidChangeConfiguration, createFileSystemWatcher), `window`
 (showInformationMessage / WarningMessage / ErrorMessage, createOutputChannel,
 showInputBox, showQuickPick, activeTextEditor, visibleTextEditors,
 tabGroups, createWebviewPanel, registerWebviewViewProvider, withProgress),
@@ -80,10 +80,18 @@ tabGroups, createWebviewPanel, registerWebviewViewProvider, withProgress),
 `lm` (selectChatModels, tools, invokeTool), `Uri.file/parse/joinPath`,
 `EventEmitter`, `CancellationTokenSource`, `ProgressLocation`,
 `LanguageModelTextPart` / `ToolCallPart` / `ToolResultPart`,
-`LanguageModelChatMessage.User/Assistant`.
+`RelativePattern`, `Disposable`, `LanguageModelChatMessage.User/Assistant`.
 
 Install is idempotent — re-calling it merges new overrides into the existing
 stub (lets a test file extend the family's default stub).
+
+**File watchers never fire on their own.** `createFileSystemWatcher` hands back
+a recorded watcher; `stubFileWatchers()` returns them in creation order (the
+registry spans the whole process, so the *newest* entry belongs to the object
+currently under test) and each exposes `fireChange` / `fireCreate` /
+`fireDelete`. Silence is therefore the default, which is what makes "the native
+watcher never fired" — the real behaviour on symlinked or out-of-workspace
+paths — the case a test gets for free rather than the one it has to contrive.
 
 ### `_timing.ts`
 
@@ -182,10 +190,15 @@ needs more (network-bound, kernel start), the right move is to time a fast
 Invoked via `npm run audit:tools` or as the second half of `npm test`.
 
 ```bash
-npm test              # = test:tools && audit:tools
+npm test              # = lint:media && every test:<area> && audit:tools
 npm run test:tools    # node --test out/tools/__tests__/*.test.js  (writes the report)
 npm run audit:tools   # node scripts/audit-tool-coverage.cjs       (reads the report, gates)
 ```
+
+One `test:<area>` script per source folder that has a `__tests__/` sibling —
+`test:tools`, `test:services`, `test:utils`, `test:managers`, `test:handlers`.
+The globs are one level deep (`out/<area>/__tests__/*.test.js`), so a test in a
+new folder needs its own script wired into `test` or it silently never runs.
 
 **What it checks** (each is an independent failure mode):
 

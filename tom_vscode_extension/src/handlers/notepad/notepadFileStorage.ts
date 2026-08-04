@@ -3,27 +3,48 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 
 /**
+ * How often the poll fallback re-reads the watched file, in milliseconds.
+ *
+ * The poll is not a safety net here, it is the primary mechanism:
+ * `createFileSystemWatcher` does not reliably fire for files whose real path
+ * resolves outside the workspace folders, and every notepad is such a file.
+ * The quest and workspace notes live under `_ai/`, a relative symlink onto a
+ * single shared clone; the Tom global notes live in `~/.tom/notes/`, outside
+ * any workspace folder at all. `markdownBrowser-handler.ts` carries the same
+ * fallback for the same reason.
+ *
+ * A notepad is a small markdown file, so a re-read per second costs nothing
+ * measurable — which is why the poll reads rather than stats. An mtime gate
+ * would be cheaper but would also inherit the filesystem's timestamp
+ * granularity, and a same-size edit inside one coarse tick is exactly the edit
+ * a note-taker makes.
+ */
+export const NOTEPAD_POLL_INTERVAL_MS = 1000;
+
+/**
  * Shared draft-on-disk storage for notepad providers that persist their
  * content into a single file (Tom global notes, workspace notes, quest
- * notes). Encapsulates the ensureDir + ensureFile + file-watcher +
- * ignore-echo pattern that every "file-backed notepad" was reimplementing.
+ * notes). Encapsulates the ensureDir + ensureFile + change-detection pattern
+ * that every "file-backed notepad" was reimplementing.
  *
- * The file watcher distinguishes between our own writes (which we just
- * issued) and external writes (which should reload into the view). The
- * 1-second ignore window mirrors the original logic from
- * `sidebarNotes-handler.ts`: VS Code's file watcher sometimes fires
- * `onDidChange` for our own save a moment after `writeFileSync`, so we
- * suppress the first change event after each save.
+ * External changes reach the provider through the `onExternalChange` callback
+ * given to `watch()`; the provider re-renders. Our own saves must not travel
+ * that path, or the view would fight the user's typing.
  *
- * Providers hook into external changes by passing an `onExternalChange`
- * callback to `watch()`. The callback fires on `onDidChange` or
- * `onDidCreate` only when the change didn't originate from us.
+ * **How our own writes are recognised.** By content, not by timing. `_content`
+ * is what this storage believes the file holds, and `save()` updates it before
+ * writing — so a change signal whose disk content equals `_content` is our own
+ * echo (or a no-op touch) and is dropped. This replaces a one-shot "ignore the
+ * next event" flag, which was set on every save and cleared only when an event
+ * actually arrived: on the paths above the event usually never arrived, the
+ * flag stayed armed, and it swallowed the next *genuine* external edit
+ * instead. Comparing content cannot get stuck, because it holds no state that
+ * an absent event could strand.
  */
 export class NotepadFileStorage {
     private _content: string = '';
     private _watcher: vscode.FileSystemWatcher | undefined;
-    private _ignoreNextChange: boolean = false;
-    private _lastSaveTime: number = 0;
+    private _pollTimer: ReturnType<typeof setInterval> | undefined;
     private readonly _disposables: vscode.Disposable[] = [];
 
     constructor(public readonly filePath: string) {}
@@ -50,15 +71,13 @@ export class NotepadFileStorage {
     }
 
     /**
-     * Replace the stored content and write it to disk. Sets the ignore-echo
-     * flag so the watcher doesn't treat this write as an external change.
+     * Replace the stored content and write it to disk. Updating `_content`
+     * first is what makes the write invisible to change detection.
      */
     save(content: string): void {
         this._content = content;
         try {
             this.ensureFile();
-            this._ignoreNextChange = true;
-            this._lastSaveTime = Date.now();
             fs.writeFileSync(this.filePath, content, 'utf-8');
         } catch (e) {
             vscode.window.showErrorMessage(`Failed to save notes: ${e}`);
@@ -66,36 +85,61 @@ export class NotepadFileStorage {
     }
 
     /**
-     * Set up the file watcher. `onExternalChange` fires when the file
-     * is modified from outside (not by our own `save()`). The provider
-     * is responsible for re-rendering.
+     * Start detecting changes made to the file from outside. `onExternalChange`
+     * fires once per change that actually differs from what we hold; the
+     * provider is responsible for re-rendering. Calling it twice is a no-op.
+     *
+     * Both the native watcher and the poll feed the same check, so which of
+     * them noticed first makes no difference to the caller.
+     *
+     * `pollIntervalMs` exists so tests need not wait a real second.
      */
-    watch(onExternalChange: () => void): void {
-        if (this._watcher) {
+    watch(onExternalChange: () => void, pollIntervalMs: number = NOTEPAD_POLL_INTERVAL_MS): void {
+        if (this._watcher || this._pollTimer) {
             return; // already watching
         }
-        const pattern = new vscode.RelativePattern(
-            vscode.Uri.file(path.dirname(this.filePath)),
-            path.basename(this.filePath),
-        );
-        this._watcher = vscode.workspace.createFileSystemWatcher(pattern);
-        const handle = () => {
-            // Suppress our own echoes. 1 s is conservative — VS Code's
-            // watcher has been observed to fire up to ~400 ms after a
-            // synchronous writeFileSync, so this gives margin without
-            // blocking a real external edit the user just made.
-            if (this._ignoreNextChange || Date.now() - this._lastSaveTime < 1000) {
-                this._ignoreNextChange = false;
-                return;
-            }
-            this.load();
-            onExternalChange();
+        const handle = (): void => {
+            if (this._refreshFromDisk()) { onExternalChange(); }
         };
-        this._disposables.push(
-            this._watcher.onDidChange(handle),
-            this._watcher.onDidCreate(handle),
-            this._watcher,
-        );
+        try {
+            const pattern = new vscode.RelativePattern(
+                vscode.Uri.file(path.dirname(this.filePath)),
+                path.basename(this.filePath),
+            );
+            this._watcher = vscode.workspace.createFileSystemWatcher(pattern);
+            this._disposables.push(
+                this._watcher.onDidChange(handle),
+                this._watcher.onDidCreate(handle),
+                this._watcher,
+            );
+        } catch {
+            // The watcher is an optimisation for the paths it does serve; the
+            // poll below is the guarantee. Losing it must not stop detection.
+        }
+        this._pollTimer = setInterval(handle, pollIntervalMs);
+        this._pollTimer.unref?.();
+    }
+
+    /**
+     * Re-read the file and adopt content that differs from what we hold.
+     * Returns whether that happened, i.e. whether this was an external change.
+     *
+     * A read failure is reported as "no change": the file is either mid-write
+     * or gone, and in both cases the content we already have is the better
+     * answer than blanking the view. Unlike `load()` this never recreates a
+     * missing file — a poll that resurrects what the user just deleted, once a
+     * second, is not a poll anyone wants.
+     */
+    private _refreshFromDisk(): boolean {
+        let onDisk: string;
+        try {
+            onDisk = fs.readFileSync(this.filePath, 'utf-8');
+        } catch {
+            return false;
+        }
+        if (onDisk === this._content) { return false; }
+        this._content = onDisk;
+        return true;
     }
 
     /** Create the file (and its parent directory) if missing. */
@@ -110,6 +154,8 @@ export class NotepadFileStorage {
     }
 
     dispose(): void {
+        if (this._pollTimer) { clearInterval(this._pollTimer); }
+        this._pollTimer = undefined;
         for (const d of this._disposables) { d.dispose(); }
         this._disposables.length = 0;
         this._watcher = undefined;

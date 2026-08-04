@@ -40,6 +40,10 @@
  *   - `languages.{getDiagnostics, registerCodeActionsProvider}`
  *   - `lm.{selectChatModels, tools, invokeTool}`
  *   - `Uri.file(p)` returning `{ fsPath, path, scheme }`
+ *   - `RelativePattern` + `workspace.createFileSystemWatcher` — every watcher
+ *     is recorded and can be fired by hand from a test via
+ *     `stubFileWatchers()`. Nothing fires on its own, which is exactly what
+ *     makes the "native watcher never fires" case testable.
  *   - `EventEmitter`
  *   - `CancellationTokenSource`
  *   - `ProgressLocation` enum
@@ -70,6 +74,24 @@ export interface VscodeStubSpies {
     byMethod(methodOrPrefix: string): SpyCall[];
     /** Clear the recorded calls. Useful in `beforeEach`. */
     clear(): void;
+}
+
+/**
+ * A `vscode.FileSystemWatcher` handed out by the stub. It never fires by
+ * itself — the test decides when (and whether) an event arrives, so code that
+ * must survive a watcher going silent can be exercised honestly.
+ */
+export interface StubFileWatcher {
+    /** The `RelativePattern` (or glob string) the watcher was created with. */
+    readonly pattern: unknown;
+    /** Set by `dispose()`. */
+    disposed: boolean;
+    /** Deliver an `onDidChange` event to every registered listener. */
+    fireChange(uri?: unknown): void;
+    /** Deliver an `onDidCreate` event to every registered listener. */
+    fireCreate(uri?: unknown): void;
+    /** Deliver an `onDidDelete` event to every registered listener. */
+    fireDelete(uri?: unknown): void;
 }
 
 export interface InstallOptions {
@@ -156,6 +178,16 @@ export function installVscodeStub(options: InstallOptions = {}): {
         applyOptions(installed, options);
     }
     return makeHandle(installed);
+}
+
+/**
+ * Every watcher created through `workspace.createFileSystemWatcher` since the
+ * stub was installed, oldest first. Empty when the stub isn't installed.
+ * Tests fire events on these by hand — see `StubFileWatcher`.
+ */
+export function stubFileWatchers(): StubFileWatcher[] {
+    if (!installed) { return []; }
+    return (installed.stub.workspace as { __fileWatchers?: StubFileWatcher[] }).__fileWatchers ?? [];
 }
 
 function createInstallState(options: InstallOptions): InstallState {
@@ -356,9 +388,37 @@ function buildDefaultStub(record: (method: string, args: unknown[]) => void, opt
 
     const lmModels = options.lmModels ?? [];
 
+    // Watchers handed out by `createFileSystemWatcher`, in creation order.
+    const fileWatchers: StubFileWatcher[] = [];
+
+    function createFileSystemWatcher(pattern: unknown): Record<string, unknown> {
+        record('workspace.createFileSystemWatcher', [pattern]);
+        const change = new EventEmitter<unknown>();
+        const create = new EventEmitter<unknown>();
+        const del = new EventEmitter<unknown>();
+        const watcher = {
+            pattern,
+            disposed: false,
+            onDidChange: change.event,
+            onDidCreate: create.event,
+            onDidDelete: del.event,
+            fireChange(uri?: unknown): void { change.fire(uri); },
+            fireCreate(uri?: unknown): void { create.fire(uri); },
+            fireDelete(uri?: unknown): void { del.fire(uri); },
+            dispose(): void {
+                watcher.disposed = true;
+                change.dispose(); create.dispose(); del.dispose();
+            },
+        };
+        fileWatchers.push(watcher as unknown as StubFileWatcher);
+        return watcher;
+    }
+
     const stub: Record<string, unknown> = {
         workspace: {
             workspaceFolders: undefined as unknown,
+            createFileSystemWatcher,
+            __fileWatchers: fileWatchers,
             getConfiguration(section: string) {
                 record('workspace.getConfiguration', [section]);
                 const sec = (configStore[section] ?? {}) as Record<string, unknown>;
@@ -454,6 +514,15 @@ function buildDefaultStub(record: (method: string, args: unknown[]) => void, opt
             file: (p: string): ReturnType<typeof fakeUri> => fakeUri(p),
             parse: (s: string): ReturnType<typeof fakeUri> => fakeUri(s),
             joinPath: (base: ReturnType<typeof fakeUri>, ...parts: string[]): ReturnType<typeof fakeUri> => fakeUri(path.join(base.fsPath, ...parts)),
+        },
+        RelativePattern: class {
+            base: unknown;
+            pattern: string;
+            constructor(base: unknown, pattern: string) { this.base = base; this.pattern = pattern; }
+        },
+        Disposable: class {
+            constructor(private readonly _fn: () => void) {}
+            dispose(): void { this._fn(); }
         },
         EventEmitter,
         CancellationTokenSource,
