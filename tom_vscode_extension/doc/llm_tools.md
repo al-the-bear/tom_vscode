@@ -173,7 +173,10 @@ Archive/delete naming rule: the sibling file is derived by suffixing the
 Archive moves only `status: completed` todos (stamped `archived:`); delete
 moves only non-completed todos (stamped `deleted:`). Files whose first
 segment already ends in `-archived`/`-deleted` are terminal and refuse both
-operations. See `_copilot_guidelines/todo_files_and_panel.md`.
+operations. Both moves are **idempotent by id**: archiving a todo already
+present in the target replaces it in place rather than adding a second copy,
+and the result reports those ids under `replaced`. See
+`_copilot_guidelines/todo_files_and_panel.md`.
 
 ### 4.11a Id generation
 

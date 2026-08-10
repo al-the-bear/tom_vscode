@@ -40,10 +40,21 @@ Rules (all enforced in `todoArchive.ts` / `todoArchiveNames.ts`):
   **terminal**: it can never be the *source* of a move (the whole operation is
   refused with an error), and the derivation helpers throw for it.
 - The target sibling is created on demand in the same folder, inheriting the
-  source's `# yaml-language-server:` schema comment. Todos are appended to the
+  source's `# yaml-language-server:` schema comment. Todos are written to the
   target **before** being removed from the source (no loss window).
-- All operations return `TodoMoveResult { moved, skipped[{id, reason}],
-  targetFile, error? }` so UI and tools can report precisely what happened.
+- **The target write is keyed by id, so moving twice is moving once.** An id
+  already in the target is replaced where it sits — never added a second time —
+  and surplus copies of that id are dropped in the same pass. This is what makes
+  the write order safe: an interrupted move leaves the todo in both files, and
+  the recovery is simply to run the move again. Without it, that recovery is
+  what corrupts the archive (`todos-archived.tom_core.todo.yaml` once held six
+  ids five times over, 30 970 lines).
+- The file-level `updated:` key is stamped **in the header**, before `todos:`.
+  `doc.set` alone appends an absent key, which on a todo file means thousands of
+  lines below the header — so an absent key is inserted, not set.
+- All operations return `TodoMoveResult { moved, replaced, skipped[{id,
+  reason}], targetFile, error? }` so UI and tools can report precisely what
+  happened. A non-empty `replaced` means the target already held those ids.
 - Source YAML formatting/comments are preserved (yaml Document/CST API);
   `todoArchive.ts` is vscode-free and unit-tested under `npm run test:utils`.
 

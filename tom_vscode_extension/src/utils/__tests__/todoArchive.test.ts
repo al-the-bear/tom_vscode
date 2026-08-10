@@ -395,3 +395,198 @@ describe('decisions journal', () => {
         assert.equal((archived.decisions as unknown[]).length, 1);
     });
 });
+
+// The archive is written before the source is rewritten, so a failure between
+// the two writes leaves the todo in both files — and the recovery is to run the
+// archive again. That recovery is only a recovery if the second run reconciles
+// the id it finds already in the archive instead of appending a second copy.
+// It did not: `todos-archived.tom_core.todo.yaml` reached 30970 lines with six
+// ids present five times over, and the corpus validator reported six
+// `duplicate-id` findings. These tests pin the invariant that makes the
+// write order safe.
+describe('re-archiving is idempotent', () => {
+    /** Put the fixture's todos back in the live file, as a failed run would. */
+    function restoreSource(): void {
+        fs.writeFileSync(sourceFile, SOURCE_YAML, 'utf8');
+    }
+
+    test('an id already in the archive is replaced, not appended', () => {
+        const first = archiveTodos(sourceFile, ['t1']);
+        restoreSource();
+        const second = archiveTodos(sourceFile, ['t1']);
+
+        assert.equal(second.targetFile, first.targetFile);
+        assert.deepEqual(readIds(second.targetFile), ['t1'], 'exactly one copy');
+        assert.deepEqual(readIds(sourceFile), ['t2', 't3', 't4', 't5']);
+    });
+
+    test('the replacement is reported so the caller can tell it happened', () => {
+        archiveTodos(sourceFile, ['t1']);
+        restoreSource();
+        const res = archiveTodos(sourceFile, ['t1']);
+
+        assert.deepEqual(res.moved, ['t1']);
+        assert.deepEqual(res.replaced, ['t1']);
+        assert.deepEqual(res.skipped, []);
+    });
+
+    test('a first-time archive reports nothing as replaced', () => {
+        const res = archiveTodos(sourceFile, ['t1']);
+        assert.deepEqual(res.replaced, []);
+    });
+
+    test('the live file wins: the replacement carries the newer content', () => {
+        // The point of replacing rather than skipping. The live copy is the one
+        // that was still being edited, so it is the one that must survive.
+        archiveTodos(sourceFile, ['t1']);
+        fs.writeFileSync(
+            sourceFile,
+            SOURCE_YAML.replace('notes: keep these notes', 'notes: edited after the first archive'),
+            'utf8',
+        );
+        const res = archiveTodos(sourceFile, ['t1']);
+
+        const archived = readTodoMap(res.targetFile)['t1'];
+        assert.equal(archived.notes, 'edited after the first archive');
+        assert.deepEqual(readIds(res.targetFile), ['t1']);
+    });
+
+    test('an archive that already holds duplicates is reconciled to one', () => {
+        // The repair path for a file the old writer already corrupted: the
+        // surplus copies go when the id is next archived, without a second tool.
+        const target = path.join(tmp, 'todos-archived.myquest.todo.yaml');
+        fs.writeFileSync(target, `${SCHEMA_LINE}
+quest: "myquest"
+created: "2026-01-01"
+updated: "2026-01-02"
+todos:
+  - id: t1
+    description: stale copy one
+    status: completed
+    archived: 2026-01-02
+  - id: t1
+    description: stale copy two
+    status: completed
+    archived: 2026-01-03
+  - id: t4
+    description: unrelated archived todo
+    status: completed
+    archived: 2026-01-03
+  - id: t1
+    description: stale copy three
+    status: completed
+    archived: 2026-01-04
+`, 'utf8');
+
+        const res = archiveTodos(sourceFile, ['t1']);
+
+        assert.deepEqual(res.replaced, ['t1']);
+        assert.deepEqual(readIds(res.targetFile), ['t1', 't4'], 'one t1, t4 kept in place');
+        assert.equal(readTodoMap(res.targetFile)['t1'].description, 'First completed todo');
+    });
+
+    test('the surviving entry keeps its position, so unrelated todos do not move', () => {
+        // Replacing in place rather than remove-and-append keeps the archive's
+        // ordering stable — otherwise every re-archive reshuffles the file and
+        // the diff is unreadable.
+        archiveTodos(sourceFile, ['t1']);
+        archiveTodos(sourceFile, ['t4']);
+        restoreSource();
+        const res = archiveTodos(sourceFile, ['t1']);
+
+        assert.deepEqual(readIds(res.targetFile), ['t1', 't4']);
+    });
+
+    test('bulk archiveAllCompleted is idempotent too', () => {
+        archiveAllCompleted(sourceFile);
+        restoreSource();
+        const res = archiveAllCompleted(sourceFile);
+
+        assert.deepEqual(res.moved.sort(), ['t1', 't4']);
+        assert.deepEqual(res.replaced.sort(), ['t1', 't4']);
+        assert.deepEqual(readIds(res.targetFile).sort(), ['t1', 't4']);
+    });
+
+    test('deleteTodos reconciles its own sibling the same way', () => {
+        // Same writer, same hazard — the -deleted file is not a special case.
+        deleteTodos(sourceFile, ['t2']);
+        restoreSource();
+        const res = deleteTodos(sourceFile, ['t2']);
+
+        assert.deepEqual(res.replaced, ['t2']);
+        assert.deepEqual(readIds(res.targetFile), ['t2']);
+    });
+});
+
+describe('file-level updated key', () => {
+    /** Index of the line starting with `key:` at column 0, or -1. */
+    function topLevelLine(raw: string, key: string): number {
+        return raw.split('\n').findIndex(l => l.startsWith(`${key}:`));
+    }
+
+    test('a new target file carries updated in the header, not after the todos', () => {
+        // A key appended after a 30000-line `todos:` sequence is still valid
+        // YAML, but it reads as a stray line at EOF and is where the duplicate
+        // block was noticed.
+        const res = archiveTodos(sourceFile, ['t1']);
+        const raw = fs.readFileSync(res.targetFile, 'utf8');
+
+        const updatedAt = topLevelLine(raw, 'updated');
+        const todosAt = topLevelLine(raw, 'todos');
+        assert.ok(updatedAt >= 0, 'updated present');
+        assert.ok(updatedAt < todosAt, `updated (line ${updatedAt}) before todos (line ${todosAt})`);
+    });
+
+    test('exactly one file-level updated key is written', () => {
+        archiveTodos(sourceFile, ['t1']);
+        const res = archiveTodos(sourceFile, ['t4']);
+        const raw = fs.readFileSync(res.targetFile, 'utf8');
+        assert.equal(raw.split('\n').filter(l => l.startsWith('updated:')).length, 1);
+    });
+
+    test('an existing target without updated gains it in the header', () => {
+        const target = path.join(tmp, 'todos-archived.myquest.todo.yaml');
+        fs.writeFileSync(target, `${SCHEMA_LINE}
+quest: "myquest"
+created: "2026-01-01"
+todos:
+  - id: old
+    description: previously archived
+    status: completed
+    archived: 2026-01-02
+`, 'utf8');
+
+        const res = archiveTodos(sourceFile, ['t1']);
+        const raw = fs.readFileSync(res.targetFile, 'utf8');
+        assert.ok(topLevelLine(raw, 'updated') < topLevelLine(raw, 'todos'));
+    });
+
+    test('a source file without updated gains it in the header', () => {
+        const bare = path.join(tmp, 'todos.bare.todo.yaml');
+        fs.writeFileSync(bare, `${SCHEMA_LINE}
+quest: "bare"
+created: "2026-01-01"
+todos:
+  - id: b1
+    description: done
+    status: completed
+    created: 2026-01-01
+  - id: b2
+    description: open
+    status: not-started
+    created: 2026-01-01
+`, 'utf8');
+
+        archiveTodos(bare, ['b1']);
+        const raw = fs.readFileSync(bare, 'utf8');
+        assert.ok(topLevelLine(raw, 'updated') < topLevelLine(raw, 'todos'));
+    });
+
+    test('an existing updated key is rewritten in place, not duplicated', () => {
+        // The fixture's own `updated:` sits after the todos list. Wherever it
+        // is, there must still be exactly one of it afterwards.
+        archiveTodos(sourceFile, ['t1']);
+        const raw = fs.readFileSync(sourceFile, 'utf8');
+        assert.equal(raw.split('\n').filter(l => l.startsWith('updated:')).length, 1);
+    });
+});

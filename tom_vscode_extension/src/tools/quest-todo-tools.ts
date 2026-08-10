@@ -586,6 +586,11 @@ export const DELETE_QUEST_TODO_TOOL: SharedToolDefinition<DeleteQuestTodoInput> 
  */
 export interface TodoFileMoveSummary {
     moved: string[];
+    /**
+     * Subset of `moved` whose id was already in the target and was reconciled
+     * in place. Optional so a caller that predates the field still type-checks.
+     */
+    replaced?: string[];
     skipped: Array<{ id: string; reason: string }>;
     /** Target sibling file ('' when the operation was refused). */
     targetFile: string;
@@ -656,6 +661,9 @@ function moveResultJson(
         targetFile: result.targetFile,
         movedCount: result.moved.length,
         moved: result.moved,
+        // Only surfaced when non-empty: a replacement means the target already
+        // held the id, which is worth reporting but is not the normal case.
+        ...(result.replaced?.length ? { replaced: result.replaced } : {}),
         skipped: result.skipped,
     }, null, 2);
 }
@@ -699,7 +707,9 @@ export const ARCHIVE_QUEST_TODOS_DESCRIPTION =
     '`todoIds` (explicit) OR `allCompleted: true` (bulk over the file). ' +
     '`file` defaults to the persistent `todos.<questId>.todo.yaml`. A source ' +
     'file that is itself an `-archived`/`-deleted` sibling is refused ' +
-    '(terminal files). Returns `{ok, targetFile, moved[], skipped[]}`.';
+    '(terminal files). Safe to repeat: an id already in the target is ' +
+    'replaced in place, never duplicated. Returns `{ok, targetFile, moved[], ' +
+    'skipped[]}`, plus `replaced[]` when the target already held some ids.';
 
 export const ARCHIVE_QUEST_TODOS_TOOL: SharedToolDefinition<ArchiveQuestTodosInput> = {
     name: 'tomAi_archiveQuestTodos',
@@ -761,7 +771,9 @@ export const DELETE_QUEST_TODOS_DESCRIPTION =
     '`todos.<questId>.todo.yaml`. A source file that is itself an ' +
     '`-archived`/`-deleted` sibling is refused (terminal files). Prefer ' +
     'this over `tomAi_deleteQuestTodo` (hard-remove) — the moved todo stays ' +
-    'recoverable. Returns `{ok, targetFile, moved[], skipped[]}`.';
+    'recoverable. Safe to repeat: an id already in the target is replaced in ' +
+    'place, never duplicated. Returns `{ok, targetFile, moved[], skipped[]}`, ' +
+    'plus `replaced[]` when the target already held some ids.';
 
 export const DELETE_QUEST_TODOS_TOOL: SharedToolDefinition<DeleteQuestTodosInput> = {
     name: 'tomAi_deleteQuestTodos',

@@ -15,6 +15,14 @@
  * `TodoMoveResult` so UI and tools can report precisely which todos were
  * moved and which were skipped (and why).
  *
+ * **A move is a move, and moving twice is moving once.** The target is written
+ * before the source is rewritten, so an interrupted move can leave a todo in
+ * both files — recoverable only because the target write is keyed by id: an id
+ * already there is replaced in place (and reported in `replaced`), never added
+ * a second time. Without that, the natural recovery — run it again — is what
+ * corrupts the archive, which is how `todos-archived.tom_core.todo.yaml` came
+ * to hold six ids five times over.
+ *
  * Pure fs + yaml — no vscode import — so the module is unit-testable
  * under plain `node --test`. Source YAML formatting/comments are
  * preserved via the yaml package's Document (CST) API.
@@ -47,6 +55,13 @@ export interface TodoMoveSkip {
 export interface TodoMoveResult {
     /** IDs of todos actually moved to the target file. */
     moved: string[];
+    /**
+     * Subset of {@link moved} whose id was already present in the target and was
+     * therefore replaced in place rather than added. Non-empty means the target
+     * had a stale (or duplicated) copy — normally the trace of a re-run after an
+     * interrupted move.
+     */
+    replaced: string[];
     /** IDs that were requested (or matched) but not moved, with reasons. */
     skipped: TodoMoveSkip[];
     /** Absolute path of the target sibling file ('' on error). */
@@ -88,6 +103,37 @@ export function forceBlockStyle(node: unknown): void {
 
 function isoDate(): string {
     return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Stamp the file-level `updated:` key with today's date.
+ *
+ * `doc.set` alone is not enough. When the key is absent the yaml package
+ * *appends* the new pair, which on a todo file means after the `todos:`
+ * sequence — legal YAML, but it puts a header field thousands of lines below
+ * the header and (having written it once) every later run then updates it in
+ * that wrong place forever. So an absent key is inserted before `todos:`.
+ */
+function stampUpdated(doc: Document): void {
+    const date = isoDate();
+    const contents = doc.contents;
+    if (!isMap(contents)) { return; }
+
+    const map = contents as YAMLMap;
+    const has = map.items.some(pair => String((pair as { key?: unknown }).key ?? '') === 'updated');
+    if (has) {
+        doc.set('updated', date);
+        return;
+    }
+    const todosIdx = map.items.findIndex(
+        pair => String((pair as { key?: unknown }).key ?? '') === 'todos',
+    );
+    const pair = doc.createPair('updated', date);
+    if (todosIdx < 0) {
+        map.items.push(pair);
+    } else {
+        map.items.splice(todosIdx, 0, pair);
+    }
 }
 
 /** Extract the `# yaml-language-server:` schema comment line, if any. */
@@ -201,6 +247,7 @@ function moveTodosToSibling(sourceFilePath: string, spec: MoveSpec): TodoMoveRes
         const reason = 'Source file is already an archived/deleted todo file';
         return {
             moved: [],
+            replaced: [],
             skipped: (spec.todoIds ?? []).map(id => ({ id, reason })),
             targetFile: '',
             error: reason,
@@ -209,6 +256,7 @@ function moveTodosToSibling(sourceFilePath: string, spec: MoveSpec): TodoMoveRes
     if (!fs.existsSync(sourceFilePath)) {
         return {
             moved: [],
+            replaced: [],
             skipped: [],
             targetFile: '',
             error: `Source todo file not found: ${sourceFilePath}`,
@@ -221,6 +269,7 @@ function moveTodosToSibling(sourceFilePath: string, spec: MoveSpec): TodoMoveRes
     if (!isSeq(todosNode)) {
         return {
             moved: [],
+            replaced: [],
             skipped: [],
             targetFile: '',
             error: `No todos list in source file: ${sourceFilePath}`,
@@ -262,12 +311,15 @@ function moveTodosToSibling(sourceFilePath: string, spec: MoveSpec): TodoMoveRes
     }
 
     if (moved.length === 0) {
-        return { moved, skipped, targetFile };
+        return { moved, replaced: [], skipped, targetFile };
     }
 
-    // Append to target first (safer failure mode: worst case a re-run
-    // duplicates in the target rather than losing todos).
-    appendToTargetFile(targetFile, movedPlain, raw, sourceDoc);
+    // Target first, source second — the order that cannot lose a todo. A crash
+    // between the two writes leaves the todo in both files, and the fix for that
+    // is to run the move again: the target write is keyed by id, so the re-run
+    // reconciles the copy it finds instead of adding a second one. (Source-first
+    // would fail the other way, with the todo in neither file.)
+    const replaced = writeTodosIntoTarget(targetFile, movedPlain, raw, sourceDoc);
 
     // Archiving retires a todo; deleting throws it away. Only the former is a
     // decision the project stands by, so only the former is journalled — and
@@ -280,19 +332,33 @@ function moveTodosToSibling(sourceFilePath: string, spec: MoveSpec): TodoMoveRes
     for (const idx of removeIdx.reverse()) {
         todosNode.items.splice(idx, 1);
     }
-    sourceDoc.set('updated', isoDate());
+    stampUpdated(sourceDoc);
     fs.writeFileSync(sourceFilePath, sourceDoc.toString(), 'utf8');
 
-    return { moved, skipped, targetFile };
+    return { moved, replaced, skipped, targetFile };
 }
 
-/** Create (if needed) and append todos to the target sibling file. */
-function appendToTargetFile(
+/**
+ * Write todos into the target sibling file, keyed by id: an id already present
+ * is replaced where it sits, an id not present is added at the end. Returns the
+ * ids that were replaced.
+ *
+ * Replacing **in place** (rather than removing and re-adding) keeps the archive
+ * ordered by when things were first archived, so a re-run produces a diff of the
+ * one changed entry instead of moving it to the bottom.
+ *
+ * Surplus copies of an id being written are dropped in the same pass. That is a
+ * repair path: files corrupted by the pre-fix appending writer hold the same id
+ * several times over, and reconciling them on the next touch is cheaper than
+ * asking anyone to find them by hand. Ids that are *not* being written are left
+ * exactly as they are — this reconciles, it does not tidy.
+ */
+function writeTodosIntoTarget(
     targetFile: string,
     todos: Record<string, unknown>[],
     sourceRaw: string,
     sourceDoc: Document,
-): void {
+): string[] {
     let doc: Document;
     let prefix = '';
     if (fs.existsSync(targetFile)) {
@@ -315,19 +381,45 @@ function appendToTargetFile(
         doc.set('todos', doc.createNode([]));
         todosNode = doc.get('todos', true) as YAMLSeq;
     }
+    const seq = todosNode as YAMLSeq;
+
+    const replaced: string[] = [];
     for (const plain of todos) {
+        const id = String(plain.id ?? '');
         const node = doc.createNode(plain);
         forceBlockStyle(node);
-        (todosNode as YAMLSeq).add(node);
+
+        const at = id ? indexesOfTodoId(seq, id) : [];
+        if (at.length === 0) {
+            seq.add(node);
+            continue;
+        }
+        seq.items[at[0]] = node;
+        // Drop any surplus copies of this id, back to front so the earlier
+        // indices stay valid.
+        for (let i = at.length - 1; i >= 1; i--) { seq.items.splice(at[i], 1); }
+        replaced.push(id);
     }
-    forceBlockStyle(todosNode);
-    doc.set('updated', isoDate());
+    forceBlockStyle(seq);
+    stampUpdated(doc);
 
     let content = doc.toString();
     if (prefix && !content.startsWith('# yaml-language-server:')) {
         content = prefix + content;
     }
     fs.writeFileSync(targetFile, content, 'utf8');
+    return replaced;
+}
+
+/** Positions of every entry in a todos sequence carrying the given id. */
+function indexesOfTodoId(seq: YAMLSeq, id: string): number[] {
+    const found: number[] = [];
+    seq.items.forEach((item, idx) => {
+        if (isMap(item) && String((item as YAMLMap).get('id') ?? '') === id) {
+            found.push(idx);
+        }
+    });
+    return found;
 }
 
 // ============================================================================

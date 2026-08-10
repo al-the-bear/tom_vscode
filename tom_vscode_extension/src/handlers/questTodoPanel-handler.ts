@@ -612,6 +612,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 byFile.set(fp, ids);
             }
             const moved: string[] = [];
+            const replaced: string[] = [];
             const skipped: questTodo.TodoMoveSkip[] = [];
             let targetFile = '';
             let firstError: string | undefined;
@@ -620,12 +621,13 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                     ? questTodo.archiveTodos(fp, ids, { anyStatus: true })
                     : questTodo.deleteTodos(fp, ids, { anyStatus: true });
                 moved.push(...result.moved);
+                replaced.push(...result.replaced);
                 skipped.push(...result.skipped);
                 if (result.targetFile) targetFile = result.targetFile;
                 if (result.error && !firstError) firstError = result.error;
             }
             for (const id of unresolved) { skipped.push({ id, reason: 'Could not resolve source file' }); }
-            _notifyMoveResult(isArchive ? 'Archived' : 'Deleted', { moved, skipped, targetFile, error: firstError });
+            _notifyMoveResult(isArchive ? 'Archived' : 'Deleted', { moved, replaced, skipped, targetFile, error: firstError });
             post({ type: 'qtArchiveResult', success: !firstError, moved });
             return true;
         }

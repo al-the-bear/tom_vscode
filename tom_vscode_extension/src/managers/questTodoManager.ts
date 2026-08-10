@@ -381,6 +381,22 @@ export function createTodoInFile(
 }
 
 /**
+ * Write an optional todo field, or remove it when there is no value.
+ *
+ * `map.set(key, undefined)` does not remove the key — the yaml package writes
+ * `key: null`. Every optional field in the todo schema is typed as a string or
+ * an array, so a null fails validation (`None is not of type 'string'`) and the
+ * pre-commit hook then refuses the whole file. An absent field must be absent.
+ */
+function setOrDelete(item: YAMLMap, key: string, value: unknown): void {
+    if (value === undefined || value === null || value === '') {
+        item.delete(key);
+    } else {
+        item.set(key, value);
+    }
+}
+
+/**
  * Update a todo in an arbitrary todo YAML file.
  */
 export function updateTodoInFile(
@@ -397,17 +413,17 @@ export function updateTodoInFile(
         if (!isMap(item)) { continue; }
         if (String(item.get('id')) !== todoId) { continue; }
 
-        if (updates.title !== undefined) { item.set('title', updates.title || undefined); }
+        if (updates.title !== undefined) { setOrDelete(item, 'title', updates.title); }
         if (updates.description !== undefined) { item.set('description', updates.description); }
         if (updates.status !== undefined) { item.set('status', updates.status); }
-        if (updates.priority !== undefined) { item.set('priority', updates.priority || undefined); }
-        if (updates.notes !== undefined) { item.set('notes', updates.notes || undefined); }
-        if (updates.tags !== undefined) { item.set('tags', updates.tags?.length ? doc.createNode(updates.tags) : undefined); }
-        if (updates.dependencies !== undefined) { item.set('dependencies', updates.dependencies?.length ? doc.createNode(updates.dependencies) : undefined); }
-        if (updates.blocked_by !== undefined) { item.set('blocked_by', updates.blocked_by?.length ? doc.createNode(updates.blocked_by) : undefined); }
+        if (updates.priority !== undefined) { setOrDelete(item, 'priority', updates.priority); }
+        if (updates.notes !== undefined) { setOrDelete(item, 'notes', updates.notes); }
+        if (updates.tags !== undefined) { setOrDelete(item, 'tags', updates.tags?.length ? doc.createNode(updates.tags) : undefined); }
+        if (updates.dependencies !== undefined) { setOrDelete(item, 'dependencies', updates.dependencies?.length ? doc.createNode(updates.dependencies) : undefined); }
+        if (updates.blocked_by !== undefined) { setOrDelete(item, 'blocked_by', updates.blocked_by?.length ? doc.createNode(updates.blocked_by) : undefined); }
         if (updates.decisions !== undefined) { setDecisions(doc, item, updates.decisions); }
-        if (updates.completed_date !== undefined) { item.set('completed_date', updates.completed_date || undefined); }
-        if (updates.completed_by !== undefined) { item.set('completed_by', updates.completed_by || undefined); }
+        if (updates.completed_date !== undefined) { setOrDelete(item, 'completed_date', updates.completed_date); }
+        if (updates.completed_by !== undefined) { setOrDelete(item, 'completed_by', updates.completed_by); }
         if (updates.scope !== undefined) {
             if (updates.scope && (updates.scope.project || updates.scope.projects?.length || updates.scope.module || updates.scope.area || updates.scope.files?.length)) {
                 const scopeObj: Record<string, unknown> = {};
