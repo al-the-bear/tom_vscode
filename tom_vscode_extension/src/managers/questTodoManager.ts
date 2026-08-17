@@ -22,6 +22,7 @@ import { scanWorkspaceProjectsByDetectors } from '../utils/projectDetector';
 import { forceBlockStyle } from '../utils/todoArchive';
 import { ALL_TODO_FILES, matchesTodoFileScope, type TodoFileScope } from '../utils/todoArchiveNames';
 import { normaliseTodoDecisions, type TodoDecision } from '../utils/todoDecisions';
+import { loadTodoYaml } from '../utils/todoYamlDocument';
 
 export { normaliseTodoDecisions, isDecisionResolved, hasUnresolvedDecisions, type TodoDecision } from '../utils/todoDecisions';
 
@@ -143,10 +144,17 @@ export function persistentTodoPath(questId: string): string {
 // YAML document helpers
 // ============================================================================
 
-/** Parse a YAML file into a Document (preserving CST). */
+/**
+ * Parse a YAML file into a Document (preserving CST).
+ *
+ * Refuses a file the parser found problems in — chiefly a duplicate key, which
+ * the yaml package reports without throwing. Tolerating it here would leave the
+ * document unwritable (`doc.toString()` refuses) and the failure would surface
+ * far from its cause; `TodoYamlError` names the file, the line and the
+ * objection instead. See `utils/todoYamlDocument.ts`.
+ */
 function loadDocument(filePath: string): Document {
-    const raw = fs.readFileSync(filePath, 'utf8');
-    return parseDocument(raw);
+    return loadTodoYaml(filePath);
 }
 
 /** Write a Document back, preserving formatting. */

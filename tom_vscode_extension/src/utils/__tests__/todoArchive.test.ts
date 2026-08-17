@@ -590,3 +590,102 @@ todos:
         assert.equal(raw.split('\n').filter(l => l.startsWith('updated:')).length, 1);
     });
 });
+
+// ============================================================================
+// Duplicate keys
+// ============================================================================
+
+/**
+ * A duplicate map key is illegal YAML that nothing throws on: the parser
+ * records it in `doc.errors` and every reader carries on. It only bites on the
+ * *next* write, where `doc.toString()` refuses — historically with a message
+ * that named neither the file nor the key. Both halves are pinned here: what a
+ * write must never produce, and what reaching a pre-broken file must report.
+ */
+describe('duplicate keys', () => {
+    /** Every problem the yaml package found, rendered `line:code`. */
+    function parseProblems(filePath: string): string[] {
+        return parseDocument(fs.readFileSync(filePath, 'utf8'))
+            .errors.map(e => `${e.linePos?.[0]?.line ?? '?'}:${e.code}`);
+    }
+
+    /** Occurrences of a `key:` at todo-entry indentation. */
+    function keyCount(raw: string, key: string): number {
+        return raw.split('\n').filter(l => l.trim().replace(/^- /, '').startsWith(`${key}:`)).length;
+    }
+
+    test('archiving a todo that already has completed_date emits exactly one', () => {
+        // t1 carries `completed_date: 2026-02-01` in the source. The archive
+        // stamp must not re-add a field the entry already had.
+        const res = archiveTodos(sourceFile, ['t1']);
+        const raw = fs.readFileSync(res.targetFile, 'utf8');
+
+        assert.equal(keyCount(raw, 'completed_date'), 1);
+        assert.equal(keyCount(raw, 'archived'), 1);
+        assert.deepEqual(parseProblems(res.targetFile), []);
+        assert.equal(readTodoMap(res.targetFile)['t1'].completed_date, '2026-02-01');
+    });
+
+    test('re-archiving the same todo still emits exactly one completed_date', () => {
+        // The recovery path: an interrupted move leaves the todo in both files,
+        // so the entry is written into the target a second time.
+        archiveTodos(sourceFile, ['t1']);
+        fs.writeFileSync(sourceFile, SOURCE_YAML, 'utf8');
+        const res = archiveTodos(sourceFile, ['t1']);
+
+        assert.deepEqual(res.replaced, ['t1']);
+        const raw = fs.readFileSync(res.targetFile, 'utf8');
+        assert.equal(keyCount(raw, 'completed_date'), 1);
+        assert.deepEqual(parseProblems(res.targetFile), []);
+    });
+
+    test('a pre-broken target archive file is reported with file, line and message', () => {
+        const target = path.join(tmp, 'todos-archived.myquest.todo.yaml');
+        fs.writeFileSync(target, `${SCHEMA_LINE}
+quest: "myquest"
+created: "2026-01-01"
+todos:
+  - id: old
+    description: previously archived
+    status: completed
+    completed_date: 2026-08-09
+    notes: some notes
+    completed_date: 2026-08-09
+    archived: 2026-08-09
+`, 'utf8');
+
+        const res = archiveTodos(sourceFile, ['t1']);
+
+        assert.ok(res.error, 'the operation is refused, not silently half-done');
+        assert.match(res.error!, /todos-archived\.myquest\.todo\.yaml/);
+        assert.match(res.error!, /line 10/);
+        assert.match(res.error!, /Map keys must be unique/);
+        assert.doesNotMatch(res.error!, /cannot be stringified/);
+        assert.deepEqual(res.moved, []);
+
+        // Neither file was touched: the source still holds t1, and the broken
+        // target is left exactly as found for a human to repair.
+        assert.deepEqual(readIds(sourceFile), ['t1', 't2', 't3', 't4', 't5']);
+        assert.deepEqual(parseProblems(target), ['10:DUPLICATE_KEY']);
+    });
+
+    test('a pre-broken source file is reported the same way', () => {
+        fs.writeFileSync(sourceFile, `${SCHEMA_LINE}
+quest: "myquest"
+created: "2026-01-01"
+todos:
+  - id: t1
+    description: done
+    status: completed
+    status: completed
+    created: 2026-01-01
+`, 'utf8');
+
+        const res = archiveTodos(sourceFile, ['t1']);
+        assert.ok(res.error, 'error is set');
+        assert.match(res.error!, /todos\.myquest\.todo\.yaml/);
+        assert.match(res.error!, /line 8/);
+        assert.match(res.error!, /Map keys must be unique/);
+        assert.deepEqual(res.moved, []);
+    });
+});

@@ -23,6 +23,13 @@
  * corrupts the archive, which is how `todos-archived.tom_core.todo.yaml` came
  * to hold six ids five times over.
  *
+ * **A malformed file is refused, not written over.** Both files are read
+ * through `todoYamlDocument.ts`, so a duplicate key — illegal YAML the parser
+ * reports without throwing — aborts the move before its first write and comes
+ * back in `TodoMoveResult.error` naming the file, the line and the parser's
+ * objection. Left to `doc.toString()` it would instead surface, much later, as
+ * `Document with errors cannot be stringified`.
+ *
  * Pure fs + yaml — no vscode import — so the module is unit-testable
  * under plain `node --test`. Source YAML formatting/comments are
  * preserved via the yaml package's Document (CST) API.
@@ -42,6 +49,7 @@ import {
     decisionsJournalHeader,
     formatDecisionJournalEntry,
 } from './decisionsJournalFormat';
+import { TodoYamlError, loadTodoYaml, parseTodoYaml } from './todoYamlDocument';
 
 // ============================================================================
 // Result types
@@ -242,7 +250,36 @@ interface MoveSpec {
     targetName: (sourceFilePath: string) => string;
 }
 
+/**
+ * Move todos to the spec's sibling file, reporting a malformed file rather
+ * than failing on it opaquely.
+ *
+ * Either file may be illegal YAML — most often a duplicate key introduced by a
+ * hand edit or a text merge. The parser does not throw on that, so without this
+ * guard the move proceeds until `doc.toString()` refuses with a message naming
+ * neither file nor line. {@link TodoYamlError} carries all three, and it aborts
+ * the move *before* the first write: a malformed archive is left exactly as
+ * found, for a human to repair, with the todo still in its source file.
+ */
 function moveTodosToSibling(sourceFilePath: string, spec: MoveSpec): TodoMoveResult {
+    try {
+        return moveTodosOrThrow(sourceFilePath, spec);
+    } catch (e) {
+        if (!(e instanceof TodoYamlError)) { throw e; }
+        return {
+            moved: [],
+            replaced: [],
+            skipped: (spec.todoIds ?? []).map(id => ({
+                id,
+                reason: `Todo file is malformed: ${e.filePath}`,
+            })),
+            targetFile: '',
+            error: e.message,
+        };
+    }
+}
+
+function moveTodosOrThrow(sourceFilePath: string, spec: MoveSpec): TodoMoveResult {
     if (isArchivedOrDeletedTodoFile(sourceFilePath)) {
         const reason = 'Source file is already an archived/deleted todo file';
         return {
@@ -264,7 +301,7 @@ function moveTodosToSibling(sourceFilePath: string, spec: MoveSpec): TodoMoveRes
     }
 
     const raw = fs.readFileSync(sourceFilePath, 'utf8');
-    const sourceDoc = parseDocument(raw);
+    const sourceDoc = parseTodoYaml(sourceFilePath, raw);
     const todosNode = sourceDoc.get('todos', true);
     if (!isSeq(todosNode)) {
         return {
@@ -362,7 +399,7 @@ function writeTodosIntoTarget(
     let doc: Document;
     let prefix = '';
     if (fs.existsSync(targetFile)) {
-        doc = parseDocument(fs.readFileSync(targetFile, 'utf8'));
+        doc = loadTodoYaml(targetFile);
     } else {
         // Same schema header as the source; same quest, fresh created date.
         prefix = schemaCommentOf(sourceRaw);
