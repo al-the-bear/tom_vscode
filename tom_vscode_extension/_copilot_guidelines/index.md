@@ -5,9 +5,9 @@ Type: TypeScript extension
 
 ## Global references
 
-- [Documentation Guidelines](/_copilot_guidelines/documentation_guidelines.md)
-- [Dart Coding Guidelines](/_copilot_guidelines/dart/coding_guidelines.md)
-- [Dart Unit Tests](/_copilot_guidelines/dart/unit_tests.md)
+- [Documentation Guidelines](../../../../_copilot_guidelines/documentation_guidelines.md)
+- [Dart Coding Guidelines](../../../../_copilot_guidelines/dart/coding_guidelines.md)
+- [Dart Unit Tests](../../../../_copilot_guidelines/dart/unit_tests.md)
 
 ## Project-specific guidelines
 
