@@ -168,6 +168,7 @@ interface AgentSdkModule {
         name: string;
         version?: string;
         tools?: McpToolDefinition[];
+        alwaysLoad?: boolean;
     }): unknown;
 }
 
@@ -472,10 +473,16 @@ function buildMcpServer(
         ),
     );
 
+    // Why `alwaysLoad`: since SDK 0.3.142 MCP servers connect in the background
+    // and their tools are deferred behind tool search, so a turn-1 prompt can be
+    // built before this server is ready — and every extension tool lives here.
+    // `alwaysLoad` both un-defers the tools and blocks startup until the server
+    // is connected, restoring the pre-0.3 guarantee that they exist on turn 1.
     return sdk.createSdkMcpServer({
         name: MCP_SERVER_NAME,
         version: '1.0.0',
         tools: mcpTools,
+        alwaysLoad: true,
     });
 }
 
