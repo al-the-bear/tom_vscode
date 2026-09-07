@@ -372,7 +372,83 @@ function moveTodosOrThrow(sourceFilePath: string, spec: MoveSpec): TodoMoveResul
     stampUpdated(sourceDoc);
     fs.writeFileSync(sourceFilePath, sourceDoc.toString(), 'utf8');
 
+    assertMovePersisted(sourceFilePath, targetFile, moved);
+
     return { moved, replaced, skipped, targetFile };
+}
+
+/**
+ * Confirm a completed move actually reached disk on BOTH sides.
+ *
+ * The writes are ordered target-first so that an interruption leaves a todo in
+ * both files rather than neither, and the documented recovery is to run the move
+ * again. That is a safe failure, but it is a SILENT one: the caller is handed a
+ * populated `moved` list and reports success, while the source still holds every
+ * id it claims to have relocated. Exactly that state has been observed in the
+ * wild — seven ids present in both the active file and its archived sibling,
+ * with nothing in the result to say so.
+ *
+ * SCC84 is the general form: a confirmation that is not verified is worse than
+ * no confirmation. Re-reading both files costs one parse each and turns a
+ * half-done move into an error the caller can act on.
+ */
+function assertMovePersisted(
+    sourceFilePath: string,
+    targetFile: string,
+    movedIds: string[],
+): void {
+    const idsIn = (filePath: string): Set<string> => {
+        const doc = loadTodoYaml(filePath);
+        const seq = doc.get('todos', true);
+        const out = new Set<string>();
+        if (isSeq(seq)) {
+            for (const item of seq.items) {
+                if (isMap(item)) {
+                    const id = item.get('id');
+                    if (id !== undefined && id !== null) { out.add(String(id)); }
+                }
+            }
+        }
+        return out;
+    };
+
+    let inTarget: Set<string>;
+    let inSource: Set<string>;
+    try {
+        // A target that does not exist is a lost write, not an unreadable file:
+        // the move creates it when absent, so its absence here means the write
+        // never landed. Reporting it as "did not reach <target>" names the
+        // actual fault; letting the read throw would blame the reader.
+        inTarget = fs.existsSync(targetFile) ? idsIn(targetFile) : new Set<string>();
+        inSource = idsIn(sourceFilePath);
+    } catch (err) {
+        throw new Error(
+            `The move wrote ${movedIds.length} todo(s), but the files could not be ` +
+            `re-read to confirm it: ${(err as Error).message}. The move is NOT ` +
+            `confirmed — inspect both files before trusting the result.`,
+        );
+    }
+
+    const missing = movedIds.filter(id => !inTarget.has(id));
+    const stillInSource = movedIds.filter(id => inSource.has(id));
+    if (missing.length === 0 && stillInSource.length === 0) { return; }
+
+    const parts: string[] = [];
+    if (missing.length) {
+        parts.push(
+            `did not reach ${path.basename(targetFile)}: ${missing.join(', ')}`,
+        );
+    }
+    if (stillInSource.length) {
+        parts.push(
+            `are still in ${path.basename(sourceFilePath)}: ${stillInSource.join(', ')}`,
+        );
+    }
+    throw new Error(
+        `The move reported success but is only half done — ${parts.join('; ')}. ` +
+        `Re-run it: the target write is keyed by id, so a re-run reconciles the ` +
+        `copy it finds instead of adding a second one.`,
+    );
 }
 
 /**

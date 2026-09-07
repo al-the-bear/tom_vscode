@@ -331,7 +331,12 @@ export const CREATE_QUEST_TODO_DESCRIPTION =
     '`status: "decision-needed"` instead of `not-started`, so nobody starts ' +
     'the todo on a guess. Optional fields (`scope`, `references`, ' +
     '`dependencies`, `blocked_by`, `notes`) are persisted verbatim. YAML ' +
-    'formatting in existing files is preserved across the create.';
+    'formatting in existing files is preserved across the create. ' +
+    '**`ok: true` is verified, not assumed**: the file is re-read after the ' +
+    'write and the id confirmed present, so a write lost to another writer of ' +
+    'the same file comes back as `ok: false` instead of a success response for ' +
+    'a todo that is on no disk anywhere. You do not need to grep the YAML ' +
+    'afterwards to check it landed.';
 
 export const CREATE_QUEST_TODO_TOOL: SharedToolDefinition<CreateQuestTodoInput> = {
     name: 'tomAi_createQuestTodo',

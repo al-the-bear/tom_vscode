@@ -12,6 +12,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { parseDocument } from 'yaml';
+import { createRequire } from 'module';
 
 import {
     archiveTodos,
@@ -687,5 +688,73 @@ todos:
         assert.match(res.error!, /line 8/);
         assert.match(res.error!, /Map keys must be unique/);
         assert.deepEqual(res.moved, []);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// SCC84 — a half-done move is reported, not returned as success
+// ---------------------------------------------------------------------------
+
+/**
+ * The writes are ordered target-first so an interruption leaves a todo in BOTH
+ * files rather than neither. That is safe but silent: the caller gets a
+ * populated `moved` list and reports success while the source still holds every
+ * id it claims to have relocated. Seven ids were found in exactly that state in
+ * the wild, with nothing in the result to say so.
+ *
+ * `realFs` is the CommonJS `fs` object rather than the `import * as fs`
+ * namespace, whose properties compile to getters and cannot be assigned.
+ */
+const realFsForFault = createRequire(__filename)('fs') as typeof fs;
+
+/** Drop the write to `victim`, restoring what the file held before. */
+function withLostWriteTo<T>(victim: string, body: () => T): T {
+    const descriptor = Object.getOwnPropertyDescriptor(realFsForFault, 'writeFileSync')!;
+    const real = realFsForFault.writeFileSync;
+    const before = fs.existsSync(victim) ? fs.readFileSync(victim, 'utf8') : undefined;
+    Object.defineProperty(realFsForFault, 'writeFileSync', {
+        configurable: true,
+        writable: true,
+        value: (target: fs.PathOrFileDescriptor, ...rest: unknown[]) => {
+            if (String(target) === victim) {
+                if (before === undefined) { return undefined; }
+                return (real as (...a: unknown[]) => unknown)(target, before, 'utf8');
+            }
+            return (real as (...a: unknown[]) => unknown)(target, ...rest);
+        },
+    });
+    try {
+        return body();
+    } finally {
+        Object.defineProperty(realFsForFault, 'writeFileSync', descriptor);
+    }
+}
+
+describe('SCC84: a half-done move is not reported as success', () => {
+    test('F-SCC84-5: archiveTodos THROWS when the source write is lost, naming '
+        + 'the ids left behind [2026-09-07]', () => {
+        assert.throws(
+            () => withLostWriteTo(sourceFile, () => archiveTodos(sourceFile, ['t1'])),
+            /only half done.*are still in .*\.todo\.yaml: t1/s,
+        );
+        // The state the guard exists to report: present in both files.
+        assert.match(fs.readFileSync(sourceFile, 'utf8'), /id: t1/);
+    });
+
+    test('F-SCC84-6: archiveTodos THROWS when the target write is lost '
+        + '[2026-09-07]', () => {
+        const target = path.join(tmp, 'todos-archived.myquest.todo.yaml');
+        assert.throws(
+            () => withLostWriteTo(target, () => archiveTodos(sourceFile, ['t1'])),
+            /only half done.*did not reach todos-archived\.myquest\.todo\.yaml: t1/s,
+        );
+    });
+
+    test('F-SCC84-7: an intact archive still succeeds and moves the todo '
+        + '[2026-09-07]', () => {
+        const res = archiveTodos(sourceFile, ['t1']);
+        assert.deepEqual(res.moved, ['t1']);
+        assert.doesNotMatch(fs.readFileSync(sourceFile, 'utf8'), /id: t1/);
+        assert.match(fs.readFileSync(res.targetFile, 'utf8'), /id: t1/);
     });
 });

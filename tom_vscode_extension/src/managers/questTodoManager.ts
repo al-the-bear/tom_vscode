@@ -163,6 +163,65 @@ function saveDocument(filePath: string, doc: Document): void {
 }
 
 /**
+ * Confirm a mutation that has just been written actually reached disk.
+ *
+ * The todo tools answer `ok: true` with the whole record echoed back, and every
+ * caller reasonably reads that as durable. It was not. A `tomAi_createQuestTodo`
+ * call returned success with the full todo in its response and the todo was in
+ * no `*.todo.yaml` file afterwards — archived and deleted siblings included. It
+ * survived only because a neighbouring todo's notes happened to mention the id.
+ * A confirmation that is not verified is worse than no confirmation, so each
+ * write now re-reads the file and checks the invariant it just established.
+ *
+ * WHAT THIS IS NOT. It is not protection against an in-process race, because
+ * there is none to protect against: every mutator in this file is synchronous
+ * from `loadDocument` through `writeFileSync`, with no `await` anywhere in the
+ * module, so two calls inside one extension host cannot interleave their
+ * read-modify-write. A mutex keyed on the file path — the obvious fix, and the
+ * one originally proposed — would serialise operations that are already
+ * serial.
+ *
+ * WHAT IT DOES CATCH is a write lost to anything OUTSIDE this process, which is
+ * the only explanation left: another extension host writing the same file over
+ * the shared `_ai` clone, a panel saving a stale whole-file buffer, or a git
+ * merge driver rewriting the file underneath us. None of those is reachable
+ * from a lock, and all of them are visible to a re-read.
+ */
+function assertTodoPersisted(
+    filePath: string,
+    todoId: string,
+    expected: 'present' | 'absent',
+    operation: string,
+): void {
+    let onDisk: Document;
+    try {
+        onDisk = loadDocument(filePath);
+    } catch (err) {
+        throw new Error(
+            `${operation} wrote "${todoId}" to ${path.basename(filePath)}, but the file ` +
+            `could not be re-read to confirm it: ${(err as Error).message}. The write ` +
+            `is NOT confirmed — inspect the file before trusting either outcome.`,
+        );
+    }
+    const seq = onDisk.get('todos', true);
+    const present = isSeq(seq) && seq.items.some(
+        (item: unknown) => isMap(item) && String((item as YAMLMap).get('id')) === todoId,
+    );
+    if (present === (expected === 'present')) { return; }
+
+    throw new Error(
+        expected === 'present'
+            ? `${operation} reported success for "${todoId}" but the todo is not in ` +
+              `${path.basename(filePath)} when the file is read back. The write was lost — ` +
+              `most likely overwritten by another writer of this file. Nothing was saved; ` +
+              `retry, and check whether another window or process is editing the same quest.`
+            : `${operation} reported success for "${todoId}" but the todo is STILL in ` +
+              `${path.basename(filePath)} when the file is read back. The removal was lost — ` +
+              `most likely overwritten by another writer of this file.`,
+    );
+}
+
+/**
  * Build the YAML schema comment for a todo file.
  * The relative schema path depends on where the file is located.
  */
@@ -641,6 +700,7 @@ export function createTodo(
     } else {
         saveDocument(filePath, doc);
     }
+    assertTodoPersisted(filePath, todo.id, 'present', 'createTodo');
 
     return { ...todo, _sourceFile: fileName, created: plain.created as string };
 }
@@ -731,6 +791,7 @@ export function deleteTodo(
         todosNode.items.splice(idx, 1);
         doc.set('updated', new Date().toISOString().slice(0, 10));
         saveDocument(filePath, doc);
+        assertTodoPersisted(filePath, todoId, 'absent', 'deleteTodo');
         return true;
     };
 
