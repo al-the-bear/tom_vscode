@@ -222,6 +222,143 @@ function assertTodoPersisted(
 }
 
 /**
+ * Confirm the FIELDS a mutation just wrote are readable back, not only that the
+ * record exists.
+ *
+ * WHY THE PRESENCE CHECK ABOVE IS NOT ENOUGH, measured rather than argued. A
+ * lost CREATE leaves the todo missing, which `assertTodoPersisted` catches. A
+ * lost UPDATE leaves the todo PRESENT with its old content, so presence proves
+ * nothing and the caller is told the edit landed while the file holds the
+ * previous text. Nothing is absent, no grep comes up empty, and the only
+ * symptom is that the change quietly is not there.
+ *
+ * IT IS NOT HYPOTHETICAL. `createTodo` accepted `scope`, `references`,
+ * `blocked_by`, `completed_date` and `completed_by`, echoed all five back in a
+ * `{ok: true}` response, and wrote NONE of them — its plain-object builder
+ * simply had no branch for them, while `createTodoInFile` beside it did. Every
+ * todo created through `tomAi_createQuestTodo` lost its scope and references
+ * that way, and the presence check passed on every one of them because the id
+ * was there. This function is what turns that class of loss into an error.
+ *
+ * WHAT IT COMPARES, and why it is not the conservative "one scalar" the plan
+ * called for. The fear was FALSE FAILURES from normalisation — that a correct
+ * write would not compare equal after a YAML round trip, and a verification
+ * that cries wolf gets deleted, taking the working checks with it. Measured on
+ * this package's own writer: a plain string round-trips byte-for-byte through
+ * folded blocks, blank lines, indented continuations, tabs, leading spaces and
+ * a trailing newline; so do string arrays and normalised decisions. Ten of ten
+ * cases, exactly equal.
+ *
+ * So the conservative plan was not merely cautious, it was aimed away from the
+ * defect: comparing one representative SCALAR would never have looked at
+ * `scope` or `references`, which is where the loss was.
+ *
+ * THE THREE REAL NORMALISATIONS, each measured, each narrow:
+ *
+ *   1. An empty value is a DELETE. The writers turn `''`, `[]` and an empty
+ *      scope into an absent key on purpose, so "wrote empty, read nothing" is
+ *      success rather than loss.
+ *   2. `scope` is rebuilt from a known subset of keys and re-emitted in the
+ *      reader's own order, so it is compared key by key over that subset
+ *      rather than by serialised shape.
+ *   3. The value compared is what the WRITER computed, not what the caller
+ *      passed — `decisions` is normalised on the way in, and comparing against
+ *      the raw input would fail on every correct write.
+ *
+ * A value this cannot compare is SKIPPED rather than guessed at. That is the
+ * one place the original caution survives: a silent skip loses a check, an
+ * invented comparison loses the whole mechanism.
+ */
+function assertTodoFieldsPersisted(
+    filePath: string,
+    todoId: string,
+    written: Record<string, unknown>,
+    operation: string,
+): void {
+    const onDisk = findTodoByIdInFile(filePath, todoId);
+    if (!onDisk) {
+        // `assertTodoPersisted` owns absence and says it better; do not report
+        // the same fault twice in different words.
+        return;
+    }
+
+    const mismatches: string[] = [];
+    for (const [key, value] of Object.entries(written)) {
+        if (!VERIFIED_TODO_FIELDS.has(key)) { continue; }
+        const actual = (onDisk as unknown as Record<string, unknown>)[key];
+        if (isEmptyTodoValue(value)) {
+            // The writers delete a falsy key rather than storing it empty.
+            if (!isEmptyTodoValue(actual)) {
+                mismatches.push(`${key}: wrote nothing, read ${describe(actual)}`);
+            }
+            continue;
+        }
+        if (!todoValuesAgree(key, value, actual)) {
+            mismatches.push(`${key}: wrote ${describe(value)}, read ${describe(actual)}`);
+        }
+    }
+
+    if (mismatches.length === 0) { return; }
+
+    throw new Error(
+        `${operation} reported success for "${todoId}" but these fields are not ` +
+        `readable back from ${path.basename(filePath)}:\n  ${mismatches.join('\n  ')}\n` +
+        `The record is there and its content is not, which is the failure a ` +
+        `presence check cannot see. Either the write was lost to another writer ` +
+        `of this file, or the field is not persisted by this code path at all — ` +
+        `check the file before retrying, because a retry will not fix the second.`,
+    );
+}
+
+/**
+ * Fields whose written value is comparable against the value read back.
+ *
+ * Derived from a measurement, not from the type: every one of these was written
+ * and re-read through this module's own writer and reader and came back equal.
+ * `created` and `updated` are absent deliberately — the writer stamps them
+ * itself rather than taking them from the caller, so there is nothing the
+ * caller asked for to compare.
+ */
+const VERIFIED_TODO_FIELDS = new Set<string>([
+    'title', 'description', 'status', 'priority', 'notes',
+    'completed_date', 'completed_by',
+    'tags', 'dependencies', 'blocked_by', 'references',
+    'decisions', 'scope',
+]);
+
+/** Whether [value] is what the writers store as an absent key. */
+function isEmptyTodoValue(value: unknown): boolean {
+    if (value === undefined || value === null || value === '') { return true; }
+    if (Array.isArray(value)) { return value.length === 0; }
+    if (typeof value === 'object') {
+        return Object.values(value as Record<string, unknown>).every(isEmptyTodoValue);
+    }
+    return false;
+}
+
+/** Whether a written and a read-back value are the same value. */
+function todoValuesAgree(key: string, written: unknown, actual: unknown): boolean {
+    if (key === 'scope') {
+        // Rebuilt from a known subset and re-emitted in the reader's order, so
+        // compare the subset rather than the serialised shape.
+        const a = (written ?? {}) as Record<string, unknown>;
+        const b = (actual ?? {}) as Record<string, unknown>;
+        return ['project', 'module', 'area', 'projects', 'files'].every((k) => {
+            if (isEmptyTodoValue(a[k]) && isEmptyTodoValue(b[k])) { return true; }
+            return JSON.stringify(a[k]) === JSON.stringify(b[k]);
+        });
+    }
+    return JSON.stringify(written) === JSON.stringify(actual);
+}
+
+/** A short, quotable rendering of a value for a failure message. */
+function describe(value: unknown): string {
+    if (value === undefined) { return 'nothing'; }
+    const text = JSON.stringify(value) ?? String(value);
+    return text.length <= 120 ? text : `${text.slice(0, 120)}…`;
+}
+
+/**
  * Build the YAML schema comment for a todo file.
  * The relative schema path depends on where the file is located.
  */
@@ -439,6 +576,8 @@ export function createTodoInFile(
     forceBlockStyle(todosNode);
     doc.set('updated', new Date().toISOString().slice(0, 10));
     saveDocument(filePath, doc);
+    assertTodoPersisted(filePath, todo.id, 'present', 'createTodoInFile');
+    assertTodoFieldsPersisted(filePath, todo.id, plain, 'createTodoInFile');
 
     return {
         ...todo,
@@ -480,17 +619,22 @@ export function updateTodoInFile(
         if (!isMap(item)) { continue; }
         if (String(item.get('id')) !== todoId) { continue; }
 
-        if (updates.title !== undefined) { setOrDelete(item, 'title', updates.title); }
-        if (updates.description !== undefined) { item.set('description', updates.description); }
-        if (updates.status !== undefined) { item.set('status', updates.status); }
-        if (updates.priority !== undefined) { setOrDelete(item, 'priority', updates.priority); }
-        if (updates.notes !== undefined) { setOrDelete(item, 'notes', updates.notes); }
-        if (updates.tags !== undefined) { setOrDelete(item, 'tags', updates.tags?.length ? doc.createNode(updates.tags) : undefined); }
-        if (updates.dependencies !== undefined) { setOrDelete(item, 'dependencies', updates.dependencies?.length ? doc.createNode(updates.dependencies) : undefined); }
-        if (updates.blocked_by !== undefined) { setOrDelete(item, 'blocked_by', updates.blocked_by?.length ? doc.createNode(updates.blocked_by) : undefined); }
-        if (updates.decisions !== undefined) { setDecisions(doc, item, updates.decisions); }
-        if (updates.completed_date !== undefined) { setOrDelete(item, 'completed_date', updates.completed_date); }
-        if (updates.completed_by !== undefined) { setOrDelete(item, 'completed_by', updates.completed_by); }
+        // Collected as it is applied, so the read-back below compares the set
+        // the writer touched. SCD202 covers this function for the same reason
+        // it covers `updateTodo`: a lost update leaves the todo present with
+        // its old content, which no presence check can see.
+        const applied: Record<string, unknown> = {};
+        if (updates.title !== undefined) { setOrDelete(item, 'title', updates.title); applied.title = updates.title; }
+        if (updates.description !== undefined) { item.set('description', updates.description); applied.description = updates.description; }
+        if (updates.status !== undefined) { item.set('status', updates.status); applied.status = updates.status; }
+        if (updates.priority !== undefined) { setOrDelete(item, 'priority', updates.priority); applied.priority = updates.priority; }
+        if (updates.notes !== undefined) { setOrDelete(item, 'notes', updates.notes); applied.notes = updates.notes; }
+        if (updates.tags !== undefined) { setOrDelete(item, 'tags', updates.tags?.length ? doc.createNode(updates.tags) : undefined); applied.tags = updates.tags; }
+        if (updates.dependencies !== undefined) { setOrDelete(item, 'dependencies', updates.dependencies?.length ? doc.createNode(updates.dependencies) : undefined); applied.dependencies = updates.dependencies; }
+        if (updates.blocked_by !== undefined) { setOrDelete(item, 'blocked_by', updates.blocked_by?.length ? doc.createNode(updates.blocked_by) : undefined); applied.blocked_by = updates.blocked_by; }
+        if (updates.decisions !== undefined) { setDecisions(doc, item, updates.decisions); applied.decisions = normaliseTodoDecisions(updates.decisions) ?? []; }
+        if (updates.completed_date !== undefined) { setOrDelete(item, 'completed_date', updates.completed_date); applied.completed_date = updates.completed_date; }
+        if (updates.completed_by !== undefined) { setOrDelete(item, 'completed_by', updates.completed_by); applied.completed_by = updates.completed_by; }
         if (updates.scope !== undefined) {
             if (updates.scope && (updates.scope.project || updates.scope.projects?.length || updates.scope.module || updates.scope.area || updates.scope.files?.length)) {
                 const scopeObj: Record<string, unknown> = {};
@@ -500,11 +644,14 @@ export function updateTodoInFile(
                 if (updates.scope.area) scopeObj.area = updates.scope.area;
                 if (updates.scope.files?.length) scopeObj.files = updates.scope.files;
                 item.set('scope', doc.createNode(scopeObj));
+                applied.scope = scopeObj;
             } else {
                 item.delete('scope');
+                applied.scope = undefined;
             }
         }
         if (updates.references !== undefined) {
+            applied.references = updates.references;
             if (updates.references?.length) {
                 item.set('references', doc.createNode(updates.references));
             } else {
@@ -515,6 +662,8 @@ export function updateTodoInFile(
         item.set('updated', new Date().toISOString().slice(0, 10));
         doc.set('updated', new Date().toISOString().slice(0, 10));
         saveDocument(filePath, doc);
+        assertTodoPersisted(filePath, todoId, 'present', 'updateTodoInFile');
+        assertTodoFieldsPersisted(filePath, todoId, applied, 'updateTodoInFile');
         return nodeToTodo(item as YAMLMap, path.basename(filePath));
     }
 
@@ -685,6 +834,25 @@ export function createTodo(
     if (todo.tags && todo.tags.length) { plain.tags = todo.tags; }
     if (todo.notes) { plain.notes = todo.notes; }
     if (todo.dependencies && todo.dependencies.length) { plain.dependencies = todo.dependencies; }
+    // SCD202: these five had no branch here and were silently dropped, while
+    // `createTodoInFile` beside this function persisted scope and references
+    // all along. The caller was told otherwise — `createTodo` returns
+    // `{...todo}`, so every field it failed to write came back in the response
+    // as though it had. Measured on the live quest file: every todo created
+    // through the MCP tool lost its `scope` and `references`.
+    if (todo.blocked_by && todo.blocked_by.length) { plain.blocked_by = todo.blocked_by; }
+    if (todo.references && todo.references.length) { plain.references = todo.references; }
+    if (todo.completed_date) { plain.completed_date = todo.completed_date; }
+    if (todo.completed_by) { plain.completed_by = todo.completed_by; }
+    if (todo.scope) {
+        const scopeObj: Record<string, unknown> = {};
+        if (todo.scope.project) { scopeObj.project = todo.scope.project; }
+        if (todo.scope.projects?.length) { scopeObj.projects = todo.scope.projects; }
+        if (todo.scope.module) { scopeObj.module = todo.scope.module; }
+        if (todo.scope.area) { scopeObj.area = todo.scope.area; }
+        if (todo.scope.files?.length) { scopeObj.files = todo.scope.files; }
+        if (Object.keys(scopeObj).length) { plain.scope = scopeObj; }
+    }
     const decisions = normaliseTodoDecisions(todo.decisions);
     if (decisions) { plain.decisions = decisions; }
     plain.created = todo.created || new Date().toISOString().slice(0, 10);
@@ -701,6 +869,7 @@ export function createTodo(
         saveDocument(filePath, doc);
     }
     assertTodoPersisted(filePath, todo.id, 'present', 'createTodo');
+    assertTodoFieldsPersisted(filePath, todo.id, plain, 'createTodo');
 
     return { ...todo, _sourceFile: fileName, created: plain.created as string };
 }
@@ -726,17 +895,22 @@ export function updateTodo(
             if (!isMap(item)) { continue; }
             if (String(item.get('id')) === todoId) {
                 // Apply updates
-                if (updates.title !== undefined) { item.set('title', updates.title || undefined); }
-                if (updates.description !== undefined) { item.set('description', updates.description); }
-                if (updates.status !== undefined) { item.set('status', updates.status); }
-                if (updates.priority !== undefined) { item.set('priority', updates.priority || undefined); }
-                if (updates.notes !== undefined) { item.set('notes', updates.notes || undefined); }
-                if (updates.tags !== undefined) { item.set('tags', updates.tags?.length ? doc.createNode(updates.tags) : undefined); }
-                if (updates.dependencies !== undefined) { item.set('dependencies', updates.dependencies?.length ? doc.createNode(updates.dependencies) : undefined); }
-                if (updates.blocked_by !== undefined) { item.set('blocked_by', updates.blocked_by?.length ? doc.createNode(updates.blocked_by) : undefined); }
-                if (updates.decisions !== undefined) { setDecisions(doc, item, updates.decisions); }
-                if (updates.completed_date !== undefined) { item.set('completed_date', updates.completed_date || undefined); }
-                if (updates.completed_by !== undefined) { item.set('completed_by', updates.completed_by || undefined); }
+                // What was actually asked for, collected as it is applied, so
+                // the read-back compares against the same set the writer
+                // touched rather than against every field the caller's object
+                // happens to carry.
+                const applied: Record<string, unknown> = {};
+                if (updates.title !== undefined) { item.set('title', updates.title || undefined); applied.title = updates.title; }
+                if (updates.description !== undefined) { item.set('description', updates.description); applied.description = updates.description; }
+                if (updates.status !== undefined) { item.set('status', updates.status); applied.status = updates.status; }
+                if (updates.priority !== undefined) { item.set('priority', updates.priority || undefined); applied.priority = updates.priority; }
+                if (updates.notes !== undefined) { item.set('notes', updates.notes || undefined); applied.notes = updates.notes; }
+                if (updates.tags !== undefined) { item.set('tags', updates.tags?.length ? doc.createNode(updates.tags) : undefined); applied.tags = updates.tags; }
+                if (updates.dependencies !== undefined) { item.set('dependencies', updates.dependencies?.length ? doc.createNode(updates.dependencies) : undefined); applied.dependencies = updates.dependencies; }
+                if (updates.blocked_by !== undefined) { item.set('blocked_by', updates.blocked_by?.length ? doc.createNode(updates.blocked_by) : undefined); applied.blocked_by = updates.blocked_by; }
+                if (updates.decisions !== undefined) { setDecisions(doc, item, updates.decisions); applied.decisions = normaliseTodoDecisions(updates.decisions) ?? []; }
+                if (updates.completed_date !== undefined) { item.set('completed_date', updates.completed_date || undefined); applied.completed_date = updates.completed_date; }
+                if (updates.completed_by !== undefined) { item.set('completed_by', updates.completed_by || undefined); applied.completed_by = updates.completed_by; }
                 if (updates.scope !== undefined) {
                     if (updates.scope && (updates.scope.project || updates.scope.projects?.length || updates.scope.module || updates.scope.area || updates.scope.files?.length)) {
                         const scopeObj: Record<string, unknown> = {};
@@ -746,11 +920,14 @@ export function updateTodo(
                         if (updates.scope.area) scopeObj.area = updates.scope.area;
                         if (updates.scope.files?.length) scopeObj.files = updates.scope.files;
                         item.set('scope', doc.createNode(scopeObj));
+                        applied.scope = scopeObj;
                     } else {
                         item.delete('scope');
+                        applied.scope = undefined;
                     }
                 }
                 if (updates.references !== undefined) {
+                    applied.references = updates.references;
                     if (updates.references?.length) {
                         item.set('references', doc.createNode(updates.references));
                     } else {
@@ -760,6 +937,11 @@ export function updateTodo(
                 item.set('updated', new Date().toISOString().slice(0, 10));
                 doc.set('updated', new Date().toISOString().slice(0, 10));
                 saveDocument(filePath, doc);
+                // SCD202. The presence check the other mutators use says
+                // nothing here: a lost update leaves the todo present with its
+                // OLD content, so the only evidence is the content itself.
+                assertTodoPersisted(filePath, todoId, 'present', 'updateTodo');
+                assertTodoFieldsPersisted(filePath, todoId, applied, 'updateTodo');
                 return nodeToTodo(item, fileName);
             }
         }
@@ -875,6 +1057,11 @@ export function moveTodo(
         todosNode.items.splice(idx, 1);
         doc.set('updated', new Date().toISOString().slice(0, 10));
         saveDocument(filePath, doc);
+        // SCD202. The target half verifies itself — `createTodo` below checks
+        // both presence and fields. The SOURCE half had nothing, and a lost
+        // removal here leaves the todo in BOTH files: a duplicate id, which
+        // reads as a move that worked.
+        assertTodoPersisted(filePath, todoId, 'absent', 'moveTodo');
 
         // 2. Add to target
         return createTodo(questId, todoPlain, normalizedTarget);
@@ -915,6 +1102,9 @@ export function moveToWorkspaceTodo(
         todosNode.items.splice(idx, 1);
         doc.set('updated', new Date().toISOString().slice(0, 10));
         saveDocument(filePath, doc);
+        // SCD202, same reasoning as `moveTodo`: a lost removal leaves the todo
+        // in the quest file AND in workspace.todo.yaml.
+        assertTodoPersisted(filePath, todoId, 'absent', 'moveToWorkspaceTodo');
 
         // 2. Append to workspace.todo.yaml
         const wsFile = path.join(wsRoot, 'workspace.todo.yaml');
@@ -962,6 +1152,8 @@ export function moveToWorkspaceTodo(
         } else {
             saveDocument(wsFile, wsDo);
         }
+        assertTodoPersisted(wsFile, todoId, 'present', 'moveToWorkspaceTodo');
+        assertTodoFieldsPersisted(wsFile, todoId, plain, 'moveToWorkspaceTodo');
 
         return { ...todoPlain, _sourceFile: 'workspace.todo.yaml' };
     }
