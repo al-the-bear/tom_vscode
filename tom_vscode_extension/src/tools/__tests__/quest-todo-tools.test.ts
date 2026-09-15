@@ -286,6 +286,142 @@ describe('createQuestTodoImpl', () => {
         assert.equal(deps.spy.mutateCalls, 1);
     });
 
+    /**
+     * SCD203 — a reused id STEM is reported, and nothing else is.
+     *
+     * The exact-id check above is the only collision the tool ever had, and
+     * `scc5_aict-x` genuinely differs from `scc5_agñd-y`, so a batch that
+     * restarts its numbering is accepted in full. The file stays valid; what
+     * breaks is the `<prefix>*` iteration the user dispatches work from, which
+     * then sends two unrelated todos for one request.
+     *
+     * MEASURED before choosing the shape, over the 4 992 ids in this
+     * workspace: 3 100 carry a parseable `<stem><number>_<datecode>` and 1 892
+     * do not, and eleven live stems are shared across quests today — one of
+     * them by 22 todos, plainly deliberately. That is why this warns instead
+     * of rejecting, and why an unparseable id is passed through in silence.
+     */
+    test('SCD203 F-1: a reused stem under a different date code warns and '
+        + 'still creates [2026-09-15]', async () => {
+        await createQuestTodoImpl(deps, {
+            questId: 'q1', todo: { id: 'scc5_agnd-first-one', description: 'a' },
+        });
+        const r = JSON.parse(await createQuestTodoImpl(deps, {
+            questId: 'q1', todo: { id: 'scc5_aict-second-one', description: 'b' },
+        }));
+        assert.equal(r.ok, true, 'the todo is still created — the ids differ');
+        assert.equal(r.todo.id, 'scc5_aict-second-one');
+        assert.match(r.warning, /stem "scc5" is already in use by 1 todo/);
+        assert.match(r.warning, /scc5_agnd-first-one/);
+        assert.match(r.warning, /`scc5\*` iteration now matches 2 todos/);
+    });
+
+    test('SCD203 F-2: a genuinely new stem warns about nothing [2026-09-15]', async () => {
+        await createQuestTodoImpl(deps, {
+            questId: 'q1', todo: { id: 'scc5_agnd-first-one', description: 'a' },
+        });
+        const r = JSON.parse(await createQuestTodoImpl(deps, {
+            questId: 'q1', todo: { id: 'scc6_aict-different-number', description: 'b' },
+        }));
+        assert.equal(r.ok, true);
+        assert.equal(r.warning, undefined, 'a different number is a different stem');
+    });
+
+    test('SCD203 F-3: an id with no date code is unaffected [2026-09-15]', async () => {
+        // Nearly two thousand ids in this workspace look like this. Warning on
+        // them would mean inventing a stem from an id that has none.
+        await createQuestTodoImpl(deps, {
+            questId: 'q1', todo: { id: 'add-validation', description: 'a' },
+        });
+        const r = JSON.parse(await createQuestTodoImpl(deps, {
+            questId: 'q1', todo: { id: 'add-validation-again', description: 'b' },
+        }));
+        assert.equal(r.ok, true);
+        assert.equal(r.warning, undefined);
+    });
+
+    test('SCD203 F-4: the separator after the date code may be `_`, not only '
+        + '`-` [2026-09-15]', async () => {
+        // The obvious reading — require a hyphen — covers 1 352 of the 3 100
+        // date-coded ids. The `tcopen172_ahkl_tom_core_server_…` family uses an
+        // underscore and is exactly the long-running numbered batch this is
+        // for, so excluding it would have missed the case by construction.
+        await createQuestTodoImpl(deps, {
+            questId: 'q1', todo: { id: 'tcopen9_ahkl_tom_core-first', description: 'a' },
+        });
+        const r = JSON.parse(await createQuestTodoImpl(deps, {
+            questId: 'q1', todo: { id: 'tcopen9_aict_tom_core-second', description: 'b' },
+        }));
+        assert.equal(r.ok, true);
+        assert.match(r.warning, /stem "tcopen9"/);
+    });
+
+    test('SCD203 F-5: a five-letter run after the stem is not a date code '
+        + '[2026-09-15]', async () => {
+        // The guard against reading a stem out of an id that merely starts the
+        // same way. `x1_abcde-…` has no four-letter code — it has a five-letter
+        // word — and treating it as one would pair unrelated todos.
+        await createQuestTodoImpl(deps, {
+            questId: 'q1', todo: { id: 'x1_abcde-word-not-a-code', description: 'a' },
+        });
+        const r = JSON.parse(await createQuestTodoImpl(deps, {
+            questId: 'q1', todo: { id: 'x1_aict-real-code', description: 'b' },
+        }));
+        assert.equal(r.ok, true);
+        assert.equal(r.warning, undefined, 'the first id has no parseable stem');
+    });
+
+    test('SCD203 F-6: the warning counts every sharer and lists at most five '
+        + '[2026-09-15]', async () => {
+        // One live stem in this workspace is shared by 22 todos. A warning
+        // that prints all of them is a warning nobody reads to the end, and
+        // the point being made is that the stem is shared — not which
+        // twenty-two share it.
+        for (const code of ['agna', 'agnb', 'agnc', 'agnd', 'agne', 'agnf', 'agng']) {
+            await createQuestTodoImpl(deps, {
+                questId: 'q1', todo: { id: `many4_${code}-x`, description: 'a' },
+            });
+        }
+        const r = JSON.parse(await createQuestTodoImpl(deps, {
+            questId: 'q1', todo: { id: 'many4_aict-late', description: 'b' },
+        }));
+        assert.match(r.warning, /already in use by 7 todos/);
+        assert.match(r.warning, /\(\+2 more\)/);
+        // Five ids, and only five: the stem itself is named as `"many4"`
+        // without the trailing underscore, so this counts listed ids alone.
+        assert.equal((r.warning.match(/many4_/g) ?? []).length, 5);
+    });
+
+    test('SCD203 F-7: a stem shared in ANOTHER quest is not reported '
+        + '[2026-09-15]', async () => {
+        // `<prefix>*` iteration runs within one quest, so a stem reused in a
+        // different quest is not a collision for this purpose — and reporting
+        // it would make the warning fire constantly across a workspace whose
+        // quests number their batches independently.
+        await createQuestTodoImpl(deps, {
+            questId: 'q2', todo: { id: 'scc7_agnd-elsewhere', description: 'a' },
+        });
+        const r = JSON.parse(await createQuestTodoImpl(deps, {
+            questId: 'q1', todo: { id: 'scc7_aict-here', description: 'b' },
+        }));
+        assert.equal(r.ok, true);
+        assert.equal(r.warning, undefined);
+    });
+
+    test('SCD203 F-8: the first todo of a stem does not warn about ITSELF '
+        + '[2026-09-15]', async () => {
+        // This pins the ORDERING, which is what makes the collision scan
+        // correct: it runs before the create, so the proposed id is not in the
+        // list it is compared against. There is no self-exclusion filter to
+        // fall back on — move the create above the scan and this goes red with
+        // "already in use by 1 todo: itself".
+        const r = JSON.parse(await createQuestTodoImpl(deps, {
+            questId: 'q1', todo: { id: 'brandnew3_aict-only-one', description: 'a' },
+        }));
+        assert.equal(r.ok, true);
+        assert.equal(r.warning, undefined);
+    });
+
     test('AUTO-ID MYTH: missing todo.id explicitly rejected with corrective message', async () => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const r = JSON.parse(await createQuestTodoImpl(deps, {

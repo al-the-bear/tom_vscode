@@ -284,6 +284,84 @@ export interface CreateQuestTodoInput {
     };
 }
 
+/**
+ * The `<stem><number>` of a date-coded todo id, or null when the id is not one.
+ *
+ * SCD203. Ids in this workspace are conventionally `<baseId>_<datecode>-<what>`
+ * — the date code being the four letters `tomAi_generateIdPrefix` derives from
+ * the current hour, so that two sessions inventing `vex1` on the same day do
+ * not collide. The convention works. What it does NOT do is stop a batch from
+ * restarting its numbering: `scc2`..`scc72` were already taken when a later
+ * session began again at `scc2`, and every one of those creates was accepted,
+ * because the only collision check is on the FULL id and `scc5_aict-…` really
+ * is a different id from `scc5_agñd-…`.
+ *
+ * The file stays valid; the damage is to the `<prefix>*` iteration the user
+ * drives work from, which then dispatches two unrelated todos for one request.
+ *
+ * DELIBERATELY CONSERVATIVE. Measured over the 4 992 ids in this workspace,
+ * 3 100 match this shape and 1 892 do not — `doc-yaml-format`, `dgub1`,
+ * `add-validation` and friends carry no number, no date code, or neither. An id
+ * this cannot parse is passed through unwarned rather than guessed at, because
+ * a warning invented from a misread id is worse than the silence it replaces.
+ *
+ * WHAT IS ALLOWED AFTER THE CODE is anything that is not another code letter.
+ * Requiring a `-` would have been the obvious reading and would have covered
+ * 1 352 ids instead of 3 100 — the `tcopen172_ahkl_tom_core_server_…` family
+ * separates the code from the description with `_`, and is exactly the kind of
+ * long-running numbered batch this check is for.
+ */
+export function questTodoIdStem(id: string): string | null {
+    const match = /^([a-z]+)(\d+)_[a-zäñößü]{4}(?![a-zäñößü])/.exec(id);
+    return match ? `${match[1]}${match[2]}` : null;
+}
+
+/**
+ * The warning for a proposed id whose stem is already in use, or null.
+ *
+ * WARNS, DOES NOT REJECT, and the distinction is the whole design. The two ids
+ * are legitimately distinct and a caller may mean exactly what it wrote — one
+ * live stem in this workspace carries 22 date codes and is plainly deliberate.
+ * The failure was that nobody was TOLD, not that it was allowed, so refusing
+ * would break a working practice to fix a reporting gap.
+ */
+function stemCollisionWarning(
+    deps: QuestTodoToolsDeps,
+    questId: string,
+    proposedId: string,
+): string | null {
+    const stem = questTodoIdStem(proposedId);
+    if (stem === null) { return null; }
+
+    // No `t.id !== proposedId` filter, deliberately. Two things already
+    // guarantee the proposed id is not in this list: the exact-id collision
+    // check above rejected the call if it were, and this runs BEFORE the
+    // create. A filter for a state neither can produce is dead defensive code
+    // that reads as though it were load-bearing — and the ordering IS
+    // load-bearing, so F-8 pins it rather than leaving it to a comment.
+    const sharing = deps.store.listTodos(questId)
+        .filter((t) => questTodoIdStem(t.id) === stem)
+        .map((t) => t.id)
+        .sort();
+    if (sharing.length === 0) { return null; }
+
+    // Capped, because the point is that the stem is shared rather than which
+    // twenty-two todos share it — and a warning nobody reads to the end is a
+    // warning that does not work.
+    const shown = sharing.slice(0, 5);
+    const rest = sharing.length - shown.length;
+    return (
+        `The id stem "${stem}" is already in use by ${sharing.length} ` +
+        `${sharing.length === 1 ? 'todo' : 'todos'} in quest "${questId}" under a ` +
+        `different date code: ${shown.join(', ')}` +
+        `${rest > 0 ? ` (+${rest} more)` : ''}. ` +
+        `The todo was created — the ids are genuinely distinct. But a ` +
+        `\`${stem}*\` iteration now matches ${sharing.length + 1} todos, so if ` +
+        `this was a batch restarting its numbering rather than a deliberate ` +
+        `reuse, renumber it before dispatching work by prefix.`
+    );
+}
+
 export async function createQuestTodoImpl(deps: QuestTodoToolsDeps, input: CreateQuestTodoInput): Promise<string> {
     try {
         if (!input.questId) {
@@ -305,12 +383,15 @@ export async function createQuestTodoImpl(deps: QuestTodoToolsDeps, input: Creat
                 error: `Todo "${input.todo.id}" already exists in quest "${input.questId}". Pick a different id, or use \`tomAi_updateQuestTodo\` to modify it.`,
             });
         }
+        // SCD203: computed BEFORE the create, so the proposed id is not in
+        // the list it is being compared against.
+        const warning = stemCollisionWarning(deps, input.questId, input.todo.id);
         const created = deps.store.create(input.questId, {
             ...input.todo,
             status: input.todo.status ?? 'not-started',
         }, input.file);
         deps.onMutate?.();
-        return JSON.stringify({ ok: true, todo: created });
+        return JSON.stringify({ ok: true, todo: created, ...(warning ? { warning } : {}) });
     } catch (err) {
         return JSON.stringify({ ok: false, error: (err as Error).message });
     }
@@ -321,6 +402,12 @@ export const CREATE_QUEST_TODO_DESCRIPTION =
     'auto-id rules** — the model picks `todo.id` (convention: lowercase, ' +
     'hyphen-separated, starts with a letter, stable, e.g. `add-auth-flow`). ' +
     'Collisions are rejected with a pointer to `tomAi_updateQuestTodo`. ' +
+    '**A reused id STEM is WARNED about, not rejected**: creating ' +
+    '`scc5_aict-x` while `scc5_agnd-y` exists in the same quest succeeds and ' +
+    'returns a `warning` field naming the others, because a `scc5*` iteration ' +
+    'then dispatches both. Read it — it usually means a batch restarted its ' +
+    'numbering and should be renumbered before work is dispatched by prefix. ' +
+    'Ids with no `<stem><number>_<datecode>` shape are not checked. ' +
     '`file` defaults to the persistent `todos.<questId>.todo.yaml`; pass a ' +
     'different `*.todo.yaml` filename to target a per-topic file. **Status ' +
     'enum**: `not-started` (default) / `in-progress` / `blocked` / ' +
@@ -333,10 +420,11 @@ export const CREATE_QUEST_TODO_DESCRIPTION =
     '`dependencies`, `blocked_by`, `notes`) are persisted verbatim. YAML ' +
     'formatting in existing files is preserved across the create. ' +
     '**`ok: true` is verified, not assumed**: the file is re-read after the ' +
-    'write and the id confirmed present, so a write lost to another writer of ' +
-    'the same file comes back as `ok: false` instead of a success response for ' +
-    'a todo that is on no disk anywhere. You do not need to grep the YAML ' +
-    'afterwards to check it landed.';
+    'write, the id confirmed present AND every field you sent confirmed ' +
+    'readable back, so a write lost to another writer of the same file — or a ' +
+    'field this code path does not persist — comes back as `ok: false` naming ' +
+    'what differs, instead of a success response for data that is on no disk ' +
+    'anywhere. You do not need to grep the YAML afterwards to check it landed.';
 
 export const CREATE_QUEST_TODO_TOOL: SharedToolDefinition<CreateQuestTodoInput> = {
     name: 'tomAi_createQuestTodo',
