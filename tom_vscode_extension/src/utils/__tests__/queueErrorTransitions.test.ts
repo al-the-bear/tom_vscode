@@ -3,11 +3,13 @@ import assert from 'node:assert/strict';
 
 import {
     applyErrorTransition,
+    applyInterruptForContinuation,
     applyResetToPending,
     applyWaitingTransition,
     clearWaitingState,
     dispatchWasSuperseded,
     isWaitingDue,
+    pickInterruptedResume,
     itemHasInFlightProgress,
     resolveAnswerContainer,
 } from '../queueErrorTransitions.js';
@@ -426,5 +428,104 @@ describe('isWaitingDue — retry gate predicate', () => {
     test('defensive: missing or unparseable waitingUntil is treated as due', () => {
         assert.equal(isWaitingDue(undefined, 0), true);
         assert.equal(isWaitingDue('not-a-date', Date.now()), true);
+    });
+});
+
+describe('applyInterruptForContinuation', () => {
+    test('moves a sending item to interrupted, keeping its cursor and the lastDispatched snapshot', () => {
+        const last = { kind: 'main', expandedText: 'rep 2 text', transport: 'anthropic', dispatchedAt: '2026-09-17T10:00:00.000Z' };
+        const item: any = {
+            status: 'sending',
+            repeatIndex: 2,
+            followUpIndex: 1,
+            prePrompts: [{ status: 'sent', repeatIndex: 1 }],
+            followUps: [{ repeatIndex: 1 }],
+            lastDispatched: last,
+            requestId: 'req-1',
+            expectedRequestId: 'req-1',
+            sentAt: '2026-09-17T10:00:00.000Z',
+            reminderSentCount: 3,
+            lastReminderAt: '2026-09-17T10:05:00.000Z',
+            inFlightRepetition: { stage: 'main' },
+            awaitingAnswer: true,
+            error: 'stale failure text',
+        };
+        const result = applyInterruptForContinuation(item);
+        assert.equal(result.transitioned, true);
+        assert.equal(result.canResend, true);
+        assert.equal(item.status, 'interrupted');
+        // The cursor is exactly where the interrupted rep left it — the
+        // resume path replays that rep, so nothing may be rolled back.
+        assert.equal(item.repeatIndex, 2);
+        assert.equal(item.followUpIndex, 1);
+        assert.equal(item.prePrompts[0].status, 'sent');
+        assert.equal(item.prePrompts[0].repeatIndex, 1);
+        assert.equal(item.followUps[0].repeatIndex, 1);
+        assert.equal(item.lastDispatched, last);
+        // Transient send-tracking belongs to the cancelled dispatch.
+        assert.equal(item.requestId, undefined);
+        assert.equal(item.expectedRequestId, undefined);
+        assert.equal(item.sentAt, undefined);
+        assert.equal(item.lastReminderAt, undefined);
+        assert.equal(item.reminderSentCount, 0);
+        assert.equal(item.inFlightRepetition, undefined);
+        assert.equal(item.awaitingAnswer, false);
+        assert.equal(item.error, undefined);
+    });
+
+    test('reports canResend=false when the item was cancelled before any stage was dispatched', () => {
+        const item: any = { status: 'sending', repeatIndex: 0 };
+        const result = applyInterruptForContinuation(item);
+        assert.equal(result.transitioned, true);
+        assert.equal(result.canResend, false);
+        assert.equal(item.status, 'interrupted');
+    });
+
+    test('is a no-op for every status other than sending', () => {
+        for (const status of ['staged', 'pending', 'sent', 'error', 'waiting', 'retry', 'decision-needed', 'interrupted']) {
+            const item: any = { status, requestId: 'keep-me', repeatIndex: 4 };
+            const result = applyInterruptForContinuation(item);
+            assert.equal(result.transitioned, false, `status ${status} must not transition`);
+            assert.equal(item.status, status);
+            assert.equal(item.requestId, 'keep-me');
+            assert.equal(item.repeatIndex, 4);
+        }
+    });
+});
+
+describe('pickInterruptedResume', () => {
+    test('resends the interrupted item when it carries a lastDispatched snapshot', () => {
+        const items: any[] = [
+            { id: 'a', status: 'sent' },
+            { id: 'b', status: 'interrupted', lastDispatched: { kind: 'main', expandedText: 'x' } },
+            { id: 'c', status: 'pending' },
+        ];
+        assert.deepEqual(pickInterruptedResume(items), { id: 'b', action: 'resend' });
+    });
+
+    test('restarts the item as pending when there is no snapshot to replay', () => {
+        const items: any[] = [{ id: 'b', status: 'interrupted' }];
+        assert.deepEqual(pickInterruptedResume(items), { id: 'b', action: 'restart-pending' });
+    });
+
+    test('waits while another item is sending — a resend must not run two dispatches', () => {
+        const items: any[] = [
+            { id: 'b', status: 'interrupted', lastDispatched: { kind: 'main', expandedText: 'x' } },
+            { id: 'c', status: 'sending' },
+        ];
+        assert.equal(pickInterruptedResume(items), undefined);
+    });
+
+    test('returns undefined when nothing is interrupted', () => {
+        assert.equal(pickInterruptedResume([{ id: 'a', status: 'pending' }] as any), undefined);
+        assert.equal(pickInterruptedResume([]), undefined);
+    });
+
+    test('picks the first interrupted item in queue order', () => {
+        const items: any[] = [
+            { id: 'first', status: 'interrupted', lastDispatched: { kind: 'main', expandedText: 'x' } },
+            { id: 'second', status: 'interrupted', lastDispatched: { kind: 'main', expandedText: 'y' } },
+        ];
+        assert.equal(pickInterruptedResume(items)?.id, 'first');
     });
 });

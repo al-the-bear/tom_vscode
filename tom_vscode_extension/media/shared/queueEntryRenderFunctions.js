@@ -43,6 +43,7 @@ function renderEntry(item, idx) {
   var isError = safeStatus === 'error';
   var isWaiting = safeStatus === 'waiting';
   var isRetry = safeStatus === 'retry';
+  var isInterrupted = safeStatus === 'interrupted';
   var reminderEnabled = item.reminderEnabled !== false;
   var pauseAfter = item.pauseAfter === true;
   var isEditable = editorMode === 'template' || isStaged;
@@ -74,6 +75,12 @@ function renderEntry(item, idx) {
       if (!isNaN(rd.getTime())) { retryNextTime = rd.toLocaleTimeString(); }
     }
     statusLabel = 'RETRYING ' + retryAttemptNum + '/7' + (retryNextTime ? ' — NEXT ' + retryNextTime.toUpperCase() : '');
+  }
+
+  // Interrupt-for-continuation: held on purpose; the label says what will
+  // happen so the user knows re-arming auto-send is all it takes.
+  if (isInterrupted) {
+    statusLabel = 'INTERRUPTED — RESENDS ON RESUME';
   }
 
   // Green→amber header for the head-of-queue item. The queue is "active" while
@@ -279,6 +286,10 @@ function renderEntry(item, idx) {
           (isStaged ? '<span class="codicon codicon-arrow-right" style="cursor:pointer;color:#000;" onclick="setItemStatus(\'' + safeId + '\', \'pending\')" title="Set to Pending"></span>' : '') +
           (isPending ? '<span class="codicon codicon-arrow-left" style="cursor:pointer;color:#000;" onclick="setItemStatus(\'' + safeId + '\', \'staged\')" title="Move back to Staged"></span>' : '') +
           (isSending ? '<span class="codicon codicon-arrow-left" style="cursor:pointer;color:#000;" onclick="setItemStatus(\'' + safeId + '\', \'staged\')" title="Interrupt and move to Staged"></span>' : '') +
+          // Interrupt for continuation — the disconnect icon: stop now, but hold
+          // this exact rep and resend it when auto-send is re-enabled.
+          (isSending ? '<span class="codicon codicon-debug-disconnect" style="cursor:pointer;color:#000;" onclick="interruptForContinuation(\'' + safeId + '\')" title="Interrupt for continuation (stop now; this prompt is resent when auto-send is re-enabled)"></span>' : '') +
+          (isInterrupted ? '<span class="codicon codicon-arrow-left" style="cursor:pointer;color:#000;" onclick="setItemStatus(\'' + safeId + '\', \'staged\')" title="Abandon the continuation and move back to Staged"></span>' : '') +
           (isSent ? '<span class="codicon codicon-arrow-left" style="cursor:pointer;color:#000;" onclick="setItemStatus(\'' + safeId + '\', \'staged\')" title="Stage again"></span>' : '') +
           ((isPending || isStaged) ? '<span class="codicon codicon-play" style="cursor:pointer;color:#000;" onclick="sendNow(\'' + safeId + '\')" title="Send Now"></span>' : '') +
           (isSending ? '<span class="codicon codicon-play" style="cursor:pointer;color:#000;" onclick="continueSending(\'' + safeId + '\')" title="Continue"></span>' : '') +

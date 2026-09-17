@@ -660,6 +660,49 @@ all pure (no `vscode` imports) and unit-tested in
 the manager owns persistence and change-event firing, keeping the helpers free
 of side effects.
 
+#### Interrupt for continuation
+
+The third interruption is external: the user has to pull the plug — the
+network is about to go away — and wants the running rep to *run again* once it
+is back; neither a fresh restart (**Stop**, which reverts to `staged`) nor a
+finish-first (**Pause**, which lets the in-flight rep complete). The toolbar's
+`codicon-debug-disconnect` button, and the same icon on the running item's row,
+call `interruptActiveItemForContinuation`:
+
+- The in-flight dispatch is cancelled exactly as Stop does
+  (`_cancelActiveDispatch` — epoch bump, CTS cancel, approval awaiters
+  released), so the owning frame stands down instead of erroring or advancing.
+- The item moves to **`interrupted`** via the pure `applyInterruptForContinuation`.
+  Its cursor is left untouched — counters, pre-prompt statuses, `followUpIndex`
+  and `lastDispatched` all survive — and only transient send-tracking is
+  cleared (answer-file expectation, reminders, a stale error). There is no
+  counter rollback: the loop bumped it before the send, so it already names the
+  interrupted rep, and the resume path replays that rep's frozen text.
+- **Auto-send is switched off** — not merely paused: the pause gate only
+  refuses the *next* rep, and here nothing may go out until re-armed.
+
+Re-arming auto-send — the play toggle, Auto-Start on load, or Auto-Continue's
+timer — runs `pickInterruptedResume` before any paused or pending work. With a
+`lastDispatched` snapshot the item is replayed through `resendLastPrompt` (same
+expanded text, counters untouched, then the loop advances naturally); without
+one (cancelled before any stage went out) it simply re-enters the backlog as
+`pending`. `sendNext` carries the same hook, guarded by auto-send, so a drain
+that does not come through the setter — a manually-sent item completing —
+resumes it too. While another item is `sending` the resume waits.
+
+Replaying the byte-identical text rather than re-expanding the prompt is
+deliberate: re-expansion could resolve `${todo}` to a different todo than the
+one the interrupted rep had claimed.
+
+The row is labelled **`INTERRUPTED — RESENDS ON RESUME`** and offers **Resend**
+(replay now, without re-arming) and **Move back to Staged** (abandon the
+continuation — the same reset as stopping). `interrupted` → `pending` is not a
+sanctioned transition — it would re-dispatch with the counter one ahead and
+skip the rep — so `setStatus` refuses it. `restartQueue` only resets `sending`
+and leaves a held item alone; crash recovery likewise, so the state survives a
+window reload. The status is enumerated in `queue-entry.schema.json` and on the
+MCP `listQueue` surface; a Telegram command and an MCP trigger are deferred.
+
 #### Backoff retry, deferred start, and idle signalling
 
 Four refinements layer on top of the pause/resume/error model above. The retry

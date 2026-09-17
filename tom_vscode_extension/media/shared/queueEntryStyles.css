@@ -17,6 +17,7 @@
   .queue-item.retry { border-left: 3px solid #b39ddb; }
   /* Held on an unanswered todo decision — amber, the "waiting on you" colour. */
   .queue-item.decision-needed { border-left: 3px solid #ffb300; }
+  .queue-item.interrupted { border-left: 3px solid #29b6f6; }
   .queue-item.reminder { border-left: 3px solid orange; }
   .item-header { display: flex; align-items: center; margin-bottom: 4px; }
   .item-meta { font-size: 0.8em; opacity: 0.7; }
@@ -35,6 +36,9 @@
   /* Held on an unanswered todo decision. Amber rather than the parked violet:
      this one does NOT clear on its own — it waits on the user answering. */
   .status-bar.decision-needed { background: #ffb300; }
+  /* Interrupt-for-continuation: held on purpose, replays on resume — cyan so it
+     reads as neither the amber idle nor the purple retry/waiting parks. */
+  .status-bar.interrupted { background: #29b6f6; }
   .status-bar.reminder { background: #ff9800; }
   /* Queue idle/paused: the current sending item (between iterations) or the
      next pending item turns amber when nothing is being processed, so a

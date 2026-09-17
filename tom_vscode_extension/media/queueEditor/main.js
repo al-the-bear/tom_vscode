@@ -304,6 +304,7 @@ function render() {
   const sending = currentItems.filter(i => i.status === 'sending').length;
   const sent = currentItems.filter(i => i.status === 'sent').length;
   const blocked = currentItems.filter(i => i.status === 'decision-needed').length;
+  const interrupted = currentItems.filter(i => i.status === 'interrupted').length;
 
   const stopBtn = document.getElementById('stopActiveBtn');
   if (stopBtn) {
@@ -315,11 +316,22 @@ function render() {
       ? 'Stop currently running prompt (revert to staged)'
       : 'Stop — no prompt is currently running';
   }
+  const interruptBtn = document.getElementById('interruptForContinuationBtn');
+  if (interruptBtn) {
+    const canInterrupt = sending > 0;
+    interruptBtn.disabled = !canInterrupt;
+    interruptBtn.style.opacity = canInterrupt ? '1' : '0.4';
+    interruptBtn.style.cursor = canInterrupt ? 'pointer' : 'not-allowed';
+    interruptBtn.title = canInterrupt
+      ? 'Interrupt for continuation (stop now; the running prompt is resent when auto-send is re-enabled)'
+      : 'Interrupt for continuation — no prompt is currently running';
+  }
   document.getElementById('countLabel').textContent =
     'Sending: ' + sending + '  |  Pending: ' + pending + '  |  Staged: ' + staged + '  |  Sent: ' + sent
     // Only shown when non-zero: a blocked queue looks idle otherwise, and the
     // count is the one number that explains why nothing is moving.
     + (blocked > 0 ? '  |  Decision needed: ' + blocked : '')
+    + (interrupted > 0 ? '  |  Interrupted: ' + interrupted : '')
     + '  |  Timeout: ' + (responseTimeoutMinutes || 60) + 'm';
 
   const list = document.getElementById('queueList');
@@ -369,6 +381,7 @@ function toggleAutoPause() { vscode.postMessage({ type: 'toggleAutoPause' }); }
 function toggleAutoContinue() { vscode.postMessage({ type: 'toggleAutoContinue' }); }
 function restartQueue() { vscode.postMessage({ type: 'restartQueue' }); }
 function stopActiveItem() { vscode.postMessage({ type: 'stopActiveItem' }); }
+function interruptActiveForContinuation() { vscode.postMessage({ type: 'interruptActiveForContinuation' }); }
 function sendAllStaged() { vscode.postMessage({ type: 'sendAllStaged' }); }
 function setResponseTimeout(minutes) { vscode.postMessage({ type: 'setResponseTimeout', minutes: parseInt(minutes || '60', 10) || 60 }); }
 function setDefaultReminderTemplate(templateId) {
@@ -392,6 +405,7 @@ function moveToFront(id) { vscode.postMessage({ type: 'moveToFront', id }); }
 function sendNow(id) { vscode.postMessage({ type: 'sendNow', id }); }
 function continueSending(id) { vscode.postMessage({ type: 'continueSending', id }); }
 function resendLastPrompt(id) { vscode.postMessage({ type: 'resendLastPrompt', id }); }
+function interruptForContinuation(id) { vscode.postMessage({ type: 'interruptForContinuation', id }); }
 function resetToPending(id) { vscode.postMessage({ type: 'resetToPending', id }); }
 function retryWaitingNow(id) { vscode.postMessage({ type: 'retryWaitingNow', id }); }
 function retryRetryingNow(id) { vscode.postMessage({ type: 'retryRetryingNow', id }); }

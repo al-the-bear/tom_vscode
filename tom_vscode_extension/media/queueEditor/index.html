@@ -47,6 +47,7 @@
   <button class="ctx-btn-icon" id="autoContinueBtn" onclick="toggleAutoContinue()" title="Auto-Continue (resume repetitions after reload)"><span class="codicon codicon-sync"></span></button>
   <button class="ctx-btn-icon" onclick="restartQueue()" title="Restart Queue (reset stuck items)"><span class="codicon codicon-debug-restart"></span></button>
   <button class="ctx-btn-icon" id="stopActiveBtn" onclick="stopActiveItem()" title="Stop currently running prompt (revert to staged)"><span class="codicon codicon-debug-stop"></span></button>
+  <button class="ctx-btn-icon" id="interruptForContinuationBtn" onclick="interruptActiveForContinuation()" title="Interrupt for continuation (stop now; the running prompt is resent when auto-send is re-enabled)"><span class="codicon codicon-debug-disconnect"></span></button>
   <button onclick="sendAllStaged()">Send All Staged</button>
   <button onclick="retryAllErrors()" title="Resend every item currently in error state — the first errored item takes the sending slot, the rest are requeued in place">Retry All Errors</button>
   <button onclick="clearErrors()" title="Remove every item currently in error state">Delete Errors</button>

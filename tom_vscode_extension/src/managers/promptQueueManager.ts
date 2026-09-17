@@ -35,7 +35,7 @@ import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitio
 import { runMainStageWithRefresh } from '../utils/questRefreshDispatch.js';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
 import { mergeQueueReload } from '../utils/queueReloadMergeUtils';
-import { applyErrorTransition, applyResetToPending, applyWaitingTransition, clearWaitingState, dispatchWasSuperseded, isWaitingDue, itemHasInFlightProgress, resolveAnswerContainer } from '../utils/queueErrorTransitions';
+import { applyErrorTransition, applyInterruptForContinuation, applyResetToPending, applyWaitingTransition, clearWaitingState, dispatchWasSuperseded, isWaitingDue, itemHasInFlightProgress, pickInterruptedResume, resolveAnswerContainer } from '../utils/queueErrorTransitions';
 import { applyRetryScheduling, applyStopRetrying, clearRetryBookkeeping, computeRetryDecision, fireRetry, isPreviousMessageIdError, isRetryDue, rollbackInFlightRepetition, type InFlightRepetition } from '../utils/queueRetryTransitions';
 import { parseResetClause } from '../utils/queueResetClause';
 import { resolveVariables } from '../utils/variableResolver.js';
@@ -66,8 +66,14 @@ import type { ChangeSource } from './chatVariablesStore';
  * `'pending'` once its series has no unanswered todo left (see
  * `releaseResolvedDecisionItems`); while the decisions are still open the item
  * stays held and the rest of the queue runs past it.
+ *
+ * `'interrupted'` is interrupt-for-continuation: the in-flight dispatch was
+ * cancelled on purpose (the network is about to go away) and the item is
+ * held at that exact rep with auto-send off. Re-arming auto-send replays the
+ * rep — same expanded text — before anything else moves. See
+ * `interruptActiveItemForContinuation` / `pickInterruptedResume`.
  */
-export type QueuedPromptStatus = 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'waiting' | 'retry' | 'decision-needed';
+export type QueuedPromptStatus = 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'waiting' | 'retry' | 'decision-needed' | 'interrupted';
 export type QueuedPromptType = 'normal' | 'timed' | 'reminder';
 
 /**
@@ -988,12 +994,16 @@ export class PromptQueueManager {
             || this._items.some(i => i.status === 'waiting' || i.status === 'retry');
 
         const pendingCount = this._items.filter(i => i.status === 'pending').length;
+        const interruptedCount = this._items.filter(i => i.status === 'interrupted').length;
         const sendingCount = this._items.filter(i => i.status === 'sending').length;
         const sending = this._items.find(i => i.status === 'sending');
         const decisions = computeHealthCheckDecisions({
             hasAnswerWatcher: !!this._answerWatcher,
             autoSendEnabled: this._autoSendEnabled,
-            pendingCount,
+            // An interrupted item is work the drain must pick up — it resumes via
+            // the hook at the top of `sendNext` — so it counts towards the
+            // trigger. This is what lets Auto-Start replay it after a reload.
+            pendingCount: pendingCount + interruptedCount,
             sendingCount,
             answerDirectoryExists: fs.existsSync(this.answerDirectory),
             sendingSentAtIso: sending?.sentAt,
@@ -1559,6 +1569,12 @@ export class PromptQueueManager {
             // repetition; any in-flight rep finishes naturally.
             return;
         }
+
+        // An interrupted item (interrupt-for-continuation) is replayed before
+        // any paused or pending work — it is the rep the user pulled the plug
+        // on. `sendNext` carries the same hook for drains that don't come
+        // through this setter (auto-start, a manually-sent item completing).
+        if (this._resumeInterruptedItem()) { return; }
 
         // Re-enabling auto-send. Resume an item that was paused
         // mid-flight (status === 'sending' with prior progress)
@@ -2492,8 +2508,9 @@ export class PromptQueueManager {
         const item = this._items.find(i => i.id === id);
         if (!item) { return false; }
         const fromStatus = item.status;
-        // Allow interrupting a sending item back to staged.
-        if (item.status === 'sending' && status === 'staged') {
+        // Allow interrupting a sending item back to staged — and abandoning an
+        // interrupted (held-for-continuation) item the same way.
+        if ((item.status === 'sending' || item.status === 'interrupted') && status === 'staged') {
             // Cancel any in-flight Anthropic dispatch for this item so
             // the handler stops executing even when setStatus is called
             // directly (e.g. from the queue editor's "set to staged"
@@ -2526,6 +2543,9 @@ export class PromptQueueManager {
         // Allow sent items to be re-staged, but not error items
         if (item.status === 'error') { return false; }
         if (item.status === 'sending') { return false; }
+        // `interrupted` -> `pending` would re-dispatch with the counter one ahead
+        // and skip the interrupted rep; its only exits are resume or staged.
+        if (item.status === 'interrupted') { return false; }
         item.status = status;
         logQueue(`Status changed: id=${item.id}, from=${fromStatus} → to=${item.status}`);
         this.persist();
@@ -2635,6 +2655,72 @@ export class PromptQueueManager {
         // It also calls _cancelActiveDispatch() again — harmless
         // because cancel on an already-cancelled token is a no-op.
         return this.setStatus(sending.id, 'staged');
+    }
+
+    /**
+     * Interrupt the running item **for continuation**: cancel its in-flight
+     * dispatch now, hold it at the exact rep that was interrupted, and switch
+     * auto-send off. Re-arming auto-send replays that rep — same expanded
+     * text — before anything else moves (`_resumeInterruptedItem`, hooked
+     * into the auto-send setter and the top of `sendNext`).
+     *
+     * Sibling of `stopActiveItem`, which also cancels but reverts the item to
+     * `staged` (a fresh restart). Use this one when the interruption is
+     * external — the network is about to go away — and the prompt should
+     * simply run again once it is back.
+     *
+     * `id` narrows the action to one item (the per-row button); omitted, the
+     * currently `sending` item is taken (the toolbar button). Returns `true`
+     * when an item was interrupted.
+     */
+    interruptActiveItemForContinuation(id?: string): boolean {
+        const sending = id
+            ? this._items.find(i => i.id === id && i.status === 'sending')
+            : this._items.find(i => i.status === 'sending');
+        if (!sending) {
+            logQueue(`interruptActiveItemForContinuation: no sending item${id ? ` with id ${id}` : ''}`);
+            return false;
+        }
+        this._cancelActiveDispatch();
+        // A Copilot answer that still lands for the cancelled request must
+        // not be mistaken for the replay's answer.
+        this.clearExpectedAnswerFiles(sending.expectedRequestId);
+        const result = applyInterruptForContinuation(sending);
+        this.removePendingReminderFor(sending.id);
+        // Off, not merely paused: the pause gate only refuses the *next* rep,
+        // and the point here is that nothing at all goes out until re-armed.
+        this._autoSendEnabled = false;
+        this.persistSettings();
+        this.persist();
+        this._onDidChange.fire();
+        logQueue(`interruptActiveItemForContinuation: ${sending.id} held for continuation (${result.canResend ? 'will resend its last dispatch' : 'nothing dispatched yet — will restart as pending'}); auto-send off`);
+        return true;
+    }
+
+    /**
+     * Replay the interrupted item, if there is one and nothing is sending.
+     * Returns `true` when a resume was started, so the caller stops draining.
+     */
+    private _resumeInterruptedItem(): boolean {
+        const resume = pickInterruptedResume(this._items);
+        if (!resume) { return false; }
+        const item = this._items.find(i => i.id === resume.id);
+        if (!item) { return false; }
+        if (resume.action === 'resend') {
+            logQueue(`Resuming interrupted item ${item.id}: resending its last dispatch`);
+            void this.resendLastPrompt(item.id).catch(err => {
+                this._markItemError(item, err, `_resumeInterruptedItem(${item.id})`, readInterruptionFromError(err));
+            });
+            return true;
+        }
+        // Nothing was dispatched before the interrupt — re-enter the backlog.
+        // The fresh-vs-resume gate in `sendItem` keeps whatever cursor it has.
+        logQueue(`Resuming interrupted item ${item.id}: nothing dispatched yet — restarting as pending`);
+        item.status = 'pending';
+        this.persist();
+        this._onDidChange.fire();
+        void this.sendNext();
+        return true;
     }
 
     sendAllStaged(): number {
@@ -2748,6 +2834,11 @@ export class PromptQueueManager {
             return;
         }
         this._releaseResolvedDecisionItems();
+        // Interrupt-for-continuation: the held item goes first — ahead of the
+        // backlog, and before the "no pending items" auto-pause below could
+        // fire on a queue whose only work is that item. Guarded by auto-send:
+        // nothing goes out until the user re-arms the queue.
+        if (this._autoSendEnabled && this._resumeInterruptedItem()) { return; }
         const next = this._items.find(i => i.status === 'pending');
         if (!next) {
             logQueue('sendNext: no pending items');
@@ -4017,14 +4108,15 @@ export class PromptQueueManager {
                 ((resolveRepeatCount(i.templateRepeatCount) > 1 && (i.templateRepeatIndex ?? 0) >= 1) ||
                  (resolveRepeatCount(i.repeatCount ?? 1) > 1 && (i.repeatIndex ?? 0) >= 1)),
             );
-            if (hasPendingRepetitions) {
+            const hasInterrupted = this._items.some(i => i.status === 'interrupted');
+            if (hasPendingRepetitions || hasInterrupted) {
                 logQueue('Auto-continue: pending repetitions found, scheduling auto-start in 30s');
                 this._autoContinueTimer = setTimeout(() => {
                     logQueue('Auto-continue: enabling auto-send to resume repetitions');
                     this._autoSendEnabled = true;
                     this.persistSettings();
                     this._onDidChange.fire();
-                    if (this._items.some(i => i.status === 'pending') && !this._items.some(i => i.status === 'sending')) {
+                    if (this._items.some(i => i.status === 'pending' || i.status === 'interrupted') && !this._items.some(i => i.status === 'sending')) {
                         void this.sendNext();
                     }
                 }, 30_000);

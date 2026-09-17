@@ -140,3 +140,75 @@ describe('Prompt Queue editor — decision-needed status', () => {
         assert.equal(probe.getItems()[0].status, 'staged');
     });
 });
+
+const INTERRUPTED = {
+    id: 'held-1',
+    status: 'interrupted',
+    originalText: 'rep two of three',
+    createdAt: '2026-09-17T09:00:00.000Z',
+    lastDispatched: { kind: 'main', expandedText: 'rep two of three', transport: 'anthropic', dispatchedAt: '2026-09-17T09:00:00.000Z' },
+} as unknown as QueueItemLike;
+const SENDING: QueueItemLike = {
+    id: 'live-1',
+    status: 'sending',
+    originalText: 'in flight',
+    createdAt: '2026-09-17T09:00:30.000Z',
+};
+
+describe('Prompt Queue editor — interrupted (held for continuation) status', () => {
+    test('normalisation keeps interrupted instead of downgrading it to staged', (t) => {
+        const { probe } = setupQueueEditor(t, [INTERRUPTED]);
+
+        probe.normalizeState();
+
+        assert.equal(probe.getItems()[0].status, 'interrupted');
+    });
+
+    test('the header reports the interrupted count', (t) => {
+        const { window, probe } = setupQueueEditor(t, [INTERRUPTED, STAGED]);
+
+        probe.render();
+
+        const label = window.document.getElementById('countLabel').textContent;
+        assert.match(label, /Interrupted: 1/);
+    });
+
+    test('a held item is rendered above the staged backlog', (t) => {
+        const { window, probe } = setupQueueEditor(t, [STAGED, INTERRUPTED]);
+
+        probe.render();
+
+        assert.deepEqual(renderedStatuses(window), ['interrupted', 'staged']);
+    });
+
+    test('the row says it will resend, and offers Resend plus back-to-Staged', (t) => {
+        const { window, probe } = setupQueueEditor(t, [INTERRUPTED]);
+
+        probe.render();
+
+        const row = window.document.querySelector('#queueList .queue-item.interrupted');
+        assert.ok(row, 'row rendered with the interrupted status class');
+        assert.match(row.textContent, /INTERRUPTED — RESENDS ON RESUME/);
+        assert.ok(row.querySelector('[onclick^="resendLastPrompt("]'), 'Resend control present');
+        assert.ok(row.querySelector('[onclick^="setItemStatus("][title*="Staged"]'), 'back-to-Staged control present');
+    });
+
+    test('a sending row offers the interrupt-for-continuation control', (t) => {
+        const { window, probe } = setupQueueEditor(t, [SENDING]);
+
+        probe.render();
+
+        const row = window.document.querySelector('#queueList .queue-item.sending');
+        assert.ok(row?.querySelector('[onclick^="interruptForContinuation("]'), 'per-row interrupt control present');
+    });
+
+    test('the toolbar interrupt button is enabled only while something is sending', (t) => {
+        const withSending = setupQueueEditor(t, [SENDING]);
+        withSending.probe.render();
+        assert.equal(withSending.window.document.getElementById('interruptForContinuationBtn').disabled, false);
+
+        const idle = setupQueueEditor(t, [STAGED]);
+        idle.probe.render();
+        assert.equal(idle.window.document.getElementById('interruptForContinuationBtn').disabled, true);
+    });
+});

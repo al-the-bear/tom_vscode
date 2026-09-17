@@ -49,7 +49,7 @@ function reminderTimeoutOptions(selectedMinutes) {
 // was updated. The normaliser then rewrote every blocked item to `staged`
 // before render, so the "Decision needed" count read 0 and the blocked item
 // sorted to the bottom of the list instead of the top.
-var QUEUE_STATUSES = ['staged', 'pending', 'sending', 'sent', 'error', 'waiting', 'retry', 'decision-needed'];
+var QUEUE_STATUSES = ['staged', 'pending', 'sending', 'sent', 'error', 'waiting', 'retry', 'decision-needed', 'interrupted'];
 
 function normalizeQueueStatus(status) {
   return QUEUE_STATUSES.indexOf(status) >= 0 ? status : 'staged';
@@ -62,14 +62,17 @@ function statusSortRank(status) {
   // place at the head rather than being demoted below the pending run. (In
   // practice only one of these coexists with the live run, since a blocked head
   // means nothing is sending.) `decision-needed` leads: it is the only one that
-  // cannot clear on its own — it waits on the user answering a todo.
-  if (status === 'decision-needed') return 0;
-  if (status === 'error') return 1;
-  if (status === 'retry') return 2;
-  if (status === 'waiting') return 3;
-  if (status === 'sending') return 4;
-  if (status === 'pending') return 5;
-  if (status === 'staged') return 6;
-  if (status === 'sent') return 7;
-  return 8;
+  // cannot clear on its own — it waits on the user answering a todo. An
+  // `interrupted` item (held for continuation) sits just above the live run:
+  // it is the rep that resumes first when the queue is re-armed.
+  if (status === 'decision-needed') { return 0; }
+  if (status === 'error') { return 1; }
+  if (status === 'retry') { return 2; }
+  if (status === 'waiting') { return 3; }
+  if (status === 'interrupted') { return 4; }
+  if (status === 'sending') { return 5; }
+  if (status === 'pending') { return 6; }
+  if (status === 'staged') { return 7; }
+  if (status === 'sent') { return 8; }
+  return 9;
 }

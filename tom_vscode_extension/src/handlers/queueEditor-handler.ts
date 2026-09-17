@@ -632,6 +632,17 @@ async function handleMessage(msg: any): Promise<void> {
             sendState();
             break;
         }
+        // Toolbar (no id: the sending item) and per-row (id) variants of
+        // interrupt-for-continuation share one manager entry point.
+        case 'interruptActiveForContinuation':
+        case 'interruptForContinuation': {
+            const held = qm.interruptActiveItemForContinuation(msg.type === 'interruptForContinuation' ? msg.id : undefined);
+            if (!held) {
+                vscode.window.showInformationMessage('No prompt is currently running.');
+            }
+            sendState();
+            break;
+        }
         case 'updateItemRepeat':
           qm.updateRepeat(msg.id, {
             repeatCount: msg.repeatCount,

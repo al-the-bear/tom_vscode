@@ -22,6 +22,8 @@
  *   - `sending`  — currently in flight
  *   - `sent`     — completed (success path)
  *   - `error`    — failed (rate limit, transport error, etc.)
+ *   - `interrupted` — cancelled on purpose (interrupt for continuation);
+ *     resent when auto-send is re-armed
  *
  * Transport routing happens at the item or per-stage level:
  *
@@ -64,7 +66,7 @@ import { SharedToolDefinition } from './shared-tool-registry';
 // Shared shapes
 // ===========================================================================
 
-export type QueueStatus = 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'decision-needed';
+export type QueueStatus = 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'decision-needed' | 'interrupted';
 export type QueueTransport = 'copilot' | 'anthropic';
 
 export interface PrePromptSpec {
@@ -606,7 +608,7 @@ export async function setQueueItemStatusImpl(access: PromptQueueAccess, input: S
 export const SET_QUEUE_ITEM_STATUS_DESCRIPTION =
     'Flip queue item status between `staged` (held back from the run loop) ' +
     'and `pending` (eligible for dispatch). Other statuses (`sending`, ' +
-    '`sent`, `error`, `decision-needed`) are state-machine-managed and cannot ' +
+    '`sent`, `error`, `decision-needed`, `interrupted`) are state-machine-managed and cannot ' +
     'be set manually — an item held on `decision-needed` is released by ' +
     'answering the todo decisions and restarting the queue. ' +
     'Use this to temporarily unstage a pending item without removing it.';
