@@ -27,6 +27,7 @@
 
 import type { UserPrompter, PickerItem } from '../tools/user-interaction-tools';
 import { pickWithFreeTextOption, OTHER_OPTION_LABEL } from './free-text-picker';
+import type { QuestionLogEntry } from '../utils/questionsLogFormat';
 
 /** The built-in tool name the SDK uses (no `mcp__` prefix on built-ins). */
 export const ASK_USER_QUESTION_TOOL_NAME = 'AskUserQuestion';
@@ -206,4 +207,46 @@ export async function collectInteractiveAnswers(
         });
     }
     return formatInteractiveAnswers(answers);
+}
+
+// ---------------------------------------------------------------------------
+// Questions journal
+// ---------------------------------------------------------------------------
+
+/** How an intercepted `AskUserQuestion` was resolved. */
+export type AskUserQuestionOutcome =
+    | { kind: 'answered'; text: string }
+    | { kind: 'dismissed' }
+    | { kind: 'autonomous' };
+
+/**
+ * The questions-journal entry for an intercepted `AskUserQuestion`.
+ *
+ * The ask tools journal every exchange; the interceptor is the third way a
+ * question reaches the user and was the one path that left no trace — a
+ * picker the user hit could not be found afterwards. Pure, so the shape is
+ * tested here and the transport only appends it.
+ */
+export function buildAskUserQuestionLogEntry(
+    parsed: ParsedAskUserQuestion,
+    outcome: AskUserQuestionOutcome,
+    askedAt: number,
+    answeredAt: number,
+): QuestionLogEntry {
+    const headers = parsed.questions.map((q) => (q.header ?? '').trim()).filter((h) => h.length > 0);
+    const answer = outcome.kind === 'answered'
+        ? outcome.text
+        : outcome.kind === 'dismissed'
+            ? '_(dismissed — autonomous fallback sent)_'
+            : '_(interactive questions off — autonomous fallback sent)_';
+    const source = outcome.kind === 'answered' ? 'vscode' : outcome.kind === 'dismissed' ? 'cancel' : 'autonomous';
+    return {
+        tool: ASK_USER_QUESTION_TOOL_NAME,
+        title: headers.length > 0 ? headers.join(' · ') : undefined,
+        questions: parsed.questions.map((q) => q.question),
+        answer,
+        source,
+        askedAt,
+        answeredAt,
+    };
 }

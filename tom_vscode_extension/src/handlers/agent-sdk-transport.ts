@@ -217,9 +217,12 @@ import {
     parseAskUserQuestionInput,
     collectInteractiveAnswers,
     summarizeQuestions,
+    buildAskUserQuestionLogEntry,
     DEFAULT_INTERACTIVE_QUESTIONS_TEMPLATE,
 } from '../services/agent-sdk-questions';
+import type { AskUserQuestionOutcome } from '../services/agent-sdk-questions';
 import { liveUserPrompter } from '../tools/user-interaction-tools';
+import { appendQuestionLogEntry } from '../services/questionsLog';
 
 // Re-export the pure retry-decision API so existing consumers
 // (`anthropic-handler.ts`) can keep importing it from this transport module.
@@ -518,12 +521,28 @@ function makeCanUseTool(
         if (isAskUserQuestionTool(bare)) {
             const parsed = parseAskUserQuestionInput(input);
             if (parsed) {
+                // Journal every AskUserQuestion the model raises, as the ask
+                // tools do — answered, dismissed, or auto-answered because
+                // interactive questions are off. Diagnostics only: a journal
+                // failure must never cost the model its answer.
+                const askedAt = Date.now();
+                const journal = (outcome: AskUserQuestionOutcome) => {
+                    try {
+                        appendQuestionLogEntry(buildAskUserQuestionLogEntry(parsed, outcome, askedAt, Date.now()));
+                    } catch {
+                        // diagnostics only
+                    }
+                };
                 if (interactiveQuestions?.enabled) {
                     const answers = await collectInteractiveAnswers(liveUserPrompter, parsed);
                     if (answers !== null) {
+                        journal({ kind: 'answered', text: answers });
                         return { behavior: 'deny', message: answers };
                     }
+                    journal({ kind: 'dismissed' });
                     // User dismissed → fall through to the autonomous fallback.
+                } else {
+                    journal({ kind: 'autonomous' });
                 }
                 const fallback = interactiveQuestions
                     ? interactiveQuestions.buildFallbackText(summarizeQuestions(parsed))

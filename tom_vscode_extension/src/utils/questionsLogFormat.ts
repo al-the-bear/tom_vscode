@@ -18,7 +18,7 @@
 
 /** One resolved ask, as it will be written to the journal. */
 export interface QuestionLogEntry {
-    /** Tool that asked — `tomAi_askUser` or `tomAi_askUserPicker`. */
+    /** Tool that asked — `tomAi_askUser`, `tomAi_askUserPicker`, or the intercepted Agent SDK `AskUserQuestion`. */
     readonly tool: string;
     /** Context line shown above the questions, used as the entry heading. */
     readonly title?: string;
