@@ -8,6 +8,12 @@
  * with an "Other…" entry that opens a free-text box. Without it the user can
  * only pick the least wrong option, and we get an answer nobody meant.
  *
+ * The guarantee has two halves, because a QuickPick filters its list by what
+ * is typed. The entry is pinned with `alwaysShow`, so typing an answer that
+ * matches no option cannot hide it; and the live prompter accepts the typed
+ * text itself on Enter (`user-interaction-tools.ts`), so the natural move —
+ * type the answer, press Enter — just works, with no detour through the entry.
+ *
  * Two callers share this: the Agent-SDK `AskUserQuestion` interceptor
  * (`agent-sdk-questions.ts`) and the `tomAi_askUserPicker` tool
  * (`user-interaction-tools.ts`). They fold the outcome into different result
@@ -51,8 +57,14 @@ export type FreeTextPickResult =
  * their own "Other…" keep theirs — a duplicate row would just be confusing.
  */
 export function withFreeTextOption(items: PickerItem[]): PickerItem[] {
-    const present = items.some((i) => i.label === OTHER_OPTION_LABEL || i.value === OTHER_OPTION_LABEL);
-    return present ? items : [...items, { label: OTHER_OPTION_LABEL, value: OTHER_OPTION_LABEL }];
+    const isOther = (i: PickerItem) => i.label === OTHER_OPTION_LABEL || i.value === OTHER_OPTION_LABEL;
+    // `alwaysShow` keeps the entry on screen while the user types: the list is
+    // filtered by the typed text, and an answer that matches no option would
+    // otherwise hide the very entry that lets them give it.
+    const pinned = (i: PickerItem): PickerItem => ({ ...i, alwaysShow: true });
+    return items.some(isOther)
+        ? items.map((i) => (isOther(i) ? pinned(i) : i))
+        : [...items, pinned({ label: OTHER_OPTION_LABEL, value: OTHER_OPTION_LABEL, description: 'type your own answer' })];
 }
 
 /**

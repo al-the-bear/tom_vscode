@@ -21,6 +21,11 @@
  *     (`services/free-text-picker.ts`, shared with the Agent-SDK question
  *     interceptor). `selected.value` may consequently be text the caller never
  *     offered — that is the point, not a violation.
+ *   - Two things make that hold at the widget. The entry is pinned with
+ *     `alwaysShow`, so typing an answer that matches no option cannot filter
+ *     it away; and Enter with nothing selected submits the typed text directly
+ *     (`showLiveQuickPick`), so the natural move — type the answer, press
+ *     Enter — just works, with no detour through the entry.
  *
  * ## Blocking + cancellation behaviour
  *
@@ -35,8 +40,9 @@
  *     means the user saw the question and declined, timed out means nobody was
  *     there. Honouring a deadline means actually taking the widget off the
  *     screen, which `vscode.window.showQuickPick` cannot do — so the live
- *     prompter drives `createQuickPick()` instead and calls `hide()`. Leaving
- *     it up would let the user pick into a void after the model moved on.
+ *     prompter drives `createQuickPick()` for every pick (it is also the only
+ *     API that exposes the typed text) and retracts it with `dispose()`.
+ *     Leaving it up would let the user pick into a void after the model moved on.
  */
 
 import * as vscode from 'vscode';
@@ -57,6 +63,13 @@ export interface PickerItem {
     detail?: string;
     /** Caller-provided machine-readable value; defaults to `label` when omitted. */
     value: string;
+    /**
+     * Keep the entry on screen whatever the user types. The QuickPick filters
+     * its list by the typed text, so an ordinary entry vanishes the moment the
+     * user types an answer that matches no option — which is exactly when the
+     * free-text entry is needed.
+     */
+    alwaysShow?: boolean;
 }
 
 export interface QuickPickOpts {
@@ -245,7 +258,9 @@ export const ASK_USER_PICKER_DESCRIPTION =
     'Show a VS Code QuickPick and let the user choose one or more items. ' +
     `An "${OTHER_OPTION_LABEL}" entry is appended to your list automatically — do NOT ` +
     'add one yourself. Taking it opens a free-text box, so the user can always ' +
-    'answer in their own words. Consequence: `selected.value` may be text that ' +
+    'answer in their own words; the entry never filters away, and typing an ' +
+    'answer that matches no item and pressing Enter submits it directly. ' +
+    'Consequence: `selected.value` may be text that ' +
     'is not among the `items` you offered (for a free-text answer `label` and ' +
     '`value` are both the typed text). Never assume the answer is one of your ' +
     'options. ' +
@@ -278,58 +293,59 @@ export const ASK_USER_PICKER_DESCRIPTION =
 /** `PickerItem` is already structurally a `QuickPickItem`, plus `value`. */
 type LiveQuickPickItem = PickerItem & vscode.QuickPickItem;
 
+/** What the prompter uses of a `vscode.QuickPick`. */
+export type LiveQuickPick<T extends vscode.QuickPickItem> = Pick<
+    vscode.QuickPick<T>,
+    | 'items' | 'title' | 'placeholder' | 'canSelectMany' | 'matchOnDescription' | 'ignoreFocusOut'
+    | 'value' | 'selectedItems' | 'onDidAccept' | 'onDidHide' | 'show' | 'hide' | 'dispose'
+>;
+
+/**
+ * The slice of `vscode.window` the live prompter needs. A seam, so the prompter
+ * can be driven against a scriptable QuickPick in tests: the free-text
+ * guarantee lives in how the widget is wired, which a stubbed `UserPrompter`
+ * cannot show.
+ */
+export interface LiveWindow {
+    createQuickPick<T extends vscode.QuickPickItem>(): LiveQuickPick<T>;
+    showInputBox(options: vscode.InputBoxOptions): Thenable<string | undefined>;
+}
+
 function toLiveItems(items: PickerItem[]): LiveQuickPickItem[] {
     return items.map((i) => ({
         label: i.label,
         description: i.description,
         detail: i.detail,
         value: i.value,
+        alwaysShow: i.alwaysShow,
     }));
 }
 
-/**
- * The plain, deadline-free path — `showQuickPick` is the simplest API and the
- * one with the longest mileage here, so it stays in charge whenever nothing
- * needs to interrupt the user.
- */
-async function showQuickPickUntimed(items: PickerItem[], opts: QuickPickOpts): Promise<QuickPickResult> {
-    const result = await vscode.window.showQuickPick(toLiveItems(items), {
-        placeHolder: opts.placeHolder,
-        title: opts.title,
-        canPickMany: opts.canPickMany,
-        matchOnDescription: opts.matchOnDescription,
-        ignoreFocusOut: opts.ignoreFocusOut,
-    });
-    if (result === undefined) { return undefined; }
-    if (Array.isArray(result)) {
-        return result.map((r) => ({
-            label: r.label,
-            description: r.description,
-            detail: r.detail,
-            value: r.value ?? r.label,
-        }));
-    }
+/** Back from the widget's item shape, without inventing `undefined` fields. */
+function fromLiveItem(item: LiveQuickPickItem): PickerItem {
     return {
-        label: result.label,
-        description: result.description,
-        detail: result.detail,
-        value: result.value ?? result.label,
+        label: item.label,
+        value: item.value ?? item.label,
+        ...(item.description !== undefined ? { description: item.description } : {}),
+        ...(item.detail !== undefined ? { detail: item.detail } : {}),
     };
 }
 
 /**
- * The deadline path. `showQuickPick` returns a Promise but hands back no
- * handle, so a timed-out picker would stay on screen and let the user choose
- * into a void long after the model moved on. `createQuickPick` gives us the
- * `hide()` we need to actually retract the question.
+ * One QuickPick path for the timed and the untimed case alike, built on
+ * `createQuickPick` rather than `showQuickPick` because only the former exposes
+ * what the user *typed*. That is the second half of the free-text guarantee:
+ * Enter with nothing selected and text in the box submits the text — it
+ * matched no item, which is the whole point of typing it. Ticked / active items
+ * always win over leftover filter text.
+ *
+ * `createQuickPick` is also what makes a deadline honest: `dispose()` retracts
+ * the widget, so a timed-out question does not stay on screen for the user to
+ * answer into a void.
  */
-function showQuickPickWithDeadline(
-    items: PickerItem[],
-    opts: QuickPickOpts,
-    timeoutMs: number,
-): Promise<QuickPickResult> {
+function showLiveQuickPick(win: LiveWindow, items: PickerItem[], opts: QuickPickOpts): Promise<QuickPickResult> {
     return new Promise<QuickPickResult>((resolve) => {
-        const qp = vscode.window.createQuickPick<LiveQuickPickItem>();
+        const qp = win.createQuickPick<LiveQuickPickItem>();
         qp.items = toLiveItems(items);
         qp.title = opts.title;
         qp.placeholder = opts.placeHolder;
@@ -338,24 +354,29 @@ function showQuickPickWithDeadline(
         qp.ignoreFocusOut = opts.ignoreFocusOut === true;
 
         let settled = false;
-        // `hide()` fires onDidHide, so every exit funnels through here and the
-        // guard is what keeps the first outcome the real one.
+        // Every exit funnels through here and the guard keeps the first outcome
+        // the real one. Settling *before* disposing matters: `dispose()` hides
+        // the widget, and `onDidHide` would otherwise turn an accept or a
+        // timeout into a dismissal.
         const finish = (result: QuickPickResult) => {
             if (settled) { return; }
             settled = true;
-            clearTimeout(timer);
+            if (timer !== undefined) { clearTimeout(timer); }
             resolve(result);
             qp.dispose();
         };
-        const timer = setTimeout(() => {
-            if (settled) { return; }
-            qp.hide();
-            finish(QUICK_PICK_TIMED_OUT);
-        }, timeoutMs);
+        const timer = opts.timeoutMs !== undefined && opts.timeoutMs > 0
+            ? setTimeout(() => finish(QUICK_PICK_TIMED_OUT), opts.timeoutMs)
+            : undefined;
 
         qp.onDidAccept(() => {
-            const picked = [...qp.selectedItems];
-            qp.hide();
+            const picked = qp.selectedItems.map(fromLiveItem);
+            const typed = qp.value.trim();
+            if (picked.length === 0 && typed.length > 0) {
+                const own: PickerItem = { label: typed, value: typed };
+                finish(qp.canSelectMany ? [own] : own);
+                return;
+            }
             finish(qp.canSelectMany ? picked : picked[0]);
         });
         qp.onDidHide(() => finish(undefined));
@@ -363,23 +384,26 @@ function showQuickPickWithDeadline(
     });
 }
 
-export const liveUserPrompter: UserPrompter = {
-    async showQuickPick(items, opts) {
-        return opts.timeoutMs === undefined || opts.timeoutMs <= 0
-            ? showQuickPickUntimed(items, opts)
-            : showQuickPickWithDeadline(items, opts, opts.timeoutMs);
-    },
-    async showInputBox(opts) {
-        return vscode.window.showInputBox({
-            prompt: opts.prompt,
-            placeHolder: opts.placeHolder,
-            value: opts.value,
-            password: opts.password,
-            title: opts.title,
-            ignoreFocusOut: opts.ignoreFocusOut,
-        });
-    },
-};
+/** Build a prompter over a window; {@link liveUserPrompter} is the one over `vscode.window`. */
+export function createLiveUserPrompter(win: LiveWindow): UserPrompter {
+    return {
+        showQuickPick(items, opts) {
+            return showLiveQuickPick(win, items, opts);
+        },
+        async showInputBox(opts) {
+            return win.showInputBox({
+                prompt: opts.prompt,
+                placeHolder: opts.placeHolder,
+                value: opts.value,
+                password: opts.password,
+                title: opts.title,
+                ignoreFocusOut: opts.ignoreFocusOut,
+            });
+        },
+    };
+}
+
+export const liveUserPrompter: UserPrompter = createLiveUserPrompter(vscode.window);
 
 // ===========================================================================
 // Tool defs (with live bridge bound)
