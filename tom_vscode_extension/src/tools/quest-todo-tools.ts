@@ -237,7 +237,8 @@ export const GET_QUEST_TODO_DESCRIPTION =
     'Get a single quest todo by id, returning every field on disk — ' +
     '`id`, `title`, `description`, `status`, `priority`, `tags`, `scope` ' +
     '(`project`/`projects`/`module`/`area`/`files`), `references[]`, ' +
-    '`dependencies`/`blocked_by`, `notes`, `created`/`updated`/`completed_date`/' +
+    '`dependencies`/`blocked_by`, `decisions[]` (the open questions behind a ' +
+    '`decision-needed` status), `notes`, `created`/`updated`/`completed_date`/' +
     '`completed_by` timestamps, and `sourceFile` (which YAML file holds the ' +
     'item). Use this when you need the full record; `tomAi_listQuestTodos` ' +
     'returns only the summary fields. Missing id surfaces structured ' +

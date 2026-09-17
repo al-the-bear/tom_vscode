@@ -38,6 +38,15 @@ import { join } from 'node:path';
 const root = join(__dirname, '..', '..', '..');
 const source = readFileSync(join(root, 'src', 'tools', 'chat-enhancement-tools.ts'), 'utf-8');
 
+/** The body of a top-level `function <name>(` declaration. */
+function functionBody(name: string): string {
+    const start = source.indexOf(`function ${name}(`);
+    assert.ok(start >= 0, `no ${name}() function found`);
+    const end = source.indexOf('\n}', start);
+    assert.ok(end > start, `could not find the end of ${name}()`);
+    return source.slice(start, end);
+}
+
 /** The body of a method in the `liveQuestTodoStore` object literal. */
 function methodBody(name: string): string {
     const start = source.indexOf(`    ${name}(questId`);
@@ -77,6 +86,37 @@ describe('the live quest-todo store forwards what it was handed', () => {
             body,
             /title:\s*updates\.title/,
             'update() is rebuilding the patch from individual fields again.',
+        );
+    });
+});
+
+// The same defect in the other direction, and the half the fix above missed.
+// `toFull` renders what the store hands BACK to the tools, and it was still a
+// hand-maintained field list. So `tomAi_getQuestTodo`, whose own description
+// promises "every field on disk", returned a `decision-needed` todo with no
+// decisions on it — the questions were on disk, read correctly by
+// `nodeToTodo`, and dropped one layer above it. A caller could see the status
+// and not the reason for it, which is the state this whole feature exists to
+// prevent.
+//
+// `toSummary` is deliberately NOT held to this: it is documented as the
+// compact shape and narrowing is its purpose. `toFull` has no such licence —
+// its contract is the whole record.
+describe('the live quest-todo store returns the whole record', () => {
+    test('toFull forwards every field instead of rebuilding a whitelist', () => {
+        const body = functionBody('toFull');
+        assert.doesNotMatch(
+            body,
+            /\bid:\s*t\.id/,
+            'toFull() is rebuilding the todo from individual fields. That whitelist dropped '
+            + '`decisions`, so a decision-needed todo came back with its questions missing — '
+            + 'spread the item and rename `_sourceFile` instead.',
+        );
+        assert.match(
+            body,
+            /\.\.\.rest|\.\.\.t\b/,
+            'toFull() must spread the stored item so a field added to the todo model later '
+            + 'reaches the tools without a second list having to be updated.',
         );
     });
 });

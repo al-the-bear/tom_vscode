@@ -193,25 +193,21 @@ import {
     deleteQuestTodosImpl,
 } from './quest-todo-tools';
 
+// Return the record whole. The only difference between the stored item and the
+// surfaced one is the name of the source-file field, so that is the only thing
+// this touches.
+//
+// It used to be a field list, and it dropped `decisions` exactly as the create
+// and update whitelists below it did — the questions were on disk and read
+// correctly, and `tomAi_getQuestTodo`, which promises "every field on disk",
+// returned a `decision-needed` todo with nothing to decide on it. A caller
+// could see the status and not the reason for it.
+//
+// `toSummary` is not held to this and should not be: it is documented as the
+// compact shape, so narrowing is its purpose rather than an oversight.
 function toFull(t: questTodo.QuestTodoItem): QuestTodoFull {
-    return {
-        id: t.id,
-        title: t.title,
-        description: t.description,
-        status: t.status,
-        priority: t.priority,
-        tags: t.tags,
-        scope: t.scope,
-        references: t.references,
-        dependencies: t.dependencies,
-        blocked_by: t.blocked_by,
-        notes: t.notes,
-        created: t.created,
-        updated: t.updated,
-        completed_date: t.completed_date,
-        completed_by: t.completed_by,
-        sourceFile: t._sourceFile,
-    };
+    const { _sourceFile, ...rest } = t;
+    return { ...rest, sourceFile: _sourceFile };
 }
 
 function toSummary(t: questTodo.QuestTodoItem): QuestTodoSummary {
