@@ -281,22 +281,29 @@ describe('SCD202: a field a mutator claims to have written is readable back', ()
         );
     });
 
-    test('F-SCD202-7: a value the reader cannot recover is reported rather '
-        + 'than stored unreadably [2026-09-15]', () => {
+    test('F-SCD202-7: a string reference round-trips instead of becoming '
+        + 'unreachable data [2026-09-18] (PASS)', () => {
         // `references` is schema-defined as a list of OBJECTS and the reader
-        // maps only maps, so a list of STRINGS writes to YAML and reads back
+        // mapped only maps, so a list of STRINGS wrote to YAML and read back
         // empty — data that is on disk and unreachable, which is worse than
-        // data that was refused. The tool surface accepts either shape and its
-        // own description promises they are "persisted verbatim", so this had
-        // been happening silently.
-        assert.throws(
-            () => createTodo(QUEST, {
-                id: 'refs-strings',
-                description: 'string references',
-                status: 'not-started',
-                references: ['a/path.dart (why)'] as unknown as QuestTodoItem['references'],
-            }),
-            /references: wrote \["a\/path\.dart \(why\)"\], read \[\]/,
+        // data that was refused.
+        //
+        // SCD202 made that THROW, which stopped the loss and left the tool
+        // rejecting a shape its own description promises to persist. SCE5
+        // changed the contract rather than the diagnostic: a bare string is a
+        // reference, stored as `{path}` on the way in and read back the same
+        // way, so the two forms are one value and the description is true.
+        // The failure this case was written for — a write nobody can read —
+        // is still impossible; it is now impossible by working.
+        assert.doesNotThrow(() => createTodo(QUEST, {
+            id: 'refs-strings',
+            description: 'string references',
+            status: 'not-started',
+            references: ['a/path.dart (why)'] as unknown as QuestTodoItem['references'],
+        }));
+        assert.deepEqual(
+            findTodoById(QUEST, 'refs-strings')?.references,
+            [{ type: undefined, path: 'a/path.dart (why)', url: undefined, description: undefined, lines: undefined }],
         );
         // The schema-correct shape is unaffected.
         assert.doesNotThrow(() => createTodo(QUEST, {

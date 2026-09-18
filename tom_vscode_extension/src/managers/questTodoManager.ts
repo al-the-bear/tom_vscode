@@ -460,21 +460,50 @@ function nodeToTodo(node: YAMLMap, sourceFile?: string): QuestTodoItem {
     }
 
     // references
+    //
+    // A PLAIN STRING IS A REFERENCE TOO. The schema types these as maps, and
+    // this reader used to `.filter(isMap)` — so a list of strings, which is
+    // what every caller of the MCP tool writes, was read back as an empty list
+    // and the field vanished on the next write. Normalised to `{path}` here
+    // and on the way out, so the two forms round-trip as one.
     const refsNode = node.get('references', true);
     if (isSeq(refsNode)) {
-        item.references = refsNode.items.filter(isMap).map((m: YAMLMap) => ({
-            type: m.get('type') as string | undefined,
-            path: m.get('path') as string | undefined,
-            url: m.get('url') as string | undefined,
-            description: m.get('description') as string | undefined,
-            lines: m.get('lines') as string | undefined,
-        }));
+        item.references = refsNode.items
+            .map((entry: unknown): QuestTodoReference | undefined => {
+                if (isMap(entry)) {
+                    const m = entry as YAMLMap;
+                    return {
+                        type: m.get('type') as string | undefined,
+                        path: m.get('path') as string | undefined,
+                        url: m.get('url') as string | undefined,
+                        description: m.get('description') as string | undefined,
+                        lines: m.get('lines') as string | undefined,
+                    };
+                }
+                const raw = entry instanceof Scalar ? entry.value : entry;
+                return typeof raw === 'string' ? { path: raw } : undefined;
+            })
+            .filter((r): r is QuestTodoReference => r !== undefined);
     }
 
     // decisions — normalised so every reader gets a labelled list or nothing.
     const decisionsNode = node.get('decisions', true);
     if (isSeq(decisionsNode)) {
         item.decisions = normaliseTodoDecisions(decisionsNode.toJSON());
+    }
+
+    // SCE5: anything this reader does not recognise, kept so a move carries it.
+    // `moveTodo` reads a todo here and writes it back through the builder, so a
+    // key nobody enumerated — a later schema addition, or a hand-written field —
+    // would otherwise be dropped in transit and the move would look clean.
+    const extra: Record<string, unknown> = {};
+    for (const pair of node.items) {
+        const key = String((pair.key as Scalar)?.value ?? pair.key);
+        if (BUILT_TODO_KEYS.has(key)) { continue; }
+        extra[key] = (pair.value as Scalar)?.value ?? pair.value;
+    }
+    if (Object.keys(extra).length) {
+        (item as { _extra?: Record<string, unknown> })._extra = extra;
     }
 
     if (sourceFile) { item._sourceFile = sourceFile; }
@@ -550,24 +579,7 @@ export function createTodoInFile(
         todosNode = doc.get('todos', true) as YAMLSeq;
     }
 
-    const plain: Record<string, unknown> = {
-        id: todo.id,
-        description: todo.description,
-        status: todo.status,
-    };
-    if (todo.title) { plain.title = todo.title; }
-    if (todo.priority) { plain.priority = todo.priority; }
-    if (todo.tags && todo.tags.length) { plain.tags = todo.tags; }
-    if (todo.notes) { plain.notes = todo.notes; }
-    if (todo.dependencies && todo.dependencies.length) { plain.dependencies = todo.dependencies; }
-    if (todo.blocked_by && todo.blocked_by.length) { plain.blocked_by = todo.blocked_by; }
-    const decisions = normaliseTodoDecisions(todo.decisions);
-    if (decisions) { plain.decisions = decisions; }
-    if (todo.scope) { plain.scope = todo.scope; }
-    if (todo.references && todo.references.length) { plain.references = todo.references; }
-    if (todo.completed_date) { plain.completed_date = todo.completed_date; }
-    if (todo.completed_by) { plain.completed_by = todo.completed_by; }
-    plain.created = todo.created || new Date().toISOString().slice(0, 10);
+    const plain = buildTodoPlain(todo);
 
     const newNode = doc.createNode(plain);
     forceBlockStyle(newNode);
@@ -584,6 +596,83 @@ export function createTodoInFile(
         created: plain.created as string,
         _sourceFile: path.basename(filePath),
     };
+}
+
+/**
+ * Every key the builder below writes from a named field.
+ *
+ * Used to decide what is LEFT OVER on a todo read off disk, so a move carries
+ * it rather than dropping it.
+ */
+const BUILT_TODO_KEYS = new Set<string>([
+    'id', 'description', 'status', 'title', 'priority', 'tags', 'notes',
+    'dependencies', 'blocked_by', 'references', 'completed_date',
+    'completed_by', 'scope', 'decisions', 'created', '_sourceFile', '_extra',
+]);
+
+/**
+ * The plain map a todo is written to YAML as — the ONE routine both create
+ * paths use.
+ *
+ * SCE5. There were two of these, written as copies of one another, and they
+ * drifted: `createTodoInFile` wrote `scope`, `references`, `blocked_by` and
+ * the completion stamps while `createTodo` — the path the MCP tool uses —
+ * wrote none of them. SCD202 repaired `createTodo` by adding the missing
+ * branches, which fixed the behaviour and left the two copies standing; this
+ * removes the second copy, because a pair that has drifted once will drift
+ * again and the failure is silent by construction (`createTodo` returns
+ * `{...todo}`, so a field it does not write still comes back in the response).
+ *
+ * KEY ORDER IS PART OF THE OUTPUT and is fixed here, which is the other thing
+ * two copies could not guarantee: the same todo written by either path is the
+ * same bytes.
+ *
+ * UNRECOGNISED KEYS ARE CARRIED, not enumerated away. A move reads a todo off
+ * disk and writes it back, so anything this routine does not know about — a
+ * field a later schema adds, or one somebody wrote by hand — would be lost in
+ * transit. `nodeToTodo` collects them into `_extra` and they are written back
+ * last.
+ */
+function buildTodoPlain(todo: Omit<QuestTodoItem, '_sourceFile'>): Record<string, unknown> {
+    const plain: Record<string, unknown> = {
+        id: todo.id,
+        description: todo.description,
+        status: todo.status,
+    };
+    if (todo.title) { plain.title = todo.title; }
+    if (todo.priority) { plain.priority = todo.priority; }
+    if (todo.tags && todo.tags.length) { plain.tags = todo.tags; }
+    if (todo.notes) { plain.notes = todo.notes; }
+    if (todo.dependencies && todo.dependencies.length) { plain.dependencies = todo.dependencies; }
+    if (todo.blocked_by && todo.blocked_by.length) { plain.blocked_by = todo.blocked_by; }
+    if (todo.references && todo.references.length) {
+        // A reference given as a bare string is stored as `{path}`, matching
+        // what `nodeToTodo` reads back, so the two forms are one value.
+        plain.references = todo.references.map((ref) =>
+            typeof ref === 'string' ? { path: ref } : ref,
+        );
+    }
+    if (todo.completed_date) { plain.completed_date = todo.completed_date; }
+    if (todo.completed_by) { plain.completed_by = todo.completed_by; }
+    if (todo.scope) {
+        const scopeObj: Record<string, unknown> = {};
+        if (todo.scope.project) { scopeObj.project = todo.scope.project; }
+        if (todo.scope.projects?.length) { scopeObj.projects = todo.scope.projects; }
+        if (todo.scope.module) { scopeObj.module = todo.scope.module; }
+        if (todo.scope.area) { scopeObj.area = todo.scope.area; }
+        if (todo.scope.files?.length) { scopeObj.files = todo.scope.files; }
+        if (Object.keys(scopeObj).length) { plain.scope = scopeObj; }
+    }
+    const decisions = normaliseTodoDecisions(todo.decisions);
+    if (decisions) { plain.decisions = decisions; }
+    plain.created = todo.created || new Date().toISOString().slice(0, 10);
+    const extra = (todo as { _extra?: Record<string, unknown> })._extra;
+    if (extra) {
+        for (const [key, value] of Object.entries(extra)) {
+            if (!BUILT_TODO_KEYS.has(key)) { plain[key] = value; }
+        }
+    }
+    return plain;
 }
 
 /**
@@ -823,39 +912,7 @@ export function createTodo(
         todosNode = doc.get('todos', true) as YAMLSeq;
     }
 
-    // Build the item as a plain object (yaml pkg will convert to YAML node)
-    const plain: Record<string, unknown> = {
-        id: todo.id,
-        description: todo.description,
-        status: todo.status,
-    };
-    if (todo.title) { plain.title = todo.title; }
-    if (todo.priority) { plain.priority = todo.priority; }
-    if (todo.tags && todo.tags.length) { plain.tags = todo.tags; }
-    if (todo.notes) { plain.notes = todo.notes; }
-    if (todo.dependencies && todo.dependencies.length) { plain.dependencies = todo.dependencies; }
-    // SCD202: these five had no branch here and were silently dropped, while
-    // `createTodoInFile` beside this function persisted scope and references
-    // all along. The caller was told otherwise — `createTodo` returns
-    // `{...todo}`, so every field it failed to write came back in the response
-    // as though it had. Measured on the live quest file: every todo created
-    // through the MCP tool lost its `scope` and `references`.
-    if (todo.blocked_by && todo.blocked_by.length) { plain.blocked_by = todo.blocked_by; }
-    if (todo.references && todo.references.length) { plain.references = todo.references; }
-    if (todo.completed_date) { plain.completed_date = todo.completed_date; }
-    if (todo.completed_by) { plain.completed_by = todo.completed_by; }
-    if (todo.scope) {
-        const scopeObj: Record<string, unknown> = {};
-        if (todo.scope.project) { scopeObj.project = todo.scope.project; }
-        if (todo.scope.projects?.length) { scopeObj.projects = todo.scope.projects; }
-        if (todo.scope.module) { scopeObj.module = todo.scope.module; }
-        if (todo.scope.area) { scopeObj.area = todo.scope.area; }
-        if (todo.scope.files?.length) { scopeObj.files = todo.scope.files; }
-        if (Object.keys(scopeObj).length) { plain.scope = scopeObj; }
-    }
-    const decisions = normaliseTodoDecisions(todo.decisions);
-    if (decisions) { plain.decisions = decisions; }
-    plain.created = todo.created || new Date().toISOString().slice(0, 10);
+    const plain = buildTodoPlain(todo);
 
     const newNode = doc.createNode(plain);
     forceBlockStyle(newNode);

@@ -418,7 +418,7 @@ export const CREATE_QUEST_TODO_DESCRIPTION =
     '(`summary` + `decision_needed`, leaving `decision` empty) and set ' +
     '`status: "decision-needed"` instead of `not-started`, so nobody starts ' +
     'the todo on a guess. Optional fields (`scope`, `references`, ' +
-    '`dependencies`, `blocked_by`, `notes`) are persisted verbatim. YAML ' +
+    '`dependencies`, `blocked_by`, `notes`) are persisted verbatim, and a `references` entry may be a bare string — it is stored as `{path}`, the shape the schema defines. YAML ' +
     'formatting in existing files is preserved across the create. ' +
     '**`ok: true` is verified, not assumed**: the file is re-read after the ' +
     'write, the id confirmed present AND every field you sent confirmed ' +
