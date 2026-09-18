@@ -42,12 +42,12 @@
     {
       "command": "git status",
       "description": "",
-      "cwd": "/Users/alexiskyaw/Desktop/Code/tom2"
+      "cwd": "/path/to/workspace"
     },
     {
       "command": "./install_extension.sh",
       "description": "Reinstall + reload window",
-      "cwd": "/Users/alexiskyaw/Desktop/Code/tom2/xternal/tom_module_vscode/tom_vscode_extension",
+      "cwd": "/path/to/workspace/xternal/tom_module_vscode/tom_vscode_extension",
       "postActions": [
         "workbench.action.reloadWindow"
       ]
