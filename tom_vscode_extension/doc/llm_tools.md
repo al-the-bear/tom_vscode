@@ -6,7 +6,7 @@ This document is the source of truth for every tool available to LLM chat surfac
 
 Five chat surfaces call into tools:
 
-- **Anthropic Agent SDK** — `transport: 'agentSdk'` on an Anthropic configuration. Wraps `@anthropic-ai/claude-agent-sdk`. When `profile.useBuiltInTools = true`, Claude Code's built-in preset (`Read`, `Write`, `Edit`, `MultiEdit`, `Glob`, `Grep`, `Bash`/`BashOutput`/`KillBash`, `WebFetch`, `WebSearch`, `NotebookEdit`, `TodoWrite`, `Task`, `AskUserQuestion`, `ExitPlanMode`, `SlashCommand`, …) is exposed; our extension tools that duplicate a built-in (`DUPLICATES_OF_CLAUDE_CODE_BUILTINS` in `anthropic-handler.ts`) are suppressed to avoid confusion. Our own MCP server runs next to the preset and surfaces the rest.
+- **Anthropic Agent SDK** — `transport: 'agentSdk'` on an Anthropic configuration. Wraps `@anthropic-ai/claude-agent-sdk`. When `profile.useBuiltInTools = true`, Claude Code's built-in preset (`Read`, `Write`, `Edit`, `MultiEdit`, `Glob`, `Grep`, `Bash`/`BashOutput`/`KillBash`, `WebFetch`, `WebSearch`, `NotebookEdit`, `TaskCreate` / `TaskUpdate` / `TaskGet` / `TaskList`, `Task`, `AskUserQuestion`, `ExitPlanMode`, `SlashCommand`, …) is exposed; our extension tools that duplicate a built-in (`DUPLICATES_OF_CLAUDE_CODE_BUILTINS` in `anthropic-handler.ts`) are suppressed to avoid confusion. Our own MCP server runs next to the preset and surfaces the rest.
 - **Anthropic API (direct)** — `transport: 'direct'`. `@anthropic-ai/sdk`. No SDK preset — we implement every capability ourselves.
 - **Local LLM (Ollama)** — `localLlm-handler.ts`. OpenAI-compatible tool calling. Because smaller open models call tools less reliably, we default to a trimmed, read-only subset (`READ_ONLY_TOOLS` in `src/tools/tool-executors.ts`).
 - **Tom AI Chat** — the user's single-conversation surface via the **VS Code Language Model API** (`vscode.lm.*`). The VS Code LM API is a programmatic LLM interface comparable to the Anthropic API: the extension hands over messages + tools and receives the model's response. Tom AI Chat is a **user-facing** single-turn-or-multi-turn chat with a `.md` conversation format. A human is present, so user-interaction tools (`tomAi_askUser`, `tomAi_askUserPicker`, `tomAi_notifyUser`) apply.
@@ -372,7 +372,7 @@ Typical usage: the injected history block shows `14:23:05 [t14] R3 tomAi_readFil
 
 ### 5.1 Anthropic Agent SDK (`transport: 'agentSdk'`)
 
-- Default to **`profile.useBuiltInTools = true`** for full-development mode. The SDK supplies `Read`/`Write`/`Edit`/`MultiEdit`/`Glob`/`Grep`/`Bash`/`BashOutput`/`KillBash`/`WebFetch`/`WebSearch`/`NotebookEdit`/`TodoWrite`/`Task`/`AskUserQuestion`/`ExitPlanMode`; our 🔁 tools are suppressed automatically.
+- Default to **`profile.useBuiltInTools = true`** for full-development mode. The SDK supplies `Read`/`Write`/`Edit`/`MultiEdit`/`Glob`/`Grep`/`Bash`/`BashOutput`/`KillBash`/`WebFetch`/`WebSearch`/`NotebookEdit`/`TaskCreate`…`TaskList`/`Task`/`AskUserQuestion`/`ExitPlanMode`; our 🔁 tools are suppressed automatically.
 - Leave `tomAi_enterPlanMode` / `tomAi_exitPlanMode` off — the SDK ships its own plan-mode state.
 - `tomAi_spawnSubagent` is redundant when `Task` is available; keep off.
 - Keep all the ✅-rows on — they're VS Code specific and have no SDK equivalent (editor context, problems, symbols, code actions, git writes, tasks/debug, issues/tests, quest/session todos, chat variables, memory, pattern prompts, guidelines, user interaction).

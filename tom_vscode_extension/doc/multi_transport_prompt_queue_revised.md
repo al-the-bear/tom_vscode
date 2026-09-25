@@ -77,7 +77,9 @@ From the queue's perspective there are **two transports**: `copilot` and `anthro
 | `workbench.action.chat.open` (Copilot branch inside `dispatchStage`) | [line 2526](../src/managers/promptQueueManager.ts#L2526) |
 | Queue editor webview | [queueEditor-handler.ts](../src/handlers/queueEditor-handler.ts) (1863 lines) |
 | Reminder toggle / update bindings | [queueEditor-handler.ts:414-415, 432-434](../src/handlers/queueEditor-handler.ts#L414) |
-| `toggleAutoSend` | [queueEditor-handler.ts:468](../src/handlers/queueEditor-handler.ts#L468) |
+| `toggleAutoSend` | [queueEditor-handler.ts:607](../src/handlers/queueEditor-handler.ts#L607) |
+| `stopActiveItem` | [queueEditor-handler.ts:627](../src/handlers/queueEditor-handler.ts#L627) |
+| `interruptActiveForContinuation` / `interruptForContinuation` (interrupt for continuation, §4.18) | [queueEditor-handler.ts:637](../src/handlers/queueEditor-handler.ts#L637) |
 | `answerWaitMinutes` message payload | [queueEditor-handler.ts:494, 570, 591](../src/handlers/queueEditor-handler.ts#L494) |
 | `AnthropicTransport` leaf enum (`'direct' \| 'agentSdk' \| 'vscodeLm' \| 'localLlm'`) | [anthropic-handler.ts:58](../src/handlers/anthropic-handler.ts#L58) |
 | `AnthropicSendOptions` / `AnthropicSendResult` | [line 185](../src/handlers/anthropic-handler.ts#L185) / [line 291](../src/handlers/anthropic-handler.ts#L291) |

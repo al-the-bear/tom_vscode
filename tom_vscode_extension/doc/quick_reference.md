@@ -203,6 +203,14 @@ Open: `Ctrl+Shift+6` or `@T: Open Prompt Queue`
 | Auto-pause | On | `toggleAutoPause` |
 | Auto-continue | Off | `toggleAutoContinue` |
 
+### Queue Toolbar Actions
+
+| Action | Icon | Effect |
+| --- | --- | --- |
+| Restart Queue | `codicon-debug-restart` | Reset stuck `sending` items to pending |
+| Stop | `codicon-debug-stop` | Cancel the running prompt, revert it to Staged |
+| Interrupt for continuation | `codicon-debug-disconnect` | Cancel now, hold the current repetition, resend it when auto-send is re-enabled |
+
 ### Queue Entry Statuses
 
 | Status | Color | Description |
@@ -215,6 +223,7 @@ Open: `Ctrl+Shift+6` or `@T: Open Prompt Queue`
 | Waiting | Violet | Parked on a rate limit, retries automatically |
 | Retry | Violet | Parked on a backoff, retries automatically |
 | Decision-needed | Amber | Its `prefix*` todo series contains an undecided todo; auto-send is off. Restarting the queue returns it to Pending and re-checks |
+| Interrupted | Cyan | Held for continuation after a deliberate interrupt; auto-send is off. Re-enabling auto-send re-sends the interrupted repetition first. Exits: resume, or Move back to Staged |
 
 ### Queue Entry Types
 

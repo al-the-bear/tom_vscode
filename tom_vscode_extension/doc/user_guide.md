@@ -305,6 +305,26 @@ sending it again pauses the queue again. Clear it with the same button; it
 remains visible (inverted) on a finished item precisely so a leftover flag
 cannot hide.
 
+### Interrupt for continuation
+
+**Stop** and **Pause** each cover one kind of interruption: Stop cancels the
+running prompt and reverts the item to Staged (a fresh restart from repetition
+1); Pause lets the running repetition finish and holds before the *next* one.
+Neither fits the case where *you* have to interrupt — the network is about to
+go away — and want the running repetition to simply run again once you are
+back. That is the **Interrupt for continuation** button (`codicon-debug-disconnect`,
+next to Stop in the toolbar, and on the running item's own row):
+
+- The running prompt is cancelled immediately; any partial answer is discarded.
+- The item is held at its **current repetition** with the status
+  `INTERRUPTED — RESENDS ON RESUME`, and Auto-send switches off.
+- Re-enabling Auto-send (the play toggle, Auto-start on reload, or
+  Auto-continue's timer) re-sends **that same repetition** with the same text
+  first, then the loop carries on. The held row also offers **Resend** (replay
+  now) and **Move back to Staged** (abandon the continuation).
+
+The state survives a window reload; Restart Queue leaves a held item alone.
+
 ### Watchdog and Health Check
 
 A background watchdog runs every 60 seconds to ensure queue reliability:
@@ -318,10 +338,10 @@ A background watchdog runs every 60 seconds to ensure queue reliability:
 
 Open with `Ctrl+Shift+6` or `@T: Open Prompt Queue`. The editor provides:
 
-- **Toolbar**: Auto-send, Auto-start, Auto-pause, Auto-continue toggles, Restart Queue button
+- **Toolbar**: Auto-send, Auto-start, Auto-pause, Auto-continue toggles, Restart Queue, **Stop** (cancel the running prompt and revert it to Staged) and **Interrupt for continuation** (see above)
 - **Entry list**: Per-item cards with status color coding, type badges, progress indicators
 - **Staged item form**: Template, repeat count, answer wait minutes, repeat prefix/suffix, pre-prompts
-- **Per-item controls**: Preview, send now, move up/down, delete, toggle reminder, pause after this
+- **Per-item controls**: Preview, send now, move up/down, delete, toggle reminder, pause after this, interrupt for continuation (on the running item); an interrupted item offers Resend and Move back to Staged
 
 ## 5) Timed Requests
 

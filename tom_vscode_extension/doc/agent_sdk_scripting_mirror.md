@@ -17,7 +17,7 @@ TypeScript caller gets from the SDK, expressed in Dart types.
 
 - **Audience:** script authors targeting a VS Code window over the bridge, and
   maintainers of the mirror.
-- **SDK tracked:** `@anthropic-ai/claude-agent-sdk` **^0.2.110**. Wire field
+- **SDK tracked:** written against `@anthropic-ai/claude-agent-sdk` **^0.2.110**. The extension itself now resolves **^0.3.263**, and the mirror has not yet been re-audited against 0.3.x (the 0.3.142 changes touch its surface: the v2 session API is removed, `TodoWrite` gave way to the Task tools, MCP servers connect non-blocking unless `alwaysLoad` is set). Wire field
   names are the SDK's own (`sdk.d.ts`): camelCase on inputs (`Options` and its
   sub-configs), snake_case on outputs (`SDKMessage` / content blocks).
 - **Source:** `tom_vscode_scripting_api/lib/src/agent_sdk_*.dart` (Dart half)
