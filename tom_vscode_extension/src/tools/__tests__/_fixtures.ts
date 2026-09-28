@@ -227,6 +227,8 @@ export interface QuestFixture extends Fixture {
     wsRoot: string;
     /** Quest folder path: `<root>/_ai/quests/<questId>/`. */
     questFolder: string;
+    /** Where the summary trail files live: `<questFolder>/history/`. */
+    trailFolder: string;
     /** The quest id used to lay out the folder. */
     questId: string;
 }
@@ -234,7 +236,8 @@ export interface QuestFixture extends Fixture {
 /**
  * Build a quest folder with summary-trail files for one or more
  * subsystems. Mirrors what `TrailService.writeSummaryPrompt/Answer`
- * would have written over a session.
+ * would have written over a session — which means the files land in the
+ * quest's `history/` folder, not beside the quest documents.
  *
  * Entries are prepended newest-first (the production format) so a
  * test that parses the file gets the same ordering it would in
@@ -244,7 +247,8 @@ export function mkQuestFolder(questId: string, options: QuestFolderOptions = {})
     const created = !options.root;
     const root = options.root ?? mkdtemp('fixture-quest-');
     const questFolder = path.join(root, '_ai', 'quests', questId);
-    fs.mkdirSync(questFolder, { recursive: true });
+    const trailFolder = path.join(questFolder, 'history');
+    fs.mkdirSync(trailFolder, { recursive: true });
 
     const subsystems = options.subsystems ?? ['anthropic'];
     const n = options.exchangesPerSubsystem ?? 5;
@@ -252,8 +256,8 @@ export function mkQuestFolder(questId: string, options: QuestFolderOptions = {})
     const answerBody = options.answerBody ?? ((sub, i) => `${sub} answer #${i} — first line\n\nsecond line (i=${i})`);
 
     for (const sub of subsystems) {
-        const promptsFile = path.join(questFolder, `${questId}.${sub}.prompts.md`);
-        const answersFile = path.join(questFolder, `${questId}.${sub}.answers.md`);
+        const promptsFile = path.join(trailFolder, `${questId}.${sub}.prompts.md`);
+        const answersFile = path.join(trailFolder, `${questId}.${sub}.answers.md`);
         const promptBlocks: string[] = [];
         const answerBlocks: string[] = [];
         for (let i = 0; i < n; i++) {
@@ -277,6 +281,7 @@ export function mkQuestFolder(questId: string, options: QuestFolderOptions = {})
         root,
         wsRoot: root,
         questFolder,
+        trailFolder,
         questId,
         cleanup(): void {
             // Only clean up if we created the root — caller-supplied

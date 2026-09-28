@@ -15,6 +15,7 @@ import * as path from 'path';
 import { getExtensionPath, bridgeLog } from './handler_shared';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { AskUserRegistry, PendingAsk, AskAnswerSource } from '../services/askUserRegistry';
+import { appendQuestionLogEntry } from '../services/questionsLog';
 import { readChatQuestionsConfig } from './chatQuestions-config';
 import { readEffectiveTelegramConfig } from './telegram-config';
 import {
@@ -166,6 +167,7 @@ const liveAskUserDeps: AskUserDeps = {
     onResolve: (pending, source) => {
         closeAskPanel(pending, source);
     },
+    log: (entry) => appendQuestionLogEntry(entry),
 };
 
 /** The live `tomAi_askUser` tool with its blocking executor wired in. */

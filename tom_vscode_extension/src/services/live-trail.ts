@@ -21,6 +21,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { WsPaths } from '../utils/workspacePaths';
 import { InterruptionKind, interruptionLabel } from '../utils/anthropicErrorClassifier';
+import { sanitizeQuestSegment } from '../utils/questPaths';
 
 const HEADER_COMMENT = '<!-- tom-ai live-trail -->';
 /** Per-kind marker used by `endPromptWithInterruption` — all yellow family. */
@@ -61,6 +62,132 @@ export const LOCAL_LLM_LIVE_TRAIL_FILENAME = 'live-trail-localLLM.md';
  */
 export type PromptSource = 'queue' | 'chat';
 
+/**
+ * Token counts for a turn. Field names follow the Agent SDK's camelCase
+ * `ModelUsage`; the transport normalises the snake_case aggregate `usage`
+ * block onto the same shape so the trail has one vocabulary.
+ */
+export interface LiveTrailTokenCounts {
+    inputTokens?: number;
+    outputTokens?: number;
+    cacheReadInputTokens?: number;
+    cacheCreationInputTokens?: number;
+}
+
+/** One model's share of a turn (Agent SDK `result.modelUsage`). */
+export interface LiveTrailModelUsage extends LiveTrailTokenCounts {
+    model: string;
+    costUSD?: number;
+    contextWindow?: number;
+}
+
+/**
+ * Token / cost accounting for a completed turn, as reported once on the Agent
+ * SDK's `result` message. Every field is optional — a transport that has no
+ * accounting to report passes `{}` and {@link LiveTrailWriter.appendUsage}
+ * writes nothing.
+ */
+export interface LiveTrailUsage {
+    /** Aggregate counts for the turn (SDK `result.usage`). */
+    totals?: LiveTrailTokenCounts;
+    /** Per-model breakdown (SDK `result.modelUsage`). */
+    models?: LiveTrailModelUsage[];
+    /** Total spend for the turn in USD (SDK `result.total_cost_usd`). */
+    totalCostUsd?: number;
+    /** Time spent inside API calls (SDK `result.duration_api_ms`). */
+    durationApiMs?: number;
+}
+
+/** Thousands-separated integer, or `''` for a missing value. */
+function formatTokenCount(n: number | undefined): string {
+    return typeof n === 'number' && Number.isFinite(n) ? n.toLocaleString('en-US') : '';
+}
+
+/**
+ * `YYYYMMDD_HHMMSS` in local time — the stamp format of the `## 🚀 PROMPT …`
+ * block header.
+ *
+ * Shared with the usage table's `when` column on purpose: the header records
+ * when a turn *started* and the column when its accounting arrived, so having
+ * both in one format is what lets a reader line them up.
+ */
+export function formatPromptHeaderTimestamp(d: Date): string {
+    const pad = (n: number, w = 2): string => String(n).padStart(w, '0');
+    return (
+        `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_` +
+        `${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
+    );
+}
+
+/** Whether a token-count block carries any number worth printing. */
+function hasTokenCounts(counts: LiveTrailTokenCounts | undefined): boolean {
+    if (!counts) { return false; }
+    return [
+        counts.inputTokens,
+        counts.outputTokens,
+        counts.cacheReadInputTokens,
+        counts.cacheCreationInputTokens,
+    ].some((n) => typeof n === 'number' && Number.isFinite(n));
+}
+
+/**
+ * Render the `### 📊 usage` block for a turn: a one-line token summary, a
+ * cost/API-time line, and a per-model table. Sections with no data are
+ * omitted, and a payload with nothing at all renders as `''` so the caller can
+ * skip the write entirely.
+ *
+ * `at` is the moment the accounting was recorded, stamped into the table's
+ * `when` column. It is a parameter rather than a `new Date()` inside, both to
+ * keep the function pure and because it is genuinely distinct from the block
+ * header's timestamp: the header marks when the turn started, and a turn that
+ * runs for minutes finishes far from where it began.
+ *
+ * Pure, so the exact markdown is unit-testable without touching the filesystem.
+ */
+export function formatLiveTrailUsage(usage: LiveTrailUsage, at: Date): string {
+    const lines: string[] = [];
+
+    if (hasTokenCounts(usage.totals)) {
+        const t = usage.totals as LiveTrailTokenCounts;
+        const parts: string[] = [];
+        if (typeof t.inputTokens === 'number') { parts.push(`in ${formatTokenCount(t.inputTokens)}`); }
+        if (typeof t.outputTokens === 'number') { parts.push(`out ${formatTokenCount(t.outputTokens)}`); }
+        if (typeof t.cacheReadInputTokens === 'number') { parts.push(`cache read ${formatTokenCount(t.cacheReadInputTokens)}`); }
+        if (typeof t.cacheCreationInputTokens === 'number') { parts.push(`cache write ${formatTokenCount(t.cacheCreationInputTokens)}`); }
+        lines.push(`- tokens: ${parts.join(' · ')}`);
+    }
+
+    const meta: string[] = [];
+    if (typeof usage.totalCostUsd === 'number' && Number.isFinite(usage.totalCostUsd)) {
+        meta.push(`$${usage.totalCostUsd.toFixed(4)}`);
+    }
+    if (typeof usage.durationApiMs === 'number' && Number.isFinite(usage.durationApiMs)) {
+        meta.push(`api ${(usage.durationApiMs / 1000).toFixed(1)}s`);
+    }
+    if (meta.length > 0) { lines.push(`- cost: ${meta.join(' · ')}`); }
+
+    const models = usage.models ?? [];
+    if (models.length > 0) {
+        lines.push('');
+        const when = formatPromptHeaderTimestamp(at);
+        lines.push('| model | in | out | cache read | cache write | cost | ctx | when |');
+        lines.push('| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |');
+        for (const m of models) {
+            const cost = typeof m.costUSD === 'number' && Number.isFinite(m.costUSD)
+                ? `$${m.costUSD.toFixed(4)}`
+                : '';
+            lines.push(
+                `| ${m.model} | ${formatTokenCount(m.inputTokens)} | ${formatTokenCount(m.outputTokens)} | ` +
+                `${formatTokenCount(m.cacheReadInputTokens)} | ${formatTokenCount(m.cacheCreationInputTokens)} | ` +
+                `${cost} | ${formatTokenCount(m.contextWindow)} | ${when} |`,
+            );
+        }
+    }
+
+    if (lines.length === 0) { return ''; }
+    return `\n### 📊 usage\n\n${lines.join('\n')}\n`;
+}
+
 export interface LiveTrailPromptInfo {
     transport: string;
     config: string;
@@ -89,6 +216,9 @@ export interface LiveTrailPromptInfo {
  *   - `retry`        — a transient failure is being retried mid-turn
  *                      (`message` = the UI status line, `cause` = the triggering
  *                      error). The turn has NOT ended; more events follow.
+ *   - `usage`        — token / cost accounting for the finished turn (`usage`).
+ *                      Emitted just before `done`, from the backend's result
+ *                      message; absent for backends that report no usage.
  *   - `done`         — the turn finished cleanly (`rounds`/`toolCalls`/`durationMs`).
  *   - `error`        — the turn failed (`message`).
  *   - `interruption` — the turn was interrupted/rate-limited (`label`/`message`).
@@ -100,6 +230,7 @@ export type LiveTrailEvent =
     | { kind: 'toolResult'; questId: string; source?: PromptSource; fullLength: number }
     | { kind: 'assistant'; questId: string; source?: PromptSource; text: string }
     | { kind: 'retry'; questId: string; source?: PromptSource; message: string; cause?: string }
+    | { kind: 'usage'; questId: string; source?: PromptSource; usage: LiveTrailUsage }
     | { kind: 'done'; questId: string; source?: PromptSource; rounds: number; toolCalls: number; durationMs: number }
     | { kind: 'error'; questId: string; source?: PromptSource; message: string }
     | { kind: 'interruption'; questId: string; source?: PromptSource; label: string; message: string };
@@ -189,7 +320,7 @@ export class LiveTrailWriter {
         this.questId = questId || 'default';
         const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
         const questsRoot = WsPaths.ai('quests') ?? path.join(wsRoot, WsPaths.aiFolder, 'quests');
-        const safeQuest = (questId || 'default').replace(/[^A-Za-z0-9_.-]/g, '_');
+        const safeQuest = sanitizeQuestSegment(questId);
         // Sanitize the filename the same way the quest segment is sanitized
         // — defensive: callers pass a literal string, but accepting a
         // user-supplied value via a future API would otherwise let a
@@ -243,7 +374,7 @@ export class LiveTrailWriter {
             this.startedAtMs = Date.now();
             this.currentlyInAssistantText = false;
             this.currentlyInThinking = false;
-            const ts = this.formatTimestamp(new Date());
+            const ts = formatPromptHeaderTimestamp(new Date());
             const userPreview = this.clip(info.userText, USER_TEXT_PREVIEW_CHARS)
                 .replace(/\r?\n/g, '\n> ');
             const lines = [
@@ -340,6 +471,27 @@ export class LiveTrailWriter {
             this.currentlyInAssistantText = false;
             this.currentlyInThinking = false;
             this.emit({ kind: 'retry', message, cause });
+        } catch { /* swallowed */ }
+    }
+
+    /**
+     * Record the token / cost accounting for the turn that is about to end.
+     * Backends only report this once, in their final result message, so it is
+     * written **before** {@link endPrompt} closes the block — putting the
+     * numbers next to the work they paid for.
+     *
+     * A usage object with nothing worth rendering (no token counts, no cost,
+     * no per-model rows) is a no-op: an empty `### 📊 usage` heading would be
+     * noise in the trail.
+     */
+    appendUsage(usage: LiveTrailUsage): void {
+        try {
+            const md = formatLiveTrailUsage(usage, new Date());
+            if (!md) { return; }
+            this.append(md);
+            this.currentlyInAssistantText = false;
+            this.currentlyInThinking = false;
+            this.emit({ kind: 'usage', usage });
         } catch { /* swallowed */ }
     }
 
@@ -490,13 +642,5 @@ export class LiveTrailWriter {
         if (typeof s !== 'string') { s = String(s ?? ''); }
         if (s.length <= max) { return s; }
         return s.slice(0, max) + '\n…(trimmed)';
-    }
-
-    private formatTimestamp(d: Date): string {
-        const pad = (n: number, w = 2): string => String(n).padStart(w, '0');
-        return (
-            `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_` +
-            `${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
-        );
     }
 }

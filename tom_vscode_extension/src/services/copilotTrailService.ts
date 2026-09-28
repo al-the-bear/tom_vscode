@@ -16,6 +16,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { getWorkspaceRoot, loadSendToChatConfig } from '../handlers/handler_shared';
 import { WsPaths } from '../utils/workspacePaths';
+import { questTrailFolder } from '../utils/questPaths.js';
 import { debugLog } from '../utils/debugLogger';
 import { TrailService } from './trailService';
 import { writeWindowState } from '../handlers/windowStatusPanel-handler.js';
@@ -72,15 +73,15 @@ function detectQuestFromWorkspace(): string | null {
 
 /**
  * Resolve the consolidated trail folder. When a quest .code-workspace is
- * open the trail sits inside the quest directory (so it moves with the
- * quest via git); otherwise falls back to `_ai/trail`.
+ * open the trail sits in the quest's `history/` subfolder, beside the other
+ * generated, gitignored trail files; otherwise falls back to `_ai/trail`.
  */
 export function getTrailFolder(): string {
     const wsRoot = getWorkspaceRoot();
     if (!wsRoot) { return ''; }
     const questId = detectQuestFromWorkspace();
     if (questId) {
-        return WsPaths.ai('quests', questId) || path.join(wsRoot, '_ai', 'quests', questId);
+        return questTrailFolder(WsPaths.ai('quests', questId) || path.join(wsRoot, '_ai', 'quests', questId));
     }
     return WsPaths.ai('trail') || path.join(wsRoot, '_ai', 'trail');
 }
@@ -104,7 +105,8 @@ export function getCopilotSummaryTrailPaths():
     const wsRoot = getWorkspaceRoot();
     if (!wsRoot) { return null; }
     const questId = WsPaths.getWorkspaceQuestId();
-    const folder = WsPaths.ai('quests', questId) || path.join(wsRoot, '_ai', 'quests', questId);
+    const questFolder = WsPaths.ai('quests', questId) || path.join(wsRoot, '_ai', 'quests', questId);
+    const folder = questTrailFolder(questFolder);
     return {
         questId,
         folder,

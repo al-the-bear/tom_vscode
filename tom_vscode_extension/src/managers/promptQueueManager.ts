@@ -31,11 +31,12 @@ import {
 } from '../storage/queueFileStorage';
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
-import { applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, convertStagedToPending, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty } from '../utils/queueStep3Utils';
+import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, decideAdvanceAfterCompletion, parseTodoPrefixPattern, planMainStageDispatch, releaseResolvedDecisionItems, resolveResendText, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty, type TodoIterationSource } from '../utils/queueStep3Utils';
 import { runMainStageWithRefresh } from '../utils/questRefreshDispatch.js';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
 import { mergeQueueReload } from '../utils/queueReloadMergeUtils';
-import { applyErrorTransition, applyResetToPending, applyWaitingTransition, clearWaitingState, dispatchWasSuperseded, isWaitingDue, itemHasInFlightProgress, resolveAnswerContainer } from '../utils/queueErrorTransitions';
+import { applyErrorTransition, applyInterruptForContinuation, applyResetToPending, applyWaitingTransition, clearWaitingState, dispatchWasSuperseded, isWaitingDue, itemHasInFlightProgress, pickInterruptedResume, resolveAnswerContainer } from '../utils/queueErrorTransitions';
+import { applyRetryScheduling, applyStopRetrying, clearRetryBookkeeping, computeRetryDecision, fireRetry, isPreviousMessageIdError, isRetryDue, rollbackInFlightRepetition, type InFlightRepetition } from '../utils/queueRetryTransitions';
 import { parseResetClause } from '../utils/queueResetClause';
 import { resolveVariables } from '../utils/variableResolver.js';
 import {
@@ -58,7 +59,21 @@ import type { ChangeSource } from './chatVariablesStore';
 // Types
 // ============================================================================
 
-export type QueuedPromptStatus = 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'waiting';
+/**
+ * `'decision-needed'` is the todo-iteration block: the `prefix*` series this
+ * item walks contains a todo whose questions the user has not answered, so the
+ * item is held rather than run on a guess. Restarting the queue puts it back to
+ * `'pending'` once its series has no unanswered todo left (see
+ * `releaseResolvedDecisionItems`); while the decisions are still open the item
+ * stays held and the rest of the queue runs past it.
+ *
+ * `'interrupted'` is interrupt-for-continuation: the in-flight dispatch was
+ * cancelled on purpose (the network is about to go away) and the item is
+ * held at that exact rep with auto-send off. Re-arming auto-send replays the
+ * rep — same expanded text — before anything else moves. See
+ * `interruptActiveItemForContinuation` / `pickInterruptedResume`.
+ */
+export type QueuedPromptStatus = 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'waiting' | 'retry' | 'decision-needed' | 'interrupted';
 export type QueuedPromptType = 'normal' | 'timed' | 'reminder';
 
 /**
@@ -70,12 +85,21 @@ export type QueuedPromptType = 'normal' | 'timed' | 'reminder';
  *     Anthropic: the dispatch loop already recursed inline).
  *   - `'done'`       — all stages + all repetitions are complete.
  *     Callers mark the item `'sent'` and advance the queue.
- *   - `'paused'`     — auto-send is OFF AND this item has at least
- *     one prior dispatch on record. The in-flight repetition (if
- *     any) finishes naturally, but no further repetition starts.
- *     Callers MUST leave the item in `'sending'` so the webview
- *     can render "SENDING (PAUSED)" and `set autoSendEnabled(true)`
- *     knows where to resume.
+ *   - `'paused'`     — no further repetition starts, for one of two
+ *     reasons. (a) Auto-send is OFF and this item has at least one
+ *     prior dispatch on record: the in-flight repetition (if any)
+ *     finishes naturally and callers MUST leave the item in
+ *     `'sending'` so the webview can render "SENDING (PAUSED)" and
+ *     `set autoSendEnabled(true)` knows where to resume. (b) The
+ *     item's `prefix*` todo series has an unanswered `decision-needed`
+ *     todo: the gate has already moved the item to `'decision-needed'`
+ *     and switched auto-send off before returning.
+ *
+ * Both reasons share one outcome deliberately. Every caller of this
+ * method reacts to `'paused'` by logging and leaving the item alone,
+ * which is exactly right for both; a distinct fourth value would have
+ * to be handled at each of them, and a missed one marks the item
+ * `'sent'` — silently completing a queue item that never ran.
  */
 export type DispatchOutcome = 'dispatched' | 'done' | 'paused';
 
@@ -189,11 +213,24 @@ export interface QueuedPrompt {
     repeatCount?: number | string;
     resolvedRepeatCount?: number; // Cached resolved value when repeatCount is a variable name
     repeatIndex?: number;
+    /**
+     * TODO ITERATION only (`prefix*` repeat count): the id of the quest todo
+     * the last main-prompt dispatch picked up. Persisted so the queue entry
+     * can name it after a reload; the title is re-derived at pick time.
+     */
+    repeatTodoId?: string;
     repeatPrefix?: string;
     repeatSuffix?: string;
     templateRepeatCount?: number | string; // Repeat the entire template this many times
     templateRepeatIndex?: number;  // Current template repeat iteration (0-based)
     answerWaitMinutes?: number;   // If > 0, auto-advance after N minutes instead of waiting for answer file
+    /**
+     * "Pause after this": when set, the queue stops once this item has
+     * finished its **last** stage / repetition — the item itself always runs
+     * to completion. Sticky, not one-shot: it stays on the item, so sending
+     * it again pauses the queue again, which is what the flag says on the tin.
+     */
+    pauseAfter?: boolean;
     // Multi-transport fields (design doc §4.1). Items without `transport`
     // resolve to 'copilot' at dispatch time — byte-identical to the
     // pre-multi-transport behaviour.
@@ -230,6 +267,46 @@ export interface QueuedPrompt {
      * the message*, not the +5-minute retry instant.
      */
     waitingResetLabel?: string;
+    /**
+     * When `status === 'retry'`: number of retries already consumed in the
+     * current failure cascade (0-based index into `RETRY_BACKOFF_MS`). Set by
+     * `applyRetryScheduling`, preserved by `fireRetry` so a fired retry that
+     * fails again continues the backoff instead of restarting at 30s, and
+     * cleared on the next successful dispatch so a later repetition starts a
+     * fresh cascade.
+     */
+    retryAttempt?: number;
+    /**
+     * When `status === 'retry'`: the ISO instant at which the next retry
+     * should fire. The health-check timer flips the item back to `pending`
+     * and drives `sendNext()` once this instant is reached, so the retry
+     * survives a window reload (mirrors `waitingUntil`).
+     */
+    retryUntil?: string;
+    /**
+     * True while a dispatched prompt is genuinely in flight — set at each
+     * dispatch (a Copilot polled answer-file wait, or an Anthropic direct
+     * await) and cleared the moment the queue stops actively processing this
+     * item (pause gate, completion, or error). Drives the webview's green→amber
+     * header: a `sending` item stays green while `awaitingAnswer`, and turns
+     * amber once it is idle/paused between iterations — so a stopped queue shows
+     * at a glance whether the current iteration is still running or already
+     * done. Transient runtime state (not persisted); the resume path re-derives
+     * it on reload by re-entering the dispatch path.
+     */
+    awaitingAnswer?: boolean;
+    /**
+     * Snapshot of the single repetition-counter advance the in-flight dispatch
+     * made, so a failed send can be rolled back to re-send the *same* prompt
+     * (see `rollbackInFlightRepetition`). The dispatcher advances a stage's
+     * counter optimistically before the send resolves; on a genuine failure the
+     * item is parked in `retry`/`waiting` and later re-dispatched — without this
+     * rollback the re-dispatch would skip to the next repetition, so a retry
+     * cascade would walk the loop index forward instead of retrying the failure.
+     * Transient runtime state (not persisted); cleared at the top of every
+     * dispatch attempt and consumed on rollback.
+     */
+    inFlightRepetition?: InFlightRepetition;
 }
 
 // ============================================================================
@@ -392,6 +469,12 @@ export class PromptQueueManager {
     private _autoPauseEnabled = true;
     private _autoContinueEnabled = false;
     private _responseFileTimeoutMinutes = 60;
+    /**
+     * Deferred queue start: ISO instant before which all sends are held. Set
+     * by the header "Start in N minutes" dropdown; cleared (and auto-send
+     * re-enabled) by the health-check once it passes. undefined = no deferral.
+     */
+    private _queueStartAt: string | undefined;
     private _defaultReminderTemplateId: string | undefined;
     // Queue-level default transport (spec §4.10). New items that don't
     // pin a transport inherit this at enqueue-time.
@@ -512,11 +595,44 @@ export class PromptQueueManager {
             || expanded.includes(`"requestId": "${requestId}"`);
     }
 
+    /** The quest the queue resolves todos against, or `undefined` when none is set. */
+    private activeQuestId(): string | undefined {
+        return await_import_ChatVariablesStore()?.quest;
+    }
+
+    /**
+     * Claim a quest todo for the dispatch that is about to go out. Returns
+     * `false` when the status could not be written — see
+     * {@link writeQuestTodoStatus} for why the caller must then stop.
+     */
+    private markQuestTodoInProgress(todoId: string): boolean {
+        const questId = this.activeQuestId();
+        if (!questId) {
+            logQueue(`MP dispatch: no active quest — cannot claim todo '${todoId}'`);
+            return false;
+        }
+        return writeQuestTodoStatus(questId, todoId, 'in-progress');
+    }
+
+    /** Release a todo claimed by a dispatch that then failed to send. */
+    private releaseQuestTodo(todoId: string): void {
+        const questId = this.activeQuestId();
+        if (questId) { writeQuestTodoStatus(questId, todoId, 'not-started'); }
+    }
+
     private async _buildExpandedText(
         originalText: string,
         template?: string,
         answerWrapper?: boolean,
-        repetition?: { repeatCount?: number; repeatIndex?: number; repeatPrefix?: string; repeatSuffix?: string },
+        repetition?: {
+            repeatCount?: number;
+            repeatIndex?: number;
+            repeatPrefix?: string;
+            repeatSuffix?: string;
+            /** TODO ITERATION: the todo this dispatch is working on. */
+            repeatTodoId?: string;
+            repeatTodoTitle?: string;
+        },
         transport: QueuedTransport = 'copilot',
         templateRepetition?: { templateRepeatCount?: number; templateRepeatIndex?: number },
     ): Promise<string> {
@@ -555,6 +671,11 @@ export class PromptQueueManager {
                 templateRepeatCount: String(templateRepeatCount),
                 templateRepeatIndex: String(templateRepeatIndex),
                 templateRepeatNumber: String(templateRepeatNumber),
+                // TODO ITERATION: empty outside `prefix*` mode, so a prompt
+                // that references them in counter mode gets '' rather than a
+                // leaked `${...}`.
+                repeatTodoId: repetition?.repeatTodoId ?? '',
+                repeatTodoTitle: repetition?.repeatTodoTitle ?? '',
             },
         });
 
@@ -823,24 +944,66 @@ export class PromptQueueManager {
                 logQueue(`Health check: reset window elapsed for item ${item.id}; resuming as pending`);
             }
         }
-        if (resumedWaiting) {
+
+        // Fire due `retry` items: flip them back to `pending` (preserving the
+        // backoff attempt) so the normal send path retries them. Because this
+        // runs on the health-check timer the retry fires at the right instant
+        // even across a window reload. See queueRetryTransitions.fireRetry.
+        let resumedRetry = false;
+        for (const item of this._items) {
+            if (item.status === 'retry' && isRetryDue(item.retryUntil, nowMs)) {
+                fireRetry(item);
+                resumedRetry = true;
+                logQueue(`Health check: retry countdown elapsed for item ${item.id}; resuming as pending`);
+            }
+        }
+
+        // Deferred queue start: while the armed start instant is still in the
+        // future, hold every send. When it passes, enable auto-send, clear the
+        // deferral (the header dropdown resets to "No start time"), and let the
+        // drain below fire. Survives a reload because the instant is persisted.
+        let queueStartArmed = false;
+        let queueStartJustFired = false;
+        if (this._queueStartAt) {
+            const startMs = new Date(this._queueStartAt).getTime();
+            if (!Number.isNaN(startMs) && nowMs < startMs) {
+                queueStartArmed = true;
+            } else {
+                queueStartJustFired = true;
+                this._queueStartAt = undefined;
+                if (!this._autoSendEnabled) {
+                    this._autoSendEnabled = true;
+                }
+                logQueue('Queue start delay elapsed; enabling auto-send and draining the queue');
+            }
+        }
+
+        if (resumedWaiting || resumedRetry || queueStartJustFired) {
+            this.persistSettings();
             this.persist();
             this._onDidChange.fire();
         }
 
-        // While any item is still parked in `waiting` (its reset time has not
-        // yet arrived) the whole account is rate-limited, so hold every send —
-        // dispatching another pending prompt would just burn another blocked
-        // request. The parked item keeps its queue position and resumes above.
-        const hasBlockingWaiting = this._items.some(i => i.status === 'waiting');
+        // While any item is still parked in `waiting` (rate-limit reset not yet
+        // due) or `retry` (backoff countdown not yet due), or a deferred queue
+        // start has not yet arrived, hold every send: the parked item keeps its
+        // queue position at the top and the queue stays visibly stopped rather
+        // than draining past the stuck prompt. The health-check above resumes
+        // the parked item / clears the deferral when its instant arrives.
+        const hasBlockingWaiting = queueStartArmed
+            || this._items.some(i => i.status === 'waiting' || i.status === 'retry');
 
         const pendingCount = this._items.filter(i => i.status === 'pending').length;
+        const interruptedCount = this._items.filter(i => i.status === 'interrupted').length;
         const sendingCount = this._items.filter(i => i.status === 'sending').length;
         const sending = this._items.find(i => i.status === 'sending');
         const decisions = computeHealthCheckDecisions({
             hasAnswerWatcher: !!this._answerWatcher,
             autoSendEnabled: this._autoSendEnabled,
-            pendingCount,
+            // An interrupted item is work the drain must pick up — it resumes via
+            // the hook at the top of `sendNext` — so it counts towards the
+            // trigger. This is what lets Auto-Start replay it after a reload.
+            pendingCount: pendingCount + interruptedCount,
             sendingCount,
             answerDirectoryExists: fs.existsSync(this.answerDirectory),
             sendingSentAtIso: sending?.sentAt,
@@ -860,15 +1023,18 @@ export class PromptQueueManager {
         }
 
         if (hasBlockingWaiting) {
-            logQueue('Health check holding all sends: an item is waiting for its rate-limit reset');
+            logQueue(queueStartArmed
+                ? 'Health check holding all sends: deferred queue start not yet reached'
+                : 'Health check holding all sends: an item is waiting for its rate-limit reset or retry backoff');
         } else if (decisions.shouldTriggerSendNext) {
             logQueue('Health check detected pending prompts without active sending; triggering sendNext');
             await this.sendNext();
-        } else if (resumedWaiting && sendingCount === 0) {
-            // A parked item just became due but auto-send may be off (the queue
-            // could have been paused independently). Retry it directly so the
-            // reset resumes regardless of the auto-send flag.
-            logQueue('Health check resuming a rate-limited retry after its reset window');
+        } else if ((resumedWaiting || resumedRetry || queueStartJustFired) && sendingCount === 0) {
+            // A parked item (waiting reset OR retry backoff) just became due, or
+            // a deferred queue start just elapsed, but auto-send may be off (the
+            // queue could have been paused independently). Drive the drain
+            // directly so it resumes regardless of the auto-send flag.
+            logQueue('Health check resuming after a parked window (rate-limit reset, retry backoff, or deferred start)');
             await this.sendNext();
         }
 
@@ -1071,7 +1237,7 @@ export class PromptQueueManager {
                         this.persist();
                         this._onDidChange.fire();
 
-                        if (this._autoSendEnabled) {
+                        if (this._shouldAdvanceQueueAfter(sending)) {
                             const pendingCount = this._items.filter(i => i.status === 'pending').length;
                             if (shouldAutoPauseOnEmpty(this._autoSendEnabled, pendingCount, this._autoPauseEnabled)) {
                                 this._autoSendEnabled = false;
@@ -1278,7 +1444,7 @@ export class PromptQueueManager {
                 this.persist();
                 this._onDidChange.fire();
 
-                if (this._autoSendEnabled) {
+                if (this._shouldAdvanceQueueAfter(sending)) {
                     const pendingCount = this._items.filter(i => i.status === 'pending').length;
                     if (shouldAutoPauseOnEmpty(this._autoSendEnabled, pendingCount, this._autoPauseEnabled)) {
                         this._autoSendEnabled = false;
@@ -1404,6 +1570,12 @@ export class PromptQueueManager {
             return;
         }
 
+        // An interrupted item (interrupt-for-continuation) is replayed before
+        // any paused or pending work — it is the rep the user pulled the plug
+        // on. `sendNext` carries the same hook for drains that don't come
+        // through this setter (auto-start, a manually-sent item completing).
+        if (this._resumeInterruptedItem()) { return; }
+
         // Re-enabling auto-send. Resume an item that was paused
         // mid-flight (status === 'sending' with prior progress)
         // before falling through to `sendNext` for the next pending
@@ -1420,10 +1592,34 @@ export class PromptQueueManager {
             return;
         }
 
-        // No paused item to resume — start the next pending item.
-        if (this._items.some(i => i.status === 'pending') && !this._items.some(i => i.status === 'sending')) {
+        // No paused item to resume — start the next pending item. A held
+        // `decision-needed` item counts as work: `sendNext` releases it first
+        // if its decisions have been answered in the meantime.
+        const hasWork = this._items.some(i => i.status === 'pending' || i.status === 'decision-needed');
+        if (hasWork && !this._items.some(i => i.status === 'sending')) {
             void this.sendNext();
         }
+    }
+
+    /**
+     * Put back to `pending` the items whose decision block is over, just before
+     * picking the next one to send.
+     *
+     * Held items are re-checked here rather than when auto-send is switched on,
+     * because the answer can arrive at any point — while the queue is draining
+     * other prompts, not only while it is paused. Reading the todos on every
+     * drain step is cheap next to dispatching a prompt, and the alternative
+     * (release on resume) re-blocked the item immediately and switched auto-send
+     * back off, which is what made the play button look like a no-op.
+     */
+    private _releaseResolvedDecisionItems(): void {
+        if (!this._items.some(i => i.status === 'decision-needed')) { return; }
+        const questId = this.activeQuestId();
+        const released = releaseResolvedDecisionItems(this._items, questId ? readQuestTodoEntries(questId) : []);
+        if (released.length === 0) { return; }
+        logQueue(`Decisions answered — releasing ${released.map(i => i.id).join(', ')} back to pending`);
+        this.persist();
+        this._onDidChange.fire();
     }
 
     /**
@@ -1461,7 +1657,9 @@ export class PromptQueueManager {
                 this.persist();
                 this._onDidChange.fire();
                 logQueue(`Resumed item ${item.id} completed (anthropic transport — no polling)`);
-                void this.sendNext();
+                if (this._shouldAdvanceQueueAfter(liveItem)) {
+                    void this.sendNext();
+                }
             } else {
                 logQueue(`Resumed item ${item.id} sent, waiting for answer at ${this.getAnswerFilePathForRequestId(item.expectedRequestId)}`);
             }
@@ -1512,6 +1710,35 @@ export class PromptQueueManager {
     set autoPauseEnabled(v: boolean) {
         this._autoPauseEnabled = v;
         logQueue(`Auto-pause toggled: ${v ? 'on' : 'off'}`);
+        this.persistSettings();
+        this._onDidChange.fire();
+    }
+
+    /**
+     * ISO instant before which the queue holds every send (deferred start), or
+     * undefined when no start delay is armed. Surfaced to the header dropdown
+     * so it can render the pending delay; cleared by the health-check once due.
+     */
+    get queueStartAt(): string | undefined { return this._queueStartAt; }
+
+    /**
+     * Arm (or clear) a deferred queue start from the header "Start in N
+     * minutes" dropdown. `minutes <= 0` (or NaN) clears the deferral and lets
+     * the queue drain immediately. Otherwise the queue holds all sends until
+     * `now + minutes`; the health-check enables auto-send, drains, and clears
+     * the deferral once that instant passes. Persisted so it survives a reload.
+     */
+    setQueueStartDelay(minutes: number): void {
+        const mins = Math.floor(minutes);
+        if (!Number.isFinite(mins) || mins <= 0) {
+            if (this._queueStartAt !== undefined) {
+                this._queueStartAt = undefined;
+                logQueue('Queue start delay cleared');
+            }
+        } else {
+            this._queueStartAt = new Date(Date.now() + mins * 60_000).toISOString();
+            logQueue(`Queue start delayed by ${mins} min → holding sends until ${this._queueStartAt}`);
+        }
         this.persistSettings();
         this._onDidChange.fire();
     }
@@ -1839,6 +2066,30 @@ export class PromptQueueManager {
         this._onDidChange.fire();
     }
 
+    /**
+     * Adopt the queue-level default transport + Anthropic profile (the
+     * selection shown in the dropdowns above the queue) onto a single item.
+     *
+     * Unlike {@link updateItemTransport}, this is intentionally allowed for an
+     * item in ANY status — including a currently sending/repeating item.
+     * Only the transport and Anthropic profile/config are changed; the item's
+     * status, repetition counters, template and text are left intact. For a
+     * repeating item the in-flight dispatch has already resolved its
+     * transport, so the change takes effect on the next repetition, whose
+     * {@link resolveStageTransport} then reads the freshly-adopted values.
+     */
+    applyQueueDefaultsToItem(id: string): void {
+        const item = this._items.find(i => i.id === id);
+        if (!item) { return; }
+        applyQueueDefaultTransportToItem(item, {
+            transport: this._defaultTransport,
+            anthropicProfileId: this._defaultAnthropicProfileId,
+            anthropicConfigId: this._defaultAnthropicConfigId,
+        });
+        this.persist();
+        this._onDidChange.fire();
+    }
+
     updateItemReminder(id: string, patch: { reminderEnabled?: boolean; reminderTemplateId?: string; reminderTimeoutMinutes?: number; reminderRepeat?: boolean }): void {
         const item = this._items.find(i => i.id === id);
         if (!item) { return; }
@@ -1862,6 +2113,25 @@ export class PromptQueueManager {
         }
         this.persist();
         this._onDidChange.fire();
+    }
+
+    /**
+     * Toggle "pause after this" on an item: it runs to the end of its repeat
+     * loop, then the queue stops instead of starting the next item.
+     *
+     * Settable in **every** status — the point of the flag is that the user
+     * can arm it on the item that is already sending, once they notice they
+     * want to stop after it. Returns the flag's new value, or `undefined`
+     * when the id is unknown.
+     */
+    setPauseAfter(id: string, pauseAfter: boolean): boolean | undefined {
+        const item = this._items.find(i => i.id === id);
+        if (!item) { return undefined; }
+        item.pauseAfter = pauseAfter || undefined;
+        this.persist();
+        this._onDidChange.fire();
+        logQueue(`Pause-after ${pauseAfter ? 'set' : 'cleared'} on item ${id}`);
+        return !!item.pauseAfter;
     }
 
     /**
@@ -2181,7 +2451,10 @@ export class PromptQueueManager {
         this.persist();
         this._onDidChange.fire();
 
-        if (this._autoSendEnabled) {
+        // Continue is a completion path like any other: driving the item over
+        // the finish line by hand does not entitle the queue to start the next
+        // one — a paused queue stays paused, and "pause after this" still bites.
+        if (this._shouldAdvanceQueueAfter(sending)) {
             const pendingCount = this._items.filter(i => i.status === 'pending').length;
             if (shouldAutoPauseOnEmpty(this._autoSendEnabled, pendingCount, this._autoPauseEnabled)) {
                 this._autoSendEnabled = false;
@@ -2235,8 +2508,9 @@ export class PromptQueueManager {
         const item = this._items.find(i => i.id === id);
         if (!item) { return false; }
         const fromStatus = item.status;
-        // Allow interrupting a sending item back to staged.
-        if (item.status === 'sending' && status === 'staged') {
+        // Allow interrupting a sending item back to staged — and abandoning an
+        // interrupted (held-for-continuation) item the same way.
+        if ((item.status === 'sending' || item.status === 'interrupted') && status === 'staged') {
             // Cancel any in-flight Anthropic dispatch for this item so
             // the handler stops executing even when setStatus is called
             // directly (e.g. from the queue editor's "set to staged"
@@ -2251,6 +2525,11 @@ export class PromptQueueManager {
             item.requestId = undefined;
             item.expectedRequestId = undefined;
             item.followUpIndex = 0;
+            // The cancelled dispatch is over, so its counter snapshot is spent.
+            // Leaving it set would let a *later* failure (a Resend that fails,
+            // say) roll back a repetition that was actually dispatched — see
+            // the lifecycle contract on `InFlightRepetition`.
+            item.inFlightRepetition = undefined;
             item.sentAt = undefined;
             item.reminderSentCount = 0;
             item.lastReminderAt = undefined;
@@ -2264,6 +2543,9 @@ export class PromptQueueManager {
         // Allow sent items to be re-staged, but not error items
         if (item.status === 'error') { return false; }
         if (item.status === 'sending') { return false; }
+        // `interrupted` -> `pending` would re-dispatch with the counter one ahead
+        // and skip the interrupted rep; its only exits are resume or staged.
+        if (item.status === 'interrupted') { return false; }
         item.status = status;
         logQueue(`Status changed: id=${item.id}, from=${fromStatus} → to=${item.status}`);
         this.persist();
@@ -2375,6 +2657,72 @@ export class PromptQueueManager {
         return this.setStatus(sending.id, 'staged');
     }
 
+    /**
+     * Interrupt the running item **for continuation**: cancel its in-flight
+     * dispatch now, hold it at the exact rep that was interrupted, and switch
+     * auto-send off. Re-arming auto-send replays that rep — same expanded
+     * text — before anything else moves (`_resumeInterruptedItem`, hooked
+     * into the auto-send setter and the top of `sendNext`).
+     *
+     * Sibling of `stopActiveItem`, which also cancels but reverts the item to
+     * `staged` (a fresh restart). Use this one when the interruption is
+     * external — the network is about to go away — and the prompt should
+     * simply run again once it is back.
+     *
+     * `id` narrows the action to one item (the per-row button); omitted, the
+     * currently `sending` item is taken (the toolbar button). Returns `true`
+     * when an item was interrupted.
+     */
+    interruptActiveItemForContinuation(id?: string): boolean {
+        const sending = id
+            ? this._items.find(i => i.id === id && i.status === 'sending')
+            : this._items.find(i => i.status === 'sending');
+        if (!sending) {
+            logQueue(`interruptActiveItemForContinuation: no sending item${id ? ` with id ${id}` : ''}`);
+            return false;
+        }
+        this._cancelActiveDispatch();
+        // A Copilot answer that still lands for the cancelled request must
+        // not be mistaken for the replay's answer.
+        this.clearExpectedAnswerFiles(sending.expectedRequestId);
+        const result = applyInterruptForContinuation(sending);
+        this.removePendingReminderFor(sending.id);
+        // Off, not merely paused: the pause gate only refuses the *next* rep,
+        // and the point here is that nothing at all goes out until re-armed.
+        this._autoSendEnabled = false;
+        this.persistSettings();
+        this.persist();
+        this._onDidChange.fire();
+        logQueue(`interruptActiveItemForContinuation: ${sending.id} held for continuation (${result.canResend ? 'will resend its last dispatch' : 'nothing dispatched yet — will restart as pending'}); auto-send off`);
+        return true;
+    }
+
+    /**
+     * Replay the interrupted item, if there is one and nothing is sending.
+     * Returns `true` when a resume was started, so the caller stops draining.
+     */
+    private _resumeInterruptedItem(): boolean {
+        const resume = pickInterruptedResume(this._items);
+        if (!resume) { return false; }
+        const item = this._items.find(i => i.id === resume.id);
+        if (!item) { return false; }
+        if (resume.action === 'resend') {
+            logQueue(`Resuming interrupted item ${item.id}: resending its last dispatch`);
+            void this.resendLastPrompt(item.id).catch(err => {
+                this._markItemError(item, err, `_resumeInterruptedItem(${item.id})`, readInterruptionFromError(err));
+            });
+            return true;
+        }
+        // Nothing was dispatched before the interrupt — re-enter the backlog.
+        // The fresh-vs-resume gate in `sendItem` keeps whatever cursor it has.
+        logQueue(`Resuming interrupted item ${item.id}: nothing dispatched yet — restarting as pending`);
+        item.status = 'pending';
+        this.persist();
+        this._onDidChange.fire();
+        void this.sendNext();
+        return true;
+    }
+
     sendAllStaged(): number {
         const changed = convertStagedToPending(this._items);
         if (changed === 0) { return 0; }
@@ -2393,54 +2741,14 @@ export class PromptQueueManager {
         const item = this._items.find(i => i.id === id);
         if (!item) { return; }
 
-        const isSending = item.status === 'sending';
-        const allowFullEdit = this.isEditableStatus(item.status);
-        if (!allowFullEdit && !isSending) { return; }
+        // staged/pending → every field; sending/waiting → loop counters only
+        // (so a running loop can be steered, applying next repetition); terminal
+        // → frozen. computeRepeatEditability + applyRepeatEditToItem hold the
+        // decision + field logic (pure, unit-tested in repeatEditability.test).
+        const mode = computeRepeatEditability(item.status);
+        if (mode === 'none') { return; }
 
-        if (patch.repeatCount !== undefined) {
-            // Accept both number and string (variable name)
-            if (typeof patch.repeatCount === 'string' && isNaN(parseInt(patch.repeatCount, 10))) {
-                // String variable name
-                item.repeatCount = patch.repeatCount;
-                item.resolvedRepeatCount = undefined;
-            } else {
-                const requested = Math.max(0, Math.round(typeof patch.repeatCount === 'string' ? parseInt(patch.repeatCount, 10) || 0 : patch.repeatCount || 0));
-                item.repeatCount = requested;
-                item.resolvedRepeatCount = undefined;
-            }
-        }
-        if (!allowFullEdit) {
-            this.persist();
-            this._onDidChange.fire();
-            return;
-        }
-        if (patch.repeatIndex !== undefined) {
-            item.repeatIndex = Math.max(0, Math.round(patch.repeatIndex || 0));
-        }
-        if (patch.repeatPrefix !== undefined) {
-            item.repeatPrefix = patch.repeatPrefix;
-        }
-        if (patch.repeatSuffix !== undefined) {
-            item.repeatSuffix = patch.repeatSuffix;
-        }
-        if (patch.answerWaitMinutes !== undefined) {
-            item.answerWaitMinutes = patch.answerWaitMinutes > 0 ? patch.answerWaitMinutes : undefined;
-        }
-        if (patch.templateRepeatCount !== undefined) {
-            // Accept both number and string (variable name)
-            if (typeof patch.templateRepeatCount === 'string' && isNaN(parseInt(patch.templateRepeatCount, 10))) {
-                item.templateRepeatCount = patch.templateRepeatCount;
-            } else {
-                const val = typeof patch.templateRepeatCount === 'string' ? parseInt(patch.templateRepeatCount, 10) || 0 : patch.templateRepeatCount || 0;
-                item.templateRepeatCount = val > 0 ? val : undefined;
-            }
-        }
-        if (patch.templateRepeatIndex !== undefined) {
-            // 0-based — clamped non-negative. Persisted as-is; the
-            // dispatcher's `computeRepeatDecision` decides whether the
-            // item is still in range relative to templateRepeatCount.
-            item.templateRepeatIndex = Math.max(0, Math.round(patch.templateRepeatIndex || 0));
-        }
+        applyRepeatEditToItem(item, patch, mode);
 
         this.persist();
         this._onDidChange.fire();
@@ -2481,6 +2789,34 @@ export class PromptQueueManager {
 
     // ----- sending -----------------------------------------------------------
 
+    /**
+     * The one gate every completion path asks before starting the next item:
+     * is the queue still running, and did this item ask to stop after itself?
+     *
+     * Call it at each point where an item reaches `'sent'` and advance only
+     * when it returns true. `sendNext()` deliberately does **not** check
+     * auto-send itself — the explicit escape hatches (health-check resume,
+     * per-item "retry now", "retry all errors") rely on being able to kick a
+     * paused queue. That makes checking it here mandatory rather than
+     * optional, which is why the check lives in one method instead of being
+     * re-written at six call sites.
+     */
+    private _shouldAdvanceQueueAfter(item: QueuedPrompt): boolean {
+        const decision = decideAdvanceAfterCompletion(item.pauseAfter, this._autoSendEnabled);
+        if (decision.disableAutoSend) {
+            this._autoSendEnabled = false;
+            this.persistSettings();
+            this._onDidChange.fire();
+        }
+        if (!decision.advance) {
+            logQueue(
+                `Queue held after item ${item.id} — `
+                + (item.pauseAfter ? '"pause after this" is set' : 'auto-send is off'),
+            );
+        }
+        return decision.advance;
+    }
+
     private async delaySendNext(): Promise<void> {
         // Note: We don't use _processing guard here anymore because it could cause 
         // repeat items to get stuck. sendNext() has its own guard against concurrent sending.
@@ -2489,6 +2825,20 @@ export class PromptQueueManager {
     }
 
     async sendNext(): Promise<void> {
+        // Deferred queue start: hold the automatic drain until the armed start
+        // instant passes. The health-check clears the deferral and re-drives
+        // sendNext when due. (Explicit per-item "send now" bypasses this — it
+        // calls sendItem directly — so the delay only gates the auto-drain.)
+        if (this._isQueueStartDeferred()) {
+            logQueue(`sendNext: held — deferred queue start until ${this._queueStartAt}`);
+            return;
+        }
+        this._releaseResolvedDecisionItems();
+        // Interrupt-for-continuation: the held item goes first — ahead of the
+        // backlog, and before the "no pending items" auto-pause below could
+        // fire on a queue whose only work is that item. Guarded by auto-send:
+        // nothing goes out until the user re-arms the queue.
+        if (this._autoSendEnabled && this._resumeInterruptedItem()) { return; }
         const next = this._items.find(i => i.status === 'pending');
         if (!next) {
             logQueue('sendNext: no pending items');
@@ -2507,6 +2857,18 @@ export class PromptQueueManager {
         }
         logQueue(`sendNext: sending item ${next.id}`);
         await this.sendItem(next);
+    }
+
+    /**
+     * True while a deferred queue start is armed and its instant has not yet
+     * passed. A missing/unparseable `_queueStartAt` is treated as not deferred
+     * (never strand the queue). The health-check owns clearing the deferral.
+     */
+    private _isQueueStartDeferred(): boolean {
+        if (!this._queueStartAt) { return false; }
+        const startMs = new Date(this._queueStartAt).getTime();
+        if (Number.isNaN(startMs)) { return false; }
+        return Date.now() < startMs;
     }
 
     private async sendItem(item: QueuedPrompt): Promise<void> {
@@ -2603,8 +2965,12 @@ export class PromptQueueManager {
                 this.persist();
                 this._onDidChange.fire();
                 logQueue(`Prompt ${item.id} completed (anthropic transport — no polling)`);
-                // Advance to the next queued item.
-                void this.sendNext();
+                // Anthropic completes inline rather than via the answer file,
+                // but it is still just a completion: same gate as every other
+                // tail, so a paused queue does not march on from here.
+                if (this._shouldAdvanceQueueAfter(liveItem)) {
+                    void this.sendNext();
+                }
             } else {
                 logQueue(`Prompt ${item.id} sent, waiting for answer at ${this.getAnswerFilePathForRequestId(item.expectedRequestId)}`);
             }
@@ -2659,6 +3025,13 @@ export class PromptQueueManager {
         // Clear prior failure markers so the UI reflects the in-flight resend.
         item.error = undefined;
         item.warning = undefined;
+        // A resend is a fresh dispatch attempt that advances no counter, so any
+        // snapshot still hanging off the item belongs to an earlier dispatch and
+        // is moot — same rule as the top of `dispatchNextStageForSendingItem`.
+        // Without this, a resend that fails would hit `rollbackInFlightRepetition`
+        // and silently rewind a counter, contradicting the contract above that
+        // repetition counters are not touched.
+        item.inFlightRepetition = undefined;
         item.status = 'sending';
         item.sentAt = new Date().toISOString();
         item.reminderSentCount = 0;
@@ -2681,13 +3054,24 @@ export class PromptQueueManager {
             if (last.transport === 'copilot') {
                 this.clearExpectedAnswerFiles(item.expectedRequestId);
             }
-            const dispatchResult = await this.dispatchStage(last.expandedText, resolved, container);
+            // An edit made after the last dispatch wins over the snapshot for
+            // the main stage — cancel / correct / resend is a workflow the
+            // queue invites, and replaying the snapshot there sent the very
+            // text the user had just cancelled. See `resolveResendText`.
+            const resendText = resolveResendText(last, item.expandedText);
+            const dispatchResult = await this.dispatchStage(resendText, resolved, container);
             if (dispatchWasSuperseded(epoch, this._dispatchEpoch)) {
                 logQueue(`resendLastPrompt(${item.id}): dispatch superseded by an explicit action — original frame stands down`);
                 return;
             }
-            // Refresh the timestamp so the user can see the resend happened.
-            item.lastDispatched = { ...last, dispatchedAt: new Date().toISOString() };
+            // Refresh the timestamp so the user can see the resend happened,
+            // and record the text that actually went out — otherwise a second
+            // resend would replay the superseded snapshot all over again.
+            item.lastDispatched = {
+                ...last,
+                expandedText: resendText,
+                dispatchedAt: new Date().toISOString(),
+            };
             this._onPromptSent.fire(item);
             this.updateWindowStatus('prompt-sent', last.transport);
             this.persist();
@@ -2709,7 +3093,9 @@ export class PromptQueueManager {
                     await this._enqueueNextTemplateIterationIfNeeded(liveItem, 'resend/anthropic');
                     this.persist();
                     this._onDidChange.fire();
-                    void this.sendNext();
+                    if (this._shouldAdvanceQueueAfter(liveItem)) {
+                        void this.sendNext();
+                    }
                 } else if (outcome === 'paused') {
                     logQueue(`resendLastPrompt(${item.id}): paused after resending the failed rep — held in 'sending' for resume`);
                 }
@@ -2774,7 +3160,23 @@ export class PromptQueueManager {
         // 5-minute buffer) instead of hard-failing. The item keeps its
         // queue position; the health-check timer drives the retry, so it
         // survives a window reload. See queueResetClause / applyWaitingTransition.
-        const clause = parseResetClause(this._errorSearchText(err, interruption));
+        // The dispatch that was in flight has now failed — no longer awaiting.
+        item.awaitingAnswer = false;
+        // Roll back the optimistic repetition-counter advance the failed
+        // dispatch made, so whichever recovery path runs (waiting / retry /
+        // hard error) re-sends the *same* prompt rather than skipping to the
+        // next repetition. No-op when the send failed before any counter was
+        // bumped (e.g. during prompt expansion).
+        //
+        // TODO ITERATION: read the claimed todo *before* the rollback consumes
+        // the snapshot, then hand it back to `not-started` so the retry picks
+        // up the same todo rather than skipping past it. Rolling the counter
+        // back without releasing the todo would lose it silently.
+        const claimedTodoId = item.inFlightRepetition?.todoId;
+        rollbackInFlightRepetition(item);
+        if (claimedTodoId) { this.releaseQuestTodo(claimedTodoId); }
+        const searchText = this._errorSearchText(err, interruption);
+        const clause = parseResetClause(searchText);
         if (clause) {
             applyWaitingTransition(item, clause, {
                 retryBufferMs: RESET_RETRY_BUFFER_MS,
@@ -2786,6 +3188,34 @@ export class PromptQueueManager {
             return;
         }
 
+        // Generic (non-rate-limit) failure: instead of hard-failing straight to
+        // `error`, park the item in `retry` on a fixed backoff schedule
+        // (30s, +15m, +30m, +45m, +60m, +60m, +60m — 7 attempts). The item
+        // keeps its queue position; the health-check timer fires due retries so
+        // a reload doesn't strand it. Only once the schedule is exhausted does
+        // the item drop to `error` and the queue pause. See queueRetryTransitions.
+        const decision = computeRetryDecision(item.retryAttempt);
+        if (decision.kind === 'retry') {
+            // The Claude Agent SDK "stale previous_message_id" 400 survives an
+            // ordinary session reset — the bad id lives in default.session.json.
+            // Delete it *now*, before the retry fires, so the next dispatch
+            // starts a clean SDK session. See isPreviousMessageIdError.
+            if (isPreviousMessageIdError(searchText)) {
+                this._clearAgentSdkSessionForRetry(item, scope);
+            }
+            applyRetryScheduling(item, decision, {
+                nowMs: Date.now(),
+                interruption: interruption ?? null,
+                errorText: searchText,
+            });
+            logQueueError(scope, err);
+            logQueue(`Item ${item.id} failed (${scope}); scheduled retry ${decision.attempt}/${decision.total} at ${item.retryUntil}`);
+            this.persist();
+            this._onDidChange.fire();
+            return;
+        }
+
+        // Schedule exhausted → hard-fail and pause the queue (existing behaviour).
         const result = applyErrorTransition(item, err, { interruption: interruption ?? null });
         logQueueError(scope, err);
 
@@ -2797,6 +3227,26 @@ export class PromptQueueManager {
 
         this.persist();
         this._onDidChange.fire();
+    }
+
+    /**
+     * Delete the Agent SDK session file (`default.session.json`) for the active
+     * quest so the next retry of `item` starts a fresh SDK session. Called only
+     * for the "stale previous_message_id" 400, whose bad id survives a normal
+     * reset. Lazy `require` mirrors the other manager helpers so the memory
+     * service (which pulls in heavy history machinery) stays out of the import
+     * graph. Best-effort — a failure here must not block the retry.
+     */
+    private _clearAgentSdkSessionForRetry(item: QueuedPrompt, scope: string): void {
+        try {
+            const questId = await_import_ChatVariablesStore()?.quest || undefined;
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { TwoTierMemoryService } = require('../services/memory-service');
+            TwoTierMemoryService.instance.clearAgentSdkSessionId(questId, 'default');
+            logQueue(`Item ${item.id} (${scope}): cleared Agent SDK session (previous_message_id 400) for quest '${questId ?? 'none'}' before retry`);
+        } catch (e) {
+            logQueue(`Item ${item.id} (${scope}): failed to clear Agent SDK session before retry: ${String(e)}`);
+        }
     }
 
     /**
@@ -2858,6 +3308,64 @@ export class PromptQueueManager {
         if (!this._items.some(i => i.status === 'sending')) {
             await this.sendNext();
         }
+        return true;
+    }
+
+    /**
+     * Manually fire a parked `retry` item now: flip it back to `pending`
+     * (preserving the backoff attempt so a further failure continues the
+     * cascade) and — unless another item is already sending — dispatch it
+     * immediately. This is the per-item "retry now" button, bypassing the
+     * backoff countdown the health-check driver otherwise enforces.
+     *
+     * No-op (returns false) on items whose status is not `retry`.
+     */
+    async retryRetryingNow(id: string): Promise<boolean> {
+        const item = this._items.find(i => i.id === id);
+        if (!item) {
+            throw new Error(`Queue item ${id} not found`);
+        }
+        if (item.status !== 'retry') {
+            logQueue(`retryRetryingNow(${id}): no-op (status was ${item.status})`);
+            return false;
+        }
+        fireRetry(item);
+        logQueue(`retryRetryingNow(${id}): retry → pending (manual retry, attempt ${item.retryAttempt ?? 0})`);
+        this.persist();
+        this._onDidChange.fire();
+        if (!this._items.some(i => i.status === 'sending')) {
+            await this.sendNext();
+        }
+        return true;
+    }
+
+    /**
+     * Give up retrying a parked `retry` item (the per-item "Stop retrying"
+     * button): promote it to `error`, stop the countdown, and pause the queue —
+     * mirroring the exhausted-schedule path so the user reviews the failure and
+     * explicitly re-arms. The item keeps its queue position and its warning
+     * chip so the cause stays visible.
+     *
+     * No-op (returns false) on items whose status is not `retry`.
+     */
+    stopRetrying(id: string): boolean {
+        const item = this._items.find(i => i.id === id);
+        if (!item) {
+            throw new Error(`Queue item ${id} not found`);
+        }
+        const ok = applyStopRetrying(item);
+        if (!ok) {
+            logQueue(`stopRetrying(${id}): no-op (status was ${item.status})`);
+            return false;
+        }
+        if (this._autoSendEnabled) {
+            this._autoSendEnabled = false;
+            this.persistSettings();
+            logQueue(`Auto-send disabled by stopRetrying on item ${item.id}`);
+        }
+        logQueue(`stopRetrying(${id}): retry → error (queue paused)`);
+        this.persist();
+        this._onDidChange.fire();
         return true;
     }
 
@@ -3039,6 +3547,7 @@ export class PromptQueueManager {
     ): Promise<{ mode: 'polled' } | { mode: 'direct'; answerText: string }> {
         if (resolved.transport === 'copilot') {
             await vscode.commands.executeCommand('workbench.action.chat.open', { query: expandedText });
+            this._clearRetryOnDispatchSuccess();
             return { mode: 'polled' };
         }
 
@@ -3092,6 +3601,7 @@ export class PromptQueueManager {
             if (propagateAnswer) {
                 this._propagateDirectAnswer(result.text);
             }
+            this._clearRetryOnDispatchSuccess();
             return { mode: 'direct', answerText: result.text };
         } finally {
             if (this._activeAnthropicCts === cts) {
@@ -3099,6 +3609,21 @@ export class PromptQueueManager {
             }
             cts.dispose();
         }
+    }
+
+    /**
+     * A stage dispatch just succeeded — clear the retry backoff cascade on the
+     * currently-sending item so a *later* failure (e.g. a subsequent
+     * repetition) starts a fresh cascade at 30s instead of continuing a stale
+     * one. Only touches the retry bookkeeping (attempt + countdown); if there
+     * is nothing to clear this is a cheap no-op and no change event fires.
+     */
+    private _clearRetryOnDispatchSuccess(): void {
+        const sending = this._items.find(i => i.status === 'sending');
+        if (!sending) { return; }
+        if (sending.retryAttempt === undefined && sending.retryUntil === undefined) { return; }
+        clearRetryBookkeeping(sending);
+        this.persist();
     }
 
     /**
@@ -3206,9 +3731,21 @@ export class PromptQueueManager {
         // proceeds — that's how the user explicitly Sends a single
         // item via sendNow without having to flip auto-send on.
         if (!this._autoSendEnabled && this._itemHasInFlightProgress(item)) {
+            // Between iterations and paused: no prompt is in flight, so the
+            // item is idle (its header goes amber). The current iteration has
+            // already completed — that's what let us reach the pause gate.
+            item.awaitingAnswer = false;
+            item.inFlightRepetition = undefined;
             logQueue(`dispatchNext: auto-send paused, leaving item ${item.id} in 'sending' with progress preserved`);
             return 'paused';
         }
+
+        // Entering a fresh dispatch attempt: any snapshot from the previous
+        // (now-succeeded) dispatch is moot. Clear it so that a failure during
+        // prompt expansion — before this attempt advances any counter — does
+        // not roll back the *previous* repetition. The snapshot is re-set the
+        // instant this attempt bumps a stage counter.
+        item.inFlightRepetition = undefined;
 
         // Stage 1: Pre-prompts with individual repeat support.
         // Each stage uses a stable numeric repeat target for normal loop control.
@@ -3242,11 +3779,15 @@ export class PromptQueueManager {
                 );
                 pp.status = 'sent';
                 pp.repeatIndex = ppSentCount + 1;
+                // Record the advance so a failed send can roll back to re-send
+                // this same pre-prompt repetition (not the next one).
+                item.inFlightRepetition = { stage: 'prePrompt', stageIndex: ppIndex, prevRepeatIndex: ppSentCount };
                 item.expandedText = prePromptExpanded;
                 item.expectedRequestId = resolved.transport === 'copilot'
                     ? this._extractRequestIdFromExpandedPrompt(prePromptExpanded)
                     : undefined;
                 item.sentAt = new Date().toISOString();
+                item.awaitingAnswer = true; // in flight — a prompt is being processed
                 item.reminderSentCount = 0;
                 item.lastReminderAt = undefined;
                 this.persist();
@@ -3290,7 +3831,48 @@ export class PromptQueueManager {
             this.persist();
             this._onDidChange.fire();
         }
-        if (mainSentCount < mainRepeatCount) {
+        // TODO ITERATION (`prefix*` repeat count): the loop is driven by the
+        // quest's numbered todos rather than by a counter. `planMainStageDispatch`
+        // reduces both modes to one gate.
+        const isTodoIteration = parseTodoPrefixPattern(item.repeatCount) !== undefined;
+        const iterationQuestId = isTodoIteration ? this.activeQuestId() : undefined;
+        const plan = planMainStageDispatch(
+            item.repeatCount,
+            mainSentCount,
+            mainRepeatCount,
+            iterationQuestId ? readQuestTodoEntries(iterationQuestId) : [],
+        );
+        if (plan.mode === 'decision-needed') {
+            // Some todo of the series is still waiting on the user. Hold the
+            // whole item: running a sibling now would work from a guess about
+            // the very thing being decided. Auto-send goes OFF so the queue
+            // does not simply move on to the next item and bury the question.
+            const waiting = plan.todos.map(t => (t.title ? `${t.id} (${t.title})` : t.id)).join(', ');
+            logQueue(`MP dispatch: todo iteration '${String(item.repeatCount)}' blocked — decision needed on ${waiting}`);
+            item.status = 'decision-needed';
+            item.awaitingAnswer = false;
+            item.inFlightRepetition = undefined;
+            this._autoSendEnabled = false;
+            this.persistSettings();
+            this.persist();
+            this._onDidChange.fire();
+            return 'paused';
+        }
+        // The todo that this dispatch will work on, already marked in-progress.
+        // Marking happens BEFORE the send: an in-progress todo no longer
+        // qualifies, and that is what makes the walk terminate. A write that
+        // doesn't stick would have the same todo picked on every pass, so it
+        // ends the iteration rather than spinning.
+        const iterationTodo = plan.mode === 'todo' && this.markQuestTodoInProgress(plan.todo.id)
+            ? plan.todo
+            : undefined;
+        const hasMainToSend = plan.mode === 'counter' || iterationTodo !== undefined;
+        if (isTodoIteration && !hasMainToSend && mainSentCount === 0) {
+            // Nothing ever went out. Silence here looks like a dropped prompt,
+            // so name the reason.
+            logQueue(`MP dispatch: todo iteration '${String(item.repeatCount)}' has no dispatchable todo — main prompt skipped`);
+        }
+        if (hasMainToSend) {
             const resolved = this.resolveStageTransport(item);
             // Anthropic path skips the answerWrapper (Copilot-only).
             const effectiveWrap = resolved.transport === 'copilot' ? item.answerWrapper : false;
@@ -3300,9 +3882,14 @@ export class PromptQueueManager {
                 effectiveWrap,
                 {
                     repeatCount: mainRepeatCount,
-                    repeatIndex: mainSentCount,
+                    // In todo mode the "repetition number" is the todo's own
+                    // number, so `${repeatNumber}` prints `7` for `dsa7` —
+                    // uniform with counter mode, where it prints the rep.
+                    repeatIndex: iterationTodo ? iterationTodo.index - 1 : mainSentCount,
                     repeatPrefix: item.repeatPrefix,
                     repeatSuffix: item.repeatSuffix,
+                    repeatTodoId: iterationTodo?.id,
+                    repeatTodoTitle: iterationTodo?.title,
                 },
                 resolved.transport,
                 {
@@ -3317,8 +3904,21 @@ export class PromptQueueManager {
                 item.requestId = newRequestId; // Preserve first request ID
             }
             item.expectedRequestId = newRequestId;
-            item.repeatIndex = mainSentCount + 1;
+            // In todo mode the counter follows the todo's own number, so the
+            // entry reads "todo 7 of 9" rather than "rep 3 of 9".
+            const prevRepeatTodoId = item.repeatTodoId;
+            item.repeatIndex = iterationTodo ? iterationTodo.index : mainSentCount + 1;
+            item.repeatTodoId = iterationTodo?.id ?? item.repeatTodoId;
+            // Record the advance so a failed send can roll back to re-send this
+            // same main-prompt repetition instead of skipping to the next.
+            item.inFlightRepetition = {
+                stage: 'main',
+                prevRepeatIndex: mainSentCount,
+                todoId: iterationTodo?.id,
+                prevRepeatTodoId,
+            };
             item.sentAt = new Date().toISOString();
+            item.awaitingAnswer = true; // in flight — a prompt is being processed
             item.reminderSentCount = 0;
             item.lastReminderAt = undefined;
             this.persist();
@@ -3343,7 +3943,9 @@ export class PromptQueueManager {
             const dispatchResult = await this._dispatchMainStageWithRefresh(item, resolved);
             this._onPromptSent.fire(item);
             this.updateWindowStatus('prompt-sent', resolved.transport);
-            logQueue(`Main prompt sent (${mainSentCount + 1}/${mainRepeatCount}) via ${resolved.transport}`);
+            logQueue(iterationTodo
+                ? `Main prompt sent for todo ${iterationTodo.id} (${iterationTodo.index}/${mainRepeatCount}) via ${resolved.transport}`
+                : `Main prompt sent (${mainSentCount + 1}/${mainRepeatCount}) via ${resolved.transport}`);
             if (dispatchResult.mode === 'direct') {
                 this.persist();
                 this._onDidChange.fire();
@@ -3387,7 +3989,17 @@ export class PromptQueueManager {
                 if (nextFollowUp.repeatIndex >= fuRepeatCount) {
                     item.followUpIndex = currentFuIndex + 1;
                 }
+                // Record the advance (this follow-up's repeat counter plus any
+                // followUpIndex bump) so a failed send can roll back to re-send
+                // this same follow-up repetition instead of skipping ahead.
+                item.inFlightRepetition = {
+                    stage: 'followUp',
+                    stageIndex: currentFuIndex,
+                    prevRepeatIndex: fuSentCount,
+                    prevFollowUpIndex: currentFuIndex,
+                };
                 item.sentAt = new Date().toISOString();
+                item.awaitingAnswer = true; // in flight — a prompt is being processed
                 item.reminderSentCount = 0;
                 item.lastReminderAt = undefined;
                 this.persist();
@@ -3425,6 +4037,8 @@ export class PromptQueueManager {
         }
 
         // No more stages left.
+        item.awaitingAnswer = false;
+        item.inFlightRepetition = undefined;
         return 'done';
     }
 
@@ -3494,14 +4108,15 @@ export class PromptQueueManager {
                 ((resolveRepeatCount(i.templateRepeatCount) > 1 && (i.templateRepeatIndex ?? 0) >= 1) ||
                  (resolveRepeatCount(i.repeatCount ?? 1) > 1 && (i.repeatIndex ?? 0) >= 1)),
             );
-            if (hasPendingRepetitions) {
+            const hasInterrupted = this._items.some(i => i.status === 'interrupted');
+            if (hasPendingRepetitions || hasInterrupted) {
                 logQueue('Auto-continue: pending repetitions found, scheduling auto-start in 30s');
                 this._autoContinueTimer = setTimeout(() => {
                     logQueue('Auto-continue: enabling auto-send to resume repetitions');
                     this._autoSendEnabled = true;
                     this.persistSettings();
                     this._onDidChange.fire();
-                    if (this._items.some(i => i.status === 'pending') && !this._items.some(i => i.status === 'sending')) {
+                    if (this._items.some(i => i.status === 'pending' || i.status === 'interrupted') && !this._items.some(i => i.status === 'sending')) {
                         void this.sendNext();
                     }
                 }, 30_000);
@@ -3534,6 +4149,7 @@ export class PromptQueueManager {
             'default-anthropic-profile-id': this._defaultAnthropicProfileId,
             'default-anthropic-config-id': this._defaultAnthropicConfigId,
             'default-message-template-id': this._defaultMessageTemplateId,
+            'queue-start-at': this._queueStartAt,
         });
     }
 
@@ -3570,6 +4186,9 @@ export class PromptQueueManager {
             }
             if (typeof settings['default-message-template-id'] === 'string') {
                 this._defaultMessageTemplateId = settings['default-message-template-id'] || undefined;
+            }
+            if (typeof settings['queue-start-at'] === 'string') {
+                this._queueStartAt = settings['queue-start-at'] || undefined;
             }
             console.log('[PromptQueueManager] restoreSettings:', {
                 timeout: this._responseFileTimeoutMinutes,
@@ -3813,6 +4432,7 @@ export class PromptQueueManager {
                 originalText: main['prompt-text'] || '',
                 expandedText: main['expanded-text'] || main['prompt-text'] || '',
                 status: (meta.status as QueuedPromptStatus) || 'pending',
+                pauseAfter: meta['pause-after'] === true ? true : undefined,
                 type: 'normal',
                 createdAt: (meta.created as string) || new Date().toISOString(),
                 sentAt: main.execution?.['sent-at'] || undefined,
@@ -3830,6 +4450,7 @@ export class PromptQueueManager {
                 repeatCount: typeof main['repeat-count'] === 'string' ? main['repeat-count'] : Math.max(0, Math.round(Number(main['repeat-count'] || 0))),
                 resolvedRepeatCount: main['resolved-repeat-count'] ? Math.max(1, Math.round(Number(main['resolved-repeat-count']))) : undefined,
                 repeatIndex: Math.max(0, Math.round(Number(main['repeat-index'] || 0))),
+                repeatTodoId: main['repeat-todo-id'] || undefined,
                 repeatPrefix: main['repeat-prefix'],
                 repeatSuffix: main['repeat-suffix'],
                 templateRepeatCount: typeof main['template-repeat-count'] === 'string' ? main['template-repeat-count'] : (main['template-repeat-count'] ? Math.max(0, Math.round(Number(main['template-repeat-count']))) : undefined),
@@ -3875,6 +4496,16 @@ export class PromptQueueManager {
             }
             if (typeof main.execution?.['waiting-reset-label'] === 'string') {
                 prompt.waitingResetLabel = main.execution['waiting-reset-label'];
+            }
+
+            // Retry "backoff" state — restored so the health-check auto-fire
+            // resumes at the right instant and continues the backoff cascade
+            // (not restart at 30s) after a reload.
+            if (typeof main.execution?.['retry-attempt'] === 'number') {
+                prompt.retryAttempt = main.execution['retry-attempt'];
+            }
+            if (typeof main.execution?.['retry-until'] === 'string') {
+                prompt.retryUntil = main.execution['retry-until'];
             }
 
             // Pre-prompts: resolve refs from the prompt-queue
@@ -3954,6 +4585,7 @@ export class PromptQueueManager {
             'repeat-count': item.repeatCount || 0,
             'resolved-repeat-count': item.resolvedRepeatCount,
             'repeat-index': Math.max(0, Math.round(item.repeatIndex || 0)),
+            'repeat-todo-id': item.repeatTodoId,
             'repeat-prefix': item.repeatPrefix,
             'repeat-suffix': item.repeatSuffix,
             'template-repeat-count': item.templateRepeatCount,
@@ -3995,6 +4627,7 @@ export class PromptQueueManager {
             || (item.followUpIndex && item.followUpIndex > 0)
             || item.lastDispatched || item.warning
             || item.waitingUntil
+            || item.retryUntil || item.retryAttempt
         ) {
             mainPrompt.execution = {
                 'request-id': item.requestId || null,
@@ -4004,6 +4637,8 @@ export class PromptQueueManager {
                 'follow-up-index': item.followUpIndex || 0,
                 ...(item.waitingUntil ? { 'waiting-until': item.waitingUntil } : {}),
                 ...(item.waitingResetLabel ? { 'waiting-reset-label': item.waitingResetLabel } : {}),
+                ...(item.retryAttempt ? { 'retry-attempt': item.retryAttempt } : {}),
+                ...(item.retryUntil ? { 'retry-until': item.retryUntil } : {}),
                 ...(item.lastDispatched ? {
                     'last-dispatched': {
                         kind: item.lastDispatched.kind,
@@ -4116,6 +4751,8 @@ export class PromptQueueManager {
                 id: item.id,
                 quest: quest || undefined,
                 status: item.status,
+                // Omitted when unset so untouched entries round-trip unchanged.
+                ...(item.pauseAfter ? { 'pause-after': true } : {}),
                 created: item.createdAt,
                 'main-prompt': 'P1',
                 'queue-order-index': Number.isFinite(orderIndex as number) ? orderIndex : undefined,
@@ -4166,17 +4803,45 @@ function await_import_ChatVariablesStore(): { quest: string } | undefined {
 }
 
 /**
- * Lazily read all todo ids for a quest. Lazy `require` mirrors the
- * ChatVariablesStore pattern above so the manager doesn't pull the
- * questTodoManager into its import graph. Returns `[]` on any failure so
- * prefix resolution degrades to a single run rather than throwing.
+ * Lazily read the live todos of a quest, reduced to what the `prefix*`
+ * iteration needs. Lazy `require` mirrors the ChatVariablesStore pattern above
+ * so the manager doesn't pull the questTodoManager into its import graph.
+ * Returns `[]` on any failure so prefix resolution degrades to "no work left"
+ * rather than throwing out of the dispatch path.
+ *
+ * The read is scoped to the **live** todo files — the `-archived` / `-deleted`
+ * siblings are excluded by `readAllTodos`' default scope, so a retired todo
+ * neither inflates the series count nor gets dispatched again.
  */
-function readQuestTodoIds(questId: string): string[] {
+function readQuestTodoEntries(questId: string): TodoIterationSource[] {
     try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { readAllTodos } = require('../managers/questTodoManager');
-        return (readAllTodos(questId) as Array<{ id: string }>).map(t => t.id);
+        const todos = readAllTodos(questId) as Array<{ id: string; title?: string; description?: string; status?: string }>;
+        return todos.map(t => ({ id: t.id, title: t.title || t.description, status: t.status }));
     } catch { return []; }
+}
+
+/** Ids only — the shape {@link resolveTodoPrefixRepeatCount} consumes. */
+function readQuestTodoIds(questId: string): string[] {
+    return readQuestTodoEntries(questId).map(t => t.id);
+}
+
+/**
+ * Write a status onto a quest todo. Returns `false` when the write did not
+ * stick (unknown id, unreadable file, …) — the todo-iteration dispatcher must
+ * treat that as a hard stop, because a status that can't be written means the
+ * same todo would be picked again on every pass.
+ */
+function writeQuestTodoStatus(questId: string, todoId: string, status: string): boolean {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { updateTodo } = require('../managers/questTodoManager');
+        return updateTodo(questId, todoId, { status }) !== undefined;
+    } catch (err) {
+        logQueueError(`Failed to set todo '${todoId}' to '${status}'`, err);
+        return false;
+    }
 }
 
 function getWindowStatusWindowId(): string {

@@ -15,6 +15,21 @@
  * `TodoMoveResult` so UI and tools can report precisely which todos were
  * moved and which were skipped (and why).
  *
+ * **A move is a move, and moving twice is moving once.** The target is written
+ * before the source is rewritten, so an interrupted move can leave a todo in
+ * both files — recoverable only because the target write is keyed by id: an id
+ * already there is replaced in place (and reported in `replaced`), never added
+ * a second time. Without that, the natural recovery — run it again — is what
+ * corrupts the archive, which is how `todos-archived.tom_core.todo.yaml` came
+ * to hold six ids five times over.
+ *
+ * **A malformed file is refused, not written over.** Both files are read
+ * through `todoYamlDocument.ts`, so a duplicate key — illegal YAML the parser
+ * reports without throwing — aborts the move before its first write and comes
+ * back in `TodoMoveResult.error` naming the file, the line and the parser's
+ * objection. Left to `doc.toString()` it would instead surface, much later, as
+ * `Document with errors cannot be stringified`.
+ *
  * Pure fs + yaml — no vscode import — so the module is unit-testable
  * under plain `node --test`. Source YAML formatting/comments are
  * preserved via the yaml package's Document (CST) API.
@@ -28,6 +43,13 @@ import {
     deletedTodoFileName,
     isArchivedOrDeletedTodoFile,
 } from './todoArchiveNames';
+import { questLogLocation } from './questLogFiles';
+import { normaliseTodoDecisions } from './todoDecisions';
+import {
+    decisionsJournalHeader,
+    formatDecisionJournalEntry,
+} from './decisionsJournalFormat';
+import { TodoYamlError, loadTodoYaml, parseTodoYaml } from './todoYamlDocument';
 
 // ============================================================================
 // Result types
@@ -41,6 +63,13 @@ export interface TodoMoveSkip {
 export interface TodoMoveResult {
     /** IDs of todos actually moved to the target file. */
     moved: string[];
+    /**
+     * Subset of {@link moved} whose id was already present in the target and was
+     * therefore replaced in place rather than added. Non-empty means the target
+     * had a stale (or duplicated) copy — normally the trace of a re-run after an
+     * interrupted move.
+     */
+    replaced: string[];
     /** IDs that were requested (or matched) but not moved, with reasons. */
     skipped: TodoMoveSkip[];
     /** Absolute path of the target sibling file ('' on error). */
@@ -84,10 +113,122 @@ function isoDate(): string {
     return new Date().toISOString().slice(0, 10);
 }
 
+/**
+ * Stamp the file-level `updated:` key with today's date.
+ *
+ * `doc.set` alone is not enough. When the key is absent the yaml package
+ * *appends* the new pair, which on a todo file means after the `todos:`
+ * sequence — legal YAML, but it puts a header field thousands of lines below
+ * the header and (having written it once) every later run then updates it in
+ * that wrong place forever. So an absent key is inserted before `todos:`.
+ */
+function stampUpdated(doc: Document): void {
+    const date = isoDate();
+    const contents = doc.contents;
+    if (!isMap(contents)) { return; }
+
+    const map = contents as YAMLMap;
+    const has = map.items.some(pair => String((pair as { key?: unknown }).key ?? '') === 'updated');
+    if (has) {
+        doc.set('updated', date);
+        return;
+    }
+    const todosIdx = map.items.findIndex(
+        pair => String((pair as { key?: unknown }).key ?? '') === 'todos',
+    );
+    const pair = doc.createPair('updated', date);
+    if (todosIdx < 0) {
+        map.items.push(pair);
+    } else {
+        map.items.splice(todosIdx, 0, pair);
+    }
+}
+
 /** Extract the `# yaml-language-server:` schema comment line, if any. */
 function schemaCommentOf(raw: string): string {
     const firstLine = raw.split('\n', 1)[0] ?? '';
     return firstLine.startsWith('# yaml-language-server:') ? firstLine + '\n' : '';
+}
+
+// ============================================================================
+// Decisions journal
+// ============================================================================
+
+/**
+ * Quest id of a todo file. The `quest:` field is authoritative — the file name
+ * carries the quest too, but session todo files put a host slug in front of it,
+ * so parsing the name would need to know which shape it is looking at.
+ */
+function questIdOf(sourceFilePath: string, doc?: Document): string {
+    let source = doc;
+    if (!source) {
+        try {
+            source = parseDocument(fs.readFileSync(sourceFilePath, 'utf8'));
+        } catch {
+            return '';
+        }
+    }
+    const quest = source.get('quest');
+    return quest === undefined || quest === null ? '' : String(quest);
+}
+
+/**
+ * Path of the Decisions journal for a todo file — resolved through
+ * {@link questLogLocation}, the same table the Logs viewer reads through, so
+ * the writer and the reader cannot disagree about the name.
+ *
+ * The journal sits beside the todo file. For quest todos that directory *is*
+ * the quest folder, which is where the viewer looks.
+ */
+export function decisionsJournalPathFor(sourceFilePath: string, questId?: string): string {
+    const quest = questId?.trim() || questIdOf(sourceFilePath);
+    const { fileName } = questLogLocation('decisions', quest);
+    return path.join(path.dirname(sourceFilePath), fileName);
+}
+
+/**
+ * Copy the decisions of the todos being archived into the quest's Decisions
+ * journal. A copy, not a move: the archived todo stays a complete record of
+ * itself, and the journal is what you can still find once nobody remembers
+ * which todo it was.
+ *
+ * **Only `completed` todos are journalled.** Archiving is normally the end of a
+ * finished todo, but the panel's Archive button acts on the user's selection
+ * whatever its status (`anyStatus`) — and a todo archived half-done was
+ * abandoned, not concluded. Its `decisions[]` are questions the project never
+ * got to; filing them under "what was decided" would misrepresent them.
+ *
+ * Best-effort — a journal that could fail the archive it was recording would
+ * be worse than no journal.
+ */
+function journalDecisions(
+    sourceFilePath: string,
+    todos: Record<string, unknown>[],
+    sourceDoc: Document,
+): void {
+    try {
+        const at = Date.now();
+        const entries = todos.map(plain => {
+            if (String(plain.status ?? 'not-started') !== 'completed') { return ''; }
+            const decisions = normaliseTodoDecisions(plain.decisions);
+            if (!decisions) { return ''; }
+            const title = plain.title ?? plain.description;
+            return formatDecisionJournalEntry({
+                todoId: String(plain.id ?? ''),
+                title: typeof title === 'string' ? title : undefined,
+                decisions,
+                archivedAt: at,
+            });
+        }).filter(text => text.length > 0);
+        if (entries.length === 0) { return; }
+
+        const quest = questIdOf(sourceFilePath, sourceDoc);
+        const file = decisionsJournalPathFor(sourceFilePath, quest);
+        const preamble = fs.existsSync(file) ? '' : decisionsJournalHeader(quest);
+        fs.appendFileSync(file, preamble + entries.join('\n'), 'utf8');
+    } catch {
+        // Best-effort journalling — never fail an archive over its own log file.
+    }
 }
 
 // ============================================================================
@@ -109,11 +250,41 @@ interface MoveSpec {
     targetName: (sourceFilePath: string) => string;
 }
 
+/**
+ * Move todos to the spec's sibling file, reporting a malformed file rather
+ * than failing on it opaquely.
+ *
+ * Either file may be illegal YAML — most often a duplicate key introduced by a
+ * hand edit or a text merge. The parser does not throw on that, so without this
+ * guard the move proceeds until `doc.toString()` refuses with a message naming
+ * neither file nor line. {@link TodoYamlError} carries all three, and it aborts
+ * the move *before* the first write: a malformed archive is left exactly as
+ * found, for a human to repair, with the todo still in its source file.
+ */
 function moveTodosToSibling(sourceFilePath: string, spec: MoveSpec): TodoMoveResult {
+    try {
+        return moveTodosOrThrow(sourceFilePath, spec);
+    } catch (e) {
+        if (!(e instanceof TodoYamlError)) { throw e; }
+        return {
+            moved: [],
+            replaced: [],
+            skipped: (spec.todoIds ?? []).map(id => ({
+                id,
+                reason: `Todo file is malformed: ${e.filePath}`,
+            })),
+            targetFile: '',
+            error: e.message,
+        };
+    }
+}
+
+function moveTodosOrThrow(sourceFilePath: string, spec: MoveSpec): TodoMoveResult {
     if (isArchivedOrDeletedTodoFile(sourceFilePath)) {
         const reason = 'Source file is already an archived/deleted todo file';
         return {
             moved: [],
+            replaced: [],
             skipped: (spec.todoIds ?? []).map(id => ({ id, reason })),
             targetFile: '',
             error: reason,
@@ -122,6 +293,7 @@ function moveTodosToSibling(sourceFilePath: string, spec: MoveSpec): TodoMoveRes
     if (!fs.existsSync(sourceFilePath)) {
         return {
             moved: [],
+            replaced: [],
             skipped: [],
             targetFile: '',
             error: `Source todo file not found: ${sourceFilePath}`,
@@ -129,11 +301,12 @@ function moveTodosToSibling(sourceFilePath: string, spec: MoveSpec): TodoMoveRes
     }
 
     const raw = fs.readFileSync(sourceFilePath, 'utf8');
-    const sourceDoc = parseDocument(raw);
+    const sourceDoc = parseTodoYaml(sourceFilePath, raw);
     const todosNode = sourceDoc.get('todos', true);
     if (!isSeq(todosNode)) {
         return {
             moved: [],
+            replaced: [],
             skipped: [],
             targetFile: '',
             error: `No todos list in source file: ${sourceFilePath}`,
@@ -175,34 +348,134 @@ function moveTodosToSibling(sourceFilePath: string, spec: MoveSpec): TodoMoveRes
     }
 
     if (moved.length === 0) {
-        return { moved, skipped, targetFile };
+        return { moved, replaced: [], skipped, targetFile };
     }
 
-    // Append to target first (safer failure mode: worst case a re-run
-    // duplicates in the target rather than losing todos).
-    appendToTargetFile(targetFile, movedPlain, raw, sourceDoc);
+    // Target first, source second — the order that cannot lose a todo. A crash
+    // between the two writes leaves the todo in both files, and the fix for that
+    // is to run the move again: the target write is keyed by id, so the re-run
+    // reconciles the copy it finds instead of adding a second one. (Source-first
+    // would fail the other way, with the todo in neither file.)
+    const replaced = writeTodosIntoTarget(targetFile, movedPlain, raw, sourceDoc);
+
+    // Archiving retires a todo; deleting throws it away. Only the former is a
+    // decision the project stands by, so only the former is journalled — and
+    // within it, only the todos that actually completed (see journalDecisions).
+    if (spec.stamp === 'archived') {
+        journalDecisions(sourceFilePath, movedPlain, sourceDoc);
+    }
 
     // Remove from source (descending indices).
     for (const idx of removeIdx.reverse()) {
         todosNode.items.splice(idx, 1);
     }
-    sourceDoc.set('updated', isoDate());
+    stampUpdated(sourceDoc);
     fs.writeFileSync(sourceFilePath, sourceDoc.toString(), 'utf8');
 
-    return { moved, skipped, targetFile };
+    assertMovePersisted(sourceFilePath, targetFile, moved);
+
+    return { moved, replaced, skipped, targetFile };
 }
 
-/** Create (if needed) and append todos to the target sibling file. */
-function appendToTargetFile(
+/**
+ * Confirm a completed move actually reached disk on BOTH sides.
+ *
+ * The writes are ordered target-first so that an interruption leaves a todo in
+ * both files rather than neither, and the documented recovery is to run the move
+ * again. That is a safe failure, but it is a SILENT one: the caller is handed a
+ * populated `moved` list and reports success, while the source still holds every
+ * id it claims to have relocated. Exactly that state has been observed in the
+ * wild — seven ids present in both the active file and its archived sibling,
+ * with nothing in the result to say so.
+ *
+ * SCC84 is the general form: a confirmation that is not verified is worse than
+ * no confirmation. Re-reading both files costs one parse each and turns a
+ * half-done move into an error the caller can act on.
+ */
+function assertMovePersisted(
+    sourceFilePath: string,
+    targetFile: string,
+    movedIds: string[],
+): void {
+    const idsIn = (filePath: string): Set<string> => {
+        const doc = loadTodoYaml(filePath);
+        const seq = doc.get('todos', true);
+        const out = new Set<string>();
+        if (isSeq(seq)) {
+            for (const item of seq.items) {
+                if (isMap(item)) {
+                    const id = item.get('id');
+                    if (id !== undefined && id !== null) { out.add(String(id)); }
+                }
+            }
+        }
+        return out;
+    };
+
+    let inTarget: Set<string>;
+    let inSource: Set<string>;
+    try {
+        // A target that does not exist is a lost write, not an unreadable file:
+        // the move creates it when absent, so its absence here means the write
+        // never landed. Reporting it as "did not reach <target>" names the
+        // actual fault; letting the read throw would blame the reader.
+        inTarget = fs.existsSync(targetFile) ? idsIn(targetFile) : new Set<string>();
+        inSource = idsIn(sourceFilePath);
+    } catch (err) {
+        throw new Error(
+            `The move wrote ${movedIds.length} todo(s), but the files could not be ` +
+            `re-read to confirm it: ${(err as Error).message}. The move is NOT ` +
+            `confirmed — inspect both files before trusting the result.`,
+        );
+    }
+
+    const missing = movedIds.filter(id => !inTarget.has(id));
+    const stillInSource = movedIds.filter(id => inSource.has(id));
+    if (missing.length === 0 && stillInSource.length === 0) { return; }
+
+    const parts: string[] = [];
+    if (missing.length) {
+        parts.push(
+            `did not reach ${path.basename(targetFile)}: ${missing.join(', ')}`,
+        );
+    }
+    if (stillInSource.length) {
+        parts.push(
+            `are still in ${path.basename(sourceFilePath)}: ${stillInSource.join(', ')}`,
+        );
+    }
+    throw new Error(
+        `The move reported success but is only half done — ${parts.join('; ')}. ` +
+        `Re-run it: the target write is keyed by id, so a re-run reconciles the ` +
+        `copy it finds instead of adding a second one.`,
+    );
+}
+
+/**
+ * Write todos into the target sibling file, keyed by id: an id already present
+ * is replaced where it sits, an id not present is added at the end. Returns the
+ * ids that were replaced.
+ *
+ * Replacing **in place** (rather than removing and re-adding) keeps the archive
+ * ordered by when things were first archived, so a re-run produces a diff of the
+ * one changed entry instead of moving it to the bottom.
+ *
+ * Surplus copies of an id being written are dropped in the same pass. That is a
+ * repair path: files corrupted by the pre-fix appending writer hold the same id
+ * several times over, and reconciling them on the next touch is cheaper than
+ * asking anyone to find them by hand. Ids that are *not* being written are left
+ * exactly as they are — this reconciles, it does not tidy.
+ */
+function writeTodosIntoTarget(
     targetFile: string,
     todos: Record<string, unknown>[],
     sourceRaw: string,
     sourceDoc: Document,
-): void {
+): string[] {
     let doc: Document;
     let prefix = '';
     if (fs.existsSync(targetFile)) {
-        doc = parseDocument(fs.readFileSync(targetFile, 'utf8'));
+        doc = loadTodoYaml(targetFile);
     } else {
         // Same schema header as the source; same quest, fresh created date.
         prefix = schemaCommentOf(sourceRaw);
@@ -221,19 +494,45 @@ function appendToTargetFile(
         doc.set('todos', doc.createNode([]));
         todosNode = doc.get('todos', true) as YAMLSeq;
     }
+    const seq = todosNode as YAMLSeq;
+
+    const replaced: string[] = [];
     for (const plain of todos) {
+        const id = String(plain.id ?? '');
         const node = doc.createNode(plain);
         forceBlockStyle(node);
-        (todosNode as YAMLSeq).add(node);
+
+        const at = id ? indexesOfTodoId(seq, id) : [];
+        if (at.length === 0) {
+            seq.add(node);
+            continue;
+        }
+        seq.items[at[0]] = node;
+        // Drop any surplus copies of this id, back to front so the earlier
+        // indices stay valid.
+        for (let i = at.length - 1; i >= 1; i--) { seq.items.splice(at[i], 1); }
+        replaced.push(id);
     }
-    forceBlockStyle(todosNode);
-    doc.set('updated', isoDate());
+    forceBlockStyle(seq);
+    stampUpdated(doc);
 
     let content = doc.toString();
     if (prefix && !content.startsWith('# yaml-language-server:')) {
         content = prefix + content;
     }
     fs.writeFileSync(targetFile, content, 'utf8');
+    return replaced;
+}
+
+/** Positions of every entry in a todos sequence carrying the given id. */
+function indexesOfTodoId(seq: YAMLSeq, id: string): number[] {
+    const found: number[] = [];
+    seq.items.forEach((item, idx) => {
+        if (isMap(item) && String((item as YAMLMap).get('id') ?? '') === id) {
+            found.push(idx);
+        }
+    });
+    return found;
 }
 
 // ============================================================================

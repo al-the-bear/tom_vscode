@@ -31,6 +31,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { WsPaths } from '../utils/workspacePaths';
 import { FsUtils } from '../utils/fsUtils';
+import { sanitizeQuestSegment } from '../utils/questPaths';
 import {
     getMcpServerSettings,
     type McpServerConfig,
@@ -66,9 +67,7 @@ type Doc = Record<string, any>;
 
 /** Normalise a quest id into a filename-safe segment, defaulting to `default`. */
 function resolveQuestId(questId?: string): string {
-    const q = (questId ?? WsPaths.getWorkspaceQuestId() ?? '').trim();
-    const safe = (q || 'default').replace(/[^A-Za-z0-9_.-]/g, '_');
-    return safe || 'default';
+    return sanitizeQuestSegment((questId ?? WsPaths.getWorkspaceQuestId() ?? '').trim());
 }
 
 /** Absolute path of `_ai/quests/{questId}/{fileName}`, with a workspace fallback. */

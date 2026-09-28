@@ -15,6 +15,7 @@
  * Design: quest_refresh_implementation_plan.md §4, §6.
  */
 
+import * as vscode from 'vscode';
 import {
     LiveTrailWriter,
     ANTHROPIC_LIVE_TRAIL_FILENAME,
@@ -38,6 +39,31 @@ export class QuestRefreshService {
             QuestRefreshService._instance = new QuestRefreshService();
         }
         return QuestRefreshService._instance;
+    }
+
+    /**
+     * True while a refresh prompt is actively being dispatched. A refresh can
+     * run for a long time (it's a full maintenance turn), and it fires from
+     * inside the queue dispatch loop or an interactive send — so without a
+     * visible signal the user can't tell the pause is intentional. The queue
+     * editor subscribes to {@link onDidChangeRefreshing} and paints an orange
+     * banner while this is `true`.
+     */
+    private _refreshing = false;
+    private readonly _onDidChangeRefreshing = new vscode.EventEmitter<boolean>();
+
+    /** Fires when a refresh dispatch starts (`true`) or ends (`false`). */
+    readonly onDidChangeRefreshing: vscode.Event<boolean> = this._onDidChangeRefreshing.event;
+
+    /** Whether a refresh prompt is currently being dispatched. */
+    get isRefreshing(): boolean {
+        return this._refreshing;
+    }
+
+    private setRefreshing(value: boolean): void {
+        if (this._refreshing === value) { return; }
+        this._refreshing = value;
+        this._onDidChangeRefreshing.fire(value);
     }
 
     /**
@@ -69,6 +95,10 @@ export class QuestRefreshService {
         );
         try {
             if (refreshText) {
+                // Only signal "running" when there's an actual prompt to
+                // dispatch — the blank case (trim + reset only) is instantaneous
+                // and would just flicker the banner.
+                this.setRefreshing(true);
                 await dispatch(refreshText);
                 toolLog(`[quest-refresh] dispatched panel=${panel} quest=${quest} in ${Date.now() - startedAt}ms`);
             }
@@ -79,9 +109,11 @@ export class QuestRefreshService {
             );
             throw err;
         } finally {
-            // Always truncate + reset even if the dispatch failed, so a broken
-            // refresh prompt can't pin the counter at the trigger threshold and
-            // re-fire on every subsequent prompt.
+            // Clear the banner first (no-op if it was never set), then always
+            // truncate + reset even if the dispatch failed, so a broken refresh
+            // prompt can't pin the counter at the trigger threshold and re-fire
+            // on every subsequent prompt.
+            this.setRefreshing(false);
             this.truncateTrail(panel, quest);
             store.resetCount(panel, quest);
             toolLog(`[quest-refresh] done panel=${panel} quest=${quest} — trail trimmed to base, counter reset`);

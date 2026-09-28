@@ -6,7 +6,7 @@ This document is the source of truth for every tool available to LLM chat surfac
 
 Five chat surfaces call into tools:
 
-- **Anthropic Agent SDK** — `transport: 'agentSdk'` on an Anthropic configuration. Wraps `@anthropic-ai/claude-agent-sdk`. When `profile.useBuiltInTools = true`, Claude Code's built-in preset (`Read`, `Write`, `Edit`, `MultiEdit`, `Glob`, `Grep`, `Bash`/`BashOutput`/`KillBash`, `WebFetch`, `WebSearch`, `NotebookEdit`, `TodoWrite`, `Task`, `AskUserQuestion`, `ExitPlanMode`, `SlashCommand`, …) is exposed; our extension tools that duplicate a built-in (`DUPLICATES_OF_CLAUDE_CODE_BUILTINS` in `anthropic-handler.ts`) are suppressed to avoid confusion. Our own MCP server runs next to the preset and surfaces the rest.
+- **Anthropic Agent SDK** — `transport: 'agentSdk'` on an Anthropic configuration. Wraps `@anthropic-ai/claude-agent-sdk`. When `profile.useBuiltInTools = true`, Claude Code's built-in preset (`Read`, `Write`, `Edit`, `MultiEdit`, `Glob`, `Grep`, `Bash`/`BashOutput`/`KillBash`, `WebFetch`, `WebSearch`, `NotebookEdit`, `TaskCreate` / `TaskUpdate` / `TaskGet` / `TaskList`, `Task`, `AskUserQuestion`, `ExitPlanMode`, `SlashCommand`, …) is exposed; our extension tools that duplicate a built-in (`DUPLICATES_OF_CLAUDE_CODE_BUILTINS` in `anthropic-handler.ts`) are suppressed to avoid confusion. Our own MCP server runs next to the preset and surfaces the rest.
 - **Anthropic API (direct)** — `transport: 'direct'`. `@anthropic-ai/sdk`. No SDK preset — we implement every capability ourselves.
 - **Local LLM (Ollama)** — `localLlm-handler.ts`. OpenAI-compatible tool calling. Because smaller open models call tools less reliably, we default to a trimmed, read-only subset (`READ_ONLY_TOOLS` in `src/tools/tool-executors.ts`).
 - **Tom AI Chat** — the user's single-conversation surface via the **VS Code Language Model API** (`vscode.lm.*`). The VS Code LM API is a programmatic LLM interface comparable to the Anthropic API: the extension hands over messages + tools and receives the model's response. Tom AI Chat is a **user-facing** single-turn-or-multi-turn chat with a `.md` conversation format. A human is present, so user-interaction tools (`tomAi_askUser`, `tomAi_askUserPicker`, `tomAi_notifyUser`) apply.
@@ -173,7 +173,47 @@ Archive/delete naming rule: the sibling file is derived by suffixing the
 Archive moves only `status: completed` todos (stamped `archived:`); delete
 moves only non-completed todos (stamped `deleted:`). Files whose first
 segment already ends in `-archived`/`-deleted` are terminal and refuse both
-operations. See `_copilot_guidelines/todo_files_and_panel.md`.
+operations. Both moves are **idempotent by id**: archiving a todo already
+present in the target replaces it in place rather than adding a second copy,
+and the result reports those ids under `replaced`. See
+`_copilot_guidelines/todo_files_and_panel.md`.
+
+### 4.11a Id generation
+
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
+| --- | --- | :-: | :-: | :-: | :-: | :-: |
+| `tomAi_generateIdPrefix` | Date-based, letters-only code that makes hand-authored ids collision-free. | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+Hand-authored ids used to collide: two sessions — or two machines — inventing
+`vex1` on different days produced the same id for unrelated work, and because
+the `_ai` layer is shared fleet-wide the clash surfaced only after a merge. The
+tool takes no input and stamps a 4-letter code derived from the **local** clock,
+which the model appends to the base id the user supplied:
+`<baseId>_<prefix>-<short-description>` (e.g. `vex1_agäo-add-retry-backoff`).
+
+| Position | Field | Mapping |
+| --- | --- | --- |
+| 1 | Year | `a`=2026 … `z`=2051 |
+| 2 | Month | `a`=January … `l`=December |
+| 3 | Day of month | `a`=1 … `z`=26, then `ä`=27, `ñ`=28, `ö`=29, `ß`=30, `ü`=31 |
+| 4 | Hour | `a`=0 … `x`=23 (24-hour clock) |
+
+The code is **deterministic within a clock hour** — two calls in the same hour
+return the same code by design, so re-running a step reproduces the id instead
+of minting a second one. Uniqueness across time comes from the hour changing;
+uniqueness within an hour comes from the base id. Years outside `a`–`z` and
+invalid dates are rejected with an error envelope rather than emitting
+`undefined` letters. The five extended day letters are single UTF-16 code units,
+which keeps the code exactly four characters and safe to index positionally.
+
+Implementation: `src/tools/id-prefix-tools.ts` (pure `buildIdPrefix` /
+`describeIdPrefixParts` encoder plus the tool wrapper). The workspace-wide rule
+that this tool must be called before inventing **any** id lives in `CLAUDE.md` /
+`.github/copilot-instructions.md`.
+
+The tool is reachable under both profile shapes: it is in `ALL_SHARED_TOOLS`
+(so `toolsEnabled: true` profiles get it) and in `AVAILABLE_LLM_TOOLS` under the
+**Ids** category, so allow-list profiles can tick it in every picker.
 
 ### 4.12 Session todos (per host + quest)
 
@@ -251,8 +291,12 @@ Two-tier: `shared/` (cross-quest) and `{quest}/` (per-quest).
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
 | --- | --- | :-: | :-: | :-: | :-: | :-: |
 | `tomAi_notifyUser` | Notification (Telegram if configured, else VS Code). | ✅ | ✅ | ✅ | ✅ | ⚪ |
-| `tomAi_askUser` | **THE** way to ask the user and get an answer. Blocking: pauses the queue and asks up to 15 questions in a webview + Telegram; returns the user's verbatim reply (or a fallback prompt on timeout). | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_askUserPicker` | `showQuickPick` selection — requires a human. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_askUser` | **THE** way to ask the user and get an answer. Blocking: asks up to 15 questions in a webview + Telegram and returns the user's verbatim reply. Waits **indefinitely** by default — the block *is* the pause, so a prompt running in the queue holds there until the user answers. Pass `timeoutMinutes` to continue automatically instead. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_askUserPicker` | `showQuickPick` selection — requires a human. Same indefinite-by-default wait and optional `timeoutMinutes`. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+
+**The picker always allows a free-text answer.** An **"Other…"** entry is appended to `items` automatically (`src/services/free-text-picker.ts`); taking it opens an input box and the typed text becomes the selection, with `label` and `value` both set to it. The entry is pinned (`alwaysShow`), so typing an answer that matches no item cannot filter it away, and Enter with nothing selected submits the typed text directly — the input box is only the detour for a user who clicks first. A list of options is a guess about what the answer might be, and the real answer is regularly none of them — so `selected.value` may be text that was never among the offered items, and callers must not assume otherwise. The Agent SDK's built-in `AskUserQuestion` interceptor uses the same affordance.
+
+Both log to the quest's **Questions** journal (`questions.<quest>.md`, @WS → Logs → Questions): the question as asked and the answer as given, or the fact that the wait timed out.
 
 ### 4.19 Planning and delegation
 
@@ -328,7 +372,7 @@ Typical usage: the injected history block shows `14:23:05 [t14] R3 tomAi_readFil
 
 ### 5.1 Anthropic Agent SDK (`transport: 'agentSdk'`)
 
-- Default to **`profile.useBuiltInTools = true`** for full-development mode. The SDK supplies `Read`/`Write`/`Edit`/`MultiEdit`/`Glob`/`Grep`/`Bash`/`BashOutput`/`KillBash`/`WebFetch`/`WebSearch`/`NotebookEdit`/`TodoWrite`/`Task`/`AskUserQuestion`/`ExitPlanMode`; our 🔁 tools are suppressed automatically.
+- Default to **`profile.useBuiltInTools = true`** for full-development mode. The SDK supplies `Read`/`Write`/`Edit`/`MultiEdit`/`Glob`/`Grep`/`Bash`/`BashOutput`/`KillBash`/`WebFetch`/`WebSearch`/`NotebookEdit`/`TaskCreate`…`TaskList`/`Task`/`AskUserQuestion`/`ExitPlanMode`; our 🔁 tools are suppressed automatically.
 - Leave `tomAi_enterPlanMode` / `tomAi_exitPlanMode` off — the SDK ships its own plan-mode state.
 - `tomAi_spawnSubagent` is redundant when `Task` is available; keep off.
 - Keep all the ✅-rows on — they're VS Code specific and have no SDK equivalent (editor context, problems, symbols, code actions, git writes, tasks/debug, issues/tests, quest/session todos, chat variables, memory, pattern prompts, guidelines, user interaction).
@@ -408,6 +452,7 @@ Tools are grouped by functional family, one file per family under `src/tools/`:
 | `git-tools.ts` | Git read (`git`), `gitShow`, allow-listed `gitExec` |
 | `planning-tools.ts` | Plan-mode signals + sub-agent delegation |
 | `notebook-tools.ts` | Jupyter `notebookEdit`, `notebookRun` |
+| `id-prefix-tools.ts` | Date-based prefix for collision-free hand-authored ids |
 | `issue-tools.ts` | Issues subpanel (read + write) |
 | `test-tools.ts` | Tests subpanel / testkit (read + write) |
 | `chat-enhancement-tools.ts` | Notify, quest/session todos, queue, timed, templates, reminders |
@@ -418,9 +463,39 @@ Every new tool needs:
 1. A `SharedToolDefinition` in the appropriate `src/tools/<family>-tools.ts`.
 2. Added to the family file's exported list (e.g. `NOTEBOOK_TOOLS`).
 3. The family list spread into `ALL_SHARED_TOOLS` in `src/tools/tool-executors.ts`.
-4. Entry in `AVAILABLE_LLM_TOOLS` (`src/utils/constants.ts`).
-5. For Agent SDK duplicates: add to `DUPLICATES_OF_CLAUDE_CODE_BUILTINS` in `anthropic-handler.ts`.
-6. A row in the right family table in this document.
+4. Entry in `AVAILABLE_LLM_TOOLS` (`src/utils/constants.ts`) — a tool absent here is invisible to every picker (status page, Anthropic profile editor, global-template editors, MCP server card), so allow-list profiles can never enable it even though it is registered and callable. If the tool is meant to stay behind `toolsEnabled: true`, put it in `DELIBERATELY_UNSELECTABLE_TOOLS` instead, with a reason.
+5. A category in `CATEGORY_MAP` (`src/utils/toolCategories.ts`) — unmapped names would fall through to "Other", which the parity guard rejects.
+6. At least one `withTiming('<toolName>:<case>', …)` call in the family's test file, conventionally `:typical`. `npm run audit:tools` fails the build without it and enforces a 5 s ceiling.
+7. For Agent SDK duplicates: add to `DUPLICATES_OF_CLAUDE_CODE_BUILTINS` in `anthropic-handler.ts`.
+8. A row in the right family table in this document.
+
+Steps 4 and 5 are enforced by `src/tools/__tests__/tool-registry-parity.test.ts`.
+It asserts that `ALL_SHARED_TOOLS` equals `AVAILABLE_LLM_TOOLS` plus
+`DELIBERATELY_UNSELECTABLE_TOOLS` exactly, that nothing is selectable without
+being registered, and that every selectable tool carries a `CATEGORY_MAP` entry.
+Forgetting step 4 or 5 now fails the suite instead of silently producing a tool
+that works under `toolsEnabled: true` and is invisible everywhere else.
+
+### Deliberately unselectable tools
+
+Of the 132 registered tools, **116 are selectable** and **16 are withheld from
+the pickers on purpose** (`DELIBERATELY_UNSELECTABLE_TOOLS` in
+`src/utils/constants.ts`): the twelve queue mutators and dispatch entry points
+(`tomAi_addQueueItem`, `tomAi_updateQueueItem`, `tomAi_removeQueueItem`,
+`tomAi_setQueueItemStatus`, the three follow-up and three pre-prompt tools,
+`tomAi_sendQueuedPrompt`, `tomAi_resendQueueItem`) plus
+`tomAi_addTimedRequest`, `tomAi_updateTimedRequest`,
+`tomAi_removeTimedRequest` and `tomAi_setTimerEngineState`.
+
+These are the queue and timer **control plane**. A model that can tick them in
+its own profile can enqueue and dispatch its own prompts and switch the timer
+engine on or off — a reasonable capability to grant an autonomous agent
+deliberately, but not one an allow-list profile should acquire by accident. They
+remain fully available under `toolsEnabled: true`. Their read-only counterparts
+`tomAi_listQueue` and `tomAi_listTimedRequests` **are** selectable, under the
+**Queue & Timers (read)** category: observing the queue carries no such risk.
+The guard enforces that split — a `readOnly` tool appearing in the exclusion
+list fails the suite.
 
 ## 9. Scripting-API access and gating
 

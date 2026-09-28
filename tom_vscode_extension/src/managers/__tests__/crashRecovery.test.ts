@@ -26,6 +26,26 @@ describe('applyCrashRecovery', () => {
         assert.equal(items[0].lastReminderAt, undefined);
     });
 
+    test('clears the in-flight repetition snapshot', () => {
+        // The snapshot only ever describes a dispatch that is still in the air.
+        // A crash ends that dispatch, so carrying the snapshot into the
+        // recovered `pending` item would let a *later*, unrelated failure roll
+        // a repetition counter back to a value from before the crash.
+        const items: any[] = [
+            {
+                id: 'a',
+                status: 'sending',
+                repeatIndex: 2,
+                inFlightRepetition: { stage: 'main', prevRepeatIndex: 1 },
+            },
+        ];
+
+        applyCrashRecovery(items);
+
+        assert.equal(items[0].inFlightRepetition, undefined, 'snapshot must not outlive its dispatch');
+        assert.equal(items[0].repeatIndex, 2, 'recovery must not rewind the counter itself — only drop the snapshot');
+    });
+
     test('preserves lastDispatched and warning so the Resend button stays functional', () => {
         const lastDispatched = {
             expandedText: 'Hello',

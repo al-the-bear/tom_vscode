@@ -55,7 +55,7 @@ graph TD
 
     subgraph TrailLayer["Trail Layer — two tiers"]
         RAW["Raw trail (debug)\n_ai/trail/{subsystem}/{quest}/\none file per prompt/tool/response\nViewer: Raw Trail Viewer"]
-        COMPACT["Compact trail (history)\n_ai/quests/{quest}/\nquest.localllm-configname.prompts.md\nViewer: Summary Trail Editor"]
+        COMPACT["Compact trail (history)\n_ai/quests/{quest}/history/\nquest.localllm-configname.prompts.md\nViewer: Summary Trail Editor"]
     end
 
     LH --> RAW
@@ -113,7 +113,7 @@ graph TD
     subgraph TrailLayer["Trail Layer"]
         RAWL["_ai/trail/localllm/{quest}/\n(existing subsystem, unchanged)"]
         RAWA["_ai/trail/anthropic/{quest}/ ✨new\none file per exchange"]
-        COMPACT["_ai/quests/{quest}/\nquest.anthropic.prompts.md ✨\nquest.anthropic.answers.md ✨\nquest.compaction.prompts.md ✨\nquest.compaction.answers.md ✨\n(existing localllm compact trails unchanged)"]
+        COMPACT["_ai/quests/{quest}/history/\nquest.anthropic.prompts.md ✨\nquest.anthropic.answers.md ✨\nquest.compaction.prompts.md ✨\nquest.compaction.answers.md ✨\n(existing localllm compact trails unchanged)"]
         RTV["Raw Trail Viewer\ntomAi.editor.rawTrailViewer"]
         STE["Summary Trail Editor\ntomAi.trailViewer"]
     end
@@ -154,7 +154,7 @@ The trail system has always had two distinct tiers that serve different purposes
 | Tier | Location | Format | Viewer | Purpose |
 | --- | --- | --- | --- | --- |
 | **Raw trail** | `_ai/trail/{subsystem}/{quest}/` | One file per prompt/response/tool call | Raw Trail Viewer (`trailViewer-handler.ts`) | Debugging, full fidelity |
-| **Compact trail** | `_ai/quests/{quest}/` | Accumulated `.prompts.md` / `.answers.md` | Summary Trail Editor (`trailEditor-handler.ts`) | History, searchable log |
+| **Compact trail** | `_ai/quests/{quest}/history/` | Accumulated `.prompts.md` / `.answers.md` | Summary Trail Editor (`trailEditor-handler.ts`) | History, searchable log |
 
 ### 4.2 Raw trail — existing structure and Anthropic addition
 
@@ -192,19 +192,21 @@ The path for Anthropic is configured via `tomAi.trail.raw.paths.anthropic` (defa
 
 ### 4.3 Compact trail — per quest, naming convention
 
-The compact trail accumulates in the quest folder. The file name encodes the provider and (for Local LLM) the config name:
+The compact trail accumulates in the quest's `history/` subfolder, beside the
+other generated trail files and covered by the same gitignore rule. The file
+name encodes the provider and (for Local LLM) the config name:
 
 ```text
-_ai/quests/vscode_extension/
+_ai/quests/vscode_extension/history/
     vscode_extension.localllm-bomber-qwen3-30b.prompts.md    ← existing, per config
     vscode_extension.localllm-bomber-qwen3-30b.answers.md
     vscode_extension.copilot.prompts.md                       ← existing
     vscode_extension.copilot.answers.md
 
-    vscode_extension.anthropic.prompts.md                     ← new: all Anthropic, per quest only
+    vscode_extension.anthropic.prompts.md                     ← all Anthropic, per quest only
     vscode_extension.anthropic.answers.md                     ← model/config recorded in entry metadata
 
-    vscode_extension.compaction.prompts.md                    ← new: compaction LLM calls
+    vscode_extension.compaction.prompts.md                    ← compaction LLM calls
     vscode_extension.compaction.answers.md
 ```
 
@@ -251,7 +253,7 @@ Panel button: **Trail** (icon: `codicon-list-flat`) — present on LOCAL LLM, Co
 **Provider ID:** `tomAi.trailViewer` (custom text editor)
 **Trigger:** Right-click `*.prompts.md` or `*.answers.md` → "Open With" → "Trail Viewer", or the panel's Trail Files button.
 **What it shows:** Quest dropdown, chronological entry list parsed from `=== PROMPT/ANSWER ... ===` markers, markdown rendering of selected entry, metadata panel (templateName, comments, references, responseValues).
-**Discovery:** Scans `_ai/quests/` for `*.prompts.md` / `*.answers.md` pairs. The new `{quest}.anthropic.prompts.md` and `{quest}.anthropic.answers.md` files appear automatically.
+**Discovery:** Scans `_ai/quests/*/history/` for `*.prompts.md` / `*.answers.md` pairs, so `{quest}.anthropic.prompts.md` and `{quest}.anthropic.answers.md` appear automatically.
 
 Panel button: **Trail Files** (icon: `codicon-history`) — present on LOCAL LLM, Copilot, and (new) ANTHROPIC sections, opens the compact trail file for the current quest/subsystem.
 
@@ -1769,7 +1771,7 @@ Delivers: per-configuration opt-in to route requests through `@anthropic-ai/clau
 
 This chapter describes a second backend behind the Anthropic panel: the **Claude Agent SDK** (`@anthropic-ai/claude-agent-sdk`). The existing direct-API path (Phases 1–5) is the default; Agent SDK is per-configuration opt-in via a `transport` field. Both paths share the same `AnthropicSendOptions` / `AnthropicSendResult` contract so the panel, profiles, tool registry, and trail are transport-agnostic.
 
-> **Distinguish from the Dart-side mirror.** This `agentSdk` *transport* is the in-extension panel backend — profile-gated, trailed, approval-gated, and sharing the contract above. It is **not** the low-level Agent SDK **Dart mirror** (`AgentSdkClient`) in `tom_vscode_scripting_api`, which a CLI-bridge script drives directly: that mirror has *no* profiles, allow-lists, trail, or approval gate — the caller owns the SDK `Options` and the bridge relays raw `SDKMessage`s verbatim. The mirror tracks SDK `^0.2.110`; its full type surface, `query()` streaming, reverse-RPC Dart tools, and `canUseTool` callback are documented in [agent_sdk_scripting_mirror.md](agent_sdk_scripting_mirror.md) (§8 states the same "security lives in the extension, not the Dart client" boundary).
+> **Distinguish from the Dart-side mirror.** This `agentSdk` *transport* is the in-extension panel backend — profile-gated, trailed, approval-gated, and sharing the contract above. It is **not** the low-level Agent SDK **Dart mirror** (`AgentSdkClient`) in `tom_vscode_scripting_api`, which a CLI-bridge script drives directly: that mirror has *no* profiles, allow-lists, trail, or approval gate — the caller owns the SDK `Options` and the bridge relays raw `SDKMessage`s verbatim. The mirror was written against SDK `^0.2.110` (the extension now resolves `^0.3.282`; the mirror is not yet re-audited against 0.3.x); its full type surface, `query()` streaming, reverse-RPC Dart tools, and `canUseTool` callback are documented in [agent_sdk_scripting_mirror.md](agent_sdk_scripting_mirror.md) (§8 states the same "security lives in the extension, not the Dart client" boundary).
 
 ### 18.1 Motivation
 
@@ -1923,7 +1925,7 @@ The Agent SDK exposes a built-in `AskUserQuestion` tool (available on the `agent
 In a headless extension host there is no TTY, so the SDK auto-allows the call and the unanswered questions surface as the turn's final text, stalling the run. The extension intercepts the call in the `canUseTool` callback:
 
 - **Pure logic** lives in `src/services/agent-sdk-questions.ts` (imports `vscode` only as a type, so it runs under `node --test`). Exports: `isAskUserQuestionTool`, `parseAskUserQuestionInput`, `summarizeQuestions`, `formatInteractiveAnswers`, `collectInteractiveAnswers`, plus `ASK_USER_QUESTION_TOOL_NAME`, `OTHER_OPTION_LABEL`, `DEFAULT_INTERACTIVE_QUESTIONS_TEMPLATE`.
-- **Collection** (`collectInteractiveAnswers`) shows one VS Code QuickPick per question through the `UserPrompter` seam (`tools/user-interaction-tools.ts`), honouring `multiSelect`. An `"Other…"` entry falls through to an input box for free text. Any dismissal returns `null`.
+- **Collection** (`collectInteractiveAnswers`) shows one VS Code QuickPick per question through the `UserPrompter` seam (`tools/user-interaction-tools.ts`), honouring `multiSelect`. An `"Other…"` entry falls through to an input box for free text; it is pinned (`alwaysShow`) so no filter can hide it, and Enter with nothing selected submits the typed text directly. Any dismissal returns `null`.
 - **Round-trip:** answers are returned as the tool result via `{ behavior: 'deny', message }` — the SDK feeds `message` back to the model. When interception is off or answers are `null`, the fallback template (`interactiveQuestionsTemplateId`, body may reference `${questions}`) or the built-in default is returned instead, instructing the agent to proceed autonomously.
 
 **Configuration.** Per-profile (`anthropicProfile`): `allowInteractiveQuestions` (boolean) and `interactiveQuestionsTemplateId` (string, id into `anthropic.interactiveQuestionsTemplates`). The template store mirrors `transportRetry`. A new Global Template Editor category `interactiveQuestions` ("Anthropic — Interactive Questions") manages the fallback templates.

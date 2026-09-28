@@ -447,7 +447,7 @@ describe('resolveMcpRequestTools — logs the auth decision, never the token', (
 // loopback sockets to prove the "two windows ⇒ consecutive free ports"
 // done-when: a second server started on the first's bound port lands on the
 // next port. The full MCP wire round-trip + the vscode toast/card reporting are
-// #21/#19 respectively (see completion_steps).
+// #21/#19 respectively (see the quest's deferred file).
 // ---------------------------------------------------------------------------
 
 describe('extractBearerToken — Authorization header parsing', () => {

@@ -103,6 +103,10 @@ let autoStart = __INITIAL__.autoStart !== undefined ? __INITIAL__.autoStart : fa
 let autoPause = __INITIAL__.autoPause !== undefined ? __INITIAL__.autoPause : true;
 let autoContinue = __INITIAL__.autoContinue !== undefined ? __INITIAL__.autoContinue : false;
 let responseTimeoutMinutes = __INITIAL__.responseTimeoutMinutes !== undefined ? __INITIAL__.responseTimeoutMinutes : 60;
+// Deferred queue-start target (ISO). When set, the queue holds all sends until
+// this instant passes; once fired the manager clears it, so the header dropdown
+// snaps back to "No start time" on the next state.
+let queueStartAt = __INITIAL__.queueStartAt || '';
 let defaultReminderTemplateId = __INITIAL__.defaultReminderTemplateId || '';
 let reminderTemplates = __INITIAL__.reminderTemplates || [];
 let promptTemplates = __INITIAL__.promptTemplates || [];
@@ -116,6 +120,9 @@ let queueDefaultTransport = __INITIAL__.queueDefaultTransport || 'copilot';
 let queueDefaultAnthropicProfileId = __INITIAL__.queueDefaultAnthropicProfileId || '';
 let queueDefaultMessageTemplateId = __INITIAL__.queueDefaultMessageTemplateId || '';
 let currentContext = __INITIAL__.context || { quest: '', role: '', activeProjects: [] };
+// Whether a Quest Refresh dispatch is in flight — drives the orange banner
+// between the queue header and the first item.
+let questRefreshActive = __INITIAL__.questRefreshActive === true;
 let detailsExpanded = {};
 var editorMode = 'queue';
 if (Array.isArray(__INITIAL__.collapsedIds)) {
@@ -130,13 +137,10 @@ function normalizeState() {
     .filter(function(item) { return !!item && typeof item === 'object'; })
     .map(function(item, index) {
       const safeId = (typeof item.id === 'string' && item.id) ? item.id : ('queue-item-' + index);
-      const safeStatus = (item.status === 'staged' || item.status === 'pending' || item.status === 'sending' || item.status === 'sent' || item.status === 'error' || item.status === 'waiting')
-        ? item.status
-        : 'staged';
       return {
         ...item,
         id: safeId,
-        status: safeStatus,
+        status: normalizeQueueStatus(item.status),
         template: typeof item.template === 'string' ? item.template : '(None)',
         originalText: typeof item.originalText === 'string' ? item.originalText : '',
         followUps: Array.isArray(item.followUps) ? item.followUps : [],
@@ -194,6 +198,7 @@ window.addEventListener('message', e => {
       autoPause = msg.autoPause !== undefined ? msg.autoPause : true;
       autoContinue = msg.autoContinue !== undefined ? msg.autoContinue : false;
       responseTimeoutMinutes = msg.responseTimeoutMinutes || 60;
+      queueStartAt = msg.queueStartAt || '';
       defaultReminderTemplateId = msg.defaultReminderTemplateId || '';
       reminderTemplates = msg.reminderTemplates || [];
       promptTemplates = msg.promptTemplates || [];
@@ -204,6 +209,7 @@ window.addEventListener('message', e => {
       queueDefaultAnthropicProfileId = msg.queueDefaultAnthropicProfileId || '';
       queueDefaultMessageTemplateId = msg.queueDefaultMessageTemplateId || '';
       currentContext = msg.context || { quest: '', role: '', activeProjects: [] };
+      questRefreshActive = msg.questRefreshActive === true;
       normalizeState();
       render();
       populateAddForm();
@@ -253,7 +259,14 @@ function openChatVariables() {
   vscode.postMessage({ type: 'openChatVariablesEditor' });
 }
 
+function updateQuestRefreshBanner() {
+  const banner = document.getElementById('questRefreshBanner');
+  if (!banner) { return; }
+  banner.style.display = questRefreshActive ? 'block' : 'none';
+}
+
 function render() {
+  updateQuestRefreshBanner();
   const btn = document.getElementById('autoSendBtn');
   btn.innerHTML = autoSend ? '<span class="codicon codicon-debug-pause"></span>' : '<span class="codicon codicon-play"></span>';
   btn.title = autoSend ? 'Auto-Send ON (click to pause)' : 'Auto-Send OFF (click to resume)';
@@ -280,10 +293,18 @@ function render() {
   const timeoutSel = document.getElementById('responseTimeout');
   if (timeoutSel) timeoutSel.value = String(responseTimeoutMinutes || 60);
 
+  // Deferred-start dropdown is a one-shot: the manager clears queueStartAt once
+  // it fires, so snap the picker back to "No start time" whenever nothing is
+  // armed. While a start is armed we leave the user's chosen value in place.
+  const startSel = document.getElementById('queueStartDelay');
+  if (startSel && !queueStartAt) startSel.value = '0';
+
   const staged = currentItems.filter(i => i.status === 'staged').length;
   const pending = currentItems.filter(i => i.status === 'pending').length;
   const sending = currentItems.filter(i => i.status === 'sending').length;
   const sent = currentItems.filter(i => i.status === 'sent').length;
+  const blocked = currentItems.filter(i => i.status === 'decision-needed').length;
+  const interrupted = currentItems.filter(i => i.status === 'interrupted').length;
 
   const stopBtn = document.getElementById('stopActiveBtn');
   if (stopBtn) {
@@ -295,8 +316,23 @@ function render() {
       ? 'Stop currently running prompt (revert to staged)'
       : 'Stop — no prompt is currently running';
   }
+  const interruptBtn = document.getElementById('interruptForContinuationBtn');
+  if (interruptBtn) {
+    const canInterrupt = sending > 0;
+    interruptBtn.disabled = !canInterrupt;
+    interruptBtn.style.opacity = canInterrupt ? '1' : '0.4';
+    interruptBtn.style.cursor = canInterrupt ? 'pointer' : 'not-allowed';
+    interruptBtn.title = canInterrupt
+      ? 'Interrupt for continuation (stop now; the running prompt is resent when auto-send is re-enabled)'
+      : 'Interrupt for continuation — no prompt is currently running';
+  }
   document.getElementById('countLabel').textContent =
-    'Sending: ' + sending + '  |  Pending: ' + pending + '  |  Staged: ' + staged + '  |  Sent: ' + sent + '  |  Timeout: ' + (responseTimeoutMinutes || 60) + 'm';
+    'Sending: ' + sending + '  |  Pending: ' + pending + '  |  Staged: ' + staged + '  |  Sent: ' + sent
+    // Only shown when non-zero: a blocked queue looks idle otherwise, and the
+    // count is the one number that explains why nothing is moving.
+    + (blocked > 0 ? '  |  Decision needed: ' + blocked : '')
+    + (interrupted > 0 ? '  |  Interrupted: ' + interrupted : '')
+    + '  |  Timeout: ' + (responseTimeoutMinutes || 60) + 'm';
 
   const list = document.getElementById('queueList');
   if (currentItems.length === 0) {
@@ -345,6 +381,7 @@ function toggleAutoPause() { vscode.postMessage({ type: 'toggleAutoPause' }); }
 function toggleAutoContinue() { vscode.postMessage({ type: 'toggleAutoContinue' }); }
 function restartQueue() { vscode.postMessage({ type: 'restartQueue' }); }
 function stopActiveItem() { vscode.postMessage({ type: 'stopActiveItem' }); }
+function interruptActiveForContinuation() { vscode.postMessage({ type: 'interruptActiveForContinuation' }); }
 function sendAllStaged() { vscode.postMessage({ type: 'sendAllStaged' }); }
 function setResponseTimeout(minutes) { vscode.postMessage({ type: 'setResponseTimeout', minutes: parseInt(minutes || '60', 10) || 60 }); }
 function setDefaultReminderTemplate(templateId) {
@@ -368,9 +405,14 @@ function moveToFront(id) { vscode.postMessage({ type: 'moveToFront', id }); }
 function sendNow(id) { vscode.postMessage({ type: 'sendNow', id }); }
 function continueSending(id) { vscode.postMessage({ type: 'continueSending', id }); }
 function resendLastPrompt(id) { vscode.postMessage({ type: 'resendLastPrompt', id }); }
+function interruptForContinuation(id) { vscode.postMessage({ type: 'interruptForContinuation', id }); }
 function resetToPending(id) { vscode.postMessage({ type: 'resetToPending', id }); }
 function retryWaitingNow(id) { vscode.postMessage({ type: 'retryWaitingNow', id }); }
+function retryRetryingNow(id) { vscode.postMessage({ type: 'retryRetryingNow', id }); }
+function stopRetrying(id) { vscode.postMessage({ type: 'stopRetrying', id }); }
+function setQueueStartDelay(minutes) { vscode.postMessage({ type: 'setQueueStartDelay', minutes: parseInt(String(minutes), 10) || 0 }); }
 function toggleReminder(id, enabled) { vscode.postMessage({ type: 'toggleReminder', id, enabled }); }
+function setPauseAfter(id, pauseAfter) { vscode.postMessage({ type: 'setPauseAfter', id, pauseAfter }); }
 function openTemplateEditor() { vscode.postMessage({ type: 'openTemplateEditor' }); }
 function openQueueTemplates() { vscode.postMessage({ type: 'openQueueTemplates' }); }
 function addPrompt() {

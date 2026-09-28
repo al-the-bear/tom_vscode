@@ -193,25 +193,21 @@ import {
     deleteQuestTodosImpl,
 } from './quest-todo-tools';
 
+// Return the record whole. The only difference between the stored item and the
+// surfaced one is the name of the source-file field, so that is the only thing
+// this touches.
+//
+// It used to be a field list, and it dropped `decisions` exactly as the create
+// and update whitelists below it did — the questions were on disk and read
+// correctly, and `tomAi_getQuestTodo`, which promises "every field on disk",
+// returned a `decision-needed` todo with nothing to decide on it. A caller
+// could see the status and not the reason for it.
+//
+// `toSummary` is not held to this and should not be: it is documented as the
+// compact shape, so narrowing is its purpose rather than an oversight.
 function toFull(t: questTodo.QuestTodoItem): QuestTodoFull {
-    return {
-        id: t.id,
-        title: t.title,
-        description: t.description,
-        status: t.status,
-        priority: t.priority,
-        tags: t.tags,
-        scope: t.scope,
-        references: t.references,
-        dependencies: t.dependencies,
-        blocked_by: t.blocked_by,
-        notes: t.notes,
-        created: t.created,
-        updated: t.updated,
-        completed_date: t.completed_date,
-        completed_by: t.completed_by,
-        sourceFile: t._sourceFile,
-    };
+    const { _sourceFile, ...rest } = t;
+    return { ...rest, sourceFile: _sourceFile };
 }
 
 function toSummary(t: questTodo.QuestTodoItem): QuestTodoSummary {
@@ -245,35 +241,22 @@ const liveQuestTodoStore: QuestTodoStoreAccess = {
         const t = questTodo.findTodoById(questId, todoId);
         return t ? toFull(t) : undefined;
     },
+    // Forward the todo as one object. `questTodoManager.createTodo` builds the
+    // persisted YAML node from an explicit field list of its own, so a second
+    // hand-maintained whitelist here adds no safety — it only gives every field
+    // added later somewhere to go missing. `decisions` did exactly that: the
+    // tool accepted it, the response echoed success, and the questions never
+    // reached disk, leaving todos that claimed to be waiting on a decision no
+    // one could read.
     create(questId, todo, file): QuestTodoFull {
-        const created = questTodo.createTodo(questId, {
-            id: todo.id,
-            title: todo.title,
-            description: todo.description,
-            status: todo.status,
-            priority: todo.priority,
-            tags: todo.tags,
-            notes: todo.notes,
-            dependencies: todo.dependencies,
-            blocked_by: todo.blocked_by,
-            scope: todo.scope,
-            references: todo.references,
-        }, file);
+        const created = questTodo.createTodo(questId, todo as Omit<questTodo.QuestTodoItem, '_sourceFile'>, file);
         return toFull(created);
     },
+    // Same rule as `create`: forward the patch whole. Answering a decision goes
+    // through this path, so a whitelist here would have made the answers as
+    // unsaveable as the questions.
     update(questId, todoId, updates) {
-        const updated = questTodo.updateTodo(questId, todoId, {
-            title: updates.title,
-            description: updates.description,
-            status: updates.status as questTodo.QuestTodoItem['status'],
-            priority: updates.priority as questTodo.QuestTodoItem['priority'],
-            tags: updates.tags,
-            notes: updates.notes,
-            completed_date: updates.completed_date,
-            completed_by: updates.completed_by,
-            dependencies: updates.dependencies,
-            blocked_by: updates.blocked_by,
-        });
+        const updated = questTodo.updateTodo(questId, todoId, updates as Partial<questTodo.QuestTodoItem>);
         return updated ? toFull(updated) : undefined;
     },
     move(questId, todoId, targetFile) {

@@ -1,0 +1,324 @@
+import test, { describe } from 'node:test';
+import assert from 'node:assert/strict';
+
+import {
+    RETRY_BACKOFF_MS,
+    RETRY_MAX_ATTEMPTS,
+    computeRetryDecision,
+    applyRetryScheduling,
+    fireRetry,
+    isRetryDue,
+    clearRetryBookkeeping,
+    applyStopRetrying,
+    isPreviousMessageIdError,
+    rollbackInFlightRepetition,
+    type RetryTransitionItem,
+    type RollbackTargetItem,
+} from '../queueRetryTransitions.js';
+
+describe('RETRY_BACKOFF_MS schedule', () => {
+    test('is the documented 7-step 30s / 15 / 30 / 45 / 60 / 60 / 60 schedule', () => {
+        assert.deepEqual([...RETRY_BACKOFF_MS], [
+            30_000,
+            15 * 60_000,
+            30 * 60_000,
+            45 * 60_000,
+            60 * 60_000,
+            60 * 60_000,
+            60 * 60_000,
+        ]);
+        assert.equal(RETRY_MAX_ATTEMPTS, 7);
+    });
+
+    test('cumulative wall-clock to the last retry is 4h30m30s', () => {
+        const totalMs = RETRY_BACKOFF_MS.reduce((a, b) => a + b, 0);
+        assert.equal(totalMs, (4 * 60 * 60 + 30 * 60 + 30) * 1000);
+    });
+});
+
+describe('computeRetryDecision', () => {
+    test('undefined consumed → first retry (30s), attempt 1/7', () => {
+        const d = computeRetryDecision(undefined);
+        assert.equal(d.kind, 'retry');
+        if (d.kind === 'retry') {
+            assert.equal(d.delayMs, 30_000);
+            assert.equal(d.attempt, 1);
+            assert.equal(d.total, 7);
+        }
+    });
+
+    test('walks the schedule as retries are consumed', () => {
+        assert.deepEqual(pick(computeRetryDecision(0)), { delayMs: 30_000, attempt: 1 });
+        assert.deepEqual(pick(computeRetryDecision(1)), { delayMs: 15 * 60_000, attempt: 2 });
+        assert.deepEqual(pick(computeRetryDecision(6)), { delayMs: 60 * 60_000, attempt: 7 });
+    });
+
+    test('once the schedule is spent → exhausted', () => {
+        assert.equal(computeRetryDecision(7).kind, 'exhausted');
+        assert.equal(computeRetryDecision(99).kind, 'exhausted');
+    });
+
+    test('negative / fractional consumed is clamped and floored', () => {
+        assert.deepEqual(pick(computeRetryDecision(-3)), { delayMs: 30_000, attempt: 1 });
+        assert.deepEqual(pick(computeRetryDecision(2.9)), { delayMs: 30 * 60_000, attempt: 3 });
+    });
+});
+
+describe('applyRetryScheduling', () => {
+    const now = Date.parse('2026-07-21T12:00:00.000Z');
+
+    test('parks the item in retry with a countdown, bumps attempt, clears error', () => {
+        const item: RetryTransitionItem = { status: 'sending', error: 'boom' };
+        const d = computeRetryDecision(0);
+        assert.equal(d.kind, 'retry');
+        if (d.kind !== 'retry') { return; }
+        applyRetryScheduling(item, d, { nowMs: now, errorText: 'boom', nowIso: '2026-07-21T12:00:00.000Z' });
+        assert.equal(item.status, 'retry');
+        assert.equal(item.error, undefined);
+        assert.equal(item.retryAttempt, 1);
+        assert.equal(item.retryUntil, new Date(now + 30_000).toISOString());
+        assert.ok(item.warning);
+        assert.equal(item.warning?.kind, 'interrupted');
+        assert.match(item.warning?.message ?? '', /retry 1\/7 scheduled/);
+    });
+
+    test('uses the classified interruption kind + message when provided', () => {
+        const item: RetryTransitionItem = { status: 'sending' };
+        const d = computeRetryDecision(1);
+        if (d.kind !== 'retry') { return; }
+        applyRetryScheduling(item, d, {
+            nowMs: now,
+            interruption: { kind: 'overloaded', message: 'API overloaded' },
+        });
+        assert.equal(item.warning?.kind, 'overloaded');
+        assert.match(item.warning?.message ?? '', /^API overloaded — retry 2\/7 scheduled$/);
+        assert.equal(item.retryUntil, new Date(now + 15 * 60_000).toISOString());
+    });
+});
+
+describe('fireRetry', () => {
+    test('retry → pending, clears countdown, PRESERVES retryAttempt', () => {
+        const item: RetryTransitionItem = {
+            status: 'retry', retryAttempt: 3, retryUntil: '2026-07-21T13:00:00.000Z', error: undefined,
+        };
+        fireRetry(item);
+        assert.equal(item.status, 'pending');
+        assert.equal(item.retryUntil, undefined);
+        assert.equal(item.retryAttempt, 3, 'attempt must survive so the backoff continues');
+    });
+});
+
+describe('isRetryDue', () => {
+    const now = Date.parse('2026-07-21T12:00:00.000Z');
+    test('future instant is not due', () => {
+        assert.equal(isRetryDue(new Date(now + 1000).toISOString(), now), false);
+    });
+    test('past / exact instant is due', () => {
+        assert.equal(isRetryDue(new Date(now - 1).toISOString(), now), true);
+        assert.equal(isRetryDue(new Date(now).toISOString(), now), true);
+    });
+    test('missing / unparseable is treated as due (never strand)', () => {
+        assert.equal(isRetryDue(undefined, now), true);
+        assert.equal(isRetryDue('not-a-date', now), true);
+    });
+});
+
+describe('clearRetryBookkeeping', () => {
+    test('wipes attempt + countdown, leaves status untouched', () => {
+        const item: RetryTransitionItem = { status: 'sending', retryAttempt: 4, retryUntil: 'x' };
+        clearRetryBookkeeping(item);
+        assert.equal(item.retryAttempt, undefined);
+        assert.equal(item.retryUntil, undefined);
+        assert.equal(item.status, 'sending');
+    });
+
+    test('leaves the in-flight repetition snapshot alone', () => {
+        // Deliberate asymmetry — do not "fix" this by clearing the snapshot
+        // here. The two fields answer different questions: the retry
+        // bookkeeping asks "did the transport accept the send?", which is
+        // answered the moment `dispatchStage` returns; the snapshot asks "did
+        // this repetition complete?", which for a polled (Copilot) transport is
+        // not answered until the answer file lands, minutes later. Clearing it
+        // on send success would discard the rollback in exactly the case it
+        // exists for — a watchdog timeout on a prompt that went out fine.
+        const item: RetryTransitionItem & RollbackTargetItem = {
+            status: 'sending',
+            retryAttempt: 2,
+            repeatIndex: 1,
+            inFlightRepetition: { stage: 'main', prevRepeatIndex: 0 },
+        };
+
+        clearRetryBookkeeping(item);
+
+        assert.deepEqual(
+            item.inFlightRepetition,
+            { stage: 'main', prevRepeatIndex: 0 },
+            'a dispatched-but-unanswered repetition must stay rollback-able',
+        );
+    });
+});
+
+describe('applyStopRetrying', () => {
+    test('retry → error, stops countdown, keeps attempt + default message', () => {
+        const item: RetryTransitionItem = { status: 'retry', retryAttempt: 2, retryUntil: 'x' };
+        assert.equal(applyStopRetrying(item), true);
+        assert.equal(item.status, 'error');
+        assert.equal(item.retryUntil, undefined);
+        assert.equal(item.retryAttempt, 2);
+        assert.equal(item.error, 'Retrying stopped by user');
+    });
+
+    test('preserves a pre-existing error string', () => {
+        const item: RetryTransitionItem = { status: 'retry', error: 'original cause' };
+        applyStopRetrying(item);
+        assert.equal(item.error, 'original cause');
+    });
+
+    test('no-op on non-retry items', () => {
+        const item: RetryTransitionItem = { status: 'pending' };
+        assert.equal(applyStopRetrying(item), false);
+        assert.equal(item.status, 'pending');
+    });
+});
+
+describe('isPreviousMessageIdError', () => {
+    test('matches the SDK stale-previous_message_id 400', () => {
+        assert.equal(isPreviousMessageIdError(
+            'API Error: 400 diagnostics.previous_message_id: must be the `id` from a prior /v1/messages response (starts with `msg_`)',
+        ), true);
+    });
+    test('does not match unrelated errors or empty text', () => {
+        assert.equal(isPreviousMessageIdError('Rate limit hit'), false);
+        assert.equal(isPreviousMessageIdError(''), false);
+        assert.equal(isPreviousMessageIdError(undefined), false);
+    });
+});
+
+describe('rollbackInFlightRepetition', () => {
+    test('no-op (false) when nothing is in flight', () => {
+        const item: RollbackTargetItem = { repeatIndex: 3 };
+        assert.equal(rollbackInFlightRepetition(item), false);
+        assert.equal(item.repeatIndex, 3);
+    });
+
+    test('main stage: restores repeatIndex to the pre-dispatch value', () => {
+        // The dispatcher advanced repeatIndex 0 → 1 before the failed send.
+        const item: RollbackTargetItem = {
+            repeatIndex: 1,
+            inFlightRepetition: { stage: 'main', prevRepeatIndex: 0 },
+        };
+        assert.equal(rollbackInFlightRepetition(item), true);
+        assert.equal(item.repeatIndex, 0, 'retry must re-send the same repetition');
+        assert.equal(item.inFlightRepetition, undefined, 'snapshot consumed');
+    });
+
+    test('main stage: todo iteration restores the previously shown todo id', () => {
+        // The dispatcher picked `dsa4` (index 4) and stamped it on the item.
+        // The send failed, so the entry must stop advertising `dsa4` and go
+        // back to whatever it showed before. Reverting the todo's *status* is
+        // I/O and stays with the caller — the snapshot only carries the id.
+        const item: RollbackTargetItem = {
+            repeatIndex: 4,
+            repeatTodoId: 'dsa4',
+            inFlightRepetition: {
+                stage: 'main',
+                prevRepeatIndex: 3,
+                todoId: 'dsa4',
+                prevRepeatTodoId: 'dsa3',
+            },
+        };
+        assert.equal(item.inFlightRepetition?.todoId, 'dsa4', 'caller can read the id before rollback clears it');
+        assert.equal(rollbackInFlightRepetition(item), true);
+        assert.equal(item.repeatTodoId, 'dsa3');
+        assert.equal(item.repeatIndex, 3);
+    });
+
+    test('main stage: a first-todo failure clears the todo id entirely', () => {
+        const item: RollbackTargetItem = {
+            repeatIndex: 1,
+            repeatTodoId: 'dsa1',
+            inFlightRepetition: { stage: 'main', prevRepeatIndex: 0, todoId: 'dsa1' },
+        };
+        rollbackInFlightRepetition(item);
+        assert.equal(item.repeatTodoId, undefined, 'nothing was in flight before, so nothing to show');
+    });
+
+    test('main stage: counter mode leaves repeatTodoId untouched', () => {
+        // No todo snapshot → the field is not part of this rollback at all.
+        const item: RollbackTargetItem = {
+            repeatIndex: 2,
+            repeatTodoId: 'stale',
+            inFlightRepetition: { stage: 'main', prevRepeatIndex: 1 },
+        };
+        rollbackInFlightRepetition(item);
+        assert.equal(item.repeatTodoId, 'stale');
+    });
+
+    test('main stage: a mid-loop failure restores the failed rep, not rep 0', () => {
+        // Reps 0 and 1 succeeded; rep 2 (repeatIndex 2 → 3) failed.
+        const item: RollbackTargetItem = {
+            repeatIndex: 3,
+            inFlightRepetition: { stage: 'main', prevRepeatIndex: 2 },
+        };
+        rollbackInFlightRepetition(item);
+        assert.equal(item.repeatIndex, 2, 'resend rep 2, keep reps 0 and 1 done');
+    });
+
+    test('seven consecutive rollbacks never advance the index', () => {
+        // Simulate the reported bug: each retry re-dispatches, advances, fails.
+        const item: RollbackTargetItem = { repeatIndex: 0 };
+        for (let attempt = 0; attempt < 7; attempt++) {
+            // dispatch advances the counter optimistically…
+            const prev = item.repeatIndex ?? 0;
+            item.repeatIndex = prev + 1;
+            item.inFlightRepetition = { stage: 'main', prevRepeatIndex: prev };
+            // …the send fails and the item is parked → rollback.
+            rollbackInFlightRepetition(item);
+        }
+        assert.equal(item.repeatIndex, 0, 'after 7 failed retries the loop index must be unchanged');
+    });
+
+    test('pre-prompt stage: restores that pre-prompt’s repeatIndex only', () => {
+        const item: RollbackTargetItem = {
+            prePrompts: [{ repeatIndex: 5 }, { repeatIndex: 2 }],
+            inFlightRepetition: { stage: 'prePrompt', stageIndex: 1, prevRepeatIndex: 1 },
+        };
+        rollbackInFlightRepetition(item);
+        assert.equal(item.prePrompts?.[0].repeatIndex, 5, 'other pre-prompt untouched');
+        assert.equal(item.prePrompts?.[1].repeatIndex, 1);
+    });
+
+    test('follow-up stage: restores the follow-up counter and followUpIndex', () => {
+        // The dispatch sent the last repeat of follow-up 0, advancing both its
+        // repeatIndex (2 → 3) and item.followUpIndex (0 → 1); the send failed.
+        const item: RollbackTargetItem = {
+            followUpIndex: 1,
+            followUps: [{ repeatIndex: 3 }, { repeatIndex: 0 }],
+            inFlightRepetition: {
+                stage: 'followUp', stageIndex: 0, prevRepeatIndex: 2, prevFollowUpIndex: 0,
+            },
+        };
+        rollbackInFlightRepetition(item);
+        assert.equal(item.followUps?.[0].repeatIndex, 2, 'resend the same follow-up repeat');
+        assert.equal(item.followUpIndex, 0, 'do not advance to the next follow-up');
+    });
+
+    test('follow-up stage: mid-loop failure leaves followUpIndex untouched', () => {
+        // A non-final repeat of follow-up 0 failed — followUpIndex was NOT
+        // advanced, so the snapshot carries prevFollowUpIndex === current.
+        const item: RollbackTargetItem = {
+            followUpIndex: 0,
+            followUps: [{ repeatIndex: 2 }],
+            inFlightRepetition: {
+                stage: 'followUp', stageIndex: 0, prevRepeatIndex: 1, prevFollowUpIndex: 0,
+            },
+        };
+        rollbackInFlightRepetition(item);
+        assert.equal(item.followUps?.[0].repeatIndex, 1);
+        assert.equal(item.followUpIndex, 0);
+    });
+});
+
+function pick(d: ReturnType<typeof computeRetryDecision>): { delayMs: number; attempt: number } | null {
+    return d.kind === 'retry' ? { delayMs: d.delayMs, attempt: d.attempt } : null;
+}

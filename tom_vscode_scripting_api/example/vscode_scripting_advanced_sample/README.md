@@ -169,7 +169,7 @@ arguments to the dispatcher. Expected aggregator output against a window named
 Connected to "tom_brain.code-workspace" on 127.0.0.1:19900
 
 === file_batch ===
-Wrote 3 files under /home/alexis/tac/ztmp/advanced_sample/file_batch
+Wrote 3 files under /home/you/tac/ztmp/advanced_sample/file_batch
 Read back 3/3 files with matching content.
 Cleaned up 3 files.
   [PASS] file_batch
@@ -190,7 +190,7 @@ Done — 5 steps in 1999 ms.
   [PASS] progress
 
 === helper_layer ===
-Helper sees window "b21e0a2f-…" rooted at /home/alexis/tac.
+Helper sees window "b21e0a2f-…" rooted at /home/you/tac.
 Round-tripped a scratch file through the helper layer.
   [PASS] helper_layer
 

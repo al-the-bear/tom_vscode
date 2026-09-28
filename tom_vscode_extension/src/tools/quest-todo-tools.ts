@@ -51,12 +51,17 @@
  */
 
 import { SharedToolDefinition } from './shared-tool-registry';
+// Type-only imports — erased at compile time, so this module stays free of the
+// `vscode` runtime import that `questTodoManager` carries.
+import type { QuestTodoStatus } from '../managers/questTodoManager';
+import type { TodoDecision } from '../utils/todoDecisions';
+
+export type { QuestTodoStatus, TodoDecision };
 
 // ===========================================================================
 // Shape — what tools surface to the model
 // ===========================================================================
 
-export type QuestTodoStatus = 'not-started' | 'in-progress' | 'blocked' | 'completed' | 'cancelled';
 export type QuestTodoPriority = 'low' | 'medium' | 'high' | 'critical';
 
 /**
@@ -75,6 +80,8 @@ export interface QuestTodoFull {
     references?: Array<{ type?: string; path?: string; url?: string; description?: string; lines?: string }>;
     dependencies?: string[];
     blocked_by?: string[];
+    /** Decisions the user has to make before the todo can be started. */
+    decisions?: TodoDecision[];
     notes?: string;
     created?: string;
     updated?: string;
@@ -114,6 +121,28 @@ export interface QuestTodoToolsDeps {
     onMutate?(): void;
 }
 
+/**
+ * Schema fragment for the `decisions` list. Shared by create and update so the
+ * model is told the same shape whichever way it writes one.
+ */
+const DECISIONS_SCHEMA = {
+    type: 'array',
+    description:
+        'Decisions the user has to make before this todo can be started. ' +
+        'Pair with `status: "decision-needed"` while any `decision` is still empty.',
+    items: {
+        type: 'object',
+        required: ['summary'],
+        properties: {
+            summary: { type: 'string', description: 'One line naming what has to be decided.' },
+            decision_needed: { type: 'string', description: 'The full question, its context and the options.' },
+            decision: { type: 'string', description: "What the user decided. Leave out until they've answered." },
+        },
+    },
+} as const;
+
+const STATUS_ENUM = ['not-started', 'in-progress', 'blocked', 'decision-needed', 'completed', 'cancelled'] as const;
+
 // ===========================================================================
 // listQuestTodos
 // ===========================================================================
@@ -151,7 +180,8 @@ export const LIST_QUEST_TODOS_DESCRIPTION =
     '`tomAi_listSessionTodos`. `file: "all"` (default) aggregates across ' +
     'every `*.todo.yaml` file in the quest folder; pass a specific file name ' +
     '(e.g. `"todos.vscode_extension.todo.yaml"`) to scope to one. **`status`** ' +
-    '(`not-started` / `in-progress` / `blocked` / `completed` / `cancelled`) ' +
+    '(`not-started` / `in-progress` / `blocked` / `decision-needed` / ' +
+    '`completed` / `cancelled`) ' +
     'and **`tags`** (any-match) filter the result. Response is the **summary** ' +
     'shape (`id`, `title`, `description`, `status`, `priority`, `tags`, ' +
     '`sourceFile`) — call `tomAi_getQuestTodo` for the full record including ' +
@@ -168,7 +198,7 @@ export const LIST_QUEST_TODOS_TOOL: SharedToolDefinition<ListQuestTodosInput> = 
         required: ['questId'],
         properties: {
             questId: { type: 'string', description: 'Quest folder name (e.g. `vscode_extension`).' },
-            status: { type: 'string', enum: ['not-started', 'in-progress', 'blocked', 'completed', 'cancelled'] },
+            status: { type: 'string', enum: STATUS_ENUM },
             file: { type: 'string', description: '`"all"` (default) or a specific `*.todo.yaml` filename.' },
             tags: { type: 'array', items: { type: 'string' }, description: 'Any-match tag filter.' },
         },
@@ -207,7 +237,8 @@ export const GET_QUEST_TODO_DESCRIPTION =
     'Get a single quest todo by id, returning every field on disk — ' +
     '`id`, `title`, `description`, `status`, `priority`, `tags`, `scope` ' +
     '(`project`/`projects`/`module`/`area`/`files`), `references[]`, ' +
-    '`dependencies`/`blocked_by`, `notes`, `created`/`updated`/`completed_date`/' +
+    '`dependencies`/`blocked_by`, `decisions[]` (the open questions behind a ' +
+    '`decision-needed` status), `notes`, `created`/`updated`/`completed_date`/' +
     '`completed_by` timestamps, and `sourceFile` (which YAML file holds the ' +
     'item). Use this when you need the full record; `tomAi_listQuestTodos` ' +
     'returns only the summary fields. Missing id surfaces structured ' +
@@ -250,7 +281,86 @@ export interface CreateQuestTodoInput {
         scope?: QuestTodoFull['scope'];
         references?: QuestTodoFull['references'];
         blocked_by?: string[];
+        decisions?: TodoDecision[];
     };
+}
+
+/**
+ * The `<stem><number>` of a date-coded todo id, or null when the id is not one.
+ *
+ * SCD203. Ids in this workspace are conventionally `<baseId>_<datecode>-<what>`
+ * — the date code being the four letters `tomAi_generateIdPrefix` derives from
+ * the current hour, so that two sessions inventing `vex1` on the same day do
+ * not collide. The convention works. What it does NOT do is stop a batch from
+ * restarting its numbering: `scc2`..`scc72` were already taken when a later
+ * session began again at `scc2`, and every one of those creates was accepted,
+ * because the only collision check is on the FULL id and `scc5_aict-…` really
+ * is a different id from `scc5_agñd-…`.
+ *
+ * The file stays valid; the damage is to the `<prefix>*` iteration the user
+ * drives work from, which then dispatches two unrelated todos for one request.
+ *
+ * DELIBERATELY CONSERVATIVE. Measured over the 4 992 ids in this workspace,
+ * 3 100 match this shape and 1 892 do not — `doc-yaml-format`, `dgub1`,
+ * `add-validation` and friends carry no number, no date code, or neither. An id
+ * this cannot parse is passed through unwarned rather than guessed at, because
+ * a warning invented from a misread id is worse than the silence it replaces.
+ *
+ * WHAT IS ALLOWED AFTER THE CODE is anything that is not another code letter.
+ * Requiring a `-` would have been the obvious reading and would have covered
+ * 1 352 ids instead of 3 100 — the `tcopen172_ahkl_tom_core_server_…` family
+ * separates the code from the description with `_`, and is exactly the kind of
+ * long-running numbered batch this check is for.
+ */
+export function questTodoIdStem(id: string): string | null {
+    const match = /^([a-z]+)(\d+)_[a-zäñößü]{4}(?![a-zäñößü])/.exec(id);
+    return match ? `${match[1]}${match[2]}` : null;
+}
+
+/**
+ * The warning for a proposed id whose stem is already in use, or null.
+ *
+ * WARNS, DOES NOT REJECT, and the distinction is the whole design. The two ids
+ * are legitimately distinct and a caller may mean exactly what it wrote — one
+ * live stem in this workspace carries 22 date codes and is plainly deliberate.
+ * The failure was that nobody was TOLD, not that it was allowed, so refusing
+ * would break a working practice to fix a reporting gap.
+ */
+function stemCollisionWarning(
+    deps: QuestTodoToolsDeps,
+    questId: string,
+    proposedId: string,
+): string | null {
+    const stem = questTodoIdStem(proposedId);
+    if (stem === null) { return null; }
+
+    // No `t.id !== proposedId` filter, deliberately. Two things already
+    // guarantee the proposed id is not in this list: the exact-id collision
+    // check above rejected the call if it were, and this runs BEFORE the
+    // create. A filter for a state neither can produce is dead defensive code
+    // that reads as though it were load-bearing — and the ordering IS
+    // load-bearing, so F-8 pins it rather than leaving it to a comment.
+    const sharing = deps.store.listTodos(questId)
+        .filter((t) => questTodoIdStem(t.id) === stem)
+        .map((t) => t.id)
+        .sort();
+    if (sharing.length === 0) { return null; }
+
+    // Capped, because the point is that the stem is shared rather than which
+    // twenty-two todos share it — and a warning nobody reads to the end is a
+    // warning that does not work.
+    const shown = sharing.slice(0, 5);
+    const rest = sharing.length - shown.length;
+    return (
+        `The id stem "${stem}" is already in use by ${sharing.length} ` +
+        `${sharing.length === 1 ? 'todo' : 'todos'} in quest "${questId}" under a ` +
+        `different date code: ${shown.join(', ')}` +
+        `${rest > 0 ? ` (+${rest} more)` : ''}. ` +
+        `The todo was created — the ids are genuinely distinct. But a ` +
+        `\`${stem}*\` iteration now matches ${sharing.length + 1} todos, so if ` +
+        `this was a batch restarting its numbering rather than a deliberate ` +
+        `reuse, renumber it before dispatching work by prefix.`
+    );
 }
 
 export async function createQuestTodoImpl(deps: QuestTodoToolsDeps, input: CreateQuestTodoInput): Promise<string> {
@@ -274,12 +384,15 @@ export async function createQuestTodoImpl(deps: QuestTodoToolsDeps, input: Creat
                 error: `Todo "${input.todo.id}" already exists in quest "${input.questId}". Pick a different id, or use \`tomAi_updateQuestTodo\` to modify it.`,
             });
         }
+        // SCD203: computed BEFORE the create, so the proposed id is not in
+        // the list it is being compared against.
+        const warning = stemCollisionWarning(deps, input.questId, input.todo.id);
         const created = deps.store.create(input.questId, {
             ...input.todo,
             status: input.todo.status ?? 'not-started',
         }, input.file);
         deps.onMutate?.();
-        return JSON.stringify({ ok: true, todo: created });
+        return JSON.stringify({ ok: true, todo: created, ...(warning ? { warning } : {}) });
     } catch (err) {
         return JSON.stringify({ ok: false, error: (err as Error).message });
     }
@@ -290,13 +403,29 @@ export const CREATE_QUEST_TODO_DESCRIPTION =
     'auto-id rules** — the model picks `todo.id` (convention: lowercase, ' +
     'hyphen-separated, starts with a letter, stable, e.g. `add-auth-flow`). ' +
     'Collisions are rejected with a pointer to `tomAi_updateQuestTodo`. ' +
+    '**A reused id STEM is WARNED about, not rejected**: creating ' +
+    '`scc5_aict-x` while `scc5_agnd-y` exists in the same quest succeeds and ' +
+    'returns a `warning` field naming the others, because a `scc5*` iteration ' +
+    'then dispatches both. Read it — it usually means a batch restarted its ' +
+    'numbering and should be renumbered before work is dispatched by prefix. ' +
+    'Ids with no `<stem><number>_<datecode>` shape are not checked. ' +
     '`file` defaults to the persistent `todos.<questId>.todo.yaml`; pass a ' +
     'different `*.todo.yaml` filename to target a per-topic file. **Status ' +
-    'enum**: `not-started` (default) / `in-progress` / `blocked` / `completed` ' +
-    '/ `cancelled`. **Priority enum**: `low` / `medium` / `high` / `critical`. ' +
-    'Optional fields (`scope`, `references`, `dependencies`, `blocked_by`, ' +
-    '`notes`) are persisted verbatim. YAML formatting in existing files is ' +
-    'preserved across the create.';
+    'enum**: `not-started` (default) / `in-progress` / `blocked` / ' +
+    '`decision-needed` / `completed` / `cancelled`. **Priority enum**: `low` / ' +
+    '`medium` / `high` / `critical`. **Before creating a todo, work out what ' +
+    'the user still has to decide**: list each open question in `decisions` ' +
+    '(`summary` + `decision_needed`, leaving `decision` empty) and set ' +
+    '`status: "decision-needed"` instead of `not-started`, so nobody starts ' +
+    'the todo on a guess. Optional fields (`scope`, `references`, ' +
+    '`dependencies`, `blocked_by`, `notes`) are persisted verbatim, and a `references` entry may be a bare string — it is stored as `{path}`, the shape the schema defines. YAML ' +
+    'formatting in existing files is preserved across the create. ' +
+    '**`ok: true` is verified, not assumed**: the file is re-read after the ' +
+    'write, the id confirmed present AND every field you sent confirmed ' +
+    'readable back, so a write lost to another writer of the same file — or a ' +
+    'field this code path does not persist — comes back as `ok: false` naming ' +
+    'what differs, instead of a success response for data that is on no disk ' +
+    'anywhere. You do not need to grep the YAML afterwards to check it landed.';
 
 export const CREATE_QUEST_TODO_TOOL: SharedToolDefinition<CreateQuestTodoInput> = {
     name: 'tomAi_createQuestTodo',
@@ -316,13 +445,14 @@ export const CREATE_QUEST_TODO_TOOL: SharedToolDefinition<CreateQuestTodoInput> 
                 properties: {
                     id: { type: 'string', description: 'Model-chosen stable id. Lowercase, hyphen-separated by convention.' },
                     description: { type: 'string' },
-                    status: { type: 'string', enum: ['not-started', 'in-progress', 'blocked', 'completed', 'cancelled'], description: 'Default `not-started`.' },
+                    status: { type: 'string', enum: STATUS_ENUM, description: 'Default `not-started`. Use `decision-needed` when `decisions` are unanswered.' },
                     title: { type: 'string' },
                     priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
                     tags: { type: 'array', items: { type: 'string' } },
                     notes: { type: 'string' },
                     dependencies: { type: 'array', items: { type: 'string' } },
                     blocked_by: { type: 'array', items: { type: 'string' } },
+                    decisions: DECISIONS_SCHEMA,
                 },
             },
         },
@@ -348,6 +478,7 @@ export interface UpdateQuestTodoInput {
         completed_by?: string;
         dependencies?: string[];
         blocked_by?: string[];
+        decisions?: TodoDecision[];
     };
 }
 
@@ -376,9 +507,13 @@ export const UPDATE_QUEST_TODO_DESCRIPTION =
     '`references`, `created` timestamps, `_sourceFile`, and any unknown fields ' +
     'an earlier hand-edit added all survive the update. Pass only the fields ' +
     'you want to change. Status enum: `not-started`/`in-progress`/`blocked`/' +
-    '`completed`/`cancelled`. Priority enum: `low`/`medium`/`high`/`critical`. ' +
-    'Missing id surfaces structured `{ok: false, error: "..."}`. For id changes ' +
-    'or moving across files, use `tomAi_moveQuestTodo` or delete+create.';
+    '`decision-needed`/`completed`/`cancelled`. Priority enum: `low`/`medium`/' +
+    '`high`/`critical`. To close a `decision-needed` todo, write the user\'s ' +
+    'answers into `decisions[].decision` and move the status back to ' +
+    '`not-started` in the same call — passing `decisions` replaces the whole ' +
+    'list, omitting it leaves it untouched. Missing id surfaces structured ' +
+    '`{ok: false, error: "..."}`. For id changes or moving across files, use ' +
+    '`tomAi_moveQuestTodo` or delete+create.';
 
 export const UPDATE_QUEST_TODO_TOOL: SharedToolDefinition<UpdateQuestTodoInput> = {
     name: 'tomAi_updateQuestTodo',
@@ -397,10 +532,11 @@ export const UPDATE_QUEST_TODO_TOOL: SharedToolDefinition<UpdateQuestTodoInput> 
                 properties: {
                     title: { type: 'string' },
                     description: { type: 'string' },
-                    status: { type: 'string', enum: ['not-started', 'in-progress', 'blocked', 'completed', 'cancelled'] },
+                    status: { type: 'string', enum: STATUS_ENUM },
                     priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
                     tags: { type: 'array', items: { type: 'string' } },
                     notes: { type: 'string' },
+                    decisions: DECISIONS_SCHEMA,
                     completed_date: { type: 'string' },
                     completed_by: { type: 'string' },
                     dependencies: { type: 'array', items: { type: 'string' } },
@@ -544,6 +680,11 @@ export const DELETE_QUEST_TODO_TOOL: SharedToolDefinition<DeleteQuestTodoInput> 
  */
 export interface TodoFileMoveSummary {
     moved: string[];
+    /**
+     * Subset of `moved` whose id was already in the target and was reconciled
+     * in place. Optional so a caller that predates the field still type-checks.
+     */
+    replaced?: string[];
     skipped: Array<{ id: string; reason: string }>;
     /** Target sibling file ('' when the operation was refused). */
     targetFile: string;
@@ -614,6 +755,9 @@ function moveResultJson(
         targetFile: result.targetFile,
         movedCount: result.moved.length,
         moved: result.moved,
+        // Only surfaced when non-empty: a replacement means the target already
+        // held the id, which is worth reporting but is not the normal case.
+        ...(result.replaced?.length ? { replaced: result.replaced } : {}),
         skipped: result.skipped,
     }, null, 2);
 }
@@ -657,7 +801,9 @@ export const ARCHIVE_QUEST_TODOS_DESCRIPTION =
     '`todoIds` (explicit) OR `allCompleted: true` (bulk over the file). ' +
     '`file` defaults to the persistent `todos.<questId>.todo.yaml`. A source ' +
     'file that is itself an `-archived`/`-deleted` sibling is refused ' +
-    '(terminal files). Returns `{ok, targetFile, moved[], skipped[]}`.';
+    '(terminal files). Safe to repeat: an id already in the target is ' +
+    'replaced in place, never duplicated. Returns `{ok, targetFile, moved[], ' +
+    'skipped[]}`, plus `replaced[]` when the target already held some ids.';
 
 export const ARCHIVE_QUEST_TODOS_TOOL: SharedToolDefinition<ArchiveQuestTodosInput> = {
     name: 'tomAi_archiveQuestTodos',
@@ -719,7 +865,9 @@ export const DELETE_QUEST_TODOS_DESCRIPTION =
     '`todos.<questId>.todo.yaml`. A source file that is itself an ' +
     '`-archived`/`-deleted` sibling is refused (terminal files). Prefer ' +
     'this over `tomAi_deleteQuestTodo` (hard-remove) — the moved todo stays ' +
-    'recoverable. Returns `{ok, targetFile, moved[], skipped[]}`.';
+    'recoverable. Safe to repeat: an id already in the target is replaced in ' +
+    'place, never duplicated. Returns `{ok, targetFile, moved[], skipped[]}`, ' +
+    'plus `replaced[]` when the target already held some ids.';
 
 export const DELETE_QUEST_TODOS_TOOL: SharedToolDefinition<DeleteQuestTodosInput> = {
     name: 'tomAi_deleteQuestTodos',

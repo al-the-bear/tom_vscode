@@ -29,5 +29,12 @@ Use `getAccordionHtml(...)` with:
 ## Guidance
 
 - Keep section IDs stable across releases — they key persisted layout state.
+- **`vscode.setState` is shared.** The accordion stores `expanded` / `pinned`
+  there, and section fragments store their own keys alongside — and a fragment
+  may own more than one (the Logs viewer persists both its selected sub-tab and,
+  for the tab that has a dropdown, the selected variant). Every writer must merge into
+  `vscode.getState()` rather than replacing the object — `saveState()` in
+  `media/accordionPanel/main.js` does, and a fragment that does not will have
+  its key dropped the next time a section is toggled.
 - Keep section content generation deterministic; side-effects belong in the handler, not in HTML builders.
 - Route messages through the handler's top-level `onDidReceiveMessage` switch, not from inside accordion helpers.

@@ -2,7 +2,7 @@
  * Pure helpers for the prompt-history tools.
  *
  * Reads the summary trail files (`<quest>.<subsystem>.prompts.md` and
- * `<quest>.<subsystem>.answers.md`) under `_ai/quests/<quest>/` — the
+ * `<quest>.<subsystem>.answers.md`) under `_ai/quests/<quest>/history/` — the
  * same files `loadLastNTrailExchanges` uses to rebuild history when
  * the snapshot is missing. Pairs prompt + answer by `requestId`.
  *
@@ -13,6 +13,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+
+import { questTrailFolder } from '../utils/questPaths.js';
 
 /**
  * Header on every entry in a summary trail file.
@@ -208,7 +210,7 @@ function previewSlice(body: string, max: number): string {
 
 /**
  * The summary file pattern from TrailService is
- * `${ai}/quests/${quest}/${quest}.${subsystem}.{prompts,answers}.md`,
+ * `${ai}/quests/${quest}/history/${quest}.${subsystem}.{prompts,answers}.md`,
  * where `subsystem` is one of:
  *
  *   - `anthropic`
@@ -216,9 +218,9 @@ function previewSlice(body: string, max: number): string {
  *   - `localllm-<configName>`
  *   - `lm-api-<modelName>`
  *
- * `findSubsystemFiles` looks for every matching pair under a quest
- * folder. Filters by subsystem prefix if provided (so callers can ask
- * for just `anthropic` or just `localllm-*`).
+ * `findSubsystemFiles` looks for every matching pair belonging to a quest.
+ * Filters by subsystem prefix if provided (so callers can ask for just
+ * `anthropic` or just `localllm-*`).
  */
 export interface SubsystemFiles {
     subsystem: string;
@@ -231,9 +233,12 @@ export function findSubsystemFiles(
     questId: string,
     subsystemFilter?: string,
 ): SubsystemFiles[] {
+    // Callers know the quest, not where its generated files sit: the summary
+    // pair lives one level down, in the quest's gitignored history folder.
+    const trailFolder = questTrailFolder(questFolder);
     let entries: string[];
     try {
-        entries = fs.readdirSync(questFolder);
+        entries = fs.readdirSync(trailFolder);
     } catch {
         return [];
     }
@@ -246,10 +251,10 @@ export function findSubsystemFiles(
         if (!name.startsWith(questDot)) { continue; }
         if (name.endsWith(promptSuffix)) {
             const subsystem = name.slice(questDot.length, -promptSuffix.length);
-            if (subsystem) { promptsBySubsystem.set(subsystem, path.join(questFolder, name)); }
+            if (subsystem) { promptsBySubsystem.set(subsystem, path.join(trailFolder, name)); }
         } else if (name.endsWith(answerSuffix)) {
             const subsystem = name.slice(questDot.length, -answerSuffix.length);
-            if (subsystem) { answersBySubsystem.set(subsystem, path.join(questFolder, name)); }
+            if (subsystem) { answersBySubsystem.set(subsystem, path.join(trailFolder, name)); }
         }
     }
     const subsystems = new Set<string>([...promptsBySubsystem.keys(), ...answersBySubsystem.keys()]);

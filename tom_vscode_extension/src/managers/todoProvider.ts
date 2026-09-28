@@ -12,6 +12,8 @@ import {
     readTodoFile,
     updateTodoInFile,
     type QuestTodoItem,
+    type QuestTodoStatus,
+    type TodoDecision,
 } from './questTodoManager';
 import { SessionTodoStore } from './sessionTodoStore';
 
@@ -19,13 +21,15 @@ export interface TodoInput {
     id?: string;
     title: string;
     description?: string;
-    status?: 'not-started' | 'in-progress' | 'blocked' | 'completed' | 'cancelled';
+    status?: QuestTodoStatus;
     priority?: 'low' | 'medium' | 'high' | 'critical';
     tags?: string[];
+    /** Decisions the user has to make before this todo can be started. */
+    decisions?: TodoDecision[];
 }
 
 export interface TodoFilter {
-    status?: 'all' | 'not-started' | 'in-progress' | 'blocked' | 'completed' | 'cancelled';
+    status?: 'all' | QuestTodoStatus;
     tags?: string[];
 }
 
@@ -76,6 +80,7 @@ export class TodoProvider {
             status: todo.status ?? 'not-started',
             priority: todo.priority,
             tags: todo.tags,
+            decisions: todo.decisions,
         }, this.options.questId ? { quest: this.options.questId } : undefined);
         this._onDidChange.fire();
         return created;
@@ -110,6 +115,7 @@ export class TodoProvider {
             priority: changes.priority,
             tags: changes.tags,
             notes: changes.notes,
+            decisions: changes.decisions,
         });
         if (!item) {
             throw new Error(`Todo not found: ${id}`);

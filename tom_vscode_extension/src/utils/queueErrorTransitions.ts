@@ -433,3 +433,93 @@ function stringifyError(err: unknown): string {
         return 'unknown error';
     }
 }
+
+// ── Interrupt for continuation ────────────────────────────────────────────
+
+/**
+ * Item shape for `applyInterruptForContinuation`. Structural, so the
+ * transition can be unit-tested without a QueuedPrompt.
+ */
+export interface InterruptForContinuationItem {
+    status?: string;
+    requestId?: string;
+    expectedRequestId?: string;
+    sentAt?: string;
+    reminderSentCount?: number;
+    lastReminderAt?: string;
+    inFlightRepetition?: unknown;
+    awaitingAnswer?: boolean;
+    error?: string;
+    lastDispatched?: unknown;
+}
+
+export interface InterruptForContinuationResult {
+    /** False when the item was not `sending` — nothing was changed. */
+    transitioned: boolean;
+    /** True when a `lastDispatched` snapshot exists for the resume path to replay. */
+    canResend: boolean;
+}
+
+/**
+ * Move a `sending` item to `interrupted`: its dispatch has been cancelled on
+ * purpose and the item must run again — same rep, same text — the next time
+ * the queue is re-armed.
+ *
+ * Unlike the error path this does **not** roll the repetition counter back.
+ * The loop bumps the counter before awaiting the send, so it already names
+ * the rep that was interrupted, and the resume path replays
+ * `lastDispatched.expandedText` byte-for-byte (`resendLastPrompt`) and then
+ * advances naturally. Re-expanding the prompt instead could resolve
+ * `${todo}` to a different todo than the one the interrupted rep claimed.
+ * The `inFlightRepetition` snapshot is spent for the same reason
+ * `setStatus(…, 'staged')` clears it: a later failure must not roll back a
+ * rep that was actually dispatched.
+ *
+ * Only transient send-tracking is cleared — the answer-file expectation,
+ * reminders, a stale error string. Counters, pre-prompt statuses,
+ * `followUpIndex` and `lastDispatched` are preserved untouched.
+ */
+export function applyInterruptForContinuation(item: InterruptForContinuationItem): InterruptForContinuationResult {
+    const canResend = !!item.lastDispatched;
+    if (item.status !== 'sending') {
+        return { transitioned: false, canResend };
+    }
+    item.status = 'interrupted';
+    item.awaitingAnswer = false;
+    item.requestId = undefined;
+    item.expectedRequestId = undefined;
+    item.sentAt = undefined;
+    item.reminderSentCount = 0;
+    item.lastReminderAt = undefined;
+    item.inFlightRepetition = undefined;
+    item.error = undefined;
+    return { transitioned: true, canResend };
+}
+
+/** Minimal item shape for `pickInterruptedResume`. */
+export interface InterruptedResumeItem {
+    id: string;
+    status?: string;
+    lastDispatched?: unknown;
+}
+
+export type InterruptedResumeAction = 'resend' | 'restart-pending';
+
+/**
+ * Decide what a drain should do about an interrupted item before it looks
+ * at the pending backlog. `undefined` when there is nothing to resume, or
+ * when another item is already `sending` — a resend would run two
+ * dispatches at once, which `resendLastPrompt` refuses.
+ *
+ * `'resend'` replays the frozen snapshot; `'restart-pending'` covers an item
+ * cancelled before any stage was dispatched — nothing to replay, so it
+ * simply re-enters the backlog with whatever cursor it has.
+ */
+export function pickInterruptedResume(
+    items: readonly InterruptedResumeItem[],
+): { id: string; action: InterruptedResumeAction } | undefined {
+    if (items.some(i => i.status === 'sending')) { return undefined; }
+    const interrupted = items.find(i => i.status === 'interrupted');
+    if (!interrupted) { return undefined; }
+    return { id: interrupted.id, action: interrupted.lastDispatched ? 'resend' : 'restart-pending' };
+}

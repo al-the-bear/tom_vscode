@@ -45,14 +45,14 @@ function makeSummaryFile(filePath: string, kind: 'PROMPT' | 'ANSWER', entries: A
 
 before(() => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-history-tools-'));
-    const questFolder = path.join(tmp, '_ai', 'quests', QUEST_ID);
-    fs.mkdirSync(questFolder, { recursive: true });
+    const trailFolder = path.join(tmp, '_ai', 'quests', QUEST_ID, 'history');
+    fs.mkdirSync(trailFolder, { recursive: true });
 
-    makeSummaryFile(path.join(questFolder, `${QUEST_ID}.anthropic.prompts.md`), 'PROMPT', [
+    makeSummaryFile(path.join(trailFolder, `${QUEST_ID}.anthropic.prompts.md`), 'PROMPT', [
         { id: 'req-A1', ts: '2026-01-01T10:00:00.000Z', seq: 1, body: 'First prompt.' },
         { id: 'req-A2', ts: '2026-01-01T10:05:00.000Z', seq: 2, body: 'Second prompt with body.' },
     ]);
-    makeSummaryFile(path.join(questFolder, `${QUEST_ID}.anthropic.answers.md`), 'ANSWER', [
+    makeSummaryFile(path.join(trailFolder, `${QUEST_ID}.anthropic.answers.md`), 'ANSWER', [
         { id: 'req-A1', ts: '2026-01-01T10:00:01.000Z', seq: 1, body: 'First answer.' },
         { id: 'req-A2', ts: '2026-01-01T10:05:01.000Z', seq: 2, body: 'Second answer.' },
     ]);

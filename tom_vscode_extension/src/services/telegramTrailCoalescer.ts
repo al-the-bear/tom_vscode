@@ -102,6 +102,11 @@ export class TelegramTrailCoalescer {
             case 'thinking':
             case 'toolResult':
                 return [];
+            case 'usage':
+                // Token / cost accounting is trail bookkeeping, not conversation
+                // — a Telegram follower wants the answer, not the invoice. It
+                // arrives just before `done`, which flushes the buffer anyway.
+                return [];
             case 'assistant':
                 return this.appendAssistant(event.text);
             case 'toolCall':

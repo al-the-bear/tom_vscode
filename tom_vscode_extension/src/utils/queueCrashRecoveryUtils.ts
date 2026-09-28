@@ -6,9 +6,10 @@
  * legitimately be mid-send at load time (no dispatcher is running yet).
  *
  * We demote such items back to `pending` and clear transient send-tracking
- * fields (requestId / expectedRequestId / reminder counters) so the item
- * looks like a fresh pending entry to the dispatcher and the answer-file
- * poll loop can't match an unrelated future answer to the stale request.
+ * fields (requestId / expectedRequestId / reminder counters / the in-flight
+ * repetition snapshot) so the item looks like a fresh pending entry to the
+ * dispatcher and the answer-file poll loop can't match an unrelated future
+ * answer to the stale request.
  *
  * We deliberately preserve:
  *   - `lastDispatched` — the Resend button reads this to replay the
@@ -27,6 +28,12 @@ export type CrashRecoveryItem = {
     expectedRequestId?: string | undefined;
     reminderSentCount?: number;
     lastReminderAt?: number | string | undefined;
+    /**
+     * Snapshot of the counter advance made by the dispatch that the crash
+     * interrupted. See `rollbackInFlightRepetition` — it only ever describes a
+     * send that is still in the air, so it must not survive the crash.
+     */
+    inFlightRepetition?: unknown;
     // Fields intentionally *not* listed here are preserved as-is
     // (including lastDispatched and warning).
 };
@@ -45,6 +52,7 @@ export function applyCrashRecovery(items: CrashRecoveryItem[]): number {
         item.expectedRequestId = undefined;
         item.reminderSentCount = 0;
         item.lastReminderAt = undefined;
+        item.inFlightRepetition = undefined;
         count++;
     }
     return count;

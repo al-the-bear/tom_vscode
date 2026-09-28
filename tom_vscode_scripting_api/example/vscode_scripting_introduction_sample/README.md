@@ -161,13 +161,13 @@ Executed workbench.action.files.save -> null
   [PASS] commands
 
 === workspace_folders ===
-Workspace: tom_brain (Workspace) (root: /home/alexis/tac)
+Workspace: tom_brain (Workspace) (root: /home/you/tac)
 1 folder(s):
-  - tac -> /home/alexis/tac
+  - tac -> /home/you/tac
   [PASS] workspace_folders
 
 === read_open_file ===
-Found markdown at: /home/alexis/tac/tom_brain/README.md
+Found markdown at: /home/you/tac/tom_brain/README.md
 File is 12 characters; first line: # Tom Brain
 Opened README.md (2 lines, language: markdown).
   [PASS] read_open_file

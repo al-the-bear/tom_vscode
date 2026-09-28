@@ -10,9 +10,15 @@
  * across the fleet means the hostname segment keeps each machine separate.
  *
  * Two knobs only:
- *   - `maxWaitMinutes`  — how long the ask blocks the prompt queue before the
- *                         timeout resolves it with `fallbackPrompt` (≥ 1).
+ *   - `maxWaitMinutes`  — ceiling on how long an ask may block the prompt queue
+ *                         before the timeout resolves it with `fallbackPrompt`.
+ *                         **0 (the default) means no ceiling**: the ask waits
+ *                         until the user answers. A question nobody has read
+ *                         must not answer itself.
  *   - `fallbackPrompt`  — the tool reply handed to the model on timeout.
+ *
+ * The model can also request a shorter deadline per call (`timeoutMinutes` on
+ * `tomAi_askUser`); this setting is the user's own ceiling, not the default.
  *
  * The status page ("Chat questions" section) and the `tomAi_askUser` tool both
  * read/write through this module so they never diverge.
@@ -26,7 +32,10 @@ import { WsPaths } from '../utils/workspacePaths';
 
 /** Parsed, always-usable Chat questions config. */
 export interface ChatQuestionsConfig {
-    /** Minutes the ask blocks the queue before timing out. Clamped to ≥ 1. */
+    /**
+     * Ceiling in minutes on how long an ask may block the queue. Clamped to
+     * ≥ 0; **0 means no ceiling** — wait until the user answers.
+     */
     maxWaitMinutes: number;
     /** Tool reply handed to the model when the timeout fires. */
     fallbackPrompt: string;
@@ -34,7 +43,7 @@ export interface ChatQuestionsConfig {
 
 /** Defaults applied when nothing is configured (or a field is missing). */
 export const CHAT_QUESTIONS_DEFAULTS: ChatQuestionsConfig = {
-    maxWaitMinutes: 15,
+    maxWaitMinutes: 0,
     fallbackPrompt: "The user didn't answer. Please follow your recommendations.",
 };
 
@@ -50,7 +59,7 @@ export function getChatQuestionsConfigPath(): string | undefined {
 
 /**
  * Parse a raw object into a {@link ChatQuestionsConfig}, filling in defaults for
- * missing / wrong-typed fields. `maxWaitMinutes` is clamped to a whole number ≥ 1.
+ * missing / wrong-typed fields. `maxWaitMinutes` is clamped to a whole number ≥ 0.
  */
 export function parseChatQuestionsConfig(raw: unknown): ChatQuestionsConfig {
     if (!raw || typeof raw !== 'object') { return { ...CHAT_QUESTIONS_DEFAULTS }; }
@@ -62,7 +71,7 @@ export function parseChatQuestionsConfig(raw: unknown): ChatQuestionsConfig {
         ? obj.fallbackPrompt
         : CHAT_QUESTIONS_DEFAULTS.fallbackPrompt;
     return {
-        maxWaitMinutes: Math.max(1, Math.floor(rawMinutes)),
+        maxWaitMinutes: Math.max(0, Math.floor(rawMinutes)),
         fallbackPrompt,
     };
 }
@@ -103,7 +112,7 @@ export function writeChatQuestionsConfig(cfg: ChatQuestionsConfig): boolean {
         return false;
     }
     const out: ChatQuestionsConfig = {
-        maxWaitMinutes: Math.max(1, Math.floor(cfg.maxWaitMinutes)),
+        maxWaitMinutes: Math.max(0, Math.floor(cfg.maxWaitMinutes)),
         fallbackPrompt: cfg.fallbackPrompt?.trim() ? cfg.fallbackPrompt : CHAT_QUESTIONS_DEFAULTS.fallbackPrompt,
     };
     try {

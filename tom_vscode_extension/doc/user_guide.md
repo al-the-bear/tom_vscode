@@ -9,7 +9,7 @@ The extension combines VS Code automation, bridge-based scripting, Copilot workf
 Current bottom panel layout:
 
 - `@CHAT` (`tomAi.chatPanel`): five subpanels — **Anthropic**, **Tom AI Chat**, **AI Conversation**, **Copilot**, **Local LLM**. Shared features: prompt queue side panel, document picker, live-trail button (Anthropic), session-history button, memory/config buttons, accordion/pin/rotate layout.
-- `@WS` (`tomAi.wsPanel`): Guidelines, Documentation, Logs, Settings, Issues, Tests, Quest TODO.
+- `@WS` (`tomAi.wsPanel`): Guidelines, Documentation, Logs, Settings, Issues, Tests, Quest TODO. The Logs section carries its own strip of thirteen sub-tabs over the active quest's log files and the running prompt — see [Logs Panel](#logs-panel).
 
 AI Conversation is the only subpanel that is **not** queue-compatible — each AI Conversation turn runs as an ad-hoc chat.
 
@@ -20,6 +20,64 @@ The Guidelines panel in @WS provides a document browser for copilot guidelines. 
 - **Project dropdown**: Filter guidelines by project (shows projects with `_copilot_guidelines/` folders)
 - **Quest dropdown**: Filter guidelines by quest (shows quests when quest project type selected)
 - **Link navigation**: Click links to navigate within the panel or open in Markdown Browser
+
+### Logs Panel
+
+The Logs section of @WS shows the active quest's log-style markdown files from
+`_ai/quests/{quest}/`, plus the prompt that is running right now. It is
+read-only; use the toolbar to edit.
+
+- **Sub-tabs**: **MD Trail** (`live-trail.md`, rendered), **Trail** (the same
+  file as highlighted source), **Prompts** / **Answers**
+  (`history/{quest}.anthropic.prompts.md` / `.answers.md`), **Progress**, **Overview**,
+  **Notes** (`quest-notes.{quest}.md`), **Refresh**
+  (`quest_refresh.{quest}.md`), **DocUpdate**
+  (`quest_documentation_update.{quest}.md`), **Deferred**
+  (`deferred.{quest}.md`), **Questions** (`questions.{quest}.md` — every
+  question the model asked you and the answer you gave), **Decisions**
+  (`decisions.{quest}.md` — the decisions carried by each todo, copied here when
+  the todo is archived as completed), **Current Prompt** (see below)
+- **Remembered selection**: the active sub-tab is restored after a window reload
+- **Auto-refresh**: re-reads every 2.5 s while the section is expanded; a file
+  that has not changed costs no read
+- **256 KB window**: a larger file is shown from the end its newest content is
+  at — the last 256 KB (marked `(tail)`) of the two trail tabs and of the three
+  journals (**Deferred**, **Questions**, **Decisions**), which are appended to,
+  and the first 256 KB (marked `(head)`) of the remaining tabs, whose documents
+  are prepended to or rewritten wholesale
+- **Follow scrolling**: the view opens at that same end, and a reader still
+  sitting there stays there as the file grows; scrolling away to study something
+  holds that position
+
+#### Current Prompt sub-tab
+
+Shows the prompt currently in flight, replaced on every send. A dropdown in the
+toolbar — visible only on this sub-tab — picks which of six views to show:
+
+| Option | Shows |
+| --- | --- |
+| Chat / Queue **Literal Prompt** | What you typed, before placeholders were expanded and before keyword triggers were stripped |
+| Chat / Queue **User Prompt** | The user message that actually went to the model |
+| Chat / Queue **System Prompt** | The assembled system prompt — empty when the profile has none |
+
+Comparing the literal against the user prompt is the fastest way to see what a
+template or a placeholder did to your text.
+
+A queue item and a chat message can run at the same time, so the two keep
+separate sets: the **Chat** options never show a queue item's prompt and vice
+versa. The dropdown selection is remembered across a window reload alongside the
+sub-tab.
+
+The files behind it live in the quest's Anthropic trail folder
+(`_ai/trail/anthropic/{quest}/current_prompt.*.md`), which is gitignored — they
+change on every prompt, so they are deliberately kept out of the tracked quest
+folder. They are written for every Anthropic transport (direct SDK, Agent SDK,
+vscodeLm) and persist after the answer arrives, so the tab still shows the last
+prompt sent when nothing is running.
+- **Toolbar**: **Refresh** re-reads the selected file from disk; **Open in
+  editor** opens it in a normal text editor
+- **Missing files**: not every quest has every document; a missing one is
+  reported in the viewer rather than treated as an error
 
 ### Markdown Browser
 
@@ -52,7 +110,17 @@ Explorer adds note and todo views: VS Code Notes, Quest Notes, Quest Todos, Sess
 
 ### Quest TODO Panel
 
-The Quest TODO panel (the `@WS` Quest TODO section, and the editor that opens for any `*.todo.yaml` file) manages quest todos with status tracking. Four top-bar buttons move todos between files instead of destroying them:
+The Quest TODO panel (the `@WS` Quest TODO section, and the editor that opens for any `*.todo.yaml` file) manages quest todos with status tracking.
+
+#### Prefix groups
+
+The list is grouped by **todo-id prefix** — the characters before the id's first digit, so `qr1-…` and `qr3-…` share the group `qr`. Ids that start with a digit, or contain no digit at all, collect in a group called **Unprefixed**, which always sits last. Each group is headed by a thin separator line showing the prefix, the number of todos in brackets, and a triangle that expands or collapses the group.
+
+The list opens **fully collapsed** — after a window reload or a VS Code restart you see only the separator lines. Expand the groups you need; the **Collapse all** toolbar button closes them again. Expanding a group sticks for the rest of the session, including across todo refreshes.
+
+#### Moving todos between files
+
+Four top-bar buttons move todos between files instead of destroying them:
 
 - **Archive completed todo** — moves the selected *completed* todo to the file's `-archived` sibling (e.g. `todos.myquest.todo.yaml` → `todos-archived.myquest.todo.yaml`), stamping it with the archive date. Enabled only for completed todos.
 - **Archive all completed** — bulk-archives every completed todo in the current file.
@@ -61,10 +129,18 @@ The Quest TODO panel (the `@WS` Quest TODO section, and the editor that opens fo
 
 Archived/deleted sibling files are **terminal**: they can be viewed but never archived or deleted *from*, and the buttons hide when browsing them. A todo moved to the `-deleted` file remains recoverable (unlike the per-row hard-delete). There is no separate backup file mechanism anymore.
 
+Archiving a **completed** todo also **copies** any decisions it carried into the quest's `decisions.<quest>.md` journal (@WS → Logs → Decisions), stamped with the todo id and the archive timestamp. It is a copy, not a move — the archived todo keeps its decisions. Two cases are deliberately left out: deleting never journals (a deleted todo's decisions were never acted on), and neither does archiving a todo that has not reached `completed` — the Archive button works on any status, and a todo archived half-done was abandoned rather than concluded.
+
 A further set of top-bar buttons changes a todo **without** moving it to a terminal file:
 
 - **Mark selected todo completed** / **Mark selected todo cancelled** / **Mark selected todo not-started** — set the selected todo's status in place (the completed action also stamps the completion date). With a non-empty todo stack they act on the whole stack after a single confirmation.
 - **Move selected to other todo file** — opens a quick pick of the quest's other `*.todo.yaml` files (including the `-archived` and `-deleted` siblings), plus a *New todo file…* option, and moves the selected todo (or the whole stack) into the chosen file. Available only in concrete quest mode. Clicking a todo in any of the quest's todo files loads its details, and the details pane refreshes automatically after a status change.
+
+#### Decisions and the `decision-needed` status
+
+A todo can carry a list of **decisions** — open questions that must be answered before the work can start. Each entry has three fields: a one-line **summary**, the **decision needed** (what exactly has to be decided, and the options), and the **decision** itself once made. In the details pane they render as a collapsible list: collapsed you see just the summary line, expanded all three fields.
+
+A todo with unanswered decisions belongs in status **`decision-needed`** (❓), which sorts directly after `blocked` and ahead of `not-started`. It is a normal dropdown choice and the four quest-todo tools round-trip it, so the model can create a todo already in that state — the workspace rule is that a todo whose scope contains a user decision is created as `decision-needed` with the decisions filled in, rather than as `not-started`. `prefix*` queue iteration refuses to run a series containing one; see [Todo iteration](#todo-iteration-prefix).
 
 **Session todos** (the Session Todos view and the panel's session mode) are stored in one stable, git-tracked file per machine and quest — `_ai/quests/<quest>/session-todo.<host>.<quest>.todo.yaml` — and **persist across window reloads**. Older per-window session files are migrated into it automatically.
 
@@ -162,9 +238,23 @@ Prompts can repeat multiple times with customizable prefix and suffix text:
 - **repeatCount**: Total number of times to send the prompt. Accepts three forms:
   - A **plain integer** (e.g. `3`).
   - A **chat-variable name** — resolved to its numeric value at dispatch time (not at enqueue), so the count reflects the variable's value when the item is actually processed.
-  - A **`prefix*` pattern** (e.g. `tod*`) — resolved at dispatch to the highest number among the active quest's todo ids that match `prefix` followed by digits. Trailing non-digit characters on the id are ignored, so `tod3`, `tod3b`, and `tod3-review` all count as `3`. Empty prefixes or non-matching patterns fall back to `1`.
+  - A **`prefix*` pattern** (e.g. `tod*`) — switches the main prompt into **todo iteration**, described below. The displayed count is the highest number among the active quest's todo ids that match `prefix` followed by digits. Trailing non-digit characters on the id are ignored, so `tod3`, `tod3b`, and `tod3-review` all count as `3`. Only the quest's **live** todo files are scanned — todos in the `-archived` / `-deleted` siblings do not contribute.
 - **repeatIndex**: Current iteration (0-based internally, displayed 1-based)
 - **repeatPrefix / repeatSuffix**: Template text inserted before/after each repetition, supporting placeholders `${repeatNumber}` (1-based), `${repeatIndex}` (0-based), `${repeatCount}` (total)
+
+#### Todo iteration (`prefix*`)
+
+A `prefix*` repeat count does not repeat a fixed number of times — it **walks the active quest's numbered todos**, one per dispatch. This applies to the **main prompt only**; a `prefix*` entered on a pre-prompt or follow-up keeps the plain counter behaviour.
+
+- **Which todo goes next**: the lowest-numbered todo whose status is `not-started`. Todos sharing a number (`dsa2-a`, `dsa2-b`) are walked in alphabetical order. The walk starts at the first number that actually exists — a series of `dsa7`, `dsa9` starts at 7.
+- **Claiming**: before the prompt is sent, the picked todo is set to `in-progress`. That is what makes the walk terminate — a claimed todo no longer qualifies, so every dispatch shrinks the candidate set. Todos that are already `in-progress`, `blocked`, `completed`, or `cancelled` are skipped.
+- **An open decision holds the whole series**: if *any* matched todo is `decision-needed`, nothing is dispatched. The queue item goes to `DECISION-NEEDED`, auto-send switches off, and the ids that are waiting are logged.
+- **The held item does not hold the rest of the queue**: restart the queue and the other prompts run — the blocked one is skipped for as long as its decisions are open. Answer them (set the todo back to `not-started`) and it returns to `PENDING` by itself the next time the queue picks an item; there is nothing to click. It is never overridden — an item is released only once its series has no unanswered todo left.
+- **If the send fails**: the todo is handed back to `not-started`, so the retry picks up the same todo rather than skipping it.
+- **When nothing is left**: the main stage ends and the item proceeds to its follow-ups. A `prefix*` that matches no todo at all sends nothing and logs why — it does not fall back to a single run.
+- **Placeholders**: `${repeatTodoId}` is the picked todo's full id, `${repeatTodoTitle}` its title (its description when it has none), and `${repeatNumber}` its number. All three work in the prompt text and in the repeat prefix/suffix.
+- **In the queue entry header**: the current todo's full id appears as a badge next to the `[MP …]` progress, e.g. `SENDING [MP 7/9] [dsa7-review]`. The rep-number is read-only in this mode, since the walk is driven by todo status rather than by the counter.
+- **Caveat**: if a prompt resets its todo back to `not-started`, that todo will be picked up again.
 
 ### Answer Detection
 
@@ -184,6 +274,57 @@ The queue uses RequestId-based answer file matching:
 | Auto-pause | On | Pause auto-send when queue empties |
 | Auto-continue | Off | Auto-continue processing after receiving an answer |
 
+Turning **Auto-send** off never interrupts the item that is already running —
+it finishes its stages and then the queue stops instead of starting the next
+one. This holds for every transport and however the running item finishes
+(answer file, answer-wait timeout, manual **Continue**, or a resend).
+
+A few explicit actions deliberately start an item even while auto-send is off,
+because that is what they are for: **Send now** on an item, the per-item
+**Retry now** on a waiting or retrying item, and **Retry All Errors** (which
+turns auto-send back on for the cascade). The background health check also
+resumes an item whose rate-limit or retry window has just elapsed.
+
+### Pause after this
+
+Every queue item carries a **pause icon** in its header. Clicking it arms
+"pause after this" and the icon switches to an inverted (white-on-black)
+state so the armed item is unmistakable at a glance. Click again to disarm.
+
+The armed item still runs to completion — all pre-prompts, every repetition of
+its main prompt, and all follow-ups. Only *after* its last stage does the queue
+stop: auto-send flips off and the next pending item is not started. Items that
+repeat only once behave the same way.
+
+The hold is honoured on every path an item can finish on, including a manual
+**Continue** on the item and a resend — an item never slips past the pause
+because of *how* it happened to finish.
+
+The flag stays on the item rather than being consumed, so re-staging and
+sending it again pauses the queue again. Clear it with the same button; it
+remains visible (inverted) on a finished item precisely so a leftover flag
+cannot hide.
+
+### Interrupt for continuation
+
+**Stop** and **Pause** each cover one kind of interruption: Stop cancels the
+running prompt and reverts the item to Staged (a fresh restart from repetition
+1); Pause lets the running repetition finish and holds before the *next* one.
+Neither fits the case where *you* have to interrupt — the network is about to
+go away — and want the running repetition to simply run again once you are
+back. That is the **Interrupt for continuation** button (`codicon-debug-disconnect`,
+next to Stop in the toolbar, and on the running item's own row):
+
+- The running prompt is cancelled immediately; any partial answer is discarded.
+- The item is held at its **current repetition** with the status
+  `INTERRUPTED — RESENDS ON RESUME`, and Auto-send switches off.
+- Re-enabling Auto-send (the play toggle, Auto-start on reload, or
+  Auto-continue's timer) re-sends **that same repetition** with the same text
+  first, then the loop carries on. The held row also offers **Resend** (replay
+  now) and **Move back to Staged** (abandon the continuation).
+
+The state survives a window reload; Restart Queue leaves a held item alone.
+
 ### Watchdog and Health Check
 
 A background watchdog runs every 60 seconds to ensure queue reliability:
@@ -197,10 +338,10 @@ A background watchdog runs every 60 seconds to ensure queue reliability:
 
 Open with `Ctrl+Shift+6` or `@T: Open Prompt Queue`. The editor provides:
 
-- **Toolbar**: Auto-send, Auto-start, Auto-pause, Auto-continue toggles, Restart Queue button
+- **Toolbar**: Auto-send, Auto-start, Auto-pause, Auto-continue toggles, Restart Queue, **Stop** (cancel the running prompt and revert it to Staged) and **Interrupt for continuation** (see above)
 - **Entry list**: Per-item cards with status color coding, type badges, progress indicators
 - **Staged item form**: Template, repeat count, answer wait minutes, repeat prefix/suffix, pre-prompts
-- **Per-item controls**: Preview, send now, move up/down, delete, toggle reminder
+- **Per-item controls**: Preview, send now, move up/down, delete, toggle reminder, pause after this, interrupt for continuation (on the running item); an interrupted item offers Resend and Move back to Staged
 
 ## 5) Timed Requests
 

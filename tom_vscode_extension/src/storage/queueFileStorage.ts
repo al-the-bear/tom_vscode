@@ -113,6 +113,14 @@ export interface QueueExecutionState {
      */
     'waiting-until'?: string | null;
     'waiting-reset-label'?: string | null;
+    /**
+     * Backoff-retry state (status === 'retry'). `retry-attempt` is the number
+     * of retries already consumed (1-based after the first failure);
+     * `retry-until` is the ISO instant the queue auto-fires the next attempt.
+     * Persisted so a scheduled retry survives a window reload.
+     */
+    'retry-attempt'?: number | null;
+    'retry-until'?: string | null;
 }
 
 /** Reference to another prompt (string ID or external file ref). */
@@ -131,6 +139,8 @@ export interface QueuePromptYaml {
     'answer-wrapper'?: boolean;
     'repeat-count'?: number | string;
     'repeat-index'?: number;
+    /** TODO ITERATION (`prefix*`): id of the quest todo the last dispatch took. */
+    'repeat-todo-id'?: string;
     'resolved-repeat-count'?: number;
     'repeat-prefix'?: string;
     'repeat-suffix'?: string;
@@ -166,7 +176,9 @@ export interface QueueMetaYaml {
     'main-prompt'?: string;
     imports?: string[];
     quest?: string;
-    status?: 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'waiting';
+    status?: 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'waiting' | 'retry' | 'decision-needed' | 'interrupted';
+    /** "Pause after this": hold the queue once this item has finished. */
+    'pause-after'?: boolean;
     collapsed?: boolean;
     'template-name'?: string;
     category?: 'prompt' | 'answer' | 'system';
@@ -278,6 +290,14 @@ export interface QueueSettings {
      * is dispatched into the queue.
      */
     'default-message-template-id'?: string;
+    /**
+     * Deferred queue start: ISO instant before which the queue holds every
+     * send. Set from the header "Start in N minutes" dropdown. When the
+     * instant passes, the health-check enables auto-send, drains the queue,
+     * and clears this key (the dropdown resets to "No start time"). Absent =
+     * no deferral. Persisted so the delay survives a window reload.
+     */
+    'queue-start-at'?: string;
 }
 
 export function getQueueSettingsScopeKey(questId?: string): string {

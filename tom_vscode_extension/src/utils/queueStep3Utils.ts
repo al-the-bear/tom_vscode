@@ -54,6 +54,38 @@ export function shouldAutoPauseOnEmpty(autoSendEnabled: boolean, pendingCount: n
     return autoPauseEnabled && autoSendEnabled && pendingCount <= 0;
 }
 
+/** What happens to the queue once an item has finished its last stage. */
+export interface QueueAdvanceDecision {
+    /** Start the next pending item. */
+    advance: boolean;
+    /** Flip auto-send off and persist the setting. */
+    disableAutoSend: boolean;
+}
+
+/**
+ * Decide whether the queue moves on after a completed item.
+ *
+ * There are two independent reasons not to: the queue is paused
+ * (`autoSendEnabled` off), or the item carries the per-item "pause after
+ * this" flag. Both are answered here rather than at the call sites, because
+ * answering them separately is precisely how the queue used to keep running
+ * while paused — the Anthropic completion tails checked the flag but not the
+ * toggle. One question, one answer, one place.
+ *
+ * `disableAutoSend` is the flag's side effect: pausing via `pauseAfter` puts
+ * the queue in the same visible, reload-surviving state as pausing by hand,
+ * instead of a silent one-off skip.
+ */
+export function decideAdvanceAfterCompletion(
+    pauseAfter: boolean | undefined,
+    autoSendEnabled: boolean,
+): QueueAdvanceDecision {
+    if (pauseAfter) {
+        return { advance: false, disableAutoSend: autoSendEnabled };
+    }
+    return { advance: autoSendEnabled, disableAutoSend: false };
+}
+
 /**
  * Normalize a repeat-count value coming from a UI/webview input into the shape
  * the queue persists.
@@ -79,17 +111,326 @@ export function normalizeRepeatCountInput(value: number | string | undefined): n
 }
 
 /**
+ * How editable a queue item's repeat controls are, keyed on its status.
+ *
+ * - `full`     — every repeat field (counters + prefix/suffix/answer-wait).
+ *                Applies while the item is still ahead of dispatch.
+ * - `counters` — only the loop counters (main + template repeat count and
+ *                current index). Applies while the item is in flight so the
+ *                user can steer a running loop; the change takes effect on the
+ *                next repetition. Structural fields (prefix/suffix/answer-wait)
+ *                are frozen for the run.
+ * - `none`     — terminal / non-editable.
+ */
+export type RepeatEditMode = 'full' | 'counters' | 'none';
+
+export function computeRepeatEditability(status: string): RepeatEditMode {
+    if (status === 'staged' || status === 'pending') { return 'full'; }
+    if (status === 'sending' || status === 'waiting') { return 'counters'; }
+    return 'none';
+}
+
+/**
+ * The repeat fields a queue item exposes to editing. Structurally a subset of
+ * `QueuedPrompt`, kept vscode-free so the edit logic is unit-testable.
+ */
+export interface RepeatEditTarget {
+    repeatCount?: number | string;
+    resolvedRepeatCount?: number;
+    repeatIndex?: number;
+    repeatPrefix?: string;
+    repeatSuffix?: string;
+    answerWaitMinutes?: number;
+    templateRepeatCount?: number | string;
+    templateRepeatIndex?: number;
+}
+
+/** The patch shape accepted by `updateItemRepeat` messages. */
+export interface RepeatEditPatch {
+    repeatCount?: number | string;
+    repeatIndex?: number;
+    repeatPrefix?: string;
+    repeatSuffix?: string;
+    answerWaitMinutes?: number;
+    templateRepeatCount?: number | string;
+    templateRepeatIndex?: number;
+}
+
+/**
+ * Apply a repeat-field patch to a queue item, honouring the editability `mode`.
+ *
+ * The counter fields (main/template repeat count + current index) are applied
+ * in both `full` and `counters` mode — this is what lets a *sending* item's
+ * index and template counters be steered mid-loop, and what makes a *pending*
+ * item's status-bar inputs actually stick (both were silently dropped before,
+ * because the old gate only wrote counters for `staged`). The structural fields
+ * (prefix/suffix/answer-wait) are applied only in `full` mode; `none` is a
+ * no-op. Mutates `target` in place; pure otherwise.
+ */
+export function applyRepeatEditToItem(target: RepeatEditTarget, patch: RepeatEditPatch, mode: RepeatEditMode): void {
+    if (mode === 'none') { return; }
+
+    if (patch.repeatCount !== undefined) {
+        // Accept both number and string (variable name); either way the cached
+        // resolved value is stale and must be recomputed on next dispatch.
+        if (typeof patch.repeatCount === 'string' && isNaN(parseInt(patch.repeatCount, 10))) {
+            target.repeatCount = patch.repeatCount;
+        } else {
+            target.repeatCount = Math.max(0, Math.round(typeof patch.repeatCount === 'string' ? parseInt(patch.repeatCount, 10) || 0 : patch.repeatCount || 0));
+        }
+        target.resolvedRepeatCount = undefined;
+    }
+    if (patch.repeatIndex !== undefined) {
+        target.repeatIndex = Math.max(0, Math.round(patch.repeatIndex || 0));
+    }
+    if (patch.templateRepeatCount !== undefined) {
+        if (typeof patch.templateRepeatCount === 'string' && isNaN(parseInt(patch.templateRepeatCount, 10))) {
+            target.templateRepeatCount = patch.templateRepeatCount;
+        } else {
+            const val = typeof patch.templateRepeatCount === 'string' ? parseInt(patch.templateRepeatCount, 10) || 0 : patch.templateRepeatCount || 0;
+            target.templateRepeatCount = val > 0 ? val : undefined;
+        }
+    }
+    if (patch.templateRepeatIndex !== undefined) {
+        // 0-based — clamped non-negative. The dispatcher's computeRepeatDecision
+        // decides whether the item is still in range vs templateRepeatCount.
+        target.templateRepeatIndex = Math.max(0, Math.round(patch.templateRepeatIndex || 0));
+    }
+
+    if (mode !== 'full') { return; }
+
+    if (patch.repeatPrefix !== undefined) {
+        target.repeatPrefix = patch.repeatPrefix;
+    }
+    if (patch.repeatSuffix !== undefined) {
+        target.repeatSuffix = patch.repeatSuffix;
+    }
+    if (patch.answerWaitMinutes !== undefined) {
+        target.answerWaitMinutes = patch.answerWaitMinutes > 0 ? patch.answerWaitMinutes : undefined;
+    }
+}
+
+/** The subset of a quest todo the `prefix*` iteration needs. */
+export interface TodoIterationSource {
+    id: string;
+    status?: string;
+    title?: string;
+}
+
+/** A quest todo that matched a `prefix*` pattern, with its parsed number. */
+export interface TodoIterationEntry {
+    /** Full todo id, e.g. `dsa2-a`. */
+    id: string;
+    /** The digit run immediately after the prefix, e.g. `2`. */
+    index: number;
+    /** Todo title/description, when the source carried one. */
+    title?: string;
+    /** Normalised status — lower-case, dashes, never empty. */
+    status: string;
+}
+
+/** The one status that makes a todo eligible for dispatch. */
+const NOT_STARTED = 'not-started';
+
+/** The status that says "the user has not answered this todo's questions yet". */
+const DECISION_NEEDED = 'decision-needed';
+
+/**
+ * Parse a `prefix*` repeat-count value into its prefix.
+ *
+ * Returns `undefined` for anything that is not such a pattern — a plain count,
+ * a chat-variable name, a non-string, or a bare `*` (an empty prefix would
+ * match every todo, which is never what the user meant).
+ */
+export function parseTodoPrefixPattern(value: unknown): string | undefined {
+    if (typeof value !== 'string') {
+        return undefined;
+    }
+    const trimmed = value.trim();
+    if (!trimmed.endsWith('*')) {
+        return undefined;
+    }
+    const prefix = trimmed.slice(0, -1);
+    return prefix.length > 0 ? prefix : undefined;
+}
+
+/** Normalise a hand-editable YAML status to the canonical dashed lower-case form. */
+function normaliseStatus(status: string | undefined): string {
+    const normalised = (status || '').trim().toLowerCase().replace(/_/g, '-');
+    return normalised.length > 0 ? normalised : NOT_STARTED;
+}
+
+/**
+ * Collect the todos matching `prefix` + digits, ordered for iteration.
+ *
+ * The number is the run of digits **immediately after** the prefix; trailing
+ * characters are allowed and ignored, so `dsa15b` and `dsa7-review` contribute
+ * 15 and 7. Ids that don't start with the prefix, or whose first character
+ * after it isn't a digit (`dsable`, `dsa_2`), are dropped.
+ *
+ * The order is number ascending, then id alphabetically — so a series that
+ * shares a number (`dsa2-a`, `dsa2-b`) is walked in a stable, predictable
+ * order rather than in readdir order.
+ */
+export function collectPrefixTodos(
+    prefix: string,
+    todos: readonly TodoIterationSource[],
+): TodoIterationEntry[] {
+    const entries: TodoIterationEntry[] = [];
+    for (const todo of todos) {
+        const id = todo?.id;
+        if (typeof id !== 'string' || !id.startsWith(prefix)) {
+            continue;
+        }
+        const match = /^(\d+)/.exec(id.slice(prefix.length));
+        if (!match) {
+            continue;
+        }
+        entries.push({
+            id,
+            index: parseInt(match[1], 10),
+            title: todo.title,
+            status: normaliseStatus(todo.status),
+        });
+    }
+    entries.sort((a, b) => (a.index - b.index) || a.id.localeCompare(b.id));
+    return entries;
+}
+
+/**
+ * Pick the todo a `prefix*` iteration should dispatch next.
+ *
+ * Only `not-started` qualifies: `in-progress` means "we already dispatched
+ * this one", and completed / cancelled / blocked todos are not work to do.
+ * Because the dispatcher marks the picked todo `in-progress`, the candidate
+ * set strictly shrinks — that is what makes the walk terminate.
+ *
+ * Returns `undefined` when the value is not a `prefix*` pattern, when nothing
+ * matches the prefix, or when every matching todo has already been picked up.
+ */
+export function pickNextTodoForIteration(
+    value: unknown,
+    todos: readonly TodoIterationSource[],
+): TodoIterationEntry | undefined {
+    const prefix = parseTodoPrefixPattern(value);
+    if (prefix === undefined) {
+        return undefined;
+    }
+    return collectPrefixTodos(prefix, todos).find(e => e.status === NOT_STARTED);
+}
+
+/**
+ * The todos of a `prefix*` series that are still waiting on the user.
+ *
+ * Returned in series order so the manager can name them in the order the user
+ * will find them in the todo file.
+ */
+export function collectDecisionNeededTodos(
+    value: unknown,
+    todos: readonly TodoIterationSource[],
+): TodoIterationEntry[] {
+    const prefix = parseTodoPrefixPattern(value);
+    if (prefix === undefined) {
+        return [];
+    }
+    return collectPrefixTodos(prefix, todos).filter(e => e.status === DECISION_NEEDED);
+}
+
+/** What the main stage should send next — see {@link planMainStageDispatch}. */
+export type MainStageDispatchPlan =
+    | { mode: 'counter'; repeatIndex: number }
+    | { mode: 'todo'; todo: TodoIterationEntry }
+    | { mode: 'decision-needed'; todos: TodoIterationEntry[] }
+    | { mode: 'exhausted' };
+
+/**
+ * Decide whether the main stage has another prompt to send, and what drives it.
+ *
+ * **Counter mode** (numeric or variable repeat count) sends while
+ * `sentCount < repeatCount`, and reports the 0-based index of the repetition
+ * about to go out.
+ *
+ * **Todo-iteration mode** (a `prefix*` repeat count) ignores `sentCount`
+ * entirely: the loop runs while a `not-started` todo matching the prefix is
+ * left. `repeatCount` stays meaningful only as the *displayed* series size.
+ * Because the dispatcher marks the picked todo `in-progress`, the candidate
+ * set strictly shrinks — the walk cannot loop forever.
+ *
+ * A prefix that matches no todo at all is `exhausted`, not a single run: a
+ * "work on ${repeatTodoId}" prompt with no todo to name is worse than no
+ * prompt. The caller logs that case.
+ *
+ * **Unmade decisions hold the whole series.** A `decision-needed` todo anywhere
+ * in the matched set reports `decision-needed`, ahead of both the pick and the
+ * exhausted check. Running a *sibling* todo past an open question means working
+ * from a guess about the very thing still being decided; and reporting
+ * `exhausted` would quietly finish the queue item with the question never
+ * surfacing.
+ */
+export function planMainStageDispatch(
+    repeatCountRaw: number | string | undefined,
+    sentCount: number,
+    repeatCount: number,
+    todos: readonly TodoIterationSource[],
+): MainStageDispatchPlan {
+    if (parseTodoPrefixPattern(repeatCountRaw) !== undefined) {
+        const waiting = collectDecisionNeededTodos(repeatCountRaw, todos);
+        if (waiting.length > 0) {
+            return { mode: 'decision-needed', todos: waiting };
+        }
+        const todo = pickNextTodoForIteration(repeatCountRaw, todos);
+        return todo ? { mode: 'todo', todo } : { mode: 'exhausted' };
+    }
+    return sentCount < repeatCount ? { mode: 'counter', repeatIndex: sentCount } : { mode: 'exhausted' };
+}
+
+/** The part of `LastDispatchedInfo` that decides what a resend puts on the wire. */
+export interface ResendSnapshot {
+    kind: 'prePrompt' | 'main' | 'followUp';
+    /** The expanded text `dispatchStage` was called with last time. */
+    expandedText: string;
+}
+
+/**
+ * Decide which text a Resend should dispatch: the recorded snapshot, or the
+ * item's current prompt.
+ *
+ * The snapshot is the right answer for a *retry* — a dispatch lost to a
+ * transport error should go out byte-identical. But the queue also invites a
+ * different move: cancel a running item, correct the prompt, send it again.
+ * That path reverts the item to `staged` and rebuilds `expandedText` from the
+ * corrected `originalText`, and replaying the snapshot there sends the text the
+ * user just cancelled — the edit visible in the item and absent from the wire.
+ *
+ * So for the **main** stage the current text wins: an edit is an explicit
+ * statement of what should now be sent, and when nothing was edited the two
+ * values are equal anyway, leaving the retry byte-identical.
+ *
+ * The other two stages keep the snapshot. `expandedText` is a scratch field the
+ * pre-prompt and follow-up builders overwrite in place, so it holds whichever
+ * stage ran last — never a substitute for the stage being replayed.
+ *
+ * `undefined` (the field is optional on the persisted shape) falls back to the
+ * snapshot so a resend cannot dispatch nothing. An empty *string* is a real
+ * edit and is sent as one.
+ */
+export function resolveResendText(
+    snapshot: ResendSnapshot,
+    currentExpandedText: string | undefined,
+): string {
+    if (snapshot.kind !== 'main' || currentExpandedText === undefined) {
+        return snapshot.expandedText;
+    }
+    return currentExpandedText;
+}
+
+/**
  * Resolve a `prefix*` repeat-count against a set of quest-todo ids.
  *
- * When the user enters a repeat-count variable that ends in `*` (e.g. `dsa*`),
- * the count is the **highest number** among quest todos whose id is the prefix
- * followed by digits, with any trailing non-digit characters ignored —
- * `dsa1`, `dsa2`, … `dsa15`, `dsa15b`, `dsa7-review` all contribute (1, 2, 15,
- * 15, 7). The number taken is the run of digits **immediately after** the
- * prefix. Ids that don't start with the prefix, or whose first character after
- * the prefix isn't a digit (`dsable`, `dsa_2`), are ignored. This lets a single
- * queued prompt run once per numbered todo in a series without the user
- * counting them by hand.
+ * The count is the **highest number** among the matching todos — see
+ * {@link collectPrefixTodos} for the matching rule. It is the size of the
+ * series, not the work left: status is deliberately ignored, so the displayed
+ * total stays put while the iteration walks past already-completed todos.
  *
  * Returns `undefined` when `value` is not a `prefix*` pattern (so the caller
  * falls through to normal repeat-count resolution). When the pattern matches
@@ -105,36 +446,12 @@ export function resolveTodoPrefixRepeatCount(
     value: number | string | undefined,
     todoIds: readonly string[],
 ): number | undefined {
-    if (typeof value !== 'string') {
+    const prefix = parseTodoPrefixPattern(value);
+    if (prefix === undefined) {
         return undefined;
     }
-    const trimmed = value.trim();
-    if (!trimmed.endsWith('*')) {
-        return undefined;
-    }
-    const prefix = trimmed.slice(0, -1);
-    if (prefix.length === 0) {
-        return undefined;
-    }
-    let highest = 0;
-    for (const id of todoIds) {
-        if (!id.startsWith(prefix)) {
-            continue;
-        }
-        const suffix = id.slice(prefix.length);
-        // Take the run of digits immediately after the prefix; trailing
-        // non-digit characters (`dsa15b`, `dsa7-review`) are allowed and
-        // ignored. A suffix that doesn't start with a digit (`dsable`,
-        // `dsa_2`) contributes nothing.
-        const match = /^(\d+)/.exec(suffix);
-        if (!match) {
-            continue;
-        }
-        const n = parseInt(match[1], 10);
-        if (n > highest) {
-            highest = n;
-        }
-    }
+    const entries = collectPrefixTodos(prefix, todoIds.map(id => ({ id })));
+    const highest = entries.length > 0 ? entries[entries.length - 1].index : 0;
     return Math.max(1, highest);
 }
 
@@ -182,6 +499,56 @@ export function computeRemovalEffect<T extends { id: string; status: string }>(
         wasSending,
         nextAutoSendEnabled: wasSending ? false : autoSendEnabled,
     };
+}
+
+/** The part of a queue item that decides whether its decision block is over. */
+export interface DecisionHeldItem {
+    status: string;
+    /** The raw repeat count — a `prefix*` pattern names the series to check. */
+    repeatCount?: number | string;
+}
+
+/**
+ * Put back to `pending` every `decision-needed` item whose series no longer has
+ * an unanswered todo, and return the ones that moved (so the caller can name
+ * them in the log).
+ *
+ * **Why the condition matters.** Releasing every held item unconditionally
+ * reads as harmless — the dispatch gate would simply block it again. It is not:
+ * the released item is typically the *first* `pending` item in array order, so
+ * `sendNext` picks it, the gate re-blocks it and switches auto-send back OFF.
+ * The queue never reaches the prompts that have nothing to decide, and pressing
+ * play looks like it does nothing. Releasing only what is genuinely resolved
+ * leaves the blocked item held and lets the rest of the queue drain.
+ *
+ * An item is released when {@link collectDecisionNeededTodos} finds no waiting
+ * todo — which also covers the cases where nothing *can* resolve it: a repeat
+ * count that is not a `prefix*` pattern, or a todo set that came back empty.
+ * Both are recoverable (the gate reports `exhausted` and the item finishes);
+ * holding such an item forever is not.
+ *
+ * Only `status` is touched, so an item that had already dispatched repetitions
+ * resumes on its counters instead of re-sending from the top.
+ *
+ * Pure/context-free so it can be unit tested without the vscode-coupled
+ * PromptQueueManager (mirrors the `convertStagedToPending` pattern).
+ */
+export function releaseResolvedDecisionItems<T extends DecisionHeldItem>(
+    items: readonly T[],
+    todos: readonly TodoIterationSource[],
+): T[] {
+    const released: T[] = [];
+    for (const item of items) {
+        if (item.status !== DECISION_NEEDED) {
+            continue;
+        }
+        if (collectDecisionNeededTodos(item.repeatCount, todos).length > 0) {
+            continue;
+        }
+        item.status = 'pending';
+        released.push(item);
+    }
+    return released;
 }
 
 export function convertStagedToPending(items: Array<{ status: string }>): number {
@@ -376,4 +743,44 @@ export function applyRepetitionAffixes(input: RepetitionAffixInput): string {
     }
 
     return segments.join('\n\n');
+}
+
+/** Queue-level transport defaults, as surfaced by the dropdowns above the queue. */
+export interface QueueTransportDefaults {
+    transport: 'copilot' | 'anthropic';
+    anthropicProfileId?: string;
+    anthropicConfigId?: string;
+}
+
+/** Minimal shape of a queued item's transport/profile override fields. */
+export interface QueueTransportTarget {
+    transport?: 'copilot' | 'anthropic';
+    anthropicProfileId?: string;
+    anthropicConfigId?: string;
+}
+
+/**
+ * Copy the queue-level default transport + Anthropic profile (and its derived
+ * config) onto a single item, mutating and returning it.
+ *
+ * This is the "adopt queue settings" action wired to the per-item header
+ * button. Unlike the staged-only per-item override (`updateItemTransport`),
+ * it is meant to run for an item in ANY status — including a currently
+ * sending/repeating item — so the caller applies it without an
+ * editable-status guard. Only the transport and Anthropic profile/config are
+ * touched; status, repetition counters, template and text are deliberately
+ * left intact, so a repeating item keeps its place and its next repetition's
+ * transport resolution reads the freshly-adopted values.
+ *
+ * Empty/whitespace profile and config ids collapse to `undefined` so the item
+ * mirrors the queue default exactly (no stale override left behind).
+ */
+export function applyQueueDefaultTransportToItem<T extends QueueTransportTarget>(
+    item: T,
+    defaults: QueueTransportDefaults,
+): T {
+    item.transport = defaults.transport === 'anthropic' ? 'anthropic' : 'copilot';
+    item.anthropicProfileId = defaults.anthropicProfileId?.trim() ? defaults.anthropicProfileId : undefined;
+    item.anthropicConfigId = defaults.anthropicConfigId?.trim() ? defaults.anthropicConfigId : undefined;
+    return item;
 }

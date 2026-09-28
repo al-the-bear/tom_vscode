@@ -46,6 +46,16 @@
 - WORKSPACE TODOS
 - WINDOW STATUS
 
+## Quest TODO Panel — prefix groups
+
+- Group key = todo id up to its first digit (`qr3-2026…` → `qr`); no digit, or a leading digit → the **Unprefixed** group, always rendered last
+- Prefixes are verbatim: case-sensitive, separators kept (`qr` and `qr-` are different groups)
+- Separator line per group: chevron + prefix + count in brackets; click to expand/collapse
+- Named groups keep first-appearance order, so the active filter/sort still drives the layout
+- List opens fully collapsed on every script load (window reload / VS Code restart); expansion is never persisted
+- Collapse all: toolbar button `qt-btn-collapse-all` (collapse-all icon)
+- Shift-click stack ranges only span **visible** rows — a collapsed group is never traversed
+
 ## Quest TODO Panel — archive/delete buttons
 
 - Archive completed todo / Archive all completed → move to the `-archived` sibling file (completed todos only)
@@ -133,11 +143,52 @@
 | --- | --- | --- |
 | Guidelines | `book` | Copilot guidelines browser with project/quest dropdowns |
 | Documentation | `note` | Project documentation |
-| Logs | `output` | Extension logs |
+| Logs | `output` | Active quest's log files — see [Logs sub-tabs](#logs-sub-tabs) |
 | Settings | `settings-gear` | Embedded status page and configuration |
 | Issues | `issues` | Issue tracking |
 | Tests | `beaker` | Test results |
 | Quest TODO | `tasklist` | Quest todo list |
+
+#### Logs sub-tabs
+
+Read-only viewers over the active quest's files in `_ai/quests/{quest}/` — plus
+**Current Prompt**, which reads the quest's gitignored trail folder. The
+selected sub-tab survives a window reload; the content refreshes every 2.5 s. A
+file larger than 256 KB is read from — and the view opens at — the end its
+newest content is at (the *Opens at* column below). Two toolbar buttons act on
+the selected sub-tab: **Refresh** re-reads from disk, **Open in editor** opens
+the file in a normal text editor.
+
+| Sub-tab | File | View | Opens at |
+| --- | --- | --- | --- |
+| MD Trail | `live-trail.md` | Rendered markdown | Bottom (appended to) |
+| Trail | `live-trail.md` | Source, syntax-highlighted | Bottom (appended to) |
+| Prompts | `history/{quest}.anthropic.prompts.md` | Source | Top |
+| Answers | `history/{quest}.anthropic.answers.md` | Source | Top |
+| Progress | `progress.{quest}.md` | Source | Top |
+| Overview | `overview.{quest}.md` | Source | Top |
+| Notes | `quest-notes.{quest}.md` | Source | Top |
+| Refresh | `quest_refresh.{quest}.md` | Source | Top |
+| DocUpdate | `quest_documentation_update.{quest}.md` | Source | Top |
+| Deferred | `deferred.{quest}.md` | Source | Bottom (appended to) |
+| Questions | `questions.{quest}.md` | Source | Bottom (appended to) |
+| Decisions | `decisions.{quest}.md` | Source | Bottom (appended to) |
+| Current Prompt | `_ai/trail/anthropic/{quest}/current_prompt.*.md` | Source | Top |
+
+Not every quest has every file; a missing one is reported in the viewer.
+
+**Current Prompt** is the one sub-tab that shows several files, picked from a
+toolbar dropdown that appears only while it is selected. The six options are the
+three parts of a dispatched prompt for each of the two that can run in parallel:
+
+| Option | File | Content |
+| --- | --- | --- |
+| Chat / Queue Literal Prompt | `current_prompt.{chat\|queue}.literal.md` | What the user typed, pre-expansion |
+| Chat / Queue User Prompt | `current_prompt.{chat\|queue}.user.md` | The user message sent to the model |
+| Chat / Queue System Prompt | `current_prompt.{chat\|queue}.system.md` | The system prompt; empty when there is none |
+
+All three are rewritten on every send, so nothing lingers from the previous
+prompt. The dropdown selection is remembered alongside the sub-tab.
 
 ## Prompt Queue
 
@@ -152,6 +203,14 @@ Open: `Ctrl+Shift+6` or `@T: Open Prompt Queue`
 | Auto-pause | On | `toggleAutoPause` |
 | Auto-continue | Off | `toggleAutoContinue` |
 
+### Queue Toolbar Actions
+
+| Action | Icon | Effect |
+| --- | --- | --- |
+| Restart Queue | `codicon-debug-restart` | Reset stuck `sending` items to pending |
+| Stop | `codicon-debug-stop` | Cancel the running prompt, revert it to Staged |
+| Interrupt for continuation | `codicon-debug-disconnect` | Cancel now, hold the current repetition, resend it when auto-send is re-enabled |
+
 ### Queue Entry Statuses
 
 | Status | Color | Description |
@@ -161,6 +220,10 @@ Open: `Ctrl+Shift+6` or `@T: Open Prompt Queue`
 | Sending | Animated | Sent to Copilot, waiting for answer |
 | Sent | Gray | Completed |
 | Error | Red | Failed |
+| Waiting | Violet | Parked on a rate limit, retries automatically |
+| Retry | Violet | Parked on a backoff, retries automatically |
+| Decision-needed | Amber | Its `prefix*` todo series contains an undecided todo; auto-send is off. Restarting the queue returns it to Pending and re-checks |
+| Interrupted | Cyan | Held for continuation after a deliberate interrupt; auto-send is off. Re-enabling auto-send re-sends the interrupted repetition first. Exits: resume, or Move back to Staged |
 
 ### Queue Entry Types
 

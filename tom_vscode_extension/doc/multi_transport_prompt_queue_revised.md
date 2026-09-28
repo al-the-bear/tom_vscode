@@ -77,7 +77,9 @@ From the queue's perspective there are **two transports**: `copilot` and `anthro
 | `workbench.action.chat.open` (Copilot branch inside `dispatchStage`) | [line 2526](../src/managers/promptQueueManager.ts#L2526) |
 | Queue editor webview | [queueEditor-handler.ts](../src/handlers/queueEditor-handler.ts) (1863 lines) |
 | Reminder toggle / update bindings | [queueEditor-handler.ts:414-415, 432-434](../src/handlers/queueEditor-handler.ts#L414) |
-| `toggleAutoSend` | [queueEditor-handler.ts:468](../src/handlers/queueEditor-handler.ts#L468) |
+| `toggleAutoSend` | [queueEditor-handler.ts:607](../src/handlers/queueEditor-handler.ts#L607) |
+| `stopActiveItem` | [queueEditor-handler.ts:627](../src/handlers/queueEditor-handler.ts#L627) |
+| `interruptActiveForContinuation` / `interruptForContinuation` (interrupt for continuation, §4.18) | [queueEditor-handler.ts:637](../src/handlers/queueEditor-handler.ts#L637) |
 | `answerWaitMinutes` message payload | [queueEditor-handler.ts:494, 570, 591](../src/handlers/queueEditor-handler.ts#L494) |
 | `AnthropicTransport` leaf enum (`'direct' \| 'agentSdk' \| 'vscodeLm' \| 'localLlm'`) | [anthropic-handler.ts:58](../src/handlers/anthropic-handler.ts#L58) |
 | `AnthropicSendOptions` / `AnthropicSendResult` | [line 185](../src/handlers/anthropic-handler.ts#L185) / [line 291](../src/handlers/anthropic-handler.ts#L291) |
@@ -355,6 +357,8 @@ The `Config` dropdown merges both Anthropic configurations and Local LLM configu
 **Per-item override — gear-icon QuickPick** (not a collapsible form). Each *staged* queue item's header carries a gear icon (`codicon-settings`). Clicking it opens a three-step VS Code QuickPick flow: transport (Copilot / Anthropic / Inherit (queue default)) → profile → config. The config picker lists the same merged Anthropic + Local LLM entries with backing-type labels. Clearing an item's transport fields (pick "Inherit") makes the item fall through to the queue-level default.
 
 Design note: the spec's original sketch envisioned an always-visible collapsible Advanced section per item. The gear-icon QuickPick was chosen to keep the item row compact and avoid crowding the existing reminder + repeat controls. Both approaches satisfy the same contract — stage-level override reachable without leaving the queue editor, cleared via an "Inherit" option.
+
+**Adopt-queue-default button — one-click sync** (`codicon-arrow-circle-down`). Alongside the gear, every queue item header carries an "adopt queue settings" icon that copies the queue-level default transport + Anthropic profile (the dropdowns above the queue) straight onto the item. Unlike the staged-only gear, it is shown in **every status** and is applied without the `isEditableStatus` guard (`PromptQueueManager.applyQueueDefaultsToItem`, wired to the `applyQueueDefaultTransport` webview message). It touches only the transport and Anthropic profile/config — status, repetition counters, template and text are left intact — so for a currently repeating (`sending`) item the in-flight dispatch is untouched and the **next repetition** resolves the freshly-adopted transport/profile via `resolveStageTransport`. The item→patch logic is the pure, unit-tested `applyQueueDefaultTransportToItem` (`queueStep3Utils.ts`).
 
 **Per-stage override** (pre-prompts and follow-ups): each pre-prompt row and each follow-up row (when the item is editable) gets its own gear icon → same three-step QuickPick, routed to `updatePrePrompt` / `updateFollowUpPrompt` with the new transport fields. The inherit option on a stage-level picker is labelled "Inherit from item". Three levels of resolution: stage > item > queue default > `'copilot'`.
 
@@ -658,10 +662,133 @@ all pure (no `vscode` imports) and unit-tested in
 the manager owns persistence and change-event firing, keeping the helpers free
 of side effects.
 
+#### Interrupt for continuation
+
+The third interruption is external: the user has to pull the plug — the
+network is about to go away — and wants the running rep to *run again* once it
+is back; neither a fresh restart (**Stop**, which reverts to `staged`) nor a
+finish-first (**Pause**, which lets the in-flight rep complete). The toolbar's
+`codicon-debug-disconnect` button, and the same icon on the running item's row,
+call `interruptActiveItemForContinuation`:
+
+- The in-flight dispatch is cancelled exactly as Stop does
+  (`_cancelActiveDispatch` — epoch bump, CTS cancel, approval awaiters
+  released), so the owning frame stands down instead of erroring or advancing.
+- The item moves to **`interrupted`** via the pure `applyInterruptForContinuation`.
+  Its cursor is left untouched — counters, pre-prompt statuses, `followUpIndex`
+  and `lastDispatched` all survive — and only transient send-tracking is
+  cleared (answer-file expectation, reminders, a stale error). There is no
+  counter rollback: the loop bumped it before the send, so it already names the
+  interrupted rep, and the resume path replays that rep's frozen text.
+- **Auto-send is switched off** — not merely paused: the pause gate only
+  refuses the *next* rep, and here nothing may go out until re-armed.
+
+Re-arming auto-send — the play toggle, Auto-Start on load, or Auto-Continue's
+timer — runs `pickInterruptedResume` before any paused or pending work. With a
+`lastDispatched` snapshot the item is replayed through `resendLastPrompt` (same
+expanded text, counters untouched, then the loop advances naturally); without
+one (cancelled before any stage went out) it simply re-enters the backlog as
+`pending`. `sendNext` carries the same hook, guarded by auto-send, so a drain
+that does not come through the setter — a manually-sent item completing —
+resumes it too. While another item is `sending` the resume waits.
+
+Replaying the byte-identical text rather than re-expanding the prompt is
+deliberate: re-expansion could resolve `${todo}` to a different todo than the
+one the interrupted rep had claimed.
+
+The row is labelled **`INTERRUPTED — RESENDS ON RESUME`** and offers **Resend**
+(replay now, without re-arming) and **Move back to Staged** (abandon the
+continuation — the same reset as stopping). `interrupted` → `pending` is not a
+sanctioned transition — it would re-dispatch with the counter one ahead and
+skip the rep — so `setStatus` refuses it. `restartQueue` only resets `sending`
+and leaves a held item alone; crash recovery likewise, so the state survives a
+window reload. The status is enumerated in `queue-entry.schema.json` and on the
+MCP `listQueue` surface; a Telegram command and an MCP trigger are deferred.
+
+#### Backoff retry, deferred start, and idle signalling
+
+Four refinements layer on top of the pause/resume/error model above. The retry
+logic is pure and unit-tested in
+[`src/utils/queueRetryTransitions.ts`](../src/utils/queueRetryTransitions.ts)
+(no `vscode` imports).
+
+- **`'retry'` status with a backoff cascade.** A genuine send failure no longer
+  stops after a few immediate attempts. `_markItemError` parks the item in the
+  new `'retry'` status and schedules re-sends at `RETRY_BACKOFF_MS` = 30 s, then
+  +15/30/45/60/60/60 min (7 attempts, ≈ 4 h 30 m). Retry items keep their queue
+  position; `statusSortRank` clusters `decision-needed`/`error`/`retry`/`waiting` at the top so a
+  stalled queue is visible, and retry reuses the waiting **violet** (`#b39ddb`).
+  Per-item **retry-now** (`retryRetryingNow`) and **stop-retrying**
+  (`stopRetrying`, → paused `error`) icons are wired through the handler and
+  manager; schedule exhaustion falls through to the existing paused-error
+  transition. `computeRetryDecision`, `applyRetryScheduling`, `fireRetry`,
+  `isRetryDue`, `applyStopRetrying`, and `isPreviousMessageIdError` carry the
+  logic. The agent-SDK `previous_message_id … must start with msg_` 400 is
+  classified via `isPreviousMessageIdError`; before the first retry the transport
+  deletes `default.session.json` (`clearAgentSdkSessionId`) so the SDK
+  re-handshakes clean instead of hard-failing the prompt.
+
+- **`inFlightRepetition` rollback.** The dispatch loop advances a stage's
+  repetition counter optimistically (`repeatIndex = mainSentCount + 1`, and the
+  pre-prompt / follow-up equivalents) *before* the send resolves. A transient
+  `inFlightRepetition` snapshot records that single advance; `_markItemError`
+  calls the pure `rollbackInFlightRepetition` before every waiting / retry /
+  hard-error transition so a retry re-sends the **same** failed rep instead of
+  walking the loop forward.
+
+  A snapshot must never outlive the dispatch it describes: while it is set, any
+  `_markItemError` rewinds that counter, so a leftover snapshot turns an
+  unrelated later failure into a silent rewind. It is therefore cleared at every
+  transition that ends a dispatch — the pause gate, the top of each fresh
+  attempt and the done path in `dispatchNextStageForSendingItem`; `setStatus`
+  sending → staged (and so `stopActiveItem`); `resendLastPrompt`, which advances
+  no counter of its own; and `applyCrashRecovery`. Dispatch **success** is
+  deliberately not a clear point: `_clearRetryOnDispatchSuccess` wipes the retry
+  bookkeeping but leaves the snapshot, because a polled Copilot send that
+  returned is still unanswered and its advance is not yet final.
+
+- **Deferred queue start.** A header **"Start in N minutes"** dropdown
+  (`setQueueStartDelay` / `queueStartAt`; No start time / 15/30/60/90/180/270/
+  360/420) holds every send in `sendNext` + the health check until the target
+  instant passes, then clears itself and re-enables auto-send. `queueStartAt`
+  persists across reload via `queue-settings.yaml`.
+
+- **Idle-amber header.** A transient `awaitingAnswer` flag (set at all three
+  dispatch points, cleared at the pause gate, the done path, and
+  `_markItemError`) lets the webview tell a genuinely in-flight iteration from an
+  idle gap between repetitions. The sending item's status-bar header (and the
+  next pending item's) stays **green** while a prompt is processing and takes the
+  amber `.status-bar.idle` background (`#ffc107`) once the queue is paused with
+  nothing in flight (`queueActive = autoSend || some(sending && awaitingAnswer)`).
+  The sending label splits into **`SENDING (PAUSED)`** (iteration still running)
+  vs **`PAUSED`** (idle).
+
+- **Quest-refresh running banner.** While a Quest Refresh prompt is being
+  dispatched — from either the queue's own refresh step or an interactive send —
+  `QuestRefreshService` exposes `isRefreshing` and fires `onDidChangeRefreshing`.
+  The queue editor subscribes and paints an orange banner between the queue
+  header and the first item, so a refresh-induced pause reads as intentional
+  rather than stuck. `isRefreshing` is set only when there is an actual refresh
+  prompt to dispatch (the blank trim-and-reset case stays instant) and cleared in
+  the `finally`, so a failed refresh never leaves the banner stuck on.
+
 ## 5. Edge cases and non-obvious bits
 
 - **Template expansion placeholders** (`${repeatNumber}`, `${repeatIndex}`, chat variables): handled at expand-time inside `_buildExpandedText` at [promptQueueManager.ts:434](../src/managers/promptQueueManager.ts#L434) — unchanged. Chat-variable-driven `repeatCount` keeps working identically on both transports.
-- **`repeatCount` resolves at dispatch, not enqueue.** A `repeatCount` may be a plain integer, a chat-variable name, or a **`prefix*` pattern** (e.g. `tod*`). The raw value is stored on the item at enqueue (the client webview and the enqueue handlers no longer coerce a non-numeric value down to `1` — see `normalizeRepeatCountInput` / the webview `normalizeRepeatField`), and the actual count is computed at the processing chokepoint `resolveStableRepeatCount` and cached to `item.resolvedRepeatCount`. For a `prefix*` value, `resolveTodoPrefixRepeatCount` returns the highest number among the active quest's todo ids matching `prefix` + a leading digit-run; trailing non-digit characters are ignored (`tod3b` counts as `3`), and empty/non-matching patterns fall back to `1`.
+- **`repeatCount` resolves at dispatch, not enqueue.** A `repeatCount` may be a plain integer, a chat-variable name, or a **`prefix*` pattern** (e.g. `tod*`). The raw value is stored on the item at enqueue (the client webview and the enqueue handlers no longer coerce a non-numeric value down to `1` — see `normalizeRepeatCountInput` / the webview `normalizeRepeatField`), and the actual count is computed at the processing chokepoint `resolveStableRepeatCount` and cached to `item.resolvedRepeatCount`. For a `prefix*` value, `resolveTodoPrefixRepeatCount` returns the highest number among the active quest's todo ids matching `prefix` + a leading digit-run; trailing non-digit characters are ignored (`tod3b` counts as `3`), and empty/non-matching patterns fall back to `1`. The id list comes from `readAllTodos`, which reads the quest's **live** todo files only — the `-archived` / `-deleted` siblings are excluded, so a retired todo cannot inflate the iteration count (see `TodoFileScope` in `src/utils/todoArchiveNames.ts`).
+- **A `prefix*` main prompt runs in TODO ITERATION mode, not counter mode.** `planMainStageDispatch` (`src/utils/queueStep3Utils.ts`) reduces both modes to one gate. In counter mode the gate is `sentCount < repeatCount`. In todo mode `sentCount` is ignored entirely: `pickNextTodoForIteration` returns the lowest-numbered `not-started` todo matching the prefix (ties broken alphabetically, so `dsa2-a` precedes `dsa2-b`), and the stage runs while one exists. The resolved count stays frozen as the *displayed* series size only.
+  - **Termination comes from the status write, not from a counter.** The dispatcher marks the picked todo `in-progress` **before** sending; an `in-progress` todo no longer qualifies, so the candidate set strictly shrinks. If the write does not stick (`updateTodo` returns `undefined`), the stage ends instead of dispatching — otherwise the same todo would be picked on every pass.
+  - **`item.repeatIndex` carries the todo's number** in this mode (so the entry reads "7/9" for `dsa7`), and `${repeatNumber}` prints it. `${repeatTodoId}` / `${repeatTodoTitle}` name the todo; both are `''` outside todo mode.
+  - **Rollback releases the claim.** `InFlightRepetition.todoId` records what the dispatch claimed. The shared dispatch-failure handler reads it *before* `rollbackInFlightRepetition` consumes the snapshot, then writes the todo back to `not-started` — the status write is I/O and deliberately stays out of the pure rollback. `prevRepeatTodoId` restores what the entry displayed.
+  - **Scope**: main prompt only. A `prefix*` on a pre-prompt or follow-up keeps counter behaviour against the resolved max-index.
+  - **No matching todo is not "run once".** `resolveTodoPrefixRepeatCount` floors at `1`, but a "work on `${repeatTodoId}`" prompt with no todo to name is worse than no prompt — the stage logs and skips.
+  - **An unmade decision holds the whole series.** A todo in status `decision-needed` — one whose `decisions[]` the user has not answered yet — makes `planMainStageDispatch` return `{mode: 'decision-needed', todos}` ahead of both the pick and the exhausted check, listing every waiting todo of the series (`collectDecisionNeededTodos`). Presence blocks, not position: running a *sibling* todo past an open question means working from a guess about the very thing being decided. The manager logs the waiting ids, moves the item to the **`'decision-needed'`** status, flips auto-send off and returns `'paused'` — reporting `exhausted` instead would quietly finish the item with the question never surfacing. `statusSortRank` puts `decision-needed` at the very head (ahead of `error`) because it is the only stopped state that cannot clear by itself, and the entry renders amber (`#ffb300`).
+  - **A held item is released only once its decisions are answered — the rest of the queue runs past it.** `sendNext()` calls `_releaseResolvedDecisionItems()` before picking the next item; it re-reads the quest todos and `releaseResolvedDecisionItems` (pure, `queueStep3Utils.ts`) puts back to `'pending'` every held item whose series has no `decision-needed` todo left. An item whose decisions are still open stays held and `sendNext` picks the next *pending* prompt instead, so a `dec*` item waiting on the user no longer stops prompts that have nothing to decide. Releasing unconditionally on resume is what made the play button look like a no-op: the released item was the first pending one in array order, so it was picked, re-blocked, and auto-send went straight back off. Items whose block can never resolve — a repeat count that is not a `prefix*` pattern, or an unreadable/empty todo set — are released rather than stranded; the gate then reports `exhausted` and the item finishes. Only `status` is touched, so an item with prior repetitions resumes on its counters rather than re-sending from the top. `decision-needed` is state-machine-managed: `tomAi_setQueueItemStatus` cannot set it.
+- **One gate decides whether the queue advances after a completion.** `decideAdvanceAfterCompletion(pauseAfter, autoSendEnabled)` (`src/utils/queueStep3Utils.ts`), reached through the manager's `_shouldAdvanceQueueAfter(item)`, answers both reasons the queue might stop — the queue is paused, or the item carries "pause after this" — and applies the flag's side effect of flipping auto-send off. A completion tail calls `sendNext()` / `delaySendNext()` **only** when it returns true.
+  - **All six completion sites go through it**: answer-wait timer, answer-file watcher, resume-from-pause, manual **Continue** (`advanceSendingItemWithoutAnswer`), `sendItem`, `resendLastPrompt`. Neither the pause nor the auto-send toggle may depend on *how* an item happened to finish. `queueAdvanceAfterCompletion.test.ts` asserts this against the manager *source* — `PromptQueueManager` imports `vscode` and cannot be instantiated under `node:test`, so the wiring is checked by scanning each `status = 'sent'` site for a guarded advance.
+  - **`sendNext()` itself deliberately does not check `autoSendEnabled`**, because the explicit escape hatches need to kick a paused queue: the health-check resume after a rate-limit / retry / deferred-start window, per-item `retryWaitingNow` / `retryRetryingNow`, `retryAllErrors` (which re-enables auto-send first), and `sendItem` called directly by "send now". That is precisely why the check is mandatory in the completion tails — and why it lives in one method instead of being restated at each of them: a tail that restates only half the condition looks correct in isolation while letting a paused queue start the next item.
+  - **"Pause after this" holds at item granularity, not stage granularity.** `item.pauseAfter` never shortens an item: the gate is consulted only where an item reaches `'sent'`, so all pre-prompts, every main-prompt repetition and all follow-ups run first.
+  - **Sticky, not one-shot.** The flag stays on the item, so re-sending it pauses again. It is persisted under `meta.pause-after` and rendered inverted in the entry header — including on a finished item, so a leftover flag stays visible.
 - **Pre-prompts with anthropic transport**: each pre-prompt awaits its own direct call. Because direct calls are synchronous, the pre-prompt chain runs back-to-back without polling gaps. This is much faster than the Copilot flow, which waits 30-second poll intervals between stages. May surprise users — consider documenting in the queue editor's help text.
 - **Pre-prompt context carries automatically** (anthropic transport). The Anthropic handler already preserves turn history across calls: Direct / VS Code LM / Local LLM leaves use `rawTurns` + `compactedSummary` (appended on every non-isolated `sendMessage`), and the Agent SDK leaf uses its own session continuity via `default.session.json`. A pre-prompt's answer is therefore visible to the main prompt without any queue-level chaining or placeholder machinery — the user just writes pre-prompt and main prompt naturally, and the handler stitches them into one conversation. This is symmetric with how Copilot pre-prompts behave (Copilot carries session state via `workbench.action.chat.open`). No action needed at the queue layer.
 - **Template reference invalidated when transport changes.** Template names are meaningful only within one transport's store. Switching a queue item's transport in the editor clears its template selection and repopulates from the new transport's store. Do **not** auto-copy templates across stores — the two shapes overlap but aren't identical, and silent conversion is too magical.

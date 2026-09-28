@@ -290,7 +290,7 @@ Clicking the wrench icon opens a floating popup panel (VS Code `QuickPick`-style
 
 ##### e) Todo Selector
 - Dropdown listing todo items from the selected todo file
-- Shows `{id}: {title}` with status icon (⬜ not-started, 🔄 in-progress, ✅ completed, ⛔ blocked)
+- Shows `{id}: {title}` with status icon (⬜ not-started, 🔄 in-progress, ✅ completed, ⛔ blocked, ❓ decision-needed)
 - "(None)" option to clear selection
 - Updates `ChatVariablesStore.todo`
 
@@ -588,7 +588,7 @@ interface QueuedPrompt {
 - Form fields matching the todo schema:
   - `id` — text input (read-only for existing, editable for new)
   - `title` — text input
-  - `status` — dropdown (not-started, in-progress, blocked, completed, cancelled)
+  - `status` — dropdown (not-started, in-progress, blocked, decision-needed, completed, cancelled)
   - `priority` — dropdown (low, medium, high, critical)
   - `description` — textarea
   - `tags` — tag input (chips with x to remove, text input to add)

@@ -31,13 +31,61 @@ function firstSegment(fileName: string): string {
     return dot === -1 ? base : base.slice(0, dot);
 }
 
+/** True when the file is a terminal ARCHIVE file (`-archived` first segment). */
+export function isArchivedTodoFile(fileName: string): boolean {
+    return firstSegment(fileName).endsWith(ARCHIVED_SUFFIX);
+}
+
+/** True when the file is a terminal DELETE file (`-deleted` first segment). */
+export function isDeletedTodoFile(fileName: string): boolean {
+    return firstSegment(fileName).endsWith(DELETED_SUFFIX);
+}
+
 /**
  * True when the file is a terminal archive/delete file — i.e. the first
  * dot-separated segment of its basename ends in `-archived` or `-deleted`.
  */
 export function isArchivedOrDeletedTodoFile(fileName: string): boolean {
-    const seg = firstSegment(fileName);
-    return seg.endsWith(ARCHIVED_SUFFIX) || seg.endsWith(DELETED_SUFFIX);
+    return isArchivedTodoFile(fileName) || isDeletedTodoFile(fileName);
+}
+
+/**
+ * Which classes of todo file a listing should include (TRA13).
+ *
+ * A todo file is exactly one of three kinds, decided by its first
+ * dot-segment: `-archived` (archive sibling), `-deleted` (delete sibling),
+ * or otherwise NORMAL — which covers both the quest todo files and the
+ * session todo files, since neither is terminal.
+ *
+ * The defaults answer the question "what does the caller mean by *the*
+ * todos of this quest": the live ones. Archived and deleted todos are
+ * deliberately retired, so counting or iterating over them is virtually
+ * always a bug — see the `<prefix>*` repeat count, which used to inflate
+ * its iteration count with todos the user had archived. Callers that
+ * genuinely need the retired files (the file picker, find-by-id lookups
+ * that must still resolve an archived todo) opt back in explicitly.
+ */
+export interface TodoFileScope {
+    /** Include non-terminal files (quest + session todos). Default `true`. */
+    showNormalFiles?: boolean;
+    /** Include `-archived` siblings. Default `false`. */
+    showArchiveFiles?: boolean;
+    /** Include `-deleted` siblings. Default `false`. */
+    showDeletedFiles?: boolean;
+}
+
+/** Scope that admits every todo file, for callers that must see retired ones. */
+export const ALL_TODO_FILES: TodoFileScope = Object.freeze({
+    showNormalFiles: true,
+    showArchiveFiles: true,
+    showDeletedFiles: true,
+});
+
+/** True when `fileName` belongs to the classes admitted by `scope`. */
+export function matchesTodoFileScope(fileName: string, scope?: TodoFileScope): boolean {
+    if (isArchivedTodoFile(fileName)) { return scope?.showArchiveFiles === true; }
+    if (isDeletedTodoFile(fileName)) { return scope?.showDeletedFiles === true; }
+    return scope?.showNormalFiles !== false;
 }
 
 function derivedName(fileName: string, suffix: string): string {

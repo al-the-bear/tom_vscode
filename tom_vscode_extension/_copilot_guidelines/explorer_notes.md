@@ -19,6 +19,15 @@ Contributed in the **@TOM** sidebar (Activity Bar view container). Tree views th
 
 Keep workspace context navigable without leaving Explorer / Activity Bar. Notes and todos are markdown / YAML files — the tree views are thin navigation shells with file-watcher refresh; the actual editor is VS Code's built-in markdown / YAML, or the custom [quest todo editor](../src/handlers/questTodoPanel-handler.ts) for `*.todo.yaml` files.
 
+## Notes views — picking up edits made elsewhere
+
+The three notes views (VS CODE NOTES, WORKSPACE NOTES, QUEST NOTES) share one store, [`NotepadFileStorage`](../src/handlers/notepad/notepadFileStorage.ts), and each hands it an `onExternalChange` callback that re-renders the view. Two things about it are load-bearing:
+
+- **A `NOTEPAD_POLL_INTERVAL_MS` poll is the guarantee, not the `createFileSystemWatcher`.** None of the three files is reliably watchable: quest and workspace notes sit under `_ai/`, a relative symlink whose real path is outside the workspace folder, and the global notes are in `~/.tom/notes/`, outside any workspace folder. Same reason the MD Browser polls its live-trail (`markdownBrowser-handler.ts`). The watcher stays as a low-latency extra; if it never fires, the view still updates.
+- **The view's own autosave is recognised by content, not by timing.** `save()` updates the in-memory content before writing, so a change signal whose disk content matches it is our own echo. Do not reintroduce an "ignore the next event" flag: it is set on every save and cleared only when an event arrives, so on these paths it stayed armed and swallowed the *next real* external edit.
+
+Both are covered by `src/handlers/__tests__/notepadFileStorage.test.ts`, where the stub watcher never fires unless a test asks it to.
+
 ## Window Status specifics
 
 Shows one card per open `@Tom` window:

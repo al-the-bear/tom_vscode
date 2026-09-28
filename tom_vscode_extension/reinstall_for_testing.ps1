@@ -228,3 +228,5 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "❌ Failed to package extension" -ForegroundColor Red
     exit 1
 }
+
+Write-Host "🕒 Finished at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"

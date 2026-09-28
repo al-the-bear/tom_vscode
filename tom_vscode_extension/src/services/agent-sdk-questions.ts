@@ -26,12 +26,13 @@
  */
 
 import type { UserPrompter, PickerItem } from '../tools/user-interaction-tools';
+import { pickWithFreeTextOption, OTHER_OPTION_LABEL } from './free-text-picker';
+import type { QuestionLogEntry } from '../utils/questionsLogFormat';
 
 /** The built-in tool name the SDK uses (no `mcp__` prefix on built-ins). */
 export const ASK_USER_QUESTION_TOOL_NAME = 'AskUserQuestion';
 
-/** Label appended to every question's option list for free-text entry. */
-export const OTHER_OPTION_LABEL = 'Other…';
+export { OTHER_OPTION_LABEL };
 
 export interface AskUserQuestionOption {
     label: string;
@@ -178,44 +179,74 @@ export async function collectInteractiveAnswers(
             description: o.description,
             value: o.label,
         }));
-        items.push({ label: OTHER_OPTION_LABEL, value: OTHER_OPTION_LABEL });
+        const title = q.header || 'Question';
 
-        const picked = await prompter.showQuickPick(items, {
-            title: q.header || 'Question',
-            placeHolder: q.question,
-            canPickMany: q.multiSelect,
-            matchOnDescription: true,
-            ignoreFocusOut: true,
-        });
-        if (picked === undefined) {
-            return null; // dismissed → autonomous fallback
-        }
-
-        const pickedArr = Array.isArray(picked) ? picked : [picked];
-        const selections: string[] = [];
-        let needsFreeText = false;
-        for (const p of pickedArr) {
-            if (p.value === OTHER_OPTION_LABEL) {
-                needsFreeText = true;
-            } else {
-                selections.push(p.value);
-            }
-        }
-        if (needsFreeText) {
-            const free = await prompter.showInputBox({
-                prompt: q.question,
-                placeHolder: 'Type your answer…',
-                title: q.header || 'Question',
+        const picked = await pickWithFreeTextOption(
+            prompter,
+            items,
+            {
+                title,
+                placeHolder: q.question,
+                canPickMany: q.multiSelect,
+                matchOnDescription: true,
                 ignoreFocusOut: true,
-            });
-            if (free === undefined) {
-                return null; // dismissed the free-text box → autonomous fallback
-            }
-            if (free.trim().length > 0) {
-                selections.push(free.trim());
-            }
+            },
+            { prompt: q.question, title },
+        );
+        // Dismissal and timeout both mean "no answer", so both fall back to the
+        // template. (No `timeoutMs` is requested here, so the timed-out case is
+        // unreachable in practice — handling it keeps it from ever being
+        // mistaken for a pick.)
+        if (picked.kind !== 'picked') {
+            return null;
         }
-        answers.push({ header: q.header, question: q.question, selections });
+        answers.push({
+            header: q.header,
+            question: q.question,
+            selections: picked.selections.map((s) => s.value),
+        });
     }
     return formatInteractiveAnswers(answers);
+}
+
+// ---------------------------------------------------------------------------
+// Questions journal
+// ---------------------------------------------------------------------------
+
+/** How an intercepted `AskUserQuestion` was resolved. */
+export type AskUserQuestionOutcome =
+    | { kind: 'answered'; text: string }
+    | { kind: 'dismissed' }
+    | { kind: 'autonomous' };
+
+/**
+ * The questions-journal entry for an intercepted `AskUserQuestion`.
+ *
+ * The ask tools journal every exchange; the interceptor is the third way a
+ * question reaches the user and was the one path that left no trace — a
+ * picker the user hit could not be found afterwards. Pure, so the shape is
+ * tested here and the transport only appends it.
+ */
+export function buildAskUserQuestionLogEntry(
+    parsed: ParsedAskUserQuestion,
+    outcome: AskUserQuestionOutcome,
+    askedAt: number,
+    answeredAt: number,
+): QuestionLogEntry {
+    const headers = parsed.questions.map((q) => (q.header ?? '').trim()).filter((h) => h.length > 0);
+    const answer = outcome.kind === 'answered'
+        ? outcome.text
+        : outcome.kind === 'dismissed'
+            ? '_(dismissed — autonomous fallback sent)_'
+            : '_(interactive questions off — autonomous fallback sent)_';
+    const source = outcome.kind === 'answered' ? 'vscode' : outcome.kind === 'dismissed' ? 'cancel' : 'autonomous';
+    return {
+        tool: ASK_USER_QUESTION_TOOL_NAME,
+        title: headers.length > 0 ? headers.join(' · ') : undefined,
+        questions: parsed.questions.map((q) => q.question),
+        answer,
+        source,
+        askedAt,
+        answeredAt,
+    };
 }

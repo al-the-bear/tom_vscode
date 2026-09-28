@@ -33,6 +33,7 @@ import {
     collectInteractiveAnswers,
     OTHER_OPTION_LABEL,
     ASK_USER_QUESTION_TOOL_NAME,
+    buildAskUserQuestionLogEntry,
 } from '../agent-sdk-questions.js';
 
 // ---------------------------------------------------------------------------
@@ -185,5 +186,45 @@ describe('collectInteractiveAnswers', () => {
         const prompter = makePrompter([ITEM(OTHER_OPTION_LABEL)], [undefined]);
         const text = await collectInteractiveAnswers(prompter, parsed);
         assert.equal(text, null);
+    });
+});
+
+describe('buildAskUserQuestionLogEntry', () => {
+    // The ask tools journal every exchange; the interceptor is the third way a
+    // question reaches the user and was the one path that left no trace.
+    const parsed = parseAskUserQuestionInput({
+        questions: [
+            { question: 'Pick a colour', header: 'Colour', options: [{ label: 'Red' }] },
+            { question: 'Pick a size', options: [{ label: 'S' }] },
+        ],
+    })!;
+
+    test('an answered question records the formatted answers, resolved from vscode', () => {
+        const e = buildAskUserQuestionLogEntry(parsed, { kind: 'answered', text: '**Colour** — Pick a colour\n→ Red' }, 1000, 1500);
+        assert.equal(e.tool, ASK_USER_QUESTION_TOOL_NAME);
+        assert.equal(e.title, 'Colour');
+        assert.deepEqual(e.questions, ['Pick a colour', 'Pick a size']);
+        assert.match(e.answer, /→ Red/);
+        assert.equal(e.source, 'vscode');
+        assert.equal(e.askedAt, 1000);
+        assert.equal(e.answeredAt, 1500);
+    });
+
+    test('a dismissal is a cancel, with the autonomous fallback noted as what went back', () => {
+        const e = buildAskUserQuestionLogEntry(parsed, { kind: 'dismissed' }, 1000, 1500);
+        assert.equal(e.source, 'cancel');
+        assert.match(e.answer, /dismissed/);
+        assert.match(e.answer, /fallback/);
+    });
+
+    test('interactive questions off is its own source — the user never saw the question', () => {
+        const e = buildAskUserQuestionLogEntry(parsed, { kind: 'autonomous' }, 1000, 1500);
+        assert.equal(e.source, 'autonomous');
+        assert.match(e.answer, /interactive questions off/);
+    });
+
+    test('no headers means no title, so the journal heads the entry with the tool name', () => {
+        const bare = parseAskUserQuestionInput({ questions: [{ question: 'Anything?', options: [{ label: 'A' }] }] })!;
+        assert.equal(buildAskUserQuestionLogEntry(bare, { kind: 'dismissed' }, 1, 2).title, undefined);
     });
 });

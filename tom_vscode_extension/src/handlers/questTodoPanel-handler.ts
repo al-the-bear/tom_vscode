@@ -21,6 +21,7 @@ import * as questTodo from '../managers/questTodoManager.js';
 import { collectAllTags, readAllQuestsTodos, readWorkspaceTodos, listQuestIds, listWorkspaceTodoFiles, scanWorkspaceProjects, collectScopeValues } from '../managers/questTodoManager.js';
 import { SessionTodoStore } from '../managers/sessionTodoStore.js';
 import { WsPaths } from '../utils/workspacePaths';
+import { questTrailFolder } from '../utils/questPaths.js';
 import { isSessionTodoFileName } from '../utils/sessionTodoNames';
 import { computeMoveTargetFiles } from '../utils/questTodoMoveTargets';
 import { getExternalApplicationForFile, openInExternalApplication, resolvePathVariables, applyDefaultTemplate, DEFAULT_ANSWER_FILE_TEMPLATE } from './handler_shared';
@@ -196,10 +197,16 @@ export { getQuestTodoCss, getQuestTodoHtmlFragment };
  * restructuring); here we only prepend the single config-dependent line. The
  * body uses the global `vscode` handle defined by each host shell (popout /
  * embedded / accordion), so it does not call acquireVsCodeApi() itself.
+ *
+ * `grouping.js` comes first: it holds the pure prefix-grouping rule that
+ * `main.js` calls while rendering the list. It is a separate file precisely
+ * because it has no DOM or host dependency, which lets it be unit-tested in a
+ * bare sandbox (see `src/utils/__tests__/questTodoPrefixGroups.test.ts`).
  */
 export function getQuestTodoScript(config?: QuestTodoViewConfig): string {
     const cfgJson = JSON.stringify(config ?? {});
     return `\n// ── Quest TODO variables ──\nvar qtViewConfig = ${cfgJson};\n`
+        + readMediaText('questTodoPanel', 'grouping.js')
         + readMediaText('questTodoPanel', 'main.js');
 }
 
@@ -309,7 +316,9 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             // Determine the default file — prefer persisted, then primary, then single-file
             let defaultFile = '';
             if (resolvedQuest) {
-                const questFiles = questTodo.listTodoFiles(resolvedQuest);
+                // Same scope as the picker — a persisted selection pointing at
+                // an archive file must still be recognised on reload.
+                const questFiles = questTodo.listTodoFiles(resolvedQuest, questTodo.ALL_TODO_FILES);
                 // Use persisted file if it still exists in this quest
                 if (saved.file && saved.file !== 'all' && saved.questId === resolvedQuest && questFiles.indexOf(saved.file) >= 0) {
                     defaultFile = saved.file;
@@ -603,6 +612,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 byFile.set(fp, ids);
             }
             const moved: string[] = [];
+            const replaced: string[] = [];
             const skipped: questTodo.TodoMoveSkip[] = [];
             let targetFile = '';
             let firstError: string | undefined;
@@ -611,12 +621,13 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                     ? questTodo.archiveTodos(fp, ids, { anyStatus: true })
                     : questTodo.deleteTodos(fp, ids, { anyStatus: true });
                 moved.push(...result.moved);
+                replaced.push(...result.replaced);
                 skipped.push(...result.skipped);
                 if (result.targetFile) targetFile = result.targetFile;
                 if (result.error && !firstError) firstError = result.error;
             }
             for (const id of unresolved) { skipped.push({ id, reason: 'Could not resolve source file' }); }
-            _notifyMoveResult(isArchive ? 'Archived' : 'Deleted', { moved, skipped, targetFile, error: firstError });
+            _notifyMoveResult(isArchive ? 'Archived' : 'Deleted', { moved, replaced, skipped, targetFile, error: firstError });
             post({ type: 'qtArchiveResult', success: !firstError, moved });
             return true;
         }
@@ -1145,10 +1156,11 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             if (!wsRoot) return true;
             const questId = WsPaths.getWorkspaceQuestId();
             const questFolder = WsPaths.ai('quests', questId) || path.join(wsRoot, '_ai', 'quests', questId);
-            if (!fs.existsSync(questFolder)) {
-                fs.mkdirSync(questFolder, { recursive: true });
+            const trailFolder = questTrailFolder(questFolder);
+            if (!fs.existsSync(trailFolder)) {
+                fs.mkdirSync(trailFolder, { recursive: true });
             }
-            const promptsPath = path.join(questFolder, `${questId}.copilot.prompts.md`);
+            const promptsPath = path.join(trailFolder, `${questId}.copilot.prompts.md`);
             if (!fs.existsSync(promptsPath)) {
                 fs.writeFileSync(promptsPath, '', 'utf-8');
             }
@@ -1479,7 +1491,9 @@ function _sendFileList(questId: string, post: (m: any) => void): void {
             // For all-quests, show quest IDs as pseudo-files
             files = listQuestIds().map(q => q + '/');
         } else {
-            files = questTodo.listTodoFiles(questId);
+            // The picker is how the user BROWSES to the archive/delete
+            // siblings, so it lists every todo file of the quest.
+            files = questTodo.listTodoFiles(questId, questTodo.ALL_TODO_FILES);
         }
         post({ type: 'qtFiles', files, questId });
     } catch { /* quest folder may not exist */ }
@@ -1713,6 +1727,7 @@ function _saveTodo(questId: string, todoId: string, updates: any, post: (m: any)
             normalize(current.notes) === normalize(updates.notes) &&
             JSON.stringify(normalize(current.scope)) === JSON.stringify(normalize(updates.scope)) &&
             JSON.stringify(normalize(current.references)) === JSON.stringify(normalize(updates.references)) &&
+            JSON.stringify(normalize(current.decisions)) === JSON.stringify(normalize(questTodo.normaliseTodoDecisions(updates.decisions))) &&
             normalize(current.completed_date) === normalize(updates.completed_date) &&
             normalize(current.completed_by) === normalize(updates.completed_by);
         if (same) {
@@ -1768,7 +1783,7 @@ function _resolveDeleteSourcePath(questId: string, todoId: string, sourceFile?: 
         // Fallback: scan all quest files
         if (questId && !questId.startsWith('__')) {
             const folder = WsPaths.ai('quests', questId) || path.join(wsRoot, '_ai', 'quests', questId);
-            for (const fileName of questTodo.listTodoFiles(questId)) {
+            for (const fileName of questTodo.listTodoFiles(questId, questTodo.ALL_TODO_FILES)) {
                 const fp = path.join(folder, fileName);
                 if (questTodo.findTodoByIdInFile(fp, todoId)) {
                     return fp;

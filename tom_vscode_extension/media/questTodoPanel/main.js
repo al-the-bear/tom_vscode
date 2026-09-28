@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global vscode, qtViewConfig */
+/* global vscode, qtViewConfig, qtGroupTodosByPrefix, qtTodoPrefix */
 // Quest TODO panel client script — static body extracted from
 // getQuestTodoScript() in src/handlers/questTodoPanel-handler.ts (Phase B.5
 // webview restructuring). The single config-dependent line
@@ -16,6 +16,10 @@ var qtDetailTodo = null;
 var qtFormScope = null;
 var qtFormRefs = [];
 var qtFormTags = [];
+// Decisions the user still has to make. `qtDecisionOpen` is index-aligned and
+// spliced in lock-step so an expanded row stays expanded across a re-render.
+var qtFormDecisions = [];
+var qtDecisionOpen = [];
 var qtTagPickerCallback = null;
 var qtFilterSearch = '';
 var qtFilterState = { status: [], priority: [], tags: [], createdFrom: '', createdTo: '', updatedFrom: '', updatedTo: '', completedFrom: '', completedTo: '' };
@@ -40,6 +44,13 @@ var qtPendingSelectTodoId = '';
 var qtStack = [];
 var qtLastStackedId = '';
 var qtLastRenderOrder = [];
+// ── Prefix groups ──
+// Which groups are currently open, keyed by '#' + prefix (see
+// qtGroupTodosByPrefix for why the keys are namespaced). Deliberately NOT
+// persisted through qtPersistState: the list must come up fully collapsed
+// after a window reload or a VS Code restart, and an empty set on every fresh
+// script load IS that state — nothing to store, nothing to migrate.
+var qtExpandedGroups = {};
 
 function qtPersistState() {
     vscode.postMessage({ type: 'qtSaveState', state: {
@@ -187,6 +198,9 @@ function qtNavPush(todoId) {
         if (qtCurrentQuestId === '__all_quests__' || qtCurrentQuestId === '__all_workspace__') return;
         qtShowMassAddOverlay();
     });
+    // Collapse-all button — closes every prefix group in the list pane.
+    var btnCollapseAll = document.getElementById('qt-btn-collapse-all');
+    if (btnCollapseAll) btnCollapseAll.addEventListener('click', function() { qtCollapseAllGroups(); });
     // Clear todo stack button
     var btnClearStack = document.getElementById('qt-btn-clear-stack');
     if (btnClearStack) btnClearStack.addEventListener('click', function() { qtClearStack(); });
@@ -492,6 +506,93 @@ function qtSelectedTemplateId() {
     return qtCurrentTemplate || '__none__';
 }
 
+/** Is the group with this prefix currently expanded? Unknown ⇒ collapsed. */
+function qtIsGroupExpanded(prefix) {
+    return Object.prototype.hasOwnProperty.call(qtExpandedGroups, '#' + prefix);
+}
+
+/** Open/close one prefix group and re-render the list. */
+function qtToggleGroup(prefix) {
+    var key = '#' + prefix;
+    if (Object.prototype.hasOwnProperty.call(qtExpandedGroups, key)) {
+        delete qtExpandedGroups[key];
+    } else {
+        qtExpandedGroups[key] = true;
+    }
+    qtRenderList();
+}
+
+/** Close every prefix group — the "Collapse all" action-bar button. */
+function qtCollapseAllGroups() {
+    qtExpandedGroups = {};
+    qtRenderList();
+}
+
+/**
+ * Open the group a todo belongs to. The reveal path (`qtPendingSelect`) is an
+ * explicit "show me this todo" request from elsewhere in the extension, so it
+ * must not leave the row hidden inside a collapsed group — that would look
+ * like the reveal did nothing.
+ */
+function qtExpandGroupForTodo(id) {
+    qtExpandedGroups['#' + qtTodoPrefix(id)] = true;
+}
+
+/** One todo row of the list pane. */
+function qtRenderTodoRow(t) {
+    var icon = qtStatusIcon(t.status);
+    var cls = 'qt-todo-item status-' + (t.status || 'not-started');
+    if (t.id === qtSelectedTodoId) cls += ' selected';
+    var showSrc = (qtCurrentFile === 'all' || qtCurrentQuestId === '__all_quests__' || qtCurrentQuestId === '__all_workspace__') && t.sourceFile;
+    var srcLabel = showSrc ? '<span class="source-file">' + qtEsc(t.sourceFile) + '</span>' : '';
+    var isSpecialMode = qtCurrentQuestId === '__all_quests__' || qtCurrentQuestId === '__all_workspace__';
+    var isQuestMode = !isSpecialMode && qtCurrentQuestId;
+    var isDone = t.status === 'completed' || t.status === 'cancelled';
+    var moveBtn = '';
+    var moveWsBtn = '';
+    var trashBtn = '';
+    var reopenBtn = '';
+    // Terminal (-archived / -deleted) files refuse archive/delete moves,
+    // so suppress the per-item trash button for todos sourced from them.
+    var isTerminalSrc = qtIsTerminalTodoFileName(t.sourceFile || qtCurrentFile);
+    if (isDone) {
+        trashBtn = isTerminalSrc ? '' : '<button class="qt-trash-btn" data-qt-trash="' + qtEsc(t.id) + '" title="Delete (move to -archived/-deleted file)">🗑️</button>';
+        reopenBtn = '<button class="qt-reopen-btn" data-qt-reopen="' + qtEsc(t.id) + '" title="Reopen (set to not-started)">🔄</button>';
+    } else {
+        moveBtn = isQuestMode && qtCurrentFile === 'all' ? '<button class="qt-move-btn" data-qt-move="' + qtEsc(t.id) + '" title="Move to main quest todo file">➡️</button>' : '';
+        moveWsBtn = '<button class="qt-move-ws-btn" data-qt-movews="' + qtEsc(t.id) + '" title="Move to workspace todos">⬆️</button>';
+    }
+    var priorityBadge = t.priority && (t.priority === 'critical' || t.priority === 'high') ? '<span class="priority-badge ' + t.priority + '">' + t.priority.toUpperCase() + '</span>' : '';
+    var priorityDot = t.priority ? '<span class="qt-priority-dot ' + qtEsc(t.priority) + '">●</span>' : '';
+    var stackIdx = qtStackIndexOf(t.id);
+    var circleTitle = stackIdx >= 0
+        ? 'Remove from todo stack (#' + (stackIdx + 1) + ')'
+        : 'Add to todo stack (shift-click: add range from last picked)';
+    var stackCircle = '<span class="qt-stack-circle' + (stackIdx >= 0 ? ' stacked' : '') + '" data-qt-stackid="' + qtEsc(t.id) + '" title="' + circleTitle + '">' + (stackIdx >= 0 ? (stackIdx + 1) : '') + '</span>';
+    return '<div class="' + cls + '" data-qt-id="' + qtEsc(t.id) + '">' +
+        '<div class="qt-todo-item-row1">' +
+        '<span class="status-icon">' + icon + '</span>' +
+        '<span class="ttitle">' + qtEsc(t.title || '') + '</span>' +
+        priorityBadge + moveBtn + moveWsBtn + trashBtn + reopenBtn + '</div>' +
+        '<div class="qt-todo-item-row2">' +
+        stackCircle +
+        priorityDot +
+        '<span class="tid">' + qtEsc(t.id) + '</span>' +
+        srcLabel + '</div></div>';
+}
+
+/** The thin separator line that heads one prefix group. */
+function qtRenderGroupHeader(group, expanded) {
+    var count = group.todos.length;
+    return '<div class="qt-group-header' + (expanded ? '' : ' collapsed') + '"' +
+        ' data-qt-group="' + qtEsc(group.prefix) + '"' +
+        ' title="' + (expanded ? 'Collapse' : 'Expand') + ' ' + qtEsc(group.label) + ' (' + count + ')">' +
+        '<span class="codicon codicon-chevron-down"></span>' +
+        '<span class="qt-group-label">' + qtEsc(group.label) + '</span>' +
+        '<span class="qt-group-count">(' + count + ')</span>' +
+        '</div>';
+}
+
 function qtUpdateStackButtons() {
     var btn = document.getElementById('qt-btn-clear-stack');
     if (!btn) return;
@@ -539,15 +640,20 @@ function qtRenderList() {
     // Apply multi-field sort
     if (qtSortFields.length) {
         var priOrd = { critical: 0, high: 1, medium: 2, low: 3 };
-        var staOrd = { 'in-progress': 0, 'blocked': 1, 'not-started': 2, 'completed': 3, 'cancelled': 4 };
+        var staOrd = { 'in-progress': 0, 'blocked': 1, 'decision-needed': 2, 'not-started': 3, 'completed': 4, 'cancelled': 5 };
+        // Rank 0 is falsy, so `|| 9` would sort the *first* rank last. Look the
+        // key up instead of leaning on truthiness.
+        var rank = function(table, key) {
+            return Object.prototype.hasOwnProperty.call(table, key) ? table[key] : 9;
+        };
         filtered = filtered.slice().sort(function(a, b) {
             for (var si = 0; si < qtSortFields.length; si++) {
                 var sf = qtSortFields[si];
                 var cmp = 0;
                 switch (sf.field) {
                     case 'quest': cmp = qtQuestKey(a).localeCompare(qtQuestKey(b)); break;
-                    case 'status': cmp = (staOrd[a.status] || 9) - (staOrd[b.status] || 9); break;
-                    case 'priority': cmp = (priOrd[a.priority] || 9) - (priOrd[b.priority] || 9); break;
+                    case 'status': cmp = rank(staOrd, a.status) - rank(staOrd, b.status); break;
+                    case 'priority': cmp = rank(priOrd, a.priority) - rank(priOrd, b.priority); break;
                     case 'title': cmp = (a.title || '').localeCompare(b.title || ''); break;
                     case 'created': cmp = (a.created || '').localeCompare(b.created || ''); break;
                     case 'updated': cmp = (b.updated || '').localeCompare(a.updated || ''); break;
@@ -562,51 +668,32 @@ function qtRenderList() {
 
     if (!filtered.length) { pane.innerHTML = '<div class="qt-empty-detail">No matching todos</div>'; return; }
 
-    // Current visual order — basis for shift-click stack ranges.
-    qtLastRenderOrder = filtered.map(function(t) { return t.id; });
-
-    pane.innerHTML = filtered.map(function(t) {
-        var icon = qtStatusIcon(t.status);
-        var cls = 'qt-todo-item status-' + (t.status || 'not-started');
-        if (t.id === qtSelectedTodoId) cls += ' selected';
-        var showSrc = (qtCurrentFile === 'all' || qtCurrentQuestId === '__all_quests__' || qtCurrentQuestId === '__all_workspace__') && t.sourceFile;
-        var srcLabel = showSrc ? '<span class="source-file">' + qtEsc(t.sourceFile) + '</span>' : '';
-        var isSpecialMode = qtCurrentQuestId === '__all_quests__' || qtCurrentQuestId === '__all_workspace__';
-        var isQuestMode = !isSpecialMode && qtCurrentQuestId;
-        var isDone = t.status === 'completed' || t.status === 'cancelled';
-        var moveBtn = '';
-        var moveWsBtn = '';
-        var trashBtn = '';
-        var reopenBtn = '';
-        // Terminal (-archived / -deleted) files refuse archive/delete moves,
-        // so suppress the per-item trash button for todos sourced from them.
-        var isTerminalSrc = qtIsTerminalTodoFileName(t.sourceFile || qtCurrentFile);
-        if (isDone) {
-            trashBtn = isTerminalSrc ? '' : '<button class="qt-trash-btn" data-qt-trash="' + qtEsc(t.id) + '" title="Delete (move to -archived/-deleted file)">🗑️</button>';
-            reopenBtn = '<button class="qt-reopen-btn" data-qt-reopen="' + qtEsc(t.id) + '" title="Reopen (set to not-started)">🔄</button>';
-        } else {
-            moveBtn = isQuestMode && qtCurrentFile === 'all' ? '<button class="qt-move-btn" data-qt-move="' + qtEsc(t.id) + '" title="Move to main quest todo file">➡️</button>' : '';
-            moveWsBtn = '<button class="qt-move-ws-btn" data-qt-movews="' + qtEsc(t.id) + '" title="Move to workspace todos">⬆️</button>';
+    // Group by id prefix. Named groups keep the order the active sort put them
+    // in; the "Unprefixed" catch-all is appended last.
+    var groups = qtGroupTodosByPrefix(filtered);
+    var html = '';
+    // Visual order — basis for shift-click stack ranges. Only rows the user can
+    // actually see belong in it, so a range never reaches into a collapsed
+    // group and silently stacks todos that are not on screen.
+    var renderOrder = [];
+    for (var gi = 0; gi < groups.length; gi++) {
+        var group = groups[gi];
+        var expanded = qtIsGroupExpanded(group.prefix);
+        html += qtRenderGroupHeader(group, expanded);
+        if (!expanded) continue;
+        for (var gt = 0; gt < group.todos.length; gt++) {
+            html += qtRenderTodoRow(group.todos[gt]);
+            renderOrder.push(group.todos[gt].id);
         }
-        var priorityBadge = t.priority && (t.priority === 'critical' || t.priority === 'high') ? '<span class="priority-badge ' + t.priority + '">' + t.priority.toUpperCase() + '</span>' : '';
-        var priorityDot = t.priority ? '<span class="qt-priority-dot ' + qtEsc(t.priority) + '">●</span>' : '';
-        var stackIdx = qtStackIndexOf(t.id);
-        var circleTitle = stackIdx >= 0
-            ? 'Remove from todo stack (#' + (stackIdx + 1) + ')'
-            : 'Add to todo stack (shift-click: add range from last picked)';
-        var stackCircle = '<span class="qt-stack-circle' + (stackIdx >= 0 ? ' stacked' : '') + '" data-qt-stackid="' + qtEsc(t.id) + '" title="' + circleTitle + '">' + (stackIdx >= 0 ? (stackIdx + 1) : '') + '</span>';
-        return '<div class="' + cls + '" data-qt-id="' + qtEsc(t.id) + '">' +
-            '<div class="qt-todo-item-row1">' +
-            '<span class="status-icon">' + icon + '</span>' +
-            '<span class="ttitle">' + qtEsc(t.title || '') + '</span>' +
-            priorityBadge + moveBtn + moveWsBtn + trashBtn + reopenBtn + '</div>' +
-            '<div class="qt-todo-item-row2">' +
-            stackCircle +
-            priorityDot +
-            '<span class="tid">' + qtEsc(t.id) + '</span>' +
-            srcLabel + '</div></div>';
-    }).join('');
+    }
+    qtLastRenderOrder = renderOrder;
+    pane.innerHTML = html;
 
+    pane.querySelectorAll('.qt-group-header').forEach(function(hdr) {
+        hdr.addEventListener('click', function() {
+            qtToggleGroup(hdr.getAttribute('data-qt-group') || '');
+        });
+    });
     pane.querySelectorAll('.qt-todo-item').forEach(function(el) {
         el.addEventListener('click', function(e) {
             var circleEl = e.target.closest('.qt-stack-circle');
@@ -778,6 +865,7 @@ function qtStatusIcon(s) {
         case 'in-progress': return '🔄';
         case 'completed': return '✅';
         case 'blocked': return '⛔';
+        case 'decision-needed': return '❓';
         case 'cancelled': return '🚫';
         default: return '⬜';
     }
@@ -808,7 +896,7 @@ function qtUpdateFilterIndicator() {
 function qtRenderFilterPicker() {
     var el = document.getElementById('qt-filter-picker');
     if (!el) return;
-    var statuses = ['not-started','in-progress','blocked','completed','cancelled'];
+    var statuses = ['not-started','in-progress','blocked','decision-needed','completed','cancelled'];
     var priorities = ['critical','high','medium','low'];
     // Collect all tags from current todos
     var allTags = [];
@@ -971,6 +1059,9 @@ function qtRenderDetail(todo) {
     qtFormTags = (todo.tags || []).slice();
     qtFormScope = todo.scope ? JSON.parse(JSON.stringify(todo.scope)) : null;
     qtFormRefs = todo.references ? JSON.parse(JSON.stringify(todo.references)) : [];
+    qtFormDecisions = todo.decisions ? JSON.parse(JSON.stringify(todo.decisions)) : [];
+    // Start collapsed — the point of the summary is to scan the list at a glance.
+    qtDecisionOpen = qtFormDecisions.map(function() { return false; });
 
     var blockedByBadges = qtRenderTodoBadges(todo.blocked_by || [], 'blocked-by');
     var depsBadges = qtRenderTodoBadges(todo.dependencies || [], 'deps');
@@ -992,6 +1083,7 @@ function qtRenderDetail(todo) {
         qtFormRow('Blocked By', '<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;" id="qt-d-blocked-wrap">' + blockedByBadges +
             '<button class="qt-edit-btn" id="qt-d-blocked-add" title="Add blocked-by">➕</button></div>') +
         qtFormRow('Notes', '<textarea id="qt-d-notes" data-completion="on">' + qtEsc(todo.notes || '') + '</textarea>') +
+        qtRenderDecisionsSection() +
         qtRenderScopeSection(qtFormScope) +
         qtRenderRefsSection(qtFormRefs) +
         qtRenderDatesSection(todo) +
@@ -1047,6 +1139,7 @@ function qtRenderDetail(todo) {
 
     qtAttachTagRemoveHandlers();
     qtAttachSectionHandlers();
+    qtAttachDecisionHandlers();
     qtAttachScopeFileHandlers();
     qtAttachRefHandlers();
 
@@ -1371,6 +1464,95 @@ function qtRenderRefsSection(refs) {
         '<span class="codicon codicon-chevron-down"></span> References ' +
         '<button class="qt-edit-btn" id="qt-ref-add-btn" title="Add reference">➕</button></div>' +
         '<div class="qt-section-body" data-qt-section-body="refs">' + body + '</div>';
+}
+
+// ── Decisions section ──
+// One collapsible row per decision: collapsed shows only the summary, expanded
+// shows all three fields. The user scans the list by summary, so a row without
+// one would be unidentifiable — hence the `(unnamed decision)` placeholder.
+function qtDecisionRowHtml(d, i) {
+    var open = qtDecisionOpen[i] === true;
+    var resolved = !!(d.decision && d.decision.trim());
+    var summary = (d.summary && d.summary.trim()) ? d.summary : '(unnamed decision)';
+    return '<div class="qt-decision-item">' +
+        '<div class="qt-decision-header' + (open ? '' : ' collapsed') + '" data-qt-decision-idx="' + i + '">' +
+        '<span class="codicon codicon-chevron-down"></span>' +
+        '<span class="qt-decision-mark" title="' + (resolved ? 'Decided' : 'Waiting on you') + '">' + (resolved ? '\u2705' : '\u2753') + '</span>' +
+        '<span class="qt-decision-summary" data-qt-decision-label="' + i + '">' + qtEsc(summary) + '</span>' +
+        '<button class="qt-edit-btn qt-decision-rm-btn" data-qt-decision-idx="' + i + '" title="Remove decision">\uD83D\uDDD1\uFE0F</button></div>' +
+        '<div class="qt-decision-body' + (open ? '' : ' hidden') + '" data-qt-decision-body="' + i + '">' +
+        qtFormRow('Summary', '<input class="qt-decision-field" data-qt-decision-idx="' + i + '" data-qt-decision-field="summary" value="' + qtEsc(d.summary || '') + '">') +
+        qtFormRow('Decision needed', '<textarea class="qt-decision-field" data-qt-decision-idx="' + i + '" data-qt-decision-field="decision_needed" data-completion="on">' + qtEsc(d.decision_needed || '') + '</textarea>') +
+        qtFormRow('Decision', '<textarea class="qt-decision-field" data-qt-decision-idx="' + i + '" data-qt-decision-field="decision" data-completion="on">' + qtEsc(d.decision || '') + '</textarea>') +
+        '</div></div>';
+}
+
+function qtDecisionsBodyHtml() {
+    if (!qtFormDecisions.length) { return '<div class="qt-scope-summary">(none)</div>'; }
+    return '<div class="qt-decision-list">' + qtFormDecisions.map(qtDecisionRowHtml).join('') + '</div>';
+}
+
+function qtRenderDecisionsSection() {
+    return '<div class="qt-section-header" data-qt-section="decisions">' +
+        '<span class="codicon codicon-chevron-down"></span> Decisions ' +
+        '<button class="qt-edit-btn" id="qt-decision-add-btn" title="Add decision">\u2795</button></div>' +
+        '<div class="qt-section-body" data-qt-section-body="decisions">' + qtDecisionsBodyHtml() + '</div>';
+}
+
+function qtRefreshDecisionsBody() {
+    var body = document.querySelector('[data-qt-section-body="decisions"]');
+    if (!body) return;
+    body.innerHTML = qtDecisionsBodyHtml();
+    qtAttachDecisionHandlers();
+}
+
+function qtAttachDecisionHandlers() {
+    var addBtn = document.getElementById('qt-decision-add-btn');
+    if (addBtn && !addBtn.dataset.qtWired) {
+        addBtn.dataset.qtWired = '1';
+        addBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            qtFormDecisions.push({ summary: '' });
+            // A new row has nothing to show collapsed, so open it to be filled in.
+            qtDecisionOpen.push(true);
+            qtRefreshDecisionsBody();
+            qtAutoSave();
+        });
+    }
+    document.querySelectorAll('.qt-decision-header').forEach(function(hdr) {
+        hdr.addEventListener('click', function(e) {
+            if (e.target.closest('.qt-edit-btn')) return;
+            var i = parseInt(hdr.dataset.qtDecisionIdx, 10);
+            qtDecisionOpen[i] = !qtDecisionOpen[i];
+            hdr.classList.toggle('collapsed');
+            var body = document.querySelector('[data-qt-decision-body="' + i + '"]');
+            if (body) body.classList.toggle('hidden');
+        });
+    });
+    document.querySelectorAll('.qt-decision-rm-btn').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var i = parseInt(btn.dataset.qtDecisionIdx, 10);
+            qtFormDecisions.splice(i, 1);
+            qtDecisionOpen.splice(i, 1);
+            qtRefreshDecisionsBody();
+            qtAutoSave();
+        });
+    });
+    document.querySelectorAll('.qt-decision-field').forEach(function(el) {
+        el.addEventListener('input', function() {
+            var i = parseInt(el.dataset.qtDecisionIdx, 10);
+            var d = qtFormDecisions[i];
+            if (!d) return;
+            d[el.dataset.qtDecisionField] = el.value;
+            if (el.dataset.qtDecisionField === 'summary') {
+                // Keep the collapsed label honest while it is being typed.
+                var label = document.querySelector('[data-qt-decision-label="' + i + '"]');
+                if (label) label.textContent = el.value.trim() || '(unnamed decision)';
+            }
+            qtAutoSave();
+        });
+    });
 }
 
 function qtRenderDatesSection(todo) {
@@ -1802,6 +1984,7 @@ function qtCollectFormData() {
         notes: document.getElementById('qt-d-notes') ? document.getElementById('qt-d-notes').value || undefined : undefined,
         scope: qtFormScope || undefined,
         references: qtFormRefs.length ? qtFormRefs : undefined,
+        decisions: qtFormDecisions.length ? qtFormDecisions : undefined,
         created: createdValue || undefined,
         completed_date: completedDateValue || undefined,
         completed_by: completedByValue || undefined,
@@ -1813,6 +1996,8 @@ function qtShowNewTodoForm(id) {
     qtFormTags = [];
     qtFormScope = null;
     qtFormRefs = [];
+    qtFormDecisions = [];
+    qtDecisionOpen = [];
     qtRenderList();
     var pane = document.getElementById('qt-detail-pane');
     if (!pane) return;
@@ -1934,7 +2119,7 @@ function qtShowMassAddOverlay() {
 }
 function qtEsc(s) { if (!s) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function qtStatusOptions(cur) {
-    var opts = ['not-started','in-progress','blocked','completed','cancelled'];
+    var opts = ['not-started','in-progress','blocked','decision-needed','completed','cancelled'];
     return opts.map(function(o) { return '<option value="' + o + '"' + (o === cur ? ' selected' : '') + '>' + o + '</option>'; }).join('');
 }
 function qtPriorityOptions(cur) {
@@ -1989,6 +2174,7 @@ function qtHandleMessage(msg) {
                 if (exists) {
                     qtSelectedTodoId = qtPendingSelectTodoId;
                     qtNavPush(qtSelectedTodoId);
+                    qtExpandGroupForTodo(qtSelectedTodoId);
                     qtRenderList();
                     qtRequestTodoDetail(qtSelectedTodoId);
                     qtPendingSelectTodoId = '';

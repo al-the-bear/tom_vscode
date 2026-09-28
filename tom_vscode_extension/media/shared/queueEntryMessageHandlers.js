@@ -218,6 +218,13 @@ function editItemTransport(id) {
   // updateItemTransport when the user confirms.
   vscode.postMessage({ type: 'editItemTransport', id: id });
 }
+function applyQueueDefaultTransport(id) {
+  // Header-bar "adopt queue settings" button. Copies the queue-level
+  // default transport + Anthropic profile (the dropdowns above the queue)
+  // onto this item. Works in any status; for a repeating item the next
+  // repetition uses the new transport/profile.
+  vscode.postMessage({ type: 'applyQueueDefaultTransport', id: id });
+}
 function editPrePromptTransport(id, index) {
   // Spec §4.10 — per-stage Advanced override for a pre-prompt.
   vscode.postMessage({ type: 'editPrePromptTransport', id: id, index: index });

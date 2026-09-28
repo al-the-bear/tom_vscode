@@ -17,6 +17,7 @@ import { openGlobalTemplateEditor } from './globalTemplateEditor-handler';
 import { renderTransportPicker } from '../utils/transportPicker';
 import { normalizeRepeatCountInput } from '../utils/queueStep3Utils';
 import { loadWebviewHtml } from '../utils/webviewLoader';
+import { QuestRefreshService } from '../services/quest-refresh-service';
 
 // ============================================================================
 // State
@@ -24,6 +25,7 @@ import { loadWebviewHtml } from '../utils/webviewLoader';
 
 let _panel: vscode.WebviewPanel | undefined;
 let _queueListener: vscode.Disposable | undefined;
+let _questRefreshListener: vscode.Disposable | undefined;
 let _ctx: vscode.ExtensionContext | undefined;
 const QUEUE_COLLAPSED_STATE_KEY = 'tomAi.queueEditor.collapsedItemIds';
 let _collapsedItemIds = new Set<string>();
@@ -150,10 +152,21 @@ function bindQueueEditorPanel(ctx: vscode.ExtensionContext, panel: vscode.Webvie
         console.error('[QueueEditor] Failed to bind onDidChange:', e);
     }
 
+    // Re-push state when a Quest Refresh starts/ends so the webview can show
+    // (or hide) its orange "refresh running" banner. The refresh fires outside
+    // the queue's own change events, so it needs a separate subscription.
+    try {
+        _questRefreshListener = QuestRefreshService.instance.onDidChangeRefreshing(() => sendState());
+    } catch (e) {
+        console.error('[QueueEditor] Failed to bind onDidChangeRefreshing:', e);
+    }
+
     _panel.onDidDispose(() => {
         _panel = undefined;
         _queueListener?.dispose();
         _queueListener = undefined;
+        _questRefreshListener?.dispose();
+        _questRefreshListener = undefined;
     });
 }
 
@@ -237,6 +250,17 @@ async function handleMessage(msg: any): Promise<void> {
           const tplId = typeof msg.messageTemplateId === 'string' ? msg.messageTemplateId : '';
           PromptQueueManager.instance.setDefaultTransport(transport, pid);
           PromptQueueManager.instance.setDefaultMessageTemplate(tplId);
+          sendState();
+          return;
+        }
+        case 'applyQueueDefaultTransport': {
+          // Header-bar "adopt queue settings" button. Copies the queue-level
+          // default transport + Anthropic profile (the dropdowns above the
+          // queue) onto this item. Allowed in any status — for a currently
+          // repeating item the next repetition picks up the new values.
+          const id = typeof msg.id === 'string' ? msg.id : '';
+          if (!id) { return; }
+          PromptQueueManager.instance.applyQueueDefaultsToItem(id);
           sendState();
           return;
         }
@@ -491,8 +515,43 @@ async function handleMessage(msg: any): Promise<void> {
             );
           }
           break;
+        case 'retryRetryingNow':
+          // Manual escape hatch on a retry-parked item: cut the backoff
+          // countdown short, flip to `pending`, and send immediately.
+          try {
+            await qm.retryRetryingNow(msg.id);
+          } catch (err) {
+            vscode.window.showWarningMessage(
+              `Retry now failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+          break;
+        case 'stopRetrying':
+          // Give up on a retry-parked item: promote it to `error` and pause
+          // the queue (mirrors the exhausted-schedule path).
+          try {
+            qm.stopRetrying(msg.id);
+          } catch (err) {
+            vscode.window.showWarningMessage(
+              `Stop retrying failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+          break;
+        case 'setQueueStartDelay':
+          // Header dropdown: defer the queue start by N minutes (0 = clear).
+          try {
+            qm.setQueueStartDelay(typeof msg.minutes === 'number' ? msg.minutes : 0);
+          } catch (err) {
+            vscode.window.showWarningMessage(
+              `Set start delay failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+          break;
         case 'toggleReminder':
             qm.updateItemReminder(msg.id, { reminderEnabled: msg.enabled });
+            break;
+        case 'setPauseAfter':
+            qm.setPauseAfter(msg.id, !!msg.pauseAfter);
             break;
         case 'setItemStatus':
           if (msg.status === 'staged' || msg.status === 'pending') {
@@ -568,6 +627,17 @@ async function handleMessage(msg: any): Promise<void> {
         case 'stopActiveItem': {
             const stopped = qm.stopActiveItem();
             if (!stopped) {
+                vscode.window.showInformationMessage('No prompt is currently running.');
+            }
+            sendState();
+            break;
+        }
+        // Toolbar (no id: the sending item) and per-row (id) variants of
+        // interrupt-for-continuation share one manager entry point.
+        case 'interruptActiveForContinuation':
+        case 'interruptForContinuation': {
+            const held = qm.interruptActiveItemForContinuation(msg.type === 'interruptForContinuation' ? msg.id : undefined);
+            if (!held) {
                 vscode.window.showInformationMessage('No prompt is currently running.');
             }
             sendState();
@@ -861,6 +931,7 @@ function buildState(): Record<string, unknown> {
     let queueDefaultTransport: 'copilot' | 'anthropic' = 'copilot';
     let queueDefaultAnthropicProfileId = '';
     let queueDefaultMessageTemplateId = '';
+    let queueStartAt: string | undefined;
 
     try {
         const qm = PromptQueueManager.instance;
@@ -874,6 +945,7 @@ function buildState(): Record<string, unknown> {
         queueDefaultTransport = qm.defaultTransport;
         queueDefaultAnthropicProfileId = qm.defaultAnthropicProfileId || '';
         queueDefaultMessageTemplateId = qm.defaultMessageTemplateId || '';
+        queueStartAt = qm.queueStartAt;
         console.log('[QueueEditor] buildState: items count =', items.length);
     } catch (e) {
         console.error('[QueueEditor] buildState: PromptQueueManager not ready:', e);
@@ -893,6 +965,11 @@ function buildState(): Record<string, unknown> {
         role = store.role || '';
         activeProjects = store.activeProjects || [];
     } catch { /* */ }
+
+    let questRefreshActive = false;
+    try {
+        questRefreshActive = QuestRefreshService.instance.isRefreshing;
+    } catch { /* service not ready */ }
 
     let promptTemplates: string[] = [];
     let anthropicProfiles: Array<{ id: string; name?: string }> = [];
@@ -950,8 +1027,14 @@ function buildState(): Record<string, unknown> {
         queueDefaultTransport,
         queueDefaultAnthropicProfileId,
         queueDefaultMessageTemplateId,
+        // Deferred queue start: ISO instant (or undefined) the header
+        // "Start in N minutes" dropdown reflects.
+        queueStartAt,
         collapsedIds: Array.from(_collapsedItemIds),
         context: { quest, role, activeProjects },
+        // Drives the webview's orange "Quest refresh is running…" banner
+        // between the queue header and the first item.
+        questRefreshActive,
     };
 }
 

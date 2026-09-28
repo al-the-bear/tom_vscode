@@ -19,7 +19,19 @@ function loadState() {
     } catch(e) {}
 }
 
-function saveState() { vscode.setState(state); }
+/*
+ * Merge rather than replace: `vscode.setState` overwrites the whole state
+ * object, and the accordion is not its only consumer — section fragments (the
+ * Logs viewer's selected sub-tab, for one) persist their own keys in the same
+ * place, and a plain setState(state) would drop them on the next toggle.
+ */
+function saveState() {
+    var merged = state;
+    try {
+        merged = Object.assign({}, vscode.getState() || {}, state);
+    } catch (e) { /* no prior state — the accordion's own keys are enough */ }
+    vscode.setState(merged);
+}
 function isExpanded(id) { return state.expanded && state.expanded.includes(id); }
 function isPinned(id) { return state.pinned && state.pinned.includes(id); }
 

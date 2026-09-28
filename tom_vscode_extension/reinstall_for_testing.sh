@@ -234,3 +234,5 @@ else
     echo "❌ Failed to package extension"
     exit 1
 fi
+
+echo "🕒 Finished at $(date '+%Y-%m-%d %H:%M:%S %Z')"

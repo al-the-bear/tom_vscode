@@ -190,3 +190,64 @@ describe('AskUserRegistry', () => {
         assert.equal(AskUserRegistry.instance, AskUserRegistry.instance);
     });
 });
+
+/**
+ * Waiting forever is the default. A question the user has not seen yet must not
+ * expire on its own: the previous behaviour answered the model with a fallback
+ * prompt after fifteen minutes, so a prompt left running overnight came back
+ * having invented its own answer to a question nobody read.
+ */
+describe('AskUserRegistry — waiting indefinitely', () => {
+    test('an ask with no timeout arms no timer at all', () => {
+        const h = makeHarness();
+        beginWith(h, { timeoutMs: undefined });
+        assert.equal(h.timers.length, 0);
+        assert.equal(h.registry.hasPending(), true);
+    });
+
+    test('a pending ask with no timeout reports no deadline', () => {
+        // The webview renders a countdown from `timeoutAt`; `undefined` is what
+        // tells it there is nothing to count down to.
+        const h = makeHarness();
+        beginWith(h, { timeoutMs: undefined });
+        assert.equal(h.registry.getPending()!.timeoutAt, undefined);
+    });
+
+    test('a non-positive timeout means "wait", not "expire immediately"', () => {
+        // 0 is the configured value for "no ceiling"; arming a 0 ms timer would
+        // resolve the ask with the fallback before the panel even opened.
+        for (const timeoutMs of [0, -1]) {
+            const h = makeHarness();
+            beginWith(h, { timeoutMs });
+            assert.equal(h.timers.length, 0, `timeoutMs ${timeoutMs} armed a timer`);
+            assert.equal(h.registry.getPending()!.timeoutAt, undefined);
+        }
+    });
+
+    test('an untimed ask still resolves normally when the user answers', async () => {
+        const h = makeHarness();
+        const { promise, captured } = beginWith(h, { timeoutMs: undefined });
+        const id = h.registry.getPending()!.requestId;
+        assert.equal(h.registry.submit(id, 'answered eventually', 'vscode'), true);
+        assert.equal(await promise, 'answered eventually');
+        assert.equal(captured.resolves[0].source, 'vscode');
+        assert.equal(h.registry.hasPending(), false);
+    });
+
+    test('an untimed ask can still be cancelled', async () => {
+        // Without this the Stop button would leak an awaiting round forever.
+        const h = makeHarness();
+        const { promise } = beginWith(h, { timeoutMs: undefined });
+        h.registry.cancel('stopped');
+        assert.equal(await promise, 'stopped');
+        assert.equal(h.registry.hasPending(), false);
+    });
+
+    test('an explicit positive timeout still arms a timer', () => {
+        const h = makeHarness();
+        beginWith(h, { timeoutMs: 60_000 });
+        assert.equal(h.timers.length, 1);
+        assert.equal(h.timers[0].ms, 60_000);
+        assert.equal(h.registry.getPending()!.timeoutAt, 1_000 + 60_000);
+    });
+});

@@ -40,10 +40,21 @@ Rules (all enforced in `todoArchive.ts` / `todoArchiveNames.ts`):
   **terminal**: it can never be the *source* of a move (the whole operation is
   refused with an error), and the derivation helpers throw for it.
 - The target sibling is created on demand in the same folder, inheriting the
-  source's `# yaml-language-server:` schema comment. Todos are appended to the
+  source's `# yaml-language-server:` schema comment. Todos are written to the
   target **before** being removed from the source (no loss window).
-- All operations return `TodoMoveResult { moved, skipped[{id, reason}],
-  targetFile, error? }` so UI and tools can report precisely what happened.
+- **The target write is keyed by id, so moving twice is moving once.** An id
+  already in the target is replaced where it sits — never added a second time —
+  and surplus copies of that id are dropped in the same pass. This is what makes
+  the write order safe: an interrupted move leaves the todo in both files, and
+  the recovery is simply to run the move again. Without it, that recovery is
+  what corrupts the archive (`todos-archived.tom_core.todo.yaml` once held six
+  ids five times over, 30 970 lines).
+- The file-level `updated:` key is stamped **in the header**, before `todos:`.
+  `doc.set` alone appends an absent key, which on a todo file means thousands of
+  lines below the header — so an absent key is inserted, not set.
+- All operations return `TodoMoveResult { moved, replaced, skipped[{id,
+  reason}], targetFile, error? }` so UI and tools can report precisely what
+  happened. A non-empty `replaced` means the target already held those ids.
 - Source YAML formatting/comments are preserved (yaml Document/CST API);
   `todoArchive.ts` is vscode-free and unit-tested under `npm run test:utils`.
 
@@ -96,6 +107,92 @@ offers every `*.todo.yaml` file — including the `-archived`/`-deleted` sibling
 — minus the single common source file; 6 unit tests).
 Detail requests thread the todo's `sourceFile` (`qtGetTodo` → `_sendTodoDetail`
 → `_resolveDeleteSourcePath`) so todos in secondary files resolve correctly.
+
+## 2a. List pane — prefix groups
+
+The list pane groups todos by the **prefix of their id**: the leading run of
+characters before the id's first digit (`qr3-20260723…` → `qr`,
+`vex1_agäo-…` → `vex`). Ids that start with a digit, and ids with no digit at
+all, fall into a single catch-all group labelled **Unprefixed**. Prefixes are
+taken verbatim — case-sensitive, separators kept — so `qr` and `qr-` are
+different groups; the rule is the literal leading non-digit run, not a
+normalised key.
+
+Each group is headed by a thin separator row (`.qt-group-header`) carrying a
+chevron twisty, the prefix and the group size in brackets. Clicking the row
+toggles the group. Named groups render in **first-appearance order**, so the
+active filter/sort still drives the layout; `Unprefixed` is always appended
+last.
+
+Where the pieces live:
+
+| Piece | Location |
+| --- | --- |
+| Grouping rule (pure) | `media/questTodoPanel/grouping.js` — `qtTodoPrefix`, `qtGroupTodosByPrefix` |
+| Rendering + toggle state | `media/questTodoPanel/main.js` — `qtRenderGroupHeader`, `qtRenderTodoRow`, `qtIsGroupExpanded`, `qtToggleGroup`, `qtCollapseAllGroups`, `qtExpandGroupForTodo` |
+| Separator styling | `media/questTodoPanel/style.css` — `.qt-group-header` (the `::after` hairline is what makes it read as a separator rather than a row) |
+| Collapse-all button | `fragment.html` `#qt-btn-collapse-all` (collapse-all icon) |
+| Script composition | `getQuestTodoScript()` prepends `grouping.js` before `main.js` |
+
+`grouping.js` is a **separate file on purpose**: it has no DOM and no `vscode`
+handle, so `src/utils/__tests__/questTodoPrefixGroups.test.ts` loads it into a
+bare `vm` sandbox and tests the shipped file directly — there is no TS mirror
+that could drift (contrast `qtIsTerminalTodoFileName`, which *is* a mirror).
+`questTodoGroupRender.dom.test.ts` loads `fragment.html` + both scripts into
+jsdom and covers the rendering, the toggles and the collapse-all button.
+
+Collapse state rules:
+
+- `qtExpandedGroups` is **in-memory only** and deliberately not part of
+  `qtPersistState`. The panel must come up fully collapsed after a window
+  reload or a VS Code restart, and since the webview script is re-evaluated on
+  both, an empty set on every fresh load *is* that state.
+- Expansion survives a data refresh (`qtTodos` push) within the session — only
+  a script reload or the **Collapse all** button closes the groups.
+- `qtLastRenderOrder` holds only the **visible** rows, so a shift-click stack
+  range can never reach into a collapsed group.
+- The reveal path (`qtPendingSelect`) calls `qtExpandGroupForTodo` first, so an
+  explicit "show me this todo" request never lands on a hidden row.
+
+## 2b. Decisions — the `decision-needed` status and the `decisions[]` block
+
+A todo whose approach depends on a choice **the user** has not made yet cannot
+be started: starting it means guessing. Two schema features carry that.
+
+- **`status: decision-needed`** — the todo is waiting on the user. It renders
+  with a **question-mark** icon in the list pane and appears in the status
+  dropdown of the edit form alongside the other statuses.
+- **`decisions[]`** — a list of what has to be settled. Each entry has three
+  fields: `summary` (one line, the collapsed label), `decision_needed` (the full
+  question with its context and options), and `decision` (the answer, absent
+  until the user gives one). The edit form renders them as an accordion — open
+  shows all three fields, closed shows only the summary. Parsing/normalising is
+  the pure `src/utils/todoDecisions.ts`; the tools
+  (`tomAi_createQuestTodo` / `tomAi_updateQuestTodo` / `tomAi_getQuestTodo` /
+  `tomAi_listQuestTodos`) round-trip both. On update, passing `decisions`
+  **replaces** the whole list; omitting it leaves the list untouched.
+
+Note the two spellings, which coexist across the todo schema: the *status* value
+is hyphenated (`decision-needed`), the *object property* is snake_case
+(`decision_needed`).
+
+Two behaviours hang off the status:
+
+- **Archiving a completed todo journals its decisions.** `todoArchive.ts` copies
+  the `decisions[]` of each archived todo into `decisions.<quest>.md` (the
+  @WS → Logs → Decisions tab) with the todo id and the archive timestamp, so the
+  reasoning outlives the todo. It is a **copy** — the archived todo keeps its
+  block — and two things narrow what gets written. Only *archiving* journals:
+  deleting a todo throws it away, and recording its open questions as decisions
+  the project made would be a lie. And only todos whose status is `completed`
+  are journalled: the panel's Archive button archives the selection whatever its
+  status, and a todo archived half-done was abandoned rather than concluded. An
+  unanswered decision on a completed todo is written as `_(not decided)_` rather
+  than dropped.
+- **Queue iteration refuses to run the series.** A `prefix*` main prompt whose
+  matched todos include a `decision-needed` one pauses the queue and marks the
+  item `decision-needed` — see `planMainStageDispatch` in
+  `doc/multi_transport_prompt_queue_revised.md` § 5.
 
 ## 3. Session todos — stable per-host file (TRA04)
 

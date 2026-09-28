@@ -9,7 +9,7 @@
  * Location note: this exercises a `managers/` class but lives under
  * `services/__tests__` because only the `tools` / `services` / `utils`
  * `__tests__` globs are wired into `npm test` — the `managers/__tests__`
- * directory is not part of the gate (recorded in completion_steps).
+ * directory is not part of the gate (recorded in the quest's deferred file).
  */
 
 import { describe, it } from 'node:test';

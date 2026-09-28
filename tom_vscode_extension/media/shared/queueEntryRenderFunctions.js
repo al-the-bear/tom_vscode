@@ -26,8 +26,7 @@ function formatRepeatLabel(repeatCountRaw, repeatIndex, resolvedRepeatCount) {
 }
 
 function renderEntry(item, idx) {
-  var safeStatus = (item.status === 'staged' || item.status === 'pending' || item.status === 'sending' || item.status === 'sent' || item.status === 'error' || item.status === 'waiting')
-    ? item.status : 'staged';
+  var safeStatus = normalizeQueueStatus(item.status);
   var queuePos = idx + 1;
   var typeIconClass = item.type === 'timed' ? 'codicon-watch' : item.type === 'reminder' ? 'codicon-bell' : 'codicon-comment';
   var cls = [safeStatus];
@@ -43,24 +42,58 @@ function renderEntry(item, idx) {
   var isSent = safeStatus === 'sent';
   var isError = safeStatus === 'error';
   var isWaiting = safeStatus === 'waiting';
+  var isRetry = safeStatus === 'retry';
+  var isInterrupted = safeStatus === 'interrupted';
   var reminderEnabled = item.reminderEnabled !== false;
+  var pauseAfter = item.pauseAfter === true;
   var isEditable = editorMode === 'template' || isStaged;
   var isMainPromptActive = safeStatus === 'sending' && !!item.requestId && (item.followUpIndex || 0) === 0;
   var statusBarCls = item.type === 'reminder' ? 'reminder' : safeStatus;
   var statusLabel = safeStatus.toUpperCase();
-  // "SENDING (PAUSED)" — only meaningful in the queue editor (the
-  // template editor doesn't define `autoSend`). The in-flight rep
-  // has finished or will finish naturally; the pause gate refuses to
-  // start the *next* one. Clicking auto-send resumes from the
-  // persisted counter.
+  // Paused sending item — only meaningful in the queue editor (the template
+  // editor doesn't define `autoSend`). Distinguish two cases so the user can
+  // tell whether the current iteration is still running or already done:
+  //   • awaitingAnswer → a prompt is still in flight → "SENDING (PAUSED)" (green)
+  //   • else           → iteration done, idle, waiting to resume → "PAUSED" (amber)
+  // Clicking auto-send resumes from the persisted counter.
   if (isSending && typeof autoSend !== 'undefined' && autoSend === false) {
-    statusLabel = 'SENDING (PAUSED)';
+    statusLabel = item.awaitingAnswer ? 'SENDING (PAUSED)' : 'PAUSED';
   }
   // Rate-limit parked item: show the human-friendly reset time from the
   // "resets <time> (<tz>)" clause. The manager persists the stated reset
   // label (waitingResetLabel); the item auto-retries 5 min after it.
   if (isWaiting) {
     statusLabel = 'WAITING FOR ' + (item.waitingResetLabel ? String(item.waitingResetLabel).toUpperCase() : 'RESET');
+  }
+  // Retry-parked item: show attempt count + the next-retry clock time so the
+  // user can see the backoff progress (e.g. "RETRYING 2/7 — NEXT 11:05:30").
+  if (isRetry) {
+    var retryAttemptNum = Math.max(0, parseInt(String(item.retryAttempt || 0), 10) || 0);
+    var retryNextTime = '';
+    if (item.retryUntil) {
+      var rd = new Date(item.retryUntil);
+      if (!isNaN(rd.getTime())) { retryNextTime = rd.toLocaleTimeString(); }
+    }
+    statusLabel = 'RETRYING ' + retryAttemptNum + '/7' + (retryNextTime ? ' — NEXT ' + retryNextTime.toUpperCase() : '');
+  }
+
+  // Interrupt-for-continuation: held on purpose; the label says what will
+  // happen so the user knows re-arming auto-send is all it takes.
+  if (isInterrupted) {
+    statusLabel = 'INTERRUPTED — RESENDS ON RESUME';
+  }
+
+  // Green→amber header for the head-of-queue item. The queue is "active" while
+  // it will proceed on its own (auto-send on) OR a prompt is genuinely in
+  // flight (some sending item is awaiting an answer). When neither holds the
+  // queue is idle/paused, so the currently-sending item (between iterations)
+  // and the next pending item turn amber — a stopped queue is visually
+  // distinct from a running one, and the amber says "waiting to be started".
+  var queueActive = (typeof autoSend !== 'undefined' && autoSend === true)
+    || (typeof currentItems !== 'undefined' && Array.isArray(currentItems)
+        && currentItems.some(function(it) { return it && it.status === 'sending' && it.awaitingAnswer; }));
+  if (!queueActive && item.type !== 'reminder' && (isSending || isPending)) {
+    statusBarCls += ' idle';
   }
 
   var followUps = Array.isArray(item.followUps) ? item.followUps : [];
@@ -83,7 +116,24 @@ function renderEntry(item, idx) {
   var mainRepeatLabel = formatRepeatLabel(repeatCountRaw, item.repeatIndex, item.resolvedRepeatCount);
   var repeatProgress = '';
   var mpStartNumber = Math.max(1, repeatIndex + 1);
-  if (mainRepeatLabel || isSending || isStaged || isPending) {
+  // TODO ITERATION (`prefix*` repeat count): the walk is driven by the quest
+  // todos' status, not by the counter — so the rep-number input would steer
+  // nothing. Show the current todo's number read-only instead, and name the
+  // todo itself in a badge next to it.
+  var isTodoIteration = typeof repeatCountRaw === 'string' && /\*\s*$/.test(repeatCountRaw) && repeatCountRaw.trim().length > 1;
+  if (isTodoIteration) {
+    repeatProgress = '  [MP <span title="Current todo number in the ' + escapeHtml(String(repeatCountRaw))
+      + ' series — read-only: the walk advances by todo status, not by this counter">' + repeatIndex + '</span>/'
+      + '<input type="text" value="' + escapeHtml(repeatCountDisplay)
+      + '" style="width:38px" title="Update main prompt repeat count (Enter)" placeholder="1 or var" onclick="event.stopPropagation()"'
+      + ' onkeydown="submitRepeatCountFromStatus(event, \'' + safeId + '\', ' + repeatIndex + ', this)">'
+      + (isSending ? ' <span class="codicon codicon-debug-step-over" style="cursor:pointer;font-size:11px;" onclick="event.stopPropagation();continueSending(\'' + safeId + '\')" title="Skip to next todo"></span>' : '')
+      + ']';
+    if (item.repeatTodoId) {
+      repeatProgress += '  <span style="background:#6f42c1;color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;" title="Quest todo this main prompt is working on">['
+        + escapeHtml(String(item.repeatTodoId)) + ']</span>';
+    }
+  } else if (mainRepeatLabel || isSending || isStaged || isPending) {
     if (isStaged || isPending) {
       // Replace the static "current rep number" portion of the label with
       // an editable input. The label was only synthesised above for the
@@ -94,14 +144,21 @@ function renderEntry(item, idx) {
         + '<input type="text" value="' + escapeHtml(repeatCountDisplay)
         + '" style="width:38px" title="Update main prompt repeat count (Enter)" placeholder="1 or var" onclick="event.stopPropagation()"'
         + ' onkeydown="submitRepeatCountFromStatus(event, \'' + safeId + '\', ' + repeatIndex + ', this)">';
+    } else if (isSending) {
+      // Sending: expose the current rep index (1-based, editable) alongside
+      // the count so the running loop can be steered — the change applies on
+      // the next repetition. Mirrors the staged/pending "index/count" pair.
+      repeatProgress = '  [MP <input type="text" value="' + mpStartNumber
+        + '" style="width:28px" title="Current main-prompt rep number — 1-based; takes effect on the next repetition" placeholder="1"'
+        + ' onclick="event.stopPropagation()" onkeydown="submitRepeatStartIndexFromStatus(event, \'' + safeId + '\', this)">/'
+        + '<input type="text" value="' + escapeHtml(repeatCountDisplay)
+        + '" style="width:38px" title="Update main prompt repeat count (Enter)" placeholder="1 or var" onclick="event.stopPropagation()"'
+        + ' onkeydown="submitRepeatCountFromStatus(event, \'' + safeId + '\', ' + repeatIndex + ', this)">';
     } else {
       if (mainRepeatLabel) {
         repeatProgress = '  [MP ' + mainRepeatLabel;
       } else {
         repeatProgress = '  [MP ';
-      }
-      if (isSending) {
-        repeatProgress += ' <input type="text" value="' + escapeHtml(repeatCountDisplay) + '" style="width:38px" title="Update main prompt repeat count (Enter)" placeholder="1 or var" onclick="event.stopPropagation()" onkeydown="submitRepeatCountFromStatus(event, \'' + safeId + '\', ' + repeatIndex + ', this)">';
       }
     }
     if (isSending && mainRepeatLabel) {
@@ -131,7 +188,12 @@ function renderEntry(item, idx) {
       + '<input type="text" value="' + escapeHtml(tplRepeatCountDisplay) + '" style="width:38px" title="Update template repeat total (Enter)" placeholder="1 or var" onclick="event.stopPropagation()" onkeydown="submitTemplateRepeatFromStatus(event, \'' + safeId + '\', this)">'
       + ']';
   } else if (isSending) {
-    tplRepeatProgress = '  [T ' + tplCurrent + '/'
+    // Sending: expose the current template iteration index (0-based, editable)
+    // alongside the total so the running template loop can be steered — the
+    // change applies on the next iteration. Mirrors the staged/pending pair.
+    tplRepeatProgress = '  [T <input type="text" value="' + tplCurrent
+      + '" style="width:28px" title="Current template iteration index — 0-based; takes effect on the next iteration" placeholder="0"'
+      + ' onclick="event.stopPropagation()" onkeydown="submitTemplateStartIndexFromStatus(event, \'' + safeId + '\', this)">/'
       + '<input type="text" value="' + escapeHtml(tplRepeatCountDisplay) + '" style="width:38px" title="Update template repeat total (Enter)" placeholder="1 or var" onclick="event.stopPropagation()" onkeydown="submitTemplateRepeatFromStatus(event, \'' + safeId + '\', this)">'
       + ((tplRepeatCount > 1 || tplRepeatIsVar) ? ' <span class="codicon codicon-debug-step-over" style="cursor:pointer;font-size:11px;" onclick="event.stopPropagation();continueSending(\'' + safeId + '\')" title="Skip to next template iteration"></span>' : '')
       + ']';
@@ -224,6 +286,10 @@ function renderEntry(item, idx) {
           (isStaged ? '<span class="codicon codicon-arrow-right" style="cursor:pointer;color:#000;" onclick="setItemStatus(\'' + safeId + '\', \'pending\')" title="Set to Pending"></span>' : '') +
           (isPending ? '<span class="codicon codicon-arrow-left" style="cursor:pointer;color:#000;" onclick="setItemStatus(\'' + safeId + '\', \'staged\')" title="Move back to Staged"></span>' : '') +
           (isSending ? '<span class="codicon codicon-arrow-left" style="cursor:pointer;color:#000;" onclick="setItemStatus(\'' + safeId + '\', \'staged\')" title="Interrupt and move to Staged"></span>' : '') +
+          // Interrupt for continuation — the disconnect icon: stop now, but hold
+          // this exact rep and resend it when auto-send is re-enabled.
+          (isSending ? '<span class="codicon codicon-debug-disconnect" style="cursor:pointer;color:#000;" onclick="interruptForContinuation(\'' + safeId + '\')" title="Interrupt for continuation (stop now; this prompt is resent when auto-send is re-enabled)"></span>' : '') +
+          (isInterrupted ? '<span class="codicon codicon-arrow-left" style="cursor:pointer;color:#000;" onclick="setItemStatus(\'' + safeId + '\', \'staged\')" title="Abandon the continuation and move back to Staged"></span>' : '') +
           (isSent ? '<span class="codicon codicon-arrow-left" style="cursor:pointer;color:#000;" onclick="setItemStatus(\'' + safeId + '\', \'staged\')" title="Stage again"></span>' : '') +
           ((isPending || isStaged) ? '<span class="codicon codicon-play" style="cursor:pointer;color:#000;" onclick="sendNow(\'' + safeId + '\')" title="Send Now"></span>' : '') +
           (isSending ? '<span class="codicon codicon-play" style="cursor:pointer;color:#000;" onclick="continueSending(\'' + safeId + '\')" title="Continue"></span>' : '') +
@@ -246,19 +312,50 @@ function renderEntry(item, idx) {
           (isWaiting
             ? '<span class="codicon codicon-debug-restart" style="cursor:pointer;color:#000;" onclick="retryWaitingNow(\'' + safeId + '\')" title="Retry now (skip the rate-limit reset wait and send immediately)"></span>'
             : '') +
+          // Retry (backoff-parked) items get a "retry now" control that cuts
+          // the backoff countdown short and sends immediately, plus a "stop
+          // retrying" control that gives up (→ error) and pauses the queue.
+          (isRetry
+            ? '<span class="codicon codicon-debug-restart" style="cursor:pointer;color:#000;" onclick="retryRetryingNow(\'' + safeId + '\')" title="Retry now (skip the backoff wait and send immediately)"></span>'
+              + '<span class="codicon codicon-stop-circle" style="cursor:pointer;color:#000;" onclick="stopRetrying(\'' + safeId + '\')" title="Stop retrying (give up — mark as error and pause the queue)"></span>'
+            : '') +
           // Resend last dispatch — available once there is a recorded
           // lastDispatched (i.e. at least one stage has been sent) and
           // the item isn't currently in-flight or errored. Re-sends
           // the exact expanded text byte-for-byte; repetition
           // counters are not touched, so the queue continues from
           // where it was.
-          (item.lastDispatched && !isSending && !isError
+          (item.lastDispatched && !isSending && !isError && !isRetry
             ? '<span class="codicon codicon-refresh" style="cursor:pointer;color:#000;" onclick="resendLastPrompt(\'' + safeId + '\')" title="Resend last prompt (keeps repetition counters)"></span>'
             : '') +
           (isPending ? '<span class="codicon codicon-arrow-up" style="cursor:pointer;color:#000;" onclick="moveUp(\'' + safeId + '\')" title="Move up (closer to queue top — sent sooner)"></span>' : '') +
           (isPending ? '<span class="codicon codicon-arrow-down" style="cursor:pointer;color:#000;" onclick="moveDown(\'' + safeId + '\')" title="Move down (closer to queue end — sent later)"></span>' : '') +
           (isPending ? '<span class="codicon codicon-arrow-circle-up" style="cursor:pointer;color:#000;" onclick="moveToFront(\'' + safeId + '\')" title="Send next (move to front of pending queue)"></span>' : '') +
           (isSending ? '<span class="codicon ' + (reminderEnabled ? 'codicon-bell' : 'codicon-bell-slash') + '" style="cursor:pointer;color:' + (reminderEnabled ? '#000' : '#888') + ';" onclick="toggleReminder(\'' + safeId + '\', ' + !reminderEnabled + ')" title="' + (reminderEnabled ? 'Reminders ON - click to disable' : 'Reminders OFF - click to enable') + '"></span>' : '') +
+          // Pause after this — let the item finish its repeat loop, then hold
+          // the queue instead of starting the next item. Shown wherever the
+          // item can still run, plus on any item that carries the flag so a
+          // leftover one is never invisible. Armed state renders inverted
+          // (white on black) because a plain colour change is too subtle to
+          // read against the status bar's own colour.
+          (isStaged || isPending || isSending || pauseAfter
+            ? '<span class="codicon codicon-debug-pause" style="cursor:pointer;'
+              + (pauseAfter
+                ? 'color:#fff;background:#000;border-radius:3px;padding:1px 3px;'
+                : 'color:#000;')
+              + '" onclick="setPauseAfter(\'' + safeId + '\', ' + !pauseAfter + ')" title="'
+              + (pauseAfter
+                ? 'Pause after this is ON — this item finishes its repeats, then the queue stops. Click to turn off.'
+                : 'Pause after this — let this item finish, then hold the queue instead of sending the next item')
+              + '"></span>'
+            : '') +
+          // Adopt queue settings — copies the queue-level default
+          // transport + profile (the dropdowns above the queue) onto this
+          // item. Shown in every status (including a repeating item): for
+          // a sending item the next repetition uses the new transport/
+          // profile. Distinct from the staged-only gear below, which opens
+          // the full transport picker.
+          '<span class="codicon codicon-arrow-circle-down" style="cursor:pointer;color:#000;" onclick="applyQueueDefaultTransport(\'' + safeId + '\')" title="Set transport/profile to the queue default (dropdowns above). Works while repeating — the next repetition uses it."></span>' +
           // Staged-only: once an item is pending or sending, the
           // manager rejects transport updates (isEditableStatus). Hide
           // the gear so users don't click a no-op.
