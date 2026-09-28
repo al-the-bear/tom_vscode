@@ -144,6 +144,14 @@ class CliIntegrationServer {
     final clientAddress = '${client.remoteAddress.address}:${client.remotePort}';
     _log('Client connected: $clientAddress');
     _clients.add(client);
+
+    // Write failures surface here rather than at `add`: [_sendMessage] queues
+    // frames without flushing, so a broken socket is reported once, on the
+    // sink's completion, instead of per frame.
+    unawaited(client.done.catchError((Object e) {
+      _log('Socket error on client $clientAddress: $e');
+      _removeClient(client);
+    }));
     
     // Buffer for accumulating data until we have a complete message
     final buffer = BytesBuilder();
@@ -360,14 +368,15 @@ class CliIntegrationServer {
     final messageBytes = utf8.encode(message);
     final lengthBytes = _writeUint32BE(messageBytes.length);
     
+    // No flush. A socket already writes what it is given, in order; an
+    // explicit `flush()` only adds a window in which the sink refuses further
+    // `add`s ("StreamSink is bound to a stream"), and a streaming completion
+    // relays several frames in one turn — so flushing per frame turned the
+    // second delta of every completion into a dropped client. Write errors
+    // arrive on `client.done`, which [_handleConnection] watches.
     try {
       client.add(lengthBytes);
       client.add(messageBytes);
-      // Flush and catch any socket errors
-      unawaited(client.flush().catchError((e) {
-        _log('Failed to flush message to client: $e');
-        _removeClient(client);
-      }));
     } on SocketException catch (e) {
       _log('Socket error sending message to client: $e');
       _removeClient(client);

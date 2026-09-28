@@ -198,6 +198,33 @@ void main() {
       expect(server.debugOwnedStreamIds, isNot(contains('s2')));
     });
 
+    test('a burst of chunks all arrive, and the client stays connected',
+        () async {
+      // A streaming completion with partial messages pushes deltas faster
+      // than a socket flush completes, so several chunks are relayed in one
+      // turn. An `IOSink` refuses `add` while a `flush` is pending ("Bad
+      // state: StreamSink is bound to a stream"), and the relay used to flush
+      // after every frame and treat that refusal as a dead client — so the
+      // second delta of every completion destroyed the socket. Observed live
+      // (2026-09-28): the hosted AI stream closed immediately after
+      // `message_start`, on every query.
+      final owner = await connectClient();
+      expect(server.debugRegisterStreamOwner('burst'), isTrue);
+      final frames = collect(owner);
+
+      for (var i = 0; i < 20; i++) {
+        bridge.debugInjectExtensionPush(chunk('burst', text: 'delta $i'));
+      }
+      bridge.debugInjectExtensionPush(chunk('burst', done: true));
+      await _settle();
+
+      expect(frames.map((f) => f['params']['message']).whereType<String>(),
+          [for (var i = 0; i < 20; i++) 'delta $i']);
+      expect(frames.last['params']['done'], isTrue);
+      expect(server.debugClientCount, 1,
+          reason: 'a burst is traffic, not a disconnect');
+    });
+
     test('a client disconnect drops any stream ownership it held', () async {
       final owner = await connectClient();
       expect(server.debugRegisterStreamOwner('s3'), isTrue);
