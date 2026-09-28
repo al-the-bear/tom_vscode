@@ -1,6 +1,6 @@
 // D4rt Bridge - Generated file, do not edit
 // Sources: 34 files
-// Generated: 2026-09-18T01:57:37.793812 by tom_d4rt_generator 1.26.2
+// Generated: 2026-09-28T18:58:51.241893 by tom_d4rt_generator 1.44.0
 
 // ignore_for_file: unused_import, deprecated_member_use, prefer_function_declarations_over_variables, implementation_imports, sort_child_properties_last, non_constant_identifier_names, avoid_function_literals_in_foreach_calls, invalid_use_of_protected_member, unnecessary_non_null_assertion, invalid_use_of_visible_for_testing_member, unnecessary_cast, unused_local_variable, no_leading_underscores_for_local_identifiers, prefer_is_empty, unnecessary_question_mark, unreachable_switch_case, unintended_html_in_doc_comment, empty_constructor_bodies, prefer_const_constructors_in_immutables, prefer_final_fields, unused_field, must_call_super, no_logic_in_create_state, use_key_in_widget_constructors, annotate_overrides, non_const_argument_for_const_parameter, unnecessary_import
 
@@ -1120,6 +1120,37 @@ class AllBridge {
       (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/tom_chat_api.dart', show: null, hide: null),
       (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/script_globals.dart', show: null, hide: null),
       (source: 'package:tom_vscode_scripting_api/script_globals.dart', target: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_adapter.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_bridge_client.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_bridge_adapter.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/bridge_discovery.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_commands.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_extensions.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_lm.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_window.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_workspace.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_chat.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_helper.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/vscode_types.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/agent_sdk_messages.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/agent_sdk_permissions.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/agent_sdk_mcp.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/agent_sdk_options.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/agent_sdk_query.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/bridge_request_dispatcher.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/agent_sdk_tool_registry.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/agent_sdk_permission_dispatch.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/ai_prompt_api.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/ai_conversation_api.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/tom_todo_api.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/tom_queue_api.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/tom_timed_api.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/tom_document_api.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/tom_workspace_api.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/tom_tools_api.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/src/tom_chat_api.dart', show: null, hide: null),
+      (source: 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart', target: 'package:tom_vscode_scripting_api/script_globals.dart', show: null, hide: null),
     ];
   }
 
@@ -1922,10 +1953,22 @@ BridgedClass _createVSCodeBridgeServerBridge() {
     hierarchyDepth: 1,
     constructors: {
       '': (visitor, positional, named) {
-        // TODO: Unbridgeable function type List<BridgeRegistrar>
-        throw UnimplementedError('VSCodeBridgeServer: Parameter "additionalBridgeRegistrars" has unbridgeable function type List<BridgeRegistrar>. Bridge cannot handle function types in collections.');
-        // ignore: dead_code
-        final dynamic additionalBridgeRegistrars = null;
+        // Convert list with function elements inline
+        final additionalBridgeRegistrarsRaw = named['additionalBridgeRegistrars'] as List?;
+        List<void Function($tom_d4rt_3.D4rt)>? additionalBridgeRegistrars;
+        if (additionalBridgeRegistrarsRaw != null) {
+          for (final v in additionalBridgeRegistrarsRaw) {
+            if (v == null) {
+              // Skip null elements for a non-nullable function type
+            } else if (v is Callable) {
+              additionalBridgeRegistrars ??= <void Function($tom_d4rt_3.D4rt)>[];
+              additionalBridgeRegistrars!.add(($tom_d4rt_3.D4rt p0) { D4.callInterpreterCallback(visitor, v, [p0]); });
+            } else {
+              additionalBridgeRegistrars ??= <void Function($tom_d4rt_3.D4rt)>[];
+              additionalBridgeRegistrars!.add(v as void Function($tom_d4rt_3.D4rt));
+            }
+          }
+        }
         final initSource = D4.getOptionalNamedArg<String?>(named, 'initSource');
         return $tom_vscode_bridge_1.VSCodeBridgeServer(additionalBridgeRegistrars: additionalBridgeRegistrars, initSource: initSource);
       },
@@ -11920,27 +11963,153 @@ BridgedClass _createBridgedClassBridge() {
         final isAbstract = D4.getNamedArgWithDefault<bool>(named, 'isAbstract', false);
         final hierarchyDepth = D4.getNamedArgWithDefault<int>(named, 'hierarchyDepth', 0);
         final isAssignableRaw = named['isAssignable'];
-        final constructors = named.containsKey('constructors') && named['constructors'] != null
-            ? D4.coerceMap<String, $tom_d4rt_2.BridgedConstructorCallable>(named['constructors'], 'constructors')
-            : const <String, $tom_d4rt_2.BridgedConstructorCallable>{};
-        final staticMethods = named.containsKey('staticMethods') && named['staticMethods'] != null
-            ? D4.coerceMap<String, $tom_d4rt_2.BridgedStaticMethodAdapter>(named['staticMethods'], 'staticMethods')
-            : const <String, $tom_d4rt_2.BridgedStaticMethodAdapter>{};
-        final staticGetters = named.containsKey('staticGetters') && named['staticGetters'] != null
-            ? D4.coerceMap<String, $tom_d4rt_2.BridgedStaticGetterAdapter>(named['staticGetters'], 'staticGetters')
-            : const <String, $tom_d4rt_2.BridgedStaticGetterAdapter>{};
-        final staticSetters = named.containsKey('staticSetters') && named['staticSetters'] != null
-            ? D4.coerceMap<String, $tom_d4rt_2.BridgedStaticSetterAdapter>(named['staticSetters'], 'staticSetters')
-            : const <String, $tom_d4rt_2.BridgedStaticSetterAdapter>{};
-        final methods = named.containsKey('methods') && named['methods'] != null
-            ? D4.coerceMap<String, $tom_d4rt_2.BridgedMethodAdapter>(named['methods'], 'methods')
-            : const <String, $tom_d4rt_2.BridgedMethodAdapter>{};
-        final getters = named.containsKey('getters') && named['getters'] != null
-            ? D4.coerceMap<String, $tom_d4rt_2.BridgedInstanceGetterAdapter>(named['getters'], 'getters')
-            : const <String, $tom_d4rt_2.BridgedInstanceGetterAdapter>{};
-        final setters = named.containsKey('setters') && named['setters'] != null
-            ? D4.coerceMap<String, $tom_d4rt_2.BridgedInstanceSetterAdapter>(named['setters'], 'setters')
-            : const <String, $tom_d4rt_2.BridgedInstanceSetterAdapter>{};
+        var constructors = <String, $tom_d4rt_2.BridgedConstructorCallable>{};
+        if (named.containsKey('constructors') && named['constructors'] != null) {
+          // Convert map with function values inline
+          final constructorsRaw = named['constructors'] as Map?;
+          constructors = <String, $tom_d4rt_2.BridgedConstructorCallable>{};
+          if (constructorsRaw != null) {
+            for (final entry in constructorsRaw.entries) {
+              final k = D4.extractBridgedArg<String>(entry.key, 'constructors[key]');
+              final v = entry.value;
+              if (v == null) {
+                // Skip null values for non-nullable function type
+              } else if (v is Callable) {
+                constructors[k] = (($tom_d4rt_4.InterpreterVisitor p0, List<Object?> p1, Map<String, Object?> p2) { return D4.castCallbackResult<Object?>(D4.callInterpreterCallback(visitor, v, [p0, p1, p2])); }) as Object? Function($tom_d4rt_4.InterpreterVisitor, List<Object?>, Map<String, Object?>);
+              } else {
+                constructors[k] = v as $tom_d4rt_2.BridgedConstructorCallable;
+              }
+            }
+          }
+        } else {
+          constructors = const <String, $tom_d4rt_2.BridgedConstructorCallable>{};
+        }
+        var staticMethods = <String, $tom_d4rt_2.BridgedStaticMethodAdapter>{};
+        if (named.containsKey('staticMethods') && named['staticMethods'] != null) {
+          // Convert map with function values inline
+          final staticMethodsRaw = named['staticMethods'] as Map?;
+          staticMethods = <String, $tom_d4rt_2.BridgedStaticMethodAdapter>{};
+          if (staticMethodsRaw != null) {
+            for (final entry in staticMethodsRaw.entries) {
+              final k = D4.extractBridgedArg<String>(entry.key, 'staticMethods[key]');
+              final v = entry.value;
+              if (v == null) {
+                // Skip null values for non-nullable function type
+              } else if (v is Callable) {
+                staticMethods[k] = (($tom_d4rt_4.InterpreterVisitor p0, List<Object?> p1, Map<String, Object?> p2, List<$tom_d4rt_5.RuntimeType>? p3) { return D4.castCallbackResult<Object?>(D4.callInterpreterCallback(visitor, v, [p0, p1, p2, p3])); }) as Object? Function($tom_d4rt_4.InterpreterVisitor, List<Object?>, Map<String, Object?>, List<$tom_d4rt_5.RuntimeType>?);
+              } else {
+                staticMethods[k] = v as $tom_d4rt_2.BridgedStaticMethodAdapter;
+              }
+            }
+          }
+        } else {
+          staticMethods = const <String, $tom_d4rt_2.BridgedStaticMethodAdapter>{};
+        }
+        var staticGetters = <String, $tom_d4rt_2.BridgedStaticGetterAdapter>{};
+        if (named.containsKey('staticGetters') && named['staticGetters'] != null) {
+          // Convert map with function values inline
+          final staticGettersRaw = named['staticGetters'] as Map?;
+          staticGetters = <String, $tom_d4rt_2.BridgedStaticGetterAdapter>{};
+          if (staticGettersRaw != null) {
+            for (final entry in staticGettersRaw.entries) {
+              final k = D4.extractBridgedArg<String>(entry.key, 'staticGetters[key]');
+              final v = entry.value;
+              if (v == null) {
+                // Skip null values for non-nullable function type
+              } else if (v is Callable) {
+                staticGetters[k] = (($tom_d4rt_4.InterpreterVisitor p0) { return D4.castCallbackResult<Object?>(D4.callInterpreterCallback(visitor, v, [p0])); }) as Object? Function($tom_d4rt_4.InterpreterVisitor);
+              } else {
+                staticGetters[k] = v as $tom_d4rt_2.BridgedStaticGetterAdapter;
+              }
+            }
+          }
+        } else {
+          staticGetters = const <String, $tom_d4rt_2.BridgedStaticGetterAdapter>{};
+        }
+        var staticSetters = <String, $tom_d4rt_2.BridgedStaticSetterAdapter>{};
+        if (named.containsKey('staticSetters') && named['staticSetters'] != null) {
+          // Convert map with function values inline
+          final staticSettersRaw = named['staticSetters'] as Map?;
+          staticSetters = <String, $tom_d4rt_2.BridgedStaticSetterAdapter>{};
+          if (staticSettersRaw != null) {
+            for (final entry in staticSettersRaw.entries) {
+              final k = D4.extractBridgedArg<String>(entry.key, 'staticSetters[key]');
+              final v = entry.value;
+              if (v == null) {
+                // Skip null values for non-nullable function type
+              } else if (v is Callable) {
+                staticSetters[k] = ($tom_d4rt_4.InterpreterVisitor p0, Object? p1) { D4.callInterpreterCallback(visitor, v, [p0, p1]); };
+              } else {
+                staticSetters[k] = v as $tom_d4rt_2.BridgedStaticSetterAdapter;
+              }
+            }
+          }
+        } else {
+          staticSetters = const <String, $tom_d4rt_2.BridgedStaticSetterAdapter>{};
+        }
+        var methods = <String, $tom_d4rt_2.BridgedMethodAdapter>{};
+        if (named.containsKey('methods') && named['methods'] != null) {
+          // Convert map with function values inline
+          final methodsRaw = named['methods'] as Map?;
+          methods = <String, $tom_d4rt_2.BridgedMethodAdapter>{};
+          if (methodsRaw != null) {
+            for (final entry in methodsRaw.entries) {
+              final k = D4.extractBridgedArg<String>(entry.key, 'methods[key]');
+              final v = entry.value;
+              if (v == null) {
+                // Skip null values for non-nullable function type
+              } else if (v is Callable) {
+                methods[k] = (($tom_d4rt_4.InterpreterVisitor p0, Object p1, List<Object?> p2, Map<String, Object?> p3, List<$tom_d4rt_5.RuntimeType>? p4) { return D4.castCallbackResult<Object?>(D4.callInterpreterCallback(visitor, v, [p0, p1, p2, p3, p4])); }) as Object? Function($tom_d4rt_4.InterpreterVisitor, Object, List<Object?>, Map<String, Object?>, List<$tom_d4rt_5.RuntimeType>?);
+              } else {
+                methods[k] = v as $tom_d4rt_2.BridgedMethodAdapter;
+              }
+            }
+          }
+        } else {
+          methods = const <String, $tom_d4rt_2.BridgedMethodAdapter>{};
+        }
+        var getters = <String, $tom_d4rt_2.BridgedInstanceGetterAdapter>{};
+        if (named.containsKey('getters') && named['getters'] != null) {
+          // Convert map with function values inline
+          final gettersRaw = named['getters'] as Map?;
+          getters = <String, $tom_d4rt_2.BridgedInstanceGetterAdapter>{};
+          if (gettersRaw != null) {
+            for (final entry in gettersRaw.entries) {
+              final k = D4.extractBridgedArg<String>(entry.key, 'getters[key]');
+              final v = entry.value;
+              if (v == null) {
+                // Skip null values for non-nullable function type
+              } else if (v is Callable) {
+                getters[k] = (($tom_d4rt_4.InterpreterVisitor? p0, Object p1) { return D4.castCallbackResult<Object?>(D4.callInterpreterCallback(visitor, v, [p0, p1])); }) as Object? Function($tom_d4rt_4.InterpreterVisitor?, Object);
+              } else {
+                getters[k] = v as $tom_d4rt_2.BridgedInstanceGetterAdapter;
+              }
+            }
+          }
+        } else {
+          getters = const <String, $tom_d4rt_2.BridgedInstanceGetterAdapter>{};
+        }
+        var setters = <String, $tom_d4rt_2.BridgedInstanceSetterAdapter>{};
+        if (named.containsKey('setters') && named['setters'] != null) {
+          // Convert map with function values inline
+          final settersRaw = named['setters'] as Map?;
+          setters = <String, $tom_d4rt_2.BridgedInstanceSetterAdapter>{};
+          if (settersRaw != null) {
+            for (final entry in settersRaw.entries) {
+              final k = D4.extractBridgedArg<String>(entry.key, 'setters[key]');
+              final v = entry.value;
+              if (v == null) {
+                // Skip null values for non-nullable function type
+              } else if (v is Callable) {
+                setters[k] = ($tom_d4rt_4.InterpreterVisitor? p0, Object p1, Object? p2) { D4.callInterpreterCallback(visitor, v, [p0, p1, p2]); };
+              } else {
+                setters[k] = v as $tom_d4rt_2.BridgedInstanceSetterAdapter;
+              }
+            }
+          }
+        } else {
+          setters = const <String, $tom_d4rt_2.BridgedInstanceSetterAdapter>{};
+        }
         final constructorSignatures = named.containsKey('constructorSignatures') && named['constructorSignatures'] != null
             ? D4.coerceMap<String, String>(named['constructorSignatures'], 'constructorSignatures')
             : const <String, String>{};
