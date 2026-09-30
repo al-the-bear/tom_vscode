@@ -1,3 +1,18 @@
+## 1.1.2
+
+- Fixed an uncaught `SocketException` from bridge discovery. A port that
+  accepts a connection and then resets it — a busy service, or anything that
+  is not a VS Code bridge — made `scanBridgePorts` / `fetchBridgeWorkspaceName`
+  (and any `VSCodeBridgeClient` whose peer went away) raise an error nobody
+  could catch: the reset ran the read side's `onDone`, which dropped the socket
+  reference, so `disconnect()` never closed it and the socket's `done` future
+  failed unobserved. The client now observes `done` from the moment it
+  connects, `disconnect()` tolerates a peer that already went, and
+  `isAvailable` destroys its probe socket the same way. Such a port now reads
+  as "no bridge here". Regression tests in
+  `test/bridge_reset_peer_test.dart`.
+- Removed the unused version stamp from `lib/`.
+
 ## 1.1.1
 
 - Fixed `TextEditor.fromJson` crashing (`RangeError`) on an empty

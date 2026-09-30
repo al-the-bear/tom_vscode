@@ -170,7 +170,19 @@ class VSCodeBridgeClient {
     if (isConnected) return true;
 
     try {
-      _socket = await Socket.connect(host, port, timeout: connectTimeout);
+      final socket = await Socket.connect(
+        host,
+        port,
+        timeout: connectTimeout,
+      );
+      _socket = socket;
+      // A peer that resets the connection is reported to the read side
+      // (`_onError` / `_onDone`), which fails every pending request. The write
+      // side reports the same fact again through `done` — and `_onDone` drops
+      // the socket reference, so `disconnect()` never awaits it. Unobserved,
+      // that second report is an uncaught error from a port that merely was
+      // not a bridge.
+      unawaited(socket.done.catchError((Object _) {}));
 
       _socket!.listen(
         _onData,
@@ -189,9 +201,14 @@ class VSCodeBridgeClient {
 
   /// Disconnects from the VS Code bridge.
   Future<void> disconnect() async {
-    if (_socket != null) {
-      await _socket!.close();
-      _socket = null;
+    final socket = _socket;
+    _socket = null;
+    if (socket != null) {
+      try {
+        await socket.close();
+      } on SocketException {
+        // The peer went first; there is nothing left to close.
+      }
     }
     _pendingRequests.clear();
     _buffer.clear();
@@ -213,7 +230,11 @@ class VSCodeBridgeClient {
         port,
         timeout: const Duration(seconds: 2),
       );
-      await socket.close();
+      // Something accepted, which is all this asks. Destroyed rather than
+      // closed, and its `done` observed, so a peer that resets at once cannot
+      // turn the answer into an uncaught error.
+      unawaited(socket.done.catchError((Object _) {}));
+      socket.destroy();
       return true;
     } catch (e) {
       return false;
