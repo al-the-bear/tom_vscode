@@ -53,7 +53,7 @@ export interface AgentSdkLike {
         handler: (args: Record<string, unknown>, extra?: unknown) => Promise<unknown>,
     ): unknown;
     /** Builds an in-process MCP server (`sdk.createSdkMcpServer`). Optional (see `tool`). */
-    createSdkMcpServer?(options: { name: string; version?: string; tools?: unknown[] }): unknown;
+    createSdkMcpServer?(options: { name: string; version?: string; tools?: unknown[]; alwaysLoad?: boolean }): unknown;
 }
 
 /** The reverse-RPC client used to invoke Dart tool handlers mid-query. */
@@ -99,6 +99,8 @@ interface SdkServerDescriptor {
     name?: string;
     version?: string;
     tools?: Array<{ name: string; description?: string; inputSchema?: Record<string, unknown> }>;
+    /** SDK 0.3.142+: keep the tools in the prompt and connect before turn 1. */
+    alwaysLoad?: boolean;
 }
 
 /** Narrows a wire `mcpServers` entry to an `{type:'sdk'}` descriptor. */
@@ -244,10 +246,13 @@ export class AgentSdkBridge {
                     ),
             ),
         );
+        // `alwaysLoad` is passed only when the descriptor sets it, so a
+        // descriptor without it builds exactly the server it always did.
         return sdk.createSdkMcpServer!({
             name: descriptor.name ?? serverName,
             version: descriptor.version ?? '1.0.0',
             tools,
+            ...(typeof descriptor.alwaysLoad === 'boolean' ? { alwaysLoad: descriptor.alwaysLoad } : {}),
         });
     }
 

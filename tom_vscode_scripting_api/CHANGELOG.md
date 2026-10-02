@@ -1,3 +1,21 @@
+## 1.1.3
+
+- `McpSdkServerConfig` gains `alwaysLoad`. Since Agent SDK 0.3.142, MCP
+  servers connect in the background and their tools are deferred behind tool
+  search, so a Dart-defined in-process server's tools could be missing on the
+  first turn with no way to ask otherwise. Set `alwaysLoad: true` and the
+  extension passes it to `createSdkMcpServer` when it rebuilds the server
+  (requires a Tom extension build that forwards it). Unset, the wire is
+  unchanged.
+- The Agent SDK mirror is audited against SDK 0.3.282, the version the
+  extension resolves: every key `Options.toJson` writes exists there, and the
+  message model already represents every 0.3.282 message type. File headers
+  and docs now say so instead of naming ^0.2.110.
+- `Options.env` documents what it does: it REPLACES the Claude Code
+  subprocess's environment rather than adding to it, and the extension host's
+  environment cannot be read from Dart — so leave it null unless you supply
+  the whole environment.
+
 ## 1.1.2
 
 - Fixed an uncaught `SocketException` from bridge discovery. A port that

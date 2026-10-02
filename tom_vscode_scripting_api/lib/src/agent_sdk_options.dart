@@ -3,7 +3,7 @@
 /// and enums.
 ///
 /// These travel Dart → extension → `sdk.query()`, so the wire uses the SDK's
-/// camelCase field names (`sdk.d.ts` ^0.2.110) and the bridge is a faithful
+/// camelCase field names (`sdk.d.ts`, audited against 0.3.282) and the bridge is a faithful
 /// pass-through (proposal §1, §5). Every *data* field round-trips
 /// (`Options.fromJson(o.toJson()).toJson() == o.toJson()`).
 ///
@@ -482,7 +482,15 @@ class Options {
   /// A custom session title.
   final String? title;
 
-  /// Environment variables for the run.
+  /// Environment variables for the Claude Code subprocess.
+  ///
+  /// REPLACES the inherited environment rather than adding to it (SDK
+  /// semantics since 0.2.113): `{'FOO': 'x'}` starts the subprocess with
+  /// essentially only `FOO`, without `PATH` or `HOME`. The process inheriting
+  /// it is the VS Code extension host, whose environment this Dart process
+  /// cannot read, so there is no way to pass "the current environment plus
+  /// one variable" from here. Leave this null unless you mean to supply the
+  /// complete environment.
   final Map<String, String>? env;
 
   /// Extra CLI arguments (values may be null for flags).
