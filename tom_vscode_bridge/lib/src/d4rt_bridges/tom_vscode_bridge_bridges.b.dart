@@ -1,6 +1,6 @@
 // D4rt Bridge - Generated file, do not edit
 // Sources: 34 files
-// Generated: 2026-10-02T15:26:29.957076 by tom_d4rt_generator 1.51.0
+// Generated: 2026-10-02T15:36:22.850155 by tom_d4rt_generator 1.51.0
 
 // ignore_for_file: unused_import, deprecated_member_use, prefer_function_declarations_over_variables, implementation_imports, sort_child_properties_last, non_constant_identifier_names, avoid_function_literals_in_foreach_calls, invalid_use_of_protected_member, unnecessary_non_null_assertion, invalid_use_of_visible_for_testing_member, unnecessary_cast, unused_local_variable, no_leading_underscores_for_local_identifiers, prefer_is_empty, unnecessary_question_mark, unreachable_switch_case, unintended_html_in_doc_comment, empty_constructor_bodies, prefer_const_constructors_in_immutables, prefer_final_fields, unused_field, must_call_super, no_logic_in_create_state, use_key_in_widget_constructors, annotate_overrides, non_const_argument_for_const_parameter, unnecessary_import
 
@@ -23633,6 +23633,14 @@ BridgedClass _createBridgedClassBridge() {
           'name',
           'BridgedClass',
         );
+        final typedefRequiredPositional = D4.getOptionalNamedArg<int?>(
+          named,
+          'typedefRequiredPositional',
+        );
+        final typedefMaxPositional = D4.getOptionalNamedArg<int?>(
+          named,
+          'typedefMaxPositional',
+        );
         final nativeNames = D4.coerceListOrNull<String>(
           named['nativeNames'],
           'nativeNames',
@@ -23973,6 +23981,8 @@ BridgedClass _createBridgedClassBridge() {
         return $tom_d4rt_1.BridgedClass(
           nativeType: nativeType,
           name: name,
+          typedefRequiredPositional: typedefRequiredPositional,
+          typedefMaxPositional: typedefMaxPositional,
           nativeNames: nativeNames,
           typeParameterCount: typeParameterCount,
           canBeUsedAsMixin: canBeUsedAsMixin,
@@ -24087,6 +24097,15 @@ BridgedClass _createBridgedClassBridge() {
       'setterSignatures': (visitor, target) => D4
           .validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass')
           .setterSignatures,
+      'typedefRequiredPositional': (visitor, target) => D4
+          .validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass')
+          .typedefRequiredPositional,
+      'typedefMaxPositional': (visitor, target) => D4
+          .validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass')
+          .typedefMaxPositional,
+      'hashCode': (visitor, target) => D4
+          .validateTarget<$tom_d4rt_1.BridgedClass>(target, 'BridgedClass')
+          .hashCode,
     },
     setters: {},
     methods: {
@@ -24209,6 +24228,84 @@ BridgedClass _createBridgedClassBridge() {
             );
             return t.findInstanceSetterAdapter(name);
           },
+      'findReachableMethodAdapter':
+          (visitor, target, positional, named, typeArgs) {
+            final t = D4.validateTarget<$tom_d4rt_1.BridgedClass>(
+              target,
+              'BridgedClass',
+            );
+            D4.requireMinArgs(positional, 2, 'findReachableMethodAdapter');
+            final memberName = D4.getRequiredArg<String>(
+              positional,
+              0,
+              'memberName',
+              'findReachableMethodAdapter',
+            );
+            final visitor_ = D4.getRequiredArg<$tom_d4rt_4.InterpreterVisitor?>(
+              positional,
+              1,
+              'visitor',
+              'findReachableMethodAdapter',
+            );
+            return t.findReachableMethodAdapter(memberName, visitor_);
+          },
+      'findReachableGetterAdapter':
+          (visitor, target, positional, named, typeArgs) {
+            final t = D4.validateTarget<$tom_d4rt_1.BridgedClass>(
+              target,
+              'BridgedClass',
+            );
+            D4.requireMinArgs(positional, 2, 'findReachableGetterAdapter');
+            final memberName = D4.getRequiredArg<String>(
+              positional,
+              0,
+              'memberName',
+              'findReachableGetterAdapter',
+            );
+            final visitor_ = D4.getRequiredArg<$tom_d4rt_4.InterpreterVisitor?>(
+              positional,
+              1,
+              'visitor',
+              'findReachableGetterAdapter',
+            );
+            return t.findReachableGetterAdapter(memberName, visitor_);
+          },
+      'findReachableSetterAdapter':
+          (visitor, target, positional, named, typeArgs) {
+            final t = D4.validateTarget<$tom_d4rt_1.BridgedClass>(
+              target,
+              'BridgedClass',
+            );
+            D4.requireMinArgs(positional, 2, 'findReachableSetterAdapter');
+            final memberName = D4.getRequiredArg<String>(
+              positional,
+              0,
+              'memberName',
+              'findReachableSetterAdapter',
+            );
+            final visitor_ = D4.getRequiredArg<$tom_d4rt_4.InterpreterVisitor?>(
+              positional,
+              1,
+              'visitor',
+              'findReachableSetterAdapter',
+            );
+            return t.findReachableSetterAdapter(memberName, visitor_);
+          },
+      '==': (visitor, target, positional, named, typeArgs) {
+        final t = D4.validateTarget<$tom_d4rt_1.BridgedClass>(
+          target,
+          'BridgedClass',
+        );
+        // GEN-103: Dart spec — non-null == null is always false.
+        if (positional.isEmpty || positional[0] == null) return false;
+        final other = D4.getRequiredArg<Object>(
+          positional,
+          0,
+          'other',
+          'operator==',
+        );
+        return t == other;
+      },
     },
     staticMethods: {
       'registerSupertypes': (visitor, positional, named, typeArgs) {
@@ -24236,7 +24333,7 @@ BridgedClass _createBridgedClassBridge() {
       },
     },
     constructorSignatures: {
-      '': 'BridgedClass({required Type nativeType, required String name, List<String>? nativeNames, int typeParameterCount = 0, bool canBeUsedAsMixin = false, bool isAbstract = false, int hierarchyDepth = 0, bool Function(Object?)? isAssignable, Map<String, BridgedConstructorCallable> constructors = const {}, Map<String, BridgedStaticMethodAdapter> staticMethods = const {}, Map<String, BridgedStaticGetterAdapter> staticGetters = const {}, Map<String, BridgedStaticSetterAdapter> staticSetters = const {}, Map<String, BridgedMethodAdapter> methods = const {}, Map<String, BridgedInstanceGetterAdapter> getters = const {}, Map<String, BridgedInstanceSetterAdapter> setters = const {}, Map<String, String> constructorSignatures = const {}, Map<String, String> methodSignatures = const {}, Map<String, String> staticMethodSignatures = const {}, Map<String, String> staticGetterSignatures = const {}, Map<String, String> staticSetterSignatures = const {}, Map<String, String> getterSignatures = const {}, Map<String, String> setterSignatures = const {}, bool Function(BridgedClass other, {Object? value})? isSubtypeOfFunc})',
+      '': 'BridgedClass({required Type nativeType, required String name, int? typedefRequiredPositional, int? typedefMaxPositional, List<String>? nativeNames, int typeParameterCount = 0, bool canBeUsedAsMixin = false, bool isAbstract = false, int hierarchyDepth = 0, bool Function(Object?)? isAssignable, Map<String, BridgedConstructorCallable> constructors = const {}, Map<String, BridgedStaticMethodAdapter> staticMethods = const {}, Map<String, BridgedStaticGetterAdapter> staticGetters = const {}, Map<String, BridgedStaticSetterAdapter> staticSetters = const {}, Map<String, BridgedMethodAdapter> methods = const {}, Map<String, BridgedInstanceGetterAdapter> getters = const {}, Map<String, BridgedInstanceSetterAdapter> setters = const {}, Map<String, String> constructorSignatures = const {}, Map<String, String> methodSignatures = const {}, Map<String, String> staticMethodSignatures = const {}, Map<String, String> staticGetterSignatures = const {}, Map<String, String> staticSetterSignatures = const {}, Map<String, String> getterSignatures = const {}, Map<String, String> setterSignatures = const {}, bool Function(BridgedClass other, {Object? value})? isSubtypeOfFunc})',
     },
     methodSignatures: {
       'isSubtypeOf': 'bool isSubtypeOf(RuntimeType other, {Object? value})',
@@ -24254,6 +24351,12 @@ BridgedClass _createBridgedClassBridge() {
           'BridgedInstanceGetterAdapter? findInstanceGetterAdapter(String name)',
       'findInstanceSetterAdapter':
           'BridgedInstanceSetterAdapter? findInstanceSetterAdapter(String name)',
+      'findReachableMethodAdapter':
+          'BridgedMethodAdapter? findReachableMethodAdapter(String memberName, InterpreterVisitor? visitor)',
+      'findReachableGetterAdapter':
+          'BridgedInstanceGetterAdapter? findReachableGetterAdapter(String memberName, InterpreterVisitor? visitor)',
+      'findReachableSetterAdapter':
+          'BridgedInstanceSetterAdapter? findReachableSetterAdapter(String memberName, InterpreterVisitor? visitor)',
     },
     getterSignatures: {
       'nativeType': 'Type get nativeType',
@@ -24287,6 +24390,9 @@ BridgedClass _createBridgedClassBridge() {
           'Map<String, String> get staticSetterSignatures',
       'getterSignatures': 'Map<String, String> get getterSignatures',
       'setterSignatures': 'Map<String, String> get setterSignatures',
+      'typedefRequiredPositional': 'int? get typedefRequiredPositional',
+      'typedefMaxPositional': 'int? get typedefMaxPositional',
+      'hashCode': 'int get hashCode',
     },
     setterSignatures: {
       'constructors': 'set constructors(dynamic value)',

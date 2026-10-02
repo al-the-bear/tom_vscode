@@ -1,6 +1,6 @@
 // D4rt Bridge - Generated file, do not edit
 // Test runner for tom_vscode_bridge
-// Generated: 2026-10-02T15:26:31.319585 by tom_d4rt_generator 1.51.0
+// Generated: 2026-10-02T15:36:24.537195 by tom_d4rt_generator 1.51.0
 
 // ignore_for_file: avoid_print
 
