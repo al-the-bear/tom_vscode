@@ -37,6 +37,9 @@
 //   | a sample's lock set back to scripting_api 1.1.0         | F-VSC-LOCK-2 |
 //   | a sample's floor set back to `>=1.1.0`                  | F-VSC-LOCK-4 |
 //   | the walk's depth limit lowered so samples are not found | -0 and -4    |
+//   | (real state) samples locked 1.1.2 under a >=1.1.3 floor | F-VSC-LOCK-5 |
+//     — the cache-blind case -2 cannot see; observed while pub's index lagged
+//       the 1.1.3 publish, before any fault was injected
 //
 // REMEDY when F-VSC-LOCK-2 fires: `./_bin/check_frozen_locks.py tom_ai/vscode`
 // from the workspace root lists the packages; run `dart pub upgrade` in each
@@ -490,6 +493,52 @@ void main() {
             'window (`dart run bin/run_example.dart <concept>`). If it no '
             'longer works, that is the bug — fix the sample, do not lower the '
             'floor.\n${offenders.join('\n')}',
+      );
+    });
+
+    test('F-VSC-LOCK-5: no lock is below its own pubspec\'s floor '
+        '[2026-10-02]', () {
+      // The cache-blind half of the defect. F-VSC-LOCK-2 asks "is a newer
+      // version cached?", so it cannot see a lock that already violates its
+      // own pubspec when the version it should hold is not cached here. Both
+      // shapes were seen on 2026-10-02: the bridge locked tom_d4rt_generator
+      // 1.28.0 under a pubspec floor of >=1.51.0 after 676ffaf raised it, and
+      // the samples locked 1.1.2 under >=1.1.3 while pub's index lagged a
+      // publish. Pub only re-checks a lock against its pubspec when somebody
+      // runs it; this file is read by this test either way.
+      if (root == null) return markTestSkipped('repo root not reachable');
+      final offenders = <String>[];
+      var checked = 0;
+      for (final package in packages) {
+        final locked = {
+          for (final r in _lockedTomPackages(package))
+            if (r.source == 'hosted') r.name: r.version,
+        };
+        final declared = _declaredConstraints(package, locked.keys.toSet());
+        for (final MapEntry(key: name, value: constraint) in declared.entries) {
+          final floor = _lowerBound(constraint);
+          if (floor == null) continue;
+          checked++;
+          if (_compareVersions(locked[name]!, floor) < 0) {
+            offenders.add(
+              '${_relativeTo(root, package)} locks $name ${locked[name]} below '
+              'its own pubspec floor "$constraint"',
+            );
+          }
+        }
+      }
+      // Not vacuous: every sample and the bridge declare a hosted tom_* floor.
+      expect(checked, greaterThanOrEqualTo(5), reason: 'too few floors read');
+      expect(
+        offenders,
+        isEmpty,
+        reason:
+            'These locks do not satisfy the pubspec beside them, so every run '
+            'of the package uses a version its own pubspec rules out.\n'
+            'REMEDY: `dart pub get` (or `dart pub upgrade`) in each. If that '
+            'fails with "doesn\'t match any versions" right after a publish, '
+            'pub\'s index has not caught up yet — wait a few minutes.\n'
+            '${offenders.join('\n')}',
       );
     });
   });
