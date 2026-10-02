@@ -1,6 +1,6 @@
 // D4rt Bridge - Generated file, do not edit
 // Dartscript registration for tom_vscode_bridge
-// Generated: 2026-10-01T05:18:52.188306 by tom_d4rt_generator 1.28.0
+// Generated: 2026-10-02T15:26:31.309078 by tom_d4rt_generator 1.51.0
 
 /// D4rt Bridge Registration for tom_vscode_bridge
 library;
@@ -15,14 +15,8 @@ class TomVscodeBridgeBridges {
   static void register([D4rt? interpreter]) {
     final d4rt = interpreter ?? D4rt();
 
-    all_bridges.AllBridge.registerBridges(
-      d4rt,
-      'tom_vscode_bridge.dart',
-    );
-    all_bridges.AllBridge.registerBridges(
-      d4rt,
-      'lib/tom_vscode_bridge.dart',
-    );
+    all_bridges.AllBridge.registerBridges(d4rt, 'tom_vscode_bridge.dart');
+    all_bridges.AllBridge.registerBridges(d4rt, 'lib/tom_vscode_bridge.dart');
     // Register under sub-package barrels for direct imports
     for (final barrel in all_bridges.AllBridge.subPackageBarrels()) {
       all_bridges.AllBridge.registerBridges(d4rt, barrel);

@@ -1,4 +1,4 @@
-// Generated: 2026-10-01T05:18:52.196980 by tom_d4rt_generator 1.28.0
+// Generated: 2026-10-02T15:26:31.349326 by tom_d4rt_generator 1.51.0
 /// D4rt GEN-079 Relaxer Wrappers for tom_vscode_bridge
 ///
 /// Auto-generated wrapper classes and factory functions for generic
@@ -9,7 +9,6 @@
 library;
 
 // ignore_for_file: unused_import, invalid_implementation_override, deprecated_member_use, sort_child_properties_last, invalid_use_of_protected_member, unnecessary_non_null_assertion, invalid_use_of_visible_for_testing_member, unused_local_variable, unintended_html_in_doc_comment, non_constant_identifier_names, unreachable_switch_case, must_call_super, no_logic_in_create_state, unused_field, unused_element, unnecessary_cast, no_leading_underscores_for_local_identifiers, prefer_is_empty, unnecessary_question_mark, empty_constructor_bodies, prefer_const_constructors_in_immutables, prefer_final_fields, use_key_in_widget_constructors, annotate_overrides, unnecessary_import
-
 
 // No relaxer targets after filtering
 // Emitting empty stubs so the dartscript registration calls
