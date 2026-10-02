@@ -7,7 +7,8 @@
 /// (proposal §7.0.4): server name/version plus each tool's name/description/
 /// JSON-Schema. The extension rebuilds the real instance and routes tool calls
 /// back into Dart over the reverse RPC (todo #5). Wire field names match
-/// `sdk.d.ts` ^0.2.110.
+/// `sdk.d.ts`, audited against 0.3.282 (see `doc/agent_sdk_scripting_mirror.md`
+/// in the extension for what is and is not mirrored).
 library;
 
 /// A tool callback that runs in Dart. Mirrors the handler passed to `tool()`.
@@ -290,10 +291,19 @@ final class McpSdkServerConfig extends McpServerConfig {
   /// The tool descriptors this server exposes.
   final List<SdkMcpTool> tools;
 
+  /// Keep every tool of this server in the prompt and block startup until the
+  /// server is connected. Since SDK 0.3.142 MCP servers connect in the
+  /// background and their tools are deferred behind tool search, so without
+  /// this a turn-1 prompt can be built before the tools exist. Forwarded by
+  /// the extension to `createSdkMcpServer({alwaysLoad})`; omitted from the
+  /// wire when null.
+  final bool? alwaysLoad;
+
   McpSdkServerConfig({
     required this.name,
     this.version = '1.0.0',
     this.tools = const [],
+    this.alwaysLoad,
   });
 
   /// Parses the descriptor from wire JSON (tool handlers are not transported).
@@ -305,6 +315,7 @@ final class McpSdkServerConfig extends McpServerConfig {
             .whereType<Map>()
             .map((m) => SdkMcpTool.fromJson(m.cast<String, dynamic>()))
             .toList(),
+        alwaysLoad: json['alwaysLoad'] as bool?,
       );
 
   @override
@@ -316,6 +327,7 @@ final class McpSdkServerConfig extends McpServerConfig {
     'name': name,
     'version': version,
     'tools': tools.map((t) => t.toJson()).toList(),
+    if (alwaysLoad != null) 'alwaysLoad': alwaysLoad,
   };
 }
 

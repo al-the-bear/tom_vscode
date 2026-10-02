@@ -300,6 +300,43 @@ const SDK_SERVER_OPTIONS: Record<string, unknown> = {
 };
 
 describe('AgentSdkBridge — Dart-defined tools (sdk mcp servers)', () => {
+    test('forwards a descriptor\'s alwaysLoad to createSdkMcpServer, and only when set', async () => {
+        // SDK 0.3.142 made MCP connection non-blocking: without alwaysLoad an
+        // in-process server's tools can be deferred and missing on turn 1. A
+        // Dart caller asks for it in the descriptor; the bridge is the only
+        // place that builds the real server, so it has to pass it on.
+        const seen: Array<Record<string, unknown>> = [];
+        const sdk: AgentSdkLike = {
+            tool: (name: string) => ({ name }),
+            createSdkMcpServer: (options: Record<string, unknown>) => {
+                seen.push(options);
+                return { options };
+            },
+            query: () => (async function* (): AsyncIterable<unknown> { /* no messages */ })(),
+        } as unknown as AgentSdkLike;
+        let done!: () => void;
+        const finished = new Promise<void>((res) => { done = res; });
+        const bridge = new AgentSdkBridge({
+            loadSdk: async () => sdk,
+            sendNotification: (_m, params) => { if (params.done === true || params.error !== undefined) { done(); } },
+            requestClient: async () => ({ content: [] }),
+        });
+        await bridge.startQuery({
+            streamId: 'always-load',
+            prompt: 'p',
+            options: {
+                mcpServers: {
+                    loaded: { type: 'sdk', name: 'loaded', alwaysLoad: true, tools: [] },
+                    plain: { type: 'sdk', name: 'plain', tools: [] },
+                },
+            },
+        });
+        await finished;
+        const byName = Object.fromEntries(seen.map((o) => [o.name as string, o]));
+        assert.equal(byName.loaded.alwaysLoad, true);
+        assert.equal('alwaysLoad' in byName.plain, false, 'unset must stay unset');
+    });
+
     test('rebuilds sdk server, invokes the Dart tool mid-query, and surfaces its result', async () => {
         const h = makeToolRoundTripHarness({ requestClientResult: { content: [{ type: 'text', text: 'sunny' }] } });
 

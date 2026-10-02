@@ -277,6 +277,24 @@ void main() {
       expect(back.toJson(), equals(wire));
     });
 
+    test('McpSdkServerConfig carries alwaysLoad, and omits it when unset '
+        '(SDK 0.3.142 connects MCP servers non-blocking)', () {
+      // Since SDK 0.3.142 an MCP server's tools are deferred behind tool search
+      // and may be absent on turn 1 unless the server asks for alwaysLoad. The
+      // in-process server is rebuilt by the extension, so the flag has to
+      // travel in the descriptor.
+      final on = McpSdkServerConfig(name: 'my-tools', alwaysLoad: true);
+      final wire = on.toJson();
+      expect(wire['alwaysLoad'], isTrue);
+      final back = McpServerConfig.fromJson(wire) as McpSdkServerConfig;
+      expect(back.alwaysLoad, isTrue);
+      expect(back.toJson(), equals(wire));
+
+      // Unset stays off the wire, so existing callers send what they always did.
+      final off = McpSdkServerConfig(name: 'my-tools').toJson();
+      expect(off.containsKey('alwaysLoad'), isFalse);
+    });
+
     test('CallToolResult.text builds an MCP content payload', () {
       final r = CallToolResult.text('hello');
       expect(r.toJson(), {

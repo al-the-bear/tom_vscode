@@ -25,7 +25,7 @@ revision:
 
 ### Agent SDK 1:1 mirror
 
-A low-level Dart mirror of `@anthropic-ai/claude-agent-sdk` (written against ^0.2.110; the extension now resolves ^0.3.282 and the mirror is not yet re-audited against it):
+A low-level Dart mirror of `@anthropic-ai/claude-agent-sdk` (tracks ^0.3.282, the version the extension resolves; the audited gaps are listed in `doc/agent_sdk_scripting_mirror.md` §2.2/§2.4):
 `AgentSdkClient.query({prompt, options})` returns an `AgentQuery`
 (`Stream<SdkMessage>` + `interrupt()`), with a raw-preserving message/block
 surface, a full `Options` type, Dart-defined `sdk` MCP tools, and a

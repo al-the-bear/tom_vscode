@@ -17,7 +17,7 @@ TypeScript caller gets from the SDK, expressed in Dart types.
 
 - **Audience:** script authors targeting a VS Code window over the bridge, and
   maintainers of the mirror.
-- **SDK tracked:** written against `@anthropic-ai/claude-agent-sdk` **^0.2.110**. The extension itself now resolves **^0.3.282**, and the mirror has not yet been re-audited against 0.3.x (the 0.3.142 changes touch its surface: the v2 session API is removed, `TodoWrite` gave way to the Task tools, MCP servers connect non-blocking unless `alwaysLoad` is set). Wire field
+- **SDK tracked:** `@anthropic-ai/claude-agent-sdk` **^0.3.282**, the version the extension resolves — audited against its shipped `sdk.d.ts` (property lists enumerated with the TypeScript checker, not read by eye). Every key the mirror writes exists in 0.3.282; what it does not mirror is listed in §2.2 and §2.4. The 0.3.142 breaking changes: the removed v2 session API was never mirrored; `TodoWrite` → Task tools reaches nothing typed here (tool calls arrive as generic `tool_use` blocks); non-blocking MCP is handled by `alwaysLoad` (§2.4). Wire field
   names are the SDK's own (`sdk.d.ts`): camelCase on inputs (`Options` and its
   sub-configs), snake_case on outputs (`SDKMessage` / content blocks).
 - **Source:** `tom_vscode_scripting_api/lib/src/agent_sdk_*.dart` (Dart half)
@@ -74,10 +74,11 @@ fallback for `redacted_thinking`, `server_tool_use`, images, …).
 ### 2.2 Input options — `agent_sdk_options.dart`
 
 `Options` mirrors the SDK's `Options` argument to `sdk.query({prompt, options})`.
-Every documented data field is present (`model`, `systemPrompt`, `tools`,
+50 of the SDK's 69 properties are mirrored (`model`, `systemPrompt`, `tools`,
 `allowedTools`/`disallowedTools`, `mcpServers`, `maxTurns`, `permissionMode`,
-`thinking`, `effort`, session controls, `agents`, `skills`, `plugins`, …). The
-union-typed fields are modeled as sealed Dart classes with `fromWire`/`toWire`:
+`thinking`, `effort`, session controls, `agents`, `skills`, `plugins`, …), and
+every key `toJson` writes is a 0.3.282 property — none was removed or renamed.
+The union-typed fields are modeled as sealed Dart classes with `fromWire`/`toWire`:
 
 - `SystemPrompt` → `SystemPromptText` | `SystemPromptList` | `SystemPromptPreset`
 - `ToolsConfig` → `ToolsList` | `ToolsClaudeCodePreset`
@@ -86,10 +87,24 @@ union-typed fields are modeled as sealed Dart classes with `fromWire`/`toWire`:
 - `SettingsRef` → `SettingsPath` | `SettingsInline`
 
 **Intentionally excluded** (proposal §7.0.5): callback fields beyond
-`canUseTool`/`onStderr` (`hooks`, `onElicitation`, `sessionStore`) and
-bridge-managed fields (`abortController`, `executable`, …). `abortController`
-in particular is owned by the extension bridge — it creates one per `streamId`
-so cancellation works (§4).
+`canUseTool` (`hooks`, `onElicitation`, `onUserDialog`, `sessionStore`,
+`spawnClaudeCodeProcess`, `stderr`) and bridge-managed fields
+(`abortController`, `executable`, `executableArgs`,
+`pathToClaudeCodeExecutable`). `abortController` in particular is owned by the
+extension bridge — it creates one per `streamId` so cancellation works (§4).
+
+**Not mirrored yet** — data options the SDK gained after the mirror was
+written, none of which an existing Dart caller can be relying on:
+`perTaskStopAffordance`, `permissionPrompts`, `pluginDelivery`,
+`projectConfigRoot`, `resumeDropsTurn`, `sessionStoreFlush`,
+`supportedDialogKinds`, `toolAliases`, `verbatimPrompts`. Add them when a
+caller needs one; there is no pass-through map for unknown keys.
+
+**`env` replaces, it does not add.** The SDK starts the Claude Code subprocess
+with exactly the given map (semantics since 0.2.113), and that subprocess is
+spawned by the extension host, whose environment a Dart caller cannot read. So
+`Options(env: {'FOO': 'x'})` launches it without `PATH` or `HOME`. Leave `env`
+null unless you are supplying the whole environment.
 
 ### 2.3 Permissions — `agent_sdk_permissions.dart`
 
@@ -105,9 +120,17 @@ the `CanUseTool` callback typedef, its `PermissionResult` return
 `McpHttpServerConfig` | `McpSdkServerConfig`. The first three describe
 **external** servers and cross the bridge as plain data (§7). `McpSdkServerConfig`
 describes an **in-process ("sdk")** server: it carries a serializable
-*descriptor* (`name`, `version`, and `SdkMcpTool` entries — `name`,
-`description`, JSON-Schema `inputSchema`) plus the Dart `ToolHandler`s, which
-stay in Dart and are never serialized (§5).
+*descriptor* (`name`, `version`, optional `alwaysLoad`, and `SdkMcpTool`
+entries — `name`, `description`, JSON-Schema `inputSchema`) plus the Dart
+`ToolHandler`s, which stay in Dart and are never serialized (§5).
+
+**`alwaysLoad`.** Since SDK 0.3.142 MCP servers connect in the background and
+their tools are deferred behind tool search, so a turn-1 prompt can be built
+before a server's tools exist. Set `alwaysLoad: true` on a server whose tools
+must be there from the first turn: the external configs carry it to the SDK
+directly, and for `McpSdkServerConfig` the extension passes it to
+`createSdkMcpServer` when it rebuilds the server. Unset, it stays off the wire.
+Not mirrored: the per-server `timeout` the SDK accepts on all four kinds.
 
 ---
 
