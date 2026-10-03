@@ -372,7 +372,14 @@ function showLiveQuickPick(win: LiveWindow, items: PickerItem[], opts: QuickPick
         qp.onDidAccept(() => {
             const picked = qp.selectedItems.map(fromLiveItem);
             const typed = qp.value.trim();
-            if (picked.length === 0 && typed.length > 0) {
+            // A real QuickPick always has an active row. When the typed text
+            // matches no option, the only row left is a pinned (`alwaysShow`)
+            // one — the free-text entry — so Enter "selects" it although the
+            // user meant their text. Treat a selection made only of pinned rows,
+            // with text in the box, as the text: anything else would discard
+            // what was typed and ask for it again.
+            const pinnedOnly = qp.selectedItems.length > 0 && qp.selectedItems.every((i) => i.alwaysShow === true);
+            if ((picked.length === 0 || pinnedOnly) && typed.length > 0) {
                 const own: PickerItem = { label: typed, value: typed };
                 finish(qp.canSelectMany ? [own] : own);
                 return;

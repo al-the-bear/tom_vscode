@@ -78,6 +78,35 @@ describe('live prompter — the free-text guarantee at the widget', () => {
         assert.deepEqual(await pending, { label: 'a colour nobody offered', value: 'a colour nobody offered' });
     });
 
+    test('as the real widget does it: typed text with only the pinned row highlighted submits the text', async () => {
+        // Observed live 2026-10-03 (qr3): a real QuickPick always has an active
+        // row, and when the typed text matches no option the only visible row is
+        // the pinned "Other…" — so Enter accepts IT, not an empty selection.
+        // The detour then opened an empty input box and made the user type the
+        // answer twice. The typed text is the answer.
+        const { win, qp } = fakeWindow();
+        const pending = createLiveUserPrompter(win).showQuickPick([RED, OTHER], {});
+        qp().pressEnter('teal', [qp().items[1]]);
+        assert.deepEqual(await pending, { label: 'teal', value: 'teal' });
+    });
+
+    test('the pinned row chosen with nothing typed still opens the free-text detour', async () => {
+        const { win, qp } = fakeWindow();
+        const pending = createLiveUserPrompter(win).showQuickPick([RED, OTHER], {});
+        qp().pressEnter('', [qp().items[1]]);
+        // `alwaysShow` is a widget hint and is not echoed back to the caller.
+        assert.deepEqual(await pending, { label: 'Other…', value: 'Other…' });
+    });
+
+    test('typed text that matches a real option still picks that option', async () => {
+        // The other half of what was seen live: typing "Green" highlights Green,
+        // and Enter must return the option, not the raw text.
+        const { win, qp } = fakeWindow();
+        const pending = createLiveUserPrompter(win).showQuickPick([RED, OTHER], {});
+        qp().pressEnter('re', [qp().items[0]]);
+        assert.deepEqual(await pending, { label: 'Red', value: 'red' });
+    });
+
     test('multi-select: typed text with nothing ticked is the one selection', async () => {
         const { win, qp } = fakeWindow();
         const pending = createLiveUserPrompter(win).showQuickPick([RED, OTHER], { canPickMany: true });
