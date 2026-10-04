@@ -6,6 +6,21 @@
 
 $ErrorActionPreference = "Stop"
 
+# Runs a native program (npm, dart, node, vsce, code, ...) so that what it
+# writes to stderr is logged rather than fatal.
+# Why: under Windows PowerShell 5.1 with "Stop" in effect, a native program's
+# stderr becomes a terminating NativeCommandError as soon as the script's
+# output is redirected (`*>`, `2>&1`, a log file) - i.e. on every unattended
+# run. `dart pub get` prints its upgrade advice to stderr, so such runs died
+# there with an empty log. Success is decided by the `$LASTEXITCODE` check
+# after each call, which is unaffected (it is global, not scoped).
+# Every native call in this script goes through this function; the extension
+# test src/utils/__tests__/installScriptNativeCalls.test.ts holds that.
+function Invoke-Native([scriptblock]$Block) {
+    $ErrorActionPreference = "Continue"
+    & $Block
+}
+
 Write-Host "================================================"
 Write-Host "Tom AI Build - VS Code Extension Installation"
 Write-Host "================================================"
@@ -27,7 +42,7 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
-$CurrentNodeVersion = (node --version) -replace 'v',''
+$CurrentNodeVersion = (Invoke-Native { node --version }) -replace 'v',''
 $NodeMajorVersion = [int]$CurrentNodeVersion.Split('.')[0]
 
 Write-Host "Current Node.js version: v$CurrentNodeVersion"
@@ -42,17 +57,17 @@ if ($NodeMajorVersion -lt 20) {
         
         # Try to use Node 20
         Write-Host "Attempting to switch to Node.js 20..."
-        nvm use 20
+        Invoke-Native { nvm use 20 }
         
         # Check if switch was successful or if install is needed
         if ($LASTEXITCODE -ne 0) {
             Write-Host "'nvm use 20' failed. Attempting to install Node.js 20..."
-            nvm install 20
-            nvm use 20
+            Invoke-Native { nvm install 20 }
+            Invoke-Native { nvm use 20 }
         }
         
         # Verify version again
-        $CurrentNodeVersion = (node --version) -replace 'v',''
+        $CurrentNodeVersion = (Invoke-Native { node --version }) -replace 'v',''
         $NodeMajorVersion = [int]$CurrentNodeVersion.Split('.')[0]
         
         if ($NodeMajorVersion -ge 20) {
@@ -78,16 +93,21 @@ if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
-Write-Host "npm version: $(npm --version)"
+$NpmVersion = Invoke-Native { npm --version }
+Write-Host "npm version: $NpmVersion"
 Write-Host ""
 
 # Install dependencies
 Write-Host "Installing npm dependencies..."
-npm install
+Invoke-Native { npm install }
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "npm install failed"
+    exit 1
+}
 
 Write-Host ""
 Write-Host "Compiling TypeScript..."
-npm run compile
+Invoke-Native { npm run compile }
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Compilation failed"
     exit 1
@@ -123,7 +143,7 @@ if ($CodeCli) {
         # Check if vsce is installed
         if (-not (Get-Command vsce -ErrorAction SilentlyContinue)) {
             Write-Host "Installing @vscode/vsce globally..."
-            npm install -g @vscode/vsce
+            Invoke-Native { npm install -g @vscode/vsce }
             
             if ($LASTEXITCODE -ne 0) {
                 Write-Error "Failed to install vsce."
@@ -185,20 +205,20 @@ if ($CodeCli) {
             }
             if ($BuildkitBin) {
                 Push-Location $WorkspaceRoot
-                & $BuildkitBin -R --project tom_vscode_bridge :versioner
+                Invoke-Native { & $BuildkitBin -R --project tom_vscode_bridge :versioner }
                 if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "versioner failed"; exit 1 }
                 Pop-Location
             } else {
                 Write-Host "  buildkit binary not found - running versioner from source"
                 $BuildkitDir = Join-Path $WorkspaceRoot 'tom_ai/basics/tom_build_kit'
                 Push-Location $BuildkitDir
-                dart pub get
+                Invoke-Native { dart pub get }
                 if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "dart pub get failed in $BuildkitDir"; exit 1 }
                 Pop-Location
                 $BuildkitPkgConfig = Join-Path $BuildkitDir '.dart_tool/package_config.json'
                 $BuildkitEntrypoint = Join-Path $BuildkitDir 'bin/buildkit.dart'
                 Push-Location $WorkspaceRoot
-                dart --packages="$BuildkitPkgConfig" "$BuildkitEntrypoint" -R --project tom_vscode_bridge :versioner
+                Invoke-Native { dart --packages="$BuildkitPkgConfig" "$BuildkitEntrypoint" -R --project tom_vscode_bridge :versioner }
                 if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "versioner failed"; exit 1 }
                 Pop-Location
             }
@@ -206,11 +226,11 @@ if ($CodeCli) {
             # 2) Resolve dependencies for both the generator and the bridge.
             Write-Host "Resolving Dart dependencies (generator + bridge)..."
             Push-Location $GenDir
-            dart pub get
+            Invoke-Native { dart pub get }
             if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "dart pub get failed in $GenDir"; exit 1 }
             Pop-Location
             Push-Location $BridgeDir
-            dart pub get
+            Invoke-Native { dart pub get }
             if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "dart pub get failed in $BridgeDir"; exit 1 }
 
             # 3) Regenerate the d4rt bridges. d4rtgen processes the project in its
@@ -218,7 +238,7 @@ if ($CodeCli) {
             #    the generator's entrypoint directly from its source, without
             #    requiring it on PATH or as a dependency of the bridge.
             Write-Host "Regenerating d4rt bridges..."
-            dart --packages="$GenPkgConfig" "$GenEntrypoint"
+            Invoke-Native { dart --packages="$GenPkgConfig" "$GenEntrypoint" }
             if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "d4rt bridge generation failed"; exit 1 }
 
             # 4) Compile the bridge binary for THIS host straight into the
@@ -226,7 +246,7 @@ if ($CodeCli) {
             Write-Host "Compiling bridge binary from source for $HostPlat ..."
             foreach ($bin in $BundledBinaries) {
                 $dst = Join-Path $dstDir "$bin.exe"
-                dart compile exe (Join-Path 'bin' "$bin.dart") -o $dst
+                Invoke-Native { dart compile exe (Join-Path 'bin' "$bin.dart") -o $dst }
                 if ($LASTEXITCODE -ne 0) {
                     Pop-Location
                     Write-Error "Failed to compile $bin from source"
@@ -286,7 +306,7 @@ if ($CodeCli) {
             }
             $HostPlat = "win32-$arch"
             $SdkPkgJson = ($SdkPkgDir -replace '\\', '/') + '/package.json'
-            $SdkVer = (node -p "require('$SdkPkgJson').version")
+            $SdkVer = Invoke-Native { node -p "require('$SdkPkgJson').version" }
             $HostPkg = "@anthropic-ai/claude-agent-sdk-$HostPlat"
             $HostPkgDir = Join-Path $ExtensionDir "node_modules/@anthropic-ai/claude-agent-sdk-$HostPlat"
             if (Test-Path $HostPkgDir) {
@@ -295,7 +315,7 @@ if ($CodeCli) {
                 Write-Host "  Installing $HostPkg@$SdkVer ..."
                 # --no-save / --no-package-lock keep the committed manifests
                 # untouched; we only need the binary in node_modules to package.
-                npm install --no-save --no-package-lock "$HostPkg@$SdkVer"
+                Invoke-Native { npm install --no-save --no-package-lock "$HostPkg@$SdkVer" }
                 if ($LASTEXITCODE -ne 0) {
                     Write-Error "Failed to install $HostPkg@$SdkVer - the packaged extension would fail at runtime on this host."
                     exit 1
@@ -306,7 +326,7 @@ if ($CodeCli) {
         }
         Write-Host ""
 
-        cmd /c vsce package --allow-missing-repository --skip-license --baseContentUrl https://github.com/al-the-bear/tom/blob/main/tom_dartscript_extension
+        Invoke-Native { cmd /c vsce package --allow-missing-repository --skip-license --baseContentUrl https://github.com/al-the-bear/tom/blob/main/tom_dartscript_extension }
         
         if ($LASTEXITCODE -eq 0) {
             # Find the generated VSIX file
@@ -317,7 +337,7 @@ if ($CodeCli) {
                 Write-Host "Package created: $($VsixFile.Name)"
                 Write-Host ""
                 Write-Host "Installing extension in VS Code..."
-                & $CodeCli --install-extension "$($VsixFile.FullName)"
+                Invoke-Native { & $CodeCli --install-extension "$($VsixFile.FullName)" }
                 
                 if ($LASTEXITCODE -eq 0) {
                     Write-Host ""
@@ -357,14 +377,14 @@ if ($CodeCli) {
         Write-Host ""
         if ($OpenDev -match "^[Yy]") {
             Write-Host "Opening in VS Code..."
-            & $CodeCli "$ExtensionDir"
+            Invoke-Native { & $CodeCli "$ExtensionDir" }
         }
     }
 } else {
     Write-Host "Manual installation steps:"
     Write-Host ""
     Write-Host "Option 1: Package and install as VSIX"
-    Write-Host "  1. Install vsce: npm install -g @vscode/vsce"
+    Write-Host "  1. Install vsce: Invoke-Native { npm install -g @vscode/vsce }"
     Write-Host "  2. Package: cd $ExtensionDir; vsce package"
     Write-Host "  3. In VS Code: Ctrl+Shift+P -> 'Extensions: Install from VSIX...'"
     Write-Host "  4. Select the .vsix file"
