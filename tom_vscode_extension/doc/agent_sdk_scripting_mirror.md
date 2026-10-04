@@ -76,8 +76,10 @@ fallback for `redacted_thinking`, `server_tool_use`, images, …).
 `Options` mirrors the SDK's `Options` argument to `sdk.query({prompt, options})`.
 50 of the SDK's 69 properties are mirrored (`model`, `systemPrompt`, `tools`,
 `allowedTools`/`disallowedTools`, `mcpServers`, `maxTurns`, `permissionMode`,
-`thinking`, `effort`, session controls, `agents`, `skills`, `plugins`, …), and
-every key `toJson` writes is a 0.3.282 property — none was removed or renamed.
+`thinking`, `effort`, session controls, `agents`, `skills`, `plugins`, …).
+Every key `toJson` writes is a 0.3.282 property except `envOverlay`, which is
+Dart-only and which the bridge resolves before the SDK sees the options (below).
+None of the mirrored properties was removed or renamed.
 The union-typed fields are modeled as sealed Dart classes with `fromWire`/`toWire`:
 
 - `SystemPrompt` → `SystemPromptText` | `SystemPromptList` | `SystemPromptPreset`
@@ -100,11 +102,27 @@ written, none of which an existing Dart caller can be relying on:
 `supportedDialogKinds`, `toolAliases`, `verbatimPrompts`. Add them when a
 caller needs one; there is no pass-through map for unknown keys.
 
-**`env` replaces, it does not add.** The SDK starts the Claude Code subprocess
-with exactly the given map (semantics since 0.2.113), and that subprocess is
-spawned by the extension host, whose environment a Dart caller cannot read. So
-`Options(env: {'FOO': 'x'})` launches it without `PATH` or `HOME`. Leave `env`
-null unless you are supplying the whole environment.
+**`env` replaces; `envOverlay` adds.** The SDK starts the Claude Code
+subprocess with exactly the `env` map (semantics since 0.2.113), so
+`Options(env: {'FOO': 'x'})` launches it without `PATH` or `HOME`. A TypeScript
+caller adds a variable with `env: {...process.env, FOO: 'x'}`, but the
+subprocess is spawned by the extension host, whose environment a Dart caller
+cannot read. `envOverlay` (tom_vscode_scripting_api 1.1.4) is the Dart-only
+equivalent. `AgentSdkBridge` removes it from the options and lays it over `env`
+when `env` is set, otherwise over the extension host's own environment, then
+passes the result to the SDK as `env`:
+
+| Dart options | `env` the SDK receives |
+| --- | --- |
+| neither | none; the subprocess inherits the extension host's environment |
+| `env` | `env` unchanged (replace) |
+| `envOverlay` | extension host environment + `envOverlay` |
+| `env` + `envOverlay` | `env` + `envOverlay` |
+
+An overlay cannot remove an inherited variable; supply a complete `env` for
+that. An extension build older than the one that resolves `envOverlay` passes
+the key through to the SDK, which has no such option, so the overlay has no
+effect there.
 
 ### 2.3 Permissions — `agent_sdk_permissions.dart`
 

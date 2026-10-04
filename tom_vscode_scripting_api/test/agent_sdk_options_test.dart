@@ -440,4 +440,37 @@ void main() {
       expect(Options(model: 'x').toJson().containsKey('canUseTool'), isFalse);
     });
   });
+
+  // `env` replaces the subprocess environment (SDK semantics), and Dart cannot
+  // read the extension host's environment to spread it. `envOverlay` is the
+  // Dart-only way to say "the inherited environment plus these"; the
+  // extension's bridge resolves it into `env`.
+  group('envOverlay (Dart-only, resolved by the bridge)', () {
+    test('ENV-D1: crosses the wire under its own key, next to env', () {
+      final wire = Options(
+        env: {'PATH': '/opt/bin'},
+        envOverlay: {'FOO': 'x'},
+      ).toJson();
+      expect(wire['envOverlay'], {'FOO': 'x'});
+      expect(wire['env'], {'PATH': '/opt/bin'});
+    });
+
+    test(
+      'ENV-D2: absent when unset, so existing callers send what they did',
+      () {
+        expect(
+          Options(env: {'A': '1'}).toJson().containsKey('envOverlay'),
+          isFalse,
+        );
+      },
+    );
+
+    test('ENV-D3: round-trips through fromJson', () {
+      final wire = Options(envOverlay: {'FOO': 'x', 'BAR': 'y'}).toJson();
+      final back = Options.fromJson(wire);
+      expect(back.envOverlay, {'FOO': 'x', 'BAR': 'y'});
+      expect(back.env, isNull);
+      expect(back.toJson(), equals(wire));
+    });
+  });
 }

@@ -75,7 +75,18 @@ export interface AgentSdkBridgeDeps {
      * mcp servers; absent it, building such a server fails the query.
      */
     requestClient?: RequestClient;
+    /**
+     * The environment `envOverlay` is laid over when the caller gives no `env`.
+     * Defaults to this extension host's `process.env`; injectable for tests.
+     */
+    baseEnv?: () => Record<string, string | undefined>;
 }
+
+/**
+ * The Dart-only option asking for "the inherited environment plus these".
+ * Not an SDK option: the bridge resolves it into `env` and removes it.
+ */
+const ENV_OVERLAY_KEY = 'envOverlay';
 
 /** The wire method a Dart-defined tool handler is invoked over. */
 const TOOL_CALL_METHOD = 'agentSdk.toolCall';
@@ -160,6 +171,7 @@ export class AgentSdkBridge {
             // unchanged — except `{type:'sdk'}` mcp servers, which are rebuilt
             // into real instances whose tools call back into Dart.
             const options: Record<string, unknown> = { ...callerOptions, abortController };
+            this.resolveEnvOverlay(options);
             const mcpServers = options.mcpServers;
             if (mcpServers && typeof mcpServers === 'object') {
                 options.mcpServers = this.buildMcpServers(
@@ -190,6 +202,29 @@ export class AgentSdkBridge {
         void this.pump(streamId, stream);
 
         return { success: true, streamId };
+    }
+
+    /**
+     * Resolve the Dart-only `envOverlay` into the SDK's `env`.
+     *
+     * The SDK's `env` REPLACES the Claude Code subprocess's environment, and a
+     * TypeScript caller adds a variable by spreading `process.env` itself. A
+     * Dart caller cannot: the subprocess is spawned here, in the extension
+     * host, whose environment the Dart process cannot read. So the overlay is
+     * laid over the caller's `env` when one is given (keeping its replace
+     * semantics), else over the extension host's environment. `env` alone is
+     * passed through unchanged.
+     */
+    private resolveEnvOverlay(options: Record<string, unknown>): void {
+        if (!(ENV_OVERLAY_KEY in options)) { return; }
+        const overlay = options[ENV_OVERLAY_KEY];
+        delete options[ENV_OVERLAY_KEY];
+        if (!overlay || typeof overlay !== 'object') { return; }
+        const callerEnv = options.env;
+        const base = callerEnv && typeof callerEnv === 'object'
+            ? (callerEnv as Record<string, string | undefined>)
+            : (this.deps.baseEnv ?? (() => process.env))();
+        options.env = { ...base, ...(overlay as Record<string, string>) };
     }
 
     /**

@@ -1,3 +1,15 @@
+## 1.1.4
+
+- `Options.envOverlay` adds variables to the Claude Code subprocess's
+  environment while keeping everything it would otherwise inherit. `env`
+  replaces that environment, as it does in the SDK, and a Dart caller cannot
+  read the extension host's environment to spread it the way a TypeScript
+  caller writes `env: {...process.env, FOO: 'x'}`. The extension's bridge
+  lays `envOverlay` over `env` when `env` is set, otherwise over the extension
+  host's own environment, and passes the result as `env`. Dart-only, not an
+  SDK option; it needs a Tom extension build that resolves it (with an older
+  one it has no effect). Unset, the wire is unchanged.
+
 ## 1.1.3
 
 - `McpSdkServerConfig` gains `alwaysLoad`. Since Agent SDK 0.3.142, MCP

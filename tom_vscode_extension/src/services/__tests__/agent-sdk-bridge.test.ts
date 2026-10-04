@@ -43,7 +43,7 @@ interface Harness {
     recorded: { params?: { prompt: string; options?: Record<string, unknown> } };
 }
 
-function makeHarness(opts: { messages?: unknown[]; throwError?: string }): Harness {
+function makeHarness(opts: { messages?: unknown[]; throwError?: string; baseEnv?: Record<string, string | undefined> }): Harness {
     const notifications: RecordedNotification[] = [];
     const recorded: Harness['recorded'] = {};
     let resolveDone!: () => void;
@@ -70,6 +70,7 @@ function makeHarness(opts: { messages?: unknown[]; throwError?: string }): Harne
                 resolveDone();
             }
         },
+        ...(opts.baseEnv ? { baseEnv: () => opts.baseEnv! } : {}),
     };
 
     return { bridge: new AgentSdkBridge(deps), notifications, finished, recorded };
@@ -597,3 +598,63 @@ describe('AgentSdkBridge — canUseTool permission callback', () => {
         assert.match(String(last.params.error), /requestClient|reverse RPC|canUseTool/i);
     });
 });
+
+// A Dart caller cannot read the extension host's environment, and the SDK's
+// `env` REPLACES the subprocess environment, so `env: {FOO}` from Dart started
+// Claude Code without PATH or HOME. `envOverlay` (Dart-only, not an SDK
+// option) asks the bridge for "the inherited environment plus these".
+// Environment variable names are upper-case by convention, not camelCase.
+/* eslint-disable @typescript-eslint/naming-convention */
+describe('AgentSdkBridge.startQuery — envOverlay (ENV-*)', () => {
+    const HOST = { PATH: '/usr/bin', HOME: '/home/u', FOO: 'host' };
+
+    test('ENV-1: envOverlay alone → the host environment plus the overlay', async () => {
+        const h = makeHarness({ messages: [], baseEnv: HOST });
+        await h.bridge.startQuery({ streamId: 'e1', prompt: 'p', options: { envOverlay: { FOO: 'x', BAR: 'y' } } });
+        await h.finished;
+        const opts = h.recorded.params!.options!;
+        assert.deepEqual(opts.env, { PATH: '/usr/bin', HOME: '/home/u', FOO: 'x', BAR: 'y' });
+        assert.equal('envOverlay' in opts, false, 'envOverlay is not an SDK option and must not reach sdk.query');
+    });
+
+    test('ENV-2: envOverlay with env → the overlay laid over the caller\'s env, host ignored', async () => {
+        const h = makeHarness({ messages: [], baseEnv: HOST });
+        await h.bridge.startQuery({ streamId: 'e2', prompt: 'p', options: { env: { PATH: '/opt/bin' }, envOverlay: { BAR: 'y' } } });
+        await h.finished;
+        const opts = h.recorded.params!.options!;
+        assert.deepEqual(opts.env, { PATH: '/opt/bin', BAR: 'y' });
+        assert.equal('envOverlay' in opts, false);
+    });
+
+    test('ENV-3: env alone keeps the SDK\'s replace semantics', async () => {
+        const h = makeHarness({ messages: [], baseEnv: HOST });
+        await h.bridge.startQuery({ streamId: 'e3', prompt: 'p', options: { env: { ONLY: '1' } } });
+        await h.finished;
+        assert.deepEqual(h.recorded.params!.options!.env, { ONLY: '1' });
+    });
+
+    test('ENV-4: neither set → no env key, the subprocess inherits as before', async () => {
+        const h = makeHarness({ messages: [], baseEnv: HOST });
+        await h.bridge.startQuery({ streamId: 'e4', prompt: 'p', options: { model: 'm' } });
+        await h.finished;
+        assert.equal('env' in h.recorded.params!.options!, false);
+    });
+
+    test('ENV-5: the caller\'s options object is not mutated', async () => {
+        const callerOptions: Record<string, unknown> = { envOverlay: { FOO: 'x' } };
+        const h = makeHarness({ messages: [], baseEnv: HOST });
+        await h.bridge.startQuery({ streamId: 'e5', prompt: 'p', options: callerOptions });
+        await h.finished;
+        assert.deepEqual(callerOptions, { envOverlay: { FOO: 'x' } });
+    });
+
+    test('ENV-6: without an injected baseEnv the extension host\'s process.env is the base', async () => {
+        const h = makeHarness({ messages: [] });
+        await h.bridge.startQuery({ streamId: 'e6', prompt: 'p', options: { envOverlay: { QR6_PROBE: '1' } } });
+        await h.finished;
+        const env = h.recorded.params!.options!.env as Record<string, string>;
+        assert.equal(env.QR6_PROBE, '1');
+        assert.equal(env.PATH, process.env.PATH);
+    });
+});
+/* eslint-enable @typescript-eslint/naming-convention */

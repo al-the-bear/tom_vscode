@@ -486,12 +486,24 @@ class Options {
   ///
   /// REPLACES the inherited environment rather than adding to it (SDK
   /// semantics since 0.2.113): `{'FOO': 'x'}` starts the subprocess with
-  /// essentially only `FOO`, without `PATH` or `HOME`. The process inheriting
-  /// it is the VS Code extension host, whose environment this Dart process
-  /// cannot read, so there is no way to pass "the current environment plus
-  /// one variable" from here. Leave this null unless you mean to supply the
-  /// complete environment.
+  /// essentially only `FOO`, without `PATH` or `HOME`. Leave this null unless
+  /// you mean to supply the complete environment; to add or override a few
+  /// variables, use [envOverlay].
   final Map<String, String>? env;
+
+  /// Variables to add to the Claude Code subprocess's environment, keeping
+  /// everything it would otherwise inherit.
+  ///
+  /// Dart-only; not an SDK option. A TypeScript caller writes
+  /// `env: {...process.env, FOO: 'x'}`, but the subprocess is spawned by the
+  /// VS Code extension host, whose environment this Dart process cannot read.
+  /// The extension's bridge does the spread instead: it lays this map over
+  /// [env] when [env] is set, otherwise over the extension host's own
+  /// environment, and passes the result to the SDK as `env`. It cannot
+  /// remove an inherited variable; supply a complete [env] for that. Needs a
+  /// Tom extension build that resolves it; with an older one it has no
+  /// effect.
+  final Map<String, String>? envOverlay;
 
   /// Extra CLI arguments (values may be null for flags).
   final Map<String, String?>? extraArgs;
@@ -593,6 +605,7 @@ class Options {
     this.persistSession,
     this.title,
     this.env,
+    this.envOverlay,
     this.extraArgs,
     this.strictMcpConfig,
     this.agent,
@@ -671,6 +684,9 @@ class Options {
       persistSession: v('persistSession') as bool?,
       title: v('title') as String?,
       env: (v('env') as Map?)?.map((k, val) => MapEntry('$k', '$val')),
+      envOverlay: (v('envOverlay') as Map?)?.map(
+        (k, val) => MapEntry('$k', '$val'),
+      ),
       extraArgs: (v('extraArgs') as Map?)?.map(
         (k, val) => MapEntry('$k', val as String?),
       ),
@@ -751,6 +767,7 @@ class Options {
     put('persistSession', persistSession);
     put('title', title);
     put('env', env);
+    put('envOverlay', envOverlay);
     put('extraArgs', extraArgs);
     put('strictMcpConfig', strictMcpConfig);
     put('agent', agent);
