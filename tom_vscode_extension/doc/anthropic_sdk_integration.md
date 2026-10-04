@@ -1850,6 +1850,20 @@ send(options) {
 
 Tool registration lives in `toMcpTools()` (Step 6.4): each `SharedToolDefinition` becomes an SDK `tool(name, description, inputSchema, handler)` where the handler calls the shared tool's `execute()` and wraps the string output in the MCP `{ content: [{ type: 'text', text }] }` shape. Tools still run **in-extension** — the MCP layer is a transport for tool-call messages to and from the agent, not a security boundary crossing.
 
+**The prompt is a stream, held open until the CLI is idle.** The CLI calls the in-process MCP server through control requests, and the replies reach it on its stdin. With a string prompt the SDK closes stdin at the query's first `result`. The CLI can keep working after that result, and every in-process tool call it makes then fails in milliseconds with "The tool call was interrupted before a result was received". Two situations cause this:
+
+- a background agent finishes after the model has ended its turn, and the CLI runs a continuation turn;
+- on resume, the CLI first runs an orphan-summary notification about the previous process's background tasks, and that turn's result arrives before the prompt has started.
+
+The transport therefore passes the prompt through `QueryInputChannel` (`src/services/agent-sdk-input-channel.ts`). The channel sends one user message stamped with a uuid and closes stdin only on `session_state_changed: idle` after a `result` whose `user_message_uuids` contains that uuid. `idle` is the CLI's own turn-over signal, and the CLI emits it only when `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS` is set; the transport sets it in `env`.
+
+Two fallbacks prevent a hang:
+
+- a CLI that emits no session-state events closes at the answering result;
+- an `idle` while the message is still unanswered closes after 10 s unless the CLI starts running again.
+
+Cancellation and the end of the stream always close the channel. If a `tomAi_*` call still fails this way, the Tom Tool Log records `[agent-sdk] tom-ai unreachable: <tool> in request <id> — input open|closed (<reason>)`, and `tom-ai status at init: …` when the server is not connected at startup.
+
 ### 18.6 Auth status indicator
 
 The ANTHROPIC panel toolbar gets a second status dot next to the existing 🔑 (env-var) dot:

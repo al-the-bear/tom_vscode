@@ -156,6 +156,7 @@ interface AgentSdkModule {
             canUseTool?: CanUseTool;
             mcpServers?: Record<string, unknown>;
             tools?: string[] | { type: 'preset'; preset: 'claude_code' };
+            env?: Record<string, string | undefined>;
         };
     }): AsyncIterable<SDKMessage>;
     tool(
@@ -223,6 +224,7 @@ import {
 import type { AskUserQuestionOutcome } from '../services/agent-sdk-questions';
 import { liveUserPrompter } from '../tools/user-interaction-tools';
 import { appendQuestionLogEntry } from '../services/questionsLog';
+import { QueryInputChannel, isChannelDeadToolResult } from '../services/agent-sdk-input-channel';
 
 // Re-export the pure retry-decision API so existing consumers
 // (`anthropic-handler.ts`) can keep importing it from this transport module.
@@ -757,8 +759,17 @@ async function runAgentSdkAttempt(
     const approvalMode = params.toolApprovalMode ?? 'always';
     const canUseToolFn = makeCanUseTool(tools, context, approvalMode, params.interactiveQuestions);
 
+    // The prompt goes in as a stream that stays open until the CLI is really
+    // done — see agent-sdk-input-channel.ts for why a string prompt killed
+    // every tomAi_* call made after the query's first result.
+    const input = new QueryInputChannel(userText, {
+        onClose: (reason) => toolLog(`[agent-sdk] input closed (${reason}) for request ${context.requestId}`),
+    });
     const abortController = new AbortController();
-    const cancelSub = cancellationToken?.onCancellationRequested(() => abortController.abort());
+    const cancelSub = cancellationToken?.onCancellationRequested(() => {
+        input.close('cancelled');
+        abortController.abort();
+    });
 
     const maxTurns = configuration.agentSdk?.maxTurns ?? configuration.maxRounds;
     const configuredMode = (configuration.agentSdk?.permissionMode ?? 'default') as PermissionMode;
@@ -829,6 +840,10 @@ async function runAgentSdkAttempt(
     }
     const pendingBuiltins = new Map<string, PendingBuiltinCall>();
     const isMcpToolName = (name: string): boolean => name.startsWith('mcp__');
+    // Names of our own MCP tool calls by tool_use id, so a result that says
+    // the call never reached the server can be logged with the tool's name.
+    const ownToolPrefix = `mcp__${MCP_SERVER_NAME}__`;
+    const ownToolNames = new Map<string, string>();
 
     try {
         // `cwd` anchors the SDK's filesystem lookups (CLAUDE.md,
@@ -848,6 +863,11 @@ async function runAgentSdkAttempt(
             canUseTool: canUseToolFn,
             mcpServers: { [MCP_SERVER_NAME]: mcpServer },
             tools: toolsOption,
+            // Makes the CLI report `session_state_changed`, whose `idle` is the
+            // signal the input channel closes on. `env` replaces the
+            // subprocess environment, so the inherited one is spread in.
+            // eslint-disable-next-line @typescript-eslint/naming-convention -- environment variable name
+            env: { ...process.env, CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' },
             ...(workspaceCwd ? { cwd: workspaceCwd } : {}),
         };
         // Continuity: passing `resume` tells the SDK to continue a prior
@@ -895,7 +915,7 @@ async function runAgentSdkAttempt(
         } catch { /* best-effort */ }
 
         const stream = sdk.query({
-            prompt: userText,
+            prompt: input.messages(),
             options: queryOptions as Parameters<typeof sdk.query>[0]['options'],
         });
 
@@ -918,6 +938,7 @@ async function runAgentSdkAttempt(
                     params.onSessionIdCaptured?.(sid);
                 } catch { /* persistence is best-effort */ }
             }
+            input.observe(msg);
             switch (msg.type) {
                 case 'assistant': {
                     handleAssistantMessage(msg as SDKAssistantMessage, context);
@@ -946,6 +967,10 @@ async function runAgentSdkAttempt(
                                 const replayKey = typeof b.id === 'string' ? b.id : 'sdk';
                                 params.liveTrail.beginToolCall(b.name, b.input ?? {}, replayKey);
                             }
+                        }
+
+                        if (b.type === 'tool_use' && typeof b.name === 'string' && typeof b.id === 'string' && b.name.startsWith(ownToolPrefix)) {
+                            ownToolNames.set(b.id, b.name);
                         }
 
                         // Raw trail + tool trail for BUILT-IN tool
@@ -998,10 +1023,17 @@ async function runAgentSdkAttempt(
 
                         params.liveTrail?.appendToolResult(text, text.length);
 
+                        const toolUseId = typeof b.tool_use_id === 'string' ? b.tool_use_id : undefined;
+                        const ownName = toolUseId ? ownToolNames.get(toolUseId) : undefined;
+                        if (ownName && b.is_error === true && isChannelDeadToolResult(text)) {
+                            // The call never reached our MCP server. Log what the
+                            // input channel was doing, so a recurrence explains itself.
+                            toolLog(`[agent-sdk] ${MCP_SERVER_NAME} unreachable: ${ownName} in request ${context.requestId} — input ${input.closed ? `closed (${input.closeReason})` : 'open'}`);
+                        }
+
                         // Close out built-in tool call: write raw
                         // answer + commit to toolTrail so the replay
                         // key / past-tool-access tools can find it.
-                        const toolUseId = typeof b.tool_use_id === 'string' ? b.tool_use_id : undefined;
                         if (toolUseId && pendingBuiltins.has(toolUseId)) {
                             const pending = pendingBuiltins.get(toolUseId)!;
                             pendingBuiltins.delete(toolUseId);
@@ -1025,6 +1057,20 @@ async function runAgentSdkAttempt(
                                 durationMs,
                                 error: errorMsg,
                             });
+                        }
+                    }
+                    break;
+                }
+                case 'system': {
+                    // `init` lists each MCP server's status. Ours is in-process
+                    // and should always be connected; say so when it is not.
+                    // eslint-disable-next-line @typescript-eslint/naming-convention -- SDK wire field
+                    const sys = msg as { subtype?: unknown; mcp_servers?: unknown };
+                    if (sys.subtype === 'init' && Array.isArray(sys.mcp_servers)) {
+                        const ours = (sys.mcp_servers as { name?: unknown; status?: unknown }[])
+                            .find((s) => s && s.name === MCP_SERVER_NAME);
+                        if (!ours || ours.status !== 'connected') {
+                            toolLog(`[agent-sdk] ${MCP_SERVER_NAME} status at init: ${ours ? String(ours.status) : 'missing'} (request ${context.requestId})`);
                         }
                     }
                     break;
@@ -1078,6 +1124,7 @@ async function runAgentSdkAttempt(
         );
         throw err;
     } finally {
+        input.close('stream-ended');
         cancelSub?.dispose();
     }
 
