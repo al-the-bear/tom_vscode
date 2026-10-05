@@ -1,3 +1,17 @@
+## 1.2.2
+
+Documentation and samples only; no code change.
+
+- The Agent SDK guide (`doc/vscode_api_anthropic_agent_sdk_guide.md`)
+  documents streaming input (`streamQuery`, `SdkUserInput`,
+  `AgentSdkInputTransport`), and its `env` row is corrected: `env` replaces the
+  agent's environment, and `envOverlay` adds to it.
+- `example/vscode_agent_sdk_sample` gains a sixth concept, `streaming_input`
+  (a two-message conversation over `streamQuery`). Its live concepts are fixed:
+  `streaming_query` names a small model and gives the agent no tools, so it
+  completes in its one turn, and the out-of-date "chunk relay is incomplete"
+  notes are gone.
+
 ## 1.2.1
 
 - `VSCodeBridgeAgentSdkTransport` now fails when the extension refuses a
