@@ -176,6 +176,16 @@ Note the two spellings, which coexist across the todo schema: the *status* value
 is hyphenated (`decision-needed`), the *object property* is snake_case
 (`decision_needed`).
 
+**`references[]`** has one accepted shape. Each entry is an object, as the
+schema's `$defs/reference` defines it: `{path}` for a workspace file, `{url}`
+for a link or `{description}` for a note, optionally with `type` and `lines`.
+`tomAi_createQuestTodo` and `tomAi_updateQuestTodo` reject anything else,
+including a bare string, with an `ok: false` that names the object form to
+send (`validateTodoReferences` in `src/tools/quest-todo-tools.ts`); a rejected
+update applies none of its fields. The reader is more lenient on purpose: a
+string already in a file (hand-written, or from an older build) is read as
+`{path}`, so the todo keeps its references.
+
 Two behaviours hang off the status:
 
 - **Archiving a completed todo journals its decisions.** `todoArchive.ts` copies

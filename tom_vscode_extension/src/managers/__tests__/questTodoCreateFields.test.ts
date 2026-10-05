@@ -36,7 +36,7 @@ const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'todo-create-fields-'));
 installVscodeStub({ workspaceFolders: [tmpRoot] });
 
 // Safe to import after the stub is wired into the resolver.
-import { createTodo, createTodoInFile, moveTodo } from '../questTodoManager.js';
+import { createTodo, createTodoInFile, moveTodo, readTodoFile } from '../questTodoManager.js';
 
 const QUEST = 'cfquest';
 const questDir = path.join(tmpRoot, '_ai', 'quests', QUEST);
@@ -156,6 +156,36 @@ describe('SCE5: both create paths persist the same fields, and a move is lossles
             after!.future_field,
             'must survive a move',
             'the move dropped a field the builder does not enumerate',
+        );
+    });
+});
+
+/**
+ * SCE243: the tools reject string references (an object is the one accepted
+ * form), but a string already in a todo file, written by hand or by an older
+ * build, must stay readable, or that todo would lose its references the next
+ * time anything reads it. Measured 2026-10-05: no such string exists in the
+ * workspace (6 876 references, all objects); this keeps it that way safely.
+ */
+describe('SCE243: string references on disk stay readable', () => {
+    test('R-7: a hand-written string reference reads back as {path}', () => {
+        const file = path.join(questDir, 'legacy-refs.todo.yaml');
+        fs.mkdirSync(questDir, { recursive: true });
+        fs.writeFileSync(file, [
+            'todos:',
+            '  - id: legacy',
+            '    description: written before the tool checked the shape',
+            '    status: not-started',
+            '    references:',
+            '      - doc/old.md',
+            '      - type: file',
+            '        path: doc/new.md',
+            '',
+        ].join('\n'), 'utf8');
+        const [todo] = readTodoFile(file);
+        assert.deepEqual(
+            todo.references?.map((r) => ({ path: r.path, type: r.type })),
+            [{ path: 'doc/old.md', type: undefined }, { path: 'doc/new.md', type: 'file' }],
         );
     });
 });

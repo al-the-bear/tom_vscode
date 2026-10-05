@@ -461,11 +461,11 @@ function nodeToTodo(node: YAMLMap, sourceFile?: string): QuestTodoItem {
 
     // references
     //
-    // A PLAIN STRING IS A REFERENCE TOO. The schema types these as maps, and
-    // this reader used to `.filter(isMap)` — so a list of strings, which is
-    // what every caller of the MCP tool writes, was read back as an empty list
-    // and the field vanished on the next write. Normalised to `{path}` here
-    // and on the way out, so the two forms round-trip as one.
+    // A PLAIN STRING IS STILL READ. The schema types references as maps, and
+    // the tools reject anything else (SCE243). But a string already in a file,
+    // written by hand or by an older build, must not make the todo lose its
+    // references on the next read: this reader used to `.filter(isMap)`, which
+    // did exactly that. Such a string is read as `{path}`.
     const refsNode = node.get('references', true);
     if (isSeq(refsNode)) {
         item.references = refsNode.items
@@ -646,8 +646,9 @@ function buildTodoPlain(todo: Omit<QuestTodoItem, '_sourceFile'>): Record<string
     if (todo.dependencies && todo.dependencies.length) { plain.dependencies = todo.dependencies; }
     if (todo.blocked_by && todo.blocked_by.length) { plain.blocked_by = todo.blocked_by; }
     if (todo.references && todo.references.length) {
-        // A reference given as a bare string is stored as `{path}`, matching
-        // what `nodeToTodo` reads back, so the two forms are one value.
+        // The tools reject bare strings (SCE243). An internal caller that
+        // passes one anyway gets it stored as `{path}`, the shape
+        // `nodeToTodo` reads it back as, so nothing reaches disk unreadable.
         plain.references = todo.references.map((ref) =>
             typeof ref === 'string' ? { path: ref } : ref,
         );

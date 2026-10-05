@@ -363,6 +363,78 @@ function stemCollisionWarning(
     );
 }
 
+// ---------------------------------------------------------------------------
+// References: one accepted shape (SCE243)
+// ---------------------------------------------------------------------------
+
+const REFERENCE_KEYS = ['type', 'path', 'url', 'description', 'lines'] as const;
+const REFERENCE_ANCHORS = ['path', 'url', 'description'] as const;
+
+/**
+ * The item schema of `references`, mirroring `todo.schema.json`
+ * (`$defs/reference`): an object with at least one of path / url /
+ * description, optional type and lines, all strings, nothing else.
+ */
+const REFERENCE_SCHEMA = {
+    type: 'object',
+    properties: {
+        type: { type: 'string', description: 'Reference type, e.g. file, url, doc.' },
+        path: { type: 'string', description: 'Workspace-relative file path.' },
+        url: { type: 'string', description: 'External URL.' },
+        description: { type: 'string', description: 'What the reference contains.' },
+        lines: { type: 'string', description: "Line range or location hint, e.g. '45-60'." },
+    },
+    additionalProperties: false,
+    anyOf: REFERENCE_ANCHORS.map((key) => ({ required: [key] })),
+};
+
+/**
+ * Checks `references` against the schema's one shape and returns the error to
+ * report, or `undefined` when it is acceptable (absent counts as acceptable).
+ *
+ * Why reject rather than coerce: a bare string could be a path, a URL or a
+ * note, and storing it under the wrong key writes a wrong record. The caller
+ * knows which it meant, so the message names the object form to send. Strings
+ * already on disk stay readable (`nodeToTodo` reads them as `{path}`); only
+ * new writes through the tools are held to the schema.
+ */
+export function validateTodoReferences(references: unknown): string | undefined {
+    if (references === undefined) { return undefined; }
+    if (!Array.isArray(references)) {
+        return '`references` must be a list of objects such as {"path": "doc/a.md"}, '
+            + `not ${references === null ? 'null' : typeof references}.`;
+    }
+    for (let i = 0; i < references.length; i++) {
+        const ref: unknown = references[i];
+        const at = `references[${i}]`;
+        if (typeof ref === 'string') {
+            const quoted = JSON.stringify(ref);
+            return `${at} is a string (${quoted}). A reference is an object: `
+                + `{"path": ${quoted}} for a workspace file, {"url": "…"} for a link, or `
+                + `{"description": "…"} for a note, optionally with "type" and "lines". `
+                + 'Bare strings are rejected.';
+        }
+        if (ref === null) { return `${at} is null; a reference is an object such as {"path": "doc/a.md"}.`; }
+        if (Array.isArray(ref)) { return `${at} is a list; a reference is an object such as {"path": "doc/a.md"}.`; }
+        if (typeof ref !== 'object') {
+            return `${at} is a ${typeof ref}; a reference is an object such as {"path": "doc/a.md"}.`;
+        }
+        const record = ref as Record<string, unknown>;
+        for (const key of Object.keys(record)) {
+            if (!(REFERENCE_KEYS as readonly string[]).includes(key)) {
+                return `${at} has an unknown key "${key}"; allowed: ${REFERENCE_KEYS.join(', ')}.`;
+            }
+            if (typeof record[key] !== 'string') {
+                return `${at}.${key} must be a string.`;
+            }
+        }
+        if (!REFERENCE_ANCHORS.some((key) => typeof record[key] === 'string' && record[key] !== '')) {
+            return `${at} needs at least one of ${REFERENCE_ANCHORS.join(', ')}.`;
+        }
+    }
+    return undefined;
+}
+
 export async function createQuestTodoImpl(deps: QuestTodoToolsDeps, input: CreateQuestTodoInput): Promise<string> {
     try {
         if (!input.questId) {
@@ -376,6 +448,10 @@ export async function createQuestTodoImpl(deps: QuestTodoToolsDeps, input: Creat
         }
         if (!input.todo?.description) {
             return JSON.stringify({ ok: false, error: '`todo.description` is required.' });
+        }
+        const referencesError = validateTodoReferences(input.todo.references);
+        if (referencesError) {
+            return JSON.stringify({ ok: false, error: referencesError });
         }
         // Check for collision
         if (deps.store.findById(input.questId, input.todo.id)) {
@@ -418,7 +494,7 @@ export const CREATE_QUEST_TODO_DESCRIPTION =
     '(`summary` + `decision_needed`, leaving `decision` empty) and set ' +
     '`status: "decision-needed"` instead of `not-started`, so nobody starts ' +
     'the todo on a guess. Optional fields (`scope`, `references`, ' +
-    '`dependencies`, `blocked_by`, `notes`) are persisted verbatim, and a `references` entry may be a bare string — it is stored as `{path}`, the shape the schema defines. YAML ' +
+    '`dependencies`, `blocked_by`, `notes`) are persisted verbatim. Each `references` entry is an OBJECT, the shape the schema defines: `{path}` for a workspace file, `{url}` for a link or `{description}` for a note, optionally with `type` and `lines`. A bare string is rejected with `ok: false` (send `{"path": "…"}` instead). YAML ' +
     'formatting in existing files is preserved across the create. ' +
     '**`ok: true` is verified, not assumed**: the file is re-read after the ' +
     'write, the id confirmed present AND every field you sent confirmed ' +
@@ -453,6 +529,7 @@ export const CREATE_QUEST_TODO_TOOL: SharedToolDefinition<CreateQuestTodoInput> 
                     dependencies: { type: 'array', items: { type: 'string' } },
                     blocked_by: { type: 'array', items: { type: 'string' } },
                     decisions: DECISIONS_SCHEMA,
+                    references: { type: 'array', items: REFERENCE_SCHEMA },
                 },
             },
         },
@@ -479,6 +556,8 @@ export interface UpdateQuestTodoInput {
         dependencies?: string[];
         blocked_by?: string[];
         decisions?: TodoDecision[];
+        /** Replaces the list; each entry an object (see `validateTodoReferences`). */
+        references?: QuestTodoFull['references'];
     };
 }
 
@@ -486,6 +565,12 @@ export async function updateQuestTodoImpl(deps: QuestTodoToolsDeps, input: Updat
     try {
         if (!input.questId || !input.todoId) {
             return JSON.stringify({ ok: false, error: '`questId` and `todoId` are both required.' });
+        }
+        // Checked before anything is written: a rejected update applies none
+        // of its fields.
+        const referencesError = validateTodoReferences(input.updates?.references);
+        if (referencesError) {
+            return JSON.stringify({ ok: false, error: referencesError });
         }
         const updated = deps.store.update(input.questId, input.todoId, input.updates ?? {});
         if (!updated) {
@@ -511,7 +596,10 @@ export const UPDATE_QUEST_TODO_DESCRIPTION =
     '`high`/`critical`. To close a `decision-needed` todo, write the user\'s ' +
     'answers into `decisions[].decision` and move the status back to ' +
     '`not-started` in the same call — passing `decisions` replaces the whole ' +
-    'list, omitting it leaves it untouched. Missing id surfaces structured ' +
+    'list, omitting it leaves it untouched. `references`, when passed, replaces the ' +
+    'list; each entry is an object (`{path}`, `{url}` or `{description}`, optionally ' +
+    'with `type` and `lines`), and a bare string is rejected with `ok: false`, ' +
+    'nothing applied. Missing id surfaces structured ' +
     '`{ok: false, error: "..."}`. For id changes or moving across files, use ' +
     '`tomAi_moveQuestTodo` or delete+create.';
 
@@ -541,6 +629,7 @@ export const UPDATE_QUEST_TODO_TOOL: SharedToolDefinition<UpdateQuestTodoInput> 
                     completed_by: { type: 'string' },
                     dependencies: { type: 'array', items: { type: 'string' } },
                     blocked_by: { type: 'array', items: { type: 'string' } },
+                    references: { type: 'array', items: REFERENCE_SCHEMA },
                 },
             },
         },

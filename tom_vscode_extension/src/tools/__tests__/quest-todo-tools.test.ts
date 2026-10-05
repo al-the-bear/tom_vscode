@@ -1023,3 +1023,80 @@ describe('quest-todo — full round-trip', () => {
         assert.equal(deps.spy.mutateCalls, 4);
     });
 });
+
+/**
+ * SCE243 — the tool accepts one `references` shape, and says which.
+ *
+ * The schema (`todo.schema.json`, `$defs/reference`) defines a reference as
+ * an object: `path` / `url` / `description` (at least one), optional `type`
+ * and `lines`, all strings, nothing else. The tool used to coerce a bare
+ * string to `{path}`, which guesses: a string may as well be a URL or a note.
+ * Decided 2026-10-05: reject anything but the object form at the boundary,
+ * with a message naming the object shape. (Strings already on disk stay
+ * readable; that is pinned in questTodoCreateFields.test.ts.)
+ */
+describe('SCE243: references at the tool boundary', () => {
+    const create = async (references: unknown) => JSON.parse(await createQuestTodoImpl(deps, {
+        questId: 'q1',
+        todo: { id: 'ref-todo', description: 'd', references } as never,
+    }));
+
+    test('R-1: a bare string is rejected, the error names the object form, and nothing is written', async () => {
+        const r = await create(['doc/a.md']);
+        assert.equal(r.ok, false);
+        assert.match(r.error, /references\[0\] is a string/);
+        assert.match(r.error, /\{"path": "doc\/a\.md"\}/);
+        assert.equal(deps.store.findById('q1', 'ref-todo'), undefined);
+        assert.equal(deps.spy.mutateCalls, 0);
+    });
+
+    test('R-2: the object form is accepted', async () => {
+        const refs = [{ type: 'file', path: 'doc/a.md', description: 'why' }, { url: 'https://example.org' }];
+        const r = await create(refs);
+        assert.equal(r.ok, true);
+        assert.deepEqual(deps.store.findById('q1', 'ref-todo')?.references, refs);
+    });
+
+    test('R-3: every other schema violation is named too', async () => {
+        const cases: Array<[unknown, RegExp]> = [
+            ['doc/a.md', /`references` must be a list/],
+            [[{ file: 'doc/a.md' }], /references\[0\] has an unknown key "file"/],
+            [[{ type: 'file' }], /references\[0\] needs at least one of path, url, description/],
+            [[{ path: 42 }], /references\[0\]\.path must be a string/],
+            [[null], /references\[0\] is null/],
+            [[['doc/a.md']], /references\[0\] is a list/],
+        ];
+        for (const [refs, message] of cases) {
+            const r = await create(refs);
+            assert.equal(r.ok, false, `accepted ${JSON.stringify(refs)}`);
+            assert.match(r.error, message);
+        }
+        assert.equal(deps.store.findById('q1', 'ref-todo'), undefined);
+    });
+
+    test('R-4: an update with a string reference is rejected and changes nothing', async () => {
+        await createQuestTodoImpl(deps, { questId: 'q1', todo: { id: 'upd', description: 'd' } });
+        const before = deps.spy.mutateCalls;
+        const r = JSON.parse(await updateQuestTodoImpl(deps, {
+            questId: 'q1', todoId: 'upd', updates: { references: ['x.md'], notes: 'n' } as never,
+        }));
+        assert.equal(r.ok, false);
+        assert.match(r.error, /references\[0\] is a string/);
+        const todo = deps.store.findById('q1', 'upd');
+        assert.equal(todo?.notes, undefined, 'a rejected update must not apply its other fields either');
+        assert.equal(deps.spy.mutateCalls, before);
+    });
+
+    test('R-5: absent or empty references stay allowed', async () => {
+        assert.equal((await create(undefined)).ok, true);
+        assert.equal(JSON.parse(await updateQuestTodoImpl(deps, {
+            questId: 'q1', todoId: 'ref-todo', updates: { references: [] },
+        })).ok, true);
+    });
+
+    test('R-6: the create description states the rule instead of promising coercion', () => {
+        assert.doesNotMatch(CREATE_QUEST_TODO_DESCRIPTION, /may be a bare string/);
+        assert.match(CREATE_QUEST_TODO_DESCRIPTION, /bare string is rejected/);
+        assert.match(UPDATE_QUEST_TODO_DESCRIPTION, /bare string is rejected/);
+    });
+});
