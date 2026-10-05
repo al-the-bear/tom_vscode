@@ -113,6 +113,36 @@ describe('LiveTrailWriter.appendRetry', () => {
     });
 });
 
+describe('LiveTrailWriter.appendNotice', () => {
+    let quest: string;
+    beforeEach(() => {
+        quest = `q_${Math.random().toString(36).slice(2)}`;
+    });
+
+    it('writes a ⏳ notice inside the prompt block and emits a notice event', () => {
+        const events: LiveTrailEvent[] = [];
+        const sub = LiveTrailWriter.addObserver((e) => events.push(e));
+        try {
+            const w = newWriter(quest);
+            w.appendNotice('Waiting for 1 background task: run the suites');
+            const body = fs.readFileSync(w.getFilePath(), 'utf-8');
+            assert.match(body, /### ⏳ notice\n\nWaiting for 1 background task: run the suites/);
+            assert.doesNotMatch(body, /### ✅ DONE/);
+            const notice = events.find((e) => e.kind === 'notice');
+            assert.equal(notice?.kind === 'notice' && notice.message, 'Waiting for 1 background task: run the suites');
+        } finally {
+            sub.dispose();
+        }
+    });
+
+    it('is a no-op for an empty message', () => {
+        const w = newWriter(quest);
+        const before = fs.readFileSync(w.getFilePath(), 'utf-8');
+        w.appendNotice('');
+        assert.equal(fs.readFileSync(w.getFilePath(), 'utf-8'), before);
+    });
+});
+
 describe('formatLiveTrailUsage', () => {
     it('renders the aggregate token counts', () => {
         const md = formatLiveTrailUsage({

@@ -230,6 +230,7 @@ export type LiveTrailEvent =
     | { kind: 'toolResult'; questId: string; source?: PromptSource; fullLength: number }
     | { kind: 'assistant'; questId: string; source?: PromptSource; text: string }
     | { kind: 'retry'; questId: string; source?: PromptSource; message: string; cause?: string }
+    | { kind: 'notice'; questId: string; source?: PromptSource; message: string }
     | { kind: 'usage'; questId: string; source?: PromptSource; usage: LiveTrailUsage }
     | { kind: 'done'; questId: string; source?: PromptSource; rounds: number; toolCalls: number; durationMs: number }
     | { kind: 'error'; questId: string; source?: PromptSource; message: string }
@@ -484,6 +485,20 @@ export class LiveTrailWriter {
      * no per-model rows) is a no-op: an empty `### 📊 usage` heading would be
      * noise in the trail.
      */
+    /**
+     * Record a transport notice: something the turn is doing that is neither
+     * model output nor a failure, such as waiting for background tasks.
+     */
+    appendNotice(message: string): void {
+        if (!message) { return; }
+        try {
+            this.append(`\n### ⏳ notice\n\n${message}\n`);
+            this.currentlyInAssistantText = false;
+            this.currentlyInThinking = false;
+            this.emit({ kind: 'notice', message });
+        } catch { /* swallowed */ }
+    }
+
     appendUsage(usage: LiveTrailUsage): void {
         try {
             const md = formatLiveTrailUsage(usage, new Date());

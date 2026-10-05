@@ -351,6 +351,12 @@
                             "type": "integer",
                             "minimum": 1,
                             "description": "Turn cap for the agent loop. When omitted, the configuration's maxRounds is used."
+                        },
+                        "maxBackgroundWaitMinutes": {
+                            "type": "number",
+                            "minimum": 0,
+                            "default": 30,
+                            "description": "How long a query waits for background tasks (a run_in_background Bash) still running when the model ends its turn, before checking their progress. A task still producing output or progress extends the wait by the same amount; one showing none is abandoned. 0 = do not wait (the task's result is then never delivered)."
                         }
                     },
                     "additionalProperties": false

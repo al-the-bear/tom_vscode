@@ -1794,6 +1794,7 @@ agentSdk?: {
     permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
     settingSources?: Array<'user' | 'project' | 'local'>;  // default []
     maxTurns?: number;                                     // overrides maxRounds
+    maxBackgroundWaitMinutes?: number;                     // default 30; 0 = no wait (§18.5)
 };
 ```
 
@@ -1861,6 +1862,8 @@ Two fallbacks prevent a hang:
 
 - a CLI that emits no session-state events closes at the answering result;
 - an `idle` while the message is still unanswered closes after 10 s unless the CLI starts running again.
+
+**Background tasks that outlive the turn.** A background Bash command (`run_in_background`) does not hold the turn open: the CLI goes `idle` while it runs. Closing there dropped its result, and a follow-up the model had promised never happened. The channel therefore tracks the non-ambient tasks in `background_tasks_changed` (replace semantics). It also reads each Bash task's output file from the tool result ("Output is being written to: …"). An `idle` while such tasks are live waits instead of closing. When they finish, the CLI runs the follow-up turn on the completion notification, and the `idle` after it closes as usual. If no follow-up turn starts within the grace period, the channel closes with `background-done`. The wait is capped by `agentSdk.maxBackgroundWaitMinutes` (default 30). At the cap, a task that progressed since the previous check extends the wait by another cap: either a `task_progress` message (background agents) or a grown output file (Bash). A task that did not is abandoned, and the channel closes with `background-wait-capped`. `0` disables waiting, which is the previous behaviour; the abandoned tasks are still reported. Each step (waiting, extended, capped, abandoned) is written to the Tom Tool Log and to the live trail as a `⏳ notice`, which Telegram followers also receive.
 
 Cancellation and the end of the stream always close the channel. If a `tomAi_*` call still fails this way, the Tom Tool Log records `[agent-sdk] tom-ai unreachable: <tool> in request <id> — input open|closed (<reason>)`, and `tom-ai status at init: …` when the server is not connected at startup.
 

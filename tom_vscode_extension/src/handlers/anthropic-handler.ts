@@ -94,6 +94,13 @@ export interface AnthropicAgentSdkOptions {
     settingSources?: Array<'user' | 'project' | 'local'>;
     /** Turn cap; when omitted, the configuration's `maxRounds` is used. */
     maxTurns?: number;
+    /**
+     * How long a query waits for background tasks (a `run_in_background`
+     * Bash) still running when the model ends its turn, before checking their
+     * progress; a task still progressing extends the wait by the same amount.
+     * Default 30; 0 = do not wait (the result of such a task is then lost).
+     */
+    maxBackgroundWaitMinutes?: number;
 }
 
 export interface AnthropicConfiguration {
