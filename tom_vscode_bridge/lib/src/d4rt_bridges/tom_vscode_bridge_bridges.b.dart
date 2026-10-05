@@ -1,6 +1,6 @@
 // D4rt Bridge - Generated file, do not edit
 // Sources: 34 files
-// Generated: 2026-10-04T23:13:46.897974 by tom_d4rt_generator 1.51.0
+// Generated: 2026-10-05T11:03:05.220527 by tom_d4rt_generator 1.52.0
 
 // ignore_for_file: unused_import, deprecated_member_use, prefer_function_declarations_over_variables, implementation_imports, sort_child_properties_last, non_constant_identifier_names, avoid_function_literals_in_foreach_calls, invalid_use_of_protected_member, unnecessary_non_null_assertion, invalid_use_of_visible_for_testing_member, unnecessary_cast, unused_local_variable, no_leading_underscores_for_local_identifiers, prefer_is_empty, unnecessary_question_mark, unreachable_switch_case, unintended_html_in_doc_comment, empty_constructor_bodies, prefer_const_constructors_in_immutables, prefer_final_fields, unused_field, must_call_super, no_logic_in_create_state, use_key_in_widget_constructors, annotate_overrides, non_const_argument_for_const_parameter, unnecessary_import
 
@@ -13564,12 +13564,10 @@ BridgedClass _createMcpSdkServerConfigBridge() {
                 'tools',
               )
             : const <$tom_vscode_scripting_api_2.SdkMcpTool>[];
-        final alwaysLoad = D4.getOptionalNamedArg<bool?>(named, 'alwaysLoad');
         return $tom_vscode_scripting_api_2.McpSdkServerConfig(
           name: name,
           version: version,
           tools: tools,
-          alwaysLoad: alwaysLoad,
         );
       },
       'fromJson': (visitor, positional, named) {
@@ -13608,12 +13606,6 @@ BridgedClass _createMcpSdkServerConfigBridge() {
             'McpSdkServerConfig',
           )
           .tools,
-      'alwaysLoad': (visitor, target) => D4
-          .validateTarget<$tom_vscode_scripting_api_2.McpSdkServerConfig>(
-            target,
-            'McpSdkServerConfig',
-          )
-          .alwaysLoad,
     },
     methods: {
       'toJson': (visitor, target, positional, named, typeArgs) {
@@ -13626,7 +13618,7 @@ BridgedClass _createMcpSdkServerConfigBridge() {
       },
     },
     constructorSignatures: {
-      '': 'McpSdkServerConfig({required String name, String version = \'1.0.0\', List<SdkMcpTool> tools = const [], bool? alwaysLoad})',
+      '': 'McpSdkServerConfig({required String name, String version = \'1.0.0\', List<SdkMcpTool> tools = const []})',
       'fromJson':
           'factory McpSdkServerConfig.fromJson(Map<String, dynamic> json)',
     },
@@ -13636,7 +13628,6 @@ BridgedClass _createMcpSdkServerConfigBridge() {
       'name': 'String get name',
       'version': 'String get version',
       'tools': 'List<SdkMcpTool> get tools',
-      'alwaysLoad': 'bool? get alwaysLoad',
     },
   );
 }
@@ -14719,10 +14710,6 @@ BridgedClass _createOptionsBridge() {
         );
         final title = D4.getOptionalNamedArg<String?>(named, 'title');
         final env = D4.coerceMapOrNull<String, String>(named['env'], 'env');
-        final envOverlay = D4.coerceMapOrNull<String, String>(
-          named['envOverlay'],
-          'envOverlay',
-        );
         final extraArgs = D4.coerceMapOrNull<String, String?>(
           named['extraArgs'],
           'extraArgs',
@@ -14835,7 +14822,6 @@ BridgedClass _createOptionsBridge() {
           persistSession: persistSession,
           title: title,
           env: env,
-          envOverlay: envOverlay,
           extraArgs: extraArgs,
           strictMcpConfig: strictMcpConfig,
           agent: agent,
@@ -15063,12 +15049,6 @@ BridgedClass _createOptionsBridge() {
             'Options',
           )
           .env,
-      'envOverlay': (visitor, target) => D4
-          .validateTarget<$tom_vscode_scripting_api_4.Options>(
-            target,
-            'Options',
-          )
-          .envOverlay,
       'extraArgs': (visitor, target) => D4
           .validateTarget<$tom_vscode_scripting_api_4.Options>(
             target,
@@ -15224,7 +15204,7 @@ BridgedClass _createOptionsBridge() {
       },
     },
     constructorSignatures: {
-      '': 'Options({String? model, String? fallbackModel, SystemPrompt? systemPrompt, ToolsConfig? tools, List<String>? allowedTools, List<String>? disallowedTools, Map<String, McpServerConfig>? mcpServers, int? maxTurns, double? maxBudgetUsd, TaskBudget? taskBudget, PermissionMode? permissionMode, String? planModeInstructions, bool? allowDangerouslySkipPermissions, String? permissionPromptToolName, List<SettingSource>? settingSources, SettingsRef? settings, SettingsRef? managedSettings, String? cwd, List<String>? additionalDirectories, bool? continueSession, String? resume, String? sessionId, String? resumeSessionAt, bool? forkSession, bool? persistSession, String? title, Map<String, String>? env, Map<String, String>? envOverlay, Map<String, String?>? extraArgs, bool? strictMcpConfig, String? agent, Map<String, AgentDefinition>? agents, Skills? skills, List<PluginConfig>? plugins, List<String>? betas, OutputFormat? outputFormat, Map<String, dynamic>? toolConfig, ThinkingConfig? thinking, EffortLevel? effort, int? maxThinkingTokens, bool? includePartialMessages, bool? includeHookEvents, bool? forwardSubagentText, bool? promptSuggestions, bool? agentProgressSummaries, bool? enableFileCheckpointing, Map<String, dynamic>? sandbox, bool? debug, String? debugFile, int? loadTimeoutMs, CanUseTool? canUseTool, void Function(String line)? onStderr})',
+      '': 'Options({String? model, String? fallbackModel, SystemPrompt? systemPrompt, ToolsConfig? tools, List<String>? allowedTools, List<String>? disallowedTools, Map<String, McpServerConfig>? mcpServers, int? maxTurns, double? maxBudgetUsd, TaskBudget? taskBudget, PermissionMode? permissionMode, String? planModeInstructions, bool? allowDangerouslySkipPermissions, String? permissionPromptToolName, List<SettingSource>? settingSources, SettingsRef? settings, SettingsRef? managedSettings, String? cwd, List<String>? additionalDirectories, bool? continueSession, String? resume, String? sessionId, String? resumeSessionAt, bool? forkSession, bool? persistSession, String? title, Map<String, String>? env, Map<String, String?>? extraArgs, bool? strictMcpConfig, String? agent, Map<String, AgentDefinition>? agents, Skills? skills, List<PluginConfig>? plugins, List<String>? betas, OutputFormat? outputFormat, Map<String, dynamic>? toolConfig, ThinkingConfig? thinking, EffortLevel? effort, int? maxThinkingTokens, bool? includePartialMessages, bool? includeHookEvents, bool? forwardSubagentText, bool? promptSuggestions, bool? agentProgressSummaries, bool? enableFileCheckpointing, Map<String, dynamic>? sandbox, bool? debug, String? debugFile, int? loadTimeoutMs, CanUseTool? canUseTool, void Function(String line)? onStderr})',
       'fromJson': 'factory Options.fromJson(Map<String, dynamic> json)',
     },
     methodSignatures: {'toJson': 'Map<String, dynamic> toJson()'},
@@ -15257,7 +15237,6 @@ BridgedClass _createOptionsBridge() {
       'persistSession': 'bool? get persistSession',
       'title': 'String? get title',
       'env': 'Map<String, String>? get env',
-      'envOverlay': 'Map<String, String>? get envOverlay',
       'extraArgs': 'Map<String, String?>? get extraArgs',
       'strictMcpConfig': 'bool? get strictMcpConfig',
       'agent': 'String? get agent',
