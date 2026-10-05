@@ -69,7 +69,7 @@ No native dependencies; pure Dart, SDK `^3.10.4`.
 
 | API | What it does |
 | --- | --- |
-| `AgentSdkClient` | `query()` → streaming `AgentQuery`; `collectQuery()` → `List<SdkMessage>`. |
+| `AgentSdkClient` | `query()` → streaming `AgentQuery`; `streamQuery()` → a conversation over streaming input (`SdkUserInput`); `collectQuery()` → `List<SdkMessage>`. |
 | `Options` | Full Agent SDK option surface (model, tools, `maxTurns`, `permissionMode`, sessions, sub-agents, thinking…). |
 | `SdkMessage` (sealed) | Raw-preserving typed message stream (`SdkAssistantMessage`, `SdkResultMessage`, …). |
 | `SdkMcpTool` / `McpSdkServerConfig` | In-process Dart tools the agent can call. |
@@ -283,7 +283,7 @@ same socket and routed by `BridgeRequestDispatcher`.
 | `VSCode` | Root singleton; gateway to the namespace classes after `initialize`. |
 | `VsCodeHelper` | Static convenience layer over the namespaces. |
 | `AgentSdkClient` / `AgentQuery` | Agent SDK entry; `AgentQuery extends StreamView<SdkMessage>` and adds `interrupt()`. |
-| `AgentSdkTransport` / `VSCodeBridgeAgentSdkTransport` | Agent SDK seam and its socket-backed production implementation. |
+| `AgentSdkTransport` / `AgentSdkInputTransport` / `VSCodeBridgeAgentSdkTransport` | Agent SDK seams (the second, opt-in, carries streaming input) and their socket-backed production implementation. |
 | `Options` | Agent SDK configuration data class. |
 | `SdkMessage` / `ContentBlock` | Sealed, raw-preserving message and content hierarchies. |
 | `BridgeRequestDispatcher` | Routes server→client JSON-RPC requests to registered handlers. |

@@ -10,12 +10,12 @@
 ///
 /// Four concepts are deterministic and exercise the *type surface* offline
 /// (message parsing, the `Options` input, in-process tools, `canUseTool`); they
-/// run in the auto-run. The fifth (`streaming_query`) fires a real agent run
-/// and depends on the `agentSdk.chunk` relay (a documented completion step), so
-/// it is flagged `interactive: true` and the auto-run **skips** it — a headless
-/// aggregator must never spend budget or block. Run it directly when you mean
-/// it:
+/// run in the auto-run. The other two (`streaming_query`, `streaming_input`)
+/// drive real agent runs, so they are flagged `interactive: true` and the
+/// auto-run **skips** them: a headless aggregator must never spend budget or
+/// block. Run them directly when you mean it:
 ///   dart run bin/run_example.dart streaming_query
+///   dart run bin/run_example.dart streaming_input
 ///
 /// Exit codes:
 ///   0  all non-interactive examples passed, OR no live VS Code bridge was
@@ -32,6 +32,7 @@ import 'can_use_tool.dart';
 import 'in_process_tool.dart';
 import 'message_types.dart';
 import 'options.dart';
+import 'streaming_input.dart';
 import 'streaming_query.dart';
 import 'support.dart';
 
@@ -52,6 +53,7 @@ const List<Example> agentSdkExamples = [
   (name: 'in_process_tool', run: runInProcessToolExample, interactive: false),
   (name: 'can_use_tool', run: runCanUseToolExample, interactive: false),
   (name: 'streaming_query', run: runStreamingQueryExample, interactive: true),
+  (name: 'streaming_input', run: runStreamingInputExample, interactive: true),
 ];
 
 Future<void> main() => runAllExamples();

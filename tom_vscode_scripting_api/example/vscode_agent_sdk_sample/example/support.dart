@@ -7,14 +7,10 @@
 /// helper returns a connected *client*, and each concept wraps it with
 /// [VSCodeBridgeAgentSdkTransport] → [AgentSdkClient].
 ///
-/// > **Live-streaming caveat.** End-to-end delivery of `agentSdk.chunk`
-/// > notifications over the CLI socket also requires the `tom_vscode_bridge`
-/// > CLI server to relay extension notifications to the connected client (today
-/// > it only relays `log`). That relay is a documented completion step. The
-/// > deterministic concepts here exercise the full *type surface* offline; the
-/// > one live concept ([streaming_query.dart]) fires a real `query()` but
-/// > drains it under a timeout via [drainQuery] so it degrades gracefully
-/// > instead of hanging when the relay is not yet wired.
+/// The deterministic concepts here exercise the full *type surface* offline.
+/// The two live concepts (`streaming_query.dart`, `streaming_input.dart`) run
+/// real queries, and bound their waits ([drainQuery] for the first) so that a
+/// busy or out-of-date window is reported as a skip instead of hanging.
 library;
 
 import 'dart:async';
@@ -69,8 +65,8 @@ AgentSdkClient agentSdkClientFor(VSCodeBridgeClient client) =>
 ///
 /// - [messages]: the typed messages received before completion/timeout.
 /// - [completed]: the query ended on its own (a `done` chunk).
-/// - [timedOut]: the timeout fired before completion — the documented
-///   "chunk relay not yet wired over the CLI socket" case.
+/// - [timedOut]: the stream went quiet for the whole timeout before completing
+///   (a busy window, or a stuck query).
 /// - [error]: a query failure reported by the extension (an `error` chunk), or
 ///   any other unexpected error.
 typedef QueryOutcome = ({
@@ -83,11 +79,9 @@ typedef QueryOutcome = ({
 /// Drains [query] until it completes, errors, or [timeout] elapses with no
 /// further message.
 ///
-/// The `agentSdk.chunk` relay over the CLI socket is a documented incomplete
-/// completion step, so a query that *starts* may legitimately deliver nothing.
-/// Rather than hang, this collects whatever arrives within [timeout] and then
-/// [AgentQuery.interrupt]s the underlying run — a timeout is treated as the
-/// documented "relay not yet wired" skip, not a failure.
+/// Rather than hang on a query that has gone quiet, this collects whatever
+/// arrives and, after [timeout] without a message, [AgentQuery.interrupt]s the
+/// underlying run. A timeout is treated as a skip, not a failure.
 Future<QueryOutcome> drainQuery(
   AgentQuery query, {
   Duration timeout = const Duration(seconds: 8),
@@ -126,14 +120,11 @@ void printQueryOutcome(QueryOutcome outcome) {
       case SdkSystemMessage(:final model, :final tools):
         print('  • system/init   model=$model, ${tools.length} tools');
       case SdkAssistantMessage(:final content):
-        final text = content
-            .whereType<TextBlock>()
-            .map((b) => b.text)
-            .join(' ')
-            .trim();
-        print('  • assistant     ${_oneLine(text)}');
+        final text =
+            content.whereType<TextBlock>().map((b) => b.text).join(' ').trim();
+        print('  • assistant     ${oneLine(text)}');
       case SdkResultMessage(:final result, :final totalCostUsd):
-        print('  • result        ${_oneLine(result ?? '')} '
+        print('  • result        ${oneLine(result ?? '')} '
             '(cost \$${totalCostUsd ?? 0})');
       default:
         print('  • ${message.type}');
@@ -143,8 +134,8 @@ void printQueryOutcome(QueryOutcome outcome) {
     print('  Query reported an error: ${outcome.error}');
   } else if (outcome.timedOut) {
     print(
-      '  No chunks arrived within the timeout — the agentSdk.chunk relay over '
-      'the CLI socket is a documented completion step. Treated as a skip.',
+      '  No chunks arrived within the timeout (the window is busy or the query '
+      'is stuck). Treated as a skip.',
     );
   } else if (outcome.completed) {
     print('  Query completed (${outcome.messages.length} messages).');
@@ -152,7 +143,7 @@ void printQueryOutcome(QueryOutcome outcome) {
 }
 
 /// Truncates [text] to a single short line for console output.
-String _oneLine(String text) {
+String oneLine(String text) {
   final collapsed = text.replaceAll(RegExp(r'\s+'), ' ').trim();
   if (collapsed.length <= 80) return collapsed;
   return '${collapsed.substring(0, 77)}…';

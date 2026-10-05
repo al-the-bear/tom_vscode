@@ -3,13 +3,14 @@
 ///   dart run bin/run_example.dart <name> [host]
 ///
 /// where <name> is one of:
-///   message_types, options, in_process_tool, can_use_tool, streaming_query
+///   message_types, options, in_process_tool, can_use_tool, streaming_query,
+///   streaming_input
 ///
 /// With no name (or `all`), this delegates to the aggregator (which skips the
-/// interactive `streaming_query` concept). The optional second argument
-/// overrides the bridge host (default 127.0.0.1). Use this dispatcher to run
-/// the interactive `streaming_query` concept when you actually want to drive a
-/// live agent run.
+/// interactive `streaming_query` and `streaming_input` concepts). The optional
+/// second argument overrides the bridge host (default 127.0.0.1). Use this
+/// dispatcher to run the interactive concepts when you actually want to drive
+/// a live agent run.
 ///
 /// Connects once to the first responsive VS Code window, runs the requested
 /// concept, then disconnects. Exits non-zero if the concept fails; exits 0
@@ -25,6 +26,7 @@ import '../example/in_process_tool.dart';
 import '../example/message_types.dart';
 import '../example/options.dart';
 import '../example/run_all_examples.dart';
+import '../example/streaming_input.dart';
 import '../example/streaming_query.dart';
 import '../example/support.dart';
 
@@ -34,6 +36,7 @@ final Map<String, Future<bool> Function(VSCodeBridgeClient)> _examples = {
   'in_process_tool': runInProcessToolExample,
   'can_use_tool': runCanUseToolExample,
   'streaming_query': runStreamingQueryExample,
+  'streaming_input': runStreamingInputExample,
 };
 
 Future<void> main(List<String> args) async {
