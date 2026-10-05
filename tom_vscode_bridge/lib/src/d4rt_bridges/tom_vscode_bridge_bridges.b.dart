@@ -1,6 +1,6 @@
 // D4rt Bridge - Generated file, do not edit
 // Sources: 34 files
-// Generated: 2026-10-05T11:03:05.220527 by tom_d4rt_generator 1.52.0
+// Generated: 2026-10-05T11:31:30.093477 by tom_d4rt_generator 1.52.0
 
 // ignore_for_file: unused_import, deprecated_member_use, prefer_function_declarations_over_variables, implementation_imports, sort_child_properties_last, non_constant_identifier_names, avoid_function_literals_in_foreach_calls, invalid_use_of_protected_member, unnecessary_non_null_assertion, invalid_use_of_visible_for_testing_member, unnecessary_cast, unused_local_variable, no_leading_underscores_for_local_identifiers, prefer_is_empty, unnecessary_question_mark, unreachable_switch_case, unintended_html_in_doc_comment, empty_constructor_bodies, prefer_const_constructors_in_immutables, prefer_final_fields, unused_field, must_call_super, no_logic_in_create_state, use_key_in_widget_constructors, annotate_overrides, non_const_argument_for_const_parameter, unnecessary_import
 
@@ -188,6 +188,8 @@ class AllBridge {
       _createAgentDefinitionBridge(),
       _createOptionsBridge(),
       _createAgentSdkTransportBridge(),
+      _createAgentSdkInputTransportBridge(),
+      _createSdkUserInputBridge(),
       _createAgentSdkQueryExceptionBridge(),
       _createAgentQueryBridge(),
       _createAgentSdkClientBridge(),
@@ -359,6 +361,8 @@ class AllBridge {
       'AgentDefinition': _createAgentDefinitionBridge,
       'Options': _createOptionsBridge,
       'AgentSdkTransport': _createAgentSdkTransportBridge,
+      'AgentSdkInputTransport': _createAgentSdkInputTransportBridge,
+      'SdkUserInput': _createSdkUserInputBridge,
       'AgentSdkQueryException': _createAgentSdkQueryExceptionBridge,
       'AgentQuery': _createAgentQueryBridge,
       'AgentSdkClient': _createAgentSdkClientBridge,
@@ -541,6 +545,9 @@ class AllBridge {
       'AgentDefinition': $tom_vscode_scripting_api_4.AgentDefinition,
       'Options': $tom_vscode_scripting_api_4.Options,
       'AgentSdkTransport': $tom_vscode_scripting_api_7.AgentSdkTransport,
+      'AgentSdkInputTransport':
+          $tom_vscode_scripting_api_7.AgentSdkInputTransport,
+      'SdkUserInput': $tom_vscode_scripting_api_7.SdkUserInput,
       'AgentSdkQueryException':
           $tom_vscode_scripting_api_7.AgentSdkQueryException,
       'AgentQuery': $tom_vscode_scripting_api_7.AgentQuery,
@@ -795,6 +802,10 @@ class AllBridge {
       'Options': 'package:tom_vscode_scripting_api/src/agent_sdk_options.dart',
       'AgentSdkTransport':
           'package:tom_vscode_scripting_api/src/agent_sdk_query.dart',
+      'AgentSdkInputTransport':
+          'package:tom_vscode_scripting_api/src/agent_sdk_query.dart',
+      'SdkUserInput':
+          'package:tom_vscode_scripting_api/src/agent_sdk_query.dart',
       'AgentSdkQueryException':
           'package:tom_vscode_scripting_api/src/agent_sdk_query.dart',
       'AgentQuery': 'package:tom_vscode_scripting_api/src/agent_sdk_query.dart',
@@ -953,7 +964,10 @@ class AllBridge {
       'SettingsInline': ['SettingsRef'],
       'AgentSdkQueryException': ['Exception'],
       'AgentQuery': ['StreamView', 'Stream'],
-      'VSCodeBridgeAgentSdkTransport': ['AgentSdkTransport'],
+      'VSCodeBridgeAgentSdkTransport': [
+        'AgentSdkTransport',
+        'AgentSdkInputTransport',
+      ],
       'BridgedClass': ['RuntimeType'],
     };
   }
@@ -13564,10 +13578,12 @@ BridgedClass _createMcpSdkServerConfigBridge() {
                 'tools',
               )
             : const <$tom_vscode_scripting_api_2.SdkMcpTool>[];
+        final alwaysLoad = D4.getOptionalNamedArg<bool?>(named, 'alwaysLoad');
         return $tom_vscode_scripting_api_2.McpSdkServerConfig(
           name: name,
           version: version,
           tools: tools,
+          alwaysLoad: alwaysLoad,
         );
       },
       'fromJson': (visitor, positional, named) {
@@ -13606,6 +13622,12 @@ BridgedClass _createMcpSdkServerConfigBridge() {
             'McpSdkServerConfig',
           )
           .tools,
+      'alwaysLoad': (visitor, target) => D4
+          .validateTarget<$tom_vscode_scripting_api_2.McpSdkServerConfig>(
+            target,
+            'McpSdkServerConfig',
+          )
+          .alwaysLoad,
     },
     methods: {
       'toJson': (visitor, target, positional, named, typeArgs) {
@@ -13618,7 +13640,7 @@ BridgedClass _createMcpSdkServerConfigBridge() {
       },
     },
     constructorSignatures: {
-      '': 'McpSdkServerConfig({required String name, String version = \'1.0.0\', List<SdkMcpTool> tools = const []})',
+      '': 'McpSdkServerConfig({required String name, String version = \'1.0.0\', List<SdkMcpTool> tools = const [], bool? alwaysLoad})',
       'fromJson':
           'factory McpSdkServerConfig.fromJson(Map<String, dynamic> json)',
     },
@@ -13628,6 +13650,7 @@ BridgedClass _createMcpSdkServerConfigBridge() {
       'name': 'String get name',
       'version': 'String get version',
       'tools': 'List<SdkMcpTool> get tools',
+      'alwaysLoad': 'bool? get alwaysLoad',
     },
   );
 }
@@ -14710,6 +14733,10 @@ BridgedClass _createOptionsBridge() {
         );
         final title = D4.getOptionalNamedArg<String?>(named, 'title');
         final env = D4.coerceMapOrNull<String, String>(named['env'], 'env');
+        final envOverlay = D4.coerceMapOrNull<String, String>(
+          named['envOverlay'],
+          'envOverlay',
+        );
         final extraArgs = D4.coerceMapOrNull<String, String?>(
           named['extraArgs'],
           'extraArgs',
@@ -14822,6 +14849,7 @@ BridgedClass _createOptionsBridge() {
           persistSession: persistSession,
           title: title,
           env: env,
+          envOverlay: envOverlay,
           extraArgs: extraArgs,
           strictMcpConfig: strictMcpConfig,
           agent: agent,
@@ -15049,6 +15077,12 @@ BridgedClass _createOptionsBridge() {
             'Options',
           )
           .env,
+      'envOverlay': (visitor, target) => D4
+          .validateTarget<$tom_vscode_scripting_api_4.Options>(
+            target,
+            'Options',
+          )
+          .envOverlay,
       'extraArgs': (visitor, target) => D4
           .validateTarget<$tom_vscode_scripting_api_4.Options>(
             target,
@@ -15204,7 +15238,7 @@ BridgedClass _createOptionsBridge() {
       },
     },
     constructorSignatures: {
-      '': 'Options({String? model, String? fallbackModel, SystemPrompt? systemPrompt, ToolsConfig? tools, List<String>? allowedTools, List<String>? disallowedTools, Map<String, McpServerConfig>? mcpServers, int? maxTurns, double? maxBudgetUsd, TaskBudget? taskBudget, PermissionMode? permissionMode, String? planModeInstructions, bool? allowDangerouslySkipPermissions, String? permissionPromptToolName, List<SettingSource>? settingSources, SettingsRef? settings, SettingsRef? managedSettings, String? cwd, List<String>? additionalDirectories, bool? continueSession, String? resume, String? sessionId, String? resumeSessionAt, bool? forkSession, bool? persistSession, String? title, Map<String, String>? env, Map<String, String?>? extraArgs, bool? strictMcpConfig, String? agent, Map<String, AgentDefinition>? agents, Skills? skills, List<PluginConfig>? plugins, List<String>? betas, OutputFormat? outputFormat, Map<String, dynamic>? toolConfig, ThinkingConfig? thinking, EffortLevel? effort, int? maxThinkingTokens, bool? includePartialMessages, bool? includeHookEvents, bool? forwardSubagentText, bool? promptSuggestions, bool? agentProgressSummaries, bool? enableFileCheckpointing, Map<String, dynamic>? sandbox, bool? debug, String? debugFile, int? loadTimeoutMs, CanUseTool? canUseTool, void Function(String line)? onStderr})',
+      '': 'Options({String? model, String? fallbackModel, SystemPrompt? systemPrompt, ToolsConfig? tools, List<String>? allowedTools, List<String>? disallowedTools, Map<String, McpServerConfig>? mcpServers, int? maxTurns, double? maxBudgetUsd, TaskBudget? taskBudget, PermissionMode? permissionMode, String? planModeInstructions, bool? allowDangerouslySkipPermissions, String? permissionPromptToolName, List<SettingSource>? settingSources, SettingsRef? settings, SettingsRef? managedSettings, String? cwd, List<String>? additionalDirectories, bool? continueSession, String? resume, String? sessionId, String? resumeSessionAt, bool? forkSession, bool? persistSession, String? title, Map<String, String>? env, Map<String, String>? envOverlay, Map<String, String?>? extraArgs, bool? strictMcpConfig, String? agent, Map<String, AgentDefinition>? agents, Skills? skills, List<PluginConfig>? plugins, List<String>? betas, OutputFormat? outputFormat, Map<String, dynamic>? toolConfig, ThinkingConfig? thinking, EffortLevel? effort, int? maxThinkingTokens, bool? includePartialMessages, bool? includeHookEvents, bool? forwardSubagentText, bool? promptSuggestions, bool? agentProgressSummaries, bool? enableFileCheckpointing, Map<String, dynamic>? sandbox, bool? debug, String? debugFile, int? loadTimeoutMs, CanUseTool? canUseTool, void Function(String line)? onStderr})',
       'fromJson': 'factory Options.fromJson(Map<String, dynamic> json)',
     },
     methodSignatures: {'toJson': 'Map<String, dynamic> toJson()'},
@@ -15237,6 +15271,7 @@ BridgedClass _createOptionsBridge() {
       'persistSession': 'bool? get persistSession',
       'title': 'String? get title',
       'env': 'Map<String, String>? get env',
+      'envOverlay': 'Map<String, String>? get envOverlay',
       'extraArgs': 'Map<String, String?>? get extraArgs',
       'strictMcpConfig': 'bool? get strictMcpConfig',
       'agent': 'String? get agent',
@@ -15426,6 +15461,139 @@ BridgedClass _createAgentSdkTransportBridge() {
       'unregisterCanUseTool': 'void unregisterCanUseTool(String streamId)',
     },
     getterSignatures: {'chunks': 'Stream<Map<String, dynamic>> get chunks'},
+  );
+}
+
+// =============================================================================
+// AgentSdkInputTransport Bridge
+// =============================================================================
+
+BridgedClass _createAgentSdkInputTransportBridge() {
+  return BridgedClass(
+    nativeType: $tom_vscode_scripting_api_7.AgentSdkInputTransport,
+    name: 'AgentSdkInputTransport',
+    isAssignable: (v) =>
+        v is $tom_vscode_scripting_api_7.AgentSdkInputTransport,
+    isAbstract: true,
+    constructors: {},
+    methods: {
+      'sendInput': (visitor, target, positional, named, typeArgs) {
+        final t = D4
+            .validateTarget<$tom_vscode_scripting_api_7.AgentSdkInputTransport>(
+              target,
+              'AgentSdkInputTransport',
+            );
+        D4.requireMinArgs(positional, 2, 'sendInput');
+        final streamId = D4.getRequiredArg<String>(
+          positional,
+          0,
+          'streamId',
+          'sendInput',
+        );
+        if (positional.length <= 1) {
+          throw ArgumentError(
+            'sendInput: Missing required argument "message" at position 1',
+          );
+        }
+        final message = D4.coerceMap<String, dynamic>(positional[1], 'message');
+        return t.sendInput(streamId, message);
+      },
+      'endInput': (visitor, target, positional, named, typeArgs) {
+        final t = D4
+            .validateTarget<$tom_vscode_scripting_api_7.AgentSdkInputTransport>(
+              target,
+              'AgentSdkInputTransport',
+            );
+        D4.requireMinArgs(positional, 1, 'endInput');
+        final streamId = D4.getRequiredArg<String>(
+          positional,
+          0,
+          'streamId',
+          'endInput',
+        );
+        return t.endInput(streamId);
+      },
+    },
+    methodSignatures: {
+      'sendInput':
+          'Future<void> sendInput(String streamId, Map<String, dynamic> message)',
+      'endInput': 'Future<void> endInput(String streamId)',
+    },
+  );
+}
+
+// =============================================================================
+// SdkUserInput Bridge
+// =============================================================================
+
+BridgedClass _createSdkUserInputBridge() {
+  return BridgedClass(
+    nativeType: $tom_vscode_scripting_api_7.SdkUserInput,
+    name: 'SdkUserInput',
+    isAssignable: (v) => v is $tom_vscode_scripting_api_7.SdkUserInput,
+    constructors: {
+      'text': (visitor, positional, named) {
+        D4.requireMinArgs(positional, 1, 'SdkUserInput');
+        final text = D4.getRequiredArg<String>(
+          positional,
+          0,
+          'text',
+          'SdkUserInput',
+        );
+        final uuid = D4.getOptionalNamedArg<String?>(named, 'uuid');
+        return $tom_vscode_scripting_api_7.SdkUserInput.text(text, uuid: uuid);
+      },
+      'blocks': (visitor, positional, named) {
+        D4.requireMinArgs(positional, 1, 'SdkUserInput');
+        if (positional.isEmpty) {
+          throw ArgumentError(
+            'SdkUserInput: Missing required argument "blocks" at position 0',
+          );
+        }
+        final blocks = D4.coerceList<Map<String, dynamic>>(
+          positional[0],
+          'blocks',
+        );
+        final uuid = D4.getOptionalNamedArg<String?>(named, 'uuid');
+        return $tom_vscode_scripting_api_7.SdkUserInput.blocks(
+          blocks,
+          uuid: uuid,
+        );
+      },
+    },
+    getters: {
+      'content': (visitor, target) => D4
+          .validateTarget<$tom_vscode_scripting_api_7.SdkUserInput>(
+            target,
+            'SdkUserInput',
+          )
+          .content,
+      'uuid': (visitor, target) => D4
+          .validateTarget<$tom_vscode_scripting_api_7.SdkUserInput>(
+            target,
+            'SdkUserInput',
+          )
+          .uuid,
+    },
+    methods: {
+      'toJson': (visitor, target, positional, named, typeArgs) {
+        final t = D4.validateTarget<$tom_vscode_scripting_api_7.SdkUserInput>(
+          target,
+          'SdkUserInput',
+        );
+        return t.toJson();
+      },
+    },
+    constructorSignatures: {
+      'text': 'const SdkUserInput.text(String text, {String? uuid})',
+      'blocks':
+          'SdkUserInput.blocks(List<Map<String, dynamic>> blocks, {String? uuid})',
+    },
+    methodSignatures: {'toJson': 'Map<String, dynamic> toJson()'},
+    getterSignatures: {
+      'content': 'Object get content',
+      'uuid': 'String? get uuid',
+    },
   );
 }
 
@@ -16257,6 +16425,22 @@ BridgedClass _createAgentSdkClientBridge() {
             );
         return t.query(prompt: prompt, options: options);
       },
+      'streamQuery': (visitor, target, positional, named, typeArgs) {
+        final t = D4.validateTarget<$tom_vscode_scripting_api_7.AgentSdkClient>(
+          target,
+          'AgentSdkClient',
+        );
+        final prompt = D4
+            .getRequiredNamedArg<
+              Stream<$tom_vscode_scripting_api_7.SdkUserInput>
+            >(named, 'prompt', 'streamQuery');
+        final options = D4
+            .getOptionalNamedArg<$tom_vscode_scripting_api_4.Options?>(
+              named,
+              'options',
+            );
+        return t.streamQuery(prompt: prompt, options: options);
+      },
       'collectQuery': (visitor, target, positional, named, typeArgs) {
         final t = D4.validateTarget<$tom_vscode_scripting_api_7.AgentSdkClient>(
           target,
@@ -16278,6 +16462,8 @@ BridgedClass _createAgentSdkClientBridge() {
     constructorSignatures: {'': 'AgentSdkClient(AgentSdkTransport transport)'},
     methodSignatures: {
       'query': 'AgentQuery query({required String prompt, Options? options})',
+      'streamQuery':
+          'AgentQuery streamQuery({required Stream<SdkUserInput> prompt, Options? options})',
       'collectQuery':
           'Future<List<SdkMessage>> collectQuery({required String prompt, Options? options})',
     },
@@ -16295,7 +16481,7 @@ BridgedClass _createVSCodeBridgeAgentSdkTransportBridge() {
     name: 'VSCodeBridgeAgentSdkTransport',
     isAssignable: (v) =>
         v is $tom_vscode_scripting_api_7.VSCodeBridgeAgentSdkTransport,
-    hierarchyDepth: 1,
+    hierarchyDepth: 2,
     constructors: {
       '': (visitor, positional, named) {
         D4.requireMinArgs(positional, 1, 'VSCodeBridgeAgentSdkTransport');
@@ -16351,6 +16537,40 @@ BridgedClass _createVSCodeBridgeAgentSdkTransportBridge() {
           'cancelQuery',
         );
         return t.cancelQuery(streamId);
+      },
+      'sendInput': (visitor, target, positional, named, typeArgs) {
+        final t = D4
+            .validateTarget<
+              $tom_vscode_scripting_api_7.VSCodeBridgeAgentSdkTransport
+            >(target, 'VSCodeBridgeAgentSdkTransport');
+        D4.requireMinArgs(positional, 2, 'sendInput');
+        final streamId = D4.getRequiredArg<String>(
+          positional,
+          0,
+          'streamId',
+          'sendInput',
+        );
+        if (positional.length <= 1) {
+          throw ArgumentError(
+            'sendInput: Missing required argument "message" at position 1',
+          );
+        }
+        final message = D4.coerceMap<String, dynamic>(positional[1], 'message');
+        return t.sendInput(streamId, message);
+      },
+      'endInput': (visitor, target, positional, named, typeArgs) {
+        final t = D4
+            .validateTarget<
+              $tom_vscode_scripting_api_7.VSCodeBridgeAgentSdkTransport
+            >(target, 'VSCodeBridgeAgentSdkTransport');
+        D4.requireMinArgs(positional, 1, 'endInput');
+        final streamId = D4.getRequiredArg<String>(
+          positional,
+          0,
+          'streamId',
+          'endInput',
+        );
+        return t.endInput(streamId);
       },
       'registerTools': (visitor, target, positional, named, typeArgs) {
         final t = D4
@@ -16454,6 +16674,9 @@ BridgedClass _createVSCodeBridgeAgentSdkTransportBridge() {
     methodSignatures: {
       'startQuery': 'Future<void> startQuery(Map<String, dynamic> params)',
       'cancelQuery': 'Future<void> cancelQuery(String streamId)',
+      'sendInput':
+          'Future<void> sendInput(String streamId, Map<String, dynamic> message)',
+      'endInput': 'Future<void> endInput(String streamId)',
       'registerTools':
           'void registerTools(String streamId, AgentSdkToolRegistry registry)',
       'unregisterTools': 'void unregisterTools(String streamId)',

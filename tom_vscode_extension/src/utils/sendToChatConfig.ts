@@ -207,6 +207,7 @@ export interface SendToChatConfig {
                 permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
                 settingSources?: Array<'user' | 'project' | 'local'>;
                 maxTurns?: number;
+                maxBackgroundWaitMinutes?: number;
             };
             /**
              * VS Code LM options; applies when `transport === 'vscodeLm'`.

@@ -59,10 +59,13 @@ To switch, edit the JSON config:
   "agentSdk": {
     "permissionMode": "default",
     "settingSources": [],
-    "maxTurns": 40
+    "maxTurns": 40,
+    "maxBackgroundWaitMinutes": 30
   }
 }
 ```
+
+`maxBackgroundWaitMinutes` matters when the model starts a command in the background (`run_in_background`) and ends its turn while it runs, for example "WAITING for the suites". The prompt stays open until the command finishes, and the model then continues with its result. After this many minutes (default 30) the wait is checked. A command still producing output, or a background agent still reporting progress, earns another period of the same length. One showing nothing is abandoned, and the live trail says so in a `⏳ notice`. `0` turns waiting off, and such a command's result is then never delivered.
 
 Ignored fields on the `agentSdk` path: `apiKeyEnvVar`, `promptCachingEnabled`, `historyMode`, `maxHistoryTokens`. The approval gate still runs — write tools prompt identically on both paths via the SDK's `canUseTool` hook.
 

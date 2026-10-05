@@ -224,7 +224,13 @@ import {
 import type { AskUserQuestionOutcome } from '../services/agent-sdk-questions';
 import { liveUserPrompter } from '../tools/user-interaction-tools';
 import { appendQuestionLogEntry } from '../services/questionsLog';
-import { QueryInputChannel, isChannelDeadToolResult } from '../services/agent-sdk-input-channel';
+import {
+    QueryInputChannel,
+    isChannelDeadToolResult,
+    describeInputChannelEvent,
+    outputFileSize,
+    SESSION_STATE_EVENTS_ENV,
+} from '../services/agent-sdk-input-channel';
 
 // Re-export the pure retry-decision API so existing consumers
 // (`anthropic-handler.ts`) can keep importing it from this transport module.
@@ -300,6 +306,8 @@ export interface AgentSdkSendParams {
         appendToolResult(resultPreview: string, fullLength: number): void;
         /** Record a transient-failure retry mid-turn (status line + cause). */
         appendRetry(message: string, cause?: string): void;
+        /** A transport notice, e.g. waiting for background tasks. */
+        appendNotice(message: string): void;
         /** Record the turn's token / cost accounting, just before it ends. */
         appendUsage(usage: LiveTrailUsage): void;
     };
@@ -762,7 +770,20 @@ async function runAgentSdkAttempt(
     // The prompt goes in as a stream that stays open until the CLI is really
     // done — see agent-sdk-input-channel.ts for why a string prompt killed
     // every tomAi_* call made after the query's first result.
+    const bgWaitMinutes = configuration.agentSdk?.maxBackgroundWaitMinutes;
     const input = new QueryInputChannel(userText, {
+        // Background tasks still running when the model ends its turn: wait
+        // this long, then keep waiting only while they show progress.
+        backgroundWaitMs: typeof bgWaitMinutes === 'number' && bgWaitMinutes >= 0
+            ? bgWaitMinutes * 60_000
+            : undefined,
+        // A background Bash's progress is its output file growing.
+        progressOf: outputFileSize,
+        onEvent: (event) => {
+            const message = describeInputChannelEvent(event);
+            toolLog(`[agent-sdk] ${message} (request ${context.requestId})`);
+            params.liveTrail?.appendNotice(message);
+        },
         onClose: (reason) => toolLog(`[agent-sdk] input closed (${reason}) for request ${context.requestId}`),
     });
     const abortController = new AbortController();
@@ -866,8 +887,7 @@ async function runAgentSdkAttempt(
             // Makes the CLI report `session_state_changed`, whose `idle` is the
             // signal the input channel closes on. `env` replaces the
             // subprocess environment, so the inherited one is spread in.
-            // eslint-disable-next-line @typescript-eslint/naming-convention -- environment variable name
-            env: { ...process.env, CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' },
+            env: { ...process.env, [SESSION_STATE_EVENTS_ENV]: '1' },
             ...(workspaceCwd ? { cwd: workspaceCwd } : {}),
         };
         // Continuity: passing `resume` tells the SDK to continue a prior

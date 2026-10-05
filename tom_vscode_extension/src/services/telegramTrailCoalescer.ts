@@ -116,6 +116,10 @@ export class TelegramTrailCoalescer {
                 // surface it so a Telegram follower sees the error + retry too,
                 // mirroring the live-trail's `🔁 retry` entry.
                 return [...this.flush(), `🔁 retry — ${event.message}`];
+            case 'notice':
+                // A transport notice (e.g. waiting for background tasks) —
+                // surfaced so a Telegram follower knows why the turn is quiet.
+                return [...this.flush(), `⏳ ${event.message}`];
             case 'done':
             case 'error':
             case 'interruption':

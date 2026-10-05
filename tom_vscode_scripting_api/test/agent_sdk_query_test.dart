@@ -62,6 +62,53 @@ class _FakeAgentSdkTransport implements AgentSdkTransport {
   Future<void> dispose() => _chunks.close();
 }
 
+/// A transport that also supports caller-owned streaming input.
+class _FakeInputTransport extends _FakeAgentSdkTransport
+    implements AgentSdkInputTransport {
+  /// Every input sent, in order, as `(streamId, message)`.
+  final List<(String, Map<String, dynamic>)> inputs = [];
+  final List<String> endedInputs = [];
+
+  @override
+  Future<void> sendInput(String streamId, Map<String, dynamic> message) async {
+    inputs.add((streamId, message));
+  }
+
+  @override
+  Future<void> endInput(String streamId) async {
+    endedInputs.add(streamId);
+  }
+}
+
+/// A bridge client double that records requests instead of using a socket.
+class _RecordingClient extends VSCodeBridgeClient {
+  final List<(String, Map<String, dynamic>)> requests = [];
+
+  /// The reply to give, by method; `{'success': true}` when absent.
+  final Map<String, Map<String, dynamic>> replies;
+
+  _RecordingClient({this.replies = const {}});
+
+  @override
+  Future<Map<String, dynamic>> sendRequest(
+    String method,
+    Map<String, dynamic> params,
+  ) async {
+    requests.add((method, params));
+    return replies[method] ?? {'success': true};
+  }
+}
+
+/// The reply the extension gives a method it does not know, verbatim.
+Map<String, dynamic> _unknownMethodReply(String method) => {
+  'success': false,
+  'error': {
+    'code': -32000,
+    'message': {'message': 'Unknown method: $method'},
+    'data': '',
+  },
+};
+
 void main() {
   group('AgentSdkClient.query — chunk correlation', () {
     late _FakeAgentSdkTransport transport;
@@ -329,6 +376,184 @@ void main() {
       expect(messages, hasLength(1));
       expect(messages.single, isA<SdkAssistantMessage>());
       await transport.dispose();
+    });
+  });
+
+  // Streaming input owned by the caller (`sdk.query({prompt: AsyncIterable})`).
+  // The string `query` cannot send a second message, and the extension keeps
+  // its stdin open for it only until it answers that one message.
+  group('AgentSdkClient.streamQuery (SQ-*)', () {
+    test('SQ-1: starts with promptStream, sends each input in order after the '
+        'start, and ends the input when the prompt stream is done', () async {
+      final transport = _FakeInputTransport();
+      final client = AgentSdkClient(transport);
+      final prompt = StreamController<SdkUserInput>();
+      final messages = <SdkMessage>[];
+      final done = Completer<void>();
+      final query = client.streamQuery(
+        prompt: prompt.stream,
+        options: Options(model: 'm'),
+      );
+      query.listen(messages.add, onDone: done.complete);
+      await pumpEventQueue();
+
+      expect(transport.startedQueries, hasLength(1));
+      final start = transport.startedQueries.single;
+      final streamId = start['streamId'] as String;
+      expect(start['promptStream'], isTrue);
+      expect(start.containsKey('prompt'), isFalse);
+      expect(start['options'], {'model': 'm'});
+
+      prompt.add(SdkUserInput.text('first'));
+      prompt.add(SdkUserInput.text('second'));
+      await pumpEventQueue();
+      expect(transport.inputs.map((e) => (e.$1, e.$2['message']['content'])), [
+        (streamId, 'first'),
+        (streamId, 'second'),
+      ]);
+      expect(transport.endedInputs, isEmpty);
+
+      await prompt.close();
+      await pumpEventQueue();
+      expect(transport.endedInputs, [streamId]);
+
+      transport.emit({
+        'streamId': streamId,
+        'message': {'type': 'result', 'subtype': 'success'},
+      });
+      transport.emit({'streamId': streamId, 'done': true});
+      await done.future;
+      expect(messages.single, isA<SdkResultMessage>());
+      await transport.dispose();
+    });
+
+    test('SQ-2: SdkUserInput serializes to the SDK user-message shape', () {
+      expect(SdkUserInput.text('hi', uuid: 'u-1').toJson(), {
+        'type': 'user',
+        'message': {'role': 'user', 'content': 'hi'},
+        'parent_tool_use_id': null,
+        'session_id': '',
+        'uuid': 'u-1',
+      });
+      final blocks = SdkUserInput.blocks([
+        {'type': 'text', 'text': 'look'},
+      ]).toJson();
+      expect(blocks['message'], {
+        'role': 'user',
+        'content': [
+          {'type': 'text', 'text': 'look'},
+        ],
+      });
+      expect(blocks.containsKey('uuid'), isFalse);
+    });
+
+    test('SQ-3: a transport without input support fails the query, and '
+        'starts nothing', () async {
+      final transport = _FakeAgentSdkTransport();
+      final client = AgentSdkClient(transport);
+      await expectLater(
+        client.streamQuery(prompt: const Stream.empty()),
+        emitsError(isA<UnsupportedError>()),
+      );
+      expect(transport.startedQueries, isEmpty);
+      await transport.dispose();
+    });
+
+    test(
+      'SQ-4: interrupting stops forwarding input and cancels the query',
+      () async {
+        final transport = _FakeInputTransport();
+        final client = AgentSdkClient(transport);
+        final prompt = StreamController<SdkUserInput>();
+        final query = client.streamQuery(prompt: prompt.stream);
+        final sub = query.listen((_) {});
+        await pumpEventQueue();
+        final streamId = transport.startedQueries.single['streamId'] as String;
+
+        await query.interrupt();
+        prompt.add(SdkUserInput.text('too late'));
+        await pumpEventQueue();
+        expect(transport.inputs, isEmpty);
+        expect(transport.cancelledStreams, [streamId]);
+        expect(prompt.hasListener, isFalse);
+        await sub.cancel();
+        await prompt.close();
+        await transport.dispose();
+      },
+    );
+
+    test('SQ-5: the bridge transport sends inputVce / endInputVce', () async {
+      final client = _RecordingClient();
+      final transport = VSCodeBridgeAgentSdkTransport(client);
+      await transport.sendInput('s1', SdkUserInput.text('x').toJson());
+      await transport.endInput('s1');
+      expect(client.requests.map((r) => r.$1), [
+        'agentSdk.inputVce',
+        'agentSdk.endInputVce',
+      ]);
+      expect(client.requests.first.$2['streamId'], 's1');
+      expect(client.requests.first.$2['message']['message']['content'], 'x');
+      expect(client.requests.last.$2, {'streamId': 's1'});
+    });
+
+    // `VSCodeBridgeClient.sendRequest` does not throw when the extension
+    // refuses a request: it returns `{success: false, error: …}`. A transport
+    // that ignored that dropped a message silently (sendInput) or left a query
+    // waiting for chunks that never come (startQuery).
+    test(
+      'SQ-6: a refused request fails with the extension\'s message',
+      () async {
+        final client = _RecordingClient(
+          replies: {
+            'agentSdk.inputVce': _unknownMethodReply('agentSdk.inputVce'),
+            'agentSdk.endInputVce': _unknownMethodReply('agentSdk.endInputVce'),
+            'agentSdk.queryVce': _unknownMethodReply('agentSdk.queryVce'),
+          },
+        );
+        final transport = VSCodeBridgeAgentSdkTransport(client);
+        Matcher refused(String method) => throwsA(
+          isA<AgentSdkQueryException>().having(
+            (e) => e.message,
+            'message',
+            'Unknown method: $method',
+          ),
+        );
+        await expectLater(
+          transport.sendInput('s1', SdkUserInput.text('x').toJson()),
+          refused('agentSdk.inputVce'),
+        );
+        await expectLater(
+          transport.endInput('s1'),
+          refused('agentSdk.endInputVce'),
+        );
+        await expectLater(
+          transport.startQuery({'streamId': 's1', 'prompt': 'p'}),
+          refused('agentSdk.queryVce'),
+        );
+      },
+    );
+
+    test('SQ-7: through streamQuery, a refused input surfaces as the query\'s '
+        'error', () async {
+      final client = _RecordingClient(
+        replies: {
+          'agentSdk.inputVce': _unknownMethodReply('agentSdk.inputVce'),
+        },
+      );
+      final agent = AgentSdkClient(VSCodeBridgeAgentSdkTransport(client));
+      final input = StreamController<SdkUserInput>()
+        ..add(SdkUserInput.text('hello'));
+      await expectLater(
+        agent.streamQuery(prompt: input.stream),
+        emitsError(
+          isA<AgentSdkQueryException>().having(
+            (e) => e.message,
+            'message',
+            contains('agentSdk.inputVce'),
+          ),
+        ),
+      );
+      await input.close();
     });
   });
 }

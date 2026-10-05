@@ -61,7 +61,7 @@ filename, and the titlebar form all match.
 
 > Full operator + maintainer reference (type surface, examples, file map):
 > [../doc/agent_sdk_scripting_mirror.md](../doc/agent_sdk_scripting_mirror.md).
-> §3.3 there covers workspace discovery in detail.
+> §3.4 there covers workspace discovery in detail.
 
 ### LLM tool registry (`TomToolsApi`)
 

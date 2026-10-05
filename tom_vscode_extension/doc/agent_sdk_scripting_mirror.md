@@ -183,13 +183,64 @@ await for (final msg in query) {
   convenience.
 - An `error` chunk surfaces as an `AgentSdkQueryException` on the stream.
 
-### 3.1 Cancellation
+**The extension keeps the input open for tools and approvals.** The Claude
+Code process reaches Dart tools (§5) and `canUseTool` (§6) through control
+requests whose replies travel on its stdin. Given a string prompt, the SDK
+closes that stdin at the query's first `result`. Some work comes after that
+result: a background agent's follow-up turn, a background Bash's follow-up,
+or, on resume, a summary turn about the previous process's tasks run before
+the prompt. Every Dart tool call and approval request in that work would fail
+at once with "interrupted before a result was received". So when a query
+carries an `sdk` MCP server or `canUseTool`, `AgentSdkBridge` passes the
+prompt as a stream instead. It closes that stream when the process is idle
+after answering the prompt, waiting (with a progress-checked cap) for
+background tasks that outlive the turn. It is the extension transport's own
+input channel (`agent-sdk-input-channel.ts`), applied unchanged, plus
+`CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS` added to the environment, so the
+caller sees `session_state_changed` system messages too. A query with neither
+need is passed through exactly as given.
+
+### 3.1 Streaming input — `streamQuery`
+
+`AgentSdkClient.streamQuery({required Stream<SdkUserInput> prompt, Options?
+options})` mirrors `sdk.query({prompt: AsyncIterable<SDKUserMessage>})`, the
+SDK's streaming-input mode. The caller owns the input: each `SdkUserInput`
+(`.text(…)` or `.blocks(…)`, with an optional `uuid`) is sent as it arrives,
+and closing the stream ends the input.
+
+```dart
+final input = StreamController<SdkUserInput>();
+final query = client.streamQuery(prompt: input.stream, options: options);
+input.add(SdkUserInput.text('Review the open file', uuid: 'q-1'));
+await for (final msg in query) {
+  if (msg is SdkSystemEvent && msg.subtype == 'session_state_changed'
+      && msg.raw['state'] == 'idle') {
+    // The process waits for input: send the next message, or finish.
+    await input.close();
+  }
+}
+```
+
+Keep the input open while Dart tools or `canUseTool` may still be called:
+ending it early cuts them off, exactly as above. `session_state_changed` with
+`state: 'idle'` is the moment to send the next message or close; the result
+that answers a message carries its `uuid` in `user_message_uuids`. A query
+started this way also gets `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS`. It needs a
+transport implementing `AgentSdkInputTransport`: `VSCodeBridgeAgentSdkTransport`
+does, and other transports fail the query with an `UnsupportedError`. If the
+extension refuses the input, for instance one that predates streaming input
+(`Unknown method: agentSdk.inputVce`), the query fails with an
+`AgentSdkQueryException` carrying that message (1.2.1). The sample
+`example/vscode_agent_sdk_sample` shows a complete two-message conversation
+(`streaming_input.dart`).
+
+### 3.2 Cancellation
 
 Cancelling the stream subscription **or** calling `query.interrupt()` aborts the
 underlying query (`agentSdk.cancelVce`). `interrupt()` is idempotent. The
 extension bridge owns the `AbortController` keyed by `streamId`.
 
-### 3.2 The transport seam
+### 3.3 The transport seam
 
 `AgentSdkClient` talks to an `AgentSdkTransport`, isolating the correlation
 logic from the wire so it is unit-testable with a double. Production uses
@@ -197,17 +248,21 @@ logic from the wire so it is unit-testable with a double. Production uses
 
 | Direction | Method | Purpose |
 | --- | --- | --- |
-| client → server | `agentSdk.queryVce` | start a query (`streamId`, `prompt`, serialized `options`) |
+| client → server | `agentSdk.queryVce` | start a query (`streamId`, `prompt` or `promptStream: true`, serialized `options`) |
+| client → server | `agentSdk.inputVce` | one user message into a `promptStream` query (`streamId`, `message`) |
+| client → server | `agentSdk.endInputVce` | end a `promptStream` query's input |
 | client → server | `agentSdk.cancelVce` | abort a query by `streamId` |
 | server → client (notification) | `agentSdk.chunk` | one `SDKMessage`, or `done: true`, or `error`, keyed by `streamId` |
 
-> **Delivery caveat:** end-to-end `agentSdk.chunk` delivery over the standalone
-> `tom_vscode_bridge` CLI socket also requires that server to relay extension
-> notifications to the connected client (today the CLI relay forwards `log`).
-> That relay is tracked as a completion step; the Dart client half is complete
-> and correct. The in-process path is unaffected.
+The standalone `tom_vscode_bridge` CLI server forwards every `*Vce` request to
+the extension, and routes `agentSdk.chunk` and the reverse-RPC requests (§4)
+back to the client that started the stream.
 
-### 3.3 Targeting a specific window — workspace discovery
+`streamQuery` uses a second, opt-in interface, `AgentSdkInputTransport`
+(`sendInput`, `endInput`), so existing implementers of `AgentSdkTransport`
+need no change.
+
+### 3.4 Targeting a specific window — workspace discovery
 
 A query needs a `VSCodeBridgeClient` bound to a **specific** VS Code window.
 Each open window runs its CLI Integration Server on a distinct port in the
@@ -386,15 +441,16 @@ boundary.
 | `lib/src/agent_sdk_options.dart` | `Options` + sealed input sub-configs |
 | `lib/src/agent_sdk_permissions.dart` | `PermissionMode`, `CanUseTool`, `PermissionResult`, `PermissionUpdate` |
 | `lib/src/agent_sdk_mcp.dart` | `McpServerConfig` variants, `SdkMcpTool`, `CallToolResult` |
-| `lib/src/agent_sdk_query.dart` | `AgentSdkClient`, `AgentQuery`, transport seam, bridge transport |
-| `lib/src/bridge_discovery.dart` | window discovery: `findBridgePortForWorkspace`, `scanBridgePorts`, `connectToWorkspace` (§3.3) |
+| `lib/src/agent_sdk_query.dart` | `AgentSdkClient` (`query`, `streamQuery`), `AgentQuery`, `SdkUserInput`, transport seam (`AgentSdkTransport`, `AgentSdkInputTransport`), bridge transport |
+| `lib/src/bridge_discovery.dart` | window discovery: `findBridgePortForWorkspace`, `scanBridgePorts`, `connectToWorkspace` (§3.4) |
 | `lib/src/bridge_request_dispatcher.dart` | generic server→client RPC client half |
 | `lib/src/agent_sdk_tool_registry.dart` | dispatch `agentSdk.toolCall` to Dart handlers |
 | `lib/src/agent_sdk_permission_dispatch.dart` | dispatch `agentSdk.canUseTool` to the Dart callback |
-| `src/services/agent-sdk-bridge.ts` | extension: thin pass-through behind `agentSdk.queryVce`/`cancelVce` |
+| `src/services/agent-sdk-bridge.ts` | extension: pass-through behind `agentSdk.queryVce`/`inputVce`/`endInputVce`/`cancelVce`; keeps stdin open for queries with Dart tools or `canUseTool` |
+| `src/services/agent-sdk-input-channel.ts` | extension: when stdin may close (shared with the `agentSdk` transport) |
 | `src/handlers/agent-sdk-transport.ts` | extension: the separate profile-gated `agentSdk` transport |
 
 For targeting a specific VS Code window from a script (workspace discovery,
 `findBridgePortForWorkspace`, `scanBridgePorts`, `connectToWorkspace`), see
-§3.3 above. The same surface is also summarized in the broader
+§3.4 above. The same surface is also summarized in the broader
 `bridge_scripting_guide.md`.

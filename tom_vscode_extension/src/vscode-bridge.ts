@@ -8,6 +8,7 @@ import { sendToChatForScript } from './handlers/sendToChatRouter';
 import { AgentSdkBridge } from './services/agent-sdk-bridge';
 import { ServerToClientRpc } from './services/server-to-client-rpc';
 import { loadSdk } from './handlers/agent-sdk-transport';
+import { toolLog } from './utils/toolLog';
 
 const DART_COMMAND = 'dart';
 
@@ -497,6 +498,7 @@ export class DartBridgeClient {
                 // over the reverse RPC.
                 requestClient: (method, params, opts) =>
                     this.requestClient(method, params, opts),
+                log: (line) => toolLog(line),
             });
         }
         return this.agentSdkBridge;
@@ -853,6 +855,17 @@ export class DartBridgeClient {
 
                 case 'agentSdk.cancelVce':
                     result = this.getAgentSdkBridge().cancelQuery(params);
+                    break;
+
+                // Streaming input owned by the Dart caller (`promptStream`
+                // queries): one user message per `inputVce`, `endInputVce`
+                // ends the input.
+                case 'agentSdk.inputVce':
+                    result = this.getAgentSdkBridge().sendInput(params);
+                    break;
+
+                case 'agentSdk.endInputVce':
+                    result = this.getAgentSdkBridge().endInput(params);
                     break;
 
                 default:

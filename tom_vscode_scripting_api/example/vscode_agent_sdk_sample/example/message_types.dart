@@ -8,8 +8,8 @@
 /// payload in `raw` (so nothing is ever lost). This concept parses
 /// representative payloads — exactly what the extension relays over
 /// `agentSdk.chunk` — and reads them back with the typed API. It is fully
-/// deterministic and needs no live agent run, which makes it the best place to
-/// learn the output surface while the chunk relay is still a completion step.
+/// deterministic and needs no live agent run, which makes it the cheapest place
+/// to learn the output surface.
 ///
 /// Expected output: a system/init line, an assistant turn with a text block and
 /// a tool-use block, and a result line with cost/turns — all read through the

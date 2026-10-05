@@ -93,6 +93,7 @@ interface AnthropicSectionForStatusPage {
             permissionMode?: string;
             settingSources?: Array<'user' | 'project' | 'local'>;
             maxTurns?: number;
+            maxBackgroundWaitMinutes?: number;
         };
         vscodeLm?: {
             vendor?: string;
@@ -654,7 +655,7 @@ async function editOrCreateAnthropicConfiguration(configId: string | null): Prom
     let historyMode: string | undefined = existing?.historyMode ?? 'last';
     let maxHistoryTokens: number | undefined = existing?.maxHistoryTokens;
     let promptCachingEnabled = existing?.promptCachingEnabled === true;
-    let agentSdkOpts: { permissionMode: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'; settingSources: Array<'user' | 'project' | 'local'>; maxTurns?: number } | undefined;
+    let agentSdkOpts: { permissionMode: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'; settingSources: Array<'user' | 'project' | 'local'>; maxTurns?: number; maxBackgroundWaitMinutes?: number } | undefined;
 
     if (transport === 'vscodeLm') {
         // VS Code LM: same history handling as Direct (our own compaction
@@ -779,10 +780,24 @@ async function editOrCreateAnthropicConfiguration(configId: string | null): Prom
         });
         if (maxTurnsStr === undefined) { return; }
 
+        const bgWaitStr = await vscode.window.showInputBox({
+            prompt: 'Minutes to wait for background tasks that outlive the turn, before checking their progress (blank = 30, 0 = do not wait)',
+            value: existing?.agentSdk?.maxBackgroundWaitMinutes !== undefined ? String(existing.agentSdk.maxBackgroundWaitMinutes) : '',
+            placeHolder: 'leave blank for the default of 30 minutes',
+            validateInput: (v) => {
+                if (v.trim() === '') { return null; }
+                const n = Number(v);
+                if (!Number.isFinite(n) || n < 0) { return 'Enter a number of minutes, 0 or more (or leave blank)'; }
+                return null;
+            },
+        });
+        if (bgWaitStr === undefined) { return; }
+
         agentSdkOpts = {
             permissionMode: modePick.value,
             settingSources: sourcesPick.map((s) => s.value),
             ...(maxTurnsStr.trim() === '' ? {} : { maxTurns: parseInt(maxTurnsStr, 10) }),
+            ...(bgWaitStr.trim() === '' ? {} : { maxBackgroundWaitMinutes: Number(bgWaitStr) }),
         };
 
         // Agent SDK history mode picker. 'sdk-managed' (default) uses the

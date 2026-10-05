@@ -63,6 +63,38 @@ final messages = await client.collectQuery(
 
 `collectQuery` drains the stream and returns `List<SdkMessage>`.
 
+### Holding a conversation — streaming input
+
+`query()` takes one prompt string. `streamQuery()` mirrors the SDK's
+streaming-input mode instead: you own a `Stream<SdkUserInput>`, every message
+you add is sent to the running query, and closing the stream ends the input.
+
+```dart
+final input = StreamController<SdkUserInput>();
+final query = client.streamQuery(prompt: input.stream, options: Options());
+input.add(SdkUserInput.text('Review the open file', uuid: 'q-1'));
+await for (final msg in query) {
+  if (msg is SdkSystemEvent && msg.subtype == 'session_state_changed'
+      && msg.raw['state'] == 'idle') {
+    // The agent waits for input: send the next message, or finish.
+    await input.close();
+  }
+}
+```
+
+`session_state_changed` with `state: 'idle'` is the moment to send the next
+message or close. The result that answers a message carries its `uuid` in
+`user_message_uuids`. Keep the input open while Dart tools or `canUseTool` may
+still be called: the agent reaches both through it. `SdkUserInput.blocks(…)`
+sends content blocks instead of text. The sample
+`example/vscode_agent_sdk_sample` (`streaming_input.dart`) shows a complete
+two-message conversation.
+
+A plain `query()` with Dart tools or `canUseTool` needs none of this: the
+extension keeps the input open until the agent is idle after answering, so
+tool calls in later work (a background task's follow-up, for example) still
+reach Dart.
+
 ### Interrupting / cancelling
 
 `query()` returns an `AgentQuery` (a `StreamView<SdkMessage>`):
@@ -79,11 +111,13 @@ await query.interrupt();
 
 | Type | Role |
 | ---- | ---- |
-| `AgentSdkClient(transport)` | High-level entry. `query({required prompt, options})` → `AgentQuery`; `collectQuery({required prompt, options})` → `Future<List<SdkMessage>>`. |
+| `AgentSdkClient(transport)` | High-level entry. `query({required prompt, options})` → `AgentQuery`; `streamQuery({required Stream<SdkUserInput> prompt, options})` → `AgentQuery` (streaming input); `collectQuery({required prompt, options})` → `Future<List<SdkMessage>>`. |
+| `SdkUserInput` | One user message for `streamQuery`: `.text(text, {uuid})` or `.blocks(blocks, {uuid})`. |
 | `AgentQuery` | `extends StreamView<SdkMessage>`; adds `interrupt()`. |
 | `AgentSdkTransport` | Abstract seam: `startQuery`, `cancelQuery`, `chunks`, `registerTools`, `registerCanUseTool`. |
-| `VSCodeBridgeAgentSdkTransport(client)` | Production transport. Sends `agentSdk.queryVce` / `agentSdk.cancelVce`, receives `agentSdk.chunk` streaming notifications, and routes `agentSdk.toolCall` / `agentSdk.canUseTool` callbacks back to your handlers. |
-| `AgentSdkQueryException` | Thrown when a query fails on the bridge side. |
+| `AgentSdkInputTransport` | Opt-in second seam for `streamQuery`: `sendInput`, `endInput`. Separate so existing `AgentSdkTransport` implementers need no change; with a transport lacking it, `streamQuery` fails with an `UnsupportedError`. |
+| `VSCodeBridgeAgentSdkTransport(client)` | Production transport (implements both). Sends `agentSdk.queryVce` / `agentSdk.inputVce` / `agentSdk.endInputVce` / `agentSdk.cancelVce`, receives `agentSdk.chunk` streaming notifications, and routes `agentSdk.toolCall` / `agentSdk.canUseTool` callbacks back to your handlers. A request the extension refuses fails the query with its message. |
+| `AgentSdkQueryException` | Thrown when a query fails on the bridge side, including a refused request (e.g. `Unknown method: agentSdk.inputVce` from an extension that predates streaming input). |
 
 The transport is the only Agent SDK-specific dependency. Inject a fake transport
 to unit-test agent-driving code without a socket.
@@ -110,7 +144,8 @@ with 50+ fields; the ones you will reach for most:
 | `settingSources` | `List<SettingSource>?` | Which settings layers to load. |
 | `cwd` | `String?` | Working directory for the agent. |
 | `resume` / `continueSession` / `sessionId` | session controls | Resume or continue a prior session. |
-| `env` | `Map<String, String>?` | Extra environment for the agent. |
+| `env` | `Map<String, String>?` | The agent's **whole** environment: it replaces what the process would inherit, as in the SDK, so `{'FOO': 'x'}` starts it without `PATH` or `HOME`. Leave null unless you supply everything. |
+| `envOverlay` | `Map<String, String>?` | Dart-only: variables added on top of the inherited environment (or on top of `env` when set). The extension resolves it into `env`. |
 | `agents` | `Map<String, AgentDefinition>?` | Named sub-agent definitions. |
 | `skills` | `Skills?` | Skill enablement. |
 | `plugins` | `List<PluginConfig>?` | Plugin configs. |
@@ -266,7 +301,7 @@ registry, registration via `Options.canUseTool` is all you normally need.
 
 ## What is and isn't exposed
 
-**Exposed (1:1):** streaming `query()`, `Options` (full field set), the message
+**Exposed (1:1):** streaming `query()`, streaming input (`streamQuery()`), `Options` (full field set), the message
 and content-block hierarchies (raw-preserving), in-process MCP tools, external
 MCP server configs, the permission system, `canUseTool`, session
 resume/continue, sub-agents, skills, plugins, and thinking/effort controls.

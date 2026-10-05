@@ -49,6 +49,13 @@ describe('TelegramTrailCoalescer', () => {
         assert.deepEqual(out, ['leftover', '🚀 prompt [anthropic/default]\n\nnext']);
     });
 
+    test('a notice flushes buffered text and is surfaced with ⏳', () => {
+        const c = new TelegramTrailCoalescer();
+        c.push({ kind: 'assistant', questId: Q, text: 'WAITING' });
+        const out = c.push({ kind: 'notice', questId: Q, message: 'Waiting for 1 background task' });
+        assert.deepEqual(out, ['WAITING', '⏳ Waiting for 1 background task']);
+    });
+
     test('thinking and tool-result events are dropped as noise', () => {
         const c = new TelegramTrailCoalescer();
         assert.deepEqual(c.push({ kind: 'thinking', questId: Q, text: 'pondering' }), []);

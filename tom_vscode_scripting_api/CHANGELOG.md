@@ -1,3 +1,48 @@
+## 1.2.2
+
+Documentation and samples only; no code change.
+
+- The Agent SDK guide (`doc/vscode_api_anthropic_agent_sdk_guide.md`)
+  documents streaming input (`streamQuery`, `SdkUserInput`,
+  `AgentSdkInputTransport`), and its `env` row is corrected: `env` replaces the
+  agent's environment, and `envOverlay` adds to it.
+- `example/vscode_agent_sdk_sample` gains a sixth concept, `streaming_input`
+  (a two-message conversation over `streamQuery`). Its live concepts are fixed:
+  `streaming_query` names a small model and gives the agent no tools, so it
+  completes in its one turn, and the out-of-date "chunk relay is incomplete"
+  notes are gone.
+
+## 1.2.1
+
+- `VSCodeBridgeAgentSdkTransport` now fails when the extension refuses a
+  request. `VSCodeBridgeClient.sendRequest` returns `{success: false, error}`
+  rather than throwing, and the transport ignored that. A refused
+  `sendInput` was dropped silently, and a refused start left the query
+  waiting for chunks that never came. `startQuery`, `sendInput` and
+  `endInput` now throw an `AgentSdkQueryException` carrying the extension's
+  message, so the query's stream fails with it; for example, against an
+  extension that predates streaming input: `Unknown method:
+  agentSdk.inputVce`.
+
+## 1.2.0
+
+- `AgentSdkClient.streamQuery` mirrors the SDK's streaming-input mode,
+  `query({prompt: AsyncIterable<SDKUserMessage>})`. The caller owns the input:
+  each `SdkUserInput` (`.text` or `.blocks`, with an optional `uuid`) on the
+  `prompt` stream is sent to the running query, and closing the stream ends the
+  input. It needs a transport that implements the new, opt-in
+  `AgentSdkInputTransport` (`sendInput`, `endInput`).
+  `VSCodeBridgeAgentSdkTransport` does, over the new `agentSdk.inputVce` and
+  `agentSdk.endInputVce` bridge methods; any other transport fails the query
+  with an `UnsupportedError`. `AgentSdkTransport` is unchanged, so existing
+  implementers need no change.
+- `query` with Dart tools or `canUseTool` now keeps working after the first
+  result. The extension (a Tom extension build that has it) keeps the Claude
+  Code process's input open until it is idle after answering the prompt.
+  Before, a tool call or approval request made after the first result, for
+  example in a background task's follow-up turn, failed at once with
+  "interrupted before a result was received". No API change.
+
 ## 1.1.4
 
 - `Options.envOverlay` adds variables to the Claude Code subprocess's
