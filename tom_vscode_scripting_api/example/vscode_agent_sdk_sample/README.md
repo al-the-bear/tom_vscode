@@ -117,7 +117,7 @@ when you actually want to drive a live query:
 
 ```text
 vscode_agent_sdk_sample/
-├── pubspec.yaml                 # depends only on tom_vscode_scripting_api >=1.2.1
+├── pubspec.yaml                 # depends only on tom_vscode_scripting_api >=1.2.2
 ├── analysis_options.yaml        # package:lints/recommended.yaml
 ├── README.md                    # this article
 ├── run_example.sh               # POSIX runner (pub get on first run, forwards args)
