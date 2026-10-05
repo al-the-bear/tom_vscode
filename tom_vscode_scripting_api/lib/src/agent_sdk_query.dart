@@ -388,7 +388,25 @@ class VSCodeBridgeAgentSdkTransport
 
   @override
   Future<void> startQuery(Map<String, dynamic> params) async {
-    await client.sendRequest('agentSdk.queryVce', params);
+    _checked(await client.sendRequest('agentSdk.queryVce', params));
+  }
+
+  /// [VSCodeBridgeClient.sendRequest] does not throw when the extension
+  /// refuses a request; it returns `{success: false, error: …}`. Turn that
+  /// into an [AgentSdkQueryException] carrying the extension's message, so a
+  /// refused start or input fails the query instead of being lost.
+  static void _checked(Map<String, dynamic> response) {
+    if (response['success'] != false) return;
+    throw AgentSdkQueryException(_errorText(response['error']));
+  }
+
+  static String _errorText(Object? error) {
+    if (error is Map) {
+      final message = error['message'];
+      if (message is String) return message;
+      if (message is Map) return _errorText(message);
+    }
+    return error is String ? error : 'request refused: $error';
   }
 
   @override
@@ -398,15 +416,19 @@ class VSCodeBridgeAgentSdkTransport
 
   @override
   Future<void> sendInput(String streamId, Map<String, dynamic> message) async {
-    await client.sendRequest('agentSdk.inputVce', {
-      'streamId': streamId,
-      'message': message,
-    });
+    _checked(
+      await client.sendRequest('agentSdk.inputVce', {
+        'streamId': streamId,
+        'message': message,
+      }),
+    );
   }
 
   @override
   Future<void> endInput(String streamId) async {
-    await client.sendRequest('agentSdk.endInputVce', {'streamId': streamId});
+    _checked(
+      await client.sendRequest('agentSdk.endInputVce', {'streamId': streamId}),
+    );
   }
 
   @override

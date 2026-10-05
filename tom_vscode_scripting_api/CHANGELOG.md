@@ -1,3 +1,15 @@
+## 1.2.1
+
+- `VSCodeBridgeAgentSdkTransport` now fails when the extension refuses a
+  request. `VSCodeBridgeClient.sendRequest` returns `{success: false, error}`
+  rather than throwing, and the transport ignored that. A refused
+  `sendInput` was dropped silently, and a refused start left the query
+  waiting for chunks that never came. `startQuery`, `sendInput` and
+  `endInput` now throw an `AgentSdkQueryException` carrying the extension's
+  message, so the query's stream fails with it; for example, against an
+  extension that predates streaming input: `Unknown method:
+  agentSdk.inputVce`.
+
 ## 1.2.0
 
 - `AgentSdkClient.streamQuery` mirrors the SDK's streaming-input mode,

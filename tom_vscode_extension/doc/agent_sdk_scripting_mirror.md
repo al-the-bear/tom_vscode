@@ -213,7 +213,7 @@ final input = StreamController<SdkUserInput>();
 final query = client.streamQuery(prompt: input.stream, options: options);
 input.add(SdkUserInput.text('Review the open file', uuid: 'q-1'));
 await for (final msg in query) {
-  if (msg is SdkSystemMessage && msg.raw['subtype'] == 'session_state_changed'
+  if (msg is SdkSystemEvent && msg.subtype == 'session_state_changed'
       && msg.raw['state'] == 'idle') {
     // The process waits for input: send the next message, or finish.
     await input.close();
@@ -227,7 +227,12 @@ ending it early cuts them off, exactly as above. `session_state_changed` with
 that answers a message carries its `uuid` in `user_message_uuids`. A query
 started this way also gets `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS`. It needs a
 transport implementing `AgentSdkInputTransport`: `VSCodeBridgeAgentSdkTransport`
-does, and other transports fail the query with an `UnsupportedError`.
+does, and other transports fail the query with an `UnsupportedError`. If the
+extension refuses the input, for instance one that predates streaming input
+(`Unknown method: agentSdk.inputVce`), the query fails with an
+`AgentSdkQueryException` carrying that message (1.2.1). The sample
+`example/vscode_agent_sdk_sample` shows a complete two-message conversation
+(`streaming_input.dart`).
 
 ### 3.2 Cancellation
 

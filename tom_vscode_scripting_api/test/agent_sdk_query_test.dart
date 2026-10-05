@@ -84,15 +84,30 @@ class _FakeInputTransport extends _FakeAgentSdkTransport
 class _RecordingClient extends VSCodeBridgeClient {
   final List<(String, Map<String, dynamic>)> requests = [];
 
+  /// The reply to give, by method; `{'success': true}` when absent.
+  final Map<String, Map<String, dynamic>> replies;
+
+  _RecordingClient({this.replies = const {}});
+
   @override
   Future<Map<String, dynamic>> sendRequest(
     String method,
     Map<String, dynamic> params,
   ) async {
     requests.add((method, params));
-    return {'success': true};
+    return replies[method] ?? {'success': true};
   }
 }
+
+/// The reply the extension gives a method it does not know, verbatim.
+Map<String, dynamic> _unknownMethodReply(String method) => {
+  'success': false,
+  'error': {
+    'code': -32000,
+    'message': {'message': 'Unknown method: $method'},
+    'data': '',
+  },
+};
 
 void main() {
   group('AgentSdkClient.query — chunk correlation', () {
@@ -479,6 +494,66 @@ void main() {
       expect(client.requests.first.$2['streamId'], 's1');
       expect(client.requests.first.$2['message']['message']['content'], 'x');
       expect(client.requests.last.$2, {'streamId': 's1'});
+    });
+
+    // `VSCodeBridgeClient.sendRequest` does not throw when the extension
+    // refuses a request: it returns `{success: false, error: …}`. A transport
+    // that ignored that dropped a message silently (sendInput) or left a query
+    // waiting for chunks that never come (startQuery).
+    test(
+      'SQ-6: a refused request fails with the extension\'s message',
+      () async {
+        final client = _RecordingClient(
+          replies: {
+            'agentSdk.inputVce': _unknownMethodReply('agentSdk.inputVce'),
+            'agentSdk.endInputVce': _unknownMethodReply('agentSdk.endInputVce'),
+            'agentSdk.queryVce': _unknownMethodReply('agentSdk.queryVce'),
+          },
+        );
+        final transport = VSCodeBridgeAgentSdkTransport(client);
+        Matcher refused(String method) => throwsA(
+          isA<AgentSdkQueryException>().having(
+            (e) => e.message,
+            'message',
+            'Unknown method: $method',
+          ),
+        );
+        await expectLater(
+          transport.sendInput('s1', SdkUserInput.text('x').toJson()),
+          refused('agentSdk.inputVce'),
+        );
+        await expectLater(
+          transport.endInput('s1'),
+          refused('agentSdk.endInputVce'),
+        );
+        await expectLater(
+          transport.startQuery({'streamId': 's1', 'prompt': 'p'}),
+          refused('agentSdk.queryVce'),
+        );
+      },
+    );
+
+    test('SQ-7: through streamQuery, a refused input surfaces as the query\'s '
+        'error', () async {
+      final client = _RecordingClient(
+        replies: {
+          'agentSdk.inputVce': _unknownMethodReply('agentSdk.inputVce'),
+        },
+      );
+      final agent = AgentSdkClient(VSCodeBridgeAgentSdkTransport(client));
+      final input = StreamController<SdkUserInput>()
+        ..add(SdkUserInput.text('hello'));
+      await expectLater(
+        agent.streamQuery(prompt: input.stream),
+        emitsError(
+          isA<AgentSdkQueryException>().having(
+            (e) => e.message,
+            'message',
+            contains('agentSdk.inputVce'),
+          ),
+        ),
+      );
+      await input.close();
     });
   });
 }
