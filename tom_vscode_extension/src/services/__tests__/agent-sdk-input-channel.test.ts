@@ -55,13 +55,16 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 import {
     QueryInputChannel,
     isChannelDeadToolResult,
     describeInputChannelEvent,
+    outputFileSize,
+    SESSION_STATE_EVENTS_ENV,
 } from '../agent-sdk-input-channel';
 
 const UUID = '11111111-2222-4333-8444-555555555555';
@@ -217,7 +220,8 @@ describe('agent-sdk-transport wiring (IC-10)', () => {
         assert.match(src, /sdk\.query\(\{\s*prompt:\s*input\.messages\(\)/);
     });
     test('the CLI is asked to emit session-state events', () => {
-        assert.match(src, /env:\s*\{\s*\.\.\.process\.env,\s*CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS:\s*'1'\s*\}/);
+        assert.match(src, /env:\s*\{\s*\.\.\.process\.env,\s*\[SESSION_STATE_EVENTS_ENV\]:\s*'1'\s*\}/);
+        assert.equal(SESSION_STATE_EVENTS_ENV, 'CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS');
     });
     test('every stream message is observed, and the channel closes on cancel and at the end', () => {
         assert.match(src, /input\.observe\(msg\)/);
@@ -373,8 +377,14 @@ describe('agent-sdk-transport background-wait wiring (BG-10)', () => {
         assert.match(src, /backgroundWaitMs:/);
     });
     test('progress is probed through the output file size', () => {
-        assert.match(src, /progressOf:/);
-        assert.match(src, /statSync\(/);
+        assert.match(src, /progressOf:\s*outputFileSize/);
+        const dir = mkdtempSync(join(tmpdir(), 'qr9-probe-'));
+        const file = join(dir, 'b1.output');
+        writeFileSync(file, 'tick 1\n');
+        const task = { taskId: 'b1', taskType: 'local_bash', description: 'd', outputFile: file };
+        assert.equal(outputFileSize(task), 7);
+        assert.equal(outputFileSize({ ...task, outputFile: join(dir, 'missing') }), undefined);
+        assert.equal(outputFileSize({ ...task, outputFile: undefined }), undefined);
     });
     test('each event reaches the tool log and the live trail', () => {
         assert.match(src, /onEvent:/);

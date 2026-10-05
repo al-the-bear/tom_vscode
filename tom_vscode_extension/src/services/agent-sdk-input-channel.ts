@@ -43,6 +43,24 @@
 // The SDK's message fields are its snake_case wire format and cannot be renamed.
 /* eslint-disable @typescript-eslint/naming-convention */
 import { randomUUID } from 'node:crypto';
+import { statSync } from 'node:fs';
+
+/**
+ * Makes the CLI emit `session_state_changed`, whose `idle` the channel closes
+ * on. The SDK's `env` replaces the subprocess environment, so callers add it
+ * on top of whatever environment the subprocess would otherwise get.
+ */
+export const SESSION_STATE_EVENTS_ENV = 'CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS';
+
+/** `progressOf` for real use: a background Bash progresses as its output file grows. */
+export function outputFileSize(task: BackgroundTaskInfo): number | undefined {
+    if (!task.outputFile) { return undefined; }
+    try {
+        return statSync(task.outputFile).size;
+    } catch {
+        return undefined;
+    }
+}
 
 /** The user message the SDK's streaming-input mode expects. */
 export interface SdkPromptMessage {

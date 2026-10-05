@@ -224,7 +224,13 @@ import {
 import type { AskUserQuestionOutcome } from '../services/agent-sdk-questions';
 import { liveUserPrompter } from '../tools/user-interaction-tools';
 import { appendQuestionLogEntry } from '../services/questionsLog';
-import { QueryInputChannel, isChannelDeadToolResult, describeInputChannelEvent } from '../services/agent-sdk-input-channel';
+import {
+    QueryInputChannel,
+    isChannelDeadToolResult,
+    describeInputChannelEvent,
+    outputFileSize,
+    SESSION_STATE_EVENTS_ENV,
+} from '../services/agent-sdk-input-channel';
 
 // Re-export the pure retry-decision API so existing consumers
 // (`anthropic-handler.ts`) can keep importing it from this transport module.
@@ -772,14 +778,7 @@ async function runAgentSdkAttempt(
             ? bgWaitMinutes * 60_000
             : undefined,
         // A background Bash's progress is its output file growing.
-        progressOf: (task) => {
-            if (!task.outputFile) { return undefined; }
-            try {
-                return (require('fs') as typeof import('fs')).statSync(task.outputFile).size;
-            } catch {
-                return undefined;
-            }
-        },
+        progressOf: outputFileSize,
         onEvent: (event) => {
             const message = describeInputChannelEvent(event);
             toolLog(`[agent-sdk] ${message} (request ${context.requestId})`);
@@ -888,8 +887,7 @@ async function runAgentSdkAttempt(
             // Makes the CLI report `session_state_changed`, whose `idle` is the
             // signal the input channel closes on. `env` replaces the
             // subprocess environment, so the inherited one is spread in.
-            // eslint-disable-next-line @typescript-eslint/naming-convention -- environment variable name
-            env: { ...process.env, CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' },
+            env: { ...process.env, [SESSION_STATE_EVENTS_ENV]: '1' },
             ...(workspaceCwd ? { cwd: workspaceCwd } : {}),
         };
         // Continuity: passing `resume` tells the SDK to continue a prior

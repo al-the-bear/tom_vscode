@@ -75,6 +75,53 @@ abstract class AgentSdkTransport {
   void unregisterCanUseTool(String streamId) {}
 }
 
+/// A transport that can also carry caller-owned streaming input
+/// ([AgentSdkClient.streamQuery]).
+///
+/// Kept apart from [AgentSdkTransport] so the many existing implementers of
+/// that interface do not have to change: a transport opts in by implementing
+/// this one as well. [VSCodeBridgeAgentSdkTransport] does.
+abstract interface class AgentSdkInputTransport {
+  /// Sends one user message into the query [streamId] (`agentSdk.inputVce`).
+  Future<void> sendInput(String streamId, Map<String, dynamic> message);
+
+  /// Ends the query's input (`agentSdk.endInputVce`). The query then finishes
+  /// the work it has and completes.
+  Future<void> endInput(String streamId);
+}
+
+/// One user message for [AgentSdkClient.streamQuery] — the SDK's
+/// `SDKUserMessage` input shape.
+class SdkUserInput {
+  /// The message content: a `String`, or a list of content-block maps.
+  final Object content;
+
+  /// Optional client uuid. The CLI echoes it on the result that answers this
+  /// message (`user_message_uuids`), which lets a caller tell its own reply
+  /// apart from a background-task follow-up.
+  final String? uuid;
+
+  const SdkUserInput._(this.content, {this.uuid});
+
+  /// A plain-text message.
+  const SdkUserInput.text(String text, {String? uuid})
+    : this._(text, uuid: uuid);
+
+  /// A message made of content blocks (`{'type': 'text', 'text': …}`,
+  /// images, …), passed through as given.
+  SdkUserInput.blocks(List<Map<String, dynamic>> blocks, {String? uuid})
+    : this._(List.unmodifiable(blocks), uuid: uuid);
+
+  /// The wire JSON (`type: 'user'`, `message: {role, content}`, …).
+  Map<String, dynamic> toJson() => {
+    'type': 'user',
+    'message': {'role': 'user', 'content': content},
+    'parent_tool_use_id': null,
+    'session_id': '',
+    if (uuid != null) 'uuid': uuid,
+  };
+}
+
 /// Thrown into an [AgentQuery]'s stream when the extension reports a query
 /// failure via an `error` chunk.
 class AgentSdkQueryException implements Exception {
@@ -120,8 +167,46 @@ class AgentSdkClient {
   /// for this query. The query is started lazily when the stream is first
   /// listened to. Cancelling the subscription (or calling
   /// [AgentQuery.interrupt]) aborts it.
-  AgentQuery query({required String prompt, Options? options}) {
+  ///
+  /// When [options] carries Dart tools (an `sdk` MCP server) or a
+  /// `canUseTool` callback, the extension keeps the Claude Code process's
+  /// input open until it is idle after answering [prompt], so tool calls and
+  /// approval requests made after the first result (a background task's
+  /// follow-up, for example) still reach Dart. Use [streamQuery] to send more
+  /// than one message.
+  AgentQuery query({required String prompt, Options? options}) =>
+      _run(options, prompt: prompt);
+
+  /// Mirrors `sdk.query({prompt: AsyncIterable<SDKUserMessage>, options})`,
+  /// the SDK's streaming-input mode.
+  ///
+  /// Each [SdkUserInput] on [prompt] is sent to the running query as it
+  /// arrives; when [prompt] is done, the query's input ends and the query
+  /// finishes what it has. Keep [prompt] open while you may still want to
+  /// send something: the Claude Code process reaches Dart tools and
+  /// `canUseTool` through that input, so ending it early cuts them off. A
+  /// `system` message with `subtype: 'session_state_changed'` and
+  /// `state: 'idle'` (requested automatically) says the process is waiting
+  /// for input, which is the usual moment to send the next message or close
+  /// [prompt].
+  ///
+  /// Requires a transport that implements [AgentSdkInputTransport]; with any
+  /// other the returned stream fails with an [UnsupportedError].
+  AgentQuery streamQuery({
+    required Stream<SdkUserInput> prompt,
+    Options? options,
+  }) => _run(options, input: prompt);
+
+  AgentQuery _run(
+    Options? options, {
+    String? prompt,
+    Stream<SdkUserInput>? input,
+  }) {
     final streamId = _nextStreamId();
+    final inputTransport = transport is AgentSdkInputTransport
+        ? transport as AgentSdkInputTransport
+        : null;
+    StreamSubscription<SdkUserInput>? inputSub;
     final controller = StreamController<SdkMessage>();
     StreamSubscription<Map<String, dynamic>>? sub;
     var finished = false;
@@ -138,6 +223,7 @@ class AgentSdkClient {
     Future<void> finish({bool cancelRemote = false}) async {
       if (finished) return;
       finished = true;
+      await inputSub?.cancel();
       if (hasTools) {
         transport.unregisterTools(streamId);
       }
@@ -158,6 +244,17 @@ class AgentSdkClient {
     }
 
     controller.onListen = () {
+      if (input != null && inputTransport == null) {
+        controller.addError(
+          UnsupportedError(
+            'streamQuery needs a transport that implements '
+            'AgentSdkInputTransport; ${transport.runtimeType} does not',
+          ),
+        );
+        finish();
+        return;
+      }
+
       // Subscribe to chunks *before* starting the query so no early message
       // is dropped between start and subscription.
       sub = transport.chunks
@@ -197,8 +294,34 @@ class AgentSdkClient {
       transport
           .startQuery({
             'streamId': streamId,
-            'prompt': prompt,
+            if (input == null) 'prompt': prompt,
+            if (input != null) 'promptStream': true,
             if (options != null) 'options': options.toJson(),
+          })
+          .then((_) {
+            // Input is sent only once the query exists to receive it.
+            if (input == null || finished) return;
+            inputSub = input.listen(
+              (message) {
+                if (finished) return;
+                inputTransport!
+                    .sendInput(streamId, message.toJson())
+                    .catchError((Object e) {
+                      if (finished) return;
+                      controller.addError(e);
+                      finish(cancelRemote: true);
+                    });
+              },
+              onError: (Object e) {
+                if (finished) return;
+                controller.addError(e);
+                finish(cancelRemote: true);
+              },
+              onDone: () {
+                if (finished) return;
+                inputTransport!.endInput(streamId).catchError((Object _) {});
+              },
+            );
           })
           .catchError((Object e) {
             if (finished) return;
@@ -231,15 +354,13 @@ class AgentSdkClient {
 
 /// Production [AgentSdkTransport] backed by a [VSCodeBridgeClient].
 ///
-/// Starts/cancels queries with the client's request channel and listens for
-/// `agentSdk.chunk` notifications on the client's [VSCodeBridgeClient.notifications]
-/// stream.
-///
-/// NOTE: end-to-end delivery of `agentSdk.chunk` over the CLI socket also
-/// requires the `tom_vscode_bridge` CLI server to relay extension notifications
-/// to the connected client (today it only relays `log`). That relay is tracked
-/// as a completion step for this todo; this class is the correct client half.
-class VSCodeBridgeAgentSdkTransport implements AgentSdkTransport {
+/// Starts/cancels queries and sends streaming input with the client's request
+/// channel, and listens for `agentSdk.chunk` notifications on the client's
+/// [VSCodeBridgeClient.notifications] stream. The `tom_vscode_bridge` CLI
+/// server forwards the `*Vce` requests to the extension and routes a stream's
+/// chunks and reverse-RPC requests back to the client that started it.
+class VSCodeBridgeAgentSdkTransport
+    implements AgentSdkTransport, AgentSdkInputTransport {
   /// The connected bridge client.
   final VSCodeBridgeClient client;
 
@@ -273,6 +394,19 @@ class VSCodeBridgeAgentSdkTransport implements AgentSdkTransport {
   @override
   Future<void> cancelQuery(String streamId) async {
     await client.sendRequest('agentSdk.cancelVce', {'streamId': streamId});
+  }
+
+  @override
+  Future<void> sendInput(String streamId, Map<String, dynamic> message) async {
+    await client.sendRequest('agentSdk.inputVce', {
+      'streamId': streamId,
+      'message': message,
+    });
+  }
+
+  @override
+  Future<void> endInput(String streamId) async {
+    await client.sendRequest('agentSdk.endInputVce', {'streamId': streamId});
   }
 
   @override

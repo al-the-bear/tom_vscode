@@ -1,3 +1,22 @@
+## 1.2.0
+
+- `AgentSdkClient.streamQuery` mirrors the SDK's streaming-input mode,
+  `query({prompt: AsyncIterable<SDKUserMessage>})`. The caller owns the input:
+  each `SdkUserInput` (`.text` or `.blocks`, with an optional `uuid`) on the
+  `prompt` stream is sent to the running query, and closing the stream ends the
+  input. It needs a transport that implements the new, opt-in
+  `AgentSdkInputTransport` (`sendInput`, `endInput`).
+  `VSCodeBridgeAgentSdkTransport` does, over the new `agentSdk.inputVce` and
+  `agentSdk.endInputVce` bridge methods; any other transport fails the query
+  with an `UnsupportedError`. `AgentSdkTransport` is unchanged, so existing
+  implementers need no change.
+- `query` with Dart tools or `canUseTool` now keeps working after the first
+  result. The extension (a Tom extension build that has it) keeps the Claude
+  Code process's input open until it is idle after answering the prompt.
+  Before, a tool call or approval request made after the first result, for
+  example in a background task's follow-up turn, failed at once with
+  "interrupted before a result was received". No API change.
+
 ## 1.1.4
 
 - `Options.envOverlay` adds variables to the Claude Code subprocess's

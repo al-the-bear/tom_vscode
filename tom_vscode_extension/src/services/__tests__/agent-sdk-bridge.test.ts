@@ -19,6 +19,8 @@
 
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { AgentSdkBridge } from '../agent-sdk-bridge.js';
 import type { AgentSdkBridgeDeps, AgentSdkLike } from '../agent-sdk-bridge.js';
@@ -655,6 +657,180 @@ describe('AgentSdkBridge.startQuery — envOverlay (ENV-*)', () => {
         const env = h.recorded.params!.options!.env as Record<string, string>;
         assert.equal(env.QR6_PROBE, '1');
         assert.equal(env.PATH, process.env.PATH);
+    });
+});
+/* eslint-enable @typescript-eslint/naming-convention */
+
+// ============================================================================
+// Keeping the CLI's stdin open (STDIN-*, STREAM-*).
+//
+// The CLI reaches in-process MCP tools and the canUseTool callback over
+// control requests whose replies travel on its stdin. With a string prompt the
+// SDK closes stdin at the first `result`, so any work the CLI does after it (a
+// background-agent continuation; on resume, an orphan-summary turn before the
+// prompt) failed every Dart tool call and approval request at once.
+//   (a) STDIN-*: a Dart string prompt with bidirectional needs is wrapped in
+//       the transport's QueryInputChannel; without such needs it passes
+//       through unchanged.
+//   (b) STREAM-*: a Dart caller can instead own the input: `promptStream`
+//       starts the query, `agentSdk.inputVce` sends user messages and
+//       `agentSdk.endInputVce` ends the input.
+// ============================================================================
+
+/* eslint-disable @typescript-eslint/naming-convention -- SDK wire fields and environment variable names */
+
+/** An async queue the test pushes CLI output into. */
+function cliOutput() {
+    const items: unknown[] = [];
+    let wake: (() => void) | undefined;
+    let ended = false;
+    return {
+        push(m: unknown) { items.push(m); wake?.(); },
+        end() { ended = true; wake?.(); },
+        async *iterate(): AsyncIterable<unknown> {
+            for (;;) {
+                if (items.length > 0) { yield items.shift(); continue; }
+                if (ended) { return; }
+                await new Promise<void>((r) => { wake = r; });
+                wake = undefined;
+            }
+        },
+    };
+}
+
+function makeStdinHarness() {
+    const out = cliOutput();
+    const notifications: RecordedNotification[] = [];
+    const sent: { prompt?: unknown; options?: Record<string, unknown> } = {};
+    const sdk: AgentSdkLike = {
+        tool: (name: string, description: string, inputSchema: Record<string, unknown>, handler: unknown) => ({ name, description, inputSchema, handler }),
+        createSdkMcpServer: (o: { name: string }) => ({ name: o.name }),
+        query(params: { prompt: unknown; options?: Record<string, unknown> }) {
+            sent.prompt = params.prompt;
+            sent.options = params.options;
+            return out.iterate();
+        },
+    } as unknown as AgentSdkLike;
+    const bridge = new AgentSdkBridge({
+        loadSdk: async () => sdk,
+        sendNotification: (method, params) => notifications.push({ method, params }),
+        requestClient: async () => ({}),
+        baseEnv: () => ({ PATH: '/usr/bin' }),
+    });
+    return { bridge, out, sent, notifications };
+}
+
+const tick = () => new Promise((r) => setTimeout(r, 0));
+
+describe('AgentSdkBridge — a string prompt with bidirectional needs keeps stdin open (STDIN-*)', () => {
+    test('STDIN-1: with an sdk MCP server the SDK gets a stream holding the text, open until idle after the answer', async () => {
+        const h = makeStdinHarness();
+        await h.bridge.startQuery({ streamId: 'st1', prompt: 'use my tools', options: SDK_SERVER_OPTIONS });
+        assert.notEqual(typeof h.sent.prompt, 'string', 'a string prompt would close stdin at the first result');
+        const it = (h.sent.prompt as AsyncIterable<{ uuid: string; message: { content: string } }>)[Symbol.asyncIterator]();
+        const first = await it.next();
+        assert.equal(first.value.message.content, 'use my tools');
+        const uuid = first.value.uuid;
+
+        let done = false;
+        const rest = it.next().then((r) => { done = r.done === true; });
+        h.out.push({ type: 'system', subtype: 'session_state_changed', state: 'running' });
+        h.out.push({ type: 'result', subtype: 'success', user_message_uuids: [uuid] });
+        await tick();
+        assert.equal(done, false, 'the first result alone must not close stdin');
+        h.out.push({ type: 'system', subtype: 'session_state_changed', state: 'idle' });
+        await rest;
+        assert.equal(done, true);
+        h.out.end();
+    });
+
+    test('STDIN-2: the canUseTool flag alone is a bidirectional need too', async () => {
+        const h = makeStdinHarness();
+        await h.bridge.startQuery({ streamId: 'st2', prompt: 'ask me', options: { canUseTool: true } });
+        assert.notEqual(typeof h.sent.prompt, 'string');
+        h.out.end();
+    });
+
+    test('STDIN-3: the CLI is asked for session-state events, on top of the environment it would inherit', async () => {
+        const h = makeStdinHarness();
+        await h.bridge.startQuery({ streamId: 'st3', prompt: 'p', options: SDK_SERVER_OPTIONS });
+        assert.deepEqual(h.sent.options?.env, { PATH: '/usr/bin', CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' });
+        h.out.end();
+    });
+
+    test('STDIN-4: a caller env keeps replace semantics; the flag is added to it', async () => {
+        const h = makeStdinHarness();
+        await h.bridge.startQuery({ streamId: 'st4', prompt: 'p', options: { ...SDK_SERVER_OPTIONS, env: { ONLY: '1' } } });
+        assert.deepEqual(h.sent.options?.env, { ONLY: '1', CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' });
+        h.out.end();
+    });
+
+    test('STDIN-5: without bidirectional needs the string passes through and env is untouched (1:1)', async () => {
+        const h = makeStdinHarness();
+        await h.bridge.startQuery({ streamId: 'st5', prompt: 'plain', options: { model: 'm' } });
+        assert.equal(h.sent.prompt, 'plain');
+        assert.equal('env' in (h.sent.options ?? {}), false);
+        h.out.end();
+    });
+
+    test('STDIN-6: cancel and stream end close the input', async () => {
+        const h = makeStdinHarness();
+        await h.bridge.startQuery({ streamId: 'st6', prompt: 'p', options: SDK_SERVER_OPTIONS });
+        const it = (h.sent.prompt as AsyncIterable<unknown>)[Symbol.asyncIterator]();
+        await it.next();
+        const rest = it.next();
+        h.bridge.cancelQuery({ streamId: 'st6' });
+        assert.equal((await rest).done, true);
+        h.out.end();
+    });
+});
+
+describe('AgentSdkBridge — streaming input owned by the Dart caller (STREAM-*)', () => {
+    test('STREAM-1: promptStream starts with an open input; inputVce messages reach the SDK in order; endInputVce ends it', async () => {
+        const h = makeStdinHarness();
+        await h.bridge.startQuery({ streamId: 'sm1', promptStream: true, options: { model: 'm' } });
+        const it = (h.sent.prompt as AsyncIterable<{ message: { content: unknown } }>)[Symbol.asyncIterator]();
+        const msgA = { type: 'user', message: { role: 'user', content: 'first' }, parent_tool_use_id: null, session_id: '' };
+        const msgB = { type: 'user', message: { role: 'user', content: 'second' }, parent_tool_use_id: null, session_id: '' };
+        assert.deepEqual(h.bridge.sendInput({ streamId: 'sm1', message: msgA }), { success: true });
+        h.bridge.sendInput({ streamId: 'sm1', message: msgB });
+        assert.deepEqual((await it.next()).value, msgA);
+        assert.deepEqual((await it.next()).value, msgB);
+        const rest = it.next();
+        assert.deepEqual(h.bridge.endInput({ streamId: 'sm1' }), { success: true });
+        assert.equal((await rest).done, true);
+        h.out.end();
+    });
+
+    test('STREAM-2: the stream-mode query also gets the session-state flag', async () => {
+        const h = makeStdinHarness();
+        await h.bridge.startQuery({ streamId: 'sm2', promptStream: true });
+        assert.deepEqual(h.sent.options?.env, { PATH: '/usr/bin', CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' });
+        h.out.end();
+    });
+
+    test('STREAM-3: input for an unknown or string-prompt stream is refused, not dropped', async () => {
+        const h = makeStdinHarness();
+        await h.bridge.startQuery({ streamId: 'sm3', prompt: 'plain' });
+        assert.throws(() => h.bridge.sendInput({ streamId: 'sm3', message: {} }), /no streaming input/i);
+        assert.throws(() => h.bridge.sendInput({ streamId: 'nope', message: {} }), /no streaming input/i);
+        h.out.end();
+    });
+
+    test('STREAM-4: cancel ends the caller-owned input too', async () => {
+        const h = makeStdinHarness();
+        await h.bridge.startQuery({ streamId: 'sm4', promptStream: true });
+        const it = (h.sent.prompt as AsyncIterable<unknown>)[Symbol.asyncIterator]();
+        const rest = it.next();
+        h.bridge.cancelQuery({ streamId: 'sm4' });
+        assert.equal((await rest).done, true);
+        h.out.end();
+    });
+
+    test('STREAM-5: the extension dispatches the two new bridge methods', () => {
+        const src = readFileSync(join(__dirname, '..', '..', '..', 'src', 'vscode-bridge.ts'), 'utf-8');
+        assert.match(src, /case 'agentSdk\.inputVce':\s*result = this\.getAgentSdkBridge\(\)\.sendInput\(params\)/);
+        assert.match(src, /case 'agentSdk\.endInputVce':\s*result = this\.getAgentSdkBridge\(\)\.endInput\(params\)/);
     });
 });
 /* eslint-enable @typescript-eslint/naming-convention */

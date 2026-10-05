@@ -34,11 +34,17 @@
  */
 
 import { toRawShape } from '../utils/jsonSchemaToZod';
+import {
+    QueryInputChannel,
+    describeInputChannelEvent,
+    outputFileSize,
+    SESSION_STATE_EVENTS_ENV,
+} from './agent-sdk-input-channel';
 
 /** The subset of the Agent SDK this bridge calls. */
 export interface AgentSdkLike {
     query(params: {
-        prompt: string;
+        prompt: string | AsyncIterable<unknown>;
         options?: Record<string, unknown>;
     }): AsyncIterable<unknown>;
     /**
@@ -80,6 +86,8 @@ export interface AgentSdkBridgeDeps {
      * Defaults to this extension host's `process.env`; injectable for tests.
      */
     baseEnv?: () => Record<string, string | undefined>;
+    /** Diagnostics sink (the Tom Tool Log in production). Optional. */
+    log?: (line: string) => void;
 }
 
 /**
@@ -127,10 +135,48 @@ function isSdkServerDescriptor(value: unknown): value is SdkServerDescriptor {
 export interface AgentSdkStartParams {
     /** Correlates this query's chunks; chosen by the Dart client. */
     streamId: string;
-    /** The user prompt (thin pass-through path → always a string). */
-    prompt: string;
+    /** The user prompt. Absent when {@link promptStream} is set. */
+    prompt?: string;
+    /**
+     * The caller owns the input: user messages arrive as `agentSdk.inputVce`
+     * and the input ends with `agentSdk.endInputVce` (the SDK's streaming-input
+     * mode, `prompt: AsyncIterable<SDKUserMessage>`).
+     */
+    promptStream?: boolean;
     /** The serialized SDK `Options` wire JSON, relayed verbatim. */
     options?: Record<string, unknown>;
+}
+
+/**
+ * The input a Dart caller feeds through `agentSdk.inputVce`: an async
+ * iterable the SDK reads its user messages from, open until {@link end}.
+ */
+class CallerInput {
+    private readonly pending: unknown[] = [];
+    private wake: (() => void) | undefined;
+    private ended = false;
+
+    push(message: unknown): void {
+        this.pending.push(message);
+        this.wake?.();
+    }
+
+    end(): void {
+        this.ended = true;
+        this.wake?.();
+    }
+
+    async *messages(): AsyncGenerator<unknown, void, unknown> {
+        for (;;) {
+            if (this.pending.length > 0) {
+                yield this.pending.shift();
+                continue;
+            }
+            if (this.ended) { return; }
+            await new Promise<void>((resolve) => { this.wake = resolve; });
+            this.wake = undefined;
+        }
+    }
 }
 
 /** The notification method every chunk is sent under. */
@@ -145,6 +191,10 @@ const CHUNK_METHOD = 'agentSdk.chunk';
 export class AgentSdkBridge {
     private readonly deps: AgentSdkBridgeDeps;
     private readonly controllers = new Map<string, AbortController>();
+    /** Bridge-managed input for a string prompt with bidirectional needs. */
+    private readonly channels = new Map<string, QueryInputChannel>();
+    /** Caller-owned input (`promptStream`), fed by `agentSdk.inputVce`. */
+    private readonly callerInputs = new Map<string, CallerInput>();
 
     constructor(deps: AgentSdkBridgeDeps) {
         this.deps = deps;
@@ -156,7 +206,7 @@ export class AgentSdkBridge {
      * notifications, not as the result of this call.
      */
     async startQuery(params: AgentSdkStartParams): Promise<{ success: true; streamId: string }> {
-        const { streamId, prompt } = params;
+        const { streamId } = params;
         const callerOptions = params.options ?? {};
 
         const abortController = new AbortController();
@@ -184,10 +234,11 @@ export class AgentSdkBridge {
             // wants the SDK's approval callback routed back into Dart. Replace
             // the flag with a real callback that issues an `agentSdk.canUseTool`
             // reverse-RPC request and returns the awaited PermissionResult.
+            const bidirectional = Boolean(options.canUseTool) || this.hasSdkServer(callerOptions.mcpServers);
             if (options.canUseTool) {
                 options.canUseTool = this.buildCanUseTool(streamId, abortController.signal);
             }
-            stream = sdk.query({ prompt, options });
+            stream = sdk.query({ prompt: this.buildPrompt(streamId, params, bidirectional, options), options });
         } catch (err) {
             // A pre-flight build failure surfaces like any stream error: a
             // terminal error chunk, not a rejected start (the start request has
@@ -195,6 +246,7 @@ export class AgentSdkBridge {
             const message = err instanceof Error ? err.message : String(err);
             this.deps.sendNotification(CHUNK_METHOD, { streamId, error: message });
             this.controllers.delete(streamId);
+            this.closeInput(streamId, 'start-failed');
             return { success: true, streamId };
         }
 
@@ -202,6 +254,98 @@ export class AgentSdkBridge {
         void this.pump(streamId, stream);
 
         return { success: true, streamId };
+    }
+
+    /**
+     * The prompt `sdk.query` receives.
+     *
+     * The CLI reaches in-process MCP tools and the `canUseTool` callback over
+     * control requests whose replies travel on its stdin, and with a string
+     * prompt the SDK closes stdin at the first `result`. Work the CLI does
+     * after that (a background-agent continuation, a background Bash's
+     * follow-up turn, or on resume an orphan-summary turn run before the
+     * prompt) then fails every Dart tool call and approval request at once.
+     *
+     * - `promptStream`: the caller owns the input ({@link sendInput} /
+     *   {@link endInput}).
+     * - a string prompt with such bidirectional needs: wrapped in the
+     *   transport's {@link QueryInputChannel}, which keeps stdin open until
+     *   the CLI is idle after answering it. The one place the bridge departs
+     *   from passing the caller's request through 1:1.
+     * - otherwise: the string, unchanged.
+     *
+     * The first two ask the CLI for `session_state_changed` events, which the
+     * channel needs and a stream-mode caller can use the same way.
+     */
+    private buildPrompt(
+        streamId: string,
+        params: AgentSdkStartParams,
+        bidirectional: boolean,
+        options: Record<string, unknown>,
+    ): string | AsyncIterable<unknown> {
+        if (params.promptStream === true) {
+            const input = new CallerInput();
+            this.callerInputs.set(streamId, input);
+            this.requestSessionStateEvents(options);
+            return input.messages();
+        }
+        const prompt = params.prompt ?? '';
+        if (!bidirectional) { return prompt; }
+        const log = this.deps.log;
+        const channel = new QueryInputChannel(prompt, {
+            progressOf: outputFileSize,
+            onEvent: (event) => log?.(`[agent-sdk-bridge] ${describeInputChannelEvent(event)} (stream ${streamId})`),
+            onClose: (reason) => log?.(`[agent-sdk-bridge] input closed (${reason}) for stream ${streamId}`),
+        });
+        this.channels.set(streamId, channel);
+        this.requestSessionStateEvents(options);
+        return channel.messages();
+    }
+
+    /** Adds the session-state flag on top of the environment the CLI would get. */
+    private requestSessionStateEvents(options: Record<string, unknown>): void {
+        const callerEnv = options.env;
+        const base = callerEnv && typeof callerEnv === 'object'
+            ? (callerEnv as Record<string, string | undefined>)
+            : (this.deps.baseEnv ?? (() => process.env))();
+        options.env = { ...base, [SESSION_STATE_EVENTS_ENV]: '1' };
+    }
+
+    private hasSdkServer(mcpServers: unknown): boolean {
+        if (!mcpServers || typeof mcpServers !== 'object') { return false; }
+        return Object.values(mcpServers as Record<string, unknown>).some((s) => isSdkServerDescriptor(s));
+    }
+
+    /**
+     * Sends one user message into a `promptStream` query
+     * (`agentSdk.inputVce`). Refused for any other stream, so a message is
+     * never silently dropped.
+     */
+    sendInput(params: { streamId: string; message: unknown }): { success: true } {
+        const input = this.callerInputs.get(params.streamId);
+        if (!input) {
+            throw new Error(`No streaming input for stream "${params.streamId}": start it with promptStream: true`);
+        }
+        input.push(params.message);
+        return { success: true };
+    }
+
+    /** Ends a `promptStream` query's input (`agentSdk.endInputVce`). */
+    endInput(params: { streamId: string }): { success: true } {
+        const input = this.callerInputs.get(params.streamId);
+        if (!input) {
+            throw new Error(`No streaming input for stream "${params.streamId}": start it with promptStream: true`);
+        }
+        input.end();
+        this.callerInputs.delete(params.streamId);
+        return { success: true };
+    }
+
+    private closeInput(streamId: string, reason: string): void {
+        this.channels.get(streamId)?.close(reason);
+        this.channels.delete(streamId);
+        this.callerInputs.get(streamId)?.end();
+        this.callerInputs.delete(streamId);
     }
 
     /**
@@ -322,6 +466,7 @@ export class AgentSdkBridge {
             controller.abort();
             this.controllers.delete(params.streamId);
         }
+        this.closeInput(params.streamId, 'cancelled');
         return { success: true };
     }
 
@@ -333,6 +478,7 @@ export class AgentSdkBridge {
     private async pump(streamId: string, stream: AsyncIterable<unknown>): Promise<void> {
         try {
             for await (const message of stream) {
+                this.channels.get(streamId)?.observe(message);
                 this.deps.sendNotification(CHUNK_METHOD, { streamId, message });
             }
             this.deps.sendNotification(CHUNK_METHOD, { streamId, done: true });
@@ -341,6 +487,7 @@ export class AgentSdkBridge {
             this.deps.sendNotification(CHUNK_METHOD, { streamId, error: message });
         } finally {
             this.controllers.delete(streamId);
+            this.closeInput(streamId, 'stream-ended');
         }
     }
 }
