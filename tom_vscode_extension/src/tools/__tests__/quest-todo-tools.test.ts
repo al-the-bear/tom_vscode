@@ -1100,3 +1100,91 @@ describe('SCE243: references at the tool boundary', () => {
         assert.match(UPDATE_QUEST_TODO_DESCRIPTION, /bare string is rejected/);
     });
 });
+
+/**
+ * SCE248 — an update that throws most of a text field away says so.
+ *
+ * Every field `tomAi_updateQuestTodo` is given REPLACES the stored value; that
+ * is the implemented and intended semantics. The description used to state it
+ * only for `decisions`, which implied the others merged, and a status-only
+ * update replaced a todo's whole operating instructions in `notes` without a
+ * word. Decided 2026-10-05: state the semantics for every field, and WARN
+ * (never refuse; a deliberate rewrite is legitimate) when a `notes` or
+ * `description` replacement loses more than half of the previous text.
+ */
+describe('SCE248: replacement warnings for notes and description', () => {
+    const LONG = 'Step 1: run the corpus. Step 2: compare against the baseline. '
+        + 'WHAT A FAILURE WOULD LOOK LIKE: a silent null where a value should be; '
+        + 'do not widen the backstop; mirror any handler across both trees.';
+
+    async function seed(fields: Record<string, string>) {
+        await createQuestTodoImpl(deps, {
+            questId: 'q1', todo: { id: 'n1', description: 'short description', ...fields } as never,
+        });
+    }
+    const update = async (updates: Record<string, unknown>) =>
+        JSON.parse(await updateQuestTodoImpl(deps, { questId: 'q1', todoId: 'n1', updates: updates as never }));
+
+    test('N-1: notes shrunk by more than half: applied, with a warning naming what was replaced', async () => {
+        await seed({ notes: LONG });
+        const r = await update({ notes: 'status: green' });
+        assert.equal(r.ok, true, 'a warning, never a refusal');
+        assert.equal(deps.store.findById('q1', 'n1')?.notes, 'status: green', 'the update is applied');
+        assert.match(r.warning, /`notes` was replaced, not appended/);
+        assert.match(r.warning, new RegExp(`${LONG.length} → 13 characters`));
+        assert.match(r.warning, /Step 1: run the corpus/, 'the start of the overwritten text is shown');
+        assert.match(r.warning, /tomAi_getQuestTodo/);
+    });
+
+    test('N-2: description shrunk by more than half warns the same way', async () => {
+        await createQuestTodoImpl(deps, { questId: 'q1', todo: { id: 'n1', description: LONG } });
+        const r = await update({ description: 'Rewritten.' });
+        assert.equal(r.ok, true);
+        assert.match(r.warning, /`description` was replaced/);
+    });
+
+    test('N-3: clearing notes warns', async () => {
+        await seed({ notes: LONG });
+        const r = await update({ notes: '' });
+        assert.equal(r.ok, true);
+        assert.match(r.warning, /`notes` was replaced, not appended/);
+        assert.match(r.warning, / → 0 characters/);
+    });
+
+    test('N-4: both fields shrunk: one warning naming both', async () => {
+        await createQuestTodoImpl(deps, { questId: 'q1', todo: { id: 'n1', description: LONG, notes: LONG } as never });
+        const r = await update({ notes: 'x', description: 'y' });
+        assert.match(r.warning, /`notes`/);
+        assert.match(r.warning, /`description`/);
+    });
+
+    test('N-5: no warning for an append, a small edit, an empty predecessor, or other fields', async () => {
+        await seed({ notes: LONG });
+        for (const updates of [
+            { notes: `${LONG}\n\n2026-10-05: status green.` },        // the old text kept, plus more
+            { notes: LONG.slice(0, Math.ceil(LONG.length / 2) + 1) },  // loses less than half
+            { status: 'in-progress' },                                  // notes not touched
+        ]) {
+            await update({ notes: LONG }); // each case starts from the same text
+            const r = await update(updates);
+            assert.equal(r.ok, true);
+            assert.equal(r.warning, undefined, `unexpected warning for ${JSON.stringify(updates).slice(0, 60)}`);
+        }
+        await createQuestTodoImpl(deps, { questId: 'q1', todo: { id: 'n2', description: 'd' } });
+        const r = JSON.parse(await updateQuestTodoImpl(deps, { questId: 'q1', todoId: 'n2', updates: { notes: 'first notes' } }));
+        assert.equal(r.warning, undefined, 'nothing was there to lose');
+    });
+
+    test('N-6: the description states the replacement semantics for every field', () => {
+        for (const phrase of [
+            /REPLACES the stored value/,
+            /`notes` and `description` are overwritten, never appended to/,
+            /`tags`, `dependencies`, `blocked_by`, `references` and `decisions` replace the whole list/,
+            /`scope` replaces the whole object/,
+            /empty string or empty list removes the field/,
+            /`warning`/,
+        ]) {
+            assert.match(UPDATE_QUEST_TODO_DESCRIPTION, phrase);
+        }
+    });
+});

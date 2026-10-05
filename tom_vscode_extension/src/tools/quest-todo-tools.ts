@@ -561,6 +561,53 @@ export interface UpdateQuestTodoInput {
     };
 }
 
+// ---------------------------------------------------------------------------
+// Replacement warnings (SCE248)
+// ---------------------------------------------------------------------------
+
+/** Text fields whose replacement can silently destroy prose worth keeping. */
+const WATCHED_TEXT_FIELDS = ['notes', 'description'] as const;
+
+/** Previous text up to this length is quoted in full, so it can be restored at once. */
+const FULL_QUOTE_LIMIT = 1500;
+
+/**
+ * Warns when an update throws most of a text field away.
+ *
+ * Every field `tomAi_updateQuestTodo` is given replaces the stored value, so
+ * an update meant to add a status line, if sent as just that line, deletes
+ * everything else in `notes`. That happened once and destroyed a todo's own
+ * operating instructions, noticed only because the todo was executed next.
+ * The write itself is exactly what was asked for, so no read-back can catch
+ * it; the response can. A warning rather than a refusal: a deliberate rewrite
+ * is legitimate. Fires when the new text keeps less than half the previous
+ * length (clearing included). Git holds older versions; the warning quotes the
+ * old text so the caller can restore it without going there.
+ */
+export function replacementWarning(
+    before: Partial<Record<(typeof WATCHED_TEXT_FIELDS)[number], unknown>> | undefined,
+    updates: Partial<Record<string, unknown>>,
+): string | undefined {
+    const parts: string[] = [];
+    for (const field of WATCHED_TEXT_FIELDS) {
+        if (updates[field] === undefined) { continue; }
+        const previous = typeof before?.[field] === 'string' ? (before[field] as string) : '';
+        const next = typeof updates[field] === 'string' ? (updates[field] as string) : '';
+        if (previous.length === 0 || next.length >= previous.length / 2) { continue; }
+        const quote = previous.length <= FULL_QUOTE_LIMIT
+            ? `The previous text, in full: ${JSON.stringify(previous)}`
+            : `The previous text began: ${JSON.stringify(previous.slice(0, 300))}… (${previous.length} characters; `
+                + 'git history of the todo file holds all of it).';
+        parts.push(
+            `\`${field}\` was replaced, not appended: ${previous.length} → ${next.length} characters. ${quote}`,
+        );
+    }
+    if (parts.length === 0) { return undefined; }
+    return `${parts.join(' ')} The update was applied as sent. If the old text should have stayed, `
+        + 'send it back now. To add to a field rather than replace it, read the todo with '
+        + 'tomAi_getQuestTodo and send the old text plus the new.';
+}
+
 export async function updateQuestTodoImpl(deps: QuestTodoToolsDeps, input: UpdateQuestTodoInput): Promise<string> {
     try {
         if (!input.questId || !input.todoId) {
@@ -572,6 +619,8 @@ export async function updateQuestTodoImpl(deps: QuestTodoToolsDeps, input: Updat
         if (referencesError) {
             return JSON.stringify({ ok: false, error: referencesError });
         }
+        // Read before writing: the warning compares against what is replaced.
+        const before = deps.store.findById(input.questId, input.todoId);
         const updated = deps.store.update(input.questId, input.todoId, input.updates ?? {});
         if (!updated) {
             return JSON.stringify({
@@ -580,26 +629,32 @@ export async function updateQuestTodoImpl(deps: QuestTodoToolsDeps, input: Updat
             });
         }
         deps.onMutate?.();
-        return JSON.stringify({ ok: true, todo: updated });
+        const warning = replacementWarning(before, input.updates ?? {});
+        return JSON.stringify({ ok: true, todo: updated, ...(warning ? { warning } : {}) });
     } catch (err) {
         return JSON.stringify({ ok: false, error: (err as Error).message });
     }
 }
 
 export const UPDATE_QUEST_TODO_DESCRIPTION =
-    'Update fields of an existing quest todo. **YAML formatting is preserved**, ' +
-    'and **fields NOT listed in `updates` are kept verbatim** — so `scope`, ' +
-    '`references`, `created` timestamps, `_sourceFile`, and any unknown fields ' +
-    'an earlier hand-edit added all survive the update. Pass only the fields ' +
-    'you want to change. Status enum: `not-started`/`in-progress`/`blocked`/' +
-    '`decision-needed`/`completed`/`cancelled`. Priority enum: `low`/`medium`/' +
-    '`high`/`critical`. To close a `decision-needed` todo, write the user\'s ' +
-    'answers into `decisions[].decision` and move the status back to ' +
-    '`not-started` in the same call — passing `decisions` replaces the whole ' +
-    'list, omitting it leaves it untouched. `references`, when passed, replaces the ' +
-    'list; each entry is an object (`{path}`, `{url}` or `{description}`, optionally ' +
-    'with `type` and `lines`), and a bare string is rejected with `ok: false`, ' +
-    'nothing applied. Missing id surfaces structured ' +
+    'Update fields of an existing quest todo. **Every field you pass REPLACES the stored ' +
+    'value as a whole; nothing is merged or appended.** `notes` and `description` are ' +
+    'overwritten, never appended to: to add a paragraph, read the todo with ' +
+    '`tomAi_getQuestTodo` and send the old text plus the new. `tags`, `dependencies`, ' +
+    '`blocked_by`, `references` and `decisions` replace the whole list. `scope` replaces ' +
+    'the whole object, so keys you leave out are dropped. An empty string or empty list ' +
+    'removes the field. **Fields you do NOT pass are kept verbatim**, including `scope`, ' +
+    '`references`, `created` timestamps, `_sourceFile` and unknown fields an earlier ' +
+    'hand-edit added. YAML formatting is preserved. When a `notes` or `description` ' +
+    'replacement keeps less than half of the previous text (clearing included), the ' +
+    'update is still applied and the response carries a `warning` quoting what was ' +
+    'replaced, so an accidental overwrite can be undone at once. Each `references` entry ' +
+    'is an object (`{path}`, `{url}` or `{description}`, optionally with `type` and ' +
+    '`lines`); a bare string is rejected with `ok: false`, nothing applied. Status enum: ' +
+    '`not-started`/`in-progress`/`blocked`/`decision-needed`/`completed`/`cancelled`. ' +
+    'Priority enum: `low`/`medium`/`high`/`critical`. To close a `decision-needed` todo, ' +
+    'write the user\'s answers into `decisions[].decision` and move the status back to ' +
+    '`not-started` in the same call. Missing id surfaces structured ' +
     '`{ok: false, error: "..."}`. For id changes or moving across files, use ' +
     '`tomAi_moveQuestTodo` or delete+create.';
 

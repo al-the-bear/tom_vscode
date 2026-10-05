@@ -186,6 +186,17 @@ update applies none of its fields. The reader is more lenient on purpose: a
 string already in a file (hand-written, or from an older build) is read as
 `{path}`, so the todo keeps its references.
 
+**`tomAi_updateQuestTodo` replaces; it never merges or appends.** Every field
+passed overwrites the stored value: `notes` and `description` as whole texts,
+the lists (`tags`, `dependencies`, `blocked_by`, `references`, `decisions`)
+entirely, `scope` as a whole object. An empty value removes the field, and
+fields not passed are kept. Because a status-only update once overwrote a
+todo's operating instructions in `notes`, a `notes` or `description`
+replacement that keeps less than half of the previous text returns `ok: true`
+with a `warning` quoting the replaced text (`replacementWarning`). It warns,
+it does not refuse: a deliberate rewrite is legitimate. Older versions remain
+in the todo file's git history.
+
 Two behaviours hang off the status:
 
 - **Archiving a completed todo journals its decisions.** `todoArchive.ts` copies
