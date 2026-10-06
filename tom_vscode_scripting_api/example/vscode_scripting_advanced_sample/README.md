@@ -111,7 +111,7 @@ on:
 
 ```text
 vscode_scripting_advanced_sample/
-├── pubspec.yaml                 # depends only on tom_vscode_scripting_api ^1.1.0
+├── pubspec.yaml                 # depends only on tom_vscode_scripting_api >=1.2.2
 ├── analysis_options.yaml        # package:lints/recommended.yaml
 ├── README.md                    # this article
 ├── run_example.sh               # POSIX runner (pub get on first run, forwards args)
@@ -403,13 +403,11 @@ final lines = contents.split('\n');
 final ok = lines.length >= 2 && lines[1].trim() == 'edited line';
 ```
 
-> **Why `openTextDocument` and not `window.showTextDocument`?**
-> Same reason as the introduction sample: this project pins the published
-> `tom_vscode_scripting_api ^1.1.0`, whose `TextEditor.fromJson` crashes on an
-> empty `visibleRanges` array (the common case for a freshly revealed editor).
-> `openTextDocument` loads the document into the model without that code path.
-> The bug is fixed in source; once `1.1.1` is published the reveal-in-tab path
-> becomes available.
+> **`openTextDocument` and `window.showTextDocument`.** This concept applies
+> its edit as a `WorkspaceEdit` in the window's JS host, which only needs the
+> document loaded into VS Code's model (`openTextDocument`).
+> `showTextDocument` would additionally reveal it in a visible tab and return a
+> `TextEditor`.
 
 ### `progress.dart` — report progress from a long job
 

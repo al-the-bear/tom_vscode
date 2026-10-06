@@ -39,7 +39,7 @@ surface is testable against fakes.
 ```yaml
 # pubspec.yaml
 dependencies:
-  tom_vscode_scripting_api: ^1.1.0
+  tom_vscode_scripting_api: ^1.2.2
 ```
 
 ```bash
@@ -335,10 +335,10 @@ The full user guides live in [`doc/`](doc/):
 
 | | |
 | --- | --- |
-| Version | 1.1.0 |
+| Version | 1.2.2 |
 | Dart SDK | `^3.10.4` |
 | Runtime dependencies | none (standalone) |
-| Tests | 85 passing across 8 suites (`dart test`) |
+| Tests | 109 passing across 11 suites (`dart test`) |
 | License | BSD-3-Clause |
 
 ---
