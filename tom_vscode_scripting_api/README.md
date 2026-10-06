@@ -131,7 +131,7 @@ sample is its own Dart subproject with a comprehensive README.
 | Sample | Introduces |
 | --- | --- |
 | [`vscode_scripting_introduction_sample`](example/vscode_scripting_introduction_sample/) | Connecting to a live window — messages, commands, workspace folders, reading and opening files. **Start here.** |
-| [`vscode_scripting_advanced_sample`](example/vscode_scripting_advanced_sample/) | Editor edits, file batches, progress and pickers, the language model, and `VsCodeHelper`. |
+| [`vscode_scripting_advanced_sample`](example/vscode_scripting_advanced_sample/) | Editor edits, file batches, progress and pickers, the language model, `VsCodeHelper`, and `showTextDocument`. |
 | [`vscode_agent_tools_sample`](example/vscode_agent_tools_sample/) | The extension's own feature APIs — todos, the prompt queue, timed requests, documents, workspace metadata, tools, send-to-chat. |
 | [`vscode_agent_sdk_sample`](example/vscode_agent_sdk_sample/) | Streaming an Anthropic Agent SDK `query()` with `Options`, typed messages, in-process Dart `tool()`s, and `canUseTool`. |
 

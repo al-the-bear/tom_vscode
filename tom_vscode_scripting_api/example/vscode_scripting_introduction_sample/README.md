@@ -403,7 +403,9 @@ Future<bool> runReadOpenFileExample(VSCode vscode) async {
 > **`openTextDocument` and `window.showTextDocument`.** `openTextDocument`
 > loads the document into VS Code's model without changing what the user sees,
 > which is all this concept needs to read it. `showTextDocument` additionally
-> reveals it in a visible tab and returns a `TextEditor`.
+> reveals it in a visible tab and returns a `TextEditor`; the advanced sample's
+> [`reveal_editor`](../vscode_scripting_advanced_sample/example/reveal_editor.dart)
+> concept shows that path.
 
 ---
 
@@ -487,7 +489,7 @@ here is familiar, continue with:
 
 | Sample | Adds |
 | ------ | ---- |
-| [`vscode_scripting_advanced_sample`](../vscode_scripting_advanced_sample/) | Editor edits, batched file operations, progress, quick-pick/input flows, the language-model API, and the `VsCodeHelper` convenience layer. |
+| [`vscode_scripting_advanced_sample`](../vscode_scripting_advanced_sample/) | Editor edits, batched file operations, progress, quick-pick/input flows, the language-model API, the `VsCodeHelper` convenience layer, and revealing a document in a tab. |
 | [`vscode_agent_tools_sample`](../vscode_agent_tools_sample/) | The extension's own feature APIs as in-process tools: todos, the prompt queue, timed requests, documents, workspace metadata, `TomToolsApi`, and send-to-chat. |
 | [`vscode_agent_sdk_sample`](../vscode_agent_sdk_sample/) | Streaming `AgentSdkClient.query()`, typed message streams, in-process Dart `tool()`s, and the `canUseTool` permission callback. |
 

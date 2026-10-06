@@ -4,12 +4,12 @@
 ///
 /// where <name> is one of:
 ///   file_batch, editor_edits, progress, helper_layer, language_model,
-///   quick_pick_input
+///   quick_pick_input, reveal_editor
 ///
 /// With no name (or `all`), this delegates to the aggregator (which skips the
 /// interactive concepts). The optional second argument overrides the bridge
 /// host (default 127.0.0.1). Use this dispatcher to run the interactive
-/// `quick_pick_input` concept when a human is present.
+/// `quick_pick_input` and `reveal_editor` concepts when a human is present.
 ///
 /// Connects once to the first responsive VS Code window, runs the requested
 /// concept, then disconnects. Exits non-zero if the concept fails; exits 0
@@ -26,6 +26,7 @@ import '../example/helper_layer.dart';
 import '../example/language_model.dart';
 import '../example/progress.dart';
 import '../example/quick_pick_input.dart';
+import '../example/reveal_editor.dart';
 import '../example/run_all_examples.dart';
 import '../example/support.dart';
 
@@ -36,6 +37,7 @@ final Map<String, Future<bool> Function(VSCode)> _examples = {
   'helper_layer': runHelperLayerExample,
   'language_model': runLanguageModelExample,
   'quick_pick_input': runQuickPickInputExample,
+  'reveal_editor': runRevealEditorExample,
 };
 
 Future<void> main(List<String> args) async {

@@ -8,8 +8,9 @@
 > VS Code window*, this project assumes that connection and goes wide: editing
 > documents through the editor's own machinery, batched file I/O, progress
 > reporting, asking the user with quick-pick and input flows, calling a language
-> model (Copilot) in the window, and the `VsCodeHelper` static convenience
-> layer. Six concepts, one per file, all over the same `tom_vscode_scripting_api`.
+> model (Copilot) in the window, the `VsCodeHelper` static convenience layer,
+> and revealing a document in an editor tab. Seven concepts, one per file, all
+> over the same `tom_vscode_scripting_api`.
 
 The introduction sample established the spine every scripting program shares: a
 compiled Dart process connects over a localhost socket to a window that is
@@ -21,7 +22,7 @@ reach for once "hello, window" is behind you.
 
 This article walks through **one** thing in depth — *how to edit a document
 through the editor rather than by writing the file directly* — and then explains
-each of the six concepts file by file. Along the way it surfaces two realities
+each of the seven concepts file by file. Along the way it surfaces two realities
 of working against a live host that the introduction sample only hinted at:
 operations that **block on the user**, and operations whose high-level wrapper
 **isn't registered on every host build** (and the escape hatch that always
@@ -37,7 +38,7 @@ works).
 4. [Running it](#4-running-it)
 5. [Shared infrastructure: connection + scratch directories](#5-shared-infrastructure-connection--scratch-directories)
 6. [Editing a document through the editor, in depth](#6-editing-a-document-through-the-editor-in-depth)
-7. [The six concepts, file by file](#7-the-six-concepts-file-by-file)
+7. [The seven concepts, file by file](#7-the-seven-concepts-file-by-file)
 8. [Interactive concepts and the aggregator's `interactive` flag](#8-interactive-concepts-and-the-aggregators-interactive-flag)
 9. [The aggregator and the dispatcher](#9-the-aggregator-and-the-dispatcher)
 10. [Two facts about a live host: blocking and unregistered commands](#10-two-facts-about-a-live-host-blocking-and-unregistered-commands)
@@ -50,14 +51,19 @@ works).
 
 ## 1. What you'll build
 
-Six self-contained programs — one concept each — that tour the API surface a
+Seven self-contained programs — one concept each — that tour the API surface a
 real scripting task actually uses:
 
 ```text
-file_batch  →  editor_edits  →  progress  →  helper_layer  →  language_model  →  quick_pick_input
-(bulk file     (ranged edit     (output     (the static      (Copilot via       (ask the user;
- read/write     via the          channel +   VsCodeHelper     selectChatModels   interactive,
- + verify)      editor)          status bar)  façade)          → sendRequest)     skipped in CI)
+file_batch  →  editor_edits  →  progress  →  helper_layer  →  language_model
+(bulk file     (ranged edit     (output     (the static      (Copilot via
+ read/write     via the          channel +   VsCodeHelper     selectChatModels
+ + verify)      editor)          status bar)  façade)          → sendRequest)
+
+            →  quick_pick_input  →  reveal_editor
+               (ask the user;       (showTextDocument: a visible
+                interactive,         tab + its TextEditor;
+                skipped in CI)       interactive, skipped in CI)
 ```
 
 Each concept is a single public function with the uniform shape
@@ -68,13 +74,15 @@ and runs them all; a **dispatcher** ([`bin/run_example.dart`](bin/run_example.da
 runs any one by name. The project depends on exactly one package —
 `tom_vscode_scripting_api` — and talks to a window you already have open.
 
-The choice of these six is deliberate breadth: `file_batch` and `editor_edits`
+The choice of these seven is deliberate breadth: `file_batch` and `editor_edits`
 cover the two ways to change content on disk (raw I/O vs. the editor's edit
 machinery); `progress` covers feedback from a long job; `helper_layer` shows the
 ergonomic static layer that fronts the singleton; `language_model` reaches the
-Copilot surface; and `quick_pick_input` covers user prompts — including the
-wrinkle that they *block on a human*, which is why one concept is flagged
-interactive and skipped by the auto-run.
+Copilot surface; `quick_pick_input` covers user prompts — including the
+wrinkle that they *block on a human*; and `reveal_editor` opens a document in a
+visible editor tab and reads back the `TextEditor` it returns. Those last two
+need a human present — one waits for you, the other changes what your window
+shows — so both are flagged interactive and skipped by the auto-run.
 
 ---
 
@@ -96,14 +104,17 @@ With no server running, nothing throws: `connectToFirstWindow` prints the
 prerequisite and the aggregator exits `0` (a documented skip). The project is
 safe to run headless or in CI — it reports "no window found" and stops.
 
-Two concepts have *soft* prerequisites that they degrade around rather than fail
-on:
+Three concepts have *soft* prerequisites that they degrade around rather than
+fail on:
 
 - **`language_model`** needs GitHub Copilot installed and signed in. With no
   model available it prints a skip line and returns success — "no model" is an
   environment fact, not a script bug.
 - **`quick_pick_input`** needs a human to click/type. Run headless it falls
   back after a short timeout; in the aggregator it is skipped entirely.
+- **`reveal_editor`** opens a tab in the connected window for a moment. It
+  closes that tab again, but you should be looking at the window it changes;
+  in the aggregator it is skipped entirely.
 
 ---
 
@@ -126,6 +137,7 @@ vscode_scripting_advanced_sample/
     ├── helper_layer.dart        # the VsCodeHelper static façade
     ├── language_model.dart      # selectChatModels → sendRequest (Copilot)
     ├── quick_pick_input.dart    # showQuickPick / showInputBox (interactive)
+    ├── reveal_editor.dart       # showTextDocument → TextEditor (interactive)
     └── run_all_examples.dart    # aggregator: connect once, run all, tally
 ```
 
@@ -134,7 +146,7 @@ The same two-roles split as the introduction sample holds here:
 - **`bin/run_example.dart` and `example/run_all_examples.dart` are entry
   points.** They own the connection — `connectToFirstWindow()`, run, then
   `disconnect()`.
-- **The six `example/*.dart` concept files are pure functions of a connected
+- **The seven `example/*.dart` concept files are pure functions of a connected
   window.** Each takes an already-connected `VSCode` and does one thing. They
   never connect on their own, so the aggregator can share one connection across
   all of them. `support.dart` is shared infra, not a concept.
@@ -154,8 +166,9 @@ From the package root, with a window + server ready:
 ./run_example.sh editor_edits
 # or:  dart run bin/run_example.dart editor_edits
 
-# Run the interactive concept (needs a human):
+# Run the interactive concepts (need a human):
 ./run_example.sh quick_pick_input
+./run_example.sh reveal_editor
 
 # Override the bridge host (default 127.0.0.1):
 dart run bin/run_example.dart file_batch 127.0.0.1
@@ -200,7 +213,9 @@ No chat models available on this window (Copilot signed out?). Skipping.
 
 === quick_pick_input (interactive — skipped) ===
 
-5/5 examples passed (1 interactive skipped).
+=== reveal_editor (interactive — skipped) ===
+
+5/5 examples passed (2 interactive skipped).
 ```
 
 (The `language_model` line reads differently when Copilot *is* signed in — see
@@ -327,7 +342,7 @@ cover on your host, this escape hatch is the reliable fallback.
 
 ---
 
-## 7. The six concepts, file by file
+## 7. The seven concepts, file by file
 
 ### `file_batch.dart` — bulk file I/O
 
@@ -405,9 +420,9 @@ final ok = lines.length >= 2 && lines[1].trim() == 'edited line';
 
 > **`openTextDocument` and `window.showTextDocument`.** This concept applies
 > its edit as a `WorkspaceEdit` in the window's JS host, which only needs the
-> document loaded into VS Code's model (`openTextDocument`).
-> `showTextDocument` would additionally reveal it in a visible tab and return a
-> `TextEditor`.
+> document loaded into VS Code's model (`openTextDocument`), so it changes
+> nothing you can see. `showTextDocument` additionally reveals it in a visible
+> tab and returns a `TextEditor`; `reveal_editor.dart` shows that path.
 
 ### `progress.dart` — report progress from a long job
 
@@ -569,12 +584,65 @@ ship in a script that might run unattended: it degrades to a default instead of
 blocking forever. (`failOnTimeout: true` is the opposite choice — turn a timeout
 into a thrown `TimeoutException` when a missing answer should be a hard error.)
 
+### `reveal_editor.dart` — show a document in a tab (interactive)
+
+`workspace.openTextDocument(path)` loads a document without showing it; every
+other concept stops there. `window.showTextDocument(path)` **opens a tab** in
+the connected window, focuses it, and returns the `TextEditor` — the document
+plus the editor's own state. Because that tab is a visible change in the window
+you are working in, the concept is flagged interactive:
+
+```dart
+final editor = await vscode.window.showTextDocument(path);
+final doc = editor!.document;
+print('Revealed ${doc.fileName.split('/').last} '
+    '(${doc.languageId}, ${doc.lineCount} lines) in a tab.');
+final cursor = editor.selection.active;
+print('Cursor at line ${cursor.line + 1}, column ${cursor.character + 1}; '
+    '${editor.selections.length} selection(s).');
+
+// The active editor, asked after the reveal, carries the laid-out range.
+final active = await vscode.window.getActiveTextEditor();
+final visible = active?.visibleRanges;
+
+// Close only the tab this concept opened.
+if (active?.document.fileName == doc.fileName) {
+  await vscode.commands.executeCommand(VSCodeCommonCommands.closeActiveEditor);
+}
+```
+
+Two details are worth knowing:
+
+- **`showTextDocument` reports `visibleRanges` as `null`.** The new tab has not
+  been laid out when the call resolves, so the range would be empty.
+  `window.getActiveTextEditor()`, asked a moment later, returns the real one —
+  which is why the concept reads it there. Positions are 0-based in the API; the
+  concept prints them 1-based, as the editor shows them.
+- **Close what you opened, and only that.** `workbench.action.closeActiveEditor`
+  closes whatever is active, so the concept first checks that the active editor
+  is still its scratch file. If you clicked elsewhere in between, it leaves the
+  tab alone rather than closing yours.
+- **Each run writes a new file name.** VS Code keeps a document's model after
+  its tab is closed and its file is deleted, so writing new text to the same
+  path and revealing it again can show the previous run's text. A fresh name
+  per run sidesteps the stale model.
+
+Expected output (the visible lines depend on your editor's height):
+
+```text
+Revealed scratch_1791298730123.txt (plaintext, 200 lines) in a tab.
+Cursor at line 1, column 1; 1 selection(s).
+Visible lines: 1–35.
+Closed the tab again.
+```
+
 ---
 
 ## 8. Interactive concepts and the aggregator's `interactive` flag
 
 The introduction sample's `Example` record was `(name, run)`. This sample adds
-one field, because some concepts can't run unattended:
+one field, because some concepts need a human present: they block on one
+(`quick_pick_input`) or change what the window shows (`reveal_editor`):
 
 ```dart
 typedef Example = ({
@@ -590,21 +658,25 @@ const List<Example> advancedExamples = [
   (name: 'helper_layer', run: runHelperLayerExample, interactive: false),
   (name: 'language_model', run: runLanguageModelExample, interactive: false),
   (name: 'quick_pick_input', run: runQuickPickInputExample, interactive: true),
+  (name: 'reveal_editor', run: runRevealEditorExample, interactive: true),
 ];
 ```
 
 The auto-run **skips** any concept flagged `interactive` — a headless aggregator
-must never block on a human — and reports the count so the skip is visible:
+must never block on a human or rearrange the editors of a window somebody is
+working in — and reports the count so the skip is visible:
 
 ```text
 === quick_pick_input (interactive — skipped) ===
 
-5/5 examples passed (1 interactive skipped).
+=== reveal_editor (interactive — skipped) ===
+
+5/5 examples passed (2 interactive skipped).
 ```
 
 The dispatcher imposes no such rule: `dart run bin/run_example.dart
-quick_pick_input` runs it directly, which is how you exercise the interactive
-concept when you *are* present. One list, two policies — the aggregator filters,
+quick_pick_input` (or `reveal_editor`) runs it directly, which is how you
+exercise an interactive concept when you *are* present. One list, two policies — the aggregator filters,
 the dispatcher doesn't.
 
 ---
@@ -650,6 +722,7 @@ final Map<String, Future<bool> Function(VSCode)> _examples = {
   'helper_layer': runHelperLayerExample,
   'language_model': runLanguageModelExample,
   'quick_pick_input': runQuickPickInputExample,
+  'reveal_editor': runRevealEditorExample,
 };
 ```
 
@@ -669,7 +742,8 @@ return until the user acts (or a timeout fires). A script that calls them
 unattended will hang unless you supply `timeoutSeconds` + `fallbackValueOnTimeout`
 (degrade to a default) or `failOnTimeout: true` (turn the wait into an error).
 The aggregator's `interactive` flag is the structural answer: keep blocking
-concepts out of the automated path entirely.
+concepts — and ones with a visible side effect, like `reveal_editor`'s tab — out
+of the automated path entirely.
 
 **Some high-level wrappers aren't registered on every host build.** The typed
 API and `VsCodeHelper` are conveniences over commands the extension contributes;
@@ -695,8 +769,8 @@ operator are all outside your process — write scripts that account for that.
 | `64` | (dispatcher) unknown example name |
 
 A headless run with no window exits `0`; a real regression exits `1`. The
-interactive concept never affects the aggregator's exit code — it's skipped, not
-run.
+interactive concepts never affect the aggregator's exit code — they're skipped,
+not run.
 
 ---
 
@@ -708,6 +782,7 @@ run.
 | `editor_edits` prints `Editor edit did not apply on this window` | `applyEdit` returned `false` in the host. Confirm the scratch path is on the window's machine and the workspace has a folder open; the edit targets a freshly written file under `ztmp/advanced_sample/editor_edits/`. |
 | `language_model` always skips | Copilot isn't installed or isn't signed in on that window. Sign in, or accept the skip — it's a soft prerequisite. |
 | `quick_pick_input` never prompts | It's skipped by the aggregator. Run it through the dispatcher: `dart run bin/run_example.dart quick_pick_input`. |
+| `reveal_editor` prints `The active editor changed; leaving it open.` | Focus moved to another editor between the reveal and the close (you clicked elsewhere). The concept closes only its own tab, so close the scratch tab by hand; the file itself is already deleted. |
 | A concept hangs | You're running a concept function directly without an entry point that calls `exit`, or an interactive call has no timeout/fallback. Use `bin/run_example.dart`. |
 | `No workspace folder open; cannot demonstrate …` | The connected window has no folder open. `scratchDir` needs a workspace root. Open a folder and re-run. |
 

@@ -28,7 +28,7 @@ article). They build on one another — start at the top.
 | Sample | Demonstrates |
 | --- | --- |
 | [`vscode_scripting_introduction_sample`](vscode_scripting_introduction_sample/) | Connecting to a live window — information messages, commands, workspace folders, reading and opening files. **Start here.** |
-| [`vscode_scripting_advanced_sample`](vscode_scripting_advanced_sample/) | Editor edits, file batches, progress reporting, quick-pick / input boxes, the language model, and `VsCodeHelper`. |
+| [`vscode_scripting_advanced_sample`](vscode_scripting_advanced_sample/) | Editor edits, file batches, progress reporting, quick-pick / input boxes, the language model, `VsCodeHelper`, and revealing a document in a tab (`showTextDocument`). |
 | [`vscode_agent_tools_sample`](vscode_agent_tools_sample/) | The extension's own feature APIs — todos, the prompt queue, timed requests, documents, workspace metadata, `TomToolsApi`, and send-to-chat. |
 | [`vscode_agent_sdk_sample`](vscode_agent_sdk_sample/) | Streaming an Anthropic Agent SDK `query()` with `Options`, typed messages, in-process Dart `tool()`s, and `canUseTool`. |
 
