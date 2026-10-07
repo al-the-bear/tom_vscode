@@ -38,6 +38,7 @@ import { mergeQueueReload } from '../utils/queueReloadMergeUtils';
 import { applyErrorTransition, applyInterruptForContinuation, applyResetToPending, applyWaitingTransition, clearWaitingState, dispatchWasSuperseded, isWaitingDue, itemHasInFlightProgress, pickInterruptedResume, resolveAnswerContainer } from '../utils/queueErrorTransitions';
 import { applyRetryScheduling, applyStopRetrying, clearRetryBookkeeping, computeRetryDecision, fireRetry, isPreviousMessageIdError, isRetryDue, rollbackInFlightRepetition, type InFlightRepetition } from '../utils/queueRetryTransitions';
 import { parseResetClause } from '../utils/queueResetClause';
+import { claimTodo, reclaimForResend, releaseTodoClaim, todoClaimFromYaml, todoClaimToYaml, type TodoClaim, type TodoStatusPort } from '../utils/queueTodoClaim';
 import { resolveVariables } from '../utils/variableResolver.js';
 import {
     buildAnswerFilePath,
@@ -307,6 +308,16 @@ export interface QueuedPrompt {
      * dispatch attempt and consumed on rollback.
      */
     inFlightRepetition?: InFlightRepetition;
+    /**
+     * TODO ITERATION: the runner's claim on the quest todo its current main
+     * dispatch works on — the `in-progress` it wrote and the status that write
+     * overwrote. Settled (dropped) once the dispatch concludes; released
+     * (prior status restored, only if the todo still holds the runner's write)
+     * when the run stops, is interrupted or errors before the answer arrives.
+     * Persisted, so a reload in between does not lose what is owed. See
+     * `utils/queueTodoClaim.ts`.
+     */
+    todoClaim?: TodoClaim;
 }
 
 // ============================================================================
@@ -601,23 +612,41 @@ export class PromptQueueManager {
     }
 
     /**
-     * Claim a quest todo for the dispatch that is about to go out. Returns
+     * Claim a quest todo for the dispatch that is about to go out: write
+     * `in-progress` and record on the item what that write overwrote. Returns
      * `false` when the status could not be written — see
      * {@link writeQuestTodoStatus} for why the caller must then stop.
      */
-    private markQuestTodoInProgress(todoId: string): boolean {
+    private claimQuestTodo(item: QueuedPrompt, todo: { id: string; status?: string }): boolean {
         const questId = this.activeQuestId();
         if (!questId) {
-            logQueue(`MP dispatch: no active quest — cannot claim todo '${todoId}'`);
+            logQueue(`MP dispatch: no active quest — cannot claim todo '${todo.id}'`);
             return false;
         }
-        return writeQuestTodoStatus(questId, todoId, 'in-progress');
+        const claim = claimTodo(QUEST_TODO_STATUS_PORT, questId, todo.id, todo.status);
+        if (!claim) { return false; }
+        item.todoClaim = claim;
+        return true;
     }
 
-    /** Release a todo claimed by a dispatch that then failed to send. */
-    private releaseQuestTodo(todoId: string): void {
-        const questId = this.activeQuestId();
-        if (questId) { writeQuestTodoStatus(questId, todoId, 'not-started'); }
+    /**
+     * The run ended before the claimed todo's answer arrived (stop, interrupt,
+     * error, removal): put back the status the claim overwrote — only if the
+     * todo still holds the runner's `in-progress`. Anything else is somebody
+     * else's write and stays.
+     */
+    private releaseQuestTodoClaim(item: QueuedPrompt, reason: string): void {
+        const result = releaseTodoClaim(QUEST_TODO_STATUS_PORT, item.todoClaim);
+        if (result.outcome === 'none') { return; }
+        item.todoClaim = result.claim;
+        const claim = result.claim!;
+        if (result.outcome === 'restored') {
+            logQueue(`Todo claim released (${reason}): ${claim.questId}/${claim.todoId} back to '${claim.priorStatus}'`);
+        } else if (result.outcome === 'left') {
+            logQueue(`Todo claim released (${reason}): ${claim.questId}/${claim.todoId} is '${result.found}', not the runner's 'in-progress' — left as it is`);
+        } else {
+            logQueue(`Todo claim release FAILED (${reason}): could not restore ${claim.questId}/${claim.todoId} to '${claim.priorStatus}'`);
+        }
     }
 
     private async _buildExpandedText(
@@ -1923,6 +1952,10 @@ export class PromptQueueManager {
 
     /** Remove an item by id. */
     remove(id: string): void {
+        const removing = this._items.find(i => i.id === id);
+        if (removing && (removing.status === 'sending' || removing.status === 'interrupted')) {
+            this.releaseQuestTodoClaim(removing, `removed while ${removing.status}`);
+        }
         const effect = computeRemovalEffect(this._items, id, this._autoSendEnabled);
         this._items = effect.items;
         if (effect.removed) {
@@ -2516,6 +2549,8 @@ export class PromptQueueManager {
             // directly (e.g. from the queue editor's "set to staged"
             // action, not through stopActiveItem).
             this._cancelActiveDispatch();
+            // Stopped before the answer: hand back a todo this dispatch claimed.
+            this.releaseQuestTodoClaim(item, `stopped (${fromStatus} → staged)`);
             if (item.prePrompts && item.prePrompts.length > 0) {
                 for (const pp of item.prePrompts) {
                     pp.status = 'pending';
@@ -2682,6 +2717,9 @@ export class PromptQueueManager {
             return false;
         }
         this._cancelActiveDispatch();
+        // Interrupted before the answer: hand the todo back. The resume replays
+        // the same main prompt through Resend, which claims it again.
+        this.releaseQuestTodoClaim(sending, 'interrupted for continuation');
         // A Copilot answer that still lands for the cancelled request must
         // not be mistaken for the replay's answer.
         this.clearExpectedAnswerFiles(sending.expectedRequestId);
@@ -2774,6 +2812,7 @@ export class PromptQueueManager {
 
     /** Clear all items with the given status. */
     clearByStatus(status: QueuedPromptStatus): void {
+        this._releaseClaimsOfDroppedItems(this._items.filter(i => i.status === status), 'cleared');
         this._items = this._items.filter(i => i.status !== status);
         this.trimSentHistory();
         this.persist();
@@ -2782,9 +2821,19 @@ export class PromptQueueManager {
 
     /** Clear entire queue (all statuses). */
     clearAll(): void {
+        this._releaseClaimsOfDroppedItems(this._items, 'queue cleared');
         this._items = [];
         this.persist();
         this._onDidChange.fire();
+    }
+
+    /** Release the todo claims of in-flight items that are about to be dropped. */
+    private _releaseClaimsOfDroppedItems(items: QueuedPrompt[], reason: string): void {
+        for (const item of items) {
+            if (item.status === 'sending' || item.status === 'interrupted') {
+                this.releaseQuestTodoClaim(item, reason);
+            }
+        }
     }
 
     // ----- sending -----------------------------------------------------------
@@ -3032,6 +3081,11 @@ export class PromptQueueManager {
         // and silently rewind a counter, contradicting the contract above that
         // repetition counters are not touched.
         item.inFlightRepetition = undefined;
+        // Replaying a main prompt whose todo claim was released (stop,
+        // interrupt, error) claims that todo again — it is being worked on.
+        if (last.kind === 'main' && item.todoClaim?.released) {
+            item.todoClaim = reclaimForResend(QUEST_TODO_STATUS_PORT, item.todoClaim);
+        }
         item.status = 'sending';
         item.sentAt = new Date().toISOString();
         item.reminderSentCount = 0;
@@ -3172,9 +3226,8 @@ export class PromptQueueManager {
         // the snapshot, then hand it back to `not-started` so the retry picks
         // up the same todo rather than skipping past it. Rolling the counter
         // back without releasing the todo would lose it silently.
-        const claimedTodoId = item.inFlightRepetition?.todoId;
         rollbackInFlightRepetition(item);
-        if (claimedTodoId) { this.releaseQuestTodo(claimedTodoId); }
+        this.releaseQuestTodoClaim(item, `error in ${scope}`);
         const searchText = this._errorSearchText(err, interruption);
         const clause = parseResetClause(searchText);
         if (clause) {
@@ -3725,6 +3778,10 @@ export class PromptQueueManager {
      * comment and `_itemHasInFlightProgress`.
      */
     private async dispatchNextStageForSendingItem(item: QueuedPrompt): Promise<DispatchOutcome> {
+        // Re-entering the dispatcher means the previous dispatch concluded
+        // (its answer arrived, or the user advanced past it), so a todo claim
+        // it made is settled: the todo keeps whatever status it now has.
+        if (item.todoClaim) { item.todoClaim = undefined; }
         // Pause gate. Refuse to dispatch the *next* repetition of an
         // already-in-flight item while auto-send is off. The first
         // dispatch (when no counter has been bumped yet) always
@@ -3863,7 +3920,7 @@ export class PromptQueueManager {
         // qualifies, and that is what makes the walk terminate. A write that
         // doesn't stick would have the same todo picked on every pass, so it
         // ends the iteration rather than spinning.
-        const iterationTodo = plan.mode === 'todo' && this.markQuestTodoInProgress(plan.todo.id)
+        const iterationTodo = plan.mode === 'todo' && this.claimQuestTodo(item, plan.todo)
             ? plan.todo
             : undefined;
         const hasMainToSend = plan.mode === 'counter' || iterationTodo !== undefined;
@@ -4464,6 +4521,7 @@ export class PromptQueueManager {
                 anthropicProfileId: main['anthropic-profile-id'] || undefined,
                 anthropicConfigId: main['anthropic-config-id'] || undefined,
                 answerText: main['answer-text'] || undefined,
+                todoClaim: todoClaimFromYaml(main['todo-claim']),
             };
 
             // Resend metadata + warning chip — persisted under execution.
@@ -4597,6 +4655,7 @@ export class PromptQueueManager {
             ...(item.anthropicProfileId ? { 'anthropic-profile-id': item.anthropicProfileId } : {}),
             ...(item.anthropicConfigId ? { 'anthropic-config-id': item.anthropicConfigId } : {}),
             ...(item.answerText ? { 'answer-text': item.answerText } : {}),
+            ...(item.todoClaim ? { 'todo-claim': todoClaimToYaml(item.todoClaim) } : {}),
         };
 
         // Reminder config: persist explicit no-reminder state (reminderEnabled === false)
@@ -4843,6 +4902,25 @@ function writeQuestTodoStatus(questId: string, todoId: string, status: string): 
         return false;
     }
 }
+
+/** Read a quest todo's current status (live files), `undefined` when unknown. */
+function readQuestTodoStatus(questId: string, todoId: string): string | undefined {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { findTodoById } = require('../managers/questTodoManager');
+        const todo = findTodoById(questId, todoId) as { status?: string } | undefined;
+        return todo?.status;
+    } catch (err) {
+        logQueueError(`Failed to read todo '${todoId}'`, err);
+        return undefined;
+    }
+}
+
+/** The todo status port the queue's claims go through. */
+const QUEST_TODO_STATUS_PORT: TodoStatusPort = {
+    readStatus: readQuestTodoStatus,
+    writeStatus: writeQuestTodoStatus,
+};
 
 function getWindowStatusWindowId(): string {
     const session = vscode.env.sessionId.substring(0, 8);

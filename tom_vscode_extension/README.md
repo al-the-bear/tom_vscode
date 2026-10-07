@@ -228,6 +228,15 @@ handlers own webview wiring, services own side-effects, utils are pure.
 - **Prompt Queue** — one-file-per-entry YAML storage; automation toggles for flow
   behavior; repetition with prefix/suffix placeholders; answer-wait timeout for
   time-based auto-advance; watchdog health checks to recover watcher issues.
+- **Todo claims** — in todo iteration (a `<prefix>*` repeat count) the runner
+  writes `status: in-progress` onto the todo it dispatches, before the send,
+  and records the status it overwrote. Once that dispatch's answer arrives the
+  todo's status is the agent's. If the run is stopped, interrupted, errors,
+  or the item is removed before the answer arrives, the runner puts the prior
+  status back — only when the todo still holds the runner's `in-progress`; a
+  status anyone else wrote meanwhile is left alone. A Resend of that prompt
+  claims the todo again. The claim is persisted with the queue item, so a
+  reload does not lose it.
 - **Timed Requests** — interval and scheduled firing modes; `sendMaximum` with
   `sentCount`-based auto-pause; reminder and repeat configuration; global
   schedule-slot filtering; every fire enqueues through the Prompt Queue.
