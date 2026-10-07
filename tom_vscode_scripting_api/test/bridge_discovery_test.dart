@@ -1,6 +1,7 @@
-/// Tests for [findBridgePortForWorkspace] — the workspace-discovery scan that
-/// locates the CLI bridge port (19900–19909) whose open window matches a given
-/// workspace name. The production transport (`VSCodeBridgeClient.isAvailable`
+/// Tests for [findBridgePortForWorkspace] and [findBridgePortsForWorkspace] —
+/// the workspace-discovery scan that locates the CLI bridge port (19900–19909)
+/// whose open window matches a given workspace name, and the plural form that
+/// reports every such port. The production transport (`VSCodeBridgeClient.isAvailable`
 /// + `workspace.getInfoVce`) is replaced here by injected `probe` /
 /// `fetchIdentity` doubles, mirroring the established injected-seam pattern,
 /// so the scan can be exercised against faked per-port bridges.
@@ -10,6 +11,109 @@ import 'package:test/test.dart';
 import 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart';
 
 void main() {
+  group('findBridgePortsForWorkspace', () {
+    test('WONEQRC9-1: reports every port whose window has the workspace open, '
+        'ascending', () async {
+      // Two windows on one workspace answer identically. The singular form
+      // takes the first and stops; a caller that pins a workspace by name has
+      // to be able to see that the pin selected nothing, which only the full
+      // list can tell it.
+      final identities = <int, String>{
+        19900: 'other',
+        19902: 'shared',
+        19905: 'shared',
+        19907: 'third',
+      };
+
+      final ports = await findBridgePortsForWorkspace(
+        'shared',
+        probe: (host, p) async => identities.containsKey(p),
+        fetchIdentity: (host, p) async => identities[p],
+      );
+
+      expect(ports, [19902, 19905]);
+    });
+
+    test('WONEQRC9-2: is empty when no window matches, and when none answers',
+        () async {
+      expect(
+        await findBridgePortsForWorkspace(
+          'absent',
+          probe: (host, p) async => p == 19900,
+          fetchIdentity: (host, p) async => 'present',
+        ),
+        isEmpty,
+      );
+      expect(
+        await findBridgePortsForWorkspace(
+          'anything',
+          probe: (host, p) async => false,
+          fetchIdentity: (host, p) async => 'whatever',
+        ),
+        isEmpty,
+      );
+    });
+
+    test('WONEQRC9-3: matches with the same normalisation as the singular',
+        () async {
+      final identities = <int, String>{
+        19901: 'enterprise_flutter.code-workspace',
+        19903: 'enterprise_flutter (Workspace)',
+        19904: 'enterprise_flutter_other',
+      };
+
+      final ports = await findBridgePortsForWorkspace(
+        ' enterprise_flutter.code-workspace ',
+        probe: (host, p) async => identities.containsKey(p),
+        fetchIdentity: (host, p) async => identities[p],
+      );
+
+      expect(ports, [19901, 19903]);
+    });
+
+    test('WONEQRC9-4: skips unresponsive ports and null identities', () async {
+      final fetched = <int>[];
+
+      final ports = await findBridgePortsForWorkspace(
+        'target',
+        probe: (host, p) async => p == 19903 || p == 19906,
+        fetchIdentity: (host, p) async {
+          fetched.add(p);
+          return p == 19903 ? 'target' : null;
+        },
+      );
+
+      expect(ports, [19903]);
+      expect(fetched, [19903, 19906],
+          reason: 'only responsive ports are asked for their identity');
+    });
+
+    test('WONEQRC9-5: the singular is the first of the plural, and stops there',
+        () async {
+      final identities = <int, String>{19902: 'shared', 19905: 'shared'};
+      final probed = <int>[];
+
+      final first = await findBridgePortForWorkspace(
+        'shared',
+        probe: (host, p) async {
+          probed.add(p);
+          return identities.containsKey(p);
+        },
+        fetchIdentity: (host, p) async => identities[p],
+      );
+      final all = await findBridgePortsForWorkspace(
+        'shared',
+        probe: (host, p) async => identities.containsKey(p),
+        fetchIdentity: (host, p) async => identities[p],
+      );
+
+      expect(first, all.first);
+      expect(probed.last, 19902,
+          reason: 'the singular is deliberately silent about a duplicate: it '
+              'stops at the first match rather than scanning on');
+    });
+  });
+
   group('findBridgePortForWorkspace', () {
     test('returns the first port whose workspace matches the name', () async {
       final responsive = {19900, 19902, 19905};

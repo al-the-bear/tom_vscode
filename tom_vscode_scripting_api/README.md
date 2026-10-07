@@ -39,7 +39,7 @@ surface is testable against fakes.
 ```yaml
 # pubspec.yaml
 dependencies:
-  tom_vscode_scripting_api: ^1.2.2
+  tom_vscode_scripting_api: ^1.3.0
 ```
 
 ```bash
@@ -97,7 +97,7 @@ No native dependencies; pure Dart, SDK `^3.10.4`.
 | `VSCodeBridgeClient` | Owns the socket; JSON-RPC 2.0, length-prefixed TCP, notifications + callbacks. |
 | `VSCodeBridgeAdapter` | Wraps a connected client as a `VSCodeAdapter`. |
 | `LazyVSCodeBridgeAdapter` | Same, but connects on first use — ideal for scripts. |
-| `connectToWorkspace` / `findBridgePortForWorkspace` / `scanBridgePorts` | Discovery helpers — resolve the right window by the workspace it has open. |
+| `connectToWorkspace` / `findBridgePortForWorkspace` / `findBridgePortsForWorkspace` / `scanBridgePorts` | Discovery helpers — resolve the right window by the workspace it has open; the plural form lists every window that has it open, so a caller can report a name that matched two. |
 
 ---
 
@@ -335,10 +335,10 @@ The full user guides live in [`doc/`](doc/):
 
 | | |
 | --- | --- |
-| Version | 1.2.2 |
+| Version | 1.3.0 |
 | Dart SDK | `^3.10.4` |
 | Runtime dependencies | none (standalone) |
-| Tests | 109 passing across 11 suites (`dart test`) |
+| Tests | 114 passing across 11 suites (`dart test`) |
 | License | BSD-3-Clause |
 
 ---

@@ -1,3 +1,14 @@
+## 1.3.0
+
+- `findBridgePortsForWorkspace` (plural) returns **every** bridge port whose
+  window has the named workspace open, ascending, and an empty list when none
+  does. `findBridgePortForWorkspace` stops at the first match, so a second VS
+  Code window on the same workspace was invisible to every consumer that
+  pinned a workspace by name; it keeps that behaviour — deliberately, a helper
+  that refused on a benign ambiguity would break the single-window case — and
+  its documentation now says so and points at the plural. One `scanBridgePorts`
+  pass, matched with `normalizeWorkspaceName` exactly as the singular matches.
+
 ## 1.2.2
 
 Documentation and samples only; no code change.
