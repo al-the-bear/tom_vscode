@@ -1094,6 +1094,6 @@ Future<Map<String, dynamic>> _handleMyNewMethod(
 ## See Also
 
 - [API Reference](./API_REFERENCE.md) - Complete API documentation
-- [Architecture Documentation](../tom_vscode_extension/_copilot_guidelines/architecture.md) - System architecture
+- [Architecture Documentation](../../tom_vscode_extension/_copilot_guidelines/architecture.md) - System architecture
 - [Project Documentation](./PROJECT.md) - Project overview
-- [VS Code Integration Implementation](../tom_vscode_extension/_copilot_guidelines/implementation.md) - TypeScript side implementation
+- [VS Code Integration Implementation](../../tom_vscode_extension/_copilot_guidelines/implementation.md) - TypeScript side implementation

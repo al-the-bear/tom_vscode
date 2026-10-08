@@ -84,6 +84,4 @@ Every placeholder context falls into one of four levels. Adding a new context me
 ## 6. Related
 
 - [file_and_prompt_placeholders.md](file_and_prompt_placeholders.md) — template-author reference for every placeholder, with examples.
-- [review/placeholders.md](review/placeholders.md) — the review document that surfaced the fragmentation.
-- [review/review_refactoring_plan.md](review/review_refactoring_plan.md) — Wave 1.2 / 1.3 / 1.5.
 - [../_copilot_guidelines/vscode_extension_overview.md](../_copilot_guidelines/vscode_extension_overview.md) — where this doc fits in the broader guideline map.

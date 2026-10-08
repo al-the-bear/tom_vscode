@@ -20,7 +20,7 @@ The editor uses a split model:
 - Structured tree/navigation data.
 - Source YAML document as authoritative state.
 
-[SourceSyncManager](../../yaml_graph_vscode/src/source-sync-manager.ts#L20) keeps source and webview aligned; document updates are debounced before re-render.
+[SourceSyncManager](../../src/source-sync-manager.ts#L20) keeps source and webview aligned; document updates are debounced before re-render.
 
 ## Type Resolution Rules
 
@@ -37,8 +37,8 @@ If missing or unsupported:
 At a high level:
 
 1. Webview sends edit/select messages.
-2. [SelectionCoordinator](../../yaml_graph_vscode/src/selection-coordinator.ts#L18) routes actions.
-3. [NodeEditorController](../../yaml_graph_vscode/src/node-editor-controller.ts#L21) computes edits.
+2. [SelectionCoordinator](../../src/selection-coordinator.ts#L18) routes actions.
+3. [NodeEditorController](../../src/node-editor-controller.ts#L21) computes edits.
 4. Text edits apply to YAML document.
 5. Updated YAML is converted and rendered again.
 
@@ -60,4 +60,4 @@ The provider intentionally fails soft:
 
 - [yaml_graph.md](yaml_graph.md)
 - [yaml_graph_architecture_design.md](yaml_graph_architecture_design.md)
-- [../_copilot_guidelines/vscode_extension_overview.md](../_copilot_guidelines/vscode_extension_overview.md)
+- [../_copilot_guidelines/vscode_extension_overview.md](../../../tom_vscode_extension/_copilot_guidelines/vscode_extension_overview.md)

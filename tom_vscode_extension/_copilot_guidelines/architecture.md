@@ -9,7 +9,7 @@ The plugin runtime consists of:
 - services under [src/services/](../src/services/) — persistence (trail, history, memory, tool trail, live trail),
 - managers under [src/managers/](../src/managers/) — volatile session state (queue, timer, reminder, chat variables, session todos),
 - tool implementations under [src/tools/](../src/tools/) — everything exposed to AI models,
-- bridge client integration ([vscode-bridge](../src/utils/vscode-bridge.ts) + handler),
+- bridge client integration ([vscode-bridge](../src/vscode-bridge.ts) + handler),
 - Agent SDK transport ([agent-sdk-transport.ts](../src/handlers/agent-sdk-transport.ts)) over `@anthropic-ai/claude-agent-sdk`, and
 - externalized webview assets under `media/<panelId>/` loaded via [webviewLoader.ts](../src/utils/webviewLoader.ts), plus shared webview components (accordion, tabs, queue entry).
 

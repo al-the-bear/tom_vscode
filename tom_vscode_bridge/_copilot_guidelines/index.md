@@ -38,4 +38,4 @@
 
 ## Related Packages
 
-- [tom_vscode_extension](../tom_vscode_extension/) — VS Code extension implementation
+- [tom_vscode_extension](../../tom_vscode_extension/) — VS Code extension implementation

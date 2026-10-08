@@ -1196,4 +1196,4 @@ Include:
 - [API Reference](./API_REFERENCE.md) - Complete API documentation
 - [Implementation Guide](./IMPLEMENTATION.md) - Implementation details
 - [Project Overview](./PROJECT.md) - Project structure and getting started
-- [JavaScript User Guide](../tom_vscode_extension/doc/user_guide.md) - JavaScript side
+- [JavaScript User Guide](../../tom_vscode_extension/doc/user_guide.md) - JavaScript side

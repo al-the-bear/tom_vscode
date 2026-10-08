@@ -27,13 +27,6 @@ User-facing documentation for the `tom_vscode_extension` plugin. For implementat
 - [workspace_setup.md](workspace_setup.md) — workspace layout expected by the extension.
 - [extension_analysis.md](extension_analysis.md) — activation + command audit.
 - [information/vs_code_extension.md](information/vs_code_extension.md) — VS Code extension API notes.
-- [information/mermaid_diagrams.md](information/mermaid_diagrams.md) — Mermaid rendering notes.
-
-## Refactoring + analysis archive
-
-- [refactoring/reusable_component_analysis.md](refactoring/reusable_component_analysis.md) — reusable webview/UI component inventory.
-- [refactoring/duplication_analysis.md](refactoring/duplication_analysis.md), [refactoring/extension_discrepancies.md](refactoring/extension_discrepancies.md), [refactoring/hardcoded_constants_audit.md](refactoring/hardcoded_constants_audit.md), [refactoring/refactoring_plan.md](refactoring/refactoring_plan.md), [refactoring/refactoring_status.md](refactoring/refactoring_status.md).
-- [review/](review/) — structural reviews (code, config, file storage, module graph, deprecation).
 
 ## Panel naming (current)
 

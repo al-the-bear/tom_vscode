@@ -551,5 +551,5 @@ Future<String?> showInformationMessage(
 
 - [API Reference](./API_REFERENCE.md) - Complete API documentation
 - [Implementation Guide](./IMPLEMENTATION.md) - Implementation details
-- [Architecture Documentation](../tom_vscode_extension/_copilot_guidelines/architecture.md) - System architecture
-- [VS Code Integration Project](../tom_vscode_extension/_copilot_guidelines/project.md) - Extension side
+- [Architecture Documentation](../../tom_vscode_extension/_copilot_guidelines/architecture.md) - System architecture
+- [VS Code Integration Project](../../tom_vscode_extension/_copilot_guidelines/project.md) - Extension side
