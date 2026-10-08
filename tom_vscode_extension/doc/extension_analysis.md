@@ -165,7 +165,7 @@ flowchart TD
 | `src/utils/` | 12 | Shared utilities (paths, config, resolver, logging) |
 | `src/services/` | 2 | TrailService, other services |
 
-> **Webview assets are not in `src/`.** Each panel's HTML/JS/CSS lives as real files under `media/<panelId>/` (`index.html` + `main.js` + `style.css`, with reusable pieces in `media/shared/`) and is loaded through the single rewriting loader `src/utils/webviewLoader.ts`. The handlers below are correspondingly thinner than their historical line counts imply — they wire messages and call `loadWebviewHtml(webview, '<panelId>', { init })` rather than embedding HTML in template literals. The few documented exceptions (content-injection previews, degenerate error fallbacks) keep small inline HTML by design. See [../_copilot_guidelines/media_webview_migration.md](../_copilot_guidelines/media_webview_migration.md).
+> **Webview assets are not in `src/`.** Each panel's HTML/JS/CSS lives as real files under `media/<panelId>/` (`index.html` + `main.js` + `style.css`, with reusable pieces in `media/shared/`) and is loaded through the single rewriting loader `src/utils/webviewLoader.ts`. The handlers below are correspondingly thinner than their historical line counts imply — they wire messages and call `loadWebviewHtml(webview, '<panelId>', { init })` rather than embedding HTML in template literals. The few documented exceptions (content-injection previews, degenerate error fallbacks) keep small inline HTML by design. The contributor guide `_copilot_guidelines/media_webview_migration.md` in the extension source describes the loader and the exceptions.
 
 ### Handler Files by Size (lines)
 

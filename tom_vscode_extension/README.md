@@ -277,8 +277,9 @@ Run the extension host for manual testing: open this project in VS Code, press
 
 ## Further documentation
 
-User-facing guides live in [`doc/`](doc/); development docs in
-[`_copilot_guidelines/`](_copilot_guidelines/).
+User-facing guides live in [`doc/`](doc/). Contributors also have the
+extension's development guidelines, the `_copilot_guidelines/` folder in the
+source tree; they are not part of this documentation.
 
 | Document | Covers |
 | --- | --- |
@@ -291,8 +292,6 @@ User-facing guides live in [`doc/`](doc/); development docs in
 | [doc/llm_configuration.md](doc/llm_configuration.md) | Local LLM + Anthropic + history-compaction settings. |
 | [doc/placeholder_engine.md](doc/placeholder_engine.md) | Placeholder engine reference. |
 | [doc/copilot_chat_tools.md](doc/copilot_chat_tools.md) | Copilot / Tom AI Chat tooling. |
-| [_copilot_guidelines/architecture.md](_copilot_guidelines/architecture.md) | Architecture and state model (dev). |
-| [_copilot_guidelines/keybindings_and_commands.md](_copilot_guidelines/keybindings_and_commands.md) | Command and keybinding details (dev). |
 
 ---
 

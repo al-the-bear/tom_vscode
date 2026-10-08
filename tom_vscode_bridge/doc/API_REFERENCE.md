@@ -1688,7 +1688,7 @@ final result = await vscode.window.showInformationMessage('Hello');
 
 ## See Also
 
-- [Architecture Documentation](../../tom_vscode_extension/_copilot_guidelines/architecture.md) - System architecture
+- [Extension architecture](../../tom_vscode_extension/README.md#architecture) - The VS Code side of the bridge
 - [Implementation Guide](./IMPLEMENTATION.md) - Implementation details
 - [Project Documentation](./PROJECT.md) - Project overview
 - [VS Code API Documentation](https://code.visualstudio.com/api/references/vscode-api) - Official VS Code API reference

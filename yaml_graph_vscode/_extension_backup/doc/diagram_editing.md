@@ -60,4 +60,3 @@ The provider intentionally fails soft:
 
 - [yaml_graph.md](yaml_graph.md)
 - [yaml_graph_architecture_design.md](yaml_graph_architecture_design.md)
-- [../_copilot_guidelines/vscode_extension_overview.md](../../../tom_vscode_extension/_copilot_guidelines/vscode_extension_overview.md)

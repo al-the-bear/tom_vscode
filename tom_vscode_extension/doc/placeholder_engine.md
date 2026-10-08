@@ -23,7 +23,8 @@ Resolves a finding from the code review: the extension used to ship **five paral
 > [utils/webviewLoader.ts](../src/utils/webviewLoader.ts), unrelated to the AI
 > placeholder engines above. That path additionally **strips HTML comments
 > before substitution** (`stripHtmlComments`); the AI engines here do **not**.
-> See [../\_copilot\_guidelines/media\_webview\_migration.md §9.2](../_copilot_guidelines/media_webview_migration.md#92-host-shell-panels-accordion--tab-two-script-safety-rules).
+> The contributor guide `_copilot_guidelines/media_webview_migration.md` (§9.2)
+> in the extension source covers that path.
 
 ## 2. Capability levels
 
@@ -84,4 +85,3 @@ Every placeholder context falls into one of four levels. Adding a new context me
 ## 6. Related
 
 - [file_and_prompt_placeholders.md](file_and_prompt_placeholders.md) — template-author reference for every placeholder, with examples.
-- [../_copilot_guidelines/vscode_extension_overview.md](../_copilot_guidelines/vscode_extension_overview.md) — where this doc fits in the broader guideline map.
