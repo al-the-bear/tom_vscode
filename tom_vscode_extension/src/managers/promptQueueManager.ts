@@ -3222,10 +3222,11 @@ export class PromptQueueManager {
         // next repetition. No-op when the send failed before any counter was
         // bumped (e.g. during prompt expansion).
         //
-        // TODO ITERATION: read the claimed todo *before* the rollback consumes
-        // the snapshot, then hand it back to `not-started` so the retry picks
-        // up the same todo rather than skipping past it. Rolling the counter
-        // back without releasing the todo would lose it silently.
+        // TODO ITERATION: release the todo claim so the retry picks up the
+        // same todo rather than skipping past it. The release restores the
+        // status the claim overwrote, and only while the todo still holds the
+        // runner's `in-progress` (see utils/queueTodoClaim.ts). Rolling the
+        // counter back without releasing the todo would lose it silently.
         rollbackInFlightRepetition(item);
         this.releaseQuestTodoClaim(item, `error in ${scope}`);
         const searchText = this._errorSearchText(err, interruption);
