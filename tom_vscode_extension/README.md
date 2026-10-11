@@ -228,6 +228,15 @@ handlers own webview wiring, services own side-effects, utils are pure.
 - **Prompt Queue** — one-file-per-entry YAML storage; automation toggles for flow
   behavior; repetition with prefix/suffix placeholders; answer-wait timeout for
   time-based auto-advance; watchdog health checks to recover watcher issues.
+- **Todo claims** — in todo iteration (a `<prefix>*` repeat count) the runner
+  writes `status: in-progress` onto the todo it dispatches, before the send,
+  and records the status it overwrote. Once that dispatch's answer arrives the
+  todo's status is the agent's. If the run is stopped, interrupted, errors,
+  or the item is removed before the answer arrives, the runner puts the prior
+  status back — only when the todo still holds the runner's `in-progress`; a
+  status anyone else wrote meanwhile is left alone. A Resend of that prompt
+  claims the todo again. The claim is persisted with the queue item, so a
+  reload does not lose it.
 - **Timed Requests** — interval and scheduled firing modes; `sendMaximum` with
   `sentCount`-based auto-pause; reminder and repeat configuration; global
   schedule-slot filtering; every fire enqueues through the Prompt Queue.
@@ -268,8 +277,9 @@ Run the extension host for manual testing: open this project in VS Code, press
 
 ## Further documentation
 
-User-facing guides live in [`doc/`](doc/); development docs in
-[`_copilot_guidelines/`](_copilot_guidelines/).
+User-facing guides live in [`doc/`](doc/). Contributors also have the
+extension's development guidelines, the `_copilot_guidelines/` folder in the
+source tree; they are not part of this documentation.
 
 | Document | Covers |
 | --- | --- |
@@ -282,8 +292,6 @@ User-facing guides live in [`doc/`](doc/); development docs in
 | [doc/llm_configuration.md](doc/llm_configuration.md) | Local LLM + Anthropic + history-compaction settings. |
 | [doc/placeholder_engine.md](doc/placeholder_engine.md) | Placeholder engine reference. |
 | [doc/copilot_chat_tools.md](doc/copilot_chat_tools.md) | Copilot / Tom AI Chat tooling. |
-| [_copilot_guidelines/architecture.md](_copilot_guidelines/architecture.md) | Architecture and state model (dev). |
-| [_copilot_guidelines/keybindings_and_commands.md](_copilot_guidelines/keybindings_and_commands.md) | Command and keybinding details (dev). |
 
 ---
 

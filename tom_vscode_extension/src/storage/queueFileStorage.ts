@@ -141,6 +141,8 @@ export interface QueuePromptYaml {
     'repeat-index'?: number;
     /** TODO ITERATION (`prefix*`): id of the quest todo the last dispatch took. */
     'repeat-todo-id'?: string;
+    /** TODO ITERATION: the runner's open claim on that todo (see utils/queueTodoClaim.ts). */
+    'todo-claim'?: { quest: string; todo: string; 'prior-status': string; 'claimed-at': string; released?: boolean };
     'resolved-repeat-count'?: number;
     'repeat-prefix'?: string;
     'repeat-suffix'?: string;

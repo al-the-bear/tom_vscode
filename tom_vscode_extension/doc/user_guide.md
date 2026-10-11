@@ -440,7 +440,7 @@ Clear the session (reset history + tool trail + SDK session id) via the subpanel
 
 ## 10) Keyboard productivity
 
-See [quick_reference.md](quick_reference.md) and [../_copilot_guidelines/keybindings_and_commands.md](../_copilot_guidelines/keybindings_and_commands.md).
+See [quick_reference.md](quick_reference.md) for every keybinding and the commands they run.
 
 ## 11) Reinstall and reload
 
@@ -450,4 +450,5 @@ If extension changes do not appear:
 2. reload window,
 3. rerun the affected command.
 
-Detailed flow: [../_copilot_guidelines/reinstall_extension.md](../_copilot_guidelines/reinstall_extension.md).
+Building and installing the package is described in the extension README's
+Installation section.

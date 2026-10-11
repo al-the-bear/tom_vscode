@@ -1,6 +1,6 @@
 # Extension Bridge
 
-Defines how extension commands and handlers interact with bridge-backed runtime services (the `tom_ai_bridge` Dart subprocess that handles workspace scripting, DartScript execution, and delegated operations). Source: [vscode-bridge.ts](../src/utils/vscode-bridge.ts) + [restartBridge-handler.ts](../src/handlers/restartBridge-handler.ts).
+Defines how extension commands and handlers interact with bridge-backed runtime services (the `tom_ai_bridge` Dart subprocess that handles workspace scripting, DartScript execution, and delegated operations). Source: [vscode-bridge.ts](../src/vscode-bridge.ts) + [restartBridge-handler.ts](../src/handlers/restartBridge-handler.ts).
 
 ## Role
 

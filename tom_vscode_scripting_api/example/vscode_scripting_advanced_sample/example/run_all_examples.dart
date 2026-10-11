@@ -3,10 +3,13 @@
 /// Run:  dart run example/run_all_examples.dart
 ///   (or via the wrappers: ./run_example.sh  /  ./run_example.ps1)
 ///
-/// Concepts flagged `interactive: true` block on the user (quick pick / input
-/// box), so the auto-run **skips** them — a headless aggregator must never
-/// hang. Run those directly through the dispatcher when a human is present:
+/// Concepts flagged `interactive: true` need a human present: they block on the
+/// user (quick pick / input box) or change what the window shows (a revealed
+/// editor tab), so the auto-run **skips** them — a headless aggregator must
+/// never hang or rearrange your editors. Run those directly through the
+/// dispatcher when a human is present:
 ///   dart run bin/run_example.dart quick_pick_input
+///   dart run bin/run_example.dart reveal_editor
 ///
 /// Exit codes:
 ///   0  all non-interactive examples passed, OR no live VS Code bridge was
@@ -25,11 +28,13 @@ import 'helper_layer.dart';
 import 'language_model.dart';
 import 'progress.dart';
 import 'quick_pick_input.dart';
+import 'reveal_editor.dart';
 import 'support.dart';
 
 /// One named concept to run against a connected [VSCode] window.
 ///
-/// `interactive` concepts block on user input and are skipped by the auto-run;
+/// `interactive` concepts block on user input or change the visible window, and
+/// are skipped by the auto-run;
 /// invoke them by name through `bin/run_example.dart` when a human is present.
 typedef Example = ({
   String name,
@@ -45,6 +50,7 @@ const List<Example> advancedExamples = [
   (name: 'helper_layer', run: runHelperLayerExample, interactive: false),
   (name: 'language_model', run: runLanguageModelExample, interactive: false),
   (name: 'quick_pick_input', run: runQuickPickInputExample, interactive: true),
+  (name: 'reveal_editor', run: runRevealEditorExample, interactive: true),
 ];
 
 Future<void> main() => runAllExamples();

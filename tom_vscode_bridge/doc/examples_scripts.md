@@ -88,4 +88,4 @@ Examples can be run via the D4rt bridge:
 ## See Also
 
 - [vscode_api_cleanup_recommendation.md](../vscode_api_cleanup_recommendation.md) - API cleanup recommendations
-- [test_strategy_proposals.md](../test_strategy_proposals.md) - Testing strategy documentation
+- [test_strategy_proposals.md](test_strategy_proposals.md) - Testing strategy documentation
