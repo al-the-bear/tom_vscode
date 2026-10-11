@@ -10,9 +10,9 @@ The extension integrates **five** chat subsystems, all accessible from the `@CHA
 - **Tom AI Chat** — Anthropic handler with a narrower UI, same profile + tool surface.
 - **AI Conversation** — multi-turn chat (not queue-compatible).
 - **Copilot** — VS Code Copilot Chat via the answer-file mechanism.
-- **Local LLM** — Ollama or OpenAI-compatible HTTP backend ([../\_copilot\_guidelines/local\_llm.md](../_copilot_guidelines/local_llm.md)).
+- **Local LLM** — Ollama or OpenAI-compatible HTTP backend ([llm_configuration.md](llm_configuration.md)).
 
-This page covers the Copilot-facing commands + tooling. For Anthropic / Tom AI Chat specifics, see [../\_copilot\_guidelines/tom\_ai\_chat.md](../_copilot_guidelines/tom_ai_chat.md) and [anthropic_handler.md](anthropic_handler.md).
+This page covers the Copilot-facing commands + tooling. For Anthropic / Tom AI Chat specifics, see [anthropic_handler.md](anthropic_handler.md).
 
 ## Copilot Chat Workflows
 
@@ -43,7 +43,7 @@ The Copilot section of `@CHAT` includes an action bar with:
   - **copilot** — legacy behaviour: open the Copilot chat view with the prompt; the scripting API detects the answer through the `tomAi_askCopilot` answer-file mechanism.
   - **anthropic** — handle the prompt exactly as if typed into the Anthropic chat panel: same active profile + configuration, the default user-message template, the chat-panel Agent SDK session bucket, and the full tool loop. The turn is written to `live-trail.md` and mirrored into the panel UI when open. While a turn is running, a second interactive send is **rejected** (the prompt queue owns queuing).
 - **Status Page control**: the target is switchable from the Tom Status Page via the `setSendToChatTarget` action (an anthropic/copilot dropdown), so no config-file edit is needed to flip transports.
-- **Scripting-API tool gating**: when the target is `copilot`, the scripting API exposes **no** tools — `scripting-tools-bridge.ts` short-circuits on `getSendToChatTarget(config) === 'copilot'`. Tools are only available on the `anthropic` target. See [bridge_scripting_guide.md](../_copilot_guidelines/bridge_scripting_guide.md) for the gating rationale.
+- **Scripting-API tool gating**: when the target is `copilot`, the scripting API exposes **no** tools — `scripting-tools-bridge.ts` short-circuits on `getSendToChatTarget(config) === 'copilot'`. Tools are only available on the `anthropic` target. See [llm_tools.md §9](llm_tools.md#9-scripting-api-access-and-gating) for the gating.
 
 ## Prompt Queue Integration
 
@@ -127,6 +127,5 @@ Both channels include ISO timestamps and can be enabled/disabled at runtime.
 
 - [user_guide.md](user_guide.md)
 - [quick_reference.md](quick_reference.md)
-- [../_copilot_guidelines/tom_ai_chat.md](../_copilot_guidelines/tom_ai_chat.md)
-- [../_copilot_guidelines/copilot_answers.md](../_copilot_guidelines/copilot_answers.md)
-- [../_copilot_guidelines/architecture.md](../_copilot_guidelines/architecture.md)
+- [anthropic_handler.md](anthropic_handler.md)
+- [llm_configuration.md](llm_configuration.md)

@@ -499,4 +499,4 @@ No new dependencies - uses existing validation infrastructure.
 - [Quest Overview: Tom Linter](../../../../_ai/quests/tom_lint/overview.tom_lint.md)
 - [Quest Overview: DocSpecs](../../../../_ai/quests/doc_specs/overview.doc_specs.md)
 - [DocSpecs Specification](../../../../_ai/quests/doc_specs/doc_specs_specification.md)
-- [VS Code Extension Architecture](./vs_code_extension.md)
+- [VS Code Extension Architecture](information/vs_code_extension.md)
