@@ -66,13 +66,34 @@ export interface AgentSdkRetryInput {
      * delays a failure the caller could already act on.
      */
     rateLimitWaitMs?: number;
+    /**
+     * The failed attempt's cause cannot succeed until the user acts (expired
+     * login, billing, invalid request — see `isNonRetryableFailure` in
+     * `agent-sdk-failure.ts`). Such a failure is given up at once, whatever
+     * the attempt count or busy budget, with one exception: an authentication
+     * failure gets {@link MAX_AUTH_RETRIES} delayed retry, because the CLI's
+     * token refresh can recover on its own.
+     */
+    failureNonRetryable?: boolean;
+    /** The cause's kind, e.g. `authentication_failed`. */
+    failureKind?: string;
+    /** Authentication-failure retries already spent in this sequence. */
+    authRetriesMade?: number;
 }
+
+/** Delayed retries an authentication failure gets before giving up. */
+export const MAX_AUTH_RETRIES = 1;
+
+/** How long to wait before that retry (ms), giving the token refresh a chance. */
+export const AUTH_RETRY_DELAY_MS = 30_000;
 
 /**
  * Decide whether (and how) to retry an Agent SDK attempt.
  *
  * Rules:
  *  - Never retry once cancellation was requested.
+ *  - **Non-retryable causes** (`failureNonRetryable`) give up at once; an
+ *    authentication failure first gets {@link MAX_AUTH_RETRIES} retry.
  *  - **Busy errors with a time budget** (`errorIsBusy && maxTotalWaitMs > 0`)
  *    retry until `elapsedMs >= maxTotalWaitMs`, ignoring `maxAttempts` — this is
  *    how a 529/500 overload is ridden out for the profile's full retry window.
@@ -86,6 +107,15 @@ export interface AgentSdkRetryInput {
 export function planAgentSdkRetry(input: AgentSdkRetryInput): AgentSdkRetryPlan {
     if (input.cancelled === true) {
         return { kind: 'give-up' };
+    }
+    if (input.failureNonRetryable === true) {
+        const authRetryLeft = input.failureKind === 'authentication_failed'
+            && (input.authRetriesMade ?? 0) < MAX_AUTH_RETRIES
+            && input.maxAttempts > 1;
+        if (!authRetryLeft) {
+            return { kind: 'give-up' };
+        }
+        return resumeOrFresh(input);
     }
     const budgetBounded =
         input.errorIsBusy === true &&
@@ -109,6 +139,10 @@ export function planAgentSdkRetry(input: AgentSdkRetryInput): AgentSdkRetryPlan 
     } else if (input.attemptsMade >= input.maxAttempts) {
         return { kind: 'give-up' };
     }
+    return resumeOrFresh(input);
+}
+
+function resumeOrFresh(input: AgentSdkRetryInput): AgentSdkRetryPlan {
     // Prefer the id captured during the failed attempt (the live session)
     // over the one we asked to resume.
     const sessionId = input.capturedSessionId || input.resumeSessionId;

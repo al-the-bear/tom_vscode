@@ -90,6 +90,15 @@ const liveNotificationChannels: NotificationChannels = {
     },
 };
 
+/**
+ * Notify the user through the same channels as `tomAi_notifyUser`
+ * (Telegram when configured, else a VS Code message). For extension code
+ * that has something to tell the user outside a tool call.
+ */
+export function notifyUserLive(input: NotifyUserInput): Promise<string> {
+    return notifyUserImpl(liveNotificationChannels, input);
+}
+
 export const NOTIFY_USER_TOOL: SharedToolDefinition<NotifyUserInput> = {
     ...NOTIFY_USER_DEF,
     execute: (input) => notifyUserImpl(liveNotificationChannels, input),

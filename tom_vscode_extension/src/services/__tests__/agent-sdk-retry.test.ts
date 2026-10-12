@@ -33,6 +33,7 @@ import {
     rateLimitResetAtMs,
     computeRateLimitWaitMs,
     describeRateLimit,
+    MAX_AUTH_RETRIES,
 } from '../agent-sdk-retry.js';
 
 describe('isUnknownSessionError', () => {
@@ -473,5 +474,50 @@ describe('planAgentSdkRetry — a rate-limit reset beyond the budget', () => {
             rateLimitWaitMs: 300 * 60_000,
         });
         assert.deepEqual(plan, { kind: 'retry-resume', sessionId: 'sess-1' });
+    });
+});
+
+describe('planAgentSdkRetry — non-retryable failures (RF-*)', () => {
+    const base = {
+        attemptsMade: 1,
+        maxAttempts: 3,
+        errorMessage: 'Agent SDK failed: billing_error — Credit balance too low (Claude Code process exited with code 1)',
+        capturedSessionId: 'sess-1',
+    };
+
+    test('RF-1: a billing or invalid-request failure gives up with attempts left', () => {
+        for (const failureKind of ['billing_error', 'invalid_request', 'model_not_found']) {
+            assert.deepEqual(planAgentSdkRetry({ ...base, failureNonRetryable: true, failureKind }), { kind: 'give-up' }, failureKind);
+        }
+    });
+
+    test('RF-2: an authentication failure is retried once, then given up', () => {
+        const auth = { ...base, failureNonRetryable: true, failureKind: 'authentication_failed' };
+        assert.equal(MAX_AUTH_RETRIES, 1);
+        assert.deepEqual(planAgentSdkRetry({ ...auth, authRetriesMade: 0 }), { kind: 'retry-resume', sessionId: 'sess-1' });
+        assert.deepEqual(planAgentSdkRetry({ ...auth, attemptsMade: 2, authRetriesMade: 1 }), { kind: 'give-up' });
+    });
+
+    test('RF-3: the auth retry still respects disabled retry and cancellation', () => {
+        const auth = { ...base, failureNonRetryable: true, failureKind: 'authentication_failed', authRetriesMade: 0 };
+        assert.deepEqual(planAgentSdkRetry({ ...auth, maxAttempts: 1 }), { kind: 'give-up' });
+        assert.deepEqual(planAgentSdkRetry({ ...auth, cancelled: true }), { kind: 'give-up' });
+    });
+
+    test('RF-4: a non-retryable failure is not rescued by a busy time budget', () => {
+        const plan = planAgentSdkRetry({
+            ...base,
+            failureNonRetryable: true,
+            failureKind: 'billing_error',
+            errorIsBusy: true,
+            maxTotalWaitMs: 60 * 60_000,
+            elapsedMs: 0,
+        });
+        assert.deepEqual(plan, { kind: 'give-up' });
+    });
+
+    test('RF-5: without a non-retryable failure the plan is unchanged', () => {
+        assert.deepEqual(planAgentSdkRetry({ ...base }), { kind: 'retry-resume', sessionId: 'sess-1' });
+        assert.deepEqual(planAgentSdkRetry({ ...base, failureNonRetryable: false, failureKind: 'overloaded' }), { kind: 'retry-resume', sessionId: 'sess-1' });
     });
 });

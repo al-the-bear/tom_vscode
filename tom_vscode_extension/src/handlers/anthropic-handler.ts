@@ -2007,6 +2007,13 @@ export class AnthropicHandler {
             try {
                 result = await runAgentSdkQuery({
                     configuration,
+                    // A failure the user must act on (expired login, billing):
+                    // a queued prompt otherwise just stops, so say why.
+                    onFailureNotice: (message) => {
+                        // eslint-disable-next-line @typescript-eslint/no-require-imports
+                        const { notifyUserLive } = require('../tools/chat-enhancement-tools') as typeof import('../tools/chat-enhancement-tools');
+                        void notifyUserLive({ message, urgency: 'error', title: 'Anthropic request failed' }).catch(() => undefined);
+                    },
                     tools: effectiveTools,
                     systemPrompt,
                     userText: userContent,

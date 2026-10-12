@@ -189,6 +189,14 @@ export async function loadSdk(): Promise<AgentSdkModule> {
     return cachedSdk;
 }
 
+/**
+ * Test seam: make {@link loadSdk} return `sdk` (a fake exposing `query`,
+ * `tool` and `createSdkMcpServer`). Production code never calls this.
+ */
+export function __setAgentSdkForTests(sdk: unknown): void {
+    cachedSdk = Promise.resolve(sdk as AgentSdkModule);
+}
+
 import { SharedToolDefinition } from '../tools/shared-tool-registry';
 import { TrailService } from '../services/trailService';
 import { ToolTrail } from '../services/tool-trail';
@@ -206,12 +214,21 @@ import {
     computeRateLimitWaitMs,
     describeRateLimit,
     formatRetryDuration,
+    AUTH_RETRY_DELAY_MS,
     DEFAULT_TRANSPORT_RETRY_TEMPLATE,
     selectTransportRetryTemplateBody,
 } from '../services/agent-sdk-retry';
 import type { AgentSdkRetryPlan, SdkRateLimitInfoLike } from '../services/agent-sdk-retry';
 import type { LiveTrailUsage, LiveTrailModelUsage } from '../services/live-trail';
 import { isRetryableBusyError } from '../utils/retryableError';
+import {
+    FailureCauseCollector,
+    withFailureCause,
+    failureOf,
+    isBusyFailure,
+    isNonRetryableFailure,
+    failureAdvice,
+} from '../services/agent-sdk-failure';
 import { toolLog } from '../utils/toolLog';
 import {
     isAskUserQuestionTool,
@@ -384,7 +401,19 @@ export interface AgentSdkSendParams {
          * prompt input, mirroring the direct-SDK `withRetryBudget` path).
          */
         onRetryStatus?: (message: string) => void;
+        /**
+         * Delay before the single retry an authentication failure gets (ms).
+         * Default {@link AUTH_RETRY_DELAY_MS}; tests pass 0.
+         */
+        authRetryDelayMs?: number;
     };
+    /**
+     * Called once when the transport gives up on a failure the user has to
+     * act on (expired login, billing, invalid request), with a one-line
+     * message naming the cause and what to do. A queued prompt otherwise just
+     * stops; the handler forwards this to a VS Code / Telegram notification.
+     */
+    onFailureNotice?: (message: string) => void;
     /**
      * Interception of the SDK's built-in `AskUserQuestion` tool (spec §18,
      * "Anthropic Interactive Questions"). Only relevant when
@@ -622,6 +651,7 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
     // hit, and how many busy retries we have spaced out so far (for backoff).
     let firstBusyFailureAt: number | undefined;
     let busyRetryIndex = 0;
+    let authRetriesMade = 0;
 
     for (;;) {
         attemptsMade++;
@@ -637,6 +667,10 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : String(err);
             const now = Date.now();
+            // What the stream said before the child exited (see
+            // agent-sdk-failure.ts); `err` already leads with it.
+            const failure = failureOf(err);
+            const failureNonRetryable = isNonRetryableFailure(failure);
             // When the SDK told us the subscription window is exhausted we know
             // *exactly* when a retry can be accepted, so schedule against that
             // instead of guessing with exponential backoff.
@@ -644,7 +678,8 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
             // A rejected window is a "busy" condition even when the resulting
             // error text does not look like one — otherwise the reset-aware
             // path below would never engage for it.
-            const errorIsBusy = isRetryableBusyError(err) || rateLimitWaitMs !== undefined;
+            const errorIsBusy = !failureNonRetryable
+                && (isRetryableBusyError(err) || rateLimitWaitMs !== undefined || isBusyFailure(failure));
             if (errorIsBusy && firstBusyFailureAt === undefined) {
                 firstBusyFailureAt = now;
             }
@@ -662,8 +697,17 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
                 elapsedMs,
                 maxTotalWaitMs,
                 rateLimitWaitMs,
+                failureNonRetryable,
+                failureKind: failure?.kind,
+                authRetriesMade,
             });
             if (plan.kind === 'give-up') {
+                if (failureNonRetryable && failure && params.cancellationToken?.isCancellationRequested !== true) {
+                    const advice = failureAdvice(failure.kind);
+                    const notice = `Anthropic request failed: ${failure.kind} — ${failure.detail}${advice ? `. ${advice}` : ''}`;
+                    toolLog(`[retry] giving up without retrying (cause cannot succeed until the user acts): ${errorMessage}`);
+                    try { params.onFailureNotice?.(notice); } catch { /* notification is best-effort */ }
+                }
                 if (rateLimitWaitMs !== undefined) {
                     const status = `Anthropic ${describeRateLimit(rateLimitOut.info, now)} — the window does not reset within the ${formatRetryDuration(maxTotalWaitMs ?? 0)} retry budget; giving up`;
                     params.retry?.onRetryStatus?.(status);
@@ -696,7 +740,18 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
             // interrupted work" retries keep the legacy immediate behavior.
             // Either way, mirror the retry into the live-trail so the user sees
             // the error + retry without opening the Tom Tool Log.
-            if (rateLimitWaitMs !== undefined) {
+            if (failureNonRetryable) {
+                // The one authentication retry planAgentSdkRetry allows: the
+                // CLI's token refresh can recover on its own, so wait a little
+                // rather than fail the same way at once.
+                authRetriesMade++;
+                const delayMs = params.retry?.authRetryDelayMs ?? AUTH_RETRY_DELAY_MS;
+                const status = `${failure?.kind ?? 'authentication failure'} — retrying once in ${formatRetryDuration(delayMs)} (attempt ${attemptsMade + 1}, ${resumeNote})`;
+                params.retry?.onRetryStatus?.(status);
+                params.liveTrail?.appendRetry(status, errorMessage);
+                toolLog(`[retry] ${status} — cause: ${errorMessage}`);
+                await sleepCancellable(delayMs, params.cancellationToken);
+            } else if (rateLimitWaitMs !== undefined) {
                 const status = `Anthropic ${describeRateLimit(rateLimitOut.info, now)} — retrying in ${formatRetryDuration(rateLimitWaitMs)} (attempt ${attemptsMade + 1}, ${resumeNote})`;
                 params.retry?.onRetryStatus?.(status);
                 params.liveTrail?.appendRetry(status, errorMessage);
@@ -840,6 +895,10 @@ async function runAgentSdkAttempt(
         ? { type: 'preset', preset: 'claude_code' }
         : [];
 
+    // What the stream says about a failure, kept so a bare
+    // "process exited with code 1" can be rethrown leading with the cause.
+    const failureCollector = new FailureCauseCollector();
+
     let lastText = '';
     let totalToolCalls = 0;
     let stopReason: string | undefined;
@@ -888,6 +947,9 @@ async function runAgentSdkAttempt(
             // signal the input channel closes on. `env` replaces the
             // subprocess environment, so the inherited one is spread in.
             env: { ...process.env, [SESSION_STATE_EVENTS_ENV]: '1' },
+            // The CLI's own stderr: the only account of a failure that comes
+            // with no structured message. Kept bounded and scrubbed.
+            stderr: (data: string) => failureCollector.addStderr(data),
             ...(workspaceCwd ? { cwd: workspaceCwd } : {}),
         };
         // Continuity: passing `resume` tells the SDK to continue a prior
@@ -959,6 +1021,7 @@ async function runAgentSdkAttempt(
                 } catch { /* persistence is best-effort */ }
             }
             input.observe(msg);
+            failureCollector.observe(msg);
             switch (msg.type) {
                 case 'assistant': {
                     handleAssistantMessage(msg as SDKAssistantMessage, context);
@@ -1125,7 +1188,11 @@ async function runAgentSdkAttempt(
                     break;
             }
         }
-    } catch (err) {
+    } catch (thrown) {
+        // The SDK's exit error names no cause; lead with what the stream said.
+        const err = withFailureCause(thrown, failureCollector, {
+            cancelled: cancellationToken?.isCancellationRequested === true,
+        });
         // Always write *something* to the raw answer trail so the file
         // pair (prompt + answer) is complete even when the SDK stream
         // errors out. Re-throw afterwards — the chat panel reports the
@@ -1135,13 +1202,18 @@ async function runAgentSdkAttempt(
         const body = lastText
             ? `${lastText}\n\n---\n(stream error after partial output)\n${errMsg}`
             : `(no text produced — stream errored before any assistant text)\n${errMsg}`;
-        TrailService.instance.writeRawAnswer(
-            ANTHROPIC_SUBSYSTEM,
-            body,
-            context.windowId,
-            context.requestId,
-            context.questId,
-        );
+        try {
+            TrailService.instance.writeRawAnswer(
+                ANTHROPIC_SUBSYSTEM,
+                body,
+                context.windowId,
+                context.requestId,
+                context.questId,
+            );
+        } catch {
+            // A trail that cannot be written must not replace the error
+            // being reported.
+        }
         throw err;
     } finally {
         input.close('stream-ended');

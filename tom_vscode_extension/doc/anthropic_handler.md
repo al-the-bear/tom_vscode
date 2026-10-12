@@ -184,6 +184,28 @@ When the last reported status was **`rejected`** we know the exact instant a ret
 
 Under **API-key** auth this message never arrives; the loop falls back to exponential backoff unchanged. The decision logic (`rateLimitResetAtMs`, `computeRateLimitWaitMs`, `describeRateLimit`, `formatRetryDuration`) lives in the pure, `vscode`-free `src/services/agent-sdk-retry.ts` and is unit-tested there. `resetsAt` is accepted in either seconds or milliseconds — the SDK types don't state a unit, so values below `1e12` are treated as seconds.
 
+### A failure names its cause (`agentSdk`)
+
+When the Claude Code child process exits non-zero, the SDK throws `Claude Code process exited with code 1` and nothing more. The cause has usually been said in the stream already, and `runAgentSdkAttempt` keeps it (`FailureCauseCollector`, `src/services/agent-sdk-failure.ts`):
+
+- an **assistant message with `error`** (`authentication_failed`, `billing_error`, `rate_limit`, `overloaded`, `invalid_request`, …) and its text, e.g. `Failed to authenticate: OAuth session expired and could not be refreshed`;
+- a **`result` with `is_error`**: its `errors` for the error subtypes, or its `result` text for subtype `success`;
+- an **`auth_status` message with `error`**;
+- the CLI's **stderr**, through the query's `stderr` option. The last 4 KB is kept, and it is used only when nothing structured arrived.
+
+The exit error is then rethrown as an `AgentSdkFailureError` whose message **leads with the cause** and keeps the exit text after it, e.g. `Agent SDK failed: authentication_failed — Failed to authenticate: OAuth session expired and could not be refreshed (Claude Code process exited with code 1) Sign in again: …`. Its stack starts with the same line, so the `### 🔁 retry` notes, the `### ⚠️ ERROR` block, the Tom Tool Log and the queue item's error all show the cause. Stderr and the cause text are scrubbed of token-shaped strings (API keys, GitHub tokens, JWTs, bearer headers, long hex/base64 runs) before they go anywhere. A failure the stream said nothing about is rethrown unchanged.
+
+The cause also steers the retry:
+
+| Cause | Retry |
+| --- | --- |
+| `rate_limit`, `overloaded`, `server_error` | busy path, as above |
+| `authentication_failed` | **one** retry after 30 s (`AUTH_RETRY_DELAY_MS`), because the CLI's token refresh can recover on its own; then give up |
+| `billing_error`, `invalid_request`, `model_not_found`, `oauth_org_not_allowed`, `account_on_hold`, `verification_required`, `cloud_credential_error` | give up at once: retrying cannot succeed until the user acts |
+| anything else | unchanged: the "resume interrupted work" retries |
+
+Giving up on one of those non-retryable causes also calls the transport's `onFailureNotice`. The handler wires it to the same channels as `tomAi_notifyUser`: Telegram when configured, else a VS Code error message. That matters for a queued prompt, which otherwise simply stops. The notice names the cause and what to do, e.g. *Sign in again: run /login in Claude Code, or re-authenticate the extension's Claude profile, then resend.*
+
 ### Token / cost accounting in the live-trail (`agentSdk`)
 
 The Agent SDK reports the turn's accounting exactly once, in its final `result` message. The transport maps it onto `LiveTrailUsage` (`toLiveTrailUsage`) and writes a `### 📊 usage` block **just before** the closing `### ✅ DONE`, so the numbers sit next to the work that incurred them:
