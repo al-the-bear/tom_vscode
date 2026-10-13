@@ -29,8 +29,8 @@ const path = require('path');
 const EXT_ROOT = path.resolve(__dirname, '..');
 
 /**
- * Entries the SOM tools load at run time. Later additions (the CodeSpecs area
- * catalogue, the validate_codespecs binary) are appended here when they ship.
+ * Entries the SOM tools load at run time. The validate_codespecs binary is
+ * appended here when it ships.
  */
 const REQUIRED = [
     'extension/node_modules/tom_som_typescript_runtime/package.json',
@@ -43,6 +43,7 @@ const REQUIRED = [
     'extension/out/services/som-model-service.js',
     'extension/out/services/som-document-store.js',
     'extension/out/services/som-document-io-vscode.js',
+    'extension/resources/codespecs/codespecs_areas.json',
 ];
 
 const SOM_PREFIXES = [

@@ -26,6 +26,12 @@
  * rebuilt runtime never reaches the extension. Run `npm install` afterwards
  * (install_extension.sh does).
  *
+ * It also copies the CodeSpecs area catalogue
+ * (tom_specs_model/generated-doc/codespecs/codespecs_areas.json) to
+ * resources/codespecs/: the catalogue is not part of either package, and the
+ * VSIX must carry it like everything else the tools load (vsctsa10). The copy
+ * is gitignored build output; a guard test holds it equal to the source.
+ *
  * Exit codes: 0 built, 1 a step failed (the message names it).
  */
 'use strict';
@@ -39,6 +45,21 @@ const AI_BUILD = process.env.TOM_SOM_AI_BUILD
     ? path.resolve(process.env.TOM_SOM_AI_BUILD)
     : path.resolve(EXT_ROOT, '..', '..', 'ai_build');
 const VENDOR_DIR = path.join(EXT_ROOT, 'vendor', 'tom_som');
+
+/** The CodeSpecs area catalogue, in ai_build and in the extension. */
+const CATALOG_SOURCE = path.join('tom_specs_model', 'generated-doc', 'codespecs', 'codespecs_areas.json');
+const CATALOG_TARGET = path.join(EXT_ROOT, 'resources', 'codespecs', 'codespecs_areas.json');
+
+/** Copy the CodeSpecs area catalogue from `aiBuild` into the extension. */
+function copyCodeSpecsCatalog(aiBuild) {
+    const source = path.join(aiBuild, CATALOG_SOURCE);
+    if (!fs.existsSync(source)) {
+        fail(`the CodeSpecs area catalogue is missing at ${source}.`);
+    }
+    fs.mkdirSync(path.dirname(CATALOG_TARGET), { recursive: true });
+    fs.copyFileSync(source, CATALOG_TARGET);
+    console.log(`  ✔ ${path.relative(EXT_ROOT, CATALOG_TARGET)}`);
+}
 
 /** In dependency order: the facade's prepack builds against the runtime. */
 const PACKAGES = ['tom_som_typescript_runtime', 'tom_som_typescript_v0'];
@@ -109,10 +130,19 @@ function main() {
         }
         fs.writeFileSync(lockPath, `${JSON.stringify(data, null, 2)}\n`);
     }
+    copyCodeSpecsCatalog(AI_BUILD);
     if (versions[PACKAGES[0]] !== versions[PACKAGES[1]]) {
         fail(`version mismatch: ${JSON.stringify(versions)}. The runtime and the facade carry the model version and move together.`);
     }
     console.log(`✅ TomSpecs SOM packages ${versions[PACKAGES[0]]} ready in ${path.relative(EXT_ROOT, VENDOR_DIR)}/`);
 }
 
-main();
+if (require.main === module) {
+    if (process.argv.includes('--catalog-only')) {
+        copyCodeSpecsCatalog(AI_BUILD);
+    } else {
+        main();
+    }
+}
+
+module.exports = { CATALOG_SOURCE, CATALOG_TARGET };

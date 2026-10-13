@@ -520,6 +520,43 @@ So on today's workspace documents these tools mostly report `unknownSchema`, or
 runtime's form, including SOM-rendered Markdown. tom_specs vsctasb7 settles
 which form is current.
 
+### 4.25 CodeSpecs (Phase 4: a filled spec becomes code-generation inputs)
+
+These tools run the runtime's `CodeSpecsExtractor` over one TomSpecs document
+and the CodeSpecs area catalogue. `npm run som:pack` copies the catalogue from
+`tom_specs_model` into `resources/codespecs/`, and it ships in the VSIX.
+
+The concepts:
+- An **area** (`CE-…`, 27 in all) is one kind of generated artefact.
+- A **slice** (7) is a group of areas emitted into one project.
+- An **authoring step** (31) is a place in the order artefacts are written.
+- **Routing:** every class node is routed by its model annotations:
+  - `@CodeSpecKind`: it feeds code;
+  - `@FollowUpKind`: a process delivers it, and routing does not descend
+    further;
+  - `@NoArtifact`: it feeds nothing;
+  - `@Document`: it is the root.
+
+  A class with none of these is **unrouted**, and extraction refuses the
+  document (ROUTE-TOTAL, gate A3). Only the model routes a class: a heading
+  `codeSpec=` names artefacts, and an unrouted class is fixed in the model.
+- **Extract:** one area's entries, each with its section id, path, class,
+  field, verbatim value and the routing that placed it.
+
+The CodeSpecs projection document (a root with `@CodeSpecsProjection`: D13,
+CGP) defines what generation reaches. It is not filled and not extracted, so
+these tools refuse it rather than return 27 empty extracts.
+
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
+| --- | --- | :-: | :-: | :-: | :-: | :-: |
+| `tomAi_specCodeSpecsAreas` | The catalogue: areas, slices, authoring steps; one area (projects, citable areas, steps) or one slice in detail. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_specCodeSpecsRouting` | Gate A3, readable: every class node's verdict, with the unrouted ones and their fix; filter by verdict or path. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_specCodeSpecsExtract` | One area's extract as Markdown with each entry's provenance, or a per-area summary. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_specCodeSpecsWriteExtracts` | Write every area's `.extract.yaml` / `.extract.md` to `<document folder>/generated-doc/codespecs_extracts/` (approval). Unchanged files are left alone; `dryRun` reports the file statuses. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+
+For the Meridian sample, the written extracts equal the conformance corpus
+(`tom_som_conformance/generated-doc/codespecs_extracts`) byte for byte.
+
 ## 5. Transport-specific recommendations
 
 ### 5.1 Anthropic Agent SDK (`transport: 'agentSdk'`)
@@ -607,6 +644,7 @@ Tools are grouped by functional family, one file per family under `src/tools/`:
 | `id-prefix-tools.ts` | Date-based prefix for collision-free hand-authored ids |
 | `issue-tools.ts` | Issues subpanel (read + write) |
 | `test-tools.ts` | Tests subpanel / testkit (read + write) |
+| `codespecs-tools.ts` | CodeSpecs: area catalogue, routing, extract, write extracts |
 | `docspecs-tools.ts` | Plain DocSpecs Markdown: validate, outline, get and replace a section |
 | `spec-tools.ts`, `spec-search-tools.ts`, `spec-edit-tools.ts`, `spec-validate-tools.ts` | TomSpecs (SOM) documents: read and reflect, search with a cursor, edits and the batch, validate / render / convert (`spec-tool-common.ts` holds what they share) |
 | `chat-enhancement-tools.ts` | Notify, quest/session todos, queue, timed, templates, reminders |
@@ -633,7 +671,7 @@ that works under `toolsEnabled: true` and is invisible everywhere else.
 
 ### Deliberately unselectable tools
 
-Of the 156 registered tools, **140 are selectable** and **16 are withheld from
+Of the 160 registered tools, **144 are selectable** and **16 are withheld from
 the pickers on purpose** (`DELIBERATELY_UNSELECTABLE_TOOLS` in
 `src/utils/constants.ts`): the twelve queue mutators and dispatch entry points
 (`tomAi_addQueueItem`, `tomAi_updateQueueItem`, `tomAi_removeQueueItem`,

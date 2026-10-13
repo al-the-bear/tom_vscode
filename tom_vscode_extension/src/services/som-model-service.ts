@@ -20,7 +20,8 @@
  */
 
 import * as fs from 'fs';
-import { SpecModel, SpecReflection, buildSomMetaTree } from 'tom_som_typescript_runtime';
+import * as path from 'path';
+import { CodeSpecsAreaCatalog, SpecModel, SpecReflection, buildSomMetaTree } from 'tom_som_typescript_runtime';
 import type { DocSpecsSchema, SomMetaTree, SpecRoot } from 'tom_som_typescript_runtime';
 
 /** The facade's schema accessor (`tom_som_typescript_v0/schemas`). */
@@ -50,6 +51,7 @@ export class SomModelService {
     private _model: SpecModel | undefined;
     private _reflection: SpecReflection | undefined;
     private _schemas: SomSchemaAccessor | undefined;
+    private _catalog: CodeSpecsAreaCatalog | undefined;
     private readonly _trees = new Map<string, SomMetaTree>();
 
     /** The SOM model, parsed from the facade's meta on first use. */
@@ -120,6 +122,27 @@ export class SomModelService {
     schemaVersion(id: string): string | null {
         const text = this.schemaAccessor.somDocSpecsSchemaYaml[id] ?? '';
         return /^# Schema: [^/\s]+\/(\S+)$/m.exec(text)?.[1] ?? null;
+    }
+
+    /**
+     * The packaged copy of the CodeSpecs area catalogue (areas, slices,
+     * authoring steps). scripts/build-som-packages.cjs copies it from
+     * tom_specs_model into resources/codespecs/, which ships in the VSIX.
+     */
+    get codeSpecsCatalog(): CodeSpecsAreaCatalog {
+        if (!this._catalog) {
+            const file = SomModelService.codeSpecsCatalogFile;
+            if (!fs.existsSync(file)) {
+                throw new Error(`The CodeSpecs area catalogue is missing at ${file}. Run \`npm run som:pack\` in the extension (it copies the catalogue from tom_specs_model).`);
+            }
+            this._catalog = CodeSpecsAreaCatalog.fromJson(JSON.parse(fs.readFileSync(file, 'utf8')));
+        }
+        return this._catalog;
+    }
+
+    /** Where the packaged catalogue lives: <extension>/resources/codespecs/ (this file is out/services/). */
+    static get codeSpecsCatalogFile(): string {
+        return path.resolve(__dirname, '..', '..', 'resources', 'codespecs', 'codespecs_areas.json');
     }
 
     /** The installed package versions; they move together with the model version. */

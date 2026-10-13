@@ -1530,6 +1530,7 @@ import { SPEC_SEARCH_TOOLS } from './spec-search-tools';
 import { SPEC_EDIT_TOOLS } from './spec-edit-tools';
 import { SPEC_VALIDATE_TOOLS } from './spec-validate-tools';
 import { DOCSPECS_TOOLS } from './docspecs-tools';
+import { CODESPECS_TOOLS } from './codespecs-tools';
 
 // Re-export initializeToolDescriptions so existing consumers continue to work
 // without needing to update their import paths.
@@ -1604,6 +1605,7 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
     ...SPEC_SEARCH_TOOLS,         // TomSpecs (SOM): specSearch, specSearchIterate (paged cursor)
     ...SPEC_VALIDATE_TOOLS,       // TomSpecs (SOM): specValidate, specRender (read-only), specConvert (approval)
     ...SPEC_EDIT_TOOLS,           // TomSpecs (SOM) edits, approval-gated: create, set content/form/headline/codeSpec, add, rename id, move, remove, clear
+    ...CODESPECS_TOOLS,           // CodeSpecs (Phase 4): areas, routing, extract (read-only), write extracts (approval)
     ...DOCSPECS_TOOLS,            // plain DocSpecs Markdown: docspecsValidate, docspecsOutline, docspecsGetSection, docspecsReplaceSection (approval)
 ];
 

@@ -5,3 +5,4 @@ bin
 .vscode-test
 .DS_Store
 vendor
+resources/codespecs

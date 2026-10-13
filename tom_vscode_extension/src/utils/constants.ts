@@ -191,6 +191,11 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_specSearchIterate',
     'tomAi_specValidate',
     'tomAi_specRender',
+    // CodeSpecs (Phase 4: spec → code-generation inputs)
+    'tomAi_specCodeSpecsAreas',
+    'tomAi_specCodeSpecsRouting',
+    'tomAi_specCodeSpecsExtract',
+    'tomAi_specCodeSpecsWriteExtracts',
     // Plain DocSpecs Markdown (not SOM)
     'tomAi_docspecsValidate',
     'tomAi_docspecsOutline',
