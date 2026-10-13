@@ -189,6 +189,8 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_specReflect',
     'tomAi_specSearch',
     'tomAi_specSearchIterate',
+    'tomAi_specValidate',
+    'tomAi_specRender',
     // TomSpecs (SOM) edits — write tools, approval-gated
     'tomAi_specAddNode',
     'tomAi_specClearSection',
@@ -201,6 +203,7 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_specSetHeadline',
     'tomAi_specSetItemSectionId',
     'tomAi_specApplyEdits',
+    'tomAi_specConvert',
     // Queue + timed requests — observation only; the mutators and the dispatch
     // entry points are in DELIBERATELY_UNSELECTABLE_TOOLS below.
     'tomAi_listQueue',

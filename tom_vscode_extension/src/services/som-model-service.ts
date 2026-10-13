@@ -27,6 +27,7 @@ import type { DocSpecsSchema, SomMetaTree, SpecRoot } from 'tom_som_typescript_r
 interface SomSchemaAccessor {
     somDocSpecsSchema(id: string): DocSpecsSchema;
     somDocSpecsSchemaIds: readonly string[];
+    somDocSpecsSchemaYaml: Readonly<Record<string, string>>;
 }
 
 /** The installed versions of the two SOM packages. */
@@ -109,6 +110,16 @@ export class SomModelService {
     /** A generated DocSpecs schema by id (e.g. `solution-blueprint`); throws for an unknown id. */
     schema(id: string): DocSpecsSchema {
         return this.schemaAccessor.somDocSpecsSchema(id);
+    }
+
+    /**
+     * The version a generated schema declares in its `# Schema: <id>/<version>`
+     * header line, or null when it has none. Schema findings carry it so a
+     * finding that is the schema's fault can be traced to the schema that made it.
+     */
+    schemaVersion(id: string): string | null {
+        const text = this.schemaAccessor.somDocSpecsSchemaYaml[id] ?? '';
+        return /^# Schema: [^/\s]+\/(\S+)$/m.exec(text)?.[1] ?? null;
     }
 
     /** The installed package versions; they move together with the model version. */

@@ -393,6 +393,19 @@ document, a list item resolves only when the list holds it.
 | `tomAi_specReflect` | The model at a path or class: kinds, types, form fields, annotations, doc comments; with a file, the children `checkAddNode` accepts there now. | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_specSearch` | Query one document (runtime `SpecQueryEngine`): text or portable pattern, kinds, class, `@SectionId`, path glob, `@MapsTo` / `@DetailedIn`, empty / non-empty, AND-combined. First page + cursor. | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_specSearchIterate` | The next page of a search cursor; re-runs the query when the file changed since. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_specValidate` | Is it valid now? The three tiers of tom_specs' `validate_spec` CLI (decode, DocSpecs schema, instance) in its report shape, each finding with the `path` to fix. `files` validates fragments of one document as one; `path` scopes the findings. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_specRender` | The document, or one subtree, as the DocSpecs Markdown a reader sees. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+
+**Validation.** `tomAi_specValidate` answers in the report shape of tom_specs'
+`validate_spec --json` (`spec-validation`/1): `{passed, summary, root {type,
+sectionId, title, schemaId, schemaVersion}, tiers [{tier, ran, findings}],
+notRun, violations [{tier, code, severity, file, line, location, message}]}`.
+The extension adds `path` to each violation: the document path to fix, in the
+form the edit tools take. An instance finding states its path. A schema finding
+states only a section id (which repeats: every requirement has a FRED form) and
+a line of the rendition, so its path is the node bearing that id whose heading
+the line falls under (tom_specs vsctasb6 asks the runtime to fill it). The edit
+tools' `validation` is the instance tier only.
 
 **Edits.** These tools write files: `readOnly: false` and `requiresApproval: true`,
 so they pass the approval gate and the MCP server offers them only to
@@ -416,6 +429,7 @@ nothing. Each call loads, edits and saves the file in its own format. It takes
 | `tomAi_specMoveListItem` | Reorder within a list or move to a list of the same element class; returns the `renamed` map, and YAML review entries follow their items. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_specRemoveListItem` | Remove a list item and everything under it. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_specClearSection` | Remove every value under a path. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_specConvert` | Write the other format (`*.docspecs.yaml` ↔ `*.md`) beside or over the source. Refuses unfaithful Markdown; a YAML source's review entries need `dropReview`, since Markdown has none. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_specApplyEdits` | **The preferred way to make more than one change:** up to 200 of the edits above (`{op, …}`), in order, on one document. One approval, one write, one undo step, all or nothing. `addNode` can bind `as: "req"` for later `$req/…` paths; a move re-points bound names and refuses a stale literal path. The approval prompt shows the op counts and paths. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 
 Every edit answers `{ok, written, revision, …, validation}`. `validation` compares
@@ -449,6 +463,7 @@ description names its counterpart:
 | `tomAi_specSetContent` | `doc_set_content` |
 | `tomAi_specSetFormField` | `doc_set_form_field` |
 | `tomAi_specAddNode` | `doc_add_node`, `doc_add_list_item` |
+| `tomAi_specValidate` | `validate_spec` (tom_specs_clitool CLI), same tiers and report |
 | `tomAi_specRemoveListItem` | `doc_remove_list_item` |
 
 **Search specifics.** The `text` dimension searches stored values (content,
@@ -551,7 +566,7 @@ Tools are grouped by functional family, one file per family under `src/tools/`:
 | `id-prefix-tools.ts` | Date-based prefix for collision-free hand-authored ids |
 | `issue-tools.ts` | Issues subpanel (read + write) |
 | `test-tools.ts` | Tests subpanel / testkit (read + write) |
-| `spec-tools.ts`, `spec-search-tools.ts`, `spec-edit-tools.ts` | TomSpecs (SOM) documents: read and reflect, search with a cursor, edits and the batch (`spec-tool-common.ts` holds what they share) |
+| `spec-tools.ts`, `spec-search-tools.ts`, `spec-edit-tools.ts`, `spec-validate-tools.ts` | TomSpecs (SOM) documents: read and reflect, search with a cursor, edits and the batch, validate / render / convert (`spec-tool-common.ts` holds what they share) |
 | `chat-enhancement-tools.ts` | Notify, quest/session todos, queue, timed, templates, reminders |
 | `tool-executors.ts` | File I/O primitives, shell, web, memory, chat vars, ask-AI bridges |
 
@@ -576,7 +591,7 @@ that works under `toolsEnabled: true` and is invisible everywhere else.
 
 ### Deliberately unselectable tools
 
-Of the 149 registered tools, **133 are selectable** and **16 are withheld from
+Of the 152 registered tools, **136 are selectable** and **16 are withheld from
 the pickers on purpose** (`DELIBERATELY_UNSELECTABLE_TOOLS` in
 `src/utils/constants.ts`): the twelve queue mutators and dispatch entry points
 (`tomAi_addQueueItem`, `tomAi_updateQueueItem`, `tomAi_removeQueueItem`,

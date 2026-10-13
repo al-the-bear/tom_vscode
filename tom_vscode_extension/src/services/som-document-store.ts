@@ -63,7 +63,9 @@ export type SomDocumentErrorCode =
     | 'revisionConflict'
     | 'dirtyInEditor'
     | 'encode'
-    | 'exists';
+    | 'exists'
+    | 'sameFormat'
+    | 'reviewWouldBeDropped';
 
 /** A refusal or failure with a code a tool can report and a message that says what to do. */
 export class SomDocumentError extends Error {
@@ -243,6 +245,56 @@ export class SomDocumentStore {
         fs.mkdirSync(path.dirname(filePath), { recursive: true });
         await this.io.write(filePath, text);
         return this.load(filePath);
+    }
+
+    /**
+     * Write `loaded` in the other format at `targetPath` (the format its name
+     * says), stamped with the model version. Refuses a read-only source (its
+     * Markdown import is not faithful, or its model version is not editable),
+     * a target in the source's own format, an existing target unless
+     * `overwrite`, a target dirty in an editor, and — because Markdown has no
+     * review pass — a YAML source with review entries unless `dropReview`.
+     */
+    async convert(
+        loaded: LoadedSomDocument,
+        targetPath: string,
+        options: { overwrite?: boolean; dropReview?: boolean; dryRun?: boolean } = {},
+    ): Promise<{ written: boolean; format: SomDocumentFormat; text: string; revision: string; diff: string; droppedReviewEntries: number }> {
+        if (loaded.readOnlyReason) {
+            throw new SomDocumentError('readOnly', loaded.readOnlyReason);
+        }
+        const format = formatOf(targetPath);
+        if (format === loaded.format) {
+            throw new SomDocumentError('sameFormat', `${path.basename(targetPath)} is ${format} like the source; convert writes the other format.`);
+        }
+        const exists = fs.existsSync(targetPath);
+        if (exists && !options.overwrite) {
+            throw new SomDocumentError('exists', `${targetPath} already exists. Pass overwrite to replace it.`);
+        }
+        if (exists && this.io.isDirty?.(targetPath)) {
+            throw new SomDocumentError('dirtyInEditor', `${path.basename(targetPath)} has unsaved changes in an editor. Save or revert it there first.`);
+        }
+        const reviewEntries = loaded.review && typeof loaded.review === 'object' ? Object.keys(loaded.review).length : 0;
+        if (format === 'markdown' && reviewEntries > 0 && !options.dropReview) {
+            throw new SomDocumentError('reviewWouldBeDropped',
+                `The source carries ${reviewEntries} review entr${reviewEntries === 1 ? 'y' : 'ies'}, and Markdown has no review pass, so the converted file would not have them. Pass dropReview to convert anyway; the source keeps them.`);
+        }
+        const text = format === 'yaml'
+            ? withRootKey(yamlEncode(loaded.document, this.service.metaTree(loaded.root.type), this.service.modelVersion, null), loaded.root)
+            : loaded.document.toMarkdown(this.service.model, loaded.root.type);
+        const before = exists ? this.io.read(targetPath) : '';
+        const result = {
+            written: false,
+            format,
+            text,
+            revision: sha256(text),
+            diff: unifiedDiff(before, text, path.basename(targetPath)),
+            droppedReviewEntries: format === 'markdown' ? reviewEntries : 0,
+        };
+        if (options.dryRun) { return result; }
+        fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+        await this.io.write(targetPath, text);
+        return { ...result, written: true };
     }
 
     /** The revision (sha256) of the file as it is now. Throws SomDocumentError notFound when unreadable. */

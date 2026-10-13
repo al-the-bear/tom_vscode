@@ -796,7 +796,8 @@ export const SPEC_APPLY_EDITS_TOOL: SharedToolDefinition<SpecApplyEditsInput> = 
         + 'batch and writes nothing: `{ok:false, failedOp: {index, op}, code, error, completed}`. On success: `{written, '
         + 'revision, applied, results: [{index, op, …}], bindings, validation: {introduced, resolved, underPath, total}}`, '
         + 'the validation compared before and after the whole batch. `dryRun` returns all of it plus the `diff`, writing '
-        + 'nothing. Creating a document is tomAi_specCreateDocument.',
+        + 'nothing. Creating a document is tomAi_specCreateDocument. `validation` is the instance tier only; '
+        + 'tomAi_specValidate gives the full picture, the DocSpecs schema tier included.',
     tags: ['tomspecs', 'som', 'docspecs', 'edit', 'tom-ai-chat'],
     readOnly: false,
     requiresApproval: true,
