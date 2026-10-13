@@ -185,6 +185,18 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_specSearch',
         'tomAi_specSearchIterate',
     ],
+    'TomSpecs (edit)': [
+        'tomAi_specAddNode',
+        'tomAi_specClearSection',
+        'tomAi_specCreateDocument',
+        'tomAi_specMoveListItem',
+        'tomAi_specRemoveListItem',
+        'tomAi_specSetCodeSpec',
+        'tomAi_specSetContent',
+        'tomAi_specSetFormField',
+        'tomAi_specSetHeadline',
+        'tomAi_specSetItemSectionId',
+    ],
     'Todos (chat)': [
         'tomAi_manageTodo',
     ],

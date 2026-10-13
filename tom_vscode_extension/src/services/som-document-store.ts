@@ -62,7 +62,8 @@ export type SomDocumentErrorCode =
     | 'readOnly'
     | 'revisionConflict'
     | 'dirtyInEditor'
-    | 'encode';
+    | 'encode'
+    | 'exists';
 
 /** A refusal or failure with a code a tool can report and a message that says what to do. */
 export class SomDocumentError extends Error {
@@ -126,8 +127,8 @@ export interface LoadedSomDocument {
     /** The model version the file is stamped with, or null for an unstamped file. */
     stamp: string | null;
     editability: SomEditability;
-    /** YAML only: the `review:` pass, or null when the file has none. */
-    readonly review: unknown | null;
+    /** YAML only: the `review:` pass, or null when the file has none. A move re-keys it (rekeyReview). */
+    review: unknown | null;
     /** Markdown only: blocks the parser rejected (they are not in {@link document}). */
     readonly rejections: readonly SpecMarkdownRejection[];
     /** Markdown only: ways the import does not reproduce the file faithfully. */
@@ -182,6 +183,21 @@ function sha256(text: string): string {
     return crypto.createHash('sha256').update(text, 'utf8').digest('hex');
 }
 
+const EMPTY_DOCUMENT_PASS = /^document: \{\}$/m;
+
+/**
+ * The codec writes a document with no values as `document: {}` (every port,
+ * Dart included), which loses the root: nothing in the file says which
+ * document it is, so it could not be loaded again. The store writes the root
+ * key with an empty body instead, `document:\n  SBP D00SolutionBlueprint: {}`,
+ * which the decoder reads back as the same empty document. This matters for
+ * a document just created and for one cleared to nothing. (tom_specs
+ * vsctasb4 asks the codec to write the root key itself.)
+ */
+function withRootKey(yaml: string, root: SpecRoot): string {
+    return yaml.replace(EMPTY_DOCUMENT_PASS, `document:\n  ${root.sectionId ?? root.type} ${root.type}: {}`);
+}
+
 function formatOf(filePath: string): SomDocumentFormat {
     const lower = filePath.toLowerCase();
     if (lower.endsWith('.docspecs.yaml') || lower.endsWith('.yaml') || lower.endsWith('.yml')) { return 'yaml'; }
@@ -206,6 +222,27 @@ export class SomDocumentStore {
             throw new SomDocumentError('notFound', `${filePath} does not exist or cannot be read.`);
         }
         return format === 'yaml' ? this.loadYaml(filePath, text) : this.loadMarkdown(filePath, text);
+    }
+
+    /**
+     * Create a new, empty document for one model root (type or section id) at
+     * `filePath`, in the format its extension names, stamped with the model
+     * version, and return it loaded. Refuses an existing file; creates missing
+     * parent folders.
+     */
+    async create(filePath: string, rootTypeOrSectionId: string): Promise<LoadedSomDocument> {
+        const format = formatOf(filePath);
+        if (fs.existsSync(filePath)) {
+            throw new SomDocumentError('exists', `${filePath} already exists. Edit it, or choose another name.`);
+        }
+        const root = this.rootFor(rootTypeOrSectionId, filePath);
+        const empty = new SpecDocument();
+        const text = format === 'yaml'
+            ? withRootKey(yamlEncode(empty, this.service.metaTree(root.type), this.service.modelVersion, null), root)
+            : empty.toMarkdown(this.service.model, root.type);
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        await this.io.write(filePath, text);
+        return this.load(filePath);
     }
 
     /** The revision (sha256) of the file as it is now. Throws SomDocumentError notFound when unreadable. */
@@ -263,7 +300,10 @@ export class SomDocumentStore {
         const stamp = options.stamp === undefined ? this.service.modelVersion : options.stamp;
         if (loaded.format === 'yaml') {
             try {
-                return yamlEncode(loaded.document, this.service.metaTree(loaded.root.type), stamp, loaded.review ?? null);
+                return withRootKey(
+                    yamlEncode(loaded.document, this.service.metaTree(loaded.root.type), stamp, loaded.review ?? null),
+                    loaded.root,
+                );
             } catch (e) {
                 throw new SomDocumentError('encode', `The document cannot be written as YAML: ${(e as Error).message}`);
             }

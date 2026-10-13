@@ -1527,6 +1527,7 @@ import { PROMPT_HISTORY_TOOLS } from './prompt-history-tools';
 import { ID_PREFIX_TOOLS } from './id-prefix-tools';
 import { SPEC_TOOLS } from './spec-tools';
 import { SPEC_SEARCH_TOOLS } from './spec-search-tools';
+import { SPEC_EDIT_TOOLS } from './spec-edit-tools';
 
 // Re-export initializeToolDescriptions so existing consumers continue to work
 // without needing to update their import paths.
@@ -1599,6 +1600,7 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
     ...ID_PREFIX_TOOLS,           // generateIdPrefix — date-based letters-only code for collision-free hand-authored ids
     ...SPEC_TOOLS,                // TomSpecs (SOM): specListDocuments, specOutline, specGetSection, specReflect
     ...SPEC_SEARCH_TOOLS,         // TomSpecs (SOM): specSearch, specSearchIterate (paged cursor)
+    ...SPEC_EDIT_TOOLS,           // TomSpecs (SOM) edits, approval-gated: create, set content/form/headline/codeSpec, add, rename id, move, remove, clear
 ];
 
 /**

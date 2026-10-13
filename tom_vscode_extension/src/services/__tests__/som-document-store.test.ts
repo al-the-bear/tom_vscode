@@ -19,6 +19,7 @@
  *   SD-12  unknown format and unknown root are clear errors
  *   SD-13  save reports review entries whose path no longer resolves
  *   SD-14  peek identifies a document from its header, null for anything else
+ *   SD-15  create writes an empty document that loads again, in both formats; an emptied YAML keeps its root
  */
 
 import test, { describe } from 'node:test';
@@ -227,5 +228,27 @@ describe('SomDocumentStore', () => {
         assert.equal(s.peek(write('sd14-unknown.docspecs.yaml', MERIDIAN_YAML.replace('SBP D00SolutionBlueprint:', 'ZZZ Nothing:'))), null);
         assert.equal(s.peek(path.join(tmp, 'missing.docspecs.yaml')), null);
         assert.equal(s.peek(write('sd14.txt', 'x')), null);
+    });
+
+    test('SD-15: create, and an empty YAML document keeps its root', async () => {
+        const s = store();
+        const yamlPath = path.join(tmp, 'sd15', 'new.docspecs.yaml');
+        const created = await s.create(yamlPath, 'SBP');
+        assert.match(fs.readFileSync(yamlPath, 'utf8'), /^document:\n {2}SBP D00SolutionBlueprint: \{\}$/m);
+        assert.equal(created.root.sectionId, 'SBP');
+        assert.equal(created.stamp, service.modelVersion);
+        assert.equal(created.readOnlyReason, null);
+        await assert.rejects(s.create(yamlPath, 'SBP'), (e: unknown) => e instanceof SomDocumentError && e.code === 'exists');
+
+        const md = await s.create(path.join(tmp, 'sd15', 'new.md'), 'D00SolutionBlueprint');
+        assert.deepEqual(md.fidelityProblems, []);
+        assert.equal(md.readOnlyReason, null);
+
+        const full = s.load(write('sd15-full.docspecs.yaml', MERIDIAN_YAML));
+        full.document.removeValuesUnder('SBP');
+        await s.save(full);
+        const again = s.load(full.filePath);
+        assert.equal(again.root.sectionId, 'SBP', 'a document cleared to nothing can still be loaded');
+        assert.equal(again.document.isEmpty, true);
     });
 });

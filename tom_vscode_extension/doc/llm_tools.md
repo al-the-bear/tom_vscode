@@ -394,6 +394,40 @@ document, a list item resolves only when the list holds it.
 | `tomAi_specSearch` | Query one document (runtime `SpecQueryEngine`): text or portable pattern, kinds, class, `@SectionId`, path glob, `@MapsTo` / `@DetailedIn`, empty / non-empty, AND-combined. First page + cursor. | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_specSearchIterate` | The next page of a search cursor; re-runs the query when the file changed since. | ✅ | ✅ | ⚪ | ✅ | ✅ |
 
+**Edits.** These tools write files: `readOnly: false` and `requiresApproval: true`,
+so they pass the approval gate and the MCP server offers them only to
+authenticated clients. Every change goes through the runtime's `SpecEditor`,
+`SpecNodeCreator` and `SpecDocument`. A wrong path, a value of the wrong type, an
+enum name outside its domain, a child the model does not allow, or a section id
+that breaks its pattern or collides is refused, and a refused edit writes
+nothing. Each call loads, edits and saves the file in its own format. It takes
+`expectedRevision` (refused when the file changed since it was read) and
+`dryRun` (returns a `diff`, writes nothing).
+
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
+| --- | --- | :-: | :-: | :-: | :-: | :-: |
+| `tomAi_specCreateDocument` | A new, empty document for one model root, in the format its file name says. Refuses an existing file. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_specSetContent` | A content or scalar value; null or `""` clears it. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_specSetFormField` | One form field, typed by its declaration: int, double, bool or enum name. A wrong value comes back with the field's type and domain. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_specSetHeadline` | A section's stored headline; null returns it to its default title. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_specSetCodeSpec` | The heading-level `codeSpec=` routing marker. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_specAddNode` | A child or a list item (id generated from the pattern, or given), optionally populated with `content` and form `fields`. A refusal lists the legal children. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_specSetItemSectionId` | Rename a list item's section id; the pattern prefix and list uniqueness are checked. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_specMoveListItem` | Reorder within a list or move to a list of the same element class; returns the `renamed` map, and YAML review entries follow their items. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_specRemoveListItem` | Remove a list item and everything under it. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_specClearSection` | Remove every value under a path. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+
+Every edit answers `{ok, written, revision, …, validation}`. `validation` compares
+the runtime's `validateDocument` before and after the edit across the whole
+document: `introduced`, `resolved`, the errors `underPath`, and the `total`. It is
+document-wide because a stated count (`countOf`) usually sits outside the list
+that changed. For YAML, the answer also lists `staleReviewPaths`, review entries
+left without a node.
+
+A document with no values is written with its root key
+(`document:\n  SBP D00SolutionBlueprint: {}`) rather than the codec's
+`document: {}`, which would not say which document it is (tom_specs vsctasb4).
+
 Every document answer carries the document's `format`, `stamp`, `editability`,
 `readOnlyReason` and `revision`. A Markdown file whose import is not faithful
 (tom_specs qrb8) loads read-only and says so. The revision is what a later edit
@@ -411,6 +445,10 @@ description names its counterpart:
 | `tomAi_specReflect` | `doc_reflect`, `model_get_section`, `model_children` |
 | `tomAi_specSearch` | `doc_search` |
 | `tomAi_specSearchIterate` | `doc_search_iterate` |
+| `tomAi_specSetContent` | `doc_set_content` |
+| `tomAi_specSetFormField` | `doc_set_form_field` |
+| `tomAi_specAddNode` | `doc_add_node`, `doc_add_list_item` |
+| `tomAi_specRemoveListItem` | `doc_remove_list_item` |
 
 **Search specifics.** The `text` dimension searches stored values (content,
 scalar list items, every form field) and the node's headline, which is the
