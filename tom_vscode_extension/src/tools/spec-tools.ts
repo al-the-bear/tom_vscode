@@ -42,6 +42,8 @@ export interface SpecToolDeps {
     wsRoot: string;
     store: SomDocumentStore;
     service: SomModelService;
+    /** specListDocuments' walk budget; default {@link SPEC_LIST_TIME_BUDGET_MS}. */
+    listTimeBudgetMs?: number;
 }
 
 export interface SpecListDocumentsInput {
@@ -122,8 +124,13 @@ function documentHeader(deps: SpecToolDeps, loaded: LoadedSomDocument): Record<s
 
 /** Directories never searched: dependencies, VCS and tool state, build output, scratch space. */
 const SKIPPED_DIRS = new Set(['node_modules', 'out', 'dist', 'build', 'ztmp']);
-/** The walk stops after this many directories and says so, so one call stays within its budget. */
+/**
+ * The walk stops at whichever comes first and says which: a call must stay
+ * well inside the 5 s tool budget, and a large workspace (measured: 17 600
+ * directories, 3.1 s to walk on mbp) does not fit. Narrowing `dir` is the fix.
+ */
 export const SPEC_LIST_MAX_DIRS = 20000;
+export const SPEC_LIST_TIME_BUDGET_MS = 2500;
 
 function isCandidate(name: string): boolean {
     return name.endsWith('.docspecs.yaml') || name.endsWith('.md');
@@ -135,10 +142,13 @@ export async function specListDocumentsImpl(deps: SpecToolDeps, input: SpecListD
         const maxResults = Math.max(1, Math.min(input.maxResults ?? 200, 2000));
         const documents: Record<string, unknown>[] = [];
         const stack = [start];
+        const deadline = Date.now() + (deps.listTimeBudgetMs ?? SPEC_LIST_TIME_BUDGET_MS);
         let dirs = 0;
-        let truncated = false;
-        while (stack.length > 0) {
-            if (++dirs > SPEC_LIST_MAX_DIRS || documents.length >= maxResults) { truncated = true; break; }
+        let stoppedBy: 'maxResults' | 'directories' | 'time' | null = null;
+        while (stack.length > 0 && stoppedBy === null) {
+            if (documents.length >= maxResults) { stoppedBy = 'maxResults'; break; }
+            if (++dirs > SPEC_LIST_MAX_DIRS) { stoppedBy = 'directories'; break; }
+            if (Date.now() > deadline) { stoppedBy = 'time'; break; }
             const dir = stack.pop() as string;
             let entries: fs.Dirent[];
             try {
@@ -162,7 +172,7 @@ export async function specListDocumentsImpl(deps: SpecToolDeps, input: SpecListD
                         editability: summary.editability,
                         ...(summary.versionReason ? { readOnlyReason: summary.versionReason } : {}),
                     });
-                    if (documents.length >= maxResults) { truncated = true; break; }
+                    if (documents.length >= maxResults) { stoppedBy = 'maxResults'; break; }
                 }
             }
         }
@@ -173,7 +183,7 @@ export async function specListDocumentsImpl(deps: SpecToolDeps, input: SpecListD
             roots: deps.service.model.roots.map((r) => ({ sectionId: r.sectionId, type: r.type, title: r.title })),
             searched: toWorkspacePath(deps, start) || '.',
             documents,
-            ...(truncated ? { truncated: true } : {}),
+            ...(stoppedBy ? { truncated: true, stoppedBy } : {}),
             note: 'editability here is the model-version rule only; tomAi_specOutline / tomAi_specGetSection report readOnlyReason after a full load, including Markdown that does not import faithfully.',
         });
     } catch (e) {
@@ -260,8 +270,9 @@ export const SPEC_LIST_DOCUMENTS_TOOL: SharedToolDefinition<SpecListDocumentsInp
         'List the TomSpecs (SOM) document roots the model defines (section id, type, title) and the SOM documents found under '
         + '`dir` (default: the workspace): `*.docspecs.yaml`, and `*.md` whose headings carry `<!--[SECTIONID]-->`. Each document '
         + 'comes with its root, model-version stamp and editability under the SOM §4.2 version rules. Skips dot-folders, '
-        + 'node_modules, out, dist, build and ztmp; stops at `maxResults` (default 200) or a directory cap and then says '
-        + '`truncated: true` — narrow `dir` in that case. Editor counterpart: model_list_documents.',
+        + 'node_modules, out, dist, build and ztmp. Stops at `maxResults` (default 200), a directory cap or a 2.5 s walk '
+        + 'budget and then says `truncated: true` with `stoppedBy` — narrow `dir` in that case (a whole large workspace '
+        + 'may not fit). Editor counterpart: model_list_documents.',
     tags: ['tomspecs', 'som', 'docspecs', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {

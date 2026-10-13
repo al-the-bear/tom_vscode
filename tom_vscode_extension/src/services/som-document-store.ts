@@ -75,14 +75,29 @@ export class SomDocumentError extends Error {
 /** File access for the store; the extension swaps in an editor-aware one. */
 export interface SomDocumentIo {
     read(filePath: string): string;
+    /** The first `bytes` of the file (or all of it when shorter), for header-only reads. Optional: `read` is used without it. */
+    readHead?(filePath: string, bytes: number): string;
     write(filePath: string, text: string): Promise<void>;
     /** True when the file is open in an editor with unsaved changes. */
     isDirty?(filePath: string): boolean;
 }
 
+/** The first `bytes` of a file on disk, decoded as UTF-8 (a character cut at the end is replaced). */
+export function readFileHead(filePath: string, bytes: number): string {
+    const fd = fs.openSync(filePath, 'r');
+    try {
+        const buffer = Buffer.alloc(bytes);
+        const read = fs.readSync(fd, buffer, 0, bytes, 0);
+        return buffer.toString('utf8', 0, read);
+    } finally {
+        fs.closeSync(fd);
+    }
+}
+
 /** Plain file access: read, and write atomically (temp file in the same directory, then rename). */
 export const nodeSomDocumentIo: SomDocumentIo = {
     read: (filePath) => fs.readFileSync(filePath, 'utf8'),
+    readHead: (filePath, bytes) => readFileHead(filePath, bytes),
     write: async (filePath, text) => {
         const temp = path.join(
             path.dirname(filePath),
@@ -158,6 +173,8 @@ const DOCSPEC_HEADER = /^<!-- docspec: ([^/\s]+)\/(\d+\.\d+) -->/;
 const YAML_ROOT_KEY = /^document:\s*\n {2}(\S+) (\S+):/m;
 const YAML_REVIEW_KEY = /^review:/m;
 const YAML_STAMP = /^modelVersion:\s*"?([^"\s]+)"?\s*$/m;
+/** How much of a file peek reads: the header lines and the root heading or key are at the top. */
+const PEEK_BYTES = 16 * 1024;
 /** A SOM-rendered Markdown heading: `## <!--[SECTIONID]--> Title`. */
 const SOM_HEADING = /^#{1,6} <!--\[([^\]\s]+)\]-->/m;
 
@@ -201,7 +218,7 @@ export class SomDocumentStore {
         let text: string;
         try {
             format = formatOf(filePath);
-            text = this.io.read(filePath);
+            text = this.io.readHead ? this.io.readHead(filePath, PEEK_BYTES) : this.io.read(filePath);
         } catch {
             return null;
         }

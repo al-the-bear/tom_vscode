@@ -12,7 +12,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-import { SomDocumentIo, SomDocumentStore, nodeSomDocumentIo } from './som-document-store';
+import { SomDocumentIo, SomDocumentStore, nodeSomDocumentIo, readFileHead } from './som-document-store';
 import { SomModelService } from './som-model-service';
 
 function openDocument(filePath: string): vscode.TextDocument | undefined {
@@ -25,6 +25,10 @@ function openDocument(filePath: string): vscode.TextDocument | undefined {
 export const vscodeSomDocumentIo: SomDocumentIo = {
     read(filePath) {
         return openDocument(filePath)?.getText() ?? nodeSomDocumentIo.read(filePath);
+    },
+    readHead(filePath, bytes) {
+        const doc = openDocument(filePath);
+        return doc ? doc.getText().slice(0, bytes) : readFileHead(filePath, bytes);
     },
     isDirty(filePath) {
         return openDocument(filePath)?.isDirty ?? false;

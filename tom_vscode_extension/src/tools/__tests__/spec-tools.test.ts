@@ -5,7 +5,7 @@
  *
  *   ST-1   listDocuments finds YAML and SOM Markdown, skips non-SOM files and
  *          skipped folders, reports stamp and editability
- *   ST-2   listDocuments stops at maxResults and says truncated; refuses a dir outside
+ *   ST-2   listDocuments stops at maxResults or its time budget and says which; refuses a dir outside
  *   ST-3   outline: root first, depth, paging continues where the page ended
  *   ST-4   outline: every node kind agrees with the runtime's resolution
  *   ST-5   outline: filledOnly leaves empty subtrees out; the full tree stays in budget
@@ -100,7 +100,10 @@ describe('TomSpecs read-only tools', () => {
         const r = await call(specListDocumentsImpl, { dir: 'specs', maxResults: 1 });
         assert.equal(r.documents.length, 1);
         assert.equal(r.truncated, true);
+        assert.equal(r.stoppedBy, 'maxResults');
         assert.equal(r.searched, 'specs');
+        const late = JSON.parse(await specListDocumentsImpl({ ...deps, listTimeBudgetMs: -1 }, {}));
+        assert.deepEqual([late.ok, late.truncated, late.stoppedBy, late.documents.length], [true, true, 'time', 0]);
         const outside = await call(specListDocumentsImpl, { dir: '..' });
         assert.equal(outside.ok, false);
         assert.match(outside.error, /outside the workspace/);
