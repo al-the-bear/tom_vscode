@@ -277,10 +277,15 @@ const liveQuestTodoStore: QuestTodoStoreAccess = {
     },
 };
 
-const liveQuestTodoDeps: QuestTodoToolsDeps = {
+export const liveQuestTodoDeps: QuestTodoToolsDeps = {
     store: liveQuestTodoStore,
     onMutate: () => refreshSessionPanel(),  // shared panel updates both session + quest views
 };
+
+/** Every todo of a quest, the `-archived` / `-deleted` siblings included. */
+export function readQuestTodosIncludingTerminal(questId: string): Array<{ id: string; status?: string; tags?: string[] }> {
+    return questTodo.readAllTodos(questId, questTodo.ALL_TODO_FILES);
+}
 
 export const LIST_TODOS_TOOL: SharedToolDefinition<ListQuestTodosInput> = {
     ...LIST_QUEST_TODOS_DEF,

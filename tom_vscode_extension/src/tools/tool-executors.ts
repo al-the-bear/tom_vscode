@@ -1534,6 +1534,7 @@ import { CODESPECS_TOOLS } from './codespecs-tools';
 import { CODESPECS_GATE_TOOLS } from './codespecs-gate-tools';
 import { CODESPECS_TRACE_TOOLS } from './codespecs-trace-tools';
 import { CODESPECS_VALIDATE_TOOLS } from './codespecs-validate-tools';
+import { CODESPECS_PLAN_TOOLS } from './codespecs-plan-tools';
 
 // Re-export initializeToolDescriptions so existing consumers continue to work
 // without needing to update their import paths.
@@ -1612,6 +1613,7 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
     ...CODESPECS_GATE_TOOLS,      // CodeSpecs Stage A/B: gate A1–A5 and the gate record (read-only), set a verdict (approval)
     ...CODESPECS_TRACE_TOOLS,     // CodeSpecs query extracts, trace spec ↔ code by back-link token (read-only)
     ...CODESPECS_VALIDATE_TOOLS,  // CodeSpecs validate a trio (bundled binary), authoring-step context (read-only)
+    ...CODESPECS_PLAN_TOOLS,      // CodeSpecs Stage C: the csopen / csproj / csgen todo tree (approval)
     ...DOCSPECS_TOOLS,            // plain DocSpecs Markdown: docspecsValidate, docspecsOutline, docspecsGetSection, docspecsReplaceSection (approval)
 ];
 

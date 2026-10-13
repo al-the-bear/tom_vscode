@@ -86,17 +86,29 @@ const CHECKS: Record<string, { what: string; fix: string }> = {
     },
 };
 
+/** The runtime's Stage-A gate over a loaded document, with the Markdown and schema it judged A1 by. */
+function runGate(deps: SpecToolDeps, loaded: ReturnType<typeof loadDocument>) {
+    refuseProjection(deps, loaded);
+    const model = deps.service.model;
+    const markdown = loaded.document.toMarkdown(model, loaded.root.type);
+    const schemaId = DOCSPEC_SCHEMA.exec(markdown)?.[1] ?? null;
+    const schema = schemaId && deps.service.schemaIds.includes(schemaId) ? deps.service.schema(schemaId) : null;
+    const report = new CodeSpecsGate({
+        model, document: loaded.document, catalog: deps.service.codeSpecsCatalog, schema, rootType: loaded.root.type,
+    }).run();
+    return { markdown, schemaId, schema, report };
+}
+
+/** Stage A over a spec document: whether the gate is open, and the checks that fail. */
+export function stageA(deps: SpecToolDeps, file: string): { open: boolean; failing: string[] } {
+    const { report } = runGate(deps, loadDocument(deps, file));
+    return { open: report.passed, failing: report.results.filter((r) => !r.passed).map((r) => r.check.label) };
+}
+
 export async function codeSpecsGateImpl(deps: SpecToolDeps, input: CodeSpecsGateInput): Promise<string> {
     try {
         const loaded = loadDocument(deps, input.file);
-        refuseProjection(deps, loaded);
-        const model = deps.service.model;
-        const markdown = loaded.document.toMarkdown(model, loaded.root.type);
-        const schemaId = DOCSPEC_SCHEMA.exec(markdown)?.[1] ?? null;
-        const schema = schemaId && deps.service.schemaIds.includes(schemaId) ? deps.service.schema(schemaId) : null;
-        const report = new CodeSpecsGate({
-            model, document: loaded.document, catalog: deps.service.codeSpecsCatalog, schema, rootType: loaded.root.type,
-        }).run();
+        const { markdown, schemaId, schema, report } = runGate(deps, loaded);
 
         // A1 findings carry a section id; locate the document path the same way tomAi_specValidate does.
         let a1Paths: Array<string | null> = [];
@@ -144,7 +156,7 @@ export async function codeSpecsGateImpl(deps: SpecToolDeps, input: CodeSpecsGate
 // ---------------------------------------------------------------------------
 
 /** The record file for a spec document or spec root. */
-function recordPath(deps: SpecToolDeps, input: CodeSpecsRecordLocator): string {
+export function recordPath(deps: SpecToolDeps, input: CodeSpecsRecordLocator): string {
     if ((input.file ? 1 : 0) + (input.specRoot ? 1 : 0) !== 1) {
         throw new CodeSpecsRefusal('invalidInput', 'Pass `file` (the spec document) or `specRoot` (the folder holding it), not both.');
     }
@@ -162,7 +174,7 @@ function leadingComments(text: string): string {
     return lines.length > 0 ? `${lines.join('\n')}\n` : '';
 }
 
-interface RecordState {
+export interface RecordState {
     file: string;
     exists: boolean;
     text: string;
@@ -170,7 +182,7 @@ interface RecordState {
     record: CodeSpecsGateRecord;
 }
 
-function readRecord(deps: SpecToolDeps, file: string): RecordState {
+export function readRecord(deps: SpecToolDeps, file: string): RecordState {
     if (!fs.existsSync(file)) {
         return { file, exists: false, text: '', revision: null, record: new CodeSpecsGateRecord([]) };
     }
@@ -184,7 +196,7 @@ function verdictView(e: CodeSpecsGateEntry): Record<string, unknown> {
     return { area: e.area, verdict: e.verdict.word, ...(e.resolution ? { resolution: e.resolution } : {}), ...(e.note ? { note: e.note } : {}) };
 }
 
-function missingAreas(deps: SpecToolDeps, record: CodeSpecsGateRecord): string[] {
+export function missingAreas(deps: SpecToolDeps, record: CodeSpecsGateRecord): string[] {
     return deps.service.codeSpecsCatalog.activeAreas.map((a) => a.code).filter((code) => !record.verdictFor(code));
 }
 

@@ -568,6 +568,7 @@ these tools refuse it rather than return 27 empty extracts.
 | `tomAi_specCodeSpecsTrace` | Spec path, token, code location or declaration to the other end, by section-id token (the unit `@CodeSpec` / `@DocSpec` back-links cite), plus the heading `codeSpec=` forward links. With back-links it adds `agreement`, the uncited and dangling tokens (the shape of `validate_codespecs` checks 35 and 36). | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_specCodeSpecsValidate` | The 37 `codespecs_derivation_contract.md` §6 checks over a generated trio (shared, client, server; client and server default to the shared folder's siblings), through the bundled `validate_codespecs --json`. `outcome` keeps `clean`, `violations` (each with check number and title, defining section, file, line, token or area, message) and `usageError` apart; `notRun` names each check whose corroborating input was not given. | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_specCodeSpecsStepContext` | Everything authoring step `csgen<n>` (1–31) may read (§2.9): its title, slice, placement and areas; those areas' extracts, entry by entry; the §3 contract entries for the markers they emit, with text; §2's section list (or its text); the output project. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_specCodeSpecsPlanTodos` | Stage C: propose (`dryRun`) or create the todo tree from the gate record (approval). `csopen<n>` (decision-needed) per insufficient area not descoped, carrying its gate note; `csproj1`, the trio scaffolding (decision-needed without `appName`); `csgen1`–`csgen31`, one per authoring step, each naming its areas and verdicts, extracts, output project and the step-context call. Refused without a verdict for every active area, or, with `file`, when Stage A fails. Idempotent per item. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_specCodeSpecsWriteExtracts` | Write every area's `.extract.yaml` / `.extract.md` to `<document folder>/generated-doc/codespecs_extracts/` (approval). Unchanged files are left alone; `dryRun` reports the file statuses. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 
 **Tracing.** The back-links come from the generated trio itself (`codeDirs`),
@@ -581,6 +582,19 @@ the authoring step's judgement, and the tools do not decide it.
 `.ps1` run; a from-source install fails without it). It needs a Dart SDK at
 build time only. When it is absent, validation answers `binaryMissing` and the
 trace with `codeDirs` answers `binaryMissing`, both naming that command.
+
+**The todo tree.** The tree follows `codespecs_prompt.md` §7 and
+`codespecs_mapping.md` §1.1.3. All 31 `csgen` todos are created, even for a step
+whose areas are all out of the pass: that step completes with an empty L3 rung,
+which records that it had nothing to author. The order lives in the numbering
+and the statuses. The queue walks `csopen*`, then `csproj*`, then `csgen*`,
+lowest number first, and pauses on a decision-needed todo. `dependencies`
+records the order for the reader; nothing is `blocked`. Each todo carries a
+run tag (`codespecs-run:<extract folder>`) and an item tag (`codespecs-open:<area>`,
+`codespecs-proj`, `codespecs-step:<n>`). A rerun recognises those tags on any
+todo of the quest, archived ones included, and creates only what is missing. A
+new `csopen` continues the quest's `csopen` numbering. L3 todos are never
+created here.
 
 **Step context.** A step is handed the §3 entries of its own slice that name one
 of its areas' markers (`@CsTable`) or codes (`CE-DB`), plus §3.0 (the
@@ -705,7 +719,7 @@ that works under `toolsEnabled: true` and is invisible everywhere else.
 
 ### Deliberately unselectable tools
 
-Of the 167 registered tools, **151 are selectable** and **16 are withheld from
+Of the 168 registered tools, **152 are selectable** and **16 are withheld from
 the pickers on purpose** (`DELIBERATELY_UNSELECTABLE_TOOLS` in
 `src/utils/constants.ts`): the twelve queue mutators and dispatch entry points
 (`tomAi_addQueueItem`, `tomAi_updateQueueItem`, `tomAi_removeQueueItem`,

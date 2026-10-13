@@ -37,6 +37,7 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_specCodeSpecsAreas',
         'tomAi_specCodeSpecsExtract',
         'tomAi_specCodeSpecsGate',
+        'tomAi_specCodeSpecsPlanTodos',
         'tomAi_specCodeSpecsQueryExtracts',
         'tomAi_specCodeSpecsRouting',
         'tomAi_specCodeSpecsSetVerdict',
