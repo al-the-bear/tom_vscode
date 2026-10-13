@@ -62,7 +62,10 @@ tarballs. Installed from tarballs, the packages are real files in
 reads from ai_build. The script also copies the CodeSpecs area catalogue
 (`tom_specs_model/generated-doc/codespecs/codespecs_areas.json`) to
 `resources/codespecs/` (gitignored), which the VSIX carries too.
-`TOM_SOM_AI_BUILD` points the script at another ai_build location.
+`TOM_SOM_AI_BUILD` points the script at another ai_build location. ai_build is
+shared with other sessions, so the script lists any uncommitted changes in the
+paths it packs, and `npm run som:pack -- --from-head` packs ai_build's committed
+HEAD instead of its working tree.
 
 All other Dart dependencies (`tom_d4rt`, `tom_vscode_scripting_api`,
 `tom_build_base`, `analyzer`, …) are resolved from pub.dev by `dart pub get`.

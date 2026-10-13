@@ -13,7 +13,7 @@
  *   SD-6   dryRun writes nothing and returns the diff
  *   SD-7   a document dirty in an editor is refused
  *   SD-8   a newer same-major stamp and a cross-major stamp load read-only
- *   SD-9   Markdown whose import loses fidelity loads read-only (tom_specs qrb8)
+ *   SD-9   the Meridian Markdown imports faithfully (tom_specs qrb8 fixed); a non-canonical file loads read-only
  *   SD-10  a faithful Markdown document round-trips and saves as Markdown
  *   SD-11  Markdown with parse rejections loads read-only, naming the lines
  *   SD-12  unknown format and unknown root are clear errors
@@ -158,14 +158,17 @@ describe('SomDocumentStore', () => {
         assert.ok(cross.readOnlyReason);
     });
 
-    test('SD-9: Markdown whose import is not faithful loads read-only', async () => {
+    test('SD-9: Markdown fidelity — the sample is faithful, a non-canonical file is read-only', async () => {
         const s = store();
         const doc = s.load(write('sd9.md', MERIDIAN_MD));
         assert.equal(doc.format, 'markdown');
-        assert.ok(doc.fidelityProblems.length > 0, 'the qrb8 import defect is detected');
-        assert.match(doc.fidelityProblems.join('\n'), /kindMismatch|cannot emit/);
-        assert.match(doc.readOnlyReason ?? '', /qrb8/);
-        assert.equal((await refusal(s.save(doc))).code, 'readOnly');
+        assert.deepEqual(doc.fidelityProblems, []);
+        assert.equal(doc.readOnlyReason, null);
+        // A file that does not re-render as itself would be rewritten by a save, so it is refused.
+        const odd = s.load(write('sd9-odd.md', MERIDIAN_MD.replace('\n\n## ', '\n\n\n## ')));
+        assert.match(odd.fidelityProblems.join('\n'), /does not reproduce the file/);
+        assert.match(odd.readOnlyReason ?? '', /rewrite it/);
+        assert.equal((await refusal(s.save(odd))).code, 'readOnly');
     });
 
     test('SD-10: a faithful Markdown document round-trips and saves as Markdown', async () => {

@@ -296,11 +296,16 @@ describe('TomSpecs edit tools', () => {
     });
 
     test('SE-15: a read-only document is refused', async () => {
-        fs.writeFileSync(path.join(ws, 'meridian.md'), MERIDIAN_MD);
+        // A non-canonical Markdown file: a save would rewrite it, so it is read-only.
+        const odd = MERIDIAN_MD.replace('\n\n## ', '\n\n\n## ');
+        fs.writeFileSync(path.join(ws, 'meridian.md'), odd);
         const r = await run(specSetContentImpl, { file: 'meridian.md', path: 'SBP/content', text: 'x' });
         assert.equal(r.code, 'readOnly');
-        assert.match(r.error, /qrb8/);
-        assert.equal(read('meridian.md'), MERIDIAN_MD);
+        assert.match(r.error, /rewrite it/);
+        assert.equal(read('meridian.md'), odd);
+        // So is a document stamped with a newer model version.
+        fs.writeFileSync(path.join(ws, 'newer.docspecs.yaml'), MERIDIAN_YAML.replace('modelVersion: "1.3"', 'modelVersion: "1.99"'));
+        assert.equal((await run(specSetContentImpl, { file: 'newer.docspecs.yaml', path: 'SBP/content', text: 'x' })).code, 'readOnly');
     });
 
     test('SE-16: all ten need approval and stay outside the MCP read-only floor', () => {

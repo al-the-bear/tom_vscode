@@ -32,6 +32,13 @@
  * VSIX must carry it like everything else the tools load (vsctsa10). The copy
  * is gitignored build output; a guard test holds it equal to the source.
  *
+ * The packages are built from ai_build's WORKING TREE, and ai_build is shared
+ * with other sessions: an uncommitted edit there (someone's work in progress)
+ * ends up in the extension. The script lists such edits before it packs, and
+ * `--from-head` packs ai_build's committed HEAD instead (exported with
+ * `git archive` into <workspace>/ztmp/som-pack-head/), so the extension gets
+ * only what was committed.
+ *
  * Exit codes: 0 built, 1 a step failed (the message names it).
  */
 'use strict';
@@ -41,7 +48,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const EXT_ROOT = path.resolve(__dirname, '..');
-const AI_BUILD = process.env.TOM_SOM_AI_BUILD
+const AI_BUILD_CHECKOUT = process.env.TOM_SOM_AI_BUILD
     ? path.resolve(process.env.TOM_SOM_AI_BUILD)
     : path.resolve(EXT_ROOT, '..', '..', 'ai_build');
 const VENDOR_DIR = path.join(EXT_ROOT, 'vendor', 'tom_som');
@@ -80,15 +87,40 @@ function npm(args, cwd) {
     });
 }
 
-function main() {
-    if (!fs.existsSync(AI_BUILD)) {
-        fail(`ai_build not found at ${AI_BUILD}. The SOM packages are built from it; set TOM_SOM_AI_BUILD to its location.`);
+/** Uncommitted changes under the packed paths of a git checkout; [] when clean or not a git checkout. */
+function uncommitted(aiBuild) {
+    try {
+        const out = execFileSync('git', ['-C', aiBuild, 'status', '--porcelain', '--', ...PACKAGES, CATALOG_SOURCE], { encoding: 'utf8' });
+        return out.split('\n').filter((l) => l.trim() !== '');
+    } catch {
+        return [];
+    }
+}
+
+/** ai_build's committed HEAD of the packed paths, exported into the workspace's ztmp/. */
+function exportHead(aiBuild) {
+    const target = path.resolve(EXT_ROOT, '..', '..', '..', 'ztmp', 'som-pack-head');
+    fs.rmSync(target, { recursive: true, force: true });
+    fs.mkdirSync(target, { recursive: true });
+    const archive = execFileSync('git', ['-C', aiBuild, 'archive', 'HEAD', ...PACKAGES, path.dirname(CATALOG_SOURCE)], { maxBuffer: 1 << 30 });
+    execFileSync('tar', ['-x', '-C', target], { input: archive });
+    console.log(`📦 packing ai_build's committed HEAD (exported to ${target})`);
+    return target;
+}
+
+function main(aiBuild) {
+    if (!fs.existsSync(aiBuild)) {
+        fail(`ai_build not found at ${aiBuild}. The SOM packages are built from it; set TOM_SOM_aiBuild to its location.`);
+    }
+    const dirty = uncommitted(aiBuild);
+    if (dirty.length > 0) {
+        console.warn(`⚠️  ai_build has uncommitted changes in the packed paths; they will be in the extension:\n${dirty.map((l) => `     ${l}`).join('\n')}\n   Use --from-head to pack only what is committed.`);
     }
     fs.mkdirSync(VENDOR_DIR, { recursive: true });
     const versions = {};
 
     for (const pkg of PACKAGES) {
-        const dir = path.join(AI_BUILD, pkg);
+        const dir = path.join(aiBuild, pkg);
         const manifestPath = path.join(dir, 'package.json');
         if (!fs.existsSync(manifestPath)) {
             fail(`${pkg} not found at ${dir}.`);
@@ -130,7 +162,7 @@ function main() {
         }
         fs.writeFileSync(lockPath, `${JSON.stringify(data, null, 2)}\n`);
     }
-    copyCodeSpecsCatalog(AI_BUILD);
+    copyCodeSpecsCatalog(aiBuild);
     if (versions[PACKAGES[0]] !== versions[PACKAGES[1]]) {
         fail(`version mismatch: ${JSON.stringify(versions)}. The runtime and the facade carry the model version and move together.`);
     }
@@ -138,10 +170,11 @@ function main() {
 }
 
 if (require.main === module) {
+    const source = process.argv.includes('--from-head') ? exportHead(AI_BUILD_CHECKOUT) : AI_BUILD_CHECKOUT;
     if (process.argv.includes('--catalog-only')) {
-        copyCodeSpecsCatalog(AI_BUILD);
+        copyCodeSpecsCatalog(source);
     } else {
-        main();
+        main(source);
     }
 }
 

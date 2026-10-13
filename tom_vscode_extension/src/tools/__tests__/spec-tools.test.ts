@@ -15,7 +15,7 @@
  *   ST-9   reflect by class name; an unknown class lists similar names
  *   ST-10  reflect by path with a file: addable is exactly what checkAddNode accepts
  *   ST-11  reflect of a list with a file; exactly one of path / className
- *   ST-12  Markdown: the outline works and the header carries the read-only reason
+ *   ST-12  Markdown: the outline works on the sample's Markdown, which is editable
  *   ST-13  all four are read-only tools
  */
 
@@ -250,7 +250,7 @@ describe('TomSpecs read-only tools', () => {
         const r = await call(specOutlineImpl, { file: 'specs/meridian.md', depth: 1 });
         assert.equal(r.ok, true);
         assert.equal(r.document.format, 'markdown');
-        assert.match(r.document.readOnlyReason, /qrb8/);
+        assert.equal(r.document.readOnlyReason, null, 'the sample Markdown imports faithfully (tom_specs qrb8 fixed)');
         assert.equal(r.nodes[0].path, 'SBP');
         const missing = await call(specOutlineImpl, { file: 'specs/none.docspecs.yaml' });
         assert.equal(missing.code, 'notFound');

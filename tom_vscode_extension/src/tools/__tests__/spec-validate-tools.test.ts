@@ -10,7 +10,7 @@
  *   SV-5  fragments of different roots are a decode finding; a broken file is a decode finding
  *   SV-6  render of the YAML sample equals the Markdown golden; a subtree renders alone
  *   SV-7  convert round-trips YAML → Markdown → YAML byte-identically
- *   SV-8  convert refuses unfaithful Markdown, an existing target, and dropping review entries unasked
+ *   SV-8  convert refuses non-canonical Markdown, an existing target, and dropping review entries unasked
  *   SV-9  registration: validate and render are read-only, convert needs approval
  */
 
@@ -189,10 +189,10 @@ describe('TomSpecs validate, render and convert', () => {
     });
 
     test('SV-8: convert refusals and the review pass', async () => {
-        put('golden.md', MERIDIAN_MD);
-        const unfaithful = await run(specConvertImpl, { file: 'golden.md' });
+        put('odd.md', MERIDIAN_MD.replace('\n\n## ', '\n\n\n## '));
+        const unfaithful = await run(specConvertImpl, { file: 'odd.md' });
         assert.equal(unfaithful.code, 'readOnly');
-        assert.match(unfaithful.error, /qrb8/);
+        assert.match(unfaithful.error, /rewrite it/);
 
         const exists = await run(specConvertImpl, { file: 'rt/clean.docspecs.yaml' });
         assert.equal(exists.code, 'exists');

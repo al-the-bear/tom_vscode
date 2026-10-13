@@ -23,9 +23,9 @@
  *     read-only; an older same-major stamp is upgraded when saved;
  *   - Markdown fidelity: the import must reproduce the file when rendered
  *     again, must encode as a document (every value placed), and must not put
- *     values where the model has no value leaf. tom_specs qrb8 is such a
- *     defect today: prose of a head-form section lands on the section node,
- *     re-renders identically, and only shows in validation and in encoding;
+ *     values where the model has no value leaf. An import defect can re-render
+ *     identically and show only in validation and encoding; a hand-formatted
+ *     file fails the first check, since a save rewrites it;
  *   - Markdown parse rejections: re-rendering would drop the rejected blocks;
  *   - revision: a file changed since it was loaded is never overwritten;
  *   - a document open and dirty in an editor is not written under the editor.
@@ -555,7 +555,7 @@ export class SomDocumentStore {
             return `The Markdown parser rejected ${rejections.length} block(s) (${lines}). Saving would drop them; fix the file first.`;
         }
         if (fidelityProblems.length > 0) {
-            return `The Markdown import is not faithful to the file (a runtime import defect, tom_specs qrb8), so saving would change it: ${fidelityProblems.slice(0, 5).join('; ')}. Edit the YAML form of this document instead.`;
+            return `The Markdown import does not reproduce the file, so saving would rewrite it: ${fidelityProblems.slice(0, 5).join('; ')}. The file is not in the canonical rendition (re-render it with tomAi_specRender / tomAi_specConvert from its YAML), or the import is lossy for one of its sections; edit the YAML form of this document instead.`;
         }
         return null;
     }

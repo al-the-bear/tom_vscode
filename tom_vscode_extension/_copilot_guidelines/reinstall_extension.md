@@ -14,7 +14,10 @@ build the TomSpecs SOM packages from the sibling `tom_ai/ai_build/` checkout
 (`npm run som:pack`) before `npm install`. An install fails at that step when
 ai_build is missing or does not build; `TOM_SOM_AI_BUILD` points it at another
 location. Working by hand, run `npm run som:pack` before `npm install` whenever
-the SOM sources changed: npm otherwise keeps the old tarball. After packaging,
+the SOM sources changed: npm otherwise keeps the old tarball. The script packs
+ai_build's working tree and warns about uncommitted changes in it; another
+session's work in progress would otherwise end up in the extension. Use
+`npm run som:pack -- --from-head` to pack only what is committed. After packaging,
 `node scripts/check-vsix-contents.cjs` confirms that the VSIX carries the SOM
 packages as real files.
 
