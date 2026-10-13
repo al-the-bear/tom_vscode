@@ -560,7 +560,7 @@ function qtRenderTodoRow(t) {
         reopenBtn = '<button class="qt-reopen-btn" data-qt-reopen="' + qtEsc(t.id) + '" title="Reopen (set to not-started)">🔄</button>';
     } else {
         moveBtn = isQuestMode && qtCurrentFile === 'all' ? '<button class="qt-move-btn" data-qt-move="' + qtEsc(t.id) + '" title="Move to main quest todo file">➡️</button>' : '';
-        moveWsBtn = '<button class="qt-move-ws-btn" data-qt-movews="' + qtEsc(t.id) + '" title="Move to workspace todos">⬆️</button>';
+        moveWsBtn = '<button class="qt-move-ws-btn" data-qt-movews="' + qtEsc(t.id) + '" title="' + (qtStack.length > 1 ? 'Move ' + qtStack.length + ' stacked todos to quest / workspace / another quest…' : 'Move this todo to quest / workspace / another quest…') + '">⬆️</button>';
     }
     var priorityBadge = t.priority && (t.priority === 'critical' || t.priority === 'high') ? '<span class="priority-badge ' + t.priority + '">' + t.priority.toUpperCase() + '</span>' : '';
     var priorityDot = t.priority ? '<span class="qt-priority-dot ' + qtEsc(t.priority) + '">●</span>' : '';
@@ -723,7 +723,10 @@ function qtRenderList() {
         btn.addEventListener('click', function(e) {
             e.stopPropagation();
             var tid = btn.dataset.qtMovews;
-            vscode.postMessage({ type: 'qtMoveToWorkspace', questId: qtCurrentQuestId, todoId: tid });
+            // More than one stacked todo: the move applies to the whole stack
+            // (the server's picker says so). Otherwise the clicked todo.
+            var todos = qtStack.length > 1 ? qtStackPayload() : [{ todoId: tid, sourceFile: qtStackSourceFor(tid) || undefined }];
+            vscode.postMessage({ type: 'qtMoveTodosToDestination', questId: qtCurrentQuestId, file: qtCurrentFile, todos: todos });
         });
     });
     pane.querySelectorAll('.qt-trash-btn').forEach(function(btn) {

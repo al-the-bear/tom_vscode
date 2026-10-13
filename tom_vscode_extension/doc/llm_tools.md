@@ -160,6 +160,7 @@ The legacy `_copilot_tomai/` and `_copilot_local/` folders are no longer support
 | `tomAi_createQuestTodo` | Create a new quest todo. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_updateQuestTodo` | Patch fields on a quest todo. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_moveQuestTodo` | Move between YAML files within a quest. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_transferTodos` | Move todos into a quest's own todo file (the same or another quest) or into `workspace.todo.yaml`, from any todo file of a quest (session and topic files included) or from the workspace file. Per-id refusals in `skipped`. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_deleteQuestTodo` | HARD-delete a quest todo (not recoverable — prefer `tomAi_deleteQuestTodos`). | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
 | `tomAi_archiveQuestTodos` | Move completed todos to the `-archived` sibling file (`todoIds` or `allCompleted`). | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_deleteQuestTodos` | Move non-completed todos to the `-deleted` sibling file (recoverable; `todoIds` or `allCancelled`). | ✅ | ✅ | ⚪ | ✅ | ⚪ |
@@ -725,7 +726,7 @@ that works under `toolsEnabled: true` and is invisible everywhere else.
 
 ### Deliberately unselectable tools
 
-Of the 168 registered tools, **152 are selectable** and **16 are withheld from
+Of the 169 registered tools, **153 are selectable** and **16 are withheld from
 the pickers on purpose** (`DELIBERATELY_UNSELECTABLE_TOOLS` in
 `src/utils/constants.ts`): the twelve queue mutators and dispatch entry points
 (`tomAi_addQueueItem`, `tomAi_updateQueueItem`, `tomAi_removeQueueItem`,

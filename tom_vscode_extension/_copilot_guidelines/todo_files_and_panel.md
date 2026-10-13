@@ -105,6 +105,21 @@ refreshes via `qtArchiveResult`. The candidate list for the move picker is the
 pure helper `computeMoveTargetFiles` (`src/utils/questTodoMoveTargets.ts`,
 offers every `*.todo.yaml` file — including the `-archived`/`-deleted` siblings
 — minus the single common source file; 6 unit tests).
+The per-row ⬆️ button (`qt-move-ws-btn`) posts `qtMoveTodosToDestination`
+with the clicked todo, or the whole stack when more than one todo is stacked.
+The handler resolves each todo's file by panel mode (`_resolveMoveSource`:
+session file, workspace file, `__all_workspace__` relative path, or
+`questTodoSourcePath` over the quest — every quest in `__all_quests__`), shows
+the destination QuickPick from the pure helper `todoMoveOptions` /
+`todoMovePickerTitle` (`src/utils/todoDestinationPicker.ts`: *Quest todos* when
+all todos share one quest and not all are in its own file, *Workspace todos*
+unless all are there, *Move to quest…* always, which opens a quest QuickPick),
+and moves each through `questTodoManager.moveTodoToDestination`. That function
+writes the target first (`createTodo` / `createTodoInFile`, both verified) and
+removes the source second (verified), carries every field including
+`decisions` and unknown keys, notes `[moved from quest: <id>]` when the todo
+leaves its quest, and refuses an unknown id, a target that is the source and a
+target that already holds the id — writing nothing.
 Detail requests thread the todo's `sourceFile` (`qtGetTodo` → `_sendTodoDetail`
 → `_resolveDeleteSourcePath`) so todos in secondary files resolve correctly.
 
@@ -242,6 +257,11 @@ _ai/quests/<quest>/session-todo.<hostSlug>.<quest>.todo.yaml
 
 - `tomAi_archiveQuestTodos` — `{ questId, file?, todoIds? | allCompleted? }`
 - `tomAi_deleteQuestTodos` — `{ questId, file?, todoIds? | allCancelled? }`
+- `tomAi_transferTodos` (`src/tools/todo-transfer-tools.ts`, live deps in
+  `chat-enhancement-tools.ts`) — `{ todoIds, sourceQuestId [+ sourceFile] |
+  fromWorkspace, targetQuestId | toWorkspace }`: the panel's ⬆️ move as a tool,
+  through `moveTodoToDestination`; per-id refusals come back in `skipped`.
+  `tomAi_moveQuestTodo` stays the move between two files of one quest.
 
 Contract:
 

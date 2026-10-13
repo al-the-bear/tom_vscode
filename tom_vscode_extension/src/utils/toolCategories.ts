@@ -168,6 +168,7 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_listQuestTodos',
         'tomAi_listWorkspaceQuestTodos',
         'tomAi_moveQuestTodo',
+        'tomAi_transferTodos',
         'tomAi_updateQuestTodo',
     ],
     'Reminders': [

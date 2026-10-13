@@ -24,6 +24,7 @@ import { WsPaths } from '../utils/workspacePaths';
 import { questTrailFolder } from '../utils/questPaths.js';
 import { isSessionTodoFileName } from '../utils/sessionTodoNames';
 import { computeMoveTargetFiles } from '../utils/questTodoMoveTargets';
+import { todoMoveOptions, todoMovePickerTitle, todoOriginOfRelativePath, type TodoMoveOrigin } from '../utils/todoDestinationPicker';
 import { getExternalApplicationForFile, openInExternalApplication, resolvePathVariables, applyDefaultTemplate, DEFAULT_ANSWER_FILE_TEMPLATE } from './handler_shared';
 import { expandTemplate } from './promptTemplate';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
@@ -989,9 +990,63 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             post({ type: 'qtArchiveResult', success: moved.length > 0, moved });
             return true;
         }
-        case 'qtMoveToWorkspace':
-            _moveToWorkspace(msg.questId, msg.todoId, post);
+        case 'qtMoveTodosToDestination': {
+            // The row's move button: the clicked todo, or every stacked todo
+            // when more than one is stacked. A picker asks where to: the
+            // todos' quest, the workspace todos, or another quest.
+            const entries: Array<{ todoId?: string; sourceFile?: string }> = Array.isArray(msg.todos) ? msg.todos : [];
+            const sources = entries.filter(e => String(e?.todoId || '')).map(e => _resolveMoveSource(
+                { isSessionMode, isWorkspaceFileMode, workspaceFilePath, questId: effectiveQuestId(msg.questId) },
+                String(e.todoId), typeof e.sourceFile === 'string' ? e.sourceFile : undefined,
+            ));
+            const found = sources.filter((s): s is MoveSource => !!s.path) as MoveSource[];
+            const lost = sources.filter(s => !s.path).map(s => s.todoId);
+            if (!found.length) {
+                vscode.window.showErrorMessage(`Could not find ${lost.join(', ') || 'the todo'} in a todo file.`);
+                return true;
+            }
+            const title = todoMovePickerTitle(found.length);
+            const options = todoMoveOptions(found.map(s => s.origin));
+            const picked = await vscode.window.showQuickPick(
+                options.map(o => ({ label: o.label, description: o.description, choice: o.choice })),
+                { title, placeHolder: 'Where should the todos go?' },
+            );
+            if (!picked) return true;
+            let dest: questTodo.TodoMoveDestination;
+            if (picked.choice.kind === 'pickQuest') {
+                const quest = await vscode.window.showQuickPick(
+                    listQuestIds().map(q => ({ label: q, description: `todos.${q}.todo.yaml` })),
+                    { title: title.replace(/…$/, ' quest…'), placeHolder: 'Select the quest' },
+                );
+                if (!quest) return true;
+                dest = { kind: 'quest', questId: quest.label };
+            } else {
+                dest = picked.choice;
+            }
+            const moved: string[] = [];
+            const failed: string[] = [];
+            for (const s of found) {
+                try {
+                    const r = questTodo.moveTodoToDestination(s.path, s.todoId, dest, s.originLabel);
+                    if (r.ok) { moved.push(s.todoId); } else { failed.push(`${s.todoId}: ${r.reason}`); }
+                } catch (e) {
+                    failed.push(`${s.todoId}: ${(e as Error).message}`);
+                }
+            }
+            const target = dest.kind === 'quest' ? `quest ${dest.questId}` : 'workspace todos';
+            if (moved.length) {
+                vscode.window.showInformationMessage(`Moved ${moved.length} todo${moved.length === 1 ? '' : 's'} to ${target}.`);
+            }
+            if (failed.length || lost.length) {
+                vscode.window.showWarningMessage(`Could not move: ${[...failed, ...lost.map(id => `${id}: not found`)].join('; ')}`);
+            }
+            post({ type: 'qtArchiveResult', success: moved.length > 0, moved });
+            if (isSessionMode) {
+                const sessionQuestId = _getSessionQuestId();
+                post({ type: 'qtTodos', todos: _collectSessionTodos(sessionQuestId), questId: '__session__', file: 'all' });
+            }
             return true;
+        }
         case 'qtDeleteAllSessionTodos': {
             if (!isSessionMode) {
                 return true;
@@ -1822,26 +1877,52 @@ function _moveTodo(questId: string, todoId: string, targetFile: string, post: (m
     _sendTodoList(questId, undefined, post);
 }
 
-function _moveToWorkspace(questId: string, todoId: string, post: (m: any) => void): void {
-    // Resolve the actual quest ID when in aggregated modes
-    let resolvedQuestId = questId;
-    if (questId === '__all_quests__') {
-        for (const qid of listQuestIds()) {
-            const found = questTodo.findTodoById(qid, todoId);
-            if (found) { resolvedQuestId = qid; break; }
-        }
-    } else if (questId === '__all_workspace__') {
-        // Workspace todos are already "workspace-level" — nothing to move
-        const all = readWorkspaceTodos();
-        const todo = all.find(t => t.id === todoId);
-        if (todo?._sourceFile) {
-            const m = todo._sourceFile.match(/^_ai\/quests\/([^/]+)\//);
-            if (m) resolvedQuestId = m[1];
-        }
+/** A todo the move picker acts on: its file, its plain id, and where it lives. */
+interface MoveSource {
+    todoId: string;
+    path: string;
+    origin: TodoMoveOrigin;
+    /** Written into the todo's notes when it leaves (`quest: <id>` / `workspace` / the file). */
+    originLabel: string;
+}
+
+/** Find the file a todo of this panel lives in, by the panel's mode. */
+function _resolveMoveSource(
+    mode: { isSessionMode: boolean; isWorkspaceFileMode: boolean; workspaceFilePath: () => string | undefined; questId: string },
+    rawTodoId: string,
+    sourceFile: string | undefined,
+): { todoId: string; path?: string; origin: TodoMoveOrigin; originLabel: string } {
+    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+    const questOrigin = (questId: string, file: string): { origin: TodoMoveOrigin; originLabel: string } => ({
+        origin: { questId, inQuestMainFile: path.basename(file) === `todos.${questId}.todo.yaml`, inWorkspaceFile: false },
+        originLabel: `quest: ${questId}`,
+    });
+    if (mode.isSessionMode) {
+        const target = _parseSessionTodoTarget(rawTodoId, sourceFile);
+        const questId = _getSessionQuestId();
+        const fp = target.sourceFile ? _sessionTodoAbsolutePath(questId, target.sourceFile) : undefined;
+        return { todoId: target.todoId, path: fp, ...questOrigin(questId, fp ?? '') };
     }
-    const moved = questTodo.moveToWorkspaceTodo(resolvedQuestId, todoId);
-    post({ type: 'qtMoved', success: !!moved, todoId });
-    _sendTodoList(questId, undefined, post);
+    if (mode.isWorkspaceFileMode) {
+        const fp = mode.workspaceFilePath();
+        const origin = todoOriginOfRelativePath(fp ? path.relative(wsRoot, fp) : '');
+        return { todoId: rawTodoId, path: fp, origin, originLabel: origin.inWorkspaceFile ? 'workspace' : path.basename(fp ?? '') };
+    }
+    if (mode.questId === '__all_workspace__' && sourceFile) {
+        const origin = todoOriginOfRelativePath(sourceFile);
+        return {
+            todoId: rawTodoId,
+            path: path.join(wsRoot, sourceFile),
+            origin,
+            originLabel: origin.questId ? `quest: ${origin.questId}` : (origin.inWorkspaceFile ? 'workspace' : sourceFile),
+        };
+    }
+    const questIds = mode.questId && !mode.questId.startsWith('__') ? [mode.questId] : listQuestIds();
+    for (const questId of questIds) {
+        const fp = questTodo.questTodoSourcePath(questId, rawTodoId, sourceFile);
+        if (fp) { return { todoId: rawTodoId, path: fp, ...questOrigin(questId, fp) }; }
+    }
+    return { todoId: rawTodoId, origin: { inQuestMainFile: false, inWorkspaceFile: false }, originLabel: '' };
 }
 
 function _openYamlFile(questId: string, file: string): void {

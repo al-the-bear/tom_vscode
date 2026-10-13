@@ -1128,94 +1128,95 @@ export function moveTodo(
 }
 
 /**
- * Move a todo from a quest file to the workspace-level `workspace.todo.yaml`.
- * Removes the todo from its source quest file and appends it to
- * `<wsRoot>/workspace.todo.yaml`, creating the file if necessary.
+ * The file in a quest's folder that holds `todoId`: `sourceFile` (a file name
+ * in the quest folder) when given and it holds the id, else whichever of the
+ * quest's todo files does, session and retired files included.
  */
-export function moveToWorkspaceTodo(
-    questId: string,
-    todoId: string,
-): QuestTodoItem | undefined {
-    const wsRoot = getWorkspaceRoot();
-    if (!wsRoot) return undefined;
+export function questTodoSourcePath(questId: string, todoId: string, sourceFile?: string): string | undefined {
     const folder = questFolder(questId);
-
-    // 1. Find and remove from source — retired files included, so moving a
-    //    todo OUT of the archive (un-archiving) works.
-    for (const fileName of listTodoFiles(questId, ALL_TODO_FILES)) {
-        const filePath = path.join(folder, fileName);
-        const doc = loadDocument(filePath);
-        const todosNode = doc.get('todos', true);
-        if (!isSeq(todosNode)) { continue; }
-
-        const idx = todosNode.items.findIndex((item: unknown) =>
-            isMap(item) && String((item as YAMLMap).get('id')) === todoId,
-        );
-        if (idx === -1) { continue; }
-
-        const todoNode = todosNode.items[idx] as YAMLMap;
-        const todoPlain = nodeToTodo(todoNode);
-
-        // Remove from source
-        todosNode.items.splice(idx, 1);
-        doc.set('updated', new Date().toISOString().slice(0, 10));
-        saveDocument(filePath, doc);
-        // SCD202, same reasoning as `moveTodo`: a lost removal leaves the todo
-        // in the quest file AND in workspace.todo.yaml.
-        assertTodoPersisted(filePath, todoId, 'absent', 'moveToWorkspaceTodo');
-
-        // 2. Append to workspace.todo.yaml
-        const wsFile = path.join(wsRoot, 'workspace.todo.yaml');
-        let wsDo: Document;
-        let wsIsNew = false;
-        if (fs.existsSync(wsFile)) {
-            wsDo = loadDocument(wsFile);
-        } else {
-            wsIsNew = true;
-            wsDo = parseDocument(`scope:\n  area: workspace\ncreated: "${new Date().toISOString().slice(0, 10)}"\ntodos: []\n`);
-        }
-
-        let wsTodos = wsDo.get('todos', true);
-        if (!isSeq(wsTodos)) {
-            wsDo.set('todos', wsDo.createNode([]));
-            wsTodos = wsDo.get('todos', true) as YAMLSeq;
-        }
-
-        // Build plain object
-        const plain: Record<string, unknown> = { id: todoPlain.id };
-        if (todoPlain.title) plain.title = todoPlain.title;
-        plain.description = todoPlain.description;
-        plain.status = todoPlain.status;
-        if (todoPlain.priority) plain.priority = todoPlain.priority;
-        if (todoPlain.tags?.length) plain.tags = todoPlain.tags;
-        if (todoPlain.notes) plain.notes = todoPlain.notes;
-        if (todoPlain.scope) plain.scope = todoPlain.scope;
-        if (todoPlain.references?.length) plain.references = todoPlain.references;
-        if (todoPlain.dependencies?.length) plain.dependencies = todoPlain.dependencies;
-        if (todoPlain.blocked_by?.length) plain.blocked_by = todoPlain.blocked_by;
-        if (todoPlain.created) plain.created = todoPlain.created;
-        if (todoPlain.completed_date) plain.completed_date = todoPlain.completed_date;
-        if (todoPlain.completed_by) plain.completed_by = todoPlain.completed_by;
-        plain.updated = new Date().toISOString().slice(0, 10);
-        // Tag the origin quest for traceability
-        plain.notes = ((todoPlain.notes || '') + `\n[moved from quest: ${questId}]`).trim();
-
-        const wsNewNode = wsDo.createNode(plain);
-        forceBlockStyle(wsNewNode);
-        (wsTodos as YAMLSeq).add(wsNewNode);
-        forceBlockStyle(wsTodos);
-        wsDo.set('updated', new Date().toISOString().slice(0, 10));
-        if (wsIsNew) {
-            saveDocumentWithSchema(wsFile, wsDo);
-        } else {
-            saveDocument(wsFile, wsDo);
-        }
-        assertTodoPersisted(wsFile, todoId, 'present', 'moveToWorkspaceTodo');
-        assertTodoFieldsPersisted(wsFile, todoId, plain, 'moveToWorkspaceTodo');
-
-        return { ...todoPlain, _sourceFile: 'workspace.todo.yaml' };
+    if (sourceFile) {
+        const candidate = path.join(folder, path.basename(sourceFile));
+        if (findTodoByIdInFile(candidate, todoId)) { return candidate; }
     }
-    return undefined;
+    const found = findTodoById(questId, todoId);
+    return found?._sourceFile ? path.join(folder, found._sourceFile) : undefined;
+}
+
+/** True when `_ai/quests/<questId>/` exists. */
+export function questExists(questId: string): boolean {
+    return !!questId && !questId.startsWith('__') && fs.existsSync(questFolder(questId));
+}
+
+/** Where {@link moveTodoToDestination} moves a todo: a quest's own todo file, or `workspace.todo.yaml`. */
+export type TodoMoveDestination = { kind: 'quest'; questId: string } | { kind: 'workspace' };
+
+export type TodoTransferResult =
+    | { ok: true; todo: QuestTodoItem; targetPath: string }
+    | { ok: false; reason: string };
+
+/** The file a destination writes to: `todos.<quest>.todo.yaml`, or `<wsRoot>/workspace.todo.yaml`. */
+export function todoDestinationPath(dest: TodoMoveDestination): string | undefined {
+    if (dest.kind === 'quest') { return persistentTodoPath(dest.questId); }
+    const wsRoot = getWorkspaceRoot();
+    return wsRoot ? path.join(wsRoot, 'workspace.todo.yaml') : undefined;
+}
+
+/**
+ * Move one todo out of any todo file (a quest file, a session file,
+ * `workspace.todo.yaml`, an archived sibling) into a quest's todo file or the
+ * workspace todo file. Every field travels, unknown ones included
+ * (`buildTodoPlain`). When `origin` is given and the todo leaves it, the
+ * origin is noted in `notes` (`[moved from quest: <id>]`), so a todo that
+ * crossed quests says where it came from.
+ *
+ * The target is written first and the source second, each verified: a failure
+ * between them leaves a duplicate that the verifier reports, never a todo that
+ * is in neither file. Refused, with nothing written: a source that does not
+ * hold the id, a target that is the source, and a target that already holds a
+ * todo with that id.
+ */
+export function moveTodoToDestination(
+    sourcePath: string,
+    todoId: string,
+    dest: TodoMoveDestination,
+    origin?: string,
+): TodoTransferResult {
+    const targetPath = todoDestinationPath(dest);
+    if (!targetPath) { return { ok: false, reason: 'No workspace root.' }; }
+    if (path.resolve(targetPath) === path.resolve(sourcePath)) {
+        return { ok: false, reason: `${todoId} is already in ${path.basename(targetPath)}.` };
+    }
+    if (!fs.existsSync(sourcePath)) { return { ok: false, reason: `No todo file at ${sourcePath}.` }; }
+    const doc = loadDocument(sourcePath);
+    const todosNode = doc.get('todos', true);
+    const idx = isSeq(todosNode)
+        ? todosNode.items.findIndex((item: unknown) => isMap(item) && String((item as YAMLMap).get('id')) === todoId)
+        : -1;
+    if (!isSeq(todosNode) || idx === -1) {
+        return { ok: false, reason: `${todoId} is not in ${path.basename(sourcePath)}.` };
+    }
+    if (findTodoByIdInFile(targetPath, todoId)) {
+        return { ok: false, reason: `${path.basename(targetPath)} already holds a todo ${todoId}.` };
+    }
+
+    const todo = nodeToTodo(todosNode.items[idx] as YAMLMap);
+    const destLabel = dest.kind === 'quest' ? `quest: ${dest.questId}` : 'workspace';
+    if (origin && origin !== destLabel) {
+        todo.notes = `${todo.notes ?? ''}\n[moved from ${origin}]`.trim();
+    }
+
+    // 1. The target, verified by the create itself.
+    const moved = dest.kind === 'quest'
+        ? createTodo(dest.questId, todo)
+        : createTodoInFile(targetPath, todo, { scope: { area: 'workspace' } });
+
+    // 2. The source.
+    todosNode.items.splice(idx, 1);
+    doc.set('updated', new Date().toISOString().slice(0, 10));
+    saveDocument(sourcePath, doc);
+    assertTodoPersisted(sourcePath, todoId, 'absent', 'moveTodoToDestination');
+
+    return { ok: true, todo: { ...moved, _sourceFile: path.basename(targetPath) }, targetPath };
 }
 
 /**

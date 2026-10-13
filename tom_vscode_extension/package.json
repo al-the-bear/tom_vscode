@@ -2463,6 +2463,54 @@
         "toolReferenceName": "tomAi_deleteQuestTodos"
       },
       {
+        "name": "tomAi_transferTodos",
+        "tags": [
+          "todo",
+          "quest",
+          "tom-ai-chat"
+        ],
+        "displayName": "Transfer Todos (quest / workspace)",
+        "userDescription": "Move todos into a quest's todo file (this or another quest) or into workspace.todo.yaml",
+        "modelDescription": "Move todos from a quest's todo files (own file, topic file, session file, archive) or from workspace.todo.yaml into a quest's own todos.<quest>.todo.yaml (the same or another quest) or into workspace.todo.yaml. Exactly one source (sourceQuestId [+ sourceFile] or fromWorkspace) and one target (targetQuestId or toWorkspace). Per-id refusals are reported in skipped.",
+        "canBeReferencedInPrompt": true,
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "todoIds"
+          ],
+          "properties": {
+            "todoIds": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The todo ids to move."
+            },
+            "sourceQuestId": {
+              "type": "string",
+              "description": "The quest whose folder holds the todos."
+            },
+            "sourceFile": {
+              "type": "string",
+              "description": "A todo file in that quest folder; default: whichever holds each id."
+            },
+            "fromWorkspace": {
+              "type": "boolean",
+              "description": "The todos are in workspace.todo.yaml."
+            },
+            "targetQuestId": {
+              "type": "string",
+              "description": "Move into this quest's todos.<quest>.todo.yaml."
+            },
+            "toWorkspace": {
+              "type": "boolean",
+              "description": "Move into workspace.todo.yaml."
+            }
+          }
+        },
+        "toolReferenceName": "tomAi_transferTodos"
+      },
+      {
         "name": "tomAi_listQuests",
         "tags": [
           "quest",

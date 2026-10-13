@@ -24,8 +24,8 @@
  *         function, by a verifier call (`assertTodoPersisted`,
  *         `assertTodoFieldsPersisted`, `assertMovePersisted`) whose arguments
  *         include the written file's expression. Matching on the file matters:
- *         `moveToWorkspaceTodo` writes two files, and a check of the second
- *         must not count for the first.
+ *         a function writing two files must not count a check of the second
+ *         for the first (WS-7).
  *   WS-4  Every exemption names a real site and gives a reason, so the list
  *         cannot outlive what it excuses.
  *   WS-5  Not vacuous: the walk must find the known site
@@ -60,10 +60,8 @@ const CENSUS = [
     'questTodoManager.ts: createTodoInFile → saveDocument(filePath)',
     'questTodoManager.ts: deleteTodo → saveDocument(filePath)',
     'questTodoManager.ts: ensureTodoFile → saveDocumentWithSchema(filePath)',
-    'questTodoManager.ts: moveToWorkspaceTodo → saveDocument(filePath)',
-    'questTodoManager.ts: moveToWorkspaceTodo → saveDocument(wsFile)',
-    'questTodoManager.ts: moveToWorkspaceTodo → saveDocumentWithSchema(wsFile)',
     'questTodoManager.ts: moveTodo → saveDocument(filePath)',
+    'questTodoManager.ts: moveTodoToDestination → saveDocument(sourcePath)',
     'questTodoManager.ts: updateTodo → saveDocument(filePath)',
     'questTodoManager.ts: updateTodoInFile → saveDocument(filePath)',
     'todoArchive.ts: journalDecisions → fs.appendFileSync(file)',
@@ -259,13 +257,19 @@ describe('todo write sites are enumerated and verified (WS-*)', () => {
     });
 
     test('WS-7: a check of one file does not count for another', () => {
-        // moveToWorkspaceTodo writes filePath and then wsFile; removing the
-        // filePath check must be caught although wsFile is still checked.
+        // A function writing two files and checking only the second must be
+        // reported for the first. No production function writes two todo
+        // files directly any more (a move writes its target through
+        // createTodo), so the case is added to the scanned source.
         const sources = readSources();
         const text = sources.get('questTodoManager.ts')!;
-        const marker = "assertTodoPersisted(filePath, todoId, 'absent', 'moveToWorkspaceTodo');";
-        assert.ok(text.includes(marker), 'moveToWorkspaceTodo source verification not found');
-        sources.set('questTodoManager.ts', text.replace(marker, ''));
-        assert.deepEqual(unverified(scan(sources)), ['questTodoManager.ts: moveToWorkspaceTodo → saveDocument(filePath)']);
+        sources.set('questTodoManager.ts', `${text}
+function twoFileWriter(firstFile: string, secondFile: string, doc: Document, todoId: string): void {
+    saveDocument(firstFile, doc);
+    saveDocument(secondFile, doc);
+    assertTodoPersisted(secondFile, todoId, 'present', 'twoFileWriter');
+}
+`);
+        assert.deepEqual(unverified(scan(sources)), ['questTodoManager.ts: twoFileWriter → saveDocument(firstFile)']);
     });
 });
