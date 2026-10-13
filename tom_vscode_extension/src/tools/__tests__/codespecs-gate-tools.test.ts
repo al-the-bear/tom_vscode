@@ -6,6 +6,7 @@
  *   CG-2  A1 fails on an empty required form field, located at the right path
  *   CG-3  A2 fails on a bad enum value
  *   CG-4  A3 fails on an unrouted class; A4 then does not run, and says why
+ *   CG-4b A3 fails on the projection document: the runtime refuses its root
  *   CG-5  A4 fails on an empty required marker source
  *   CG-6  A5 fails when the model loses a carrier; no document path, a model-level fix
  *   CG-7  the record: the corpus record reads complete and agrees with the extracts; partial and absent records
@@ -23,7 +24,7 @@ import { installVscodeStub } from './_vscode-stub.js';
 import { withTiming } from './_timing.js';
 installVscodeStub({});
 
-import { SpecModel } from 'tom_som_typescript_runtime';
+import { SpecDocument, SpecEditor, SpecModel, yamlEncode } from 'tom_som_typescript_runtime';
 import { SomModelService } from '../../services/som-model-service.js';
 import { SomDocumentStore } from '../../services/som-document-store.js';
 import type { SpecToolDeps } from '../spec-tool-common.js';
@@ -134,6 +135,18 @@ describe('CodeSpecs gate and gate record', () => {
         const a4 = check(r, 'A4');
         assert.equal(a4.ran, false);
         assert.match(a4.notRunReason, /A3 did not complete/);
+    });
+
+    test('CG-4b: A3 — the projection document is refused at its root', async () => {
+        const cgp = new SpecDocument();
+        SpecEditor.forModel(cgp, service.model).setValue('CGP/content', 'What generation reaches.');
+        put('projection.docspecs.yaml', yamlEncode(cgp, service.metaTree('CGP'), service.modelVersion, null));
+        const r = await run(codeSpecsGateImpl, { file: 'projection.docspecs.yaml' });
+        assert.equal(r.gateOpen, false);
+        const a3 = check(r, 'A3');
+        assert.equal(a3.passed, false);
+        assert.deepEqual(a3.findings.map((f: Json) => [f.code, f.path]), [['root', 'CGP']]);
+        assert.match(a3.findings[0].message, /generation projection/);
     });
 
     test('CG-5: A4 — an empty required marker source', async () => {

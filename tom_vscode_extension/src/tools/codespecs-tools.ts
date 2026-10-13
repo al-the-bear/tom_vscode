@@ -25,7 +25,8 @@
  *     verbatim value and the routing that put it there.
  * The CodeSpecs projection document (a root carrying @CodeSpecsProjection,
  * D13 / CGP) defines what generation reaches; it is not filled and not
- * extracted, so the tools refuse it rather than return 27 empty extracts.
+ * extracted. The runtime's extractor refuses it (a CodeSpecsExtractError on the
+ * root's @CodeSpecsProjection marker) rather than return 27 empty extracts.
  */
 
 import * as fs from 'fs';
@@ -90,20 +91,11 @@ export function codeSpecsFailure(e: unknown): string {
     return failure(e);
 }
 
-/** Refuse the CodeSpecs projection document (its root class carries @CodeSpecsProjection). */
-export function refuseProjection(deps: SpecToolDeps, loaded: LoadedSomDocument): void {
-    const rootClass = deps.service.reflection.classNamed(loaded.root.type);
-    if (rootClass?.hasAnnotation('CodeSpecsProjection')) {
-        throw new CodeSpecsRefusal('projectionDocument',
-            `${loaded.root.type} (${loaded.root.sectionId}) is the CodeSpecs projection: it defines what code generation `
-            + 'reaches and is neither filled nor extracted. Extract from the specification document instead (e.g. a '
-            + 'Solution Blueprint, SBP).');
-    }
-}
-
-/** The extractor for a loaded document, refusing the projection document. */
+/**
+ * The extractor for a loaded document. The runtime refuses the projection
+ * document itself (a CodeSpecsExtractError naming its root).
+ */
 function extractorFor(deps: SpecToolDeps, loaded: LoadedSomDocument): CodeSpecsExtractor {
-    refuseProjection(deps, loaded);
     return new CodeSpecsExtractor(deps.service.model, loaded.document, deps.service.codeSpecsCatalog, loaded.root.type);
 }
 

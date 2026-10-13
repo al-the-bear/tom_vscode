@@ -31,7 +31,7 @@ import {
 
 import { SharedToolDefinition } from './shared-tool-registry';
 import { FILE_PARAM, SpecToolDeps, documentHeader, json, liveDeps, loadDocument, resolveInput, toWorkspacePath } from './spec-tool-common';
-import { CodeSpecsRefusal, EXTRACTS_DIR, ROUTING_FIX, codeSpecsFailure, refuseProjection } from './codespecs-tools';
+import { CodeSpecsRefusal, EXTRACTS_DIR, ROUTING_FIX, codeSpecsFailure } from './codespecs-tools';
 import { SomSpecValidation } from '../services/som-spec-validation';
 import { nodeSomDocumentIo } from '../services/som-document-store';
 
@@ -88,7 +88,6 @@ const CHECKS: Record<string, { what: string; fix: string }> = {
 
 /** The runtime's Stage-A gate over a loaded document, with the Markdown and schema it judged A1 by. */
 function runGate(deps: SpecToolDeps, loaded: ReturnType<typeof loadDocument>) {
-    refuseProjection(deps, loaded);
     const model = deps.service.model;
     const markdown = loaded.document.toMarkdown(model, loaded.root.type);
     const schemaId = DOCSPEC_SCHEMA.exec(markdown)?.[1] ?? null;

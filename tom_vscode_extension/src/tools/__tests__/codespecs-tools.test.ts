@@ -171,8 +171,10 @@ describe('CodeSpecs tools', () => {
         put('projection.docspecs.yaml', yamlEncode(cgp, service.metaTree('CGP'), service.modelVersion, null));
         for (const impl of [codeSpecsRoutingImpl, codeSpecsExtractImpl, codeSpecsWriteExtractsImpl]) {
             const r = await run(impl, { file: 'projection.docspecs.yaml' });
-            assert.equal(r.code, 'projectionDocument');
-            assert.match(r.error, /neither filled nor extracted/);
+            // The runtime refuses it, on the root's @CodeSpecsProjection marker.
+            assert.equal(r.code, 'extractError');
+            assert.match(r.error, /generation projection/);
+            assert.equal(r.path, 'CGP');
         }
     });
 
