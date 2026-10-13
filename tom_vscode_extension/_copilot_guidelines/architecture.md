@@ -190,6 +190,8 @@ The bundled SOM runtime + facade are reached only through `src/services/som-mode
 - Edit `loaded.document` (e.g. `SpecEditor.forModel(doc, service.model)`), then `save(loaded, { expectedRevision?, dryRun? })`: re-encodes in the file's own format stamped with the current model version, returns the new revision, a unified diff and `staleReviewPaths`. It refuses (`SomDocumentError.code`) a read-only document, a revision conflict, and a file dirty in an editor.
 - Markdown loads read-only when its import is not faithful — the re-render differs, the document cannot be encoded, or values land where the model has no value leaf (tom_specs qrb8) — or when the parser rejected blocks.
 - The extension uses `somDocumentStore()` from `som-document-io-vscode.ts`: files open in an editor are read from and written through the editor (WorkspaceEdit + save); others are written atomically. The store itself is vscode-free and unit-tested with `nodeSomDocumentIo`.
+- `src/services/som-spec-inspector.ts` (`SomSpecInspector`, vscode-free) answers the read-only questions over a loaded document or the model alone: outline, one section with typed form values, reflection, and what `checkAddNode` accepts at a path. An unresolvable path raises `SpecPathError` carrying the nearest resolvable node and its children. `store.peek(path)` identifies a file from its header lines only, for workspace scans.
+- The agent tools are in `src/tools/spec-tools.ts` (`SPEC_TOOLS`, `tomAi_spec*`, catalogued in `doc/llm_tools.md` §4.23): each is a `*Impl(deps, input)` over the store, the model and the workspace root, with a thin `execute` wrapper.
 
 ## Communication boundaries
 

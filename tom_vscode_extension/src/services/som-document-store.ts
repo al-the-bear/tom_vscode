@@ -121,6 +121,22 @@ export interface LoadedSomDocument {
     readOnlyReason: string | null;
 }
 
+/**
+ * What a file is, read from its header lines only: no decode, no import. Cheap
+ * enough to run over every candidate file of a workspace. The editability is
+ * the model-version rule alone; Markdown fidelity and parse rejections are
+ * known only after a full {@link SomDocumentStore.load}.
+ */
+export interface SomDocumentSummary {
+    readonly filePath: string;
+    readonly format: SomDocumentFormat;
+    readonly root: SpecRoot;
+    readonly stamp: string | null;
+    readonly editability: SomEditability;
+    /** Why the model version makes it read-only, or null. */
+    readonly versionReason: string | null;
+}
+
 export interface SomSaveOptions {
     /** Refuse unless the file still has this revision (what the agent last saw). */
     expectedRevision?: string;
@@ -141,6 +157,9 @@ export interface SomSaveResult {
 const DOCSPEC_HEADER = /^<!-- docspec: ([^/\s]+)\/(\d+\.\d+) -->/;
 const YAML_ROOT_KEY = /^document:\s*\n {2}(\S+) (\S+):/m;
 const YAML_REVIEW_KEY = /^review:/m;
+const YAML_STAMP = /^modelVersion:\s*"?([^"\s]+)"?\s*$/m;
+/** A SOM-rendered Markdown heading: `## <!--[SECTIONID]--> Title`. */
+const SOM_HEADING = /^#{1,6} <!--\[([^\]\s]+)\]-->/m;
 
 function sha256(text: string): string {
     return crypto.createHash('sha256').update(text, 'utf8').digest('hex');
@@ -170,6 +189,43 @@ export class SomDocumentStore {
             throw new SomDocumentError('notFound', `${filePath} does not exist or cannot be read.`);
         }
         return format === 'yaml' ? this.loadYaml(filePath, text) : this.loadMarkdown(filePath, text);
+    }
+
+    /**
+     * Identify a SOM document from its header without loading it, or return
+     * null when the file is not one (no root key, no SOM heading, unknown
+     * root, unreadable). Never throws for a non-SOM file.
+     */
+    peek(filePath: string): SomDocumentSummary | null {
+        let format: SomDocumentFormat;
+        let text: string;
+        try {
+            format = formatOf(filePath);
+            text = this.io.read(filePath);
+        } catch {
+            return null;
+        }
+        let rootKey: string | undefined;
+        let stamp: string | null;
+        if (format === 'yaml') {
+            rootKey = YAML_ROOT_KEY.exec(text)?.[1];
+            stamp = YAML_STAMP.exec(text)?.[1] ?? null;
+        } else {
+            rootKey = SOM_HEADING.exec(text)?.[1];
+            stamp = DOCSPEC_HEADER.exec(text)?.[2] ?? null;
+        }
+        if (!rootKey) { return null; }
+        const root = this.service.model.roots.find((r) => r.sectionId === rootKey || r.type === rootKey);
+        if (!root) { return null; }
+        const editability = somEditabilityFor(this.service.modelVersion, stamp);
+        return {
+            filePath,
+            format,
+            root,
+            stamp,
+            editability,
+            versionReason: this.readOnlyReason(editability, stamp, [], []),
+        };
     }
 
     /**

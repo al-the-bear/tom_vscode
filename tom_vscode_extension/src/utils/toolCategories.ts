@@ -177,6 +177,12 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_setTestStatus',
         'tomAi_toggleTestLabel',
     ],
+    'TomSpecs': [
+        'tomAi_specGetSection',
+        'tomAi_specListDocuments',
+        'tomAi_specOutline',
+        'tomAi_specReflect',
+    ],
     'Todos (chat)': [
         'tomAi_manageTodo',
     ],

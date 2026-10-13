@@ -368,6 +368,46 @@ The buffer is **session-scoped** (cleared on `Clear session history`) and **Anth
 
 Typical usage: the injected history block shows `14:23:05 [t14] R3 tomAi_readFile(src/foo.ts) → export function foo …`. Past tool N returned content the model now wants verbatim → `tomAi_readPastToolResult({ key: "t14" })` returns the whole file content it saw earlier, no tool re-run.
 
+### 4.23 TomSpecs (SOM) documents
+
+Read and reflect on TomSpecs documents — `*.docspecs.yaml` and SOM-rendered
+`*.md` (headings carry `<!--[SECTIONID]-->`) — through the bundled SOM runtime,
+instead of reading the raw file and guessing at paths. Each call loads the file
+(a file open in an editor is read from its buffer); the model is parsed once per
+extension host. All are read-only, so the MCP server's unauthenticated floor
+includes them.
+
+Paths are document paths: the root section id, then field segments (a field's
+`@SectionId`, else its name) and list items `<LIST>-<n>`, e.g.
+`SBP/introductionAndScope/requirements/functionalRequirements/FRE-REQU-LST-1`.
+Take them from `tomAi_specOutline` rather than composing them. A path that does
+not resolve returns `{ok:false, code:"unresolvedPath", nearest:{path, kind,
+children}}`, the nearest node that does, so the agent can correct itself. In a
+document, a list item resolves only when the list holds it.
+
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
+| --- | --- | :-: | :-: | :-: | :-: | :-: |
+| `tomAi_specListDocuments` | The model's document roots, and the SOM documents under a folder with their root, model-version stamp and editability. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_specOutline` | The instance tree under a path: kind, section id, headline, codeSpec, filled, item counts; depth-limited and paged. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_specGetSection` | One node with its values: a leaf's value, a form's typed fields with enum domains, a list's items, a section's values, forms and children. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_specReflect` | The model at a path or class: kinds, types, form fields, annotations, doc comments; with a file, the children `checkAddNode` accepts there now. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+
+Every document answer carries the document's `format`, `stamp`, `editability`,
+`readOnlyReason` and `revision`. A Markdown file whose import is not faithful
+(tom_specs qrb8) loads read-only and says so. The revision is what a later edit
+passes as `expectedRevision`.
+
+The TomSpecs editor ships the same capabilities on its own MCP servers under
+other names. The extension keeps its `tomAi_spec*` convention; each tool
+description names its counterpart:
+
+| Extension | TomSpecs editor |
+| --- | --- |
+| `tomAi_specListDocuments` | `model_list_documents` |
+| `tomAi_specOutline` | `doc_outline` |
+| `tomAi_specGetSection` | `doc_get_content`, `doc_get_form_field`, `doc_section_meta` |
+| `tomAi_specReflect` | `doc_reflect`, `model_get_section`, `model_children` |
+
 ## 5. Transport-specific recommendations
 
 ### 5.1 Anthropic Agent SDK (`transport: 'agentSdk'`)

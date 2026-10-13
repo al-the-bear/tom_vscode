@@ -182,6 +182,11 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_deleteReminderTemplate',
     // Id generation
     'tomAi_generateIdPrefix',
+    // TomSpecs (SOM) documents: read-only views and model reflection
+    'tomAi_specListDocuments',
+    'tomAi_specOutline',
+    'tomAi_specGetSection',
+    'tomAi_specReflect',
     // Queue + timed requests — observation only; the mutators and the dispatch
     // entry points are in DELIBERATELY_UNSELECTABLE_TOOLS below.
     'tomAi_listQueue',

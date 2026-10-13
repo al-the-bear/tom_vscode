@@ -18,6 +18,7 @@
  *   SD-11  Markdown with parse rejections loads read-only, naming the lines
  *   SD-12  unknown format and unknown root are clear errors
  *   SD-13  save reports review entries whose path no longer resolves
+ *   SD-14  peek identifies a document from its header, null for anything else
  */
 
 import test, { describe } from 'node:test';
@@ -209,5 +210,22 @@ describe('SomDocumentStore', () => {
         const doc = s.load(write('sd13.docspecs.yaml', text));
         const result = await s.save(doc, { dryRun: true });
         assert.deepEqual(result.staleReviewPaths, ['SBP/noSuchSection']);
+    });
+
+    test('SD-14: peek identifies a document from its header, null for anything else', () => {
+        const s = store();
+        const yaml = s.peek(write('sd14.docspecs.yaml', MERIDIAN_YAML));
+        assert.deepEqual([yaml?.format, yaml?.root.sectionId, yaml?.stamp, yaml?.editability, yaml?.versionReason],
+            ['yaml', 'SBP', '1.3', SomEditability.editable, null]);
+        const md = s.peek(write('sd14.md', MERIDIAN_MD));
+        assert.deepEqual([md?.format, md?.root.sectionId, md?.stamp], ['markdown', 'SBP', '1.3']);
+        const newer = s.peek(write('sd14n.docspecs.yaml', MERIDIAN_YAML.replace('modelVersion: "1.3"', 'modelVersion: "1.99"')));
+        assert.equal(newer?.editability, SomEditability.rejectedNewerMinor);
+        assert.match(newer?.versionReason ?? '', /1\.99/);
+        assert.equal(s.peek(write('sd14-plain.md', '# Notes\n\ntext\n')), null);
+        assert.equal(s.peek(write('sd14-plain.yaml', 'key: value\n')), null);
+        assert.equal(s.peek(write('sd14-unknown.docspecs.yaml', MERIDIAN_YAML.replace('SBP D00SolutionBlueprint:', 'ZZZ Nothing:'))), null);
+        assert.equal(s.peek(path.join(tmp, 'missing.docspecs.yaml')), null);
+        assert.equal(s.peek(write('sd14.txt', 'x')), null);
     });
 });
