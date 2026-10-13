@@ -191,6 +191,11 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_specSearchIterate',
     'tomAi_specValidate',
     'tomAi_specRender',
+    // Plain DocSpecs Markdown (not SOM)
+    'tomAi_docspecsValidate',
+    'tomAi_docspecsOutline',
+    'tomAi_docspecsGetSection',
+    'tomAi_docspecsReplaceSection',
     // TomSpecs (SOM) edits — write tools, approval-gated
     'tomAi_specAddNode',
     'tomAi_specClearSection',

@@ -33,6 +33,12 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_getErrors',
         'tomAi_getProblems',
     ],
+    'DocSpecs': [
+        'tomAi_docspecsGetSection',
+        'tomAi_docspecsOutline',
+        'tomAi_docspecsReplaceSection',
+        'tomAi_docspecsValidate',
+    ],
     'Editor Context': [
         'tomAi_getActiveEditor',
         'tomAi_getOpenEditors',

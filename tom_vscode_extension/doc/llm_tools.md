@@ -479,6 +479,47 @@ without use, and one that has returned every match closes at once. Each cursor
 remembers the file revision its matches come from, and iterating after the file
 changed runs the query again (`rerun: true`) and starts over.
 
+### 4.24 Plain DocSpecs Markdown
+
+Markdown that declares a DocSpecs schema (`<!-- docspec: <id>/<version> -->`)
+but is not a SOM spec: quest documents, project specifications. Parsing,
+validation and the section replace are the runtime's (`DocSpecsDocument`,
+`DocSpecsSchema`, `DocSpecsValidator`). Files go through the same store as the
+spec tools, so the text is read from an open editor's buffer, and a write is
+refused when the file is dirty or has changed since it was read.
+
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
+| --- | --- | :-: | :-: | :-: | :-: | :-: |
+| `tomAi_docspecsValidate` | Check the document against its declared schema. A declared schema found nowhere (`unknownSchema`) and a missing header (`noSchemaDeclared`) are findings. Schema keys the runtime ignores are listed (`ignoredByRuntime`): their constraints are not checked. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_docspecsOutline` | The section tree with line ranges; with a schema, the required sections and those missing. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_docspecsGetSection` | One section's own body (up to its first subsection), by id. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_docspecsReplaceSection` | Replace one section's own body (approval). Every other byte is kept, and fenced blocks are respected. A body that would add a heading or leave a fence open is refused. Answers the validation it introduced or resolved; `dryRun` returns a diff. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+
+The schema is looked up in this order:
+1. an explicit `schema` argument (`<id>/<version>` or a schema file);
+2. `.tom/docspecs-schema/<id>/<id>.<version>.docspecs-schema.yaml` in the
+   document's folder, or the nearest folder above it, up to the workspace root;
+3. the schemas generated from the SOM model, so SOM-rendered Markdown validates
+   too.
+
+`docspec: none` declares no schema.
+
+**Two DocSpecs forms.** The runtime reads headings that carry `<!--[ID]-->` ids
+under a `<!-- docspec: id/version -->` header. The DocSpecs specification also
+shows an older form, `# [id] Title` headings and a `<!-- schema=name-1.0 -->`
+field, and the workspace's own documents and `.tom/docspecs-schema/` files use
+that form. Measured 2026-10-13:
+- no quest document carries `<!--[ID]-->` headings;
+- the quest-overview, quest-notes and webwork schemas that quest documents
+  declare exist nowhere in the workspace;
+- the nine workspace schemas load with 5–21 runtime warnings each, chiefly
+  `max-count-in-document`, whose limits are then not checked.
+
+So on today's workspace documents these tools mostly report `unknownSchema`, or
+`malformedHeading` with a `dialect` note. They work fully for documents in the
+runtime's form, including SOM-rendered Markdown. tom_specs vsctasb7 settles
+which form is current.
+
 ## 5. Transport-specific recommendations
 
 ### 5.1 Anthropic Agent SDK (`transport: 'agentSdk'`)
@@ -566,6 +607,7 @@ Tools are grouped by functional family, one file per family under `src/tools/`:
 | `id-prefix-tools.ts` | Date-based prefix for collision-free hand-authored ids |
 | `issue-tools.ts` | Issues subpanel (read + write) |
 | `test-tools.ts` | Tests subpanel / testkit (read + write) |
+| `docspecs-tools.ts` | Plain DocSpecs Markdown: validate, outline, get and replace a section |
 | `spec-tools.ts`, `spec-search-tools.ts`, `spec-edit-tools.ts`, `spec-validate-tools.ts` | TomSpecs (SOM) documents: read and reflect, search with a cursor, edits and the batch, validate / render / convert (`spec-tool-common.ts` holds what they share) |
 | `chat-enhancement-tools.ts` | Notify, quest/session todos, queue, timed, templates, reminders |
 | `tool-executors.ts` | File I/O primitives, shell, web, memory, chat vars, ask-AI bridges |
@@ -591,7 +633,7 @@ that works under `toolsEnabled: true` and is invisible everywhere else.
 
 ### Deliberately unselectable tools
 
-Of the 152 registered tools, **136 are selectable** and **16 are withheld from
+Of the 156 registered tools, **140 are selectable** and **16 are withheld from
 the pickers on purpose** (`DELIBERATELY_UNSELECTABLE_TOOLS` in
 `src/utils/constants.ts`): the twelve queue mutators and dispatch entry points
 (`tomAi_addQueueItem`, `tomAi_updateQueueItem`, `tomAi_removeQueueItem`,

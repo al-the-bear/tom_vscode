@@ -373,43 +373,75 @@ export class SomDocumentStore {
         if (loaded.readOnlyReason) {
             throw new SomDocumentError('readOnly', loaded.readOnlyReason);
         }
-        if (this.io.isDirty?.(loaded.filePath)) {
-            throw new SomDocumentError('dirtyInEditor',
-                `${path.basename(loaded.filePath)} has unsaved changes in an editor. Save or revert it there first.`);
-        }
-        let current: string;
-        try {
-            current = this.io.read(loaded.filePath);
-        } catch {
-            throw new SomDocumentError('notFound', `${loaded.filePath} no longer exists.`);
-        }
-        const currentRevision = sha256(current);
-        if (currentRevision !== loaded.revision) {
-            throw new SomDocumentError('revisionConflict',
-                `${path.basename(loaded.filePath)} changed since it was loaded (revision ${currentRevision.slice(0, 12)}, loaded ${loaded.revision.slice(0, 12)}). Load it again and redo the edit.`);
-        }
-        if (options.expectedRevision !== undefined && options.expectedRevision !== currentRevision) {
-            throw new SomDocumentError('revisionConflict',
-                `${path.basename(loaded.filePath)} is at revision ${currentRevision.slice(0, 12)}, not the expected ${options.expectedRevision.slice(0, 12)}. Load it again.`);
-        }
-
         const text = this.render(loaded);
+        const written = await this.writeText(loaded.filePath, text, {
+            baseRevision: loaded.revision,
+            expectedRevision: options.expectedRevision,
+            dryRun: options.dryRun,
+        });
         const result: SomSaveResult = {
-            written: false,
+            ...written,
             text,
-            revision: sha256(text),
-            diff: unifiedDiff(current, text, path.basename(loaded.filePath)),
             staleReviewPaths: loaded.review
                 ? staleReviewPaths(this.service.model, loaded.document, loaded.review)
                 : [],
         };
-        if (options.dryRun) { return result; }
-
-        await this.io.write(loaded.filePath, text);
+        if (!written.written) { return result; }
         loaded.text = text;
-        loaded.revision = result.revision;
+        loaded.revision = written.revision;
         loaded.stamp = this.service.modelVersion;
         loaded.editability = SomEditability.editable;
+        return result;
+    }
+
+    /**
+     * Any text file as it is now (from its editor buffer when open), with its
+     * revision: the read half of the save path, for files that are not SOM
+     * documents (plain DocSpecs Markdown).
+     */
+    readText(filePath: string): { text: string; revision: string } {
+        try {
+            const text = this.io.read(filePath);
+            return { text, revision: sha256(text) };
+        } catch {
+            throw new SomDocumentError('notFound', `${filePath} does not exist or cannot be read.`);
+        }
+    }
+
+    /**
+     * The save path every edit takes, SOM or not: refuse a file dirty in an
+     * editor, refuse unless the file is still at `baseRevision` (what the
+     * caller read) and, when given, `expectedRevision` (what the agent read),
+     * then write `text` (through the editor when open, else atomically). A dry
+     * run stops before writing. Returns the diff from the current text.
+     */
+    async writeText(
+        filePath: string,
+        text: string,
+        options: { baseRevision: string; expectedRevision?: string; dryRun?: boolean },
+    ): Promise<{ written: boolean; revision: string; diff: string }> {
+        if (this.io.isDirty?.(filePath)) {
+            throw new SomDocumentError('dirtyInEditor',
+                `${path.basename(filePath)} has unsaved changes in an editor. Save or revert it there first.`);
+        }
+        let current: string;
+        try {
+            current = this.io.read(filePath);
+        } catch {
+            throw new SomDocumentError('notFound', `${filePath} no longer exists.`);
+        }
+        const currentRevision = sha256(current);
+        if (currentRevision !== options.baseRevision) {
+            throw new SomDocumentError('revisionConflict',
+                `${path.basename(filePath)} changed since it was loaded (revision ${currentRevision.slice(0, 12)}, loaded ${options.baseRevision.slice(0, 12)}). Load it again and redo the edit.`);
+        }
+        if (options.expectedRevision !== undefined && options.expectedRevision !== currentRevision) {
+            throw new SomDocumentError('revisionConflict',
+                `${path.basename(filePath)} is at revision ${currentRevision.slice(0, 12)}, not the expected ${options.expectedRevision.slice(0, 12)}. Load it again.`);
+        }
+        const result = { written: false, revision: sha256(text), diff: unifiedDiff(current, text, path.basename(filePath)) };
+        if (options.dryRun) { return result; }
+        await this.io.write(filePath, text);
         return { ...result, written: true };
     }
 
