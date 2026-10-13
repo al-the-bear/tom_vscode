@@ -24,3 +24,7 @@ media/types/**
 
 # Test files
 **/*.test.js
+
+# The TomSpecs SOM tarballs (scripts/build-som-packages.cjs). They are installed
+# into node_modules, which is what ships; the tarballs themselves are build input.
+vendor/**

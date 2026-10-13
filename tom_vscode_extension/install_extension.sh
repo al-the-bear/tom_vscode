@@ -56,6 +56,16 @@ fi
 
 echo ""
 
+# Build the TomSpecs SOM TypeScript pair (tom_ai/ai_build) into the two
+# tarballs package.json depends on. Must run before `npm install`: the VSIX has
+# to carry real copies of both packages, never a link into ai_build.
+echo "📦 Building the TomSpecs SOM packages..."
+node scripts/build-som-packages.cjs
+if [ $? -ne 0 ]; then
+    echo "❌ Building the TomSpecs SOM packages failed"
+    exit 1
+fi
+
 # Install / update dependencies (incl. the host-platform Claude Agent SDK
 # native CLI binary, which ships as an optional dependency).
 echo "📦 Installing npm dependencies..."
@@ -277,6 +287,11 @@ if [ $? -eq 0 ]; then
     if [ -n "$VSIX_FILE" ]; then
         echo ""
         echo "✅ Package created: $VSIX_FILE"
+        # The VSIX must be self-contained: SOM packages as real files, no symlinks.
+        if ! node scripts/check-vsix-contents.cjs "$VSIX_FILE"; then
+            echo "❌ The VSIX is not self-contained; not installing it"
+            exit 1
+        fi
         echo ""
         echo "🚀 Installing extension in VS Code..."
         "$CODE_CLI" --install-extension "$VSIX_FILE"

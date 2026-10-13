@@ -97,6 +97,16 @@ $NpmVersion = Invoke-Native { npm --version }
 Write-Host "npm version: $NpmVersion"
 Write-Host ""
 
+# Build the TomSpecs SOM TypeScript pair (tom_ai/ai_build) into the two
+# tarballs package.json depends on. Must run before `npm install`: the VSIX has
+# to carry real copies of both packages, never a link into ai_build.
+Write-Host "Building the TomSpecs SOM packages..."
+Invoke-Native { node scripts/build-som-packages.cjs }
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Building the TomSpecs SOM packages failed"
+    exit 1
+}
+
 # Install dependencies
 Write-Host "Installing npm dependencies..."
 Invoke-Native { npm install }
@@ -335,6 +345,12 @@ if ($CodeCli) {
             if ($VsixFile) {
                 Write-Host ""
                 Write-Host "Package created: $($VsixFile.Name)"
+                # The VSIX must be self-contained: SOM packages as real files, no symlinks.
+                Invoke-Native { node scripts/check-vsix-contents.cjs "$($VsixFile.FullName)" }
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Error "The VSIX is not self-contained; not installing it"
+                    exit 1
+                }
                 Write-Host ""
                 Write-Host "Installing extension in VS Code..."
                 Invoke-Native { & $CodeCli --install-extension "$($VsixFile.FullName)" }

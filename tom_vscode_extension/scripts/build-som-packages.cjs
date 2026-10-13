@@ -1,0 +1,118 @@
+#!/usr/bin/env node
+/**
+ * Build the TomSpecs SOM TypeScript pair and drop it into vendor/tom_som/ as
+ * two version-free tarballs the extension's package.json depends on.
+ *
+ *   node scripts/build-som-packages.cjs        (npm run som:pack)
+ *
+ * Why tarballs and not `file:` folder links: a folder link is a symlink in
+ * node_modules, and the VSIX must carry real files — the installed extension
+ * may never reach back into an ai_build checkout. tom_specs measured the route
+ * (vsctsa36): `npm pack` both packages and install the two tarballs, and the
+ * installed tree holds no symlink, with one runtime instance shared by the
+ * facade (the runtime is the facade's peer dependency).
+ *
+ * Why version-free names: package.json then stays the same across model bumps;
+ * the versions are recorded in vendor/tom_som/versions.json instead.
+ *
+ * The packages live in ai_build, two levels up from this extension's repo
+ * (tom_ai/ai_build). TOM_SOM_AI_BUILD overrides that location. Neither package
+ * commits dist/ or a lockfile, so each is installed (`npm install`, not ci)
+ * and packed; `npm pack` runs their prepack build.
+ *
+ * After packing, the installed copies in node_modules and their lockfile
+ * entries are removed: npm keeps a `file:` tarball dependency whose name and
+ * version did not change, even when its content did, so without this a
+ * rebuilt runtime never reaches the extension. Run `npm install` afterwards
+ * (install_extension.sh does).
+ *
+ * Exit codes: 0 built, 1 a step failed (the message names it).
+ */
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const { execFileSync } = require('child_process');
+
+const EXT_ROOT = path.resolve(__dirname, '..');
+const AI_BUILD = process.env.TOM_SOM_AI_BUILD
+    ? path.resolve(process.env.TOM_SOM_AI_BUILD)
+    : path.resolve(EXT_ROOT, '..', '..', 'ai_build');
+const VENDOR_DIR = path.join(EXT_ROOT, 'vendor', 'tom_som');
+
+/** In dependency order: the facade's prepack builds against the runtime. */
+const PACKAGES = ['tom_som_typescript_runtime', 'tom_som_typescript_v0'];
+
+function fail(message) {
+    console.error(`❌ ${message}`);
+    process.exit(1);
+}
+
+function npm(args, cwd) {
+    // `shell: true` resolves npm.cmd on Windows; the arguments are fixed
+    // literals and paths we built, so nothing user-supplied reaches the shell.
+    return execFileSync('npm', args, {
+        cwd,
+        shell: process.platform === 'win32',
+        stdio: ['ignore', 'pipe', 'inherit'],
+        encoding: 'utf8',
+    });
+}
+
+function main() {
+    if (!fs.existsSync(AI_BUILD)) {
+        fail(`ai_build not found at ${AI_BUILD}. The SOM packages are built from it; set TOM_SOM_AI_BUILD to its location.`);
+    }
+    fs.mkdirSync(VENDOR_DIR, { recursive: true });
+    const versions = {};
+
+    for (const pkg of PACKAGES) {
+        const dir = path.join(AI_BUILD, pkg);
+        const manifestPath = path.join(dir, 'package.json');
+        if (!fs.existsSync(manifestPath)) {
+            fail(`${pkg} not found at ${dir}.`);
+        }
+        const version = JSON.parse(fs.readFileSync(manifestPath, 'utf8')).version;
+        console.log(`📦 ${pkg} ${version}: npm install + npm pack ...`);
+        try {
+            npm(['install', '--no-audit', '--no-fund'], dir);
+            const out = npm(['pack', '--json', '--pack-destination', VENDOR_DIR], dir);
+            // `npm pack --json` prints a JSON array; prepack output may precede
+            // it, so take the array from its first '['.
+            const packed = JSON.parse(out.slice(out.indexOf('[')));
+            const produced = path.join(VENDOR_DIR, packed[0].filename);
+            const target = path.join(VENDOR_DIR, `${pkg}.tgz`);
+            fs.renameSync(produced, target);
+            console.log(`  ✔ ${path.relative(EXT_ROOT, target)}`);
+        } catch (e) {
+            fail(`building ${pkg} failed in ${dir}: ${e.message}. Run 'npm install && npm pack' there to see the error.`);
+        }
+        versions[pkg] = version;
+    }
+
+    fs.writeFileSync(path.join(VENDOR_DIR, 'versions.json'), `${JSON.stringify(versions, null, 2)}\n`);
+    // npm does not re-extract a `file:` tarball whose name and version are
+    // unchanged, even when its content changed, and reinstalling it serves the
+    // old content from its cache by the integrity the lockfile recorded
+    // (both measured 2026-10-13). So drop the installed copies AND their
+    // lockfile entries (package-lock.json is local, gitignored); the next
+    // `npm install` then takes the new tarballs and records their integrity.
+    for (const pkg of PACKAGES) {
+        fs.rmSync(path.join(EXT_ROOT, 'node_modules', pkg), { recursive: true, force: true });
+    }
+    for (const lock of ['package-lock.json', path.join('node_modules', '.package-lock.json')]) {
+        const lockPath = path.join(EXT_ROOT, lock);
+        if (!fs.existsSync(lockPath)) { continue; }
+        const data = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+        for (const pkg of PACKAGES) {
+            if (data.packages) { delete data.packages[`node_modules/${pkg}`]; }
+        }
+        fs.writeFileSync(lockPath, `${JSON.stringify(data, null, 2)}\n`);
+    }
+    if (versions[PACKAGES[0]] !== versions[PACKAGES[1]]) {
+        fail(`version mismatch: ${JSON.stringify(versions)}. The runtime and the facade carry the model version and move together.`);
+    }
+    console.log(`✅ TomSpecs SOM packages ${versions[PACKAGES[0]]} ready in ${path.relative(EXT_ROOT, VENDOR_DIR)}/`);
+}
+
+main();

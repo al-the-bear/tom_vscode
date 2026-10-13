@@ -3033,6 +3033,7 @@
     "test": "npm run lint:media && npm run test:tools && npm run test:services && npm run test:utils && npm run test:managers && npm run test:handlers && npm run audit:tools",
     "audit:tools": "node scripts/audit-tool-coverage.cjs",
     "check:todo-yaml": "node scripts/check-todo-yaml.cjs",
+    "som:pack": "node scripts/build-som-packages.cjs",
     "lint": "eslint src --ext ts",
     "lint:media": "eslint media --ext js --no-error-on-unmatched-pattern",
     "typecheck:media": "tsc -p tsconfig.media.json"
@@ -3052,6 +3053,8 @@
     "@anthropic-ai/sdk": "^0.124.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@vscode/codicons": "^0.0.45",
+    "tom_som_typescript_runtime": "file:vendor/tom_som/tom_som_typescript_runtime.tgz",
+    "tom_som_typescript_v0": "file:vendor/tom_som/tom_som_typescript_v0.tgz",
     "ajv": "^8.18.0",
     "marked": "^14.1.2",
     "mermaid": "^11.14.0",

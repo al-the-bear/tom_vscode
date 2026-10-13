@@ -51,6 +51,17 @@ The from-source build also needs two sibling Tom projects present on disk (see
 - **`tom_d4rt_generator`** — the d4rt bridge generator, part of the **d4rt
   repo**, which must be cloned as a sibling under `tom_ai/d4rt/`.
 
+Every build (from source or not) also needs the **TomSpecs SOM TypeScript
+pair** from the **ai_build repo** (`tom_ai/ai_build/`):
+`tom_som_typescript_runtime` and `tom_som_typescript_v0`. The spec tools load
+the TomSpecs model through them. They are not on npm:
+`scripts/build-som-packages.cjs` (`npm run som:pack`) builds both and packs them
+into `vendor/tom_som/` (gitignored), and `package.json` depends on those two
+tarballs. Installed from tarballs, the packages are real files in
+`node_modules` and so travel inside the VSIX; the installed extension never
+reads from ai_build. `TOM_SOM_AI_BUILD` points the script at another ai_build
+location.
+
 All other Dart dependencies (`tom_d4rt`, `tom_vscode_scripting_api`,
 `tom_build_base`, `analyzer`, …) are resolved from pub.dev by `dart pub get`.
 
@@ -66,14 +77,18 @@ pwsh compile_and_install.ps1     # Windows
 
 It runs end to end:
 
-1. Checks Node (switches via nvm if below 20), installs npm deps, compiles the TypeScript.
+1. Checks Node (switches via nvm if below 20), builds the TomSpecs SOM packages
+   (`npm run som:pack`), installs npm deps, compiles the TypeScript.
 2. `dart pub get` for the generator and the bridge.
 3. Regenerates the d4rt bridges for `tom_vscode_bridge`.
 4. `dart compile exe bin/tom_bs.dart` straight into the extension's local
    `bin/<platform>/` — it never writes to `tom_binaries`, relies on
    `$TOM_BINARY_PATH`, or needs any tool on `PATH`.
 5. Ensures the host's Claude Agent SDK native CLI binary is present.
-6. Packages the VSIX (bundling only the host `tom_bs`) and installs it via the `code` CLI.
+6. Packages the VSIX (bundling only the host `tom_bs`), checks that it is
+   self-contained (`scripts/check-vsix-contents.cjs`: the SOM packages present
+   as real files, no symlinks; the install stops otherwise), and installs it via
+   the `code` CLI.
 
 After install, reload VS Code: `Cmd/Ctrl+Shift+P` → **Developer: Reload Window**.
 
@@ -113,9 +128,12 @@ The `tom_vscode_*` projects live in the **tom_vscode** repo (mounted at
 │   │   │   └── bin/<platform>/tom_bs  # build output (gitignored)
 │   │   ├── tom_vscode_bridge/         # bridge source → compiled to tom_bs
 │   │   └── tom_vscode_scripting_api/  # bridged scripting API
-│   └── d4rt/                          # d4rt repo (separate clone, sibling of vscode/)
-│       ├── tom_d4rt_generator/        # d4rtgen — regenerates the d4rt bridges
-│       └── tom_d4rt/                  # d4rt interpreter runtime
+│   ├── d4rt/                          # d4rt repo (separate clone, sibling of vscode/)
+│   │   ├── tom_d4rt_generator/        # d4rtgen — regenerates the d4rt bridges
+│   │   └── tom_d4rt/                  # d4rt interpreter runtime
+│   └── ai_build/                      # ai_build repo (sibling of vscode/)
+│       ├── tom_som_typescript_runtime/ # SOM runtime → vendor/tom_som/*.tgz
+│       └── tom_som_typescript_v0/     # SOM typed facade, meta, schemas
 └── tom_binaries/                      # prebuilt binaries layer (install_extension only)
     └── tom/<platform>/tom_bs
 ```
@@ -248,10 +266,16 @@ Full model: [doc/multi_transport_prompt_queue_revised.md](doc/multi_transport_pr
 ## Development
 
 ```bash
+npm run som:pack     # first, on a fresh checkout or after the SOM packages changed; then npm install
 npm run compile      # tsc -p ./ + copy config json to out/config/
 npm run watch        # incremental rebuild
 npm test             # lint media + tools/services/utils test suites + tool-coverage audit
 ```
+
+`npm run som:pack` also removes the installed SOM packages and their lockfile
+entries: npm keeps a `file:` tarball whose name and version did not change even
+when its content did, so the next `npm install` would otherwise keep the old
+build.
 
 Run the extension host for manual testing: open this project in VS Code, press
 `F5`, and test commands in the Extension Development Host.
