@@ -91,6 +91,12 @@ export const FILE_PARAM = {
 export const PATH_PARAM_HINT =
     'A document path: the root section id, then field segments (a field\'s @SectionId, else its name) and list items `<LIST>-<n>`, '
     + 'e.g. `SBP/introductionAndScope/requirements/functionalRequirements/FRE-REQU-LST-1`. Take paths from tomAi_specOutline rather than composing them.';
+/** Where an agent should look before reading or writing a document. */
+export const FIRST_LOOK =
+    ' Look first with tomAi_specOutline (paths, editability, revision) or tomAi_specReflect (what the model allows at a path).';
+/** Every single-edit tool points to the batch. */
+export const BATCH_HINT =
+    ' For more than one change use tomAi_specApplyEdits: one approval, one write, all or nothing.';
 export const UNRESOLVED_NOTE =
     'A path that does not resolve returns `{ok:false, code:"unresolvedPath", nearest:{path, kind, children}}`: the nearest node that does, with its child paths.';
 

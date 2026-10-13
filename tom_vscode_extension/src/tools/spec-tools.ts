@@ -37,6 +37,7 @@ import {
     loadDocument,
     resolveInput,
     toWorkspacePath,
+    FIRST_LOOK,
 } from './spec-tool-common';
 import { SomSpecInspector } from '../services/som-spec-inspector';
 
@@ -208,7 +209,8 @@ export const SPEC_LIST_DOCUMENTS_TOOL: SharedToolDefinition<SpecListDocumentsInp
         + 'comes with its root, model-version stamp and editability under the SOM §4.2 version rules. Skips dot-folders, '
         + 'node_modules, out, dist, build and ztmp. Stops at `maxResults` (default 200), a directory cap or a 2.5 s walk '
         + 'budget and then says `truncated: true` with `stoppedBy` — narrow `dir` in that case (a whole large workspace '
-        + 'may not fit). Editor counterpart: model_list_documents.',
+        + 'may not fit). Next: tomAi_specOutline on a document for its paths and editability, tomAi_specReflect for what the '
+        + 'model allows. Editor counterpart: model_list_documents.',
     tags: ['tomspecs', 'som', 'docspecs', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {
@@ -256,7 +258,7 @@ export const SPEC_GET_SECTION_TOOL: SharedToolDefinition<SpecGetSectionInput> = 
         + '`value`; a form returns `fields`, each with its declared type, enum domain, required flag and typed value; a list '
         + 'returns its `items` (path, section id, headline); a section returns its own `values`, its `forms` (every field, '
         + 'value or null) and its structural `children` with list items. Always: kind, section id, headline, codeSpec. '
-        + UNRESOLVED_NOTE + ' Editor counterparts: doc_get_content, doc_get_form_field, doc_section_meta.',
+        + UNRESOLVED_NOTE + FIRST_LOOK + ' Editor counterparts: doc_get_content, doc_get_form_field, doc_section_meta.',
     tags: ['tomspecs', 'som', 'docspecs', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {

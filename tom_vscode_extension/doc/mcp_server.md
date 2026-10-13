@@ -110,9 +110,19 @@ A missing/empty/wrong bearer — or no configured token at all — is unauthenti
 
 The read-only floor is the safe default: an unconfigured or unauthenticated server still answers read queries but cannot mutate the workspace or run commands. The bearer token value is **never** logged — only the decision (authenticated / read-only floor) and the tool count.
 
+### The TomSpecs, DocSpecs and CodeSpecs tools
+
+Of the 36 spec tools, the floor serves the 20 that only read:
+
+- **TomSpecs:** `tomAi_specListDocuments`, `tomAi_specOutline`, `tomAi_specGetSection`, `tomAi_specReflect`, `tomAi_specSearch`, `tomAi_specSearchIterate`, `tomAi_specValidate`, `tomAi_specRender`.
+- **DocSpecs Markdown:** `tomAi_docspecsValidate`, `tomAi_docspecsOutline`, `tomAi_docspecsGetSection`.
+- **CodeSpecs:** `tomAi_specCodeSpecsAreas`, `tomAi_specCodeSpecsRouting`, `tomAi_specCodeSpecsExtract`, `tomAi_specCodeSpecsGate`, `tomAi_specCodeSpecsVerdicts`, `tomAi_specCodeSpecsQueryExtracts`, `tomAi_specCodeSpecsTrace`, `tomAi_specCodeSpecsValidate`, `tomAi_specCodeSpecsStepContext`.
+
+The 16 that write are served only to an authenticated client (or with `allowWriteWithoutAuth`): the nine TomSpecs single-edit tools, `tomAi_specApplyEdits`, `tomAi_specCreateDocument`, `tomAi_specConvert`, `tomAi_docspecsReplaceSection`, `tomAi_specCodeSpecsWriteExtracts`, `tomAi_specCodeSpecsSetVerdict` and `tomAi_specCodeSpecsPlanTodos`. A test holds both halves (`spec-tools-surface.test.ts`), and another drives the workflow through a real MCP client with and without the key (`spec-tools-mcp.test.ts`). The workflow itself is in [tomspecs_agent_workflow.md](tomspecs_agent_workflow.md).
+
 ## 5. Security warning — `0.0.0.0` + `allowWriteWithoutAuth`
 
-The default `host` is `0.0.0.0`, which makes the server reachable by **every machine on the WireGuard VPN**, not just localhost. That is intentional (so other fleet hosts can drive it) but it means:
+The default `host` is `0.0.0.0`, which makes the server reachable by **every machine on the fleet VPN (OpenVPN, `10.8.0.0/24`)**, not just localhost. That is intentional (so other fleet hosts can drive it) but it means:
 
 > **`host: "0.0.0.0"` together with `allowWriteWithoutAuth: true` exposes unattended write + command-execution tools to every VPN peer with no credential.** Anyone who can route to the port can edit files and run shell commands in this workspace.
 

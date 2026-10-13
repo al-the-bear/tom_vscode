@@ -370,6 +370,12 @@ Typical usage: the injected history block shows `14:23:05 [t14] R3 tomAi_readFil
 
 ### 4.23 TomSpecs (SOM) documents
 
+The order an agent uses these tools in, as a recipe, is
+[tomspecs_agent_workflow.md](tomspecs_agent_workflow.md). Every reader is on the
+MCP read-only floor and every writer needs approval; a test holds both halves
+(`spec-tools-surface.test.ts`). The pickers group them as TomSpecs, TomSpecs
+(edit), DocSpecs and CodeSpecs.
+
 Read and reflect on TomSpecs documents — `*.docspecs.yaml` and SOM-rendered
 `*.md` (headings carry `<!--[SECTIONID]-->`) — through the bundled SOM runtime,
 instead of reading the raw file and guessing at paths. Each call loads the file

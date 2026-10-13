@@ -22,6 +22,7 @@ import {
     loadDocument,
     resolveInput,
     toWorkspacePath,
+    FIRST_LOOK,
 } from './spec-tool-common';
 import { SomSpecInspector } from '../services/som-spec-inspector';
 import { SomSpecValidation, subtreeOf } from '../services/som-spec-validation';
@@ -135,7 +136,7 @@ export const SPEC_VALIDATE_TOOL: SharedToolDefinition<SpecValidateInput> = {
         + 'fragments of one document as one, so references between them resolve. `path` keeps only findings at or below '
         + 'it. Known limit: on a few rare shapes the schema and instance tiers still disagree (tom_specs vsctsa32), and the '
         + 'schema tier has not been checked against every model shape (qrb3); schema findings name the schema id and '
-        + 'version so such a case can be traced.',
+        + 'version so such a case can be traced.' + FIRST_LOOK,
     tags: ['tomspecs', 'som', 'docspecs', 'validate', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {
@@ -155,7 +156,7 @@ export const SPEC_RENDER_TOOL: SharedToolDefinition<SpecRenderInput> = {
     description:
         'A TomSpecs document as the DocSpecs Markdown a reader sees — how to read a YAML-stored spec as prose. With '
         + '`path`, only that subtree, under its ancestors\' headings. The header keeps the document\'s own model version. '
-        + 'Answers `{document, markdown, lines}`. Writes nothing; tomAi_specConvert writes a file.',
+        + 'Answers `{document, markdown, lines}`. Writes nothing; tomAi_specConvert writes a file.' + FIRST_LOOK,
     tags: ['tomspecs', 'som', 'docspecs', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {
@@ -179,7 +180,7 @@ export const SPEC_CONVERT_TOOL: SharedToolDefinition<SpecConvertInput> = {
         + 'rejections, or a model version that cannot be edited), a target in the source\'s format, a target dirty in an '
         + 'editor. Markdown has no review pass: a YAML source with review entries is refused (`reviewWouldBeDropped`) '
         + 'unless `dropReview: true`, and the answer then says how many were left behind (the source keeps them). '
-        + '`dryRun` returns the diff against the target and writes nothing.',
+        + '`dryRun` returns the diff against the target and writes nothing.' + FIRST_LOOK,
     tags: ['tomspecs', 'som', 'docspecs', 'edit', 'tom-ai-chat'],
     readOnly: false,
     requiresApproval: true,

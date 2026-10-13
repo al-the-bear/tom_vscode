@@ -43,6 +43,7 @@ import {
     loadDocument,
     sharedCursors,
     toWorkspacePath,
+    FIRST_LOOK,
 } from './spec-tool-common';
 import { SomSpecInspector } from '../services/som-spec-inspector';
 import type { SearchCursorEntry } from '../services/som-search-cursors';
@@ -295,7 +296,7 @@ export const SPEC_SEARCH_TOOL: SharedToolDefinition<SpecSearchInput> = {
         + '`{path, kind, classId, headline, snippet, matchSpans}` and, when more remain, a `cursorId` for '
         + 'tomAi_specSearchIterate. A snippet longer than 320 characters is a window around the first match, with '
         + '`snippetOffset` and `valueLength`; spans are relative to the snippet. With `regex: true`, `text` is a pattern: '
-        + PATTERN_SUBSET + ' A rejected pattern returns `code: "patternError"`. Editor counterpart: doc_search.',
+        + PATTERN_SUBSET + ' A rejected pattern returns `code: "patternError"`.' + FIRST_LOOK + ' Editor counterpart: doc_search.',
     tags: ['tomspecs', 'som', 'docspecs', 'search', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {
@@ -329,7 +330,7 @@ export const SPEC_SEARCH_ITERATE_TOOL: SharedToolDefinition<SpecSearchIterateInp
         + 'the search was opened, the query runs again on the new content and the answer carries `rerun: true` and '
         + 'starts over from the first match. Cursors close after 10 minutes without use, and at most 32 stay open; a '
         + 'closed or unknown cursor returns `code` `expiredCursor` / `evictedCursor` / `exhaustedCursor` / '
-        + '`unknownCursor`. Editor counterpart: doc_search_iterate.',
+        + '`unknownCursor`.' + FIRST_LOOK + ' Editor counterpart: doc_search_iterate.',
     tags: ['tomspecs', 'som', 'docspecs', 'search', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {

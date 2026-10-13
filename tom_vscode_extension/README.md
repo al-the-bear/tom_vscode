@@ -22,6 +22,11 @@ clients drive the live window. This is the product of the Tom VS Code repo.
 - **Timed requests** — interval / scheduled prompts that enqueue automatically.
 - **Tool registry + MCP server** — the same MCP-style tools the panels use,
   published to external MCP clients over HTTP.
+- **TomSpecs tools** — read, search, edit (model-checked, in atomic batches),
+  validate and render TomSpecs specifications, check plain DocSpecs Markdown, and
+  take a specification through Phase 4 (CodeSpecs gate, extracts, verdicts, todo
+  tree, step context, validation and tracing) — see
+  [doc/tomspecs_agent_workflow.md](doc/tomspecs_agent_workflow.md).
 - **Scripting surface** — the CLI Integration Server exposes the extension to the
   [`tom_vscode_scripting_api`](../tom_vscode_scripting_api/README.md) Dart client
   and the [`tom_vscode_bridge`](../tom_vscode_bridge/README.md) server.
@@ -186,6 +191,7 @@ status.
 | Browsing | Markdown Browser with a grouped document picker, quest filters, line anchors, and auto-reload. |
 | Status | Window Status panel showing per-window subsystem state from window-state files. |
 | MCP server | Standalone MCP server publishing the tool registry over HTTP — see [doc/mcp_server.md](doc/mcp_server.md). |
+| TomSpecs | 36 tools over TomSpecs, DocSpecs and CodeSpecs documents, readers on the MCP read-only floor, writers behind approval — see [doc/tomspecs_agent_workflow.md](doc/tomspecs_agent_workflow.md). |
 
 ### Output channels
 
@@ -328,6 +334,8 @@ source tree; they are not part of this documentation.
 | [doc/extension_analysis.md](doc/extension_analysis.md) | Cross-component architecture analysis. |
 | [doc/anthropic_sdk_integration.md](doc/anthropic_sdk_integration.md) | Anthropic direct + Agent SDK integration. |
 | [doc/mcp_server.md](doc/mcp_server.md) | Standalone MCP server — config, auth, lifecycle, security. |
+| [doc/tomspecs_agent_workflow.md](doc/tomspecs_agent_workflow.md) | Recipe: editing a TomSpecs specification and taking it through Phase 4 with the tools. |
+| [doc/llm_tools.md](doc/llm_tools.md) | The LLM tool surface, the TomSpecs tools in §4.23–§4.25. |
 | [doc/multi_transport_prompt_queue_revised.md](doc/multi_transport_prompt_queue_revised.md) | The current prompt-queue model. |
 | [doc/llm_configuration.md](doc/llm_configuration.md) | Local LLM + Anthropic + history-compaction settings. |
 | [doc/placeholder_engine.md](doc/placeholder_engine.md) | Placeholder engine reference. |

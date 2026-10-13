@@ -60,6 +60,8 @@ import {
     liveDeps,
     loadDocument,
     resolveInput,
+    FIRST_LOOK,
+    BATCH_HINT,
 } from './spec-tool-common';
 import { SomSpecInspector } from '../services/som-spec-inspector';
 import type { LoadedSomDocument } from '../services/som-document-store';
@@ -462,7 +464,7 @@ const RESULT_NOTE =
     + 'the runtime\'s validateDocument, compared before and after the edit across the whole document (a stated count '
     + 'that no longer matches is `countMismatch`) — plus `staleReviewPaths` for YAML review entries left without a node, '
     + 'and `diff` on a dry run. A refused edit writes nothing and returns `{ok:false, code, error}`; the document must '
-    + 'be editable (see readOnlyReason in tomAi_specOutline). ' + UNRESOLVED_NOTE;
+    + 'be editable (see readOnlyReason in tomAi_specOutline). ' + UNRESOLVED_NOTE + BATCH_HINT;
 
 /**
  * One edit tool. The `{ name, displayName }` literal keeps `name: 'tomAi_…'`
@@ -485,7 +487,7 @@ export const SPEC_CREATE_DOCUMENT_TOOL = editTool<SpecCreateDocumentInput>(
     { name: 'tomAi_specCreateDocument', displayName: 'Spec: Create Document' },
     'Create a new, empty TomSpecs document for one model root, stamped with the current model version. The format follows '
     + 'the file name: `*.docspecs.yaml` or `*.md`. Refuses an existing file (`code: "exists"`); creates missing folders. '
-    + 'List the roots with tomAi_specListDocuments. Answers the new document\'s header (format, stamp, revision).',
+    + 'List the roots with tomAi_specListDocuments. Answers the new document\'s header (format, stamp, revision).' + FIRST_LOOK,
     {
         file: { type: 'string', description: 'The new file, `*.docspecs.yaml` or `*.md`, inside the workspace.' },
         root: { type: 'string', description: 'The document root: its section id (e.g. `SBP`) or type (e.g. `D00SolutionBlueprint`).' },
@@ -797,7 +799,8 @@ export const SPEC_APPLY_EDITS_TOOL: SharedToolDefinition<SpecApplyEditsInput> = 
         + 'revision, applied, results: [{index, op, …}], bindings, validation: {introduced, resolved, underPath, total}}`, '
         + 'the validation compared before and after the whole batch. `dryRun` returns all of it plus the `diff`, writing '
         + 'nothing. Creating a document is tomAi_specCreateDocument. `validation` is the instance tier only; '
-        + 'tomAi_specValidate gives the full picture, the DocSpecs schema tier included.',
+        + 'tomAi_specValidate gives the full picture, the DocSpecs schema tier included. Paths are document paths as in the '
+        + 'single tools, e.g. `SBP/introductionAndScope/requirements/functionalRequirements/FRE-REQU-LST-1`.' + FIRST_LOOK,
     tags: ['tomspecs', 'som', 'docspecs', 'edit', 'tom-ai-chat'],
     readOnly: false,
     requiresApproval: true,
