@@ -1532,6 +1532,7 @@ import { SPEC_VALIDATE_TOOLS } from './spec-validate-tools';
 import { DOCSPECS_TOOLS } from './docspecs-tools';
 import { CODESPECS_TOOLS } from './codespecs-tools';
 import { CODESPECS_GATE_TOOLS } from './codespecs-gate-tools';
+import { CODESPECS_TRACE_TOOLS } from './codespecs-trace-tools';
 
 // Re-export initializeToolDescriptions so existing consumers continue to work
 // without needing to update their import paths.
@@ -1608,6 +1609,7 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
     ...SPEC_EDIT_TOOLS,           // TomSpecs (SOM) edits, approval-gated: create, set content/form/headline/codeSpec, add, rename id, move, remove, clear
     ...CODESPECS_TOOLS,           // CodeSpecs (Phase 4): areas, routing, extract (read-only), write extracts (approval)
     ...CODESPECS_GATE_TOOLS,      // CodeSpecs Stage A/B: gate A1–A5 and the gate record (read-only), set a verdict (approval)
+    ...CODESPECS_TRACE_TOOLS,     // CodeSpecs query extracts, trace spec ↔ code by back-link token (read-only)
     ...DOCSPECS_TOOLS,            // plain DocSpecs Markdown: docspecsValidate, docspecsOutline, docspecsGetSection, docspecsReplaceSection (approval)
 ];
 

@@ -1,0 +1,308 @@
+{
+  "format": "codespecs-backlinks",
+  "formatVersion": 1,
+  "inputs": {
+    "shared": "codespec/shared",
+    "client": "codespec/client",
+    "server": "codespec/server"
+  },
+  "declarations": [
+    {
+      "locus": "server",
+      "package": "server",
+      "name": "Customer",
+      "owner": null,
+      "path": "Customer",
+      "kind": "classType",
+      "file": "lib/src/data_access/customer.dart",
+      "line": 21,
+      "markers": [
+        "CsTable"
+      ],
+      "codeSpec": {
+        "id": "dataAccess.Customer",
+        "source": [
+          "DAENT-IDEN",
+          "content",
+          "DAATT-IDEN",
+          "DAATT-DATA"
+        ],
+        "line": 10
+      },
+      "docSpec": [
+        {
+          "token": "DAENT-IDEN",
+          "description": "supplies the entity, its table and its storage placement"
+        },
+        {
+          "token": "content",
+          "description": "supplies the entity narrative"
+        },
+        {
+          "token": "DAATT-IDEN",
+          "description": "supplies the stored attribute and its column"
+        },
+        {
+          "token": "DAATT-DATA",
+          "description": "supplies the storage type"
+        }
+      ],
+      "docSpecLine": 14,
+      "tokens": [
+        "DAENT-IDEN",
+        "content",
+        "DAATT-IDEN",
+        "DAATT-DATA"
+      ]
+    },
+    {
+      "locus": "server",
+      "package": "server",
+      "name": "email",
+      "owner": "Customer",
+      "path": "Customer.email",
+      "kind": "field",
+      "file": "lib/src/data_access/customer.dart",
+      "line": 28,
+      "markers": [
+        "CsColumn"
+      ],
+      "codeSpec": null,
+      "docSpec": [
+        {
+          "token": "DAATT-IDEN",
+          "description": "supplies the stored attribute and its column"
+        },
+        {
+          "token": "DAATT-DATA",
+          "description": "supplies the storage type"
+        }
+      ],
+      "docSpecLine": 23,
+      "tokens": [
+        "DAATT-IDEN",
+        "DAATT-DATA"
+      ]
+    },
+    {
+      "locus": "server",
+      "package": "server",
+      "name": "displayName",
+      "owner": "Customer",
+      "path": "Customer.displayName",
+      "kind": "field",
+      "file": "lib/src/data_access/customer.dart",
+      "line": 36,
+      "markers": [
+        "CsColumn"
+      ],
+      "codeSpec": null,
+      "docSpec": [
+        {
+          "token": "DAATT-IDEN",
+          "description": "supplies the stored attribute and its column"
+        },
+        {
+          "token": "DAATT-DATA",
+          "description": "supplies the storage type"
+        }
+      ],
+      "docSpecLine": 31,
+      "tokens": [
+        "DAATT-IDEN",
+        "DAATT-DATA"
+      ]
+    },
+    {
+      "locus": "server",
+      "package": "server",
+      "name": "Order",
+      "owner": null,
+      "path": "Order",
+      "kind": "classType",
+      "file": "lib/src/data_access/order.dart",
+      "line": 21,
+      "markers": [
+        "CsTable"
+      ],
+      "codeSpec": {
+        "id": "dataAccess.Order",
+        "source": [
+          "DAENT-IDEN",
+          "content",
+          "DAATT-IDEN",
+          "DAATT-DATA"
+        ],
+        "line": 10
+      },
+      "docSpec": [
+        {
+          "token": "DAENT-IDEN",
+          "description": "supplies the entity, its table and its storage placement"
+        },
+        {
+          "token": "content",
+          "description": "supplies the entity narrative"
+        },
+        {
+          "token": "DAATT-IDEN",
+          "description": "supplies the stored attribute and its column"
+        },
+        {
+          "token": "DAATT-DATA",
+          "description": "supplies the storage type"
+        }
+      ],
+      "docSpecLine": 14,
+      "tokens": [
+        "DAENT-IDEN",
+        "content",
+        "DAATT-IDEN",
+        "DAATT-DATA"
+      ]
+    },
+    {
+      "locus": "server",
+      "package": "server",
+      "name": "placedAt",
+      "owner": "Order",
+      "path": "Order.placedAt",
+      "kind": "field",
+      "file": "lib/src/data_access/order.dart",
+      "line": 28,
+      "markers": [
+        "CsColumn"
+      ],
+      "codeSpec": null,
+      "docSpec": [
+        {
+          "token": "DAATT-IDEN",
+          "description": "supplies the stored attribute and its column"
+        },
+        {
+          "token": "DAATT-DATA",
+          "description": "supplies the storage type"
+        }
+      ],
+      "docSpecLine": 23,
+      "tokens": [
+        "DAATT-IDEN",
+        "DAATT-DATA"
+      ]
+    },
+    {
+      "locus": "server",
+      "package": "server",
+      "name": "CustomerService",
+      "owner": null,
+      "path": "CustomerService",
+      "kind": "classType",
+      "file": "lib/src/services/customer_service.dart",
+      "line": 24,
+      "markers": [
+        "CsServiceUnit"
+      ],
+      "codeSpec": {
+        "id": "services.CustomerService",
+        "source": [
+          "DAENT-IDEN",
+          "DAENT-CLAS",
+          "content"
+        ],
+        "line": 13
+      },
+      "docSpec": [
+        {
+          "token": "DAENT-IDEN",
+          "description": "names the aggregate root this service unit owns"
+        },
+        {
+          "token": "DAENT-CLAS",
+          "description": "supplies the aggregate and the bounded context that caps it"
+        },
+        {
+          "token": "content",
+          "description": "supplies the entity narrative"
+        }
+      ],
+      "docSpecLine": 17,
+      "tokens": [
+        "DAENT-IDEN",
+        "DAENT-CLAS",
+        "content"
+      ]
+    },
+    {
+      "locus": "server",
+      "package": "server",
+      "name": "ownedEntities",
+      "owner": "CustomerService",
+      "path": "CustomerService.ownedEntities",
+      "kind": "field",
+      "file": "lib/src/services/customer_service.dart",
+      "line": 25,
+      "markers": [],
+      "codeSpec": null,
+      "docSpec": null,
+      "docSpecLine": null,
+      "tokens": []
+    },
+    {
+      "locus": "server",
+      "package": "server",
+      "name": "OrderService",
+      "owner": null,
+      "path": "OrderService",
+      "kind": "classType",
+      "file": "lib/src/services/order_service.dart",
+      "line": 24,
+      "markers": [
+        "CsServiceUnit"
+      ],
+      "codeSpec": {
+        "id": "services.OrderService",
+        "source": [
+          "DAENT-IDEN",
+          "DAENT-CLAS",
+          "content"
+        ],
+        "line": 13
+      },
+      "docSpec": [
+        {
+          "token": "DAENT-IDEN",
+          "description": "names the aggregate root this service unit owns"
+        },
+        {
+          "token": "DAENT-CLAS",
+          "description": "supplies the aggregate and the bounded context that caps it"
+        },
+        {
+          "token": "content",
+          "description": "supplies the entity narrative"
+        }
+      ],
+      "docSpecLine": 17,
+      "tokens": [
+        "DAENT-IDEN",
+        "DAENT-CLAS",
+        "content"
+      ]
+    },
+    {
+      "locus": "server",
+      "package": "server",
+      "name": "ownedEntities",
+      "owner": "OrderService",
+      "path": "OrderService.ownedEntities",
+      "kind": "field",
+      "file": "lib/src/services/order_service.dart",
+      "line": 25,
+      "markers": [],
+      "codeSpec": null,
+      "docSpec": null,
+      "docSpecLine": null,
+      "tokens": []
+    }
+  ]
+}

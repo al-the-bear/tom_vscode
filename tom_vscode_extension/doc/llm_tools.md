@@ -561,7 +561,17 @@ these tools refuse it rather than return 27 empty extracts.
 | `tomAi_specCodeSpecsGate` | The Stage-A gate in one report (runtime `CodeSpecsGate`): A1 schema completeness, A2 valid values, A3 routing, A4 required marker sources, A5 carriers the model still offers. Per check: passed, findings with the document path to fix (A5 findings are model-level), and the fix; plus `gateOpen`. | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_specCodeSpecsVerdicts` | The Stage-B gate record (`gate.verdicts.yaml` beside the extracts): each area's verdict, resolution and note, the active areas still missing, and whether record and extracts agree. | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_specCodeSpecsSetVerdict` | Record one area's verdict (approval), validated by the runtime's record rules (`resolution: descoped` only on insufficient). The record's leading comments are kept, and an unchanged verdict rewrites it byte-identically. An insufficient verdict comes with what is owed next. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_specCodeSpecsQueryExtracts` | Entries of a written run (by this tool or the Dart CLI), filtered by area, token, path or text, each with its provenance and verbatim value. An extract in an unknown format is listed as unreadable, never misread. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_specCodeSpecsTrace` | Spec path, token, code location or declaration to the other end, by section-id token (the unit `@CodeSpec` / `@DocSpec` back-links cite), plus the heading `codeSpec=` forward links. With back-links it adds `agreement`, the uncited and dangling tokens (the shape of `validate_codespecs` checks 35 and 36). | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_specCodeSpecsWriteExtracts` | Write every area's `.extract.yaml` / `.extract.md` to `<document folder>/generated-doc/codespecs_extracts/` (approval). Unchanged files are left alone; `dryRun` reports the file statuses. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+
+**Tracing.** The back-links come from the JSON `validate_codespecs --backlinks`
+writes (format `codespecs-backlinks`/1), passed as `backlinks`. Reading the
+generated code directly (`codeDirs`) needs the `validate_codespecs` binary, which
+the extension does not carry yet; until it does, `codeDirs` answers
+`noBacklinkSource` with that command. Tracing is by token, as checks 35 and 36
+are. Which declaration *should* carry a token is the authoring step's judgement,
+and the tools do not decide it.
 
 For the Meridian sample, the written extracts equal the conformance corpus
 (`tom_som_conformance/generated-doc/codespecs_extracts`) byte for byte.
@@ -653,7 +663,7 @@ Tools are grouped by functional family, one file per family under `src/tools/`:
 | `id-prefix-tools.ts` | Date-based prefix for collision-free hand-authored ids |
 | `issue-tools.ts` | Issues subpanel (read + write) |
 | `test-tools.ts` | Tests subpanel / testkit (read + write) |
-| `codespecs-tools.ts`, `codespecs-gate-tools.ts` | CodeSpecs: area catalogue, routing, extract, write extracts; the Stage-A gate and the Stage-B gate record |
+| `codespecs-tools.ts`, `codespecs-gate-tools.ts`, `codespecs-trace-tools.ts` | CodeSpecs: area catalogue, routing, extract, write extracts; the Stage-A gate and the Stage-B gate record; query and trace |
 | `docspecs-tools.ts` | Plain DocSpecs Markdown: validate, outline, get and replace a section |
 | `spec-tools.ts`, `spec-search-tools.ts`, `spec-edit-tools.ts`, `spec-validate-tools.ts` | TomSpecs (SOM) documents: read and reflect, search with a cursor, edits and the batch, validate / render / convert (`spec-tool-common.ts` holds what they share) |
 | `chat-enhancement-tools.ts` | Notify, quest/session todos, queue, timed, templates, reminders |
@@ -680,7 +690,7 @@ that works under `toolsEnabled: true` and is invisible everywhere else.
 
 ### Deliberately unselectable tools
 
-Of the 163 registered tools, **147 are selectable** and **16 are withheld from
+Of the 165 registered tools, **149 are selectable** and **16 are withheld from
 the pickers on purpose** (`DELIBERATELY_UNSELECTABLE_TOOLS` in
 `src/utils/constants.ts`): the twelve queue mutators and dispatch entry points
 (`tomAi_addQueueItem`, `tomAi_updateQueueItem`, `tomAi_removeQueueItem`,
