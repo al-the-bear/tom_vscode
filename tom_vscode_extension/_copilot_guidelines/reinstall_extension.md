@@ -9,6 +9,15 @@ Use this workflow after changing extension code when the runtime doesn't reflect
 3. Reload the VS Code window (`Developer: Reload Window`).
 4. Re-run the affected command or open the affected view.
 
+The install scripts (`install_extension.sh` / `.ps1`, `compile_and_install.*`)
+build the TomSpecs SOM packages from the sibling `tom_ai/ai_build/` checkout
+(`npm run som:pack`) before `npm install`. An install fails at that step when
+ai_build is missing or does not build; `TOM_SOM_AI_BUILD` points it at another
+location. Working by hand, run `npm run som:pack` before `npm install` whenever
+the SOM sources changed: npm otherwise keeps the old tarball. After packaging,
+`node scripts/check-vsix-contents.cjs` confirms that the VSIX carries the SOM
+packages as real files.
+
 ## When required
 
 - Changes to `package.json` contributions (commands, menus, keybindings, custom editors, activation events).
