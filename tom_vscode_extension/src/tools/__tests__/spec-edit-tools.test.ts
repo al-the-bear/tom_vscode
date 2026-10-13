@@ -16,7 +16,7 @@
  *   SE-13  expectedRevision conflicts and dryRun writes nothing
  *   SE-14  create → add → validate, in YAML and in Markdown, each saved in its own format
  *   SE-15  a read-only document is refused
- *   SE-16  all ten tools need approval and are outside the MCP read-only floor
+ *   SE-16  all edit tools (and the batch) need approval and are outside the MCP read-only floor
  */
 
 import test, { before, describe } from 'node:test';
@@ -304,10 +304,10 @@ describe('TomSpecs edit tools', () => {
     });
 
     test('SE-16: all ten need approval and stay outside the MCP read-only floor', () => {
-        assert.equal(SPEC_EDIT_TOOLS.length, 10);
+        assert.equal(SPEC_EDIT_TOOLS.length, 11, 'the ten single edits and the batch');
         assert.ok(SPEC_EDIT_TOOLS.every((t) => t.readOnly === false && t.requiresApproval === true));
         const floor = resolveEffectiveTools(SPEC_EDIT_TOOLS, { authenticated: false, allowWriteWithoutAuth: false });
         assert.deepEqual(floor, [], 'an unauthenticated MCP client sees none of them');
-        assert.equal(resolveEffectiveTools(SPEC_EDIT_TOOLS, { authenticated: true, allowWriteWithoutAuth: false }).length, 10);
+        assert.equal(resolveEffectiveTools(SPEC_EDIT_TOOLS, { authenticated: true, allowWriteWithoutAuth: false }).length, 11);
     });
 });

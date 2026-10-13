@@ -187,6 +187,7 @@ export const CATEGORY_MAP: Record<string, string[]> = {
     ],
     'TomSpecs (edit)': [
         'tomAi_specAddNode',
+        'tomAi_specApplyEdits',
         'tomAi_specClearSection',
         'tomAi_specCreateDocument',
         'tomAi_specMoveListItem',

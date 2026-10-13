@@ -197,7 +197,7 @@ export function __setAgentSdkForTests(sdk: unknown): void {
     cachedSdk = Promise.resolve(sdk as AgentSdkModule);
 }
 
-import { SharedToolDefinition } from '../tools/shared-tool-registry';
+import { SharedToolDefinition, summarizeToolInput } from '../tools/shared-tool-registry';
 import { TrailService } from '../services/trailService';
 import { ToolTrail } from '../services/tool-trail';
 import { wrapToolWithTrail } from '../utils/toolTrailWrapper';
@@ -611,7 +611,7 @@ function makeCanUseTool(
         const approved = await ctx.requestApproval({
             toolUseId: `${ctx.requestId}-${bare}-${Date.now()}`,
             toolName: bare,
-            inputSummary: summarizeInput(input),
+            inputSummary: summarizeToolInput(def, input),
         });
         if (!approved) {
             return {
@@ -1283,10 +1283,5 @@ function countToolUses(msg: SDKAssistantMessage): number {
 }
 
 function summarizeInput(input: Record<string, unknown>): string {
-    try {
-        const s = JSON.stringify(input);
-        return s.length > 200 ? s.slice(0, 197) + '...' : s;
-    } catch {
-        return '[unserializable input]';
-    }
+    return summarizeToolInput(undefined, input);
 }

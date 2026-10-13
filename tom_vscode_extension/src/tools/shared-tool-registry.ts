@@ -55,6 +55,39 @@ export interface SharedToolDefinition<TInput = Record<string, unknown>> {
 
     /** The actual executor — receives validated input, returns a plain string. */
     execute: (input: TInput) => Promise<string>;
+
+    /**
+     * What the approval prompt shows for a call, when the raw input would not
+     * let a person decide (a batch of edits, say). Defaults to the input as
+     * truncated JSON; see {@link summarizeToolInput}.
+     */
+    approvalSummary?: (input: TInput) => string;
+}
+
+/**
+ * The one-line summary of a tool call shown in approval prompts and logs: the
+ * tool's own {@link SharedToolDefinition.approvalSummary} when it has one,
+ * otherwise the input as JSON cut to 200 characters. A summary that throws
+ * falls back to the JSON.
+ */
+export function summarizeToolInput(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    def: SharedToolDefinition<any> | undefined,
+    input: Record<string, unknown>,
+): string {
+    if (def?.approvalSummary) {
+        try {
+            return def.approvalSummary(input);
+        } catch {
+            // fall through to the generic form
+        }
+    }
+    try {
+        const s = JSON.stringify(input);
+        return s.length > 200 ? s.slice(0, 197) + '...' : s;
+    } catch {
+        return '[unserializable input]';
+    }
 }
 
 // ============================================================================

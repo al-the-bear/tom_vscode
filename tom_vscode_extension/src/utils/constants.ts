@@ -200,6 +200,7 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_specSetFormField',
     'tomAi_specSetHeadline',
     'tomAi_specSetItemSectionId',
+    'tomAi_specApplyEdits',
     // Queue + timed requests — observation only; the mutators and the dispatch
     // entry points are in DELIBERATELY_UNSELECTABLE_TOOLS below.
     'tomAi_listQueue',

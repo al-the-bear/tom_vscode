@@ -136,6 +136,15 @@ export class SpecEditRefusal extends Error {
     }
 }
 
+/** An operation's arguments without the per-call file options (a batch entry has no `file`). */
+export type OpInput<T> = Omit<T, keyof SpecEditOptions>;
+
+/** What an operation did: the path(s) it touched (for `underPath`) and its part of the answer. */
+interface OpOutcome {
+    touched: string | string[];
+    result?: Record<string, unknown>;
+}
+
 interface EditContext {
     loaded: LoadedSomDocument;
     editor: SpecEditor;
@@ -157,7 +166,7 @@ function under(errorPath: string, touched: string): boolean {
 async function runEdit(
     deps: SpecToolDeps,
     options: SpecEditOptions,
-    mutate: (ctx: EditContext) => { touched: string; result?: Record<string, unknown> },
+    mutate: (ctx: EditContext) => OpOutcome,
 ): Promise<string> {
     try {
         const loaded = loadDocument(deps, options.file);
@@ -179,7 +188,9 @@ async function runEdit(
             editor: SpecEditor.forModel(loaded.document, model),
             inspector: new SomSpecInspector(deps.service, loaded.document),
         };
-        const { touched, result } = mutate(ctx);
+        const outcome = mutate(ctx);
+        const touched = Array.isArray(outcome.touched) ? outcome.touched : [outcome.touched];
+        const result = outcome.result;
         const after = validateDocument(model, loaded.document);
         const beforeKeys = new Set(before.map(errorKey));
         const afterKeys = new Set(after.map(errorKey));
@@ -192,7 +203,7 @@ async function runEdit(
             validation: {
                 introduced: after.filter((e) => !beforeKeys.has(errorKey(e))).map(errorView),
                 resolved: before.filter((e) => !afterKeys.has(errorKey(e))).map(errorView),
-                underPath: after.filter((e) => under(e.path, touched)).map(errorView),
+                underPath: after.filter((e) => touched.some((t) => under(e.path, t))).map(errorView),
                 total: after.length,
             },
             ...(saved.staleReviewPaths.length > 0 ? { staleReviewPaths: saved.staleReviewPaths } : {}),
@@ -204,6 +215,10 @@ async function runEdit(
 }
 
 function editFailure(e: unknown): string {
+    if (e instanceof BatchEditFailure) {
+        const inner = JSON.parse(editFailure(e.cause)) as Record<string, unknown>;
+        return json({ ...inner, failedOp: { index: e.index, op: e.op }, completed: e.completed });
+    }
     if (e instanceof SpecEditRefusal) {
         return json({ ok: false, code: e.code, error: e.message, ...e.details });
     }
@@ -274,80 +289,90 @@ export async function specCreateDocumentImpl(deps: SpecToolDeps, input: SpecCrea
     }
 }
 
+function opSetContent(deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecSetContentInput>): OpOutcome {
+    const res = ctx.inspector.resolve(input.path);
+    requireKind(res, input.path, VALUE_LEAVES, 'a content or scalar value');
+    const text = input.text === '' ? null : input.text;
+    ctx.editor.setValue(input.path, text);
+    return { touched: input.path, result: { path: input.path, value: ctx.editor.value(input.path) } };
+}
+
 export async function specSetContentImpl(deps: SpecToolDeps, input: SpecSetContentInput): Promise<string> {
-    return runEdit(deps, input, (ctx) => {
-        const res = ctx.inspector.resolve(input.path);
-        requireKind(res, input.path, VALUE_LEAVES, 'a content or scalar value');
-        const text = input.text === '' ? null : input.text;
-        ctx.editor.setValue(input.path, text);
-        return { touched: input.path, result: { path: input.path, value: ctx.editor.value(input.path) } };
-    });
+    return runEdit(deps, input, (ctx) => opSetContent(deps, ctx, input));
+}
+
+function opSetFormField(deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecSetFormFieldInput>): OpOutcome {
+    const res = ctx.inspector.resolve(input.path);
+    requireKind(res, input.path, [SpecNodeKind.FORM], 'a form');
+    setFormField(ctx, input.path, input.field, input.value === '' ? null : input.value);
+    return { touched: input.path, result: { path: input.path, field: input.field, value: ctx.editor.formValue(input.path, input.field) } };
 }
 
 export async function specSetFormFieldImpl(deps: SpecToolDeps, input: SpecSetFormFieldInput): Promise<string> {
-    return runEdit(deps, input, (ctx) => {
-        const res = ctx.inspector.resolve(input.path);
-        requireKind(res, input.path, [SpecNodeKind.FORM], 'a form');
-        setFormField(ctx, input.path, input.field, input.value === '' ? null : input.value);
-        return { touched: input.path, result: { path: input.path, field: input.field, value: ctx.editor.formValue(input.path, input.field) } };
-    });
+    return runEdit(deps, input, (ctx) => opSetFormField(deps, ctx, input));
+}
+
+function opSetHeadline(deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecSetHeadlineInput>): OpOutcome {
+    ctx.inspector.resolve(input.path);
+    ctx.editor.setHeadline(input.path, input.headline || null);
+    return { touched: input.path, result: { path: input.path, headline: ctx.loaded.document.headline(input.path) } };
 }
 
 export async function specSetHeadlineImpl(deps: SpecToolDeps, input: SpecSetHeadlineInput): Promise<string> {
-    return runEdit(deps, input, (ctx) => {
-        ctx.inspector.resolve(input.path);
-        ctx.editor.setHeadline(input.path, input.headline || null);
-        return { touched: input.path, result: { path: input.path, headline: ctx.loaded.document.headline(input.path) } };
-    });
+    return runEdit(deps, input, (ctx) => opSetHeadline(deps, ctx, input));
+}
+
+function opSetCodeSpec(deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecSetCodeSpecInput>): OpOutcome {
+    ctx.inspector.resolve(input.path);
+    ctx.loaded.document.setCodeSpec(input.path, input.codeSpec ?? '');
+    return { touched: input.path, result: { path: input.path, codeSpec: ctx.loaded.document.codeSpec(input.path) } };
 }
 
 export async function specSetCodeSpecImpl(deps: SpecToolDeps, input: SpecSetCodeSpecInput): Promise<string> {
-    return runEdit(deps, input, (ctx) => {
-        ctx.inspector.resolve(input.path);
-        ctx.loaded.document.setCodeSpec(input.path, input.codeSpec ?? '');
-        return { touched: input.path, result: { path: input.path, codeSpec: ctx.loaded.document.codeSpec(input.path) } };
-    });
+    return runEdit(deps, input, (ctx) => opSetCodeSpec(deps, ctx, input));
+}
+
+function opAddNode(deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecAddNodeInput>): OpOutcome {
+    ctx.inspector.resolve(input.parentPath);
+    const doc = ctx.loaded.document;
+    let added: string;
+    try {
+        added = new SpecNodeCreator(deps.service.model, doc)
+            .add(input.parentPath, input.childSegment, input.itemId ?? null, input.month ?? null, input.day ?? null);
+    } catch (e) {
+        if (e instanceof SpecCreationError) {
+            const legal = ctx.inspector.reflectPath(input.parentPath, { brief: true });
+            throw new SpecEditRefusal(e.code, e.message, { addable: legal.addable ?? [], notAddable: legal.notAddable ?? [] });
+        }
+        throw e;
+    }
+    const res = ctx.inspector.resolve(added);
+    if (input.content !== undefined && input.content !== null) {
+        const target = VALUE_LEAVES.includes(res.kind) ? added : specPathJoin(added, 'content');
+        const targetRes = ctx.inspector.resolve(target);
+        requireKind(targetRes, target, VALUE_LEAVES, 'a value leaf `content` can be written to');
+        ctx.editor.setValue(target, input.content);
+    }
+    for (const [relative, values] of Object.entries(input.fields ?? {})) {
+        const formPath = relative === '' ? added : specPathJoin(added, relative);
+        requireKind(ctx.inspector.resolve(formPath), formPath, [SpecNodeKind.FORM], 'a form');
+        for (const [field, value] of Object.entries(values)) {
+            setFormField(ctx, formPath, field, value);
+        }
+    }
+    const isItem = LIST_ITEMS.includes(res.kind);
+    return {
+        touched: isItem ? specParentPath(added) : added,
+        result: {
+            path: added,
+            kind: res.kind,
+            ...(isItem && doc.itemSectionId(added) ? { sectionId: doc.itemSectionId(added) } : {}),
+        },
+    };
 }
 
 export async function specAddNodeImpl(deps: SpecToolDeps, input: SpecAddNodeInput): Promise<string> {
-    return runEdit(deps, input, (ctx) => {
-        ctx.inspector.resolve(input.parentPath);
-        const doc = ctx.loaded.document;
-        let added: string;
-        try {
-            added = new SpecNodeCreator(deps.service.model, doc)
-                .add(input.parentPath, input.childSegment, input.itemId ?? null, input.month ?? null, input.day ?? null);
-        } catch (e) {
-            if (e instanceof SpecCreationError) {
-                const legal = ctx.inspector.reflectPath(input.parentPath, { brief: true });
-                throw new SpecEditRefusal(e.code, e.message, { addable: legal.addable ?? [], notAddable: legal.notAddable ?? [] });
-            }
-            throw e;
-        }
-        const res = ctx.inspector.resolve(added);
-        if (input.content !== undefined && input.content !== null) {
-            const target = VALUE_LEAVES.includes(res.kind) ? added : specPathJoin(added, 'content');
-            const targetRes = ctx.inspector.resolve(target);
-            requireKind(targetRes, target, VALUE_LEAVES, 'a value leaf `content` can be written to');
-            ctx.editor.setValue(target, input.content);
-        }
-        for (const [relative, values] of Object.entries(input.fields ?? {})) {
-            const formPath = relative === '' ? added : specPathJoin(added, relative);
-            requireKind(ctx.inspector.resolve(formPath), formPath, [SpecNodeKind.FORM], 'a form');
-            for (const [field, value] of Object.entries(values)) {
-                setFormField(ctx, formPath, field, value);
-            }
-        }
-        const isItem = LIST_ITEMS.includes(res.kind);
-        return {
-            touched: isItem ? specParentPath(added) : added,
-            result: {
-                path: added,
-                kind: res.kind,
-                ...(isItem && doc.itemSectionId(added) ? { sectionId: doc.itemSectionId(added) } : {}),
-            },
-        };
-    });
+    return runEdit(deps, input, (ctx) => opAddNode(deps, ctx, input));
 }
 
 /** The list path owning an item path: its parent plus the list segment the item's segment extends. */
@@ -358,60 +383,68 @@ function listOf(itemPath: string): { parent: string; segment: string; list: stri
     return { parent, segment, list: specPathJoin(parent, segment) };
 }
 
-export async function specSetItemSectionIdImpl(deps: SpecToolDeps, input: SpecSetItemSectionIdInput): Promise<string> {
-    return runEdit(deps, input, (ctx) => {
-        const res = ctx.inspector.resolve(input.itemPath);
-        requireKind(res, input.itemPath, LIST_ITEMS, 'a list item');
-        const doc = ctx.loaded.document;
-        const previous = doc.itemSectionId(input.itemPath);
-        if (previous !== input.sectionId) {
-            const { parent, segment } = listOf(input.itemPath);
-            // The runtime's add rule states the id rules: keep the pattern prefix, stay unique in the list.
-            const error = checkAddNode(deps.service.model, doc, parent, segment, input.sectionId);
-            if (error) {
-                throw new SpecEditRefusal(error.code, error.message, { pattern: res.field?.sectionIdPattern ?? null });
-            }
-            doc.setItemSectionId(input.itemPath, input.sectionId);
+function opSetItemSectionId(deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecSetItemSectionIdInput>): OpOutcome {
+    const res = ctx.inspector.resolve(input.itemPath);
+    requireKind(res, input.itemPath, LIST_ITEMS, 'a list item');
+    const doc = ctx.loaded.document;
+    const previous = doc.itemSectionId(input.itemPath);
+    if (previous !== input.sectionId) {
+        const { parent, segment } = listOf(input.itemPath);
+        // The runtime's add rule states the id rules: keep the pattern prefix, stay unique in the list.
+        const error = checkAddNode(deps.service.model, doc, parent, segment, input.sectionId);
+        if (error) {
+            throw new SpecEditRefusal(error.code, error.message, { pattern: res.field?.sectionIdPattern ?? null });
         }
-        return { touched: input.itemPath, result: { path: input.itemPath, sectionId: input.sectionId, previous } };
-    });
+        doc.setItemSectionId(input.itemPath, input.sectionId);
+    }
+    return { touched: input.itemPath, result: { path: input.itemPath, sectionId: input.sectionId, previous } };
+}
+
+export async function specSetItemSectionIdImpl(deps: SpecToolDeps, input: SpecSetItemSectionIdInput): Promise<string> {
+    return runEdit(deps, input, (ctx) => opSetItemSectionId(deps, ctx, input));
+}
+
+function opMoveListItem(deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecMoveListItemInput>): OpOutcome {
+    const res = ctx.inspector.resolve(input.itemPath);
+    requireKind(res, input.itemPath, LIST_ITEMS, 'a list item');
+    if (input.toList) { ctx.inspector.resolve(input.toList); }
+    const moved = ctx.loaded.document.moveListItem(deps.service.model, input.itemPath, input.toIndex, input.toList ?? null);
+    const renamed = Object.fromEntries(moved.renamed);
+    if (ctx.loaded.format === 'yaml' && ctx.loaded.review) {
+        ctx.loaded.review = rekeyReview(ctx.loaded.review, moved.renamed);
+    }
+    const from = listOf(input.itemPath).list;
+    const to = input.toList ?? from;
+    return {
+        touched: to === from ? from : specParentPath(from),
+        result: { path: moved.path, renamed, pinnedIds: Object.fromEntries(moved.pinnedIds) },
+    };
 }
 
 export async function specMoveListItemImpl(deps: SpecToolDeps, input: SpecMoveListItemInput): Promise<string> {
-    return runEdit(deps, input, (ctx) => {
-        const res = ctx.inspector.resolve(input.itemPath);
-        requireKind(res, input.itemPath, LIST_ITEMS, 'a list item');
-        if (input.toList) { ctx.inspector.resolve(input.toList); }
-        const moved = ctx.loaded.document.moveListItem(deps.service.model, input.itemPath, input.toIndex, input.toList ?? null);
-        const renamed = Object.fromEntries(moved.renamed);
-        if (ctx.loaded.format === 'yaml' && ctx.loaded.review) {
-            ctx.loaded.review = rekeyReview(ctx.loaded.review, moved.renamed);
-        }
-        const from = listOf(input.itemPath).list;
-        const to = input.toList ?? from;
-        return {
-            touched: to === from ? from : specParentPath(from),
-            result: { path: moved.path, renamed, pinnedIds: Object.fromEntries(moved.pinnedIds) },
-        };
-    });
+    return runEdit(deps, input, (ctx) => opMoveListItem(deps, ctx, input));
+}
+
+function opRemoveListItem(deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecRemoveListItemInput>): OpOutcome {
+    const res = ctx.inspector.resolve(input.itemPath);
+    requireKind(res, input.itemPath, LIST_ITEMS, 'a list item');
+    const sectionId = ctx.loaded.document.itemSectionId(input.itemPath);
+    ctx.loaded.document.removeListItem(input.itemPath);
+    return { touched: listOf(input.itemPath).list, result: { removed: input.itemPath, ...(sectionId ? { sectionId } : {}) } };
 }
 
 export async function specRemoveListItemImpl(deps: SpecToolDeps, input: SpecRemoveListItemInput): Promise<string> {
-    return runEdit(deps, input, (ctx) => {
-        const res = ctx.inspector.resolve(input.itemPath);
-        requireKind(res, input.itemPath, LIST_ITEMS, 'a list item');
-        const sectionId = ctx.loaded.document.itemSectionId(input.itemPath);
-        ctx.loaded.document.removeListItem(input.itemPath);
-        return { touched: listOf(input.itemPath).list, result: { removed: input.itemPath, ...(sectionId ? { sectionId } : {}) } };
-    });
+    return runEdit(deps, input, (ctx) => opRemoveListItem(deps, ctx, input));
+}
+
+function opClearSection(deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecClearSectionInput>): OpOutcome {
+    ctx.inspector.resolve(input.path);
+    ctx.editor.clearSection(input.path);
+    return { touched: input.path, result: { cleared: input.path } };
 }
 
 export async function specClearSectionImpl(deps: SpecToolDeps, input: SpecClearSectionInput): Promise<string> {
-    return runEdit(deps, input, (ctx) => {
-        ctx.inspector.resolve(input.path);
-        ctx.editor.clearSection(input.path);
-        return { touched: input.path, result: { cleared: input.path } };
-    });
+    return runEdit(deps, input, (ctx) => opClearSection(deps, ctx, input));
 }
 
 // ---------------------------------------------------------------------------
@@ -573,6 +606,224 @@ export const SPEC_CLEAR_SECTION_TOOL = editTool<SpecClearSectionInput>(
     specClearSectionImpl,
 );
 
+
+// ---------------------------------------------------------------------------
+// specApplyEdits — the batch
+// ---------------------------------------------------------------------------
+
+/** The most edits one batch takes; keeps one call inside the tool time budget. */
+export const MAX_BATCH_EDITS = 200;
+
+/** The operations a batch entry can name, each with its single tool's argument shape. */
+const BATCH_OPS: Record<string, (deps: SpecToolDeps, ctx: EditContext, input: never) => OpOutcome> = {
+    setContent: opSetContent,
+    setFormField: opSetFormField,
+    setHeadline: opSetHeadline,
+    setCodeSpec: opSetCodeSpec,
+    addNode: opAddNode,
+    setItemSectionId: opSetItemSectionId,
+    moveListItem: opMoveListItem,
+    removeListItem: opRemoveListItem,
+    clearSection: opClearSection,
+};
+
+/** The fields of an entry that hold a document path, and so may use `$name`. */
+const PATH_FIELDS = ['path', 'parentPath', 'itemPath', 'toList'] as const;
+const BINDING_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const REFERENCE = /^\$([A-Za-z_][A-Za-z0-9_]*)(\/.*)?$/;
+
+export interface SpecBatchEdit {
+    op: string;
+    /** addNode only: bind the new node's path to this name for later entries (`$name/...`). */
+    as?: string;
+    [argument: string]: unknown;
+}
+
+export interface SpecApplyEditsInput extends SpecEditOptions {
+    edits: SpecBatchEdit[];
+}
+
+/** A batch entry that failed: which one, why, and what the entries before it did (none of it written). */
+class BatchEditFailure extends Error {
+    constructor(readonly index: number, readonly op: string, readonly cause: unknown, readonly completed: Record<string, unknown>[]) {
+        super(cause instanceof Error ? cause.message : String(cause));
+        this.name = 'BatchEditFailure';
+    }
+}
+
+/**
+ * Check a batch before anything runs: the cap, known operations, `as` only on
+ * addNode with a fresh name, and every `$name` bound by an earlier entry.
+ */
+function checkBatch(edits: unknown): string | null {
+    if (!Array.isArray(edits) || edits.length === 0) { return '`edits` must be a non-empty array.'; }
+    if (edits.length > MAX_BATCH_EDITS) { return `A batch takes at most ${MAX_BATCH_EDITS} edits; this one has ${edits.length}. Split it.`; }
+    const bound = new Set<string>();
+    for (let i = 0; i < edits.length; i++) {
+        const e = edits[i] as SpecBatchEdit;
+        if (!e || typeof e !== 'object' || !(e.op in BATCH_OPS)) {
+            return `Edit ${i}: unknown op ${JSON.stringify(e?.op)}. Ops: ${Object.keys(BATCH_OPS).join(', ')}.`;
+        }
+        for (const field of PATH_FIELDS) {
+            const value = e[field];
+            const ref = typeof value === 'string' ? REFERENCE.exec(value) : null;
+            if (typeof value === 'string' && value.startsWith('$') && !ref) {
+                return `Edit ${i} (${e.op}): '${value}' is not a valid reference; write $name or $name/<path>.`;
+            }
+            if (ref && !bound.has(ref[1])) {
+                return `Edit ${i} (${e.op}): $${ref[1]} is not bound by an earlier addNode (\`as: "${ref[1]}"\`).`;
+            }
+        }
+        if (e.as !== undefined) {
+            if (e.op !== 'addNode') { return `Edit ${i} (${e.op}): only addNode can bind a name with \`as\`.`; }
+            if (typeof e.as !== 'string' || !BINDING_NAME.test(e.as)) { return `Edit ${i}: \`as\` must be a name like req or req_1.`; }
+            if (bound.has(e.as)) { return `Edit ${i}: $${e.as} is already bound by an earlier entry.`; }
+            bound.add(e.as);
+        }
+    }
+    return null;
+}
+
+/** Replace the prefix `from` of `p` with `to`, when `p` is `from` or below it. */
+function rebase(p: string, from: string, to: string): string | null {
+    if (p === from) { return to; }
+    return p.startsWith(`${from}/`) ? to + p.slice(from.length) : null;
+}
+
+/**
+ * Where `p` is after a move. `renamed` is a permutation of item paths (a list
+ * renumbered), so it is applied once, by the longest matching item path —
+ * never entry after entry, which would chase one path round the whole cycle.
+ */
+function throughRenamed(p: string, renamed: Record<string, string>): string {
+    let best: string | null = null;
+    for (const from of Object.keys(renamed)) {
+        if ((p === from || p.startsWith(`${from}/`)) && (best === null || from.length > best.length)) { best = from; }
+    }
+    return best === null ? p : (rebase(p, best, renamed[best]) as string);
+}
+
+export async function specApplyEditsImpl(deps: SpecToolDeps, input: SpecApplyEditsInput): Promise<string> {
+    const invalid = checkBatch(input.edits);
+    if (invalid) {
+        return json({ ok: false, code: 'invalidBatch', error: invalid });
+    }
+    return runEdit(deps, input, (ctx) => {
+        const bindings = new Map<string, string>();
+        /** Every item path a move in this batch gave to another item: old → new. */
+        const movedAway = new Map<string, string>();
+        const results: Record<string, unknown>[] = [];
+        const touched: string[] = [];
+        input.edits.forEach((entry, index) => {
+            const { op, as, ...args } = entry;
+            try {
+                for (const field of PATH_FIELDS) {
+                    const value = args[field];
+                    if (typeof value !== 'string') { continue; }
+                    const ref = REFERENCE.exec(value);
+                    if (ref) {
+                        args[field] = (bindings.get(ref[1]) as string) + (ref[2] ?? '');
+                        continue;
+                    }
+                    if ([...movedAway.keys()].some((from) => rebase(value, from, from) !== null)) {
+                        const now = throughRenamed(value, Object.fromEntries(movedAway));
+                        throw new SpecEditRefusal('stalePath',
+                            `'${value}' names a position an earlier move in this batch changed; that item is now at '${now}'. `
+                            + 'Write the new path, or bind the item with `as` and use $name.', { use: now });
+                    }
+                }
+                const outcome = BATCH_OPS[op](deps, ctx, args as never);
+                touched.push(...(Array.isArray(outcome.touched) ? outcome.touched : [outcome.touched]));
+                const result = outcome.result ?? {};
+                if (op === 'addNode' && as) { bindings.set(as, result.path as string); }
+                const renamed = (result.renamed ?? {}) as Record<string, string>;
+                if (Object.keys(renamed).length > 0) {
+                    for (const [name, bound] of bindings) { bindings.set(name, throughRenamed(bound, renamed)); }
+                    // Compose with earlier moves: an original position now leads where its item went last.
+                    for (const [from, to] of movedAway) { movedAway.set(from, throughRenamed(to, renamed)); }
+                    for (const [from, to] of Object.entries(renamed)) {
+                        if (!movedAway.has(from)) { movedAway.set(from, to); }
+                    }
+                }
+                results.push({ index, op, ...result });
+            } catch (e) {
+                throw new BatchEditFailure(index, op, e, results);
+            }
+        });
+        return {
+            touched,
+            result: {
+                applied: results.length,
+                results,
+                ...(bindings.size > 0 ? { bindings: Object.fromEntries(bindings) } : {}),
+            },
+        };
+    });
+}
+
+/** The approval prompt for a batch: how many of each op, on which file, touching which paths. */
+export function summarizeBatch(input: SpecApplyEditsInput): string {
+    const edits = Array.isArray(input.edits) ? input.edits : [];
+    const counts = new Map<string, number>();
+    const paths: string[] = [];
+    for (const e of edits) {
+        counts.set(e.op, (counts.get(e.op) ?? 0) + 1);
+        for (const field of PATH_FIELDS) {
+            const v = e[field];
+            if (typeof v === 'string' && !paths.includes(v)) { paths.push(v); }
+        }
+    }
+    const ops = [...counts].map(([op, n]) => `${op} ×${n}`).join(', ');
+    const shown = paths.slice(0, 6).join(', ') + (paths.length > 6 ? ` (+${paths.length - 6} more)` : '');
+    const mode = input.dryRun ? ' (dry run, writes nothing)' : '';
+    return `${edits.length} edit${edits.length === 1 ? '' : 's'} to ${input.file}${mode}: ${ops}. Paths: ${shown}`;
+}
+
+export const SPEC_APPLY_EDITS_TOOL: SharedToolDefinition<SpecApplyEditsInput> = {
+    name: 'tomAi_specApplyEdits',
+    displayName: 'Spec: Apply Edits',
+    description:
+        'Apply several edits to one TomSpecs document as ONE change: one approval, one write, one undo step, all or '
+        + 'nothing. The preferred way to make more than one change (add an item, then fill it). `edits` is an ordered list '
+        + `of up to ${MAX_BATCH_EDITS} entries, each \`{op, …}\` with the same arguments as the single tool, minus \`file\`: `
+        + 'setContent {path, text}, setFormField {path, field, value}, setHeadline {path, headline}, setCodeSpec {path, '
+        + 'codeSpec}, addNode {parentPath, childSegment, itemId?, month?, day?, content?, fields?, as?}, setItemSectionId '
+        + '{itemPath, sectionId}, moveListItem {itemPath, toIndex, toList?}, removeListItem {itemPath}, clearSection {path}. '
+        + 'addNode can bind its new path with `as: "req"`; later entries write `$req` or `$req/FRED` in path, parentPath, '
+        + 'itemPath or toList, so an item can be added and filled without knowing its generated id. A move re-points '
+        + 'bound names; a later entry that names a path a move changed is refused (`stalePath`) with the new path. '
+        + 'Names, ops and the cap are checked before anything runs (`invalidBatch`). Any failing entry aborts the whole '
+        + 'batch and writes nothing: `{ok:false, failedOp: {index, op}, code, error, completed}`. On success: `{written, '
+        + 'revision, applied, results: [{index, op, …}], bindings, validation: {introduced, resolved, underPath, total}}`, '
+        + 'the validation compared before and after the whole batch. `dryRun` returns all of it plus the `diff`, writing '
+        + 'nothing. Creating a document is tomAi_specCreateDocument.',
+    tags: ['tomspecs', 'som', 'docspecs', 'edit', 'tom-ai-chat'],
+    readOnly: false,
+    requiresApproval: true,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            ...EDIT_PARAMS,
+            edits: {
+                type: 'array',
+                maxItems: MAX_BATCH_EDITS,
+                description: 'The edits, in order. Each is `{op, …arguments}`.',
+                items: {
+                    type: 'object',
+                    properties: {
+                        op: { type: 'string', enum: Object.keys(BATCH_OPS) },
+                        as: { type: 'string', description: 'addNode only: name for the new path.' },
+                    },
+                    required: ['op'],
+                },
+            },
+        },
+        required: ['file', 'edits'],
+    },
+    approvalSummary: summarizeBatch,
+    execute: async (input) => specApplyEditsImpl(liveDeps(), input),
+};
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const SPEC_EDIT_TOOLS: SharedToolDefinition<any>[] = [
     SPEC_CREATE_DOCUMENT_TOOL,
@@ -585,4 +836,5 @@ export const SPEC_EDIT_TOOLS: SharedToolDefinition<any>[] = [
     SPEC_MOVE_LIST_ITEM_TOOL,
     SPEC_REMOVE_LIST_ITEM_TOOL,
     SPEC_CLEAR_SECTION_TOOL,
+    SPEC_APPLY_EDITS_TOOL,
 ];

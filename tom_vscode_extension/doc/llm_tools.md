@@ -416,6 +416,7 @@ nothing. Each call loads, edits and saves the file in its own format. It takes
 | `tomAi_specMoveListItem` | Reorder within a list or move to a list of the same element class; returns the `renamed` map, and YAML review entries follow their items. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_specRemoveListItem` | Remove a list item and everything under it. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_specClearSection` | Remove every value under a path. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_specApplyEdits` | **The preferred way to make more than one change:** up to 200 of the edits above (`{op, …}`), in order, on one document. One approval, one write, one undo step, all or nothing. `addNode` can bind `as: "req"` for later `$req/…` paths; a move re-points bound names and refuses a stale literal path. The approval prompt shows the op counts and paths. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 
 Every edit answers `{ok, written, revision, …, validation}`. `validation` compares
 the runtime's `validateDocument` before and after the edit across the whole
@@ -550,6 +551,7 @@ Tools are grouped by functional family, one file per family under `src/tools/`:
 | `id-prefix-tools.ts` | Date-based prefix for collision-free hand-authored ids |
 | `issue-tools.ts` | Issues subpanel (read + write) |
 | `test-tools.ts` | Tests subpanel / testkit (read + write) |
+| `spec-tools.ts`, `spec-search-tools.ts`, `spec-edit-tools.ts` | TomSpecs (SOM) documents: read and reflect, search with a cursor, edits and the batch (`spec-tool-common.ts` holds what they share) |
 | `chat-enhancement-tools.ts` | Notify, quest/session todos, queue, timed, templates, reminders |
 | `tool-executors.ts` | File I/O primitives, shell, web, memory, chat vars, ask-AI bridges |
 
@@ -563,6 +565,7 @@ Every new tool needs:
 6. At least one `withTiming('<toolName>:<case>', …)` call in the family's test file, conventionally `:typical`. `npm run audit:tools` fails the build without it and enforces a 5 s ceiling.
 7. For Agent SDK duplicates: add to `DUPLICATES_OF_CLAUDE_CODE_BUILTINS` in `anthropic-handler.ts`.
 8. A row in the right family table in this document.
+9. For a write tool whose raw input would not let a person decide at the approval prompt, an `approvalSummary(input)` on its definition (`tomAi_specApplyEdits` summarises its batch as op counts and paths). Both Anthropic transports show it through `summarizeToolInput`; without it the prompt shows the input as JSON cut to 200 characters.
 
 Steps 4 and 5 are enforced by `src/tools/__tests__/tool-registry-parity.test.ts`.
 It asserts that `ALL_SHARED_TOOLS` equals `AVAILABLE_LLM_TOOLS` plus
@@ -573,7 +576,7 @@ that works under `toolsEnabled: true` and is invisible everywhere else.
 
 ### Deliberately unselectable tools
 
-Of the 132 registered tools, **116 are selectable** and **16 are withheld from
+Of the 149 registered tools, **133 are selectable** and **16 are withheld from
 the pickers on purpose** (`DELIBERATELY_UNSELECTABLE_TOOLS` in
 `src/utils/constants.ts`): the twelve queue mutators and dispatch entry points
 (`tomAi_addQueueItem`, `tomAi_updateQueueItem`, `tomAi_removeQueueItem`,

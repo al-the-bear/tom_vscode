@@ -15,6 +15,7 @@ import * as vscode from 'vscode';
 import {
     executeToolCall,
     SharedToolDefinition,
+    summarizeToolInput,
     toAnthropicTools,
 } from '../tools/shared-tool-registry';
 import { TrailService } from '../services/trailService';
@@ -3061,7 +3062,7 @@ export class AnthropicHandler {
     ): Promise<AnthropicToolResultBlockParam> {
         const def = tools.find((t) => t.name === block.name);
         const input = (block.input ?? {}) as Record<string, unknown>;
-        const inputSummary = this.summarizeInput(input);
+        const inputSummary = summarizeToolInput(def, input);
 
         // Per spec §8.1: `requiresApproval` defaults to `true` for write
         // tools (i.e. `!readOnly`). An explicit value overrides the default
@@ -3377,15 +3378,6 @@ export class AnthropicHandler {
             .filter((b): b is Extract<AnthropicContentBlock, { type: 'text' }> => b.type === 'text')
             .map((b) => b.text)
             .join('');
-    }
-
-    private summarizeInput(input: Record<string, unknown>): string {
-        try {
-            const s = JSON.stringify(input);
-            return s.length > 200 ? s.slice(0, 197) + '...' : s;
-        } catch {
-            return '[unserializable input]';
-        }
     }
 
     private generateRequestId(): string {
