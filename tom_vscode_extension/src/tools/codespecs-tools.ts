@@ -65,7 +65,7 @@ export interface CodeSpecsWriteExtractsInput {
 /** Where extracts go: `<spec-root>/generated-doc/codespecs_extracts/`, the spec root being the document's folder. */
 export const EXTRACTS_DIR = path.join('generated-doc', 'codespecs_extracts');
 
-const ROUTING_FIX =
+export const ROUTING_FIX =
     'Annotate the class in the TomSpecs model (tom_specs_model) with @CodeSpecKind (it feeds code), @FollowUpKind (a '
     + 'process delivers it) or @NoArtifact (it feeds nothing), then regenerate the SOM packages. A heading `codeSpec=` '
     + '(tomAi_specSetCodeSpec) does not route a class; it names artefacts for one that is routed.';
@@ -74,13 +74,13 @@ const ROUTING_FIX =
 // Shared
 // ---------------------------------------------------------------------------
 
-class CodeSpecsRefusal extends Error {
+export class CodeSpecsRefusal extends Error {
     constructor(readonly code: string, message: string, readonly details: Record<string, unknown> = {}) {
         super(message);
     }
 }
 
-function codeSpecsFailure(e: unknown): string {
+export function codeSpecsFailure(e: unknown): string {
     if (e instanceof CodeSpecsRefusal) {
         return json({ ok: false, code: e.code, error: e.message, ...e.details });
     }
@@ -90,8 +90,8 @@ function codeSpecsFailure(e: unknown): string {
     return failure(e);
 }
 
-/** The extractor for a loaded document, refusing the projection document. */
-function extractorFor(deps: SpecToolDeps, loaded: LoadedSomDocument): CodeSpecsExtractor {
+/** Refuse the CodeSpecs projection document (its root class carries @CodeSpecsProjection). */
+export function refuseProjection(deps: SpecToolDeps, loaded: LoadedSomDocument): void {
     const rootClass = deps.service.reflection.classNamed(loaded.root.type);
     if (rootClass?.hasAnnotation('CodeSpecsProjection')) {
         throw new CodeSpecsRefusal('projectionDocument',
@@ -99,6 +99,11 @@ function extractorFor(deps: SpecToolDeps, loaded: LoadedSomDocument): CodeSpecsE
             + 'reaches and is neither filled nor extracted. Extract from the specification document instead (e.g. a '
             + 'Solution Blueprint, SBP).');
     }
+}
+
+/** The extractor for a loaded document, refusing the projection document. */
+function extractorFor(deps: SpecToolDeps, loaded: LoadedSomDocument): CodeSpecsExtractor {
+    refuseProjection(deps, loaded);
     return new CodeSpecsExtractor(deps.service.model, loaded.document, deps.service.codeSpecsCatalog, loaded.root.type);
 }
 

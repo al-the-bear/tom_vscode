@@ -207,7 +207,7 @@ export class SomSpecValidation {
      * section id is looked up first; when no node bears it (a missing required
      * section), the heading the line falls under is used instead.
      */
-    private locate(document: SpecDocument, root: SpecRoot, markdown: string, violations: Array<{ line: number; sectionId: string | null }>): Array<string | null> {
+    locate(document: SpecDocument, root: SpecRoot, markdown: string, violations: Array<{ line: number; sectionId: string | null }>): Array<string | null> {
         const lines = markdown.split('\n');
         const parsed = DocSpecsDocument.parse(markdown).allSections;
         const enclosingId = (line: number): string | null => {

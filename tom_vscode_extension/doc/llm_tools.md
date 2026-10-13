@@ -444,9 +444,15 @@ A document with no values is written with its root key
 `document: {}`, which would not say which document it is (tom_specs vsctasb4).
 
 Every document answer carries the document's `format`, `stamp`, `editability`,
-`readOnlyReason` and `revision`. A Markdown file whose import is not faithful
-(tom_specs qrb8) loads read-only and says so. The revision is what a later edit
-passes as `expectedRevision`.
+`readOnlyReason` and `revision`. A Markdown file whose import does not reproduce
+it loads read-only and says so, because a save would rewrite it: a hand-formatted
+file, or one hitting an import defect. The revision is what a later edit passes
+as `expectedRevision`.
+
+One limit remains: the Markdown import keeps a list item's section id only when it
+differs from the id its pattern would generate (tom_specs vsctasb10). The Markdown
+does not show the difference. Converting such a file to YAML, or moving items in
+it, can therefore change those items' ids.
 
 The TomSpecs editor ships the same capabilities on its own MCP servers under
 other names. The extension keeps its `tomAi_spec*` convention; each tool
@@ -552,6 +558,9 @@ these tools refuse it rather than return 27 empty extracts.
 | `tomAi_specCodeSpecsAreas` | The catalogue: areas, slices, authoring steps; one area (projects, citable areas, steps) or one slice in detail. | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_specCodeSpecsRouting` | Gate A3, readable: every class node's verdict, with the unrouted ones and their fix; filter by verdict or path. | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_specCodeSpecsExtract` | One area's extract as Markdown with each entry's provenance, or a per-area summary. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_specCodeSpecsGate` | The Stage-A gate in one report (runtime `CodeSpecsGate`): A1 schema completeness, A2 valid values, A3 routing, A4 required marker sources, A5 carriers the model still offers. Per check: passed, findings with the document path to fix (A5 findings are model-level), and the fix; plus `gateOpen`. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_specCodeSpecsVerdicts` | The Stage-B gate record (`gate.verdicts.yaml` beside the extracts): each area's verdict, resolution and note, the active areas still missing, and whether record and extracts agree. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_specCodeSpecsSetVerdict` | Record one area's verdict (approval), validated by the runtime's record rules (`resolution: descoped` only on insufficient). The record's leading comments are kept, and an unchanged verdict rewrites it byte-identically. An insufficient verdict comes with what is owed next. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_specCodeSpecsWriteExtracts` | Write every area's `.extract.yaml` / `.extract.md` to `<document folder>/generated-doc/codespecs_extracts/` (approval). Unchanged files are left alone; `dryRun` reports the file statuses. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 
 For the Meridian sample, the written extracts equal the conformance corpus
@@ -644,7 +653,7 @@ Tools are grouped by functional family, one file per family under `src/tools/`:
 | `id-prefix-tools.ts` | Date-based prefix for collision-free hand-authored ids |
 | `issue-tools.ts` | Issues subpanel (read + write) |
 | `test-tools.ts` | Tests subpanel / testkit (read + write) |
-| `codespecs-tools.ts` | CodeSpecs: area catalogue, routing, extract, write extracts |
+| `codespecs-tools.ts`, `codespecs-gate-tools.ts` | CodeSpecs: area catalogue, routing, extract, write extracts; the Stage-A gate and the Stage-B gate record |
 | `docspecs-tools.ts` | Plain DocSpecs Markdown: validate, outline, get and replace a section |
 | `spec-tools.ts`, `spec-search-tools.ts`, `spec-edit-tools.ts`, `spec-validate-tools.ts` | TomSpecs (SOM) documents: read and reflect, search with a cursor, edits and the batch, validate / render / convert (`spec-tool-common.ts` holds what they share) |
 | `chat-enhancement-tools.ts` | Notify, quest/session todos, queue, timed, templates, reminders |
@@ -671,7 +680,7 @@ that works under `toolsEnabled: true` and is invisible everywhere else.
 
 ### Deliberately unselectable tools
 
-Of the 160 registered tools, **144 are selectable** and **16 are withheld from
+Of the 163 registered tools, **147 are selectable** and **16 are withheld from
 the pickers on purpose** (`DELIBERATELY_UNSELECTABLE_TOOLS` in
 `src/utils/constants.ts`): the twelve queue mutators and dispatch entry points
 (`tomAi_addQueueItem`, `tomAi_updateQueueItem`, `tomAi_removeQueueItem`,

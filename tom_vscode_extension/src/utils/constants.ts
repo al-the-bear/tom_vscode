@@ -196,6 +196,9 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_specCodeSpecsRouting',
     'tomAi_specCodeSpecsExtract',
     'tomAi_specCodeSpecsWriteExtracts',
+    'tomAi_specCodeSpecsGate',
+    'tomAi_specCodeSpecsVerdicts',
+    'tomAi_specCodeSpecsSetVerdict',
     // Plain DocSpecs Markdown (not SOM)
     'tomAi_docspecsValidate',
     'tomAi_docspecsOutline',
