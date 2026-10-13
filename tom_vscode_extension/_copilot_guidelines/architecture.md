@@ -182,6 +182,15 @@ Two independent stores, not shared:
 
 All Anthropic leaf paths (Direct, Agent SDK, VS Code LM, Local-LLM-backed) share the Anthropic store. Template tools (`tomAi_listPromptTemplates`, `tomAi_createPromptTemplate`, `tomAi_updatePromptTemplate`, `tomAi_deletePromptTemplate`) accept a `transport?: 'copilot' | 'anthropic'` field, defaulting to `'copilot'`.
 
+## TomSpecs (SOM) documents
+
+The bundled SOM runtime + facade are reached only through `src/services/som-model-service.ts` (`SomModelService.instance`: model, model version, roots, meta trees, schemas). Spec documents on disk are reached only through `src/services/som-document-store.ts` — no tool parses or writes a document itself:
+
+- `load(path)` → `LoadedSomDocument`: format (`*.docspecs.yaml` or SOM `*.md`), root, `document`, model-version `stamp`, SOM §4.2 `editability`, sha256 `revision`, the YAML `review:` pass (`null` when the file has none — decided from the text, because decode reports absent and `review: {}` alike), Markdown `rejections` and `fidelityProblems`, and `readOnlyReason`.
+- Edit `loaded.document` (e.g. `SpecEditor.forModel(doc, service.model)`), then `save(loaded, { expectedRevision?, dryRun? })`: re-encodes in the file's own format stamped with the current model version, returns the new revision, a unified diff and `staleReviewPaths`. It refuses (`SomDocumentError.code`) a read-only document, a revision conflict, and a file dirty in an editor.
+- Markdown loads read-only when its import is not faithful — the re-render differs, the document cannot be encoded, or values land where the model has no value leaf (tom_specs qrb8) — or when the parser rejected blocks.
+- The extension uses `somDocumentStore()` from `som-document-io-vscode.ts`: files open in an editor are read from and written through the editor (WorkspaceEdit + save); others are written atomically. The store itself is vscode-free and unit-tested with `nodeSomDocumentIo`.
+
 ## Communication boundaries
 
 - VS Code command API for UI and command execution.

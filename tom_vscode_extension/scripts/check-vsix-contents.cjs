@@ -41,6 +41,8 @@ const REQUIRED = [
     'extension/node_modules/tom_som_typescript_v0/meta/spec_model.meta.json',
     'extension/node_modules/tom_som_typescript_v0/schemas/solution-blueprint/solution-blueprint.1.0.docspecs-schema.yaml',
     'extension/out/services/som-model-service.js',
+    'extension/out/services/som-document-store.js',
+    'extension/out/services/som-document-io-vscode.js',
 ];
 
 const SOM_PREFIXES = [
