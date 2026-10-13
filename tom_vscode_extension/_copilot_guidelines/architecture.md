@@ -191,7 +191,8 @@ The bundled SOM runtime + facade are reached only through `src/services/som-mode
 - Markdown loads read-only when its import is not faithful — the re-render differs, the document cannot be encoded, or values land where the model has no value leaf (tom_specs qrb8) — or when the parser rejected blocks.
 - The extension uses `somDocumentStore()` from `som-document-io-vscode.ts`: files open in an editor are read from and written through the editor (WorkspaceEdit + save); others are written atomically. The store itself is vscode-free and unit-tested with `nodeSomDocumentIo`.
 - `src/services/som-spec-inspector.ts` (`SomSpecInspector`, vscode-free) answers the read-only questions over a loaded document or the model alone: outline, one section with typed form values, reflection, and what `checkAddNode` accepts at a path. An unresolvable path raises `SpecPathError` carrying the nearest resolvable node and its children. `store.peek(path)` identifies a file from its header lines only, for workspace scans.
-- The agent tools are in `src/tools/spec-tools.ts` (`SPEC_TOOLS`, `tomAi_spec*`, catalogued in `doc/llm_tools.md` §4.23): each is a `*Impl(deps, input)` over the store, the model and the workspace root, with a thin `execute` wrapper.
+- The agent tools are in `src/tools/spec-tools.ts` (read and reflect) and `src/tools/spec-search-tools.ts` (search), sharing `spec-tool-common.ts` (deps, path resolution inside the workspace, the document header, failure answers); all are catalogued in `doc/llm_tools.md` §4.23. Each is a `*Impl(deps, input)` over the store, the model and the workspace root, with a thin `execute` wrapper.
+- Search cursors are the series' only state: `src/services/som-search-cursors.ts` (`SomSearchCursors`: TTL, cap, LRU eviction, and remembered reasons for closed ids). A cursor keeps the runtime `SpecQueryCursor` and the revision it was opened on.
 
 ## Communication boundaries
 

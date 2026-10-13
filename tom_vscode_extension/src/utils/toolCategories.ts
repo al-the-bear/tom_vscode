@@ -182,6 +182,8 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_specListDocuments',
         'tomAi_specOutline',
         'tomAi_specReflect',
+        'tomAi_specSearch',
+        'tomAi_specSearchIterate',
     ],
     'Todos (chat)': [
         'tomAi_manageTodo',

@@ -391,6 +391,8 @@ document, a list item resolves only when the list holds it.
 | `tomAi_specOutline` | The instance tree under a path: kind, section id, headline, codeSpec, filled, item counts; depth-limited and paged. | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_specGetSection` | One node with its values: a leaf's value, a form's typed fields with enum domains, a list's items, a section's values, forms and children. | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_specReflect` | The model at a path or class: kinds, types, form fields, annotations, doc comments; with a file, the children `checkAddNode` accepts there now. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_specSearch` | Query one document (runtime `SpecQueryEngine`): text or portable pattern, kinds, class, `@SectionId`, path glob, `@MapsTo` / `@DetailedIn`, empty / non-empty, AND-combined. First page + cursor. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_specSearchIterate` | The next page of a search cursor; re-runs the query when the file changed since. | ✅ | ✅ | ⚪ | ✅ | ✅ |
 
 Every document answer carries the document's `format`, `stamp`, `editability`,
 `readOnlyReason` and `revision`. A Markdown file whose import is not faithful
@@ -407,6 +409,21 @@ description names its counterpart:
 | `tomAi_specOutline` | `doc_outline` |
 | `tomAi_specGetSection` | `doc_get_content`, `doc_get_form_field`, `doc_section_meta` |
 | `tomAi_specReflect` | `doc_reflect`, `model_get_section`, `model_children` |
+| `tomAi_specSearch` | `doc_search` |
+| `tomAi_specSearchIterate` | `doc_search_iterate` |
+
+**Search specifics.** The `text` dimension searches stored values (content,
+scalar list items, every form field) and the node's headline, which is the
+stored headline or, when the document sets none, the model's doc comment, so
+model prose can match too. `sectionIdExact` / `sectionIdPrefix` match the
+model's `@SectionId`, not a list item's own stored id. With `regex: true` the
+pattern is the runtime's portable subset (`.` `*` `+` `?` `[...]` `^` `$`,
+`\` + punctuation). `(`, `)`, `|`, `{`, `}` are literals; `\d`, `\w` and any
+other `\` + letter are rejected with `code: "patternError"`. A cursor is the
+only state in the spec tools: at most 32 stay open, each closes after 10 minutes
+without use, and one that has returned every match closes at once. Each cursor
+remembers the file revision its matches come from, and iterating after the file
+changed runs the query again (`rerun: true`) and starts over.
 
 ## 5. Transport-specific recommendations
 

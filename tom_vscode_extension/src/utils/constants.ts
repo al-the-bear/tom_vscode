@@ -187,6 +187,8 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_specOutline',
     'tomAi_specGetSection',
     'tomAi_specReflect',
+    'tomAi_specSearch',
+    'tomAi_specSearchIterate',
     // Queue + timed requests — observation only; the mutators and the dispatch
     // entry points are in DELIBERATELY_UNSELECTABLE_TOOLS below.
     'tomAi_listQueue',

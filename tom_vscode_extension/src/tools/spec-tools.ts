@@ -23,28 +23,28 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as vscode from 'vscode';
 
 import { SharedToolDefinition } from './shared-tool-registry';
-import { isInsideWorkspace, resolveAgainstWsRoot } from './file-primitives';
-import { SomDocumentError, SomDocumentStore } from '../services/som-document-store';
-import type { LoadedSomDocument } from '../services/som-document-store';
-import { SomModelService } from '../services/som-model-service';
-import { SomSpecInspector, SpecPathError } from '../services/som-spec-inspector';
-import { somDocumentStore } from '../services/som-document-io-vscode';
+import {
+    FILE_PARAM,
+    PATH_PARAM_HINT,
+    SpecToolDeps,
+    UNRESOLVED_NOTE,
+    documentHeader,
+    failure,
+    json,
+    liveDeps,
+    loadDocument,
+    resolveInput,
+    toWorkspacePath,
+} from './spec-tool-common';
+import { SomSpecInspector } from '../services/som-spec-inspector';
+
+export type { SpecToolDeps } from './spec-tool-common';
 
 // ---------------------------------------------------------------------------
 // Dependencies and inputs
 // ---------------------------------------------------------------------------
-
-export interface SpecToolDeps {
-    /** Workspace root; relative `file` / `dir` inputs resolve against it, and nothing outside it is read. */
-    wsRoot: string;
-    store: SomDocumentStore;
-    service: SomModelService;
-    /** specListDocuments' walk budget; default {@link SPEC_LIST_TIME_BUDGET_MS}. */
-    listTimeBudgetMs?: number;
-}
 
 export interface SpecListDocumentsInput {
     dir?: string;
@@ -70,52 +70,6 @@ export interface SpecReflectInput {
     className?: string;
     file?: string;
     brief?: boolean;
-}
-
-// ---------------------------------------------------------------------------
-// Shared helpers
-// ---------------------------------------------------------------------------
-
-const json = (value: unknown): string => JSON.stringify(value);
-
-/** A failure answer: the message, plus the error code and recovery hint when there is one. */
-function failure(e: unknown): string {
-    if (e instanceof SomDocumentError) {
-        return json({ ok: false, code: e.code, error: e.message });
-    }
-    if (e instanceof SpecPathError) {
-        return json({ ok: false, code: 'unresolvedPath', error: e.message, ...(e.nearest ? { nearest: e.nearest } : {}) });
-    }
-    return json({ ok: false, error: (e as Error).message });
-}
-
-function toWorkspacePath(deps: SpecToolDeps, absolute: string): string {
-    return path.relative(deps.wsRoot, absolute).split(path.sep).join('/');
-}
-
-function resolveInput(deps: SpecToolDeps, file: string): string {
-    const resolved = resolveAgainstWsRoot(file, deps.wsRoot);
-    if (!isInsideWorkspace(resolved, deps.wsRoot)) {
-        throw new Error(`Path is outside the workspace: ${file}`);
-    }
-    return resolved;
-}
-
-function loadDocument(deps: SpecToolDeps, file: string): LoadedSomDocument {
-    return deps.store.load(resolveInput(deps, file));
-}
-
-/** The document-level facts every document answer carries. */
-function documentHeader(deps: SpecToolDeps, loaded: LoadedSomDocument): Record<string, unknown> {
-    return {
-        file: toWorkspacePath(deps, loaded.filePath),
-        format: loaded.format,
-        root: loaded.root.sectionId ?? loaded.root.type,
-        stamp: loaded.stamp,
-        editability: loaded.editability,
-        readOnlyReason: loaded.readOnlyReason,
-        revision: loaded.revision,
-    };
 }
 
 // ---------------------------------------------------------------------------
@@ -244,24 +198,6 @@ export async function specReflectImpl(deps: SpecToolDeps, input: SpecReflectInpu
 // ---------------------------------------------------------------------------
 // Tool definitions
 // ---------------------------------------------------------------------------
-
-function liveDeps(): SpecToolDeps {
-    return {
-        wsRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '',
-        store: somDocumentStore(),
-        service: SomModelService.instance,
-    };
-}
-
-const FILE_PARAM = {
-    type: 'string',
-    description: 'A TomSpecs document: `*.docspecs.yaml` or a SOM-rendered `*.md`. Workspace-relative or absolute (inside the workspace).',
-};
-const PATH_PARAM_HINT =
-    'A document path: the root section id, then field segments (a field\'s @SectionId, else its name) and list items `<LIST>-<n>`, '
-    + 'e.g. `SBP/introductionAndScope/requirements/functionalRequirements/FRE-REQU-LST-1`. Take paths from tomAi_specOutline rather than composing them.';
-const UNRESOLVED_NOTE =
-    'A path that does not resolve returns `{ok:false, code:"unresolvedPath", nearest:{path, kind, children}}`: the nearest node that does, with its child paths.';
 
 export const SPEC_LIST_DOCUMENTS_TOOL: SharedToolDefinition<SpecListDocumentsInput> = {
     name: 'tomAi_specListDocuments',

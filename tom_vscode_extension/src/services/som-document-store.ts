@@ -208,6 +208,15 @@ export class SomDocumentStore {
         return format === 'yaml' ? this.loadYaml(filePath, text) : this.loadMarkdown(filePath, text);
     }
 
+    /** The revision (sha256) of the file as it is now. Throws SomDocumentError notFound when unreadable. */
+    currentRevision(filePath: string): string {
+        try {
+            return sha256(this.io.read(filePath));
+        } catch {
+            throw new SomDocumentError('notFound', `${filePath} does not exist or cannot be read.`);
+        }
+    }
+
     /**
      * Identify a SOM document from its header without loading it, or return
      * null when the file is not one (no root key, no SOM heading, unknown
