@@ -8,6 +8,7 @@
  *   SD-1   a YAML file loads: format, root, stamp, editability, revision
  *   SD-2   rendering with the file's own stamp and review is byte-identical
  *   SD-3   the review pass: absent stays absent, `review: {}` stays, entries stay
+ *   SD-3b  the pass's presence is the runtime's decode, not a text match: a quoted `"review": {}` key survives a save
  *   SD-4   save writes the file, stamps the model version, returns the revision
  *   SD-5   a file changed since load is never overwritten (revision conflict)
  *   SD-6   dryRun writes nothing and returns the diff
@@ -93,6 +94,17 @@ describe('SomDocumentStore', () => {
         const fullText = `${MERIDIAN_YAML}review:\n  "SBP/content":\n    comment: |2-\n      Checked.\n    reviewed: true\n`;
         const full = s.load(write('sd3c.docspecs.yaml', fullText));
         assert.equal(s.render(full, { stamp: full.stamp }), fullText);
+    });
+
+    test('SD-3b: an explicit empty pass survives a save, however its key is written', async () => {
+        const s = store();
+        for (const [name, key] of [['sd3d.docspecs.yaml', 'review'], ['sd3e.docspecs.yaml', '"review"']]) {
+            const p = write(name, `${MERIDIAN_YAML}${key}: {}\n`);
+            const doc = s.load(p);
+            assert.notEqual(doc.review, null, `${key}: the pass is present`);
+            await s.save(doc);
+            assert.match(fs.readFileSync(p, 'utf8'), /\nreview: \{\}\n$/, `${key}: the saved file keeps the pass`);
+        }
     });
 
     test('SD-4: save writes, stamps the model version and returns the new revision', async () => {

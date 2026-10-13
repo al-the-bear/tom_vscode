@@ -81,16 +81,16 @@ describe('SomModelService', () => {
     function roundTrip(text: string): string {
         const tree = service.metaTree('SBP');
         const contents = yamlDecode(text, tree);
-        // decode reports an absent `review:` pass as an empty map, and encode
-        // writes an empty map as `review: {}`, so the review is passed only
-        // when it holds entries. (Telling an absent pass from an explicit
-        // empty one is tom_specs' vsctasb1.)
-        const hasReview = Object.keys(contents.review ?? {}).length > 0;
-        return yamlEncode(contents.document, tree, contents.modelVersion, hasReview ? contents.review : null);
+        return yamlEncode(contents.document, tree, contents.modelVersion, contents.review);
     }
 
     test('SM-7: the Meridian sample round-trips byte for byte', () => {
         const text = fs.readFileSync(MERIDIAN, 'utf8');
+        assert.equal(roundTrip(text), text);
+    });
+
+    test('SM-7c: an explicit empty review pass survives the round trip', () => {
+        const text = `${fs.readFileSync(MERIDIAN, 'utf8')}review: {}\n`;
         assert.equal(roundTrip(text), text);
     });
 

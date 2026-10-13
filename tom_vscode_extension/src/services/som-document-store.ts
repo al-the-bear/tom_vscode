@@ -9,11 +9,9 @@
  *
  * Formats:
  *   - `*.docspecs.yaml`: the runtime's YAML codec. The `review:` pass is
- *     carried through unchanged. decode() reports an absent pass and an
- *     explicit `review: {}` alike, as an empty map, so the store looks for a
- *     top-level `review:` key in the text itself: no key, nothing is written
- *     back; a key, the decoded pass is (tom_specs vsctasb1 would let the
- *     runtime say this).
+ *     carried through unchanged: decode() returns null for a file without
+ *     one and a map, possibly empty, for a file with one (SOM §12.1), and
+ *     encode() writes back exactly that, so an explicit `review: {}` stays.
  *   - `*.md` rendered from a SOM document (headings carry `<!--[ID]-->`):
  *     SpecDocument.fromMarkdown in, toMarkdown out. The model-version stamp is
  *     the version in the `<!-- docspec: <schema>/<major.minor> -->` header.
@@ -174,7 +172,6 @@ export interface SomSaveResult {
 
 const DOCSPEC_HEADER = /^<!-- docspec: ([^/\s]+)\/(\d+\.\d+) -->/;
 const YAML_ROOT_KEY = /^document:\s*\n {2}(\S+) (\S+):/m;
-const YAML_REVIEW_KEY = /^review:/m;
 const YAML_STAMP = /^modelVersion:\s*"?([^"\s]+)"?\s*$/m;
 /** How much of a file peek reads: the header lines and the root heading or key are at the top. */
 const PEEK_BYTES = 16 * 1024;
@@ -457,9 +454,10 @@ export class SomDocumentStore {
         } catch (e) {
             throw new SomDocumentError('parse', `${path.basename(filePath)}: ${(e as Error).message}`);
         }
-        const hasReviewPass = YAML_REVIEW_KEY.test(text);
+        // decode returns null for a file with no `review:` pass and a map, possibly
+        // empty, for one that has it (SOM §12.1), so the pass is carried as decoded.
         return this.loaded(filePath, 'yaml', root, contents.document, text, contents.modelVersion,
-            hasReviewPass ? contents.review : null, [], []);
+            contents.review, [], []);
     }
 
     private loadMarkdown(filePath: string, text: string): LoadedSomDocument {
