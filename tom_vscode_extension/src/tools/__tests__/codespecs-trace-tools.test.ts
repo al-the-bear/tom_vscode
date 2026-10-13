@@ -15,6 +15,8 @@
  *   CT-8   a gate record scopes the run
  *   CT-9   input errors, the back-link provider, a wrong index format
  *   CT-10  the fixture equals the sample's run (when the sample has been run)
+ *   CT-11  registration
+ *   CT-12  codeDirs through the bundled validate_codespecs: the same index and agreement as backlinks.json
  */
 
 import test, { before, describe } from 'node:test';
@@ -29,6 +31,7 @@ installVscodeStub({});
 
 import { SomModelService } from '../../services/som-model-service.js';
 import { SomDocumentStore } from '../../services/som-document-store.js';
+import { backlinkIndexJson } from '../../services/codespecs-validator.js';
 import type { SpecToolDeps } from '../spec-tool-common.js';
 import {
     CODESPECS_TRACE_TOOLS,
@@ -215,5 +218,29 @@ describe('CodeSpecs query and trace', () => {
             ['tomAi_specCodeSpecsQueryExtracts', true],
             ['tomAi_specCodeSpecsTrace', true],
         ]);
+    });
+
+    test('CT-12: codeDirs through the bundled binary', async () => {
+        const recorded = JSON.parse(fs.readFileSync(path.join(FIXTURE, 'backlinks.json'), 'utf8'));
+        const live = JSON.parse(await backlinkIndexJson({ shared: path.join(FIXTURE, 'codespec', 'shared') }));
+        assert.deepEqual(live.declarations, recorded.declarations, 'the binary reads the fixture trio into the recorded index');
+
+        setBacklinkProvider((dirs) => backlinkIndexJson(dirs));
+        try {
+            fs.cpSync(path.join(FIXTURE, 'codespec'), path.join(ws, 'trio', 'codespec'), { recursive: true });
+            const codeDirs = { shared: 'trio/codespec/shared' };
+            const viaBinary = await call(codeSpecsTraceImpl, { extractsDir: base.extractsDir, codeDirs, declaration: 'dataAccess.Customer' });
+            const viaFile = await call(codeSpecsTraceImpl, { ...base, declaration: 'dataAccess.Customer' });
+            assert.equal(viaBinary.ok, true, JSON.stringify(viaBinary));
+            assert.deepEqual(viaBinary.agreement, viaFile.agreement);
+            assert.deepEqual(viaBinary.agreement, { passed: true, uncited: [], dangling: [] });
+            assert.deepEqual(viaBinary.tokens, viaFile.tokens);
+
+            const missing = await call(codeSpecsTraceImpl, { extractsDir: base.extractsDir, codeDirs: { shared: 'nowhere/shared' }, token: 'DAENT-IDEN' });
+            assert.equal(missing.code, 'usageError');
+            assert.match(missing.error, /shared package not found/);
+        } finally {
+            setBacklinkProvider(null);
+        }
     });
 });

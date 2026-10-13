@@ -13,7 +13,8 @@
  *
  * Checked, from the zip's central directory (no unzip, no dependency, the same
  * on every platform):
- *   - every REQUIRED entry is present;
+ *   - every REQUIRED entry is present, the validate_codespecs binary for this
+ *     host included;
  *   - no entry under the SOM packages is a symlink (a Unix-made zip entry whose
  *     mode is S_IFLNK);
  *   - no symlink anywhere in the VSIX (reported; vsctsa1 forbids them).
@@ -29,9 +30,12 @@ const path = require('path');
 const EXT_ROOT = path.resolve(__dirname, '..');
 
 /**
- * Entries the SOM tools load at run time. The validate_codespecs binary is
- * appended here when it ships.
+ * The validate_codespecs binary for the host that packaged the VSIX: the
+ * install scripts compile it for that host only (scripts/build-validate-codespecs.cjs).
  */
+const VALIDATE_CODESPECS_BINARY = `extension/bin/${process.platform}-${process.arch}/validate_codespecs${process.platform === 'win32' ? '.exe' : ''}`;
+
+/** Entries the SOM and CodeSpecs tools load at run time. */
 const REQUIRED = [
     'extension/node_modules/tom_som_typescript_runtime/package.json',
     'extension/node_modules/tom_som_typescript_runtime/dist/src/index.js',
@@ -44,6 +48,10 @@ const REQUIRED = [
     'extension/out/services/som-document-store.js',
     'extension/out/services/som-document-io-vscode.js',
     'extension/resources/codespecs/codespecs_areas.json',
+    'extension/resources/codespecs/codespecs_derivation_contract.md',
+    'extension/out/services/codespecs-validator.js',
+    'extension/out/services/codespecs-contract.js',
+    VALIDATE_CODESPECS_BINARY,
 ];
 
 const SOM_PREFIXES = [
@@ -130,7 +138,7 @@ function main() {
         for (const f of failures) { console.error(`   ${f}`); }
         process.exit(1);
     }
-    console.log(`✅ ${path.basename(vsixPath)}: SOM runtime + facade bundled as real files (${somFiles} entries), no symlinks.`);
+    console.log(`✅ ${path.basename(vsixPath)}: SOM runtime + facade bundled as real files (${somFiles} entries), validate_codespecs for this host, no symlinks.`);
 }
 
 if (require.main === module) {

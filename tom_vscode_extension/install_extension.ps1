@@ -294,6 +294,24 @@ if ($CodeCli) {
             }
             Write-Host "Bundled $TotalBundled binaries across $($Platforms.Count) platforms"
         }
+
+        # ── Bundle validate_codespecs for THIS host ──────────────────────────
+        # The CodeSpecs tools run tom_specs_clitool's validate_codespecs as a
+        # compiled binary from bin/<platform>/ - never via `dart run`. It is
+        # compiled here from tom_ai/ai_build, like tom_bs in from-source mode.
+        # A from-source install requires it; otherwise a missing Dart SDK only
+        # leaves the CodeSpecs validate tool reporting the binary absent.
+        if (Get-Command dart -ErrorAction SilentlyContinue) {
+            Push-Location $ExtensionDir
+            Invoke-Native { node scripts/build-validate-codespecs.cjs }
+            if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "building validate_codespecs failed"; exit 1 }
+            Pop-Location
+        } elseif ($env:TOM_BRIDGE_FROM_SOURCE -eq '1') {
+            Write-Error "Dart SDK not found - cannot compile validate_codespecs"
+            exit 1
+        } else {
+            Write-Host "  Warning: Dart SDK not found - validate_codespecs not bundled (npm run codespecs:build adds it)"
+        }
         Write-Host ""
 
         # ── Ensure Claude Agent SDK native CLI binary for THIS host ──────────

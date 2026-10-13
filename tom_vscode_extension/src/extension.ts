@@ -108,6 +108,8 @@ import { readQueueSettings, getQueueReloadAfterReloadSetting } from './storage/q
 
 // Tom AI Chat tools
 import { registerTomAiChatTools } from './tools/tomAiChat-tools';
+import { setBacklinkProvider } from './tools/codespecs-trace-tools';
+import { backlinkIndexJson } from './services/codespecs-validator';
 import { initializeToolDescriptions } from './tools/guideline-tools';
 
 // Chat Enhancement stores & managers
@@ -739,6 +741,11 @@ export async function activate(context: vscode.ExtensionContext) {
     // but <1s when the event loop is idle.
     stepStart = performance.now();
     registerTomAiChatTools(context);
+    // The CodeSpecs trace reads a generated trio's back-links through the
+    // validate_codespecs binary bundled in bin/<platform>/; a missing binary is
+    // reported by the tool call, naming the build step.
+    setBacklinkProvider((dirs) => backlinkIndexJson(dirs));
+    context.subscriptions.push({ dispose: () => setBacklinkProvider(null) });
     timeStep('tomAiChatTools.registerTools', stepStart);
 
     // Register chat variable resolvers (#quest, #role, etc.)

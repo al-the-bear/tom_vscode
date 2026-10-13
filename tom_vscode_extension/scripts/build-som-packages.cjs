@@ -31,6 +31,12 @@
  * resources/codespecs/: the catalogue is not part of either package, and the
  * VSIX must carry it like everything else the tools load (vsctsa10). The copy
  * is gitignored build output; a guard test holds it equal to the source.
+ * Beside it goes the CodeSpecs derivation contract
+ * (tom_core_codespecs/doc/codespecs_derivation_contract.md, in tom_ai/core;
+ * TOM_CORE_CHECKOUT overrides that location), whose §3 entries the step-context
+ * tool hands an authoring step (vsctsa20). It is copied from tom_core's
+ * working tree in every mode, `--from-head` included, which exports ai_build
+ * only.
  *
  * The packages are built from ai_build's WORKING TREE, and ai_build is shared
  * with other sessions: an uncommitted edit there (someone's work in progress)
@@ -57,15 +63,25 @@ const VENDOR_DIR = path.join(EXT_ROOT, 'vendor', 'tom_som');
 const CATALOG_SOURCE = path.join('tom_specs_model', 'generated-doc', 'codespecs', 'codespecs_areas.json');
 const CATALOG_TARGET = path.join(EXT_ROOT, 'resources', 'codespecs', 'codespecs_areas.json');
 
-/** Copy the CodeSpecs area catalogue from `aiBuild` into the extension. */
+/** The CodeSpecs derivation contract, in tom_core and in the extension. */
+const CORE_CHECKOUT = process.env.TOM_CORE_CHECKOUT
+    ? path.resolve(process.env.TOM_CORE_CHECKOUT)
+    : path.resolve(EXT_ROOT, '..', '..', 'core');
+const CONTRACT_SOURCE = path.join(CORE_CHECKOUT, 'tom_core_codespecs', 'doc', 'codespecs_derivation_contract.md');
+const CONTRACT_TARGET = path.join(EXT_ROOT, 'resources', 'codespecs', 'codespecs_derivation_contract.md');
+
+/** Copy the CodeSpecs area catalogue (from `aiBuild`) and the derivation contract (from tom_core) into the extension. */
 function copyCodeSpecsCatalog(aiBuild) {
-    const source = path.join(aiBuild, CATALOG_SOURCE);
-    if (!fs.existsSync(source)) {
-        fail(`the CodeSpecs area catalogue is missing at ${source}.`);
+    const copies = [[path.join(aiBuild, CATALOG_SOURCE), CATALOG_TARGET, 'the CodeSpecs area catalogue'],
+        [CONTRACT_SOURCE, CONTRACT_TARGET, 'the CodeSpecs derivation contract']];
+    for (const [source, target, what] of copies) {
+        if (!fs.existsSync(source)) {
+            fail(`${what} is missing at ${source}.`);
+        }
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.copyFileSync(source, target);
+        console.log(`  ✔ ${path.relative(EXT_ROOT, target)}`);
     }
-    fs.mkdirSync(path.dirname(CATALOG_TARGET), { recursive: true });
-    fs.copyFileSync(source, CATALOG_TARGET);
-    console.log(`  ✔ ${path.relative(EXT_ROOT, CATALOG_TARGET)}`);
 }
 
 /** In dependency order: the facade's prepack builds against the runtime. */
@@ -178,4 +194,4 @@ if (require.main === module) {
     }
 }
 
-module.exports = { CATALOG_SOURCE, CATALOG_TARGET };
+module.exports = { CATALOG_SOURCE, CATALOG_TARGET, CONTRACT_SOURCE, CONTRACT_TARGET };

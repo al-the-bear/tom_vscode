@@ -60,8 +60,16 @@ into `vendor/tom_som/` (gitignored), and `package.json` depends on those two
 tarballs. Installed from tarballs, the packages are real files in
 `node_modules` and so travel inside the VSIX; the installed extension never
 reads from ai_build. The script also copies the CodeSpecs area catalogue
-(`tom_specs_model/generated-doc/codespecs/codespecs_areas.json`) to
-`resources/codespecs/` (gitignored), which the VSIX carries too.
+(`tom_specs_model/generated-doc/codespecs/codespecs_areas.json`) and the CodeSpecs
+derivation contract (`tom_ai/core/tom_core_codespecs/doc/codespecs_derivation_contract.md`,
+`TOM_CORE_CHECKOUT` overrides the location) to `resources/codespecs/`
+(gitignored), which the VSIX carries too.
+
+The CodeSpecs validate and trace tools run `validate_codespecs` from ai_build's
+`tom_specs_clitool` as a compiled binary in `bin/<platform>/`.
+`scripts/build-validate-codespecs.cjs` (`npm run codespecs:build`) compiles it
+for the host with `dart compile exe`; the install scripts run it. The installed
+extension never runs `dart run` for it.
 `TOM_SOM_AI_BUILD` points the script at another ai_build location. ai_build is
 shared with other sessions, so the script lists any uncommitted changes in the
 paths it packs, and `npm run som:pack -- --from-head` packs ai_build's committed
@@ -88,11 +96,13 @@ It runs end to end:
 3. Regenerates the d4rt bridges for `tom_vscode_bridge`.
 4. `dart compile exe bin/tom_bs.dart` straight into the extension's local
    `bin/<platform>/` — it never writes to `tom_binaries`, relies on
-   `$TOM_BINARY_PATH`, or needs any tool on `PATH`.
+   `$TOM_BINARY_PATH`, or needs any tool on `PATH` — and the same for
+   `validate_codespecs` from `tom_specs_clitool` (`npm run codespecs:build`).
 5. Ensures the host's Claude Agent SDK native CLI binary is present.
-6. Packages the VSIX (bundling only the host `tom_bs`), checks that it is
-   self-contained (`scripts/check-vsix-contents.cjs`: the SOM packages present
-   as real files, no symlinks; the install stops otherwise), and installs it via
+6. Packages the VSIX (bundling only the host `tom_bs` and `validate_codespecs`),
+   checks that it is self-contained (`scripts/check-vsix-contents.cjs`: the SOM
+   packages present as real files, the host's `validate_codespecs`, no symlinks;
+   the install stops otherwise), and installs it via
    the `code` CLI.
 
 After install, reload VS Code: `Cmd/Ctrl+Shift+P` → **Developer: Reload Window**.
@@ -272,6 +282,7 @@ Full model: [doc/multi_transport_prompt_queue_revised.md](doc/multi_transport_pr
 
 ```bash
 npm run som:pack     # first, on a fresh checkout or after the SOM packages changed; then npm install
+npm run codespecs:build  # compile validate_codespecs into bin/<platform>/ (needs a Dart SDK); the CodeSpecs tests run it
 npm run compile      # tsc -p ./ + copy config json to out/config/
 npm run watch        # incremental rebuild
 npm test             # lint media + tools/services/utils test suites + tool-coverage audit

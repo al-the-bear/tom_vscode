@@ -530,7 +530,10 @@ which form is current.
 
 These tools run the runtime's `CodeSpecsExtractor` over one TomSpecs document
 and the CodeSpecs area catalogue. `npm run som:pack` copies the catalogue from
-`tom_specs_model` into `resources/codespecs/`, and it ships in the VSIX.
+`tom_specs_model`, and the derivation contract from `tom_core_codespecs`, into
+`resources/codespecs/`; both ship in the VSIX. The checks over generated code
+run the `validate_codespecs` binary (tom_specs_clitool, compiled with
+`dart compile exe`), which ships in `bin/<platform>/` beside `tom_bs`.
 
 The concepts:
 - An **area** (`CE-…`, 27 in all) is one kind of generated artefact.
@@ -563,15 +566,27 @@ these tools refuse it rather than return 27 empty extracts.
 | `tomAi_specCodeSpecsSetVerdict` | Record one area's verdict (approval), validated by the runtime's record rules (`resolution: descoped` only on insufficient). The record's leading comments are kept, and an unchanged verdict rewrites it byte-identically. An insufficient verdict comes with what is owed next. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_specCodeSpecsQueryExtracts` | Entries of a written run (by this tool or the Dart CLI), filtered by area, token, path or text, each with its provenance and verbatim value. An extract in an unknown format is listed as unreadable, never misread. | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_specCodeSpecsTrace` | Spec path, token, code location or declaration to the other end, by section-id token (the unit `@CodeSpec` / `@DocSpec` back-links cite), plus the heading `codeSpec=` forward links. With back-links it adds `agreement`, the uncited and dangling tokens (the shape of `validate_codespecs` checks 35 and 36). | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_specCodeSpecsValidate` | The 37 `codespecs_derivation_contract.md` §6 checks over a generated trio (shared, client, server; client and server default to the shared folder's siblings), through the bundled `validate_codespecs --json`. `outcome` keeps `clean`, `violations` (each with check number and title, defining section, file, line, token or area, message) and `usageError` apart; `notRun` names each check whose corroborating input was not given. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_specCodeSpecsStepContext` | Everything authoring step `csgen<n>` (1–31) may read (§2.9): its title, slice, placement and areas; those areas' extracts, entry by entry; the §3 contract entries for the markers they emit, with text; §2's section list (or its text); the output project. | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_specCodeSpecsWriteExtracts` | Write every area's `.extract.yaml` / `.extract.md` to `<document folder>/generated-doc/codespecs_extracts/` (approval). Unchanged files are left alone; `dryRun` reports the file statuses. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 
-**Tracing.** The back-links come from the JSON `validate_codespecs --backlinks`
-writes (format `codespecs-backlinks`/1), passed as `backlinks`. Reading the
-generated code directly (`codeDirs`) needs the `validate_codespecs` binary, which
-the extension does not carry yet; until it does, `codeDirs` answers
-`noBacklinkSource` with that command. Tracing is by token, as checks 35 and 36
-are. Which declaration *should* carry a token is the authoring step's judgement,
-and the tools do not decide it.
+**Tracing.** The back-links come from the generated trio itself (`codeDirs`),
+read by the bundled `validate_codespecs --backlinks`, or from a JSON index that
+command wrote (format `codespecs-backlinks`/1), passed as `backlinks`. Tracing is
+by token, as checks 35 and 36 are. Which declaration *should* carry a token is
+the authoring step's judgement, and the tools do not decide it.
+
+**Validation.** The binary is built by `npm run codespecs:build`
+(`scripts/build-validate-codespecs.cjs`, which `install_extension.sh` /
+`.ps1` run; a from-source install fails without it). It needs a Dart SDK at
+build time only. When it is absent, validation answers `binaryMissing` and the
+trace with `codeDirs` answers `binaryMissing`, both naming that command.
+
+**Step context.** A step is handed the §3 entries of its own slice that name one
+of its areas' markers (`@CsTable`) or codes (`CE-DB`), plus §3.0 (the
+collaborator, across every slice). An area whose marker follows its host into a
+later slice (CE-AZ, CE-LG, CE-NT, CE-TX, CE-UP in some steps) gets its marker's
+entries from any slice; `matchedBy` says which rule found each area's entries.
 
 For the Meridian sample, the written extracts equal the conformance corpus
 (`tom_som_conformance/generated-doc/codespecs_extracts`) byte for byte.
@@ -690,7 +705,7 @@ that works under `toolsEnabled: true` and is invisible everywhere else.
 
 ### Deliberately unselectable tools
 
-Of the 165 registered tools, **149 are selectable** and **16 are withheld from
+Of the 167 registered tools, **151 are selectable** and **16 are withheld from
 the pickers on purpose** (`DELIBERATELY_UNSELECTABLE_TOOLS` in
 `src/utils/constants.ts`): the twelve queue mutators and dispatch entry points
 (`tomAi_addQueueItem`, `tomAi_updateQueueItem`, `tomAi_removeQueueItem`,

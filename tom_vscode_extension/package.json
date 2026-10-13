@@ -3034,6 +3034,7 @@
     "audit:tools": "node scripts/audit-tool-coverage.cjs",
     "check:todo-yaml": "node scripts/check-todo-yaml.cjs",
     "som:pack": "node scripts/build-som-packages.cjs",
+    "codespecs:build": "node scripts/build-validate-codespecs.cjs",
     "lint": "eslint src --ext ts",
     "lint:media": "eslint media --ext js --no-error-on-unmatched-pattern",
     "typecheck:media": "tsc -p tsconfig.media.json"

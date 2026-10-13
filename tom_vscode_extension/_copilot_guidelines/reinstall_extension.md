@@ -17,9 +17,13 @@ location. Working by hand, run `npm run som:pack` before `npm install` whenever
 the SOM sources changed: npm otherwise keeps the old tarball. The script packs
 ai_build's working tree and warns about uncommitted changes in it; another
 session's work in progress would otherwise end up in the extension. Use
-`npm run som:pack -- --from-head` to pack only what is committed. After packaging,
+`npm run som:pack -- --from-head` to pack only what is committed. The install
+scripts also compile `validate_codespecs` (tom_specs_clitool) into
+`bin/<platform>/` (`npm run codespecs:build`): a from-source install fails
+without a Dart SDK, a prebuilt install warns and leaves the CodeSpecs validate
+tool reporting the binary missing. After packaging,
 `node scripts/check-vsix-contents.cjs` confirms that the VSIX carries the SOM
-packages as real files.
+packages as real files and the host's `validate_codespecs`.
 
 ## When required
 

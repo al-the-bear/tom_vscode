@@ -18,6 +18,7 @@ import * as path from 'path';
 import { SharedToolDefinition } from './shared-tool-registry';
 import { FILE_PARAM, SpecToolDeps, json, liveDeps, loadDocument, resolveInput, toWorkspacePath } from './spec-tool-common';
 import { EXTRACTS_DIR, codeSpecsFailure } from './codespecs-tools';
+import { CodeSpecsBinaryMissing, CodeSpecsUsageError } from '../services/codespecs-validator';
 import {
     BacklinkIndex,
     ExtractDirectory,
@@ -68,8 +69,9 @@ export interface CodeSpecsTraceInput extends ExtractsLocator {
 }
 
 /**
- * Produces the back-link index for a trio; installed by the extension when
- * the validate_codespecs binary ships with it, absent until then.
+ * Produces the back-link index for a trio. The extension installs the bundled
+ * validate_codespecs binary (`backlinkIndexJson`) at activation; a test may
+ * install its own.
  */
 export type BacklinkProvider = (dirs: CodeDirs) => Promise<string>;
 let backlinkProvider: BacklinkProvider | null = null;
@@ -85,7 +87,7 @@ class TraceInputError extends Error {
     }
 }
 
-function extractsDirOf(deps: SpecToolDeps, input: ExtractsLocator): string {
+export function extractsDirOf(deps: SpecToolDeps, input: ExtractsLocator): string {
     if (input.extractsDir) { return resolveInput(deps, input.extractsDir); }
     if (input.file) { return path.join(path.dirname(resolveInput(deps, input.file)), EXTRACTS_DIR); }
     throw new TraceInputError('invalidInput', 'Pass `extractsDir` (a written run) or `file` (the spec document, whose run sits beside it).');
@@ -110,9 +112,8 @@ async function loadBacklinks(deps: SpecToolDeps, input: CodeSpecsTraceInput): Pr
     if (input.codeDirs) {
         if (!backlinkProvider) {
             throw new TraceInputError('noBacklinkSource',
-                'Reading the generated code needs the validate_codespecs binary, which this extension does not carry yet. '
-                + 'Pass `backlinks` instead: the JSON `validate_codespecs --backlinks --shared … --client … --server …` writes '
-                + '(dart run tom_specs_clitool:validate_codespecs in ai_build).');
+                'No back-link provider is installed: the extension installs the bundled validate_codespecs at activation. '
+                + 'Pass `backlinks` instead: the JSON `validate_codespecs --backlinks --shared … --client … --server …` writes.');
         }
         const resolved: CodeDirs = {};
         for (const k of ['shared', 'client', 'server'] as const) {
@@ -126,6 +127,12 @@ async function loadBacklinks(deps: SpecToolDeps, input: CodeSpecsTraceInput): Pr
 function traceFailure(e: unknown): string {
     if (e instanceof TraceInputError) {
         return json({ ok: false, code: e.code, error: e.message });
+    }
+    if (e instanceof CodeSpecsBinaryMissing) {
+        return json({ ok: false, code: 'binaryMissing', error: e.message });
+    }
+    if (e instanceof CodeSpecsUsageError) {
+        return json({ ok: false, code: 'usageError', error: e.message });
     }
     return codeSpecsFailure(e);
 }
@@ -277,9 +284,9 @@ export const CODESPECS_TRACE_TOOL: SharedToolDefinition<CodeSpecsTraceInput> = {
         + '`declaration` (a @CodeSpec id or a name) — each token with its extract entries (spec path, verbatim value). '
         + 'With back-links, `agreement` lists the tokens the two ends disagree on: extracted but cited by no declaration '
         + '(uncited) and cited but held by no in-scope extract (dangling) — the shape of validate_codespecs checks 35 and 36. '
-        + 'Which declaration should carry a token is not decided. The back-links come from `backlinks`, the JSON '
-        + '`validate_codespecs --backlinks` writes; reading the code itself (`codeDirs`) needs the validate_codespecs '
-        + 'binary, which the extension does not carry yet.',
+        + 'Which declaration should carry a token is not decided. The back-links come from `codeDirs` (the generated trio, '
+        + 'read by the validate_codespecs binary bundled with the extension) or from `backlinks`, a JSON index '
+        + '`validate_codespecs --backlinks` wrote.',
     tags: ['tomspecs', 'codespecs', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {
@@ -290,7 +297,7 @@ export const CODESPECS_TRACE_TOOL: SharedToolDefinition<CodeSpecsTraceInput> = {
             codeDirs: {
                 type: 'object',
                 properties: { shared: { type: 'string' }, client: { type: 'string' }, server: { type: 'string' } },
-                description: 'The generated trio\'s package folders (needs the bundled validate_codespecs).',
+                description: 'The generated trio\'s package folders, read by the bundled validate_codespecs. client and server default to the shared folder\'s siblings (name ending `client` / `server` instead of `shared`).',
             },
             specPath: { type: 'string', description: 'Trace from this spec path.' },
             token: { type: 'string', description: 'Trace this section-id token.' },
