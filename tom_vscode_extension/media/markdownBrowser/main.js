@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global marked, mermaid, Highlight, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbInsertAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
+/* global marked, mermaid, Highlight, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
 // Markdown Browser client — extracted verbatim from the inline <script> of
 // buildHtml() in src/handlers/markdownBrowser-handler.ts (Phase B.21 webview
 // restructuring). Predates strict checkJs (large verbatim extraction).
@@ -764,15 +764,22 @@
 
         /** `offset` is the marker's line within its block, read again on click. */
         function addAnswerButton(strong, block, offset, column) {
-            var btn = iconButton('mdb-answer-btn', 'comment', 'Write the answer here');
+            var btn = iconButton('mdb-answer-btn', 'comment', 'Write or edit the answer');
             strong.insertAdjacentElement('afterend', btn);
             btn.addEventListener('click', function(e) {
                 e.stopPropagation();
-                openEditor(btn, btn, '', function(value) {
-                    if (!value.trim()) { return null; }
-                    var line = block.startLine + offset;
-                    var text = shownLines()[line];
-                    return { startLine: line, endLine: line + 1, expected: text, replacement: mdbInsertAnswer(text, column, value) };
+                // The answer already written opens in the editor; Save replaces
+                // exactly its lines (as the answer import reads them).
+                var lines = shownLines();
+                var line = block.startLine + offset;
+                var current = mdbAnswerAt(lines, line, column);
+                openEditor(btn, btn, current.text, function(value) {
+                    if (value.trim() === current.text.trim()) { return null; }
+                    return {
+                        startLine: line, endLine: current.endLine,
+                        expected: lines.slice(line, current.endLine).join('\n'),
+                        replacement: mdbWriteAnswer(lines, line, column, value),
+                    };
                 });
             });
         }

@@ -4,7 +4,7 @@
 // it can be loaded into a bare `vm` sandbox and unit-tested directly
 // (src/utils/__tests__/mdBrowserBlocks.test.ts). Loaded as a classic script
 // before main.js; the declarations below are globals main.js calls.
-/* exported MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbInsertAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
+/* exported MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
 //
 // The browser renders the backend's transformed text. Without the CR/LF
 // conversion that transform keeps every line where it is (it only rewrites
@@ -102,20 +102,84 @@ function mdbAnswerMarkers(text) {
     return out;
 }
 
+/** A blockquote prefix (`> `, `>> `, with optional indentation). */
+var MDB_QUOTE_PREFIX = /^\s*(?:>\s?)+/;
+/** Lines that start a block of their own and so end an answer outside a quote. */
+var MDB_BLOCK_START = /^\s*(?:[-*+]\s|\d+[.)]\s|#|```|~~~|\||>)/;
+
 /**
- * A line with an answer written after the marker that ends at `column`:
- * `**Answer:** <answer> <rest of the line>`, a space before and after the
- * answer, the rest of the line kept (its leading spaces dropped).
+ * @param {string} line
+ * @returns {number} the blockquote depth of the line
+ */
+function mdbQuoteDepth(line) {
+    var m = MDB_QUOTE_PREFIX.exec(line);
+    return m ? (m[0].match(/>/g) || []).length : 0;
+}
+
+/**
+ * The answer written after the marker that ends at `column` of `lines[line]`,
+ * as the answer import reads it: the rest of the line and, inside a
+ * blockquote, the following lines of the same quote up to a bare `>` line, a
+ * blank line or a line without `>`; outside a quote, the rest of the
+ * paragraph. Another `**Answer:**` ends it, also later on the same line.
  *
- * @param {string} lineText
+ * @param {string[]} lines
+ * @param {number} line
+ * @param {number} column
+ * @returns {{text: string, endLine: number}} the answer (lines joined by `\n`,
+ *   quote prefixes removed) and the line after it
+ */
+function mdbAnswerAt(lines, line, column) {
+    var rest = lines[line].slice(column);
+    var next = rest.indexOf(MDB_ANSWER_MARKER);
+    if (next >= 0) { return { text: rest.slice(0, next).trim(), endLine: line + 1 }; }
+    var parts = [rest.trim()];
+    var depth = mdbQuoteDepth(lines[line]);
+    var end = line + 1;
+    for (; end < lines.length; end++) {
+        var l = lines[end];
+        if (l.indexOf(MDB_ANSWER_MARKER) >= 0 || l.trim() === '') { break; }
+        if (depth > 0) {
+            if (mdbQuoteDepth(l) !== depth) { break; }
+            var body = l.replace(MDB_QUOTE_PREFIX, '');
+            if (body.trim() === '') { break; }
+            parts.push(body.trim());
+        } else {
+            if (MDB_BLOCK_START.test(l)) { break; }
+            parts.push(l.trim());
+        }
+    }
+    return { text: parts.join('\n').replace(/^\n+/, ''), endLine: end };
+}
+
+/**
+ * The lines `line .. mdbAnswerAt(...).endLine` with `answer` written after the
+ * marker that ends at `column`: `**Answer:** <answer>`, each further line of
+ * the answer under the same quote prefix. Blank lines would end the answer,
+ * so they are dropped; an empty answer clears it. A marker followed by
+ * another on its line keeps that rest and takes the answer on one line.
+ *
+ * @param {string[]} lines
+ * @param {number} line
  * @param {number} column
  * @param {string} answer
  * @returns {string}
  */
-function mdbInsertAnswer(lineText, column, answer) {
-    var before = lineText.slice(0, column);
-    var after = lineText.slice(column).replace(/^[ \t]+/, '');
-    return before + ' ' + String(answer).trim() + ' ' + after;
+function mdbWriteAnswer(lines, line, column, answer) {
+    var text = lines[line];
+    var head = text.slice(0, column);
+    var answerLines = String(answer).replace(/\r\n|\r/g, '\n').split('\n')
+        .map(function(l) { return l.trim(); })
+        .filter(function(l) { return l !== ''; });
+    var rest = text.slice(column);
+    var next = rest.indexOf(MDB_ANSWER_MARKER);
+    if (next >= 0) {
+        return head + (answerLines.length ? ' ' + answerLines.join(' ') : '') + ' ' + rest.slice(next);
+    }
+    if (answerLines.length === 0) { return head; }
+    var quote = MDB_QUOTE_PREFIX.exec(text);
+    var prefix = quote ? quote[0].replace(/\s*$/, ' ') : '';
+    return [head + ' ' + answerLines[0]].concat(answerLines.slice(1).map(function(l) { return prefix + l; })).join('\n');
 }
 
 // ---- Folding ----

@@ -7,7 +7,9 @@
  *   MB-3  only paragraphs, lists, quotes, tables and code are editable
  *   MB-4  CRLF text maps to the same lines
  *   MB-5  answer markers: every one outside fenced code, with the column after the marker
- *   MB-6  inserting an answer: one space before and after, the rest of the line kept
+ *   MB-6  an answer's extent: the rest of its line and, in a blockquote, the following `>` lines up to a
+ *         bare `>`, a blank line or a line without `>`; outside a quote the rest of the paragraph;
+ *         writing one back keeps the quote prefix on every line
  *   MB-7  folding: a folded heading hides its section, deeper headings included; its own state is kept
  *   MB-8  folding: the folded headings an element sits under, for revealing it
  *   MB-9  indent depths: a heading at its level - 1, its content one step deeper
@@ -29,7 +31,8 @@ interface Block { index: number; type: string; startLine: number; endLine: numbe
 interface BlocksApi {
     mdbBlocks(text: string, tokens: unknown[]): Block[];
     mdbAnswerMarkers(text: string): Array<{ line: number; column: number }>;
-    mdbInsertAnswer(lineText: string, column: number, answer: string): string;
+    mdbAnswerAt(lines: string[], line: number, column: number): { text: string; endLine: number };
+    mdbWriteAnswer(lines: string[], line: number, column: number, answer: string): string;
     mdbFoldHidden(entries: Array<{ level: number | null; folded?: boolean }>): boolean[];
     mdbFoldAncestors(entries: Array<{ level: number | null; folded?: boolean }>, index: number): number[];
     mdbIndentDepths(entries: Array<{ level: number | null }>): number[];
@@ -110,10 +113,25 @@ describe('Markdown Browser source mapping', () => {
         ]);
     });
 
-    test('MB-6: inserting an answer', () => {
-        assert.equal(api.mdbInsertAnswer('**Answer:**', 11, 'Yes, do it.'), '**Answer:** Yes, do it. ');
-        assert.equal(api.mdbInsertAnswer('**Answer:**   (fill in)', 11, ' no '), '**Answer:** no (fill in)');
-        assert.equal(api.mdbInsertAnswer('- **Answer:** old', 13, 'new'), '- **Answer:** new old');
+    test('MB-6: an answer, read and written', () => {
+        const at = (lines: string[], line: number, column: number): { text: string; endLine: number } =>
+            JSON.parse(JSON.stringify(api.mdbAnswerAt(lines, line, column)));
+        const quote = ['> Q?', '>', '> **Answer:** (b) long', '> more text', '>', '> next'];
+        assert.deepEqual(at(quote, 2, 13), { text: '(b) long\nmore text', endLine: 4 });
+        assert.deepEqual(at(['> **Answer:** (c) ', '', 'x'], 0, 13), { text: '(c)', endLine: 1 }, 'trailing space dropped');
+        assert.deepEqual(at(['> **Answer:**'], 0, 13), { text: '', endLine: 1 });
+        assert.deepEqual(at(['> **Answer:** a', 'not quoted'], 0, 13), { text: 'a', endLine: 1 }, 'a line without > ends it');
+        assert.deepEqual(at(['> **Answer:** a', '> **Answer:** b'], 0, 13), { text: 'a', endLine: 1 }, 'the next marker ends it');
+        assert.deepEqual(at(['**Answer:** x', 'y', '', 'z'], 0, 11), { text: 'x\ny', endLine: 2 }, 'outside a quote: to the end of the paragraph');
+        assert.deepEqual(at(['**Answer:** x', '- item'], 0, 11), { text: 'x', endLine: 1 }, 'a list starts after it');
+        assert.deepEqual(at(['A **Answer:** x and **Answer:** y'], 0, 13), { text: 'x and', endLine: 1 }, 'up to a second marker on the line');
+
+        assert.equal(api.mdbWriteAnswer(quote, 2, 13, '(c)\nbecause\n\nreasons '), '> **Answer:** (c)\n> because\n> reasons',
+            'every line in the quote; blank lines would end the answer, so they are dropped');
+        assert.equal(api.mdbWriteAnswer(quote, 2, 13, ''), '> **Answer:**', 'empty clears it');
+        assert.equal(api.mdbWriteAnswer(['**Answer:**'], 0, 11, ' Yes, go ahead. '), '**Answer:** Yes, go ahead.');
+        assert.equal(api.mdbWriteAnswer(['A **Answer:** x and **Answer:** y'], 0, 13, 'new\ntext'), 'A **Answer:** new text **Answer:** y',
+            'a marker followed by another on its line takes one line');
     });
 
     // # A (0) / text (1) / ## B (2) / text (3) / ### C (4) / text (5) / ## D (6) / text (7) / # E (8) / text (9)
