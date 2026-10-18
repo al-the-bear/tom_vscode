@@ -9,6 +9,8 @@
  *   MF-5  the folded state survives a re-render of the same file and resets for another file
  *   MF-6  the backend's heading transform: ids and levels beyond 6 fold by their true level
  *   MF-7  the indent toggle: headings by level, content one step deeper, spaces from the dropdown (default 2)
+ *   MF-8  <details> blocks keep their content inside them (rendered as one group)
+ *   MF-9  a large document renders in linear time (12 000 sections well under the quadratic cost)
  */
 
 import test, { describe } from 'node:test';
@@ -145,5 +147,25 @@ describe('Markdown Browser folding', () => {
         assert.equal(margins()[margins().length - 1], '4ch', 'kept across a re-render');
         w.document.getElementById('indentBtn').click();
         assert.ok(margins().every((m) => m === ''), 'off again');
+    });
+
+    test('MF-8: details keep their content', () => {
+        const w = setup();
+        show(w, '## Tool\n\n<details><summary>result</summary>\n\n```text\nbig output\n```\n\n</details>\n\nafter');
+        const details = w.document.querySelectorAll('details');
+        assert.equal(details.length, 1);
+        assert.ok(details[0].querySelector('pre'), 'the code block is inside <details>');
+        assert.ok(!w.document.querySelector('details') .open, 'collapsed, as written');
+    });
+
+    test('MF-9: a large document renders in linear time', () => {
+        const w = setup();
+        const parts: string[] = [];
+        for (let i = 0; i < 12000; i++) { parts.push(`## Section ${i}`, '', `text ${i}`, ''); }
+        const started = Date.now();
+        show(w, parts.join('\n'));
+        const ms = Date.now() - started;
+        assert.equal(w.document.querySelectorAll('.mdb-fold-btn').length, 12000);
+        assert.ok(ms < 10000, `rendering 24 000 blocks took ${ms} ms`);
     });
 });

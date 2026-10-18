@@ -11,6 +11,7 @@
  *   MB-7  folding: a folded heading hides its section, deeper headings included; its own state is kept
  *   MB-8  folding: the folded headings an element sits under, for revealing it
  *   MB-9  indent depths: a heading at its level - 1, its content one step deeper
+ *   MB-10 html blocks that open an element (e.g. <details>) are grouped with everything up to its close
  */
 
 import test, { describe } from 'node:test';
@@ -28,6 +29,7 @@ interface BlocksApi {
     mdbFoldHidden(entries: Array<{ level: number | null; folded?: boolean }>): boolean[];
     mdbFoldAncestors(entries: Array<{ level: number | null; folded?: boolean }>, index: number): number[];
     mdbIndentDepths(entries: Array<{ level: number | null }>): number[];
+    mdbGroups(tokens: unknown[]): Array<[number, number]>;
 }
 
 function load(): BlocksApi {
@@ -132,5 +134,22 @@ describe('Markdown Browser source mapping', () => {
         // text before any heading (0), # A (0), text (1), ### C skipping a level (2), text (3), ## D (1), text (2)
         const entries = [null, 1, null, 3, null, 2, null].map((level) => ({ level }));
         assert.deepEqual(Array.from(api.mdbIndentDepths(entries)), [0, 0, 1, 2, 3, 1, 2]);
+    });
+
+    test('MB-10: html groups', () => {
+        const groups = (text: string): string[] => {
+            const tokens = marked.lexer(text) as Array<{ type: string; raw: string }>;
+            return Array.from(api.mdbGroups(tokens), ([a, b]) => tokens.slice(a, b + 1).filter((x) => x.type !== 'space').map((x) => x.type).join('+')).filter(Boolean);
+        };
+        assert.deepEqual(
+            groups('Intro\n\n<details><summary>R</summary>\n\n```\nx\n```\n\n</details>\n\nAfter'),
+            ['paragraph', 'html+code+html', 'paragraph'],
+            'the <details> block and its content are one group',
+        );
+        assert.deepEqual(groups('<!-- comment -->\n\nText'), ['html', 'paragraph'], 'a comment opens nothing');
+        assert.deepEqual(groups('<div>\n\n<details><summary>a</summary>\n\ninner\n\n</details>\n\n</div>\n\nout'),
+            ['html+html+paragraph+html+html', 'paragraph'], 'nested elements close together');
+        assert.deepEqual(groups('<br>\n\n<img src="x"/>\n\nText'), ['html', 'html', 'paragraph'], 'void and self-closing tags open nothing');
+        assert.deepEqual(groups('<details>\n\nnever closed\n\nmore'), ['html+paragraph+paragraph'], 'unclosed runs to the end');
     });
 });

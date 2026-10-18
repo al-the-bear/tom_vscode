@@ -4,7 +4,7 @@
 // it can be loaded into a bare `vm` sandbox and unit-tested directly
 // (src/utils/__tests__/mdBrowserBlocks.test.ts). Loaded as a classic script
 // before main.js; the declarations below are globals main.js calls.
-/* exported mdbBlocks, mdbAnswerMarkers, mdbInsertAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths */
+/* exported mdbBlocks, mdbAnswerMarkers, mdbInsertAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
 //
 // The browser renders the backend's transformed text. Without the CR/LF
 // conversion that transform keeps every line where it is (it only rewrites
@@ -198,6 +198,61 @@ function mdbIndentDepths(entries) {
         } else {
             out.push(current);
         }
+    }
+    return out;
+}
+
+// ---- Grouping ----
+
+/**
+ * Elements that never take a closing tag.
+ * @type {Record<string, number>}
+ */
+var MDB_VOID_TAGS = { area: 1, base: 1, br: 1, col: 1, embed: 1, hr: 1, img: 1, input: 1, link: 1, meta: 1, source: 1, track: 1, wbr: 1 };
+
+/**
+ * How far an html token changes the open-element depth: +1 per opening tag,
+ * -1 per closing tag; comments, void and self-closing tags count nothing.
+ *
+ * @param {string} raw
+ * @returns {number}
+ */
+function mdbHtmlDepthChange(raw) {
+    var text = String(raw || '').replace(/<!--[\s\S]*?-->/g, '');
+    var re = /<(\/?)([a-zA-Z][\w-]*)\b[^>]*?(\/?)>/g;
+    var depth = 0;
+    var m;
+    while ((m = re.exec(text)) !== null) {
+        if (m[1]) { depth--; continue; }
+        if (m[3] || MDB_VOID_TAGS[m[2].toLowerCase()] === 1) { continue; }
+        depth++;
+    }
+    return depth;
+}
+
+/**
+ * The top-level tokens grouped for rendering: a token on its own, except that
+ * an html token opening an element (`<details>`) takes every following token
+ * up to the one that closes it. Rendering such a run in one piece keeps the
+ * element whole — wrapped one by one, `<details>` would close at the end of
+ * its own wrapper and lose its content.
+ *
+ * @param {Array<{type: string, raw: string}>} tokens
+ * @returns {Array<[number, number]>} inclusive index ranges, in order
+ */
+function mdbGroups(tokens) {
+    /** @type {Array<[number, number]>} */
+    var out = [];
+    var i = 0;
+    while (i < tokens.length) {
+        var start = i;
+        var depth = tokens[i].type === 'html' ? Math.max(0, mdbHtmlDepthChange(tokens[i].raw)) : 0;
+        while (depth > 0 && i + 1 < tokens.length) {
+            i++;
+            if (tokens[i].type === 'html') { depth = Math.max(0, depth + mdbHtmlDepthChange(tokens[i].raw)); }
+        }
+        out.push([start, i]);
+        i++;
     }
     return out;
 }

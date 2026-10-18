@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global marked, mermaid, mdbBlocks, mdbAnswerMarkers, mdbInsertAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths */
+/* global marked, mermaid, mdbBlocks, mdbAnswerMarkers, mdbInsertAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
 // Markdown Browser client — extracted verbatim from the inline <script> of
 // buildHtml() in src/handlers/markdownBrowser-handler.ts (Phase B.21 webview
 // restructuring). Predates strict checkJs (large verbatim extraction).
@@ -220,20 +220,31 @@
                 var tokens = marked.lexer(text || '', options);
                 var byIndex = {};
                 mdbBlocks(text || '', tokens).forEach(function(b) { byIndex[b.index] = b; });
-                var html = '';
-                for (var i = 0; i < tokens.length; i++) {
-                    var one = [tokens[i]];
-                    one.links = tokens.links;
-                    var rendered = marked.parser(one, options);
-                    var block = byIndex[i];
-                    if (block) {
-                        html += '<div class="mdb-block" data-block="' + shownBlocks.length + '">' + rendered + '</div>';
-                        shownBlocks.push(block);
-                    } else {
-                        html += rendered;
+                // A run that an html token opens (`<details>` ... `</details>`)
+                // is rendered and wrapped as one piece, so the element keeps
+                // its content; it is folded and indented as a whole and is not
+                // editable. Other tokens are one block each.
+                var parts = [];
+                mdbGroups(tokens).forEach(function(range) {
+                    var group = tokens.slice(range[0], range[1] + 1);
+                    group.links = tokens.links;
+                    var rendered = marked.parser(group, options);
+                    var first = null;
+                    var last = null;
+                    for (var i = range[0]; i <= range[1]; i++) {
+                        if (byIndex[i]) { first = first || byIndex[i]; last = byIndex[i]; }
                     }
-                }
-                return html;
+                    if (!first) {
+                        parts.push(rendered);
+                        return;
+                    }
+                    var block = range[0] === range[1] ? first : {
+                        index: first.index, type: 'group', startLine: first.startLine, endLine: last.endLine, editable: false,
+                    };
+                    parts.push('<div class="mdb-block" data-block="' + shownBlocks.length + '">' + rendered + '</div>');
+                    shownBlocks.push(block);
+                });
+                return parts.join('');
             }
             return '<pre>' + escapeHtml(text || '') + '</pre>';
         }
@@ -270,9 +281,13 @@
         function applyFolding() {
             var entries = foldEntries();
             var hidden = mdbFoldHidden(entries);
+            // Only elements whose state changes are touched: on a fresh render
+            // with nothing folded, that is none of them.
             entries.forEach(function(e, i) {
-                e.el.classList.toggle('mdb-folded-away', hidden[i]);
-                if (e.heading) {
+                if (e.el.classList.contains('mdb-folded-away') !== hidden[i]) {
+                    e.el.classList.toggle('mdb-folded-away', hidden[i]);
+                }
+                if (e.heading && e.heading.classList.contains('mdb-heading-folded') !== e.folded) {
                     var icon = e.heading.querySelector('.mdb-fold-btn .codicon');
                     if (icon) { icon.className = 'codicon codicon-' + (e.folded ? 'chevron-right' : 'chevron-down'); }
                     e.heading.classList.toggle('mdb-heading-folded', e.folded);
@@ -310,6 +325,23 @@
             foldLevelSelect.disabled = levels.length === 0;
         }
 
+        var foldButtonTemplate = document.createElement('button');
+        foldButtonTemplate.className = 'mdb-fold-btn';
+        foldButtonTemplate.title = 'Fold / unfold this section';
+        foldButtonTemplate.innerHTML = '<span class="codicon codicon-chevron-down"></span>';
+        if (contentArea) {
+            contentArea.addEventListener('click', function(e) {
+                var btn = e.target && e.target.closest ? e.target.closest('.mdb-fold-btn') : null;
+                if (!btn || !btn.parentElement) { return; }
+                var key = btn.parentElement.dataset.foldKey;
+                if (!key) { return; }
+                e.stopPropagation();
+                e.preventDefault();
+                foldState[key] = !(foldState[key] === true);
+                applyFolding();
+            });
+        }
+
         /** Give every heading its key and triangle, keep the flags of a re-rendered same file. */
         function setupFolding(sameFile) {
             if (!sameFile || foldFile !== currentFilePath) {
@@ -317,29 +349,26 @@
                 foldFile = currentFilePath;
             }
             var seen = {};
-            Array.prototype.forEach.call(contentArea ? contentArea.children : [], function(el) {
+            // A snapshot: inserting into the live `children` collection while
+            // walking it makes every later index access rescan it (quadratic).
+            var children = contentArea ? Array.prototype.slice.call(contentArea.children) : [];
+            children.forEach(function(el) {
                 var h = headingIn(el);
                 if (!h) { return; }
                 var base = headingLevel(h) + '|' + (h.textContent || '').trim();
                 seen[base] = (seen[base] || 0) + 1;
-                var key = base + '#' + seen[base];
-                h.dataset.foldKey = key;
-                var btn = document.createElement('button');
-                btn.className = 'mdb-fold-btn';
-                btn.title = 'Fold / unfold this section';
-                btn.innerHTML = '<span class="codicon codicon-chevron-down"></span>';
-                btn.addEventListener('click', function(e) {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    foldState[key] = !(foldState[key] === true);
-                    applyFolding();
-                });
-                h.insertBefore(btn, h.firstChild);
+                h.dataset.foldKey = base + '#' + seen[base];
+                // One template cloned per heading; clicks are handled by one
+                // delegated listener on the content area (below).
+                h.insertBefore(foldButtonTemplate.cloneNode(true), h.firstChild);
             });
             applyFolding();
         }
 
+        var indentApplied = false;      // whether the current render carries indent styles
         function applyIndent() {
+            if (!indentOn && !indentApplied) { return; }
+            indentApplied = indentOn;
             var entries = foldEntries();
             var depths = mdbIndentDepths(entries);
             var size = Number(indentSizeSelect ? indentSizeSelect.value : 2) || 2;
@@ -446,13 +475,13 @@
             var wrappers = contentArea.querySelectorAll('.mdb-block');
 
             // Answers: the k-th marker of a block is its k-th <strong>Answer:</strong>.
+            // Markers and blocks are both in line order: one forward walk.
             var perBlock = {};
+            var b = 0;
             mdbAnswerMarkers(shownText).forEach(function(m) {
-                for (var b = 0; b < shownBlocks.length; b++) {
-                    if (m.line >= shownBlocks[b].startLine && m.line < shownBlocks[b].endLine) {
-                        (perBlock[b] = perBlock[b] || []).push(m);
-                        return;
-                    }
+                while (b < shownBlocks.length && shownBlocks[b].endLine <= m.line) { b++; }
+                if (b < shownBlocks.length && m.line >= shownBlocks[b].startLine) {
+                    (perBlock[b] = perBlock[b] || []).push(m);
                 }
             });
             Object.keys(perBlock).forEach(function(b) {
@@ -647,6 +676,7 @@
                 initMermaid();
                 interceptLinks();
                 decorateEditing();
+                indentApplied = false;  // a fresh render carries no indent styles
                 setupFolding(sameFile);
                 applyIndent();
                 if (sameFile && restoreScrollTop !== null) {
