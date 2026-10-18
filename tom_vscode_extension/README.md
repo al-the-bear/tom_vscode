@@ -96,7 +96,9 @@ pwsh compile_and_install.ps1     # Windows
 It runs end to end:
 
 1. Checks Node (switches via nvm if below 20), builds the TomSpecs SOM packages
-   (`npm run som:pack`), installs npm deps, compiles the TypeScript.
+   from ai_build's current state (`npm run som:pack`), installs npm deps, checks
+   that the installed model is the one just packed (`npm run som:check` — the
+   install stops if npm kept a stale copy), compiles the TypeScript.
 2. `dart pub get` for the generator and the bridge.
 3. Regenerates the d4rt bridges for `tom_vscode_bridge`.
 4. `dart compile exe bin/tom_bs.dart` straight into the extension's local

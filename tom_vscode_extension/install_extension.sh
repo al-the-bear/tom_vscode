@@ -76,6 +76,10 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+# The model just packed must be the one installed: npm can keep a stale
+# tarball, and the extension would then ship an old TomSpecs model.
+node scripts/check-som-installed.cjs || exit 1
+
 # Compile TypeScript
 echo "📦 Compiling TypeScript..."
 npm run compile

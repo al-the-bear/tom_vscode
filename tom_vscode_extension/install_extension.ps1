@@ -115,6 +115,14 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
+# The model just packed must be the one installed: npm can keep a stale
+# tarball, and the extension would then ship an old TomSpecs model.
+Invoke-Native { node scripts/check-som-installed.cjs }
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "The installed TomSpecs model is not the packed one"
+    exit 1
+}
+
 Write-Host ""
 Write-Host "Compiling TypeScript..."
 Invoke-Native { npm run compile }

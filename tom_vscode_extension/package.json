@@ -3083,6 +3083,7 @@
     "check:todo-yaml": "node scripts/check-todo-yaml.cjs",
     "som:pack": "node scripts/build-som-packages.cjs",
     "codespecs:build": "node scripts/build-validate-codespecs.cjs",
+    "som:check": "node scripts/check-som-installed.cjs",
     "lint": "eslint src --ext ts",
     "lint:media": "eslint media --ext js --no-error-on-unmatched-pattern",
     "typecheck:media": "tsc -p tsconfig.media.json"

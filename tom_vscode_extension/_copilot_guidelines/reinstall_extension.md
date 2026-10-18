@@ -17,7 +17,13 @@ location. Working by hand, run `npm run som:pack` before `npm install` whenever
 the SOM sources changed: npm otherwise keeps the old tarball. The script packs
 ai_build's working tree and warns about uncommitted changes in it; another
 session's work in progress would otherwise end up in the extension. Use
-`npm run som:pack -- --from-head` to pack only what is committed. The install
+`npm run som:pack -- --from-head` to pack only what is committed. Right after
+`npm install` the scripts run `scripts/check-som-installed.cjs`
+(`npm run som:check`): the installed model's `modelHash` must equal the one the
+pack recorded, so an install never ships a model npm kept from an earlier pack.
+Between installs, the CodeSpecs freshness test (CS-2b) fails once ai_build's
+model moves on; `npm run som:pack && npm install` (what every install does)
+brings the checkout level. The install
 scripts also compile `validate_codespecs` (tom_specs_clitool) into
 `bin/<platform>/` (`npm run codespecs:build`): a from-source install fails
 without a Dart SDK, a prebuilt install warns and leaves the CodeSpecs validate
