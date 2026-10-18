@@ -7,6 +7,7 @@
  *   PT-2  create: 32 todos, statuses, dependencies, references; csgen* walks 1..31 and csproj* first
  *   PT-3  creating twice duplicates nothing, archived todos included
  *   PT-4  an unresolved insufficient area gets a decision-needed csopen; a descoped one does not; numbering continues
+ *   PT-4b an insufficient area with gap lines gets one csopen per gap line, titled with the line
  *   PT-5  refusals: no record, an incomplete record, no quest; no appName makes csproj1 decision-needed
  *   PT-6  Stage A with the document: Meridian and the corpus record pass, a broken copy is refused
  *   PT-7  registration
@@ -24,7 +25,7 @@ import { withTiming } from './_timing.js';
 const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'codespecs-plan-'));
 installVscodeStub({ workspaceFolders: [ws] });
 
-import { CodeSpecsGateEntry, CodeSpecsGateRecord, CodeSpecsGateVerdict } from 'tom_som_typescript_runtime';
+import { CodeSpecsGateEntry, CodeSpecsGateGap, CodeSpecsGateRecord, CodeSpecsGateVerdict } from 'tom_som_typescript_runtime';
 import { SomModelService } from '../../services/som-model-service.js';
 import { SomDocumentStore } from '../../services/som-document-store.js';
 import * as questTodo from '../../managers/questTodoManager.js';
@@ -72,7 +73,7 @@ const call = async (input: object): Promise<Json> => JSON.parse(await codeSpecsP
 const todosOf = (quest: string) => questTodo.readAllTodos(quest, questTodo.ALL_TODO_FILES);
 
 /** A spec root with the phase4 fixture's extracts and a record: these areas sufficient, the rest not applicable. */
-type VerdictProps = { verdict: CodeSpecsGateVerdict; resolution?: string; note?: string };
+type VerdictProps = { verdict: CodeSpecsGateVerdict; resolution?: string; note?: string; gaps?: CodeSpecsGateGap[] };
 function phase4Root(name: string, overrides: Array<[string, VerdictProps]> = []): string {
     const verdicts = new Map(overrides);
     for (const f of fs.readdirSync(path.join(FIXTURE, 'codespecs_extracts'))) {
@@ -176,6 +177,30 @@ describe('CodeSpecs plan todos', () => {
         assert.deepEqual(collectDecisionNeededTodos('csopen*', todosOf('q4')).map((t) => t.id), ['csopen2_ajmp-ce-su-insufficient']);
         assert.equal(pickNextTodoForIteration('csopen*', todosOf('q4')), undefined, 'the queue pauses on it');
         assert.match(r.next, /Answer the 1 csopen/);
+    });
+
+    test('PT-4b: one csopen per gap line, two sections missing one field are two', async () => {
+        const gap = (section: string) => new CodeSpecsGateGap({
+            sectionId: section, required: 'whether the entity is an aggregate root', carrier: `${section}.aggregateRoot`,
+        });
+        phase4Root('p4b', [
+            ['CE-SU', { verdict: CodeSpecsGateVerdict.insufficient, gaps: [gap('DAENT-ORDER'), gap('DAENT-SHIP')] }],
+        ]);
+        const r = await call({ specRoot: 'p4b', questId: 'q4b', appName: 'phase4' });
+        assert.equal(r.ok, true, JSON.stringify(r));
+        assert.deepEqual(r.tree.csopen.map((t: Json) => [t.id, t.status]), [
+            ['csopen1_ajmp-ce-su-daent-order-aggregateroot', 'decision-needed'],
+            ['csopen2_ajmp-ce-su-daent-ship-aggregateroot', 'decision-needed'],
+        ]);
+        const first = questTodo.findTodoById('q4b', 'csopen1_ajmp-ce-su-daent-order-aggregateroot')!;
+        assert.equal(first.title,
+            'csopen1: DAENT-ORDER — whether the entity is an aggregate root — should have been carried by DAENT-ORDER.aggregateRoot');
+        assert.match(first.decisions![0].summary, /^DAENT-ORDER\.aggregateRoot: fill it, or descope CE-SU/);
+        const proj = todosOf('q4b').find((t) => t.id.startsWith('csproj1_'))!;
+        assert.deepEqual(proj.dependencies, [
+            'csopen1_ajmp-ce-su-daent-order-aggregateroot', 'csopen2_ajmp-ce-su-daent-ship-aggregateroot',
+        ]);
+        assert.match(r.next, /Answer the 2 csopen/);
     });
 
     test('PT-5: refusals, and a missing app name is a decision', async () => {

@@ -5,10 +5,10 @@
  *
  * The tree's shape is fixed by the documents, not chosen here
  * (codespecs_prompt.md §7, codespecs_mapping.md §1.1.3):
- *   - L0 `csopen<n>`: decision-needed, one per area whose Stage-B verdict is
- *     `insufficient` and not yet resolved (`resolution: descoped`). The gate
- *     record holds a verdict and a note per area, not the gap lines, so an L0
- *     here is one per area and carries the note;
+ *   - L0 `csopen<n>`: decision-needed, one per gap line of every area whose
+ *     Stage-B verdict is `insufficient` and not yet resolved (`resolution:
+ *     descoped`), its title the gap line verbatim; an insufficient entry
+ *     recorded without gap lines gets one L0 for the area, carrying its note;
  *   - L1 `csproj1`: the trio scaffolding, one todo because the three projects
  *     are not separable (§4.2);
  *   - L2 `csgen<n>`: all thirty-one authoring steps, `<n>` the step ordinal.
@@ -120,8 +120,46 @@ function planItems(
         return e?.verdict === CodeSpecsGateVerdict.insufficient && !e.descoped;
     });
     for (const area of open) {
-        const note = verdictFor(area.code)?.note ?? null;
+        const entry = verdictFor(area.code);
+        const note = entry?.note ?? null;
         const what = `${area.code} (${area.canonicalId})`;
+        if (entry && entry.gaps.length > 0) {
+            for (const gap of entry.gaps) {
+                items.push({
+                    kind: 'csopen',
+                    // Section and carrier name the gap; two sections missing one field are two todos.
+                    itemTag: `codespecs-open:${area.code}:${gap.sectionId}:${gap.carrier}`,
+                    slug: slugOf(`${area.code} ${gap.carrier}`),
+                    title: (id) => `${id.split('_')[0]}: ${gap.line}`,
+                    description: [
+                        `Stage B found ${what} insufficient. This is one of its gap lines (codespecs_prompt.md §6.3):`,
+                        `  ${gap.line}`,
+                        `Open ${gap.carrier}: it is what should carry "${gap.required}".`,
+                        ...(note ? [`Gate note: ${note}`] : []),
+                        `Extract: ${extractPath(area.code)}`,
+                        'Resolve it one of two ways:',
+                        `- complete the specification: fill ${gap.carrier}, re-run the extraction `
+                            + '(tomAi_specCodeSpecsWriteExtracts) and re-take the verdict (tomAi_specCodeSpecsSetVerdict);',
+                        `- descope ${area.code} for this pass: tomAi_specCodeSpecsSetVerdict with verdict \`insufficient\` and `
+                            + 'resolution `descoped`; that resolves every gap line of the area.',
+                        'Until it is resolved the queue pauses here: csopen* runs before csproj* and csgen*.',
+                    ].join('\n'),
+                    status: 'decision-needed',
+                    priority: 'high',
+                    decisions: [{
+                        summary: `${gap.carrier}: fill it, or descope ${area.code} for this pass`,
+                        // The todo schema's own field name (todo.schema.json).
+                        // eslint-disable-next-line @typescript-eslint/naming-convention
+                        decision_needed: `${gap.line}. Either ${gap.carrier} is filled (what it says is yours to state) and `
+                            + `the verdict re-taken, or ${area.code} is descoped from this Phase-4 pass and shipped later.`,
+                    }],
+                    after: [],
+                    references: [{ path: extractPath(area.code), description: `${area.code} extract` }],
+                    extraTags: [area.code],
+                });
+            }
+            continue;
+        }
         items.push({
             kind: 'csopen',
             itemTag: `codespecs-open:${area.code}`,
@@ -130,7 +168,7 @@ function planItems(
             description: [
                 `Stage B found ${what} insufficient: its extract does not carry every input `
                     + 'codespecs_derivation_contract.md §3 requires to author the area (codespecs_prompt.md §6).',
-                `Gate note: ${note ?? '(none recorded; the gap lines are in the Stage-B output)'}`,
+                `Gate note: ${note ?? '(none recorded, and the record carries no gap lines for the area: they are in the Stage-B output)'}`,
                 `Extract: ${extractPath(area.code)}`,
                 'Resolve it one of two ways:',
                 '- complete the specification: fill the missing inputs in the document, re-run the extraction '
@@ -381,8 +419,8 @@ export const CODESPECS_PLAN_TODOS_TOOL: SharedToolDefinition<CodeSpecsPlanTodosI
     displayName: 'CodeSpecs: Plan Todos',
     description:
         'Stage C of Phase 4 (codespecs_prompt.md §7): propose (`dryRun`) or create the todo tree from the gate record. '
-        + 'L0 `csopen<n>`: decision-needed, one per area whose verdict is insufficient and not descoped, carrying the gate '
-        + 'note. L1 `csproj1`: the trio scaffolding (decision-needed when `appName` is not given). L2 `csgen<n>`: all 31 '
+        + 'L0 `csopen<n>`: decision-needed, one per gap line of each area whose verdict is insufficient and not descoped '
+        + '(its title the line verbatim), or one per such area carrying the gate note when its entry records no gap lines. L1 `csproj1`: the trio scaffolding (decision-needed when `appName` is not given). L2 `csgen<n>`: all 31 '
         + 'authoring steps, `<n>` the step number, each naming its areas and verdicts, its extracts, its output project and '
         + 'tomAi_specCodeSpecsStepContext as what it reads. Ids come from tomAi_generateIdPrefix; the queue walks csopen*, '
         + 'csproj*, csgen* lowest first and pauses on decision-needed. Refused when the record lacks a verdict for an active '

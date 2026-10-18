@@ -10,7 +10,7 @@
  *   CG-5  A4 fails on an empty required marker source
  *   CG-6  A5 fails when the model loses a carrier; no document path, a model-level fix
  *   CG-7  the record: the corpus record reads complete and agrees with the extracts; partial and absent records
- *   CG-8  set a verdict: byte-stable rewrite, one entry changed, refusals, the insufficient reminder, dryRun
+ *   CG-8  set a verdict: byte-stable rewrite, one entry changed, refusals, the insufficient reminder, gap lines, dryRun
  *   CG-9  registration
  */
 
@@ -222,6 +222,17 @@ describe('CodeSpecs gate and gate record', () => {
 
         const blocked = await run(codeSpecsSetVerdictImpl, { specRoot: root, area: 'CE-AC', verdict: 'insufficient' });
         assert.match(blocked.reminder, /may not continue/);
+
+        // Gap lines ride on an insufficient verdict and read back with their §6.3 line.
+        const gaps = [{ sectionId: 'SECRO-ADMIN', required: 'the permissions the role grants', carrier: 'SECRO-ADMIN.permissions' }];
+        const withGaps = await run(codeSpecsSetVerdictImpl, { specRoot: root, area: 'CE-AC', verdict: 'insufficient', gaps });
+        assert.equal(withGaps.written, true, JSON.stringify(withGaps));
+        assert.match(read(record), /- area: CE-AC\n {6}verdict: insufficient\n {6}gaps:\n {8}- sectionId: "SECRO-ADMIN"\n/);
+        const listed = (await run(codeSpecsVerdictsImpl, { specRoot: root })).verdicts.find((v: Json) => v.area === 'CE-AC');
+        assert.equal(listed.gaps[0].line, 'SECRO-ADMIN — the permissions the role grants — should have been carried by SECRO-ADMIN.permissions');
+        const gapsOnSufficient = await run(codeSpecsSetVerdictImpl, { specRoot: root, area: 'CE-EN', verdict: 'sufficient', gaps });
+        assert.equal(gapsOnSufficient.code, 'recordError');
+        assert.match(gapsOnSufficient.error, /gap lines on verdict `sufficient`/);
 
         assert.equal((await run(codeSpecsSetVerdictImpl, { specRoot: root, area: 'CE-XX', verdict: 'sufficient' })).code, 'unknownArea');
         assert.equal((await run(codeSpecsSetVerdictImpl, { specRoot: root, area: 'CE-EN', verdict: 'maybe' })).code, 'unknownVerdict');

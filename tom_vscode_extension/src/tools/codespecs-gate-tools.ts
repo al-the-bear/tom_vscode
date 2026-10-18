@@ -21,6 +21,7 @@ import {
     CodeSpecsGate,
     CodeSpecsGateCheck,
     CodeSpecsGateEntry,
+    CodeSpecsGateGap,
     CodeSpecsGateRecord,
     CodeSpecsGateVerdict,
     CodeSpecsRecordError,
@@ -52,6 +53,8 @@ export interface CodeSpecsSetVerdictInput extends CodeSpecsRecordLocator {
     area: string;
     verdict: string;
     resolution?: string;
+    /** Stage B's gap lines, on an insufficient verdict (codespecs_prompt.md §6.3). */
+    gaps?: Array<{ sectionId: string; required: string; carrier: string }>;
     note?: string;
     expectedRevision?: string;
     dryRun?: boolean;
@@ -192,7 +195,13 @@ export function readRecord(deps: SpecToolDeps, file: string): RecordState {
 }
 
 function verdictView(e: CodeSpecsGateEntry): Record<string, unknown> {
-    return { area: e.area, verdict: e.verdict.word, ...(e.resolution ? { resolution: e.resolution } : {}), ...(e.note ? { note: e.note } : {}) };
+    return {
+        area: e.area,
+        verdict: e.verdict.word,
+        ...(e.resolution ? { resolution: e.resolution } : {}),
+        ...(e.gaps.length > 0 ? { gaps: e.gaps.map((g) => ({ sectionId: g.sectionId, required: g.required, carrier: g.carrier, line: g.line })) } : {}),
+        ...(e.note ? { note: e.note } : {}),
+    };
 }
 
 export function missingAreas(deps: SpecToolDeps, record: CodeSpecsGateRecord): string[] {
@@ -258,7 +267,13 @@ export async function codeSpecsSetVerdictImpl(deps: SpecToolDeps, input: CodeSpe
         if (!verdict) {
             return json({ ok: false, code: 'unknownVerdict', error: `'${input.verdict}' is not a verdict. Verdicts: ${CodeSpecsGateVerdict.values.map((v) => v.word).join(', ')}.` });
         }
-        const entry = new CodeSpecsGateEntry({ area: area.code, verdict, resolution: input.resolution ?? null, note: input.note ?? null });
+        const entry = new CodeSpecsGateEntry({
+            area: area.code,
+            verdict,
+            resolution: input.resolution ?? null,
+            note: input.note ?? null,
+            gaps: (input.gaps ?? []).map((g) => new CodeSpecsGateGap({ sectionId: g.sectionId, required: g.required, carrier: g.carrier })),
+        });
         const next = state.record.withVerdict(entry);
         // The runtime's own rules, applied by reading back exactly what would be written.
         const text = leadingComments(state.text) + next.toYaml();
@@ -354,7 +369,9 @@ export const CODESPECS_SET_VERDICT_TOOL: SharedToolDefinition<CodeSpecsSetVerdic
     description:
         'Record one area\'s Stage-B verdict in the spec\'s gate record (`gate.verdicts.yaml`), creating the record if needed. '
         + '`verdict`: sufficient, not applicable (or notApplicable), insufficient; `resolution: descoped` is allowed only '
-        + 'on insufficient (it lets the pass continue without the area); `note` is free text. An unknown or inactive area, '
+        + 'on insufficient (it lets the pass continue without the area); `gaps` are Stage B\'s gap lines on an insufficient '
+        + 'verdict, one per missing input (`sectionId`, what was `required`, its `carrier` `<section-id>.<field>`), and '
+        + 'become one csopen todo each; `note` is free text. An unknown or inactive area, '
         + 'an unknown verdict, or a record the runtime would reject is refused, and nothing is written. The record is '
         + 'rewritten in the runtime\'s format, its leading comments kept; `expectedRevision` and `dryRun` (a diff) as for '
         + 'every edit. Answers the recorded and any replaced verdict and the areas still missing; an insufficient verdict '
@@ -369,6 +386,19 @@ export const CODESPECS_SET_VERDICT_TOOL: SharedToolDefinition<CodeSpecsSetVerdic
             area: { type: 'string', description: 'The area code, e.g. `CE-EN`.' },
             verdict: { type: 'string', enum: ['sufficient', 'not applicable', 'notApplicable', 'insufficient'] },
             resolution: { type: 'string', enum: ['descoped'], description: 'Only with `insufficient`.' },
+            gaps: {
+                type: 'array',
+                description: 'Only with `insufficient`: one item per gap line (codespecs_prompt.md §6.3).',
+                items: {
+                    type: 'object',
+                    properties: {
+                        sectionId: { type: 'string', description: 'The section missing the input.' },
+                        required: { type: 'string', description: 'What the derivation contract required.' },
+                        carrier: { type: 'string', description: '`<section-id>.<field>` that should have carried it.' },
+                    },
+                    required: ['sectionId', 'required', 'carrier'],
+                },
+            },
             note: { type: 'string', description: 'Why, in a sentence.' },
             expectedRevision: { type: 'string', description: 'The record\'s `revision` from tomAi_specCodeSpecsVerdicts.' },
             dryRun: { type: 'boolean', description: 'Return the result and the diff, write nothing.' },
