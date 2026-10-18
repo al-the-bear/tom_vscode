@@ -8,6 +8,8 @@
  *   MB-4  CRLF text maps to the same lines
  *   MB-5  answer markers: every one outside fenced code, with the column after the marker
  *   MB-6  inserting an answer: one space before and after, the rest of the line kept
+ *   MB-7  folding: a folded heading hides its section, deeper headings included; its own state is kept
+ *   MB-8  folding: the folded headings an element sits under, for revealing it
  */
 
 import test, { describe } from 'node:test';
@@ -22,6 +24,8 @@ interface BlocksApi {
     mdbBlocks(text: string, tokens: unknown[]): Block[];
     mdbAnswerMarkers(text: string): Array<{ line: number; column: number }>;
     mdbInsertAnswer(lineText: string, column: number, answer: string): string;
+    mdbFoldHidden(entries: Array<{ level: number | null; folded?: boolean }>): boolean[];
+    mdbFoldAncestors(entries: Array<{ level: number | null; folded?: boolean }>, index: number): number[];
 }
 
 function load(): BlocksApi {
@@ -98,5 +102,27 @@ describe('Markdown Browser source mapping', () => {
         assert.equal(api.mdbInsertAnswer('**Answer:**', 11, 'Yes, do it.'), '**Answer:** Yes, do it. ');
         assert.equal(api.mdbInsertAnswer('**Answer:**   (fill in)', 11, ' no '), '**Answer:** no (fill in)');
         assert.equal(api.mdbInsertAnswer('- **Answer:** old', 13, 'new'), '- **Answer:** new old');
+    });
+
+    // # A (0) / text (1) / ## B (2) / text (3) / ### C (4) / text (5) / ## D (6) / text (7) / # E (8) / text (9)
+    const outline = (folded: number[]): Array<{ level: number | null; folded: boolean }> =>
+        [1, null, 2, null, 3, null, 2, null, 1, null].map((level, i) => ({ level, folded: folded.includes(i) }));
+    const hidden = (folded: number[]): number[] =>
+        Array.from(api.mdbFoldHidden(outline(folded))).flatMap((h, i) => (h ? [i] : []));
+
+    test('MB-7: folding hides a section and keeps the inner headings\' own state', () => {
+        assert.deepEqual(hidden([]), []);
+        assert.deepEqual(hidden([2]), [3, 4, 5], '## B hides its text and ### C with its text, not ## D');
+        assert.deepEqual(hidden([4]), [5]);
+        assert.deepEqual(hidden([0]), [1, 2, 3, 4, 5, 6, 7], '# A hides everything up to # E');
+        assert.deepEqual(hidden([0, 4]), [1, 2, 3, 4, 5, 6, 7]);
+        assert.deepEqual(hidden([4]), [5], 'unfolding # A again shows ### C still folded — its own flag');
+        assert.deepEqual(hidden([8]), [9]);
+    });
+
+    test('MB-8: the folded headings above an element', () => {
+        assert.deepEqual(Array.from(api.mdbFoldAncestors(outline([0, 4]), 5)), [0, 4]);
+        assert.deepEqual(Array.from(api.mdbFoldAncestors(outline([2]), 7)), [], '## D is not under ## B');
+        assert.deepEqual(Array.from(api.mdbFoldAncestors(outline([2]), 4)), [2], 'a heading under a folded one');
     });
 });

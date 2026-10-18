@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global marked, mermaid, mdbBlocks, mdbAnswerMarkers, mdbInsertAnswer */
+/* global marked, mermaid, mdbBlocks, mdbAnswerMarkers, mdbInsertAnswer, mdbFoldHidden, mdbFoldAncestors */
 // Markdown Browser client — extracted verbatim from the inline <script> of
 // buildHtml() in src/handlers/markdownBrowser-handler.ts (Phase B.21 webview
 // restructuring). Predates strict checkJs (large verbatim extraction).
@@ -25,6 +25,9 @@
         var fullIdBtn = document.getElementById('fullIdBtn');
         var crlfBtn = document.getElementById('crlfBtn');
         var editModeBtn = document.getElementById('editModeBtn');
+        var foldAllBtn = document.getElementById('foldAllBtn');
+        var foldLevelSelect = document.getElementById('foldLevelSelect');
+        var foldLevelBtn = document.getElementById('foldLevelBtn');
         var contentArea = document.getElementById('contentArea');
         var filePathEl = document.getElementById('filePath');
 
@@ -49,6 +52,13 @@
         var restoreScrollTop = null;    // where to stay after our own save re-renders
         var nextEditId = 1;
         var pendingSaves = {};          // editId -> editor element awaiting the backend's answer
+
+        // Folding. Each heading has its own folded flag, kept by a key (level,
+        // text, occurrence) so it survives re-renders of the same file; what
+        // is hidden follows from the flags (blocks.js mdbFoldHidden), so
+        // folding a section never changes the state of the headings inside it.
+        var foldState = {};
+        var foldFile = '';
 
         var currentFilePath = '';
         // liveMode + follow-tail state.
@@ -121,6 +131,24 @@
                 document.body.classList.toggle('mdb-edit-mode', editMode);
                 decorateEditing();
             });
+        }
+        if (foldAllBtn) {
+            foldAllBtn.addEventListener('click', function() {
+                var headings = foldEntries().filter(function(e) { return e.level !== null; });
+                var fold = headings.some(function(e) { return !e.folded; });
+                headings.forEach(function(e) { foldState[e.key] = fold; });
+                applyFolding();
+            });
+        }
+        if (foldLevelBtn && foldLevelSelect) {
+            foldLevelBtn.addEventListener('click', function() {
+                var level = Number(foldLevelSelect.value);
+                var headings = foldEntries().filter(function(e) { return e.level === level; });
+                var fold = headings.some(function(e) { return !e.folded; });
+                headings.forEach(function(e) { foldState[e.key] = fold; });
+                applyFolding();
+            });
+            foldLevelSelect.addEventListener('change', refreshFoldControls);
         }
         if (crlfBtn) {
             crlfBtn.addEventListener('click', function() {
@@ -196,6 +224,117 @@
 
         function shownLines() {
             return shownText.replace(/\r\n|\r/g, '\n').split('\n');
+        }
+
+        // ---- Folding ----
+        /** The heading a top-level element of the content is, or null. */
+        function headingIn(child) {
+            if (!child || !child.children) { return null; }
+            if (/^H[1-6]$/.test(child.tagName)) { return child; }
+            for (var i = 0; i < child.children.length; i++) {
+                if (/^H[1-6]$/.test(child.children[i].tagName)) { return child.children[i]; }
+            }
+            return null;
+        }
+
+        function headingLevel(h) {
+            return parseInt(h.getAttribute('data-level') || '', 10) || parseInt(h.tagName.slice(1), 10);
+        }
+
+        /** The content as fold entries: every top-level element, headings with their level and flag. */
+        function foldEntries() {
+            if (!contentArea) { return []; }
+            return Array.prototype.map.call(contentArea.children, function(el) {
+                var h = headingIn(el);
+                if (!h || !h.dataset.foldKey) { return { level: null, folded: false, el: el }; }
+                return { level: headingLevel(h), folded: foldState[h.dataset.foldKey] === true, el: el, heading: h, key: h.dataset.foldKey };
+            });
+        }
+
+        function applyFolding() {
+            var entries = foldEntries();
+            var hidden = mdbFoldHidden(entries);
+            entries.forEach(function(e, i) {
+                e.el.classList.toggle('mdb-folded-away', hidden[i]);
+                if (e.heading) {
+                    var icon = e.heading.querySelector('.mdb-fold-btn .codicon');
+                    if (icon) { icon.className = 'codicon codicon-' + (e.folded ? 'chevron-right' : 'chevron-down'); }
+                    e.heading.classList.toggle('mdb-heading-folded', e.folded);
+                }
+            });
+            refreshFoldControls();
+        }
+
+        /** The level dropdown lists the levels the document has; the buttons say what a click does. */
+        function refreshFoldControls() {
+            var headings = foldEntries().filter(function(e) { return e.level !== null; });
+            if (foldAllBtn) {
+                var foldAll = headings.some(function(e) { return !e.folded; });
+                foldAllBtn.innerHTML = '<span class="codicon codicon-' + (foldAll ? 'collapse-all' : 'expand-all') + '"></span>';
+                foldAllBtn.title = foldAll ? 'Fold all sections' : 'Unfold all sections';
+                foldAllBtn.disabled = headings.length === 0;
+            }
+            if (!foldLevelSelect || !foldLevelBtn) { return; }
+            var levels = [];
+            headings.forEach(function(e) { if (levels.indexOf(e.level) < 0) { levels.push(e.level); } });
+            levels.sort(function(a, b) { return a - b; });
+            var current = Number(foldLevelSelect.value);
+            if (foldLevelSelect.options.length !== levels.length
+                || levels.some(function(l, i) { return Number(foldLevelSelect.options[i].value) !== l; })) {
+                foldLevelSelect.innerHTML = levels.map(function(l) { return '<option value="' + l + '">H' + l + '</option>'; }).join('');
+                var keep = levels.indexOf(current) >= 0 ? current : (levels.indexOf(2) >= 0 ? 2 : levels[0]);
+                if (keep !== undefined) { foldLevelSelect.value = String(keep); }
+            }
+            var level = Number(foldLevelSelect.value);
+            var atLevel = headings.filter(function(e) { return e.level === level; });
+            var foldLevel = atLevel.some(function(e) { return !e.folded; });
+            foldLevelBtn.innerHTML = '<span class="codicon codicon-' + (foldLevel ? 'fold' : 'unfold') + '"></span>';
+            foldLevelBtn.title = (foldLevel ? 'Fold' : 'Unfold') + ' all level ' + (level || '?') + ' headings';
+            foldLevelBtn.disabled = atLevel.length === 0;
+            foldLevelSelect.disabled = levels.length === 0;
+        }
+
+        /** Give every heading its key and triangle, keep the flags of a re-rendered same file. */
+        function setupFolding(sameFile) {
+            if (!sameFile || foldFile !== currentFilePath) {
+                foldState = {};
+                foldFile = currentFilePath;
+            }
+            var seen = {};
+            Array.prototype.forEach.call(contentArea ? contentArea.children : [], function(el) {
+                var h = headingIn(el);
+                if (!h) { return; }
+                var base = headingLevel(h) + '|' + (h.textContent || '').trim();
+                seen[base] = (seen[base] || 0) + 1;
+                var key = base + '#' + seen[base];
+                h.dataset.foldKey = key;
+                var btn = document.createElement('button');
+                btn.className = 'mdb-fold-btn';
+                btn.title = 'Fold / unfold this section';
+                btn.innerHTML = '<span class="codicon codicon-chevron-down"></span>';
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    foldState[key] = !(foldState[key] === true);
+                    applyFolding();
+                });
+                h.insertBefore(btn, h.firstChild);
+            });
+            applyFolding();
+        }
+
+        /** Unfold the sections an element sits in, so it can be seen. */
+        function revealElement(target) {
+            if (!contentArea || !target) { return; }
+            var top = target;
+            while (top && top.parentNode !== contentArea) { top = top.parentNode; }
+            var entries = foldEntries();
+            var index = entries.findIndex(function(e) { return e.el === top; });
+            if (index < 0) { return; }
+            var opened = mdbFoldAncestors(entries, index);
+            if (opened.length === 0) { return; }
+            opened.forEach(function(i) { foldState[entries[i].key] = false; });
+            applyFolding();
         }
 
         // ---- In-place editing ----
@@ -378,6 +517,7 @@
             }
 
             if (target) {
+                revealElement(target);
                 target.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 // Add a brief highlight effect
                 target.style.transition = 'background-color 0.3s';
@@ -480,6 +620,7 @@
                 initMermaid();
                 interceptLinks();
                 decorateEditing();
+                setupFolding(sameFile);
                 if (sameFile && restoreScrollTop !== null) {
                     // Our own save re-rendered the document: stay where the
                     // reader was, also once Mermaid has resized the page.

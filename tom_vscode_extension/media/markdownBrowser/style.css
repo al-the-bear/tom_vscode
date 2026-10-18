@@ -240,3 +240,28 @@ body.show-fullid .markdown-body .md-heading-fullid { display: block; }
 .mdb-editor-status { font-size: 0.9em; opacity: 0.8; }
 .mdb-editor-status.error { color: var(--vscode-errorForeground); opacity: 1; }
 #editModeBtn.active { background: var(--vscode-toolbar-activeBackground, var(--vscode-toolbar-hoverBackground)); color: var(--vscode-textLink-foreground); }
+
+/* ---- Folding ---- */
+.markdown-body .mdb-folded-away { display: none; }
+.mdb-fold-btn {
+    background: transparent;
+    border: none;
+    color: var(--vscode-foreground);
+    opacity: 0.6;
+    cursor: pointer;
+    padding: 0;
+    margin: 0 4px 0 -2px;
+    vertical-align: middle;
+    line-height: 1;
+}
+.mdb-fold-btn:hover { opacity: 1; }
+.mdb-fold-btn .codicon { font-size: 0.9em; }
+.markdown-body .mdb-heading-folded { opacity: 0.85; }
+.fold-level-select {
+    background: var(--vscode-dropdown-background);
+    color: var(--vscode-dropdown-foreground);
+    border: 1px solid var(--vscode-dropdown-border, var(--vscode-panel-border));
+    font-size: 11px;
+    height: 20px;
+    padding: 0 2px;
+}

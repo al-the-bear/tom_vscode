@@ -4,7 +4,7 @@
 // it can be loaded into a bare `vm` sandbox and unit-tested directly
 // (src/utils/__tests__/mdBrowserBlocks.test.ts). Loaded as a classic script
 // before main.js; the declarations below are globals main.js calls.
-/* exported mdbBlocks, mdbAnswerMarkers, mdbInsertAnswer */
+/* exported mdbBlocks, mdbAnswerMarkers, mdbInsertAnswer, mdbFoldHidden, mdbFoldAncestors */
 //
 // The browser renders the backend's transformed text. Without the CR/LF
 // conversion that transform keeps every line where it is (it only rewrites
@@ -116,4 +116,63 @@ function mdbInsertAnswer(lineText, column, answer) {
     var before = lineText.slice(0, column);
     var after = lineText.slice(column).replace(/^[ \t]+/, '');
     return before + ' ' + String(answer).trim() + ' ' + after;
+}
+
+// ---- Folding ----
+// The document as a flat list in reading order: a heading entry carries its
+// level and its own `folded` flag, content entries have level null. A heading
+// opens a section that runs to the next heading of the same or a higher
+// level. Folding is a property of one heading: an entry is hidden when any
+// heading it sits under is folded, so folding and unfolding a section never
+// changes the flags of the headings inside it.
+
+/**
+ * @typedef {{ level: number | null, folded?: boolean }} MdbFoldEntry
+ */
+
+/**
+ * The entries a folded section hides.
+ *
+ * @param {MdbFoldEntry[]} entries
+ * @returns {boolean[]}
+ */
+function mdbFoldHidden(entries) {
+    /** @type {MdbFoldEntry[]} */
+    var stack = [];
+    var out = [];
+    for (var i = 0; i < entries.length; i++) {
+        var e = entries[i];
+        if (e.level !== null && e.level !== undefined) {
+            while (stack.length && /** @type {number} */ (stack[stack.length - 1].level) >= e.level) { stack.pop(); }
+        }
+        out.push(stack.some(function(s) { return s.folded === true; }));
+        if (e.level !== null && e.level !== undefined) { stack.push(e); }
+    }
+    return out;
+}
+
+/**
+ * The indices of the folded headings `index` sits under — the ones to unfold
+ * to make it visible.
+ *
+ * @param {MdbFoldEntry[]} entries
+ * @param {number} index
+ * @returns {number[]}
+ */
+function mdbFoldAncestors(entries, index) {
+    /** @type {number[]} */
+    var stack = [];
+    var target = entries[index];
+    for (var i = 0; i < index; i++) {
+        var lvl = entries[i].level;
+        if (lvl !== null && lvl !== undefined) {
+            while (stack.length && /** @type {number} */ (entries[stack[stack.length - 1]].level) >= lvl) { stack.pop(); }
+            stack.push(i);
+        }
+    }
+    if (target && target.level !== null && target.level !== undefined) {
+        var own = target.level;
+        stack = stack.filter(function(s) { return /** @type {number} */ (entries[s].level) < own; });
+    }
+    return stack.filter(function(s) { return entries[s].folded === true; });
 }
