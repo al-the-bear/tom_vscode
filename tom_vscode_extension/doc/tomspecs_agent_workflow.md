@@ -77,8 +77,10 @@ Plain DocSpecs Markdown that is not a SOM document (a file with a
 5. **Author a step.** Each `csgen<n>` reads only what
    `tomAi_specCodeSpecsStepContext` returns for its step: its areas' extracts,
    the contract entries for their markers and the output project.
-6. **Validate and trace.** `tomAi_specCodeSpecsValidate` runs the 37 checks
-   over the generated projects (clean, violations or a usage error).
+6. **Validate and trace.** `tomAi_specCodeSpecsValidate` runs the 41 checks
+   over the generated projects (clean, violations or a usage error); checks
+   whose extra input was not given — 40 and 41 among them — are listed as not
+   run, never as passed.
    `tomAi_specCodeSpecsTrace` follows a token from the specification to the code
    that cites it, or back.
 
