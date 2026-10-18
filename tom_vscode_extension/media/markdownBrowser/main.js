@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global marked, mermaid, MDB_ANSWER_MARKER, mdbBlocks, mdbAnswerMarkers, mdbInsertAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
+/* global marked, mermaid, Highlight, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbInsertAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
 // Markdown Browser client — extracted verbatim from the inline <script> of
 // buildHtml() in src/handlers/markdownBrowser-handler.ts (Phase B.21 webview
 // restructuring). Predates strict checkJs (large verbatim extraction).
@@ -31,6 +31,12 @@
         var indentBtn = document.getElementById('indentBtn');
         var indentSizeSelect = document.getElementById('indentSizeSelect');
         var contentArea = document.getElementById('contentArea');
+        var docBackBtn = document.getElementById('docBackBtn');
+        var docForwardBtn = document.getElementById('docForwardBtn');
+        var searchInput = document.getElementById('searchInput');
+        var searchCount = document.getElementById('searchCount');
+        var searchPrevBtn = document.getElementById('searchPrevBtn');
+        var searchNextBtn = document.getElementById('searchNextBtn');
         // The rendered document lives in one element inside the scroll area.
         // A full render swaps that element for a new one in a single step:
         // removing a large rendered tree node by node can stall Chrome for
@@ -142,7 +148,6 @@
                 editMode = !editMode;
                 editModeBtn.classList.toggle('active', editMode);
                 document.body.classList.toggle('mdb-edit-mode', editMode);
-                redecorateAll();
             });
         }
         if (indentBtn) {
@@ -187,7 +192,7 @@
         // carrying an invisible `.md-heading-meta` marker (data-level, data-fullid)
         // and a `.md-heading-id` badge. Promote the true level to a per-level
         // class (md-h1..md-h10) and build the toggle-able full-id sub-line.
-        function enhanceHeadings(root) {
+        function enhanceHeadings(root, headingsOut) {
             root = root || docRoot;
             if (!root) return;
             var metas = root.querySelectorAll('.md-heading-meta');
@@ -203,6 +208,8 @@
                     }
                     heading.setAttribute('data-level', String(level));
                     if (fullId) {
+                        heading.dataset.fullid = fullId;
+                        if (headingsOut) { headingsOut.push(heading); }
                         var sub = document.createElement('div');
                         sub.className = 'md-heading-fullid';
                         sub.textContent = fullId;
@@ -272,31 +279,46 @@
         }
 
         /** Turn pieces into DOM nodes in a detached holder; returns the holder and the wrappers made. */
+        // The edit / insert controls are part of every editable block's markup
+        // and shown by the body's `mdb-edit-mode` class, so switching edit mode
+        // touches no block; their clicks are handled by one delegated listener.
+        var BLOCK_ACTIONS_HTML = '<div class="mdb-block-actions">'
+            + '<button class="mdb-inline-btn mdb-edit-btn codicon codicon-edit" title="Edit this paragraph (source, with the blank line before it)"></button>'
+            + '<button class="mdb-inline-btn mdb-insert-btn codicon codicon-add" title="Insert text at the end of this paragraph"></button>'
+            + '</div>';
+        /** Rendered HTML that may hold a section reference or a plain-text .md path. */
+        var LINKABLE_HTML = /[A-Z0-9][ \t]*&gt;[ \t]*[A-Z]|\.md(?![\w/-])/i;
+
         function piecesToNodes(pieces) {
             var holder = document.createElement('div');
+            var actions = crlfMode ? '' : BLOCK_ACTIONS_HTML;
             holder.innerHTML = pieces.map(function(p) {
-                return p.block ? '<div class="mdb-block">' + p.html + '</div>' : p.html;
+                if (!p.block) { return p.html; }
+                return '<div class="mdb-block">' + p.html + (p.block.editable ? actions : '') + '</div>';
             }).join('');
             var wrappers = [];
             var blocks = [];
+            var linkables = [];
             var k = 0;
             Array.prototype.forEach.call(holder.children, function(el) {
                 if (el.classList && el.classList.contains('mdb-block')) {
                     while (k < pieces.length && !pieces[k].block) { k++; }
+                    el.__mdbBlock = pieces[k].block;
                     wrappers.push(el);
                     blocks.push(pieces[k].block);
+                    if (LINKABLE_HTML.test(pieces[k].html)) { linkables.push(el); }
                     k++;
                 }
             });
-            return { holder: holder, wrappers: wrappers, blocks: blocks };
+            return { holder: holder, wrappers: wrappers, blocks: blocks, linkables: linkables };
         }
 
         /** Everything a freshly built set of nodes needs before it is shown. */
-        function processNodes(holder, wrappers, blocks, foldSeen) {
-            enhanceHeadings(holder);
-            interceptLinks(holder);
-            assignFoldKeys(holder, foldSeen);
-            decorateWrappers(wrappers, blocks);
+        function processNodes(nodes, ctx) {
+            enhanceHeadings(nodes.holder, ctx.headings);
+            assignFoldKeys(nodes.holder, ctx.foldSeen);
+            decorateWrappers(nodes.wrappers, nodes.blocks);
+            Array.prototype.push.apply(ctx.linkables, nodes.linkables);
         }
 
         function newDocRoot() {
@@ -346,17 +368,16 @@
             var frag = document.createDocumentFragment();
             var blocks = [];
             var wrappers = [];
-            var foldSeen = {};
+            var ctx = { foldSeen: {}, headings: [], linkables: [] };
             var at = 0;
             var big = pieces.length > RENDER_CHUNK;
-            var renderedEditMode = editMode;
             contentArea.setAttribute('aria-busy', 'true');
             function step() {
                 if (gen !== renderGen) { return; }   // a newer render started
                 var slice = pieces.slice(at, at + RENDER_CHUNK);
                 at += slice.length;
                 var nodes = piecesToNodes(slice);
-                processNodes(nodes.holder, nodes.wrappers, nodes.blocks, foldSeen);
+                processNodes(nodes, ctx);
                 Array.prototype.push.apply(wrappers, nodes.wrappers);
                 Array.prototype.push.apply(blocks, nodes.blocks);
                 while (nodes.holder.firstChild) { frag.appendChild(nodes.holder.firstChild); }
@@ -368,6 +389,8 @@
                 if (filePathEl) { filePathEl.removeAttribute('data-progress'); }
                 shownBlocks = blocks;
                 shownWrappers = wrappers;
+                indexHeadings(ctx.headings);
+                linkify(ctx.linkables);
                 var fresh = newDocRoot();
                 // A large document lays out only the blocks on screen
                 // (style.css: content-visibility on .mdb-large blocks).
@@ -375,8 +398,8 @@
                 fresh.appendChild(frag);
                 showDocRoot(fresh);
                 contentArea.removeAttribute('aria-busy');
-                // Edit mode switched while the batches ran: some have the old controls.
-                if (editMode !== renderedEditMode) { redecorateAll(); }
+                hideLinkPopup();
+                search.texts = null;
                 done();
             }
             // A large document's lexing was this task's work; the batches start in the next one.
@@ -423,7 +446,9 @@
             var built = buildPieces(region, regionStart);
             if (built.pieces.some(function(p) { return p.hasHtml || (p.block && (p.block.type === 'heading' || p.block.type === 'group')); })) { return false; }
             var nodes = piecesToNodes(built.pieces);
-            processNodes(nodes.holder, nodes.wrappers, nodes.blocks, {});
+            var ctx = { foldSeen: {}, headings: [], linkables: [] };
+            processNodes(nodes, ctx);
+            linkify(ctx.linkables);
             // Swap the old wrappers (and anything between them) for the new nodes.
             var oldFirst = shownWrappers[from];
             var oldLast = shownWrappers[last];
@@ -453,6 +478,8 @@
             Array.prototype.splice.apply(shownWrappers, [from, last - from + 1].concat(nodes.wrappers));
             shownText = lines.join(eol);
             shownLinesCache = null;
+            search.texts = null;
+            if (search.query) { runSearch(false); }
             return true;
         }
 
@@ -559,14 +586,20 @@
             });
         }
 
+        function anyFolded() {
+            for (var k in foldState) {
+                if (foldState[k] === true) { return true; }
+            }
+            return false;
+        }
+
         /** After a full render: keep the flags of a re-rendered same file, apply them only if any are set. */
         function finishFolding(sameFile) {
             if (!sameFile || foldFile !== currentFilePath) {
                 foldState = {};
                 foldFile = currentFilePath;
             }
-            var anyFolded = Object.keys(foldState).some(function(k) { return foldState[k] === true; });
-            if (anyFolded) { applyFolding(); } else { refreshFoldControls(); }
+            if (anyFolded()) { applyFolding(); } else { refreshFoldControls(); }
         }
 
         var indentApplied = false;      // whether the current render carries indent styles
@@ -584,6 +617,8 @@
         /** Unfold the sections an element sits in, so it can be seen. */
         function revealElement(target) {
             if (!contentArea || !target) { return; }
+            // Nothing folded, nothing to unfold: skip walking every element.
+            if (!anyFolded()) { return; }
             var top = target;
             while (top && top.parentNode !== docRoot) { top = top.parentNode; }
             var entries = foldEntries();
@@ -679,12 +714,6 @@
             }
         }
 
-        function redecorateAll() {
-            var old = contentArea.querySelectorAll('.mdb-answer-btn, .mdb-block-actions');
-            for (var i = 0; i < old.length; i++) { old[i].parentNode.removeChild(old[i]); }
-            decorateWrappers(shownWrappers, shownBlocks);
-        }
-
         function decorateWrapper(wrapper, block) {
             if (!block) { return; }
             // Answers: the k-th marker of a block is its k-th <strong>Answer:</strong>.
@@ -703,16 +732,15 @@
                     if (strong) { addAnswerButton(strong, block, line - block.startLine, markers[k].column); }
                 }
             }
-            if (!editMode || !block.editable) { return; }
-            var actions = document.createElement('div');
-            actions.className = 'mdb-block-actions';
-            var editBtn = iconButton('mdb-edit-btn', 'edit', 'Edit this paragraph (source, with the blank line before it)');
-            var insertBtn = iconButton('mdb-insert-btn', 'add', 'Insert text at the end of this paragraph');
-            actions.appendChild(editBtn);
-            actions.appendChild(insertBtn);
-            wrapper.appendChild(actions);
-            editBtn.addEventListener('click', function(e) {
-                e.stopPropagation();
+        }
+
+        /** An edit or insert button was clicked: open its editor on the block's lines as they are now. */
+        function onBlockAction(btn) {
+            var actions = btn.parentNode;
+            var wrapper = actions && actions.parentNode;
+            var block = wrapper && wrapper.__mdbBlock;
+            if (!block || crlfMode) { return; }
+            if (btn.classList.contains('mdb-edit-btn')) {
                 var lines = shownLines();
                 // The blank lines before the block belong to the edit, so
                 // removing the leading newline merges it with the block before.
@@ -725,14 +753,12 @@
                     if (value === source) { return null; }
                     return { startLine: start, endLine: block.endLine, expected: source, replacement: value };
                 });
-            });
-            insertBtn.addEventListener('click', function(e) {
-                e.stopPropagation();
-                openEditor(actions, wrapper, '', function(value) {
-                    if (!value) { return null; }
-                    var source = shownLines().slice(block.startLine, block.endLine).join('\n');
-                    return { startLine: block.startLine, endLine: block.endLine, expected: source, replacement: source + value };
-                });
+                return;
+            }
+            openEditor(actions, wrapper, '', function(value) {
+                if (!value) { return null; }
+                var source = shownLines().slice(block.startLine, block.endLine).join('\n');
+                return { startLine: block.startLine, endLine: block.endLine, expected: source, replacement: source + value };
             });
         }
 
@@ -758,7 +784,7 @@
         }
 
         // ---- Anchor Scrolling ----
-        function scrollToAnchor(anchor) {
+        function scrollToAnchor(anchor, record) {
             if (!anchor || !contentArea) return false;
 
             // Try finding element by ID first (standard anchor)
@@ -785,6 +811,10 @@
                 }
             }
 
+            if (target && record) {
+                jumpWithinDocument(target);
+                return true;
+            }
             if (target) {
                 revealElement(target);
                 target.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -817,25 +847,395 @@
             }
         }
 
-        // ---- Link Click Handling ----
-        function interceptLinks(root) {
-            root = root || docRoot;
-            if (!root) return;
-            root.querySelectorAll('a[href]').forEach(function(link) {
-                link.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    var href = link.getAttribute('href') || '';
-                    if (!href) return;
+        // ---- Links in plain text ----
+        // Headings carry their dotted full id (`SBP.STKG.TOENV`); a section
+        // reference `STKG > TOENV` names its last id and, outer first, ids
+        // above it. Indexed by last id after each full render.
+        var headingsById = {};
 
-                    // Skip external URLs
-                    if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:')) {
-                        return;
-                    }
-
-                    vscode.postMessage({ type: 'navigateLink', href: href });
-                });
+        function indexHeadings(headings) {
+            headingsById = {};
+            headings.forEach(function(h) {
+                var full = h.dataset.fullid || '';
+                var last = full.slice(full.lastIndexOf('.') + 1);
+                (headingsById[last] = headingsById[last] || []).push(h);
             });
         }
+
+        function headingForRef(ids) {
+            var candidates = headingsById[ids[ids.length - 1]];
+            if (!candidates) { return null; }
+            var i = mdbResolveSectionRef(ids, candidates.map(function(h) { return h.dataset.fullid; }));
+            return i >= 0 ? candidates[i] : null;
+        }
+
+        /** Turn section references and plain-text .md paths in these blocks into links. */
+        function linkify(wrappers) {
+            wrappers.forEach(function(wrapper) {
+                var walker = document.createTreeWalker(wrapper, NodeFilter.SHOW_TEXT);
+                var nodes = [];
+                for (var n = walker.nextNode(); n; n = walker.nextNode()) {
+                    var host = n.parentNode;
+                    if (host && host.closest && host.closest('a, pre, button, textarea, .md-heading-fullid, .md-heading-id')) { continue; }
+                    nodes.push(n);
+                }
+                nodes.forEach(linkifyTextNode);
+            });
+        }
+
+        function linkifyTextNode(node) {
+            var text = node.nodeValue || '';
+            var found = [];
+            mdbSectionRefs(text).forEach(function(r) {
+                if (headingForRef(r.ids)) { found.push({ start: r.start, end: r.end, ref: r.ids.join(' > ') }); }
+            });
+            mdbMdPaths(text).forEach(function(m) { found.push({ start: m.start, end: m.end, path: m.path }); });
+            if (found.length === 0) { return; }
+            found.sort(function(a, b) { return a.start - b.start; });
+            var frag = document.createDocumentFragment();
+            var at = 0;
+            found.forEach(function(f) {
+                if (f.start < at) { return; }   // overlaps the one before
+                if (f.start > at) { frag.appendChild(document.createTextNode(text.slice(at, f.start))); }
+                var a = document.createElement('a');
+                a.textContent = text.slice(f.start, f.end);
+                if (f.ref) {
+                    a.className = 'mdb-secref';
+                    a.href = '#';
+                    a.dataset.secref = f.ref;
+                    a.title = 'Go to ' + f.ref;
+                } else {
+                    a.className = 'mdb-autolink';
+                    a.setAttribute('href', f.path);
+                }
+                frag.appendChild(a);
+                at = f.end;
+            });
+            if (at < text.length) { frag.appendChild(document.createTextNode(text.slice(at))); }
+            node.parentNode.replaceChild(frag, node);
+        }
+
+        // ---- Navigation within the document ----
+        // Following a section reference or an anchor records where the reader
+        // was; the second pair of arrows walks those positions back and forth.
+        var docBack = [];
+        var docForward = [];
+
+        /** The top-level element at the top of the view, or null. */
+        function topVisibleElement() {
+            if (!document.elementFromPoint) { return null; }
+            var r = contentArea.getBoundingClientRect();
+            for (var y = r.top + 8; y < r.top + 120; y += 16) {
+                var hit = document.elementFromPoint(r.left + r.width / 2, y);
+                while (hit && hit.parentNode !== docRoot) { hit = hit.parentNode; }
+                if (hit) { return hit; }
+            }
+            return null;
+        }
+
+        function offsetInView(el) {
+            return el.getBoundingClientRect().top - contentArea.getBoundingClientRect().top;
+        }
+
+        function capturePosition() {
+            var el = topVisibleElement();
+            return { el: el, delta: el ? offsetInView(el) : 0, scrollTop: contentArea.scrollTop };
+        }
+
+        function restorePosition(pos) {
+            if (pos.el && pos.el.isConnected) {
+                revealElement(pos.el);
+                contentArea.scrollTop += offsetInView(pos.el) - pos.delta;
+            } else {
+                contentArea.scrollTop = pos.scrollTop;
+            }
+        }
+
+        function flash(el) {
+            el.style.transition = 'background-color 0.3s';
+            el.style.backgroundColor = 'var(--vscode-editor-findMatchHighlightBackground)';
+            setTimeout(function() { el.style.backgroundColor = ''; }, 1500);
+        }
+
+        /** Go to `target`, remembering where the reader was. */
+        function jumpWithinDocument(target) {
+            docBack.push(capturePosition());
+            docForward = [];
+            revealElement(target);
+            contentArea.scrollTop += offsetInView(target) - 8;
+            flash(target);
+            updateDocNav();
+        }
+
+        function updateDocNav() {
+            if (docBackBtn) { docBackBtn.disabled = docBack.length === 0; }
+            if (docForwardBtn) { docForwardBtn.disabled = docForward.length === 0; }
+        }
+
+        function resetDocNav() {
+            docBack = [];
+            docForward = [];
+            updateDocNav();
+        }
+
+        if (docBackBtn) {
+            docBackBtn.addEventListener('click', function() {
+                if (docBack.length === 0) { return; }
+                docForward.push(capturePosition());
+                restorePosition(docBack.pop());
+                updateDocNav();
+            });
+        }
+        if (docForwardBtn) {
+            docForwardBtn.addEventListener('click', function() {
+                if (docForward.length === 0) { return; }
+                docBack.push(capturePosition());
+                restorePosition(docForward.pop());
+                updateDocNav();
+            });
+        }
+
+        // ---- Clicks in the content: links, section references, block actions ----
+        if (contentArea) {
+            contentArea.addEventListener('click', function(e) {
+                var t = e.target;
+                if (!t || !t.closest) { return; }
+                var action = t.closest('.mdb-edit-btn, .mdb-insert-btn');
+                if (action) {
+                    e.stopPropagation();
+                    onBlockAction(action);
+                    return;
+                }
+                var link = t.closest('a');
+                if (!link || !docRoot.contains(link)) { return; }
+                e.preventDefault();
+                if (link.classList.contains('mdb-secref')) {
+                    var target = headingForRef(link.dataset.secref.split(' > '));
+                    if (target) { jumpWithinDocument(target); }
+                    return;
+                }
+                var href = link.getAttribute('href') || '';
+                if (!href || /^(https?:|mailto:)/.test(href)) { return; }
+                vscode.postMessage({ type: 'navigateLink', href: href });
+            });
+        }
+
+        // ---- Link popup: open a linked document here or in a new browser ----
+        var linkPopup = document.createElement('div');
+        linkPopup.className = 'mdb-link-popup';
+        linkPopup.innerHTML = '<button class="mdb-link-popup-btn" data-target="same" title="Open in this MD Browser">'
+            + '<span class="codicon codicon-arrow-right"></span> Open here</button>'
+            + '<button class="mdb-link-popup-btn" data-target="new" title="Open in a new MD Browser editor">'
+            + '<span class="codicon codicon-empty-window"></span> Open in new MD Browser</button>';
+        document.body.appendChild(linkPopup);
+        var popupLink = null;
+        var popupShowTimer = null;
+        var popupHideTimer = null;
+
+        function hideLinkPopup() {
+            clearTimeout(popupShowTimer);
+            clearTimeout(popupHideTimer);
+            linkPopup.classList.remove('visible');
+            popupLink = null;
+        }
+
+        function showLinkPopup(link) {
+            popupLink = link;
+            linkPopup.classList.add('visible');
+            var r = link.getBoundingClientRect();
+            var w = linkPopup.offsetWidth || 260;
+            var h = linkPopup.offsetHeight || 28;
+            linkPopup.style.left = Math.max(4, Math.min(r.left, window.innerWidth - w - 8)) + 'px';
+            linkPopup.style.top = (r.bottom + h + 6 > window.innerHeight ? r.top - h - 4 : r.bottom + 4) + 'px';
+        }
+
+        function popupLinkAt(target) {
+            var a = target && target.closest ? target.closest('a[href]') : null;
+            if (!a || !docRoot.contains(a) || a.classList.contains('mdb-secref')) { return null; }
+            return mdbIsMdLink(a.getAttribute('href')) ? a : null;
+        }
+
+        if (contentArea) {
+            contentArea.addEventListener('mouseover', function(e) {
+                var a = popupLinkAt(e.target);
+                if (!a) { return; }
+                clearTimeout(popupHideTimer);
+                if (popupLink === a) { return; }
+                clearTimeout(popupShowTimer);
+                popupShowTimer = setTimeout(function() { showLinkPopup(a); }, 300);
+            });
+            contentArea.addEventListener('mouseout', function(e) {
+                var a = popupLinkAt(e.target);
+                if (!a) { return; }
+                var to = e.relatedTarget;
+                if (to && (a.contains(to) || linkPopup.contains(to))) { return; }
+                clearTimeout(popupShowTimer);
+                popupHideTimer = setTimeout(hideLinkPopup, 300);
+            });
+            contentArea.addEventListener('scroll', hideLinkPopup);
+        }
+        linkPopup.addEventListener('mouseenter', function() { clearTimeout(popupHideTimer); });
+        linkPopup.addEventListener('mouseleave', function() { popupHideTimer = setTimeout(hideLinkPopup, 300); });
+        linkPopup.addEventListener('click', function(e) {
+            var btn = e.target && e.target.closest ? e.target.closest('.mdb-link-popup-btn') : null;
+            if (!btn || !popupLink) { return; }
+            vscode.postMessage({ type: 'navigateLink', href: popupLink.getAttribute('href'), newPanel: btn.dataset.target === 'new' });
+            hideLinkPopup();
+        });
+
+        // ---- Search ----
+        // The text of each top-level element, lower-cased, is indexed once per
+        // render (or patch); every keystroke searches that index. Matches are
+        // painted with the CSS Custom Highlight API, so the DOM is never touched.
+        var SEARCH_CAP = 10000;
+        var search = { query: '', texts: null, els: null, matches: [], current: -1, truncated: false };
+
+        function searchIndex() {
+            if (!search.texts) {
+                search.els = Array.prototype.slice.call(docRoot.children);
+                search.texts = search.els.map(function(el) { return (el.textContent || '').toLowerCase(); });
+            }
+        }
+
+        /** Find the query; with `jump`, go to the first match at or below the top of the view. */
+        function runSearch(jump) {
+            var q = searchInput ? searchInput.value.toLowerCase() : '';
+            search.query = q;
+            search.matches = [];
+            search.truncated = false;
+            if (q) {
+                searchIndex();
+                outer:
+                for (var i = 0; i < search.texts.length; i++) {
+                    var text = search.texts[i];
+                    for (var at = text.indexOf(q); at >= 0; at = text.indexOf(q, at + q.length)) {
+                        if (search.matches.length >= SEARCH_CAP) { search.truncated = true; break outer; }
+                        search.matches.push({ el: i, at: at });
+                    }
+                }
+            }
+            if (jump) {
+                search.current = firstMatchFromView();
+                showSearchMatch(true);
+            } else {
+                search.current = Math.min(search.current, search.matches.length - 1);
+                showSearchMatch(false);
+            }
+        }
+
+        function firstMatchFromView() {
+            if (search.matches.length === 0) { return -1; }
+            var top = topVisibleElement();
+            var from = top ? search.els.indexOf(top) : 0;
+            for (var i = 0; i < search.matches.length; i++) {
+                if (search.matches[i].el >= from) { return i; }
+            }
+            return 0;
+        }
+
+        /** A Range over `length` characters at `offset` of `el`'s text. */
+        function textRange(el, offset, length) {
+            var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+            var range = document.createRange();
+            var seen = 0;
+            var started = false;
+            for (var n = walker.nextNode(); n; n = walker.nextNode()) {
+                var len = n.nodeValue.length;
+                if (!started && offset < seen + len) {
+                    range.setStart(n, offset - seen);
+                    started = true;
+                }
+                if (started && offset + length <= seen + len) {
+                    range.setEnd(n, offset + length - seen);
+                    return range;
+                }
+                seen += len;
+            }
+            return null;
+        }
+
+        var highlightsSupported = typeof CSS !== 'undefined' && CSS.highlights && typeof Highlight !== 'undefined';
+
+        function showSearchMatch(scroll) {
+            var n = search.matches.length;
+            if (searchCount) {
+                searchCount.textContent = !search.query ? ''
+                    : n === 0 ? 'No results'
+                        : (search.current >= 0 ? (search.current + 1) + ' of ' : '') + n + (search.truncated ? '+' : '');
+            }
+            if (searchPrevBtn) { searchPrevBtn.disabled = n === 0; }
+            if (searchNextBtn) { searchNextBtn.disabled = n === 0; }
+            if (highlightsSupported) {
+                CSS.highlights.delete('mdb-search');
+                CSS.highlights.delete('mdb-search-current');
+            }
+            if (search.current < 0 || n === 0) { return; }
+            var match = search.matches[search.current];
+            var el = search.els[match.el];
+            if (scroll) { revealElement(el); }
+            var range = textRange(el, match.at, search.query.length);
+            if (highlightsSupported) {
+                // The other matches near this one, so the neighbourhood is visible too.
+                var near = [];
+                for (var i = Math.max(0, search.current - 200); i < Math.min(n, search.current + 200); i++) {
+                    var m = search.matches[i];
+                    if (i === search.current || Math.abs(m.el - match.el) > 40) { continue; }
+                    var r = textRange(search.els[m.el], m.at, search.query.length);
+                    if (r) { near.push(r); }
+                }
+                CSS.highlights.set('mdb-search', new Highlight(...near));
+                if (range) { CSS.highlights.set('mdb-search-current', new Highlight(range)); }
+            }
+            if (!scroll) { return; }
+            contentArea.scrollTop += offsetInView(el) - contentArea.clientHeight / 3;
+            if (range && range.getBoundingClientRect) {
+                var rr = range.getBoundingClientRect();
+                var ar = contentArea.getBoundingClientRect();
+                if (rr.height && (rr.top < ar.top || rr.bottom > ar.bottom)) {
+                    contentArea.scrollTop += rr.top - ar.top - contentArea.clientHeight / 3;
+                }
+            }
+        }
+
+        function stepSearch(delta) {
+            var n = search.matches.length;
+            if (n === 0) { return; }
+            search.current = search.current < 0
+                ? (delta > 0 ? firstMatchFromView() : (firstMatchFromView() - 1 + n) % n)
+                : (search.current + delta + n) % n;
+            showSearchMatch(true);
+        }
+
+        if (searchInput) {
+            // Keystrokes that queue up while a search runs are searched once, for the latest text.
+            var searchQueued = false;
+            searchInput.addEventListener('input', function() {
+                if (searchQueued) { return; }
+                searchQueued = true;
+                setTimeout(function() {
+                    searchQueued = false;
+                    runSearch(true);
+                }, 0);
+            });
+            searchInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    stepSearch(e.shiftKey ? -1 : 1);
+                } else if (e.key === 'Escape') {
+                    searchInput.value = '';
+                    runSearch(false);
+                }
+            });
+        }
+        if (searchNextBtn) { searchNextBtn.addEventListener('click', function() { stepSearch(1); }); }
+        if (searchPrevBtn) { searchPrevBtn.addEventListener('click', function() { stepSearch(-1); }); }
+        document.addEventListener('keydown', function(e) {
+            if ((e.metaKey || e.ctrlKey) && (e.key === 'f' || e.key === 'F') && searchInput) {
+                e.preventDefault();
+                searchInput.focus();
+                searchInput.select();
+            }
+        });
 
         function handleContent(msg) {
             // A refresh of the same file while an editor is open would throw the
@@ -895,7 +1295,12 @@
                 shownCrlf = crlfMode;
                 shownLinesCache = null;
                 var anchor = msg.anchor;
+                if (!sameFile) {
+                    resetDocNav();
+                    search.current = -1;
+                }
                 renderDocument(shownText, function() {
+                    if (search.query) { runSearch(false); }
                     initMermaid();
                     indentApplied = false;  // a fresh render carries no indent styles
                     finishFolding(sameFile);
@@ -956,7 +1361,7 @@
             } else if (msg.type === 'scrollToAnchor') {
                 // Scroll to anchor within current document
                 if (msg.anchor) {
-                    scrollToAnchor(msg.anchor);
+                    scrollToAnchor(msg.anchor, true);
                 }
             } else if (msg.type === 'reconnected') {
                 // Backend re-attached the watch and pushed fresh content; pin to

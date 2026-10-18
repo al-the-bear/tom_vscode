@@ -12,6 +12,10 @@
  *   MB-8  folding: the folded headings an element sits under, for revealing it
  *   MB-9  indent depths: a heading at its level - 1, its content one step deeper
  *   MB-10 html blocks that open an element (e.g. <details>) are grouped with everything up to its close
+ *   MB-11 section references `OUTER > INNER`: found in text, uppercase ids only
+ *   MB-12 a section reference resolves to the heading whose full id holds its ids in order
+ *   MB-13 plain-text .md paths: relative, nested, bare names; not URLs, not mid-word
+ *   MB-14 which links point at a Markdown document
  */
 
 import test, { describe } from 'node:test';
@@ -30,6 +34,10 @@ interface BlocksApi {
     mdbFoldAncestors(entries: Array<{ level: number | null; folded?: boolean }>, index: number): number[];
     mdbIndentDepths(entries: Array<{ level: number | null }>): number[];
     mdbGroups(tokens: unknown[]): Array<[number, number]>;
+    mdbSectionRefs(text: string): Array<{ start: number; end: number; ids: string[] }>;
+    mdbResolveSectionRef(ids: string[], fullIds: string[]): number;
+    mdbMdPaths(text: string): Array<{ start: number; end: number; path: string }>;
+    mdbIsMdLink(href: string): boolean;
 }
 
 function load(): BlocksApi {
@@ -151,5 +159,43 @@ describe('Markdown Browser source mapping', () => {
             ['html+html+paragraph+html+html', 'paragraph'], 'nested elements close together');
         assert.deepEqual(groups('<br>\n\n<img src="x"/>\n\nText'), ['html', 'html', 'paragraph'], 'void and self-closing tags open nothing');
         assert.deepEqual(groups('<details>\n\nnever closed\n\nmore'), ['html+paragraph+paragraph'], 'unclosed runs to the end');
+    });
+
+    const plain = <T>(x: T): T => JSON.parse(JSON.stringify(x));
+
+    test('MB-11: section references', () => {
+        assert.deepEqual(plain(api.mdbSectionRefs('in STKG > TOENV and SYDSC>UCE > X-1.')), [
+            { start: 3, end: 15, ids: ['STKG', 'TOENV'] },
+            { start: 20, end: 35, ids: ['SYDSC', 'UCE', 'X-1'] },
+        ]);
+        assert.deepEqual(plain(api.mdbSectionRefs('a > b, Stkg > TOENV, STKG alone, x STKG > ')), [], 'lower case, single ids and dangling > are no references');
+        assert.deepEqual(plain(api.mdbSectionRefs('RFDOC-DOCU-LST > RFDOC-DOCU-PROJECT-IDEA')).map((r) => r.ids), [['RFDOC-DOCU-LST', 'RFDOC-DOCU-PROJECT-IDEA']]);
+    });
+
+    test('MB-12: resolving a section reference', () => {
+        const ids = ['SBP.A.ACE-CRIT-1', 'SBP.B.X.ACE-CRIT-1', 'SBP.STKG.TOENV'];
+        assert.equal(api.mdbResolveSectionRef(['B', 'ACE-CRIT-1'], ids), 1, 'the outer id picks among repeated inner ids');
+        assert.equal(api.mdbResolveSectionRef(['STKG', 'TOENV'], ids), 2);
+        assert.equal(api.mdbResolveSectionRef(['SBP', 'X', 'ACE-CRIT-1'], ids), 1, 'outer ids need not be the direct parent');
+        assert.equal(api.mdbResolveSectionRef(['Q', 'ACE-CRIT-1'], ids), 0, 'an unknown outer id falls back to the first with that id');
+        assert.equal(api.mdbResolveSectionRef(['STKG', 'NONE'], ids), -1);
+        assert.equal(api.mdbResolveSectionRef(['TOENV', 'STKG'], ids), -1, 'order matters');
+    });
+
+    test('MB-13: plain-text .md paths', () => {
+        const paths = (s: string): string[] => plain(api.mdbMdPaths(s)).map((m) => m.path);
+        assert.deepEqual(paths('_Extrapolated — see iterations/sbpa06_notes.md._'), ['iterations/sbpa06_notes.md']);
+        assert.deepEqual(paths('see ../x/y.md, clarifications.sbp.md and _ai/quests/q/overview.q.md;'), ['../x/y.md', 'clarifications.sbp.md', '_ai/quests/q/overview.q.md']);
+        assert.deepEqual(paths('https://host/a.md and readme.mdx and x.md5 and a.md/b'), [], 'URLs, other extensions and directories');
+        const m = plain(api.mdbMdPaths('see ./a.md'))[0];
+        assert.deepEqual([m.start, m.end], [4, 10]);
+    });
+
+    test('MB-14: Markdown links', () => {
+        assert.equal(api.mdbIsMdLink('a/b.md'), true);
+        assert.equal(api.mdbIsMdLink('../B.MD#sec'), true);
+        assert.equal(api.mdbIsMdLink('#local'), false);
+        assert.equal(api.mdbIsMdLink('https://x.org/a.md'), false);
+        assert.equal(api.mdbIsMdLink('a/b.ts'), false);
     });
 });

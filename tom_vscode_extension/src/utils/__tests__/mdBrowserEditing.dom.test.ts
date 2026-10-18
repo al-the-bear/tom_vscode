@@ -6,7 +6,7 @@
  *   MD-2  the answer editor: 5 rows, its button hidden while open, Save sends
  *         the line, what was there and the line with the answer inserted
  *   MD-3  a successful save closes the editor; a refused one keeps it open with the reason
- *   MD-4  edit mode: an edit and an insert button at the end of every editable block
+ *   MD-4  edit mode: an edit and an insert button at the end of every editable block, shown only in edit mode
  *   MD-5  edit opens the block's source with the blank line before it and sends the
  *         text as typed (removing that newline merges); insert appends to the block
  *   MD-6  a refresh of the same file is held while an editor is open, applied when it closes
@@ -45,7 +45,7 @@ type Win = any;
 
 function setup(): { window: Win; posted: Array<Record<string, unknown>> } {
     const body = asset('index.html').split('<body>')[1].split('<script')[0].replace(/\{\{[a-zA-Z]+\}\}/g, '');
-    const dom = new JSDOM(`<!DOCTYPE html><body>${body}</body>`, { runScripts: 'outside-only', pretendToBeVisual: true });
+    const dom = new JSDOM(`<!DOCTYPE html><head><style>${asset('style.css')}</style></head><body>${body}</body>`, { runScripts: 'outside-only', pretendToBeVisual: true });
     const window = dom.window as Win;
     const posted: Array<Record<string, unknown>> = [];
     window.acquireVsCodeApi = () => ({ postMessage: (m: Record<string, unknown>) => posted.push(m), setState: () => undefined });
@@ -101,10 +101,12 @@ describe('Markdown Browser editing', () => {
     test('MD-4/MD-5: edit mode', () => {
         const { window, posted } = setup();
         send(window, content(DOC));
-        assert.equal($(window, '.mdb-block-actions').length, 0, 'off by default');
-        window.document.getElementById('editModeBtn').click();
         const actions = $(window, '.mdb-block-actions');
         assert.equal(actions.length, 3, 'paragraph, list, code — not the heading');
+        const shown = (): string => window.getComputedStyle(actions[0]).display;
+        assert.equal(shown(), 'none', 'hidden by default');
+        window.document.getElementById('editModeBtn').click();
+        assert.equal(shown(), 'flex', 'edit mode shows them');
 
         actions[0].querySelector('.mdb-edit-btn').click();
         const area = $(window, '.mdb-editor textarea')[0];

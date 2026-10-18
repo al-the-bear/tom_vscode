@@ -86,6 +86,20 @@
     <!-- File info -->
     <div class="file-info-bar">
         <span class="file-path" id="filePath">No file selected</span>
+        <button class="icon-btn" id="docBackBtn" disabled title="Back to where you were in this document">
+            <span class="codicon codicon-chevron-left"></span>
+        </button>
+        <button class="icon-btn" id="docForwardBtn" disabled title="Forward within this document">
+            <span class="codicon codicon-chevron-right"></span>
+        </button>
+        <input id="searchInput" class="search-input" type="search" placeholder="Search in document" title="Search in this document (Enter: next, Shift+Enter: previous, Esc: clear)" />
+        <span id="searchCount" class="search-count"></span>
+        <button class="icon-btn" id="searchPrevBtn" disabled title="Previous match (Shift+Enter)">
+            <span class="codicon codicon-arrow-up"></span>
+        </button>
+        <button class="icon-btn" id="searchNextBtn" disabled title="Next match (Enter)">
+            <span class="codicon codicon-arrow-down"></span>
+        </button>
     </div>
 
     <!-- Content -->

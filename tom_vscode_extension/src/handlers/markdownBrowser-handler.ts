@@ -152,6 +152,7 @@ class MdBrowserPanel {
      */
     private _crlfMode = false;
     private _pendingInitialFile?: string;
+    private _pendingInitialAnchor?: string;
     private _fileWatcher?: vscode.FileSystemWatcher;
     private _fileWatcherDebounce?: ReturnType<typeof setTimeout>;
     /** mtime-polling fallback for files the native watcher can't see (see FILE_POLL_INTERVAL_MS). */
@@ -211,6 +212,11 @@ class MdBrowserPanel {
     /** Upgrade to live mode (never downgrade). */
     upgradeLiveMode(): void {
         this._liveMode = true;
+    }
+
+    /** The anchor to scroll to once the first file has loaded. */
+    setInitialAnchor(anchor: string | undefined): void {
+        this._pendingInitialAnchor = anchor;
     }
 
     navigateTo(filePath: string): void {
@@ -519,7 +525,8 @@ class MdBrowserPanel {
                 case 'webviewReady':
                     this._sendGroups();
                     if (this._pendingInitialFile) {
-                        this._navigateToFile(this._pendingInitialFile, 'other');
+                        this._navigateToFile(this._pendingInitialFile, 'other', this._pendingInitialAnchor);
+                        this._pendingInitialAnchor = undefined;
                         this._pendingInitialFile = undefined;
                     }
                     break;
@@ -609,16 +616,17 @@ class MdBrowserPanel {
                             break;
 
                         case 'navigate-md':
-                            if (resolved.filePath) {
-                                this._navigateToFile(resolved.filePath, 'other');
+                        case 'navigate-md-anchor': {
+                            if (!resolved.filePath) { break; }
+                            const anchor = resolved.action === 'navigate-md-anchor' ? resolved.anchor : undefined;
+                            if (msg.newPanel === true) {
+                                // The link popup's "Open in new MD Browser".
+                                openMarkdownBrowser(this._context, resolved.filePath, { anchor });
+                            } else {
+                                this._navigateToFile(resolved.filePath, 'other', anchor);
                             }
                             break;
-
-                        case 'navigate-md-anchor':
-                            if (resolved.filePath) {
-                                this._navigateToFile(resolved.filePath, 'other', resolved.anchor);
-                            }
-                            break;
+                        }
 
                         case 'open-in-editor':
                             if (resolved.filePath) {
@@ -798,7 +806,7 @@ const livePanelInstances = new Map<string, MdBrowserPanel>();
 export function openMarkdownBrowser(
     context: vscode.ExtensionContext,
     filePath: string,
-    options?: { liveMode?: boolean },
+    options?: { liveMode?: boolean; anchor?: string },
 ): void {
     try {
         if (MD_BROWSER_DEBUG) debugLog(`[MdBrowser] openMarkdownBrowser file=${filePath} liveMode=${options?.liveMode === true}`, 'INFO', 'mdBrowser');
@@ -832,9 +840,10 @@ export function openMarkdownBrowser(
             livePanelInstances.set(key, fresh);
         } else {
             // --- Static panel: always open a fresh window ---
-            new MdBrowserPanel(context, filePath, false, () => {
+            const panel = new MdBrowserPanel(context, filePath, false, () => {
                 // No singleton to clear — the panel is self-contained.
             });
+            panel.setInitialAnchor(options?.anchor);
         }
     } catch (err) {
         debugLog(`[MdBrowser] openMarkdownBrowser error: ${err}`, 'ERROR', 'mdBrowser');

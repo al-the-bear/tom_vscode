@@ -4,7 +4,7 @@
 // it can be loaded into a bare `vm` sandbox and unit-tested directly
 // (src/utils/__tests__/mdBrowserBlocks.test.ts). Loaded as a classic script
 // before main.js; the declarations below are globals main.js calls.
-/* exported MDB_ANSWER_MARKER, mdbBlocks, mdbAnswerMarkers, mdbInsertAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
+/* exported MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbInsertAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
 //
 // The browser renders the backend's transformed text. Without the CR/LF
 // conversion that transform keeps every line where it is (it only rewrites
@@ -255,4 +255,83 @@ function mdbGroups(tokens) {
         i++;
     }
     return out;
+}
+
+// ---- Links in plain text ----
+
+/** A DocSpecs section id: upper case letters and digits, `-`-separated. */
+var MDB_SECTION_ID = '[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*';
+
+/**
+ * The section references in `text`: two or more section ids joined by `>`
+ * (`OUTER > INNER`), outer first.
+ *
+ * @param {string} text
+ * @returns {Array<{start: number, end: number, ids: string[]}>}
+ */
+function mdbSectionRefs(text) {
+    var re = new RegExp('(?<![A-Za-z0-9-])' + MDB_SECTION_ID + '(?:[ \\t]*>[ \\t]*' + MDB_SECTION_ID + ')+(?![A-Za-z0-9-])', 'g');
+    var out = [];
+    var m;
+    while ((m = re.exec(String(text || ''))) !== null) {
+        out.push({ start: m.index, end: m.index + m[0].length, ids: m[0].split('>').map(function(s) { return s.trim(); }) });
+    }
+    return out;
+}
+
+/**
+ * The heading a section reference points at, as an index into `fullIds` (the
+ * dotted id paths of the headings, in document order): the first whose last
+ * segment is the reference's last id and whose segments hold the outer ids in
+ * order; failing that, the first whose last segment is the last id; else -1.
+ *
+ * @param {string[]} ids
+ * @param {string[]} fullIds
+ * @returns {number}
+ */
+function mdbResolveSectionRef(ids, fullIds) {
+    var last = ids[ids.length - 1];
+    var fallback = -1;
+    for (var i = 0; i < fullIds.length; i++) {
+        var segs = fullIds[i].split('.');
+        if (segs[segs.length - 1] !== last) { continue; }
+        if (fallback < 0) { fallback = i; }
+        // The outer ids, in order, among the segments above the last.
+        var found = 0;
+        for (var j = 0; j < segs.length - 1 && found < ids.length - 1; j++) {
+            if (segs[j] === ids[found]) { found++; }
+        }
+        if (found === ids.length - 1) { return i; }
+    }
+    return fallback;
+}
+
+/**
+ * Paths to Markdown files written as plain text (`iterations/notes.md`,
+ * `../a.md`, `notes.md`), not part of a URL or a longer word.
+ *
+ * @param {string} text
+ * @returns {Array<{start: number, end: number, path: string}>}
+ */
+function mdbMdPaths(text) {
+    var re = /(?<![\w./:@~-])((?:\.{1,2}\/)*(?:[\w-][\w.-]*\/)*[\w-][\w.-]*\.md)(?![\w/-])/gi;
+    var out = [];
+    var m;
+    while ((m = re.exec(String(text || ''))) !== null) {
+        out.push({ start: m.index, end: m.index + m[0].length, path: m[0] });
+    }
+    return out;
+}
+
+/**
+ * Whether a link points at a Markdown document (not a URL, not an anchor in
+ * this one).
+ *
+ * @param {string} href
+ * @returns {boolean}
+ */
+function mdbIsMdLink(href) {
+    var h = String(href || '');
+    if (!h || h.charAt(0) === '#' || /^[a-z][a-z0-9+.-]*:/i.test(h)) { return false; }
+    return /\.md$/i.test(h.split('#')[0].split('?')[0]);
 }
