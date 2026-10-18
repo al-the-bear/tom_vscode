@@ -14,7 +14,7 @@
     "regenerated-server": null
   },
   "passed": true,
-  "summary": "codespecs: 37 checks passed",
+  "summary": "codespecs: 41 checks passed",
   "checks": [
     {
       "number": 1,
@@ -200,6 +200,26 @@
       "number": 37,
       "definedIn": "§2.4",
       "title": "A member reflection writes — a @CsColumn attribute, a CE-API DTO field — is late and never final, because reflection assigns through a setter a final field does not have"
+    },
+    {
+      "number": 38,
+      "definedIn": "§3.4.5",
+      "title": "Every @CsOperationBinding names an operation the trio declares, and the TomOperationBinding's first argument is that operation's name"
+    },
+    {
+      "number": 39,
+      "definedIn": "§3.4.5",
+      "title": "A binding's method is one of TomOperationBinding.methods; no two bindings share a method and a route; every {name} in a path is mapped by a path parameter, and every path parameter by a {name}"
+    },
+    {
+      "number": 40,
+      "definedIn": "§3.4.6",
+      "title": "Every @CsFeatureHook names a hook of its feature in csFeatureHooks; for every feature the trio implements a hook of, every required hook is implemented exactly once; no unavailable hook is implemented"
+    },
+    {
+      "number": 41,
+      "definedIn": "§3.4.5",
+      "title": "No binding's route lies under a path csFeatureReservedPaths reserves for a framework protocol feature"
     }
   ],
   "notRun": [
@@ -214,6 +234,13 @@
         9
       ],
       "reason": "check 9 (mirrored catalogues) not run — pass both --cs-vocabulary and --core-source; a catalogue neither side declares mirrors an empty one, which compares equal."
+    },
+    {
+      "checks": [
+        40,
+        41
+      ],
+      "reason": "checks 40 and 41 (feature-hook completeness and reserved protocol paths) not run — pass --cs-vocabulary pointing at tom_code_specs' vocabulary source; without its csFeatureHooks and csFeatureReservedPaths there is no catalogue to hold a hook or a route against."
     },
     {
       "checks": [

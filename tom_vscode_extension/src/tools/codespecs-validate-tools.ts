@@ -1,7 +1,7 @@
 /**
  * CodeSpecs validation and step context (vsctsa20).
  *
- *   - tomAi_specCodeSpecsValidate     — the 37 `codespecs_derivation_contract.md`
+ *   - tomAi_specCodeSpecsValidate     — the 41 `codespecs_derivation_contract.md`
  *                                       §6 checks over a generated trio, through
  *                                       the bundled validate_codespecs binary
  *   - tomAi_specCodeSpecsStepContext  — everything a Stage 3–4 authoring step
@@ -206,7 +206,7 @@ export const CODESPECS_VALIDATE_TOOL: SharedToolDefinition<CodeSpecsValidateInpu
     name: 'tomAi_specCodeSpecsValidate',
     displayName: 'CodeSpecs: Validate',
     description:
-        'Run the 37 codespecs_derivation_contract.md §6 checks over a generated CodeSpecs trio (shared, client, server '
+        'Run the 41 codespecs_derivation_contract.md §6 checks over a generated CodeSpecs trio (shared, client, server '
         + 'packages), through the validate_codespecs binary bundled with the extension (no Dart SDK needed). `outcome` is '
         + '`clean` or `violations` (both ok: the checks ran) or, with ok false, `usageError` (the input was refused: a '
         + 'missing folder, a partial regenerated trio) or `binaryMissing`. Each violation: check number and title, the '

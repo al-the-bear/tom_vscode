@@ -84,9 +84,9 @@ describe('CodeSpecs validate', () => {
         assert.equal(r.outcome, 'clean');
         assert.equal(r.summary, recorded.summary);
         assert.deepEqual(r.violations, []);
-        assert.equal(r.checkCount, 37);
-        assert.equal(r.checksRun, 34, 'checks 9, 13 and 31 lack their corroborating input');
-        assert.deepEqual(r.notRun.map((n: Json) => n.checks), [[13], [9], [31]]);
+        assert.equal(r.checkCount, 41);
+        assert.equal(r.checksRun, 36, 'checks 9, 13, 31, 40 and 41 lack their corroborating input');
+        assert.deepEqual(r.notRun.map((n: Json) => n.checks), [[13], [9], [40, 41], [31]]);
         assert.deepEqual(r.inputs, { shared: 'base/codespec/shared', client: 'base/codespec/client', server: 'base/codespec/server', extracts: 'base/codespecs_extracts' });
     });
 
