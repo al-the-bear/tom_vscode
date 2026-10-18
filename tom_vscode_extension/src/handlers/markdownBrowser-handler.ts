@@ -36,6 +36,7 @@ import { openInExternalApplication } from './handler_shared.js';
 import { resolveLink, type ResolvedLink, type LinkContext } from '../utils/linkResolver.js';
 import { readMediaText } from '../utils/webviewLoader.js';
 import { transformMarkdown } from '../utils/markdownHeadings.js';
+import { applyMdLineEdit } from '../utils/markdownBrowserEdits.js';
 
 // ============================================================================
 // Constants
@@ -697,6 +698,42 @@ class MdBrowserPanel {
                             type: 'mdContent', content: '', error: 'No file to reload.',
                         });
                     }
+                    break;
+                }
+
+                case 'applyEdit': {
+                    // An answer, a block edit or an insertion from the browser:
+                    // replace lines startLine..endLine of the shown file, but
+                    // only when they still hold what the browser rendered.
+                    const current = this._history.current;
+                    const reply = (ok: boolean, error?: string): void => {
+                        this._panel.webview.postMessage({ type: 'editResult', ok, error, editId: msg.editId });
+                    };
+                    if (!current || !fs.existsSync(current.filePath) || msg.filePath !== current.filePath) {
+                        reply(false, 'The document shown here is no longer the current file. Reload it.');
+                        break;
+                    }
+                    if (this._crlfMode) {
+                        reply(false, 'Turn CR/LF off to edit: with it on, the shown lines are not the file\'s lines.');
+                        break;
+                    }
+                    const open = vscode.workspace.textDocuments.find((d) => d.uri.scheme === 'file' && path.resolve(d.uri.fsPath) === path.resolve(current.filePath));
+                    if (open?.isDirty) {
+                        reply(false, `${path.basename(current.filePath)} has unsaved changes in an editor. Save or revert them first.`);
+                        break;
+                    }
+                    const result = applyMdLineEdit(fs.readFileSync(current.filePath, 'utf-8'), {
+                        startLine: Number(msg.startLine), endLine: Number(msg.endLine),
+                        expected: String(msg.expected ?? ''), replacement: String(msg.replacement ?? ''),
+                    });
+                    if (!result.ok) {
+                        reply(false, result.reason);
+                        break;
+                    }
+                    fs.writeFileSync(current.filePath, result.text, 'utf-8');
+                    this._refreshMtimeBaseline(current.filePath);
+                    reply(true);
+                    this._sendFileContent(current.filePath);
                     break;
                 }
 

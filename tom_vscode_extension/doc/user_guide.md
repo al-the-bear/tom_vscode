@@ -93,6 +93,9 @@ The Markdown Browser is a standalone webview panel for reading markdown document
 - **Anchor navigation**: Heading anchors allow direct scrolling to specific sections
 - **Navigation history**: Back/forward buttons with up to 100 entries
 - **Breadcrumb navigation**: Shows current document path
+- **Answering review questions**: every `**Answer:**` marker (outside code blocks) carries a small comment button. It opens a 5-line text area, resizable by its corner handle; the button gives way to **Save** and **Discard** while it is open. Save writes the text into the file right after the marker — `**Answer:** your text ` — with a space before and after, and the browser stays where it was and shows the updated document.
+- **Edit mode** (pencil button in the action bar): every paragraph, list, quote, table and code block gets two buttons at its end. **Edit** opens the block's markdown source in a text area; **Insert** opens an empty one whose text is appended directly to the end of the block — start it with an empty line for a new paragraph. Both close with Save / Discard and keep the reading position.
+- **Editing is guarded**: a save is refused, and the text area stays open with the reason, when the file changed since it was shown, when it has unsaved changes in an editor, or while **CR/LF** is on (its conversion moves lines, so the editing buttons are hidden then). An automatic refresh that arrives while a text area is open is held back until it closes.
 
 ### Window Status Panel
 

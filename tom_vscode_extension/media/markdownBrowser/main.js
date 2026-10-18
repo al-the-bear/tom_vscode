@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global marked, mermaid */
+/* global marked, mermaid, mdbBlocks, mdbAnswerMarkers, mdbInsertAnswer */
 // Markdown Browser client — extracted verbatim from the inline <script> of
 // buildHtml() in src/handlers/markdownBrowser-handler.ts (Phase B.21 webview
 // restructuring). Predates strict checkJs (large verbatim extraction).
@@ -24,6 +24,7 @@
         var reconnectBtn = document.getElementById('reconnectBtn');
         var fullIdBtn = document.getElementById('fullIdBtn');
         var crlfBtn = document.getElementById('crlfBtn');
+        var editModeBtn = document.getElementById('editModeBtn');
         var contentArea = document.getElementById('contentArea');
         var filePathEl = document.getElementById('filePath');
 
@@ -35,6 +36,19 @@
         //     to re-send the current file (see the 'setCrlf' message).
         var fullIdMode = false;
         var crlfMode = false;
+
+        // In-place editing (answers, edit mode). The text the browser rendered
+        // (`shownText`) keeps every line of the file in place unless CR/LF is
+        // on, so its line numbers are the file's: blocks.js maps blocks and
+        // `**Answer:**` markers to lines, and a save sends the line range, the
+        // text that was there and the replacement (backend 'applyEdit').
+        var editMode = false;
+        var shownText = '';
+        var openEditors = 0;
+        var pendingContent = null;      // a same-file refresh held back while an editor is open
+        var restoreScrollTop = null;    // where to stay after our own save re-renders
+        var nextEditId = 1;
+        var pendingSaves = {};          // editId -> editor element awaiting the backend's answer
 
         var currentFilePath = '';
         // liveMode + follow-tail state.
@@ -100,6 +114,14 @@
                 fullIdBtn.classList.toggle('active', fullIdMode);
             });
         }
+        if (editModeBtn) {
+            editModeBtn.addEventListener('click', function() {
+                editMode = !editMode;
+                editModeBtn.classList.toggle('active', editMode);
+                document.body.classList.toggle('mdb-edit-mode', editMode);
+                decorateEditing();
+            });
+        }
         if (crlfBtn) {
             crlfBtn.addEventListener('click', function() {
                 crlfMode = !crlfMode;
@@ -140,14 +162,185 @@
         }
 
         // ---- Render Markdown ----
+        // Rendered block by block, each top-level block in a `.mdb-block`
+        // wrapper carrying its line range, so the editing controls can find
+        // the source lines of what is on screen.
+        var shownBlocks = [];
         function renderMarkdown(text) {
-            if (typeof marked !== 'undefined' && marked.parse) {
+            shownBlocks = [];
+            if (typeof marked !== 'undefined' && marked.lexer && marked.parser) {
                 // With CR/LF on, render single newlines as hard <br> breaks
                 // (marked `breaks`). Block structure (lists, headings, tables)
                 // is parsed first, so enumerations are not affected.
-                return marked.parse(text || '', { breaks: crlfMode });
+                var options = { breaks: crlfMode };
+                var tokens = marked.lexer(text || '', options);
+                var byIndex = {};
+                mdbBlocks(text || '', tokens).forEach(function(b) { byIndex[b.index] = b; });
+                var html = '';
+                for (var i = 0; i < tokens.length; i++) {
+                    var one = [tokens[i]];
+                    one.links = tokens.links;
+                    var rendered = marked.parser(one, options);
+                    var block = byIndex[i];
+                    if (block) {
+                        html += '<div class="mdb-block" data-block="' + shownBlocks.length + '">' + rendered + '</div>';
+                        shownBlocks.push(block);
+                    } else {
+                        html += rendered;
+                    }
+                }
+                return html;
             }
             return '<pre>' + escapeHtml(text || '') + '</pre>';
+        }
+
+        function shownLines() {
+            return shownText.replace(/\r\n|\r/g, '\n').split('\n');
+        }
+
+        // ---- In-place editing ----
+        // An editor: a 5-line textarea (resizable) with Save / Discard. The
+        // button that opened it is hidden while it is open.
+        function openEditor(trigger, placeAfter, initial, buildEdit) {
+            var box = document.createElement('div');
+            box.className = 'mdb-editor';
+            var area = document.createElement('textarea');
+            area.rows = 5;
+            area.value = initial;
+            var bar = document.createElement('div');
+            bar.className = 'mdb-editor-bar';
+            var save = document.createElement('button');
+            save.className = 'mdb-editor-btn';
+            save.title = 'Save into the document';
+            save.innerHTML = '<span class="codicon codicon-check"></span> Save';
+            var discard = document.createElement('button');
+            discard.className = 'mdb-editor-btn';
+            discard.title = 'Discard';
+            discard.innerHTML = '<span class="codicon codicon-close"></span> Discard';
+            var status = document.createElement('span');
+            status.className = 'mdb-editor-status';
+            bar.appendChild(save);
+            bar.appendChild(discard);
+            bar.appendChild(status);
+            box.appendChild(area);
+            box.appendChild(bar);
+            placeAfter.insertAdjacentElement('afterend', box);
+            trigger.style.display = 'none';
+            openEditors++;
+            area.focus();
+
+            function close() {
+                if (!box.parentNode) { return; }
+                box.parentNode.removeChild(box);
+                trigger.style.display = '';
+                openEditors = Math.max(0, openEditors - 1);
+                if (openEditors === 0 && pendingContent) {
+                    var held = pendingContent;
+                    pendingContent = null;
+                    handleContent(held);
+                }
+            }
+            discard.addEventListener('click', function(e) { e.stopPropagation(); close(); });
+            save.addEventListener('click', function(e) {
+                e.stopPropagation();
+                var edit = buildEdit(area.value);
+                if (!edit) { close(); return; }
+                var id = nextEditId++;
+                pendingSaves[id] = { close: close, status: status };
+                status.textContent = 'Saving…';
+                restoreScrollTop = contentArea.scrollTop;
+                vscode.postMessage({
+                    type: 'applyEdit', editId: id, filePath: currentFilePath,
+                    startLine: edit.startLine, endLine: edit.endLine, expected: edit.expected, replacement: edit.replacement,
+                });
+            });
+        }
+
+        function iconButton(cls, icon, title) {
+            var b = document.createElement('button');
+            b.className = 'mdb-inline-btn ' + cls;
+            b.title = title;
+            b.innerHTML = '<span class="codicon codicon-' + icon + '"></span>';
+            return b;
+        }
+
+        // Answer buttons after every `**Answer:**` marker, and in edit mode an
+        // edit + insert button at the end of every editable block. None with
+        // CR/LF on: its conversion moves lines, so they no longer match the file.
+        function decorateEditing() {
+            if (!contentArea) { return; }
+            var old = contentArea.querySelectorAll('.mdb-answer-btn, .mdb-block-actions');
+            for (var i = 0; i < old.length; i++) { old[i].parentNode.removeChild(old[i]); }
+            if (crlfMode || !shownText) {
+                if (editModeBtn) { editModeBtn.title = editMode ? 'Edit mode (turn CR/LF off to edit)' : 'Edit mode: edit or extend paragraphs in place'; }
+                return;
+            }
+            if (editModeBtn) { editModeBtn.title = 'Edit mode: edit or extend paragraphs in place'; }
+            var lines = shownLines();
+            var wrappers = contentArea.querySelectorAll('.mdb-block');
+
+            // Answers: the k-th marker of a block is its k-th <strong>Answer:</strong>.
+            var perBlock = {};
+            mdbAnswerMarkers(shownText).forEach(function(m) {
+                for (var b = 0; b < shownBlocks.length; b++) {
+                    if (m.line >= shownBlocks[b].startLine && m.line < shownBlocks[b].endLine) {
+                        (perBlock[b] = perBlock[b] || []).push(m);
+                        return;
+                    }
+                }
+            });
+            Object.keys(perBlock).forEach(function(b) {
+                var wrapper = wrappers[Number(b)];
+                if (!wrapper) { return; }
+                var strongs = Array.prototype.filter.call(wrapper.querySelectorAll('strong'), function(s) {
+                    return (s.textContent || '').trim() === 'Answer:';
+                });
+                perBlock[b].forEach(function(m, k) {
+                    var strong = strongs[k];
+                    if (!strong) { return; }
+                    var btn = iconButton('mdb-answer-btn', 'comment', 'Write the answer here');
+                    strong.insertAdjacentElement('afterend', btn);
+                    btn.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        openEditor(btn, btn, '', function(value) {
+                            if (!value.trim()) { return null; }
+                            return {
+                                startLine: m.line, endLine: m.line + 1, expected: lines[m.line],
+                                replacement: mdbInsertAnswer(lines[m.line], m.column, value),
+                            };
+                        });
+                    });
+                });
+            });
+
+            if (!editMode) { return; }
+            for (var w = 0; w < wrappers.length; w++) {
+                (function(wrapper, block) {
+                    if (!block || !block.editable) { return; }
+                    var source = lines.slice(block.startLine, block.endLine).join('\n');
+                    var actions = document.createElement('div');
+                    actions.className = 'mdb-block-actions';
+                    var editBtn = iconButton('mdb-edit-btn', 'edit', 'Edit this paragraph (source)');
+                    var insertBtn = iconButton('mdb-insert-btn', 'add', 'Insert text at the end of this paragraph');
+                    actions.appendChild(editBtn);
+                    actions.appendChild(insertBtn);
+                    wrapper.appendChild(actions);
+                    editBtn.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        openEditor(actions, wrapper, source, function(value) {
+                            if (value === source) { return null; }
+                            return { startLine: block.startLine, endLine: block.endLine, expected: source, replacement: value };
+                        });
+                    });
+                    insertBtn.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        openEditor(actions, wrapper, '', function(value) {
+                            if (!value) { return null; }
+                            return { startLine: block.startLine, endLine: block.endLine, expected: source, replacement: source + value };
+                        });
+                    });
+                })(wrappers[w], shownBlocks[w]);
+            }
         }
 
         function escapeHtml(text) {
@@ -234,79 +427,112 @@
             });
         }
 
+        function handleContent(msg) {
+            // A refresh of the same file while an editor is open would throw the
+            // typed text away: hold it until the last editor closes.
+            if (openEditors > 0 && msg.filePath === currentFilePath && !msg.error) {
+                pendingContent = msg;
+                return;
+            }
+            if (msg.error) {
+                contentArea.innerHTML = '<div class="empty-state error-state">'
+                    + '<span class="codicon codicon-error"></span>'
+                    + '<div>' + escapeHtml(msg.error) + '</div>'
+                    + '</div>';
+                filePathEl.textContent = 'Error';
+            } else {
+                var prevFilePath = currentFilePath;
+                var incomingFilePath = msg.filePath || '';
+                var sameFile = !!prevFilePath && prevFilePath === incomingFilePath;
+                var incomingLiveMode = msg.liveMode === true;
+
+                // Sample follow-tail *before* we replace the DOM,
+                // otherwise scrollTop is meaningless. We only trust
+                // the sample when it's a re-render of the same
+                // file — a navigation to a different file resets
+                // followTail to true so the view starts at the
+                // bottom (live) or top (normal) rather than
+                // wherever the previous file happened to be.
+                if (sameFile) {
+                    followTail = isNearBottom();
+                } else {
+                    followTail = true;
+                }
+
+                liveMode = incomingLiveMode;
+                currentFilePath = incomingFilePath;
+                // Persist enough to restore this panel after a window reload
+                // (the backend's WebviewPanelSerializer reads filePath +
+                // liveMode back from here in deserializeWebviewPanel).
+                if (incomingFilePath) {
+                    vscode.setState({ filePath: incomingFilePath, liveMode: liveMode });
+                }
+                // The backend is authoritative for CR/LF state; sync the
+                // local flag + button so a reload/restore renders correctly.
+                if (typeof msg.crlf === 'boolean') {
+                    crlfMode = msg.crlf;
+                    if (crlfBtn) crlfBtn.classList.toggle('active', crlfMode);
+                }
+                filePathEl.textContent = msg.relativePath || msg.fileName || '';
+                shownText = msg.content || '';
+                contentArea.innerHTML = renderMarkdown(shownText);
+                enhanceHeadings();
+                initMermaid();
+                interceptLinks();
+                decorateEditing();
+                if (sameFile && restoreScrollTop !== null) {
+                    // Our own save re-rendered the document: stay where the
+                    // reader was, also once Mermaid has resized the page.
+                    var keep = restoreScrollTop;
+                    restoreScrollTop = null;
+                    contentArea.scrollTop = keep;
+                    requestAnimationFrame(function() { contentArea.scrollTop = keep; });
+                    return;
+                }
+
+                // Handle anchor scrolling after content loads
+                if (msg.anchor) {
+                    // Small delay to ensure DOM is ready
+                    setTimeout(function() {
+                        scrollToAnchor(msg.anchor);
+                    }, 50);
+                } else if (liveMode && followTail) {
+                    // Layout may not be final yet (Mermaid blocks
+                    // can resize the doc after they render). Wait
+                    // a frame so scrollHeight reflects the new
+                    // content, then pin to the bottom.
+                    requestAnimationFrame(function() {
+                        scrollToBottom();
+                    });
+                } else if (!sameFile) {
+                    // Different file and not following: start at
+                    // the top, matching the previous behavior.
+                    contentArea.scrollTop = 0;
+                }
+                // Same-file re-render without live follow: leave
+                // scrollTop alone so the user's reading position
+                // is preserved.
+            }
+        }
+
         // ---- Message Handling ----
         window.addEventListener('message', function(e) {
             var msg = e.data;
             if (!msg || !msg.type) return;
 
             if (msg.type === 'mdContent') {
-                if (msg.error) {
-                    contentArea.innerHTML = '<div class="empty-state error-state">'
-                        + '<span class="codicon codicon-error"></span>'
-                        + '<div>' + escapeHtml(msg.error) + '</div>'
-                        + '</div>';
-                    filePathEl.textContent = 'Error';
-                } else {
-                    var prevFilePath = currentFilePath;
-                    var incomingFilePath = msg.filePath || '';
-                    var sameFile = !!prevFilePath && prevFilePath === incomingFilePath;
-                    var incomingLiveMode = msg.liveMode === true;
-
-                    // Sample follow-tail *before* we replace the DOM,
-                    // otherwise scrollTop is meaningless. We only trust
-                    // the sample when it's a re-render of the same
-                    // file — a navigation to a different file resets
-                    // followTail to true so the view starts at the
-                    // bottom (live) or top (normal) rather than
-                    // wherever the previous file happened to be.
-                    if (sameFile) {
-                        followTail = isNearBottom();
+                handleContent(msg);
+            } else if (msg.type === 'editResult') {
+                var saved = pendingSaves[msg.editId];
+                delete pendingSaves[msg.editId];
+                if (saved) {
+                    if (msg.ok) {
+                        saved.close();
                     } else {
-                        followTail = true;
+                        restoreScrollTop = null;
+                        saved.status.textContent = msg.error || 'Could not save.';
+                        saved.status.classList.add('error');
                     }
-
-                    liveMode = incomingLiveMode;
-                    currentFilePath = incomingFilePath;
-                    // Persist enough to restore this panel after a window reload
-                    // (the backend's WebviewPanelSerializer reads filePath +
-                    // liveMode back from here in deserializeWebviewPanel).
-                    if (incomingFilePath) {
-                        vscode.setState({ filePath: incomingFilePath, liveMode: liveMode });
-                    }
-                    // The backend is authoritative for CR/LF state; sync the
-                    // local flag + button so a reload/restore renders correctly.
-                    if (typeof msg.crlf === 'boolean') {
-                        crlfMode = msg.crlf;
-                        if (crlfBtn) crlfBtn.classList.toggle('active', crlfMode);
-                    }
-                    filePathEl.textContent = msg.relativePath || msg.fileName || '';
-                    contentArea.innerHTML = renderMarkdown(msg.content);
-                    enhanceHeadings();
-                    initMermaid();
-                    interceptLinks();
-
-                    // Handle anchor scrolling after content loads
-                    if (msg.anchor) {
-                        // Small delay to ensure DOM is ready
-                        setTimeout(function() {
-                            scrollToAnchor(msg.anchor);
-                        }, 50);
-                    } else if (liveMode && followTail) {
-                        // Layout may not be final yet (Mermaid blocks
-                        // can resize the doc after they render). Wait
-                        // a frame so scrollHeight reflects the new
-                        // content, then pin to the bottom.
-                        requestAnimationFrame(function() {
-                            scrollToBottom();
-                        });
-                    } else if (!sameFile) {
-                        // Different file and not following: start at
-                        // the top, matching the previous behavior.
-                        contentArea.scrollTop = 0;
-                    }
-                    // Same-file re-render without live follow: leave
-                    // scrollTop alone so the user's reading position
-                    // is preserved.
                 }
             } else if (msg.type === 'navState') {
                 backBtn.disabled = !msg.canGoBack;

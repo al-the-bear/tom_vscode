@@ -56,6 +56,10 @@
             <span style="width:1px; height:16px; background:var(--vscode-panel-border); margin:0 2px;"></span>
             <button class="toggle-btn" id="fullIdBtn" title="Show each heading's full (dotted) ID underneath it">Full ID</button>
             <button class="toggle-btn" id="crlfBtn" title="Convert escaped / literal line-break characters into real newlines">CR/LF</button>
+            <span style="width:1px; height:16px; background:var(--vscode-panel-border); margin:0 2px;"></span>
+            <button class="icon-btn" id="editModeBtn" title="Edit mode: edit or extend paragraphs in place">
+                <span class="codicon codicon-edit"></span>
+            </button>
         </div>
     </div>
 
@@ -74,6 +78,7 @@
 
     <script src="{{markedUri}}"></script>
     <script src="{{mermaidUri}}"></script>
+    <script src="{{baseUri}}/blocks.js"></script>
     <script src="{{baseUri}}/main.js"></script>
     <script>
 {{pickerScript}}
