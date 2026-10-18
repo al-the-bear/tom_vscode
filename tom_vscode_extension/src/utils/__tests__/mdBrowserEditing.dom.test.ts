@@ -7,9 +7,13 @@
  *         the line, what was there and the line with the answer inserted
  *   MD-3  a successful save closes the editor; a refused one keeps it open with the reason
  *   MD-4  edit mode: an edit and an insert button at the end of every editable block
- *   MD-5  edit sends the block's source and the new text; insert appends to it
+ *   MD-5  edit opens the block's source with the blank line before it and sends the
+ *         text as typed (removing that newline merges); insert appends to the block
  *   MD-6  a refresh of the same file is held while an editor is open, applied when it closes
  *   MD-7  with CR/LF on there are no editing controls
+ *   MD-8  GFM: a table renders as a table (marked's defaults are kept)
+ *   MD-9  a save patches the shown document in place; the file's refresh with the same text renders nothing
+ *   MD-10 a refresh with unchanged text keeps the rendered nodes
  */
 
 import test, { describe } from 'node:test';
@@ -104,12 +108,13 @@ describe('Markdown Browser editing', () => {
 
         actions[0].querySelector('.mdb-edit-btn').click();
         const area = $(window, '.mdb-editor textarea')[0];
-        assert.equal(area.value, 'Is the plan right?\n**Answer:**');
-        area.value = 'Is the plan right? (v2)\n**Answer:**';
+        assert.equal(area.value, '\nIs the plan right?\n**Answer:**', 'with the newline that separates it from the block before');
+        area.value = 'Is the plan right? (v2)\n**Answer:**\n';
         $(window, '.mdb-editor-btn')[0].click();
         assert.deepEqual(
             (({ startLine, endLine, expected, replacement }) => ({ startLine, endLine, expected, replacement }))(lastEdit(posted) as never),
-            { startLine: 2, endLine: 4, expected: 'Is the plan right?\n**Answer:**', replacement: 'Is the plan right? (v2)\n**Answer:**' },
+            { startLine: 1, endLine: 4, expected: '\nIs the plan right?\n**Answer:**', replacement: 'Is the plan right? (v2)\n**Answer:**\n' },
+            'sent exactly as typed',
         );
         $(window, '.mdb-editor-btn')[1].click();
 
@@ -141,5 +146,53 @@ describe('Markdown Browser editing', () => {
         send(window, content(DOC, { crlf: true }));
         assert.equal($(window, '.mdb-answer-btn').length, 0);
         assert.equal($(window, '.mdb-block-actions').length, 0);
+    });
+
+    test('MD-8: GFM tables', () => {
+        const { window } = setup();
+        send(window, content('Intro\n\n| Field | Meaning |\n|---|---|\n| a | first |\n| b | ~~second~~ |'));
+        assert.equal($(window, 'table').length, 1);
+        assert.equal($(window, 'tbody tr').length, 2);
+        assert.equal($(window, 'del').length, 1, 'strikethrough');
+    });
+
+    test('MD-9: a save patches in place', () => {
+        const { window, posted } = setup();
+        const doc = '# T\n\nfirst\n\nsecond\n\nthird';
+        send(window, content(doc));
+        window.document.getElementById('editModeBtn').click();
+        const firstNode = $(window, '#contentArea p')[0];
+        $(window, '.mdb-block-actions')[1].querySelector('.mdb-edit-btn').click();
+        const area = $(window, '.mdb-editor textarea')[0];
+        assert.equal(area.value, '\nsecond');
+        area.value = 'second, merged';
+        $(window, '.mdb-editor-btn')[0].click();
+        const edit = lastEdit(posted);
+        send(window, { type: 'editResult', editId: edit.editId, ok: true });
+        assert.equal($(window, '.mdb-editor').length, 0, 'closed');
+        assert.deepEqual($(window, '#contentArea p').map((p: Win) => p.textContent.trim()), ['first\nsecond, merged', 'third']);
+        assert.equal($(window, '#contentArea h1').length, 1);
+        const merged = $(window, '#contentArea p')[0];
+        assert.notEqual(merged, firstNode, 'the region was re-rendered');
+        // The refresh the save causes carries the same text: nothing re-renders.
+        send(window, content('# T\n\nfirst\nsecond, merged\n\nthird'));
+        assert.equal($(window, '#contentArea p')[0], merged);
+        // The patched block is editable at its new lines.
+        $(window, '.mdb-block-actions')[1].querySelector('.mdb-edit-btn').click();
+        const again = $(window, '.mdb-editor textarea')[0];
+        assert.equal(again.value, '\nthird');
+        again.value = '\nthird!';
+        $(window, '.mdb-editor-btn')[0].click();
+        assert.deepEqual([lastEdit(posted).startLine, lastEdit(posted).endLine], [4, 6]);
+    });
+
+    test('MD-10: unchanged text keeps the nodes', () => {
+        const { window } = setup();
+        send(window, content(DOC));
+        const p = $(window, '#contentArea p')[0];
+        send(window, content(DOC));
+        assert.equal($(window, '#contentArea p')[0], p);
+        send(window, content(`${DOC}\n\nmore`));
+        assert.notEqual($(window, '#contentArea p')[0], p, 'changed text renders again');
     });
 });

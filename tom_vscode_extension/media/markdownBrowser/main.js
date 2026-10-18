@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global marked, mermaid, mdbBlocks, mdbAnswerMarkers, mdbInsertAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
+/* global marked, mermaid, MDB_ANSWER_MARKER, mdbBlocks, mdbAnswerMarkers, mdbInsertAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
 // Markdown Browser client — extracted verbatim from the inline <script> of
 // buildHtml() in src/handlers/markdownBrowser-handler.ts (Phase B.21 webview
 // restructuring). Predates strict checkJs (large verbatim extraction).
@@ -31,6 +31,12 @@
         var indentBtn = document.getElementById('indentBtn');
         var indentSizeSelect = document.getElementById('indentSizeSelect');
         var contentArea = document.getElementById('contentArea');
+        // The rendered document lives in one element inside the scroll area.
+        // A full render swaps that element for a new one in a single step:
+        // removing a large rendered tree node by node can stall Chrome for
+        // minutes once anything in it has had focus (measured on a 6 MB file).
+        var docRoot = document.createElement('div');
+        docRoot.className = 'mdb-doc';
         var filePathEl = document.getElementById('filePath');
 
         // Toggle state for the two heading extensions:
@@ -49,6 +55,7 @@
         // text that was there and the replacement (backend 'applyEdit').
         var editMode = false;
         var shownText = '';
+        var shownCrlf = false;          // the CR/LF mode shownText was rendered with
         var openEditors = 0;
         var pendingContent = null;      // a same-file refresh held back while an editor is open
         var restoreScrollTop = null;    // where to stay after our own save re-renders
@@ -135,7 +142,7 @@
                 editMode = !editMode;
                 editModeBtn.classList.toggle('active', editMode);
                 document.body.classList.toggle('mdb-edit-mode', editMode);
-                decorateEditing();
+                redecorateAll();
             });
         }
         if (indentBtn) {
@@ -180,9 +187,10 @@
         // carrying an invisible `.md-heading-meta` marker (data-level, data-fullid)
         // and a `.md-heading-id` badge. Promote the true level to a per-level
         // class (md-h1..md-h10) and build the toggle-able full-id sub-line.
-        function enhanceHeadings() {
-            if (!contentArea) return;
-            var metas = contentArea.querySelectorAll('.md-heading-meta');
+        function enhanceHeadings(root) {
+            root = root || docRoot;
+            if (!root) return;
+            var metas = root.querySelectorAll('.md-heading-meta');
             for (var i = 0; i < metas.length; i++) {
                 var meta = metas[i];
                 var heading = meta.closest('h1, h2, h3, h4, h5, h6');
@@ -206,51 +214,246 @@
         }
 
         // ---- Render Markdown ----
-        // Rendered block by block, each top-level block in a `.mdb-block`
-        // wrapper carrying its line range, so the editing controls can find
-        // the source lines of what is on screen.
+        // Each top-level block is wrapped in a `.mdb-block` element; the block
+        // (its line range) and its wrapper are kept side by side in
+        // shownBlocks / shownWrappers, so the editing controls can find the
+        // source lines of what is on screen and a save can patch one region.
         var shownBlocks = [];
-        function renderMarkdown(text) {
-            shownBlocks = [];
-            if (typeof marked !== 'undefined' && marked.lexer && marked.parser) {
-                // With CR/LF on, render single newlines as hard <br> breaks
-                // (marked `breaks`). Block structure (lists, headings, tables)
-                // is parsed first, so enumerations are not affected.
-                var options = { breaks: crlfMode };
-                var tokens = marked.lexer(text || '', options);
-                var byIndex = {};
-                mdbBlocks(text || '', tokens).forEach(function(b) { byIndex[b.index] = b; });
-                // A run that an html token opens (`<details>` ... `</details>`)
-                // is rendered and wrapped as one piece, so the element keeps
-                // its content; it is folded and indented as a whole and is not
-                // editable. Other tokens are one block each.
-                var parts = [];
-                mdbGroups(tokens).forEach(function(range) {
-                    var group = tokens.slice(range[0], range[1] + 1);
-                    group.links = tokens.links;
-                    var rendered = marked.parser(group, options);
-                    var first = null;
-                    var last = null;
-                    for (var i = range[0]; i <= range[1]; i++) {
-                        if (byIndex[i]) { first = first || byIndex[i]; last = byIndex[i]; }
-                    }
-                    if (!first) {
-                        parts.push(rendered);
-                        return;
-                    }
-                    var block = range[0] === range[1] ? first : {
-                        index: first.index, type: 'group', startLine: first.startLine, endLine: last.endLine, editable: false,
-                    };
-                    parts.push('<div class="mdb-block" data-block="' + shownBlocks.length + '">' + rendered + '</div>');
-                    shownBlocks.push(block);
-                });
-                return parts.join('');
-            }
-            return '<pre>' + escapeHtml(text || '') + '</pre>';
+        var shownWrappers = [];
+        var shownLinks = {};
+        var shownLinesCache = null;
+        var renderGen = 0;
+        /** Blocks per batch of a chunked render: each batch is built off-DOM, then the event loop gets a turn. */
+        var RENDER_CHUNK = 1500;
+
+        /** marked's options: its defaults (GFM: tables, strikethrough, ...) plus `breaks` for CR/LF. */
+        function markedOptions() {
+            var base = (typeof marked !== 'undefined' && marked.defaults) ? marked.defaults : {};
+            return Object.assign({}, base, { breaks: crlfMode });
         }
 
         function shownLines() {
-            return shownText.replace(/\r\n|\r/g, '\n').split('\n');
+            if (!shownLinesCache) { shownLinesCache = shownText.replace(/\r\n|\r/g, '\n').split('\n'); }
+            return shownLinesCache;
+        }
+
+        /**
+         * The render pieces of `text`: one per group of tokens (an html run that
+         * opens an element is one group), each with its HTML and its block
+         * (null for pieces with no source lines, e.g. whitespace). Line numbers
+         * are shifted by `lineOffset` (a region rendered on its own).
+         */
+        function buildPieces(text, lineOffset) {
+            var options = markedOptions();
+            var tokens = marked.lexer(text || '', options);
+            var byIndex = {};
+            mdbBlocks(text || '', tokens).forEach(function(b) {
+                b.startLine += lineOffset;
+                b.endLine += lineOffset;
+                byIndex[b.index] = b;
+            });
+            var links = Object.assign({}, shownLinks, tokens.links || {});
+            var pieces = [];
+            mdbGroups(tokens).forEach(function(range) {
+                var group = tokens.slice(range[0], range[1] + 1);
+                group.links = links;
+                var html = marked.parser(group, options);
+                var first = null;
+                var last = null;
+                for (var i = range[0]; i <= range[1]; i++) {
+                    if (byIndex[i]) { first = first || byIndex[i]; last = byIndex[i]; }
+                }
+                var block = !first ? null : (range[0] === range[1] ? first : {
+                    index: first.index, type: 'group', startLine: first.startLine, endLine: last.endLine, editable: false,
+                });
+                pieces.push({ html: html, block: block, hasHtml: group.some(function(tk) { return tk.type === 'html'; }) });
+            });
+            return { pieces: pieces, links: tokens.links || {} };
+        }
+
+        /** Turn pieces into DOM nodes in a detached holder; returns the holder and the wrappers made. */
+        function piecesToNodes(pieces) {
+            var holder = document.createElement('div');
+            holder.innerHTML = pieces.map(function(p) {
+                return p.block ? '<div class="mdb-block">' + p.html + '</div>' : p.html;
+            }).join('');
+            var wrappers = [];
+            var blocks = [];
+            var k = 0;
+            Array.prototype.forEach.call(holder.children, function(el) {
+                if (el.classList && el.classList.contains('mdb-block')) {
+                    while (k < pieces.length && !pieces[k].block) { k++; }
+                    wrappers.push(el);
+                    blocks.push(pieces[k].block);
+                    k++;
+                }
+            });
+            return { holder: holder, wrappers: wrappers, blocks: blocks };
+        }
+
+        /** Everything a freshly built set of nodes needs before it is shown. */
+        function processNodes(holder, wrappers, blocks, foldSeen) {
+            enhanceHeadings(holder);
+            interceptLinks(holder);
+            assignFoldKeys(holder, foldSeen);
+            decorateWrappers(wrappers, blocks);
+        }
+
+        function newDocRoot() {
+            var el = document.createElement('div');
+            el.className = 'mdb-doc';
+            return el;
+        }
+
+        /** Put `fresh` in place of the shown document (or of an error / empty state). */
+        function showDocRoot(fresh) {
+            if (docRoot.parentNode === contentArea) {
+                contentArea.replaceChild(fresh, docRoot);
+            } else {
+                contentArea.textContent = '';
+                contentArea.appendChild(fresh);
+            }
+            docRoot = fresh;
+        }
+
+        /**
+         * Render `text` in batches: each batch is built and processed off-DOM,
+         * then the event loop gets a turn, so a large document never blocks the
+         * window. The finished content replaces the old in one step; `done`
+         * runs after that (folding, indentation, scroll position).
+         */
+        function renderDocument(text, done) {
+            var gen = ++renderGen;
+            shownLinks = {};
+            var built;
+            try {
+                if (typeof marked === 'undefined' || !marked.lexer || !marked.parser) {
+                    var plain = newDocRoot();
+                    plain.innerHTML = '<pre>' + escapeHtml(text || '') + '</pre>';
+                    showDocRoot(plain);
+                    shownBlocks = [];
+                    shownWrappers = [];
+                    done();
+                    return;
+                }
+                built = buildPieces(text, 0);
+            } catch (err) {
+                contentArea.innerHTML = '<div class="empty-state error-state"><div>' + escapeHtml(String(err)) + '</div></div>';
+                return;
+            }
+            shownLinks = built.links;
+            var pieces = built.pieces;
+            var frag = document.createDocumentFragment();
+            var blocks = [];
+            var wrappers = [];
+            var foldSeen = {};
+            var at = 0;
+            var big = pieces.length > RENDER_CHUNK;
+            var renderedEditMode = editMode;
+            contentArea.setAttribute('aria-busy', 'true');
+            function step() {
+                if (gen !== renderGen) { return; }   // a newer render started
+                var slice = pieces.slice(at, at + RENDER_CHUNK);
+                at += slice.length;
+                var nodes = piecesToNodes(slice);
+                processNodes(nodes.holder, nodes.wrappers, nodes.blocks, foldSeen);
+                Array.prototype.push.apply(wrappers, nodes.wrappers);
+                Array.prototype.push.apply(blocks, nodes.blocks);
+                while (nodes.holder.firstChild) { frag.appendChild(nodes.holder.firstChild); }
+                if (at < pieces.length) {
+                    if (filePathEl && big) { filePathEl.setAttribute('data-progress', Math.round(100 * at / pieces.length) + '%'); }
+                    setTimeout(step, 0);
+                    return;
+                }
+                if (filePathEl) { filePathEl.removeAttribute('data-progress'); }
+                shownBlocks = blocks;
+                shownWrappers = wrappers;
+                var fresh = newDocRoot();
+                // A large document lays out only the blocks on screen
+                // (style.css: content-visibility on .mdb-large blocks).
+                fresh.classList.toggle('mdb-large', big);
+                fresh.appendChild(frag);
+                showDocRoot(fresh);
+                contentArea.removeAttribute('aria-busy');
+                // Edit mode switched while the batches ran: some have the old controls.
+                if (editMode !== renderedEditMode) { redecorateAll(); }
+                done();
+            }
+            // A large document's lexing was this task's work; the batches start in the next one.
+            if (big) { setTimeout(step, 0); } else { step(); }
+        }
+
+        /**
+         * After our own save: apply the edit to the shown text and re-render only
+         * the region it touched (the edited block and the one before it, which
+         * an edit may merge into), instead of the whole document. Returns false
+         * when the edit cannot be patched in place (it adds a heading, a fence
+         * or html, or CR/LF is on) — the full render that follows then applies.
+         */
+        function patchAfterSave(edit) {
+            if (crlfMode || typeof marked === 'undefined') { return false; }
+            if (/^ {0,3}(#|`{3}|~{3})|<[a-zA-Z/!]/m.test(edit.replacement)) { return false; }
+            var lines = shownLines().slice();
+            var eol = shownText.indexOf('\r\n') >= 0 ? '\r\n' : '\n';
+            var newPart = edit.replacement.replace(/\r\n|\r/g, '\n').split('\n');
+            var delta = newPart.length - (edit.endLine - edit.startLine);
+            // The blocks the edit touches, and the one before them.
+            var first = -1;
+            var last = -1;
+            for (var i = 0; i < shownBlocks.length; i++) {
+                var b = shownBlocks[i];
+                if (b.endLine > edit.startLine && b.startLine < Math.max(edit.endLine, edit.startLine + 1)) {
+                    if (first < 0) { first = i; }
+                    last = i;
+                }
+            }
+            if (first < 0) { return false; }
+            if (shownBlocks.slice(first, last + 1).some(function(bl) { return bl.type === 'group' || bl.type === 'heading'; })) { return false; }
+            var from = first > 0 && shownBlocks[first - 1].type !== 'group' && shownBlocks[first - 1].type !== 'heading' ? first - 1 : first;
+            var regionStart = Math.min(shownBlocks[from].startLine, edit.startLine);
+            var regionEnd = Math.max(shownBlocks[last].endLine, edit.endLine) + delta;
+            Array.prototype.splice.apply(lines, [edit.startLine, edit.endLine - edit.startLine].concat(newPart));
+            // The region must stand on its own: blank lines (or the document's
+            // ends) on both sides, so lexing it alone reads it as in context.
+            // An ATX heading is one line and ends whatever is before it, so it
+            // bounds a region as well as a blank line does.
+            var bounds = function(l) { return l === undefined || l.trim() === '' || /^ {0,3}#{1,6}(\s|$)/.test(l); };
+            if (!bounds(lines[regionStart - 1]) || !bounds(lines[regionEnd])) { return false; }
+            var region = lines.slice(regionStart, regionEnd).join('\n');
+            var built = buildPieces(region, regionStart);
+            if (built.pieces.some(function(p) { return p.hasHtml || (p.block && (p.block.type === 'heading' || p.block.type === 'group')); })) { return false; }
+            var nodes = piecesToNodes(built.pieces);
+            processNodes(nodes.holder, nodes.wrappers, nodes.blocks, {});
+            // Swap the old wrappers (and anything between them) for the new nodes.
+            var oldFirst = shownWrappers[from];
+            var oldLast = shownWrappers[last];
+            var anchor = oldLast.nextSibling;
+            var parent = oldFirst.parentNode;
+            for (var n = oldFirst; n && n !== anchor;) {
+                var next = n.nextSibling;
+                parent.removeChild(n);
+                n = next;
+            }
+            var marginLeft = oldFirst.style.marginLeft;
+            var hidden = oldFirst.classList.contains('mdb-folded-away');
+            while (nodes.holder.firstChild) {
+                var node = nodes.holder.firstChild;
+                if (node.nodeType === 1) {
+                    if (marginLeft) { node.style.marginLeft = marginLeft; }
+                    if (hidden) { node.classList.add('mdb-folded-away'); }
+                }
+                parent.insertBefore(node, anchor);
+            }
+            // The blocks after the region move by `delta` lines.
+            for (var j = last + 1; j < shownBlocks.length; j++) {
+                shownBlocks[j].startLine += delta;
+                shownBlocks[j].endLine += delta;
+            }
+            Array.prototype.splice.apply(shownBlocks, [from, last - from + 1].concat(nodes.blocks));
+            Array.prototype.splice.apply(shownWrappers, [from, last - from + 1].concat(nodes.wrappers));
+            shownText = lines.join(eol);
+            shownLinesCache = null;
+            return true;
         }
 
         // ---- Folding ----
@@ -271,7 +474,7 @@
         /** The content as fold entries: every top-level element, headings with their level and flag. */
         function foldEntries() {
             if (!contentArea) { return []; }
-            return Array.prototype.map.call(contentArea.children, function(el) {
+            return Array.prototype.map.call(docRoot.children, function(el) {
                 var h = headingIn(el);
                 if (!h || !h.dataset.foldKey) { return { level: null, folded: false, el: el }; }
                 return { level: headingLevel(h), folded: foldState[h.dataset.foldKey] === true, el: el, heading: h, key: h.dataset.foldKey };
@@ -342,27 +545,28 @@
             });
         }
 
-        /** Give every heading its key and triangle, keep the flags of a re-rendered same file. */
-        function setupFolding(sameFile) {
-            if (!sameFile || foldFile !== currentFilePath) {
-                foldState = {};
-                foldFile = currentFilePath;
-            }
-            var seen = {};
-            // A snapshot: inserting into the live `children` collection while
-            // walking it makes every later index access rescan it (quadratic).
-            var children = contentArea ? Array.prototype.slice.call(contentArea.children) : [];
-            children.forEach(function(el) {
+        /** Give every heading among `root`'s top-level elements its key and triangle; `seen` counts repeats across batches. */
+        function assignFoldKeys(root, seen) {
+            Array.prototype.slice.call(root.children).forEach(function(el) {
                 var h = headingIn(el);
-                if (!h) { return; }
+                if (!h || h.dataset.foldKey) { return; }
                 var base = headingLevel(h) + '|' + (h.textContent || '').trim();
                 seen[base] = (seen[base] || 0) + 1;
                 h.dataset.foldKey = base + '#' + seen[base];
                 // One template cloned per heading; clicks are handled by one
-                // delegated listener on the content area (below).
+                // delegated listener on the content area.
                 h.insertBefore(foldButtonTemplate.cloneNode(true), h.firstChild);
             });
-            applyFolding();
+        }
+
+        /** After a full render: keep the flags of a re-rendered same file, apply them only if any are set. */
+        function finishFolding(sameFile) {
+            if (!sameFile || foldFile !== currentFilePath) {
+                foldState = {};
+                foldFile = currentFilePath;
+            }
+            var anyFolded = Object.keys(foldState).some(function(k) { return foldState[k] === true; });
+            if (anyFolded) { applyFolding(); } else { refreshFoldControls(); }
         }
 
         var indentApplied = false;      // whether the current render carries indent styles
@@ -381,7 +585,7 @@
         function revealElement(target) {
             if (!contentArea || !target) { return; }
             var top = target;
-            while (top && top.parentNode !== contentArea) { top = top.parentNode; }
+            while (top && top.parentNode !== docRoot) { top = top.parentNode; }
             var entries = foldEntries();
             var index = entries.findIndex(function(e) { return e.el === top; });
             if (index < 0) { return; }
@@ -419,13 +623,14 @@
             box.appendChild(bar);
             placeAfter.insertAdjacentElement('afterend', box);
             // Line up with the block it edits when the document is indented.
-            if (placeAfter.parentNode === contentArea) { box.style.marginLeft = placeAfter.style.marginLeft; }
+            if (placeAfter.parentNode === docRoot) { box.style.marginLeft = placeAfter.style.marginLeft; }
             trigger.style.display = 'none';
             openEditors++;
             area.focus();
 
             function close() {
                 if (!box.parentNode) { return; }
+                area.blur();
                 box.parentNode.removeChild(box);
                 trigger.style.display = '';
                 openEditors = Math.max(0, openEditors - 1);
@@ -441,7 +646,7 @@
                 var edit = buildEdit(area.value);
                 if (!edit) { close(); return; }
                 var id = nextEditId++;
-                pendingSaves[id] = { close: close, status: status };
+                pendingSaves[id] = { close: close, status: status, edit: edit };
                 status.textContent = 'Saving…';
                 restoreScrollTop = contentArea.scrollTop;
                 vscode.postMessage({
@@ -462,80 +667,88 @@
         // Answer buttons after every `**Answer:**` marker, and in edit mode an
         // edit + insert button at the end of every editable block. None with
         // CR/LF on: its conversion moves lines, so they no longer match the file.
-        function decorateEditing() {
-            if (!contentArea) { return; }
+        // The source a button works on is read when it is clicked, so a block
+        // keeps working after an edit elsewhere moved its lines.
+        function decorateWrappers(wrappers, blocks) {
+            if (editModeBtn) {
+                editModeBtn.title = crlfMode && editMode ? 'Edit mode (turn CR/LF off to edit)' : 'Edit mode: edit or extend paragraphs in place';
+            }
+            if (crlfMode || !shownText) { return; }
+            for (var w = 0; w < wrappers.length; w++) {
+                decorateWrapper(wrappers[w], blocks[w]);
+            }
+        }
+
+        function redecorateAll() {
             var old = contentArea.querySelectorAll('.mdb-answer-btn, .mdb-block-actions');
             for (var i = 0; i < old.length; i++) { old[i].parentNode.removeChild(old[i]); }
-            if (crlfMode || !shownText) {
-                if (editModeBtn) { editModeBtn.title = editMode ? 'Edit mode (turn CR/LF off to edit)' : 'Edit mode: edit or extend paragraphs in place'; }
-                return;
-            }
-            if (editModeBtn) { editModeBtn.title = 'Edit mode: edit or extend paragraphs in place'; }
-            var lines = shownLines();
-            var wrappers = contentArea.querySelectorAll('.mdb-block');
+            decorateWrappers(shownWrappers, shownBlocks);
+        }
 
+        function decorateWrapper(wrapper, block) {
+            if (!block) { return; }
             // Answers: the k-th marker of a block is its k-th <strong>Answer:</strong>.
-            // Markers and blocks are both in line order: one forward walk.
-            var perBlock = {};
-            var b = 0;
-            mdbAnswerMarkers(shownText).forEach(function(m) {
-                while (b < shownBlocks.length && shownBlocks[b].endLine <= m.line) { b++; }
-                if (b < shownBlocks.length && m.line >= shownBlocks[b].startLine) {
-                    (perBlock[b] = perBlock[b] || []).push(m);
+            var strongs = null;
+            var markerIndex = 0;
+            var lines = null;
+            for (var line = block.startLine; line < block.endLine; line++) {
+                lines = lines || shownLines();
+                if (lines[line] === undefined || lines[line].indexOf(MDB_ANSWER_MARKER) < 0) { continue; }
+                var markers = mdbAnswerMarkers(lines[line]);
+                for (var k = 0; k < markers.length; k++) {
+                    strongs = strongs || Array.prototype.filter.call(wrapper.querySelectorAll('strong'), function(s) {
+                        return (s.textContent || '').trim() === 'Answer:';
+                    });
+                    var strong = strongs[markerIndex++];
+                    if (strong) { addAnswerButton(strong, block, line - block.startLine, markers[k].column); }
                 }
-            });
-            Object.keys(perBlock).forEach(function(b) {
-                var wrapper = wrappers[Number(b)];
-                if (!wrapper) { return; }
-                var strongs = Array.prototype.filter.call(wrapper.querySelectorAll('strong'), function(s) {
-                    return (s.textContent || '').trim() === 'Answer:';
-                });
-                perBlock[b].forEach(function(m, k) {
-                    var strong = strongs[k];
-                    if (!strong) { return; }
-                    var btn = iconButton('mdb-answer-btn', 'comment', 'Write the answer here');
-                    strong.insertAdjacentElement('afterend', btn);
-                    btn.addEventListener('click', function(e) {
-                        e.stopPropagation();
-                        openEditor(btn, btn, '', function(value) {
-                            if (!value.trim()) { return null; }
-                            return {
-                                startLine: m.line, endLine: m.line + 1, expected: lines[m.line],
-                                replacement: mdbInsertAnswer(lines[m.line], m.column, value),
-                            };
-                        });
-                    });
-                });
-            });
-
-            if (!editMode) { return; }
-            for (var w = 0; w < wrappers.length; w++) {
-                (function(wrapper, block) {
-                    if (!block || !block.editable) { return; }
-                    var source = lines.slice(block.startLine, block.endLine).join('\n');
-                    var actions = document.createElement('div');
-                    actions.className = 'mdb-block-actions';
-                    var editBtn = iconButton('mdb-edit-btn', 'edit', 'Edit this paragraph (source)');
-                    var insertBtn = iconButton('mdb-insert-btn', 'add', 'Insert text at the end of this paragraph');
-                    actions.appendChild(editBtn);
-                    actions.appendChild(insertBtn);
-                    wrapper.appendChild(actions);
-                    editBtn.addEventListener('click', function(e) {
-                        e.stopPropagation();
-                        openEditor(actions, wrapper, source, function(value) {
-                            if (value === source) { return null; }
-                            return { startLine: block.startLine, endLine: block.endLine, expected: source, replacement: value };
-                        });
-                    });
-                    insertBtn.addEventListener('click', function(e) {
-                        e.stopPropagation();
-                        openEditor(actions, wrapper, '', function(value) {
-                            if (!value) { return null; }
-                            return { startLine: block.startLine, endLine: block.endLine, expected: source, replacement: source + value };
-                        });
-                    });
-                })(wrappers[w], shownBlocks[w]);
             }
+            if (!editMode || !block.editable) { return; }
+            var actions = document.createElement('div');
+            actions.className = 'mdb-block-actions';
+            var editBtn = iconButton('mdb-edit-btn', 'edit', 'Edit this paragraph (source, with the blank line before it)');
+            var insertBtn = iconButton('mdb-insert-btn', 'add', 'Insert text at the end of this paragraph');
+            actions.appendChild(editBtn);
+            actions.appendChild(insertBtn);
+            wrapper.appendChild(actions);
+            editBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                var lines = shownLines();
+                // The blank lines before the block belong to the edit, so
+                // removing the leading newline merges it with the block before.
+                var index = shownBlocks.indexOf(block);
+                var floor = index > 0 ? shownBlocks[index - 1].endLine : 0;
+                var start = block.startLine;
+                while (start > floor && lines[start - 1].trim() === '') { start--; }
+                var source = lines.slice(start, block.endLine).join('\n');
+                openEditor(actions, wrapper, source, function(value) {
+                    if (value === source) { return null; }
+                    return { startLine: start, endLine: block.endLine, expected: source, replacement: value };
+                });
+            });
+            insertBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                openEditor(actions, wrapper, '', function(value) {
+                    if (!value) { return null; }
+                    var source = shownLines().slice(block.startLine, block.endLine).join('\n');
+                    return { startLine: block.startLine, endLine: block.endLine, expected: source, replacement: source + value };
+                });
+            });
+        }
+
+        /** `offset` is the marker's line within its block, read again on click. */
+        function addAnswerButton(strong, block, offset, column) {
+            var btn = iconButton('mdb-answer-btn', 'comment', 'Write the answer here');
+            strong.insertAdjacentElement('afterend', btn);
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                openEditor(btn, btn, '', function(value) {
+                    if (!value.trim()) { return null; }
+                    var line = block.startLine + offset;
+                    var text = shownLines()[line];
+                    return { startLine: line, endLine: line + 1, expected: text, replacement: mdbInsertAnswer(text, column, value) };
+                });
+            });
         }
 
         function escapeHtml(text) {
@@ -605,9 +818,10 @@
         }
 
         // ---- Link Click Handling ----
-        function interceptLinks() {
-            if (!contentArea) return;
-            contentArea.querySelectorAll('a[href]').forEach(function(link) {
+        function interceptLinks(root) {
+            root = root || docRoot;
+            if (!root) return;
+            root.querySelectorAll('a[href]').forEach(function(link) {
                 link.addEventListener('click', function(e) {
                     e.preventDefault();
                     var href = link.getAttribute('href') || '';
@@ -670,48 +884,48 @@
                     if (crlfBtn) crlfBtn.classList.toggle('active', crlfMode);
                 }
                 filePathEl.textContent = msg.relativePath || msg.fileName || '';
-                shownText = msg.content || '';
-                contentArea.innerHTML = renderMarkdown(shownText);
-                enhanceHeadings();
-                initMermaid();
-                interceptLinks();
-                decorateEditing();
-                indentApplied = false;  // a fresh render carries no indent styles
-                setupFolding(sameFile);
-                applyIndent();
-                if (sameFile && restoreScrollTop !== null) {
-                    // Our own save re-rendered the document: stay where the
-                    // reader was, also once Mermaid has resized the page.
-                    var keep = restoreScrollTop;
+                var text = msg.content || '';
+                // The same text again (the file watcher after our own save, a
+                // reload with nothing changed): what is shown is already it.
+                if (sameFile && text === shownText && crlfMode === shownCrlf && docRoot.parentNode === contentArea && docRoot.querySelector('.mdb-block')) {
                     restoreScrollTop = null;
-                    contentArea.scrollTop = keep;
-                    requestAnimationFrame(function() { contentArea.scrollTop = keep; });
                     return;
                 }
-
-                // Handle anchor scrolling after content loads
-                if (msg.anchor) {
-                    // Small delay to ensure DOM is ready
-                    setTimeout(function() {
-                        scrollToAnchor(msg.anchor);
-                    }, 50);
-                } else if (liveMode && followTail) {
-                    // Layout may not be final yet (Mermaid blocks
-                    // can resize the doc after they render). Wait
-                    // a frame so scrollHeight reflects the new
-                    // content, then pin to the bottom.
-                    requestAnimationFrame(function() {
-                        scrollToBottom();
-                    });
-                } else if (!sameFile) {
-                    // Different file and not following: start at
-                    // the top, matching the previous behavior.
-                    contentArea.scrollTop = 0;
-                }
-                // Same-file re-render without live follow: leave
-                // scrollTop alone so the user's reading position
-                // is preserved.
+                shownText = text;
+                shownCrlf = crlfMode;
+                shownLinesCache = null;
+                var anchor = msg.anchor;
+                renderDocument(shownText, function() {
+                    initMermaid();
+                    indentApplied = false;  // a fresh render carries no indent styles
+                    finishFolding(sameFile);
+                    applyIndent();
+                    afterRender(sameFile, anchor);
+                });
             }
+        }
+
+        /** Where the reader is put after a full render. */
+        function afterRender(sameFile, anchor) {
+            if (sameFile && restoreScrollTop !== null) {
+                // Our own save re-rendered the document: stay where the
+                // reader was, also once Mermaid has resized the page.
+                var keep = restoreScrollTop;
+                restoreScrollTop = null;
+                contentArea.scrollTop = keep;
+                requestAnimationFrame(function() { contentArea.scrollTop = keep; });
+                return;
+            }
+            if (anchor) {
+                setTimeout(function() { scrollToAnchor(anchor); }, 50);
+            } else if (liveMode && followTail) {
+                // Layout may not be final yet (Mermaid blocks can resize the
+                // doc after they render): wait a frame, then pin to the bottom.
+                requestAnimationFrame(function() { scrollToBottom(); });
+            } else if (!sameFile) {
+                contentArea.scrollTop = 0;
+            }
+            // Same-file re-render without live follow: the reading position stays.
         }
 
         // ---- Message Handling ----
@@ -727,6 +941,9 @@
                 if (saved) {
                     if (msg.ok) {
                         saved.close();
+                        // Patch the region the edit touched; the file's own
+                        // refresh that follows is then the same text and skipped.
+                        if (patchAfterSave(saved.edit)) { restoreScrollTop = null; }
                     } else {
                         restoreScrollTop = null;
                         saved.status.textContent = msg.error || 'Could not save.';

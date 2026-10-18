@@ -7,6 +7,7 @@
  *   ME-3  CRLF files keep CRLF, the expected text compares without the CR
  *   ME-4  a file that changed underneath is refused, nothing written
  *   ME-5  a range outside the file is refused
+ *   ME-6  the replacement goes in as written: dropping a leading newline merges, extra newlines stay
  */
 
 import test, { describe } from 'node:test';
@@ -43,5 +44,13 @@ describe('applyMdLineEdit', () => {
         assert.equal(applyMdLineEdit(FILE, { startLine: 4, endLine: 99, expected: 'd', replacement: 'x' }).ok, false);
         assert.equal(applyMdLineEdit(FILE, { startLine: -1, endLine: 1, expected: 'a', replacement: 'x' }).ok, false);
         assert.equal(applyMdLineEdit(FILE, { startLine: 2, endLine: 1, expected: '', replacement: 'x' }).ok, false);
+    });
+
+    test('ME-6: the replacement as written', () => {
+        const doc = 'one\n\ntwo\n\nthree\n';
+        assert.deepEqual(applyMdLineEdit(doc, { startLine: 1, endLine: 3, expected: '\ntwo', replacement: 'two' }),
+            { ok: true, text: 'one\ntwo\n\nthree\n' }, 'the blank line before is gone: merged');
+        assert.deepEqual(applyMdLineEdit(doc, { startLine: 1, endLine: 3, expected: '\ntwo', replacement: '\n| a | b |\n|---|---|\n| 1 | 2 |\n\n' }),
+            { ok: true, text: 'one\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n\n\nthree\n' });
     });
 });

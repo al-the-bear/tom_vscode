@@ -4,7 +4,7 @@
 // it can be loaded into a bare `vm` sandbox and unit-tested directly
 // (src/utils/__tests__/mdBrowserBlocks.test.ts). Loaded as a classic script
 // before main.js; the declarations below are globals main.js calls.
-/* exported mdbBlocks, mdbAnswerMarkers, mdbInsertAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
+/* exported MDB_ANSWER_MARKER, mdbBlocks, mdbAnswerMarkers, mdbInsertAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
 //
 // The browser renders the backend's transformed text. Without the CR/LF
 // conversion that transform keeps every line where it is (it only rewrites

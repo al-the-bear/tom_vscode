@@ -10,7 +10,7 @@
  *   MF-6  the backend's heading transform: ids and levels beyond 6 fold by their true level
  *   MF-7  the indent toggle: headings by level, content one step deeper, spaces from the dropdown (default 2)
  *   MF-8  <details> blocks keep their content inside them (rendered as one group)
- *   MF-9  a large document renders in linear time (12 000 sections well under the quadratic cost)
+ *   MF-9  a large document renders in linear time, in batches that yield to the event loop
  */
 
 import test, { describe } from 'node:test';
@@ -50,7 +50,7 @@ const show = (window: Win, text: string, filePath = '/ws/doc.md'): void => {
 };
 /** The visible text of the content, one entry per visible top-level element. */
 const visible = (window: Win): string[] =>
-    [...window.document.getElementById('contentArea').children]
+    [...window.document.querySelector('#contentArea > .mdb-doc').children]
         .filter((el: Win) => !el.classList.contains('mdb-folded-away'))
         .map((el: Win) => el.textContent.trim().replace(/\s+/g, ' '));
 const heading = (window: Win, text: string): Win =>
@@ -133,7 +133,7 @@ describe('Markdown Browser folding', () => {
     test('MF-7: indent by heading level', () => {
         const w = setup();
         show(w, DOC);
-        const margins = (): string[] => [...w.document.getElementById('contentArea').children].map((el: Win) => el.style.marginLeft);
+        const margins = (): string[] => [...w.document.querySelector('#contentArea > .mdb-doc').children].map((el: Win) => el.style.marginLeft);
         assert.ok(margins().every((m) => m === ''), 'off by default');
         const select = w.document.getElementById('indentSizeSelect');
         assert.equal(select.value, '2');
@@ -158,14 +158,18 @@ describe('Markdown Browser folding', () => {
         assert.ok(!w.document.querySelector('details') .open, 'collapsed, as written');
     });
 
-    test('MF-9: a large document renders in linear time', () => {
+    test('MF-9: a large document renders in linear time, in batches', async () => {
         const w = setup();
         const parts: string[] = [];
         for (let i = 0; i < 12000; i++) { parts.push(`## Section ${i}`, '', `text ${i}`, ''); }
+        const area = w.document.getElementById('contentArea');
         const started = Date.now();
         show(w, parts.join('\n'));
+        assert.equal(area.getAttribute('aria-busy'), 'true', 'not done in one task: the window gets turns');
+        while (area.getAttribute('aria-busy') === 'true') { await new Promise((r) => setTimeout(r, 5)); }
         const ms = Date.now() - started;
         assert.equal(w.document.querySelectorAll('.mdb-fold-btn').length, 12000);
+        assert.equal(heading(w, 'Section 11999').dataset.foldKey, '2|Section 11999#1');
         assert.ok(ms < 10000, `rendering 24 000 blocks took ${ms} ms`);
     });
 });

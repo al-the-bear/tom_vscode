@@ -241,6 +241,11 @@ body.show-fullid .markdown-body .md-heading-fullid { display: block; }
 .mdb-editor-status.error { color: var(--vscode-errorForeground); opacity: 1; }
 #editModeBtn.active { background: var(--vscode-toolbar-activeBackground, var(--vscode-toolbar-hoverBackground)); color: var(--vscode-textLink-foreground); }
 
+/* ---- Large documents ----
+   Blocks off screen skip layout and paint until scrolled near; once laid out
+   they keep their measured height (`auto`), so the scrollbar settles. */
+.markdown-body .mdb-large > .mdb-block { content-visibility: auto; contain-intrinsic-size: auto 2.5em; }
+
 /* ---- Folding ---- */
 .markdown-body .mdb-folded-away { display: none; }
 .mdb-fold-btn {
