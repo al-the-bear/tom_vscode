@@ -339,6 +339,96 @@ export function collectDecisionNeededTodos(
     return collectPrefixTodos(prefix, todos).filter(e => e.status === DECISION_NEEDED);
 }
 
+/** A todo as the unblock check needs it: its id, status and machine-readable block conditions. */
+export interface BlockableTodo extends TodoIterationSource {
+    /** Ids of the todos this one waits for (`<quest>/<id>` for another quest). */
+    blockedBy?: string[];
+    /** Release conditions this check cannot evaluate (`"pkg >= x.y.z"` on pub.dev). */
+    blockedUntil?: string[];
+}
+
+/** The status of a blocker, or `undefined` when no todo with that id exists any more. */
+export type BlockerLookup = (ref: string) => { status?: string } | undefined;
+
+/** A blocker counts as done when it is gone, completed or cancelled. */
+function blockerIsDone(found: { status?: string } | undefined): boolean {
+    if (!found) { return true; }
+    const status = normaliseStatus(found.status);
+    return status === 'completed' || status === 'cancelled';
+}
+
+/**
+ * The `blocked` todos of a `prefix*` series that may run now: every todo
+ * named in `blocked_by` is done — completed, cancelled, or no longer there
+ * (deleted, or archived out of the live files). The runner sets them back to
+ * `not-started` before picking, so a todo that waited on an earlier one of
+ * the same list runs as soon as that one is done.
+ *
+ * A todo stays blocked when one blocker is still open, when it carries no
+ * `blocked_by` (a block stated only in prose cannot be checked), or when it
+ * carries a `blocked_until` release condition, which this check does not
+ * evaluate.
+ */
+export function todosToUnblock(
+    value: unknown,
+    todos: readonly BlockableTodo[],
+    lookup: BlockerLookup,
+): Array<{ id: string; blockers: string[] }> {
+    const prefix = parseTodoPrefixPattern(value);
+    if (prefix === undefined) { return []; }
+    const series = new Set(collectPrefixTodos(prefix, todos).filter((e) => e.status === 'blocked').map((e) => e.id));
+    const out: Array<{ id: string; blockers: string[] }> = [];
+    for (const todo of todos) {
+        if (!series.has(todo.id)) { continue; }
+        const blockers = todo.blockedBy ?? [];
+        if (blockers.length === 0 || (todo.blockedUntil?.length ?? 0) > 0) { continue; }
+        if (blockers.every((ref) => blockerIsDone(lookup(ref)))) {
+            out.push({ id: todo.id, blockers: [...blockers] });
+        }
+    }
+    return out;
+}
+
+/** Reads and writes the quest todos for {@link releaseUnblockedTodos}. */
+export interface TodoUnblockPort {
+    /** The live todos of a quest (archived and deleted siblings excluded). */
+    readTodos(questId: string): BlockableTodo[];
+    /** Write a status; `false` when the write did not stick. */
+    writeStatus(questId: string, todoId: string, status: string): boolean;
+}
+
+/**
+ * Before a `prefix*` walk picks its next todo: set every blocked todo of the
+ * series whose blockers are all done back to `not-started`
+ * ({@link todosToUnblock}). A blocker `<quest>/<id>` is looked up in that
+ * quest; any other id in the iteration's own quest.
+ */
+export function releaseUnblockedTodos(
+    value: unknown,
+    questId: string,
+    port: TodoUnblockPort,
+): { released: Array<{ id: string; blockers: string[] }>; failed: string[] } {
+    const own = port.readTodos(questId);
+    const byQuest = new Map<string, Map<string, BlockableTodo>>([[questId, new Map(own.map((t) => [t.id, t]))]]);
+    const lookup: BlockerLookup = (ref) => {
+        const slash = ref.indexOf('/');
+        const quest = slash > 0 ? ref.slice(0, slash) : questId;
+        const id = slash > 0 ? ref.slice(slash + 1) : ref;
+        let todos = byQuest.get(quest);
+        if (!todos) {
+            todos = new Map(port.readTodos(quest).map((t) => [t.id, t]));
+            byQuest.set(quest, todos);
+        }
+        return todos.get(id);
+    };
+    const released: Array<{ id: string; blockers: string[] }> = [];
+    const failed: string[] = [];
+    for (const u of todosToUnblock(value, own, lookup)) {
+        if (port.writeStatus(questId, u.id, 'not-started')) { released.push(u); } else { failed.push(u.id); }
+    }
+    return { released, failed };
+}
+
 /** What the main stage should send next — see {@link planMainStageDispatch}. */
 export type MainStageDispatchPlan =
     | { mode: 'counter'; repeatIndex: number }

@@ -31,13 +31,14 @@ import {
 } from '../storage/queueFileStorage';
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
-import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, decideAdvanceAfterCompletion, parseTodoPrefixPattern, planMainStageDispatch, releaseResolvedDecisionItems, resolveResendText, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty, type TodoIterationSource } from '../utils/queueStep3Utils';
+import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, decideAdvanceAfterCompletion, parseTodoPrefixPattern, planMainStageDispatch, releaseResolvedDecisionItems, releaseUnblockedTodos, resolveResendText, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty, type TodoIterationSource, type TodoUnblockPort } from '../utils/queueStep3Utils';
 import { runMainStageWithRefresh } from '../utils/questRefreshDispatch.js';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
 import { mergeQueueReload } from '../utils/queueReloadMergeUtils';
 import { applyErrorTransition, applyInterruptForContinuation, applyResetToPending, applyWaitingTransition, clearWaitingState, dispatchWasSuperseded, isWaitingDue, itemHasInFlightProgress, pickInterruptedResume, resolveAnswerContainer } from '../utils/queueErrorTransitions';
 import { applyRetryScheduling, applyStopRetrying, clearRetryBookkeeping, computeRetryDecision, fireRetry, isPreviousMessageIdError, isRetryDue, rollbackInFlightRepetition, type InFlightRepetition } from '../utils/queueRetryTransitions';
 import { parseResetClause } from '../utils/queueResetClause';
+import { questTodoUnblockPort } from '../utils/questTodoUnblockPort';
 import { claimTodo, reclaimForResend, releaseTodoClaim, todoClaimFromYaml, todoClaimToYaml, type TodoClaim, type TodoStatusPort } from '../utils/queueTodoClaim';
 import { resolveVariables } from '../utils/variableResolver.js';
 import {
@@ -3894,6 +3895,18 @@ export class PromptQueueManager {
         // reduces both modes to one gate.
         const isTodoIteration = parseTodoPrefixPattern(item.repeatCount) !== undefined;
         const iterationQuestId = isTodoIteration ? this.activeQuestId() : undefined;
+        if (iterationQuestId) {
+            // A blocked todo of the series whose blockers are all done (or gone)
+            // goes back to not-started first, so this pick can take it — e.g. a
+            // todo that waited on an earlier one of the same list.
+            const unblocked = releaseUnblockedTodos(item.repeatCount, iterationQuestId, QUEST_TODO_UNBLOCK_PORT);
+            for (const u of unblocked.released) {
+                logQueue(`MP dispatch: todo ${u.id} unblocked (blockers done or gone: ${u.blockers.join(', ')})`);
+            }
+            for (const id of unblocked.failed) {
+                logQueue(`MP dispatch: todo ${id} could be unblocked, but writing not-started failed — it stays blocked`);
+            }
+        }
         const plan = planMainStageDispatch(
             item.repeatCount,
             mainSentCount,
@@ -4881,6 +4894,9 @@ function readQuestTodoEntries(questId: string): TodoIterationSource[] {
         return todos.map(t => ({ id: t.id, title: t.title || t.description, status: t.status }));
     } catch { return []; }
 }
+
+/** The live todo store, for {@link releaseUnblockedTodos}; the status write is the claim's own. */
+const QUEST_TODO_UNBLOCK_PORT: TodoUnblockPort = questTodoUnblockPort((questId, todoId, status) => writeQuestTodoStatus(questId, todoId, status));
 
 /** Ids only — the shape {@link resolveTodoPrefixRepeatCount} consumes. */
 function readQuestTodoIds(questId: string): string[] {
