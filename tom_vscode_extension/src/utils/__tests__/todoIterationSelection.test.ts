@@ -50,16 +50,31 @@ describe('parseTodoPrefixPattern', () => {
 });
 
 describe('collectPrefixTodos', () => {
-    test('keeps only ids of the form prefix + digits, carrying the number', () => {
+    test('keeps ids starting with the prefix that hold a number, carrying the number', () => {
         const todos = [t('dsa1'), t('dsa2'), t('xyz3'), t('dsable'), t('dsa_4')];
         assert.deepEqual(
             collectPrefixTodos('dsa', todos).map(e => [e.id, e.index]),
-            [['dsa1', 1], ['dsa2', 2]],
+            [['dsa1', 1], ['dsa2', 2], ['dsa_4', 4]],
+            'xyz3 has another prefix; dsable holds no number',
+        );
+    });
+
+    test('todo groups: the number is the first digit run after the prefix, wherever it starts', () => {
+        const todos = [t('xyz-groupb2'), t('xyz-groupa1'), t('xyz-groupa3'), t('xyz-groupb1'), t('xyzgroupc2_ajms-x')];
+        assert.deepEqual(
+            collectPrefixTodos('xyz', todos).map(e => [e.id, e.index]),
+            [['xyz-groupa1', 1], ['xyz-groupb1', 1], ['xyz-groupb2', 2], ['xyzgroupc2_ajms-x', 2], ['xyz-groupa3', 3]],
+            'one walk over every group, by number, ties alphabetical',
+        );
+        assert.deepEqual(
+            collectPrefixTodos('xyz-groupa', todos).map(e => e.id),
+            ['xyz-groupa1', 'xyz-groupa3'],
+            'a dash in the pattern narrows the walk to one group',
         );
     });
 
     test('takes the leading digit run and tolerates a trailing remainder', () => {
-        const todos = [t('dsa15b'), t('dsa7-review'), t('dsa2x9')];
+        const todos = [t('dsa15b'), t('dsa7-review'), t('dsa2x9')];  // dsa2x9 is 2, not 29 or 9
         assert.deepEqual(
             collectPrefixTodos('dsa', todos).map(e => [e.id, e.index]),
             [['dsa2x9', 2], ['dsa7-review', 7], ['dsa15b', 15]],

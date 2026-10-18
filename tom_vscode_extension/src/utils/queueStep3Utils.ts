@@ -261,16 +261,19 @@ function normaliseStatus(status: string | undefined): string {
 }
 
 /**
- * Collect the todos matching `prefix` + digits, ordered for iteration.
+ * Collect the todos that start with `prefix` and hold a number, ordered for
+ * iteration.
  *
- * The number is the run of digits **immediately after** the prefix; trailing
- * characters are allowed and ignored, so `dsa15b` and `dsa7-review` contribute
- * 15 and 7. Ids that don't start with the prefix, or whose first character
- * after it isn't a digit (`dsable`, `dsa_2`), are dropped.
+ * The number is the **first run of digits after the prefix**, wherever it
+ * starts: `dsa15b` and `dsa7-review` contribute 15 and 7, and so do todo
+ * groups — `xyz-groupa3` and `xyz-groupb1` both belong to `xyz*`, with 3 and
+ * 1. The prefix is matched literally, dashes included, so `xyz-groupa*`
+ * walks one group only. Ids that don't start with the prefix, or hold no digit
+ * after it (`dsable`), are dropped.
  *
- * The order is number ascending, then id alphabetically — so a series that
- * shares a number (`dsa2-a`, `dsa2-b`) is walked in a stable, predictable
- * order rather than in readdir order.
+ * The order is number ascending, then id alphabetically — so todos sharing a
+ * number (`dsa2-a`, `dsa2-b`, or the same number in two groups) are walked in a
+ * stable, predictable order rather than in readdir order.
  */
 export function collectPrefixTodos(
     prefix: string,
@@ -282,7 +285,7 @@ export function collectPrefixTodos(
         if (typeof id !== 'string' || !id.startsWith(prefix)) {
             continue;
         }
-        const match = /^(\d+)/.exec(id.slice(prefix.length));
+        const match = /(\d+)/.exec(id.slice(prefix.length));
         if (!match) {
             continue;
         }

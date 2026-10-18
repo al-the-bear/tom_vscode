@@ -137,10 +137,14 @@ describe('resolveTodoPrefixRepeatCount - prefix* repeat count', () => {
         assert.equal(resolveTodoPrefixRepeatCount('dsa*', todoIds), 15);
     });
 
-    test('ignores ids whose suffix does not start with a digit', () => {
-        // dsable / dsa_3 must not contribute (no leading digit after prefix);
-        // xyz4 has a different prefix.
-        assert.equal(resolveTodoPrefixRepeatCount('dsa*', ['dsable', 'dsa_3', 'dsa7']), 7);
+    test('ignores ids holding no number, and ids with another prefix', () => {
+        // dsable holds no number; xyz4 has a different prefix.
+        assert.equal(resolveTodoPrefixRepeatCount('dsa*', ['dsable', 'xyz4', 'dsa7']), 7);
+    });
+
+    test('counts todo groups: the first number after the prefix, wherever it starts', () => {
+        // dsa_3 -> 3, dsa-groupb12 -> 12. Highest is 12.
+        assert.equal(resolveTodoPrefixRepeatCount('dsa*', ['dsa_3', 'dsa-groupa5', 'dsa-groupb12']), 12);
     });
 
     test('counts ids of form prefix+number+non-digit-trailing (leading digits win)', () => {
