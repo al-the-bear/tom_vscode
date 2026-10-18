@@ -9,6 +9,9 @@
  *   MN-5  search: counts the matches, Enter / Shift+Enter and the arrows step through them,
  *         a match in a folded section unfolds it, Escape clears
  *   MN-6  switching edit mode does not touch the document's DOM
+ *   MN-7  the search box's clear button: shown with text, empties the box and the results
+ *   MN-8  leaving a document reports where the reader was (source line + offset); a document
+ *         shown again with that position opens there; scrolling reports it too
  */
 
 import test, { describe } from 'node:test';
@@ -41,6 +44,11 @@ const show = (w: Win, text: string): void => {
 };
 const $ = (w: Win, sel: string): Win[] => [...w.document.querySelectorAll(sel)];
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+/** A navigation message without the reading position it carries (MN-8 checks that). */
+const nav = (m: Record<string, unknown> | undefined): Record<string, unknown> => {
+    const { filePath: _f, position: _p, ...rest } = m ?? {};
+    return rest;
+};
 
 const SPEC = transformMarkdown([
     '# <!--[SBP]--> Blueprint',
@@ -104,7 +112,7 @@ describe('Markdown Browser links, navigation and search', () => {
         const links = $(w, 'a.mdb-autolink');
         assert.deepEqual(links.map((a) => a.getAttribute('href')), ['iterations/notes.md']);
         links[0].click();
-        assert.deepEqual(posted.filter((m) => m.type === 'navigateLink'), [{ type: 'navigateLink', href: 'iterations/notes.md' }]);
+        assert.deepEqual(posted.filter((m) => m.type === 'navigateLink').map(nav), [{ type: 'navigateLink', href: 'iterations/notes.md' }]);
     });
 
     test('MN-4: the link popup', async () => {
@@ -120,12 +128,12 @@ describe('Markdown Browser links, navigation and search', () => {
         await sleep(350);
         assert.ok(popup.classList.contains('visible'));
         popup.querySelector('[data-target="new"]').click();
-        assert.deepEqual(posted.filter((m) => m.type === 'navigateLink').pop(), { type: 'navigateLink', href: 'sub/doc.md#part', newPanel: true });
+        assert.deepEqual(nav(posted.filter((m) => m.type === 'navigateLink').pop()), { type: 'navigateLink', href: 'sub/doc.md#part', newPanel: true });
         assert.ok(!popup.classList.contains('visible'));
         $(w, 'a.mdb-autolink')[0].dispatchEvent(new w.MouseEvent('mouseover', { bubbles: true }));
         await sleep(350);
         popup.querySelector('[data-target="same"]').click();
-        assert.deepEqual(posted.filter((m) => m.type === 'navigateLink').pop(), { type: 'navigateLink', href: 'iterations/notes.md', newPanel: false });
+        assert.deepEqual(nav(posted.filter((m) => m.type === 'navigateLink').pop()), { type: 'navigateLink', href: 'iterations/notes.md', newPanel: false });
     });
 
     test('MN-5: search', async () => {
@@ -170,5 +178,53 @@ describe('Markdown Browser links, navigation and search', () => {
         w.document.getElementById('editModeBtn').click();
         assert.deepEqual(observer.takeRecords(), []);
         assert.equal(records.length, 0);
+    });
+
+    test('MN-7: clearing the search', async () => {
+        const { w } = setup();
+        show(w, SPEC);
+        const input = w.document.getElementById('searchInput');
+        const clear = w.document.getElementById('searchClearBtn');
+        assert.equal(w.getComputedStyle(clear).display, 'none', 'hidden while empty');
+        input.value = 'needle';
+        input.dispatchEvent(new w.Event('input'));
+        await sleep(5);
+        assert.equal(w.getComputedStyle(clear).display, 'flex');
+        clear.click();
+        assert.equal(input.value, '');
+        assert.equal(w.document.getElementById('searchCount').textContent, '');
+        assert.equal(w.getComputedStyle(clear).display, 'none');
+    });
+
+    test('MN-8: the reading position across documents', async () => {
+        const { w, posted } = setup();
+        const doc = ['# T', '', 'first', '', 'second', '', 'third', '', 'see other.md'].join('\n');
+        show(w, doc);
+        const area = w.document.getElementById('contentArea');
+        let scrollTop = 0;
+        Object.defineProperty(area, 'scrollTop', { get: () => scrollTop, set: (v: number) => { scrollTop = v; }, configurable: true });
+        // Layout stand-ins: the block reading "third" starts 1534px into the
+        // document and moves with the scroll offset; the view's top is 0.
+        w.Element.prototype.getBoundingClientRect = function (this: Win) {
+            return { top: this !== area && /third/.test(this.textContent) ? 1534 - scrollTop : 0, bottom: 0, left: 0, right: 0, width: 100, height: 10 };
+        };
+        const third = (): Win => [...w.document.querySelectorAll('.mdb-block')].find((b: Win) => b.textContent.includes('third'));
+        w.document.elementFromPoint = () => third().querySelector('p');
+        scrollTop = 1234;
+        w.document.querySelector('a.mdb-autolink').click();
+        assert.deepEqual(posted.filter((m) => m.type === 'navigateLink').pop(),
+            { type: 'navigateLink', href: 'other.md', filePath: '/ws/spec.md', position: { line: 6, delta: 300, scrollTop: 1234 } });
+
+        w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'mdContent', content: '# Other', filePath: '/ws/other.md', crlf: false } }));
+        scrollTop = 0;
+        w.dispatchEvent(new w.MessageEvent('message', {
+            data: { type: 'mdContent', content: doc, filePath: '/ws/spec.md', crlf: false, position: { line: 6, delta: 10, scrollTop: 999 } },
+        }));
+        assert.equal(scrollTop, 1524, 'the block of line 6 is put back 10px below the top');
+
+        area.dispatchEvent(new w.Event('scroll'));
+        await sleep(350);
+        assert.deepEqual(posted.filter((m) => m.type === 'readingPosition').pop(),
+            { type: 'readingPosition', filePath: '/ws/spec.md', position: { line: 6, delta: 10, scrollTop: 1524 } }, 'and stays there');
     });
 });

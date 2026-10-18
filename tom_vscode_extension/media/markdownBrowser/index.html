@@ -92,7 +92,12 @@
         <button class="icon-btn" id="docForwardBtn" disabled title="Forward within this document">
             <span class="codicon codicon-chevron-right"></span>
         </button>
-        <input id="searchInput" class="search-input" type="search" placeholder="Search in document" title="Search in this document (Enter: next, Shift+Enter: previous, Esc: clear)" />
+        <span class="search-box">
+            <input id="searchInput" class="search-input" type="search" placeholder="Search in document" title="Search in this document (Enter: next, Shift+Enter: previous, Esc: clear)" />
+            <button class="search-clear" id="searchClearBtn" title="Clear search">
+                <span class="codicon codicon-close"></span>
+            </button>
+        </span>
         <span id="searchCount" class="search-count"></span>
         <button class="icon-btn" id="searchPrevBtn" disabled title="Previous match (Shift+Enter)">
             <span class="codicon codicon-arrow-up"></span>

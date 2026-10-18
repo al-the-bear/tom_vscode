@@ -34,6 +34,7 @@ import { resolveWorkspaceDocsDir } from '../utils/workspaceDocsDir.js';
 import { debugLog } from '../utils/debugLogger.js';
 import { openInExternalApplication } from './handler_shared.js';
 import { resolveLink, type ResolvedLink, type LinkContext } from '../utils/linkResolver.js';
+import { NavigationHistory, type ReadingPosition } from '../utils/mdBrowserHistory.js';
 import { readMediaText } from '../utils/webviewLoader.js';
 import { transformMarkdown } from '../utils/markdownHeadings.js';
 import { applyMdLineEdit } from '../utils/markdownBrowserEdits.js';
@@ -44,7 +45,6 @@ import { applyMdLineEdit } from '../utils/markdownBrowserEdits.js';
 
 const PANEL_VIEW_TYPE = 'tomAi.markdownBrowser';
 const PANEL_TITLE = 'MD Browser';
-const MAX_HISTORY_ENTRIES = 100;
 const PICKER_PREFIX = 'mdBrowser';
 
 /**
@@ -87,49 +87,6 @@ function getMdBrowserWebviewOptions(context: vscode.ExtensionContext): vscode.We
 // ============================================================================
 // History
 // ============================================================================
-
-interface HistoryEntry {
-    filePath: string;
-    group: string;
-}
-
-/** Per-panel navigation history. */
-class NavigationHistory {
-    private _entries: HistoryEntry[] = [];
-    private _currentIndex = -1;
-
-    get canGoBack(): boolean { return this._currentIndex > 0; }
-    get canGoForward(): boolean { return this._currentIndex < this._entries.length - 1; }
-    get current(): HistoryEntry | undefined { return this._entries[this._currentIndex]; }
-
-    /**
-     * Navigate to a new document. Truncates forward history and appends.
-     */
-    push(entry: HistoryEntry): void {
-        // If we're not at the end, truncate forward entries
-        if (this._currentIndex < this._entries.length - 1) {
-            this._entries = this._entries.slice(0, this._currentIndex + 1);
-        }
-        this._entries.push(entry);
-        // Enforce max entries
-        if (this._entries.length > MAX_HISTORY_ENTRIES) {
-            this._entries.shift();
-        }
-        this._currentIndex = this._entries.length - 1;
-    }
-
-    goBack(): HistoryEntry | undefined {
-        if (!this.canGoBack) return undefined;
-        this._currentIndex--;
-        return this._entries[this._currentIndex];
-    }
-
-    goForward(): HistoryEntry | undefined {
-        if (!this.canGoForward) return undefined;
-        this._currentIndex++;
-        return this._entries[this._currentIndex];
-    }
-}
 
 // ============================================================================
 // Per-panel state class
@@ -273,7 +230,7 @@ class MdBrowserPanel {
         }
     }
 
-    private _sendFileContent(absPath: string, anchor?: string): void {
+    private _sendFileContent(absPath: string, anchor?: string, position?: ReadingPosition): void {
         try {
             const raw = fs.readFileSync(absPath, 'utf-8');
             // Rewrite headings (10 levels + id badge + full id) and, when the
@@ -291,6 +248,8 @@ class MdBrowserPanel {
                 relativePath,
                 fileName: path.basename(absPath),
                 anchor,
+                // Where the reader was when they left this document (back / forward).
+                position,
                 liveMode: this._liveMode,
                 // Tells the webview to render soft (single) newlines as hard line
                 // breaks (marked `breaks`), so real newlines in the file show as
@@ -515,6 +474,13 @@ class MdBrowserPanel {
         }
     }
 
+    /** Store the reading position a webview message carries on the current history entry. */
+    private _recordPosition(msg: { filePath?: unknown; position?: ReadingPosition }): void {
+        if (typeof msg.filePath === 'string' && msg.position) {
+            this._history.recordPosition(msg.filePath, msg.position);
+        }
+    }
+
     // ---- Message handler ---------------------------------------------------
 
     private async _handleMessage(msg: any): Promise<void> {
@@ -574,25 +540,32 @@ class MdBrowserPanel {
                     break;
                 }
 
+                case 'readingPosition':
+                    this._recordPosition(msg);
+                    break;
+
                 case 'goBack': {
+                    this._recordPosition(msg);
                     const back = this._history.goBack();
                     if (back) {
-                        this._sendFileContent(back.filePath);
+                        this._sendFileContent(back.filePath, undefined, back.position);
                         this._sendNavState();
                     }
                     break;
                 }
 
                 case 'goForward': {
+                    this._recordPosition(msg);
                     const fwd = this._history.goForward();
                     if (fwd) {
-                        this._sendFileContent(fwd.filePath);
+                        this._sendFileContent(fwd.filePath, undefined, fwd.position);
                         this._sendNavState();
                     }
                     break;
                 }
 
                 case 'navigateLink': {
+                    this._recordPosition(msg);
                     const linkHref = String(msg.href || '');
                     const currentFile = this._history.current?.filePath || '';
                     if (!linkHref) break;

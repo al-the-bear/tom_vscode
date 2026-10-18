@@ -37,6 +37,7 @@
         var searchCount = document.getElementById('searchCount');
         var searchPrevBtn = document.getElementById('searchPrevBtn');
         var searchNextBtn = document.getElementById('searchNextBtn');
+        var searchClearBtn = document.getElementById('searchClearBtn');
         // The rendered document lives in one element inside the scroll area.
         // A full render swaps that element for a new one in a single step:
         // removing a large rendered tree node by node can stall Chrome for
@@ -112,10 +113,10 @@
 
         // ---- Navigation Buttons ----
         backBtn.addEventListener('click', function() {
-            vscode.postMessage({ type: 'goBack' });
+            vscode.postMessage({ type: 'goBack', filePath: currentFilePath, position: readingPosition() });
         });
         forwardBtn.addEventListener('click', function() {
-            vscode.postMessage({ type: 'goForward' });
+            vscode.postMessage({ type: 'goForward', filePath: currentFilePath, position: readingPosition() });
         });
         openInEditorBtn.addEventListener('click', function() {
             vscode.postMessage({ type: 'openInEditor' });
@@ -958,6 +959,72 @@
             }
         }
 
+        // ---- Reading position across documents ----
+        // The panel's history (backend) keeps, per visited document, the source
+        // line of the block at the top of the view and its offset: sent with
+        // every navigation message and, debounced, after scrolling.
+
+        function readingPosition() {
+            var el = topVisibleElement();
+            var block = el && el.__mdbBlock;
+            return { line: block ? block.startLine : null, delta: el ? offsetInView(el) : 0, scrollTop: contentArea.scrollTop };
+        }
+
+        /** The wrapper of the first block starting at or after `line`. */
+        function wrapperAtLine(line) {
+            var lo = 0;
+            var hi = shownBlocks.length;
+            while (lo < hi) {
+                var mid = (lo + hi) >> 1;
+                if (shownBlocks[mid].startLine < line) { lo = mid + 1; } else { hi = mid; }
+            }
+            return shownWrappers[lo] || null;
+        }
+
+        function restoreReadingPosition(pos) {
+            var el = typeof pos.line === 'number' ? wrapperAtLine(pos.line) : null;
+            if (!el) {
+                contentArea.scrollTop = pos.scrollTop || 0;
+                return;
+            }
+            revealElement(el);
+            var place = function() {
+                var off = offsetInView(el) - (pos.delta || 0);
+                if (Math.abs(off) > 1) { contentArea.scrollTop += off; }
+                return Math.abs(off) <= 1;
+            };
+            place();
+            // Blocks laid out only once on screen get their real height over
+            // the next frames: keep placing the block until it holds still,
+            // unless the reader starts scrolling.
+            var stableFrames = 0;
+            var frames = 0;
+            var gen = renderGen;
+            readerMoved = false;
+            requestAnimationFrame(function settle() {
+                if (readerMoved || gen !== renderGen || !el.isConnected) { return; }
+                stableFrames = place() ? stableFrames + 1 : 0;
+                if (stableFrames < 3 && ++frames < 60) { requestAnimationFrame(settle); }
+            });
+        }
+
+        // The reader scrolling by hand ends the settling above.
+        var readerMoved = false;
+        ['wheel', 'touchstart', 'keydown', 'mousedown'].forEach(function(type) {
+            if (contentArea) { contentArea.addEventListener(type, function() { readerMoved = true; }, { passive: true }); }
+        });
+
+        var positionTimer = null;
+        if (contentArea) {
+            contentArea.addEventListener('scroll', function() {
+                clearTimeout(positionTimer);
+                positionTimer = setTimeout(function() {
+                    if (!currentFilePath || contentArea.getAttribute('aria-busy') === 'true') { return; }
+                    vscode.postMessage({ type: 'readingPosition', filePath: currentFilePath, position: readingPosition() });
+                }, 300);
+            });
+        }
+
         function flash(el) {
             el.style.transition = 'background-color 0.3s';
             el.style.backgroundColor = 'var(--vscode-editor-findMatchHighlightBackground)';
@@ -1023,7 +1090,7 @@
                 }
                 var href = link.getAttribute('href') || '';
                 if (!href || /^(https?:|mailto:)/.test(href)) { return; }
-                vscode.postMessage({ type: 'navigateLink', href: href });
+                vscode.postMessage({ type: 'navigateLink', href: href, filePath: currentFilePath, position: readingPosition() });
             });
         }
 
@@ -1086,7 +1153,10 @@
         linkPopup.addEventListener('click', function(e) {
             var btn = e.target && e.target.closest ? e.target.closest('.mdb-link-popup-btn') : null;
             if (!btn || !popupLink) { return; }
-            vscode.postMessage({ type: 'navigateLink', href: popupLink.getAttribute('href'), newPanel: btn.dataset.target === 'new' });
+            vscode.postMessage({
+                type: 'navigateLink', href: popupLink.getAttribute('href'), newPanel: btn.dataset.target === 'new',
+                filePath: currentFilePath, position: readingPosition(),
+            });
             hideLinkPopup();
         });
 
@@ -1165,6 +1235,7 @@
 
         function showSearchMatch(scroll) {
             var n = search.matches.length;
+            if (searchClearBtn) { searchClearBtn.classList.toggle('visible', !!(searchInput && searchInput.value)); }
             if (searchCount) {
                 searchCount.textContent = !search.query ? ''
                     : n === 0 ? 'No results'
@@ -1235,6 +1306,13 @@
             });
         }
         if (searchNextBtn) { searchNextBtn.addEventListener('click', function() { stepSearch(1); }); }
+        if (searchClearBtn) {
+            searchClearBtn.addEventListener('click', function() {
+                searchInput.value = '';
+                runSearch(false);
+                searchInput.focus();
+            });
+        }
         if (searchPrevBtn) { searchPrevBtn.addEventListener('click', function() { stepSearch(-1); }); }
         document.addEventListener('keydown', function(e) {
             if ((e.metaKey || e.ctrlKey) && (e.key === 'f' || e.key === 'F') && searchInput) {
@@ -1302,6 +1380,7 @@
                 shownCrlf = crlfMode;
                 shownLinesCache = null;
                 var anchor = msg.anchor;
+                var position = msg.position;
                 if (!sameFile) {
                     resetDocNav();
                     search.current = -1;
@@ -1312,13 +1391,13 @@
                     indentApplied = false;  // a fresh render carries no indent styles
                     finishFolding(sameFile);
                     applyIndent();
-                    afterRender(sameFile, anchor);
+                    afterRender(sameFile, anchor, position);
                 });
             }
         }
 
         /** Where the reader is put after a full render. */
-        function afterRender(sameFile, anchor) {
+        function afterRender(sameFile, anchor, position) {
             if (sameFile && restoreScrollTop !== null) {
                 // Our own save re-rendered the document: stay where the
                 // reader was, also once Mermaid has resized the page.
@@ -1326,6 +1405,11 @@
                 restoreScrollTop = null;
                 contentArea.scrollTop = keep;
                 requestAnimationFrame(function() { contentArea.scrollTop = keep; });
+                return;
+            }
+            if (!sameFile && position) {
+                // Back / forward to a document read before: where the reader left it.
+                restoreReadingPosition(position);
                 return;
             }
             if (anchor) {
