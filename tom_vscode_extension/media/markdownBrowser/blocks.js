@@ -4,7 +4,7 @@
 // it can be loaded into a bare `vm` sandbox and unit-tested directly
 // (src/utils/__tests__/mdBrowserBlocks.test.ts). Loaded as a classic script
 // before main.js; the declarations below are globals main.js calls.
-/* exported MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
+/* exported mdbSplitForLexing, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
 //
 // The browser renders the backend's transformed text. Without the CR/LF
 // conversion that transform keeps every line where it is (it only rewrites
@@ -398,4 +398,43 @@ function mdbIsMdLink(href) {
     var h = String(href || '');
     if (!h || h.charAt(0) === '#' || /^[a-z][a-z0-9+.-]*:/i.test(h)) { return false; }
     return /\.md$/i.test(h.split('#')[0].split('?')[0]);
+}
+
+// ---- Lexing a large document in parts ----
+
+/**
+ * `text` cut into parts of at least `target` characters, each starting at an
+ * ATX heading line outside fenced code and outside an open html element. An
+ * ATX heading always starts a block of its own, so lexing the parts one by
+ * one gives the tokens of lexing the whole (link definitions aside, which the
+ * caller merges). The parts joined with `\n` are `text`.
+ *
+ * @param {string} text
+ * @param {number} target
+ * @returns {Array<{startLine: number, text: string}>}
+ */
+function mdbSplitForLexing(text, target) {
+    var lines = String(text || '').split('\n');
+    var parts = [];
+    var start = 0;
+    var size = 0;
+    var fence = null;
+    var htmlDepth = 0;
+    for (var i = 0; i < lines.length; i++) {
+        var line = lines[i];
+        var f = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
+        if (f) {
+            if (fence === null) { fence = f[1][0]; } else if (fence === f[1][0]) { fence = null; }
+        } else if (fence === null) {
+            if (i > start && size >= target && htmlDepth === 0 && /^#{1,6}(\s|$)/.test(line)) {
+                parts.push({ startLine: start, text: lines.slice(start, i).join('\n') });
+                start = i;
+                size = 0;
+            }
+            if (/^\s{0,3}</.test(line)) { htmlDepth = Math.max(0, htmlDepth + mdbHtmlDepthChange(line)); }
+        }
+        size += line.length + 1;
+    }
+    parts.push({ startLine: start, text: lines.slice(start).join('\n') });
+    return parts;
 }

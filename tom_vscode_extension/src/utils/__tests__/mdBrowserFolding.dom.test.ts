@@ -10,7 +10,9 @@
  *   MF-6  the backend's heading transform: ids and levels beyond 6 fold by their true level
  *   MF-7  the indent toggle: headings by level, content one step deeper, spaces from the dropdown (default 2)
  *   MF-8  <details> blocks keep their content inside them (rendered as one group)
- *   MF-9  a large document renders in linear time, in batches that yield to the event loop
+ *   MF-9  a large document renders in linear time, in batches that yield to the event loop; it is
+ *         lexed in parts, and its blocks keep their file lines across the parts
+ *   MF-10 blocks are grouped into sections of 150; only a large document lays sections out lazily
  */
 
 import test, { describe } from 'node:test';
@@ -50,7 +52,7 @@ const show = (window: Win, text: string, filePath = '/ws/doc.md'): void => {
 };
 /** The visible text of the content, one entry per visible top-level element. */
 const visible = (window: Win): string[] =>
-    [...window.document.querySelector('#contentArea > .mdb-doc').children]
+    [...window.document.querySelectorAll('#contentArea > .mdb-doc > .mdb-section > *')]
         .filter((el: Win) => !el.classList.contains('mdb-folded-away'))
         .map((el: Win) => el.textContent.trim().replace(/\s+/g, ' '));
 const heading = (window: Win, text: string): Win =>
@@ -133,7 +135,7 @@ describe('Markdown Browser folding', () => {
     test('MF-7: indent by heading level', () => {
         const w = setup();
         show(w, DOC);
-        const margins = (): string[] => [...w.document.querySelector('#contentArea > .mdb-doc').children].map((el: Win) => el.style.marginLeft);
+        const margins = (): string[] => [...w.document.querySelectorAll('#contentArea > .mdb-doc > .mdb-section > *')].map((el: Win) => el.style.marginLeft);
         assert.ok(margins().every((m) => m === ''), 'off by default');
         const select = w.document.getElementById('indentSizeSelect');
         assert.equal(select.value, '2');
@@ -170,6 +172,19 @@ describe('Markdown Browser folding', () => {
         const ms = Date.now() - started;
         assert.equal(w.document.querySelectorAll('.mdb-fold-btn').length, 12000);
         assert.equal(heading(w, 'Section 11999').dataset.foldKey, '2|Section 11999#1');
+        const last = heading(w, 'Section 11999').closest('.mdb-block');
+        assert.equal(last.__mdbBlock.startLine, 4 * 11999, 'file lines hold across the lexed parts');
         assert.ok(ms < 10000, `rendering 24 000 blocks took ${ms} ms`);
+    });
+
+    test('MF-10: sections', () => {
+        const w = setup();
+        const parts: string[] = [];
+        for (let i = 0; i < 400; i++) { parts.push(`para ${i}`, ''); }
+        show(w, parts.join('\n'));
+        const sections = [...w.document.querySelectorAll('.mdb-doc > .mdb-section')];
+        assert.deepEqual(sections.map((s: Win) => s.children.length), [150, 150, 100]);
+        assert.ok(!w.document.querySelector('.mdb-doc').classList.contains('mdb-large'), 'a small document is laid out whole');
+        assert.match(sections[0].style.containIntrinsicSize, /^auto \d+px$/);
     });
 });

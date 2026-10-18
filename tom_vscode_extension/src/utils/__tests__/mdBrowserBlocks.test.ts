@@ -18,6 +18,8 @@
  *   MB-12 a section reference resolves to the heading whose full id holds its ids in order
  *   MB-13 plain-text .md paths: relative, nested, bare names; not URLs, not mid-word
  *   MB-14 which links point at a Markdown document
+ *   MB-15 splitting a large document for lexing: only before headings outside code and html,
+ *         the parts join back to the text, and lexing the parts gives the tokens of the whole
  */
 
 import test, { describe } from 'node:test';
@@ -41,6 +43,7 @@ interface BlocksApi {
     mdbResolveSectionRef(ids: string[], fullIds: string[]): number;
     mdbMdPaths(text: string): Array<{ start: number; end: number; path: string }>;
     mdbIsMdLink(href: string): boolean;
+    mdbSplitForLexing(text: string, target: number): Array<{ startLine: number; text: string }>;
 }
 
 function load(): BlocksApi {
@@ -215,5 +218,22 @@ describe('Markdown Browser source mapping', () => {
         assert.equal(api.mdbIsMdLink('#local'), false);
         assert.equal(api.mdbIsMdLink('https://x.org/a.md'), false);
         assert.equal(api.mdbIsMdLink('a/b.ts'), false);
+    });
+
+    test('MB-15: splitting for lexing', () => {
+        const doc = [
+            '# A', '', 'para a', '',            // 0-3
+            '```', '# not a heading', '```', '', // 4-7
+            '## B', '', '<details>', '', '# inside details', '', '</details>', '', // 8-15
+            '## C', '', '- item', '  more', '', // 16-20
+            '### D', 'text right after',          // 21-22
+        ].join('\n');
+        const parts = plain(api.mdbSplitForLexing(doc, 1));
+        assert.deepEqual(parts.map((p) => p.startLine), [0, 8, 16, 21], 'never inside the fence or the open <details>');
+        assert.equal(parts.map((p) => p.text).join('\n'), doc, 'the parts are the text');
+        parts.forEach((p) => assert.equal(p.text.split('\n')[0], doc.split('\n')[p.startLine]));
+        assert.deepEqual(plain(api.mdbSplitForLexing(doc, 1e9)).map((p) => p.startLine), [0], 'below the target: one part');
+        const kinds = (text: string): string[] => marked.lexer(text).filter((x) => x.type !== 'space').map((x) => x.type + ':' + x.raw.trim());
+        assert.deepEqual(parts.flatMap((p) => kinds(p.text)), kinds(doc), 'the same tokens as lexing the whole');
     });
 });

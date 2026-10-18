@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global marked, mermaid, Highlight, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
+/* global marked, mermaid, Highlight, mdbSplitForLexing, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
 // Markdown Browser client — extracted verbatim from the inline <script> of
 // buildHtml() in src/handlers/markdownBrowser-handler.ts (Phase B.21 webview
 // restructuring). Predates strict checkJs (large verbatim extraction).
@@ -38,6 +38,7 @@
         var searchPrevBtn = document.getElementById('searchPrevBtn');
         var searchNextBtn = document.getElementById('searchNextBtn');
         var searchClearBtn = document.getElementById('searchClearBtn');
+        var linePosEl = document.getElementById('linePos');
         // The rendered document lives in one element inside the scroll area.
         // A full render swaps that element for a new one in a single step:
         // removing a large rendered tree node by node can stall Chrome for
@@ -231,8 +232,17 @@
         var shownLinks = {};
         var shownLinesCache = null;
         var renderGen = 0;
-        /** Blocks per batch of a chunked render: each batch is built off-DOM, then the event loop gets a turn. */
-        var RENDER_CHUNK = 1500;
+        // A large document is rendered in short tasks so the window never waits:
+        // it is lexed in parts (split before headings), parsed part by part and
+        // built off-DOM in batches, each task yielding after TASK_BUDGET_MS.
+        var LARGE_DOC_CHARS = 200000;
+        var LEX_PART_CHARS = 150000;
+        var RENDER_BATCH = 600;
+        var TASK_BUDGET_MS = 40;
+        // Blocks are grouped into sections of SECTION_BLOCKS. In a large
+        // document only sections near the view are laid out (content-visibility),
+        // which keeps the first frame and every scroll step short.
+        var SECTION_BLOCKS = 150;
 
         /** marked's options: its defaults (GFM: tables, strikethrough, ...) plus `breaks` for CR/LF. */
         function markedOptions() {
@@ -251,16 +261,23 @@
          * (null for pieces with no source lines, e.g. whitespace). Line numbers
          * are shifted by `lineOffset` (a region rendered on its own).
          */
-        function buildPieces(text, lineOffset) {
-            var options = markedOptions();
-            var tokens = marked.lexer(text || '', options);
+        /** Lex `text` (lines from `lineOffset` on) and map its blocks to file lines. */
+        function lexPart(text, lineOffset) {
+            var tokens = marked.lexer(text || '', markedOptions());
             var byIndex = {};
             mdbBlocks(text || '', tokens).forEach(function(b) {
                 b.startLine += lineOffset;
                 b.endLine += lineOffset;
                 byIndex[b.index] = b;
             });
-            var links = Object.assign({}, shownLinks, tokens.links || {});
+            return { tokens: tokens, byIndex: byIndex };
+        }
+
+        /** The render pieces of a lexed part (see buildPieces). */
+        function parsePart(lexed, links) {
+            var options = markedOptions();
+            var tokens = lexed.tokens;
+            var byIndex = lexed.byIndex;
             var pieces = [];
             mdbGroups(tokens).forEach(function(range) {
                 var group = tokens.slice(range[0], range[1] + 1);
@@ -276,7 +293,19 @@
                 });
                 pieces.push({ html: html, block: block, hasHtml: group.some(function(tk) { return tk.type === 'html'; }) });
             });
-            return { pieces: pieces, links: tokens.links || {} };
+            return pieces;
+        }
+
+        /**
+         * The render pieces of `text`: one per group of tokens (an html run that
+         * opens an element is one group), each with its HTML and its block
+         * (null for pieces with no source lines, e.g. whitespace). Line numbers
+         * are shifted by `lineOffset` (a region rendered on its own).
+         */
+        function buildPieces(text, lineOffset) {
+            var lexed = lexPart(text, lineOffset);
+            var links = Object.assign({}, shownLinks, lexed.tokens.links || {});
+            return { pieces: parsePart(lexed, links), links: lexed.tokens.links || {} };
         }
 
         /** Turn pieces into DOM nodes in a detached holder; returns the holder and the wrappers made. */
@@ -340,71 +369,218 @@
         }
 
         /**
-         * Render `text` in batches: each batch is built and processed off-DOM,
-         * then the event loop gets a turn, so a large document never blocks the
-         * window. The finished content replaces the old in one step; `done`
-         * runs after that (folding, indentation, scroll position).
+         * Run `tasks` in order. Sliced: in tasks of their own, yielding to the
+         * event loop whenever TASK_BUDGET_MS has passed; a newer render (another
+         * generation) stops them. Not sliced: all at once (small documents).
+         */
+        function runTasks(tasks, gen, sliced, onError) {
+            var i = 0;
+            function run() {
+                if (gen !== renderGen) { return; }
+                var started = Date.now();
+                try {
+                    while (i < tasks.length) {
+                        tasks[i++]();
+                        if (sliced && i < tasks.length && Date.now() - started > TASK_BUDGET_MS) {
+                            setTimeout(run, 0);
+                            return;
+                        }
+                    }
+                } catch (err) {
+                    onError(err);
+                }
+            }
+            if (sliced) { setTimeout(run, 0); } else { run(); }
+        }
+
+        /**
+         * Render `text`: lex it in parts, parse the parts, build the blocks
+         * off-DOM in batches and group them into sections, then show the result
+         * by swapping one element. A large document does all of it in short
+         * tasks (runTasks), so the window stays responsive; `done` runs after
+         * the swap (folding, indentation, scroll position).
          */
         function renderDocument(text, done) {
             var gen = ++renderGen;
             shownLinks = {};
-            var built;
-            try {
-                if (typeof marked === 'undefined' || !marked.lexer || !marked.parser) {
-                    var plain = newDocRoot();
-                    plain.innerHTML = '<pre>' + escapeHtml(text || '') + '</pre>';
-                    showDocRoot(plain);
-                    shownBlocks = [];
-                    shownWrappers = [];
-                    done();
-                    return;
-                }
-                built = buildPieces(text, 0);
-            } catch (err) {
-                contentArea.innerHTML = '<div class="empty-state error-state"><div>' + escapeHtml(String(err)) + '</div></div>';
+            if (typeof marked === 'undefined' || !marked.lexer || !marked.parser) {
+                var plain = newDocRoot();
+                plain.innerHTML = '<pre>' + escapeHtml(text || '') + '</pre>';
+                showDocRoot(plain);
+                shownBlocks = [];
+                shownWrappers = [];
+                done();
                 return;
             }
-            shownLinks = built.links;
-            var pieces = built.pieces;
+            var big = (text || '').length > LARGE_DOC_CHARS;
+            var parts = big ? mdbSplitForLexing(text, LEX_PART_CHARS) : [{ startLine: 0, text: text || '' }];
+            var lexed = [];
+            var links = {};
+            var pieces = [];
             var frag = document.createDocumentFragment();
             var blocks = [];
             var wrappers = [];
+            var sections = [];
+            var section = null;
             var ctx = { foldSeen: {}, headings: [], linkables: [] };
-            var at = 0;
-            var big = pieces.length > RENDER_CHUNK;
-            contentArea.setAttribute('aria-busy', 'true');
-            function step() {
-                if (gen !== renderGen) { return; }   // a newer render started
-                var slice = pieces.slice(at, at + RENDER_CHUNK);
-                at += slice.length;
-                var nodes = piecesToNodes(slice);
+            var tasks = [];
+            var progress = function(label, at, of) {
+                if (filePathEl && big) { filePathEl.setAttribute('data-progress', label + ' ' + Math.round(100 * at / of) + '%'); }
+            };
+            parts.forEach(function(part, i) {
+                tasks.push(function() {
+                    var l = lexPart(part.text, part.startLine);
+                    lexed.push(l);
+                    Object.assign(links, l.tokens.links || {});
+                    progress('Reading', i + 1, parts.length);
+                });
+            });
+            parts.forEach(function(part, i) {
+                tasks.push(function() {
+                    Array.prototype.push.apply(pieces, parsePart(lexed[i], links));
+                    lexed[i] = null;
+                });
+            });
+            tasks.push(function() {
+                shownLinks = links;
+                for (var at = 0; at < pieces.length; at += RENDER_BATCH) {
+                    tasks.push(buildBatch.bind(null, at));
+                }
+                tasks.push(finish);
+            });
+            function buildBatch(at) {
+                var nodes = piecesToNodes(pieces.slice(at, at + RENDER_BATCH));
                 processNodes(nodes, ctx);
                 Array.prototype.push.apply(wrappers, nodes.wrappers);
                 Array.prototype.push.apply(blocks, nodes.blocks);
-                while (nodes.holder.firstChild) { frag.appendChild(nodes.holder.firstChild); }
-                if (at < pieces.length) {
-                    if (filePathEl && big) { filePathEl.setAttribute('data-progress', Math.round(100 * at / pieces.length) + '%'); }
-                    setTimeout(step, 0);
-                    return;
+                while (nodes.holder.firstChild) {
+                    if (!section || section.childNodes.length >= SECTION_BLOCKS) {
+                        section = document.createElement('div');
+                        section.className = 'mdb-section';
+                        section.__mdbEstimate = 0;
+                        sections.push(section);
+                        frag.appendChild(section);
+                    }
+                    var el = nodes.holder.firstChild;
+                    var b = el.__mdbBlock;
+                    // A rough height until the section is first laid out (`auto` then keeps the real one).
+                    section.__mdbEstimate += b ? 22 * (b.endLine - b.startLine) + 16 : 0;
+                    section.appendChild(el);
                 }
+                progress('Rendering', at + RENDER_BATCH, pieces.length);
+            }
+            function finish() {
                 if (filePathEl) { filePathEl.removeAttribute('data-progress'); }
+                sections.forEach(function(s) { s.style.containIntrinsicSize = 'auto ' + Math.max(40, s.__mdbEstimate) + 'px'; });
                 shownBlocks = blocks;
                 shownWrappers = wrappers;
                 indexHeadings(ctx.headings);
                 linkify(ctx.linkables);
                 var fresh = newDocRoot();
-                // A large document lays out only the blocks on screen
-                // (style.css: content-visibility on .mdb-large blocks).
                 fresh.classList.toggle('mdb-large', big);
                 fresh.appendChild(frag);
                 showDocRoot(fresh);
                 contentArea.removeAttribute('aria-busy');
                 hideLinkPopup();
                 search.texts = null;
+                observeSections(fresh);
                 done();
+                scheduleLinePos();
             }
-            // A large document's lexing was this task's work; the batches start in the next one.
-            if (big) { setTimeout(step, 0); } else { step(); }
+            contentArea.setAttribute('aria-busy', 'true');
+            runTasks(tasks, gen, big, function(err) {
+                contentArea.removeAttribute('aria-busy');
+                contentArea.innerHTML = '<div class="empty-state error-state"><div>' + escapeHtml(String(err)) + '</div></div>';
+            });
+        }
+
+        // ---- Sections near the view stay rendered ----
+        // content-visibility:auto drops a section's rendering when it leaves the
+        // view, so scrolling back to it waited again. The sections within two
+        // screens of the view are kept rendered (`mdb-near`), and so are the last
+        // NEAR_KEEP sections that left that range, so the pages around the
+        // reader — ahead and behind — are ready before they are scrolled to.
+        var NEAR_KEEP = 12;
+        var sectionObserver = null;
+        var nearLeft = [];
+
+        function observeSections(root) {
+            if (sectionObserver) { sectionObserver.disconnect(); sectionObserver = null; }
+            nearLeft = [];
+            if (!root.classList.contains('mdb-large') || typeof IntersectionObserver === 'undefined') { return; }
+            sectionObserver = new IntersectionObserver(function(entries) {
+                entries.forEach(function(e) {
+                    var s = e.target;
+                    s.__mdbInRange = e.isIntersecting;
+                    if (e.isIntersecting) {
+                        s.classList.add('mdb-near');
+                        var i = nearLeft.indexOf(s);
+                        if (i >= 0) { nearLeft.splice(i, 1); }
+                    } else if (s.classList.contains('mdb-near') && nearLeft.indexOf(s) < 0) {
+                        nearLeft.push(s);
+                    }
+                });
+                while (nearLeft.length > NEAR_KEEP) {
+                    var old = nearLeft.shift();
+                    if (!old.__mdbInRange) { old.classList.remove('mdb-near'); }
+                }
+                // A section just laid out turns an estimated line into an exact one.
+                scheduleLinePos();
+            }, { root: contentArea, rootMargin: '200% 0px 200% 0px' });
+            Array.prototype.forEach.call(root.children, function(s) { sectionObserver.observe(s); });
+        }
+
+        // ---- Where the reader is: line X / N ----
+        var linePosQueued = false;
+
+        function scheduleLinePos() {
+            if (linePosQueued || !linePosEl) { return; }
+            linePosQueued = true;
+            requestAnimationFrame(function() {
+                linePosQueued = false;
+                updateLinePos();
+            });
+        }
+
+        function updateLinePos() {
+            if (!linePosEl) { return; }
+            linePosEl.textContent = '';
+            if (!shownText || !document.elementFromPoint || contentArea.getAttribute('aria-busy') === 'true') { return; }
+            var total = shownLines().length;
+            var r = contentArea.getBoundingClientRect();
+            var top = topVisibleElement();
+            if (top && top.__mdbBlock) {
+                linePosEl.textContent = 'Line ' + (top.__mdbBlock.startLine + 1) + ' / ' + total;
+                return;
+            }
+            // A section not laid out yet: interpolate between its first and last line.
+            var hit = document.elementFromPoint(r.left + r.width / 2, r.top + 8);
+            var section = hit && hit.closest ? hit.closest('.mdb-section') : null;
+            var first = section && section.firstElementChild && section.firstElementChild.__mdbBlock;
+            var last = section && section.lastElementChild && section.lastElementChild.__mdbBlock;
+            if (first && last) {
+                var sr = section.getBoundingClientRect();
+                var frac = sr.height ? Math.min(1, Math.max(0, (r.top - sr.top) / sr.height)) : 0;
+                linePosEl.textContent = '≈ Line ' + (Math.round(first.startLine + frac * (last.endLine - first.startLine)) + 1) + ' / ' + total;
+            }
+        }
+
+        if (contentArea) { contentArea.addEventListener('scroll', scheduleLinePos, { passive: true }); }
+
+        /** Whether `el` is one of the document's top-level elements (a block, in its section). */
+        function isTopElement(el) {
+            return !!(el && el.parentNode && el.parentNode.classList && el.parentNode.classList.contains('mdb-section'));
+        }
+
+        /** The top-level element `node` is in, or null. */
+        function topElementOf(node) {
+            while (node && !isTopElement(node)) { node = node.parentNode; }
+            return node || null;
+        }
+
+        /** The document's top-level elements, in order, across its sections. */
+        function topElements() {
+            return Array.prototype.slice.call(docRoot.querySelectorAll(':scope > .mdb-section > *'));
         }
 
         /**
@@ -453,6 +629,8 @@
             // Swap the old wrappers (and anything between them) for the new nodes.
             var oldFirst = shownWrappers[from];
             var oldLast = shownWrappers[last];
+            // A region across two sections is rendered again in full.
+            if (oldFirst.parentNode !== oldLast.parentNode) { return false; }
             var anchor = oldLast.nextSibling;
             var parent = oldFirst.parentNode;
             for (var n = oldFirst; n && n !== anchor;) {
@@ -502,7 +680,7 @@
         /** The content as fold entries: every top-level element, headings with their level and flag. */
         function foldEntries() {
             if (!contentArea) { return []; }
-            return Array.prototype.map.call(docRoot.children, function(el) {
+            return topElements().map(function(el) {
                 var h = headingIn(el);
                 if (!h || !h.dataset.foldKey) { return { level: null, folded: false, el: el }; }
                 return { level: headingLevel(h), folded: foldState[h.dataset.foldKey] === true, el: el, heading: h, key: h.dataset.foldKey };
@@ -620,8 +798,7 @@
             if (!contentArea || !target) { return; }
             // Nothing folded, nothing to unfold: skip walking every element.
             if (!anyFolded()) { return; }
-            var top = target;
-            while (top && top.parentNode !== docRoot) { top = top.parentNode; }
+            var top = topElementOf(target);
             var entries = foldEntries();
             var index = entries.findIndex(function(e) { return e.el === top; });
             if (index < 0) { return; }
@@ -659,7 +836,7 @@
             box.appendChild(bar);
             placeAfter.insertAdjacentElement('afterend', box);
             // Line up with the block it edits when the document is indented.
-            if (placeAfter.parentNode === docRoot) { box.style.marginLeft = placeAfter.style.marginLeft; }
+            if (isTopElement(placeAfter)) { box.style.marginLeft = placeAfter.style.marginLeft; }
             trigger.style.display = 'none';
             openEditors++;
             area.focus();
@@ -934,8 +1111,7 @@
             if (!document.elementFromPoint) { return null; }
             var r = contentArea.getBoundingClientRect();
             for (var y = r.top + 8; y < r.top + 120; y += 16) {
-                var hit = document.elementFromPoint(r.left + r.width / 2, y);
-                while (hit && hit.parentNode !== docRoot) { hit = hit.parentNode; }
+                var hit = topElementOf(document.elementFromPoint(r.left + r.width / 2, y));
                 if (hit) { return hit; }
             }
             return null;
@@ -1169,7 +1345,7 @@
 
         function searchIndex() {
             if (!search.texts) {
-                search.els = Array.prototype.slice.call(docRoot.children);
+                search.els = topElements();
                 search.texts = search.els.map(function(el) { return (el.textContent || '').toLowerCase(); });
             }
         }

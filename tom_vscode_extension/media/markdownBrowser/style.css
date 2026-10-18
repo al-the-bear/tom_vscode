@@ -244,9 +244,14 @@ body.mdb-edit-mode .mdb-block-actions { display: flex; }
 #editModeBtn.active { background: var(--vscode-toolbar-activeBackground, var(--vscode-toolbar-hoverBackground)); color: var(--vscode-textLink-foreground); }
 
 /* ---- Large documents ----
-   Blocks off screen skip layout and paint until scrolled near; once laid out
-   they keep their measured height (`auto`), so the scrollbar settles. */
-.markdown-body .mdb-large > .mdb-block { content-visibility: auto; contain-intrinsic-size: auto 2.5em; }
+   Sections (SECTION_BLOCKS blocks each) off screen skip style, layout and paint
+   until scrolled near; once laid out they keep their measured height (the
+   `auto` in the inline contain-intrinsic-size), so the scrollbar settles. */
+.markdown-body .mdb-large > .mdb-section { content-visibility: auto; }
+/* Sections around the view (and the last ones left) stay rendered: no blank pages when scrolling on. */
+.markdown-body .mdb-large > .mdb-section.mdb-near { content-visibility: visible; }
+.line-pos { font-size: 11px; white-space: nowrap; color: var(--vscode-descriptionForeground); min-width: 110px; text-align: right; }
+.file-info-bar .file-path[data-progress]::after { content: ' — ' attr(data-progress); }
 
 /* ---- Folding ---- */
 .markdown-body .mdb-folded-away { display: none; }

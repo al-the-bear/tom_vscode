@@ -12,6 +12,7 @@
  *   MN-7  the search box's clear button: shown with text, empties the box and the results
  *   MN-8  leaving a document reports where the reader was (source line + offset); a document
  *         shown again with that position opens there; scrolling reports it too
+ *   MN-9  the line indicator: the line of the block at the top of the view, of all lines
  */
 
 import test, { describe } from 'node:test';
@@ -226,5 +227,16 @@ describe('Markdown Browser links, navigation and search', () => {
         await sleep(350);
         assert.deepEqual(posted.filter((m) => m.type === 'readingPosition').pop(),
             { type: 'readingPosition', filePath: '/ws/spec.md', position: { line: 6, delta: 10, scrollTop: 1524 } }, 'and stays there');
+    });
+
+    test('MN-9: line X / N', async () => {
+        const { w } = setup();
+        const doc = ['# T', '', 'first', '', 'second', '', 'third'].join('\n');
+        show(w, doc);
+        const second = [...w.document.querySelectorAll('.mdb-block')].find((b: Win) => b.textContent.includes('second'));
+        w.document.elementFromPoint = () => second.querySelector('p');
+        w.document.getElementById('contentArea').dispatchEvent(new w.Event('scroll'));
+        await sleep(50);
+        assert.equal(w.document.getElementById('linePos').textContent, 'Line 5 / 7');
     });
 });
