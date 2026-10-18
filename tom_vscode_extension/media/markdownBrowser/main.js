@@ -1340,8 +1340,11 @@
         // The text of each top-level element, lower-cased, is indexed once per
         // render (or patch); every keystroke searches that index. Matches are
         // painted with the CSS Custom Highlight API, so the DOM is never touched.
-        var SEARCH_CAP = 10000;
-        var search = { query: '', texts: null, els: null, matches: [], current: -1, truncated: false };
+        // Matches are kept as two parallel number arrays (element index, offset)
+        // with no cap: a cap left a short query without any match past the
+        // first part of a large document, so it could not start where the
+        // reader is.
+        var search = { query: '', texts: null, els: null, mEl: [], mAt: [], current: -1 };
 
         function searchIndex() {
             if (!search.texts) {
@@ -1350,40 +1353,67 @@
             }
         }
 
-        /** Find the query; with `jump`, go to the first match at or below the top of the view. */
+        /**
+         * Find the query. With `jump`, go to the first match at or after where
+         * the reader is: the current match while it is in view (so typing on
+         * stays on it), else the block at the top of the view; past the last
+         * match, the first from the top.
+         */
         function runSearch(jump) {
             var q = searchInput ? searchInput.value.toLowerCase() : '';
+            var from = jump ? searchStart() : null;
             search.query = q;
-            search.matches = [];
-            search.truncated = false;
+            search.mEl = [];
+            search.mAt = [];
             if (q) {
                 searchIndex();
-                outer:
                 for (var i = 0; i < search.texts.length; i++) {
                     var text = search.texts[i];
                     for (var at = text.indexOf(q); at >= 0; at = text.indexOf(q, at + q.length)) {
-                        if (search.matches.length >= SEARCH_CAP) { search.truncated = true; break outer; }
-                        search.matches.push({ el: i, at: at });
+                        search.mEl.push(i);
+                        search.mAt.push(at);
                     }
                 }
             }
             if (jump) {
-                search.current = firstMatchFromView();
+                search.current = matchAtOrAfter(from.el, from.at);
                 showSearchMatch(true);
             } else {
-                search.current = Math.min(search.current, search.matches.length - 1);
+                search.current = Math.min(search.current, search.mEl.length - 1);
                 showSearchMatch(false);
             }
         }
 
-        function firstMatchFromView() {
-            if (search.matches.length === 0) { return -1; }
-            var top = topVisibleElement();
-            var from = top ? search.els.indexOf(top) : 0;
-            for (var i = 0; i < search.matches.length; i++) {
-                if (search.matches[i].el >= from) { return i; }
+        /** Where a search starts: the current match while it is in view, else the top of the view. */
+        function searchStart() {
+            var c = search.current;
+            if (c >= 0 && c < search.mEl.length && search.els) {
+                var el = search.els[search.mEl[c]];
+                var off = el && el.isConnected ? offsetInView(el) : -1;
+                if (off >= 0 && off <= contentArea.clientHeight) { return { el: search.mEl[c], at: search.mAt[c] }; }
             }
-            return 0;
+            searchIndex();
+            var top = topVisibleElement();
+            var index = top ? search.els.indexOf(top) : -1;
+            return { el: Math.max(0, index), at: 0 };
+        }
+
+        /** The first match at or after (element, offset), wrapping to the first; -1 when there is none. */
+        function matchAtOrAfter(el, at) {
+            var n = search.mEl.length;
+            if (n === 0) { return -1; }
+            var lo = 0;
+            var hi = n;
+            while (lo < hi) {
+                var mid = (lo + hi) >> 1;
+                if (search.mEl[mid] < el || (search.mEl[mid] === el && search.mAt[mid] < at)) { lo = mid + 1; } else { hi = mid; }
+            }
+            return lo < n ? lo : 0;
+        }
+
+        function firstMatchFromView() {
+            var from = searchStart();
+            return matchAtOrAfter(from.el, from.at);
         }
 
         /** A Range over `length` characters at `offset` of `el`'s text. */
@@ -1410,12 +1440,12 @@
         var highlightsSupported = typeof CSS !== 'undefined' && CSS.highlights && typeof Highlight !== 'undefined';
 
         function showSearchMatch(scroll) {
-            var n = search.matches.length;
+            var n = search.mEl.length;
             if (searchClearBtn) { searchClearBtn.classList.toggle('visible', !!(searchInput && searchInput.value)); }
             if (searchCount) {
                 searchCount.textContent = !search.query ? ''
                     : n === 0 ? 'No results'
-                        : (search.current >= 0 ? (search.current + 1) + ' of ' : '') + n + (search.truncated ? '+' : '');
+                        : (search.current >= 0 ? (search.current + 1) + ' of ' : '') + n;
             }
             if (searchPrevBtn) { searchPrevBtn.disabled = n === 0; }
             if (searchNextBtn) { searchNextBtn.disabled = n === 0; }
@@ -1424,17 +1454,16 @@
                 CSS.highlights.delete('mdb-search-current');
             }
             if (search.current < 0 || n === 0) { return; }
-            var match = search.matches[search.current];
-            var el = search.els[match.el];
+            var matchEl = search.mEl[search.current];
+            var el = search.els[matchEl];
             if (scroll) { revealElement(el); }
-            var range = textRange(el, match.at, search.query.length);
+            var range = textRange(el, search.mAt[search.current], search.query.length);
             if (highlightsSupported) {
                 // The other matches near this one, so the neighbourhood is visible too.
                 var near = [];
                 for (var i = Math.max(0, search.current - 200); i < Math.min(n, search.current + 200); i++) {
-                    var m = search.matches[i];
-                    if (i === search.current || Math.abs(m.el - match.el) > 40) { continue; }
-                    var r = textRange(search.els[m.el], m.at, search.query.length);
+                    if (i === search.current || Math.abs(search.mEl[i] - matchEl) > 40) { continue; }
+                    var r = textRange(search.els[search.mEl[i]], search.mAt[i], search.query.length);
                     if (r) { near.push(r); }
                 }
                 CSS.highlights.set('mdb-search', new Highlight(...near));
@@ -1452,7 +1481,7 @@
         }
 
         function stepSearch(delta) {
-            var n = search.matches.length;
+            var n = search.mEl.length;
             if (n === 0) { return; }
             search.current = search.current < 0
                 ? (delta > 0 ? firstMatchFromView() : (firstMatchFromView() - 1 + n) % n)

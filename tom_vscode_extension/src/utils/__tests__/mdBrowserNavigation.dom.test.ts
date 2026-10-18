@@ -13,6 +13,8 @@
  *   MN-8  leaving a document reports where the reader was (source line + offset); a document
  *         shown again with that position opens there; scrolling reports it too
  *   MN-9  the line indicator: the line of the block at the top of the view, of all lines
+ *   MN-10 search starts at the reading position, however many matches lie before it (no cap),
+ *         typing on keeps the current match, and next after the last match goes to the first
  */
 
 import test, { describe } from 'node:test';
@@ -238,5 +240,31 @@ describe('Markdown Browser links, navigation and search', () => {
         w.document.getElementById('contentArea').dispatchEvent(new w.Event('scroll'));
         await sleep(50);
         assert.equal(w.document.getElementById('linePos').textContent, 'Line 5 / 7');
+    });
+
+    test('MN-10: search from the reading position', async () => {
+        const { w } = setup();
+        const parts: string[] = [];
+        for (let i = 0; i < 11000; i++) { parts.push(`x${i} needle`, ''); }
+        show(w, parts.join('\n'));
+        const block = (i: number): Win => w.document.querySelectorAll('.mdb-block')[i];
+        w.document.elementFromPoint = () => block(10500).querySelector('p');
+        const input = w.document.getElementById('searchInput');
+        const count = w.document.getElementById('searchCount');
+        const type = async (text: string): Promise<void> => {
+            input.value = text;
+            input.dispatchEvent(new w.Event('input'));
+            await sleep(5);
+        };
+        await type('ne');
+        assert.equal(count.textContent, '10501 of 11000', 'from the block at the top of the view, past 10 000 earlier matches');
+        w.document.elementFromPoint = () => block(10400).querySelector('p');
+        await type('needle');
+        assert.equal(count.textContent, '10501 of 11000', 'typing on stays on the current match while it is in view');
+        const next = w.document.getElementById('searchNextBtn');
+        for (let i = 0; i < 499; i++) { next.click(); }
+        assert.equal(count.textContent, '11000 of 11000');
+        next.click();
+        assert.equal(count.textContent, '1 of 11000', 'after the last, the first from the top');
     });
 });
