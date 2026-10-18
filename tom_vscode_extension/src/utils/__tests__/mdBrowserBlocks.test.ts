@@ -10,6 +10,7 @@
  *   MB-6  inserting an answer: one space before and after, the rest of the line kept
  *   MB-7  folding: a folded heading hides its section, deeper headings included; its own state is kept
  *   MB-8  folding: the folded headings an element sits under, for revealing it
+ *   MB-9  indent depths: a heading at its level - 1, its content one step deeper
  */
 
 import test, { describe } from 'node:test';
@@ -26,6 +27,7 @@ interface BlocksApi {
     mdbInsertAnswer(lineText: string, column: number, answer: string): string;
     mdbFoldHidden(entries: Array<{ level: number | null; folded?: boolean }>): boolean[];
     mdbFoldAncestors(entries: Array<{ level: number | null; folded?: boolean }>, index: number): number[];
+    mdbIndentDepths(entries: Array<{ level: number | null }>): number[];
 }
 
 function load(): BlocksApi {
@@ -124,5 +126,11 @@ describe('Markdown Browser source mapping', () => {
         assert.deepEqual(Array.from(api.mdbFoldAncestors(outline([0, 4]), 5)), [0, 4]);
         assert.deepEqual(Array.from(api.mdbFoldAncestors(outline([2]), 7)), [], '## D is not under ## B');
         assert.deepEqual(Array.from(api.mdbFoldAncestors(outline([2]), 4)), [2], 'a heading under a folded one');
+    });
+
+    test('MB-9: indent depths', () => {
+        // text before any heading (0), # A (0), text (1), ### C skipping a level (2), text (3), ## D (1), text (2)
+        const entries = [null, 1, null, 3, null, 2, null].map((level) => ({ level }));
+        assert.deepEqual(Array.from(api.mdbIndentDepths(entries)), [0, 0, 1, 2, 3, 1, 2]);
     });
 });

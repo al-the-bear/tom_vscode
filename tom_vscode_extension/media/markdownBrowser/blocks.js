@@ -4,7 +4,7 @@
 // it can be loaded into a bare `vm` sandbox and unit-tested directly
 // (src/utils/__tests__/mdBrowserBlocks.test.ts). Loaded as a classic script
 // before main.js; the declarations below are globals main.js calls.
-/* exported mdbBlocks, mdbAnswerMarkers, mdbInsertAnswer, mdbFoldHidden, mdbFoldAncestors */
+/* exported mdbBlocks, mdbAnswerMarkers, mdbInsertAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths */
 //
 // The browser renders the backend's transformed text. Without the CR/LF
 // conversion that transform keeps every line where it is (it only rewrites
@@ -175,4 +175,29 @@ function mdbFoldAncestors(entries, index) {
         stack = stack.filter(function(s) { return /** @type {number} */ (entries[s].level) < own; });
     }
     return stack.filter(function(s) { return entries[s].folded === true; });
+}
+
+// ---- Indentation ----
+
+/**
+ * The indent depth of each entry when the document is indented by heading
+ * level: a heading of level L sits at L - 1, the content of its section one
+ * step deeper, at L; content before the first heading stays at 0.
+ *
+ * @param {Array<{ level: number | null }>} entries
+ * @returns {number[]}
+ */
+function mdbIndentDepths(entries) {
+    var current = 0;
+    var out = [];
+    for (var i = 0; i < entries.length; i++) {
+        var level = entries[i].level;
+        if (level !== null && level !== undefined) {
+            current = level;
+            out.push(level - 1);
+        } else {
+            out.push(current);
+        }
+    }
+    return out;
 }

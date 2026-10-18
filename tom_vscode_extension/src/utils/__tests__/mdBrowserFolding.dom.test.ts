@@ -8,6 +8,7 @@
  *   MF-4  the level dropdown lists the document's levels; its button folds / unfolds that level only
  *   MF-5  the folded state survives a re-render of the same file and resets for another file
  *   MF-6  the backend's heading transform: ids and levels beyond 6 fold by their true level
+ *   MF-7  the indent toggle: headings by level, content one step deeper, spaces from the dropdown (default 2)
  */
 
 import test, { describe } from 'node:test';
@@ -125,5 +126,24 @@ describe('Markdown Browser folding', () => {
         const text = visible(w).join(' | ');
         assert.ok(!text.includes('deep text') && !text.includes('deeper text'), text);
         assert.ok(text.includes('sec text') && text.includes('Next'), text);
+    });
+
+    test('MF-7: indent by heading level', () => {
+        const w = setup();
+        show(w, DOC);
+        const margins = (): string[] => [...w.document.getElementById('contentArea').children].map((el: Win) => el.style.marginLeft);
+        assert.ok(margins().every((m) => m === ''), 'off by default');
+        const select = w.document.getElementById('indentSizeSelect');
+        assert.equal(select.value, '2');
+        w.document.getElementById('indentBtn').click();
+        // A, a text, B, b text, C, c text, D, d text, E, e text
+        assert.deepEqual(margins(), ['0ch', '2ch', '2ch', '4ch', '4ch', '6ch', '2ch', '4ch', '0ch', '2ch']);
+        select.value = '4';
+        select.dispatchEvent(new w.Event('change'));
+        assert.deepEqual(margins().slice(0, 4), ['0ch', '4ch', '4ch', '8ch']);
+        show(w, `${DOC}\n\nmore`);
+        assert.equal(margins()[margins().length - 1], '4ch', 'kept across a re-render');
+        w.document.getElementById('indentBtn').click();
+        assert.ok(margins().every((m) => m === ''), 'off again');
     });
 });

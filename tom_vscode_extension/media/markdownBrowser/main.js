@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global marked, mermaid, mdbBlocks, mdbAnswerMarkers, mdbInsertAnswer, mdbFoldHidden, mdbFoldAncestors */
+/* global marked, mermaid, mdbBlocks, mdbAnswerMarkers, mdbInsertAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths */
 // Markdown Browser client — extracted verbatim from the inline <script> of
 // buildHtml() in src/handlers/markdownBrowser-handler.ts (Phase B.21 webview
 // restructuring). Predates strict checkJs (large verbatim extraction).
@@ -28,6 +28,8 @@
         var foldAllBtn = document.getElementById('foldAllBtn');
         var foldLevelSelect = document.getElementById('foldLevelSelect');
         var foldLevelBtn = document.getElementById('foldLevelBtn');
+        var indentBtn = document.getElementById('indentBtn');
+        var indentSizeSelect = document.getElementById('indentSizeSelect');
         var contentArea = document.getElementById('contentArea');
         var filePathEl = document.getElementById('filePath');
 
@@ -59,6 +61,10 @@
         // folding a section never changes the state of the headings inside it.
         var foldState = {};
         var foldFile = '';
+
+        // Indentation by heading level: a heading at (level - 1) steps, its
+        // section's content one step deeper; a step is `indentSize` spaces (ch).
+        var indentOn = false;
 
         var currentFilePath = '';
         // liveMode + follow-tail state.
@@ -131,6 +137,16 @@
                 document.body.classList.toggle('mdb-edit-mode', editMode);
                 decorateEditing();
             });
+        }
+        if (indentBtn) {
+            indentBtn.addEventListener('click', function() {
+                indentOn = !indentOn;
+                indentBtn.classList.toggle('active', indentOn);
+                applyIndent();
+            });
+        }
+        if (indentSizeSelect) {
+            indentSizeSelect.addEventListener('change', applyIndent);
         }
         if (foldAllBtn) {
             foldAllBtn.addEventListener('click', function() {
@@ -323,6 +339,15 @@
             applyFolding();
         }
 
+        function applyIndent() {
+            var entries = foldEntries();
+            var depths = mdbIndentDepths(entries);
+            var size = Number(indentSizeSelect ? indentSizeSelect.value : 2) || 2;
+            entries.forEach(function(e, i) {
+                e.el.style.marginLeft = indentOn ? (depths[i] * size) + 'ch' : '';
+            });
+        }
+
         /** Unfold the sections an element sits in, so it can be seen. */
         function revealElement(target) {
             if (!contentArea || !target) { return; }
@@ -364,6 +389,8 @@
             box.appendChild(area);
             box.appendChild(bar);
             placeAfter.insertAdjacentElement('afterend', box);
+            // Line up with the block it edits when the document is indented.
+            if (placeAfter.parentNode === contentArea) { box.style.marginLeft = placeAfter.style.marginLeft; }
             trigger.style.display = 'none';
             openEditors++;
             area.focus();
@@ -621,6 +648,7 @@
                 interceptLinks();
                 decorateEditing();
                 setupFolding(sameFile);
+                applyIndent();
                 if (sameFile && restoreScrollTop !== null) {
                     // Our own save re-rendered the document: stay where the
                     // reader was, also once Mermaid has resized the page.
