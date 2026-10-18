@@ -4,6 +4,7 @@
  *
  *   CS-1  the catalogue: areas, slices and steps; one area and one slice in detail
  *   CS-2  the packaged catalogue equals the one in tom_specs_model, byte for byte
+ *   CS-2b the packaged model's modelHash equals ai_build's; same-version drift is named as a missing bump
  *   CS-3  routing of the sample: every class node routed, filters work
  *   CS-4  a crafted unrouted class is listed with its fix; extraction refuses it, writing nothing
  *   CS-5  an area's extract equals the conformance corpus' `.extract.md`; the summary covers every area
@@ -95,6 +96,30 @@ describe('CodeSpecs tools', () => {
         assert.ok(fs.existsSync(CATALOG_SOURCE), `missing ${CATALOG_SOURCE}`);
         assert.equal(fs.readFileSync(packaged, 'utf8'), fs.readFileSync(CATALOG_SOURCE, 'utf8'),
             'resources/codespecs/codespecs_areas.json is stale: run npm run som:pack');
+    });
+
+    test('CS-2b: the packaged model equals the source (modelHash)', () => {
+        // The catalogue names model carriers, so a fresh catalogue over a stale
+        // model reports carriers missing that are there. The version cannot
+        // tell: a model changes under an unchanged version until somebody bumps
+        // it. The meta's content hash can.
+        const facade = 'tom_som_typescript_v0';
+        const metaOf = (root: string) =>
+            JSON.parse(fs.readFileSync(path.join(root, facade, 'meta', 'spec_model.meta.json'), 'utf8'));
+        const versionOf = (root: string) =>
+            JSON.parse(fs.readFileSync(path.join(root, facade, 'package.json'), 'utf8')).version as string;
+        const nodeModules = path.resolve(__dirname, '..', '..', '..', 'node_modules');
+        const packaged = metaOf(nodeModules);
+        const source = metaOf(AI_BUILD);
+        assert.ok(source.modelHash, 'ai_build\'s meta carries no modelHash: regenerate it (generate_som)');
+        if (packaged.modelHash !== source.modelHash) {
+            const pv = versionOf(nodeModules);
+            const sv = versionOf(AI_BUILD);
+            assert.fail(pv === sv
+                ? `the packaged model differs from ai_build's under the same version ${pv}: ai_build changed the `
+                    + 'model without bumping tom_specs_model. Run npm run som:pack, and bump the model in ai_build.'
+                : `the packaged model is ${pv}, ai_build's is ${sv}: run npm run som:pack`);
+        }
     });
 
     test('CS-3: routing of the sample', async () => {

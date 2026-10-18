@@ -13,7 +13,9 @@
  * facade (the runtime is the facade's peer dependency).
  *
  * Why version-free names: package.json then stays the same across model bumps;
- * the versions are recorded in vendor/tom_som/versions.json instead.
+ * the versions are recorded in vendor/tom_som/versions.json instead, with the
+ * packed model's `modelHash`: a model can change under an unchanged version,
+ * and only the hash says so.
  *
  * The packages live in ai_build, two levels up from this extension's repo
  * (tom_ai/ai_build). TOM_SOM_AI_BUILD overrides that location. Neither package
@@ -159,6 +161,11 @@ function main(aiBuild) {
         versions[pkg] = version;
     }
 
+    // The content identity of the packed model (the facade meta's `modelHash`).
+    // The versions alone cannot say a model changed under an unchanged version;
+    // a test holds this against ai_build's meta (CS-2b).
+    const meta = JSON.parse(fs.readFileSync(path.join(aiBuild, PACKAGES[1], 'meta', 'spec_model.meta.json'), 'utf8'));
+    versions.modelHash = meta.modelHash ?? null;
     fs.writeFileSync(path.join(VENDOR_DIR, 'versions.json'), `${JSON.stringify(versions, null, 2)}\n`);
     // npm does not re-extract a `file:` tarball whose name and version are
     // unchanged, even when its content changed, and reinstalling it serves the
