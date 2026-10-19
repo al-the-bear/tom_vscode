@@ -706,7 +706,7 @@ interface QueuedPrompt {
 
 **Variable table:**
 - All registered chat variables displayed in a two-column editable table
-- The process variables (`process`, `phase`, `step`, `substep`, their iterations and descriptions) are listed read-only under their own *Process* heading (a long description shortened, the whole text in its tooltip): they belong to the quest's process state, which the @TOM PROCESS view shows and sets (the agent uses `tomAi_setProcessState`).
+- The process variables (`process`, `phase`, `step`, `substep`, their iterations and descriptions) are listed read-only under their own *Process* heading (a long description shortened; hovering it opens a scrollable popup with the whole text, which stays open while the pointer is on the value or the popup): they belong to the quest's process state, which the @TOM PROCESS view shows and sets (the agent uses `tomAi_setProcessState`).
 - Built-in variables (quest, role, activeProjects, todo) have type-appropriate editors:
   - Quest: dropdown (same as panel)
   - Role: dropdown (same as panel)

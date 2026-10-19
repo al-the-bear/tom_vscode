@@ -51,14 +51,73 @@ function renderTable(s) {
     attachInputListeners();
 }
 
-/** A value shown but not edited here; long text shortened, the whole of it in the tooltip. */
+/** A value shown but not edited here; long text shortened, the whole of it in a scrollable popup on hover. */
 function readonlyRow(name, value) {
     var text = String(value).trim();
-    var shown = !text ? '—' : text.length > 120 ? text.slice(0, 120).replace(/\s+\S*$/, '') + '…' : text;
+    var shortened = text.length > 120;
+    var shown = !text ? '—' : shortened ? text.slice(0, 120).replace(/\s+\S*$/, '') + '…' : text;
     return '<tr><td class="var-name">' + esc(name) + '</td>' +
-        '<td class="var-value"><span class="var-readonly"' + (text ? ' title="' + esc(text) + '"' : '') + '>' + esc(shown) + '</span></td>' +
+        '<td class="var-value"><span class="var-readonly' + (shortened ? ' var-more' : '') + '"' + (shortened ? ' data-full="' + esc(text) + '"' : '') + '>' + esc(shown) + '</span></td>' +
         '<td class="var-actions"></td></tr>';
 }
+
+// ── Popup with the whole of a shortened value ──
+// A native tooltip cannot be scrolled and closes as soon as the pointer
+// leaves the text; this one has its own scrollbar and stays open while the
+// pointer is on the value or on the popup (a short grace lets it cross).
+var popup = document.createElement('div');
+popup.className = 'var-popup';
+document.body.appendChild(popup);
+var popupFor = null;
+var showTimer = null;
+var hideTimer = null;
+
+function showPopup(el) {
+    popupFor = el;
+    popup.textContent = el.getAttribute('data-full');
+    popup.classList.add('visible');
+    popup.scrollTop = 0;
+    var r = el.getBoundingClientRect();
+    var w = Math.min(560, window.innerWidth - 16);
+    popup.style.width = w + 'px';
+    popup.style.left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8)) + 'px';
+    var below = window.innerHeight - r.bottom;
+    if (below >= 160 || below >= r.top) {
+        popup.style.top = (r.bottom + 4) + 'px';
+        popup.style.maxHeight = Math.max(120, below - 12) + 'px';
+    } else {
+        popup.style.top = '';
+        popup.style.bottom = (window.innerHeight - r.top + 4) + 'px';
+        popup.style.maxHeight = Math.max(120, r.top - 12) + 'px';
+    }
+}
+
+function hidePopup() {
+    popup.classList.remove('visible');
+    popup.style.bottom = '';
+    popupFor = null;
+}
+
+document.addEventListener('mouseover', function(e) {
+    var t = e.target;
+    if (popup.contains(t)) { clearTimeout(hideTimer); return; }
+    var el = t && t.closest ? t.closest('.var-more') : null;
+    if (!el) { return; }
+    clearTimeout(hideTimer);
+    if (popupFor === el) { return; }
+    clearTimeout(showTimer);
+    showTimer = setTimeout(function() { showPopup(el); }, 200);
+});
+document.addEventListener('mouseout', function(e) {
+    var from = e.target;
+    var onValue = from && from.closest && from.closest('.var-more');
+    if (!onValue && !popup.contains(from)) { return; }
+    var to = e.relatedTarget;
+    if (to && (popup.contains(to) || (popupFor && popupFor.contains(to)))) { return; }
+    clearTimeout(showTimer);
+    hideTimer = setTimeout(hidePopup, 300);
+});
+
 
 function varRow(name, value, deletable, label) {
     var escapedValue = esc(value);
