@@ -934,6 +934,8 @@
         }
 
         // ---- Review comments ----
+        /** The OS user, written as the author of a comment that names none (sent by the host). */
+        var commentAuthor = '';
         // A comment block (`> ⬆️ **C-12** (author): text`, tom_specs annot1) is
         // written after a paragraph and reopened with its own button. The editor
         // shows the text without the `> ` prefixes, starting with the arrow and
@@ -941,9 +943,10 @@
 
         /** Add a comment after `block`: the editor opens with the arrow and the next id. */
         function addComment(trigger, wrapper, block) {
-            openEditor(trigger, wrapper, '\u2B06\uFE0F **' + mdbNextCommentId(shownText) + '** ', function(value) {
+            var head = '\u2B06\uFE0F **' + mdbNextCommentId(shownText) + '** ' + (commentAuthor ? '(' + commentAuthor + '): ' : '');
+            openEditor(trigger, wrapper, head, function(value) {
                 var lines = shownLines();
-                var written = mdbWriteComment(value, mdbNextCommentId(shownText));
+                var written = mdbWriteComment(value, mdbNextCommentId(shownText), commentAuthor);
                 if (!written) { return null; }
                 var source = lines.slice(block.startLine, block.endLine).join('\n');
                 // A blank line before the comment, and one after it when the next
@@ -976,7 +979,7 @@
                 var removeArmed = false;
                 openEditor(btn, wrapper, comment.text, function(value) {
                     if (value === comment.text) { return null; }
-                    var written = mdbWriteComment(value, mdbNextCommentId(shownText));
+                    var written = mdbWriteComment(value, mdbNextCommentId(shownText), commentAuthor);
                     if (written) {
                         return { startLine: comment.startLine, endLine: comment.endLine, expected: source, replacement: written };
                     }
@@ -1658,6 +1661,7 @@
                     if (crlfBtn) crlfBtn.classList.toggle('active', crlfMode);
                 }
                 filePathEl.textContent = msg.relativePath || msg.fileName || '';
+                if (typeof msg.author === 'string') { commentAuthor = msg.author; }
                 var text = msg.content || '';
                 // The same text again (the file watcher after our own save, a
                 // reload with nothing changed): what is shown is already it.

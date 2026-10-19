@@ -19,7 +19,7 @@
  *   MB-13 plain-text .md paths: relative, nested, bare names; not URLs, not mid-word
  *   MB-14 which links point at a Markdown document
  *   MB-16 comment blocks: recognised by the upward arrow, their extent and text without `>`, the
- *         next id, written back with `> ` (missing id added, empty = no comment)
+ *         next id, written back with `> ` (missing id and author added, empty = no comment)
  *   MB-15 splitting a large document for lexing: only before headings outside code and html,
  *         the parts join back to the text, and lexing the parts gives the tokens of the whole
  */
@@ -49,7 +49,7 @@ interface BlocksApi {
     mdbIsCommentLine(line: string): boolean;
     mdbCommentAt(lines: string[], line: number): { startLine: number; endLine: number; text: string } | null;
     mdbNextCommentId(text: string): string;
-    mdbWriteComment(text: string, nextId: string): string;
+    mdbWriteComment(text: string, nextId: string, author?: string): string;
 }
 
 function load(): BlocksApi {
@@ -265,5 +265,10 @@ describe('Markdown Browser source mapping', () => {
         assert.equal(write('  \n '), '');
         assert.equal(write('⬆️ **C-7** '), '', 'the arrow and id alone are no comment');
         assert.equal(write('⬆️ **C-7** (Alexis):'), '');
+        const byMe = (text: string): string => api.mdbWriteComment(text, 'C-7', 'Alexis');
+        assert.equal(byMe('⬆️ **C-7** looks wrong'), '> ⬆️ **C-7** (Alexis): looks wrong', 'the author is added when none is named');
+        assert.equal(byMe('⬆️ **C-7**: colon already'), '> ⬆️ **C-7** (Alexis): colon already');
+        assert.equal(byMe('⬆️ (Bob): his comment'), '> ⬆️ **C-7** (Bob): his comment', 'another author is kept');
+        assert.equal(byMe('⬆️ **C-7** (Alexis): '), '', 'header only: still no comment');
     });
 });

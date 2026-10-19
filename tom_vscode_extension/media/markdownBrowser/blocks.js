@@ -497,15 +497,18 @@ function mdbNextCommentId(text) {
 
 /**
  * A comment's text as it is written into the document: the arrow and an id
- * at the start (`nextId` when it has none), every line under `> ` (a blank
- * line as `>`), surrounding blank lines dropped. `''` when the text holds
- * nothing but the arrow, the id and the author — no comment.
+ * at the start (`nextId` when it has none), the author after the id when it
+ * names none and `author` is given (`(Alexis): `; a named author is kept),
+ * every line under `> ` (a blank line as `>`), surrounding blank lines
+ * dropped. `''` when the text holds nothing but the arrow, the id and the
+ * author — no comment.
  *
  * @param {string} text
  * @param {string} nextId
+ * @param {string} [author]
  * @returns {string}
  */
-function mdbWriteComment(text, nextId) {
+function mdbWriteComment(text, nextId, author) {
     var lines = String(text || '').replace(/\r\n|\r/g, '\n').split('\n').map(function(l) { return l.replace(/\s+$/, ''); });
     while (lines.length && lines[0].trim() === '') { lines.shift(); }
     while (lines.length && lines[lines.length - 1].trim() === '') { lines.pop(); }
@@ -517,6 +520,12 @@ function mdbWriteComment(text, nextId) {
     } else if (!/^\s*\*\*C-\d+\*\*/.test(first.slice(arrow[0].length))) {
         var rest = first.slice(arrow[0].length).replace(/^\s*/, '');
         first = arrow[0].replace(/^\s*/, '') + ' **' + nextId + '**' + (rest ? ' ' + rest : '');
+    }
+    if (author) {
+        var head = /^(\s*\u2B06\uFE0F?\s*\*\*C-\d+\*\*)\s*([\s\S]*)$/.exec(first);
+        if (head && !/^\(/.test(head[2])) {
+            first = head[1] + ' (' + author + '):' + (head[2].replace(/^:\s*/, '') ? ' ' + head[2].replace(/^:\s*/, '') : '');
+        }
     }
     lines[0] = first;
     // Nothing but the header (arrow, id, author, colon): no comment.

@@ -226,8 +226,8 @@ describe('Markdown Browser editing', () => {
 
     test('MD-12: comment blocks', () => {
         const { window, posted } = setup();
-        const doc = ['# T', '', 'First para.', '', '> ⬆️ **C-4** (Alexis): old remark', '> more', '', 'Last para.'].join('\n');
-        send(window, content(doc));
+        const doc = ['# T', '', 'First para.', '', '> ⬆️ **C-4** (Bob): old remark', '> more', '', 'Last para.'].join('\n');
+        send(window, content(doc, { author: 'Alexis' }));
         const edit = (): Record<string, unknown> => {
             const e = lastEdit(posted);
             return { startLine: e.startLine, endLine: e.endLine, expected: e.expected, replacement: e.replacement };
@@ -242,22 +242,22 @@ describe('Markdown Browser editing', () => {
         const first = $(window, '.mdb-block').find((b: Win) => b.textContent.includes('First para.'));
         first.querySelector('.mdb-comment-btn').click();
         const area = $(window, '.mdb-editor textarea')[0];
-        assert.equal(area.value, '⬆️ **C-5** ', 'the arrow and the next id, no `>`');
-        area.value = '⬆️ **C-5** please clarify\nsecond line';
+        assert.equal(area.value, '⬆️ **C-5** (Alexis): ', 'the arrow, the next id and the OS user as author; no `>`');
+        area.value += 'please clarify\nsecond line';
         $(window, '.mdb-editor-btn')[0].click();
         assert.deepEqual(edit(), { startLine: 2, endLine: 3, expected: 'First para.',
-            replacement: 'First para.\n\n> ⬆️ **C-5** please clarify\n> second line' });
+            replacement: 'First para.\n\n> ⬆️ **C-5** (Alexis): please clarify\n> second line' });
         send(window, { type: 'editResult', ok: false, error: 'x', editId: lastEdit(posted).editId });
         $(window, '.mdb-editor-btn')[1].click();
 
         // Reopening and editing.
         commentBlock.querySelector('.mdb-comment-edit-btn').click();
         const again = $(window, '.mdb-editor textarea')[0];
-        assert.equal(again.value, '⬆️ **C-4** (Alexis): old remark\nmore');
-        again.value = '⬆️ **C-4** (Alexis): new remark';
+        assert.equal(again.value, '⬆️ **C-4** (Bob): old remark\nmore');
+        again.value = '⬆️ **C-4** (Bob): new remark';
         $(window, '.mdb-editor-btn')[0].click();
-        assert.deepEqual(edit(), { startLine: 4, endLine: 6, expected: '> ⬆️ **C-4** (Alexis): old remark\n> more',
-            replacement: '> ⬆️ **C-4** (Alexis): new remark' });
+        assert.deepEqual(edit(), { startLine: 4, endLine: 6, expected: '> ⬆️ **C-4** (Bob): old remark\n> more',
+            replacement: '> ⬆️ **C-4** (Bob): new remark' }, 'another author is kept');
         send(window, { type: 'editResult', ok: false, error: 'x', editId: lastEdit(posted).editId });
 
         // Emptied: asks again, then removes the block and the blank line around it.
@@ -268,7 +268,7 @@ describe('Markdown Browser editing', () => {
         assert.equal(posted.filter((m) => m.type === 'applyEdit').length, count, 'nothing sent yet');
         assert.match($(window, '.mdb-editor-status')[0].textContent, /again/);
         $(window, '.mdb-editor-btn')[0].click();
-        assert.deepEqual(edit(), { startLine: 3, endLine: 7, expected: '\n> ⬆️ **C-4** (Alexis): old remark\n> more\n', replacement: '' });
+        assert.deepEqual(edit(), { startLine: 3, endLine: 7, expected: '\n> ⬆️ **C-4** (Bob): old remark\n> more\n', replacement: '' });
     });
 
     test('MD-12b: a comment keeps a blank line before the block after it', () => {

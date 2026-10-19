@@ -35,6 +35,10 @@ import { debugLog } from '../utils/debugLogger.js';
 import { openInExternalApplication } from './handler_shared.js';
 import { resolveLink, type ResolvedLink, type LinkContext } from '../utils/linkResolver.js';
 import { NavigationHistory, type ReadingPosition } from '../utils/mdBrowserHistory.js';
+import { currentCommentAuthor, type CommentAuthorForm } from '../utils/osUserName.js';
+
+/** How the OS user is written as a comment author: the first name of the account's full name. */
+const COMMENT_AUTHOR_FORM: CommentAuthorForm = 'first';
 import { readMediaText } from '../utils/webviewLoader.js';
 import { transformMarkdown } from '../utils/markdownHeadings.js';
 import { applyMdLineEdit } from '../utils/markdownBrowserEdits.js';
@@ -250,6 +254,8 @@ class MdBrowserPanel {
                 anchor,
                 // Where the reader was when they left this document (back / forward).
                 position,
+                // The author of review comments written in the browser: the OS user.
+                author: currentCommentAuthor(COMMENT_AUTHOR_FORM),
                 liveMode: this._liveMode,
                 // Tells the webview to render soft (single) newlines as hard line
                 // breaks (marked `breaks`), so real newlines in the file show as
