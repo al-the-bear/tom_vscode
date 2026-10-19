@@ -23,6 +23,7 @@ import { ProcessRepository, type ProcessEntry, type RepositoryResult } from '../
 import {
     EMPTY_PROCESS_STATE,
     applyProcessChange,
+    availableMoves,
     changeIteration,
     currentRole,
     normalizeState,
@@ -33,6 +34,8 @@ import {
     type ProcessChangeResult,
     type ProcessDefinition,
     type ProcessLevel,
+    type ProcessMove,
+    type ProcessMoveKind,
     type ProcessState,
     type ProcessVariableKey,
 } from '../utils/processDefinition';
@@ -150,6 +153,35 @@ export class ProcessStateStore {
     /** The `${process-context}` block for the system prompt; `''` without a process. */
     contextBlock(): string {
         return processContextBlock(this.currentDefinition(), this.state, this.entry(this.rawState.process)?.description ?? '');
+    }
+
+    /** The current process's Markdown description; `''` when none. */
+    processDescription(): string {
+        return this.entry(this.rawState.process)?.description ?? '';
+    }
+
+    /** The moves the PROCESS view's action bar offers at the current position. */
+    moves(): ProcessMove[] {
+        return availableMoves(this.currentDefinition(), this.state);
+    }
+
+    /** The move of `kind` (and `level`) offered now, if any. */
+    findMove(kind: ProcessMoveKind, level?: ProcessLevel): ProcessMove | undefined {
+        return this.moves().find((m) => m.kind === kind && (m.level ?? undefined) === (level ?? undefined));
+    }
+
+    /**
+     * Make a move of the action bar. It is looked up again at the current
+     * position, so a view showing an outdated state cannot move the quest
+     * somewhere the process does not lead from here.
+     */
+    move(kind: ProcessMoveKind, level: ProcessLevel | undefined, source: ChangeSource): ProcessChangeResult {
+        if (!this.quest) { return { ok: false, error: 'no quest is active; the process state belongs to a quest' }; }
+        const repo = this.repo();
+        if (!repo) { return { ok: false, error: 'no workspace folder is open' }; }
+        const move = this.findMove(kind, level);
+        if (!move) { return { ok: false, error: `"${kind}${level ? ` ${level}` : ''}" is not possible at the current position` }; }
+        return this.commit(repo, this.state, move.target, source);
     }
 
     /** The role the current step names; `''` when none. */

@@ -380,6 +380,11 @@
         "category": "@Tom"
       },
       {
+        "command": "tomAi.editor.processTemplates",
+        "title": "@T: Open Process Template Editor",
+        "category": "@Tom"
+      },
+      {
         "command": "tomAi.panel.memory",
         "title": "@T: Open Memory Panel",
         "category": "@Tom"

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<!--
+  Process action page (src/handlers/processAction-handler.ts). No inline
+  handlers: main.js attaches every listener, so the loader's nonce-only CSP
+  applies. Codicons are loaded by main.js from window.__INIT__.
+-->
+<link rel="stylesheet" href="{{baseUri}}/style.css">
+</head>
+<body>
+<div id="root">
+  <div id="unavailable" class="unavailable" hidden></div>
+  <div id="page" hidden>
+    <h2 id="label"></h2>
+    <div id="title" class="muted"></div>
+    <table class="move">
+      <tr><th>Process</th><td id="process"></td></tr>
+      <tr><th>From</th><td id="from"></td></tr>
+      <tr><th>To</th><td id="to"></td></tr>
+    </table>
+    <div id="started-box" class="block">
+      <div class="block-title">What the move starts (the <code>prompt</code> fields)</div>
+      <pre id="started"></pre>
+    </div>
+    <label class="block-title" for="custom">Custom instructions for this step</label>
+    <textarea id="custom" rows="7" placeholder="Anything this step should take into account — inserted where the template has ${custom-instructions}."></textarea>
+    <div class="buttons">
+      <button id="confirm" class="primary"></button>
+      <button id="cancel" class="secondary">Cancel</button>
+      <span class="spacer"></span>
+      <button id="template" class="secondary" title="Edit the template of this action (process template editor)"><span class="codicon codicon-symbol-snippet"></span> Edit template</button>
+    </div>
+    <div class="block-title">The prompt that is added to the queue</div>
+    <pre id="preview" class="preview"></pre>
+  </div>
+</div>
+<script src="{{baseUri}}/main.js"></script>
+</body>
+</html>

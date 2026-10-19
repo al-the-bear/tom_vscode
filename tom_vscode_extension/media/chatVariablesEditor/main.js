@@ -40,7 +40,8 @@ function renderTable(s) {
     // The active quest's process (read-only: set in the PROCESS view or by tomAi_setProcessState)
     var proc = s.process || {};
     var procKeys = ['process', 'phase', 'step', 'substep', 'phase-iteration', 'step-iteration', 'substep-iteration',
-        'process-description', 'phase-description', 'step-description', 'substep-description'];
+        'process-description', 'phase-description', 'step-description', 'substep-description',
+        'phase-prompt', 'step-prompt', 'substep-prompt'];
     rows += '<tr><td colspan="3" class="var-section">Process <span class="var-note">(read-only — the quest\'s position, set in the PROCESS view)</span></td></tr>';
     procKeys.forEach(function(k) { rows += readonlyRow(k, proc[k] || ''); });
 

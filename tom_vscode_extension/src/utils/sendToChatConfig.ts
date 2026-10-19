@@ -500,6 +500,16 @@ export interface SendToChatConfig {
      */
     questRefresh?: QuestRefreshConfig;
 
+    /**
+     * The prompt templates of the PROCESS view's action bar, one per move kind
+     * (`next`, `finish`, `repeat`, `gate-passed`, `gate-failed`,
+     * `finish-process`, `skip`, `back`), edited in the process template
+     * editor. A kind not set here uses its default
+     * (`DEFAULT_PROCESS_ACTION_TEMPLATES` in `processActionPrompt.ts`); an
+     * empty string queues nothing for that kind.
+     */
+    processActionTemplates?: { [kind: string]: string };
+
 }
 
 /**

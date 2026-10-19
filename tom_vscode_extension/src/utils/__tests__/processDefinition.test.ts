@@ -16,6 +16,14 @@
  *   PD-9  writing a definition and a state file reads back the same; a broken state file is the empty state
  *   PD-11 the role a move sets: the role the new step names; `default` when the process is cleared;
  *         nothing when the position did not change or the step names no role
+ *   PD-12 the `prompt` field on phase, step, gate, post-gate and sub-step: accepted, written back,
+ *         a process variable of its level
+ *   PD-13 the moves offered at each position: next / finish <level> where a repeat is possible,
+ *         repeat sub-step / step / phase at their repeat points (capped by maxIterations), gate passed /
+ *         failed, finish process at the end, skip, back; each with the state it leads to
+ *   PD-14 a finished process: the completed flag is written and read back, only "back" (reopen) is
+ *         offered, and any other change clears it
+ *   PD-15 a gate can always be run again: its iteration counts up although it is not marked repeatable
  *   PD-10 the JSON schema (src/config/process.schema.json) accepts what the validator accepts and
  *         rejects the shape errors it rejects
  */
@@ -44,6 +52,7 @@ import {
     validateProcessDefinition,
     stringifyProcessDefinition,
     roleAfterMove,
+    availableMoves,
     parseProcessState,
     stringifyProcessState,
     type ProcessDefinition,
@@ -59,11 +68,13 @@ phases:
     repeatable: true
     maxIterations: 3
     description: Write the first version.
+    prompt: Draft the document.
     steps:
       - id: write
         name: Write
         role: senior_developer
         description: Write it.
+        prompt: Write the first version from the sources.
       - id: review
         name: Review
         repeatable: true
@@ -75,11 +86,13 @@ phases:
             name: Comment
             role: default
             repeatable: true
+            prompt: Comment on what you read.
     gate:
       id: gate
       name: Draft gate
       role: code_reviewer
       description: Is the draft complete?
+      prompt: Run the draft gate checklist.
     postGate:
       id: tidy
       name: Tidy up
@@ -139,7 +152,7 @@ describe('process definitions', () => {
     test('PD-3: choosing', () => {
         const def = definition();
         const s1 = selectProcess(def);
-        assert.deepEqual(s1, { process: 'review_flow', phase: 'draft', phaseIteration: 1, step: 'write', stepIteration: 1, substep: '', substepIteration: 1 });
+        assert.deepEqual(s1, { process: 'review_flow', phase: 'draft', phaseIteration: 1, step: 'write', stepIteration: 1, substep: '', substepIteration: 1, completed: false });
         const s2 = selectStep(s1, def, 'review');
         assert.deepEqual([s2.step, s2.substep, s2.substepIteration], ['review', 'read', 1], 'a step with sub-steps starts at its first');
         const s3 = selectSubstep(s2, def, 'comment');
@@ -180,7 +193,7 @@ describe('process definitions', () => {
 
     test('PD-6: repairing a stale state', () => {
         const def = definition();
-        const stale = { process: 'review_flow', phase: 'gone', phaseIteration: 4, step: 'x', stepIteration: 2, substep: 'y', substepIteration: 3 };
+        const stale = { process: 'review_flow', phase: 'gone', phaseIteration: 4, step: 'x', stepIteration: 2, substep: 'y', substepIteration: 3, completed: false };
         assert.deepEqual(normalizeState(stale, def), selectProcess(def));
         const badStep = { ...selectProcess(def), step: 'gone', stepIteration: 3 };
         assert.deepEqual(normalizeState(badStep, def), selectProcess(def));
@@ -203,6 +216,7 @@ describe('process definitions', () => {
             'process-description': '# Review flow\n\nThe whole story.',
             'phase-description': 'Write the first version.',
             'step-description': '', 'substep-description': '',
+            'phase-prompt': 'Draft the document.', 'step-prompt': '', 'substep-prompt': '',
         });
         /* eslint-enable @typescript-eslint/naming-convention */
         const block = processContextBlock(def, s, '# Review flow\n\nThe whole story.');
@@ -279,5 +293,95 @@ describe('process definitions', () => {
         assert.equal(roleAfterMove(start, changeIteration(selectStep(start, def, 'review'), def, 'step', 1), def), 'code_reviewer');
         assert.equal(roleAfterMove(start, EMPTY_PROCESS_STATE, null), 'default', 'cleared: back to the default role');
         assert.equal(roleAfterMove(EMPTY_PROCESS_STATE, EMPTY_PROCESS_STATE, null), null, 'nothing set, nothing cleared');
+    });
+    test('PD-12: the prompt field', () => {
+        const def = definition();
+        assert.equal(def.phases[0].prompt, 'Draft the document.');
+        assert.equal(def.phases[0].gate.prompt, 'Run the draft gate checklist.');
+        assert.equal(def.phases[0].steps[1].substeps![1].prompt, 'Comment on what you read.');
+        const text = stringifyProcessDefinition(def);
+        assert.ok(text.indexOf('description: Write it.') < text.indexOf('prompt: Write the first version'), 'prompt after description');
+        assert.deepEqual(parseProcessYaml(text).definition, def);
+        assert.deepEqual(validateProcessDefinition({ id: 'x', phases: [{ id: 'a', prompt: 3, steps: [], gate: { id: 'g' } }] }).errors,
+            [{ path: 'phases[0].prompt', message: 'text expected' }]);
+        const s = selectSubstep(selectStep(selectProcess(def), def, 'review'), def, 'comment');
+        const v = processVariableValues(def, s, '');
+        assert.deepEqual([v['phase-prompt'], v['step-prompt'], v['substep-prompt']], ['Draft the document.', '', 'Comment on what you read.']);
+    });
+
+    test('PD-13: the moves at each position', () => {
+        const def = definition();
+        const kinds = (s: ReturnType<typeof selectProcess>): string[] => availableMoves(def, s).map((m) => m.level ? `${m.kind}:${m.level}` : m.kind);
+        const at = (m: { target: { phase: string; step: string; substep: string; phaseIteration: number; stepIteration: number; substepIteration: number } }): string =>
+            `${m.target.phase}#${m.target.phaseIteration}/${m.target.step}#${m.target.stepIteration}/${m.target.substep}#${m.target.substepIteration}`;
+        const move = (s: ReturnType<typeof selectProcess>, kind: string, level?: string) =>
+            availableMoves(def, s).find((m) => m.kind === kind && (level === undefined || m.level === level))!;
+
+        const start = selectProcess(def);
+        assert.deepEqual(kinds(start), ['next', 'skip'], 'the very first step: nowhere back to');
+        assert.equal(at(move(start, 'next')), 'draft#1/review#1/read#1');
+        assert.deepEqual(move(start, 'skip').target, move(start, 'next').target);
+
+        const read = selectStep(start, def, 'review');
+        assert.deepEqual(kinds(read), ['next', 'skip', 'back'], 'inside a repeatable step: no repeat point yet');
+        assert.equal(at(move(read, 'next')), 'draft#1/review#1/comment#1');
+        assert.equal(at(move(read, 'back')), 'draft#1/write#1/#1');
+
+        const comment = selectSubstep(read, def, 'comment');
+        assert.deepEqual(kinds(comment), ['finish:step', 'repeat:substep', 'repeat:step', 'skip', 'back'],
+            'the last sub-step of a repeatable step: finish the step or repeat the sub-step or the step');
+        assert.equal(move(comment, 'finish').label, 'Finish step');
+        assert.equal(at(move(comment, 'finish')), 'draft#1/gate#1/#1');
+        assert.equal(at(move(comment, 'repeat', 'substep')), 'draft#1/review#1/comment#2');
+        assert.equal(at(move(comment, 'repeat', 'step')), 'draft#1/review#2/read#1', 'a new step iteration starts at its first sub-step');
+        assert.equal(at(move(comment, 'back')), 'draft#1/review#1/read#1');
+
+        const gate = selectStep(start, def, 'gate');
+        assert.deepEqual(kinds(gate), ['gate-passed', 'gate-failed', 'skip', 'back']);
+        assert.equal(at(move(gate, 'gate-passed')), 'draft#1/tidy#1/#1');
+        assert.equal(at(move(gate, 'gate-failed')), 'draft#1/gate#2/#1');
+        assert.equal(at(move(gate, 'back')), 'draft#1/review#1/comment#1', 'back into a step: its last sub-step');
+
+        const tidy = selectStep(start, def, 'tidy');
+        assert.deepEqual(kinds(tidy), ['finish:phase', 'repeat:phase', 'skip', 'back']);
+        assert.equal(at(move(tidy, 'finish')), 'ship#1/release#1/#1');
+        assert.equal(at(move(tidy, 'repeat', 'phase')), 'draft#2/write#1/#1', 'a new phase iteration starts at its first step');
+        assert.deepEqual(kinds({ ...tidy, phaseIteration: 3 }), ['next', 'skip', 'back'], 'maxIterations reached: no repeat');
+
+        const release = selectPhase(start, def, 'ship');
+        assert.equal(at(move(release, 'back')), 'draft#1/tidy#1/#1', 'back across a phase boundary: the last step of the previous phase');
+        const shipGate = selectStep(release, def, 'gate');
+        assert.deepEqual(kinds(shipGate), ['finish-process', 'gate-failed', 'back'], 'the last gate: passing it finishes the process');
+        const done = move(shipGate, 'finish-process').target;
+        assert.equal(done.completed, true);
+        assert.equal(at(move(shipGate, 'finish-process')), 'ship#1/gate#1/#1');
+        assert.deepEqual(availableMoves(def, EMPTY_PROCESS_STATE), [], 'no process, no moves');
+    });
+
+    test('PD-14: a finished process', () => {
+        const def = definition();
+        const defs = new Map([['review_flow', def]]);
+        const last = selectStep(selectPhase(selectProcess(def), def, 'ship'), def, 'gate');
+        const done = { ...last, completed: true };
+        const moves = availableMoves(def, done);
+        assert.deepEqual(moves.map((m) => [m.kind, m.label]), [['back', 'Reopen']]);
+        assert.deepEqual(moves[0].target, last);
+        assert.deepEqual(parseProcessState(stringifyProcessState(done, '2026-10-19T10:00:00Z')), done);
+        assert.doesNotMatch(stringifyProcessState(last, 'x'), /completed/, 'only a finished state writes the flag');
+        const r = applyProcessChange(done, defs, { step: 'release' });
+        assert.equal(r.ok && r.state.completed, false, 'a change moves out of the finished state');
+        const flagged = applyProcessChange(last, defs, { completed: true });
+        assert.equal(flagged.ok && flagged.state.completed, true, 'the tool can finish a process');
+    });
+
+    test('PD-15: a gate can always be run again', () => {
+        const def = definition();
+        const gate = selectStep(selectProcess(def), def, 'gate');
+        const again = changeIteration(gate, def, 'step', 1);
+        assert.equal(again.stepIteration, 2);
+        assert.equal(normalizeState(again, def).stepIteration, 2, 'the iteration of a gate survives normalisation');
+        const defs = new Map([['review_flow', def]]);
+        const r = applyProcessChange(gate, defs, { stepIteration: 3 });
+        assert.equal(r.ok && r.state.stepIteration, 3);
     });
 });

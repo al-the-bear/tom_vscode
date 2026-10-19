@@ -118,6 +118,10 @@
         return '<textarea data-path="' + path + '.description" rows="' + (rows || 2) + '" placeholder="Description (Markdown) — shown behind the ? in the PROCESS view and in the system prompt">' + esc(value || '') + '</textarea>';
     }
 
+    function promptField(path, value) {
+        return '<textarea class="prompt" data-path="' + path + '.prompt" rows="2" placeholder="Prompt — what is to be done when it starts; the PROCESS view\'s action buttons put it into the prompt they queue (${action-prompt})">' + esc(value || '') + '</textarea>';
+    }
+
     /** A step card; `kind` is step, gate, post-gate or substep. */
     function stepCard(step, path, kind, index, count) {
         var title = { step: 'Step ' + (index + 1), gate: 'Quality gate', 'post-gate': 'Post-gate step', substep: 'Sub-step ' + (index + 1) }[kind];
@@ -130,7 +134,8 @@
             + (kind === 'step' || kind === 'substep' ? moveButtons(path, index, count, true) : '')
             + (kind === 'post-gate' ? '<span class="card-ops"><button class="icon" data-op="remove-postgate" data-path="' + path + '" title="Remove the post-gate step"><span class="codicon codicon-trash"></span></button></span>' : '')
             + '</div>'
-            + description(path, step.description, 2);
+            + description(path, step.description, 2)
+            + promptField(path, step.prompt);
         if (kind !== 'substep') {
             var subs = step.substeps || [];
             if (subs.length) {
@@ -161,6 +166,7 @@
             + '<summary><span class="phase-title">Phase ' + (i + 1) + (phase.name ? ': ' + esc(phase.name) : '') + '</span>' + moveButtons(path, i, count, count > 1) + '</summary>'
             + '<div class="card-head">' + text(path + '.id', phase.id, 'id', 'id') + text(path + '.name', phase.name, 'name', 'name') + repeatFields(path, phase, 'phase') + '</div>'
             + description(path, phase.description, 3)
+            + promptField(path, phase.prompt)
             + '<div class="steps">' + steps.map(function (s, k) { return stepCard(s, path + '.steps.' + k, 'step', k, steps.length); }).join('') + '</div>'
             + '<button class="add" data-op="add-step" data-path="' + path + '"><span class="codicon codicon-add"></span> step</button>'
             + stepCard(phase.gate || { id: '' }, path + '.gate', 'gate', 0, 1)

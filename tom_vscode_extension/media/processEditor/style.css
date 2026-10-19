@@ -89,6 +89,7 @@ input[type="text"], input[type="number"], textarea, select {
 }
 select { background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); }
 textarea { width: 100%; box-sizing: border-box; resize: vertical; font-family: var(--vscode-editor-font-family); margin: 4px 0; }
+textarea.prompt { border-left: 3px solid var(--vscode-textLink-foreground); }
 .has-error { outline: 1px solid var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground)); }
 .card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .card-head.top label { display: flex; align-items: center; gap: 6px; }

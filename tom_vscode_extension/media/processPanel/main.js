@@ -62,9 +62,27 @@
         }).join('') + '</select>';
     }
 
-    function iteration(level, node, n) {
-        var repeatable = node && node.repeatable === true;
-        var max = node && node.maxIterations;
+    /** Icon and short text of each move kind in the action bar. */
+    var MOVE_ICON = {
+        next: 'arrow-right', finish: 'check', repeat: 'debug-restart', 'gate-passed': 'pass',
+        'gate-failed': 'error', 'finish-process': 'check-all', skip: 'debug-step-over', back: 'arrow-left',
+    };
+    var LEVEL_SHORT = { phase: 'phase', step: 'step', substep: 'sub' };
+
+    function actionBar(moves) {
+        var buttons = (moves || []).map(function (m) {
+            var icon = m.kind === 'back' && m.label === 'Reopen' ? 'debug-reverse-continue' : MOVE_ICON[m.kind] || 'circle';
+            var text = m.level && (m.kind === 'repeat' || m.kind === 'finish') ? '<span class="lvl">' + LEVEL_SHORT[m.level] + '</span>' : '';
+            return '<button class="icon act act-' + m.kind + '" data-move="' + esc(m.kind) + '" data-level="' + esc(m.level || '') + '" title="'
+                + esc(m.label + ' → ' + m.to) + '"><span class="codicon codicon-' + icon + '"></span>' + text + '</button>';
+        }).join('');
+        return '<div class="actions">' + (buttons || '<span class="muted">No move from here.</span>')
+            + '<span class="spacer"></span><button class="icon" data-templates="1" title="Edit the prompt templates of these actions"><span class="codicon codicon-symbol-snippet"></span></button></div>';
+    }
+
+    function iteration(level, node, n, alwaysRepeatable) {
+        var repeatable = node && (node.repeatable === true || !!alwaysRepeatable);
+        var max = node && node.repeatable === true && node.maxIterations;
         var text = repeatable ? (max ? n + '/' + max : String(n)) : '1';
         return '<span class="iter" title="' + (repeatable ? 'Iteration' + (max ? ' (at most ' + max + ')' : '') : 'Not repeatable') + '">'
             + '<button class="icon" data-iter="' + level + '" data-delta="-1"' + (!repeatable || n <= 1 ? ' disabled' : '') + ' title="Previous iteration (corrects the number)"><span class="codicon codicon-remove"></span></button>'
@@ -89,7 +107,8 @@
             root.innerHTML = '<div class="muted">No quest is active. A process state belongs to a quest — choose one in the Chat Variables.</div>';
             return;
         }
-        var html = '';
+        var html = c.state.process && c.definition ? actionBar(c.moves) : '';
+        if (c.state.completed) { html += '<div class="done"><span class="codicon codicon-check-all"></span> The process is finished.</div>'; }
         var procOptions = [{ value: '', label: '— none —' }].concat(c.processes.map(function (p) {
             return { value: p.id, label: p.valid ? p.name + ' (' + p.id + ')' : p.id + ' (invalid)', disabled: !p.valid && p.id !== c.state.process };
         }));
@@ -113,7 +132,7 @@
                 });
                 var step = entry && entry.step;
                 html += row('Step', select('sel-step', stepOptions, c.state.step, 'Step of the phase'),
-                    iteration('step', step, c.state.stepIteration) + help('step'), 'step', step && step.description);
+                    iteration('step', step, c.state.stepIteration, entry && entry.kind === 'gate') + help('step'), 'step', step && step.description);
                 if (step && step.substeps && step.substeps.length) {
                     var sub = step.substeps.find(function (x) { return x.id === c.state.substep; });
                     html += row('Sub-step', select('sel-substep', step.substeps.map(function (x, i) { return { value: x.id, label: (i + 1) + '. ' + label(x) }; }), c.state.substep, 'Sub-step'),
@@ -153,7 +172,11 @@
         var target = /** @type {HTMLElement} */ (e.target);
         var btn = target && target.closest ? /** @type {HTMLButtonElement|null} */ (target.closest('button')) : null;
         if (!btn || btn.disabled) { return; }
-        if (btn.dataset.iter) {
+        if (btn.dataset.move) {
+            post({ type: 'action', kind: btn.dataset.move, level: btn.dataset.level || undefined });
+        } else if (btn.dataset.templates) {
+            post({ type: 'openTemplates' });
+        } else if (btn.dataset.iter) {
             post({ type: 'iteration', level: btn.dataset.iter, delta: Number(btn.dataset.delta) });
         } else if (btn.dataset.help) {
             open[btn.dataset.help] = !open[btn.dataset.help];

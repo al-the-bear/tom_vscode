@@ -47,3 +47,18 @@ body {
 .todos-title { color: var(--vscode-descriptionForeground); }
 .todos ul { margin: 2px 0; padding-left: 16px; }
 code { font-family: var(--vscode-editor-font-family); }
+.actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px;
+    padding: 2px 0 5px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+}
+.actions .spacer { flex: 1; }
+.act { padding: 2px 4px; gap: 2px; }
+.act .lvl { font-size: 0.78em; }
+.act-gate-passed, .act-finish-process { color: var(--vscode-testing-iconPassed, var(--vscode-foreground)); }
+.act-gate-failed { color: var(--vscode-testing-iconFailed, var(--vscode-errorForeground)); }
+.done { color: var(--vscode-testing-iconPassed, var(--vscode-foreground)); margin: 2px 0 4px; font-size: 0.92em; display: flex; align-items: center; gap: 4px; }

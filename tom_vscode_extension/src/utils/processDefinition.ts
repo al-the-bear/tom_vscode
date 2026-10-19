@@ -32,6 +32,8 @@ export interface ProcessSubstep {
     id: string;
     name?: string;
     description?: string;
+    /** What is to be done when it starts — the prompt a process action builds on. */
+    prompt?: string;
     /** The role doing it (a folder name under `_ai/roles/`). */
     role?: string;
     repeatable?: boolean;
@@ -59,6 +61,8 @@ export interface ProcessPhase {
     id: string;
     name?: string;
     description?: string;
+    /** What is to be done when the phase starts. */
+    prompt?: string;
     repeatable?: boolean;
     maxIterations?: number;
     steps: ProcessStep[];
@@ -109,8 +113,8 @@ const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 const ID_MESSAGE = 'letters, digits, "_" and "-" only, starting with a letter or digit';
 
 const DEFINITION_KEYS = ['id', 'name', 'summary', 'phases'];
-const PHASE_KEYS = ['id', 'name', 'description', 'repeatable', 'maxIterations', 'steps', 'gate', 'postGate'];
-const SUBSTEP_KEYS = ['id', 'name', 'description', 'role', 'repeatable', 'maxIterations'];
+const PHASE_KEYS = ['id', 'name', 'description', 'prompt', 'repeatable', 'maxIterations', 'steps', 'gate', 'postGate'];
+const SUBSTEP_KEYS = ['id', 'name', 'description', 'prompt', 'role', 'repeatable', 'maxIterations'];
 const STEP_KEYS = [...SUBSTEP_KEYS, 'substeps'];
 const POST_GATE_KEYS = [...STEP_KEYS, 'todos', 'todoPrefix'];
 const TODO_KEYS = ['title', 'description'];
@@ -154,7 +158,7 @@ export function validateProcessDefinition(raw: unknown): ProcessValidation {
         if (!isObject(obj)) { err(path, 'an object expected'); return ''; }
         unknownKeys(obj, allowed, path);
         const id = checkId(obj, path);
-        for (const key of ['name', 'description', 'role']) { checkText(obj, key, path); }
+        for (const key of ['name', 'description', 'prompt', 'role']) { checkText(obj, key, path); }
         checkRepeat(obj, path, what);
         return id;
     };
@@ -194,6 +198,7 @@ export function validateProcessDefinition(raw: unknown): ProcessValidation {
             phaseIds.add(phaseId);
             checkText(phase, 'name', path);
             checkText(phase, 'description', path);
+            checkText(phase, 'prompt', path);
             checkRepeat(phase, path, 'phase');
             const stepIds = new Set<string>();
             const noteStep = (stepId: string, stepPath: string): void => {
@@ -267,7 +272,7 @@ export function stringifyProcessDefinition(def: ProcessDefinition): string {
     const ordered = {
         ...pick(def, ['id', 'name', 'summary']),
         phases: def.phases.map((p) => {
-            const out: Raw = { ...pick(p, ['id', 'name', 'description', 'repeatable', 'maxIterations']), steps: p.steps.map(step), gate: step(p.gate) };
+            const out: Raw = { ...pick(p, ['id', 'name', 'description', 'prompt', 'repeatable', 'maxIterations']), steps: p.steps.map(step), gate: step(p.gate) };
             if (p.postGate) {
                 const post = step(p.postGate);
                 if (p.postGate.todos && p.postGate.todos.length) { post.todos = p.postGate.todos.map((t) => pick(t, TODO_KEYS)); }
@@ -293,10 +298,12 @@ export interface ProcessState {
     stepIteration: number;
     substep: string;
     substepIteration: number;
+    /** The process is finished (its last step done); the position stays where it ended. */
+    completed: boolean;
 }
 
 export const EMPTY_PROCESS_STATE: ProcessState = Object.freeze({
-    process: '', phase: '', phaseIteration: 1, step: '', stepIteration: 1, substep: '', substepIteration: 1,
+    process: '', phase: '', phaseIteration: 1, step: '', stepIteration: 1, substep: '', substepIteration: 1, completed: false,
 }) as ProcessState;
 
 export type ProcessLevel = 'phase' | 'step' | 'substep';
@@ -320,7 +327,15 @@ function firstStepOf(phase: ProcessPhase): ProcessStep {
 }
 
 function withStep(state: ProcessState, step: ProcessStep, stepIteration: number): ProcessState {
-    return { ...state, step: step.id, stepIteration, substep: step.substeps?.[0]?.id ?? '', substepIteration: 1 };
+    return { ...state, step: step.id, stepIteration, substep: step.substeps?.[0]?.id ?? '', substepIteration: 1, completed: false };
+}
+
+/**
+ * A step as far as repeating goes: a gate can always be run again (a failed
+ * gate is run again), whether or not it is marked repeatable.
+ */
+function repeatView(phase: ProcessPhase, step: ProcessStep): ProcessStep {
+    return step === phase.gate && step.repeatable !== true ? { ...step, repeatable: true, maxIterations: undefined } : step;
 }
 
 /** Start `def` at its first phase, step and sub-step; `null` clears the state. */
@@ -358,7 +373,8 @@ function levelNode(state: ProcessState, def: ProcessDefinition, level: ProcessLe
     const phase = findPhase(def, state.phase);
     if (level === 'phase') { return phase; }
     const step = findStep(phase, state.step);
-    return level === 'step' ? step : findSubstep(step, state.substep);
+    if (level === 'step') { return phase && step ? repeatView(phase, step) : undefined; }
+    return findSubstep(step, state.substep);
 }
 
 const ITERATION_KEY: Record<ProcessLevel, 'phaseIteration' | 'stepIteration' | 'substepIteration'> = {
@@ -378,7 +394,7 @@ export function changeIteration(state: ProcessState, def: ProcessDefinition, lev
     const key = ITERATION_KEY[level];
     const next = Math.max(1, Math.min(node.maxIterations ?? Number.MAX_SAFE_INTEGER, state[key] + delta));
     if (next === state[key]) { return state; }
-    const moved = { ...state, [key]: next };
+    const moved = { ...state, [key]: next, completed: false };
     if (delta < 0) { return moved; }
     if (level === 'phase') { return withStep(moved, firstStepOf(node as ProcessPhase), 1); }
     if (level === 'step') { return withStep(moved, node as ProcessStep, next); }
@@ -425,7 +441,7 @@ export function normalizeState(state: ProcessState, def: ProcessDefinition): Pro
     let out: ProcessState = { ...state, phaseIteration: clampIteration(phase, state.phaseIteration) };
     const step = findStep(phase, state.step);
     if (!step) { return withStep(out, firstStepOf(phase), 1); }
-    out = { ...out, stepIteration: clampIteration(step, state.stepIteration) };
+    out = { ...out, stepIteration: clampIteration(repeatView(phase, step), state.stepIteration) };
     if (!step.substeps?.length) { return { ...out, substep: '', substepIteration: 1 }; }
     const sub = findSubstep(step, state.substep);
     if (!sub) { return { ...out, substep: step.substeps[0].id, substepIteration: 1 }; }
@@ -445,6 +461,8 @@ export interface ProcessChange {
     phaseIteration?: number;
     stepIteration?: number;
     substepIteration?: number;
+    /** Mark the process finished (true) or open again (false). Any other change opens it again. */
+    completed?: boolean;
 }
 
 export type ProcessChangeResult = { ok: true; state: ProcessState } | { ok: false; error: string };
@@ -485,10 +503,155 @@ export function applyProcessChange(
             }
             next = { ...next, [ITERATION_KEY[level]]: value };
         }
-        return { ok: true, state: next };
+        return { ok: true, state: { ...next, completed: change.completed === true } };
     } catch (e) {
         return { ok: false, error: (e as Error).message };
     }
+}
+
+// ============================================================================
+// Moves — what the PROCESS view's action bar offers
+// ============================================================================
+
+export type ProcessMoveKind = 'next' | 'finish' | 'repeat' | 'gate-passed' | 'gate-failed' | 'finish-process' | 'skip' | 'back';
+
+/** The move kinds, in the order the action bar and the template editor show them. */
+export const PROCESS_MOVE_KINDS: readonly ProcessMoveKind[] = ['next', 'finish', 'repeat', 'gate-passed', 'gate-failed', 'finish-process', 'skip', 'back'];
+
+export interface ProcessMove {
+    kind: ProcessMoveKind;
+    /** For `finish` the level that ends, for `repeat` the level that starts again. */
+    level?: ProcessLevel;
+    label: string;
+    /** The state the move leads to. */
+    target: ProcessState;
+}
+
+const LEVEL_TITLE: Record<ProcessLevel, string> = { phase: 'phase', step: 'step', substep: 'sub-step' };
+
+interface Position {
+    phase: ProcessPhase;
+    phaseIndex: number;
+    entries: PhaseStepEntry[];
+    stepIndex: number;
+    substepIndex: number;
+}
+
+function positionOf(def: ProcessDefinition, state: ProcessState): Position | null {
+    const phase = findPhase(def, state.phase);
+    if (!phase) { return null; }
+    const entries = phaseSteps(phase);
+    const stepIndex = entries.findIndex((e) => e.step.id === state.step);
+    if (stepIndex < 0) { return null; }
+    const subs = entries[stepIndex].step.substeps ?? [];
+    return { phase, phaseIndex: def.phases.indexOf(phase), entries, stepIndex, substepIndex: subs.findIndex((x) => x.id === state.substep) };
+}
+
+/** The position after the current one: next sub-step, else next step, else next phase; null at the end. */
+function forwardTarget(def: ProcessDefinition, state: ProcessState, pos: Position): ProcessState | null {
+    const subs = pos.entries[pos.stepIndex].step.substeps ?? [];
+    if (pos.substepIndex >= 0 && pos.substepIndex < subs.length - 1) {
+        return { ...state, substep: subs[pos.substepIndex + 1].id, substepIteration: 1, completed: false };
+    }
+    if (pos.stepIndex < pos.entries.length - 1) { return withStep(state, pos.entries[pos.stepIndex + 1].step, 1); }
+    const nextPhase = def.phases[pos.phaseIndex + 1];
+    return nextPhase ? withStep({ ...state, phase: nextPhase.id, phaseIteration: 1 }, firstStepOf(nextPhase), 1) : null;
+}
+
+/**
+ * The position before the current one — the previous sub-step, else the last
+ * sub-step of the previous step, else the last step of the previous phase.
+ * A correction: the iteration numbers are kept as they are (bounded by the
+ * level they land on).
+ */
+function backTarget(def: ProcessDefinition, state: ProcessState, pos: Position): ProcessState | null {
+    const subs = pos.entries[pos.stepIndex].step.substeps ?? [];
+    if (pos.substepIndex > 0) {
+        const sub = subs[pos.substepIndex - 1];
+        return { ...state, substep: sub.id, substepIteration: clampIteration(sub, state.substepIteration), completed: false };
+    }
+    let phase = pos.phase;
+    let entries = pos.entries;
+    let index = pos.stepIndex - 1;
+    if (index < 0) {
+        if (pos.phaseIndex === 0) { return null; }
+        phase = def.phases[pos.phaseIndex - 1];
+        entries = phaseSteps(phase);
+        index = entries.length - 1;
+    }
+    const step = entries[index].step;
+    const last = step.substeps?.[step.substeps.length - 1];
+    return {
+        ...state,
+        phase: phase.id,
+        phaseIteration: clampIteration(phase, state.phaseIteration),
+        step: step.id,
+        stepIteration: clampIteration(repeatView(phase, step), state.stepIteration),
+        substep: last?.id ?? '',
+        substepIteration: last ? clampIteration(last, state.substepIteration) : 1,
+        completed: false,
+    };
+}
+
+function canRepeat(node: { repeatable?: boolean; maxIterations?: number } | undefined, iteration: number): boolean {
+    return !!node && node.repeatable === true && (node.maxIterations === undefined || iteration < node.maxIterations);
+}
+
+/**
+ * The moves offered at `state`, in the order the action bar shows them:
+ *
+ * - the forward move — `gate-passed` at the end of a gate; `finish-process` at
+ *   the end of the last step; `finish` (of the outermost level ending here)
+ *   where a repeat is possible too; `next` otherwise;
+ * - `repeat` of the sub-step, step and phase whose repeat point this is: a
+ *   repeatable sub-step always, a repeatable step at its last sub-step, a
+ *   repeatable phase at its last step — each below its maxIterations; a new
+ *   iteration starts at the first step / sub-step inside it;
+ * - `gate-failed` at the end of a gate: the gate is run again;
+ * - `skip` — the forward position, without a prompt;
+ * - `back` — the previous position, a correction (iterations kept).
+ *
+ * A finished process offers only `back` ("Reopen"); no process, nothing.
+ */
+export function availableMoves(def: ProcessDefinition | null, state: ProcessState): ProcessMove[] {
+    if (!def || !state.process) { return []; }
+    if (state.completed) { return [{ kind: 'back', label: 'Reopen', target: { ...state, completed: false } }]; }
+    const pos = positionOf(def, state);
+    if (!pos) { return []; }
+    const entry = pos.entries[pos.stepIndex];
+    const subs = entry.step.substeps ?? [];
+    const isGate = entry.kind === 'gate';
+    const stepEnds = subs.length === 0 || pos.substepIndex === subs.length - 1;
+    const phaseEnds = stepEnds && pos.stepIndex === pos.entries.length - 1;
+
+    const repeats: ProcessMove[] = [];
+    const repeat = (level: ProcessLevel): void => {
+        repeats.push({ kind: 'repeat', level, label: `Repeat ${LEVEL_TITLE[level]}`, target: changeIteration(state, def, level, 1) });
+    };
+    if (canRepeat(subs[pos.substepIndex], state.substepIteration)) { repeat('substep'); }
+    if (stepEnds && !isGate && canRepeat(entry.step, state.stepIteration)) { repeat('step'); }
+    if (phaseEnds && canRepeat(pos.phase, state.phaseIteration)) { repeat('phase'); }
+
+    const forward = forwardTarget(def, state, pos);
+    const moves: ProcessMove[] = [];
+    if (!forward) {
+        moves.push({ kind: 'finish-process', label: isGate ? 'Gate passed — finish process' : 'Finish process', target: { ...state, completed: true } });
+    } else if (isGate && stepEnds) {
+        moves.push({ kind: 'gate-passed', label: 'Gate passed', target: forward });
+    } else if (repeats.length) {
+        const level: ProcessLevel = phaseEnds ? 'phase' : stepEnds && subs.length ? 'step' : 'substep';
+        moves.push({ kind: 'finish', level, label: `Finish ${LEVEL_TITLE[level]}`, target: forward });
+    } else {
+        moves.push({ kind: 'next', label: 'Next', target: forward });
+    }
+    moves.push(...repeats);
+    if (isGate && stepEnds) {
+        moves.push({ kind: 'gate-failed', label: 'Gate failed — run again', target: changeIteration(state, def, 'step', 1) });
+    }
+    if (forward) { moves.push({ kind: 'skip', label: 'Skip', target: forward }); }
+    const back = backTarget(def, state, pos);
+    if (back) { moves.push({ kind: 'back', label: 'Back', target: back }); }
+    return moves;
 }
 
 // ============================================================================
@@ -500,6 +663,7 @@ export const PROCESS_VARIABLE_KEYS = [
     'process', 'phase', 'step', 'substep',
     'phase-iteration', 'step-iteration', 'substep-iteration',
     'process-description', 'phase-description', 'step-description', 'substep-description',
+    'phase-prompt', 'step-prompt', 'substep-prompt',
 ] as const;
 
 export type ProcessVariableKey = typeof PROCESS_VARIABLE_KEYS[number];
@@ -519,15 +683,19 @@ export function processVariableValues(
     out['phase-iteration'] = String(state.phaseIteration);
     const phase = def ? findPhase(def, state.phase) : undefined;
     out['phase-description'] = phase?.description ?? '';
+    out['phase-prompt'] = phase?.prompt ?? '';
     if (!state.step) { return out; }
     out.step = state.step;
     out['step-iteration'] = String(state.stepIteration);
     const step = findStep(phase, state.step);
     out['step-description'] = step?.description ?? '';
+    out['step-prompt'] = step?.prompt ?? '';
     if (!state.substep) { return out; }
     out.substep = state.substep;
     out['substep-iteration'] = String(state.substepIteration);
-    out['substep-description'] = findSubstep(step, state.substep)?.description ?? '';
+    const sub = findSubstep(step, state.substep);
+    out['substep-description'] = sub?.description ?? '';
+    out['substep-prompt'] = sub?.prompt ?? '';
     return out;
 }
 
@@ -584,6 +752,7 @@ export function processContextBlock(def: ProcessDefinition | null, state: Proces
             if (post.todoPrefix) { lines.push(`- and the quest todos with the id prefix \`${post.todoPrefix}\``); }
         }
     }
+    if (state.completed) { lines.push('', 'The process is finished: its last step is done.'); }
     lines.push('', 'When the work moves on — another step, sub-step, iteration or phase — record it with `tomAi_setProcessState`.');
     const section = (title: string, text: string | undefined): void => {
         if (text && text.trim()) { lines.push('', `### ${title}`, '', text.trim()); }
@@ -610,6 +779,7 @@ export function parseProcessState(text: string): ProcessState {
             process: str('process'), phase: str('phase'), phaseIteration: num('phaseIteration'),
             step: str('step'), stepIteration: num('stepIteration'),
             substep: str('substep'), substepIteration: num('substepIteration'),
+            completed: raw.completed === true,
         };
     } catch {
         return { ...EMPTY_PROCESS_STATE };
@@ -626,6 +796,7 @@ export function stringifyProcessState(state: ProcessState, updated: string): str
         stepIteration: state.stepIteration,
         substep: state.substep,
         substepIteration: state.substepIteration,
+        ...(state.completed ? { completed: true } : {}),
         updated,
     });
 }

@@ -11,6 +11,21 @@
             "default": "anthropic",
             "description": "Which chat transport 'Send to Chat' routes to. 'anthropic' (default) handles the prompt as if entered in the Anthropic panel (same profile + tools, answer from the Anthropic transport, shown in the live trail, blocks while executing). 'copilot' routes to GitHub Copilot Chat. Also drives tools.getJsonVce: the scripting-API tools JSON is empty when set to 'copilot'."
         },
+        "processActionTemplates": {
+            "type": "object",
+            "description": "Prompt templates of the PROCESS view's action bar, one per move kind, edited in the process template editor (@T: Open Process Template Editor). Resolved by the placeholder engine with the chat variables, the process variables of the position the move leads to, and the action variables (${custom-instructions}, ${action-prompt}, ${action-label}, ...). A kind not set uses its built-in default; an empty string queues nothing.",
+            "properties": {
+                "next": { "type": "string" },
+                "finish": { "type": "string" },
+                "repeat": { "type": "string" },
+                "gate-passed": { "type": "string" },
+                "gate-failed": { "type": "string" },
+                "finish-process": { "type": "string" },
+                "skip": { "type": "string" },
+                "back": { "type": "string" }
+            },
+            "additionalProperties": false
+        },
         "questRefresh": {
             "type": "object",
             "description": "Quest Refresh (quest_refresh_implementation_plan.md). An automatic 'refresh prompt' that fires every N prompts to run maintenance work off the recent trail (update overview, prune todos, refresh quest-notes). These settings are GLOBAL (shared across quests); the per-quest activation flag + the prompt counter live in _ai/quests/{questId}/quest-refresh.{hostname}.{questId}.yaml (QuestRefreshStore, host-specific so the shared _ai clone doesn't collide state across machines), not here. Copilot is wired into the UI but its auto-trigger is deferred.",

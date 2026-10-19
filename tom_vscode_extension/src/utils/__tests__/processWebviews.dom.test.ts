@@ -12,6 +12,13 @@
  *         Save sends the model and the description
  *   PW-6  editor: validation errors are listed and the field marked; choosing another process
  *         with unsaved changes hands them to the host
+ *   PW-7  PROCESS view: the action bar shows the moves the host offers and posts the one clicked;
+ *         the template button opens the template editor; a finished process says so; a gate has −/+
+ *   PW-8  editor: every phase, step and sub-step has a prompt field, edited into the model
+ *   PW-9  action page: shows the move, previews as you type (custom instructions sent with it),
+ *         confirms and cancels; an empty template moves without a prompt; a stale move says so
+ *   PW-10 template editor: lists the kinds, inserts a variable at the cursor, marks unsaved kinds,
+ *         resets to the default, saves all kinds at once
  */
 
 import test, { describe } from 'node:test';
@@ -54,10 +61,16 @@ const DEF = {
         { id: 'ship', steps: [], gate: { id: 'gate' } },
     ],
 };
-const STATE = { process: 'flow', phase: 'build', phaseIteration: 2, step: 'review', stepIteration: 1, substep: 'read', substepIteration: 1 };
+const STATE = { process: 'flow', phase: 'build', phaseIteration: 2, step: 'review', stepIteration: 1, substep: 'read', substepIteration: 1, completed: false };
+const MOVES = [
+    { kind: 'finish', level: 'step', label: 'Finish step', to: 'Build #2 › Gate #1' },
+    { kind: 'repeat', level: 'step', label: 'Repeat step', to: 'Build #2 › Review #2 › Read' },
+    { kind: 'skip', level: null, label: 'Skip', to: 'Build #2 › Gate #1' },
+    { kind: 'back', level: null, label: 'Back', to: 'Build #2 › Code' },
+];
 const panelState = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
     type: 'state', quest: 'q1', processes: [{ id: 'flow', name: 'Flow', valid: true }, { id: 'bad', name: 'bad', valid: false }],
-    state: STATE, definition: DEF, processInvalid: false, description: '# Flow', stepRole: '', chatRole: 'default', ...over,
+    state: STATE, definition: DEF, processInvalid: false, description: '# Flow', stepRole: '', chatRole: 'default', moves: MOVES, ...over,
 });
 
 describe('PROCESS view', () => {
@@ -96,6 +109,28 @@ describe('PROCESS view', () => {
         const { w } = setup('processPanel');
         send(w, panelState({ quest: '' }));
         assert.match(w.document.body.textContent, /No quest is active/);
+    });
+
+    test('PW-7: the action bar', () => {
+        const { w, posted } = setup('processPanel');
+        send(w, panelState());
+        const buttons = $(w, '.actions [data-move]');
+        assert.deepEqual(buttons.map((b) => b.title), ['Finish step → Build #2 › Gate #1', 'Repeat step → Build #2 › Review #2 › Read', 'Skip → Build #2 › Gate #1', 'Back → Build #2 › Code']);
+        assert.ok(w.document.querySelector('.actions').compareDocumentPosition(w.document.getElementById('sel-process')) & 4, 'the bar is at the top');
+        buttons[1].click();
+        assert.deepEqual(posted.pop(), { type: 'action', kind: 'repeat', level: 'step' });
+        buttons[2].click();
+        assert.deepEqual(posted.pop(), { type: 'action', kind: 'skip' });
+        w.document.querySelector('[data-templates]').click();
+        assert.deepEqual(posted.pop(), { type: 'openTemplates' });
+        send(w, panelState({ state: { ...STATE, step: 'gate', substep: '' }, moves: [] }));
+        assert.equal(w.document.querySelector('[data-iter="step"][data-delta="1"]').disabled, false, 'a gate can be run again');
+        assert.match(w.document.querySelector('.actions').textContent, /No move from here/);
+        send(w, panelState({ state: { ...STATE, completed: true }, moves: [{ kind: 'back', level: null, label: 'Reopen', to: 'Build #2 › Review #1 › Read' }] }));
+        assert.match(w.document.body.textContent, /The process is finished/);
+        assert.ok(w.document.querySelector('[data-move="back"] .codicon-debug-reverse-continue'));
+        send(w, panelState({ state: { process: '', phase: '', phaseIteration: 1, step: '', stepIteration: 1, substep: '', substepIteration: 1, completed: false }, definition: null, moves: [] }));
+        assert.equal(w.document.querySelector('.actions'), null, 'no process, no action bar');
     });
 });
 
@@ -164,5 +199,99 @@ describe('process editor', () => {
         w.document.querySelector('.item[data-id="other"]').click();
         const select = posted.filter((m) => m.type === 'select').pop() as Win;
         assert.deepEqual([select.id, select.dirty, select.definition.name], ['other', true, 'Flow 2']);
+    });
+
+    test('PW-8: prompt fields', () => {
+        const { w, posted } = setup('processEditor');
+        load(w);
+        for (const path of ['phases.0', 'phases.0.steps.0', 'phases.0.steps.1.substeps.0', 'phases.0.gate', 'phases.0.postGate']) {
+            assert.ok(field(w, `${path}.prompt`), `${path} has a prompt field`);
+        }
+        const prompt = field(w, 'phases.0.gate.prompt');
+        prompt.value = 'Run the gate checklist.';
+        prompt.dispatchEvent(new w.Event('input', { bubbles: true }));
+        w.document.querySelector('[data-op="save"]').click();
+        const saved = posted.filter((m) => m.type === 'save').pop() as Win;
+        assert.equal(saved.definition.phases[0].gate.prompt, 'Run the gate checklist.');
+    });
+});
+
+describe('process action page', () => {
+    const MOVE = {
+        type: 'move', kind: 'repeat', level: 'step', label: 'Repeat step', title: 'Repeat phase / step / sub-step — a new iteration',
+        quest: 'q1', process: 'Flow', from: 'Build #2 › Review #1 › Note', to: 'Build #2 › Review #2 › Read',
+        startedPrompts: 'Review it.', custom: '', preview: '# Repeat step\n\nReview it.',
+    };
+
+    test('PW-9: confirming a move', async () => {
+        const { w, posted } = setup('processAction');
+        assert.deepEqual(posted[0], { type: 'ready', custom: '' });
+        send(w, MOVE);
+        const text = (id: string): string => w.document.getElementById(id).textContent;
+        assert.deepEqual([text('label'), text('from'), text('to'), text('started')], ['Repeat step', 'Build #2 › Review #1 › Note', 'Build #2 › Review #2 › Read', 'Review it.']);
+        assert.equal(text('confirm'), 'Add to queue');
+        assert.match(text('preview'), /Review it\./);
+        const custom = w.document.getElementById('custom');
+        custom.value = 'Mind the glossary.';
+        custom.dispatchEvent(new w.Event('input', { bubbles: true }));
+        await sleep(350);
+        assert.deepEqual(posted.pop(), { type: 'preview', custom: 'Mind the glossary.' });
+        send(w, { type: 'preview', preview: '# Repeat step\n\nMind the glossary.' });
+        assert.match(text('preview'), /Mind the glossary/);
+        send(w, { ...MOVE, preview: '# changed elsewhere' });
+        assert.equal(custom.value, 'Mind the glossary.', 'a refresh of the same move keeps what is typed');
+        w.document.getElementById('confirm').click();
+        assert.deepEqual(posted.pop(), { type: 'confirm', custom: 'Mind the glossary.' });
+        assert.equal(w.document.getElementById('confirm').disabled, true, 'no double confirm');
+        w.document.getElementById('cancel').click();
+        assert.deepEqual(posted.pop(), { type: 'cancel', custom: 'Mind the glossary.' });
+        w.document.getElementById('template').click();
+        assert.equal((posted.pop() as Win).type, 'editTemplate');
+        send(w, { ...MOVE, kind: 'skip', level: null, label: 'Skip', preview: '' });
+        assert.equal(text('confirm'), 'Move without a prompt');
+        assert.equal(custom.value, '', 'another move starts empty');
+        send(w, { type: 'unavailable', kind: 'skip', quest: 'q1' });
+        assert.equal(w.document.getElementById('page').hidden, true);
+        assert.match(text('unavailable'), /not possible at the current position/);
+    });
+});
+
+describe('process template editor', () => {
+    const LOAD = {
+        type: 'load', selected: 'repeat',
+        kinds: [
+            { kind: 'next', title: 'Next', text: 'Next: ${step}', defaultText: 'Next: ${step}' },
+            { kind: 'repeat', title: 'Repeat', text: 'Again: ${step}', defaultText: 'Again: ${step}' },
+            { kind: 'skip', title: 'Skip', text: '', defaultText: '' },
+        ],
+        variables: [{ group: 'Action', items: [{ name: 'custom-instructions', description: 'typed' }] }, { group: 'Process', items: [{ name: 'step-prompt', description: '' }] }],
+    };
+
+    test('PW-10: editing templates', async () => {
+        const { w, posted } = setup('processTemplateEditor');
+        assert.deepEqual(posted[0], { type: 'ready' });
+        send(w, LOAD);
+        const text = w.document.getElementById('text');
+        assert.equal(text.value, 'Again: ${step}', 'opens on the kind asked for');
+        assert.equal(w.document.getElementById('save').disabled, true);
+        text.selectionStart = text.selectionEnd = 7;
+        w.document.querySelector('[data-var="custom-instructions"]').click();
+        assert.equal(text.value, 'Again: ${custom-instructions}${step}');
+        assert.match(w.document.querySelector('.item.selected').textContent, /repeat ●.*custom/);
+        assert.equal(w.document.getElementById('save').disabled, false);
+        await sleep(350);
+        assert.deepEqual(posted.filter((m) => m.type === 'preview').pop(), { type: 'preview', kind: 'repeat', text: 'Again: ${custom-instructions}${step}' });
+        send(w, { type: 'preview', kind: 'repeat', offered: false, label: '', preview: '' });
+        assert.match(w.document.getElementById('preview-note').textContent, /not offered/);
+        w.document.querySelector('.item[data-kind="next"]').click();
+        assert.equal(text.value, 'Next: ${step}');
+        text.value = '';
+        text.dispatchEvent(new w.Event('input', { bubbles: true }));
+        assert.match(w.document.querySelector('.item.selected').textContent, /empty/);
+        w.document.getElementById('reset').click();
+        assert.equal(text.value, 'Next: ${step}', 'back to the default');
+        w.document.getElementById('save').click();
+        assert.deepEqual(posted.filter((m) => m.type === 'save').pop(),
+            { type: 'save', templates: { next: 'Next: ${step}', repeat: 'Again: ${custom-instructions}${step}', skip: '' } });
     });
 });

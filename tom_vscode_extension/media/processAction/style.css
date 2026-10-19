@@ -1,0 +1,57 @@
+/* Process action page — see main.js. */
+body {
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+    color: var(--vscode-foreground);
+    background: var(--vscode-editor-background);
+    padding: 8px 20px 24px;
+    max-width: 960px;
+}
+h2 { margin: 8px 0 2px; }
+.muted { color: var(--vscode-descriptionForeground); }
+.move { border-collapse: collapse; margin: 12px 0; }
+.move th { text-align: left; font-weight: normal; color: var(--vscode-descriptionForeground); padding: 2px 16px 2px 0; vertical-align: top; }
+.move td { padding: 2px 0; }
+.block { margin: 8px 0 12px; }
+.block-title { display: block; color: var(--vscode-descriptionForeground); margin: 12px 0 4px; }
+pre {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: var(--vscode-editor-font-family);
+    font-size: var(--vscode-editor-font-size);
+    background: var(--vscode-textCodeBlock-background);
+    padding: 8px 10px;
+    margin: 0;
+    border-radius: 3px;
+}
+.preview { max-height: 50vh; overflow: auto; }
+textarea {
+    width: 100%;
+    box-sizing: border-box;
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+    padding: 6px;
+    resize: vertical;
+}
+textarea:focus { outline: 1px solid var(--vscode-focusBorder); }
+.buttons { display: flex; align-items: center; gap: 8px; margin: 10px 0 4px; }
+.spacer { flex: 1; }
+button {
+    border: none;
+    padding: 4px 12px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+button.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+button.primary:hover { background: var(--vscode-button-hoverBackground); }
+button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+button.secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
+button:disabled { opacity: 0.5; cursor: default; }
+.unavailable { margin-top: 24px; color: var(--vscode-editorWarning-foreground); }

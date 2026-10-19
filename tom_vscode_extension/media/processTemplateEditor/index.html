@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<!--
+  Process template editor (src/handlers/processTemplateEditor-handler.ts). No
+  inline handlers: main.js attaches every listener, so the loader's nonce-only
+  CSP applies. Codicons are loaded by main.js from window.__INIT__.
+-->
+<link rel="stylesheet" href="{{baseUri}}/style.css">
+</head>
+<body>
+<div class="layout">
+  <div class="side">
+    <div class="side-head"><span class="side-title">Process actions</span></div>
+    <ul id="kinds" class="list"></ul>
+    <div class="side-foot muted">One template per action, for every process. The step's own text comes from its <code>prompt</code> field (<code>${action-prompt}</code>).</div>
+  </div>
+  <div class="main">
+    <div class="head">
+      <span id="title" class="title"></span>
+      <span class="spacer"></span>
+      <button id="reset" class="secondary" title="Put the built-in default back into this template">Default</button>
+      <button id="revert" class="secondary" title="Discard all unsaved changes">Revert</button>
+      <button id="save" class="primary">Save</button>
+    </div>
+    <div class="editor">
+      <div class="edit">
+        <textarea id="text" spellcheck="false"></textarea>
+        <div class="block-title">Preview at the current position <span id="preview-note" class="muted"></span></div>
+        <pre id="preview" class="preview"></pre>
+      </div>
+      <div class="vars">
+        <div class="block-title">Insert a variable</div>
+        <div id="vars"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="{{baseUri}}/main.js"></script>
+</body>
+</html>

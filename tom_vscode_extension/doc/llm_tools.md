@@ -628,20 +628,23 @@ iterations — is kept in `_ai/quests/<quest>/process-state.<quest>.yaml`, the
 same in every window and on every machine. It reaches the model as the chat
 variables `process`, `phase`, `step`, `substep`, `phase-iteration`,
 `step-iteration`, `substep-iteration`, `process-description`,
-`phase-description`, `step-description`, `substep-description`, and as the
+`phase-description`, `step-description`, `substep-description`,
+`phase-prompt`, `step-prompt`, `substep-prompt`, and as the
 `${process-context}` block every Anthropic profile's system prompt carries
 (empty without a process). `tomAi_writeChatVariable` refuses those keys:
 moving the quest goes through `tomAi_setProcessState`, which checks every name
 against the definition. A move to a step or sub-step that names a role also sets
 the `role` chat variable. The user sees and sets the same state in the @TOM
-**PROCESS** view and edits the definitions in the process editor.
+**PROCESS** view and edits the definitions in the process editor; the view's
+action bar (Next, Repeat, Gate passed, …) moves the state and queues the
+prompt built from that action's template.
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
 | --- | --- | :-: | :-: | :-: | :-: | :-: |
 | `tomAi_listProcesses` | Every process with its outline (phases, steps with `kind` step / gate / post-gate, sub-steps, roles, repeat flags); invalid ones with their errors; the quest's current process. | ✅ | ✅ | ✅ | ✅ | ⚪ |
 | `tomAi_getProcess` | One process in full: definition, Markdown description, file paths (default: the quest's process). | ✅ | ✅ | ✅ | ✅ | ⚪ |
 | `tomAi_getProcessState` | The quest's state, the role its step names, and the `${process-context}` block. | ✅ | ✅ | ✅ | ✅ | ⚪ |
-| `tomAi_setProcessState` | Move the quest: `process` (`""` clears), `phase`, `step`, `substep`, and the three iterations; checked against the definition, no approval prompt (visible live in the PROCESS view). | ✅ | ✅ | ✅ | ✅ | ⚪ |
+| `tomAi_setProcessState` | Move the quest: `process` (`""` clears), `phase`, `step`, `substep`, the three iterations (a gate can always be run again) and `completed` (the process finished; any other change opens it again); checked against the definition, no approval prompt (visible live in the PROCESS view). | ✅ | ✅ | ✅ | ✅ | ⚪ |
 
 ## 5. Transport-specific recommendations
 

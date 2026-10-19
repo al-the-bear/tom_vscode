@@ -2,7 +2,11 @@
  * PROCESS — the @TOM sidebar view showing where the active quest is in its
  * process: process, phase, step and sub-step (dropdowns), their iterations
  * (− / +), the role the step names, the post-gate todos, and each one's
- * description behind a `?` button. Usually the agent moves the state
+ * description behind a `?` button. The action bar at the top offers the moves
+ * the process allows from here (Next, Finish …, Repeat …, Gate passed / failed,
+ * Finish process, Skip, Back); each opens the action page
+ * (processAction-handler.ts), which moves the state and queues the prompt on
+ * confirm. Usually the agent moves the state
  * (`tomAi_setProcessState`); the view lets the user see it at a glance and set
  * it by hand. Everything goes through ProcessStateStore, which keeps the
  * quest's state file.
@@ -16,7 +20,10 @@ import * as vscode from 'vscode';
 import { ProcessStateStore } from '../managers/processStateStore';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import { loadWebviewHtml } from '../utils/webviewLoader';
-import type { ProcessChange, ProcessLevel } from '../utils/processDefinition';
+import type { ProcessChange, ProcessLevel, ProcessMoveKind } from '../utils/processDefinition';
+import { positionText } from '../utils/processActionPrompt';
+import { openProcessAction } from './processAction-handler';
+import { openProcessTemplateEditor } from './processTemplateEditor-handler';
 import { openMarkdownBrowser } from './markdownBrowser-handler';
 import { openProcessEditor } from './processEditor-handler';
 
@@ -73,6 +80,9 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
             description: entry?.description ?? '',
             stepRole: store.currentRole(),
             chatRole,
+            moves: entry?.definition
+                ? store.moves().map((m) => ({ kind: m.kind, level: m.level ?? null, label: m.label, to: positionText(entry.definition!, m.target) }))
+                : [],
         });
     }
 
@@ -81,7 +91,7 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
         this.send();
     }
 
-    private async handle(msg: { type: string; change?: ProcessChange; level?: ProcessLevel; delta?: number; id?: string }): Promise<void> {
+    private async handle(msg: { type: string; change?: ProcessChange; level?: ProcessLevel; delta?: number; id?: string; kind?: ProcessMoveKind }): Promise<void> {
         const store = await ProcessStateStore.ready;
         switch (msg.type) {
             case 'ready':
@@ -92,6 +102,12 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
                 break;
             case 'iteration':
                 if (msg.level && msg.delta) { this.report(store.stepIteration(msg.level, msg.delta, 'user')); }
+                break;
+            case 'action':
+                if (msg.kind) { openProcessAction(this.context, msg.kind, msg.level ?? undefined); }
+                break;
+            case 'openTemplates':
+                openProcessTemplateEditor(this.context);
                 break;
             case 'openEditor':
                 openProcessEditor(this.context, msg.id || store.state.process || undefined);

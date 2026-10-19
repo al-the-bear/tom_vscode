@@ -52,6 +52,10 @@
           "type": "string",
           "description": "Markdown."
         },
+        "prompt": {
+          "type": "string",
+          "description": "What is to be done when it starts: the part of the prompt a process action (Next, Repeat, Gate passed, ...) adds for it."
+        },
         "role": {
           "type": "string",
           "description": "The role doing it: a folder name under _ai/roles/."
@@ -81,6 +85,10 @@
         "description": {
           "type": "string",
           "description": "Markdown."
+        },
+        "prompt": {
+          "type": "string",
+          "description": "What is to be done when it starts: the part of the prompt a process action (Next, Repeat, Gate passed, ...) adds for it."
         },
         "role": {
           "type": "string",
@@ -119,6 +127,10 @@
         "description": {
           "type": "string",
           "description": "Markdown."
+        },
+        "prompt": {
+          "type": "string",
+          "description": "What is to be done when it starts: the part of the prompt a process action (Next, Repeat, Gate passed, ...) adds for it."
         },
         "role": {
           "type": "string"
@@ -181,6 +193,10 @@
         "description": {
           "type": "string",
           "description": "Markdown."
+        },
+        "prompt": {
+          "type": "string",
+          "description": "What is to be done when it starts: the part of the prompt a process action (Next, Repeat, Gate passed, ...) adds for it."
         },
         "repeatable": {
           "type": "boolean"

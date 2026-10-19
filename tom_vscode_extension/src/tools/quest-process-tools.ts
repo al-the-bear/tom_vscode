@@ -151,7 +151,8 @@ export const GET_PROCESS_STATE_TOOL: SharedToolDefinition<Record<string, never>>
     displayName: 'Get Process State',
     description:
         'Where the active quest is in its process: `state` `{process, phase, phaseIteration, step, ' +
-        'stepIteration, substep, substepIteration}` (empty strings when no process is set), the `role` ' +
+        'stepIteration, substep, substepIteration, completed}` (empty strings when no process is set; ' +
+        '`completed` once the last step is done), the `role` ' +
         'the current step names, and `context` — the same Markdown block the system prompt carries ' +
         '(positions, the steps of the phase, the post-gate todos when in that step, the descriptions). ' +
         'The state is kept per quest in `_ai/quests/<quest>/process-state.<quest>.yaml`.',
@@ -181,8 +182,9 @@ export const SET_PROCESS_STATE_TOOL: SharedToolDefinition<ProcessChange> = {
         'another process starts at its first phase and step; `""` clears the state), `phase`, `step`, ' +
         '`substep` (applied in that order: a new phase starts at its first step, a step with sub-steps at ' +
         'its first sub-step), and `phaseIteration` / `stepIteration` / `substepIteration` (set as given; ' +
-        'only on a repeatable level, at most its maxIterations). A step\'s id may be its phase\'s gate or ' +
-        'post-gate step. Every name is checked against the definition; a refusal returns `{ok:false, ' +
+        'only on a repeatable level, at most its maxIterations; a gate can always be run again). ' +
+        '`completed: true` marks the process finished; any other change opens it again. A step\'s id may ' +
+        'be its phase\'s gate or post-gate step. Every name is checked against the definition; a refusal returns `{ok:false, ' +
         'error}` and changes nothing. On success: `{ok, state, role, roleChanged}` — moving to a step ' +
         'that names a role also sets the `role` chat variable, so the role description in the system ' +
         'prompt follows the process. Record each move as the work moves on.',
@@ -201,6 +203,7 @@ export const SET_PROCESS_STATE_TOOL: SharedToolDefinition<ProcessChange> = {
             phaseIteration: { type: 'number', description: 'Iteration of the phase (≥ 1).' },
             stepIteration: { type: 'number', description: 'Iteration of the step (≥ 1).' },
             substepIteration: { type: 'number', description: 'Iteration of the sub-step (≥ 1).' },
+            completed: { type: 'boolean', description: 'true: the process is finished (its last step done).' },
         },
     },
     // The change source (which transport called) is read when the tool runs, as the chat-variable tools do.

@@ -1259,7 +1259,7 @@ All three resolve to <code>0</code> / <code>1</code> when the item isn't part of
 <code>\${quest-description}</code> – <code>_ai/quests/\${quest}/overview.\${quest}.md</code><br>
 <code>\${process-context}</code> – the active quest's process: where it is (phase, step, sub-step, iterations, roles), the post-gate todos and the descriptions; empty without a process<br>
 <code>\${process}</code>, <code>\${phase}</code>, <code>\${step}</code>, <code>\${substep}</code>, <code>\${phase-iteration}</code>, <code>\${step-iteration}</code>, <code>\${substep-iteration}</code> – the quest's process state (<code>_ai/quests/\${quest}/process-state.\${quest}.yaml</code>)<br>
-<code>\${process-description}</code> – <code>_ai/processes/\${process}/\${process}.md</code>; <code>\${phase-description}</code>, <code>\${step-description}</code>, <code>\${substep-description}</code> – from its <code>.process.yaml</code><br>
+<code>\${process-description}</code> – <code>_ai/processes/\${process}/\${process}.md</code>; <code>\${phase-description}</code>, <code>\${step-description}</code>, <code>\${substep-description}</code> – from its <code>.process.yaml</code>; <code>\${phase-prompt}</code>, <code>\${step-prompt}</code>, <code>\${substep-prompt}</code> – their <code>prompt</code> fields<br>
 <code>\${claude.md}</code> – Workspace-root <code>CLAUDE.md</code><br>
 <code>\${copilot-instructions}</code> – <code>.github/copilot-instructions.md</code><br>
 <code>\${instructions}</code> – <code>CLAUDE.md</code> if present, else <code>.github/copilot-instructions.md</code><br>

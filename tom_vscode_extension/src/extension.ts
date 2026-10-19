@@ -117,6 +117,7 @@ import { ChatVariablesStore } from './managers/chatVariablesStore';
 import { ProcessStateStore } from './managers/processStateStore';
 import { registerProcessView } from './handlers/processPanel-handler';
 import { registerProcessEditor } from './handlers/processEditor-handler';
+import { registerProcessTemplateEditor } from './handlers/processTemplateEditor-handler';
 import { AnthropicHandler } from './handlers/anthropic-handler';
 import { TwoTierMemoryService } from './services/memory-service';
 import { registerMemoryPanelCommand } from './handlers/memoryPanel-handler';
@@ -478,6 +479,7 @@ export async function activate(context: vscode.ExtensionContext) {
     stepStart = performance.now();
     registerProcessView(context);
     registerProcessEditor(context);
+    registerProcessTemplateEditor(context);
     timeStep('processViews', stepStart);
 
     // Register Context & Settings Editor command
