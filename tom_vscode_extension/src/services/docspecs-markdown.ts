@@ -10,7 +10,8 @@
  * Schema resolution, first match wins:
  *   1. an explicit `schema` argument: `<id>/<version>` or a path to a
  *      `*.docspecs-schema.yaml`;
- *   2. `.tom/docspecs-schema/<id>/<id>.<version>.docspecs-schema.yaml` in the
+ *   2. `.tom/docspecs-schema/<id>/<id>.<version>.docspecs-schema.yaml` — or in
+ *      a suffixed folder `<id>.<suffix>/` (`schema-test.sct/`) — in the
  *      document's folder or the nearest folder above it, up to the
  *      workspace root;
  *   3. the schemas generated from the SOM model (a SOM document's Markdown
@@ -19,9 +20,11 @@
  * silent pass. `docspec: none` declares that the document has no schema.
  *
  * The runtime reads the DocSpecs form whose headings carry `<!--[ID]-->` and
- * whose header is `<!-- docspec: id/version -->`. Older documents use
- * `# [id] Title` headings or a `<!-- schema=name-1.0 -->` field, which it
- * does not read; the answers say so when they meet one (tom_specs vsctasb7).
+ * whose first line is `<!-- docspec: id/version -->`. The legacy form —
+ * `# [id] Title` headings, a `<!-- schema=name-1.0 -->` field — and a
+ * declaration written below the title are not read; the answers then carry a
+ * migration hint naming `_bin/migrate_docspecs.py`, and a late declaration is
+ * a `headerNotFirst` finding (as `_bin/check_docspecs_documents.py` reports it).
  *
  * vscode-free.
  */
@@ -75,18 +78,48 @@ export interface DocSpecsOutlineEntry {
 
 const LEGACY_HEADING = /^#{1,} \[[^\]\s]+\] /m;
 const LEGACY_SCHEMA_FIELD = /<!--\s*schema=/;
+const DECLARATION = /^<!--\s*docspec:\s*(\S+?)\s*-->$/;
+
+/** The workspace command that converts a document to the current DocSpecs form. */
+export function migrationCommand(file: string): string {
+    return `_bin/migrate_docspecs.py doc ${file} --assign-ids --write`;
+}
 
 /**
- * A note when the document uses the older DocSpecs form the runtime does not
- * read (bracket ids, a `schema=` field) and none of its headings carries a
- * `<!--[ID]-->` id — so every heading would read as malformed.
+ * A schema declaration written just below the title — the first non-blank
+ * line a heading, the second the declaration — with its schema reference and
+ * 1-based line. No runtime reads it there: they look only before the first
+ * heading. Null otherwise (the rule `_bin/check_docspecs_documents.py` applies).
  */
-export function dialectNote(text: string, doc: DocSpecsDocument): string | null {
-    if (doc.allSections.some((s) => s.id !== null)) { return null; }
-    if (!LEGACY_HEADING.test(text) && !LEGACY_SCHEMA_FIELD.test(text)) { return null; }
-    return 'This document uses the older DocSpecs form (`# [id] Title` headings or a `<!-- schema=name-1.0 -->` field). '
-        + 'The runtime reads headings with `<!--[ID]-->` ids and a `<!-- docspec: id/version -->` header, so its sections '
-        + 'have no ids here and every heading reports as malformed (tom_specs vsctasb7).';
+export function lateDeclaration(text: string): { ref: string; line: number } | null {
+    const nonblank = text.split('\n').map((l, i) => ({ text: l.trim(), line: i + 1 })).filter((l) => l.text !== '');
+    if (nonblank.length < 2 || !nonblank[0].text.startsWith('#') || DECLARATION.test(nonblank[0].text)) { return null; }
+    const m = DECLARATION.exec(nonblank[1].text);
+    return m ? { ref: m[1], line: nonblank[1].line } : null;
+}
+
+/**
+ * A migration hint when the document is in a form the runtime does not read:
+ * the legacy form (bracket ids, a `schema=` field) with no `<!--[ID]-->` id on
+ * any heading — so every heading reads as malformed — or a declaration below
+ * the title. Names the command that converts it; null for a current document.
+ */
+export function migrationHint(text: string, doc: DocSpecsDocument, file: string): string | null {
+    const legacy = !doc.allSections.some((s) => s.id !== null)
+        && (LEGACY_HEADING.test(text) || LEGACY_SCHEMA_FIELD.test(text));
+    const late = doc.declaredSchema === null ? lateDeclaration(text) : null;
+    if (!legacy && !late) { return null; }
+    const problems: string[] = [];
+    if (legacy) {
+        problems.push('it is in the legacy DocSpecs form (`# [id] Title` headings or a `<!-- schema=name-1.0 -->` field), '
+            + 'which the runtime does not read: its sections have no ids here and every heading reports as malformed');
+    }
+    if (late) {
+        problems.push(`its schema declaration (line ${late.line}) sits below the title, where no runtime reads it`);
+    }
+    return `This document cannot be read as current DocSpecs: ${problems.join('; and ')}. The current form has `
+        + '`<!-- docspec: <id>/<version> -->` on its first line and `<!--[ID]-->` ids on its headings. '
+        + `Migrate it with \`${migrationCommand(file)}\`.`;
 }
 
 /** Parse `<id>/<version>`; null when the text is not of that shape. */
@@ -129,11 +162,18 @@ function resolveRef(service: SomModelService, filePath: string, ref: string, wsR
     const searched: string[] = [];
     const root = path.resolve(wsRoot || path.parse(filePath).root);
     let dir = path.dirname(path.resolve(filePath));
+    const fileName = `${parts.id}.${parts.version}.docspecs-schema.yaml`;
     for (;;) {
-        const candidate = path.join(dir, SCHEMA_DIR, parts.id, `${parts.id}.${parts.version}.docspecs-schema.yaml`);
-        searched.push(candidate);
-        if (fs.existsSync(candidate)) {
-            return { resolved: { ref, source: 'workspace', file: candidate, ...load(fs.readFileSync(candidate, 'utf8')) } };
+        const schemaDir = path.join(dir, SCHEMA_DIR);
+        // The folder is named after the id, or carries a suffix (`schema-test.sct/`).
+        const suffixed = fs.existsSync(schemaDir)
+            ? fs.readdirSync(schemaDir).filter((n) => n.startsWith(`${parts.id}.`)).sort().map((n) => path.join(schemaDir, n, fileName))
+            : [];
+        for (const candidate of [path.join(schemaDir, parts.id, fileName), ...suffixed]) {
+            searched.push(candidate);
+            if (fs.existsSync(candidate)) {
+                return { resolved: { ref, source: 'workspace', file: candidate, ...load(fs.readFileSync(candidate, 'utf8')) } };
+            }
         }
         if (dir === root || path.dirname(dir) === dir || !dir.startsWith(root)) { break; }
         dir = path.dirname(dir);
@@ -145,8 +185,12 @@ function resolveRef(service: SomModelService, filePath: string, ref: string, wsR
     return { resolved: null, searched };
 }
 
-/** Validate `text` against the resolved schema, adding a finding for a declared schema that was not found. */
-export function validateDocSpecs(text: string, lookup: SchemaLookup): { findings: DocSpecsFinding[]; parsed: DocSpecsDocument } {
+/**
+ * Validate `text` against the resolved schema, adding a finding for a declared
+ * schema that was not found, for a declaration below the title, or for none.
+ * `file` (workspace-relative) is named in the migration command.
+ */
+export function validateDocSpecs(text: string, lookup: SchemaLookup, file: string): { findings: DocSpecsFinding[]; parsed: DocSpecsDocument } {
     const parsed = DocSpecsDocument.parse(text);
     const toFinding = (v: DocSpecsViolation): DocSpecsFinding => ({ rule: v.rule, line: v.line, sectionId: v.sectionId, message: v.message });
     if (lookup.resolved) {
@@ -160,6 +204,15 @@ export function validateDocSpecs(text: string, lookup: SchemaLookup): { findings
             line: headerLine || 1,
             sectionId: null,
             message: `The document declares schema ${lookup.declared}, which was not found (looked in: ${(lookup.searched ?? []).join('; ') || 'nowhere — not an <id>/<version> reference'}).`,
+        });
+    } else if (!lookup.declared && lateDeclaration(text)) {
+        const late = lateDeclaration(text) as { ref: string; line: number };
+        findings.unshift({
+            rule: 'headerNotFirst',
+            line: late.line,
+            sectionId: null,
+            message: `The schema declaration (${late.ref}) sits below the title, where no runtime reads it, so the document `
+                + `was checked without a schema. Move it to the first line — \`${migrationCommand(file)}\` does that and adds heading ids.`,
         });
     } else if (!lookup.declared) {
         findings.unshift({

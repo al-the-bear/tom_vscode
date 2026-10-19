@@ -506,35 +506,32 @@ refused when the file is dirty or has changed since it was read.
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
 | --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_docspecsValidate` | Check the document against its declared schema. A declared schema found nowhere (`unknownSchema`) and a missing header (`noSchemaDeclared`) are findings. Schema keys the runtime ignores are listed (`ignoredByRuntime`): their constraints are not checked. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_docspecsValidate` | Check the document against its declared schema. A declared schema found nowhere (`unknownSchema`), a declaration below the title (`headerNotFirst`) and a missing header (`noSchemaDeclared`) are findings. Schema keys the runtime ignores are listed (`ignoredByRuntime`): their constraints are not checked. | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_docspecsOutline` | The section tree with line ranges; with a schema, the required sections and those missing. | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_docspecsGetSection` | One section's own body (up to its first subsection), by id. | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_docspecsReplaceSection` | Replace one section's own body (approval). Every other byte is kept, and fenced blocks are respected. A body that would add a heading or leave a fence open is refused. Answers the validation it introduced or resolved; `dryRun` returns a diff. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 
 The schema is looked up in this order:
 1. an explicit `schema` argument (`<id>/<version>` or a schema file);
-2. `.tom/docspecs-schema/<id>/<id>.<version>.docspecs-schema.yaml` in the
-   document's folder, or the nearest folder above it, up to the workspace root;
+2. `.tom/docspecs-schema/<id>/<id>.<version>.docspecs-schema.yaml`, or the
+   same file in a suffixed folder `<id>.<suffix>/` (`schema-test.sct/`), in the
+   document's folder or the nearest folder above it, up to the workspace root;
 3. the schemas generated from the SOM model, so SOM-rendered Markdown validates
    too.
 
 `docspec: none` declares no schema.
 
-**Two DocSpecs forms.** The runtime reads headings that carry `<!--[ID]-->` ids
-under a `<!-- docspec: id/version -->` header. The DocSpecs specification also
-shows an older form, `# [id] Title` headings and a `<!-- schema=name-1.0 -->`
-field, and the workspace's own documents and `.tom/docspecs-schema/` files use
-that form. Measured 2026-10-13:
-- no quest document carries `<!--[ID]-->` headings;
-- the quest-overview, quest-notes and webwork schemas that quest documents
-  declare exist nowhere in the workspace;
-- the nine workspace schemas load with 5–21 runtime warnings each, chiefly
-  `max-count-in-document`, whose limits are then not checked.
-
-So on today's workspace documents these tools mostly report `unknownSchema`, or
-`malformedHeading` with a `dialect` note. They work fully for documents in the
-runtime's form, including SOM-rendered Markdown. tom_specs vsctasb7 settles
-which form is current.
+**The current form and the legacy one.** The runtime reads the current DocSpecs
+form: `<!-- docspec: <id>/<major>.<minor> -->` on the first line and an
+`<!--[ID]-->` id on every heading (the DocSpecs specification, Schema
+Declaration). The workspace's documents and `.tom/docspecs-schema/` schemas are
+in that form. A document still in the legacy form — `# [id] Title` headings, a
+`<!-- schema=name-1.0 -->` field — reads as all `malformedHeading`, and a
+declaration written below the title is not read at all (`headerNotFirst`); both
+answers carry a `migrationHint` naming the conversion,
+`_bin/migrate_docspecs.py doc <file> --assign-ids --write`.
+`_bin/check_docspecs_documents.py` validates every declaring document of the
+workspace with the same rules.
 
 ### 4.25 CodeSpecs (Phase 4: a filled spec becomes code-generation inputs)
 

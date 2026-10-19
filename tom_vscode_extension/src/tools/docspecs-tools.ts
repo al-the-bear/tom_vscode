@@ -19,7 +19,7 @@ import { SharedToolDefinition } from './shared-tool-registry';
 import { SpecToolDeps, failure, json, liveDeps, resolveInput, toWorkspacePath } from './spec-tool-common';
 import {
     SchemaLookup,
-    dialectNote,
+    migrationHint,
     findSection,
     outlineOf,
     resolveDocSpecsSchema,
@@ -92,8 +92,9 @@ const findingKey = (f: { rule: string; sectionId: string | null; message: string
 export async function docspecsValidateImpl(deps: SpecToolDeps, input: DocSpecsValidateInput): Promise<string> {
     try {
         const doc = open(deps, input.file, input.schema);
-        const { findings, parsed } = validateDocSpecs(doc.text, doc.lookup);
-        const note = dialectNote(doc.text, parsed);
+        const file = toWorkspacePath(deps, doc.filePath);
+        const { findings, parsed } = validateDocSpecs(doc.text, doc.lookup, file);
+        const note = migrationHint(doc.text, parsed, file);
         return json({
             ok: true,
             file: toWorkspacePath(deps, doc.filePath),
@@ -101,7 +102,7 @@ export async function docspecsValidateImpl(deps: SpecToolDeps, input: DocSpecsVa
             schema: schemaView(deps, doc.lookup),
             passed: findings.length === 0,
             findings,
-            ...(note ? { dialect: note } : {}),
+            ...(note ? { migrationHint: note } : {}),
         });
     } catch (e) {
         return failure(e);
@@ -111,9 +112,10 @@ export async function docspecsValidateImpl(deps: SpecToolDeps, input: DocSpecsVa
 export async function docspecsOutlineImpl(deps: SpecToolDeps, input: DocSpecsOutlineInput): Promise<string> {
     try {
         const doc = open(deps, input.file, input.schema);
-        const { findings, parsed } = validateDocSpecs(doc.text, doc.lookup);
+        const file = toWorkspacePath(deps, doc.filePath);
+        const { findings, parsed } = validateDocSpecs(doc.text, doc.lookup, file);
         const schema = doc.lookup.resolved?.schema;
-        const note = dialectNote(doc.text, parsed);
+        const note = migrationHint(doc.text, parsed, file);
         return json({
             ok: true,
             file: toWorkspacePath(deps, doc.filePath),
@@ -124,7 +126,7 @@ export async function docspecsOutlineImpl(deps: SpecToolDeps, input: DocSpecsOut
                 requiredSections: Object.entries(schema.documentSections).filter(([, s]) => !s.optional).map(([id]) => id),
                 missingSections: findings.filter((f) => f.rule === 'missingRequiredSection').map((f) => ({ line: f.line, message: f.message })),
             } : {}),
-            ...(note ? { dialect: note } : {}),
+            ...(note ? { migrationHint: note } : {}),
         });
     } catch (e) {
         return failure(e);
@@ -168,8 +170,9 @@ export async function docspecsReplaceSectionImpl(deps: SpecToolDeps, input: DocS
         } catch (e) {
             return json({ ok: false, code: 'refused', error: (e as Error).message });
         }
-        const before = validateDocSpecs(doc.text, doc.lookup).findings;
-        const after = validateDocSpecs(next, doc.lookup).findings;
+        const file = toWorkspacePath(deps, doc.filePath);
+        const before = validateDocSpecs(doc.text, doc.lookup, file).findings;
+        const after = validateDocSpecs(next, doc.lookup, file).findings;
         const beforeKeys = new Set(before.map(findingKey));
         const afterKeys = new Set(after.map(findingKey));
         const saved = await deps.store.writeText(doc.filePath, next, {
@@ -204,8 +207,9 @@ const SCHEMA = {
     description: 'Check against this schema instead of the declared one: `<id>/<version>` (looked up like a declared one) or a path to a `*.docspecs-schema.yaml`.',
 };
 const FORM_NOTE =
-    ' The runtime reads DocSpecs headings with `<!--[ID]-->` ids; a document in the older form (`# [id] Title`, '
-    + '`<!-- schema=… -->`) is answered with a `dialect` note, as its sections then have no ids. For SOM specs '
+    ' The runtime reads the current DocSpecs form: `<!-- docspec: <id>/<version> -->` on the first line and `<!--[ID]-->` '
+    + 'heading ids. A document in the legacy form (`# [id] Title`, `<!-- schema=… -->`) or with its declaration below the '
+    + 'title is answered with a `migrationHint` naming `_bin/migrate_docspecs.py doc <file> --assign-ids --write`. For SOM specs '
     + '(`*.docspecs.yaml`, SOM Markdown) prefer the tomAi_spec* tools.';
 
 export const DOCSPECS_VALIDATE_TOOL: SharedToolDefinition<DocSpecsValidateInput> = {
@@ -213,9 +217,11 @@ export const DOCSPECS_VALIDATE_TOOL: SharedToolDefinition<DocSpecsValidateInput>
     displayName: 'DocSpecs: Validate',
     description:
         'Check a DocSpecs Markdown document against its schema. The schema is the one its `<!-- docspec: <id>/<version> -->` '
-        + 'header declares, looked up in `.tom/docspecs-schema/<id>/<id>.<version>.docspecs-schema.yaml` in the document\'s '
+        + 'header declares, looked up in `.tom/docspecs-schema/<id>/<id>.<version>.docspecs-schema.yaml` (or a suffixed folder '
+        + '`<id>.<suffix>/`) in the document\'s '
         + 'folder or the nearest one above it (up to the workspace root), else among the schemas generated from the SOM model. '
-        + 'A declared schema found nowhere is a finding (`unknownSchema`), a missing header too (`noSchemaDeclared`); '
+        + 'A declared schema found nowhere is a finding (`unknownSchema`), a declaration below the title too (`headerNotFirst`: '
+        + 'no runtime reads it there), and a missing header (`noSchemaDeclared`); '
         + '`docspec: none` means no schema. Answers `{passed, findings: [{rule, line, sectionId, message}], schema: {ref, '
         + 'source, file, ignoredByRuntime}}`; `ignoredByRuntime` lists schema keys the runtime does not support, whose '
         + 'constraints are therefore not checked.' + FORM_NOTE,

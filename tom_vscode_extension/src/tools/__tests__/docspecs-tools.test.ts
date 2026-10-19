@@ -10,7 +10,10 @@
  *   DS-5  getSection: the section's own body; unknown and repeated ids are refused
  *   DS-6  replace touches only the section's own lines, a fenced block included, and reports validation
  *   DS-7  replace refuses a body that changes structure, a stale revision, a dirty-in-editor file; dryRun writes nothing
- *   DS-8  a document in the older DocSpecs form gets a dialect note
+ *   DS-8  a document in the legacy DocSpecs form gets a migration hint naming the migration command
+ *   DS-10 a declaration below the title, which no runtime reads, is a headerNotFirst finding with the
+ *         migration hint (not noSchemaDeclared)
+ *   DS-11 a schema in a suffixed folder (`.tom/docspecs-schema/<id>.<suffix>/`) is found
  *   DS-9  registration: three read-only tools, replace needs approval
  */
 
@@ -247,12 +250,40 @@ describe('DocSpecs Markdown tools', () => {
         assert.equal(read(file), GOOD);
     });
 
-    test('DS-8: the older DocSpecs form gets a dialect note', async () => {
+    test('DS-8: the legacy DocSpecs form gets a migration hint', async () => {
         put('docs/old.md', '<!-- docspec: demo/1.0 -->\n# [overview-title] Old Style <!-- schema=demo-1.0 -->\n\nText.\n\n## [overview-main] Overview\n\nMore.\n');
         const r = await run(docspecsValidateImpl, { file: 'docs/old.md' });
-        assert.match(r.dialect, /older DocSpecs form/);
+        assert.match(r.migrationHint, /legacy DocSpecs form/);
+        assert.ok(r.migrationHint.includes('`_bin/migrate_docspecs.py doc docs/old.md --assign-ids --write`'), r.migrationHint);
+        assert.equal(r.dialect, undefined, 'the key is migrationHint');
         assert.ok(r.findings.some((f: Json) => f.rule === 'malformedHeading'));
-        assert.equal((await run(docspecsValidateImpl, { file: 'docs/deep/good.md' })).dialect, undefined);
+        const outline = await run(docspecsOutlineImpl, { file: 'docs/old.md' });
+        assert.match(outline.migrationHint, /migrate_docspecs\.py/);
+        assert.equal((await run(docspecsValidateImpl, { file: 'docs/deep/good.md' })).migrationHint, undefined);
+    });
+
+    test('DS-10: a declaration below the title', async () => {
+        put('docs/late.md', GOOD.replace('<!-- docspec: demo/1.0 -->\n# <!--[DEMO]--> Demo\n', '# <!--[DEMO]--> Demo\n\n<!-- docspec: demo/1.0 -->\n'));
+        const r = await run(docspecsValidateImpl, { file: 'docs/late.md' });
+        assert.equal(r.passed, false);
+        const late = r.findings.find((f: Json) => f.rule === 'headerNotFirst');
+        assert.ok(late, JSON.stringify(r.findings));
+        assert.equal(late.line, 3);
+        assert.match(late.message, /demo\/1\.0/);
+        assert.match(late.message, /migrate_docspecs\.py doc docs\/late\.md --assign-ids --write/);
+        assert.ok(!r.findings.some((f: Json) => f.rule === 'noSchemaDeclared'), 'the declaration is there, just not where it is read');
+        assert.match(r.migrationHint, /below the title/);
+        const none = await run(docspecsValidateImpl, { file: put('docs/nohead.md', '# <!--[DEMO]--> Demo\n\nText.\n') });
+        assert.ok(none.findings.some((f: Json) => f.rule === 'noSchemaDeclared'));
+        assert.equal(none.migrationHint, undefined);
+    });
+
+    test('DS-11: a schema in a suffixed folder', async () => {
+        put('.tom/docspecs-schema/suffixed.sct/suffixed.1.0.docspecs-schema.yaml', SCHEMA);
+        put('docs/suffixed.md', GOOD.replace('docspec: demo/1.0', 'docspec: suffixed/1.0'));
+        const r = await run(docspecsValidateImpl, { file: 'docs/suffixed.md' });
+        assert.equal(r.passed, true, JSON.stringify(r.findings));
+        assert.equal(r.schema.file, '.tom/docspecs-schema/suffixed.sct/suffixed.1.0.docspecs-schema.yaml');
     });
 
     test('DS-9: registration', () => {
