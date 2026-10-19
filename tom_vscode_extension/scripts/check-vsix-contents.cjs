@@ -49,6 +49,7 @@ const REQUIRED = [
     'extension/out/services/som-document-io-vscode.js',
     'extension/resources/codespecs/codespecs_areas.json',
     'extension/resources/codespecs/codespecs_derivation_contract.md',
+    'extension/resources/codespecs/vocabulary.dart',
     'extension/out/services/codespecs-validator.js',
     'extension/out/services/codespecs-contract.js',
     VALIDATE_CODESPECS_BINARY,

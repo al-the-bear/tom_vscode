@@ -25,6 +25,14 @@ export const BUILD_COMMAND = 'npm run codespecs:build';
 /** The extension root: this file is out/services/. */
 const EXTENSION_ROOT = path.resolve(__dirname, '..', '..');
 
+/**
+ * tom_code_specs' vocabulary source (`lib/src/annotations/vocabulary.dart`),
+ * packaged by `npm run som:pack`: its csFeatureHooks / csFeatureReservedPaths
+ * are the hook catalogue checks 40 and 41 hold the trio against, and its enum
+ * catalogues one side of check 9.
+ */
+export const CS_VOCABULARY_FILE = path.join(EXTENSION_ROOT, 'resources', 'codespecs', 'vocabulary.dart');
+
 /** Generous for a run measured at under a second; a hung binary must not hang a tool call. */
 const RUN_TIMEOUT_MS = 60_000;
 

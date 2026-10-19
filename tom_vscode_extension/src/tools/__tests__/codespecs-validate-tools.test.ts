@@ -13,6 +13,8 @@
  *   CV-4  usage errors are kept apart from clean and violations
  *   CV-5  a missing binary is an error naming the build step
  *   CV-6  the fixture trio equals the sample's (when the sample is present)
+ *   CV-7  the bundled CodeSpecs vocabulary equals tom_code_specs' and is passed by default, so
+ *         checks 40 and 41 run; a vocabulary given explicitly is used instead
  *   SC-1  a step's context: its areas' extracts exactly, its entries, its project
  *   SC-2  every step's areas have extracts and contract entries
  *   SC-3  input errors, a missing extract, §2 in full
@@ -32,7 +34,7 @@ installVscodeStub({});
 
 import { SomModelService } from '../../services/som-model-service.js';
 import { SomDocumentStore } from '../../services/som-document-store.js';
-import { CodeSpecsBinaryMissing, validateCodespecsBinary } from '../../services/codespecs-validator.js';
+import { CS_VOCABULARY_FILE, CodeSpecsBinaryMissing, validateCodespecsBinary } from '../../services/codespecs-validator.js';
 import { CONTRACT_FILE } from '../../services/codespecs-contract.js';
 import type { SpecToolDeps } from '../spec-tool-common.js';
 import {
@@ -47,6 +49,7 @@ const FIXTURE = path.join(EXT_ROOT, 'src', 'tools', '__tests__', 'fixtures', 'ph
 const AI_BUILD = path.resolve(EXT_ROOT, '..', '..', 'ai_build');
 const SAMPLE_TRIO = path.join(AI_BUILD, 'tom_specs_samples', 'phase4_codespecs_run', 'codespec');
 const CONTRACT_SOURCE = path.resolve(EXT_ROOT, '..', '..', 'core', 'tom_core_codespecs', 'doc', 'codespecs_derivation_contract.md');
+const VOCABULARY_SOURCE = path.join(AI_BUILD, 'tom_code_specs', 'lib', 'src', 'annotations', 'vocabulary.dart');
 
 const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'codespecs-validate-'));
 /** A copy of the fixture's trio and extracts under `name/`. */
@@ -75,9 +78,11 @@ describe('CodeSpecs validate', () => {
     test('CV-1: the sample trio matches its recorded report', async () => {
         const recorded = JSON.parse(fs.readFileSync(path.join(FIXTURE, 'codespec', 'validation_report.json'), 'utf8'));
         const report = await codeSpecsValidationReport(deps, trio('base'));
-        const { inputs: _a, ...got } = report as Json;
-        const { inputs: _b, ...want } = recorded;
+        const { inputs: _a, notRun: gotNotRun, ...got } = report as Json;
+        const { inputs: _b, notRun: wantNotRun, ...want } = recorded;
         assert.deepEqual(got, want, 'the bundled binary reproduces the recorded report');
+        // The sample was recorded without a vocabulary; the tool passes the bundled one, so 40 and 41 run too.
+        assert.deepEqual(gotNotRun, wantNotRun.filter((n: Json) => !n.checks.includes(40)));
 
         const r = JSON.parse(await withTiming('tomAi_specCodeSpecsValidate:typical', () => codeSpecsValidateImpl(deps, trio('base'))));
         assert.equal(r.ok, true, JSON.stringify(r));
@@ -85,9 +90,13 @@ describe('CodeSpecs validate', () => {
         assert.equal(r.summary, recorded.summary);
         assert.deepEqual(r.violations, []);
         assert.equal(r.checkCount, 41);
-        assert.equal(r.checksRun, 36, 'checks 9, 13, 31, 40 and 41 lack their corroborating input');
-        assert.deepEqual(r.notRun.map((n: Json) => n.checks), [[13], [9], [40, 41], [31]]);
-        assert.deepEqual(r.inputs, { shared: 'base/codespec/shared', client: 'base/codespec/client', server: 'base/codespec/server', extracts: 'base/codespecs_extracts' });
+        assert.equal(r.checksRun, 38, 'checks 9, 13 and 31 lack their corroborating input');
+        assert.deepEqual(r.notRun.map((n: Json) => n.checks), [[13], [9], [31]]);
+        assert.deepEqual(r.inputs, {
+            shared: 'base/codespec/shared', client: 'base/codespec/client', server: 'base/codespec/server', extracts: 'base/codespecs_extracts',
+            // eslint-disable-next-line @typescript-eslint/naming-convention
+            'cs-vocabulary': '(bundled) resources/codespecs/vocabulary.dart',
+        });
     });
 
     test('CV-2: a crafted violation carries its check number', async () => {
@@ -232,6 +241,23 @@ describe('CodeSpecs step context', () => {
         assert.match(full.contract.universalRules.text, /^## 2\. Universal rules/);
         assert.match(full.contract.universalRules.text, /### 2\.9 The authoring prompt/);
         assert.doesNotMatch(full.contract.universalRules.text, /^## 3\./m);
+    });
+
+    test('CV-7: the bundled vocabulary', async (t) => {
+        assert.ok(fs.existsSync(CS_VOCABULARY_FILE), `missing ${CS_VOCABULARY_FILE}: run npm run som:pack`);
+        assert.match(fs.readFileSync(CS_VOCABULARY_FILE, 'utf8'), /csFeatureHooks/, 'it carries the hook catalogue checks 40 and 41 need');
+        if (fs.existsSync(VOCABULARY_SOURCE)) {
+            assert.equal(fs.readFileSync(CS_VOCABULARY_FILE, 'utf8'), fs.readFileSync(VOCABULARY_SOURCE, 'utf8'),
+                'resources/codespecs/vocabulary.dart is stale: run npm run som:pack -- --catalog-only');
+        } else {
+            t.diagnostic(`no ai_build checkout at ${VOCABULARY_SOURCE}: the copy is not compared`);
+        }
+        // An explicit vocabulary wins over the bundled one.
+        fs.mkdirSync(path.join(ws, 'vocab'), { recursive: true });
+        fs.copyFileSync(CS_VOCABULARY_FILE, path.join(ws, 'vocab', 'vocabulary.dart'));
+        const own = await call(codeSpecsValidateImpl, { ...trio('base'), csVocabulary: 'vocab/vocabulary.dart' });
+        assert.equal(own.inputs['cs-vocabulary'], 'vocab/vocabulary.dart');
+        assert.equal(own.checksRun, 38);
     });
 
     test('SC-4: the packaged contract equals tom_core\'s', (t) => {

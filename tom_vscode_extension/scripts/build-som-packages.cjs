@@ -38,7 +38,10 @@
  * TOM_CORE_CHECKOUT overrides that location), whose §3 entries the step-context
  * tool hands an authoring step (vsctsa20). It is copied from tom_core's
  * working tree in every mode, `--from-head` included, which exports ai_build
- * only.
+ * only. Third goes tom_code_specs' vocabulary source
+ * (tom_code_specs/lib/src/annotations/vocabulary.dart, from ai_build like the
+ * catalogue): tomAi_specCodeSpecsValidate passes it as --cs-vocabulary, whose
+ * hook catalogue checks 40 and 41 need (qrc5).
  *
  * The packages are built from ai_build's WORKING TREE, and ai_build is shared
  * with other sessions: an uncommitted edit there (someone's work in progress)
@@ -65,6 +68,10 @@ const VENDOR_DIR = path.join(EXT_ROOT, 'vendor', 'tom_som');
 const CATALOG_SOURCE = path.join('tom_specs_model', 'generated-doc', 'codespecs', 'codespecs_areas.json');
 const CATALOG_TARGET = path.join(EXT_ROOT, 'resources', 'codespecs', 'codespecs_areas.json');
 
+/** tom_code_specs' vocabulary source, in ai_build and in the extension. */
+const VOCABULARY_SOURCE = path.join('tom_code_specs', 'lib', 'src', 'annotations', 'vocabulary.dart');
+const VOCABULARY_TARGET = path.join(EXT_ROOT, 'resources', 'codespecs', 'vocabulary.dart');
+
 /** The CodeSpecs derivation contract, in tom_core and in the extension. */
 const CORE_CHECKOUT = process.env.TOM_CORE_CHECKOUT
     ? path.resolve(process.env.TOM_CORE_CHECKOUT)
@@ -72,9 +79,10 @@ const CORE_CHECKOUT = process.env.TOM_CORE_CHECKOUT
 const CONTRACT_SOURCE = path.join(CORE_CHECKOUT, 'tom_core_codespecs', 'doc', 'codespecs_derivation_contract.md');
 const CONTRACT_TARGET = path.join(EXT_ROOT, 'resources', 'codespecs', 'codespecs_derivation_contract.md');
 
-/** Copy the CodeSpecs area catalogue (from `aiBuild`) and the derivation contract (from tom_core) into the extension. */
+/** Copy the CodeSpecs area catalogue and vocabulary (from `aiBuild`) and the derivation contract (from tom_core) into the extension. */
 function copyCodeSpecsCatalog(aiBuild) {
     const copies = [[path.join(aiBuild, CATALOG_SOURCE), CATALOG_TARGET, 'the CodeSpecs area catalogue'],
+        [path.join(aiBuild, VOCABULARY_SOURCE), VOCABULARY_TARGET, "tom_code_specs' vocabulary"],
         [CONTRACT_SOURCE, CONTRACT_TARGET, 'the CodeSpecs derivation contract']];
     for (const [source, target, what] of copies) {
         if (!fs.existsSync(source)) {
@@ -108,7 +116,7 @@ function npm(args, cwd) {
 /** Uncommitted changes under the packed paths of a git checkout; [] when clean or not a git checkout. */
 function uncommitted(aiBuild) {
     try {
-        const out = execFileSync('git', ['-C', aiBuild, 'status', '--porcelain', '--', ...PACKAGES, CATALOG_SOURCE], { encoding: 'utf8' });
+        const out = execFileSync('git', ['-C', aiBuild, 'status', '--porcelain', '--', ...PACKAGES, CATALOG_SOURCE, VOCABULARY_SOURCE], { encoding: 'utf8' });
         return out.split('\n').filter((l) => l.trim() !== '');
     } catch {
         return [];
@@ -120,7 +128,7 @@ function exportHead(aiBuild) {
     const target = path.resolve(EXT_ROOT, '..', '..', '..', 'ztmp', 'som-pack-head');
     fs.rmSync(target, { recursive: true, force: true });
     fs.mkdirSync(target, { recursive: true });
-    const archive = execFileSync('git', ['-C', aiBuild, 'archive', 'HEAD', ...PACKAGES, path.dirname(CATALOG_SOURCE)], { maxBuffer: 1 << 30 });
+    const archive = execFileSync('git', ['-C', aiBuild, 'archive', 'HEAD', ...PACKAGES, path.dirname(CATALOG_SOURCE), VOCABULARY_SOURCE], { maxBuffer: 1 << 30 });
     execFileSync('tar', ['-x', '-C', target], { input: archive });
     console.log(`📦 packing ai_build's committed HEAD (exported to ${target})`);
     return target;
@@ -201,4 +209,6 @@ if (require.main === module) {
     }
 }
 
-module.exports = { CATALOG_SOURCE, CATALOG_TARGET, CONTRACT_SOURCE, CONTRACT_TARGET };
+// The exported names are the constants above, kept in their own case.
+// eslint-disable-next-line @typescript-eslint/naming-convention
+module.exports = { CATALOG_SOURCE, CATALOG_TARGET, CONTRACT_SOURCE, CONTRACT_TARGET, VOCABULARY_SOURCE, VOCABULARY_TARGET };

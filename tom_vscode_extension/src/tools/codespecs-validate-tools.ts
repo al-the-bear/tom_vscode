@@ -14,12 +14,14 @@
  * (`ok: false`, the binary refused its input).
  */
 
+import * as fs from 'fs';
 import * as path from 'path';
 import type { SharedToolDefinition } from './shared-tool-registry';
 import { FILE_PARAM, json, liveDeps, resolveInput, toWorkspacePath, type SpecToolDeps } from './spec-tool-common';
 import { codeSpecsFailure } from './codespecs-tools';
 import { extractsDirOf, type ExtractsLocator } from './codespecs-trace-tools';
 import {
+    CS_VOCABULARY_FILE,
     CodeSpecsBinaryMissing,
     CodeSpecsUsageError,
     resolveTrio,
@@ -57,15 +59,24 @@ export async function codeSpecsValidationReport(deps: SpecToolDeps, input: CodeS
     if (input.regenerated) {
         regenerated = resolveTrio({ shared: abs(input.regenerated.shared), client: abs(input.regenerated.client), server: abs(input.regenerated.server) });
     }
-    return validateCodeSpecs({
+    // Without a vocabulary of the caller's, the packaged one: checks 40 and 41
+    // need its hook catalogue, which no generated trio can supply.
+    const bundledVocabulary = input.csVocabulary === undefined && fs.existsSync(CS_VOCABULARY_FILE);
+    const report = await validateCodeSpecs({
         ...trio,
         extracts: abs(input.extractsDir),
         migrations: abs(input.migrations),
-        csVocabulary: abs(input.csVocabulary),
+        csVocabulary: bundledVocabulary ? CS_VOCABULARY_FILE : abs(input.csVocabulary),
         coreSource: abs(input.coreSource),
         regenerated,
     });
+    // The inputs carry the binary's own option names.
+    // eslint-disable-next-line @typescript-eslint/naming-convention
+    return bundledVocabulary ? { ...report, inputs: { ...report.inputs, 'cs-vocabulary': BUNDLED_VOCABULARY_LABEL } } : report;
 }
+
+/** How the packaged vocabulary is echoed among the inputs (it is not a workspace path). */
+const BUNDLED_VOCABULARY_LABEL = '(bundled) resources/codespecs/vocabulary.dart';
 
 function validateFailure(e: unknown): string {
     if (e instanceof CodeSpecsBinaryMissing) {
@@ -80,7 +91,8 @@ function validateFailure(e: unknown): string {
 export async function codeSpecsValidateImpl(deps: SpecToolDeps, input: CodeSpecsValidateInput): Promise<string> {
     try {
         const report = await codeSpecsValidationReport(deps, input);
-        const rel = (p: string | null): string | null => (p === null ? null : toWorkspacePath(deps, p));
+        const rel = (p: string | null): string | null =>
+            (p === null ? null : p === BUNDLED_VOCABULARY_LABEL ? p : toWorkspacePath(deps, p));
         const limit = Math.max(1, Math.min(input.limit ?? DEFAULT_VIOLATION_LIMIT, 5000));
         const byCheck: Record<string, number> = {};
         for (const v of report.violations) { byCheck[v.check] = (byCheck[v.check] ?? 0) + 1; }
@@ -211,8 +223,10 @@ export const CODESPECS_VALIDATE_TOOL: SharedToolDefinition<CodeSpecsValidateInpu
         + '`clean` or `violations` (both ok: the checks ran) or, with ok false, `usageError` (the input was refused: a '
         + 'missing folder, a partial regenerated trio) or `binaryMissing`. Each violation: check number and title, the '
         + 'section that defines it, file and line, section-id token or area, message. `notRun` names each check whose '
-        + 'corroborating input was not given (extracts for 19 and 32–36, migrations for 13, csVocabulary + coreSource '
-        + 'for 9, regenerated for 31) — a check that did not run is not a pass.',
+        + 'corroborating input was not given (extracts for 19 and 32–36, migrations for 13, coreSource for 9, regenerated '
+        + 'for 31) — a check that did not run is not a pass. tom_code_specs\' vocabulary, whose hook catalogue checks 40 '
+        + 'and 41 (protocol-feature hooks, reserved protocol paths) need, ships with the extension and is passed unless '
+        + '`csVocabulary` names another; `inputs` then shows it as `(bundled) resources/codespecs/vocabulary.dart`.',
     tags: ['tomspecs', 'codespecs', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {
@@ -228,8 +242,8 @@ export const CODESPECS_VALIDATE_TOOL: SharedToolDefinition<CodeSpecsValidateInpu
                 properties: { shared: { type: 'string' }, client: { type: 'string' }, server: { type: 'string' } },
                 description: 'A second generation run\'s trio, for the determinism check (31).',
             },
-            csVocabulary: { type: 'string', description: 'tom_code_specs\' vocabulary source, for check 9 (with coreSource).' },
-            coreSource: { type: 'string', description: 'The tom_core source holding the mirrored catalogues, for check 9 (with csVocabulary).' },
+            csVocabulary: { type: 'string', description: 'tom_code_specs\' vocabulary source (vocabulary.dart or its lib/), for checks 9, 40 and 41. Default: the copy bundled with the extension.' },
+            coreSource: { type: 'string', description: 'The tom_core source holding the mirrored catalogues, for check 9 (against the vocabulary).' },
             limit: { type: 'number', description: `Most violations to return. Default ${DEFAULT_VIOLATION_LIMIT}.` },
         },
         required: ['shared'],
