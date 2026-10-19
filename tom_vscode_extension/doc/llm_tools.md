@@ -409,10 +409,10 @@ sectionId, title, schemaId, schemaVersion}, tiers [{tier, ran, findings}],
 notRun, violations [{tier, code, severity, file, line, location, message}]}`.
 The extension adds `path` to each violation: the document path to fix, in the
 form the edit tools take. An instance finding states its path. A schema finding
-states only a section id (which repeats: every requirement has a FRED form) and
-a line of the rendition, so its path is the node bearing that id whose heading
-the line falls under (tom_specs vsctasb6 asks the runtime to fill it). The edit
-tools' `validation` is the instance tier only.
+names a line of the rendition; its path is the section that line falls under,
+from the heading map the runtime renders with (a section id alone would not do,
+since it repeats: every requirement has a FRED form). The edit tools'
+`validation` is the instance tier only.
 
 **Edits.** These tools write files: `readOnly: false` and `requiresApproval: true`,
 so they pass the approval gate and the MCP server offers them only to
@@ -447,8 +447,8 @@ that changed. For YAML, the answer also lists `staleReviewPaths`, review entries
 left without a node.
 
 A document with no values is written with its root key
-(`document:\n  SBP D00SolutionBlueprint: {}`) rather than the codec's
-`document: {}`, which would not say which document it is (tom_specs vsctasb4).
+(`document:\n  SBP D00SolutionBlueprint: {}`), so the file still says which
+document it is.
 
 Every document answer carries the document's `format`, `stamp`, `editability`,
 `readOnlyReason` and `revision`. A Markdown file whose import does not reproduce
@@ -482,8 +482,11 @@ description names its counterpart:
 **Search specifics.** The `text` dimension searches stored values (content,
 scalar list items, every form field) and the node's headline, which is the
 stored headline or, when the document sets none, the model's doc comment, so
-model prose can match too. `sectionIdExact` / `sectionIdPrefix` match the
-model's `@SectionId`, not a list item's own stored id. With `regex: true` the
+model prose can match too. `sectionIdExact` / `sectionIdPrefix` match a node's
+section id: the model's `@SectionId`, and for a list item its own id — the
+stored one, else the list's `@SectionIdPattern` with the 1-based position, the
+id its heading and `tomAi_specOutline` show. `FRE-REQU-ORDER-CAPTURE` finds that
+item; the list's id `FRE-REQU-LST` finds only the list. With `regex: true` the
 pattern is the runtime's portable subset (`.` `*` `+` `?` `[...]` `^` `$`,
 `\` + punctuation). `(`, `)`, `|`, `{`, `}` are literals; `\d`, `\w` and any
 other `\` + letter are rejected with `code: "patternError"`. A cursor is the

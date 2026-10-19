@@ -16,6 +16,8 @@
  *   SS-12  patterns: the subset works; a full-regex construct is rejected with the subset text
  *   SS-13  a long snippet is a window around the match; invalid input is refused
  *   SS-14  both tools are read-only
+ *   SS-15  a list item is found by its own section id (the id its heading shows); the list's
+ *          own id matches only the list; a prefix of item ids finds the items
  */
 
 import test, { before, describe } from 'node:test';
@@ -255,5 +257,18 @@ describe('TomSpecs search tools', () => {
     test('SS-14: both tools are read-only', () => {
         assert.deepEqual(SPEC_SEARCH_TOOLS.map((t) => t.name), ['tomAi_specSearch', 'tomAi_specSearchIterate']);
         assert.ok(SPEC_SEARCH_TOOLS.every((t) => t.readOnly && !t.requiresApproval));
+    });
+    test('SS-15: a list item by its own section id', async () => {
+        const item = await allPaths({ sectionIdExact: 'FRE-REQU-ORDER-CAPTURE' });
+        assert.equal(item.length, 1, 'the item whose heading shows that id');
+        assert.match(item[0], /\/FRE-REQU-LST-\d+$/);
+        const r = await search({ sectionIdExact: 'FRE-REQU-ORDER-CAPTURE' });
+        assert.equal(r.matches[0].kind, 'listItemComplex');
+        const list = await allPaths({ sectionIdExact: 'FRE-REQU-LST' });
+        assert.ok(list.length >= 1);
+        assert.ok(list.every((p) => p.endsWith('/FRE-REQU-LST')), 'the list id matches the list, not its items');
+        const prefix = await allPaths({ sectionIdPrefix: 'FRE-REQU-' });
+        assert.ok(prefix.includes(item[0]), 'an item id prefix finds the item');
+        assert.deepEqual(prefix, runtimeMatches({ sectionIdPrefix: 'FRE-REQU-' }));
     });
 });

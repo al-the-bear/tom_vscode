@@ -17,23 +17,18 @@
  *
  * The extension adds `path` to each finding: the document path to fix, in the
  * form the edit tools take. The instance tier states it. A schema finding
- * carries only a section id and a line of the rendition, and a section id
- * repeats (every requirement has a FRED form), so the path is found by
- * rendering once more with a marker headline on every node bearing that id
- * and reading which heading the line falls under (headlines are one line, so
- * line numbers do not move). tom_specs vsctasb6 asks the runtime to fill
- * DocSpecsViolation.path itself.
+ * names a line of the rendition; the runtime renders with a heading map
+ * (`toMarkdownWithMap`), and the finding's path is that of the section the line
+ * falls under (`pathAtLine`) — a section id alone would not do, since it repeats
+ * (every requirement has a FRED form).
  *
  * vscode-free.
  */
 
 import {
-    DocSpecsDocument,
     DocSpecsValidator,
     SpecDocument,
-    SpecNodeKind,
     assembleSpecDocuments,
-    specPathSegments,
     validateDocument,
 } from 'tom_som_typescript_runtime';
 import type { SpecRoot } from 'tom_som_typescript_runtime';
@@ -143,8 +138,10 @@ export class SomSpecValidation {
         if (!document || !root) {
             for (const tier of ['schema', 'instance'] as const) { notRun.push({ tier, reason: reason ?? 'nothing to check' }); }
         } else {
-            // Tier 2 — the DocSpecs schema over the rendition.
-            const markdown = document.toMarkdown(this.service.model, root.type);
+            // Tier 2 — the DocSpecs schema over the rendition. The rendition's
+            // heading map gives each finding the document path of its section.
+            const rendition = document.toMarkdownWithMap(this.service.model, root.type);
+            const markdown = rendition.markdown;
             schemaId = DOCSPEC_SCHEMA.exec(markdown)?.[1] ?? null;
             if (!schemaId || !this.service.schemaIds.includes(schemaId)) {
                 const named = schemaId ? `\`${schemaId}\` ` : '';
@@ -152,14 +149,14 @@ export class SomSpecValidation {
             } else {
                 schemaVersion = this.service.schemaVersion(schemaId);
                 const violations = new DocSpecsValidator(this.service.schema(schemaId)).validateMarkdown(markdown);
-                const paths = violations.length > 0 ? this.locate(document, root, markdown, violations) : [];
-                violations.forEach((v, i) => {
+                violations.forEach((v) => {
+                    const at = v.path ?? rendition.pathAtLine(v.line);
                     finding({
                         tier: 'schema',
                         code: v.rule,
                         line: v.line,
                         location: v.sectionId ?? v.path,
-                        ...(paths[i] ? { path: paths[i] as string } : {}),
+                        ...(at ? { path: at } : {}),
                         message: `${v.message} (schema ${schemaId}/${schemaVersion ?? '?'})`,
                     });
                 });
@@ -199,87 +196,6 @@ export class SomSpecValidation {
             violations,
             ...(outOfScope !== undefined ? { outOfScope } : {}),
         };
-    }
-
-    /**
-     * The document path of each schema violation, or null where it cannot be
-     * told. A violation names a section id and a line of `markdown`. The
-     * section id is looked up first; when no node bears it (a missing required
-     * section), the heading the line falls under is used instead.
-     */
-    locate(document: SpecDocument, root: SpecRoot, markdown: string, violations: Array<{ line: number; sectionId: string | null }>): Array<string | null> {
-        const lines = markdown.split('\n');
-        const parsed = DocSpecsDocument.parse(markdown).allSections;
-        const enclosingId = (line: number): string | null => {
-            let best: { line: number; id: string | null } | null = null;
-            for (const s of parsed) {
-                if (s.line <= line && (!best || s.line > best.line)) { best = { line: s.line, id: s.id }; }
-            }
-            return best?.id ?? null;
-        };
-        const byId = this.pathsByHeadingId(document, root);
-        const wanted = new Map<string, string[]>();
-        const ids = violations.map((v) => {
-            const id = v.sectionId && byId.has(v.sectionId) ? v.sectionId : enclosingId(v.line);
-            if (id && byId.has(id)) { wanted.set(id, byId.get(id) as string[]); }
-            return id;
-        });
-        if (wanted.size === 0) { return violations.map(() => null); }
-
-        // Render once more with a marker headline on every candidate; the line a
-        // marker lands on is that candidate's heading.
-        const marked = new SpecDocument();
-        marked.loadJson(document.toJson());
-        const candidates = [...new Set([...wanted.values()].flat())];
-        candidates.forEach((p, i) => marked.setHeadline(p, `⟦${i}⟧`));
-        const markedLines = marked.toMarkdown(this.service.model, root.type).split('\n');
-        if (markedLines.length !== lines.length) { return violations.map(() => null); }
-        const headingLine = new Map<string, number>();
-        markedLines.forEach((l, i) => {
-            const m = /⟦(\d+)⟧/.exec(l);
-            if (m) { headingLine.set(candidates[Number(m[1])], i + 1); }
-        });
-        return violations.map((v, i) => {
-            const id = ids[i];
-            let best: { path: string; line: number } | null = null;
-            for (const p of (id && wanted.get(id)) || []) {
-                const at = headingLine.get(p);
-                if (at !== undefined && at <= v.line && (!best || at > best.line)) { best = { path: p, line: at }; }
-            }
-            return best?.path ?? null;
-        });
-    }
-
-    /**
-     * Every node path the document holds a value at or below, grouped by the
-     * heading id its section renders with: a list item's stored id, else the
-     * field's or its class's @SectionId (the rule the query engine uses).
-     */
-    private pathsByHeadingId(document: SpecDocument, root: SpecRoot): Map<string, string[]> {
-        const json = document.toJson();
-        const keys = new Set<string>();
-        const addWithAncestors = (p: string): void => {
-            const segs = specPathSegments(p);
-            for (let i = 1; i <= segs.length; i++) { keys.add(segs.slice(0, i).join('/')); }
-        };
-        for (const store of [json.content, json.forms, json.headlines, json.codeSpecs]) {
-            for (const k of Object.keys(store ?? {})) { addWithAncestors(k); }
-        }
-        for (const [listPath, list] of Object.entries(json.lists ?? {})) {
-            addWithAncestors(listPath);
-            for (const item of list.items) { addWithAncestors(item); }
-        }
-        const byId = new Map<string, string[]>();
-        for (const p of keys) {
-            const res = this.service.reflection.resolve(p);
-            if (!res) { continue; }
-            const id = res.kind === SpecNodeKind.LIST_ITEM_COMPLEX || res.kind === SpecNodeKind.LIST_ITEM_SCALAR
-                ? document.itemSectionId(p)
-                : res.kind === SpecNodeKind.ROOT ? root.sectionId : (res.field?.sectionId ?? res.targetClass?.sectionId ?? null);
-            if (!id) { continue; }
-            byId.set(id, [...(byId.get(id) ?? []), p]);
-        }
-        return byId;
     }
 }
 

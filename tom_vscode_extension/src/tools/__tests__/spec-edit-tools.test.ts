@@ -128,6 +128,8 @@ describe('TomSpecs edit tools', () => {
         assert.equal(fractional.field.type, 'int');
         const unreadable = await run(specSetFormFieldImpl, { file, path: SYSCL, field: 'estimatedUserCount', value: 'lots' });
         assert.equal(unreadable.code, 'wrongValue');
+        assert.equal(unreadable.field.type, 'int');
+        assert.match(unreadable.error, /lots/, 'the runtime\'s own refusal names the value');
         assert.equal(read(file), MERIDIAN_YAML);
         const ok = await run(specSetFormFieldImpl, { file, path: SYSCL, field: 'estimatedUserCount', value: 250 });
         assert.equal(ok.value, 250);

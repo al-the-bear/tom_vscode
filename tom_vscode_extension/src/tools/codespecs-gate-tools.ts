@@ -33,7 +33,6 @@ import {
 import { SharedToolDefinition } from './shared-tool-registry';
 import { FILE_PARAM, SpecToolDeps, documentHeader, json, liveDeps, loadDocument, resolveInput, toWorkspacePath } from './spec-tool-common';
 import { CodeSpecsRefusal, EXTRACTS_DIR, ROUTING_FIX, codeSpecsFailure } from './codespecs-tools';
-import { SomSpecValidation } from '../services/som-spec-validation';
 import { nodeSomDocumentIo } from '../services/som-document-store';
 
 // ---------------------------------------------------------------------------
@@ -92,13 +91,14 @@ const CHECKS: Record<string, { what: string; fix: string }> = {
 /** The runtime's Stage-A gate over a loaded document, with the Markdown and schema it judged A1 by. */
 function runGate(deps: SpecToolDeps, loaded: ReturnType<typeof loadDocument>) {
     const model = deps.service.model;
-    const markdown = loaded.document.toMarkdown(model, loaded.root.type);
+    const rendition = loaded.document.toMarkdownWithMap(model, loaded.root.type);
+    const markdown = rendition.markdown;
     const schemaId = DOCSPEC_SCHEMA.exec(markdown)?.[1] ?? null;
     const schema = schemaId && deps.service.schemaIds.includes(schemaId) ? deps.service.schema(schemaId) : null;
     const report = new CodeSpecsGate({
         model, document: loaded.document, catalog: deps.service.codeSpecsCatalog, schema, rootType: loaded.root.type,
     }).run();
-    return { markdown, schemaId, schema, report };
+    return { rendition, schemaId, schema, report };
 }
 
 /** Stage A over a spec document: whether the gate is open, and the checks that fail. */
@@ -110,15 +110,16 @@ export function stageA(deps: SpecToolDeps, file: string): { open: boolean; faili
 export async function codeSpecsGateImpl(deps: SpecToolDeps, input: CodeSpecsGateInput): Promise<string> {
     try {
         const loaded = loadDocument(deps, input.file);
-        const { markdown, schemaId, schema, report } = runGate(deps, loaded);
+        const { rendition, schemaId, schema, report } = runGate(deps, loaded);
 
-        // A1 findings carry a section id; locate the document path the same way tomAi_specValidate does.
+        // A1 findings are the schema violations of the rendition; each takes the
+        // document path of its section, as in tomAi_specValidate.
         let a1Paths: Array<string | null> = [];
         const a1 = report.resultFor(CodeSpecsGateCheck.a1);
         if (schema && a1.findings.length > 0) {
-            const violations = new DocSpecsValidator(schema).validateMarkdown(markdown);
+            const violations = new DocSpecsValidator(schema).validateMarkdown(rendition.markdown);
             if (violations.length === a1.findings.length) {
-                a1Paths = new SomSpecValidation(deps.service, deps.store).locate(loaded.document, loaded.root, markdown, violations);
+                a1Paths = violations.map((v) => v.path ?? rendition.pathAtLine(v.line));
             }
         }
         const pathFor = (check: string, location: string, i: number): string | undefined => {

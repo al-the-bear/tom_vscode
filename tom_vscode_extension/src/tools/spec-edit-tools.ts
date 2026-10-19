@@ -248,7 +248,11 @@ function requireKind(res: SpecResolution, path: string, kinds: readonly string[]
 const VALUE_LEAVES: readonly string[] = [SpecNodeKind.CONTENT, SpecNodeKind.SCALAR, SpecNodeKind.ENUM_VALUE, SpecNodeKind.LIST_ITEM_SCALAR];
 const LIST_ITEMS: readonly string[] = [SpecNodeKind.LIST_ITEM_COMPLEX, SpecNodeKind.LIST_ITEM_SCALAR];
 
-/** Set one typed form field; a stored text its declared type cannot read back is refused too. */
+/**
+ * Set one typed form field. The runtime refuses a value its declared type
+ * cannot read (setFormValue throws); the old value is put back and the
+ * refusal is `wrongValue` in the runtime's words, with the field's type.
+ */
 function setFormField(ctx: EditContext, formPath: string, field: string, value: SomValue): void {
     const spec = ctx.editor.formFields(formPath).find((f) => f.name === field);
     if (!spec) {
@@ -258,22 +262,11 @@ function setFormField(ctx: EditContext, formPath: string, field: string, value: 
     }
     const declared = { type: spec.type, ...(spec.enumValues.length > 0 ? { enumValues: spec.enumValues } : {}) };
     const previous = ctx.loaded.document.formField(formPath, field);
-    let problem: string | null = null;
     try {
         ctx.editor.setFormValue(formPath, field, value);
-        // The runtime's own parse of what was stored. A text its type cannot read
-        // parses to null rather than throwing, so a stored text that reads back
-        // as nothing is the same refusal.
-        const stored = ctx.loaded.document.formField(formPath, field);
-        if (ctx.editor.formValue(formPath, field) === null && stored !== null && stored !== '') {
-            problem = `${JSON.stringify(value)} at ${field}: does not read as a ${spec.type} value`;
-        }
     } catch (e) {
-        problem = (e as Error).message;
-    }
-    if (problem !== null) {
         ctx.loaded.document.setFormField(formPath, field, previous ?? '');
-        throw new SpecEditRefusal('wrongValue', problem, { field: { name: field, ...declared } });
+        throw new SpecEditRefusal('wrongValue', (e as Error).message, { field: { name: field, ...declared } });
     }
 }
 

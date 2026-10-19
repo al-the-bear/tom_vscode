@@ -290,7 +290,9 @@ export const SPEC_SEARCH_TOOL: SharedToolDefinition<SpecSearchInput> = {
         'Search one TomSpecs document (`*.docspecs.yaml` or SOM `*.md`) with the runtime\'s query engine. All given '
         + 'filters are AND-combined: `text` over content, form values and headlines (a node\'s stored headline, else its '
         + 'model doc comment), `kinds`, `className` (a list item\'s or section\'s model class), `sectionIdExact` / '
-        + '`sectionIdPrefix` (the model\'s @SectionId — a list item\'s own stored id is not matched), `pathGlob` '
+        + '`sectionIdPrefix` (a node\'s section id; a list item\'s is its own — the stored id, else the list\'s '
+        + 'pattern with its position, as its heading shows — so `FRE-REQU-ORDER-CAPTURE` finds that item, while the '
+        + 'list\'s id `FRE-REQU-LST` finds only the list), `pathGlob` '
         + '(`*` within one segment, `**` across), `mapsTo` / `detailedIn` (a root type such as `D03InformationModel`), '
         + 'and `state` (`empty` / `nonEmpty`; review state is not searchable). Returns `total`, the first page of matches '
         + '`{path, kind, classId, headline, snippet, matchSpans}` and, when more remain, a `cursorId` for '
@@ -308,8 +310,8 @@ export const SPEC_SEARCH_TOOL: SharedToolDefinition<SpecSearchInput> = {
             caseInsensitive: { type: 'boolean', description: 'Match `text` ignoring case. Default false.' },
             kinds: { type: 'array', items: { type: 'string', enum: NODE_KINDS }, description: 'Node kinds to keep.' },
             className: { type: 'string', description: 'Model class of the node, e.g. `FunctionalRequirementEntry`.' },
-            sectionIdExact: { type: 'string', description: 'The model @SectionId, exactly (e.g. `FRE`).' },
-            sectionIdPrefix: { type: 'string', description: 'A @SectionId prefix (e.g. `FRE-`).' },
+            sectionIdExact: { type: 'string', description: 'A section id, exactly: the model @SectionId (e.g. `FRE`) or a list item\'s own id (e.g. `FRE-REQU-ORDER-CAPTURE`).' },
+            sectionIdPrefix: { type: 'string', description: 'A section-id prefix (e.g. `FRE-`, or `FRE-REQU-` for the requirement items).' },
             pathGlob: { type: 'string', description: 'Path glob: `*` within a segment, `**` across segments, e.g. `SBP/introductionAndScope/**`.' },
             mapsTo: { type: 'string', description: '@MapsTo target (a document root type, e.g. `D03InformationModel`).' },
             detailedIn: { type: 'string', description: '@DetailedIn target (a document root type).' },

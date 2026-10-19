@@ -182,21 +182,6 @@ function sha256(text: string): string {
     return crypto.createHash('sha256').update(text, 'utf8').digest('hex');
 }
 
-const EMPTY_DOCUMENT_PASS = /^document: \{\}$/m;
-
-/**
- * The codec writes a document with no values as `document: {}` (every port,
- * Dart included), which loses the root: nothing in the file says which
- * document it is, so it could not be loaded again. The store writes the root
- * key with an empty body instead, `document:\n  SBP D00SolutionBlueprint: {}`,
- * which the decoder reads back as the same empty document. This matters for
- * a document just created and for one cleared to nothing. (tom_specs
- * vsctasb4 asks the codec to write the root key itself.)
- */
-function withRootKey(yaml: string, root: SpecRoot): string {
-    return yaml.replace(EMPTY_DOCUMENT_PASS, `document:\n  ${root.sectionId ?? root.type} ${root.type}: {}`);
-}
-
 function formatOf(filePath: string): SomDocumentFormat {
     const lower = filePath.toLowerCase();
     if (lower.endsWith('.docspecs.yaml') || lower.endsWith('.yaml') || lower.endsWith('.yml')) { return 'yaml'; }
@@ -237,7 +222,7 @@ export class SomDocumentStore {
         const root = this.rootFor(rootTypeOrSectionId, filePath);
         const empty = new SpecDocument();
         const text = format === 'yaml'
-            ? withRootKey(yamlEncode(empty, this.service.metaTree(root.type), this.service.modelVersion, null), root)
+            ? yamlEncode(empty, this.service.metaTree(root.type), this.service.modelVersion, null)
             : empty.toMarkdown(this.service.model, root.type);
         fs.mkdirSync(path.dirname(filePath), { recursive: true });
         await this.io.write(filePath, text);
@@ -277,7 +262,7 @@ export class SomDocumentStore {
                 `The source carries ${reviewEntries} review entr${reviewEntries === 1 ? 'y' : 'ies'}, and Markdown has no review pass, so the converted file would not have them. Pass dropReview to convert anyway; the source keeps them.`);
         }
         const text = format === 'yaml'
-            ? withRootKey(yamlEncode(loaded.document, this.service.metaTree(loaded.root.type), this.service.modelVersion, null), loaded.root)
+            ? yamlEncode(loaded.document, this.service.metaTree(loaded.root.type), this.service.modelVersion, null)
             : loaded.document.toMarkdown(this.service.model, loaded.root.type);
         const before = exists ? this.io.read(targetPath) : '';
         const result = {
@@ -349,10 +334,7 @@ export class SomDocumentStore {
         const stamp = options.stamp === undefined ? this.service.modelVersion : options.stamp;
         if (loaded.format === 'yaml') {
             try {
-                return withRootKey(
-                    yamlEncode(loaded.document, this.service.metaTree(loaded.root.type), stamp, loaded.review ?? null),
-                    loaded.root,
-                );
+                return yamlEncode(loaded.document, this.service.metaTree(loaded.root.type), stamp, loaded.review ?? null);
             } catch (e) {
                 throw new SomDocumentError('encode', `The document cannot be written as YAML: ${(e as Error).message}`);
             }
