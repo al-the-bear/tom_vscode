@@ -392,6 +392,22 @@ export function currentRole(def: ProcessDefinition | null, state: ProcessState):
     return findSubstep(step, state.substep)?.role || step?.role || '';
 }
 
+/** The role a quest falls back to when it leaves its process. */
+export const DEFAULT_ROLE = 'default';
+
+/**
+ * The `role` chat variable after a move from `before` to `after`: the role
+ * the new step or sub-step names when the position changed; the default role
+ * when the process was cleared; `null` — leave the role as it is — otherwise.
+ */
+export function roleAfterMove(before: ProcessState, after: ProcessState, def: ProcessDefinition | null): string | null {
+    if (before.process && !after.process) { return DEFAULT_ROLE; }
+    const moved = (['process', 'phase', 'step', 'substep'] as const).some((k) => before[k] !== after[k])
+        || before.phaseIteration !== after.phaseIteration || before.stepIteration !== after.stepIteration;
+    if (!moved) { return null; }
+    return currentRole(def, after) || null;
+}
+
 function clampIteration(node: { repeatable?: boolean; maxIterations?: number } | undefined, n: number): number {
     if (!node || node.repeatable !== true) { return 1; }
     return Math.max(1, Math.min(node.maxIterations ?? Number.MAX_SAFE_INTEGER, Number.isInteger(n) ? n : 1));

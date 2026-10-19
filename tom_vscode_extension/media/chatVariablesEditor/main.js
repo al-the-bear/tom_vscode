@@ -37,11 +37,27 @@ function renderTable(s) {
         rows += varRow('custom.' + k, custom[k] || '', true, k);
     });
 
+    // The active quest's process (read-only: set in the PROCESS view or by tomAi_setProcessState)
+    var proc = s.process || {};
+    var procKeys = ['process', 'phase', 'step', 'substep', 'phase-iteration', 'step-iteration', 'substep-iteration',
+        'process-description', 'phase-description', 'step-description', 'substep-description'];
+    rows += '<tr><td colspan="3" class="var-section">Process <span class="var-note">(read-only — the quest\'s position, set in the PROCESS view)</span></td></tr>';
+    procKeys.forEach(function(k) { rows += readonlyRow(k, proc[k] || ''); });
+
     // New variable input row (hidden by default)
     rows += '<tr class="new-row" id="new-row"><td><input id="new-key" placeholder="key.name"></td><td><input id="new-value" placeholder="value"></td><td class="var-actions"><button class="confirm-btn" id="btn-confirm-add">✓</button></td></tr>';
 
     body.innerHTML = rows;
     attachInputListeners();
+}
+
+/** A value shown but not edited here; long text shortened, the whole of it in the tooltip. */
+function readonlyRow(name, value) {
+    var text = String(value).trim();
+    var shown = !text ? '—' : text.length > 120 ? text.slice(0, 120).replace(/\s+\S*$/, '') + '…' : text;
+    return '<tr><td class="var-name">' + esc(name) + '</td>' +
+        '<td class="var-value"><span class="var-readonly"' + (text ? ' title="' + esc(text) + '"' : '') + '>' + esc(shown) + '</span></td>' +
+        '<td class="var-actions"></td></tr>';
 }
 
 function varRow(name, value, deletable, label) {

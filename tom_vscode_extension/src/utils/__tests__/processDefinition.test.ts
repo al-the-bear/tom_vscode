@@ -14,6 +14,8 @@
  *   PD-7  the chat-variable values and the system-prompt block; empty without a process
  *   PD-8  applying a change request (the tool's input): names checked, iterations set, errors reported
  *   PD-9  writing a definition and a state file reads back the same; a broken state file is the empty state
+ *   PD-11 the role a move sets: the role the new step names; `default` when the process is cleared;
+ *         nothing when the position did not change or the step names no role
  *   PD-10 the JSON schema (src/config/process.schema.json) accepts what the validator accepts and
  *         rejects the shape errors it rejects
  */
@@ -41,6 +43,7 @@ import {
     selectSubstep,
     validateProcessDefinition,
     stringifyProcessDefinition,
+    roleAfterMove,
     parseProcessState,
     stringifyProcessState,
     type ProcessDefinition,
@@ -265,5 +268,16 @@ describe('process definitions', () => {
             assert.notEqual(validateProcessDefinition(raw).errors.length, 0);
             assert.equal(validate(raw), false, `the schema accepts ${JSON.stringify(raw)}`);
         }
+    });
+
+    test('PD-11: the role a move sets', () => {
+        const def = definition();
+        const start = selectProcess(def);
+        assert.equal(roleAfterMove(EMPTY_PROCESS_STATE, start, def), 'senior_developer', 'choosing the process: its first step\'s role');
+        assert.equal(roleAfterMove(start, start, def), null, 'no move, no change');
+        assert.equal(roleAfterMove(start, selectStep(start, def, 'tidy'), def), null, 'a step that names no role leaves the role');
+        assert.equal(roleAfterMove(start, changeIteration(selectStep(start, def, 'review'), def, 'step', 1), def), 'code_reviewer');
+        assert.equal(roleAfterMove(start, EMPTY_PROCESS_STATE, null), 'default', 'cleared: back to the default role');
+        assert.equal(roleAfterMove(EMPTY_PROCESS_STATE, EMPTY_PROCESS_STATE, null), null, 'nothing set, nothing cleared');
     });
 });

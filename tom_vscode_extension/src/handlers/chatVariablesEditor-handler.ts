@@ -150,6 +150,8 @@ function sendState(panel: vscode.WebviewPanel): void {
         todoFile: store.todoFile,
         custom: store.custom,
         changeLog: store.changeLog,
+        // The quest's process variables (derived, read-only here).
+        process: store.derivedValues(),
     });
 }
 

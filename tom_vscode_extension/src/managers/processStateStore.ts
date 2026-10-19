@@ -26,6 +26,7 @@ import {
     changeIteration,
     currentRole,
     normalizeState,
+    roleAfterMove,
     processContextBlock,
     processVariableValues,
     type ProcessChange,
@@ -192,9 +193,8 @@ export class ProcessStateStore {
         const result: ProcessChangeResult = { ok: true, state: next };
         repo.writeState(this.quest, next);
         this.rawState = result.state;
-        const moved = ['process', 'phase', 'step', 'substep'].some((k) => before[k as keyof ProcessState] !== result.state[k as keyof ProcessState]);
-        const role = this.currentRole();
-        if (moved && role) {
+        const role = roleAfterMove(before, result.state, this.currentDefinition());
+        if (role) {
             try {
                 const chat = ChatVariablesStore.instance;
                 if (chat.role !== role) { chat.set('role', role, source); }
