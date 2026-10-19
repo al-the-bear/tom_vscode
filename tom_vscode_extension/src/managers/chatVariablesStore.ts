@@ -42,6 +42,16 @@ export interface ChatVariablesSnapshot {
     changeLog: ChangeLogEntry[];
 }
 
+/**
+ * Read-only variables another store supplies (the active quest's process
+ * state, src/managers/processStateStore.ts). They read like built-ins —
+ * `getRaw`, template values, `${name}` placeholders — but are written by
+ * their owner, never through `set`.
+ */
+export interface DerivedVariableProvider {
+    values(): Record<string, string>;
+}
+
 // ============================================================================
 // Store
 // ============================================================================
@@ -78,6 +88,7 @@ export class ChatVariablesStore {
     private _todoFile = 'all';  // selected todo file
     private _custom: Record<string, string> = {};
     private _changeLog: ChangeLogEntry[] = [];
+    private _derived: DerivedVariableProvider[] = [];
 
     private readonly _onDidChange = new vscode.EventEmitter<{ key: string; value: unknown }>();
     /** Fires whenever any variable changes. */
@@ -161,6 +172,26 @@ export class ChatVariablesStore {
         this._onDidChange.fire({ key, value: this.getRaw(key) });
     }
 
+    /** Add a supplier of read-only variables; dispose to remove it. */
+    registerDerivedVariables(provider: DerivedVariableProvider): vscode.Disposable {
+        this._derived.push(provider);
+        return { dispose: () => { this._derived = this._derived.filter((p) => p !== provider); } };
+    }
+
+    /** A supplier's values changed: tell the listeners (panels, editors). */
+    notifyDerivedChange(key: string): void {
+        this._onDidChange.fire({ key, value: this.getRaw(key) });
+    }
+
+    /** The supplied read-only variables, merged. */
+    derivedValues(): Record<string, string> {
+        const out: Record<string, string> = {};
+        for (const p of this._derived) {
+            try { Object.assign(out, p.values()); } catch { /* a failing supplier supplies nothing */ }
+        }
+        return out;
+    }
+
     /** Bulk-set custom variables (e.g. from an answer file). */
     setCustomBulk(values: Record<string, string>, source: ChangeSource, requestId?: string): void {
         for (const [k, v] of Object.entries(values)) {
@@ -183,7 +214,11 @@ export class ChatVariablesStore {
             case 'activeProjects': return [...this._activeProjects];
             case 'todo':           return this._todo;
             case 'todoFile':       return this._todoFile;
-            default:               return this._custom[key] ?? '';
+            default: {
+                const derived = this.derivedValues();
+                if (key in derived) { return derived[key]; }
+                return this._custom[key] ?? '';
+            }
         }
     }
 
@@ -195,6 +230,7 @@ export class ChatVariablesStore {
             activeProjects: this._activeProjects.join(', '),
             todo: this._todo,
             todoFile: this._todoFile,
+            ...this.derivedValues(),
         };
         for (const [k, v] of Object.entries(this._custom)) {
             out[`custom.${k}`] = v;

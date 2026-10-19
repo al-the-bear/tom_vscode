@@ -114,6 +114,9 @@ import { initializeToolDescriptions } from './tools/guideline-tools';
 
 // Chat Enhancement stores & managers
 import { ChatVariablesStore } from './managers/chatVariablesStore';
+import { ProcessStateStore } from './managers/processStateStore';
+import { registerProcessView } from './handlers/processPanel-handler';
+import { registerProcessEditor } from './handlers/processEditor-handler';
 import { AnthropicHandler } from './handlers/anthropic-handler';
 import { TwoTierMemoryService } from './services/memory-service';
 import { registerMemoryPanelCommand } from './handlers/memoryPanel-handler';
@@ -471,6 +474,12 @@ export async function activate(context: vscode.ExtensionContext) {
     registerChatVariablesEditorCommand(context);
     timeStep('chatVariablesEditor', stepStart);
 
+    // Register the PROCESS view and the process editor
+    stepStart = performance.now();
+    registerProcessView(context);
+    registerProcessEditor(context);
+    timeStep('processViews', stepStart);
+
     // Register Context & Settings Editor command
     stepStart = performance.now();
     registerContextSettingsEditorCommand(context);
@@ -707,6 +716,8 @@ export async function activate(context: vscode.ExtensionContext) {
     // Initialize Chat Enhancement stores (§1.1–§1.4)
     stepStart = performance.now();
     ChatVariablesStore.init(context);
+    // The quest's process state; supplies the process chat variables, so after ChatVariablesStore.
+    ProcessStateStore.init(context);
     SessionTodoStore.init(context);
     timeStep('chatEnhancementStores', stepStart);
 

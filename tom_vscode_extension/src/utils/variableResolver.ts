@@ -35,6 +35,7 @@ import * as os from 'os';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
 import { WsPaths } from './workspacePaths';
+import { PROCESS_VARIABLE_KEYS } from './processDefinition';
 import { logConfigAccess } from './toolLog';
 
 // ============================================================================
@@ -439,7 +440,7 @@ function addEditorValues(values: Record<string, string>): void {
  */
 function addChatValues(values: Record<string, string>): void {
     try {
-        const builtInChatKeys = new Set(['quest', 'role', 'activeProjects', 'todo', 'todoFile']);
+        const builtInChatKeys = new Set<string>(['quest', 'role', 'activeProjects', 'todo', 'todoFile', ...PROCESS_VARIABLE_KEYS]);
         const exposeCustomAliases = (rawKey: string, rawValue: string): void => {
             const normalizedKey = rawKey.startsWith('custom.') ? rawKey.substring('custom.'.length) : rawKey;
             if (!normalizedKey || builtInChatKeys.has(normalizedKey)) {
@@ -639,6 +640,21 @@ function addFileInjectionPlaceholders(values: Record<string, string>): void {
 
     if (!('userMessage' in values)) {
         values['userMessage'] = '';
+    }
+
+    // The quest's process as one block for system prompts; '' without one.
+    values['process-context'] = getProcessContextBlock();
+}
+
+/** The active quest's `${process-context}` block (src/managers/processStateStore.ts). */
+function getProcessContextBlock(): string {
+    try {
+        // Required lazily, as the chat variable store is: no static cycle.
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const mod = require('../managers/processStateStore.js');
+        return mod.ProcessStateStore?.instance?.contextBlock() ?? '';
+    } catch {
+        return '';
     }
 }
 
@@ -1241,6 +1257,9 @@ All three resolve to <code>0</code> / <code>1</code> when the item isn't part of
 <em>File-Injection (inlines file contents; empty when the file does not exist):</em><br>
 <code>\${role-description}</code> – <code>_ai/roles/\${role}/role.md</code><br>
 <code>\${quest-description}</code> – <code>_ai/quests/\${quest}/overview.\${quest}.md</code><br>
+<code>\${process-context}</code> – the active quest's process: where it is (phase, step, sub-step, iterations, roles), the post-gate todos and the descriptions; empty without a process<br>
+<code>\${process}</code>, <code>\${phase}</code>, <code>\${step}</code>, <code>\${substep}</code>, <code>\${phase-iteration}</code>, <code>\${step-iteration}</code>, <code>\${substep-iteration}</code> – the quest's process state (<code>_ai/quests/\${quest}/process-state.\${quest}.yaml</code>)<br>
+<code>\${process-description}</code> – <code>_ai/processes/\${process}/\${process}.md</code>; <code>\${phase-description}</code>, <code>\${step-description}</code>, <code>\${substep-description}</code> – from its <code>.process.yaml</code><br>
 <code>\${claude.md}</code> – Workspace-root <code>CLAUDE.md</code><br>
 <code>\${copilot-instructions}</code> – <code>.github/copilot-instructions.md</code><br>
 <code>\${instructions}</code> – <code>CLAUDE.md</code> if present, else <code>.github/copilot-instructions.md</code><br>

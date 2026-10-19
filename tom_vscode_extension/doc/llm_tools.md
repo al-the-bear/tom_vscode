@@ -612,6 +612,37 @@ entries from any slice; `matchedBy` says which rule found each area's entries.
 For the Meridian sample, the written extracts equal the conformance corpus
 (`tom_som_conformance/generated-doc/codespecs_extracts`) byte for byte.
 
+### 4.26 Processes (the process a quest follows)
+
+A process is defined in `_ai/processes/<id>/`: `<id>.process.yaml` holds the
+structure (schema: `src/config/process.schema.json`) and `<id>.md` its
+description. It has phases of steps; a step may group sub-steps (it is then no
+action of its own), and a step or sub-step may name the role doing it. Every
+phase ends with a quality-gate step and may have a post-gate step, whose todos —
+listed in the YAML, plus the quest todos with its `todoPrefix` — are done after
+the gate passed and before the next phase starts. Phases, steps and sub-steps
+can be repeatable, optionally with a `maxIterations`.
+
+The active quest's position — process, phase, step, sub-step and their
+iterations — is kept in `_ai/quests/<quest>/process-state.<quest>.yaml`, the
+same in every window and on every machine. It reaches the model as the chat
+variables `process`, `phase`, `step`, `substep`, `phase-iteration`,
+`step-iteration`, `substep-iteration`, `process-description`,
+`phase-description`, `step-description`, `substep-description`, and as the
+`${process-context}` block every Anthropic profile's system prompt carries
+(empty without a process). `tomAi_writeChatVariable` refuses those keys:
+moving the quest goes through `tomAi_setProcessState`, which checks every name
+against the definition. A move to a step or sub-step that names a role also sets
+the `role` chat variable. The user sees and sets the same state in the @TOM
+**PROCESS** view and edits the definitions in the process editor.
+
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
+| --- | --- | :-: | :-: | :-: | :-: | :-: |
+| `tomAi_listProcesses` | Every process with its outline (phases, steps with `kind` step / gate / post-gate, sub-steps, roles, repeat flags); invalid ones with their errors; the quest's current process. | ✅ | ✅ | ✅ | ✅ | ⚪ |
+| `tomAi_getProcess` | One process in full: definition, Markdown description, file paths (default: the quest's process). | ✅ | ✅ | ✅ | ✅ | ⚪ |
+| `tomAi_getProcessState` | The quest's state, the role its step names, and the `${process-context}` block. | ✅ | ✅ | ✅ | ✅ | ⚪ |
+| `tomAi_setProcessState` | Move the quest: `process` (`""` clears), `phase`, `step`, `substep`, and the three iterations; checked against the definition, no approval prompt (visible live in the PROCESS view). | ✅ | ✅ | ✅ | ✅ | ⚪ |
+
 ## 5. Transport-specific recommendations
 
 ### 5.1 Anthropic Agent SDK (`transport: 'agentSdk'`)
@@ -697,6 +728,7 @@ Tools are grouped by functional family, one file per family under `src/tools/`:
 | `planning-tools.ts` | Plan-mode signals + sub-agent delegation |
 | `notebook-tools.ts` | Jupyter `notebookEdit`, `notebookRun` |
 | `id-prefix-tools.ts` | Date-based prefix for collision-free hand-authored ids |
+| `quest-process-tools.ts` | Processes: list and read definitions, read and move the quest's process state |
 | `issue-tools.ts` | Issues subpanel (read + write) |
 | `test-tools.ts` | Tests subpanel / testkit (read + write) |
 | `codespecs-tools.ts`, `codespecs-gate-tools.ts`, `codespecs-trace-tools.ts` | CodeSpecs: area catalogue, routing, extract, write extracts; the Stage-A gate and the Stage-B gate record; query and trace |
@@ -726,7 +758,7 @@ that works under `toolsEnabled: true` and is invisible everywhere else.
 
 ### Deliberately unselectable tools
 
-Of the 169 registered tools, **153 are selectable** and **16 are withheld from
+Of the 173 registered tools, **157 are selectable** and **16 are withheld from
 the pickers on purpose** (`DELIBERATELY_UNSELECTABLE_TOOLS` in
 `src/utils/constants.ts`): the twelve queue mutators and dispatch entry points
 (`tomAi_addQueueItem`, `tomAi_updateQueueItem`, `tomAi_removeQueueItem`,

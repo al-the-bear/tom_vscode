@@ -22,6 +22,7 @@ const MINIMAL_VIEW_IDS = [
     'tomAi.chatPanel',
     'tomAi.wsPanel',
     'tomAi.vscodeNotes',
+    'tomAi.process',
     'tomAi.questNotes',
     'tomAi.questTodos',
     'tomAi.sessionTodos',

@@ -706,6 +706,7 @@ interface QueuedPrompt {
 
 **Variable table:**
 - All registered chat variables displayed in a two-column editable table
+- The process variables (`process`, `phase`, `step`, `substep`, their iterations and descriptions) are not listed here: they belong to the quest's process state, which the @TOM PROCESS view shows and sets (the agent uses `tomAi_setProcessState`).
 - Built-in variables (quest, role, activeProjects, todo) have type-appropriate editors:
   - Quest: dropdown (same as panel)
   - Role: dropdown (same as panel)

@@ -105,6 +105,17 @@ The Markdown Browser is a standalone webview panel for reading markdown document
 - **Edit mode** (pencil button in the action bar): every paragraph, list, quote, table and code block shows two buttons at its end; switching edit mode on or off is immediate, also on large documents. **Edit** opens the block's markdown source in a text area, starting with the empty line that separates it from the block before — delete that newline to merge the block into the previous one. **Insert** opens an empty one whose text is appended directly to the end of the block — start it with an empty line for a new paragraph. The text is saved exactly as typed, newlines included. Both close with Save / Discard and keep the reading position; a save updates only the part of the page it changed. Large documents (several MB) render in short steps, so the window stays responsive while they open — the file bar shows the progress — and only the part around the view is laid out; the pages above and below it are prepared ahead, so scrolling does not show blank pages.
 - **Editing is guarded**: a save is refused, and the text area stays open with the reason, when the file changed since it was shown, when it has unsaved changes in an editor, or while **CR/LF** is on (its conversion moves lines, so the editing buttons are hidden then). An automatic refresh that arrives while a text area is open is held back until it closes.
 
+### Processes
+
+A **process** is a named way of working through a quest, so you do not have to explain it to the agent again in every prompt. It has **phases**; each phase has **steps**, and a step can group **sub-steps** (the step is then just their group). A step or sub-step can name the **role** doing it. Every phase ends with a **quality gate** step and can have a **post-gate** step whose todos are done after the gate passed and before the next phase starts. Phases, steps and sub-steps can be **repeatable** — run in several iterations, optionally up to a maximum.
+
+Processes live in `_ai/processes/<id>/`: `<id>.process.yaml` is the structure and `<id>.md` the description.
+
+- **Process editor** — the hierarchy icon button at the bottom of every @CHAT subpanel (or `@T: Open Process Editor`). The list on the left shows every process; **+** creates one from a one-phase skeleton, the copy button duplicates the selected one under a new id. The form edits the name, summary, Markdown description and every phase, step, sub-step, gate and post-gate step: id, name, role, repeatable / maximum, description, and the post-gate todos with an optional quest-todo id prefix. Problems are listed as you type; **Save** (Ctrl/Cmd+S) refuses an invalid definition. The descriptions are edited only here.
+- **PROCESS view** (@TOM sidebar, between VS CODE NOTES and QUEST NOTES) — where the active quest is: process, phase, step and sub-step as dropdowns, each iteration with **−** / **+**, the role the step names, and the post-gate todos when in that step. **?** shows a description; the pencil opens the editor. Normally the agent keeps this current; you can set any of it by hand. **+** starts the next iteration (a new phase iteration starts again at its first step, a new step iteration at its first sub-step); **−** only corrects the number.
+- **State per quest** — the position is stored in `_ai/quests/<quest>/process-state.<quest>.yaml`, so it is the same in every window and on every machine, and switching the quest switches it. Moving to a step that names a role also sets the `role` chat variable.
+- **In the system prompt** — every Anthropic profile includes a *Current process* section while a process is set: the positions, the steps of the phase, the post-gate todos and the descriptions. The values are also chat variables (`process`, `phase`, `step`, `substep`, `phase-iteration`, `step-iteration`, `substep-iteration`, `process-description`, `phase-description`, `step-description`, `substep-description`) and placeholders (`${process-context}` for the whole block). The agent moves the state with `tomAi_setProcessState`.
+
 ### Window Status Panel
 
 The Window Status panel is an Explorer sidebar view showing the state of all open @Tom windows:
@@ -117,7 +128,7 @@ The Window Status panel is an Explorer sidebar view showing the state of all ope
 - **Auto-refresh**: File watcher on `_ai/local/*.window-state.json` with periodic refresh every 3 seconds
 - **Cleanup**: Delete button to remove stale window entries
 
-Explorer adds note and todo views: VS Code Notes, Quest Notes, Quest Todos, Session Todos, TODO Log, Workspace Notes, Workspace Todos, Window Status.
+Explorer adds note and todo views: VS Code Notes, Process, Quest Notes, Quest Todos, Session Todos, TODO Log, Workspace Notes, Workspace Todos, Window Status.
 
 ### Quest TODO Panel
 

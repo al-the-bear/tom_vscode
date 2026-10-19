@@ -69,6 +69,11 @@ export const AVAILABLE_LLM_TOOLS = [
     // Chat variables
     'tomAi_readChatVariable',
     'tomAi_writeChatVariable',
+    // Processes (the quest's process and its state)
+    'tomAi_listProcesses',
+    'tomAi_getProcess',
+    'tomAi_getProcessState',
+    'tomAi_setProcessState',
     // Memory
     'tomAi_readMemory',
     'tomAi_listMemory',

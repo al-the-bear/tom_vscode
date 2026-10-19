@@ -16,6 +16,7 @@ import { readPanelYaml, writePanelYaml, openPanelFile } from '../utils/panelYaml
 import { WsPaths } from '../utils/workspacePaths';
 import { updateChatResponseValues } from './handler_shared';
 import { loadWebviewHtml } from '../utils/webviewLoader';
+import { listRoleNames } from '../utils/roleNames';
 
 // ============================================================================
 // Panel management
@@ -211,17 +212,8 @@ function _getWorkspaceRoot(): string | undefined {
 
 function _scanRoles(): string[] {
     const wsRoot = _getWorkspaceRoot();
-    if (!wsRoot) return [];
-    
-    const rolesDir = WsPaths.ai('roles') || path.join(wsRoot, '_ai', 'roles');
-    if (!fs.existsSync(rolesDir)) return [];
-    
-    try {
-        return fs.readdirSync(rolesDir, { withFileTypes: true })
-            .filter(e => e.isDirectory() || e.name.endsWith('.md') || e.name.endsWith('.yaml'))
-            .map(e => e.isDirectory() ? e.name : e.name.replace(/\.(md|yaml)$/, ''))
-            .sort();
-    } catch { return []; }
+    if (!wsRoot) { return []; }
+    return listRoleNames(WsPaths.ai('roles') || path.join(wsRoot, '_ai', 'roles'));
 }
 
 // ============================================================================

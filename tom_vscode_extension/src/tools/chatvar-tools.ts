@@ -35,6 +35,7 @@
  *     single-key read in `{key, value, exists}` so the model can tell.
  */
 
+import { PROCESS_VARIABLE_KEYS } from '../utils/processDefinition';
 import { SharedToolDefinition } from './shared-tool-registry';
 
 // ===========================================================================
@@ -65,8 +66,15 @@ export interface ChatVariablesAccess {
 // Built-in names (shared)
 // ===========================================================================
 
+/**
+ * The process variables: read here, written only through
+ * `tomAi_setProcessState` (or the PROCESS panel), which checks them against
+ * the process definition and keeps the quest's state file.
+ */
+export const PROCESS_CHATVAR_KEYS: ReadonlySet<string> = new Set(PROCESS_VARIABLE_KEYS);
+
 export const BUILT_IN_CHATVAR_KEYS: ReadonlySet<string> = new Set([
-    'quest', 'role', 'activeProjects', 'todo', 'todoFile',
+    'quest', 'role', 'activeProjects', 'todo', 'todoFile', ...PROCESS_VARIABLE_KEYS,
 ]);
 
 /** Idempotently strip the `custom.` prefix the model may send. */
@@ -105,6 +113,7 @@ export async function readChatVariableImpl(deps: ChatVariablesAccess, input: Cha
             activeProjects: snap.activeProjects,
             todo: snap.todo,
             todoFile: snap.todoFile,
+            process: Object.fromEntries(PROCESS_VARIABLE_KEYS.map((k) => [k, deps.getRaw(k)])),
             custom: snap.custom,
         }, null, 2);
     } catch (e) {
@@ -116,10 +125,16 @@ export const READ_CHATVAR_DESCRIPTION =
     'Read chat variables. **Built-in keys**: `quest` (active quest id), ' +
     '`role` (active role name), `activeProjects` (string[]), `todo` ' +
     '(selected todo id), `todoFile` (selected file name or `"all"`). ' +
+    '**Process keys** (the active quest\'s process, kept per quest in the ' +
+    'quest folder): `process`, `phase`, `step`, `substep`, `phase-iteration`, ' +
+    '`step-iteration`, `substep-iteration` and the descriptions ' +
+    '`process-description`, `phase-description`, `step-description`, ' +
+    '`substep-description` — all `""` when no process is set; change them ' +
+    'with `tomAi_setProcessState`. ' +
     '**Custom keys** are stored under the `custom.*` namespace; you can ' +
     'address them as `custom.myKey` or just `myKey` — both forms resolve ' +
     'to the same value. Omit `key` to return the full snapshot ' +
-    '(`{quest, role, activeProjects, todo, todoFile, custom}`); pass ' +
+    '(`{quest, role, activeProjects, todo, todoFile, process: {...}, custom}`); pass ' +
     '`key` to get `{key, value, exists, isBuiltIn}` for one variable — ' +
     '`exists: false` distinguishes an unknown custom key from one with ' +
     'an empty value. **Persistence**: per VS Code window, written to a ' +
@@ -178,6 +193,10 @@ export async function writeChatVariableImpl(deps: ChatVariablesAccess, input: Ch
                 rejected.push({ key: rawKey, reason: 'empty name' });
                 continue;
             }
+            if (PROCESS_CHATVAR_KEYS.has(key)) {
+                rejected.push({ key, reason: 'process variables are set with tomAi_setProcessState, which checks them against the process definition' });
+                continue;
+            }
             if (BUILT_IN_CHATVAR_KEYS.has(key)) {
                 rejected.push({ key, reason: 'built-in keys are user-only — set them from the Chat Variables panel' });
                 continue;
@@ -225,7 +244,9 @@ export const WRITE_CHATVAR_DESCRIPTION =
     '(the `custom.` prefix is stripped idempotently). **Built-in keys** ' +
     '(`quest`, `role`, `activeProjects`, `todo`, `todoFile`) are rejected ' +
     'with `reason: "built-in keys are user-only..."` — set those from the ' +
-    'Chat Variables panel. **Empty-string value DELETES the variable** when ' +
+    'Chat Variables panel. The process keys (`process`, `phase`, `step`, ' +
+    '`substep`, the iterations and descriptions) are rejected too — set ' +
+    'them with `tomAi_setProcessState`. **Empty-string value DELETES the variable** when ' +
     'the key currently exists; writing an empty string to an unknown key is ' +
     'rejected as "would set/delete nothing" so the model knows nothing was ' +
     'persisted. **Coercion rules**: strings pass through; null/undefined → ' +

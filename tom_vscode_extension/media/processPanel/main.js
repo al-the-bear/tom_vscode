@@ -1,0 +1,175 @@
+// @ts-nocheck
+// PROCESS sidebar view — where the active quest is in its process.
+// Host: src/handlers/processPanel-handler.ts. State arrives as one 'state'
+// message; every user action is posted back and the host answers with the
+// new state, so this script holds no state of its own beyond what is shown
+// and which descriptions are open.
+/* global acquireVsCodeApi, marked */
+(function () {
+    var vscode = acquireVsCodeApi();
+    var INIT = window.__INIT__ || {};
+    var nonce = (document.currentScript && document.currentScript.nonce) || '';
+
+    // Codicons and marked come from node_modules: no loader placeholder exists
+    // for them, so they are added here (the script with this script's nonce).
+    if (INIT.codiconsUri) {
+        var link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = INIT.codiconsUri;
+        document.head.appendChild(link);
+    }
+    if (INIT.markedUri) {
+        var s = document.createElement('script');
+        s.src = INIT.markedUri;
+        s.nonce = nonce;
+        s.onload = function () { render(); };
+        document.head.appendChild(s);
+    }
+
+    var root = /** @type {HTMLElement} */ (document.getElementById('root'));
+    var current = null;
+    /** Which descriptions are open, by level ('process', 'phase', 'step', 'substep'). */
+    var open = {};
+
+    function esc(text) {
+        return String(text === null || text === undefined ? '' : text).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    }
+
+    function md(text) {
+        if (!text) { return '<div class="muted">No description.</div>'; }
+        // eslint-disable-next-line no-undef
+        if (typeof marked !== 'undefined' && marked.parse) { return marked.parse(text); }
+        return '<pre>' + esc(text) + '</pre>';
+    }
+
+    function label(node) {
+        return node.name ? node.name + ' (' + node.id + ')' : node.id;
+    }
+
+    /** The steps of a phase in order: steps, gate, post-gate. */
+    function stepsOf(phase) {
+        var out = phase.steps.map(function (st) { return { kind: 'step', step: st }; });
+        out.push({ kind: 'gate', step: phase.gate });
+        if (phase.postGate) { out.push({ kind: 'post-gate', step: phase.postGate }); }
+        return out;
+    }
+
+    function select(id, options, value, title) {
+        return '<select id="' + id + '" title="' + esc(title) + '">' + options.map(function (o) {
+            return '<option value="' + esc(o.value) + '"' + (o.value === value ? ' selected' : '') + (o.disabled ? ' disabled' : '') + '>' + esc(o.label) + '</option>';
+        }).join('') + '</select>';
+    }
+
+    function iteration(level, node, n) {
+        var repeatable = node && node.repeatable === true;
+        var max = node && node.maxIterations;
+        var text = repeatable ? (max ? n + '/' + max : String(n)) : '1';
+        return '<span class="iter" title="' + (repeatable ? 'Iteration' + (max ? ' (at most ' + max + ')' : '') : 'Not repeatable') + '">'
+            + '<button class="icon" data-iter="' + level + '" data-delta="-1"' + (!repeatable || n <= 1 ? ' disabled' : '') + ' title="Previous iteration (corrects the number)"><span class="codicon codicon-remove"></span></button>'
+            + '<span class="iter-n">' + esc(text) + '</span>'
+            + '<button class="icon" data-iter="' + level + '" data-delta="1"' + (!repeatable || (max && n >= max) ? ' disabled' : '') + ' title="Start the next iteration"><span class="codicon codicon-add"></span></button>'
+            + '</span>';
+    }
+
+    function help(level) {
+        return '<button class="icon' + (open[level] ? ' active' : '') + '" data-help="' + level + '" title="Show the description"><span class="codicon codicon-question"></span></button>';
+    }
+
+    function row(title, control, extra, level, text) {
+        return '<div class="row"><label>' + title + '</label><div class="control">' + control + '</div>' + extra + '</div>'
+            + (open[level] ? '<div class="desc">' + md(text) + '</div>' : '');
+    }
+
+    function render() {
+        var c = current;
+        if (!c) { return; }
+        if (!c.quest) {
+            root.innerHTML = '<div class="muted">No quest is active. A process state belongs to a quest — choose one in the Chat Variables.</div>';
+            return;
+        }
+        var html = '';
+        var procOptions = [{ value: '', label: '— none —' }].concat(c.processes.map(function (p) {
+            return { value: p.id, label: p.valid ? p.name + ' (' + p.id + ')' : p.id + ' (invalid)', disabled: !p.valid && p.id !== c.state.process };
+        }));
+        var edit = '<button class="icon" data-edit="1" title="Open the process editor"><span class="codicon codicon-edit"></span></button>';
+        html += row('Process', select('sel-process', procOptions, c.state.process, 'The process this quest follows'),
+            (c.state.process ? help('process') : '') + edit, 'process', c.description);
+        if (c.processInvalid) {
+            html += '<div class="warn">The definition of "' + esc(c.state.process) + '" has errors — fix it in the process editor.</div>';
+        }
+        var def = c.definition;
+        if (def) {
+            var phase = def.phases.find(function (p) { return p.id === c.state.phase; });
+            html += row('Phase', select('sel-phase', def.phases.map(function (p, i) { return { value: p.id, label: (i + 1) + '. ' + label(p) }; }), c.state.phase, 'Phase'),
+                iteration('phase', phase, c.state.phaseIteration) + help('phase'), 'phase', phase && phase.description);
+            if (phase) {
+                var entries = stepsOf(phase);
+                var entry = entries.find(function (e) { return e.step.id === c.state.step; });
+                var stepOptions = entries.map(function (e, i) {
+                    var prefix = e.kind === 'gate' ? 'Gate: ' : e.kind === 'post-gate' ? 'Post-gate: ' : '';
+                    return { value: e.step.id, label: (i + 1) + '. ' + prefix + label(e.step) };
+                });
+                var step = entry && entry.step;
+                html += row('Step', select('sel-step', stepOptions, c.state.step, 'Step of the phase'),
+                    iteration('step', step, c.state.stepIteration) + help('step'), 'step', step && step.description);
+                if (step && step.substeps && step.substeps.length) {
+                    var sub = step.substeps.find(function (x) { return x.id === c.state.substep; });
+                    html += row('Sub-step', select('sel-substep', step.substeps.map(function (x, i) { return { value: x.id, label: (i + 1) + '. ' + label(x) }; }), c.state.substep, 'Sub-step'),
+                        iteration('substep', sub, c.state.substepIteration) + help('substep'), 'substep', sub && sub.description);
+                }
+                var roleNote = c.stepRole
+                    ? '<code>' + esc(c.stepRole) + '</code>' + (c.chatRole && c.chatRole !== c.stepRole ? ' <span class="muted">(chat role: ' + esc(c.chatRole) + ')</span>' : '')
+                    : '<span class="muted">none named' + (c.chatRole ? ' — chat role: ' + esc(c.chatRole) : '') + '</span>';
+                html += '<div class="row"><label>Role</label><div class="control role">' + roleNote + '</div></div>';
+                if (entry && entry.kind === 'post-gate' && (step.todos && step.todos.length || step.todoPrefix)) {
+                    html += '<div class="todos"><div class="todos-title">Before the next phase:</div><ul>'
+                        + (step.todos || []).map(function (t) { return '<li title="' + esc(t.description || '') + '">' + esc(t.title) + '</li>'; }).join('')
+                        + (step.todoPrefix ? '<li>quest todos <code>' + esc(step.todoPrefix) + '*</code></li>' : '')
+                        + '</ul></div>';
+                }
+            }
+        }
+        if (c.processes.length === 0) {
+            html += '<div class="muted">No processes yet — create one in the process editor (_ai/processes/).</div>';
+        }
+        root.innerHTML = html;
+    }
+
+    function post(msg) { vscode.postMessage(msg); }
+
+    root.addEventListener('change', function (e) {
+        var t = /** @type {HTMLSelectElement} */ (e.target);
+        if (!t || t.tagName !== 'SELECT') { return; }
+        var key = { 'sel-process': 'process', 'sel-phase': 'phase', 'sel-step': 'step', 'sel-substep': 'substep' }[t.id];
+        if (!key) { return; }
+        var change = {};
+        change[key] = t.value;
+        post({ type: 'change', change: change });
+    });
+
+    root.addEventListener('click', function (e) {
+        var target = /** @type {HTMLElement} */ (e.target);
+        var btn = target && target.closest ? /** @type {HTMLButtonElement|null} */ (target.closest('button')) : null;
+        if (!btn || btn.disabled) { return; }
+        if (btn.dataset.iter) {
+            post({ type: 'iteration', level: btn.dataset.iter, delta: Number(btn.dataset.delta) });
+        } else if (btn.dataset.help) {
+            open[btn.dataset.help] = !open[btn.dataset.help];
+            render();
+        } else if (btn.dataset.edit) {
+            post({ type: 'openEditor', id: current && current.state.process });
+        }
+    });
+
+    window.addEventListener('message', function (e) {
+        var msg = e.data;
+        if (msg && msg.type === 'state') {
+            current = msg;
+            render();
+        }
+    });
+
+    post({ type: 'ready' });
+})();

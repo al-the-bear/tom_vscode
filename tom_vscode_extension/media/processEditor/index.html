@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<!--
+  Process editor (src/handlers/processEditor-handler.ts). No inline handlers:
+  main.js attaches every listener, so the loader's nonce-only CSP applies.
+  Codicons are linked by main.js from window.__INIT__.codiconsUri.
+-->
+<link rel="stylesheet" href="{{baseUri}}/style.css">
+</head>
+<body>
+<div class="layout">
+    <aside class="side">
+        <div class="side-head">
+            <span class="side-title">Processes</span>
+            <button class="icon" id="btn-new" title="New process"><span class="codicon codicon-add"></span></button>
+            <button class="icon" id="btn-copy" title="Copy the selected process"><span class="codicon codicon-copy"></span></button>
+        </div>
+        <ul id="list" class="list"></ul>
+        <div class="side-foot muted">Stored in <code>_ai/processes/&lt;id&gt;/</code></div>
+    </aside>
+    <main id="main" class="main"><div class="muted">Select a process, or create one.</div></main>
+</div>
+<script src="{{baseUri}}/main.js"></script>
+</body>
+</html>

@@ -375,6 +375,11 @@
         "category": "@Tom"
       },
       {
+        "command": "tomAi.editor.process",
+        "title": "@T: Open Process Editor",
+        "category": "@Tom"
+      },
+      {
         "command": "tomAi.panel.memory",
         "title": "@T: Open Memory Panel",
         "category": "@Tom"
@@ -455,6 +460,12 @@
           "id": "tomAi.vscodeNotes",
           "name": "VS CODE NOTES",
           "icon": "$(note)"
+        },
+        {
+          "type": "webview",
+          "id": "tomAi.process",
+          "name": "PROCESS",
+          "icon": "$(type-hierarchy)"
         },
         {
           "type": "webview",
@@ -544,6 +555,10 @@
       {
         "fileMatch": "*.prompt-panel.yaml",
         "url": "../../../.tom/json-schema/panels/prompt.schema.json"
+      },
+      {
+        "fileMatch": "*.process.yaml",
+        "url": "./out/config/process.schema.json"
       }
     ],
     "keybindings": [

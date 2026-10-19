@@ -313,3 +313,22 @@ describe('chatvar — write/read round-trip', () => {
         assert.equal(r.exists, true);
     });
 });
+
+describe('chatvar — process keys', () => {
+    test('they are written only through tomAi_setProcessState', async () => {
+        const r = JSON.parse(await writeChatVariableImpl(access, { variables: { phase: 'p2', 'step-iteration': '3', note: 'ok' } }));
+        assert.deepEqual(r.rejected.map((x: { key: string }) => x.key).sort(), ['phase', 'step-iteration']);
+        assert.match(r.rejected[0].reason, /tomAi_setProcessState/);
+        assert.deepEqual(r.accepted.created, ['note']);
+    });
+
+    test('the full read carries them, under process', async () => {
+        access.custom.set('phase', 'p2');   // stands in for the process store's derived value
+        const r = JSON.parse(await readChatVariableImpl(access, {}));
+        assert.equal(r.process.phase, 'p2');
+        assert.ok('substep-description' in r.process);
+        const one = JSON.parse(await readChatVariableImpl(access, { key: 'phase' }));
+        assert.deepEqual([one.value, one.isBuiltIn], ['p2', true]);
+    });
+});
+

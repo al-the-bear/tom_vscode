@@ -670,17 +670,19 @@ All standard placeholders (`${quest}`, `${git.branch}`, `${date}`, `${workspaceF
 
 ### 7.5 New universal placeholders — file-injection
 
-Two new placeholders are added to `variableResolver.ts` (`buildVariableMap`) that inject the **content** of files rather than a path or simple string. They resolve against the current `role` and `quest` chat variable values.
+These placeholders in `variableResolver.ts` (`buildVariableMap`) inject the **content** of files rather than a path or simple string. They resolve against the current `role` and `quest` chat variable values, and — for `${process-context}` — the quest's process state (see `doc/llm_tools.md` §4.26).
 
 | Placeholder | Resolves to | File read |
 | --- | --- | --- |
 | `${role-description}` | Full content of the active role definition | `_ai/roles/${role}/role.md` |
 | `${quest-description}` | Full content of the active quest overview | `_ai/quests/${quest}/overview.${quest}.md` |
+| `${process-context}` | The active quest's process: where it is (process, phase, step, sub-step, iterations, roles), the steps of the phase, the post-gate todos, the descriptions; `""` without a process | `_ai/processes/${process}/` + `_ai/quests/${quest}/process-state.${quest}.yaml` |
 
 Resolution rules:
 
 - If `role` is empty or the file does not exist, `${role-description}` resolves to `""`.
 - If `quest` is empty or the overview file does not exist, `${quest-description}` resolves to `""`.
+- If the quest has no process (or its definition is invalid), `${process-context}` resolves to `""`.
 - Files are read synchronously at variable-map build time (same as all other built-in placeholders).
 - These placeholders are available in **all** prompt template contexts — system prompts, compaction templates, memory extraction templates, copilot answer templates, etc.
 
@@ -689,6 +691,7 @@ Typical usage in a system prompt template:
 ```text
 ${{ vars["role-description"] ? "## Your role\n" + vars["role-description"] + "\n" : "" }}
 ${{ vars["quest-description"] ? "## Current quest\n" + vars["quest-description"] + "\n" : "" }}
+${{ vars["process-context"] ? "## Current process\n" + vars["process-context"] + "\n" : "" }}
 ```
 
 Or as static placeholders when the surrounding text handles the empty case:

@@ -294,6 +294,7 @@ function getSectionContent(id) {
             // literal.)
             afterEditorHtml: '<div class="status-bar"><span id="localLlm-status" class="context-summary"></span>' +
                 '<span class="status-bar-actions">' +
+                '<button class="icon-btn" data-action="openProcessEditor" title="Process Editor — the processes a quest can follow (_ai/processes)"><span class="codicon codicon-type-hierarchy"></span></button>' +
                 '<button class="icon-btn" data-action="runQuestRefresh" data-id="localLlm" title="Run Quest Refresh now — dispatch the configured Local LLM refresh prompt for this quest, then trim the live-trail back to base and reset the prompt counter."><span class="codicon codicon-sync"></span></button>' +
                 '</span></div>',
         }),
@@ -319,6 +320,9 @@ function getSectionContent(id) {
             infoId: 'conversation-profileInfo',
             placeholder: 'Enter your goal/description for the conversation...',
             helpTitle: 'Tip: Describe the goal clearly. The bot will orchestrate a multi-turn conversation with Copilot.',
+            afterEditorHtml: '<div class="status-bar"><span class="context-summary"></span><span class="status-bar-actions">' +
+                '<button class="icon-btn" data-action="openProcessEditor" title="Process Editor — the processes a quest can follow (_ai/processes)"><span class="codicon codicon-type-hierarchy"></span></button>' +
+                '</span></div>',
         }),
         copilot: getPromptEditorComponent({
             sectionId: 'copilot',
@@ -364,6 +368,7 @@ function getSectionContent(id) {
                 '<div class="status-bar"><span id="copilot-context-summary" class="context-summary"></span>' +
                 '<span class="status-bar-actions">' +
                 '<button class="icon-btn" data-action="openChatVariablesEditor" title="Chat Variables Editor"><span class="codicon codicon-symbol-key"></span></button>' +
+                '<button class="icon-btn" data-action="openProcessEditor" title="Process Editor — the processes a quest can follow (_ai/processes)"><span class="codicon codicon-type-hierarchy"></span></button>' +
                 '<button class="icon-btn" data-action="openQueueEditor" data-id="copilot" title="Open Prompt Queue"><span class="codicon codicon-inbox"></span></button>' +
                 '<button class="icon-btn" data-action="openQueueTemplatesEditor" data-id="copilot" title="Open Queue Templates"><span class="codicon codicon-files"></span></button>' +
                 '<button class="icon-btn" data-action="openStatusPage" data-id="copilot" title="Open Extension Status Page"><span class="codicon codicon-dashboard"></span></button>' +
@@ -387,6 +392,9 @@ function getSectionContent(id) {
             infoId: 'tomAiChat-templateInfo',
             placeholder: 'Enter your prompt for Tom AI Chat...',
             helpTitle: 'Show Placeholder Help',
+            afterEditorHtml: '<div class="status-bar"><span class="context-summary"></span><span class="status-bar-actions">' +
+                '<button class="icon-btn" data-action="openProcessEditor" title="Process Editor — the processes a quest can follow (_ai/processes)"><span class="codicon codicon-type-hierarchy"></span></button>' +
+                '</span></div>',
         }),
         anthropic: getPromptEditorComponent({
             sectionId: 'anthropic',
@@ -456,6 +464,7 @@ function getSectionContent(id) {
                 '<div class="status-bar"><span id="anthropic-status" class="context-summary"></span>' +
                 '<span class="status-bar-actions">' +
                 '<button class="icon-btn" data-action="openChatVariablesEditor" title="Chat Variables Editor"><span class="codicon codicon-symbol-key"></span></button>' +
+                '<button class="icon-btn" data-action="openProcessEditor" title="Process Editor — the processes a quest can follow (_ai/processes)"><span class="codicon codicon-type-hierarchy"></span></button>' +
                 '<button class="icon-btn" data-action="openQueueEditor" data-id="anthropic" title="Open Prompt Queue"><span class="codicon codicon-inbox"></span></button>' +
                 '<button class="icon-btn" data-action="openQueueTemplatesEditor" data-id="anthropic" title="Open Queue Templates"><span class="codicon codicon-files"></span></button>' +
                 '<button class="icon-btn" data-action="openStatusPage" data-id="anthropic" title="Open Extension Status Page"><span class="codicon codicon-dashboard"></span></button>' +
@@ -527,6 +536,7 @@ function render() {
             '<button class="link-btn" data-action="openReusablePromptEditor" title="Reusable Prompt Editor"><span class="codicon codicon-note"></span> Reusable Prompts</button>' +
             '<button class="link-btn" data-action="openContextSettingsEditor" title="Context & Settings Editor"><span class="codicon codicon-settings-gear"></span> Context Editor</button>' +
             '<button class="link-btn" data-action="openChatVariablesEditor" title="Chat Variables Editor"><span class="codicon codicon-symbol-key"></span> Chat Variables</button>' +
+            '<button class="link-btn" data-action="openProcessEditor" title="Process Editor"><span class="codicon codicon-type-hierarchy"></span> Process Editor</button>' +
             '<button class="link-btn" data-action="openTrailRawFiles" data-id="copilot" title="Raw Trail Files Viewer"><span class="codicon codicon-history"></span> Raw Trail Files Viewer</button>' +
             '<button class="link-btn" data-action="openTrailSummaryViewer" data-id="copilot" title="Trail Summary Viewer"><span class="codicon codicon-list-flat"></span> Trail Summary Viewer</button>' +
             '</div>' +
@@ -774,6 +784,7 @@ function handleAction(action, id, slot) {
         case 'openConversationTurnFilesEditor': vscode.postMessage({ type: 'openConversationTurnFilesEditor' }); break;
         case 'saveAsTimedRequest': { var trText = document.getElementById('copilot-text'); trText = trText ? trText.value : ''; if (!trText.trim()) {return;} var trTpl = document.getElementById('copilot-template'); trTpl = trTpl ? trTpl.value : ''; vscode.postMessage({ type: 'saveAsTimedRequest', text: trText, template: trTpl }); break; }
         case 'openChatVariablesEditor': vscode.postMessage({ type: 'openChatVariablesEditor' }); break;
+        case 'openProcessEditor': vscode.postMessage({ type: 'openProcessEditor' }); break;
         case 'openStatusPage': vscode.postMessage({ type: 'openStatusPage' }); break;
         case 'recreateHistoryFromTrail': vscode.postMessage({ type: 'recreateHistoryFromTrail' }); break;
         case 'recreateMemoryFromTrail': vscode.postMessage({ type: 'recreateMemoryFromTrail' }); break;

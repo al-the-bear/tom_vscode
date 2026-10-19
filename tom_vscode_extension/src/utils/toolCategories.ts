@@ -29,6 +29,12 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_readChatVariable',
         'tomAi_writeChatVariable',
     ],
+    'Processes': [
+        'tomAi_listProcesses',
+        'tomAi_getProcess',
+        'tomAi_getProcessState',
+        'tomAi_setProcessState',
+    ],
     'Diagnostics': [
         'tomAi_getErrors',
         'tomAi_getProblems',

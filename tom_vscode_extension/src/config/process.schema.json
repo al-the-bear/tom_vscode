@@ -1,0 +1,209 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tom-ai.dev/schemas/process.schema.json",
+  "title": "Tom process definition (<id>.process.yaml)",
+  "description": "A process: phases of steps (some grouping sub-steps), each phase ending with a quality-gate step and optionally a post-gate step whose todos are done before the next phase starts. Lives at _ai/processes/<id>/<id>.process.yaml beside <id>.md, the process description. Checked by validateProcessDefinition (src/utils/processDefinition.ts), which also enforces what a schema cannot: ids unique within their scope, maxIterations only with repeatable.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "phases"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "#/$defs/id",
+      "description": "The process id; also its folder and file name."
+    },
+    "name": {
+      "type": "string",
+      "description": "Display name."
+    },
+    "summary": {
+      "type": "string",
+      "description": "One line; the full description is the process's .md file."
+    },
+    "phases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/phase"
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+    },
+    "substep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string",
+          "description": "Markdown."
+        },
+        "role": {
+          "type": "string",
+          "description": "The role doing it: a folder name under _ai/roles/."
+        },
+        "repeatable": {
+          "type": "boolean"
+        },
+        "maxIterations": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string",
+          "description": "Markdown."
+        },
+        "role": {
+          "type": "string",
+          "description": "The role doing it; with sub-steps, the role of those that name none."
+        },
+        "repeatable": {
+          "type": "boolean"
+        },
+        "maxIterations": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "substeps": {
+          "type": "array",
+          "minItems": 1,
+          "description": "A step with sub-steps is no action of its own but a group of them.",
+          "items": {
+            "$ref": "#/$defs/substep"
+          }
+        }
+      }
+    },
+    "postGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string",
+          "description": "Markdown."
+        },
+        "role": {
+          "type": "string"
+        },
+        "repeatable": {
+          "type": "boolean"
+        },
+        "maxIterations": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "substeps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/substep"
+          }
+        },
+        "todos": {
+          "type": "array",
+          "description": "Todos done after the gate passed, before the next phase starts.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "title"
+            ],
+            "properties": {
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "todoPrefix": {
+          "type": "string",
+          "description": "Quest todos whose id starts with this prefix belong to the step too."
+        }
+      }
+    },
+    "phase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "steps",
+        "gate"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string",
+          "description": "Markdown."
+        },
+        "repeatable": {
+          "type": "boolean"
+        },
+        "maxIterations": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/step"
+          }
+        },
+        "gate": {
+          "$ref": "#/$defs/step",
+          "description": "The quality gate that ends the phase."
+        },
+        "postGate": {
+          "$ref": "#/$defs/postGate",
+          "description": "Optional step after the gate passed."
+        }
+      }
+    }
+  }
+}
