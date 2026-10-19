@@ -15,6 +15,9 @@
  *   MD-9  a save patches the shown document in place; the file's refresh with the same text renders nothing
  *   MD-10 a refresh with unchanged text keeps the rendered nodes
  *   MD-11 an existing answer opens in the editor and saving replaces it, quote lines included
+ *   MD-12 comments: the comment button adds a comment block after a paragraph (the editor opens with the
+ *         arrow and the next id, the text is written under `> `); a comment block's own button reopens it
+ *         without the `>`; saving it empty asks again, then removes the block
  */
 
 import test, { describe } from 'node:test';
@@ -219,5 +222,64 @@ describe('Markdown Browser editing', () => {
         $(window, '.mdb-answer-btn')[0].click();
         $(window, '.mdb-editor-btn')[0].click();
         assert.equal(lastEdit(posted).editId, edit.editId, 'unchanged: nothing is sent');
+    });
+
+    test('MD-12: comment blocks', () => {
+        const { window, posted } = setup();
+        const doc = ['# T', '', 'First para.', '', '> ⬆️ **C-4** (Alexis): old remark', '> more', '', 'Last para.'].join('\n');
+        send(window, content(doc));
+        const edit = (): Record<string, unknown> => {
+            const e = lastEdit(posted);
+            return { startLine: e.startLine, endLine: e.endLine, expected: e.expected, replacement: e.replacement };
+        };
+        // The comment block: its own button, always there; no raw edit / insert of it.
+        const commentBlock = $(window, '.mdb-block').find((b: Win) => b.textContent.includes('old remark'));
+        assert.equal(commentBlock.querySelectorAll('.mdb-comment-edit-btn').length, 1);
+        assert.equal(commentBlock.querySelectorAll('.mdb-edit-btn, .mdb-insert-btn').length, 0);
+        assert.equal(commentBlock.querySelectorAll('.mdb-comment-btn').length, 1, 'another comment can follow it');
+
+        // Adding after a paragraph.
+        const first = $(window, '.mdb-block').find((b: Win) => b.textContent.includes('First para.'));
+        first.querySelector('.mdb-comment-btn').click();
+        const area = $(window, '.mdb-editor textarea')[0];
+        assert.equal(area.value, '⬆️ **C-5** ', 'the arrow and the next id, no `>`');
+        area.value = '⬆️ **C-5** please clarify\nsecond line';
+        $(window, '.mdb-editor-btn')[0].click();
+        assert.deepEqual(edit(), { startLine: 2, endLine: 3, expected: 'First para.',
+            replacement: 'First para.\n\n> ⬆️ **C-5** please clarify\n> second line' });
+        send(window, { type: 'editResult', ok: false, error: 'x', editId: lastEdit(posted).editId });
+        $(window, '.mdb-editor-btn')[1].click();
+
+        // Reopening and editing.
+        commentBlock.querySelector('.mdb-comment-edit-btn').click();
+        const again = $(window, '.mdb-editor textarea')[0];
+        assert.equal(again.value, '⬆️ **C-4** (Alexis): old remark\nmore');
+        again.value = '⬆️ **C-4** (Alexis): new remark';
+        $(window, '.mdb-editor-btn')[0].click();
+        assert.deepEqual(edit(), { startLine: 4, endLine: 6, expected: '> ⬆️ **C-4** (Alexis): old remark\n> more',
+            replacement: '> ⬆️ **C-4** (Alexis): new remark' });
+        send(window, { type: 'editResult', ok: false, error: 'x', editId: lastEdit(posted).editId });
+
+        // Emptied: asks again, then removes the block and the blank line around it.
+        const count = posted.filter((m) => m.type === 'applyEdit').length;
+        const open = $(window, '.mdb-editor textarea')[0];
+        open.value = '';
+        $(window, '.mdb-editor-btn')[0].click();
+        assert.equal(posted.filter((m) => m.type === 'applyEdit').length, count, 'nothing sent yet');
+        assert.match($(window, '.mdb-editor-status')[0].textContent, /again/);
+        $(window, '.mdb-editor-btn')[0].click();
+        assert.deepEqual(edit(), { startLine: 3, endLine: 7, expected: '\n> ⬆️ **C-4** (Alexis): old remark\n> more\n', replacement: '' });
+    });
+
+    test('MD-12b: a comment keeps a blank line before the block after it', () => {
+        const { window, posted } = setup();
+        send(window, content('Para\n- item'));
+        window.document.getElementById('editModeBtn').click();
+        $(window, '.mdb-block')[0].querySelector('.mdb-comment-btn').click();
+        const area = $(window, '.mdb-editor textarea')[0];
+        assert.equal(area.value, '⬆️ **C-1** ');
+        area.value += 'x';
+        $(window, '.mdb-editor-btn')[0].click();
+        assert.equal(lastEdit(posted).replacement, 'Para\n\n> ⬆️ **C-1** x\n', 'else `- item` would continue the quote');
     });
 });

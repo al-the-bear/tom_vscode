@@ -18,6 +18,8 @@
  *   MB-12 a section reference resolves to the heading whose full id holds its ids in order
  *   MB-13 plain-text .md paths: relative, nested, bare names; not URLs, not mid-word
  *   MB-14 which links point at a Markdown document
+ *   MB-16 comment blocks: recognised by the upward arrow, their extent and text without `>`, the
+ *         next id, written back with `> ` (missing id added, empty = no comment)
  *   MB-15 splitting a large document for lexing: only before headings outside code and html,
  *         the parts join back to the text, and lexing the parts gives the tokens of the whole
  */
@@ -44,6 +46,10 @@ interface BlocksApi {
     mdbMdPaths(text: string): Array<{ start: number; end: number; path: string }>;
     mdbIsMdLink(href: string): boolean;
     mdbSplitForLexing(text: string, target: number): Array<{ startLine: number; text: string }>;
+    mdbIsCommentLine(line: string): boolean;
+    mdbCommentAt(lines: string[], line: number): { startLine: number; endLine: number; text: string } | null;
+    mdbNextCommentId(text: string): string;
+    mdbWriteComment(text: string, nextId: string): string;
 }
 
 function load(): BlocksApi {
@@ -235,5 +241,29 @@ describe('Markdown Browser source mapping', () => {
         assert.deepEqual(plain(api.mdbSplitForLexing(doc, 1e9)).map((p) => p.startLine), [0], 'below the target: one part');
         const kinds = (text: string): string[] => marked.lexer(text).filter((x) => x.type !== 'space').map((x) => x.type + ':' + x.raw.trim());
         assert.deepEqual(parts.flatMap((p) => kinds(p.text)), kinds(doc), 'the same tokens as lexing the whole');
+    });
+
+    test('MB-16: comment blocks', () => {
+        assert.equal(api.mdbIsCommentLine('> ⬆️ **C-12** (Alexis): text'), true);
+        assert.equal(api.mdbIsCommentLine('>⬆ plain arrow, no variation selector'), true);
+        assert.equal(api.mdbIsCommentLine('> **❓ BQ-1 — topic:** question'), false);
+        assert.equal(api.mdbIsCommentLine('⬆️ not quoted'), false);
+
+        const lines = ['Para', '', '> ⬆️ **C-2** (Alexis): first', '> second', '>', '> third', '', 'next'];
+        assert.deepEqual(plain(api.mdbCommentAt(lines, 2)), { startLine: 2, endLine: 6, text: '⬆️ **C-2** (Alexis): first\nsecond\n\nthird' });
+        assert.equal(api.mdbCommentAt(lines, 0), null);
+
+        assert.equal(api.mdbNextCommentId('no comments'), 'C-1');
+        assert.equal(api.mdbNextCommentId('> ⬆️ **C-2** a\n\n> ⬆ **C-11** b\n\n**C-40** is not a comment id'), 'C-12');
+
+        const write = (text: string): string => api.mdbWriteComment(text, 'C-7');
+        assert.equal(write('⬆️ **C-7** looks wrong\n\nsee below\n'), '> ⬆️ **C-7** looks wrong\n>\n> see below', 'every line under `> `, a blank one as `>`');
+        assert.equal(write('⬆️ **C-3** (Alexis): keep the id'), '> ⬆️ **C-3** (Alexis): keep the id');
+        assert.equal(write('⬆️ (Alexis): no id yet'), '> ⬆️ **C-7** (Alexis): no id yet', 'a missing id is added after the arrow');
+        assert.equal(write('just text'), '> ⬆️ **C-7** just text', 'a missing arrow too');
+        assert.equal(write(''), '');
+        assert.equal(write('  \n '), '');
+        assert.equal(write('⬆️ **C-7** '), '', 'the arrow and id alone are no comment');
+        assert.equal(write('⬆️ **C-7** (Alexis):'), '');
     });
 });

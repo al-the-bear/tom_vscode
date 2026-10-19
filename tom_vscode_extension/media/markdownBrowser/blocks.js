@@ -4,7 +4,7 @@
 // it can be loaded into a bare `vm` sandbox and unit-tested directly
 // (src/utils/__tests__/mdBrowserBlocks.test.ts). Loaded as a classic script
 // before main.js; the declarations below are globals main.js calls.
-/* exported mdbSplitForLexing, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
+/* exported mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbWriteComment, mdbSplitForLexing, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
 //
 // The browser renders the backend's transformed text. Without the CR/LF
 // conversion that transform keeps every line where it is (it only rewrites
@@ -437,4 +437,90 @@ function mdbSplitForLexing(text, target) {
     }
     parts.push({ startLine: start, text: lines.slice(start).join('\n') });
     return parts;
+}
+
+// ---- Reviewer comment blocks ----
+// A comment block is a blockquote whose first line starts with the upward
+// arrow (U+2B06, with or without U+FE0F): `> ⬆️ **C-12** (Alexis): text`. Id
+// and author are optional; ids are `C-<n>`, numbered per document, a missing
+// one being the document's highest + 1 (tom_specs annot1). The block ends at
+// the first line without `>` and holds only the comment.
+
+/** The first line of a comment block. */
+var MDB_COMMENT_START = /^ {0,3}> ?⬆️?/;
+/** A blockquote line, and its `>` prefix. */
+var MDB_QUOTE_LINE = /^ {0,3}> ?/;
+/** The arrow at the start of a comment's text (the `>` removed). */
+var MDB_COMMENT_ARROW = /^\s*⬆️?/;
+
+/**
+ * @param {string} line
+ * @returns {boolean} whether `line` starts a comment block
+ */
+function mdbIsCommentLine(line) {
+    return MDB_COMMENT_START.test(String(line || ''));
+}
+
+/**
+ * The comment block starting at `line`: its line range (end exclusive) and its
+ * text with the `> ` prefixes removed; null when no comment starts there.
+ *
+ * @param {string[]} lines
+ * @param {number} line
+ * @returns {{startLine: number, endLine: number, text: string} | null}
+ */
+function mdbCommentAt(lines, line) {
+    if (!mdbIsCommentLine(lines[line])) { return null; }
+    var end = line;
+    var text = [];
+    while (end < lines.length && MDB_QUOTE_LINE.test(lines[end])) {
+        text.push(lines[end].replace(MDB_QUOTE_LINE, ''));
+        end++;
+    }
+    return { startLine: line, endLine: end, text: text.join('\n') };
+}
+
+/**
+ * The next free comment id of a document: the highest `C-<n>` written after
+ * a comment arrow, plus one.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function mdbNextCommentId(text) {
+    var re = /⬆️?\s*\*\*C-(\d+)\*\*/g;
+    var max = 0;
+    var m;
+    while ((m = re.exec(String(text || ''))) !== null) { max = Math.max(max, Number(m[1])); }
+    return 'C-' + (max + 1);
+}
+
+/**
+ * A comment's text as it is written into the document: the arrow and an id
+ * at the start (`nextId` when it has none), every line under `> ` (a blank
+ * line as `>`), surrounding blank lines dropped. `''` when the text holds
+ * nothing but the arrow, the id and the author — no comment.
+ *
+ * @param {string} text
+ * @param {string} nextId
+ * @returns {string}
+ */
+function mdbWriteComment(text, nextId) {
+    var lines = String(text || '').replace(/\r\n|\r/g, '\n').split('\n').map(function(l) { return l.replace(/\s+$/, ''); });
+    while (lines.length && lines[0].trim() === '') { lines.shift(); }
+    while (lines.length && lines[lines.length - 1].trim() === '') { lines.pop(); }
+    if (!lines.length) { return ''; }
+    var first = lines[0].replace(/^\s+/, '');
+    var arrow = MDB_COMMENT_ARROW.exec(first);
+    if (!arrow) {
+        first = '⬆️ **' + nextId + '** ' + first;
+    } else if (!/^\s*\*\*C-\d+\*\*/.test(first.slice(arrow[0].length))) {
+        var rest = first.slice(arrow[0].length).replace(/^\s*/, '');
+        first = arrow[0].replace(/^\s*/, '') + ' **' + nextId + '**' + (rest ? ' ' + rest : '');
+    }
+    lines[0] = first;
+    // Nothing but the header (arrow, id, author, colon): no comment.
+    var body = first.replace(MDB_COMMENT_ARROW, '').replace(/^\s*\*\*C-\d+\*\*/, '').replace(/^\s*\([^)]*\)/, '').replace(/^\s*:/, '').trim();
+    if (!body && lines.slice(1).every(function(l) { return l.trim() === ''; })) { return ''; }
+    return lines.map(function(l) { return l === '' ? '>' : '> ' + l; }).join('\n');
 }

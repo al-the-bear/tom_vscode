@@ -342,3 +342,9 @@ body.mdb-edit-mode .mdb-block-actions { display: flex; }
 .search-count { min-width: 60px; font-size: 11px; white-space: nowrap; }
 ::highlight(mdb-search) { background-color: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.33)); }
 ::highlight(mdb-search-current) { background-color: var(--vscode-editor-findMatchBackground, rgba(81, 92, 106, 0.8)); color: inherit; }
+
+/* ---- Review comment blocks (`> ⬆️ **C-12** (author): …`) ---- */
+.markdown-body .mdb-comment-block > blockquote {
+    border-left-color: var(--vscode-charts-yellow, #cca700);
+    color: var(--vscode-foreground);
+}

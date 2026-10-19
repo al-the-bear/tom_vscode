@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global marked, mermaid, Highlight, mdbSplitForLexing, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
+/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbWriteComment, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
 // Markdown Browser client — extracted verbatim from the inline <script> of
 // buildHtml() in src/handlers/markdownBrowser-handler.ts (Phase B.21 webview
 // restructuring). Predates strict checkJs (large verbatim extraction).
@@ -291,6 +291,11 @@
                 var block = !first ? null : (range[0] === range[1] ? first : {
                     index: first.index, type: 'group', startLine: first.startLine, endLine: last.endLine, editable: false,
                 });
+                // A reviewer comment block (`> ⬆️ ...`): edited as a comment, not as raw source.
+                if (block && range[0] === range[1] && tokens[range[0]].type === 'blockquote'
+                    && mdbIsCommentLine(String(tokens[range[0]].raw || '').replace(/^\n+/, '').split('\n')[0])) {
+                    block.comment = true;
+                }
                 pieces.push({ html: html, block: block, hasHtml: group.some(function(tk) { return tk.type === 'html'; }) });
             });
             return pieces;
@@ -315,6 +320,11 @@
         var BLOCK_ACTIONS_HTML = '<div class="mdb-block-actions">'
             + '<button class="mdb-inline-btn mdb-edit-btn codicon codicon-edit" title="Edit this paragraph (source, with the blank line before it)"></button>'
             + '<button class="mdb-inline-btn mdb-insert-btn codicon codicon-add" title="Insert text at the end of this paragraph"></button>'
+            + '<button class="mdb-inline-btn mdb-comment-btn codicon codicon-comment-discussion" title="Add a review comment after this paragraph"></button>'
+            + '</div>';
+        /** A comment block is reopened with its own button; another comment may follow it. */
+        var COMMENT_ACTIONS_HTML = '<div class="mdb-block-actions">'
+            + '<button class="mdb-inline-btn mdb-comment-btn codicon codicon-comment-discussion" title="Add another review comment after this one"></button>'
             + '</div>';
         /** Rendered HTML that may hold a section reference or a plain-text .md path. */
         var LINKABLE_HTML = /[A-Z0-9][ \t]*&gt;[ \t]*[A-Z]|\.md(?![\w/-])/i;
@@ -322,9 +332,10 @@
         function piecesToNodes(pieces) {
             var holder = document.createElement('div');
             var actions = crlfMode ? '' : BLOCK_ACTIONS_HTML;
+            var commentActions = crlfMode ? '' : COMMENT_ACTIONS_HTML;
             holder.innerHTML = pieces.map(function(p) {
                 if (!p.block) { return p.html; }
-                return '<div class="mdb-block">' + p.html + (p.block.editable ? actions : '') + '</div>';
+                return '<div class="mdb-block">' + p.html + (p.block.comment ? commentActions : p.block.editable ? actions : '') + '</div>';
             }).join('');
             var wrappers = [];
             var blocks = [];
@@ -858,6 +869,12 @@
                 e.stopPropagation();
                 var edit = buildEdit(area.value);
                 if (!edit) { close(); return; }
+                // The edit asks to be confirmed first: say why, and wait for the next Save.
+                if (edit.hold) {
+                    status.textContent = edit.hold;
+                    status.classList.remove('error');
+                    return;
+                }
                 var id = nextEditId++;
                 pendingSaves[id] = { close: close, status: status, edit: edit };
                 status.textContent = 'Saving…';
@@ -894,6 +911,10 @@
 
         function decorateWrapper(wrapper, block) {
             if (!block) { return; }
+            if (block.comment) {
+                wrapper.classList.add('mdb-comment-block');
+                addCommentEditButton(wrapper, block);
+            }
             // Answers: the k-th marker of a block is its k-th <strong>Answer:</strong>.
             var strongs = null;
             var markerIndex = 0;
@@ -912,12 +933,75 @@
             }
         }
 
+        // ---- Review comments ----
+        // A comment block (`> ⬆️ **C-12** (author): text`, tom_specs annot1) is
+        // written after a paragraph and reopened with its own button. The editor
+        // shows the text without the `> ` prefixes, starting with the arrow and
+        // the id; a missing id is the document's highest `C-<n>` + 1.
+
+        /** Add a comment after `block`: the editor opens with the arrow and the next id. */
+        function addComment(trigger, wrapper, block) {
+            openEditor(trigger, wrapper, '\u2B06\uFE0F **' + mdbNextCommentId(shownText) + '** ', function(value) {
+                var lines = shownLines();
+                var written = mdbWriteComment(value, mdbNextCommentId(shownText));
+                if (!written) { return null; }
+                var source = lines.slice(block.startLine, block.endLine).join('\n');
+                // A blank line before the comment, and one after it when the next
+                // block starts right away — else that block would continue the quote.
+                var next = lines[block.endLine];
+                var after = next !== undefined && next.trim() !== '' ? '\n' : '';
+                return { startLine: block.startLine, endLine: block.endLine, expected: source, replacement: source + '\n\n' + written + after };
+            });
+        }
+
+        /** The comment block's own button: reopen it; saving it empty removes it, after a second Save. */
+        function addCommentEditButton(wrapper, block) {
+            var btn = iconButton('mdb-comment-edit-btn', 'comment', 'Edit this comment');
+            var quote = wrapper.querySelector('blockquote');
+            var firstPara = quote && quote.firstElementChild;
+            var id = firstPara && firstPara.querySelector('strong');
+            if (id && /^C-\d+$/.test((id.textContent || '').trim())) {
+                id.insertAdjacentElement('afterend', btn);
+            } else if (firstPara) {
+                firstPara.insertBefore(btn, firstPara.firstChild);
+            } else {
+                wrapper.insertBefore(btn, wrapper.firstChild);
+            }
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                var lines = shownLines();
+                var comment = mdbCommentAt(lines, block.startLine);
+                if (!comment) { return; }
+                var source = lines.slice(comment.startLine, comment.endLine).join('\n');
+                var removeArmed = false;
+                openEditor(btn, wrapper, comment.text, function(value) {
+                    if (value === comment.text) { return null; }
+                    var written = mdbWriteComment(value, mdbNextCommentId(shownText));
+                    if (written) {
+                        return { startLine: comment.startLine, endLine: comment.endLine, expected: source, replacement: written };
+                    }
+                    if (!removeArmed) {
+                        removeArmed = true;
+                        return { hold: 'The comment is empty — Save again to remove it.' };
+                    }
+                    // Removed with the blank lines around it, leaving one.
+                    var start = comment.startLine > 0 && lines[comment.startLine - 1].trim() === '' ? comment.startLine - 1 : comment.startLine;
+                    var end = lines[comment.endLine] !== undefined && lines[comment.endLine].trim() === '' ? comment.endLine + 1 : comment.endLine;
+                    return { startLine: start, endLine: end, expected: lines.slice(start, end).join('\n'), replacement: '' };
+                });
+            });
+        }
+
         /** An edit or insert button was clicked: open its editor on the block's lines as they are now. */
         function onBlockAction(btn) {
             var actions = btn.parentNode;
             var wrapper = actions && actions.parentNode;
             var block = wrapper && wrapper.__mdbBlock;
             if (!block || crlfMode) { return; }
+            if (btn.classList.contains('mdb-comment-btn')) {
+                addComment(actions, wrapper, block);
+                return;
+            }
             if (btn.classList.contains('mdb-edit-btn')) {
                 var lines = shownLines();
                 // The blank lines before the block belong to the edit, so
@@ -1250,7 +1334,7 @@
             contentArea.addEventListener('click', function(e) {
                 var t = e.target;
                 if (!t || !t.closest) { return; }
-                var action = t.closest('.mdb-edit-btn, .mdb-insert-btn');
+                var action = t.closest('.mdb-edit-btn, .mdb-insert-btn, .mdb-comment-btn');
                 if (action) {
                     e.stopPropagation();
                     onBlockAction(action);
