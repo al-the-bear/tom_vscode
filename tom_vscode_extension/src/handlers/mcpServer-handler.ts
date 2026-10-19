@@ -44,6 +44,7 @@ import { wrapToolWithTrail, type McpToolCallback } from '../utils/toolTrailWrapp
 import { TrailService } from '../services/trailService';
 import type { TrailSubsystem } from '../services/trailService';
 import { MCP_SUBSYSTEM } from '../services/trailSubsystems';
+import { registerCodeSpecsGuides } from './mcpCodeSpecsGuides';
 
 /** MCP server identity advertised to clients. Matches the Agent SDK path. */
 export const MCP_SERVER_NAME = 'tom-ai';
@@ -222,12 +223,17 @@ export function resolveMcpRequestTools(
 export interface BuiltMcpServer {
     server: McpServer;
     toolNames: string[];
+    /** The CodeSpecs guide resources (URIs) and runbook prompts served beside the tools. */
+    resources: string[];
+    prompts: string[];
 }
 
 /**
  * Build an `McpServer` and register every supplied tool with a trail-wrapping
  * executor (see {@link makeMcpToolCallback}). The caller decides the effective
  * tool set (#17) and binds a transport (#18); this only does the registration.
+ * The CodeSpecs workflow guides and runbooks are served too, as resources and
+ * prompts (mcpCodeSpecsGuides.ts): documentation, whatever the tool set.
  */
 export function buildToolMcpServer(tools: SharedToolDefinition[], sink: McpToolTrailSink): BuiltMcpServer {
     const server = new McpServer({ name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION });
@@ -245,7 +251,8 @@ export function buildToolMcpServer(tools: SharedToolDefinition[], sink: McpToolT
         toolNames.push(def.name);
     }
 
-    return { server, toolNames };
+    const { resources, prompts } = registerCodeSpecsGuides(server);
+    return { server, toolNames, resources, prompts };
 }
 
 // ============================================================================

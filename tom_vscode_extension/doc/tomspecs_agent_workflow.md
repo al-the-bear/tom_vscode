@@ -60,6 +60,16 @@ Plain DocSpecs Markdown that is not a SOM document (a file with a
 
 ## Take it through Phase 4 (CodeSpecs)
 
+**Where is it?** `tomAi_specCodeSpecsStatus` with the document (and `questId`,
+`shared` once they exist) answers every stage below in one call — done, not
+started, outdated, incomplete, failing, blocked or not checked — and `next`, the
+first stage not done with the tool that moves it. Start there, and come back to
+it after each step. How to do a stage is in its runbook:
+`tomAi_specCodeSpecsGuide` with `runbook` (`codespecs-next-step`,
+`codespecs-stage-a`, `-extraction`, `-stage-b`, `-stage-c`, `-authoring-step`,
+`-validate`); the same tool reads the two guides the workflow is written in,
+`codespecs_prompt.md` and `codespecs_mapping.md`, section by section.
+
 1. **Stage A, the mechanical gate.** `tomAi_specCodeSpecsGate` on the
    document: checks A1–A5, each finding with the path to fix. A closed gate
    stops here; fix the findings with the edit tools above.
@@ -79,8 +89,9 @@ Plain DocSpecs Markdown that is not a SOM document (a file with a
    the contract entries for their markers and the output project.
 6. **Validate and trace.** `tomAi_specCodeSpecsValidate` runs the 41 checks
    over the generated projects (clean, violations or a usage error); checks
-   whose extra input was not given — 40 and 41 among them — are listed as not
-   run, never as passed.
+   whose extra input was not given are listed as not run, never as passed.
+   tom_code_specs' vocabulary, which checks 40 and 41 need, ships with the
+   extension and is passed by default.
    `tomAi_specCodeSpecsTrace` follows a token from the specification to the code
    that cites it, or back.
 
@@ -88,4 +99,7 @@ Plain DocSpecs Markdown that is not a SOM document (a file with a
 
 The extension's MCP server serves the same tools. A client without the API key
 gets the read-only floor: every tool above that only reads, and none that
-writes. See [mcp_server.md](mcp_server.md) §4.
+writes. See [mcp_server.md](mcp_server.md) §4. An MCP client also finds the
+CodeSpecs guides as resources (`codespecs-guide://prompt`,
+`codespecs-guide://mapping`, one section at `codespecs-guide://<guide>/<number>`)
+and the stage runbooks as prompts, with or without the key.

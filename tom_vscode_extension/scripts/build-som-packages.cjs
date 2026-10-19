@@ -41,7 +41,11 @@
  * only. Third goes tom_code_specs' vocabulary source
  * (tom_code_specs/lib/src/annotations/vocabulary.dart, from ai_build like the
  * catalogue): tomAi_specCodeSpecsValidate passes it as --cs-vocabulary, whose
- * hook catalogue checks 40 and 41 need (qrc5).
+ * hook catalogue checks 40 and 41 need (qrc5). Last go the two CodeSpecs
+ * workflow guides, served by tomAi_specCodeSpecsGuide and the MCP server's
+ * resources and prompts (vsctasb9): codespecs_prompt.md from
+ * tom_specs_model/doc (ai_build) and codespecs_mapping.md from
+ * tom_core_codespecs/doc (tom_core, like the contract).
  *
  * The packages are built from ai_build's WORKING TREE, and ai_build is shared
  * with other sessions: an uncommitted edit there (someone's work in progress)
@@ -72,18 +76,26 @@ const CATALOG_TARGET = path.join(EXT_ROOT, 'resources', 'codespecs', 'codespecs_
 const VOCABULARY_SOURCE = path.join('tom_code_specs', 'lib', 'src', 'annotations', 'vocabulary.dart');
 const VOCABULARY_TARGET = path.join(EXT_ROOT, 'resources', 'codespecs', 'vocabulary.dart');
 
+/** The CodeSpecs workflow guides, in ai_build / tom_core and in the extension. */
+const PROMPT_GUIDE_SOURCE = path.join('tom_specs_model', 'doc', 'codespecs_prompt.md');
+const PROMPT_GUIDE_TARGET = path.join(EXT_ROOT, 'resources', 'codespecs', 'codespecs_prompt.md');
+
 /** The CodeSpecs derivation contract, in tom_core and in the extension. */
 const CORE_CHECKOUT = process.env.TOM_CORE_CHECKOUT
     ? path.resolve(process.env.TOM_CORE_CHECKOUT)
     : path.resolve(EXT_ROOT, '..', '..', 'core');
 const CONTRACT_SOURCE = path.join(CORE_CHECKOUT, 'tom_core_codespecs', 'doc', 'codespecs_derivation_contract.md');
 const CONTRACT_TARGET = path.join(EXT_ROOT, 'resources', 'codespecs', 'codespecs_derivation_contract.md');
+const MAPPING_GUIDE_SOURCE = path.join(CORE_CHECKOUT, 'tom_core_codespecs', 'doc', 'codespecs_mapping.md');
+const MAPPING_GUIDE_TARGET = path.join(EXT_ROOT, 'resources', 'codespecs', 'codespecs_mapping.md');
 
 /** Copy the CodeSpecs area catalogue and vocabulary (from `aiBuild`) and the derivation contract (from tom_core) into the extension. */
 function copyCodeSpecsCatalog(aiBuild) {
     const copies = [[path.join(aiBuild, CATALOG_SOURCE), CATALOG_TARGET, 'the CodeSpecs area catalogue'],
         [path.join(aiBuild, VOCABULARY_SOURCE), VOCABULARY_TARGET, "tom_code_specs' vocabulary"],
-        [CONTRACT_SOURCE, CONTRACT_TARGET, 'the CodeSpecs derivation contract']];
+        [path.join(aiBuild, PROMPT_GUIDE_SOURCE), PROMPT_GUIDE_TARGET, 'the CodeSpecs starting prompt (guide)'],
+        [CONTRACT_SOURCE, CONTRACT_TARGET, 'the CodeSpecs derivation contract'],
+        [MAPPING_GUIDE_SOURCE, MAPPING_GUIDE_TARGET, 'the CodeSpecs mapping (guide)']];
     for (const [source, target, what] of copies) {
         if (!fs.existsSync(source)) {
             fail(`${what} is missing at ${source}.`);
@@ -116,7 +128,7 @@ function npm(args, cwd) {
 /** Uncommitted changes under the packed paths of a git checkout; [] when clean or not a git checkout. */
 function uncommitted(aiBuild) {
     try {
-        const out = execFileSync('git', ['-C', aiBuild, 'status', '--porcelain', '--', ...PACKAGES, CATALOG_SOURCE, VOCABULARY_SOURCE], { encoding: 'utf8' });
+        const out = execFileSync('git', ['-C', aiBuild, 'status', '--porcelain', '--', ...PACKAGES, CATALOG_SOURCE, VOCABULARY_SOURCE, PROMPT_GUIDE_SOURCE], { encoding: 'utf8' });
         return out.split('\n').filter((l) => l.trim() !== '');
     } catch {
         return [];
@@ -128,7 +140,7 @@ function exportHead(aiBuild) {
     const target = path.resolve(EXT_ROOT, '..', '..', '..', 'ztmp', 'som-pack-head');
     fs.rmSync(target, { recursive: true, force: true });
     fs.mkdirSync(target, { recursive: true });
-    const archive = execFileSync('git', ['-C', aiBuild, 'archive', 'HEAD', ...PACKAGES, path.dirname(CATALOG_SOURCE), VOCABULARY_SOURCE], { maxBuffer: 1 << 30 });
+    const archive = execFileSync('git', ['-C', aiBuild, 'archive', 'HEAD', ...PACKAGES, path.dirname(CATALOG_SOURCE), VOCABULARY_SOURCE, PROMPT_GUIDE_SOURCE], { maxBuffer: 1 << 30 });
     execFileSync('tar', ['-x', '-C', target], { input: archive });
     console.log(`📦 packing ai_build's committed HEAD (exported to ${target})`);
     return target;

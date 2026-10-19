@@ -112,13 +112,33 @@ The read-only floor is the safe default: an unconfigured or unauthenticated serv
 
 ### The TomSpecs, DocSpecs and CodeSpecs tools
 
-Of the 36 spec tools, the floor serves the 20 that only read:
+Of the 38 spec tools, the floor serves the 22 that only read:
 
 - **TomSpecs:** `tomAi_specListDocuments`, `tomAi_specOutline`, `tomAi_specGetSection`, `tomAi_specReflect`, `tomAi_specSearch`, `tomAi_specSearchIterate`, `tomAi_specValidate`, `tomAi_specRender`.
 - **DocSpecs Markdown:** `tomAi_docspecsValidate`, `tomAi_docspecsOutline`, `tomAi_docspecsGetSection`.
-- **CodeSpecs:** `tomAi_specCodeSpecsAreas`, `tomAi_specCodeSpecsRouting`, `tomAi_specCodeSpecsExtract`, `tomAi_specCodeSpecsGate`, `tomAi_specCodeSpecsVerdicts`, `tomAi_specCodeSpecsQueryExtracts`, `tomAi_specCodeSpecsTrace`, `tomAi_specCodeSpecsValidate`, `tomAi_specCodeSpecsStepContext`.
+- **CodeSpecs:** `tomAi_specCodeSpecsAreas`, `tomAi_specCodeSpecsRouting`, `tomAi_specCodeSpecsExtract`, `tomAi_specCodeSpecsGate`, `tomAi_specCodeSpecsVerdicts`, `tomAi_specCodeSpecsQueryExtracts`, `tomAi_specCodeSpecsTrace`, `tomAi_specCodeSpecsValidate`, `tomAi_specCodeSpecsStepContext`, `tomAi_specCodeSpecsStatus`, `tomAi_specCodeSpecsGuide`.
 
 The 16 that write are served only to an authenticated client (or with `allowWriteWithoutAuth`): the nine TomSpecs single-edit tools, `tomAi_specApplyEdits`, `tomAi_specCreateDocument`, `tomAi_specConvert`, `tomAi_docspecsReplaceSection`, `tomAi_specCodeSpecsWriteExtracts`, `tomAi_specCodeSpecsSetVerdict` and `tomAi_specCodeSpecsPlanTodos`. A test holds both halves (`spec-tools-surface.test.ts`), and another drives the workflow through a real MCP client with and without the key (`spec-tools-mcp.test.ts`). The workflow itself is in [tomspecs_agent_workflow.md](tomspecs_agent_workflow.md).
+
+### Resources and prompts: the CodeSpecs guides
+
+Beside its tools the server serves the CodeSpecs workflow guides, packaged in
+the extension (`resources/codespecs/`), to every client — they are
+documentation, so the read-only floor gets them too (`src/handlers/mcpCodeSpecsGuides.ts`):
+
+- **Resources** `codespecs-guide://prompt` (codespecs_prompt.md: Stage A, the
+  extraction run, Stage B, Stage C) and `codespecs-guide://mapping`
+  (codespecs_mapping.md: concepts, the Phase-4 contract, the todo tree, the parts
+  catalogue), as `text/markdown`; the template `codespecs-guide://{guide}/{section}`
+  reads one numbered section with its subsections (`codespecs-guide://prompt/6.2`).
+- **Prompts**, one per stage runbook: `codespecs-next-step`, `codespecs-stage-a`,
+  `codespecs-extraction`, `codespecs-stage-b`, `codespecs-stage-c`,
+  `codespecs-authoring-step` and `codespecs-validate`. Each takes `file` (and
+  `questId`, `step` or `shared` where it needs them) and returns the stage's
+  instructions with its guide sections appended.
+
+The tool `tomAi_specCodeSpecsGuide` answers the same, for transports without MCP
+resources (the Agent SDK's in-process server carries tools only).
 
 ## 5. Security warning — `0.0.0.0` + `allowWriteWithoutAuth`
 

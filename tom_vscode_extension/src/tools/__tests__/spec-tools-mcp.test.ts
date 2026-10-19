@@ -9,6 +9,8 @@
  *   SM-1  authenticated: find, outline, reflect, search, batch-edit, validate, render; the edit lands and validates
  *   SM-2  authenticated: the CodeSpecs path — gate, extract summary, step context
  *   SM-3  unauthenticated: every spec reader is served, no spec writer is
+ *   SM-4  unauthenticated too: the CodeSpecs guides are resources (whole and by section), the stage runbooks
+ *         prompts with their arguments filled in, and tomAi_specCodeSpecsStatus answers where the sample is
  */
 
 import test, { after, before, describe } from 'node:test';
@@ -151,5 +153,28 @@ describe('spec tools over MCP', () => {
         assert.equal(refused, true, 'a writer cannot be called without the key');
         const read = await call(anon.client, 'tomAi_specGetSection', { file: FILE, path: `${FR}/FRE-REQU-LST-1` });
         assert.equal(read.ok, true);
+    });
+    test('SM-4: the CodeSpecs guides, runbooks and status for an external client', async () => {
+        const { client } = anon;
+        const resources = (await client.listResources()).resources.map((r) => r.uri);
+        assert.deepEqual(resources, ['codespecs-guide://prompt', 'codespecs-guide://mapping']);
+        const templates = (await client.listResourceTemplates()).resourceTemplates.map((t) => t.uriTemplate);
+        assert.deepEqual(templates, ['codespecs-guide://{guide}/{section}']);
+        const whole = await client.readResource({ uri: 'codespecs-guide://prompt' });
+        assert.match((whole.contents[0] as { text: string }).text, /^# CodeSpecs Starting Prompt/);
+        const section = await client.readResource({ uri: 'codespecs-guide://prompt/6.2' });
+        assert.match((section.contents[0] as { text: string }).text, /^### 6\.2 /);
+        const prompts = (await client.listPrompts()).prompts.map((p) => p.name);
+        assert.equal(prompts.length, 7);
+        assert.ok(prompts.includes('codespecs-stage-b'));
+        const got = await client.getPrompt({ name: 'codespecs-stage-b', arguments: { file: FILE } });
+        const text = (got.messages[0].content as { text: string }).text;
+        assert.ok(text.includes(FILE), 'the argument is filled in');
+        assert.match(text, /tomAi_specCodeSpecsSetVerdict/);
+        assert.match(text, /From the guide \(prompt §6\)/);
+        assert.ok(anon.served.includes('tomAi_specCodeSpecsStatus') && anon.served.includes('tomAi_specCodeSpecsGuide'));
+        const status = await call(client, 'tomAi_specCodeSpecsStatus', { file: FILE });
+        assert.equal(status.stages[0].stage, 'gate');
+        assert.ok(status.next.stage, JSON.stringify(status.next));
     });
 });

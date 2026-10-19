@@ -50,6 +50,8 @@ const REQUIRED = [
     'extension/resources/codespecs/codespecs_areas.json',
     'extension/resources/codespecs/codespecs_derivation_contract.md',
     'extension/resources/codespecs/vocabulary.dart',
+    'extension/resources/codespecs/codespecs_prompt.md',
+    'extension/resources/codespecs/codespecs_mapping.md',
     'extension/out/services/codespecs-validator.js',
     'extension/out/services/codespecs-contract.js',
     VALIDATE_CODESPECS_BINARY,

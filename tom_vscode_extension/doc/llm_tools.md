@@ -539,7 +539,9 @@ These tools run the runtime's `CodeSpecsExtractor` over one TomSpecs document
 and the CodeSpecs area catalogue. `npm run som:pack` copies the catalogue from
 `tom_specs_model`, tom_code_specs' `vocabulary.dart` (the hook catalogue of
 validate's checks 40 and 41), and the derivation contract from
-`tom_core_codespecs`, into `resources/codespecs/`; all three ship in the VSIX. The checks over generated code
+`tom_core_codespecs`, into `resources/codespecs/`, together with the two
+workflow guides (`codespecs_prompt.md` from `tom_specs_model`,
+`codespecs_mapping.md` from `tom_core_codespecs`); all of them ship in the VSIX. The checks over generated code
 run the `validate_codespecs` binary (tom_specs_clitool, compiled with
 `dart compile exe`), which ships in `bin/<platform>/` beside `tom_bs`.
 
@@ -576,6 +578,8 @@ these tools refuse it rather than return 27 empty extracts.
 | `tomAi_specCodeSpecsTrace` | Spec path, token, code location or declaration to the other end, by section-id token (the unit `@CodeSpec` / `@DocSpec` back-links cite), plus the heading `codeSpec=` forward links. With back-links it adds `agreement`, the uncited and dangling tokens (the shape of `validate_codespecs` checks 35 and 36). | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_specCodeSpecsValidate` | The 41 `codespecs_derivation_contract.md` §6 checks over a generated trio (shared, client, server; client and server default to the shared folder's siblings), through the bundled `validate_codespecs --json`. `outcome` keeps `clean`, `violations` (each with check number and title, defining section, file, line, token or area, message) and `usageError` apart; `notRun` names each check whose corroborating input was not given. tom_code_specs' vocabulary — the hook catalogue checks 40 and 41 (protocol-feature hooks, reserved protocol paths) need — ships with the extension and is passed by default; `csVocabulary` overrides it. | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_specCodeSpecsStepContext` | Everything authoring step `csgen<n>` (1–31) may read (§2.9): its title, slice, placement and areas; those areas' extracts, entry by entry; the §3 contract entries for the markers they emit, with text; §2's section list (or its text); the output project. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_specCodeSpecsStatus` | Where a document is in Phase 4, in one call: every stage in order — `gate` (Stage A), `extraction` (are the extracts current?), `verdicts` (Stage B), `todoTree` (Stage C, in `questId`, default the active quest), `authoring` (the tree's todos done, and the next), `validation` (with `shared`) — each `done`, `notStarted`, `outdated`, `incomplete`, `failing`, `blocked` or `notChecked`, with a summary, its tool and details; and `next`. Built from each stage tool's own dry run. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_specCodeSpecsGuide` | The workflow guides packaged with the extension — `prompt` (codespecs_prompt.md) and `mapping` (codespecs_mapping.md) — as an overview, an outline, or one numbered section with its subsections; and the stage runbooks (`runbook`, with `file` / `questId` / `step` / `shared` filled in). The MCP server serves the same as resources and prompts. | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_specCodeSpecsPlanTodos` | Stage C: propose (`dryRun`) or create the todo tree from the gate record (approval). `csopen<n>` (decision-needed) per insufficient area not descoped, carrying its gate note; `csproj1`, the trio scaffolding (decision-needed without `appName`); `csgen1`–`csgen31`, one per authoring step, each naming its areas and verdicts, extracts, output project and the step-context call. Refused without a verdict for every active area, or, with `file`, when Stage A fails. Idempotent per item. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_specCodeSpecsWriteExtracts` | Write every area's `.extract.yaml` / `.extract.md` to `<document folder>/generated-doc/codespecs_extracts/` (approval). Unchanged files are left alone; `dryRun` reports the file statuses. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 

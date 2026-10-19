@@ -67,7 +67,9 @@ tarballs. Installed from tarballs, the packages are real files in
 reads from ai_build. The script also copies the CodeSpecs area catalogue
 (`tom_specs_model/generated-doc/codespecs/codespecs_areas.json`), tom_code_specs'
 vocabulary (`tom_code_specs/lib/src/annotations/vocabulary.dart`, the hook
-catalogue CodeSpecs validate checks 40 and 41 need) and the CodeSpecs
+catalogue CodeSpecs validate checks 40 and 41 need), the two CodeSpecs
+workflow guides (`tom_specs_model/doc/codespecs_prompt.md` and
+`tom_ai/core/tom_core_codespecs/doc/codespecs_mapping.md`) and the CodeSpecs
 derivation contract (`tom_ai/core/tom_core_codespecs/doc/codespecs_derivation_contract.md`,
 `TOM_CORE_CHECKOUT` overrides the location) to `resources/codespecs/`
 (gitignored), which the VSIX carries too.

@@ -58,7 +58,7 @@ const COUNTERPARTS: Array<[string, string[]]> = [
 
 describe('the spec tools as a set', () => {
     test('SS-1: registered, selectable, grouped in the pickers', () => {
-        assert.equal(specTools.length, 36);
+        assert.equal(specTools.length, 38);
         const categories = ['TomSpecs', 'TomSpecs (edit)', 'DocSpecs', 'CodeSpecs'];
         for (const t of specTools) {
             assert.ok((AVAILABLE_LLM_TOOLS as readonly string[]).includes(t.name), `${t.name} is not selectable`);

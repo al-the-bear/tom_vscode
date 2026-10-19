@@ -210,6 +210,8 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_specCodeSpecsValidate',
     'tomAi_specCodeSpecsStepContext',
     'tomAi_specCodeSpecsPlanTodos',
+    'tomAi_specCodeSpecsStatus',
+    'tomAi_specCodeSpecsGuide',
     // Plain DocSpecs Markdown (not SOM)
     'tomAi_docspecsValidate',
     'tomAi_docspecsOutline',
