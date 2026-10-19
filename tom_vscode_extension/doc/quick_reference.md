@@ -38,6 +38,7 @@
 ## Explorer Views
 
 - VS CODE NOTES
+- PROCESS (the active quest's process: phase, step, sub-step, iterations)
 - QUEST NOTES
 - QUEST TODOS
 - SESSION TODOS
@@ -116,6 +117,7 @@
 | Reusable Prompt Editor | `tomAi.reusablePromptEditor` | `tomAi.editor.reusablePrompts` |
 | Context & Settings | `tomAi.contextSettingsEditor` | `tomAi.editor.contextSettings` |
 | Chat Variables | `tomAi.chatVariablesEditor` | `tomAi.editor.chatVariables` |
+| Process Editor | `tomAi.processEditor` | `tomAi.editor.process` |
 | Quest TODO Pop-out | `tomAi.questTodoEditor` | Pop-out from sidebar |
 
 ## Bottom Panel Sub-sections

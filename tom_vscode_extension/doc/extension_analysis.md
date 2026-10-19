@@ -212,6 +212,7 @@ flowchart TD
 | View ID | Name | Handler | Purpose |
 |---------|------|---------|---------|
 | `tomAi.vscodeNotes` | VS CODE NOTES | `sidebarNotes-handler.ts` | VS Code-level notes |
+| `tomAi.process` | PROCESS | `processPanel-handler.ts` | The active quest's process state: dropdowns, iterations, role, descriptions |
 | `tomAi.questNotes` | QUEST NOTES | `sidebarNotes-handler.ts` | Quest-scoped notes |
 | `tomAi.questTodos` | QUEST TODOS | `sidebarNotes-handler.ts` | Quest todo list |
 | `tomAi.sessionTodos` | SESSION TODOS | `sidebarNotes-handler.ts` | Window session todos |
@@ -274,6 +275,7 @@ Handler: `wsPanel-handler.ts`
 | Reusable Prompt Editor | `tomAi.reusablePromptEditor` | `tomAi.editor.reusablePrompts` | `reusablePromptEditor-handler.ts` |
 | Context & Settings | `tomAi.contextSettingsEditor` | `tomAi.editor.contextSettings` | `contextSettingsEditor-handler.ts` |
 | Chat Variables | `tomAi.chatVariablesEditor` | `tomAi.editor.chatVariables` | `chatVariablesEditor-handler.ts` |
+| Process Editor | `tomAi.processEditor` | `tomAi.editor.process` | `processEditor-handler.ts` |
 | Quest TODO Pop-out | `tomAi.questTodoEditor` | Pop-out from sidebar | `questTodoPanel-handler.ts` |
 
 ---

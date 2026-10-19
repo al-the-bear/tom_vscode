@@ -7,6 +7,7 @@ Contributed in the **@TOM** sidebar (Activity Bar view container). Tree views th
 | View | View ID | Contents |
 | --- | --- | --- |
 | VS CODE NOTES | `tomAi.vscodeNotes` | VS Code-scoped notes (user-wide). |
+| PROCESS | `tomAi.process` | The active quest's process and position (process, phase, step, sub-step, iterations, role); a webview over `ProcessStateStore` — see `doc/user_guide.md` § Processes. |
 | QUEST NOTES | `tomAi.questNotes` | Notes scoped to the active quest. |
 | QUEST TODOS | `tomAi.questTodos` | Todos from the active quest's YAML todo files. |
 | SESSION TODOS | `tomAi.sessionTodos` | Window-scoped session todos (not persisted across reload). |
