@@ -385,3 +385,6 @@ body.mdb-edit-mode .mdb-block-actions { display: flex; }
 .markdown-body .mdb-comment-block > blockquote {
     background: var(--vscode-editorInfo-background, rgba(204, 167, 0, 0.08));
 }
+
+/* A block inside a form's fields (SOM document): a review comment belongs in the form's preamble. */
+.mdb-no-comment > .mdb-block-actions .mdb-comment-btn { display: none; }

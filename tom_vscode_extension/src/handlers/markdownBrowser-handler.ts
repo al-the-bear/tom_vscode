@@ -21,6 +21,9 @@
  */
 
 import * as vscode from 'vscode';
+import type { SomCommentContext } from '../services/som-review-comments';
+import { SomCommentsWorkerClient } from '../services/som-review-comments-client';
+
 import * as fs from 'fs';
 import * as path from 'path';
 import {
@@ -36,6 +39,13 @@ import { openInExternalApplication } from './handler_shared.js';
 import { resolveLink, type ResolvedLink, type LinkContext } from '../utils/linkResolver.js';
 import { NavigationHistory, type ReadingPosition } from '../utils/mdBrowserHistory.js';
 import { currentCommentAuthor, type CommentAuthorForm } from '../utils/osUserName.js';
+
+/** One worker for every Markdown Browser panel. */
+let sharedSomCommentsClient: SomCommentsWorkerClient | undefined;
+function somCommentsClient(): SomCommentsWorkerClient {
+    sharedSomCommentsClient ??= new SomCommentsWorkerClient();
+    return sharedSomCommentsClient;
+}
 
 /** How the OS user is written as a comment author: the first name of the account's full name. */
 const COMMENT_AUTHOR_FORM: CommentAuthorForm = 'first';
@@ -234,6 +244,36 @@ class MdBrowserPanel {
         }
     }
 
+    /** The last SOM comment reading, by file and text: a refresh with the same text reuses it. */
+    private _somComments: { filePath: string; raw: string; context: SomCommentContext } | undefined;
+
+    /**
+     * For a SOM Markdown document: what the TomSpecs runtime says about review
+     * comments in it — the next free comment id and the lines of the forms'
+     * fields (som-review-comments.ts) — read in a worker thread and posted
+     * after the content, so neither the extension host nor the rendering waits
+     * for it. `contentLength` lets the webview check that it still shows the
+     * text this was read from.
+     */
+    private _sendSomComments(absPath: string, raw: string, contentLength: number): void {
+        if (this._crlfMode || !absPath.toLowerCase().endsWith('.md')) { return; }
+        const post = (context: SomCommentContext): void => {
+            void this._panel.webview.postMessage({ type: 'somComments', filePath: absPath, contentLength, ...context });
+        };
+        const cached = this._somComments;
+        if (cached && cached.filePath === absPath && cached.raw === raw) {
+            post(cached.context);
+            return;
+        }
+        somCommentsClient().contextFor(absPath).then((context) => {
+            if (!context) { return; }
+            this._somComments = { filePath: absPath, raw, context };
+            post(context);
+        }, (err) => {
+            debugLog(`[MdBrowser] SOM comment context of ${absPath}: ${err}`, 'WARN', 'mdBrowser');
+        });
+    }
+
     private _sendFileContent(absPath: string, anchor?: string, position?: ReadingPosition): void {
         try {
             const raw = fs.readFileSync(absPath, 'utf-8');
@@ -262,6 +302,7 @@ class MdBrowserPanel {
                 // line breaks without disturbing list/block structure.
                 crlf: this._crlfMode,
             });
+            this._sendSomComments(absPath, raw, content.length);
         } catch (err) {
             debugLog(`[MdBrowser] sendFileContent error: ${err}`, 'ERROR', 'mdBrowser');
             this._panel.webview.postMessage({ type: 'mdContent', content: '', error: String(err) });

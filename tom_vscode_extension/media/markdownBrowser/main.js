@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbWriteComment, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
+/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
 // Markdown Browser client — extracted verbatim from the inline <script> of
 // buildHtml() in src/handlers/markdownBrowser-handler.ts (Phase B.21 webview
 // restructuring). Predates strict checkJs (large verbatim extraction).
@@ -960,6 +960,7 @@
 
         function decorateWrapper(wrapper, block) {
             if (!block) { return; }
+            markFormField(wrapper, block);
             if (block.comment) {
                 wrapper.classList.add('mdb-comment-block');
                 addCommentEditButton(wrapper, block);
@@ -985,6 +986,31 @@
         // ---- Review comments ----
         /** The OS user, written as the author of a comment that names none (sent by the host). */
         var commentAuthor = '';
+        /**
+         * For a SOM document, what the host read with the TomSpecs runtime
+         * (som-review-comments.ts): the number of the next free comment id, and
+         * the lines of the forms' fields, where no comment may go (it belongs in
+         * the form's preamble). Null for any other document, and until the host
+         * has answered for the text shown.
+         */
+        var somComments = null;
+
+        /** The next comment id: the document's highest + 1, or the runtime's when higher. */
+        function nextCommentId() {
+            return mdbNextCommentId(shownText, somComments ? somComments.nextCommentNumber : undefined);
+        }
+
+        /** A block inside a form's fields offers no comment. */
+        function markFormField(wrapper, block) {
+            var inFields = !!somComments && !block.comment && mdbInRanges(somComments.formFieldRanges, block.startLine);
+            wrapper.classList.toggle('mdb-no-comment', inFields);
+        }
+
+        function applySomComments() {
+            Array.prototype.forEach.call(docRoot.querySelectorAll('.mdb-block'), function(w) {
+                if (w.__mdbBlock) { markFormField(w, w.__mdbBlock); }
+            });
+        }
         // A comment block (`> ⬆️ **C-12** (author): text`, tom_specs annot1) is
         // written after a paragraph and reopened with its own button. The editor
         // shows the text without the `> ` prefixes, starting with the arrow and
@@ -992,10 +1018,10 @@
 
         /** Add a comment after `block`: the editor opens with the arrow and the next id. */
         function addComment(trigger, wrapper, block) {
-            var head = '\u2B06\uFE0F **' + mdbNextCommentId(shownText) + '** ' + (commentAuthor ? '(' + commentAuthor + '): ' : '');
+            var head = '\u2B06\uFE0F **' + nextCommentId() + '** ' + (commentAuthor ? '(' + commentAuthor + '): ' : '');
             openEditor(trigger, wrapper, head, function(value) {
                 var lines = shownLines();
-                var written = mdbWriteComment(value, mdbNextCommentId(shownText), commentAuthor);
+                var written = mdbWriteComment(value, nextCommentId(), commentAuthor);
                 if (!written) { return null; }
                 var source = lines.slice(block.startLine, block.endLine).join('\n');
                 // A blank line before the comment, and one after it when the next
@@ -1028,7 +1054,7 @@
                 var removeArmed = false;
                 openEditor(btn, wrapper, comment.text, function(value) {
                     if (value === comment.text) { return null; }
-                    var written = mdbWriteComment(value, mdbNextCommentId(shownText), commentAuthor);
+                    var written = mdbWriteComment(value, nextCommentId(), commentAuthor);
                     if (written) {
                         return { startLine: comment.startLine, endLine: comment.endLine, expected: source, replacement: written };
                     }
@@ -1712,6 +1738,8 @@
                 filePathEl.textContent = msg.relativePath || msg.fileName || '';
                 if (typeof msg.author === 'string') { commentAuthor = msg.author; }
                 var text = msg.content || '';
+                // What the host read for an earlier text no longer fits this one.
+                if (!sameFile || text !== shownText) { somComments = null; }
                 // The same text again (the file watcher after our own save, a
                 // reload with nothing changed): what is shown is already it.
                 if (sameFile && text === shownText && crlfMode === shownCrlf && docRoot.parentNode === contentArea && docRoot.querySelector('.mdb-block')) {
@@ -1773,6 +1801,12 @@
 
             if (msg.type === 'mdContent') {
                 handleContent(msg);
+            } else if (msg.type === 'somComments') {
+                // Only for the text shown: the host read exactly that text.
+                if (msg.filePath === currentFilePath && msg.contentLength === (shownText || '').length) {
+                    somComments = { nextCommentNumber: msg.nextCommentNumber, formFieldRanges: msg.formFieldRanges || [] };
+                    applySomComments();
+                }
             } else if (msg.type === 'editResult') {
                 var saved = pendingSaves[msg.editId];
                 delete pendingSaves[msg.editId];
@@ -1782,6 +1816,9 @@
                         // Patch the region the edit touched; the file's own
                         // refresh that follows is then the same text and skipped.
                         if (patchAfterSave(saved.edit)) { restoreScrollTop = null; }
+                        // The edit moved lines: wait for the host's reading of the new text.
+                        somComments = null;
+                        applySomComments();
                     } else {
                         restoreScrollTop = null;
                         saved.status.textContent = msg.error || 'Could not save.';

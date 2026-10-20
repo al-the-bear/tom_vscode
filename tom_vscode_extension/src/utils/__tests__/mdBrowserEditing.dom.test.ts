@@ -21,6 +21,8 @@
  *   MD-12 comments: the comment button adds a comment block after a paragraph (the editor opens with the
  *         arrow and the next id, the text is written under `> `); a comment block's own button reopens it
  *         without the `>`; saving it empty asks again, then removes the block
+ *   MD-12c a SOM document: the host's next comment number is used when higher; blocks in a form's
+ *         fields offer no comment (comments go into the preamble); stale ranges (another text) are ignored
  */
 
 import test, { describe } from 'node:test';
@@ -285,6 +287,28 @@ describe('Markdown Browser editing', () => {
         $(window, '.mdb-editor-btn')[0].click();
         assert.equal(lastEdit(posted).replacement, 'Para\n\n> ⬆️ **C-1** x\n', 'else `- item` would continue the quote');
     });
+    test('MD-12c: comments in a SOM document', () => {
+        const { window } = setup();
+        const doc = ['#### <!--[FRED]--> Details', '', 'Why these fields?', '', 'Description: The system must do it.', '', 'Category: Pricing', '', '#### <!--[FREP]--> Priority', '', 'Priority: must'].join('\n');
+        send(window, content(doc));
+        window.document.getElementById('editModeBtn').click();
+        const block = (needle: string): Win => $(window, '.mdb-block').find((b: Win) => b.textContent.includes(needle));
+        const visible = (b: Win): boolean => window.getComputedStyle(b.querySelector('.mdb-comment-btn')).display !== 'none';
+        assert.equal(visible(block('Description:')), true, 'before the host has spoken: every paragraph');
+        send(window, { type: 'somComments', filePath: '/ws/review.md', contentLength: doc.length, nextCommentNumber: 6, formFieldRanges: [[4, 8], [10, 11]] });
+        assert.equal(visible(block('Why these fields?')), true, 'the preamble keeps its comment button');
+        assert.equal(visible(block('Description:')), false, 'a form field: no comment after it');
+        assert.equal(visible(block('Category:')), false);
+        assert.equal(visible(block('Priority: must')), false);
+        block('Why these fields?').querySelector('.mdb-comment-btn').click();
+        assert.equal($(window, '.mdb-editor textarea')[0].value, '⬆️ **C-6** ', 'the runtime\'s next id');
+        $(window, '.mdb-editor-btn')[1].click();
+        send(window, { type: 'somComments', filePath: '/ws/review.md', contentLength: doc.length + 1, nextCommentNumber: 9, formFieldRanges: [[2, 3]] });
+        assert.equal(visible(block('Why these fields?')), true, 'ranges for another text are ignored');
+        send(window, content(doc.replace('Why', 'How')));
+        assert.equal(visible(block('Description:')), true, 'new content: the old ranges are gone');
+    });
+
     test('MD-13: inline review marks', () => {
         const { window } = setup();
         const text = [

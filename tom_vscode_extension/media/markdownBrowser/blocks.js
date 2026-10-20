@@ -4,7 +4,7 @@
 // it can be loaded into a bare `vm` sandbox and unit-tested directly
 // (src/utils/__tests__/mdBrowserBlocks.test.ts). Loaded as a classic script
 // before main.js; the declarations below are globals main.js calls.
-/* exported mdbCriticMark, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbWriteComment, mdbSplitForLexing, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
+/* exported mdbCriticMark, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, mdbSplitForLexing, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
 //
 // The browser renders the backend's transformed text. Without the CR/LF
 // conversion that transform keeps every line where it is (it only rewrites
@@ -482,17 +482,35 @@ function mdbCommentAt(lines, line) {
 
 /**
  * The next free comment id of a document: the highest `C-<n>` written after
- * a comment arrow, plus one.
+ * a comment arrow, plus one — or `runtimeNext`, the id the TomSpecs runtime
+ * gives the next comment of a SOM document (annot2), when that is higher. So
+ * the browser never hands out an id the agents' tools would give out too, nor
+ * one the document already shows.
  *
  * @param {string} text
+ * @param {number} [runtimeNext]
  * @returns {string}
  */
-function mdbNextCommentId(text) {
+function mdbNextCommentId(text, runtimeNext) {
     var re = /⬆️?\s*\*\*C-(\d+)\*\*/g;
     var max = 0;
     var m;
     while ((m = re.exec(String(text || ''))) !== null) { max = Math.max(max, Number(m[1])); }
-    return 'C-' + (max + 1);
+    return 'C-' + Math.max(max + 1, Number(runtimeNext) || 0);
+}
+
+/**
+ * Whether 0-based `line` lies in one of the `[first, end)` ranges.
+ *
+ * @param {Array<Array<number>>} ranges
+ * @param {number} line
+ * @returns {boolean}
+ */
+function mdbInRanges(ranges, line) {
+    for (var i = 0; i < (ranges || []).length; i++) {
+        if (line >= ranges[i][0] && line < ranges[i][1]) { return true; }
+    }
+    return false;
 }
 
 /**

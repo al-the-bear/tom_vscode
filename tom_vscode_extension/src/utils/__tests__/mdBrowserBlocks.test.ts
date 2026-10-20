@@ -18,7 +18,8 @@
  *   MB-12 a section reference resolves to the heading whose full id holds its ids in order
  *   MB-13 plain-text .md paths: relative, nested, bare names; not URLs, not mid-word
  *   MB-14 which links point at a Markdown document
- *   MB-16 comment blocks: recognised by the upward arrow, their extent and text without `>`, the
+ *   MB-16 comment blocks: recognised by the upward arrow, their extent and text without `>`, the next id
+ *         (the runtime's when higher), form-field ranges; the
  *         next id, written back with `> ` (missing id and author added, empty = no comment)
  *   MB-17 inline review marks (CriticMarkup, tom_specs annot1 §5): addition, deletion, substitution,
  *         highlight with its comment, comment alone; only at the start; unclosed is no mark
@@ -50,7 +51,8 @@ interface BlocksApi {
     mdbSplitForLexing(text: string, target: number): Array<{ startLine: number; text: string }>;
     mdbIsCommentLine(line: string): boolean;
     mdbCommentAt(lines: string[], line: number): { startLine: number; endLine: number; text: string } | null;
-    mdbNextCommentId(text: string): string;
+    mdbNextCommentId(text: string, runtimeNext?: number): string;
+    mdbInRanges(ranges: Array<[number, number]>, line: number): boolean;
     mdbWriteComment(text: string, nextId: string, author?: string): string;
     mdbCriticMark(src: string): { raw: string; kind: string; text: string; oldText?: string; newText?: string; comment?: string } | null;
 }
@@ -258,6 +260,12 @@ describe('Markdown Browser source mapping', () => {
 
         assert.equal(api.mdbNextCommentId('no comments'), 'C-1');
         assert.equal(api.mdbNextCommentId('> ⬆️ **C-2** a\n\n> ⬆ **C-11** b\n\n**C-40** is not a comment id'), 'C-12');
+        assert.equal(api.mdbNextCommentId('> ⬆️ **C-2** a', 9), 'C-9', 'the runtime\'s next id wins when it is higher (annot2)');
+        assert.equal(api.mdbNextCommentId('> ⬆️ **C-12** a', 9), 'C-13', 'a comment only the browser sees still counts');
+        assert.equal(api.mdbNextCommentId('no comments', undefined), 'C-1');
+        assert.equal(api.mdbInRanges([[4, 7], [10, 12]], 4), true);
+        assert.equal(api.mdbInRanges([[4, 7], [10, 12]], 7), false, 'the end is exclusive');
+        assert.equal(api.mdbInRanges([], 4), false);
 
         const write = (text: string): string => api.mdbWriteComment(text, 'C-7');
         assert.equal(write('⬆️ **C-7** looks wrong\n\nsee below\n'), '> ⬆️ **C-7** looks wrong\n>\n> see below', 'every line under `> `, a blank one as `>`');
