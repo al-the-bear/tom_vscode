@@ -83,17 +83,23 @@ try {
 ```
 
 Covered surface: `workspace` (workspaceFolders, textDocuments, getConfiguration, fs,
-findFiles — a real search with Node's glob under the pattern's base, exclude applied —, applyEdit, onDidChangeConfiguration, createFileSystemWatcher), `window`
+findFiles — a real search with Node's glob under the pattern's base, exclude applied —, asRelativePath,
+openTextDocument — the open fake document, else the file read from disk —, applyEdit, onDidChangeConfiguration, createFileSystemWatcher), `window`
 (showInformationMessage / WarningMessage / ErrorMessage, createOutputChannel,
-showInputBox, showQuickPick, activeTextEditor, visibleTextEditors,
-tabGroups, createWebviewPanel, registerWebviewViewProvider, withProgress),
+showInputBox, showQuickPick, createQuickPick, showTextDocument, createStatusBarItem, activeTextEditor, visibleTextEditors,
+tabGroups, createWebviewPanel — a panel whose `dispose()` fires `onDidDispose` —, registerWebviewViewProvider, withProgress),
 `commands` (executeCommand, registerCommand, getCommands), `languages`
 (getDiagnostics, registerCodeActionsProvider, registerDocumentSymbolProvider),
 `lm` (selectChatModels, tools, invokeTool), `Uri.file/parse/joinPath`,
 `EventEmitter`, `CancellationTokenSource`, `ProgressLocation`,
 `LanguageModelTextPart` / `ToolCallPart` / `ToolResultPart`,
 `RelativePattern`, `Disposable`, `LanguageModelChatMessage.User/Assistant`,
-`Position`, `Range`, `WorkspaceEdit`.
+`Position`, `Range`, `WorkspaceEdit`, `StatusBarAlignment`, `ViewColumn`.
+
+**A QuickPick nobody sees.** `createQuickPick()` returns a widget whose
+`show()` lists it in `window.__quickPicks`; a test answers it as a person
+would — `qp.__accept()` selects the first item (or the items passed) and
+fires `onDidAccept`, `qp.hide()` dismisses it.
 
 Install is idempotent — re-calling it merges new overrides into the existing
 stub (lets a test file extend the family's default stub).
@@ -103,9 +109,12 @@ tested against fake documents instead of a local patch of the stub:
 `fakeTextDocument(fsPath, text, { isDirty, saveResult })` builds one (offsets
 and positions convert across lines, `getText(range)`, `save()` counts and
 clears `isDirty`), and the `textDocuments` option or `h.setTextDocuments([...])`
-opens it. `WorkspaceEdit` records `replace` / `insert` / `delete` as `ops`;
-`workspace.applyEdit` applies them to the open fake documents (which become
-dirty), records every call as a spy and every applied edit in
+opens it. `WorkspaceEdit` records `replace` / `insert` / `delete` as `ops`
+and `createFile` / `deleteFile` / `renameFile` as `fileOps`;
+`workspace.applyEdit` carries the file operations out on disk (refusing, as
+VS Code does, a create over an existing file without `overwrite` /
+`ignoreIfExists`), then applies the text operations to the open fake documents
+(which become dirty) and to files nobody has open (written back to disk), records every call as a spy and every applied edit in
 `h.appliedEdits()`, and refuses everything after `h.setApplyEditResult(false)`
 (or the `applyEditResult` option). `som-document-io-vscode.test.ts` is the
 worked example; `vscode-stub.test.ts` holds the stub to it.
@@ -259,6 +268,36 @@ before it, so `out/` is current.
 
 ---
 
+## Every tool over MCP — `mcp-all-tools.test.ts`
+
+The family tests drive each `xxxImpl` with fakes. `mcp-all-tools.test.ts`
+drives every tool the other way round: through the standalone MCP server
+(`buildToolMcpServer` over the authenticated tool set, i.e. all of
+`ALL_SHARED_TOOLS`), called by a real MCP `Client` over an in-memory transport,
+with the live executors and the extension's stores started on a fake context
+(chat variables, process state, session todos, trail, reminders, timer, queue)
+— the code a chat panel or an external client runs.
+
+Its test mode is a **sandbox**: the workspace is a fresh copy of a small
+fixture (a git repository with no remote, quest `demo` with todos, process
+`flow`, a DocSpecs note, a copy of the Meridian spec, guidelines), `HOME`
+points into the sandbox, `http`/`https`/`fetch` refuse every request, and every
+path written through `fs` is recorded. Writes are real; MA-3 holds them to the
+sandbox, the extension repository's `git status` and HEAD to what they were,
+and checks what the write tools wrote. The ask tools are answered as a person
+would answer them (the ask through `AskUserRegistry`, the picker through the
+stub's QuickPick).
+
+A tool needs no entry to be covered: MA-1 and MA-2 walk `ALL_SHARED_TOOLS`,
+and a tool with no entry in `inputs()` is called with an input built from its
+schema's required fields. An entry is worth adding when the tool should do real
+work on the fixture — `inputs()` may take a function of the earlier answers, so
+an update or remove can use the id a create returned (remove/delete tools run
+last). Run it alone with
+`node --test out/tools/__tests__/mcp-all-tools.test.js`; with
+`MCP_ALL_TOOLS_REPORT=1` it prints one line per tool (ok / error, time, the
+start of the answer). It runs in about two seconds.
+
 ## Adding a new tool — full checklist
 
 1. **Source** — `src/tools/<family>-tools.ts`:
@@ -280,7 +319,9 @@ before it, so `out/` is current.
    (`src/utils/toolCategories.ts`); `tool-registry-parity.test.ts` fails
    for a registered tool that is not selectable.
 5. **Verify** — `npm test` (it ends with `audit:tools`). It passes when:
-   - `test:tools` — your new test is green and the timing report regenerated;
+   - `test:tools` — your new test is green and the timing report regenerated,
+     and `mcp-all-tools.test.ts` calls the new tool over MCP without a hang
+     (give it an `inputs()` entry if it should do real work on the fixture);
    - `audit:tools` — the covered count went up by one and no entry is over
      the ceiling (`Tool timing coverage : N/N`).
 

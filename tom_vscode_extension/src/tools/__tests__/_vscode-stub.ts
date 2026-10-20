@@ -43,6 +43,7 @@
  *   - `workspace.findFiles(include, exclude, max, token)` — a real search with
  *     Node's `fs.globSync` under the RelativePattern's base (or the first
  *     workspace folder for a string), the exclude glob applied, files only
+ *   - `workspace.asRelativePath(p)` — relative to the workspace folder holding it
  *   - `RelativePattern` + `workspace.createFileSystemWatcher` — every watcher
  *     is recorded and can be fired by hand from a test via
  *     `stubFileWatchers()`. Nothing fires on its own, which is exactly what
@@ -61,6 +62,7 @@
  * `overrides` parameter (deep-merged into the default stub).
  */
 
+/* eslint-disable @typescript-eslint/naming-convention -- the stub mirrors the vscode API's names (Uri, EventEmitter, ViewColumn.Active, …) and marks its test hooks with `__` */
 import Module from 'node:module';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -141,10 +143,60 @@ export interface StubEditOp {
 /** `vscode.WorkspaceEdit`: records its text operations in order. */
 export class StubWorkspaceEdit {
     readonly ops: StubEditOp[] = [];
-    get size(): number { return this.ops.length; }
+    /** The file operations, in order; `workspace.applyEdit` carries them out on disk, as VS Code does. */
+    readonly fileOps: StubFileOp[] = [];
+    get size(): number { return this.ops.length + this.fileOps.length; }
     replace(uri: { fsPath: string }, range: StubRange, text: string): void { this.ops.push({ kind: 'replace', uri, range, text }); }
     insert(uri: { fsPath: string }, position: StubPosition, text: string): void { this.ops.push({ kind: 'insert', uri, position, text }); }
     delete(uri: { fsPath: string }, range: StubRange): void { this.ops.push({ kind: 'delete', uri, range }); }
+    createFile(uri: { fsPath: string }, options: StubFileOp['options'] = {}): void { this.fileOps.push({ kind: 'create', uri, options }); }
+    deleteFile(uri: { fsPath: string }, options: StubFileOp['options'] = {}): void { this.fileOps.push({ kind: 'delete', uri, options }); }
+    renameFile(from: { fsPath: string }, to: { fsPath: string }, options: StubFileOp['options'] = {}): void { this.fileOps.push({ kind: 'rename', uri: from, to, options }); }
+    /** The documents the edit touches, each once, as `[uri, edits]` like VS Code's. */
+    entries(): Array<[{ fsPath: string }, StubEditOp[]]> {
+        const byPath = new Map<string, [{ fsPath: string }, StubEditOp[]]>();
+        for (const o of this.ops) {
+            const entry = byPath.get(o.uri.fsPath) ?? [o.uri, []];
+            entry[1].push(o);
+            byPath.set(o.uri.fsPath, entry);
+        }
+        return [...byPath.values()];
+    }
+}
+
+/** A file operation a `StubWorkspaceEdit` recorded. */
+export interface StubFileOp {
+    kind: 'create' | 'delete' | 'rename';
+    uri: { fsPath: string };
+    to?: { fsPath: string };
+    options: { overwrite?: boolean; ignoreIfExists?: boolean; ignoreIfNotExists?: boolean };
+}
+
+/** Carry out an edit's file operations on disk; false (nothing more done) where VS Code would refuse one. */
+function applyFileOps(edit: StubWorkspaceEdit): boolean {
+    for (const op of edit.fileOps) {
+        const at = op.uri.fsPath;
+        if (op.kind === 'create') {
+            if (fs.existsSync(at)) {
+                if (op.options.ignoreIfExists) { continue; }
+                if (!op.options.overwrite) { return false; }
+            }
+            fs.mkdirSync(path.dirname(at), { recursive: true });
+            fs.writeFileSync(at, '');
+        } else if (op.kind === 'delete') {
+            if (!fs.existsSync(at)) { if (op.options.ignoreIfNotExists) { continue; } return false; }
+            fs.rmSync(at, { recursive: true });
+        } else {
+            const to = op.to!.fsPath;
+            if (fs.existsSync(to)) {
+                if (op.options.ignoreIfExists) { continue; }
+                if (!op.options.overwrite) { return false; }
+            }
+            fs.mkdirSync(path.dirname(to), { recursive: true });
+            fs.renameSync(at, to);
+        }
+    }
+    return true;
 }
 
 /** A fake `vscode.TextDocument` open in an editor. */
@@ -212,9 +264,16 @@ export function fakeTextDocument(fsPath: string, text: string, opts: { isDirty?:
     return doc;
 }
 
-/** Apply `edit`'s operations to the open fake documents they name. */
+/**
+ * Apply `edit`'s operations to the documents they name: an open fake document
+ * in its buffer, a file nobody has open on disk (VS Code opens it, edits it and
+ * saves it).
+ */
 function applyToDocuments(edit: StubWorkspaceEdit, docs: FakeTextDocument[]): void {
-    for (const doc of docs) {
+    const open = new Set(docs.map((d) => d.uri.fsPath));
+    const onDisk = [...new Set(edit.ops.map((o) => o.uri.fsPath))].filter((p) => !open.has(p) && fs.existsSync(p));
+    const diskDocs = onDisk.map((p) => fakeTextDocument(p, fs.readFileSync(p, 'utf8')));
+    for (const doc of [...docs, ...diskDocs]) {
         const ops = edit.ops.filter((o) => o.uri.fsPath === doc.uri.fsPath);
         if (ops.length === 0) { continue; }
         // From the end backwards, so earlier offsets stay valid.
@@ -227,6 +286,7 @@ function applyToDocuments(edit: StubWorkspaceEdit, docs: FakeTextDocument[]): vo
         for (const s of spans) { text = text.slice(0, s.start) + s.text + text.slice(s.end); }
         doc.setText(text);
     }
+    for (const doc of diskDocs) { fs.writeFileSync(doc.uri.fsPath, doc.getText()); }
 }
 
 export interface InstallOptions {
@@ -638,6 +698,26 @@ function buildDefaultStub(record: (method: string, args: unknown[]) => void, opt
                 }
                 return out;
             },
+            // As VS Code answers it: relative to the workspace folder that holds the path, else the path itself.
+            asRelativePath(pathOrUri: unknown): string {
+                const abs = typeof pathOrUri === 'string' ? pathOrUri : (pathOrUri as { fsPath?: string })?.fsPath ?? String(pathOrUri);
+                const folders = (stub.workspace as { workspaceFolders?: Array<{ uri: { fsPath: string } }> }).workspaceFolders ?? [];
+                for (const f of folders) {
+                    const rel = path.relative(f.uri.fsPath, abs);
+                    if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) { return rel.split(path.sep).join('/'); }
+                }
+                return abs;
+            },
+            // The open document if there is one, else the file read from disk (missing → rejects, as VS Code does).
+            async openTextDocument(arg: unknown): Promise<FakeTextDocument> {
+                const fsPath = typeof arg === 'string' ? arg : (arg as { fsPath?: string })?.fsPath;
+                if (!fsPath) { throw new Error('openTextDocument: untitled documents are not stubbed'); }
+                const docs = (stub.workspace as { textDocuments: FakeTextDocument[] }).textDocuments;
+                const openDoc = docs.find((d) => d.uri.fsPath === fsPath);
+                if (openDoc) { return openDoc; }
+                if (!fs.existsSync(fsPath)) { throw new Error(`cannot open ${fsPath}: file not found`); }
+                return fakeTextDocument(fsPath, fs.readFileSync(fsPath, 'utf8'));
+            },
             textDocuments: options.textDocuments ?? [],
             // Applies a StubWorkspaceEdit to the open fake documents, unless refused.
             async applyEdit(edit: unknown): Promise<boolean> {
@@ -645,7 +725,10 @@ function buildDefaultStub(record: (method: string, args: unknown[]) => void, opt
                 const edits = editStateOf(stub);
                 if (!edits.applyEditResult) { return false; }
                 const docs = (stub.workspace as { textDocuments: FakeTextDocument[] }).textDocuments;
-                if (edit instanceof StubWorkspaceEdit) { applyToDocuments(edit, docs); }
+                if (edit instanceof StubWorkspaceEdit) {
+                    if (!applyFileOps(edit)) { return false; }
+                    applyToDocuments(edit, docs);
+                }
                 edits.appliedEdits.push(edit as StubWorkspaceEdit);
                 return true;
             },
@@ -682,8 +765,55 @@ function buildDefaultStub(record: (method: string, args: unknown[]) => void, opt
             activeTextEditor: undefined as unknown,
             visibleTextEditors: [] as unknown[],
             tabGroups: { all: [] as unknown[], onDidChangeTabs: new EventEmitter<unknown>().event },
-            createWebviewPanel: (): Record<string, unknown> => ({ webview: { html: '', onDidReceiveMessage: new EventEmitter<unknown>().event } }),
+            // A panel nobody sees: it takes HTML and messages, and dispose() fires onDidDispose.
+            createWebviewPanel: (viewType: string, title: string): Record<string, unknown> => {
+                record('window.createWebviewPanel', [viewType, title]);
+                const disposed = new EventEmitter<void>();
+                const panel: Record<string, unknown> = {
+                    viewType, title, visible: true, active: true,
+                    webview: {
+                        html: '', options: {}, cspSource: 'vscode-resource:',
+                        onDidReceiveMessage: new EventEmitter<unknown>().event,
+                        postMessage: async (): Promise<boolean> => true,
+                        asWebviewUri: (u: unknown): unknown => u,
+                    },
+                    onDidDispose: disposed.event,
+                    onDidChangeViewState: new EventEmitter<unknown>().event,
+                    reveal: (): void => undefined,
+                    dispose: (): void => { panel.visible = false; disposed.fire(); },
+                };
+                return panel;
+            },
+            // A QuickPick nobody sees. The ones shown are listed in `window.__quickPicks`, so a
+            // test answers one as a person would: pick an item and accept, or hide it.
+            __quickPicks: [] as unknown[],
+            createQuickPick: (): Record<string, unknown> => {
+                const accept = new EventEmitter<void>();
+                const hide = new EventEmitter<void>();
+                const qp: Record<string, unknown> = {
+                    items: [], selectedItems: [], activeItems: [], value: '', title: undefined, placeholder: undefined,
+                    canSelectMany: false, matchOnDescription: false, ignoreFocusOut: false, visible: false,
+                    onDidAccept: accept.event, onDidHide: hide.event,
+                    onDidChangeValue: new EventEmitter<string>().event,
+                    onDidChangeSelection: new EventEmitter<unknown>().event,
+                    onDidChangeActive: new EventEmitter<unknown>().event,
+                    show: (): void => { qp.visible = true; ((stub.window as Record<string, unknown>).__quickPicks as unknown[]).push(qp); },
+                    hide: (): void => { if (qp.visible) { qp.visible = false; hide.fire(); } },
+                    dispose: (): void => { if (qp.visible) { qp.visible = false; hide.fire(); } },
+                    /** Test helper: select these items (default the first) and press Enter. */
+                    __accept: (picked?: unknown[]): void => { qp.selectedItems = picked ?? (qp.items as unknown[]).slice(0, 1); accept.fire(); },
+                };
+                return qp;
+            },
             registerWebviewViewProvider: (): { dispose: () => void } => ({ dispose: () => undefined }),
+            // An editor nobody sees, over the document it was asked to show.
+            showTextDocument: async (doc: unknown): Promise<Record<string, unknown>> => {
+                record('window.showTextDocument', [doc]);
+                const start = new StubPosition(0, 0);
+                return { document: doc, selection: new StubRange(start, start), selections: [], revealRange: () => undefined, viewColumn: 1 };
+            },
+            // A status-bar item that shows nothing (the queue and timer keep one).
+            createStatusBarItem: (): Record<string, unknown> => ({ text: '', tooltip: '', command: undefined, show: () => undefined, hide: () => undefined, dispose: () => undefined }),
             withProgress: async <T>(_opts: unknown, task: (progress: unknown, token: unknown) => Promise<T>): Promise<T> => {
                 return task({ report: () => undefined }, { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => undefined }) });
             },
@@ -724,11 +854,8 @@ function buildDefaultStub(record: (method: string, args: unknown[]) => void, opt
             parse: (s: string): ReturnType<typeof fakeUri> => fakeUri(s),
             joinPath: (base: ReturnType<typeof fakeUri>, ...parts: string[]): ReturnType<typeof fakeUri> => fakeUri(path.join(base.fsPath, ...parts)),
         },
-        // eslint-disable-next-line @typescript-eslint/naming-convention -- the vscode API's names
         Position: StubPosition,
-        // eslint-disable-next-line @typescript-eslint/naming-convention -- the vscode API's names
         Range: StubRange,
-        // eslint-disable-next-line @typescript-eslint/naming-convention -- the vscode API's names
         WorkspaceEdit: StubWorkspaceEdit,
         RelativePattern: class {
             base: unknown;
@@ -741,6 +868,8 @@ function buildDefaultStub(record: (method: string, args: unknown[]) => void, opt
         },
         EventEmitter,
         CancellationTokenSource,
+        StatusBarAlignment: { Left: 1, Right: 2 },
+        ViewColumn: { Active: -1, Beside: -2, One: 1, Two: 2, Three: 3 },
         ProgressLocation: {
             SourceControl: 1,
             Window: 10,

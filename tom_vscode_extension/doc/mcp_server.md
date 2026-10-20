@@ -178,7 +178,32 @@ The API key is the real boundary. When you expose write tools:
 - **Output channel** — lifecycle and per-request decisions stream to the **`Tom AI: MCP Server`** channel in the Output dropdown (`src/utils/mcpServerLog.ts`, ISO-timestamped). It logs each busy port probe and the finally-bound port, `started on <url>` / `stopped`, the auth decision per request (authenticated → full set vs read-only floor, **with the token redacted**), and per-request errors.
 - **Trail** — every external tool call writes a request/answer pair to the per-window trail under **`${ai}/trail/mcp/${quest}`** (the `mcp` trail subsystem), and tags the resulting change-log entries with `source: 'mcp'`, so external mutations are attributable alongside the `anthropic`/`copilot` surfaces.
 
-## 8. Related references
+## 8. Testing every tool over MCP
+
+`src/tools/__tests__/mcp-all-tools.test.ts` is an MCP test client for the
+whole tool surface. It starts the server in-process with the VS Code stub — the
+same `buildToolMcpServer` over the authenticated tool set — connects a real MCP
+client over an in-memory transport, lists the tools, resources and prompts, and
+calls **every** registered tool once, reporting per tool. It is part of
+`npm test` (the `test:tools` stage) and takes about two seconds.
+
+The test mode is a **sandbox**: the server's workspace is a throwaway copy of a
+small fixture workspace (its own git repository, a quest, a process, a spec),
+`HOME` points into it, and outgoing HTTP is refused. Write tools really write —
+into the sandbox. The suite then checks that every write landed there, that the
+extension's repository is unchanged, and that nothing left the machine.
+
+```bash
+cd tom_ai/vscode/tom_vscode_extension
+npm run compile
+node --test out/tools/__tests__/mcp-all-tools.test.js                          # the suite alone
+MCP_ALL_TOOLS_REPORT=1 node --test out/tools/__tests__/mcp-all-tools.test.js   # plus one line per tool
+```
+
+It does not reach the server of a running window; that stays a live check
+(`../_copilot_guidelines/tool_testing.md` has the details of the suite).
+
+## 9. Related references
 
 - `_ai/quests/vscode_extension/mcp_server_implementation_plan.md` — the full design record (todos 1–23) and the remaining-work list.
 - `anthropic_handler.md` — the in-SDK MCP server used by the Agent SDK transport (§2b there).

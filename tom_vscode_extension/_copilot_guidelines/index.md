@@ -33,7 +33,7 @@ Type: TypeScript extension
 - [reinstall_extension.md](reinstall_extension.md)
 - [restart_debugging_flow.backup.md](restart_debugging_flow.backup.md)
 - [ai_conversation.md](ai_conversation.md)
-- [tool_testing.md](tool_testing.md)
+- [tool_testing.md](tool_testing.md) — testing the tools: the vscode stub, timing report, coverage audit, and the all-tools MCP suite (every tool over the MCP server, in a sandbox)
 - [todo_files_and_panel.md](todo_files_and_panel.md) — TRA todo mechanics: -archived/-deleted sibling rule, panel move buttons, per-host session todo file, archive/delete LLM tools
 
 ## User-facing docs

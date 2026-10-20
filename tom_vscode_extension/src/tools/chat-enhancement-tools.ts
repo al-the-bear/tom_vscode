@@ -648,7 +648,13 @@ const livePromptQueueAccess: PromptQueueAccess = {
         const item = await m.enqueue(input);
         return projectItem(item);
     },
-    remove(id) { void getQueueManager().then((m) => m.remove(id)); },
+    remove(id) {
+        // Synchronous, like the other accessors: a manager that is not running
+        // throws here, so the tool answers the error instead of `ok` (and no
+        // rejection is left unhandled).
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        require('../managers/promptQueueManager.js').PromptQueueManager.instance.remove(id);
+    },
     setStatus(id, status) {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         return require('../managers/promptQueueManager.js').PromptQueueManager.instance.setStatus(id, status);

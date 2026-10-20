@@ -250,4 +250,18 @@ describe('AskUserRegistry — waiting indefinitely', () => {
         assert.equal(h.timers[0].ms, 60_000);
         assert.equal(h.registry.getPending()!.timeoutAt, 1_000 + 60_000);
     });
+
+    test('an ask whose UI cannot open rejects and leaves the slot free', async () => {
+        // Found by the all-tools MCP test: onOpen threw, begin() rejected, and the
+        // slot stayed taken with its timer armed — every later ask was refused.
+        const h = makeHarness();
+        const { promise } = beginWith(h, { timeoutMs: 60_000, onOpen: () => { throw new Error('no window'); } });
+        await assert.rejects(promise, /no window/);
+        assert.equal(h.registry.hasPending(), false, 'the slot is free again');
+        assert.equal(h.timers[0].cleared, true, 'its timer is cleared');
+        const next = beginWith(h);
+        assert.equal(h.registry.hasPending(), true, 'the next ask opens');
+        h.registry.cancel('done');
+        assert.equal(await next.promise, 'done');
+    });
 });

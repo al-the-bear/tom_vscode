@@ -164,7 +164,15 @@ export class AskUserRegistry {
             };
             // Surface UI + Telegram synchronously after state is in place so an
             // immediate submit (fast Telegram reply) always finds the slot.
-            params.onOpen(pending);
+            try {
+                params.onOpen(pending);
+            } catch (err) {
+                // Nobody can see this ask, so nobody can answer it: free the slot
+                // (and its timer) instead of refusing every later ask as pending.
+                if (timer !== undefined) { this.clearTimer(timer); }
+                this.active = undefined;
+                throw err;
+            }
         });
     }
 
