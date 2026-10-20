@@ -103,6 +103,23 @@ describe('tool registry parity — ALL_SHARED_TOOLS vs AVAILABLE_LLM_TOOLS', () 
     });
 });
 
+describe('the queue and timer control plane', () => {
+    // A planning step queues its own todo walks (tom_specs § Orchestration), so an
+    // allow-list profile must be able to tick the queue and timer mutators.
+    const CONTROL_PLANE = [
+        'tomAi_addQueueItem', 'tomAi_updateQueueItem', 'tomAi_removeQueueItem', 'tomAi_setQueueItemStatus',
+        'tomAi_addQueueFollowUp', 'tomAi_updateQueueFollowUp', 'tomAi_removeQueueFollowUp',
+        'tomAi_addQueuePrePrompt', 'tomAi_updateQueuePrePrompt', 'tomAi_removeQueuePrePrompt',
+        'tomAi_sendQueuedPrompt', 'tomAi_resendQueueItem',
+        'tomAi_addTimedRequest', 'tomAi_updateTimedRequest', 'tomAi_removeTimedRequest', 'tomAi_setTimerEngineState',
+    ];
+
+    test('is selectable in the pickers and has its own category', () => {
+        assert.deepEqual(CONTROL_PLANE.filter((name) => !selectable.includes(name)), [], 'not selectable');
+        assert.deepEqual([...(CATEGORY_MAP['Queue & Timers (control)'] ?? [])].sort(), [...CONTROL_PLANE].sort());
+    });
+});
+
 describe('tool registry parity — AVAILABLE_LLM_TOOLS vs CATEGORY_MAP', () => {
     const categorised = Object.values(CATEGORY_MAP).flat();
 

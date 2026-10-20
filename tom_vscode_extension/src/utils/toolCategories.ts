@@ -155,9 +155,24 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_listPromptTemplates',
         'tomAi_updatePromptTemplate',
     ],
-    // Read-only queue/timer introspection only. The mutators and the dispatch
-    // entry points are held back on purpose — see
-    // constants.ts::DELIBERATELY_UNSELECTABLE_TOOLS.
+    'Queue & Timers (control)': [
+        'tomAi_addQueueItem',
+        'tomAi_updateQueueItem',
+        'tomAi_removeQueueItem',
+        'tomAi_setQueueItemStatus',
+        'tomAi_addQueueFollowUp',
+        'tomAi_updateQueueFollowUp',
+        'tomAi_removeQueueFollowUp',
+        'tomAi_addQueuePrePrompt',
+        'tomAi_updateQueuePrePrompt',
+        'tomAi_removeQueuePrePrompt',
+        'tomAi_sendQueuedPrompt',
+        'tomAi_resendQueueItem',
+        'tomAi_addTimedRequest',
+        'tomAi_updateTimedRequest',
+        'tomAi_removeTimedRequest',
+        'tomAi_setTimerEngineState',
+    ],
     'Queue & Timers (read)': [
         'tomAi_listQueue',
         'tomAi_listSessions',

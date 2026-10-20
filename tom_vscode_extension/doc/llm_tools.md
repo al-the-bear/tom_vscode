@@ -770,24 +770,24 @@ that works under `toolsEnabled: true` and is invisible everywhere else.
 
 ### Deliberately unselectable tools
 
-Of the 173 registered tools, **157 are selectable** and **16 are withheld from
-the pickers on purpose** (`DELIBERATELY_UNSELECTABLE_TOOLS` in
-`src/utils/constants.ts`): the twelve queue mutators and dispatch entry points
-(`tomAi_addQueueItem`, `tomAi_updateQueueItem`, `tomAi_removeQueueItem`,
-`tomAi_setQueueItemStatus`, the three follow-up and three pre-prompt tools,
-`tomAi_sendQueuedPrompt`, `tomAi_resendQueueItem`) plus
-`tomAi_addTimedRequest`, `tomAi_updateTimedRequest`,
-`tomAi_removeTimedRequest` and `tomAi_setTimerEngineState`.
+None: all 177 registered tools are selectable, and
+`DELIBERATELY_UNSELECTABLE_TOOLS` (`src/utils/constants.ts`) is empty. The
+mechanism stays, so a tool can be held behind `toolsEnabled: true` on purpose —
+with its reason beside the entry, and only a write tool: a `readOnly` tool in
+the list fails the suite.
 
-These are the queue and timer **control plane**. A model that can tick them in
-its own profile can enqueue and dispatch its own prompts and switch the timer
-engine on or off — a reasonable capability to grant an autonomous agent
-deliberately, but not one an allow-list profile should acquire by accident. They
-remain fully available under `toolsEnabled: true`. Their read-only counterparts
-`tomAi_listQueue` and `tomAi_listTimedRequests` **are** selectable, under the
-**Queue & Timers (read)** category: observing the queue carries no such risk.
-The guard enforces that split — a `readOnly` tool appearing in the exclusion
-list fails the suite.
+The queue and timer **control plane** has its own picker category,
+**Queue & Timers (control)**: the twelve queue mutators and dispatch entry
+points (`tomAi_addQueueItem`, `tomAi_updateQueueItem`,
+`tomAi_removeQueueItem`, `tomAi_setQueueItemStatus`, the three follow-up and
+three pre-prompt tools, `tomAi_sendQueuedPrompt`, `tomAi_resendQueueItem`)
+plus `tomAi_addTimedRequest`, `tomAi_updateTimedRequest`,
+`tomAi_removeTimedRequest` and `tomAi_setTimerEngineState`. A profile that
+holds them can enqueue and dispatch its own prompts and switch the timer engine
+— what a planning process step needs to queue its todo walks
+(`_ai/processes/tom_specs/tom_specs.md` § Orchestration). The read side
+(`tomAi_listQueue`, `tomAi_listTimedRequests`, the session tools) is
+**Queue & Timers (read)**.
 
 ## 9. Scripting-API access and gating
 

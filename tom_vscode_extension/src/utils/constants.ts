@@ -230,37 +230,14 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_specSetItemSectionId',
     'tomAi_specApplyEdits',
     'tomAi_specConvert',
-    // Queue + timed requests — observation only; the mutators and the dispatch
-    // entry points are in DELIBERATELY_UNSELECTABLE_TOOLS below.
+    // Queue + timed requests — observation and sessions
     'tomAi_listQueue',
     'tomAi_listSessions',
     'tomAi_createSession',
     'tomAi_listTimedRequests',
-    // Past tool calls + prompt history (read-only trail access)
-    'tomAi_listPastToolCalls',
-    'tomAi_searchPastToolResults',
-    'tomAi_readPastToolResult',
-    'tomAi_listPromptPairs',
-    'tomAi_getPromptPair',
-] as const;
-
-/**
- * Registered in ALL_SHARED_TOOLS but deliberately kept out of the pickers, so
- * they are reachable only under `toolsEnabled: true`.
- *
- * These are the queue and timer *control plane*: they let a caller enqueue,
- * edit, dispatch and re-send prompts, and switch the timer engine on and off.
- * A model that can tick them in its own profile can drive its own prompt loop —
- * which is a legitimate thing to want for an autonomous agent, but not
- * something an allow-list profile should be able to acquire by accident. The
- * read-only counterparts (`tomAi_listQueue`, `tomAi_listTimedRequests`) are
- * selectable: observing the queue carries no such risk.
- *
- * This is an exclusion, not a backlog. To make one of these selectable, move
- * the name into AVAILABLE_LLM_TOOLS and give it a CATEGORY_MAP entry.
- */
-export const DELIBERATELY_UNSELECTABLE_TOOLS = [
-    // Queue — mutation and dispatch
+    // Queue + timed requests — the control plane: enqueue, edit, dispatch,
+    // re-send, and the timer engine. A step that plans its work queues its own
+    // todo walks with these (_ai/processes/tom_specs/tom_specs.md § Orchestration).
     'tomAi_addQueueItem',
     'tomAi_updateQueueItem',
     'tomAi_removeQueueItem',
@@ -273,9 +250,23 @@ export const DELIBERATELY_UNSELECTABLE_TOOLS = [
     'tomAi_removeQueuePrePrompt',
     'tomAi_sendQueuedPrompt',
     'tomAi_resendQueueItem',
-    // Timed requests — mutation and the engine kill switch
     'tomAi_addTimedRequest',
     'tomAi_updateTimedRequest',
     'tomAi_removeTimedRequest',
     'tomAi_setTimerEngineState',
+    // Past tool calls + prompt history (read-only trail access)
+    'tomAi_listPastToolCalls',
+    'tomAi_searchPastToolResults',
+    'tomAi_readPastToolResult',
+    'tomAi_listPromptPairs',
+    'tomAi_getPromptPair',
 ] as const;
+
+/**
+ * Registered in ALL_SHARED_TOOLS but deliberately kept out of the pickers, so
+ * they are reachable only under `toolsEnabled: true`. Empty: every registered
+ * tool can be ticked in an allow-list profile. The queue and timer control
+ * plane was held back here until 2026-10-20, when planning steps began queuing
+ * their own todo walks. A name added here needs the reason beside it.
+ */
+export const DELIBERATELY_UNSELECTABLE_TOOLS: readonly string[] = [];
