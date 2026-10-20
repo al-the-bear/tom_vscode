@@ -25,6 +25,10 @@
  *         highlight with its comment, comment alone; only at the start; unclosed is no mark
  *   MB-15 splitting a large document for lexing: only before headings outside code and html,
  *         the parts join back to the text, and lexing the parts gives the tokens of the whole
+ *   MB-18 questions: the question an `**Answer:**` belongs to — its id, its options `(a)`, `(b)` … with
+ *         continuation lines, and the recommended one: the bold option, else the one whose text says
+ *         "recommended", else the letter of a `*Recommendation:*` line; in a block of several questions,
+ *         each answer finds its own; the answer an option writes
  */
 
 import test, { describe } from 'node:test';
@@ -54,6 +58,8 @@ interface BlocksApi {
     mdbNextCommentId(text: string, runtimeNext?: number): string;
     mdbInRanges(ranges: Array<[number, number]>, line: number): boolean;
     mdbWriteComment(text: string, nextId: string, author?: string): string;
+    mdbQuestionAt(lines: string[], answerLine: number): { id: string; line: number; options: Array<{ letter: string; text: string; bold: boolean }>; recommended: string | null } | null;
+    mdbOptionAnswer(letter: string): string;
     mdbCriticMark(src: string): { raw: string; kind: string; text: string; oldText?: string; newText?: string; comment?: string } | null;
 }
 
@@ -296,5 +302,49 @@ describe('Markdown Browser source mapping', () => {
         assert.equal(mark('{++ never closed'), null);
         assert.equal(mark('{-- --}'), null, 'an empty mark is no mark');
         assert.equal(mark('{plain}'), null);
+    });
+    test('MB-18: questions and their options', () => {
+        const lines = [
+            '> **❓ Open questions on these fields**',                                     // 0
+            '>',                                                                           // 1
+            '> **❓ BQ-07 — overallComplexity:** are the complexity and the',              // 2
+            '> influence rated?',                                                          // 3
+            '> - (a) both unrated',                                                        // 4
+            '> - (b) both rated: the complexity "Very high"; the influence of the owner',  // 5
+            '>   critical',                                                                // 6
+            '> - (c) only the complexity rated',                                           // 7
+            '>',                                                                           // 8
+            '> *Recommendation:* (c) — the complexity informs the sizing.',               // 9
+            '>',                                                                           // 10
+            '> **Answer:**',                                                               // 11
+            '>',                                                                           // 12
+            '> **BQ-08 — author:** who is named?',                                         // 13
+            '> - (a) the owner',                                                           // 14
+            '> - **(b)** the owner and the agents',                                        // 15
+            '> **Answer:** (a)',                                                           // 16
+            '>',                                                                           // 17
+            '> **❓ BQ-09 — scope:** which scope?',                                        // 18
+            '> - (a) narrow',                                                              // 19
+            '> - (b) wide (recommended)',                                                  // 20
+            '> **Answer:**',                                                               // 21
+            '',                                                                            // 22
+            '> **❓ BQ-10 — free:** anything else?',                                       // 23
+            '> **Answer:**',                                                               // 24
+        ];
+        const q7 = api.mdbQuestionAt(lines, 11)!;
+        assert.equal(q7.id, 'BQ-07');
+        assert.equal(q7.line, 2);
+        assert.deepEqual(Array.from(q7.options, (o) => o.letter), ['a', 'b', 'c']);
+        assert.equal(q7.options[1].text, 'both rated: the complexity "Very high"; the influence of the owner critical', 'continuation lines join');
+        assert.equal(q7.recommended, 'c', 'from the Recommendation line');
+        const q8 = api.mdbQuestionAt(lines, 16)!;
+        assert.deepEqual([q8.id, q8.line, q8.recommended], ['BQ-08', 13, 'b'], 'a field question; the bold option');
+        assert.equal(q8.options[1].bold, true);
+        assert.equal(q8.options[1].text, 'the owner and the agents');
+        assert.deepEqual([api.mdbQuestionAt(lines, 21)!.id, api.mdbQuestionAt(lines, 21)!.recommended], ['BQ-09', 'b'], '"recommended" in the text');
+        const q10 = api.mdbQuestionAt(lines, 24)!;
+        assert.deepEqual([q10.id, q10.options.length, q10.recommended], ['BQ-10', 0, null]);
+        assert.equal(api.mdbQuestionAt(['plain', '**Answer:**'], 1), null, 'no question above');
+        assert.equal(api.mdbOptionAnswer('c'), '(c)');
     });
 });

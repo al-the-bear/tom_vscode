@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
+/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbQuestionAt, mdbOptionAnswer, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
 // Markdown Browser client — extracted verbatim from the inline <script> of
 // buildHtml() in src/handlers/markdownBrowser-handler.ts (Phase B.21 webview
 // restructuring). Predates strict checkJs (large verbatim extraction).
@@ -271,25 +271,37 @@
                     return token;
                 },
                 renderer: function(token) {
-                    var inner = this.parser.parseInline(token.textTokens);
-                    var note = token.comment
-                        ? '<span class="mdb-cm mdb-cm-comment" title="Comment">' + icon('comment', 'Comment') + esc(token.comment) + '</span>' : '';
-                    switch (token.kind) {
-                        case 'addition':
-                            return '<ins class="mdb-cm mdb-cm-add" title="Added">' + icon('diff-added', 'Added') + inner + '</ins>';
-                        case 'deletion':
-                            return '<del class="mdb-cm mdb-cm-del" title="Removed">' + icon('diff-removed', 'Removed') + inner + '</del>';
-                        case 'substitution':
-                            return '<span class="mdb-cm mdb-cm-sub" title="Changed">' + icon('diff-modified', 'Changed')
-                                + '<del>' + this.parser.parseInline(token.oldTokens) + '</del><ins>' + inner + '</ins></span>';
-                        case 'highlight':
-                            return '<mark class="mdb-cm mdb-cm-mark"' + (token.comment ? ' title="' + esc(token.comment) + '"' : '') + '>'
-                                + icon('note', 'Annotated text') + inner + '</mark>' + note;
-                        default:
-                            return '<span class="mdb-cm mdb-cm-comment" title="Comment">' + icon('comment', 'Comment') + inner + '</span>';
-                    }
+                    // Every mark is wrapped with its markup and the buttons that decide it
+                    // (shown in edit mode): accept / reject for a change, remove for a comment.
+                    var change = token.kind === 'addition' || token.kind === 'deletion' || token.kind === 'substitution';
+                    var buttons = change
+                        ? '<button class="mdb-rm-btn mdb-rm-accept codicon codicon-check" title="Accept this change"></button>'
+                            + '<button class="mdb-rm-btn mdb-rm-reject codicon codicon-close" title="Reject this change"></button>'
+                        : '<button class="mdb-rm-btn mdb-rm-remove codicon codicon-trash" title="Remove this comment (the text stays)"></button>';
+                    return '<span class="mdb-rm" data-kind="' + (change ? 'change' : 'note') + '" data-raw="' + esc(token.raw) + '">'
+                        + renderMark.call(this, token) + '<span class="mdb-rm-actions">' + buttons + '</span></span>';
                 },
             }] });
+            /** The mark itself: an icon and its text, styled by kind. */
+            function renderMark(token) {
+                var inner = this.parser.parseInline(token.textTokens);
+                var note = token.comment
+                    ? '<span class="mdb-cm mdb-cm-comment" title="Comment">' + icon('comment', 'Comment') + esc(token.comment) + '</span>' : '';
+                switch (token.kind) {
+                    case 'addition':
+                        return '<ins class="mdb-cm mdb-cm-add" title="Added">' + icon('diff-added', 'Added') + inner + '</ins>';
+                    case 'deletion':
+                        return '<del class="mdb-cm mdb-cm-del" title="Removed">' + icon('diff-removed', 'Removed') + inner + '</del>';
+                    case 'substitution':
+                        return '<span class="mdb-cm mdb-cm-sub" title="Changed">' + icon('diff-modified', 'Changed')
+                            + '<del>' + this.parser.parseInline(token.oldTokens) + '</del><ins>' + inner + '</ins></span>';
+                    case 'highlight':
+                        return '<mark class="mdb-cm mdb-cm-mark"' + (token.comment ? ' title="' + esc(token.comment) + '"' : '') + '>'
+                            + icon('note', 'Annotated text') + inner + '</mark>' + note;
+                    default:
+                        return '<span class="mdb-cm mdb-cm-comment" title="Comment">' + icon('comment', 'Comment') + inner + '</span>';
+                }
+            }
         }
 
         /** marked's options: its defaults (GFM: tables, strikethrough, ...) plus `breaks` for CR/LF. */
@@ -374,6 +386,7 @@
         /** A comment block is reopened with its own button; another comment may follow it. */
         var COMMENT_ACTIONS_HTML = '<div class="mdb-block-actions">'
             + '<button class="mdb-inline-btn mdb-comment-btn codicon codicon-comment-discussion" title="Add another review comment after this one"></button>'
+            + '<button class="mdb-inline-btn mdb-comment-remove-btn codicon codicon-trash" title="Remove this comment"></button>'
             + '</div>';
         /** Rendered HTML that may hold a section reference or a plain-text .md path. */
         var LINKABLE_HTML = /[A-Z0-9][ \t]*&gt;[ \t]*[A-Z]|\.md(?![\w/-])/i;
@@ -1106,21 +1119,179 @@
         function addAnswerButton(strong, block, offset, column) {
             var btn = iconButton('mdb-answer-btn', 'comment', 'Write or edit the answer');
             strong.insertAdjacentElement('afterend', btn);
-            btn.addEventListener('click', function(e) {
-                e.stopPropagation();
-                // The answer already written opens in the editor; Save replaces
-                // exactly its lines (as the answer import reads them).
+            var startLines = shownLines();
+            if (!mdbAnswerAt(startLines, block.startLine + offset, column).text) { btn.dataset.unanswered = '1'; }
+            /** The answer's lines and its question, read when used: an edit elsewhere may have moved them. */
+            function where() {
                 var lines = shownLines();
                 var line = block.startLine + offset;
-                var current = mdbAnswerAt(lines, line, column);
-                openEditor(btn, btn, current.text, function(value) {
-                    if (value.trim() === current.text.trim()) { return null; }
-                    return {
-                        startLine: line, endLine: current.endLine,
-                        expected: lines.slice(line, current.endLine).join('\n'),
-                        replacement: mdbWriteAnswer(lines, line, column, value),
-                    };
+                return { lines: lines, line: line, current: mdbAnswerAt(lines, line, column), question: mdbQuestionAt(lines, line) };
+            }
+            function editFor(w, value) {
+                return {
+                    startLine: w.line, endLine: w.current.endLine,
+                    expected: w.lines.slice(w.line, w.current.endLine).join('\n'),
+                    replacement: mdbWriteAnswer(w.lines, w.line, column, value),
+                };
+            }
+            btn.__mdbOpenAnswer = function() {
+                hideOptions();
+                // The answer already written opens in the editor; an unanswered
+                // question opens with its recommended option. Save replaces
+                // exactly the answer's lines (as the answer import reads them).
+                var w = where();
+                var initial = w.current.text || (w.question && w.question.recommended ? mdbOptionAnswer(w.question.recommended) : '');
+                openEditor(btn, btn, initial, function(value) {
+                    if (value.trim() === w.current.text.trim()) { return null; }
+                    return editFor(w, value);
                 });
+            };
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                btn.__mdbOpenAnswer();
+            });
+            // Hovering the button offers the question's options: one click answers.
+            btn.addEventListener('mouseenter', function() {
+                var w = where();
+                if (!w.question || w.question.options.length === 0) { return; }
+                showOptions(btn, w.question, function(letter) { postEdit(editFor(w, mdbOptionAnswer(letter))); });
+            });
+            btn.addEventListener('mouseleave', function() { scheduleHideOptions(); });
+        }
+
+        // ---- The options popup of an answer button ----
+        var optionsPop = null;
+        var hideOptionsTimer = null;
+        function hideOptions() {
+            if (hideOptionsTimer) { clearTimeout(hideOptionsTimer); hideOptionsTimer = null; }
+            if (optionsPop && optionsPop.parentNode) { optionsPop.parentNode.removeChild(optionsPop); }
+            optionsPop = null;
+        }
+        function scheduleHideOptions() {
+            if (hideOptionsTimer) { clearTimeout(hideOptionsTimer); }
+            hideOptionsTimer = setTimeout(hideOptions, 400);
+        }
+        function showOptions(btn, question, pick) {
+            hideOptions();
+            var pop = document.createElement('div');
+            pop.className = 'mdb-options-pop';
+            question.options.forEach(function(o) {
+                var item = document.createElement('div');
+                item.className = 'mdb-option' + (o.letter === question.recommended ? ' mdb-option-recommended' : '');
+                item.textContent = mdbOptionAnswer(o.letter) + ' ' + o.text;
+                item.title = o.letter === question.recommended ? 'Recommended — answer with this option' : 'Answer with this option';
+                item.addEventListener('click', function(e) { e.stopPropagation(); hideOptions(); pick(o.letter); });
+                pop.appendChild(item);
+            });
+            var write = document.createElement('div');
+            write.className = 'mdb-option mdb-option-write';
+            write.textContent = 'Write an answer…';
+            write.addEventListener('click', function(e) { e.stopPropagation(); btn.__mdbOpenAnswer(); });
+            pop.appendChild(write);
+            pop.addEventListener('mouseenter', function() { if (hideOptionsTimer) { clearTimeout(hideOptionsTimer); hideOptionsTimer = null; } });
+            pop.addEventListener('mouseleave', scheduleHideOptions);
+            var r = btn.getBoundingClientRect();
+            pop.style.left = Math.max(4, r.left) + 'px';
+            pop.style.top = (r.bottom + 2) + 'px';
+            document.body.appendChild(pop);
+            optionsPop = pop;
+        }
+
+        // ---- Reviewing marks, comments and the whole document ----
+        /** Post an edit that needs no editor (a one-click action); the host reports a failure itself. */
+        function postEdit(edit) {
+            var id = nextEditId++;
+            pendingSaves[id] = { close: function() {}, status: document.createElement('div'), edit: edit };
+            restoreScrollTop = contentArea.scrollTop;
+            vscode.postMessage({
+                type: 'applyEdit', editId: id, filePath: currentFilePath, notifyOnError: true,
+                startLine: edit.startLine, endLine: edit.endLine, expected: edit.expected, replacement: edit.replacement,
+            });
+        }
+
+        /** Accept, reject or remove one mark: the host decides it with the TomSpecs runtime (annot4). */
+        function decideReviewMark(btn) {
+            if (crlfMode) { return; }
+            var span = btn.closest('.mdb-rm');
+            var wrapper = span && span.closest('.mdb-block');
+            var block = wrapper && wrapper.__mdbBlock;
+            if (!block) { return; }
+            var raw = span.dataset.raw;
+            var occurrence = 0;
+            var all = wrapper.querySelectorAll('.mdb-rm');
+            for (var i = 0; i < all.length && all[i] !== span; i++) { if (all[i].dataset.raw === raw) { occurrence++; } }
+            var decision = btn.classList.contains('mdb-rm-accept') ? 'accept' : btn.classList.contains('mdb-rm-reject') ? 'reject' : 'remove';
+            restoreScrollTop = contentArea.scrollTop;
+            vscode.postMessage({
+                type: 'reviewMark', filePath: currentFilePath,
+                startLine: block.startLine, endLine: block.endLine,
+                expected: shownLines().slice(block.startLine, block.endLine).join('\n'),
+                markup: raw, occurrence: occurrence, decision: decision,
+            });
+        }
+
+        /** Remove a comment block, and the blank line around it, with one click. */
+        function removeCommentBlock(block) {
+            if (crlfMode) { return; }
+            var lines = shownLines();
+            var comment = mdbCommentAt(lines, block.startLine);
+            if (!comment) { return; }
+            var start = comment.startLine > 0 && lines[comment.startLine - 1].trim() === '' ? comment.startLine - 1 : comment.startLine;
+            var end = lines[comment.endLine] !== undefined && lines[comment.endLine].trim() === '' ? comment.endLine + 1 : comment.endLine;
+            postEdit({ startLine: start, endLine: end, expected: lines.slice(start, end).join('\n'), replacement: '' });
+        }
+
+        function reviewAll(decision) {
+            if (!currentFilePath || crlfMode) { return; }
+            restoreScrollTop = contentArea.scrollTop;
+            vscode.postMessage({ type: 'reviewAllChanges', filePath: currentFilePath, decision: decision });
+        }
+        var acceptAllBtn = document.getElementById('acceptAllBtn');
+        var rejectAllBtn = document.getElementById('rejectAllBtn');
+        if (acceptAllBtn) { acceptAllBtn.addEventListener('click', function() { reviewAll('accept'); }); }
+        if (rejectAllBtn) { rejectAllBtn.addEventListener('click', function() { reviewAll('reject'); }); }
+
+        // ---- Navigation: from change to change, comment to comment, question to question ----
+        var NAV_TARGETS = {
+            changes: '.mdb-rm[data-kind="change"]',
+            comments: '.mdb-comment-block',
+            inline: '.mdb-rm[data-kind="note"]',
+            questions: '.mdb-answer-btn',
+            unanswered: '.mdb-answer-btn[data-unanswered="1"]',
+        };
+        var navModeSelect = document.getElementById('navModeSelect');
+        var navCurrent = null;
+        function navigate(delta) {
+            var mode = navModeSelect ? navModeSelect.value : 'changes';
+            var targets = Array.prototype.slice.call(docRoot.querySelectorAll(NAV_TARGETS[mode] || NAV_TARGETS.changes));
+            if (targets.length === 0) { return; }
+            var index = navCurrent ? targets.indexOf(navCurrent) : -1;
+            if (index >= 0) {
+                index = (index + delta + targets.length) % targets.length;
+            } else if (delta > 0) {
+                // From the reading position: the first one at or below the top of the view.
+                index = targets.findIndex(function(t) { return offsetInView(t) >= 0; });
+                if (index < 0) { index = 0; }
+            } else {
+                index = -1;
+                for (var i = targets.length - 1; i >= 0; i--) { if (offsetInView(targets[i]) < 0) { index = i; break; } }
+                if (index < 0) { index = targets.length - 1; }
+            }
+            if (navCurrent) { navCurrent.classList.remove('mdb-nav-current'); }
+            navCurrent = targets[index];
+            navCurrent.classList.add('mdb-nav-current');
+            jumpWithinDocument(navCurrent);
+            // An unanswered question opens ready to answer, the recommended option filled in.
+            if (mode === 'unanswered' && navCurrent.__mdbOpenAnswer) { navCurrent.__mdbOpenAnswer(); }
+        }
+        var navPrevBtn = document.getElementById('navPrevBtn');
+        var navNextBtn = document.getElementById('navNextBtn');
+        if (navPrevBtn) { navPrevBtn.addEventListener('click', function() { navigate(-1); }); }
+        if (navNextBtn) { navNextBtn.addEventListener('click', function() { navigate(1); }); }
+        if (navModeSelect) {
+            navModeSelect.addEventListener('change', function() {
+                if (navCurrent) { navCurrent.classList.remove('mdb-nav-current'); }
+                navCurrent = null;
             });
         }
 
@@ -1412,6 +1583,19 @@
             contentArea.addEventListener('click', function(e) {
                 var t = e.target;
                 if (!t || !t.closest) { return; }
+                var review = t.closest('.mdb-rm-btn');
+                if (review) {
+                    e.stopPropagation();
+                    decideReviewMark(review);
+                    return;
+                }
+                var removeComment = t.closest('.mdb-comment-remove-btn');
+                if (removeComment) {
+                    e.stopPropagation();
+                    var holder = removeComment.closest('.mdb-block');
+                    if (holder && holder.__mdbBlock) { removeCommentBlock(holder.__mdbBlock); }
+                    return;
+                }
                 var action = t.closest('.mdb-edit-btn, .mdb-insert-btn, .mdb-comment-btn');
                 if (action) {
                     e.stopPropagation();

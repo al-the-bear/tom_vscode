@@ -388,3 +388,26 @@ body.mdb-edit-mode .mdb-block-actions { display: flex; }
 
 /* A block inside a form's fields (SOM document): a review comment belongs in the form's preamble. */
 .mdb-no-comment > .mdb-block-actions .mdb-comment-btn { display: none; }
+
+/* Review: the buttons of an inline mark (edit mode), the navigation mark, the options popup. */
+.mdb-rm-actions { display: none; }
+body.mdb-edit-mode .mdb-rm-actions { display: inline-flex; gap: 1px; margin-left: 2px; vertical-align: middle; }
+.mdb-rm-btn {
+    border: none; background: transparent; color: var(--vscode-foreground); cursor: pointer;
+    padding: 0 2px; font-size: 12px; line-height: 14px; opacity: 0.7;
+}
+.mdb-rm-btn:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground); }
+.mdb-rm-accept { color: var(--vscode-testing-iconPassed, var(--vscode-foreground)); }
+.mdb-rm-reject { color: var(--vscode-testing-iconFailed, var(--vscode-foreground)); }
+.mdb-nav-current { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+.mdb-comment-remove-btn { color: var(--vscode-testing-iconFailed, var(--vscode-foreground)); }
+.mdb-options-pop {
+    position: fixed; z-index: 30; max-width: 520px;
+    background: var(--vscode-editorWidget-background); color: var(--vscode-editorWidget-foreground);
+    border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border));
+    border-radius: 4px; box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0,0,0,0.3)); padding: 3px 0;
+}
+.mdb-option { padding: 3px 10px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mdb-option:hover { background: var(--vscode-list-hoverBackground); }
+.mdb-option-recommended { font-weight: bold; }
+.mdb-option-write { border-top: 1px solid var(--vscode-panel-border); font-style: italic; }

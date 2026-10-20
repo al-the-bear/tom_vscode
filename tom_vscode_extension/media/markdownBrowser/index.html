@@ -80,6 +80,26 @@
                 <option value="6">6 sp</option>
                 <option value="8">8 sp</option>
             </select>
+            <span style="width:1px; height:16px; background:var(--vscode-panel-border); margin:0 2px;"></span>
+            <button class="icon-btn" id="navPrevBtn" title="Previous (of the kind chosen beside)">
+                <span class="codicon codicon-arrow-up"></span>
+            </button>
+            <select id="navModeSelect" class="fold-level-select" title="What the arrows step through">
+                <option value="changes" selected>Changes</option>
+                <option value="comments">Comments</option>
+                <option value="inline">Inline comments</option>
+                <option value="questions">Questions</option>
+                <option value="unanswered">Unanswered</option>
+            </select>
+            <button class="icon-btn" id="navNextBtn" title="Next (of the kind chosen beside)">
+                <span class="codicon codicon-arrow-down"></span>
+            </button>
+            <button class="icon-btn" id="acceptAllBtn" title="Accept every change in the document">
+                <span class="codicon codicon-check-all"></span>
+            </button>
+            <button class="icon-btn" id="rejectAllBtn" title="Reject every change in the document">
+                <span class="codicon codicon-discard"></span>
+            </button>
         </div>
     </div>
 

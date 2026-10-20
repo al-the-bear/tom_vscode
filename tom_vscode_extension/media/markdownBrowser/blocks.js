@@ -4,7 +4,7 @@
 // it can be loaded into a bare `vm` sandbox and unit-tested directly
 // (src/utils/__tests__/mdBrowserBlocks.test.ts). Loaded as a classic script
 // before main.js; the declarations below are globals main.js calls.
-/* exported mdbCriticMark, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, mdbSplitForLexing, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
+/* exported mdbCriticMark, mdbQuestionAt, mdbOptionAnswer, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, mdbSplitForLexing, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
 //
 // The browser renders the backend's transformed text. Without the CR/LF
 // conversion that transform keeps every line where it is (it only rewrites
@@ -180,6 +180,79 @@ function mdbWriteAnswer(lines, line, column, answer) {
     var quote = MDB_QUOTE_PREFIX.exec(text);
     var prefix = quote ? quote[0].replace(/\s*$/, ' ') : '';
     return [head + ' ' + answerLines[0]].concat(answerLines.slice(1).map(function(l) { return prefix + l; })).join('\n');
+}
+
+// ---- Questions and their options ----
+// A question block (tom_specs annot1): `> **❓ BQ-07 — topic:** text`, in a
+// block of several questions also `> **BQ-08 — field:** text`, then its
+// options `> - (a) …` (continuation lines indented), maybe a
+// `> *Recommendation:* (c) …` line, and `> **Answer:**`. Options are a single
+// lowercase letter in round brackets; the recommended one is written bold,
+// `**(b)**`.
+
+/** A question header: `**❓ <ID>` or `**<ID> — `. */
+var MDB_QUESTION_HEAD = /\*\*(?:❓\s*([A-Z][A-Z0-9]*-\d+)|([A-Z][A-Z0-9]*-\d+)\s*(?:★\s*)?—)/;
+/** An option line: `- (a) text` or `- **(b)** text` (also `- **(b) text**`). */
+var MDB_OPTION = /^\s*[-*]\s+(\*\*)?\(([a-z])\)(\*\*)?\s*(.*)$/;
+var MDB_RECOMMENDATION = /^\s*\*?Recommendation:\*?\s*\(([a-z])\)/;
+
+/**
+ * The question the `**Answer:**` on `lines[answerLine]` answers: its id, the
+ * line of its header, its options and the recommended option — the bold one,
+ * else the one whose text says "recommended", else the letter a
+ * `*Recommendation:*` line names. Null when no question header is found above
+ * the answer (before the previous answer).
+ *
+ * @param {string[]} lines
+ * @param {number} answerLine
+ * @returns {{id: string, line: number, options: Array<{letter: string, text: string, bold: boolean}>, recommended: (string|null)}|null}
+ */
+function mdbQuestionAt(lines, answerLine) {
+    var head = -1;
+    var id = '';
+    for (var i = answerLine - (lines[answerLine].indexOf(MDB_ANSWER_MARKER) > 0 && MDB_QUESTION_HEAD.test(lines[answerLine]) ? 0 : 1); i >= 0 && i > answerLine - 400; i--) {
+        if (i < answerLine && lines[i].indexOf(MDB_ANSWER_MARKER) >= 0) { break; }
+        if (/^\s*#/.test(lines[i])) { break; }
+        var h = MDB_QUESTION_HEAD.exec(lines[i]);
+        if (h) { head = i; id = h[1] || h[2]; break; }
+    }
+    if (head < 0) { return null; }
+    /** @type {Array<{letter: string, text: string, bold: boolean}>} */
+    var options = [];
+    var fromLine = null;
+    var current = null;
+    for (var k = head + 1; k < answerLine; k++) {
+        var body = lines[k].replace(MDB_QUOTE_PREFIX, '');
+        var o = MDB_OPTION.exec(body);
+        if (o) {
+            var text = o[4];
+            var bold = !!o[1];
+            if (bold && !o[3]) { text = text.replace(/\*\*/, ''); }
+            current = { letter: o[2], text: text.replace(/\*\*$/, '').trim(), bold: bold };
+            options.push(current);
+            continue;
+        }
+        var r = MDB_RECOMMENDATION.exec(body);
+        if (r) { fromLine = r[1]; current = null; continue; }
+        // An indented line continues the option above; anything else ends it.
+        if (current && /^\s{2,}\S/.test(body)) { current.text += ' ' + body.trim(); continue; }
+        current = null;
+    }
+    var recommended = null;
+    for (var b = 0; b < options.length && recommended === null; b++) { if (options[b].bold) { recommended = options[b].letter; } }
+    for (var t = 0; t < options.length && recommended === null; t++) { if (/\brecommended\b/i.test(options[t].text)) { recommended = options[t].letter; } }
+    if (recommended === null && fromLine) { recommended = fromLine; }
+    return { id: id, line: head, options: options, recommended: recommended };
+}
+
+/**
+ * The answer that picks option `letter`: `(b)`.
+ *
+ * @param {string} letter
+ * @returns {string}
+ */
+function mdbOptionAnswer(letter) {
+    return '(' + letter + ')';
 }
 
 // ---- Folding ----

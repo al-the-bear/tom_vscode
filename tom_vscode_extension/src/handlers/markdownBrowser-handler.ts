@@ -23,6 +23,7 @@
 import * as vscode from 'vscode';
 import type { SomCommentContext } from '../services/som-review-comments';
 import { SomCommentsWorkerClient } from '../services/som-review-comments-client';
+import { decideAllChanges, reviewMarkEdit } from '../services/review-marks';
 
 import * as fs from 'fs';
 import * as path from 'path';
@@ -242,6 +243,34 @@ class MdBrowserPanel {
         } catch (err) {
             debugLog(`[MdBrowser] navigateToFile error: ${err}`, 'ERROR', 'mdBrowser');
         }
+    }
+
+    /**
+     * The file the browser shows, when an edit from it may be written: the
+     * current file, CR/LF off (else the shown lines are not the file's), and no
+     * unsaved changes to it in an editor. Otherwise the reason.
+     */
+    private _editableFile(filePath: unknown): string | { error: string } {
+        const current = this._history.current;
+        if (!current || !fs.existsSync(current.filePath) || filePath !== current.filePath) {
+            return { error: 'The document shown here is no longer the current file. Reload it.' };
+        }
+        if (this._crlfMode) {
+            return { error: 'Turn CR/LF off to edit: with it on, the shown lines are not the file\'s lines.' };
+        }
+        const open = vscode.workspace.textDocuments.find((d) => d.uri.scheme === 'file' && path.resolve(d.uri.fsPath) === path.resolve(current.filePath));
+        if (open?.isDirty) {
+            return { error: `${path.basename(current.filePath)} has unsaved changes in an editor. Save or revert them first.` };
+        }
+        return current.filePath;
+    }
+
+    /** Write the shown file and show it again; `beforeRefresh` runs between the two. */
+    private _writeAndRefresh(filePath: string, text: string, beforeRefresh?: () => void): void {
+        fs.writeFileSync(filePath, text, 'utf-8');
+        this._refreshMtimeBaseline(filePath);
+        beforeRefresh?.();
+        this._sendFileContent(filePath);
     }
 
     /** The last SOM comment reading, by file and text: a refresh with the same text reuses it. */
@@ -733,24 +762,17 @@ class MdBrowserPanel {
                     // An answer, a block edit or an insertion from the browser:
                     // replace lines startLine..endLine of the shown file, but
                     // only when they still hold what the browser rendered.
-                    const current = this._history.current;
                     const reply = (ok: boolean, error?: string): void => {
                         this._panel.webview.postMessage({ type: 'editResult', ok, error, editId: msg.editId });
+                        // A one-click action has no editor to show the failure in.
+                        if (!ok && msg.notifyOnError && error) { void vscode.window.showWarningMessage(`Markdown Browser: ${error}`); }
                     };
-                    if (!current || !fs.existsSync(current.filePath) || msg.filePath !== current.filePath) {
-                        reply(false, 'The document shown here is no longer the current file. Reload it.');
+                    const target = this._editableFile(msg.filePath);
+                    if (typeof target !== 'string') {
+                        reply(false, target.error);
                         break;
                     }
-                    if (this._crlfMode) {
-                        reply(false, 'Turn CR/LF off to edit: with it on, the shown lines are not the file\'s lines.');
-                        break;
-                    }
-                    const open = vscode.workspace.textDocuments.find((d) => d.uri.scheme === 'file' && path.resolve(d.uri.fsPath) === path.resolve(current.filePath));
-                    if (open?.isDirty) {
-                        reply(false, `${path.basename(current.filePath)} has unsaved changes in an editor. Save or revert them first.`);
-                        break;
-                    }
-                    const result = applyMdLineEdit(fs.readFileSync(current.filePath, 'utf-8'), {
+                    const result = applyMdLineEdit(fs.readFileSync(target, 'utf-8'), {
                         startLine: Number(msg.startLine), endLine: Number(msg.endLine),
                         expected: String(msg.expected ?? ''), replacement: String(msg.replacement ?? ''),
                     });
@@ -758,10 +780,59 @@ class MdBrowserPanel {
                         reply(false, result.reason);
                         break;
                     }
-                    fs.writeFileSync(current.filePath, result.text, 'utf-8');
-                    this._refreshMtimeBaseline(current.filePath);
-                    reply(true);
-                    this._sendFileContent(current.filePath);
+                    // The reply first: the browser patches its view with the edit and
+                    // then skips the refresh of the same text.
+                    this._writeAndRefresh(target, result.text, () => reply(true));
+                    break;
+                }
+
+                case 'reviewMark': {
+                    // One inline mark accepted, rejected or (a comment) removed,
+                    // decided by the TomSpecs runtime (annot4) on the block's lines.
+                    const target = this._editableFile(msg.filePath);
+                    if (typeof target !== 'string') {
+                        void vscode.window.showWarningMessage(`Markdown Browser: ${target.error}`);
+                        break;
+                    }
+                    const decision = msg.decision === 'reject' ? 'reject' : msg.decision === 'remove' ? 'remove' : 'accept';
+                    const result = reviewMarkEdit(fs.readFileSync(target, 'utf-8'), {
+                        startLine: Number(msg.startLine), endLine: Number(msg.endLine), expected: String(msg.expected ?? ''),
+                        markup: String(msg.markup ?? ''), occurrence: Number(msg.occurrence) || 0, decision,
+                    });
+                    if (!result.ok) {
+                        void vscode.window.showWarningMessage(`Markdown Browser: ${result.reason}`);
+                        break;
+                    }
+                    this._writeAndRefresh(target, result.text);
+                    break;
+                }
+
+                case 'reviewAllChanges': {
+                    // Every change mark of the file accepted or rejected (comments
+                    // and highlights stay), with a way back while the file is untouched.
+                    const target = this._editableFile(msg.filePath);
+                    if (typeof target !== 'string') {
+                        void vscode.window.showWarningMessage(`Markdown Browser: ${target.error}`);
+                        break;
+                    }
+                    const decision = msg.decision === 'reject' ? 'reject' : 'accept';
+                    const before = fs.readFileSync(target, 'utf-8');
+                    const result = decideAllChanges(before, decision);
+                    const name = path.basename(target);
+                    if (result.decided === 0) {
+                        void vscode.window.showInformationMessage(`Markdown Browser: ${name} has no changes to ${decision}.`);
+                        break;
+                    }
+                    this._writeAndRefresh(target, result.text);
+                    const done = `${decision === 'accept' ? 'Accepted' : 'Rejected'} ${result.decided} change${result.decided === 1 ? '' : 's'} in ${name}.`;
+                    void vscode.window.showInformationMessage(`Markdown Browser: ${done}`, 'Undo').then((choice) => {
+                        if (choice !== 'Undo') { return; }
+                        if (!fs.existsSync(target) || fs.readFileSync(target, 'utf-8') !== result.text) {
+                            void vscode.window.showWarningMessage(`Markdown Browser: ${name} changed since; nothing was undone.`);
+                            return;
+                        }
+                        this._writeAndRefresh(target, before);
+                    });
                     break;
                 }
 

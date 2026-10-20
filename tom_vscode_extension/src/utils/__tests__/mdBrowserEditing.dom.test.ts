@@ -21,6 +21,12 @@
  *   MD-12 comments: the comment button adds a comment block after a paragraph (the editor opens with the
  *         arrow and the next id, the text is written under `> `); a comment block's own button reopens it
  *         without the `>`; saving it empty asks again, then removes the block
+ *   MD-14 review: in edit mode a change mark has accept / reject buttons and an inline comment a remove
+ *         button, each posting one decision for that mark (its markup and occurrence in the block); a comment
+ *         block is removed with one click; accept all / reject all post one decision for the document; the
+ *         navigation pair steps through changes, comments, inline comments, questions or unanswered questions
+ *         (the mode picked in the action bar), and on an unanswered question opens its answer prefilled with
+ *         the recommended option; the answer button prefills it too, and its options popup answers with one click
  *   MD-12c a SOM document: the host's next comment number is used when higher; blocks in a form's
  *         fields offer no comment (comments go into the preamble); stale ranges (another text) are ignored
  */
@@ -307,6 +313,104 @@ describe('Markdown Browser editing', () => {
         assert.equal(visible(block('Why these fields?')), true, 'ranges for another text are ignored');
         send(window, content(doc.replace('Why', 'How')));
         assert.equal(visible(block('Description:')), true, 'new content: the old ranges are gone');
+    });
+
+    test('MD-14: reviewing changes, comments and questions', () => {
+        const { window, posted } = setup();
+        const doc = [
+            '# Review',                                                              // 0
+            '',                                                                      // 1
+            'Keep {++ two ++} copies and {++ two ++} logs, {-- old --} {~~ a ~> b ~~} ok.', // 2
+            '',                                                                      // 3
+            'Orders {== are archived ==}{>> how long? <<} nightly{>> check <<}.',  // 4
+            '',                                                                      // 5
+            '> ⬆️ **C-1** (Bob): a remark',                                          // 6
+            '',                                                                      // 7
+            '> **❓ BQ-01 — scope:** which scope?',                                  // 8
+            '> - (a) narrow',                                                        // 9
+            '> - **(b)** wide',                                                      // 10
+            '> **Answer:**',                                                         // 11
+            '',                                                                      // 12
+            '> **❓ BQ-02 — size:** which size?',                                    // 13
+            '> - (a) small',                                                         // 14
+            '> **Answer:** (a)',                                                     // 15
+        ].join('\n');
+        send(window, content(doc));
+        window.document.getElementById('editModeBtn').click();
+        const last = (type: string): Win => [...posted].reverse().find((m) => m.type === type);
+
+        // One mark, one click: the decision names the mark by its markup and occurrence in the block.
+        const adds = $(window, '.mdb-rm[data-kind="change"]');
+        assert.equal(adds.length, 4, 'two additions, a deletion, a substitution');
+        adds[1].querySelector('.mdb-rm-accept').click();
+        assert.deepEqual(
+            (({ startLine, endLine, expected, markup, occurrence, decision }) => ({ startLine, endLine, expected, markup, occurrence, decision }))(last('reviewMark')),
+            { startLine: 2, endLine: 3, expected: doc.split('\n')[2], markup: '{++ two ++}', occurrence: 1, decision: 'accept' });
+        adds[3].querySelector('.mdb-rm-reject').click();
+        assert.deepEqual([last('reviewMark').markup, last('reviewMark').decision], ['{~~ a ~> b ~~}', 'reject']);
+        const notes = $(window, '.mdb-rm[data-kind="note"]');
+        assert.equal(notes.length, 2, 'the highlight with its comment, and the lone comment');
+        assert.equal(notes[0].querySelector('.mdb-rm-accept'), null, 'a comment is not accepted or rejected');
+        notes[0].querySelector('.mdb-rm-remove').click();
+        assert.deepEqual([last('reviewMark').markup, last('reviewMark').decision], ['{== are archived ==}{>> how long? <<}', 'remove']);
+
+        // A comment block goes with one click.
+        $(window, '.mdb-comment-block')[0].querySelector('.mdb-comment-remove-btn').click();
+        assert.deepEqual((({ startLine, endLine, expected, replacement }) => ({ startLine, endLine, expected, replacement }))(lastEdit(posted)),
+            { startLine: 5, endLine: 8, expected: '\n> ⬆️ **C-1** (Bob): a remark\n', replacement: '' });
+
+        // The whole document.
+        window.document.getElementById('acceptAllBtn').click();
+        assert.deepEqual((({ filePath, decision }) => ({ filePath, decision }))(last('reviewAllChanges')), { filePath: '/ws/review.md', decision: 'accept' });
+        window.document.getElementById('rejectAllBtn').click();
+        assert.equal(last('reviewAllChanges').decision, 'reject');
+
+        // Navigation: the mode picked in the action bar, then next / previous.
+        const mode = window.document.getElementById('navModeSelect');
+        const next = window.document.getElementById('navNextBtn');
+        const prev = window.document.getElementById('navPrevBtn');
+        const current = (): Win => window.document.querySelector('.mdb-nav-current');
+        mode.value = 'changes'; mode.dispatchEvent(new window.Event('change'));
+        next.click();
+        assert.equal(current(), adds[0]);
+        next.click();
+        assert.equal(current(), adds[1]);
+        prev.click();
+        assert.equal(current(), adds[0]);
+        prev.click();
+        assert.equal(current(), adds[3], 'wraps around');
+        mode.value = 'comments'; mode.dispatchEvent(new window.Event('change'));
+        next.click();
+        assert.ok(current().classList.contains('mdb-comment-block'));
+        mode.value = 'inline'; mode.dispatchEvent(new window.Event('change'));
+        next.click();
+        assert.equal(current(), notes[0]);
+        mode.value = 'questions'; mode.dispatchEvent(new window.Event('change'));
+        next.click();
+        next.click();
+        assert.equal(current(), $(window, '.mdb-answer-btn')[1], 'every question, answered or not');
+        assert.equal($(window, '.mdb-editor').length, 0, 'questions mode only goes there');
+        mode.value = 'unanswered'; mode.dispatchEvent(new window.Event('change'));
+        next.click();
+        assert.equal(current(), $(window, '.mdb-answer-btn')[0]);
+        assert.equal($(window, '.mdb-editor textarea')[0].value, '(b)', 'opened with the recommended option');
+        $(window, '.mdb-editor-btn')[1].click();
+
+        // The answer button prefills too; its popup answers with one click.
+        const answer = $(window, '.mdb-answer-btn')[0];
+        answer.click();
+        assert.equal($(window, '.mdb-editor textarea')[0].value, '(b)');
+        $(window, '.mdb-editor-btn')[1].click();
+        answer.dispatchEvent(new window.MouseEvent('mouseenter'));
+        const options = $(window, '.mdb-options-pop .mdb-option');
+        assert.deepEqual(options.map((o: Win) => o.textContent.trim()), ['(a) narrow', '(b) wide', 'Write an answer…']);
+        assert.ok(options[1].classList.contains('mdb-option-recommended'));
+        options[0].click();
+        assert.deepEqual((({ startLine, endLine, expected, replacement }) => ({ startLine, endLine, expected, replacement }))(lastEdit(posted)),
+            { startLine: 11, endLine: 12, expected: '> **Answer:**', replacement: '> **Answer:** (a)' });
+        const answered = $(window, '.mdb-answer-btn')[1];
+        answered.click();
+        assert.equal($(window, '.mdb-editor textarea')[0].value, '(a)', 'an answered question opens with its answer');
     });
 
     test('MD-13: inline review marks', () => {
