@@ -400,6 +400,50 @@ export interface ProcessState {
      * wrote it as `ran`.
      */
     decision?: true;
+    /**
+     * The iteration each step of the current phase iteration was at when it
+     * was last left, so a step entered again — a failed gate going back to
+     * its `onFail` step, the steps after it — continues at its next iteration
+     * instead of repeating an earlier one (session names and todo prefixes
+     * carry the iteration). Kept by {@link trackStepIterations}; belongs to
+     * `phase` / `phaseIteration` and means nothing in another.
+     */
+    stepIterations?: StepIterationRecord;
+}
+
+/** The last iterations of the steps of one phase iteration. */
+export interface StepIterationRecord {
+    phase: string;
+    phaseIteration: number;
+    steps: Record<string, number>;
+}
+
+/** The record of `state` when it belongs to the phase iteration `state` is in. */
+function recordOf(state: ProcessState): StepIterationRecord | undefined {
+    const r = state.stepIterations;
+    return r && r.phase === state.phase && r.phaseIteration === state.phaseIteration ? r : undefined;
+}
+
+function withoutRecord(state: ProcessState): ProcessState {
+    if (!state.stepIterations) { return state; }
+    const { stepIterations: _record, ...rest } = state;
+    return rest;
+}
+
+/**
+ * The state `after` a move from `before`, with the step it left recorded:
+ * within one phase iteration, the step `before` was at keeps the iteration it
+ * had; any other phase or phase iteration starts with no record. Every
+ * committed change of a quest's state goes through it.
+ */
+export function trackStepIterations(before: ProcessState, after: ProcessState): ProcessState {
+    const samePhase = before.process === after.process && before.phase === after.phase
+        && before.phaseIteration === after.phaseIteration && !!after.phase;
+    if (!samePhase) { return withoutRecord(after); }
+    const steps = { ...(recordOf(before)?.steps ?? {}) };
+    if (before.step && before.step !== after.step) { steps[before.step] = before.stepIteration; }
+    if (Object.keys(steps).length === 0) { return withoutRecord(after); }
+    return { ...after, stepIterations: { phase: after.phase, phaseIteration: after.phaseIteration, steps } };
 }
 
 /** The state at the position itself, not at the decision after it. */
@@ -445,6 +489,16 @@ function withStep(state: ProcessState, step: ProcessStep, stepIteration: number)
 }
 
 /**
+ * The iteration a step of `phase` is entered at by a move on through the
+ * phase: the one after its last (it runs again), bounded by what it allows;
+ * 1 when it has not run in this phase iteration.
+ */
+function reentryIteration(state: ProcessState, phase: ProcessPhase, step: ProcessStep): number {
+    const last = recordOf(state)?.phase === phase.id ? recordOf(state)!.steps[step.id] : undefined;
+    return last === undefined ? 1 : clampIteration(repeatView(phase, step), last + 1);
+}
+
+/**
  * A step as far as repeating goes: a gate can always be run again (a failed
  * gate is run again), whether or not it is marked repeatable.
  */
@@ -467,11 +521,16 @@ export function selectPhase(state: ProcessState, def: ProcessDefinition, phaseId
     return withStep({ ...state, process: def.id, phase: phaseId, phaseIteration }, firstStepOf(phase), 1);
 }
 
-/** Go to a step of the current phase (its first sub-step); the iteration is kept when it is the current step. */
+/**
+ * Go to a step of the current phase (its first sub-step); the iteration is
+ * kept when it is the current step, the next one when it already ran in this
+ * phase iteration, else 1.
+ */
 export function selectStep(state: ProcessState, def: ProcessDefinition, stepId: string): ProcessState {
-    const step = findStep(findPhase(def, state.phase), stepId);
-    if (!step) { throw new Error(`no step "${stepId}" in phase "${state.phase}"`); }
-    return withStep(state, step, stepId === state.step ? state.stepIteration : 1);
+    const phase = findPhase(def, state.phase);
+    const step = findStep(phase, stepId);
+    if (!phase || !step) { throw new Error(`no step "${stepId}" in phase "${state.phase}"`); }
+    return withStep(state, step, stepId === state.step ? state.stepIteration : reentryIteration(state, phase, step));
 }
 
 /** Go to a sub-step of the current step; the iteration is kept when it is the current one. */
@@ -568,6 +627,8 @@ export function normalizeState(state: ProcessState, def: ProcessDefinition): Pro
     const phase = findPhase(def, state.phase);
     if (!phase) { return selectProcess(def); }
     let out: ProcessState = { ...state, phaseIteration: clampIteration(phase, state.phaseIteration) };
+    const record = recordOf(out);
+    out = record ? { ...out, stepIterations: record } : withoutRecord(out);
     const step = findStep(phase, state.step);
     if (!step) { return withStep(out, firstStepOf(phase), 1); }
     out = { ...out, stepIteration: clampIteration(repeatView(phase, step), state.stepIteration) };
@@ -685,7 +746,10 @@ function forwardTarget(def: ProcessDefinition, state: ProcessState, pos: Positio
     if (pos.substepIndex >= 0 && pos.substepIndex < subs.length - 1) {
         return { ...state, substep: subs[pos.substepIndex + 1].id, substepIteration: 1, completed: false };
     }
-    if (pos.stepIndex < pos.entries.length - 1) { return withStep(state, pos.entries[pos.stepIndex + 1].step, 1); }
+    if (pos.stepIndex < pos.entries.length - 1) {
+        const next = pos.entries[pos.stepIndex + 1].step;
+        return withStep(state, next, reentryIteration(state, pos.phase, next));
+    }
     const nextPhase = def.phases[pos.phaseIndex + 1];
     return nextPhase ? withStep({ ...state, phase: nextPhase.id, phaseIteration: 1 }, firstStepOf(nextPhase), 1) : null;
 }
@@ -713,12 +777,14 @@ function backTarget(def: ProcessDefinition, state: ProcessState, pos: Position):
     }
     const step = entries[index].step;
     const last = step.substeps?.[step.substeps.length - 1];
+    // Within the phase, back to the iteration the step was at when it was left.
+    const was = phase === pos.phase ? recordOf(state)?.steps[step.id] : undefined;
     return {
         ...state,
         phase: phase.id,
         phaseIteration: clampIteration(phase, state.phaseIteration),
         step: step.id,
-        stepIteration: clampIteration(repeatView(phase, step), state.stepIteration),
+        stepIteration: clampIteration(repeatView(phase, step), was ?? state.stepIteration),
         substep: last?.id ?? '',
         substepIteration: last ? clampIteration(last, state.substepIteration) : 1,
         completed: false,
@@ -782,7 +848,7 @@ function decisionOptions(def: ProcessDefinition, here: ProcessState, pos: Positi
         const gate = pos.phase.gate;
         const back = gate.onFail && gate.onFail !== gate.id ? findStep(pos.phase, gate.onFail) : undefined;
         options.push(back
-            ? { kind: 'gate-failed', label: `Gate failed — back to ${nameOf(back)}`, target: withStep(here, back, 1) }
+            ? { kind: 'gate-failed', label: `Gate failed — back to ${nameOf(back)}`, target: withStep(here, back, reentryIteration(here, pos.phase, back)) }
             : { kind: 'gate-failed', label: `Gate failed — run ${nameOf(gate)} again`, target: changeIteration(here, def, 'step', 1) });
     }
     const sub = subs[pos.substepIndex];
@@ -1003,6 +1069,17 @@ export function processContextBlock(def: ProcessDefinition | null, state: Proces
 // The per-quest state file
 // ============================================================================
 
+function parseStepIterations(raw: unknown): { stepIterations?: StepIterationRecord } {
+    if (!isObject(raw) || typeof raw.phase !== 'string' || !isObject(raw.steps)) { return {}; }
+    const steps: Record<string, number> = {};
+    for (const [id, n] of Object.entries(raw.steps)) {
+        if (Number.isInteger(n) && (n as number) >= 1) { steps[id] = n as number; }
+    }
+    if (Object.keys(steps).length === 0) { return {}; }
+    const phaseIteration = Number.isInteger(raw.phaseIteration) && (raw.phaseIteration as number) >= 1 ? raw.phaseIteration as number : 1;
+    return { stepIterations: { phase: raw.phase, phaseIteration, steps } };
+}
+
 /** Read a state file's text; anything unreadable is the empty state. */
 export function parseProcessState(text: string): ProcessState {
     try {
@@ -1016,6 +1093,7 @@ export function parseProcessState(text: string): ProcessState {
             substep: str('substep'), substepIteration: num('substepIteration'),
             completed: raw.completed === true,
             ...(raw.decision === true || raw.ran === true ? { decision: true as const } : {}),
+            ...parseStepIterations(raw.stepIterations),
         };
     } catch {
         return { ...EMPTY_PROCESS_STATE };
@@ -1034,6 +1112,7 @@ export function stringifyProcessState(state: ProcessState, updated: string): str
         substepIteration: state.substepIteration,
         ...(state.completed ? { completed: true } : {}),
         ...(state.decision ? { decision: true } : {}),
+        ...(state.stepIterations ? { stepIterations: state.stepIterations } : {}),
         updated,
     });
 }

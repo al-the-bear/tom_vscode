@@ -27,6 +27,10 @@
  *   PD-20 a gate's onFail: a failed gate goes back to that step of its phase, else the gate runs again;
  *         validated (a step of the phase, only on a gate), written back, in the schema; the context block
  *         says a decision is the user's
+ *   PD-21 a step's iteration is remembered within its phase iteration: a failed gate going back enters its
+ *         target at the next iteration, the steps after it too when they are re-entered, Back returns to the
+ *         iteration a step was at; a non-repeatable step stays at 1; the record is dropped when the phase
+ *         or its iteration changes, repaired with the state, and written to and read from the state file
  *   PD-14 a finished process: the completed flag is written and read back, only "back" (reopen) is
  *         offered, and any other change clears it
  *   PD-15 a gate can always be run again: its iteration counts up although it is not marked repeatable
@@ -72,7 +76,9 @@ import {
     effectiveSession,
     parseProcessState,
     stringifyProcessState,
+    trackStepIterations,
     type ProcessDefinition,
+    type ProcessState,
 } from '../processDefinition.js';
 
 const YAML = `
@@ -578,5 +584,81 @@ describe('decisions', () => {
         const schema = JSON.parse(readFileSync(join(__dirname, '..', '..', '..', 'src', 'config', 'process.schema.json'), 'utf-8'));
         const validate = new Ajv2020({ allErrors: true, strict: false }).compile(schema);
         assert.equal(validate(parse(yaml)), true, JSON.stringify(validate.errors));
+    });
+});
+
+describe('step iterations across a failed gate', () => {
+    const FLOW = `
+id: loop
+phases:
+  - id: p
+    repeatable: true
+    steps:
+      - id: a
+      - id: b
+        repeatable: true
+      - id: c
+        repeatable: true
+    gate:
+      id: g
+      onFail: b
+  - id: q
+    steps:
+      - id: b
+    gate:
+      id: g
+`;
+    const def = parseProcessYaml(FLOW).definition!;
+    /** A move as the store commits it: the step left is recorded. */
+    const go = (before: ProcessState, after: ProcessState): ProcessState => trackStepIterations(before, after);
+    const pick = (state: ProcessState, kind: string): ProcessState => {
+        const decision = availableMoves(def, state).find((m) => m.kind === 'proceed')!.target;
+        const s1 = go(state, decision);
+        return go(s1, availableMoves(def, s1).find((m) => m.kind === kind)!.target);
+    };
+    const pos = (s: ProcessState): string => `${s.phase}#${s.phaseIteration}/${s.step}#${s.stepIteration}`;
+
+    test('PD-21: a failed gate goes back to the next iteration', () => {
+        let s = selectProcess(def);
+        s = go(s, availableMoves(def, s).find((m) => m.kind === 'skip')!.target);       // a → b
+        assert.equal(pos(s), 'p#1/b#1');
+        s = pick(s, 'repeat');                                                            // b#2
+        s = pick(s, 'repeat');                                                            // b#3
+        assert.equal(pos(s), 'p#1/b#3');
+        s = pick(s, 'finish');                                                            // → c#1
+        assert.equal(pos(s), 'p#1/c#1');
+        s = pick(s, 'finish');                                                            // → g#1
+        assert.equal(pos(s), 'p#1/g#1');
+        s = pick(s, 'gate-failed');
+        assert.equal(pos(s), 'p#1/b#4', 'the onFail step at the iteration after its last');
+        s = pick(s, 'finish');
+        assert.equal(pos(s), 'p#1/c#2', 'a step after it, re-entered, at its next iteration too');
+        const back = go(s, availableMoves(def, s).find((m) => m.kind === 'back')!.target);
+        assert.equal(pos(back), 'p#1/b#4', 'Back returns to the iteration the step was at');
+        s = pick(s, 'finish');
+        assert.equal(pos(s), 'p#1/g#2', 'the gate, re-entered, runs its next iteration');
+
+        // A non-repeatable target stays at 1.
+        const flat = parseProcessYaml(FLOW.replace("      onFail: b\n", "      onFail: a\n")).definition!;
+        let f = selectProcess(flat);
+        f = trackStepIterations(f, selectStep(f, flat, 'g'));
+        const decision = trackStepIterations(f, availableMoves(flat, f).find((m) => m.kind === 'proceed')!.target);
+        assert.equal(pos(availableMoves(flat, decision).find((m) => m.kind === 'gate-failed')!.target), 'p#1/a#1');
+
+        // Another phase, or another iteration of this one, starts with no record.
+        const passed = pick(s, 'gate-passed');
+        assert.equal(pos(passed), 'q#1/b#1', 'step b of the next phase is a different step');
+        assert.equal(passed.stepIterations, undefined);
+        const again = pick({ ...s, step: 'g', stepIteration: 2 }, 'repeat');
+        assert.equal(pos(again), 'p#2/a#1');
+        assert.equal(again.stepIterations, undefined, 'a new phase iteration starts afresh');
+
+        // Repaired with the state, written and read back.
+        assert.deepEqual(s.stepIterations, { phase: 'p', phaseIteration: 1, steps: { a: 1, b: 4, c: 2, g: 1 } });
+        assert.deepEqual(parseProcessState(stringifyProcessState(s, 'now')).stepIterations, s.stepIterations);
+        assert.deepEqual(normalizeState(s, def).stepIterations, s.stepIterations);
+        assert.equal(normalizeState({ ...s, stepIterations: { phase: 'q', phaseIteration: 1, steps: { b: 3 } } }, def).stepIterations, undefined,
+            'a record of another phase is dropped');
+        assert.equal(parseProcessState(stringifyProcessState(selectProcess(def), 'now')).stepIterations, undefined, 'none written when there is none');
     });
 });

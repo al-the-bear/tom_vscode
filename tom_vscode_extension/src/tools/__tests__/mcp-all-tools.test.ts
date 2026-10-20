@@ -20,6 +20,8 @@
  *        changed outside it — the extension's repository and HOME are as they were, no request left
  *   MA-4 a handful of tools are checked for the RIGHT answer, not just an answer: a read sees the fixture, a
  *        write is read back, git sees its own commit
+ *   MA-5 the process store (through tomAi_setProcessState) records the iteration of the step it leaves:
+ *        a step entered again continues at its next iteration, and the state file holds the record
  *   MA-0 before the stores start: a queue tool answers the error, not `ok` — tomAi_removeQueueItem answered
  *        `ok` and left a rejection unhandled (found by this suite)
  */
@@ -577,5 +579,18 @@ describe('every tool over MCP, in a sandbox', () => {
         // A spec edit is read back from the file.
         assert.match(fs.readFileSync(path.join(WS, SPEC), 'utf8'), /Written by the MCP test\./, 'tomAi_specSetContent');
         assert.match(answerOf('tomAi_specValidate'), /"ok": ?true/);
+    });
+
+    test('MA-5: the process store remembers a step\'s iteration when it is left', async () => {
+        const set = async (args: Record<string, unknown>): Promise<Json> => {
+            const r = await client.callTool({ name: 'tomAi_setProcessState', arguments: args });
+            return JSON.parse((r.content as Array<{ text: string }>)[0].text);
+        };
+        assert.equal((await set({ process: 'flow', step: 'review', stepIteration: 3 })).state.stepIteration, 3);
+        assert.equal((await set({ step: 'gate' })).state.step, 'gate');
+        const back = await set({ step: 'review' });
+        assert.equal(back.state.stepIteration, 4, 'entered again: the iteration after its last');
+        const file = fs.readFileSync(path.join(WS, `_ai/quests/${QUEST}/process-state.${QUEST}.yaml`), 'utf8');
+        assert.match(file, /stepIterations:[\s\S]*review: 3/, 'the record is in the state file');
     });
 });

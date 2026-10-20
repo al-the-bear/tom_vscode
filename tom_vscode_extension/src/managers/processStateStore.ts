@@ -28,6 +28,7 @@ import {
     changeIteration,
     currentRole,
     normalizeState,
+    trackStepIterations,
     roleAfterMove,
     processContextBlock,
     processVariableValues,
@@ -247,8 +248,9 @@ export class ProcessStateStore {
     }
 
     private commit(repo: ProcessRepository, before: ProcessState, next: ProcessState, source: ChangeSource): ProcessChangeResult {
-        const result: ProcessChangeResult = { ok: true, state: next };
-        repo.writeState(this.quest, next);
+        // Every change passes here, so the step it leaves is recorded once, in one place.
+        const result: ProcessChangeResult = { ok: true, state: trackStepIterations(before, next) };
+        repo.writeState(this.quest, result.state);
         this.rawState = result.state;
         const role = roleAfterMove(before, result.state, this.currentDefinition());
         if (role) {

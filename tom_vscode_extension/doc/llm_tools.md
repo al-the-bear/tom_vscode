@@ -704,7 +704,7 @@ and not to move past it.
 | `tomAi_listProcesses` | Every process with its outline (phases, steps with `kind` step / gate / post-gate, sub-steps, roles, repeat flags); invalid ones with their errors; the quest's current process. | ✅ | ✅ | ✅ | ✅ | ⚪ |
 | `tomAi_getProcess` | One process in full: definition, Markdown description, file paths (default: the quest's process). | ✅ | ✅ | ✅ | ✅ | ⚪ |
 | `tomAi_getProcessState` | The quest's state, the role its step names, and the `${process-context}` block. | ✅ | ✅ | ✅ | ✅ | ⚪ |
-| `tomAi_setProcessState` | Move the quest: `process` (`""` clears), `phase`, `step`, `substep`, the three iterations (a gate can always be run again) and `completed` (the process finished; any other change opens it again); checked against the definition, no approval prompt (visible live in the PROCESS view). | ✅ | ✅ | ✅ | ✅ | ⚪ |
+| `tomAi_setProcessState` | Move the quest: `process` (`""` clears), `phase`, `step`, `substep`, the three iterations (a gate can always be run again; a step that already ran in this phase iteration is entered at its next iteration) and `completed` (the process finished; any other change opens it again); checked against the definition, no approval prompt (visible live in the PROCESS view). | ✅ | ✅ | ✅ | ✅ | ⚪ |
 
 ## 5. Transport-specific recommendations
 
