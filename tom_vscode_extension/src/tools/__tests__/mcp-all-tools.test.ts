@@ -22,6 +22,10 @@
  *        write is read back, git sees its own commit
  *   MA-5 the process store (through tomAi_setProcessState) records the iteration of the step it leaves:
  *        a step entered again continues at its next iteration, and the state file holds the record
+ *   MA-6 tomAi_addQueueItem's default (deferSend) creates a staged item, which auto-send leaves alone;
+ *        deferSend: false creates a pending one — against the real queue manager
+ *   MA-7 the queue's answer watcher failing (EMFILE when the machine runs out of watch handles) is handled:
+ *        no uncaught exception, the watcher is dropped and polling carries on
  *   MA-0 before the stores start: a queue tool answers the error, not `ok` — tomAi_removeQueueItem answered
  *        `ok` and left a rejection unhandled (found by this suite)
  */
@@ -516,10 +520,8 @@ describe('every tool over MCP, in a sandbox', () => {
         const prev: Record<string, Json> = {};
         // A tool that removes what another one created runs after everything else.
         const last = (n: string): boolean => /^tomAi_(remove|delete)[A-Z]/.test(n) || n === 'tomAi_killCommand';
-        // The queue item is staged before anything edits it: only a staged item is editable, and
-        // addQueueItem answers `pending` even when deferSend is set (vsd6).
-        const first = ['tomAi_addQueueItem', 'tomAi_setQueueItemStatus'];
-        const rank = (n: string): number => first.includes(n) ? first.indexOf(n) - first.length
+        // The queue item is created (staged) before anything edits it; only a staged item is editable.
+        const rank = (n: string): number => n === 'tomAi_addQueueItem' ? -1
             : n === 'tomAi_removeQueueItem' ? 2 : last(n) ? 1 : 0;
         const order = listed.map((t, i) => ({ t, i })).sort((a, b) => rank(a.t.name) - rank(b.t.name) || a.i - b.i).map((x) => x.t);
         for (const tool of order) {
@@ -579,6 +581,43 @@ describe('every tool over MCP, in a sandbox', () => {
         // A spec edit is read back from the file.
         assert.match(fs.readFileSync(path.join(WS, SPEC), 'utf8'), /Written by the MCP test\./, 'tomAi_specSetContent');
         assert.match(answerOf('tomAi_specValidate'), /"ok": ?true/);
+    });
+
+    test('MA-6: tomAi_addQueueItem stages by default, and auto-send leaves a staged item alone', async () => {
+        const add = async (args: Record<string, unknown>): Promise<Json> => {
+            const r = await client.callTool({ name: 'tomAi_addQueueItem', arguments: args });
+            return JSON.parse((r.content as Array<{ text: string }>)[0].text);
+        };
+        const manager = PromptQueueManager.instance;
+        assert.equal(manager.items.length, 0, 'the queue is empty after MA-2');
+        manager.autoSendEnabled = true;
+        try {
+            const staged = await add({ text: 'staged by default' });
+            assert.equal(staged.status, 'staged', 'the default (deferSend) creates a staged item');
+            await new Promise((r) => setTimeout(r, 50));
+            assert.equal(manager.getById(staged.id)?.status, 'staged', 'auto-send did not pick it');
+            assert.ok(!manager.items.some((i) => i.status === 'sending'), 'nothing is sending');
+            const explicit = await add({ text: 'staged explicitly', deferSend: true });
+            assert.equal(explicit.status, 'staged');
+            manager.remove(staged.id);
+            manager.remove(explicit.id);
+        } finally {
+            manager.autoSendEnabled = false;
+        }
+        const pending = await add({ text: 'sent when its turn comes', deferSend: false });
+        assert.equal(pending.status, 'pending', 'deferSend: false still creates a pending item');
+        manager.remove(pending.id);
+    });
+
+    test('MA-7: the queue\'s answer watcher failing is not an uncaught exception', () => {
+        const manager = PromptQueueManager.instance as unknown as { _answerWatcher?: import('fs').FSWatcher; setupAnswerWatcher(): void };
+        // A fresh watcher: on a machine short of watch handles the first one may already have failed (and been dropped).
+        manager.setupAnswerWatcher();
+        const watcher = manager._answerWatcher;
+        assert.ok(watcher, 'the answer watcher runs');
+        const failure = Object.assign(new Error('EMFILE: too many open files, watch'), { code: 'EMFILE' });
+        assert.doesNotThrow(() => watcher.emit('error', failure), 'an error listener takes it');
+        assert.equal(manager._answerWatcher, undefined, 'the failed watcher is dropped; polling finds the answers');
     });
 
     test('MA-5: the process store remembers a step\'s iteration when it is left', async () => {

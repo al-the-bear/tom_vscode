@@ -100,7 +100,8 @@ function makeAccess(): FakeAccess {
             const id = `q-${nextSeq++}`;
             const item: QueueItemSnapshot = {
                 id,
-                status: input.deferSend === false ? 'pending' : 'staged',
+                // As PromptQueueManager.enqueue: the status asked for, else pending.
+                status: input.initialStatus ?? 'pending',
                 originalText: input.originalText,
                 template: input.template,
                 answerWrapper: input.answerWrapper,

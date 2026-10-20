@@ -942,6 +942,15 @@ export class PromptQueueManager {
                 }, 500));
             }
         });
+        // A watcher can fail after it started — macOS runs out of watch handles
+        // when many windows watch files (EMFILE). Without a listener the error
+        // escapes as an uncaught exception; the answer polling
+        // (startAnswerPolling) still finds every answer, so drop the watcher.
+        this._answerWatcher.on('error', (err: NodeJS.ErrnoException) => {
+            logQueue(`Answer watcher failed (${err.code ?? err.message}); answers are found by polling`);
+            this._answerWatcher?.close();
+            this._answerWatcher = undefined;
+        });
     }
 
     private restartAnswerWatcher(): void {

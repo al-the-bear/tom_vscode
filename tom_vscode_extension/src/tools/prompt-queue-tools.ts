@@ -145,6 +145,12 @@ export interface EnqueueInput {
     answerWrapper?: boolean;
     position?: number;
     deferSend?: boolean;
+    /**
+     * The status the item starts in. The manager's default is `pending` — the
+     * queue sends it when its turn comes — and `deferSend` only skips the
+     * immediate send, so a caller that means "staged" says so here.
+     */
+    initialStatus?: 'staged' | 'pending';
     repeatCount?: number | string;
     repeatPrefix?: string;
     repeatSuffix?: string;
@@ -334,6 +340,10 @@ export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueu
             answerWrapper: input.answerWrapper,
             position: input.position,
             deferSend: input.deferSend ?? true,
+            // Staged unless deferSend is false: a staged item waits for
+            // tomAi_sendQueuedPrompt, so auto-send cannot dispatch it before the
+            // caller has added its pre-prompts and follow-ups.
+            initialStatus: input.deferSend === false ? 'pending' : 'staged',
             repeatCount: input.repeatCount,
             repeatPrefix: input.repeatPrefix,
             repeatSuffix: input.repeatSuffix,
