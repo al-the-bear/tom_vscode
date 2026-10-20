@@ -21,6 +21,8 @@
  *          an enum leaf's domain — as `wrongValue` with the leaf's declared type, the leaf unchanged (the code
  *          tomAi_specSetFormField answers for the same mistake). The bundled model has no typed value leaf
  *          (its leaves are text content and String list items), so a two-field model built here stands in
+ *   SE-18  addNode with a headline (vscimpa9): one call adds a populated, headlined item; a headline with a line
+ *          break (it would break the Markdown heading) refuses the whole add, and setHeadline refuses it too
  */
 
 import test, { before, describe } from 'node:test';
@@ -354,5 +356,29 @@ describe('TomSpecs edit tools', () => {
         assert.deepEqual([level.code, level.details], ['wrongValue', { field: { name: 'level', type: 'Level', enumValues: ['low', 'high'] } }]);
         setLeafValue(editor, 'R/LVL', 'high');
         assert.equal(editor.value('R/LVL'), 'high');
+    });
+
+    test('SE-18: addNode with a headline', async () => {
+        const file = copy();
+        const r = await run(specAddNodeImpl, {
+            file, parentPath: FR, childSegment: 'FRE-REQU-LST', itemId: 'FRE-REQU-ARCHIVE',
+            headline: 'FR-07 — Archive closed orders',
+            fields: { [FRED]: { description: 'The system must archive closed orders.' } },
+        });
+        assert.equal(r.ok, true, JSON.stringify(r));
+        assert.equal(r.headline, 'FR-07 — Archive closed orders');
+        const added = await section(file, r.path);
+        assert.equal(added.headline, 'FR-07 — Archive closed orders');
+        assert.equal(field(added, 'FRED', 'description').value, 'The system must archive closed orders.');
+
+        const before = read(file);
+        const broken = await run(specAddNodeImpl, { file, parentPath: FR, childSegment: 'FRE-REQU-LST', headline: 'two\nlines' });
+        assert.equal(broken.code, 'invalidHeadline');
+        const typed = await run(specAddNodeImpl, { file, parentPath: FR, childSegment: 'FRE-REQU-LST', headline: 7 });
+        assert.equal(typed.code, 'invalidInput');
+        assert.equal(read(file), before, 'a refused headline refuses the whole add');
+        const set = await run(specSetHeadlineImpl, { file, path: r.path, headline: 'a\r\nb' });
+        assert.equal(set.code, 'invalidHeadline');
+        assert.equal(read(file), before);
     });
 });

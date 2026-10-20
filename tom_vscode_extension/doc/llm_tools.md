@@ -435,9 +435,9 @@ nothing. Each call loads, edits and saves the file in its own format. It takes
 | `tomAi_specCreateDocument` | A new, empty document for one model root, in the format its file name says. Refuses an existing file. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_specSetContent` | A content or scalar value; null or `""` clears it. A value a typed leaf cannot read is refused as `wrongValue` with the leaf's name, type and enum domain, as `tomAi_specSetFormField` answers (the batch's `setContent` and `addNode`'s `content` alike). `marked: true` writes text as a change the reviewer accepts or rejects (see *Review annotations*). | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_specSetFormField` | One form field, typed by its declaration: int, double, bool or enum name. A wrong value comes back with the field's type and domain. `marked: true` on a String field writes the new text as a marked change. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_specSetHeadline` | A section's stored headline; null returns it to its default title. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_specSetHeadline` | A section's stored headline; null returns it to its default title. One line: a line break is refused (`invalidHeadline`), since it would end the Markdown heading. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_specSetCodeSpec` | The heading-level `codeSpec=` routing marker. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_specAddNode` | A child or a list item (id generated from the pattern, or given), optionally populated with `content` and form `fields`. A refusal lists the legal children. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_specAddNode` | A child or a list item (id generated from the pattern, or given), optionally populated with `content`, form `fields` and its `headline` in the same call (a refused value or headline refuses the whole add). A refusal lists the legal children. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_specSetItemSectionId` | Rename a list item's section id; the pattern prefix and list uniqueness are checked. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_specMoveListItem` | Reorder within a list or move to a list of the same element class; returns the `renamed` map, and YAML review entries follow their items. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_specRemoveListItem` | Remove a list item and everything under it. | ✅ | ✅ | ⚪ | ✅ | ⚪ |

@@ -36,10 +36,9 @@ Take them from the outline; do not compose them.
      "file": "specs/meridian.docspecs.yaml",
      "expectedRevision": "<from the outline>",
      "edits": [
-       { "op": "addNode", "parentPath": "SBP/introductionAndScope/requirements/functionalRequirements", "childSegment": "FRE-REQU-LST", "as": "req" },
+       { "op": "addNode", "parentPath": "SBP/introductionAndScope/requirements/functionalRequirements", "childSegment": "FRE-REQU-LST", "headline": "FR-07 — Archive closed orders", "as": "req" },
        { "op": "setFormField", "path": "$req/FRED", "field": "description", "value": "The system must archive closed orders." },
-       { "op": "setFormField", "path": "$req/FREP", "field": "priority", "value": "could" },
-       { "op": "setHeadline", "path": "$req", "headline": "FR-07 — Archive closed orders" }
+       { "op": "setFormField", "path": "$req/FREP", "field": "priority", "value": "could" }
      ]
    }
    ```
@@ -47,7 +46,8 @@ Take them from the outline; do not compose them.
    The batch is one approval, one write and one undo step; any failing edit
    writes nothing and names the edit. `dryRun: true` returns the diff first. The
    single-edit tools (`tomAi_specSetFormField`, `tomAi_specAddNode`, …) are for
-   one change.
+   one change; `tomAi_specAddNode` alone can already add an item with its
+   `headline` and form `fields`.
 6. **Check it.** `tomAi_specValidate` on the file: the decode, schema and
    instance tiers, each finding with the `path` to fix. The edit answers already
    say which findings the change introduced or resolved.

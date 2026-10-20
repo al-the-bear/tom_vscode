@@ -109,6 +109,8 @@ export interface SpecAddNodeInput extends SpecEditOptions {
     content?: SomValue;
     /** Form values to set on the new node: relative form path ('' = the node itself) → field → value. */
     fields?: Record<string, Record<string, SomValue>>;
+    /** The new node's headline (e.g. `FR-07 — Archive closed orders`). */
+    headline?: string | null;
 }
 export interface SpecSetItemSectionIdInput extends SpecEditOptions {
     itemPath: string;
@@ -214,9 +216,24 @@ export async function specSetFormFieldImpl(deps: SpecToolDeps, input: SpecSetFor
     return runEdit(deps, input, (ctx) => opSetFormField(deps, ctx, input));
 }
 
+/**
+ * A headline as given: null for none (the default title), else one line of
+ * text — a line break would break the Markdown heading the headline becomes.
+ */
+function headlineValue(headline: unknown): string | null {
+    if (headline === undefined || headline === null || headline === '') { return null; }
+    if (typeof headline !== 'string') {
+        throw new SpecEditRefusal('invalidInput', '`headline` must be a string (or null for the default title).');
+    }
+    if (/[\r\n]/.test(headline)) {
+        throw new SpecEditRefusal('invalidHeadline', 'A headline is one line: it becomes a Markdown heading, which a line break would end.');
+    }
+    return headline;
+}
+
 function opSetHeadline(deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecSetHeadlineInput>): OpOutcome {
     ctx.inspector.resolve(input.path);
-    ctx.editor.setHeadline(input.path, input.headline || null);
+    ctx.editor.setHeadline(input.path, headlineValue(input.headline));
     return { touched: input.path, result: { path: input.path, headline: ctx.loaded.document.headline(input.path) } };
 }
 
@@ -236,6 +253,7 @@ export async function specSetCodeSpecImpl(deps: SpecToolDeps, input: SpecSetCode
 
 function opAddNode(deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecAddNodeInput>): OpOutcome {
     ctx.inspector.resolve(input.parentPath);
+    const headline = headlineValue(input.headline);
     const doc = ctx.loaded.document;
     let added: string;
     try {
@@ -262,6 +280,7 @@ function opAddNode(deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecAddN
             setFormField(ctx, formPath, field, value);
         }
     }
+    if (headline !== null) { ctx.editor.setHeadline(added, headline); }
     const isItem = LIST_ITEMS.includes(res.kind);
     return {
         touched: isItem ? specParentPath(added) : added,
@@ -269,6 +288,7 @@ function opAddNode(deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecAddN
             path: added,
             kind: res.kind,
             ...(isItem && doc.itemSectionId(added) ? { sectionId: doc.itemSectionId(added) } : {}),
+            ...(headline !== null ? { headline: doc.headline(added) } : {}),
         },
     };
 }
@@ -414,7 +434,9 @@ export const SPEC_SET_FORM_FIELD_TOOL = editTool<SpecSetFormFieldInput>(
 
 export const SPEC_SET_HEADLINE_TOOL = editTool<SpecSetHeadlineInput>(
     { name: 'tomAi_specSetHeadline', displayName: 'Spec: Set Headline' },
-    'Set the stored headline of a section, list item or the root; null or "" returns it to its default title.' + RESULT_NOTE,
+    'Set the stored headline of a section, list item or the root; null or "" returns it to its default title. A headline '
+    + 'is one line (a line break is refused as `invalidHeadline`: it would end the Markdown heading). A new item can get '
+    + 'its headline in tomAi_specAddNode already.' + RESULT_NOTE,
     { ...EDIT_PARAMS, path: { type: 'string', description: PATH_PARAM_HINT }, headline: { type: ['string', 'null'], description: 'The headline text.' } },
     ['file', 'path', 'headline'],
     specSetHeadlineImpl,
@@ -435,8 +457,9 @@ export const SPEC_ADD_NODE_TOOL = editTool<SpecAddNodeInput>(
     + 'item, whose section id is generated from the list\'s @SectionIdPattern (dated `month`/`day`, default today) or '
     + 'taken from `itemId` (it must keep the pattern prefix and be unique); for a single child its path. Optionally '
     + 'populate it in the same call: `content` sets the new node\'s value (or its `content` leaf), `fields` sets forms '
-    + '`{ "<form segment relative to the new node, \'\' for the node itself>": { "<field>": value } }`. Answers the new '
-    + '`path`, `kind` and `sectionId`. A refused add returns the runtime\'s code (unknownChild, patternMismatch, '
+    + '`{ "<form segment relative to the new node, \'\' for the node itself>": { "<field>": value } }`, `headline` its '
+    + 'headline (one line, e.g. `FR-07 — Archive closed orders`), so one call adds a filled, headlined item. Answers the new '
+    + '`path`, `kind`, `sectionId` and `headline`. A refused add returns the runtime\'s code (unknownChild, patternMismatch, '
     + 'duplicateSectionId, cardinalityExceeded, notAContainer) and the parent\'s `addable` children; nothing is written. '
     + 'Editor counterparts: doc_add_node, doc_add_list_item.' + RESULT_NOTE,
     {
@@ -448,6 +471,7 @@ export const SPEC_ADD_NODE_TOOL = editTool<SpecAddNodeInput>(
         day: { type: 'number', description: 'Day of month for the generated id\'s date part. Default today.' },
         content: { ...VALUE_SCHEMA, description: 'Value for the new node or its `content` leaf.' },
         fields: { type: 'object', description: 'Form values: relative form path → field → value.' },
+        headline: { type: 'string', description: 'The new node\'s headline, one line. Default: its default title.' },
     },
     ['file', 'parentPath', 'childSegment'],
     specAddNodeImpl,
@@ -672,7 +696,7 @@ export const SPEC_APPLY_EDITS_TOOL: SharedToolDefinition<SpecApplyEditsInput> = 
         + 'nothing. The preferred way to make more than one change (add an item, then fill it). `edits` is an ordered list '
         + `of up to ${MAX_BATCH_EDITS} entries, each \`{op, …}\` with the same arguments as the single tool, minus \`file\`: `
         + 'setContent {path, text, marked?}, setFormField {path, field, value, marked?}, setHeadline {path, headline}, setCodeSpec {path, '
-        + 'codeSpec}, addNode {parentPath, childSegment, itemId?, month?, day?, content?, fields?, as?}, setItemSectionId '
+        + 'codeSpec}, addNode {parentPath, childSegment, itemId?, month?, day?, content?, fields?, headline?, as?}, setItemSectionId '
         + '{itemPath, sectionId}, moveListItem {itemPath, toIndex, toList?}, removeListItem {itemPath}, clearSection {path}; '
         + 'and the review annotations: insertComment {path, field?, afterParagraph, text, author?, id?}, insertQuestion '
         + '{question, afterComment? | path + afterParagraph}, setAnswer {questionId, answer}, editComment {commentId, text}, '

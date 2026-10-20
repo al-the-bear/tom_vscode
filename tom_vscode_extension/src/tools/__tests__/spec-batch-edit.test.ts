@@ -10,6 +10,7 @@
  *   SB-6  validation split: what the batch introduced and what it resolved
  *   SB-7  the edit cap is enforced; a cap-sized batch stays in the time budget
  *   SB-8  the approval prompt summarises the batch; other tools keep the JSON summary
+ *   SB-9  addNode takes `headline` (vscimpa9): the requirement added, filled and headlined in one op fewer
  */
 
 import test, { before, describe } from 'node:test';
@@ -219,5 +220,22 @@ describe('tomAi_specApplyEdits', () => {
         assert.match(summary, /Paths: .*\$req\/FRED/);
         assert.match(summarizeToolInput(SPEC_APPLY_EDITS_TOOL, { file: 'x', edits: FILL, dryRun: true }), /dry run, writes nothing/);
         assert.equal(summarizeToolInput(undefined, { a: 1 }), '{"a":1}');
+    });
+
+    test('SB-9: addNode with a headline', async () => {
+        const file = copy();
+        const edits: SpecBatchEdit[] = [
+            { op: 'addNode', parentPath: FR, childSegment: 'FRE-REQU-LST', itemId: 'FRE-REQU-ARCHIVE', headline: 'FR-07 — Archive closed orders', as: 'req' },
+            { op: 'setFormField', path: '$req/FRED', field: 'description', value: 'The system must archive closed orders.' },
+        ];
+        const r = await apply(file, edits);
+        assert.equal(r.ok, true, JSON.stringify(r));
+        assert.equal(r.results[0].headline, 'FR-07 — Archive closed orders');
+        const s = await section(file, r.bindings.req);
+        assert.equal(s.headline, 'FR-07 — Archive closed orders');
+        assert.equal(field(s, 'FRED', 'description'), 'The system must archive closed orders.');
+        const refused = await apply(file, [{ op: 'addNode', parentPath: FR, childSegment: 'FRE-REQU-LST', headline: 'a\nb' }]);
+        assert.equal(refused.code, 'invalidHeadline');
+        assert.deepEqual(refused.failedOp, { index: 0, op: 'addNode' });
     });
 });
