@@ -432,7 +432,7 @@ nothing. Each call loads, edits and saves the file in its own format. It takes
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
 | --- | --- | :-: | :-: | :-: | :-: | :-: |
 | `tomAi_specCreateDocument` | A new, empty document for one model root, in the format its file name says. Refuses an existing file. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_specSetContent` | A content or scalar value; null or `""` clears it. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_specSetContent` | A content or scalar value; null or `""` clears it. A value a typed leaf cannot read is refused as `wrongValue` with the leaf's name, type and enum domain, as `tomAi_specSetFormField` answers (the batch's `setContent` and `addNode`'s `content` alike). | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_specSetFormField` | One form field, typed by its declaration: int, double, bool or enum name. A wrong value comes back with the field's type and domain. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_specSetHeadline` | A section's stored headline; null returns it to its default title. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_specSetCodeSpec` | The heading-level `codeSpec=` routing marker. | ✅ | ✅ | ⚪ | ✅ | ⚪ |

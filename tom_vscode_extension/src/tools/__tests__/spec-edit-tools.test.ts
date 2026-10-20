@@ -17,6 +17,10 @@
  *   SE-14  create → add → validate, in YAML and in Markdown, each saved in its own format
  *   SE-15  a read-only document is refused
  *   SE-16  all edit tools (and the batch) need approval and are outside the MCP read-only floor
+ *   SE-17  a value leaf's type refuses a value it cannot read — "lots" or 2.5 into an int leaf, a name outside
+ *          an enum leaf's domain — as `wrongValue` with the leaf's declared type, the leaf unchanged (the code
+ *          tomAi_specSetFormField answers for the same mistake). The bundled model has no typed value leaf
+ *          (its leaves are text content and String list items), so a two-field model built here stands in
  */
 
 import test, { before, describe } from 'node:test';
@@ -47,6 +51,8 @@ import {
     specSetItemSectionIdImpl,
 } from '../spec-edit-tools.js';
 import { specGetSectionImpl } from '../spec-tools.js';
+import { SpecEditRefusal, setLeafValue } from '../spec-edit-core.js';
+import { SpecAnnotation, SpecClass, SpecDocument, SpecEditor, SpecField, SpecFieldKind, SpecModel, SpecRoot } from 'tom_som_typescript_runtime';
 import { resolveEffectiveTools } from '../../handlers/mcpServer-handler.js';
 
 const SAMPLES = path.resolve(__dirname, '..', '..', '..', '..', '..', 'ai_build', 'tom_som_dart_v0', 'documents');
@@ -317,5 +323,36 @@ describe('TomSpecs edit tools', () => {
         const floor = resolveEffectiveTools(SPEC_EDIT_TOOLS, { authenticated: false, allowWriteWithoutAuth: false });
         assert.deepEqual(floor, [], 'an unauthenticated MCP client sees none of them');
         assert.equal(resolveEffectiveTools(SPEC_EDIT_TOOLS, { authenticated: true, allowWriteWithoutAuth: false }).length, 11);
+    });
+
+    test('SE-17: a typed value leaf refuses what it cannot read as wrongValue', () => {
+        const root = new SpecClass({
+            name: 'Root', sectionId: 'R', annotations: [new SpecAnnotation('Document')], fields: [
+                new SpecField({ name: 'count', kind: SpecFieldKind.SCALAR, type: 'int', sectionId: 'CNT' }),
+                new SpecField({ name: 'level', kind: SpecFieldKind.ENUM, enumType: 'Level', enumValues: ['low', 'high'], sectionId: 'LVL' }),
+            ],
+        });
+        const model = new SpecModel({ roots: [new SpecRoot({ type: 'Root', title: 'Root', sectionId: 'R' })], classes: new Map([['Root', root]]) });
+        const editor = SpecEditor.forModel(new SpecDocument(), model);
+        const refusal = (path: string, value: string | number): SpecEditRefusal => {
+            try {
+                setLeafValue(editor, path, value);
+            } catch (e) {
+                assert.ok(e instanceof SpecEditRefusal, `a refusal, not ${String(e)}`);
+                return e;
+            }
+            assert.fail(`${JSON.stringify(value)} into ${path} was not refused`);
+        };
+        setLeafValue(editor, 'R/CNT', 6);
+        const lots = refusal('R/CNT', 'lots');
+        assert.equal(lots.code, 'wrongValue');
+        assert.match(lots.message, /"lots" at R\/CNT: cannot be read as int/, 'the runtime\'s words');
+        assert.deepEqual(lots.details, { field: { name: 'count', type: 'int' } });
+        assert.equal(refusal('R/CNT', 2.5).code, 'wrongValue');
+        assert.equal(editor.value('R/CNT'), 6, 'the leaf keeps its value');
+        const level = refusal('R/LVL', 'medium');
+        assert.deepEqual([level.code, level.details], ['wrongValue', { field: { name: 'level', type: 'Level', enumValues: ['low', 'high'] } }]);
+        setLeafValue(editor, 'R/LVL', 'high');
+        assert.equal(editor.value('R/LVL'), 'high');
     });
 });

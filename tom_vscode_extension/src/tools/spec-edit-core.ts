@@ -15,7 +15,7 @@ import {
     SpecSectionIdCollision,
     validateDocument,
 } from 'tom_som_typescript_runtime';
-import type { SpecResolution, SpecValidationError } from 'tom_som_typescript_runtime';
+import type { SomValue, SpecResolution, SpecValidationError } from 'tom_som_typescript_runtime';
 
 import { SharedToolDefinition } from './shared-tool-registry';
 import { BATCH_HINT, FILE_PARAM, SpecToolDeps, UNRESOLVED_NOTE, failure, json, liveDeps, loadDocument } from './spec-tool-common';
@@ -151,6 +151,27 @@ export function editFailure(e: unknown): string {
 export function requireKind(res: SpecResolution, path: string, kinds: readonly string[], what: string): void {
     if (!kinds.includes(res.kind)) {
         throw new SpecEditRefusal('wrongKind', `'${path}' is a ${res.kind} node, not ${what}.`, { kind: res.kind });
+    }
+}
+
+/**
+ * Set a value leaf through the runtime's SpecEditor. A value the leaf's
+ * declared type cannot read — "lots" or 2.5 into an int leaf, a name outside
+ * an enum leaf's domain — is refused as `wrongValue` in the runtime's words,
+ * with the leaf's name and type (and enum domain): the answer
+ * tomAi_specSetFormField gives for the same mistake. The runtime formats the
+ * value before it stores it, so a refused value leaves the leaf as it was.
+ * The caller has checked that `path` is a value leaf.
+ */
+export function setLeafValue(editor: SpecEditor, path: string, value: SomValue): void {
+    const res = editor.resolve(path);
+    try {
+        editor.setValue(path, value);
+    } catch (e) {
+        const f = res.field;
+        const type = f ? (f.enumType ?? f.type ?? f.elementType ?? null) : null;
+        const enumValues = f && f.enumValues.length > 0 ? { enumValues: [...f.enumValues] } : {};
+        throw new SpecEditRefusal('wrongValue', (e as Error).message, f ? { field: { name: f.name, type, ...enumValues } } : {});
     }
 }
 

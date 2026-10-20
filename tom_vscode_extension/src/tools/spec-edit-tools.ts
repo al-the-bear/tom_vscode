@@ -60,6 +60,7 @@ import {
     editTool,
     requireKind,
     runEdit,
+    setLeafValue,
     type EditContext,
     type OpInput,
     type OpOutcome,
@@ -161,7 +162,7 @@ function opSetContent(deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecS
     const res = ctx.inspector.resolve(input.path);
     requireKind(res, input.path, VALUE_LEAVES, 'a content or scalar value');
     const text = input.text === '' ? null : input.text;
-    ctx.editor.setValue(input.path, text);
+    setLeafValue(ctx.editor, input.path, text);
     return { touched: input.path, result: { path: input.path, value: ctx.editor.value(input.path) } };
 }
 
@@ -219,7 +220,7 @@ function opAddNode(deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecAddN
         const target = VALUE_LEAVES.includes(res.kind) ? added : specPathJoin(added, 'content');
         const targetRes = ctx.inspector.resolve(target);
         requireKind(targetRes, target, VALUE_LEAVES, 'a value leaf `content` can be written to');
-        ctx.editor.setValue(target, input.content);
+        setLeafValue(ctx.editor, target, input.content);
     }
     for (const [relative, values] of Object.entries(input.fields ?? {})) {
         const formPath = relative === '' ? added : specPathJoin(added, relative);
@@ -335,8 +336,10 @@ export const SPEC_CREATE_DOCUMENT_TOOL = editTool<SpecCreateDocumentInput>(
 export const SPEC_SET_CONTENT_TOOL = editTool<SpecSetContentInput>(
     { name: 'tomAi_specSetContent', displayName: 'Spec: Set Content' },
     'Set the value of a content or scalar leaf (a `…/content` path, or a scalar list item) through the runtime\'s '
-    + 'SpecEditor. `text` null or empty clears it. A typed scalar takes a number or boolean and refuses one of the wrong '
-    + 'type. For form fields use tomAi_specSetFormField. Editor counterpart: doc_set_content.' + RESULT_NOTE,
+    + 'SpecEditor. `text` null or empty clears it. A typed leaf takes a number or boolean, or a string it can read; a '
+    + 'value its type cannot read (an int leaf given "lots" or 2.5, an enum leaf a name outside its domain) is refused as '
+    + '`code: "wrongValue"` with the leaf\'s `field` (name, type, enum domain), as tomAi_specSetFormField answers. For '
+    + 'form fields use tomAi_specSetFormField. Editor counterpart: doc_set_content.' + RESULT_NOTE,
     { ...EDIT_PARAMS, path: { type: 'string', description: PATH_PARAM_HINT }, text: { ...VALUE_SCHEMA, description: 'The new value; null or "" clears it.' } },
     ['file', 'path', 'text'],
     specSetContentImpl,
