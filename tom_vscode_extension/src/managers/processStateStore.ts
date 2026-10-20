@@ -20,6 +20,7 @@ import * as vscode from 'vscode';
 import { ChatVariablesStore, type ChangeSource } from './chatVariablesStore';
 import { WsPaths } from '../utils/workspacePaths';
 import { ProcessRepository, type ProcessEntry, type RepositoryResult } from '../utils/processRepository';
+import { currentProcessRun } from '../services/processRunContext';
 import {
     EMPTY_PROCESS_STATE,
     applyProcessChange,
@@ -144,15 +145,39 @@ export class ProcessStateStore {
         return def ? normalizeState(this.rawState, def) : this.rawState;
     }
 
-    /** The process chat variables. */
+    /**
+     * What a prompt sees: the position the current send runs for (a queued
+     * Proceed prompt, processRunContext), else the quest's state. A Proceed
+     * moves the quest on at once, so its prompt must not see the next step.
+     */
+    private viewed(): { def: ProcessDefinition | null; state: ProcessState; description: string } {
+        const run = currentProcessRun();
+        if (run && run.quest === this.quest) {
+            const e = this.entry(run.state.process);
+            const def = e?.definition ?? null;
+            return { def, state: def ? normalizeState(run.state, def) : run.state, description: e?.description ?? '' };
+        }
+        return { def: this.currentDefinition(), state: this.state, description: this.processDescription() };
+    }
+
+    /** The process chat variables, for the position a prompt runs for. */
     variables(): Record<ProcessVariableKey, string> {
-        const def = this.currentDefinition();
-        return processVariableValues(def, this.state, this.entry(this.rawState.process)?.description ?? '');
+        const v = this.viewed();
+        return processVariableValues(v.def, v.state, v.description);
     }
 
     /** The `${process-context}` block for the system prompt; `''` without a process. */
     contextBlock(): string {
-        return processContextBlock(this.currentDefinition(), this.state, this.entry(this.rawState.process)?.description ?? '');
+        const v = this.viewed();
+        return processContextBlock(v.def, v.state, v.description);
+    }
+
+    /** While a queued Proceed prompt is sent: the role its position names (`''` when none); otherwise undefined. */
+    runRole(): string | undefined {
+        const run = currentProcessRun();
+        if (!run || run.quest !== this.quest) { return undefined; }
+        const v = this.viewed();
+        return currentRole(v.def, v.state);
     }
 
     /** The current process's Markdown description; `''` when none. */

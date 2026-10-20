@@ -486,6 +486,24 @@ function addChatValues(values: Record<string, string>): void {
     } catch {
         // ChatVariablesStore not yet initialized — skip
     }
+    // A queued Proceed prompt runs as the step it belongs to, although the
+    // quest may have moved on since it was queued (processRunContext).
+    const runRole = getProcessRunRole();
+    if (runRole) {
+        values['role'] = runRole;
+        values['chat.role'] = runRole;
+    }
+}
+
+/** The role of the process position the current send runs for; undefined outside such a send. */
+function getProcessRunRole(): string | undefined {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const mod = require('../managers/processStateStore.js');
+        return mod.ProcessStateStore?.instance?.runRole() || undefined;
+    } catch {
+        return undefined;
+    }
 }
 
 /**

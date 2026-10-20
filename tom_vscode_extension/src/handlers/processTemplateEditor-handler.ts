@@ -1,16 +1,15 @@
 /**
- * Process template editor — the prompt templates of the PROCESS view's action
- * bar, one per move kind (Next, Finish, Repeat, Gate passed, Gate failed,
- * Finish process, Skip, Back). They are global, kept in the extension config
- * under `processActionTemplates`; a kind left at its default is not written,
- * so it follows the built-in default.
+ * Process template editor — the prompt template of the PROCESS view's Proceed
+ * button, the only move that runs anything (the others only move the state).
+ * It is global, kept in the extension config under
+ * `processActionTemplates.proceed`; left at its default it is not written, so
+ * it follows the built-in default.
  *
  * The variable list inserts a placeholder at the cursor: the action variables
  * (`${custom-instructions}`, `${action-prompt}`, …), the process variables of
- * the position the move leads to, the chat variables (custom ones included)
- * and a few general placeholders. The preview resolves the template being
- * edited for that move at the current position, when the move is offered
- * there.
+ * the position being run, the chat variables (custom ones included) and a few
+ * general placeholders. The preview resolves the template being edited for
+ * the current position.
  *
  * Command: `tomAi.editor.processTemplates`. Assets: `media/processTemplateEditor/`.
  */
@@ -29,15 +28,17 @@ import {
     DEFAULT_PROCESS_ACTION_TEMPLATES,
     PROCESS_ACTION_TITLES,
     PROCESS_ACTION_VARIABLES,
+    PROCESS_TEMPLATE_KINDS,
     processActionTemplate,
     type ProcessActionTemplates,
+    type ProcessTemplateKind,
 } from '../utils/processActionPrompt';
-import { PROCESS_MOVE_KINDS, PROCESS_VARIABLE_KEYS, type ProcessMoveKind } from '../utils/processDefinition';
+import { PROCESS_VARIABLE_KEYS } from '../utils/processDefinition';
 
 const VIEW_TYPE = 'tomAi.processTemplateEditor';
 
 let panel: vscode.WebviewPanel | undefined;
-let selectedKind: ProcessMoveKind = 'next';
+let selectedKind: ProcessTemplateKind = 'proceed';
 
 /** General placeholders worth offering beside the chat and process variables. */
 const GENERAL_PLACEHOLDERS: ReadonlyArray<{ name: string; description: string }> = [
@@ -59,8 +60,8 @@ function webviewOptions(context: vscode.ExtensionContext): vscode.WebviewOptions
 }
 
 /** Open the editor, on the template of `kind` when given. */
-export function openProcessTemplateEditor(context: vscode.ExtensionContext, kind?: ProcessMoveKind): void {
-    if (kind && PROCESS_MOVE_KINDS.includes(kind)) { selectedKind = kind; }
+export function openProcessTemplateEditor(context: vscode.ExtensionContext, kind?: ProcessTemplateKind): void {
+    if (kind && PROCESS_TEMPLATE_KINDS.includes(kind)) { selectedKind = kind; }
     if (panel) {
         panel.reveal();
         void panel.webview.postMessage({ type: 'select', kind: selectedKind });
@@ -95,7 +96,7 @@ function sendAll(): void {
     void panel.webview.postMessage({
         type: 'load',
         selected: selectedKind,
-        kinds: PROCESS_MOVE_KINDS.map((kind) => ({
+        kinds: PROCESS_TEMPLATE_KINDS.map((kind) => ({
             kind,
             title: PROCESS_ACTION_TITLES[kind],
             text: processActionTemplate(kind, configured),
@@ -103,14 +104,14 @@ function sendAll(): void {
         })),
         variables: [
             { group: 'Action', items: PROCESS_ACTION_VARIABLES },
-            { group: 'Process (where the move leads)', items: PROCESS_VARIABLE_KEYS.map((name) => ({ name, description: '' })) },
+            { group: 'Process (the position being run)', items: PROCESS_VARIABLE_KEYS.map((name) => ({ name, description: '' })) },
             { group: 'Chat variables', items: chatVariableNames().map((name) => ({ name, description: '' })) },
             { group: 'General', items: GENERAL_PLACEHOLDERS },
         ],
     });
 }
 
-async function sendPreview(kind: ProcessMoveKind, text: string): Promise<void> {
+async function sendPreview(kind: ProcessTemplateKind, text: string): Promise<void> {
     if (!panel) { return; }
     const store = await ProcessStateStore.ready;
     const move = store.moves().find((m) => m.kind === kind);
@@ -123,7 +124,7 @@ async function sendPreview(kind: ProcessMoveKind, text: string): Promise<void> {
     });
 }
 
-async function handle(msg: { type: string; kind?: ProcessMoveKind; text?: string; templates?: ProcessActionTemplates }): Promise<void> {
+async function handle(msg: { type: string; kind?: ProcessTemplateKind; text?: string; templates?: ProcessActionTemplates }): Promise<void> {
     switch (msg.type) {
         case 'ready':
             sendAll();
@@ -152,7 +153,7 @@ async function handle(msg: { type: string; kind?: ProcessMoveKind; text?: string
 export function registerProcessTemplateEditor(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         vscode.commands.registerCommand('tomAi.editor.processTemplates', (kind?: string) =>
-            openProcessTemplateEditor(context, typeof kind === 'string' ? kind as ProcessMoveKind : undefined)),
+            openProcessTemplateEditor(context, typeof kind === 'string' ? kind as ProcessTemplateKind : undefined)),
         vscode.window.registerWebviewPanelSerializer(VIEW_TYPE, {
             async deserializeWebviewPanel(p: vscode.WebviewPanel): Promise<void> {
                 if (panel) { p.dispose(); return; }

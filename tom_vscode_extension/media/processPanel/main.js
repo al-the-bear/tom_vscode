@@ -64,20 +64,21 @@
 
     /** Icon and short text of each move kind in the action bar. */
     var MOVE_ICON = {
-        next: 'arrow-right', finish: 'check', repeat: 'debug-restart', 'gate-passed': 'pass',
+        proceed: 'play', finish: 'check', repeat: 'debug-restart', 'gate-passed': 'pass',
         'gate-failed': 'error', 'finish-process': 'check-all', skip: 'debug-step-over', back: 'arrow-left',
     };
     var LEVEL_SHORT = { phase: 'phase', step: 'step', substep: 'sub' };
 
     function actionBar(moves) {
         var buttons = (moves || []).map(function (m) {
-            var icon = m.kind === 'back' && m.label === 'Reopen' ? 'debug-reverse-continue' : MOVE_ICON[m.kind] || 'circle';
+            var icon = m.kind === 'back' && m.label === 'Reopen' ? 'debug-reverse-continue'
+                : m.kind === 'proceed' && m.label === 'Run again' ? 'debug-rerun' : MOVE_ICON[m.kind] || 'circle';
             var text = m.level && (m.kind === 'repeat' || m.kind === 'finish') ? '<span class="lvl">' + LEVEL_SHORT[m.level] + '</span>' : '';
             return '<button class="icon act act-' + m.kind + '" data-move="' + esc(m.kind) + '" data-level="' + esc(m.level || '') + '" title="'
                 + esc(m.label + ' → ' + m.to) + '"><span class="codicon codicon-' + icon + '"></span>' + text + '</button>';
         }).join('');
         return '<div class="actions">' + (buttons || '<span class="muted">No move from here.</span>')
-            + '<span class="spacer"></span><button class="icon" data-templates="1" title="Edit the prompt templates of these actions"><span class="codicon codicon-symbol-snippet"></span></button></div>';
+            + '<span class="spacer"></span><button class="icon" data-templates="1" title="Edit the Proceed prompt template"><span class="codicon codicon-symbol-snippet"></span></button></div>';
     }
 
     function iteration(level, node, n, alwaysRepeatable) {
@@ -109,6 +110,7 @@
         }
         var html = c.state.process && c.definition ? actionBar(c.moves) : '';
         if (c.state.completed) { html += '<div class="done"><span class="codicon codicon-check-all"></span> The process is finished.</div>'; }
+        else if (c.state.ran) { html += '<div class="ran"><span class="codicon codicon-debug-pause"></span> This position has been run — decide how the process goes on.</div>'; }
         var procOptions = [{ value: '', label: '— none —' }].concat(c.processes.map(function (p) {
             return { value: p.id, label: p.valid ? p.name + ' (' + p.id + ')' : p.id + ' (invalid)', disabled: !p.valid && p.id !== c.state.process };
         }));

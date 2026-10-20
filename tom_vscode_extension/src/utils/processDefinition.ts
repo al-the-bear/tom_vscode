@@ -348,6 +348,26 @@ export interface ProcessState {
     substepIteration: number;
     /** The process is finished (its last step done); the position stays where it ended. */
     completed: boolean;
+    /**
+     * This position's prompt was run (Proceed at a decision point — a gate, or
+     * where a repeat is possible): the position stays until the user decides.
+     * Dropped by every move and every change of position.
+     */
+    ran?: true;
+}
+
+/** The state without the `ran` flag: a position not run yet. */
+export function notRun(state: ProcessState): ProcessState {
+    if (!state.ran) { return state; }
+    const { ran: _ran, ...rest } = state;
+    return rest;
+}
+
+/** Whether two states are at the same position (process, phase, step, sub-step and their iterations). */
+export function samePosition(a: ProcessState, b: ProcessState): boolean {
+    return a.process === b.process && a.phase === b.phase && a.phaseIteration === b.phaseIteration
+        && a.step === b.step && a.stepIteration === b.stepIteration
+        && a.substep === b.substep && a.substepIteration === b.substepIteration;
 }
 
 export const EMPTY_PROCESS_STATE: ProcessState = Object.freeze({
@@ -442,7 +462,7 @@ export function changeIteration(state: ProcessState, def: ProcessDefinition, lev
     const key = ITERATION_KEY[level];
     const next = Math.max(1, Math.min(node.maxIterations ?? Number.MAX_SAFE_INTEGER, state[key] + delta));
     if (next === state[key]) { return state; }
-    const moved = { ...state, [key]: next, completed: false };
+    const moved = notRun({ ...state, [key]: next, completed: false });
     if (delta < 0) { return moved; }
     if (level === 'phase') { return withStep(moved, firstStepOf(node as ProcessPhase), 1); }
     if (level === 'step') { return withStep(moved, node as ProcessStep, next); }
@@ -551,7 +571,8 @@ export function applyProcessChange(
             }
             next = { ...next, [ITERATION_KEY[level]]: value };
         }
-        return { ok: true, state: { ...next, completed: change.completed === true } };
+        const changed = { ...next, completed: change.completed === true };
+        return { ok: true, state: samePosition(state, changed) ? changed : notRun(changed) };
     } catch (e) {
         return { ok: false, error: (e as Error).message };
     }
@@ -561,10 +582,10 @@ export function applyProcessChange(
 // Moves — what the PROCESS view's action bar offers
 // ============================================================================
 
-export type ProcessMoveKind = 'next' | 'finish' | 'repeat' | 'gate-passed' | 'gate-failed' | 'finish-process' | 'skip' | 'back';
+export type ProcessMoveKind = 'proceed' | 'finish' | 'repeat' | 'gate-passed' | 'gate-failed' | 'finish-process' | 'skip' | 'back';
 
-/** The move kinds, in the order the action bar and the template editor show them. */
-export const PROCESS_MOVE_KINDS: readonly ProcessMoveKind[] = ['next', 'finish', 'repeat', 'gate-passed', 'gate-failed', 'finish-process', 'skip', 'back'];
+/** The move kinds, in the order the action bar shows them. */
+export const PROCESS_MOVE_KINDS: readonly ProcessMoveKind[] = ['proceed', 'finish', 'repeat', 'gate-passed', 'gate-failed', 'finish-process', 'skip', 'back'];
 
 export interface ProcessMove {
     kind: ProcessMoveKind;
@@ -648,22 +669,30 @@ function canRepeat(node: { repeatable?: boolean; maxIterations?: number } | unde
 /**
  * The moves offered at `state`, in the order the action bar shows them:
  *
+ * - `proceed` — the only move that runs anything: the prompt of THIS position
+ *   is queued, then the state moves on to the next position (which runs only
+ *   when the user proceeds again). At a decision point — a gate, the end of
+ *   the last step, or where a repeat is possible — what comes next depends on
+ *   the run, so the position stays, marked `ran`, and the user decides with
+ *   one of the moves below; offered there again as "Run again";
  * - the forward move — `gate-passed` at the end of a gate; `finish-process` at
  *   the end of the last step; `finish` (of the outermost level ending here)
- *   where a repeat is possible too; `next` otherwise;
+ *   where a repeat is possible too;
  * - `repeat` of the sub-step, step and phase whose repeat point this is: a
  *   repeatable sub-step always, a repeatable step at its last sub-step, a
  *   repeatable phase at its last step — each below its maxIterations; a new
  *   iteration starts at the first step / sub-step inside it;
  * - `gate-failed` at the end of a gate: the gate is run again;
- * - `skip` — the forward position, without a prompt;
+ * - `skip` — the forward position, without running this one;
  * - `back` — the previous position, a correction (iterations kept).
  *
- * A finished process offers only `back` ("Reopen"); no process, nothing.
+ * Every move except `proceed` only moves the state, and leads to a position
+ * not run yet. A finished process offers only `back` ("Reopen"); no process,
+ * nothing.
  */
 export function availableMoves(def: ProcessDefinition | null, state: ProcessState): ProcessMove[] {
     if (!def || !state.process) { return []; }
-    if (state.completed) { return [{ kind: 'back', label: 'Reopen', target: { ...state, completed: false } }]; }
+    if (state.completed) { return [{ kind: 'back', label: 'Reopen', target: notRun({ ...state, completed: false }) }]; }
     const pos = positionOf(def, state);
     if (!pos) { return []; }
     const entry = pos.entries[pos.stepIndex];
@@ -671,34 +700,40 @@ export function availableMoves(def: ProcessDefinition | null, state: ProcessStat
     const isGate = entry.kind === 'gate';
     const stepEnds = subs.length === 0 || pos.substepIndex === subs.length - 1;
     const phaseEnds = stepEnds && pos.stepIndex === pos.entries.length - 1;
+    const here = notRun(state);
 
     const repeats: ProcessMove[] = [];
     const repeat = (level: ProcessLevel): void => {
-        repeats.push({ kind: 'repeat', level, label: `Repeat ${LEVEL_TITLE[level]}`, target: changeIteration(state, def, level, 1) });
+        repeats.push({ kind: 'repeat', level, label: `Repeat ${LEVEL_TITLE[level]}`, target: changeIteration(here, def, level, 1) });
     };
     if (canRepeat(subs[pos.substepIndex], state.substepIteration)) { repeat('substep'); }
     if (stepEnds && !isGate && canRepeat(entry.step, state.stepIteration)) { repeat('step'); }
     if (phaseEnds && canRepeat(pos.phase, state.phaseIteration)) { repeat('phase'); }
 
-    const forward = forwardTarget(def, state, pos);
+    const forwardRaw = forwardTarget(def, here, pos);
+    const forward = forwardRaw ? notRun(forwardRaw) : null;
+    const decision = !forward || (isGate && stepEnds) || repeats.length > 0;
     const moves: ProcessMove[] = [];
+    if (decision) {
+        moves.push({ kind: 'proceed', label: state.ran ? 'Run again' : 'Proceed', target: { ...here, ran: true } });
+    } else {
+        moves.push({ kind: 'proceed', label: 'Proceed', target: forward! });
+    }
     if (!forward) {
-        moves.push({ kind: 'finish-process', label: isGate ? 'Gate passed — finish process' : 'Finish process', target: { ...state, completed: true } });
+        moves.push({ kind: 'finish-process', label: isGate ? 'Gate passed — finish process' : 'Finish process', target: { ...here, completed: true } });
     } else if (isGate && stepEnds) {
         moves.push({ kind: 'gate-passed', label: 'Gate passed', target: forward });
     } else if (repeats.length) {
         const level: ProcessLevel = phaseEnds ? 'phase' : stepEnds && subs.length ? 'step' : 'substep';
         moves.push({ kind: 'finish', level, label: `Finish ${LEVEL_TITLE[level]}`, target: forward });
-    } else {
-        moves.push({ kind: 'next', label: 'Next', target: forward });
     }
     moves.push(...repeats);
     if (isGate && stepEnds) {
-        moves.push({ kind: 'gate-failed', label: 'Gate failed — run again', target: changeIteration(state, def, 'step', 1) });
+        moves.push({ kind: 'gate-failed', label: 'Gate failed — run again', target: changeIteration(here, def, 'step', 1) });
     }
     if (forward) { moves.push({ kind: 'skip', label: 'Skip', target: forward }); }
-    const back = backTarget(def, state, pos);
-    if (back) { moves.push({ kind: 'back', label: 'Back', target: back }); }
+    const back = backTarget(def, here, pos);
+    if (back) { moves.push({ kind: 'back', label: 'Back', target: notRun(back) }); }
     return moves;
 }
 
@@ -834,6 +869,7 @@ export function processContextBlock(def: ProcessDefinition | null, state: Proces
         }
     }
     if (state.completed) { lines.push('', 'The process is finished: its last step is done.'); }
+    if (state.ran && !state.completed) { lines.push('', 'This position has been run; the user decides how the process goes on (finish, repeat, gate passed or failed).'); }
     lines.push('', 'When the work moves on — another step, sub-step, iteration or phase — record it with `tomAi_setProcessState`.');
     const section = (title: string, text: string | undefined): void => {
         if (text && text.trim()) { lines.push('', `### ${title}`, '', text.trim()); }
@@ -861,6 +897,7 @@ export function parseProcessState(text: string): ProcessState {
             step: str('step'), stepIteration: num('stepIteration'),
             substep: str('substep'), substepIteration: num('substepIteration'),
             completed: raw.completed === true,
+            ...(raw.ran === true ? { ran: true as const } : {}),
         };
     } catch {
         return { ...EMPTY_PROCESS_STATE };
@@ -878,6 +915,7 @@ export function stringifyProcessState(state: ProcessState, updated: string): str
         substep: state.substep,
         substepIteration: state.substepIteration,
         ...(state.completed ? { completed: true } : {}),
+        ...(state.ran ? { ran: true } : {}),
         updated,
     });
 }

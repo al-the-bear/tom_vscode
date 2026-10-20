@@ -1,15 +1,16 @@
 /**
- * Process action page — opened by a button of the PROCESS view's action bar
- * (Next, Finish …, Repeat …, Gate passed / failed, Finish process, Skip,
- * Back). It shows where the move leads, the `prompt` fields of what it starts,
- * a field for custom instructions and a live preview of the prompt the move's
- * template (process template editor) builds from them.
+ * Process action page — opened by the Proceed button of the PROCESS view's
+ * action bar (the other moves only move the state and need no page). It shows
+ * the position that runs, where the state goes afterwards (on to the next
+ * position, or staying here at a decision point), the `prompt` fields of what
+ * runs, the session, a field for custom instructions and a live preview of
+ * the prompt the Proceed template (process template editor) builds from them.
  *
- * "Add to queue" moves the quest's process state and adds the prompt to the
- * prompt queue (src/services/processActionService.ts); a template that
- * resolves to nothing only moves the state. Cancel changes nothing. The page
- * follows the state: when the move is no longer possible from the current
- * position, it says so and offers only Cancel.
+ * "Add to queue" adds the prompt to the prompt queue and then moves the
+ * quest's process state (src/services/processActionService.ts); a template
+ * that resolves to nothing only moves the state. Cancel changes nothing. The
+ * page follows the state: when the move is no longer possible from the
+ * current position, it says so and offers only Cancel.
  *
  * Assets: `media/processAction/`.
  */
@@ -19,9 +20,9 @@ import * as vscode from 'vscode';
 import { ProcessStateStore } from '../managers/processStateStore';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { buildProcessActionPrompt, confirmProcessAction, onDidChangeProcessActionTemplates } from '../services/processActionService';
-import { PROCESS_ACTION_TITLES, actionSession, positionText, startedPrompts } from '../utils/processActionPrompt';
+import { PROCESS_ACTION_TITLES, actionSession, positionPrompts, positionText } from '../utils/processActionPrompt';
 import { pickAgentSdkSession } from './sessionPicker';
-import type { ProcessDefinition, ProcessLevel, ProcessMove, ProcessMoveKind } from '../utils/processDefinition';
+import type { ProcessDefinition, ProcessLevel, ProcessMoveKind, ProcessState } from '../utils/processDefinition';
 import { openProcessTemplateEditor } from './processTemplateEditor-handler';
 
 const VIEW_TYPE = 'tomAi.processAction';
@@ -60,8 +61,8 @@ export function openProcessAction(context: vscode.ExtensionContext, kind: Proces
 }
 
 /** How the page shows the session: its name, where it comes from, and the definition's base and mode. */
-function sessionView(def: ProcessDefinition, move: ProcessMove): Record<string, unknown> {
-    const s = actionSession(def, move, sessionOverride);
+function sessionView(def: ProcessDefinition, state: ProcessState): Record<string, unknown> {
+    const s = actionSession(def, state, sessionOverride);
     return { name: s.name, source: s.source, ...(s.spec?.basedOn ? { basedOn: s.spec.basedOn } : {}), ...(s.spec?.mode ? { mode: s.spec.mode } : {}) };
 }
 
@@ -80,15 +81,15 @@ async function send(): Promise<void> {
         kind: move.kind,
         level: move.level ?? null,
         label: move.label,
-        title: PROCESS_ACTION_TITLES[move.kind],
+        title: PROCESS_ACTION_TITLES.proceed,
         quest: store.activeQuest,
         process: def.name || def.id,
         from: positionText(def, store.state),
-        to: positionText(def, move.target),
-        startedPrompts: startedPrompts(def, store.state, move.target),
+        to: move.target.ran ? 'stays here — you decide how the process goes on' : positionText(def, move.target),
+        startedPrompts: positionPrompts(def, store.state),
         custom,
         preview: buildProcessActionPrompt(store, move, custom, undefined, sessionOverride),
-        session: sessionView(def, move),
+        session: sessionView(def, store.state),
     });
 }
 
@@ -132,10 +133,10 @@ async function handle(context: vscode.ExtensionContext, msg: { type: string; cus
             const def = store.currentDefinition();
             const move = store.findMove(current.kind, current.level);
             if (!def || !move) { return; }
-            const fromProcess = actionSession(def, move);
+            const fromProcess = actionSession(def, store.state);
             const picked = await pickAgentSdkSession({
                 questId: store.activeQuest,
-                current: actionSession(def, move, sessionOverride).name || undefined,
+                current: actionSession(def, store.state, sessionOverride).name || undefined,
                 title: `Session for "${move.label}"`,
                 defaultLabel: fromProcess.name ? `As the process says (${fromProcess.name})` : 'As the process says (the queue default)',
             });
@@ -147,7 +148,7 @@ async function handle(context: vscode.ExtensionContext, msg: { type: string; cus
             break;
         }
         case 'editTemplate':
-            if (current) { openProcessTemplateEditor(context, current.kind); }
+            openProcessTemplateEditor(context, 'proceed');
             break;
     }
 }

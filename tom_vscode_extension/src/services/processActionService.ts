@@ -1,9 +1,9 @@
 /**
- * Process actions — what happens when the user confirms a move of the PROCESS
- * view's action bar: the move's template (processActionPrompt.ts) is resolved
- * by the placeholder engine, the quest's state moves (ProcessStateStore), and
- * the prompt — unless it resolved to nothing — is added to the prompt queue,
- * which sends it.
+ * Process actions — what happens when the user uses the PROCESS view's action
+ * bar. Proceed: the Proceed template (processActionPrompt.ts) is resolved for
+ * the CURRENT position, the prompt is added to the prompt queue (which sends
+ * it) carrying that position, and then the state moves on — or, at a decision
+ * point, stays marked as run. Every other move only moves the state.
  *
  * The preview on the action page and the queued text come from the same
  * {@link buildProcessActionPrompt}, so what the page shows is what is queued.
@@ -20,6 +20,7 @@ import { TwoTierMemoryService } from './memory-service';
 import {
     actionSession,
     DEFAULT_PROCESS_ACTION_TEMPLATES,
+    PROCESS_TEMPLATE_KINDS,
     processActionTemplate,
     processActionValues,
     type ProcessActionTemplates,
@@ -30,17 +31,19 @@ const templatesChanged = new vscode.EventEmitter<void>();
 /** Fires after the templates were saved, so an open action page refreshes its preview. */
 export const onDidChangeProcessActionTemplates: vscode.Event<void> = templatesChanged.event;
 
-/** The configured templates (kinds not set use their defaults). */
+/** The configured template (left out: the default). */
 export function configuredProcessActionTemplates(): ProcessActionTemplates {
-    return (loadSendToChatConfig()?.processActionTemplates ?? {}) as ProcessActionTemplates;
+    const raw = (loadSendToChatConfig()?.processActionTemplates ?? {}) as Record<string, unknown>;
+    return typeof raw.proceed === 'string' ? { proceed: raw.proceed } : {};
 }
 
-/** Store the templates; a kind whose text equals its default is dropped, so it follows later default changes. */
+/** Store the template; one equal to its default is dropped, so it follows later default changes. */
 export function saveProcessActionTemplates(templates: ProcessActionTemplates): boolean {
     const config = loadSendToChatConfig();
     if (!config) { return false; }
     const own: ProcessActionTemplates = {};
-    for (const [kind, text] of Object.entries(templates) as Array<[ProcessMoveKind, string]>) {
+    for (const kind of PROCESS_TEMPLATE_KINDS) {
+        const text = templates[kind];
         if (typeof text === 'string' && text !== DEFAULT_PROCESS_ACTION_TEMPLATES[kind]) { own[kind] = text; }
     }
     config.processActionTemplates = own;
@@ -49,7 +52,7 @@ export function saveProcessActionTemplates(templates: ProcessActionTemplates): b
     return saved;
 }
 
-/** The prompt a move queues with these custom instructions; `''` when its template resolves to nothing. */
+/** The prompt Proceed queues with these custom instructions; `''` for another move or a template that resolves to nothing. */
 export function buildProcessActionPrompt(
     store: ProcessStateStore,
     move: ProcessMove,
@@ -58,12 +61,12 @@ export function buildProcessActionPrompt(
     sessionOverride?: string,
 ): string {
     const def = store.currentDefinition();
-    if (!def) { return ''; }
-    const template = templateOverride ?? processActionTemplate(move.kind, configuredProcessActionTemplates());
+    if (!def || move.kind !== 'proceed') { return ''; }
+    const template = templateOverride ?? processActionTemplate('proceed', configuredProcessActionTemplates());
     if (!template.trim()) { return ''; }
     const values = processActionValues(def, store.state, move, customInstructions, store.processDescription());
     // `${session}`: the session the prompt is queued in (picked on the page or named by the process).
-    values.session = actionSession(def, move, sessionOverride).name;
+    values.session = actionSession(def, store.state, sessionOverride).name;
     return resolveVariables(template, { values }).trim();
 }
 
@@ -88,8 +91,10 @@ export type ProcessActionResult =
     | { ok: false; error: string };
 
 /**
- * Confirm a move: build its prompt at the current position, move the state,
- * then queue the prompt. Nothing changes when the move is no longer possible.
+ * Confirm a move. Proceed: build the prompt of the current position, queue it
+ * (carrying that position, so it runs as that step however far the quest has
+ * moved by then), then move the state. Any other move only moves the state.
+ * Nothing changes when the move is no longer possible.
  */
 export async function confirmProcessAction(
     kind: ProcessMoveKind,
@@ -101,19 +106,31 @@ export async function confirmProcessAction(
     const move = store.findMove(kind, level);
     const def = store.currentDefinition();
     if (!move || !def) { return { ok: false, error: 'this move is no longer possible at the current position' }; }
-    const session = actionSession(def, move, sessionOverride);
+    if (move.kind !== 'proceed') {
+        const moved = store.move(kind, level, 'user');
+        return moved.ok ? { ok: true, queued: false, label: move.label } : moved;
+    }
+    const here = store.state;
+    const session = actionSession(def, here, sessionOverride);
     const text = buildProcessActionPrompt(store, move, customInstructions, undefined, sessionOverride);
-    if (text && session.spec) {
-        const error = ensureProcessSession(store.activeQuest, session.spec);
-        if (error) { return { ok: false, error: `the session "${session.name}" could not be created: ${error}` }; }
+    if (text) {
+        if (session.spec) {
+            const error = ensureProcessSession(store.activeQuest, session.spec);
+            if (error) { return { ok: false, error: `the session "${session.name}" could not be created: ${error}` }; }
+        }
+        try {
+            await PromptQueueManager.instance.enqueue({
+                originalText: text,
+                ...(session.name ? { agentSdkSession: session.name } : {}),
+                processRun: { quest: store.activeQuest, state: here },
+            });
+        } catch (e) {
+            return { ok: false, error: `the prompt could not be queued, the state did not move: ${(e as Error).message}` };
+        }
     }
     const moved = store.move(kind, level, 'user');
-    if (!moved.ok) { return moved; }
-    if (!text) { return { ok: true, queued: false, label: move.label }; }
-    try {
-        await PromptQueueManager.instance.enqueue({ originalText: text, ...(session.name ? { agentSdkSession: session.name } : {}) });
-    } catch (e) {
-        return { ok: false, error: `the state moved, but the prompt could not be queued: ${(e as Error).message}` };
+    if (!moved.ok) {
+        return { ok: false, error: text ? `the prompt is in the queue, but the state could not move: ${moved.error}` : moved.error };
     }
-    return { ok: true, queued: true, label: move.label };
+    return { ok: true, queued: !!text, label: move.label };
 }

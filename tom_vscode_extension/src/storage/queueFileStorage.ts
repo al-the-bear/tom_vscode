@@ -169,6 +169,8 @@ export interface QueuePromptYaml {
     'anthropic-config-id'?: string;
     /** The named Agent SDK session the item runs in. */
     'agent-sdk-session'?: string;
+    /** The process position the item belongs to: `{quest, state}` (src/services/processRunContext.ts). */
+    'process-run'?: unknown;
     'answer-text'?: string;
 }
 

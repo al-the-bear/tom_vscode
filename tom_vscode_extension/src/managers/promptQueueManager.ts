@@ -7,6 +7,7 @@
  */
 
 import * as vscode from 'vscode';
+import { inheritedProcessRun, parseProcessRun, runInProcessPosition, type ProcessRun } from '../services/processRunContext';
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
@@ -246,6 +247,13 @@ export interface QueuedPrompt {
      * queue's own `default` session.
      */
     agentSdkSession?: string;
+    /**
+     * The process position this item's prompt belongs to (a Proceed prompt,
+     * or what a running Proceed prompt queued): while it is sent, the role and
+     * the *Current process* section are those of this position, wherever the
+     * quest has moved since (src/services/processRunContext.ts).
+     */
+    processRun?: ProcessRun;
     answerText?: string;
     /**
      * Snapshot of the last prompt actually dispatched for this item —
@@ -1863,6 +1871,8 @@ export class PromptQueueManager {
         anthropicConfigId?: string;
         /** The named Agent SDK session the item runs in. */
         agentSdkSession?: string;
+        /** The process position the item belongs to; default: the one the current send runs for, if any. */
+        processRun?: ProcessRun;
     }): Promise<QueuedPrompt> {
         for (const value of [opts.repeatCount, opts.templateRepeatCount, ...(opts.prePrompts ?? []).map((p) => p.repeatCount),
             ...(opts.followUps ?? []).map((f) => f.repeatCount)]) {
@@ -1955,6 +1965,9 @@ export class PromptQueueManager {
             anthropicProfileId: opts.anthropicProfileId,
             anthropicConfigId: opts.anthropicConfigId,
             ...(opts.agentSdkSession?.trim() ? { agentSdkSession: opts.agentSdkSession.trim() } : {}),
+            // A prompt queued while a Proceed prompt runs (a planning step queuing
+            // its todo walks) belongs to the same position.
+            ...(inheritedProcessRun(opts.processRun) ? { processRun: inheritedProcessRun(opts.processRun) } : {}),
         };
 
         logQueue(`Item enqueued: id=${item.id}, type=${item.type}, status=${item.status}, text=${promptPreview(item.originalText)}`);
@@ -3582,11 +3595,13 @@ export class PromptQueueManager {
     private resolveStageTransport(
         item: QueuedPrompt,
         stage?: { transport?: QueuedTransport; anthropicProfileId?: string; anthropicConfigId?: string },
-    ): { transport: QueuedTransport; anthropicProfileId?: string; anthropicConfigId?: string; agentSdkSession?: string } {
+    ): { transport: QueuedTransport; anthropicProfileId?: string; anthropicConfigId?: string; agentSdkSession?: string; processRun?: ProcessRun } {
         const agentSdkSession = item.agentSdkSession ?? this._defaultAgentSdkSession;
+        const processRun = item.processRun;
         if (stage?.transport) {
             return {
                 agentSdkSession,
+                processRun,
                 transport: stage.transport,
                 anthropicProfileId: stage.anthropicProfileId ?? item.anthropicProfileId ?? this._defaultAnthropicProfileId,
                 anthropicConfigId: stage.anthropicConfigId ?? item.anthropicConfigId ?? this._defaultAnthropicConfigId,
@@ -3595,6 +3610,7 @@ export class PromptQueueManager {
         if (item.transport) {
             return {
                 agentSdkSession,
+                processRun,
                 transport: item.transport,
                 anthropicProfileId: item.anthropicProfileId ?? this._defaultAnthropicProfileId,
                 anthropicConfigId: item.anthropicConfigId ?? this._defaultAnthropicConfigId,
@@ -3602,6 +3618,7 @@ export class PromptQueueManager {
         }
         return {
             agentSdkSession,
+            processRun,
             transport: this._defaultTransport,
             anthropicProfileId: this._defaultAnthropicProfileId,
             anthropicConfigId: this._defaultAnthropicConfigId,
@@ -3670,7 +3687,8 @@ export class PromptQueueManager {
         const cts = new vscode.CancellationTokenSource();
         this._activeAnthropicCts = cts;
         try {
-            const result = await AnthropicHandler.instance.sendMessage({
+            // The prompt runs as the process position it belongs to (processRunContext).
+            const result = await runInProcessPosition(resolved.processRun, () => AnthropicHandler.instance.sendMessage({
                 userText: expandedText,
                 profile: coercedProfile,
                 configuration,
@@ -3680,7 +3698,7 @@ export class PromptQueueManager {
                 source: 'queue',
                 // The item's named session, else the queue default, else `default`.
                 ...(resolved.agentSdkSession ? { sessionKey: resolved.agentSdkSession } : {}),
-            });
+            }));
             if (stageForAnswer) {
                 stageForAnswer.answerText = result.text;
             }
@@ -4593,6 +4611,7 @@ export class PromptQueueManager {
                 anthropicProfileId: main['anthropic-profile-id'] || undefined,
                 anthropicConfigId: main['anthropic-config-id'] || undefined,
                 agentSdkSession: main['agent-sdk-session'] || undefined,
+                processRun: parseProcessRun(main['process-run']),
                 answerText: main['answer-text'] || undefined,
                 todoClaim: todoClaimFromYaml(main['todo-claim']),
             };
@@ -4728,6 +4747,7 @@ export class PromptQueueManager {
             ...(item.anthropicProfileId ? { 'anthropic-profile-id': item.anthropicProfileId } : {}),
             ...(item.anthropicConfigId ? { 'anthropic-config-id': item.anthropicConfigId } : {}),
             ...(item.agentSdkSession ? { 'agent-sdk-session': item.agentSdkSession } : {}),
+            ...(item.processRun ? { 'process-run': item.processRun } : {}),
             ...(item.answerText ? { 'answer-text': item.answerText } : {}),
             ...(item.todoClaim ? { 'todo-claim': todoClaimToYaml(item.todoClaim) } : {}),
         };

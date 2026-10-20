@@ -645,8 +645,11 @@ moving the quest goes through `tomAi_setProcessState`, which checks every name
 against the definition. A move to a step or sub-step that names a role also sets
 the `role` chat variable. The user sees and sets the same state in the @TOM
 **PROCESS** view and edits the definitions in the process editor; the view's
-action bar (Next, Repeat, Gate passed, …) moves the state and queues the
-prompt built from that action's template.
+Proceed button queues the prompt of the current position (built from the
+Proceed template) and moves the state on, while its other buttons (Repeat,
+Gate passed, …) only move the state. A prompt queued by Proceed — and every
+prompt queued while it runs — carries its position, so its role and *Current
+process* section stay those of that position.
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
 | --- | --- | :-: | :-: | :-: | :-: | :-: |

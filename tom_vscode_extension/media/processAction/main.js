@@ -1,5 +1,5 @@
 // @ts-nocheck
-// Process action page — see src/handlers/processAction-handler.ts. The host
+// Process action page (Proceed) — see src/handlers/processAction-handler.ts. The host
 // sends the move ('move'), a fresh preview ('preview') or that the move is no
 // longer possible ('unavailable'); this page posts the custom instructions
 // with every message, so the host always previews and queues what is typed.
@@ -24,7 +24,7 @@
 
     function showPreview(text) {
         var pre = $('preview');
-        pre.textContent = text || 'The template of this action is empty: confirming only moves the process state; nothing is queued.';
+        pre.textContent = text || 'The Proceed template is empty: confirming only moves the process state; nothing is queued.';
         pre.classList.toggle('muted', !text);
         $('confirm').textContent = text ? 'Add to queue' : 'Move without a prompt';
     }

@@ -12,13 +12,15 @@
  *         Save sends the model and the description
  *   PW-6  editor: validation errors are listed and the field marked; choosing another process
  *         with unsaved changes hands them to the host
- *   PW-7  PROCESS view: the action bar shows the moves the host offers and posts the one clicked;
- *         the template button opens the template editor; a finished process says so; a gate has −/+
+ *   PW-7  PROCESS view: the action bar shows the moves the host offers, Proceed first with a play
+ *         icon ("Run again" a rerun icon), and posts the one clicked; the template button opens the
+ *         template editor; a run position and a finished process say so; a gate has −/+
  *   PW-8  editor: every phase, step and sub-step has a prompt field, edited into the model
  *   PW-11 editor: session fields on every node; a name alone is written as a string, a base or mode
  *         makes it an object, clearing every field removes it
- *   PW-9  action page: shows the move and its session (Change… asks the host), previews as you type (custom instructions sent with it),
- *         confirms and cancels; an empty template moves without a prompt; a stale move says so
+ *   PW-9  action page (Proceed): shows what runs, where the state goes and the session (Change… asks the
+ *         host), previews as you type (custom instructions sent with it), confirms and cancels; an empty
+ *         template moves without a prompt; a stale move says so
  *   PW-10 template editor: lists the kinds, inserts a variable at the cursor, marks unsaved kinds,
  *         resets to the default, saves all kinds at once
  */
@@ -65,6 +67,7 @@ const DEF = {
 };
 const STATE = { process: 'flow', phase: 'build', phaseIteration: 2, step: 'review', stepIteration: 1, substep: 'read', substepIteration: 1, completed: false };
 const MOVES = [
+    { kind: 'proceed', level: null, label: 'Proceed', to: 'Build #2 › Review #1 › Read' },
     { kind: 'finish', level: 'step', label: 'Finish step', to: 'Build #2 › Gate #1' },
     { kind: 'repeat', level: 'step', label: 'Repeat step', to: 'Build #2 › Review #2 › Read' },
     { kind: 'skip', level: null, label: 'Skip', to: 'Build #2 › Gate #1' },
@@ -117,12 +120,19 @@ describe('PROCESS view', () => {
         const { w, posted } = setup('processPanel');
         send(w, panelState());
         const buttons = $(w, '.actions [data-move]');
-        assert.deepEqual(buttons.map((b) => b.title), ['Finish step → Build #2 › Gate #1', 'Repeat step → Build #2 › Review #2 › Read', 'Skip → Build #2 › Gate #1', 'Back → Build #2 › Code']);
+        assert.deepEqual(buttons.map((b) => b.title), ['Proceed → Build #2 › Review #1 › Read', 'Finish step → Build #2 › Gate #1', 'Repeat step → Build #2 › Review #2 › Read', 'Skip → Build #2 › Gate #1', 'Back → Build #2 › Code']);
+        assert.ok(buttons[0].querySelector('.codicon-play'), 'Proceed runs: a play icon');
         assert.ok(w.document.querySelector('.actions').compareDocumentPosition(w.document.getElementById('sel-process')) & 4, 'the bar is at the top');
-        buttons[1].click();
-        assert.deepEqual(posted.pop(), { type: 'action', kind: 'repeat', level: 'step' });
+        buttons[0].click();
+        assert.deepEqual(posted.pop(), { type: 'action', kind: 'proceed' });
         buttons[2].click();
+        assert.deepEqual(posted.pop(), { type: 'action', kind: 'repeat', level: 'step' });
+        buttons[3].click();
         assert.deepEqual(posted.pop(), { type: 'action', kind: 'skip' });
+        assert.equal(w.document.querySelector('.ran'), null, 'not run yet: no note');
+        send(w, panelState({ state: { ...STATE, ran: true }, moves: [{ kind: 'proceed', level: null, label: 'Run again', to: 'Build #2 › Review #1 › Read' }, ...MOVES.slice(1)] }));
+        assert.match(w.document.querySelector('.ran').textContent, /has been run — decide how the process goes on/);
+        assert.ok(w.document.querySelector('[data-move="proceed"] .codicon-debug-rerun'), 'Run again: a rerun icon');
         w.document.querySelector('[data-templates]').click();
         assert.deepEqual(posted.pop(), { type: 'openTemplates' });
         send(w, panelState({ state: { ...STATE, step: 'gate', substep: '' }, moves: [] }));
@@ -250,9 +260,9 @@ describe('process editor sessions', () => {
 
 describe('process action page', () => {
     const MOVE = {
-        type: 'move', kind: 'repeat', level: 'step', label: 'Repeat step', title: 'Repeat phase / step / sub-step — a new iteration',
+        type: 'move', kind: 'proceed', level: null, label: 'Proceed', title: 'Proceed — run the current phase, step or sub-step',
         quest: 'q1', process: 'Flow', from: 'Build #2 › Review #1 › Note', to: 'Build #2 › Review #2 › Read',
-        startedPrompts: 'Review it.', custom: '', preview: '# Repeat step\n\nReview it.',
+        startedPrompts: 'Review it.', custom: '', preview: '# Run: Build #2 › Review #1 › Note\n\nReview it.',
         session: { name: 'per-review', source: 'process', basedOn: 'build-work', mode: 'fork-from-base' },
     };
 
@@ -261,7 +271,8 @@ describe('process action page', () => {
         assert.deepEqual(posted[0], { type: 'ready', custom: '' });
         send(w, MOVE);
         const text = (id: string): string => w.document.getElementById(id).textContent;
-        assert.deepEqual([text('label'), text('from'), text('to'), text('started')], ['Repeat step', 'Build #2 › Review #1 › Note', 'Build #2 › Review #2 › Read', 'Review it.']);
+        assert.deepEqual([text('label'), text('from'), text('to'), text('started')], ['Proceed', 'Build #2 › Review #1 › Note', 'Build #2 › Review #2 › Read', 'Review it.']);
+        assert.deepEqual([...w.document.querySelectorAll('table.move th')].map((th: Win) => th.textContent), ['Process', 'Runs', 'Then', 'Session']);
         assert.equal(text('confirm'), 'Add to queue');
         assert.match(text('preview'), /Review it\./);
         assert.equal(text('session'), 'per-review — fresh from build-work for every prompt (from the process)');
@@ -275,7 +286,7 @@ describe('process action page', () => {
         custom.dispatchEvent(new w.Event('input', { bubbles: true }));
         await sleep(350);
         assert.deepEqual(posted.pop(), { type: 'preview', custom: 'Mind the glossary.' });
-        send(w, { type: 'preview', preview: '# Repeat step\n\nMind the glossary.' });
+        send(w, { type: 'preview', preview: '# Run\n\nMind the glossary.' });
         assert.match(text('preview'), /Mind the glossary/);
         send(w, { ...MOVE, preview: '# changed elsewhere' });
         assert.equal(custom.value, 'Mind the glossary.', 'a refresh of the same move keeps what is typed');
@@ -286,10 +297,10 @@ describe('process action page', () => {
         assert.deepEqual(posted.pop(), { type: 'cancel', custom: 'Mind the glossary.' });
         w.document.getElementById('template').click();
         assert.equal((posted.pop() as Win).type, 'editTemplate');
-        send(w, { ...MOVE, kind: 'skip', level: null, label: 'Skip', preview: '' });
-        assert.equal(text('confirm'), 'Move without a prompt');
-        assert.equal(custom.value, '', 'another move starts empty');
-        send(w, { type: 'unavailable', kind: 'skip', quest: 'q1' });
+        send(w, { ...MOVE, label: 'Run again', to: 'stays here — you decide how the process goes on', preview: '' });
+        assert.equal(text('confirm'), 'Move without a prompt', 'an empty template only moves');
+        assert.equal(text('to'), 'stays here — you decide how the process goes on');
+        send(w, { type: 'unavailable', kind: 'proceed', quest: 'q1' });
         assert.equal(w.document.getElementById('page').hidden, true);
         assert.match(text('unavailable'), /not possible at the current position/);
     });

@@ -13,16 +13,9 @@
         },
         "processActionTemplates": {
             "type": "object",
-            "description": "Prompt templates of the PROCESS view's action bar, one per move kind, edited in the process template editor (@T: Open Process Template Editor). Resolved by the placeholder engine with the chat variables, the process variables of the position the move leads to, and the action variables (${custom-instructions}, ${action-prompt}, ${action-label}, ...). A kind not set uses its built-in default; an empty string queues nothing.",
+            "description": "The prompt template of the PROCESS view's Proceed button — the only move that runs anything; the other moves only move the state. Edited in the process template editor (@T: Open Process Template Editor). Resolved by the placeholder engine with the chat variables, the process variables of the position being run, and the action variables (${custom-instructions}, ${action-prompt}, ${action-after}, ...). Not set: the built-in default; an empty string queues nothing.",
             "properties": {
-                "next": { "type": "string" },
-                "finish": { "type": "string" },
-                "repeat": { "type": "string" },
-                "gate-passed": { "type": "string" },
-                "gate-failed": { "type": "string" },
-                "finish-process": { "type": "string" },
-                "skip": { "type": "string" },
-                "back": { "type": "string" }
+                "proceed": { "type": "string" }
             },
             "additionalProperties": false
         },

@@ -3,10 +3,11 @@
  * process: process, phase, step and sub-step (dropdowns), their iterations
  * (− / +), the role the step names, the post-gate todos, and each one's
  * description behind a `?` button. The action bar at the top offers the moves
- * the process allows from here (Next, Finish …, Repeat …, Gate passed / failed,
- * Finish process, Skip, Back); each opens the action page
- * (processAction-handler.ts), which moves the state and queues the prompt on
- * confirm. Usually the agent moves the state
+ * the process allows from here. Proceed (the only one that runs anything)
+ * opens the action page (processAction-handler.ts), which queues the prompt of
+ * the current position and then moves on — or, at a decision point, stays
+ * marked as run; Finish …, Repeat …, Gate passed / failed, Finish process,
+ * Skip and Back only move the state, at once. Usually the agent moves the state
  * (`tomAi_setProcessState`); the view lets the user see it at a glance and set
  * it by hand. Everything goes through ProcessStateStore, which keeps the
  * quest's state file.
@@ -23,6 +24,7 @@ import { loadWebviewHtml } from '../utils/webviewLoader';
 import type { ProcessChange, ProcessLevel, ProcessMoveKind } from '../utils/processDefinition';
 import { positionText } from '../utils/processActionPrompt';
 import { openProcessAction } from './processAction-handler';
+import { confirmProcessAction } from '../services/processActionService';
 import { openProcessTemplateEditor } from './processTemplateEditor-handler';
 import { openMarkdownBrowser } from './markdownBrowser-handler';
 import { openProcessEditor } from './processEditor-handler';
@@ -104,7 +106,12 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
                 if (msg.level && msg.delta) { this.report(store.stepIteration(msg.level, msg.delta, 'user')); }
                 break;
             case 'action':
-                if (msg.kind) { openProcessAction(this.context, msg.kind, msg.level ?? undefined); }
+                if (msg.kind === 'proceed') {
+                    openProcessAction(this.context, msg.kind, msg.level ?? undefined);
+                } else if (msg.kind) {
+                    const result = await confirmProcessAction(msg.kind, msg.level ?? undefined, '');
+                    this.report(result.ok ? { ok: true } : result);
+                }
                 break;
             case 'openTemplates':
                 openProcessTemplateEditor(this.context);

@@ -1,22 +1,22 @@
 /**
- * Process actions — the prompts the PROCESS view's action bar queues (pure; no
- * `vscode`, no IO).
+ * Process actions — the prompt the PROCESS view's Proceed button queues (pure;
+ * no `vscode`, no IO).
  *
- * Every move kind (`next`, `finish`, `repeat`, `gate-passed`, `gate-failed`,
- * `finish-process`, `skip`, `back`) has ONE prompt template, global for all
- * processes, kept in the extension config under `processActionTemplates` and
- * edited in the process template editor. What is specific to a step comes from
- * the definition's `prompt` fields, which the template inserts through
- * `${action-prompt}` (or `${phase-prompt}` / `${step-prompt}` / `${substep-prompt}`).
+ * Proceed is the only move that runs anything: it queues the prompt of the
+ * CURRENT position, then the state moves on (or, at a decision point, stays,
+ * marked as run). Every other move only moves the state. The prompt comes
+ * from ONE template, global for all processes, kept in the extension config
+ * under `processActionTemplates.proceed` and edited in the process template
+ * editor. What is specific to a step comes from the definition's `prompt`
+ * fields, which the template inserts through `${action-prompt}` (or
+ * `${phase-prompt}` / `${step-prompt}` / `${substep-prompt}`).
  *
  * The template is resolved by the placeholder engine with the values of
  * {@link processActionValues} laid over the chat variables: the process
- * variables describe the position the move LEADS TO, so a template reads as
- * the instruction for the step being started. A template that resolves to
- * nothing queues nothing — `skip` and `back` default to that.
+ * variables describe the position being run.
  */
 
-// Keys here are move kinds and placeholder names (`gate-passed`, `${action-prompt}`), dashed by design.
+// Keys here are placeholder names (`${action-prompt}`), dashed by design.
 /* eslint-disable @typescript-eslint/naming-convention */
 
 import {
@@ -26,115 +26,133 @@ import {
     findPhase,
     findStep,
     findSubstep,
+    phaseSteps,
     type ProcessDefinition,
     type ProcessSession,
     type ProcessMove,
-    type ProcessMoveKind,
     type ProcessState,
 } from './processDefinition';
 
-export type ProcessActionTemplates = Partial<Record<ProcessMoveKind, string>>;
+/** The moves that have a prompt template: only Proceed runs anything. */
+export type ProcessTemplateKind = 'proceed';
+export const PROCESS_TEMPLATE_KINDS: readonly ProcessTemplateKind[] = ['proceed'];
+
+export type ProcessActionTemplates = Partial<Record<ProcessTemplateKind, string>>;
 
 const POSITION =
     'Process `${process}`, phase `${phase}` (iteration ${phase-iteration}), step `${step}` (iteration ${step-iteration})'
     + '${{ vars.substep ? ", sub-step `" + vars.substep + "` (iteration " + vars["substep-iteration"] + ")" : "" }}.';
 
+const NOTE = '${{ vars["action-note"] ? "\\n\\n" + vars["action-note"] : "" }}';
+
 const INSTRUCTIONS = '${{ vars["custom-instructions"] ? "\\n\\n## Instructions\\n\\n" + vars["custom-instructions"] : "" }}';
 
 const ACTION_PROMPT = '${{ vars["action-prompt"] ? "\\n\\n## What to do\\n\\n" + vars["action-prompt"] : "" }}';
 
-const CLOSING = '\n\nThe process state has already been moved here; record further moves with `tomAi_setProcessState`.';
+const AFTER = '\n\n${action-after}';
 
-/** The templates used when the config holds none for a kind. */
-export const DEFAULT_PROCESS_ACTION_TEMPLATES: Readonly<Record<ProcessMoveKind, string>> = Object.freeze({
-    next: `# Next: \${action-target}\n\n${POSITION}${ACTION_PROMPT}${INSTRUCTIONS}${CLOSING}`,
-    finish: `# \${action-label} — on to \${action-target}\n\nThe \${action-level} is finished. ${POSITION}${ACTION_PROMPT}${INSTRUCTIONS}${CLOSING}`,
-    repeat: `# \${action-label}: iteration \${action-iteration}\n\nAnother iteration of the \${action-level} starts. ${POSITION}\n\nTake in what the previous iteration left open.${ACTION_PROMPT}${INSTRUCTIONS}${CLOSING}`,
-    'gate-passed': `# Gate passed — on to \${action-target}\n\nThe quality gate \`\${from-step}\` of phase \`\${from-phase}\` passed. ${POSITION}${ACTION_PROMPT}${INSTRUCTIONS}${CLOSING}`,
-    'gate-failed': `# Gate failed — run it again\n\nThe quality gate \`\${step}\` did not pass; it is run again (iteration \${step-iteration}). Fix what the last run found, then check the gate again.${ACTION_PROMPT}${INSTRUCTIONS}${CLOSING}`,
-    'finish-process': `# Process finished\n\nThe last step of process \`\${process}\` is done. Summarise the outcome and what is left open.${INSTRUCTIONS}`,
-    skip: '',
-    back: '',
+/** The template used when the config holds none. */
+export const DEFAULT_PROCESS_ACTION_TEMPLATES: Readonly<Record<ProcessTemplateKind, string>> = Object.freeze({
+    proceed: `# Run: \${action-position}\n\n${POSITION}${NOTE}${ACTION_PROMPT}${INSTRUCTIONS}${AFTER}`,
 });
 
-/** What each move kind is, for the template editor. */
-export const PROCESS_ACTION_TITLES: Readonly<Record<ProcessMoveKind, string>> = Object.freeze({
-    next: 'Next — the next step or sub-step',
-    finish: 'Finish phase / step / sub-step — where a repeat was possible',
-    repeat: 'Repeat phase / step / sub-step — a new iteration',
-    'gate-passed': 'Gate passed — on to the post-gate step or the next phase',
-    'gate-failed': 'Gate failed — the gate is run again',
-    'finish-process': 'Finish process — the last step is done',
-    skip: 'Skip — move on without work (empty: nothing is queued)',
-    back: 'Back — a correction to the previous position (empty: nothing is queued)',
+/** What each template is, for the template editor. */
+export const PROCESS_ACTION_TITLES: Readonly<Record<ProcessTemplateKind, string>> = Object.freeze({
+    proceed: 'Proceed — run the current phase, step or sub-step',
 });
 
 /** The variables an action adds to the chat and process variables. */
 export const PROCESS_ACTION_VARIABLES: ReadonlyArray<{ name: string; description: string }> = Object.freeze([
     { name: 'custom-instructions', description: 'What you typed on the action page' },
-    { name: 'action-prompt', description: 'The `prompt` fields of what the move starts: phase, step, sub-step' },
-    { name: 'action', description: 'The move kind (next, finish, repeat, …)' },
-    { name: 'action-label', description: 'The button label, e.g. "Repeat step"' },
-    { name: 'action-level', description: 'phase / step / sub-step for finish and repeat' },
-    { name: 'action-iteration', description: 'The iteration a repeat starts' },
-    { name: 'action-target', description: 'Where the move leads, e.g. "phase2 / 03-iteration / 01-questions-round"' },
-    { name: 'from-phase', description: 'The phase before the move' },
-    { name: 'from-step', description: 'The step before the move' },
-    { name: 'from-substep', description: 'The sub-step before the move' },
+    { name: 'action-prompt', description: 'The `prompt` fields of what runs here: the phase (at its first step), the step (at its first sub-step), the sub-step' },
+    { name: 'action-note', description: 'A note for a repeated run: another iteration, or a gate run again' },
+    { name: 'action-position', description: 'The position being run, e.g. "Phase 2 › 03 Iteration #1 › 01 Questions Round"' },
+    { name: 'action-after', description: 'What the PROCESS view does after queuing: where it moved on to, or that it stays for the user\'s decision' },
+    { name: 'action', description: 'The move kind (proceed)' },
+    { name: 'action-label', description: 'The button label: "Proceed" or "Run again"' },
+    { name: 'action-target', description: 'Where the state goes after queuing, e.g. "phase2 / 03-iteration / 02-structural-requirements-pass"' },
 ]);
 
 /** The template for `kind`: the configured one (an empty string included), else the default. */
-export function processActionTemplate(kind: ProcessMoveKind, configured?: ProcessActionTemplates | null): string {
+export function processActionTemplate(kind: ProcessTemplateKind, configured?: ProcessActionTemplates | null): string {
     const own = configured?.[kind];
     return typeof own === 'string' ? own : DEFAULT_PROCESS_ACTION_TEMPLATES[kind];
 }
 
-const LEVEL_TITLE = { phase: 'phase', step: 'step', substep: 'sub-step' } as const;
-
 /**
- * The `prompt` fields of what the move starts: a new phase (or phase
- * iteration) starts its phase, first step and first sub-step; a new step its
- * step and first sub-step; a new sub-step itself. Nothing when the position
- * does not change (finishing, reopening).
+ * The `prompt` fields of what runs at `state`: the sub-step's; the step's too
+ * when this is its first sub-step (or it has none); the phase's too when this
+ * is, in addition, the phase's first step.
  */
-export function startedPrompts(def: ProcessDefinition, before: ProcessState, target: ProcessState): string {
-    const phase = findPhase(def, target.phase);
-    const step = findStep(phase, target.step);
-    const sub = findSubstep(step, target.substep);
+export function positionPrompts(def: ProcessDefinition, state: ProcessState): string {
+    const phase = findPhase(def, state.phase);
+    const step = findStep(phase, state.step);
+    const sub = findSubstep(step, state.substep);
+    const subs = step?.substeps ?? [];
+    const atStepStart = !sub || subs[0] === sub;
+    const atPhaseStart = atStepStart && !!phase && phaseSteps(phase)[0]?.step === step;
     const levels: Array<{ prompt?: string } | undefined> = [];
-    if (target.phase !== before.phase || target.phaseIteration !== before.phaseIteration) {
-        levels.push(phase, step, sub);
-    } else if (target.step !== before.step || target.stepIteration !== before.stepIteration) {
-        levels.push(step, sub);
-    } else if (target.substep !== before.substep || target.substepIteration !== before.substepIteration) {
-        levels.push(sub);
-    }
+    if (atPhaseStart) { levels.push(phase); }
+    if (atStepStart) { levels.push(step); }
+    if (sub) { levels.push(sub); }
     return levels.map((n) => n?.prompt?.trim() ?? '').filter(Boolean).join('\n\n');
 }
 
-/** The values a move's template is resolved with, laid over the chat variables. */
+/** A note for a run that is not the first: another iteration of what starts here, or a gate run again. */
+export function runNote(def: ProcessDefinition, state: ProcessState): string {
+    const phase = findPhase(def, state.phase);
+    const step = findStep(phase, state.step);
+    const sub = findSubstep(step, state.substep);
+    if (phase && step === phase.gate && state.stepIteration > 1) {
+        return `This is run ${state.stepIteration} of the gate: the previous run did not pass. Check first that what it found has been fixed.`;
+    }
+    const subs = step?.substeps ?? [];
+    const atStepStart = !sub || subs[0] === sub;
+    const atPhaseStart = atStepStart && !!phase && phaseSteps(phase)[0]?.step === step;
+    if (sub && state.substepIteration > 1) {
+        return `This is iteration ${state.substepIteration} of the sub-step: take in what the previous iteration left open.`;
+    }
+    if (atStepStart && state.stepIteration > 1) {
+        return `Iteration ${state.stepIteration} of the step starts here: take in what the previous iteration left open.`;
+    }
+    if (atPhaseStart && state.phaseIteration > 1) {
+        return `Iteration ${state.phaseIteration} of the phase starts here: take in what the previous iteration left open.`;
+    }
+    return '';
+}
+
+/** What happens after the prompt is queued, for the prompt itself. */
+function afterText(def: ProcessDefinition, state: ProcessState, move: ProcessMove): string {
+    const t = move.target;
+    if (t.ran) {
+        return 'The PROCESS view stays at this position until the user decides how the process goes on '
+            + '(finish, repeat, gate passed or failed). Do not move the process state yourself.';
+    }
+    return `The PROCESS view has moved on to ${positionText(def, t)}; that runs only when the user proceeds again. `
+        + `This prompt belongs to ${positionText(def, state)} — work in it, and do not move the process state yourself.`;
+}
+
+/** The values the Proceed template is resolved with, laid over the chat variables: those of the position being run. */
 export function processActionValues(
     def: ProcessDefinition,
-    before: ProcessState,
+    state: ProcessState,
     move: ProcessMove,
     customInstructions: string,
     processDescription: string,
 ): Record<string, string> {
     const t = move.target;
     const values: Record<string, string> = {
-        ...processVariableValues(def, t, processDescription),
+        ...processVariableValues(def, state, processDescription),
         'custom-instructions': customInstructions.trim(),
-        'action-prompt': startedPrompts(def, before, t),
+        'action-prompt': positionPrompts(def, state),
+        'action-note': runNote(def, state),
+        'action-position': positionText(def, state),
+        'action-after': afterText(def, state, move),
         action: move.kind,
         'action-label': move.label,
-        'action-level': move.level ? LEVEL_TITLE[move.level] : '',
-        'action-iteration': move.level ? String(t[`${move.level}Iteration` as const]) : '',
         'action-target': [t.phase, t.step, t.substep].filter(Boolean).join(' / '),
-        'from-phase': before.phase,
-        'from-step': before.step,
-        'from-substep': before.substep,
     };
-    const role = currentRole(def, t);
+    const role = currentRole(def, state);
     if (role) { values.role = role; }
     return values;
 }
@@ -164,14 +182,15 @@ export interface ActionSession {
 }
 
 /**
- * The session for a move: the one picked on the action page (`override`; `''`
- * picks the queue default), else the one the process names for the target
- * position (innermost of sub-step, step, phase), else the queue default.
+ * The session the prompt of `state` runs in: the one picked on the action
+ * page (`override`; `''` picks the queue default), else the one the process
+ * names for that position (innermost of sub-step, step, phase), else the
+ * queue default.
  */
-export function actionSession(def: ProcessDefinition, move: ProcessMove, override?: string): ActionSession {
+export function actionSession(def: ProcessDefinition, state: ProcessState, override?: string): ActionSession {
     if (override !== undefined) {
         return override ? { name: override, source: 'override' } : { name: '', source: 'queue-default' };
     }
-    const spec = effectiveSession(def, move.target);
+    const spec = effectiveSession(def, state);
     return spec ? { name: spec.name, source: 'process', spec } : { name: '', source: 'queue-default' };
 }
