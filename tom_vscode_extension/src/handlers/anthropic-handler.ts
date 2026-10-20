@@ -37,12 +37,12 @@ import {
 } from '../services/history-compaction';
 import { TwoTierMemoryService } from '../services/memory-service';
 import {
-    clearCompactionRounds,
-    loadCompactionRounds,
+    loadCompactionRoundsIn,
     rawTurnsToRounds,
     roundsToRawTurns,
-    saveCompactionRounds,
+    saveCompactionRoundsIn,
 } from '../services/compaction-rounds';
+import { resolveHistoryScope, sessionHistoryFolder, type HistoryScope } from '../services/directSessionHistory';
 import {
     type Block,
     concatenateBodies,
@@ -532,6 +532,56 @@ export class AnthropicHandler {
     private historySeeded = false;
 
     /**
+     * The history the in-memory state above belongs to: the quest's own
+     * (the chat panel's and the queue's sessions) or a named session's
+     * (`history/sessions/<name>/`), and whether this send writes it back
+     * (not for a fork-from-base session). Chosen per send from the session
+     * name (`options.sessionKey`); null until the first send. See
+     * src/services/directSessionHistory.ts.
+     */
+    private historyScope: HistoryScope | null = null;
+
+    /** The folder the history of `questId` is read from and written to: the current scope's. */
+    private scopeFolder(questId?: string): string {
+        const scope = this.historyScope;
+        const quest = questId || TwoTierMemoryService.instance.currentQuest();
+        return scope && scope.questId === quest ? scope.folder : TwoTierMemoryService.instance.historyFolder(quest);
+    }
+
+    /** Whether this send writes its history back: false in a fork-from-base session. */
+    private get persistsHistory(): boolean {
+        return this.historyScope?.persist ?? true;
+    }
+
+    /** Forget the in-memory history so the next seed loads another scope's. */
+    private resetHistoryState(): void {
+        this.compactedHistoryBlocks = [];
+        this.compactionRounds = [];
+        this.rawTurnsRolling = [];
+        this.rawTurns = [];
+        this.historySeeded = false;
+    }
+
+    /**
+     * Choose the history of this send from its session. Another quest,
+     * another session, or a fork-from-base session (which starts from its
+     * base again every prompt) loads that history; the previous history's
+     * background compaction is awaited first, so it cannot write into the
+     * new one.
+     */
+    private async selectHistoryScope(quest: string, sessionKey: string | undefined): Promise<void> {
+        const name = sessionKey || DEFAULT_AGENT_SDK_SESSION_KEY;
+        const scope = resolveHistoryScope(quest, TwoTierMemoryService.instance.historyFolder(quest), name);
+        if (scope.note) { logHistoryInfo(`history scope: ${scope.note}`); }
+        const current = this.historyScope;
+        if (current && current.key === scope.key && scope.persist) { this.historyScope = scope; return; }
+        if (current) { await this.awaitInFlightBackgroundWork(); }
+        this.resetHistoryState();
+        this.historyScope = scope;
+        logHistoryInfo(`history scope: quest=${quest} session=${name} folder=${scope.folder}${scope.persist ? '' : ' (fork: not saved)'}`);
+    }
+
+    /**
      * Fire-and-forget in-flight work from a just-completed turn. The next
      * `sendMessage()` awaits these so the user's next prompt goes out with
      * the freshest compaction/memory state — and emits a status update so
@@ -635,11 +685,17 @@ export class AnthropicHandler {
      * `default.session.json` untouched. Defaults to the prompt-queue bucket.
      */
     clearSession(sessionKey: string = DEFAULT_AGENT_SDK_SESSION_KEY): void {
-        this.compactedHistoryBlocks = [];
-        this.compactionRounds = [];
-        this.rawTurnsRolling = [];
-        this.rawTurns = [];
-        this.historySeeded = true; // an explicit clear should not reload a prior snapshot
+        const quest = TwoTierMemoryService.instance.currentQuest();
+        const clearedFolder = sessionHistoryFolder(TwoTierMemoryService.instance.historyFolder(quest), sessionKey);
+        // The loaded history is emptied only when it is the one cleared; clearing
+        // another session leaves it as it is.
+        if (!this.historyScope || this.historyScope.folder === clearedFolder) {
+            this.compactedHistoryBlocks = [];
+            this.compactionRounds = [];
+            this.rawTurnsRolling = [];
+            this.rawTurns = [];
+            this.historySeeded = true; // an explicit clear should not reload a prior snapshot
+        }
         this.toolTrail.clear();
         this.sessionApprovals.clear();
         this.roundCounter = 0;
@@ -650,13 +706,14 @@ export class AnthropicHandler {
         // send starts a brand-new conversation rather than resuming the
         // one we just cleared.
         try {
-            const quest = TwoTierMemoryService.instance.currentQuest();
             TwoTierMemoryService.instance.clearAgentSdkSessionId(quest, sessionKey);
             // Also drop the uncompacted-rounds accumulator + rolling
             // tail so the next turn starts from a clean slate. Both
             // files are per-machine (gitignored).
-            clearCompactionRounds(quest);
-            const historyFolder = TwoTierMemoryService.instance.historyFolder(quest);
+            // The history of that session: the quest's own for the panel and
+            // the queue, a named session's own folder otherwise.
+            const historyFolder = clearedFolder;
+            saveCompactionRoundsIn([], historyFolder);
             saveRawTurns(historyFolder, []);
             // Also wipe the compacted blocks on disk so a fresh session
             // doesn't inherit yesterday's distilled state.
@@ -681,10 +738,17 @@ export class AnthropicHandler {
         rawTurnsKept: number,
     ): void {
         try {
-            const historyFolder = TwoTierMemoryService.instance.historyFolder(questId);
+            if (!this.persistsHistory) {
+                // A fork-from-base session: this prompt's exchange is not saved,
+                // and the next prompt starts from the base's history again.
+                this.compactionRounds = [...this.compactionRounds, round];
+                this.rawTurns = this.computeDedupedUnion();
+                return;
+            }
+            const historyFolder = this.scopeFolder(questId);
             // Accumulator: append every round; cap-free (cleared on compaction success).
             this.compactionRounds = [...this.compactionRounds, round];
-            saveCompactionRounds(this.compactionRounds, questId);
+            saveCompactionRoundsIn(this.compactionRounds, historyFolder);
             // Rolling tail: push + cap so the file stays bounded.
             this.rawTurnsRolling = pushRawTurnAndCap(historyFolder, round, rawTurnsKept);
             // Recompute the in-memory union — what the API call reads.
@@ -756,7 +820,10 @@ export class AnthropicHandler {
         }
         this.historySeeded = true;
         try {
-            const historyFolder = TwoTierMemoryService.instance.historyFolder(questId);
+            const historyFolder = this.scopeFolder(questId);
+            // A named session's history is its own folder only: no legacy file,
+            // no rebuild from the quest's trail (that is the quest's history).
+            const shared = this.historyScope?.shared ?? true;
 
             // (1) Try the new block-format file first.
             const blocks = loadBlocksFromDisk(historyFolder);
@@ -764,7 +831,7 @@ export class AnthropicHandler {
             if (blocks.length > 0) {
                 this.compactedHistoryBlocks = dedupAndSort(blocks);
                 seededFromDisk = true;
-            } else {
+            } else if (shared) {
                 // (2) Fall back to history.json with one-shot in-memory
                 //     migration. The legacy file stays on disk; the
                 //     formal migration command rewrites it.
@@ -801,12 +868,17 @@ export class AnthropicHandler {
                 const rolling = loadRawTurns(historyFolder);
                 if (rolling) { this.rawTurnsRolling = rolling.rounds; }
             }
-            const accumulator = loadCompactionRounds(questId);
+            const accumulator = loadCompactionRoundsIn(historyFolder);
             if (accumulator) { this.compactionRounds = accumulator.rounds; }
             this.rawTurns = this.computeDedupedUnion();
 
             if (seededFromDisk) {
                 logHistoryInfo(`history seed: restored from disk (quest=${questId}, blocks=${this.compactedHistoryBlocks.length}, rawRounds=${this.rawTurnsRolling.length})`);
+                return;
+            }
+
+            if (!shared) {
+                logHistoryInfo(`history seed: session "${this.historyScope?.session}" has no history yet — starts fresh (quest=${questId})`);
                 return;
             }
 
@@ -890,13 +962,15 @@ export class AnthropicHandler {
      * legacy files; until then both formats live side-by-side.
      */
     private persistSessionHistory(questId: string | undefined): void {
+        if (!this.persistsHistory) { return; }
         try {
             const archive = this.getCompactionConfig().archiveHistoryEveryTurn;
-            const historyFolder = TwoTierMemoryService.instance.historyFolder(questId);
+            const historyFolder = this.scopeFolder(questId);
             saveBlocksToDisk(historyFolder, this.compactedHistoryBlocks);
             // Keep the legacy file populated for the readability/MD-Browser path.
             // The migration command removes it; pre-migration installs still need it.
-            TwoTierMemoryService.instance.persistHistorySnapshot(
+            TwoTierMemoryService.instance.persistHistorySnapshotIn(
+                historyFolder,
                 { compactedSummary: this.compactedSummaryText, rawTurns: this.rawTurns },
                 questId,
                 archive,
@@ -1186,7 +1260,7 @@ export class AnthropicHandler {
                 // is untouched so the very next outgoing prompt still
                 // has fresh complete-fidelity context.
                 this.compactionRounds = [];
-                clearCompactionRounds(questId);
+                saveCompactionRoundsIn([], this.scopeFolder(questId));
                 this.rawTurns = this.computeDedupedUnion();
                 this.persistSessionHistory(questId);
             } catch {
@@ -1260,6 +1334,8 @@ export class AnthropicHandler {
      */
     async recreateHistoryFromTrail(questId?: string): Promise<void> {
         const quest = questId ?? TwoTierMemoryService.instance.currentQuest();
+        // The trail is the quest's: the rebuild is of the quest's own history.
+        this.historyScope = resolveHistoryScope(quest, TwoTierMemoryService.instance.historyFolder(quest), DEFAULT_AGENT_SDK_SESSION_KEY);
         // Drop the in-memory latch so the next sendMessage doesn't
         // skip rebuild ("already seeded"). Also drop the in-memory
         // state itself so a partial rebuild can't end up in a hybrid
@@ -1469,9 +1545,9 @@ export class AnthropicHandler {
             // Persist the rebuilt state to all three files (blocks file,
             // legacy history.json, rolling tail). The accumulator is
             // empty by construction here.
-            const historyFolder = TwoTierMemoryService.instance.historyFolder(questId);
+            const historyFolder = this.scopeFolder(questId);
             saveRawTurns(historyFolder, this.rawTurnsRolling);
-            clearCompactionRounds(questId);
+            saveCompactionRoundsIn([], historyFolder);
             this.rawTurns = this.computeDedupedUnion();
             this.persistSessionHistory(questId);
             logHistoryInfo(
@@ -1715,6 +1791,11 @@ export class AnthropicHandler {
         this.roundCounter += 1;
         const round = this.roundCounter;
 
+        // The history of this send's session (the quest's own for the panel and
+        // the queue). Isolated sub-agent sends never change it.
+        if (!options.isolated) {
+            await this.selectHistoryScope(quest, options.sessionKey);
+        }
         this.seedHistoryFromSnapshot(quest);
         // Under the new dual-file model the rolling tail's cap lives in
         // `rawTurns.json` (size = `rawTurnsKept`), and the accumulator
@@ -2995,6 +3076,8 @@ export class AnthropicHandler {
         configuration?: AnthropicConfiguration,
     ): void {
         if (isolated) { return; }
+        // A fork-from-base session saves nothing, so there is nothing to compact.
+        if (!this.persistsHistory) { return; }
         // Two-tier kill-switch:
         //   1. Per-configuration override wins when set. `'on'` forces
         //      compaction to run even if the global flag disables it;

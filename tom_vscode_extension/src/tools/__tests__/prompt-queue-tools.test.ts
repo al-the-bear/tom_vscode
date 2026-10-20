@@ -117,7 +117,7 @@ function makeAccess(): FakeAccess {
                 transport: input.transport ?? 'copilot',
                 anthropicProfileId: input.anthropicProfileId,
                 anthropicConfigId: input.anthropicConfigId,
-                agentSdkSession: input.agentSdkSession,
+                session: input.session,
                 prePrompts: (input.prePrompts ?? []).map((p) => ({ ...p })),
                 followUps: (input.followUps ?? []).map((f) => ({
                     ...f,
@@ -179,7 +179,7 @@ function makeAccess(): FakeAccess {
         updateItemSession(id, session) {
             const i = items.find((x) => x.id === id);
             if (!i || (i.status !== 'staged' && i.status !== 'pending')) { return false; }
-            i.agentSdkSession = session || undefined;
+            i.session = session || undefined;
             return true;
         },
 
@@ -330,11 +330,11 @@ describe('addQueueItemImpl + listQueueImpl', () => {
     test('an item names its Agent SDK session; updating it, and listing shows it', async () => {
         const added = JSON.parse(await addQueueItemImpl(access, { text: 'step', transport: 'anthropic', session: 'per-todo' }));
         assert.equal(added.ok, true);
-        assert.equal(access._items[0].agentSdkSession, 'per-todo');
+        assert.equal(access._items[0].session, 'per-todo');
         assert.equal(JSON.parse(await listQueueImpl(access, {})).items[0].session, 'per-todo');
         const upd = JSON.parse(await updateQueueItemImpl(access, { queueItemId: added.id, session: '' }));
         assert.equal(upd.ok, true);
-        assert.equal(access._items[0].agentSdkSession, undefined, 'back to the queue default');
+        assert.equal(access._items[0].session, undefined, 'back to the queue default');
     });
 
     test('add with deferSend: false → pending; pendingCount reflects it', async () => {

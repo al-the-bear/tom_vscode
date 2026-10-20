@@ -126,7 +126,7 @@ export async function confirmProcessAction(
         try {
             await PromptQueueManager.instance.enqueue({
                 originalText: text,
-                ...(session.name ? { agentSdkSession: session.name } : {}),
+                ...(session.name ? { session: session.name } : {}),
                 processRun: { quest: store.activeQuest, state: here },
             });
         } catch (e) {

@@ -15,8 +15,9 @@
  *   preparatory context while the prompts in this session do not change the
  *   context of the ones after them.
  *
- * Sessions apply to the Agent SDK transport in sdk-managed history mode; the
- * direct API transport keeps its single per-quest history.
+ * On the Agent SDK transport in sdk-managed history mode the session holds the
+ * SDK conversation; on the direct API transport the same names and modes choose
+ * the history a send reads and writes (src/services/directSessionHistory.ts).
  */
 
 export type SessionMode = 'continue' | 'fork-from-base';

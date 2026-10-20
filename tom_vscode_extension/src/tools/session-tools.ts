@@ -81,7 +81,8 @@ export const LIST_SESSIONS_TOOL: SharedToolDefinition<Record<string, never>> = {
     name: 'tomAi_listSessions',
     displayName: 'List Sessions',
     description:
-        'The named Agent SDK sessions of the active quest (`<name>.session.json` in its history folder): each with its '
+        'The named sessions of the active quest (`<name>.session.json` in its history folder; the Agent SDK conversation, '
+        + 'or on the direct API transport the session\'s own history): each with its '
         + '`mode` (`continue`: prompts continue the session; `fork-from-base`: every prompt starts again from the base '
         + 'session\'s conversation and changes nothing), its `basedOn`, whether it has a conversation yet, and how the next '
         + 'prompt in it starts. A queue item runs in a session named by `session` on tomAi_addQueueItem / '
@@ -96,7 +97,7 @@ export const CREATE_SESSION_TOOL: SharedToolDefinition<CreateSessionInput> = {
     name: 'tomAi_createSession',
     displayName: 'Create Session',
     description:
-        'Create a named Agent SDK session in the active quest. Fresh (no `basedOn`), or based on another session: with '
+        'Create a named session in the active quest (Agent SDK and direct API transport alike). Fresh (no `basedOn`), or based on another session: with '
         + '`mode: "continue"` its first prompt starts from the base\'s conversation and later prompts continue it; with '
         + '`mode: "fork-from-base"` every prompt starts again from the base, so the base can hold preparatory context '
         + 'while the prompts never change each other\'s context (e.g. one todo per prompt). Refuses an existing name, a '

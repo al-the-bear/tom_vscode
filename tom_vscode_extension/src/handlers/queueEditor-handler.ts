@@ -311,7 +311,7 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             const item = id ? pqm.getById(id) : undefined;
             if (!item) { return; }
             const picked = await pickAgentSdkSession({
-              questId: quest, current: item.agentSdkSession, title: 'Session of this queue item',
+              questId: quest, current: item.session, title: 'Session of this queue item',
               defaultLabel: `The queue default (${pqm.defaultAgentSdkSession || 'default'})`,
             });
             if (picked !== undefined && !pqm.updateItemSession(id, picked)) {
@@ -437,7 +437,7 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
           if (msg.type === 'editItemTransport') {
             // Last step for an item: the Agent SDK session it runs in.
             const picked = await pickAgentSdkSession({
-              questId: WsPaths.getWorkspaceQuestId(), current: item.agentSdkSession, title: 'Session of this queue item',
+              questId: WsPaths.getWorkspaceQuestId(), current: item.session, title: 'Session of this queue item',
               defaultLabel: `The queue default (${pqm.defaultAgentSdkSession || 'default'})`,
             });
             if (picked !== undefined) { pqm.updateItemSession(id, picked); sendState(); }

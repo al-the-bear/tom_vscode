@@ -509,8 +509,12 @@ export class TwoTierMemoryService {
      * affect the user-visible turn result.
      */
     persistHistorySnapshot(messages: unknown, questId?: string, archive: boolean = false, suffix?: string): string | undefined {
+        return this.persistHistorySnapshotIn(this.historyFolder(questId), messages, questId, archive, suffix);
+    }
+
+    /** {@link persistHistorySnapshot} into `folder` (a named session's history folder). */
+    persistHistorySnapshotIn(folder: string, messages: unknown, questId?: string, archive: boolean = false, suffix?: string): string | undefined {
         try {
-            const folder = this.historyFolder(questId);
             FsUtils.ensureDir(folder);
             const savedAt = new Date().toISOString();
             // Single rolling pair. When a suffix is provided, write to

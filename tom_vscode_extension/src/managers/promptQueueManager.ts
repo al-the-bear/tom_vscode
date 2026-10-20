@@ -241,12 +241,13 @@ export interface QueuedPrompt {
     anthropicProfileId?: string;
     anthropicConfigId?: string;
     /**
-     * The named Agent SDK session the item's stages run in (a
-     * `<name>.session.json` of the quest's history folder; see
-     * src/utils/agentSdkSessions.ts). Unset: the queue default, else the
-     * queue's own `default` session.
+     * The named session the item's stages run in (a `<name>.session.json`
+     * of the quest's history folder; see src/utils/agentSdkSessions.ts): the
+     * Agent SDK conversation it continues, or the direct transport's history
+     * (src/services/directSessionHistory.ts). Unset: the queue default, else
+     * the queue's own `default` session.
      */
-    agentSdkSession?: string;
+    session?: string;
     /**
      * The process position this item's prompt belongs to (a Proceed prompt,
      * or what a running Proceed prompt queued): while it is sent, the role and
@@ -1870,7 +1871,7 @@ export class PromptQueueManager {
         anthropicProfileId?: string;
         anthropicConfigId?: string;
         /** The named Agent SDK session the item runs in. */
-        agentSdkSession?: string;
+        session?: string;
         /** The process position the item belongs to; default: the one the current send runs for, if any. */
         processRun?: ProcessRun;
     }): Promise<QueuedPrompt> {
@@ -1964,7 +1965,7 @@ export class PromptQueueManager {
             transport: opts.transport,
             anthropicProfileId: opts.anthropicProfileId,
             anthropicConfigId: opts.anthropicConfigId,
-            ...(opts.agentSdkSession?.trim() ? { agentSdkSession: opts.agentSdkSession.trim() } : {}),
+            ...(opts.session?.trim() ? { session: opts.session.trim() } : {}),
             // A prompt queued while a Proceed prompt runs (a planning step queuing
             // its todo walks) belongs to the same position.
             ...(inheritedProcessRun(opts.processRun) ? { processRun: inheritedProcessRun(opts.processRun) } : {}),
@@ -3340,7 +3341,7 @@ export class PromptQueueManager {
             const questId = await_import_ChatVariablesStore()?.quest || undefined;
             // eslint-disable-next-line @typescript-eslint/no-require-imports
             const { TwoTierMemoryService } = require('../services/memory-service');
-            TwoTierMemoryService.instance.clearAgentSdkSessionId(questId, item.agentSdkSession ?? this._defaultAgentSdkSession ?? 'default');
+            TwoTierMemoryService.instance.clearAgentSdkSessionId(questId, item.session ?? this._defaultAgentSdkSession ?? 'default');
             logQueue(`Item ${item.id} (${scope}): cleared Agent SDK session (previous_message_id 400) for quest '${questId ?? 'none'}' before retry`);
         } catch (e) {
             logQueue(`Item ${item.id} (${scope}): failed to clear Agent SDK session before retry: ${String(e)}`);
@@ -3595,12 +3596,12 @@ export class PromptQueueManager {
     private resolveStageTransport(
         item: QueuedPrompt,
         stage?: { transport?: QueuedTransport; anthropicProfileId?: string; anthropicConfigId?: string },
-    ): { transport: QueuedTransport; anthropicProfileId?: string; anthropicConfigId?: string; agentSdkSession?: string; processRun?: ProcessRun } {
-        const agentSdkSession = item.agentSdkSession ?? this._defaultAgentSdkSession;
+    ): { transport: QueuedTransport; anthropicProfileId?: string; anthropicConfigId?: string; session?: string; processRun?: ProcessRun } {
+        const session = item.session ?? this._defaultAgentSdkSession;
         const processRun = item.processRun;
         if (stage?.transport) {
             return {
-                agentSdkSession,
+                session,
                 processRun,
                 transport: stage.transport,
                 anthropicProfileId: stage.anthropicProfileId ?? item.anthropicProfileId ?? this._defaultAnthropicProfileId,
@@ -3609,7 +3610,7 @@ export class PromptQueueManager {
         }
         if (item.transport) {
             return {
-                agentSdkSession,
+                session,
                 processRun,
                 transport: item.transport,
                 anthropicProfileId: item.anthropicProfileId ?? this._defaultAnthropicProfileId,
@@ -3617,7 +3618,7 @@ export class PromptQueueManager {
             };
         }
         return {
-            agentSdkSession,
+            session,
             processRun,
             transport: this._defaultTransport,
             anthropicProfileId: this._defaultAnthropicProfileId,
@@ -3697,7 +3698,7 @@ export class PromptQueueManager {
                 skipQuestRefresh,
                 source: 'queue',
                 // The item's named session, else the queue default, else `default`.
-                ...(resolved.agentSdkSession ? { sessionKey: resolved.agentSdkSession } : {}),
+                ...(resolved.session ? { sessionKey: resolved.session } : {}),
             }));
             if (stageForAnswer) {
                 stageForAnswer.answerText = result.text;
@@ -4351,7 +4352,7 @@ export class PromptQueueManager {
     updateItemSession(id: string, name: string | undefined): boolean {
         const item = this._items.find(i => i.id === id);
         if (!item || !this.isEditableStatus(item.status)) { return false; }
-        item.agentSdkSession = name?.trim() || undefined;
+        item.session = name?.trim() || undefined;
         this.persist();
         this._onDidChange.fire();
         return true;
@@ -4610,7 +4611,9 @@ export class PromptQueueManager {
                 transport: main.transport === 'anthropic' ? 'anthropic' : (main.transport === 'copilot' ? 'copilot' : undefined),
                 anthropicProfileId: main['anthropic-profile-id'] || undefined,
                 anthropicConfigId: main['anthropic-config-id'] || undefined,
-                agentSdkSession: main['agent-sdk-session'] || undefined,
+                // `agent-sdk-session` is the key's older name (it now chooses the
+                // direct transport's history too); read either, write `session`.
+                session: main.session || main['agent-sdk-session'] || undefined,
                 processRun: parseProcessRun(main['process-run']),
                 answerText: main['answer-text'] || undefined,
                 todoClaim: todoClaimFromYaml(main['todo-claim']),
@@ -4746,7 +4749,7 @@ export class PromptQueueManager {
             ...(item.transport ? { transport: item.transport } : {}),
             ...(item.anthropicProfileId ? { 'anthropic-profile-id': item.anthropicProfileId } : {}),
             ...(item.anthropicConfigId ? { 'anthropic-config-id': item.anthropicConfigId } : {}),
-            ...(item.agentSdkSession ? { 'agent-sdk-session': item.agentSdkSession } : {}),
+            ...(item.session ? { session: item.session } : {}),
             ...(item.processRun ? { 'process-run': item.processRun } : {}),
             ...(item.answerText ? { 'answer-text': item.answerText } : {}),
             ...(item.todoClaim ? { 'todo-claim': todoClaimToYaml(item.todoClaim) } : {}),

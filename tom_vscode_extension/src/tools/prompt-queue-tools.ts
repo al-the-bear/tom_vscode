@@ -129,7 +129,7 @@ export interface QueueItemSnapshot {
     anthropicProfileId?: string;
     anthropicConfigId?: string;
     /** The named Agent SDK session the item runs in (unset: the queue default). */
-    agentSdkSession?: string;
+    session?: string;
     answerText?: string;
     lastDispatched?: string;
     warning?: string;
@@ -157,7 +157,7 @@ export interface EnqueueInput {
     transport?: QueueTransport;
     anthropicProfileId?: string;
     anthropicConfigId?: string;
-    agentSdkSession?: string;
+    session?: string;
     prePrompts?: PrePromptSpec[];
     followUps?: FollowUpSpec[];
 }
@@ -236,9 +236,10 @@ function err(message: string, extra: Record<string, unknown> = {}): string {
 }
 
 /** What a queue item's `session` is. */
-const SESSION_DOC = 'The named Agent SDK session the item runs in: a `<name>.session.json` of the quest\'s history folder '
+const SESSION_DOC = 'The named session the item runs in: a `<name>.session.json` of the quest\'s history folder '
     + '(tomAi_listSessions; create one with tomAi_createSession, e.g. a session re-created from a prepared base for every '
-    + 'prompt). Unset: the queue default, else the queue\'s own `default`. Applies to the Agent SDK transport.';
+    + 'prompt). Unset: the queue default, else the queue\'s own `default`. On the Agent SDK transport it is the SDK '
+    + 'conversation; on the direct API transport the session\'s own history (`chat` and `default` share the quest\'s).';
 
 /** How a repeat count is written, for every tool that takes one. */
 const REPEAT_COUNT_DOC = 'Literal number, chat-variable name, or `<prefix>*`: walk the quest\'s todos whose id starts with '
@@ -277,7 +278,7 @@ function compactItem(i: QueueItemSnapshot): Record<string, unknown> {
         transport: i.transport || 'copilot',
         anthropicProfileId: i.anthropicProfileId || null,
         anthropicConfigId: i.anthropicConfigId || null,
-        session: i.agentSdkSession || null,
+        session: i.session || null,
         answerText: i.answerText || null,
     };
 }
@@ -345,7 +346,7 @@ export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueu
             transport: input.transport,
             anthropicProfileId: input.anthropicProfileId,
             anthropicConfigId: input.anthropicConfigId,
-            ...(input.session ? { agentSdkSession: input.session } : {}),
+            ...(input.session ? { session: input.session } : {}),
             prePrompts: input.prePrompts ?? [],
             followUps: (input.followUps ?? []).map((f) => ({
                 originalText: f.text,

@@ -47,6 +47,14 @@ describe('the Anthropic send path captures the running prompt', () => {
     // Matched against call sites, so method anchors carry their `this.` — the
     // declaration of a private method sits far above every call to it.
     const indexOfCall = (pattern: RegExp): number => codeLines.findIndex(l => pattern.test(l));
+    // The send's own order is what matters: a helper method declared above
+    // sendMessage may wait too (selectHistoryScope does, when the session's
+    // history changes), so the wait is looked for after sendMessage starts.
+    const sendStart = codeLines.findIndex(l => /async sendMessage\(/.test(l));
+    const indexOfCallInSend = (pattern: RegExp): number => {
+        const i = codeLines.slice(sendStart).findIndex(l => pattern.test(l));
+        return i < 0 ? -1 : sendStart + i;
+    };
     const BEGIN = /\bbeginCurrentPrompt\(/;
     const WRITE = /\bwriteCurrentPrompt\(/;
     const BACKGROUND_WAIT = /this\.awaitInFlightBackgroundWork\(/;
@@ -71,8 +79,11 @@ describe('the Anthropic send path captures the running prompt', () => {
         // before it is what stops the tab describing the previous send for
         // that whole window.
         const beginIdx = indexOfCall(BEGIN);
-        const waitIdx = indexOfCall(BACKGROUND_WAIT);
+        const waitIdx = indexOfCallInSend(BACKGROUND_WAIT);
+        const scopeIdx = indexOfCallInSend(/this\.selectHistoryScope\(/);
+        assert.ok(sendStart >= 0, 'sendMessage not found');
         assert.ok(beginIdx >= 0, 'nothing claims the current-prompt files at the start of the send');
+        assert.ok(scopeIdx < 0 || beginIdx < scopeIdx, 'choosing the session\'s history (which may wait for compaction) runs before the files are claimed');
         assert.ok(waitIdx >= 0, 'awaitInFlightBackgroundWork anchor not found — has sendMessage been restructured?');
         assert.ok(
             beginIdx < waitIdx,

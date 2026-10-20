@@ -167,7 +167,9 @@ export interface QueuePromptYaml {
     transport?: 'copilot' | 'anthropic';
     'anthropic-profile-id'?: string;
     'anthropic-config-id'?: string;
-    /** The named Agent SDK session the item runs in. */
+    /** The named session the item runs in (Agent SDK conversation, or the direct transport's history). */
+    session?: string;
+    /** The older name of `session`; read, never written. */
     'agent-sdk-session'?: string;
     /** The process position the item belongs to: `{quest, state}` (src/services/processRunContext.ts). */
     'process-run'?: unknown;

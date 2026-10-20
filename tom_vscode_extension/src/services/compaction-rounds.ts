@@ -100,7 +100,12 @@ export function roundsToRawTurns(rounds: ConversationMessage[][]): ConversationM
  * the validator rejects.
  */
 export function loadCompactionRounds(questId?: string): CompactionRoundsPayload | undefined {
-    const target = compactionRoundsPath(questId);
+    return loadCompactionRoundsIn(path.dirname(compactionRoundsPath(questId)));
+}
+
+/** {@link loadCompactionRounds} for a history folder (a named session's has its own). */
+export function loadCompactionRoundsIn(folder: string): CompactionRoundsPayload | undefined {
+    const target = path.join(folder, COMPACTION_ROUNDS_FILENAME);
     if (!fs.existsSync(target)) {
         return undefined;
     }
@@ -129,9 +134,13 @@ export function loadCompactionRounds(questId?: string): CompactionRoundsPayload 
  * worth surfacing to the user.
  */
 export function saveCompactionRounds(rounds: ConversationMessage[][], questId?: string): void {
+    saveCompactionRoundsIn(rounds, path.dirname(compactionRoundsPath(questId)));
+}
+
+/** {@link saveCompactionRounds} for a history folder (a named session's has its own). */
+export function saveCompactionRoundsIn(rounds: ConversationMessage[][], folder: string): void {
     try {
-        const target = compactionRoundsPath(questId);
-        const folder = path.dirname(target);
+        const target = path.join(folder, COMPACTION_ROUNDS_FILENAME);
         if (!fs.existsSync(folder)) { fs.mkdirSync(folder, { recursive: true }); }
         const payload: CompactionRoundsPayload = {
             rounds,

@@ -207,9 +207,9 @@ Curated profiles (9 total): **Sonnet 4.6**, **Opus 4.7**, and **Opus 4.6**, each
 
 Switches + actions on the action bar: profile picker, model picker (filters to profile-compatible models), **Open Live Trail** (MD Browser in follow-tail mode), **Session History** (opens `history.md`), **Memory**, **Clear Session**, **Config**.
 
-#### Named sessions (Agent SDK)
+#### Named sessions
 
-On the Agent SDK transport with SDK-managed history a conversation lives in a **session**: a `<name>.session.json` file in the quest's `history/` folder (machine-local, gitignored). The panel uses its own session `chat`, the prompt queue `default` — and any number of named sessions can be created and chosen:
+A conversation lives in a **session**: a `<name>.session.json` file in the quest's `history/` folder (machine-local, gitignored). On the Agent SDK transport with SDK-managed history it holds the SDK conversation the session continues; on the direct API transport the session has a history of its own (below). The panel uses its own session `chat`, the prompt queue `default` — and any number of named sessions can be created and chosen:
 
 - **The session button** (speech-bubble icon with the session's name, right of the profile) opens VS Code's picker: the quest's sessions with what each one does, **New session…**, and **New session based on…**. The choice is kept per quest; *The panel's own session (chat)* goes back to the default.
 - **New session based on…** asks for the base and how the new session uses it:
@@ -217,7 +217,14 @@ On the Agent SDK transport with SDK-managed history a conversation lives in a **
   - **Re-create from the base for every prompt** — every prompt starts again from the base's current conversation and nothing is saved, so the base can hold preparatory context (read the spec, the guidelines, …) while the prompts in this session never change the context of the ones after them.
 - **Clear Session** forgets the selected session's conversation; a session you created keeps its definition (base and mode) and starts again from it.
 
-The direct API transport keeps its single per-quest history (`history.json`); sessions apply to the Agent SDK transport.
+On the **direct API transport** the extension sends the history itself — the compacted history, the last raw turns and the rounds not yet compacted — so a session's history is files of its own:
+
+- `chat` (the panel) and `default` (the queue) share the quest's history in `history/`, as before;
+- any other session keeps its own in `history/sessions/<name>/` (the same files), so a queued prompt or a process step that names a session reads and writes only that history;
+- **Continue on its own** with a base: the session's history is copied from the base's once, on its first prompt, and continues on its own; the base is never changed;
+- **Re-create from the base for every prompt**: every prompt reads the base's current history and nothing is saved or compacted.
+
+The live trail and the prompt/answer trail stay one per quest (a log of every exchange); **Recreate history from trail** rebuilds the quest's own history.
 
 ### Copilot
 
@@ -396,7 +403,7 @@ Open with `Ctrl+Shift+6` or `@T: Open Prompt Queue`. The editor provides:
 - **Entry list**: Per-item cards with status color coding, type badges, progress indicators
 - **Staged item form**: Template, repeat count, answer wait minutes, repeat prefix/suffix, pre-prompts
 - **Per-item controls**: Preview, send now, move up/down, delete, toggle reminder, pause after this, interrupt for continuation (on the running item); an interrupted item offers Resend and Move back to Staged
-- **Sessions**: an Anthropic item shows the Agent SDK session it runs in (speech-bubble chip in its header); a click on a staged or pending item opens the session picker (an existing session, a new one, one based on another, or the queue default). The transport gear asks for the session as its last step. The context bar at the top reads *Quest: … | Role: … | Session: …*: **Session** is the queue's default session, the one every item that names none runs in (unset: the queue's own `default`); **Role** is the role chat variable. Both are underlined links: a click opens a VS Code picker — the roles under `_ai/roles/` (or none), or the session picker. Agents set it with `session` on `tomAi_addQueueItem` / `tomAi_updateQueueItem` and create sessions with `tomAi_createSession` — see [Named sessions](#named-sessions-agent-sdk).
+- **Sessions**: an Anthropic item shows the Agent SDK session it runs in (speech-bubble chip in its header); a click on a staged or pending item opens the session picker (an existing session, a new one, one based on another, or the queue default). The transport gear asks for the session as its last step. The context bar at the top reads *Quest: … | Role: … | Session: …*: **Session** is the queue's default session, the one every item that names none runs in (unset: the queue's own `default`); **Role** is the role chat variable. Both are underlined links: a click opens a VS Code picker — the roles under `_ai/roles/` (or none), or the session picker. Agents set it with `session` on `tomAi_addQueueItem` / `tomAi_updateQueueItem` and create sessions with `tomAi_createSession` — see [Named sessions](#named-sessions).
 
 ## 5) Timed Requests
 
