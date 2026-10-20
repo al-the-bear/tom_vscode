@@ -174,7 +174,20 @@ function bindQueueEditorPanel(ctx: vscode.ExtensionContext, panel: vscode.Webvie
 // Message handling
 // ============================================================================
 
+/**
+ * Every message, with a refusal shown to the user: the queue manager throws
+ * when a value cannot be queued (a todo prefix ending in a digit), and a
+ * webview message has nobody else to tell.
+ */
 async function handleMessage(msg: any): Promise<void> {
+    try {
+        await handleMessageUnsafe(msg);
+    } catch (e) {
+        void vscode.window.showErrorMessage(`Prompt Queue: ${(e as Error).message}`);
+    }
+}
+
+async function handleMessageUnsafe(msg: any): Promise<void> {
     // Handle non-queue messages first
     switch (msg.type) {
         case 'getState':

@@ -348,3 +348,40 @@ body.mdb-edit-mode .mdb-block-actions { display: flex; }
     border-left-color: var(--vscode-charts-yellow, #cca700);
     color: var(--vscode-foreground);
 }
+
+/* ---- Inline review marks (CriticMarkup: added, removed, changed, annotated, commented) ---- */
+.markdown-body .mdb-cm { border-radius: 3px; padding: 0 2px; }
+.markdown-body .mdb-cm-icon { font-size: 0.85em; margin-right: 2px; vertical-align: -1px; }
+.markdown-body ins.mdb-cm-add, .markdown-body .mdb-cm-sub ins {
+    text-decoration: none;
+    background: var(--vscode-diffEditor-insertedTextBackground, rgba(155, 185, 85, 0.25));
+    border-bottom: 1px solid var(--vscode-charts-green, #388a34);
+}
+.markdown-body del.mdb-cm-del, .markdown-body .mdb-cm-sub del {
+    background: var(--vscode-diffEditor-removedTextBackground, rgba(255, 0, 0, 0.2));
+    text-decoration: line-through;
+    text-decoration-color: var(--vscode-charts-red, #f14c4c);
+}
+.markdown-body ins.mdb-cm-add .mdb-cm-icon { color: var(--vscode-charts-green, #388a34); }
+.markdown-body del.mdb-cm-del .mdb-cm-icon { color: var(--vscode-charts-red, #f14c4c); text-decoration: none; display: inline-block; }
+.markdown-body .mdb-cm-sub { outline: 1px dashed var(--vscode-charts-blue, #3794ff); }
+.markdown-body .mdb-cm-sub > .mdb-cm-icon { color: var(--vscode-charts-blue, #3794ff); }
+.markdown-body .mdb-cm-sub del { margin-right: 3px; }
+.markdown-body mark.mdb-cm-mark {
+    background: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.33));
+    color: inherit;
+}
+.markdown-body mark.mdb-cm-mark .mdb-cm-icon { color: var(--vscode-charts-orange, #d18616); }
+.markdown-body .mdb-cm-comment {
+    font-size: 0.9em;
+    font-style: italic;
+    background: var(--vscode-editorInfo-background, rgba(55, 148, 255, 0.12));
+    color: var(--vscode-charts-yellow, #cca700);
+    border: 1px solid var(--vscode-charts-yellow, #cca700);
+    margin: 0 2px;
+}
+.markdown-body .mdb-cm-comment .mdb-cm-icon { font-style: normal; }
+/* Review comment blocks get the same comment colour and an icon. */
+.markdown-body .mdb-comment-block > blockquote {
+    background: var(--vscode-editorInfo-background, rgba(204, 167, 0, 0.08));
+}

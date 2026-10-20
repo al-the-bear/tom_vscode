@@ -254,6 +254,21 @@ export function parseTodoPrefixPattern(value: unknown): string | undefined {
     return prefix.length > 0 ? prefix : undefined;
 }
 
+/**
+ * Why a `prefix*` value cannot be iterated, or undefined when it can (or is no
+ * prefix pattern at all). A prefix may hold digits (`p2s2ss3-*`), but must not
+ * END in one: the number of a todo is the first digit run after the prefix, so
+ * after `p2s2ss3` the id `p2s2ss31` could be todo 1 of `p2s2ss3` or belong to
+ * `p2s2ss31`. Such a value is refused where it is set, never queued.
+ */
+export function todoPrefixPatternError(value: unknown): string | undefined {
+    const prefix = parseTodoPrefixPattern(value);
+    if (prefix === undefined || !/\d$/.test(prefix)) { return undefined; }
+    return `The todo prefix "${prefix}" ends in a digit, so a todo's number cannot be told apart from the prefix `
+        + `(after "${prefix}", "${prefix}1" could be todo 1 or another group). End the prefix with a letter, "-" or "_", `
+        + `e.g. "${prefix}-*".`;
+}
+
 /** Normalise a hand-editable YAML status to the canonical dashed lower-case form. */
 function normaliseStatus(status: string | undefined): string {
     const normalised = (status || '').trim().toLowerCase().replace(/_/g, '-');

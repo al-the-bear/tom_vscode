@@ -20,6 +20,8 @@
  *   MB-14 which links point at a Markdown document
  *   MB-16 comment blocks: recognised by the upward arrow, their extent and text without `>`, the
  *         next id, written back with `> ` (missing id and author added, empty = no comment)
+ *   MB-17 inline review marks (CriticMarkup, tom_specs annot1 §5): addition, deletion, substitution,
+ *         highlight with its comment, comment alone; only at the start; unclosed is no mark
  *   MB-15 splitting a large document for lexing: only before headings outside code and html,
  *         the parts join back to the text, and lexing the parts gives the tokens of the whole
  */
@@ -50,6 +52,7 @@ interface BlocksApi {
     mdbCommentAt(lines: string[], line: number): { startLine: number; endLine: number; text: string } | null;
     mdbNextCommentId(text: string): string;
     mdbWriteComment(text: string, nextId: string, author?: string): string;
+    mdbCriticMark(src: string): { raw: string; kind: string; text: string; oldText?: string; newText?: string; comment?: string } | null;
 }
 
 function load(): BlocksApi {
@@ -270,5 +273,20 @@ describe('Markdown Browser source mapping', () => {
         assert.equal(byMe('⬆️ **C-7**: colon already'), '> ⬆️ **C-7** (Alexis): colon already');
         assert.equal(byMe('⬆️ (Bob): his comment'), '> ⬆️ **C-7** (Bob): his comment', 'another author is kept');
         assert.equal(byMe('⬆️ **C-7** (Alexis): '), '', 'header only: still no comment');
+    });
+    test('MB-17: inline review marks', () => {
+        const mark = (src: string): unknown => JSON.parse(JSON.stringify(api.mdbCriticMark(src)));
+        assert.deepEqual(mark('{++ new words ++} tail'), { raw: '{++ new words ++}', kind: 'addition', text: 'new words' });
+        assert.deepEqual(mark('{-- gone --}'), { raw: '{-- gone --}', kind: 'deletion', text: 'gone' });
+        assert.deepEqual(mark('{~~ old ~> new ~~}.'), { raw: '{~~ old ~> new ~~}', kind: 'substitution', text: 'new', oldText: 'old', newText: 'new' });
+        assert.deepEqual(mark('{== the text ==}{>> why? <<} more'),
+            { raw: '{== the text ==}{>> why? <<}', kind: 'highlight', text: 'the text', comment: 'why?' });
+        assert.deepEqual(mark('{== only marked ==}'), { raw: '{== only marked ==}', kind: 'highlight', text: 'only marked' });
+        assert.deepEqual(mark('{>> a remark <<}'), { raw: '{>> a remark <<}', kind: 'comment', text: 'a remark' });
+        assert.deepEqual(mark('{++ across\nlines ++}'), { raw: '{++ across\nlines ++}', kind: 'addition', text: 'across\nlines' });
+        assert.equal(mark('text {++ x ++}'), null, 'only at the start of the source');
+        assert.equal(mark('{++ never closed'), null);
+        assert.equal(mark('{-- --}'), null, 'an empty mark is no mark');
+        assert.equal(mark('{plain}'), null);
     });
 });

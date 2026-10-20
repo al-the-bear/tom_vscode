@@ -31,7 +31,7 @@ import {
 } from '../storage/queueFileStorage';
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
-import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, decideAdvanceAfterCompletion, parseTodoPrefixPattern, planMainStageDispatch, releaseResolvedDecisionItems, releaseUnblockedTodos, resolveResendText, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty, type TodoIterationSource, type TodoUnblockPort } from '../utils/queueStep3Utils';
+import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, decideAdvanceAfterCompletion, parseTodoPrefixPattern, planMainStageDispatch, todoPrefixPatternError, releaseResolvedDecisionItems, releaseUnblockedTodos, resolveResendText, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty, type TodoIterationSource, type TodoUnblockPort } from '../utils/queueStep3Utils';
 import { runMainStageWithRefresh } from '../utils/questRefreshDispatch.js';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
 import { mergeQueueReload } from '../utils/queueReloadMergeUtils';
@@ -428,6 +428,16 @@ export async function applyTemplateWrapping(
  * If it's a string, try to get the value from a chat variable with that name.
  * Returns 1 if the value cannot be determined.
  */
+/**
+ * Refuse a repeat count no queue item may carry: a `prefix*` todo pattern whose
+ * prefix ends in a digit (todoPrefixPatternError). Thrown where the value is
+ * set, so the item is never queued; callers show the message.
+ */
+export function assertValidRepeatCount(value: unknown): void {
+    const error = todoPrefixPatternError(value);
+    if (error) { throw new Error(error); }
+}
+
 export function resolveRepeatCount(value: number | string | undefined): number {
     if (value === undefined || value === null) {
         return 1;
@@ -1843,6 +1853,10 @@ export class PromptQueueManager {
         anthropicProfileId?: string;
         anthropicConfigId?: string;
     }): Promise<QueuedPrompt> {
+        for (const value of [opts.repeatCount, opts.templateRepeatCount, ...(opts.prePrompts ?? []).map((p) => p.repeatCount),
+            ...(opts.followUps ?? []).map((f) => f.repeatCount)]) {
+            assertValidRepeatCount(value);
+        }
         const resolvedRepeatCount = resolveRepeatCount(opts.repeatCount);
         // Spec §4.16 — pass the transport so template lookup hits the
         // correct store. The initial expanded text is what the queue
@@ -2179,6 +2193,8 @@ export class PromptQueueManager {
         templateRepeatCount?: number | string;
         answerWaitMinutes?: number;
     }): boolean {
+        assertValidRepeatCount(patch.repeatCount);
+        assertValidRepeatCount(patch.templateRepeatCount);
         const item = this._items.find(i => i.id === id);
         if (!item || !this.isEditableStatus(item.status)) { return false; }
         if (patch.repeatCount !== undefined) {
@@ -2273,6 +2289,7 @@ export class PromptQueueManager {
         anthropicProfileId?: string;
         anthropicConfigId?: string;
     }): boolean {
+        assertValidRepeatCount(patch.repeatCount);
         const item = this._items.find(i => i.id === itemId);
         if (!item || !this.isEditableStatus(item.status)) { return false; }
         if (!item?.followUps) { return false; }
@@ -2364,6 +2381,7 @@ export class PromptQueueManager {
         anthropicProfileId?: string;
         anthropicConfigId?: string;
     }): boolean {
+        assertValidRepeatCount(patch.repeatCount);
         const item = this._items.find(i => i.id === itemId);
         if (!item || !this.isEditableStatus(item.status)) { return false; }
         if (!item.prePrompts || index < 0 || index >= item.prePrompts.length) { return false; }

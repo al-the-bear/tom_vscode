@@ -61,6 +61,7 @@
  */
 
 import { SharedToolDefinition } from './shared-tool-registry';
+import { todoPrefixPatternError } from '../utils/queueStep3Utils';
 
 // ===========================================================================
 // Shared shapes
@@ -229,6 +230,20 @@ function err(message: string, extra: Record<string, unknown> = {}): string {
     return JSON.stringify({ ok: false, error: message, ...extra });
 }
 
+/** How a repeat count is written, for every tool that takes one. */
+const REPEAT_COUNT_DOC = 'Literal number, chat-variable name, or `<prefix>*`: walk the quest\'s todos whose id starts with '
+    + '<prefix>, lowest number first (the number is the first digit run after the prefix). The prefix may hold digits '
+    + '(`p2s2ss3-*`) but must not end in one (refused with code invalidTodoPrefix).';
+
+/** The refusal of the first repeat count no queue item may carry (a todo prefix ending in a digit), or null. */
+function repeatCountRefusal(...values: unknown[]): string | null {
+    for (const v of values) {
+        const error = todoPrefixPatternError(v);
+        if (error) { return err(error, { code: 'invalidTodoPrefix' }); }
+    }
+    return null;
+}
+
 function compactItem(i: QueueItemSnapshot): Record<string, unknown> {
     return {
         id: i.id,
@@ -294,6 +309,9 @@ export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueu
         if (!input.text || !input.text.trim()) {
             return err('`text` is required.');
         }
+        const refused = repeatCountRefusal(input.repeatCount, input.templateRepeatCount,
+            ...(input.prePrompts ?? []).map((p) => p.repeatCount), ...(input.followUps ?? []).map((f) => f.repeatCount));
+        if (refused) { return refused; }
         const item = await access.enqueue({
             originalText: input.text,
             template: input.template,
@@ -367,7 +385,7 @@ export const ADD_QUEUE_ITEM_TOOL: SharedToolDefinition<AddQueueItemInput> = {
             deferSend: { type: 'boolean', description: 'Default true → staged. False → enqueue as pending.' },
             prePrompts: { type: 'array', items: { type: 'object', additionalProperties: true } },
             followUps: { type: 'array', items: { type: 'object', additionalProperties: true } },
-            repeatCount: { description: 'Literal number or chat-variable name.' },
+            repeatCount: { description: REPEAT_COUNT_DOC },
             repeatPrefix: { type: 'string' },
             repeatSuffix: { type: 'string' },
             templateRepeatCount: { description: 'Literal number or chat-variable name.' },
@@ -656,6 +674,8 @@ export interface UpdateQueueItemInput {
 export async function updateQueueItemImpl(access: PromptQueueAccess, input: UpdateQueueItemInput): Promise<string> {
     try {
         if (!input.queueItemId) { return err('`queueItemId` is required.'); }
+        const refused = repeatCountRefusal(input.repeatCount, input.templateRepeatCount);
+        if (refused) { return refused; }
         if (!access.getById(input.queueItemId)) {
             return err(`Queue item "${input.queueItemId}" not found.`);
         }
@@ -740,7 +760,7 @@ export const UPDATE_QUEUE_ITEM_TOOL: SharedToolDefinition<UpdateQueueItemInput> 
             reminderTemplateId: { type: 'string' },
             reminderTimeoutMinutes: { type: 'number' },
             reminderRepeat: { type: 'boolean' },
-            repeatCount: { description: 'Literal number or chat-variable name.' },
+            repeatCount: { description: REPEAT_COUNT_DOC },
             repeatPrefix: { type: 'string' },
             repeatSuffix: { type: 'string' },
             templateRepeatCount: { description: 'Literal number or chat-variable name.' },
@@ -876,6 +896,8 @@ export async function updateQueuePrePromptImpl(access: PromptQueueAccess, input:
         if (!input.queueItemId || typeof input.index !== 'number') {
             return err('`queueItemId` and zero-based `index` are both required.');
         }
+        const refusedPre = repeatCountRefusal(input.repeatCount);
+        if (refusedPre) { return refusedPre; }
         const ok2 = access.updatePrePrompt(input.queueItemId, input.index, {
             text: input.text,
             template: input.template,
@@ -915,7 +937,7 @@ export const UPDATE_QUEUE_PRE_PROMPT_TOOL: SharedToolDefinition<UpdateQueuePrePr
             index: { type: 'number', description: 'Zero-based pre-prompt index.' },
             text: { type: 'string' },
             template: { type: 'string' },
-            repeatCount: { description: 'Literal number or chat-variable name.' },
+            repeatCount: { description: REPEAT_COUNT_DOC },
             answerWaitMinutes: { type: 'number' },
             reminderTemplateId: { type: 'string' },
             reminderTimeoutMinutes: { type: 'number' },
@@ -993,6 +1015,8 @@ export interface AddQueueFollowUpInput {
 export async function addQueueFollowUpImpl(access: PromptQueueAccess, input: AddQueueFollowUpInput): Promise<string> {
     try {
         if (!input.text) { return err('`text` is required.'); }
+        const refusedFollow = repeatCountRefusal(input.repeatCount);
+        if (refusedFollow) { return refusedFollow; }
         const item = input.queueItemId
             ? access.getById(input.queueItemId)
             : (input.requestId ? access.getByRequestId(input.requestId) : undefined);
@@ -1054,7 +1078,7 @@ export const ADD_QUEUE_FOLLOW_UP_TOOL: SharedToolDefinition<AddQueueFollowUpInpu
             requestId: { type: 'string' },
             text: { type: 'string' },
             template: { type: 'string' },
-            repeatCount: { description: 'Literal number or chat-variable name.' },
+            repeatCount: { description: REPEAT_COUNT_DOC },
             answerWaitMinutes: { type: 'number' },
             reminderTemplateId: { type: 'string' },
             reminderTimeoutMinutes: { type: 'number' },
@@ -1091,6 +1115,8 @@ export async function updateQueueFollowUpImpl(access: PromptQueueAccess, input: 
         if (!input.queueItemId || !input.followUpId) {
             return err('`queueItemId` and `followUpId` are both required.');
         }
+        const refusedUpd = repeatCountRefusal(input.repeatCount);
+        if (refusedUpd) { return refusedUpd; }
         const ok2 = access.updateFollowUpPrompt(input.queueItemId, input.followUpId, {
             originalText: input.text,
             template: input.template,
@@ -1136,7 +1162,7 @@ export const UPDATE_QUEUE_FOLLOW_UP_TOOL: SharedToolDefinition<UpdateQueueFollow
             reminderTemplateId: { type: 'string' },
             reminderTimeoutMinutes: { type: 'number' },
             reminderRepeat: { type: 'boolean' },
-            repeatCount: { description: 'Literal number or chat-variable name.' },
+            repeatCount: { description: REPEAT_COUNT_DOC },
             answerWaitMinutes: { type: 'number' },
             transport: { type: 'string', enum: ['copilot', 'anthropic'] },
             anthropicProfileId: { type: 'string' },

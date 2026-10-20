@@ -17,6 +17,7 @@ import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+    todoPrefixPatternError,
     parseTodoPrefixPattern,
     collectPrefixTodos,
     pickNextTodoForIteration,
@@ -170,5 +171,26 @@ describe('resolveTodoPrefixRepeatCount still agrees with the shared parsing', ()
         const todos = [t('dsa1', 'completed'), t('dsa2', 'completed'), t('dsa9', 'not-started')];
         assert.equal(resolveTodoPrefixRepeatCount('dsa*', todos.map(x => x.id)), 9);
         assert.equal(pickNextTodoForIteration('dsa*', todos)?.id, 'dsa9');
+    });
+});
+
+describe('todoPrefixPatternError', () => {
+    test('a prefix may hold digits, but must not end in one', () => {
+        assert.equal(todoPrefixPatternError('p2s2ss3-*'), undefined);
+        assert.equal(todoPrefixPatternError('xyz*'), undefined);
+        assert.equal(todoPrefixPatternError('a1b_*'), undefined);
+        assert.equal(todoPrefixPatternError(3), undefined, 'a count is no prefix');
+        assert.equal(todoPrefixPatternError('count'), undefined, 'a chat-variable name is no prefix');
+        const err = todoPrefixPatternError('p2s2ss3*');
+        assert.ok(err);
+        assert.match(err!, /p2s2ss3/);
+        assert.match(err!, /ends in a digit/);
+        assert.match(err!, /p2s2ss3-\*/, 'it names a prefix that works');
+    });
+
+    test('digits inside a prefix walk only that group', () => {
+        const todos = [t('p2s2ss3-1', 'not-started'), t('p2s2ss3-2', 'not-started'), t('p2s2ss4-1', 'not-started')];
+        assert.deepEqual(collectPrefixTodos('p2s2ss3-', todos).map((e) => [e.id, e.index]), [['p2s2ss3-1', 1], ['p2s2ss3-2', 2]]);
+        assert.equal(pickNextTodoForIteration('p2s2ss3-*', todos)?.id, 'p2s2ss3-1');
     });
 });

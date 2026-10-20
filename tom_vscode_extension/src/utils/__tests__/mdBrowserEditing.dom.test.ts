@@ -15,6 +15,9 @@
  *   MD-9  a save patches the shown document in place; the file's refresh with the same text renders nothing
  *   MD-10 a refresh with unchanged text keeps the rendered nodes
  *   MD-11 an existing answer opens in the editor and saving replaces it, quote lines included
+ *   MD-13 inline review marks render as visible marks with an icon each: added, removed, changed (old and
+ *         new), highlighted with a comment, a comment alone; not inside code; the answer and edit maps
+ *         still find their lines
  *   MD-12 comments: the comment button adds a comment block after a paragraph (the editor opens with the
  *         arrow and the next id, the text is written under `> `); a comment block's own button reopens it
  *         without the `>`; saving it empty asks again, then removes the block
@@ -281,5 +284,36 @@ describe('Markdown Browser editing', () => {
         area.value += 'x';
         $(window, '.mdb-editor-btn')[0].click();
         assert.equal(lastEdit(posted).replacement, 'Para\n\n> ⬆️ **C-1** x\n', 'else `- item` would continue the quote');
+    });
+    test('MD-13: inline review marks', () => {
+        const { window } = setup();
+        const text = [
+            'The system {++ must ++}{-- should --} keep {~~ two ~> three ~~} copies.',
+            '',
+            'Orders {== are archived ==}{>> after how long? <<} nightly{>> check with OPS <<}.',
+            '',
+            'Code: `{++ not a mark ++}`',
+            '',
+            '> **Answer:** {++ yes ++}',
+        ].join('\n');
+        send(window, content(text));
+        const add = $(window, 'ins.mdb-cm-add')[0];
+        assert.equal(add.textContent.trim(), 'must');
+        assert.ok(add.querySelector('.codicon-diff-added'), 'an icon marks it');
+        const del = $(window, 'del.mdb-cm-del')[0];
+        assert.equal(del.textContent.trim(), 'should');
+        assert.ok(del.querySelector('.codicon-diff-removed'));
+        const sub = $(window, '.mdb-cm-sub')[0];
+        assert.equal(sub.querySelector('del').textContent, 'two');
+        assert.equal(sub.querySelector('ins').textContent, 'three');
+        assert.ok(sub.querySelector('.codicon-diff-modified'));
+        const hl = $(window, 'mark.mdb-cm-mark')[0];
+        assert.equal(hl.textContent.trim(), 'are archived');
+        assert.equal(hl.getAttribute('title'), 'after how long?');
+        const notes = $(window, '.mdb-cm-comment');
+        assert.deepEqual(notes.map((n: Win) => n.textContent.trim()), ['after how long?', 'check with OPS']);
+        assert.ok(notes.every((n: Win) => n.querySelector('.codicon-comment')));
+        assert.equal($(window, 'code')[0].textContent, '{++ not a mark ++}', 'code keeps its text');
+        assert.equal($(window, '.mdb-answer-btn').length, 1, 'a mark in an answer does not hide its marker');
     });
 });

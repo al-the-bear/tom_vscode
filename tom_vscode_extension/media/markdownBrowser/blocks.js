@@ -4,7 +4,7 @@
 // it can be loaded into a bare `vm` sandbox and unit-tested directly
 // (src/utils/__tests__/mdBrowserBlocks.test.ts). Loaded as a classic script
 // before main.js; the declarations below are globals main.js calls.
-/* exported mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbWriteComment, mdbSplitForLexing, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
+/* exported mdbCriticMark, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbWriteComment, mdbSplitForLexing, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
 //
 // The browser renders the backend's transformed text. Without the CR/LF
 // conversion that transform keeps every line where it is (it only rewrites
@@ -532,4 +532,44 @@ function mdbWriteComment(text, nextId, author) {
     var body = first.replace(MDB_COMMENT_ARROW, '').replace(/^\s*\*\*C-\d+\*\*/, '').replace(/^\s*\([^)]*\)/, '').replace(/^\s*:/, '').trim();
     if (!body && lines.slice(1).every(function(l) { return l.trim() === ''; })) { return ''; }
     return lines.map(function(l) { return l === '' ? '>' : '> ' + l; }).join('\n');
+}
+
+// ---- Inline review marks (CriticMarkup, tom_specs annot1 §5) ----
+
+var MDB_CRITIC = [
+    { kind: 'addition', re: /^\{\+\+([\s\S]*?)\+\+\}/ },
+    { kind: 'deletion', re: /^\{--([\s\S]*?)--\}/ },
+    { kind: 'substitution', re: /^\{~~([\s\S]*?)~>([\s\S]*?)~~\}/ },
+    { kind: 'highlight', re: /^\{==([\s\S]*?)==\}(?:\{>>([\s\S]*?)<<\})?/ },
+    { kind: 'comment', re: /^\{>>([\s\S]*?)<<\}/ },
+];
+
+/**
+ * The inline review mark at the very start of `src`, or null: `{++ added ++}`,
+ * `{-- removed --}`, `{~~ old ~> new ~~}`, `{== text ==}` with an optional
+ * `{>> comment <<}` right after it, or a `{>> comment <<}` alone. Texts are
+ * trimmed; a mark with no text, or one never closed, is no mark.
+ *
+ * @param {string} src
+ * @returns {{raw: string, kind: string, text: string, oldText?: string, newText?: string, comment?: string} | null}
+ */
+function mdbCriticMark(src) {
+    if (typeof src !== 'string' || src.charAt(0) !== '{') { return null; }
+    for (var i = 0; i < MDB_CRITIC.length; i++) {
+        var m = MDB_CRITIC[i].re.exec(src);
+        if (!m) { continue; }
+        var kind = MDB_CRITIC[i].kind;
+        if (kind === 'substitution') {
+            var oldText = m[1].trim();
+            var newText = m[2].trim();
+            if (!oldText && !newText) { return null; }
+            return { raw: m[0], kind: kind, text: newText, oldText: oldText, newText: newText };
+        }
+        var text = m[1].trim();
+        if (!text) { return null; }
+        var out = { raw: m[0], kind: kind, text: text };
+        if (kind === 'highlight' && m[2] !== undefined && m[2].trim()) { out.comment = m[2].trim(); }
+        return out;
+    }
+    return null;
 }

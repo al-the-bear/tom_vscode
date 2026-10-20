@@ -244,8 +244,57 @@
         // which keeps the first frame and every scroll step short.
         var SECTION_BLOCKS = 150;
 
+        // ---- Inline review marks (CriticMarkup, tom_specs annot1 §5) ----
+        // A marked inline extension: `{++ ++}`, `{-- --}`, `{~~ ~> ~~}`,
+        // `{== ==}{>> <<}` and `{>> <<}` render as marks with an icon each, so
+        // added, removed and changed text, highlights and comments stand out.
+        // Inline tokens never span blocks, so the block/line mapping is untouched;
+        // code spans are lexed before the extension sees their text.
+        var reviewMarksRegistered = false;
+        function registerReviewMarks() {
+            if (reviewMarksRegistered || typeof marked === 'undefined' || typeof marked.use !== 'function') { return; }
+            reviewMarksRegistered = true;
+            function esc(text) {
+                return String(text).replace(/[&<>"]/g, function(c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; });
+            }
+            function icon(name, title) { return '<span class="codicon codicon-' + name + ' mdb-cm-icon" title="' + title + '"></span>'; }
+            marked.use({ extensions: [{
+                name: 'reviewMark',
+                level: 'inline',
+                start: function(src) { var i = src.search(/\{(\+\+|--|~~|==|>>)/); return i < 0 ? undefined : i; },
+                tokenizer: function(src) {
+                    var m = mdbCriticMark(src);
+                    if (!m) { return undefined; }
+                    var token = { type: 'reviewMark', raw: m.raw, kind: m.kind, comment: m.comment || '' };
+                    token.textTokens = this.lexer.inlineTokens(m.text);
+                    if (m.kind === 'substitution') { token.oldTokens = this.lexer.inlineTokens(m.oldText); }
+                    return token;
+                },
+                renderer: function(token) {
+                    var inner = this.parser.parseInline(token.textTokens);
+                    var note = token.comment
+                        ? '<span class="mdb-cm mdb-cm-comment" title="Comment">' + icon('comment', 'Comment') + esc(token.comment) + '</span>' : '';
+                    switch (token.kind) {
+                        case 'addition':
+                            return '<ins class="mdb-cm mdb-cm-add" title="Added">' + icon('diff-added', 'Added') + inner + '</ins>';
+                        case 'deletion':
+                            return '<del class="mdb-cm mdb-cm-del" title="Removed">' + icon('diff-removed', 'Removed') + inner + '</del>';
+                        case 'substitution':
+                            return '<span class="mdb-cm mdb-cm-sub" title="Changed">' + icon('diff-modified', 'Changed')
+                                + '<del>' + this.parser.parseInline(token.oldTokens) + '</del><ins>' + inner + '</ins></span>';
+                        case 'highlight':
+                            return '<mark class="mdb-cm mdb-cm-mark"' + (token.comment ? ' title="' + esc(token.comment) + '"' : '') + '>'
+                                + icon('note', 'Annotated text') + inner + '</mark>' + note;
+                        default:
+                            return '<span class="mdb-cm mdb-cm-comment" title="Comment">' + icon('comment', 'Comment') + inner + '</span>';
+                    }
+                },
+            }] });
+        }
+
         /** marked's options: its defaults (GFM: tables, strikethrough, ...) plus `breaks` for CR/LF. */
         function markedOptions() {
+            registerReviewMarks();
             var base = (typeof marked !== 'undefined' && marked.defaults) ? marked.defaults : {};
             return Object.assign({}, base, { breaks: crlfMode });
         }

@@ -298,6 +298,20 @@ describe('addQueueItemImpl + listQueueImpl', () => {
         assert.equal(listR.items[0].transport, 'copilot');
     });
 
+    test('a todo prefix ending in a digit is refused; digits inside a prefix are fine', async () => {
+        const bad = JSON.parse(await addQueueItemImpl(access, { text: 'walk', repeatCount: 'p2s2ss3*' }));
+        assert.equal(bad.ok, false);
+        assert.equal(bad.code, 'invalidTodoPrefix');
+        assert.match(bad.error, /ends in a digit/);
+        assert.equal(access._items.length, 0, 'nothing was queued');
+        const badFollow = JSON.parse(await addQueueItemImpl(access, { text: 'walk', followUps: [{ text: 'x', repeatCount: 'a1*' }] } as never));
+        assert.equal(badFollow.code, 'invalidTodoPrefix');
+        const good = JSON.parse(await addQueueItemImpl(access, { text: 'walk', repeatCount: 'p2s2ss3-*' }));
+        assert.equal(good.ok, true);
+        const upd = JSON.parse(await updateQueueItemImpl(access, { queueItemId: good.id, repeatCount: 'x9*' }));
+        assert.equal(upd.code, 'invalidTodoPrefix');
+    });
+
     test('add with deferSend: false → pending; pendingCount reflects it', async () => {
         await addQueueItemImpl(access, { text: 'pending now', deferSend: false });
         const list = JSON.parse(await listQueueImpl(access, {}));
