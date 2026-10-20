@@ -55,6 +55,41 @@
         //     to re-send the current file (see the 'setCrlf' message).
         var fullIdMode = false;
         var crlfMode = false;
+        /**
+         * With CR/LF on: the file line of every shown line (-1 for a line the
+         * conversion made), sent by the host; null when the shown lines are the
+         * file's lines. A block is editable when its lines map to consecutive
+         * file lines, and its edits are posted with those file lines.
+         */
+        var lineMap = null;
+
+        /** The file lines `[start, end)` of shown lines `[start, end)`, or null when they are not file lines. */
+        function mapRange(start, end) {
+            if (!crlfMode || !lineMap) { return { start: start, end: end }; }
+            var first = lineMap[start];
+            if (first === undefined || first < 0) { return null; }
+            for (var k = start; k < end; k++) {
+                if (lineMap[k] !== first + (k - start)) { return null; }
+            }
+            return { start: first, end: first + (end - start) };
+        }
+
+        function blockEditable(block) {
+            return !!block && !!mapRange(block.startLine, block.endLine);
+        }
+
+        /** The file line of shown line `line`, or -1. */
+        function fileLine(line) {
+            var r = mapRange(line, line + 1);
+            return r ? r.start : -1;
+        }
+
+        /** `edit` with file line numbers, or null when its lines are not file lines. */
+        function toFileEdit(edit) {
+            var r = mapRange(edit.startLine, edit.endLine);
+            if (!r) { return null; }
+            return Object.assign({}, edit, { startLine: r.start, endLine: r.end });
+        }
 
         // In-place editing (answers, edit mode). The text the browser rendered
         // (`shownText`) keeps every line of the file in place unless CR/LF is
@@ -393,11 +428,12 @@
 
         function piecesToNodes(pieces) {
             var holder = document.createElement('div');
-            var actions = crlfMode ? '' : BLOCK_ACTIONS_HTML;
-            var commentActions = crlfMode ? '' : COMMENT_ACTIONS_HTML;
             holder.innerHTML = pieces.map(function(p) {
                 if (!p.block) { return p.html; }
-                return '<div class="mdb-block">' + p.html + (p.block.comment ? commentActions : p.block.editable ? actions : '') + '</div>';
+                // With CR/LF on, a block holding converted line breaks is not the file's text.
+                var editable = blockEditable(p.block);
+                var buttons = !editable ? '' : p.block.comment ? COMMENT_ACTIONS_HTML : p.block.editable ? BLOCK_ACTIONS_HTML : '';
+                return '<div class="mdb-block">' + p.html + buttons + '</div>';
             }).join('');
             var wrappers = [];
             var blocks = [];
@@ -937,13 +973,19 @@
                     status.classList.remove('error');
                     return;
                 }
+                var fileEdit = toFileEdit(edit);
+                if (!fileEdit) {
+                    status.textContent = 'These lines hold converted line breaks: turn CR/LF off to edit them.';
+                    status.classList.add('error');
+                    return;
+                }
                 var id = nextEditId++;
                 pendingSaves[id] = { close: close, status: status, edit: edit };
                 status.textContent = 'Saving…';
                 restoreScrollTop = contentArea.scrollTop;
                 vscode.postMessage({
                     type: 'applyEdit', editId: id, filePath: currentFilePath,
-                    startLine: edit.startLine, endLine: edit.endLine, expected: edit.expected, replacement: edit.replacement,
+                    startLine: fileEdit.startLine, endLine: fileEdit.endLine, expected: fileEdit.expected, replacement: fileEdit.replacement,
                 });
             });
         }
@@ -963,16 +1005,16 @@
         // keeps working after an edit elsewhere moved its lines.
         function decorateWrappers(wrappers, blocks) {
             if (editModeBtn) {
-                editModeBtn.title = crlfMode && editMode ? 'Edit mode (turn CR/LF off to edit)' : 'Edit mode: edit or extend paragraphs in place';
+                editModeBtn.title = 'Edit mode: edit or extend paragraphs in place';
             }
-            if (crlfMode || !shownText) { return; }
+            if (!shownText) { return; }
             for (var w = 0; w < wrappers.length; w++) {
                 decorateWrapper(wrappers[w], blocks[w]);
             }
         }
 
         function decorateWrapper(wrapper, block) {
-            if (!block) { return; }
+            if (!block || !blockEditable(block)) { return; }
             markFormField(wrapper, block);
             if (block.comment) {
                 wrapper.classList.add('mdb-comment-block');
@@ -1015,7 +1057,7 @@
 
         /** A block inside a form's fields offers no comment. */
         function markFormField(wrapper, block) {
-            var inFields = !!somComments && !block.comment && mdbInRanges(somComments.formFieldRanges, block.startLine);
+            var inFields = !!somComments && !block.comment && mdbInRanges(somComments.formFieldRanges, fileLine(block.startLine));
             wrapper.classList.toggle('mdb-no-comment', inFields);
         }
 
@@ -1088,7 +1130,7 @@
             var actions = btn.parentNode;
             var wrapper = actions && actions.parentNode;
             var block = wrapper && wrapper.__mdbBlock;
-            if (!block || crlfMode) { return; }
+            if (!block || !blockEditable(block)) { return; }
             if (btn.classList.contains('mdb-comment-btn')) {
                 addComment(actions, wrapper, block);
                 return;
@@ -1200,22 +1242,24 @@
         // ---- Reviewing marks, comments and the whole document ----
         /** Post an edit that needs no editor (a one-click action); the host reports a failure itself. */
         function postEdit(edit) {
+            var fileEdit = toFileEdit(edit);
+            if (!fileEdit) { return; }
             var id = nextEditId++;
             pendingSaves[id] = { close: function() {}, status: document.createElement('div'), edit: edit };
             restoreScrollTop = contentArea.scrollTop;
             vscode.postMessage({
                 type: 'applyEdit', editId: id, filePath: currentFilePath, notifyOnError: true,
-                startLine: edit.startLine, endLine: edit.endLine, expected: edit.expected, replacement: edit.replacement,
+                startLine: fileEdit.startLine, endLine: fileEdit.endLine, expected: fileEdit.expected, replacement: fileEdit.replacement,
             });
         }
 
         /** Accept, reject or remove one mark: the host decides it with the TomSpecs runtime (annot4). */
         function decideReviewMark(btn) {
-            if (crlfMode) { return; }
             var span = btn.closest('.mdb-rm');
             var wrapper = span && span.closest('.mdb-block');
             var block = wrapper && wrapper.__mdbBlock;
-            if (!block) { return; }
+            var range = block && mapRange(block.startLine, block.endLine);
+            if (!range) { return; }
             var raw = span.dataset.raw;
             var occurrence = 0;
             var all = wrapper.querySelectorAll('.mdb-rm');
@@ -1224,7 +1268,7 @@
             restoreScrollTop = contentArea.scrollTop;
             vscode.postMessage({
                 type: 'reviewMark', filePath: currentFilePath,
-                startLine: block.startLine, endLine: block.endLine,
+                startLine: range.start, endLine: range.end,
                 expected: shownLines().slice(block.startLine, block.endLine).join('\n'),
                 markup: raw, occurrence: occurrence, decision: decision,
             });
@@ -1232,7 +1276,6 @@
 
         /** Remove a comment block, and the blank line around it, with one click. */
         function removeCommentBlock(block) {
-            if (crlfMode) { return; }
             var lines = shownLines();
             var comment = mdbCommentAt(lines, block.startLine);
             if (!comment) { return; }
@@ -1242,7 +1285,7 @@
         }
 
         function reviewAll(decision) {
-            if (!currentFilePath || crlfMode) { return; }
+            if (!currentFilePath) { return; }
             restoreScrollTop = contentArea.scrollTop;
             vscode.postMessage({ type: 'reviewAllChanges', filePath: currentFilePath, decision: decision });
         }
@@ -1915,6 +1958,7 @@
                 }
                 // The backend is authoritative for CR/LF state; sync the
                 // local flag + button so a reload/restore renders correctly.
+                lineMap = Array.isArray(msg.lineMap) ? msg.lineMap : null;
                 if (typeof msg.crlf === 'boolean') {
                     crlfMode = msg.crlf;
                     if (crlfBtn) crlfBtn.classList.toggle('active', crlfMode);

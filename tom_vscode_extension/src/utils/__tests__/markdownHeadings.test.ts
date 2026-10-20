@@ -23,6 +23,7 @@ import assert from 'node:assert/strict';
 import {
     parseHeadingLine,
     convertLineBreaks,
+    crlfLineMap,
     transformMarkdown,
 } from '../markdownHeadings.js';
 
@@ -174,5 +175,21 @@ describe('transformMarkdown', () => {
     it('html-escapes ids in the badge and attributes', () => {
         const out = transformMarkdown('# <!--[A&<B]--> Title');
         assert.match(out, /A&amp;&lt;B/);
+    });
+});
+
+describe('crlfLineMap', () => {
+    it('is null when the conversion keeps every line (CRLF endings included)', () => {
+        assert.equal(crlfLineMap('a\nb\n\nc'), null);
+        assert.equal(crlfLineMap('a\r\nb\r\n'), null);
+    });
+
+    it('maps every shown line to its file line; lines a conversion split or changed map to -1', () => {
+        const raw = ['# T', '', 'plain', 'json: "x\\ny"', 'after', 'cr\rinside', 'end'].join('\n');
+        const shown = convertLineBreaks(raw).split('\n');
+        const map = crlfLineMap(raw)!;
+        assert.equal(map.length, shown.length, 'one entry per shown line');
+        assert.deepEqual(map, [0, 1, 2, -1, -1, 4, -1, -1, 6]);
+        assert.equal(shown[5], 'after', 'the line after a split one is still its file line');
     });
 });

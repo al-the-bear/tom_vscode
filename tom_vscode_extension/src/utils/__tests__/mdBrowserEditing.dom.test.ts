@@ -10,7 +10,7 @@
  *   MD-5  edit opens the block's source with the blank line before it and sends the
  *         text as typed (removing that newline merges); insert appends to the block
  *   MD-6  a refresh of the same file is held while an editor is open, applied when it closes
- *   MD-7  with CR/LF on there are no editing controls
+ *   MD-7  with CR/LF on and nothing converted (no line map) every control is there, as with it off
  *   MD-8  GFM: a table renders as a table (marked's defaults are kept)
  *   MD-9  a save patches the shown document in place; the file's refresh with the same text renders nothing
  *   MD-10 a refresh with unchanged text keeps the rendered nodes
@@ -27,6 +27,8 @@
  *         navigation pair steps through changes, comments, inline comments, questions or unanswered questions
  *         (the mode picked in the action bar), and on an unanswered question opens its answer prefilled with
  *         the recommended option; the answer button prefills it too, and its options popup answers with one click
+ *   MD-15 CR/LF on: blocks whose lines are file lines keep their edit, comment and answer buttons and post
+ *         file line numbers (the host's line map); a block holding converted line breaks gets none
  *   MD-12c a SOM document: the host's next comment number is used when higher; blocks in a form's
  *         fields offer no comment (comments go into the preamble); stale ranges (another text) are ignored
  */
@@ -157,12 +159,12 @@ describe('Markdown Browser editing', () => {
         assert.ok(window.document.getElementById('contentArea').textContent.includes('Added elsewhere'), 'applied once closed');
     });
 
-    test('MD-7: no controls with CR/LF on', () => {
+    test('MD-7: CR/LF on, nothing converted', () => {
         const { window } = setup();
         window.document.getElementById('editModeBtn').click();
-        send(window, content(DOC, { crlf: true }));
-        assert.equal($(window, '.mdb-answer-btn').length, 0);
-        assert.equal($(window, '.mdb-block-actions').length, 0);
+        send(window, content(DOC, { crlf: true, lineMap: null }));
+        assert.equal($(window, '.mdb-answer-btn').length, 1, 'the shown lines are the file\'s lines');
+        assert.ok($(window, '.mdb-block-actions').length > 0);
     });
 
     test('MD-8: GFM tables', () => {
@@ -411,6 +413,26 @@ describe('Markdown Browser editing', () => {
         const answered = $(window, '.mdb-answer-btn')[1];
         answered.click();
         assert.equal($(window, '.mdb-editor textarea')[0].value, '(a)', 'an answered question opens with its answer');
+    });
+
+    test('MD-15: editing with CR/LF on', () => {
+        const { window, posted } = setup();
+        // File: 0 '# T', 1 '', 2 'json: "a\\nb"', 3 '', 4 'Plain para.', 5 '', 6 '**Answer:**'
+        // Shown (converted): the escaped break splits line 2 into two shown lines.
+        const shown = ['# T', '', 'json: "a', 'b"', '', 'Plain para.', '', '**Answer:**'].join('\n');
+        send(window, content(shown, { crlf: true, lineMap: [0, 1, -1, -1, 3, 4, 5, 6] }));
+        window.document.getElementById('editModeBtn').click();
+        const block = (needle: string): Win => $(window, '.mdb-block').find((b: Win) => b.textContent.includes(needle));
+        assert.equal(block('json:').querySelectorAll('.mdb-edit-btn').length, 0, 'converted line breaks: no edit');
+        assert.equal(block('Plain para.').querySelectorAll('.mdb-edit-btn').length, 1, 'a block of file lines keeps its buttons');
+        assert.equal($(window, '.mdb-answer-btn').length, 1, 'answers too');
+        block('Plain para.').querySelector('.mdb-insert-btn').click();
+        const area = $(window, '.mdb-editor textarea')[0];
+        area.value = ' More.';
+        $(window, '.mdb-editor-btn')[0].click();
+        const edit = lastEdit(posted);
+        assert.deepEqual([edit.startLine, edit.endLine, edit.expected], [4, 5, 'Plain para.'], 'file lines, not shown lines');
+        assert.match(String(edit.replacement), /^Plain para\. ?More\.$/);
     });
 
     test('MD-13: inline review marks', () => {

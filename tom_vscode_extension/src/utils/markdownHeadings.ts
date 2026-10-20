@@ -81,6 +81,29 @@ export function convertLineBreaks(text: string): string {
         .replace(/\r/g, '\n');
 }
 
+/**
+ * Where each line {@link convertLineBreaks} shows comes from in the file: the
+ * file line's index (lines split as the editor splits them, at `\n` / `\r\n`),
+ * or -1 for a line the conversion made by splitting or changing a file line
+ * (an escaped break, a bare CR). `null` when every file line is shown as it
+ * is — then the shown lines are the file's lines. The Markdown Browser edits a
+ * block with CR/LF on only when all its lines map to consecutive file lines.
+ */
+export function crlfLineMap(raw: string): number[] | null {
+    const map: number[] = [];
+    let moved = false;
+    raw.split(/\r?\n/).forEach((line, index) => {
+        const converted = convertLineBreaks(line);
+        if (converted === line) {
+            map.push(index);
+            return;
+        }
+        moved = true;
+        for (let i = converted.split('\n').length; i > 0; i--) { map.push(-1); }
+    });
+    return moved ? map : null;
+}
+
 function escapeHtml(s: string): string {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

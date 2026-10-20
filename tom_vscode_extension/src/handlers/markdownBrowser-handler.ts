@@ -51,7 +51,7 @@ function somCommentsClient(): SomCommentsWorkerClient {
 /** How the OS user is written as a comment author: the first name of the account's full name. */
 const COMMENT_AUTHOR_FORM: CommentAuthorForm = 'first';
 import { readMediaText } from '../utils/webviewLoader.js';
-import { transformMarkdown } from '../utils/markdownHeadings.js';
+import { crlfLineMap, transformMarkdown } from '../utils/markdownHeadings.js';
 import { applyMdLineEdit } from '../utils/markdownBrowserEdits.js';
 
 // ============================================================================
@@ -255,9 +255,6 @@ class MdBrowserPanel {
         if (!current || !fs.existsSync(current.filePath) || filePath !== current.filePath) {
             return { error: 'The document shown here is no longer the current file. Reload it.' };
         }
-        if (this._crlfMode) {
-            return { error: 'Turn CR/LF off to edit: with it on, the shown lines are not the file\'s lines.' };
-        }
         const open = vscode.workspace.textDocuments.find((d) => d.uri.scheme === 'file' && path.resolve(d.uri.fsPath) === path.resolve(current.filePath));
         if (open?.isDirty) {
             return { error: `${path.basename(current.filePath)} has unsaved changes in an editor. Save or revert them first.` };
@@ -285,7 +282,7 @@ class MdBrowserPanel {
      * text this was read from.
      */
     private _sendSomComments(absPath: string, raw: string, contentLength: number): void {
-        if (this._crlfMode || !absPath.toLowerCase().endsWith('.md')) { return; }
+        if (!absPath.toLowerCase().endsWith('.md')) { return; }
         const post = (context: SomCommentContext): void => {
             void this._panel.webview.postMessage({ type: 'somComments', filePath: absPath, contentLength, ...context });
         };
@@ -330,6 +327,9 @@ class MdBrowserPanel {
                 // breaks (marked `breaks`), so real newlines in the file show as
                 // line breaks without disturbing list/block structure.
                 crlf: this._crlfMode,
+                // With CR/LF on: where each shown line is in the file (null when they are
+                // the file's lines), so a block of file lines can still be edited.
+                lineMap: this._crlfMode ? crlfLineMap(raw) : null,
             });
             this._sendSomComments(absPath, raw, content.length);
         } catch (err) {
