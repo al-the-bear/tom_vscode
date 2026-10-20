@@ -10,6 +10,8 @@
  * to fix in the form the edit tools take.
  */
 
+import { SpecReviewAnnotations } from 'tom_som_typescript_runtime';
+
 import { SharedToolDefinition } from './shared-tool-registry';
 import {
     FILE_PARAM,
@@ -40,6 +42,8 @@ export interface SpecValidateInput {
 export interface SpecRenderInput {
     file: string;
     path?: string;
+    /** Render as the document reads with every mark accepted and every comment and question removed. */
+    withoutAnnotations?: boolean;
 }
 
 export interface SpecConvertInput {
@@ -71,16 +75,19 @@ export async function specValidateImpl(deps: SpecToolDeps, input: SpecValidateIn
 export async function specRenderImpl(deps: SpecToolDeps, input: SpecRenderInput): Promise<string> {
     try {
         const loaded = loadDocument(deps, input.file);
+        // Without annotations: the runtime's stripped copy; the document itself is unchanged.
+        const document = input.withoutAnnotations ? new SpecReviewAnnotations(loaded.document).stripped() : loaded.document;
         // Rendered as the document stands, so the header keeps the document's own model version.
-        let markdown = deps.store.render({ ...loaded, format: 'markdown' }, { stamp: loaded.stamp });
+        let markdown = deps.store.render({ ...loaded, format: 'markdown', document }, { stamp: loaded.stamp });
         if (input.path) {
-            new SomSpecInspector(deps.service, loaded.document).resolve(input.path);
-            markdown = deps.store.render({ ...loaded, format: 'markdown', document: subtreeOf(loaded.document, input.path) }, { stamp: loaded.stamp });
+            new SomSpecInspector(deps.service, document).resolve(input.path);
+            markdown = deps.store.render({ ...loaded, format: 'markdown', document: subtreeOf(document, input.path) }, { stamp: loaded.stamp });
         }
         return json({
             ok: true,
             document: documentHeader(deps, loaded),
             ...(input.path ? { path: input.path } : {}),
+            ...(input.withoutAnnotations ? { withoutAnnotations: true } : {}),
             lines: markdown.split('\n').length,
             markdown,
         });
@@ -156,6 +163,8 @@ export const SPEC_RENDER_TOOL: SharedToolDefinition<SpecRenderInput> = {
     description:
         'A TomSpecs document as the DocSpecs Markdown a reader sees — how to read a YAML-stored spec as prose. With '
         + '`path`, only that subtree, under its ancestors\' headings. The header keeps the document\'s own model version. '
+        + '`withoutAnnotations`: as the document reads once reviewed — every inline mark accepted, every comment and '
+        + 'question block removed (the runtime\'s SpecReviewAnnotations.stripped; tomAi_specAnnotations lists them). '
         + 'Answers `{document, markdown, lines}`. Writes nothing; tomAi_specConvert writes a file.' + FIRST_LOOK,
     tags: ['tomspecs', 'som', 'docspecs', 'tom-ai-chat'],
     readOnly: true,
@@ -164,6 +173,7 @@ export const SPEC_RENDER_TOOL: SharedToolDefinition<SpecRenderInput> = {
         properties: {
             file: FILE_PARAM,
             path: { type: 'string', description: `Render only this subtree. ${PATH_PARAM_HINT}` },
+            withoutAnnotations: { type: 'boolean', description: 'Render with every mark accepted and every comment and question removed. Default false.' },
         },
         required: ['file'],
     },

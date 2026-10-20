@@ -197,6 +197,7 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_specSearchIterate',
     'tomAi_specValidate',
     'tomAi_specRender',
+    'tomAi_specAnnotations',
     // CodeSpecs (Phase 4: spec → code-generation inputs)
     'tomAi_specCodeSpecsAreas',
     'tomAi_specCodeSpecsRouting',
@@ -230,6 +231,14 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_specSetItemSectionId',
     'tomAi_specApplyEdits',
     'tomAi_specConvert',
+    // TomSpecs review annotations — write tools, approval-gated
+    'tomAi_specInsertComment',
+    'tomAi_specInsertQuestion',
+    'tomAi_specSetAnswer',
+    'tomAi_specEditComment',
+    'tomAi_specAssignCommentIds',
+    'tomAi_specResolveAnnotation',
+    'tomAi_specDecideMarks',
     // Queue + timed requests — observation and sessions
     'tomAi_listQueue',
     'tomAi_listSessions',

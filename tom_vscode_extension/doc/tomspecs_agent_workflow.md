@@ -53,6 +53,46 @@ Take them from the outline; do not compose them.
    subtree, gives the DocSpecs Markdown. `tomAi_specConvert` writes the other
    format.
 
+## Work with review annotations
+
+Questions, reviewer comments and inline change marks are text inside content
+values (SOM §11.9). Read and change them with these tools, never by editing the
+Markdown by hand: the runtime keeps every byte outside the annotation as it was.
+
+1. **See what is open.** `tomAi_specAnnotations` on the file (or with `path` for
+   a subtree): the comments with the paragraph each one follows, the questions
+   with their options, recommended option and answer (`openOnly: true` for the
+   unanswered ones), the inline marks `M-1`, `M-2`, … and the `marksRevision`.
+2. **Answer and ask.** `tomAi_specSetAnswer` writes an answer (`(b) because …`).
+   `tomAi_specInsertQuestion` asks a new question — directly after a comment
+   (`afterComment: "C-12"`) to ask about it, or after a paragraph — with options
+   `(a) …`, `(b) …` and the `recommended` letter, which is written bold.
+   `tomAi_specInsertComment` adds a comment after a paragraph (paragraphs are the
+   blank-line separated blocks of the value, from 0); `tomAi_specEditComment`
+   changes one; `tomAi_specAssignCommentIds` numbers the comments a reviewer
+   wrote without an id.
+3. **Apply and close.** Once an answer or a comment has been worked into the
+   document, `tomAi_specResolveAnnotation` removes it. Change marks are decided
+   with `tomAi_specDecideMarks`: by id at the `marksRevision` from step 1, or
+   `all: "accept"` under a path.
+4. **Read the result.** `tomAi_specRender` with `withoutAnnotations: true`
+   shows the document as it reads once every mark is accepted and every comment
+   and question removed; the file is not changed.
+
+Several of these in one write: `tomAi_specApplyEdits` takes them as ops of the
+same names, e.g.
+
+```json
+{
+  "file": "specs/meridian.docspecs.yaml",
+  "edits": [
+    { "op": "setAnswer", "questionId": "BQ-01", "answer": "(b)" },
+    { "op": "resolveAnnotation", "id": "C-3" },
+    { "op": "decideMarks", "all": "accept", "path": "SBP/introductionAndScope" }
+  ]
+}
+```
+
 Plain DocSpecs Markdown that is not a SOM document (a file with a
 `<!-- docspec: … -->` header) has its own four tools: `tomAi_docspecsOutline`,
 `tomAi_docspecsGetSection`, `tomAi_docspecsReplaceSection` and

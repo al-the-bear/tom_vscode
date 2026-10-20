@@ -405,7 +405,8 @@ document, a list item resolves only when the list holds it.
 | `tomAi_specSearch` | Query one document (runtime `SpecQueryEngine`): text or portable pattern, kinds, class, `@SectionId`, path glob, `@MapsTo` / `@DetailedIn`, empty / non-empty, AND-combined. First page + cursor. | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_specSearchIterate` | The next page of a search cursor; re-runs the query when the file changed since. | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_specValidate` | Is it valid now? The three tiers of tom_specs' `validate_spec` CLI (decode, DocSpecs schema, instance) in its report shape, each finding with the `path` to fix. `files` validates fragments of one document as one; `path` scopes the findings. | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_specRender` | The document, or one subtree, as the DocSpecs Markdown a reader sees. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_specRender` | The document, or one subtree, as the DocSpecs Markdown a reader sees; `withoutAnnotations` renders it as it reads once reviewed (every inline mark accepted, every comment and question removed). | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_specAnnotations` | The review annotations (SOM §11.9) of the document or a subtree: comments (id, author, text, the paragraph they follow), questions (topic, options, recommended, answer, open), inline marks (`M-<n>`, old / new text), with counts, the `marksRevision` and the runtime's annotation findings. | ✅ | ✅ | ⚪ | ✅ | ✅ |
 
 **Validation.** `tomAi_specValidate` answers in the report shape of tom_specs'
 `validate_spec --json` (`spec-validation`/1): `{passed, summary, root {type,
@@ -442,6 +443,28 @@ nothing. Each call loads, edits and saves the file in its own format. It takes
 | `tomAi_specClearSection` | Remove every value under a path. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_specConvert` | Write the other format (`*.docspecs.yaml` ↔ `*.md`) beside or over the source. Refuses unfaithful Markdown; a YAML source's review entries need `dropReview`, since Markdown has none. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_specApplyEdits` | **The preferred way to make more than one change:** up to 200 of the edits above (`{op, …}`), in order, on one document. One approval, one write, one undo step, all or nothing. `addNode` can bind `as: "req"` for later `$req/…` paths; a move re-points bound names and refuses a stale literal path. The approval prompt shows the op counts and paths. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+
+**Review annotations.** Questions, reviewer comments and inline marks live in
+content and form-field values (SOM §11.9): `> ⬆️ **C-12** (author): text`,
+`> **❓ BQ-81 — topic:** …` with options and `> **Answer:**`, and the CriticMarkup
+marks `{++…++}`, `{--…--}`, `{~~old~>new~~}`, `{==…==}{>>…<<}`, `{>>…<<}`. These
+tools read and edit them through the runtime's `SpecReviewAnnotations`, never by
+parsing the Markdown, in YAML and Markdown documents alike. The writers share the
+edit cycle above (revision, dry run with diff, validation) and are batch ops of
+`tomAi_specApplyEdits` under the same names (`insertComment`, `insertQuestion`,
+`setAnswer`, `editComment`, `assignCommentIds`, `resolveAnnotation`,
+`decideMarks`). Paragraphs are the blank-line separated blocks of a value,
+counted from 0 (-1: the start).
+
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
+| --- | --- | :-: | :-: | :-: | :-: | :-: |
+| `tomAi_specInsertComment` | A comment block after a paragraph of a value; the next free `C-<n>` unless `id` is given. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_specInsertQuestion` | A question block directly after a comment (`afterComment`) or after a paragraph; the recommended option bold. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_specSetAnswer` | Write a question's answer after `**Answer:**`; `""` reopens it. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_specEditComment` | Replace a comment's text; id and author stay. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_specAssignCommentIds` | Give every comment without an id the next free one; answers them as `assigned`. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_specResolveAnnotation` | Remove one comment or question by id once it has been applied (a qualified `SBP C-12` too). | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_specDecideMarks` | Accept / reject / leave marks by `M-<n>` id at a `marksRevision` (a stale one is refused), or `all` under a path. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 
 Every edit answers `{ok, written, revision, …, validation}`. `validation` compares
 the runtime's `validateDocument` before and after the edit across the whole

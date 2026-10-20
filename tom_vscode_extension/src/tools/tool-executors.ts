@@ -1529,6 +1529,7 @@ import { QUEST_PROCESS_TOOLS } from './quest-process-tools';
 import { SPEC_TOOLS } from './spec-tools';
 import { SPEC_SEARCH_TOOLS } from './spec-search-tools';
 import { SPEC_EDIT_TOOLS } from './spec-edit-tools';
+import { SPEC_ANNOTATION_TOOLS } from './spec-annotation-tools';
 import { SPEC_VALIDATE_TOOLS } from './spec-validate-tools';
 import { DOCSPECS_TOOLS } from './docspecs-tools';
 import { CODESPECS_TOOLS } from './codespecs-tools';
@@ -1613,6 +1614,7 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
     ...SPEC_SEARCH_TOOLS,         // TomSpecs (SOM): specSearch, specSearchIterate (paged cursor)
     ...SPEC_VALIDATE_TOOLS,       // TomSpecs (SOM): specValidate, specRender (read-only), specConvert (approval)
     ...SPEC_EDIT_TOOLS,           // TomSpecs (SOM) edits, approval-gated: create, set content/form/headline/codeSpec, add, rename id, move, remove, clear
+    ...SPEC_ANNOTATION_TOOLS,     // TomSpecs review annotations: list (read-only); comments, questions, answers, marks (approval-gated)
     ...CODESPECS_TOOLS,           // CodeSpecs (Phase 4): areas, routing, extract (read-only), write extracts (approval)
     ...CODESPECS_GATE_TOOLS,      // CodeSpecs Stage A/B: gate A1–A5 and the gate record (read-only), set a verdict (approval)
     ...CODESPECS_TRACE_TOOLS,     // CodeSpecs query extracts, trace spec ↔ code by back-link token (read-only)

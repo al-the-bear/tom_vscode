@@ -142,8 +142,9 @@ describe('spec tools over MCP', () => {
 
     test('SM-3: unauthenticated, the readers only', async () => {
         const served = new Set(anon.served);
+        assert.ok(served.has('tomAi_specAnnotations'), 'the annotation reader is served');
         for (const name of authed.served.filter((n) => SPEC.test(n))) {
-            const isReader = !['Set', 'Add', 'Apply', 'Clear', 'Convert', 'Create', 'Move', 'Remove', 'Write', 'Plan', 'Replace']
+            const isReader = !['Set', 'Add', 'Apply', 'Clear', 'Convert', 'Create', 'Move', 'Remove', 'Write', 'Plan', 'Replace', 'Insert', 'Edit', 'Assign', 'Resolve', 'Decide']
                 .some((verb) => name.includes(verb));
             assert.equal(served.has(name), isReader, `${name} ${isReader ? 'missing from' : 'leaked into'} the read-only floor`);
         }

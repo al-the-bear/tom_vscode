@@ -66,6 +66,8 @@ import {
     type SpecEditOptions,
 } from './spec-edit-core';
 
+import { ANNOTATION_BATCH_OPS } from './spec-annotation-tools';
+
 export { SpecEditRefusal, type SpecEditOptions, type OpInput } from './spec-edit-core';
 
 // ---------------------------------------------------------------------------
@@ -461,6 +463,8 @@ const BATCH_OPS: Record<string, (deps: SpecToolDeps, ctx: EditContext, input: ne
     moveListItem: opMoveListItem,
     removeListItem: opRemoveListItem,
     clearSection: opClearSection,
+    // Review annotations (spec-annotation-tools.ts).
+    ...ANNOTATION_BATCH_OPS,
 };
 
 /** The fields of an entry that hold a document path, and so may use `$name`. */
@@ -616,7 +620,11 @@ export const SPEC_APPLY_EDITS_TOOL: SharedToolDefinition<SpecApplyEditsInput> = 
         + `of up to ${MAX_BATCH_EDITS} entries, each \`{op, …}\` with the same arguments as the single tool, minus \`file\`: `
         + 'setContent {path, text}, setFormField {path, field, value}, setHeadline {path, headline}, setCodeSpec {path, '
         + 'codeSpec}, addNode {parentPath, childSegment, itemId?, month?, day?, content?, fields?, as?}, setItemSectionId '
-        + '{itemPath, sectionId}, moveListItem {itemPath, toIndex, toList?}, removeListItem {itemPath}, clearSection {path}. '
+        + '{itemPath, sectionId}, moveListItem {itemPath, toIndex, toList?}, removeListItem {itemPath}, clearSection {path}; '
+        + 'and the review annotations: insertComment {path, field?, afterParagraph, text, author?, id?}, insertQuestion '
+        + '{question, afterComment? | path + afterParagraph}, setAnswer {questionId, answer}, editComment {commentId, text}, '
+        + 'assignCommentIds {floor?}, resolveAnnotation {id}, decideMarks {decisions + marksRevision? | all + path?} (mark ids '
+        + 'are those of the document as the entry finds it). '
         + 'addNode can bind its new path with `as: "req"`; later entries write `$req` or `$req/FRED` in path, parentPath, '
         + 'itemPath or toList, so an item can be added and filled without knowing its generated id. A move re-points '
         + 'bound names; a later entry that names a path a move changed is refused (`stalePath`) with the new path. '

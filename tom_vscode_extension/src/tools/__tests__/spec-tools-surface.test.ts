@@ -28,14 +28,21 @@ const WRITERS = [
     'tomAi_docspecsReplaceSection',
     'tomAi_specAddNode',
     'tomAi_specApplyEdits',
+    'tomAi_specAssignCommentIds',
     'tomAi_specClearSection',
     'tomAi_specCodeSpecsPlanTodos',
     'tomAi_specCodeSpecsSetVerdict',
     'tomAi_specCodeSpecsWriteExtracts',
     'tomAi_specConvert',
     'tomAi_specCreateDocument',
+    'tomAi_specDecideMarks',
+    'tomAi_specEditComment',
+    'tomAi_specInsertComment',
+    'tomAi_specInsertQuestion',
     'tomAi_specMoveListItem',
     'tomAi_specRemoveListItem',
+    'tomAi_specResolveAnnotation',
+    'tomAi_specSetAnswer',
     'tomAi_specSetCodeSpec',
     'tomAi_specSetContent',
     'tomAi_specSetFormField',
@@ -58,7 +65,7 @@ const COUNTERPARTS: Array<[string, string[]]> = [
 
 describe('the spec tools as a set', () => {
     test('SS-1: registered, selectable, grouped in the pickers', () => {
-        assert.equal(specTools.length, 38);
+        assert.equal(specTools.length, 46);
         const categories = ['TomSpecs', 'TomSpecs (edit)', 'DocSpecs', 'CodeSpecs'];
         for (const t of specTools) {
             assert.ok((AVAILABLE_LLM_TOOLS as readonly string[]).includes(t.name), `${t.name} is not selectable`);
@@ -97,7 +104,7 @@ describe('the spec tools as a set', () => {
             }
         }
         const singleEdits = somTools.filter((t) => !t.readOnly && !['tomAi_specApplyEdits', 'tomAi_specCreateDocument', 'tomAi_specConvert'].includes(t.name));
-        assert.equal(singleEdits.length, 9);
+        assert.equal(singleEdits.length, 16);
         for (const t of singleEdits) {
             assert.match(t.description, /tomAi_specApplyEdits/, `${t.name}: does not point to the batch for more than one change`);
         }
