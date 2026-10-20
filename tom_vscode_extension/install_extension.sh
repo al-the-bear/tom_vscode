@@ -316,7 +316,9 @@ fi
 # Package as VSIX
 echo ""
 echo "📦 Packaging extension as VSIX..."
-$VSCE_CMD package --allow-missing-repository --skip-license --baseContentUrl https://github.com/al-the-bear/tom/blob/main/tom_vscode_extension
+# The README's relative links are rewritten against the package's folder in its
+# repository (package.json `repository`; vsce itself would drop the folder).
+$VSCE_CMD package --skip-license --baseContentUrl "$(node scripts/vsix-base-url.cjs content)" --baseImagesUrl "$(node scripts/vsix-base-url.cjs images)"
 
 if [ $? -eq 0 ]; then
     # Find the generated VSIX file

@@ -4,6 +4,11 @@
   "description": "AI-powered workspace automation with Copilot, Local LLM, and AI Chat integration",
   "version": "0.1.0",
   "publisher": "peter-nicolai-alexis-kyaw",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/al-the-bear/tom_vscode.git",
+    "directory": "tom_vscode_extension"
+  },
   "engines": {
     "vscode": "^1.96.0"
   },

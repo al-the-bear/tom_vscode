@@ -380,7 +380,11 @@ if ($CodeCli) {
         }
         Write-Host ""
 
-        Invoke-Native { cmd /c vsce package --allow-missing-repository --skip-license --baseContentUrl https://github.com/al-the-bear/tom/blob/main/tom_dartscript_extension }
+        # The README's relative links are rewritten against the package's folder in
+        # its repository (package.json `repository`; vsce itself drops the folder).
+        $BaseContentUrl = Invoke-Native { node scripts/vsix-base-url.cjs content }
+        $BaseImagesUrl = Invoke-Native { node scripts/vsix-base-url.cjs images }
+        Invoke-Native { cmd /c vsce package --skip-license --baseContentUrl $BaseContentUrl --baseImagesUrl $BaseImagesUrl }
         
         if ($LASTEXITCODE -eq 0) {
             # Find the generated VSIX file

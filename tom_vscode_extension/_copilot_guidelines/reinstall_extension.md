@@ -40,6 +40,13 @@ tool reporting the binary missing. After packaging,
 `node scripts/check-vsix-contents.cjs` confirms that the VSIX carries the SOM
 packages as real files and the host's `validate_codespecs`.
 
+`vsce package` rewrites the README's relative links into absolute ones for the
+extension's details page. Every installer passes the base URLs from
+`node scripts/vsix-base-url.cjs content|images`, which reads package.json's
+`repository` (the tom_vscode repo, folder `tom_vscode_extension`, branch
+`main`). vsce's own guess from that field would drop the folder, so the URLs are
+never hard-coded in a script and never left to vsce (VB-1 – VB-3).
+
 ## When required
 
 - Changes to `package.json` contributions (commands, menus, keybindings, custom editors, activation events).
