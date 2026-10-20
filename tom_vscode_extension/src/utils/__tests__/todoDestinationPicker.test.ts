@@ -7,12 +7,19 @@
  *   DP-4  a workspace todo: another quest only
  *   DP-5  todos of several quests: the workspace and another quest, no single "quest todos"
  *   DP-6  a workspace-relative path tells its quest and file
+ *   DP-7  the prefix of an id is the panel's group key: everything before the first digit
+ *   DP-8  the prefix choices for a target quest: its groups (largest first) with their next free number,
+ *         then "keep the ids"; a quest without groups offers only "keep", to be confirmed
+ *   DP-9  renaming: the moved todos get the chosen prefix and consecutive numbers after the group's
+ *         highest, each keeping the tail after its number; an id without a number keeps itself as tail;
+ *         a number the target already has is skipped; "keep" renames nothing
+ *   DP-10 the id choice is asked only when a moved todo enters a quest it is not in
  */
 
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { todoMoveOptions, todoMovePickerTitle, todoOriginOfRelativePath } from '../todoDestinationPicker.js';
+import { todoIdPrefix, todoMoveOptions, todoMovePickerTitle, todoOriginOfRelativePath, todoMoveNeedsIdChoice, todoPrefixChoices, todoRenames } from '../todoDestinationPicker.js';
 
 const kinds = (origins: Parameters<typeof todoMoveOptions>[0]): string[] =>
     todoMoveOptions(origins).map((o) => (o.choice.kind === 'quest' ? `quest:${o.choice.questId}` : o.choice.kind));
@@ -53,5 +60,48 @@ describe('todo destination picker', () => {
         assert.deepEqual(todoOriginOfRelativePath('_ai/quests/q/session-todo.mbp.q.todo.yaml'), { questId: 'q', inQuestMainFile: false, inWorkspaceFile: false });
         assert.deepEqual(todoOriginOfRelativePath('workspace.todo.yaml'), { inQuestMainFile: false, inWorkspaceFile: true });
         assert.deepEqual(todoOriginOfRelativePath('tom_ai/x/notes.todo.yaml'), { inQuestMainFile: false, inWorkspaceFile: false });
+    });
+
+    test('DP-7: the prefix of an id', () => {
+        assert.equal(todoIdPrefix('vscimpa11_ajtf-md-browser'), 'vscimpa');
+        assert.equal(todoIdPrefix('qr-4'), 'qr-');
+        assert.equal(todoIdPrefix('nonumber'), '');
+        assert.equal(todoIdPrefix('7up'), '');
+    });
+
+    test('DP-8: the prefix choices of a target quest', () => {
+        const target = ['annot1_ajsq-a', 'annot7_ajtl-b', 'uamtc9_ajmv-c', 'annot4_ajtf-d', 'loose'];
+        const choices = todoPrefixChoices(target);
+        assert.deepEqual(choices.options.map((o) => [o.prefix, o.next, o.count]), [['annot', 8, 3], ['uamtc', 10, 1], [null, null, 0]]);
+        assert.equal(choices.options[2].label, 'Keep the ids as they are');
+        assert.equal(choices.confirmKeep, false);
+        const empty = todoPrefixChoices(['loose', 'other']);
+        assert.deepEqual(empty.options.map((o) => o.prefix), [null], 'no groups: only keep');
+        assert.equal(empty.confirmKeep, true, 'and it is to be confirmed');
+        assert.equal(todoPrefixChoices([]).confirmKeep, true);
+    });
+
+    test('DP-9: renaming', () => {
+        const target = ['annot1_ajsq-a', 'annot7_ajtl-b', 'annot9_ajtl-c'];
+        const renames = todoRenames(['vscannot3_ajtf-tools', 'vscannot4_ajtl-browser', 'qrd2', 'plain'], target, 'annot');
+        assert.deepEqual([...renames], [
+            ['vscannot3_ajtf-tools', 'annot10_ajtf-tools'],
+            ['vscannot4_ajtl-browser', 'annot11_ajtl-browser'],
+            ['qrd2', 'annot12'],
+            ['plain', 'annot13-plain'],
+        ]);
+        assert.deepEqual([...todoRenames(['x1_a'], ['annot2_q', 'annot3_q'], 'annot')], [['x1_a', 'annot4_a']]);
+        assert.deepEqual([...todoRenames(['x1_a'], [], 'qrf')], [['x1_a', 'qrf1_a']], 'a new prefix starts at 1');
+        assert.equal(todoRenames(['x1_a'], target, null).size, 0, 'keep: nothing renamed');
+    });
+
+    test('DP-10: the id choice is asked only when a todo enters another quest', () => {
+        const fromA = todoOriginOfRelativePath('_ai/quests/qa/todos.qa.todo.yaml');
+        const fromWs = todoOriginOfRelativePath('workspace.todo.yaml');
+        assert.equal(todoMoveNeedsIdChoice([fromA], { kind: 'quest', questId: 'qb' }), true);
+        assert.equal(todoMoveNeedsIdChoice([fromWs], { kind: 'quest', questId: 'qb' }), true, 'from the workspace into a quest');
+        assert.equal(todoMoveNeedsIdChoice([fromA], { kind: 'quest', questId: 'qa' }), false, 'within its quest');
+        assert.equal(todoMoveNeedsIdChoice([fromA, fromWs], { kind: 'quest', questId: 'qa' }), true, 'one of the group enters');
+        assert.equal(todoMoveNeedsIdChoice([fromA], { kind: 'workspace' }), false, 'the workspace file has no groups to join');
     });
 });

@@ -1180,6 +1180,12 @@ export function moveTodoToDestination(
     todoId: string,
     dest: TodoMoveDestination,
     origin?: string,
+    /**
+     * New ids for the todos moved together (a prefix chosen for the target
+     * quest): this todo takes its new id, and its `blocked_by` / `dependencies`
+     * entries naming another moved todo follow that one's new id.
+     */
+    renames?: ReadonlyMap<string, string>,
 ): TodoTransferResult {
     const targetPath = todoDestinationPath(dest);
     if (!targetPath) { return { ok: false, reason: 'No workspace root.' }; }
@@ -1195,14 +1201,23 @@ export function moveTodoToDestination(
     if (!isSeq(todosNode) || idx === -1) {
         return { ok: false, reason: `${todoId} is not in ${path.basename(sourcePath)}.` };
     }
-    if (findTodoByIdInFile(targetPath, todoId)) {
-        return { ok: false, reason: `${path.basename(targetPath)} already holds a todo ${todoId}.` };
+    const newId = renames?.get(todoId) ?? todoId;
+    if (findTodoByIdInFile(targetPath, newId)) {
+        return { ok: false, reason: `${path.basename(targetPath)} already holds a todo ${newId}.` };
     }
 
     const todo = nodeToTodo(todosNode.items[idx] as YAMLMap);
     const destLabel = dest.kind === 'quest' ? `quest: ${dest.questId}` : 'workspace';
     if (origin && origin !== destLabel) {
-        todo.notes = `${todo.notes ?? ''}\n[moved from ${origin}]`.trim();
+        todo.notes = `${todo.notes ?? ''}\n[moved from ${origin}${newId !== todoId ? ` as ${todoId}` : ''}]`.trim();
+    } else if (newId !== todoId) {
+        todo.notes = `${todo.notes ?? ''}\n[renamed from ${todoId}]`.trim();
+    }
+    if (renames?.size) {
+        todo.id = newId;
+        const follow = (ids?: string[]): string[] | undefined => ids?.map((d) => renames.get(d) ?? d);
+        if (todo.blocked_by) { todo.blocked_by = follow(todo.blocked_by); }
+        if (todo.dependencies) { todo.dependencies = follow(todo.dependencies); }
     }
 
     // 1. The target, verified by the create itself.

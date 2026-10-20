@@ -6,6 +6,8 @@
  *   MD-2  a quest todo into the workspace file: created with its scope header, origin noted
  *   MD-3  a quest todo into another quest: origin noted
  *   MD-4  refusals write nothing: unknown id, target is the source, target already holds the id
+ *   MD-5  renamed on the way (a prefix chosen for the target quest): the new id, a note naming the old one,
+ *         and `blocked_by` / `dependencies` naming another moved todo follow its new id
  */
 
 import { describe, test } from 'node:test';
@@ -89,5 +91,24 @@ describe('moveTodoToDestination', () => {
         assert.match(!clash.ok ? clash.reason : '', /already holds a todo e1/);
         assert.equal(read(src), before);
         assert.equal(read(other), otherBefore);
+    });
+
+    test('MD-5: renamed into another quest', () => {
+        const src = questFile('qf', 'todos.qf.todo.yaml');
+        questTodo.createTodoInFile(src, { id: 'f1_aa-one', title: 'one', description: 'd', status: 'not-started' } as never);
+        // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's field name
+        questTodo.createTodoInFile(src, { id: 'f2_aa-two', title: 'two', description: 'd', status: 'blocked', blocked_by: ['f1_aa-one', 'other'], dependencies: ['f1_aa-one'] } as never);
+        fs.mkdirSync(path.join(ws, '_ai', 'quests', 'qg'), { recursive: true });
+        const renames = new Map([['f1_aa-one', 'g5_aa-one'], ['f2_aa-two', 'g6_aa-two']]);
+        for (const id of ['f1_aa-one', 'f2_aa-two']) {
+            const r = questTodo.moveTodoToDestination(src, id, { kind: 'quest', questId: 'qg' }, 'quest: qf', renames);
+            assert.equal(r.ok, true);
+        }
+        const target = questFile('qg', 'todos.qg.todo.yaml');
+        assert.equal(questTodo.findTodoByIdInFile(target, 'f1_aa-one'), undefined, 'the old id is gone');
+        const one = questTodo.findTodoByIdInFile(target, 'g5_aa-one')!;
+        assert.match(one.notes ?? '', /\[moved from quest: qf as f1_aa-one\]/);
+        const two = questTodo.findTodoByIdInFile(target, 'g6_aa-two')!;
+        assert.deepEqual([two.blocked_by, two.dependencies], [['g5_aa-one', 'other'], ['g5_aa-one']], 'references to moved todos follow');
     });
 });

@@ -26,6 +26,9 @@
 .qt-group-header.collapsed .codicon { transform: rotate(-90deg); }
 .qt-group-header .qt-group-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qt-group-header .qt-group-count { font-weight: 400; flex-shrink: 0; }
+.qt-group-header .qt-group-move-btn { order: 2; background: transparent; border: none; cursor: pointer; padding: 0 2px; font-size: 11px; opacity: 0.6; flex-shrink: 0; }
+.qt-group-header .qt-group-move-btn:hover { opacity: 1; }
+.qt-group-header::after { order: 1; }
 .qt-todo-item { padding: 6px 8px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; font-size: 12px; border-bottom: 1px solid var(--vscode-panel-border, transparent); }
 .qt-todo-item-row1 { display: flex; align-items: center; gap: 6px; width: 100%; }
 /* Row 2 starts with the todo-stack circle, which sits in the same 16px

@@ -590,7 +590,15 @@ function qtRenderGroupHeader(group, expanded) {
         '<span class="codicon codicon-chevron-down"></span>' +
         '<span class="qt-group-label">' + qtEsc(group.label) + '</span>' +
         '<span class="qt-group-count">(' + count + ')</span>' +
+        (qtGroupOpenTodos(group).length
+            ? '<button class="qt-group-move-btn" data-qt-group-move="' + qtEsc(group.prefix) + '" title="Move the open todos of this group to quest / workspace / another quest…">⬆️</button>'
+            : '') +
         '</div>';
+}
+
+/** The todos of a group a move takes: every one not completed or cancelled. */
+function qtGroupOpenTodos(group) {
+    return group.todos.filter(function(t) { return t && t.status !== 'completed' && t.status !== 'cancelled'; });
 }
 
 function qtUpdateStackButtons() {
@@ -690,7 +698,18 @@ function qtRenderList() {
     pane.innerHTML = html;
 
     pane.querySelectorAll('.qt-group-header').forEach(function(hdr) {
-        hdr.addEventListener('click', function() {
+        hdr.addEventListener('click', function(e) {
+            var moveBtn = e.target.closest ? e.target.closest('.qt-group-move-btn') : null;
+            if (moveBtn) {
+                // The whole group in one move: one destination, one id decision.
+                e.stopPropagation();
+                var prefix = moveBtn.getAttribute('data-qt-group-move') || '';
+                var group = groups.find(function(g) { return g.prefix === prefix; });
+                if (!group) { return; }
+                var todos = qtGroupOpenTodos(group).map(function(t) { return { todoId: t.id, sourceFile: t.sourceFile || undefined }; });
+                vscode.postMessage({ type: 'qtMoveTodosToDestination', questId: qtCurrentQuestId, file: qtCurrentFile, todos: todos });
+                return;
+            }
             qtToggleGroup(hdr.getAttribute('data-qt-group') || '');
         });
     });

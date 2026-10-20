@@ -9,6 +9,9 @@
  * so a fresh load IS that state), that clicking a separator toggles just that
  * group, and that "Collapse all" closes them again.
  *
+ * A separator also carries a move button that moves every open todo of its
+ * group with one picker — one destination and one id decision for all.
+ *
  * It loads the real `fragment.html`, `grouping.js` and `main.js` — the files
  * the panel ships — into a jsdom window with a stub `vscode` handle, so a
  * rendering regression fails here rather than in the running extension.
@@ -175,5 +178,23 @@ describe('Quest TODO list — prefix group rendering', () => {
         window.eval("qtExpandGroupForTodo('vex2-beta'); qtRenderList()");
 
         assert.deepEqual(visibleTodoIds(window), ['vex2-beta']);
+    });
+
+    test('a separator moves its whole group (open todos) without toggling it', () => {
+        const window = setupPanel([
+            ...SAMPLE,
+            { id: 'qr4-done', title: 'Done', status: 'completed' },
+            { id: 'old1-x', title: 'Old', status: 'cancelled' },
+        ]);
+        const posted: any[] = [];
+        window.vscode.postMessage = (m: any) => posted.push(JSON.parse(JSON.stringify(m)));
+        const qr = groupHeaders(window).find((h) => h.querySelector('.qt-group-label').textContent === 'qr');
+        qr.querySelector('.qt-group-move-btn').click();
+        assert.equal(posted.length, 1);
+        assert.equal(posted[0].type, 'qtMoveTodosToDestination');
+        assert.deepEqual(posted[0].todos.map((t: any) => t.todoId), ['qr1-alpha', 'qr3-gamma'], 'the completed one stays');
+        assert.deepEqual(visibleTodoIds(window), [], 'the group did not open');
+        const old = groupHeaders(window).find((h) => h.querySelector('.qt-group-label').textContent === 'old');
+        assert.equal(old.querySelector('.qt-group-move-btn'), null, 'a group with no open todo has no move button');
     });
 });
