@@ -9,6 +9,15 @@ Use this workflow after changing extension code when the runtime doesn't reflect
 3. Reload the VS Code window (`Developer: Reload Window`).
 4. Re-run the affected command or open the affected view.
 
+The tom_vscode_bridge d4rt bridges: a from-source install
+(`compile_and_install.*`) regenerates them and runs the versioner, then
+`scripts/bridge-generated-churn.cjs` puts back every file that changed only by
+its time or build stamp and names the bridge files that really changed — commit
+those with the bridge; a build leaves nothing else modified. The prebuilt
+install, with Dart on PATH, runs `npm run check:bridges` (the bridge's
+BRIDGE-FRESH-01 test, ~6 s) and warns when the committed bridges lag behind the
+scripting API, since the prebuilt `tom_bs` was built from them.
+
 The install scripts (`install_extension.sh` / `.ps1`, `compile_and_install.*`)
 build the TomSpecs SOM packages from the sibling `tom_ai/ai_build/` checkout
 (`npm run som:pack`) before `npm install`. An install fails at that step when

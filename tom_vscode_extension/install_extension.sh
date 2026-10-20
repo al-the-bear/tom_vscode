@@ -201,6 +201,13 @@ if [ "${TOM_BRIDGE_FROM_SOURCE:-0}" = "1" ]; then
         chmod +x "$DST_DIR/${BIN}"
         echo "  ✔ $BRIDGE_PLAT/${BIN} (from source)"
     done
+
+    # 5) The regeneration and the versioner leave tracked files modified on
+    #    every build. Put back what changed only by its time stamp (the
+    #    bridges' `// Generated:` line, the version stamp when the version is
+    #    the same); name what really changed, to be committed with the bridge.
+    echo "📦 Checking what the regeneration changed..."
+    node "$SCRIPT_DIR/scripts/bridge-generated-churn.cjs" "$BRIDGE_DIR"
 else
     echo "📦 Bundling bridge binaries..."
     TOTAL_BUNDLED=0
@@ -227,6 +234,15 @@ else
         done
     done
     echo "  Bundled $TOTAL_BUNDLED binaries across 5 platforms"
+    # The prebuilt binaries are only as fresh as the bridges they were built
+    # from. With Dart at hand, say when the committed bridges lag behind the
+    # scripting API (BRIDGE-FRESH-01, ~6 s); a warning, not a stop.
+    if command -v dart &> /dev/null; then
+        echo "📦 Checking that the committed d4rt bridges are fresh..."
+        ( cd "$SCRIPT_DIR" && node scripts/check-bridge-fresh.cjs > /dev/null 2>&1 ) \
+            && echo "  ✔ the committed bridges match the scripting API" \
+            || echo "  ⚠️  The committed bridges of tom_vscode_bridge are stale or could not be checked (npm run check:bridges): tom_bs may lack scripting-API members. compile_and_install.sh rebuilds them."
+    fi
 fi
 
 # ── Bundle validate_codespecs for THIS host ──────────────────────────────────

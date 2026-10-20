@@ -273,6 +273,12 @@ if ($CodeCli) {
                 Write-Host "  $HostPlat/$bin.exe (from source)"
             }
             Pop-Location
+
+            # 5) Put back what changed only by its time stamp (the bridges'
+            #    `// Generated:` line, the version stamp when the version is the
+            #    same); name what really changed, to be committed.
+            Write-Host "Checking what the regeneration changed..."
+            Invoke-Native { node (Join-Path $PSScriptRoot 'scripts/bridge-generated-churn.cjs') $BridgeDir }
         } else {
             $Platforms = @(
                 @{ Id = 'darwin-arm64'; Ext = '' },
@@ -301,6 +307,18 @@ if ($CodeCli) {
                 }
             }
             Write-Host "Bundled $TotalBundled binaries across $($Platforms.Count) platforms"
+            # The prebuilt binaries are only as fresh as the bridges they were
+            # built from: with Dart at hand, warn when the committed bridges lag
+            # behind the scripting API (BRIDGE-FRESH-01). Not a stop.
+            if (Get-Command dart -ErrorAction SilentlyContinue) {
+                Write-Host "Checking that the committed d4rt bridges are fresh..."
+                $null = Invoke-Native { node (Join-Path $PSScriptRoot 'scripts/check-bridge-fresh.cjs') 2>&1 }
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host "  The committed bridges match the scripting API"
+                } else {
+                    Write-Host "  Warning: the committed bridges of tom_vscode_bridge are stale or could not be checked (npm run check:bridges): tom_bs may lack scripting-API members. compile_and_install.ps1 rebuilds them."
+                }
+            }
         }
 
         # ── Bundle validate_codespecs for THIS host ──────────────────────────

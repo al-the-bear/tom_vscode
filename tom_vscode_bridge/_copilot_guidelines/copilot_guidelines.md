@@ -35,6 +35,30 @@ Regenerate bridges when:
 - After bumping `tom_vscode_scripting_api` (its API is bridged into the
   interpreter at compile time)
 
+### Keeping the committed bridges fresh
+
+The generated bridges are committed, so a checkout that does not rebuild (the
+extension's prebuilt-binaries install) compiles `tom_bs` from them. Two things
+keep them honest:
+
+- **BRIDGE-FRESH-01** (`test/bridges_fresh_test.dart`, part of the default
+  `dart test` / `testkit :test`) regenerates into a scratch tree under
+  `.dart_tool/` and fails when a committed `*.b.dart` differs from what the
+  generator produces now — a scripting-API member added without a
+  regeneration, a generator upgrade — or when a generated file no run writes
+  any more is still committed. The `// Generated: <time>` header line is not
+  compared. From the extension: `npm run check:bridges` (about 6 s); the
+  prebuilt install runs it as a warning when Dart is on PATH.
+- **No build churn.** A from-source build (`compile_and_install.*`) regenerates
+  the bridges and runs the versioner, which rewrites the generator's time stamp
+  in five `*.b.dart` files and the build stamp in `lib/src/version.versioner.dart`
+  and `tom_build_state.json`. Afterwards
+  `tom_vscode_extension/scripts/bridge-generated-churn.cjs` puts back every
+  file whose only change is that stamp (the version stamp and the build state
+  together, only while the version is unchanged — the compiled `tom_bs` already
+  carries the new stamp) and names what really changed. Commit those with the
+  bridge; nothing else is left modified.
+
 ### Dependencies
 
 This project links `tom_vscode_scripting_api` and `tom_d4rt` at compile time.
