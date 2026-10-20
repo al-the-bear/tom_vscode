@@ -787,11 +787,14 @@ class MdBrowserPanel {
                 }
 
                 case 'reviewMark': {
+                    // The browser waits (busy) until this answer or the new content.
+                    const done = (): void => { void this._panel.webview.postMessage({ type: 'actionDone' }); };
                     // One inline mark accepted, rejected or (a comment) removed,
                     // decided by the TomSpecs runtime (annot4) on the block's lines.
                     const target = this._editableFile(msg.filePath);
                     if (typeof target !== 'string') {
                         void vscode.window.showWarningMessage(`Markdown Browser: ${target.error}`);
+                        done();
                         break;
                     }
                     const decision = msg.decision === 'reject' ? 'reject' : msg.decision === 'remove' ? 'remove' : 'accept';
@@ -801,18 +804,22 @@ class MdBrowserPanel {
                     });
                     if (!result.ok) {
                         void vscode.window.showWarningMessage(`Markdown Browser: ${result.reason}`);
+                        done();
                         break;
                     }
                     this._writeAndRefresh(target, result.text);
+                    done();
                     break;
                 }
 
                 case 'reviewAllChanges': {
+                    const done = (): void => { void this._panel.webview.postMessage({ type: 'actionDone' }); };
                     // Every change mark of the file accepted or rejected (comments
                     // and highlights stay), with a way back while the file is untouched.
                     const target = this._editableFile(msg.filePath);
                     if (typeof target !== 'string') {
                         void vscode.window.showWarningMessage(`Markdown Browser: ${target.error}`);
+                        done();
                         break;
                     }
                     const decision = msg.decision === 'reject' ? 'reject' : 'accept';
@@ -821,11 +828,13 @@ class MdBrowserPanel {
                     const name = path.basename(target);
                     if (result.decided === 0) {
                         void vscode.window.showInformationMessage(`Markdown Browser: ${name} has no changes to ${decision}.`);
+                        done();
                         break;
                     }
                     this._writeAndRefresh(target, result.text);
-                    const done = `${decision === 'accept' ? 'Accepted' : 'Rejected'} ${result.decided} change${result.decided === 1 ? '' : 's'} in ${name}.`;
-                    void vscode.window.showInformationMessage(`Markdown Browser: ${done}`, 'Undo').then((choice) => {
+                    done();
+                    const doneText = `${decision === 'accept' ? 'Accepted' : 'Rejected'} ${result.decided} change${result.decided === 1 ? '' : 's'} in ${name}.`;
+                    void vscode.window.showInformationMessage(`Markdown Browser: ${doneText}`, 'Undo').then((choice) => {
                         if (choice !== 'Undo') { return; }
                         if (!fs.existsSync(target) || fs.readFileSync(target, 'utf-8') !== result.text) {
                             void vscode.window.showWarningMessage(`Markdown Browser: ${name} changed since; nothing was undone.`);

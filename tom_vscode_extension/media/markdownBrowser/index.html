@@ -139,6 +139,11 @@
         </div>
     </div>
 
+    <!-- Shown while a change to the document is being saved: nothing can be clicked or typed meanwhile. -->
+    <div id="busyOverlay" class="busy-overlay" hidden>
+        <span class="busy-pill"><span class="codicon codicon-loading codicon-modifier-spin"></span> <span id="busyText">Saving…</span></span>
+    </div>
+
     <script src="{{markedUri}}"></script>
     <script src="{{mermaidUri}}"></script>
     <script src="{{baseUri}}/blocks.js"></script>

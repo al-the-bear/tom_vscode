@@ -40,6 +40,12 @@
  *         the action bar (its label names them: one, "Changes + 2", "All", "Nothing"); the targets of every
  *         ticked kind in document order; an unanswered question opens its answer only while Unanswered is
  *         ticked; with nothing ticked the arrows do nothing
+ *   MD-20 Reload always renders the file again: also when its text is unchanged, and with an editor open
+ *         (the editor goes; the reading position stays)
+ *   MD-21 while a change to the document is being saved (a save, Save and next, a one-click answer, a
+ *         review decision, accept / reject all) the document is busy: a wait indicator, no interaction;
+ *         the host's answer (the save's result, the new content, or a failed review) ends it
+ *   MD-22 while a text area is open, the text search and the review navigation are disabled
  *   MD-12c a SOM document: the host's next comment number is used when higher; blocks in a form's
  *         fields offer no comment (comments go into the preamble); stale ranges (another text) are ignored
  */
@@ -633,5 +639,74 @@ describe('Markdown Browser editing', () => {
         const before = current(window);
         nextBtn(window).click();
         assert.equal(current(window), before, 'nothing ticked: the arrows do nothing');
+    });
+
+    test('MD-20: reload', () => {
+        const { window, posted } = setup();
+        send(window, content(DOC));
+        const first = $(window, '.mdb-block')[0];
+        window.document.getElementById('reloadBtn').click();
+        assert.equal(posted[posted.length - 1].type, 'reload');
+        send(window, content(DOC));
+        assert.notEqual($(window, '.mdb-block')[0], first, 'rendered again although the text is the same');
+        assert.equal(window.document.getElementById('contentArea').scrollTop, 0);
+
+        $(window, '.mdb-answer-btn')[0].click();
+        assert.equal($(window, '.mdb-editor').length, 1);
+        window.document.getElementById('reloadBtn').click();
+        send(window, content(DOC.replace('Is the plan right?', 'Is the plan still right?')));
+        assert.equal($(window, '.mdb-editor').length, 0, 'the open editor goes');
+        assert.match(window.document.getElementById('contentArea').textContent, /still right/, 'the new text is shown, not held');
+        const kept = $(window, '.mdb-block')[0];
+        send(window, content(DOC.replace('Is the plan right?', 'Is the plan still right?')));
+        assert.equal($(window, '.mdb-block')[0], kept, 'without Reload an unchanged refresh still renders nothing');
+    });
+
+    test('MD-21: busy while saving', () => {
+        const { window, posted } = setup();
+        send(window, content(QUESTIONS));
+        const body = window.document.body;
+        const area = window.document.getElementById('contentArea');
+        const overlay = window.document.getElementById('busyOverlay');
+        const busy = (): boolean => body.classList.contains('mdb-busy');
+        assert.equal(busy(), false);
+        assert.ok(overlay.hidden, 'no indicator');
+
+        $(window, '.mdb-answer-btn')[0].click();
+        $(window, '.mdb-editor-btn')[0].click();
+        assert.equal(busy(), true, 'saving');
+        assert.equal(overlay.hidden, false, 'the indicator shows');
+        assert.match(overlay.textContent, /Saving/);
+        assert.equal(area.hasAttribute('inert'), true, 'the document takes no input');
+        send(window, { type: 'editResult', ok: true, editId: lastEdit(posted).editId });
+        assert.equal(busy(), false, 'the result ends it');
+        assert.equal(area.hasAttribute('inert'), false);
+
+        $(window, '.mdb-answer-btn')[1].click();
+        $(window, '.mdb-editor-btn')[0].click();
+        send(window, { type: 'editResult', ok: false, error: 'changed', editId: lastEdit(posted).editId });
+        assert.equal(busy(), false, 'a refused save ends it too');
+        $(window, '.mdb-editor-btn')[1].click();
+
+        window.document.getElementById('acceptAllBtn').click();
+        assert.equal(busy(), true, 'accept all');
+        send(window, { type: 'actionDone' });
+        assert.equal(busy(), false, 'the host says it is done (nothing changed, or it failed)');
+        window.document.getElementById('rejectAllBtn').click();
+        assert.equal(busy(), true);
+        send(window, content(QUESTIONS.replace('which size?', 'which sizes?')));
+        assert.equal(busy(), false, 'the new content ends it');
+    });
+
+    test('MD-22: no search or navigation while a text area is open', () => {
+        const { window } = setup();
+        send(window, content(QUESTIONS));
+        const ids = ['searchInput', 'searchClearBtn', 'navPrevBtn', 'navNextBtn', 'navKindBtn'];
+        const disabled = (): boolean[] => ids.map((id) => window.document.getElementById(id).disabled);
+        assert.deepEqual(disabled(), ids.map(() => false));
+        $(window, '.mdb-answer-btn')[0].click();
+        assert.deepEqual(disabled(), ids.map(() => true), 'an editor is open');
+        $(window, '.mdb-editor-btn')[1].click();
+        assert.deepEqual(disabled(), ids.map(() => false), 'closed again');
     });
 });

@@ -103,6 +103,8 @@
         var pendingContent = null;      // a same-file refresh held back while an editor is open
         var restoreScrollTop = null;    // where to stay after our own save re-renders
         var afterNextRender = null;     // Save and next, when its save needs a full render first
+        var forceRender = false;        // Reload: render the next content in any case
+        var busyTimer = null;           // the safety end of a busy state the host never answered
         var nextEditId = 1;
         var pendingSaves = {};          // editId -> editor element awaiting the backend's answer
 
@@ -162,6 +164,9 @@
             vscode.postMessage({ type: 'openExternal' });
         });
         reloadBtn.addEventListener('click', function() {
+            // The next content is rendered whatever it holds: an explicit reload
+            // is not skipped for unchanged text, nor held for an open editor.
+            forceRender = true;
             vscode.postMessage({ type: 'reload' });
         });
         if (reconnectBtn) {
@@ -920,6 +925,42 @@
             applyFolding();
         }
 
+        // ---- Busy while a change is saved; locks while a text area is open ----
+        var busyOverlay = document.getElementById('busyOverlay');
+        var busyText = document.getElementById('busyText');
+        /** A change to the document is on its way to the host: show it, and take no input until the answer. */
+        function beginBusy(label) {
+            document.body.classList.add('mdb-busy');
+            if (contentArea) { contentArea.setAttribute('inert', ''); }
+            if (busyText) { busyText.textContent = label || 'Saving…'; }
+            if (busyOverlay) { busyOverlay.hidden = false; }
+            if (busyTimer) { clearTimeout(busyTimer); }
+            // Never stuck: an answer that does not come frees the document after a while.
+            busyTimer = setTimeout(endBusy, 20000);
+        }
+        function endBusy() {
+            if (busyTimer) { clearTimeout(busyTimer); busyTimer = null; }
+            document.body.classList.remove('mdb-busy');
+            if (contentArea) { contentArea.removeAttribute('inert'); }
+            if (busyOverlay) { busyOverlay.hidden = true; }
+        }
+        /**
+         * While a text area is open, the text search and the review navigation
+         * are off: they scroll and re-render under it.
+         */
+        function updateEditorLocks() {
+            var locked = openEditors > 0;
+            [searchInput, searchClearBtn, navPrevBtnEl(), navNextBtnEl(), document.getElementById('navKindBtn')].forEach(function(el) {
+                if (el) { el.disabled = locked; }
+            });
+            if (searchPrevBtn) { searchPrevBtn.disabled = locked || search.mEl.length === 0; }
+            if (searchNextBtn) { searchNextBtn.disabled = locked || search.mEl.length === 0; }
+            var pop = document.getElementById('navKindPop');
+            if (locked && pop) { pop.hidden = true; }
+        }
+        function navPrevBtnEl() { return document.getElementById('navPrevBtn'); }
+        function navNextBtnEl() { return document.getElementById('navNextBtn'); }
+
         // ---- In-place editing ----
         // An editor: a 5-line textarea (resizable) with Save / Discard. The
         // button that opened it is hidden while it is open. With `next` (an
@@ -961,6 +1002,7 @@
             if (isTopElement(placeAfter)) { box.style.marginLeft = placeAfter.style.marginLeft; }
             trigger.style.display = 'none';
             openEditors++;
+            updateEditorLocks();
             area.focus();
 
             function close() {
@@ -969,6 +1011,7 @@
                 box.parentNode.removeChild(box);
                 trigger.style.display = '';
                 openEditors = Math.max(0, openEditors - 1);
+                updateEditorLocks();
                 if (openEditors === 0 && pendingContent) {
                     var held = pendingContent;
                     pendingContent = null;
@@ -999,6 +1042,7 @@
                 var id = nextEditId++;
                 pendingSaves[id] = { close: close, status: status, edit: edit, after: after };
                 status.textContent = 'Saving…';
+                beginBusy('Saving…');
                 restoreScrollTop = contentArea.scrollTop;
                 vscode.postMessage({
                     type: 'applyEdit', editId: id, filePath: currentFilePath,
@@ -1271,6 +1315,7 @@
             var id = nextEditId++;
             pendingSaves[id] = { close: function() {}, status: document.createElement('div'), edit: edit };
             restoreScrollTop = contentArea.scrollTop;
+            beginBusy('Saving…');
             vscode.postMessage({
                 type: 'applyEdit', editId: id, filePath: currentFilePath, notifyOnError: true,
                 startLine: fileEdit.startLine, endLine: fileEdit.endLine, expected: fileEdit.expected, replacement: fileEdit.replacement,
@@ -1292,6 +1337,7 @@
             // The mark goes away: the next one takes its place.
             setNavAnchor(navKey(span));
             restoreScrollTop = contentArea.scrollTop;
+            beginBusy(decision === 'reject' ? 'Rejecting…' : decision === 'remove' ? 'Removing…' : 'Accepting…');
             vscode.postMessage({
                 type: 'reviewMark', filePath: currentFilePath,
                 startLine: range.start, endLine: range.end,
@@ -1313,6 +1359,7 @@
         function reviewAll(decision) {
             if (!currentFilePath) { return; }
             restoreScrollTop = contentArea.scrollTop;
+            beginBusy(decision === 'reject' ? 'Rejecting all changes…' : 'Accepting all changes…');
             vscode.postMessage({ type: 'reviewAllChanges', filePath: currentFilePath, decision: decision });
         }
         var acceptAllBtn = document.getElementById('acceptAllBtn');
@@ -1385,6 +1432,7 @@
             return el.closest('.mdb-block') || el;
         }
         function navigate(delta, forceKinds) {
+            if (openEditors > 0) { return; }
             var kinds = forceKinds || navKinds();
             var selector = navSelector(kinds);
             if (!selector) { return; }
@@ -1951,8 +1999,8 @@
                     : n === 0 ? 'No results'
                         : (search.current >= 0 ? (search.current + 1) + ' of ' : '') + n;
             }
-            if (searchPrevBtn) { searchPrevBtn.disabled = n === 0; }
-            if (searchNextBtn) { searchNextBtn.disabled = n === 0; }
+            if (searchPrevBtn) { searchPrevBtn.disabled = n === 0 || openEditors > 0; }
+            if (searchNextBtn) { searchNextBtn.disabled = n === 0 || openEditors > 0; }
             if (highlightsSupported) {
                 CSS.highlights.delete('mdb-search');
                 CSS.highlights.delete('mdb-search-current');
@@ -2032,6 +2080,18 @@
         });
 
         function handleContent(msg) {
+            var forced = forceRender;
+            forceRender = false;
+            // The host answered a change with the new content.
+            endBusy();
+            if (forced) {
+                // Reload: open editors go with the old rendering.
+                Array.prototype.forEach.call(docRoot.querySelectorAll('.mdb-editor'), function(ed) { ed.parentNode.removeChild(ed); });
+                openEditors = 0;
+                pendingContent = null;
+                updateEditorLocks();
+                if (msg.filePath === currentFilePath && contentArea) { restoreScrollTop = contentArea.scrollTop; }
+            }
             // A refresh of the same file while an editor is open would throw the
             // typed text away: hold it until the last editor closes.
             if (openEditors > 0 && msg.filePath === currentFilePath && !msg.error) {
@@ -2085,7 +2145,7 @@
                 if (!sameFile || text !== shownText) { somComments = null; }
                 // The same text again (the file watcher after our own save, a
                 // reload with nothing changed): what is shown is already it.
-                if (sameFile && text === shownText && crlfMode === shownCrlf && docRoot.parentNode === contentArea && docRoot.querySelector('.mdb-block')) {
+                if (!forced && sameFile && text === shownText && crlfMode === shownCrlf && docRoot.parentNode === contentArea && docRoot.querySelector('.mdb-block')) {
                     restoreScrollTop = null;
                     return;
                 }
@@ -2155,7 +2215,11 @@
                     somComments = { nextCommentNumber: msg.nextCommentNumber, formFieldRanges: msg.formFieldRanges || [] };
                     applySomComments();
                 }
+            } else if (msg.type === 'actionDone') {
+                // A review decision the host answered without new content (nothing to change, or refused).
+                endBusy();
             } else if (msg.type === 'editResult') {
+                endBusy();
                 var saved = pendingSaves[msg.editId];
                 delete pendingSaves[msg.editId];
                 if (saved) {

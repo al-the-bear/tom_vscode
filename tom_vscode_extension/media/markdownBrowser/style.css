@@ -441,3 +441,30 @@ body.mdb-edit-mode .mdb-rm-actions { display: inline-flex; gap: 1px; margin-left
 .nav-kind-pop[hidden] { display: none; }
 .nav-kind-pop label { display: flex; align-items: center; gap: 6px; padding: 2px 8px; font-size: 12px; cursor: pointer; white-space: nowrap; }
 .nav-kind-pop label:hover { background: var(--vscode-list-hoverBackground); }
+
+/* A change to the document is being saved: wait cursor, nothing clickable. */
+.busy-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    cursor: wait;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 48px;
+    background: rgba(0, 0, 0, 0.08);
+}
+.busy-overlay[hidden] { display: none; }
+.busy-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+    color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
+    border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border));
+    box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.3));
+}
+body.mdb-busy, body.mdb-busy * { cursor: wait !important; }
