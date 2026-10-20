@@ -313,11 +313,13 @@ Both log to the quest's **Questions** journal (`questions.<quest>.md`, @WS → L
 
 These tools drive the **Copilot Chat user-facing panel** via a bridge. They are *not* relevant to how the calling chat (Anthropic / Ollama / VS Code LM) receives its own responses — they stage and dispatch prompts into someone else's chat. The `⚪` across all transports is intentional: whether to surface them is a user-workflow decision, not a per-transport default.
 
-**Queue-item fields now surface the current manager feature set:** per-item `repeatCount` + `repeatPrefix` + `repeatSuffix` (main-prompt repeats with `${repeatNumber}`/`${repeatIndex}` placeholder expansion), `templateRepeatCount` (whole-template re-runs), `answerWaitMinutes` (auto-advance on timeout), pre-prompts (sent before the main prompt), per-follow-up `repeatCount` + `answerWaitMinutes` + reminders, and **chat-variable-driven counters** — any `repeatCount` accepts either a literal number or the name of a chat variable whose value the manager resolves at send time and decrements each iteration. Timed-request entries gained `repeatCount`, `repeatPrefix`, `repeatSuffix`, `sendMaximum` (auto-pause after N sends), and `answerWaitMinutes`; `scheduledTimes` now takes the manager's native `{time:"HH:MM", date?:"YYYY-MM-DD"}` shape.
+**Queue-item fields now surface the current manager feature set:** per-item `repeatCount` + `repeatPrefix` + `repeatSuffix` (main-prompt repeats with `${repeatNumber}`/`${repeatIndex}` placeholder expansion), `templateRepeatCount` (whole-template re-runs), `answerWaitMinutes` (auto-advance on timeout), pre-prompts (sent before the main prompt), per-follow-up `repeatCount` + `answerWaitMinutes` + reminders, and **chat-variable-driven counters** — any `repeatCount` accepts either a literal number or the name of a chat variable whose value the manager resolves at send time and decrements each iteration — or `<prefix>*`, which walks the quest's todos whose id starts with the prefix (the prefix may hold digits, `p2s2ss3-*`, but must not end in one: such a value is refused with `code: invalidTodoPrefix`).
+
+**Sessions.** An item runs in a named Agent SDK session (`session`; `<name>.session.json` in the quest's history folder): unset, the queue default, else the queue's own `default`. A session can be based on another one, either continuing on its own after its first prompt or — `fork-from-base` — re-created from the base for every prompt, so a prepared base (spec read, guidelines loaded) serves every todo of an iteration without the todos changing each other's context. Timed-request entries gained `repeatCount`, `repeatPrefix`, `repeatSuffix`, `sendMaximum` (auto-pause after N sends), and `answerWaitMinutes`; `scheduledTimes` now takes the manager's native `{time:"HH:MM", date?:"YYYY-MM-DD"}` shape.
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
 | --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_addQueueItem` | Stage a prompt; now accepts prePrompts, per-item repeat/answer-wait, and full follow-up / reminder fields. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_addQueueItem` | Stage a prompt; accepts prePrompts, per-item repeat/answer-wait, full follow-up / reminder fields, and `session` (the named Agent SDK session it runs in). | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
 | `tomAi_addQueueFollowUp` | Append a follow-up; now accepts repeatCount, answerWaitMinutes, reminders. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
 | `tomAi_addQueuePrePrompt` | Append a pre-prompt (sent before the main prompt). | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
 | `tomAi_updateQueuePrePrompt` | Patch pre-prompt fields by (itemId, index). | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
@@ -325,7 +327,9 @@ These tools drive the **Copilot Chat user-facing panel** via a bridge. They are 
 | `tomAi_sendQueuedPrompt` | Send one staged prompt. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
 | `tomAi_sendQueueItem` | Send a specific item immediately. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
 | `tomAi_listQueue` | List queue items. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_updateQueueItem` | Patch item fields incl. repeat / answerWait / reminder. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_updateQueueItem` | Patch item fields incl. repeat / answerWait / reminder / `session` (`''` = the queue default). |
+| `tomAi_listSessions` | The quest's named Agent SDK sessions: mode, base, whether they have a conversation, how the next prompt in each starts. Reads only. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_createSession` | Create a session, fresh or based on another (`mode` `continue`, or `fork-from-base`: every prompt starts again from the base). No approval prompt. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
 | `tomAi_setQueueItemStatus` | Toggle staged / pending. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
 | `tomAi_removeQueueItem` | Delete. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
 | `tomAi_updateQueueFollowUp` | Patch follow-up incl. repeat / answerWait. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |

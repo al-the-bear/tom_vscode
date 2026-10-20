@@ -8,6 +8,8 @@
  * Opened via `tomAi.editor.promptQueue` command.
  */
 
+import { pickAgentSdkSession } from './sessionPicker';
+import { WsPaths } from '../utils/workspacePaths';
 import * as vscode from 'vscode';
 import { PromptQueueManager, QueuedPrompt, applyTemplateWrapping } from '../managers/promptQueueManager';
 import { ReminderSystem, REMINDER_PLACEHOLDER_HELP } from '../managers/reminderSystem';
@@ -277,6 +279,32 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
           sendState();
           return;
         }
+        case 'editItemSession':
+        case 'pickQueueDefaultSession': {
+          // The Agent SDK session of one item, or the queue's default.
+          const pqm = PromptQueueManager.instance;
+          const quest = WsPaths.getWorkspaceQuestId();
+          if (msg.type === 'pickQueueDefaultSession') {
+            const picked = await pickAgentSdkSession({
+              questId: quest, current: pqm.defaultAgentSdkSession, title: 'Default session of the prompt queue',
+              defaultLabel: 'The queue\'s own session (default)',
+            });
+            if (picked !== undefined) { pqm.setDefaultAgentSdkSession(picked); }
+          } else {
+            const id = typeof msg.id === 'string' ? msg.id : '';
+            const item = id ? pqm.getById(id) : undefined;
+            if (!item) { return; }
+            const picked = await pickAgentSdkSession({
+              questId: quest, current: item.agentSdkSession, title: 'Session of this queue item',
+              defaultLabel: `The queue default (${pqm.defaultAgentSdkSession || 'default'})`,
+            });
+            if (picked !== undefined && !pqm.updateItemSession(id, picked)) {
+              void vscode.window.showWarningMessage('Only a staged or pending item can change its session.');
+            }
+          }
+          sendState();
+          return;
+        }
         case 'editItemTransport':
         case 'editPrePromptTransport':
         case 'editFollowUpTransport': {
@@ -390,6 +418,14 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
           });
           if (!configPick) { return; }
           applyUpdate('anthropic', profilePick.value, configPick.value);
+          if (msg.type === 'editItemTransport') {
+            // Last step for an item: the Agent SDK session it runs in.
+            const picked = await pickAgentSdkSession({
+              questId: WsPaths.getWorkspaceQuestId(), current: item.agentSdkSession, title: 'Session of this queue item',
+              defaultLabel: `The queue default (${pqm.defaultAgentSdkSession || 'default'})`,
+            });
+            if (picked !== undefined) { pqm.updateItemSession(id, picked); sendState(); }
+          }
           return;
         }
         case 'setDetailsExpanded': {
@@ -944,6 +980,7 @@ function buildState(): Record<string, unknown> {
     let queueDefaultTransport: 'copilot' | 'anthropic' = 'copilot';
     let queueDefaultAnthropicProfileId = '';
     let queueDefaultMessageTemplateId = '';
+    let queueDefaultSession = '';
     let queueStartAt: string | undefined;
 
     try {
@@ -958,6 +995,7 @@ function buildState(): Record<string, unknown> {
         queueDefaultTransport = qm.defaultTransport;
         queueDefaultAnthropicProfileId = qm.defaultAnthropicProfileId || '';
         queueDefaultMessageTemplateId = qm.defaultMessageTemplateId || '';
+        queueDefaultSession = qm.defaultAgentSdkSession || '';
         queueStartAt = qm.queueStartAt;
         console.log('[QueueEditor] buildState: items count =', items.length);
     } catch (e) {
@@ -1040,6 +1078,7 @@ function buildState(): Record<string, unknown> {
         queueDefaultTransport,
         queueDefaultAnthropicProfileId,
         queueDefaultMessageTemplateId,
+        queueDefaultSession,
         // Deferred queue start: ISO instant (or undefined) the header
         // "Start in N minutes" dropdown reflects.
         queueStartAt,

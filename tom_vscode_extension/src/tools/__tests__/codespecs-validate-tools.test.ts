@@ -255,7 +255,8 @@ describe('CodeSpecs step context', () => {
         // An explicit vocabulary wins over the bundled one.
         fs.mkdirSync(path.join(ws, 'vocab'), { recursive: true });
         fs.copyFileSync(CS_VOCABULARY_FILE, path.join(ws, 'vocab', 'vocabulary.dart'));
-        const own = await call(codeSpecsValidateImpl, { ...trio('base'), csVocabulary: 'vocab/vocabulary.dart' });
+        copyRun('cv7');
+        const own = await call(codeSpecsValidateImpl, { ...trio('cv7'), csVocabulary: 'vocab/vocabulary.dart' });
         assert.equal(own.inputs['cs-vocabulary'], 'vocab/vocabulary.dart');
         assert.equal(own.checksRun, 38);
     });

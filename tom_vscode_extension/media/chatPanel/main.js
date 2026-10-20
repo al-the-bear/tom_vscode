@@ -408,6 +408,9 @@ function getSectionContent(id) {
                 // dropdown — opens the Global Template Editor on the
                 // 'anthropicProfiles' category for the selected profile.
                 '<button class="icon-btn" data-action="editAnthropicProfile" data-id="anthropic" title="Edit Anthropic profile (system prompt)"><span class="codicon codicon-edit"></span></button>' +
+                // Agent SDK session: the button names the session the panel
+                // sends in; a click opens VS Code's picker (pick / new / based on).
+                '<button class="icon-btn session-btn" data-action="pickAnthropicSession" data-id="anthropic" title="Agent SDK session — click to pick another or create one"><span class="codicon codicon-comment-discussion"></span><span id="anthropic-session-name" class="session-name">chat</span></button>' +
                 // Config dropdown intentionally removed — the profile
                 // owns configurationId and the handler resolves via
                 // profile.configurationId → isDefault → first. Pick a
@@ -777,6 +780,7 @@ function handleAction(action, id, slot) {
         case 'openTrailRawFiles': vscode.postMessage({ type: 'openTrailRawFiles', section: id || '' }); break;
         case 'openTrailSummaryViewer': vscode.postMessage({ type: 'openTrailSummaryViewer', section: id || '' }); break;
         case 'openSessionHistory': vscode.postMessage({ type: 'openSessionHistory', section: id || '' }); break;
+        case 'pickAnthropicSession': vscode.postMessage({ type: 'pickAnthropicSession' }); break;
         case 'openLiveTrail': vscode.postMessage({ type: 'openLiveTrail', section: id || '' }); break;
         case 'openConversationTrailViewer': vscode.postMessage({ type: 'openConversationTrailViewer' }); break;
         case 'openConversationMarkdown': vscode.postMessage({ type: 'openConversationMarkdown' }); break;
@@ -1173,6 +1177,9 @@ window.addEventListener('message', function(e) {
         updateDefaultTemplateIndicator();
         updateAnthropicApiKeyDot();
         updateClaudeCliDot();
+    } else if (msg.type === 'anthropicSession') {
+        var sessionLabel = document.getElementById('anthropic-session-name');
+        if (sessionLabel) { sessionLabel.textContent = msg.name || 'chat'; }
     } else if (msg.type === 'anthropicClaudeCliStatus') {
         claudeCliOk = !!msg.ok;
         claudeCliVisible = msg.visible !== false;

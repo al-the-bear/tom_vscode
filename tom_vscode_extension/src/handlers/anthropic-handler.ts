@@ -10,6 +10,7 @@
  * the anthropic_sdk_integration spec).
  */
 
+import { planSessionStartIn } from '../services/agentSdkSessionStore';
 import Anthropic from '@anthropic-ai/sdk';
 import * as vscode from 'vscode';
 import {
@@ -1910,11 +1911,17 @@ export class AnthropicHandler {
             // having to configure settingSources manually.
             const useSdkManagedContinuity = effectiveHistoryMode === 'sdk-managed' && !options.isolated;
             const sessionKey = options.sessionKey ?? DEFAULT_AGENT_SDK_SESSION_KEY;
-            const resumeSessionId = useSdkManagedContinuity
-                ? TwoTierMemoryService.instance.loadAgentSdkSessionId(quest, sessionKey)
-                : undefined;
+            // A named session decides what this prompt resumes: its own
+            // conversation, a fork of its base (a session based on another),
+            // or — fork-from-base — a fork of the base that is never saved.
+            const sessionStart = useSdkManagedContinuity
+                ? planSessionStartIn(TwoTierMemoryService.instance.agentSdkSessionsFolder(quest), sessionKey)
+                : { fork: false, persist: false };
+            const resumeSessionId = sessionStart.resume;
+            if (sessionStart.note) { debugLog(`[AgentSDK] session "${sessionKey}": ${sessionStart.note}`, 'WARN', 'anthropic'); }
             debugLog(
-                `[AgentSDK] continuity: quest=${quest} key=${sessionKey} resume=${resumeSessionId ?? '(none — new session)'}`,
+                `[AgentSDK] continuity: quest=${quest} key=${sessionKey} resume=${resumeSessionId ?? '(none — new session)'}`
+                    + `${sessionStart.fork ? ' (fork)' : ''}${sessionStart.persist ? '' : ' (not saved)'}`,
                 'INFO',
                 'anthropic',
             );
@@ -1925,7 +1932,7 @@ export class AnthropicHandler {
             // stream leaves the on-disk id stale and the NEXT turn forks
             // a brand-new Claude Code session (the symptom we chased —
             // session selector filling up one-per-prompt).
-            const onSessionIdCaptured = useSdkManagedContinuity
+            const onSessionIdCaptured = useSdkManagedContinuity && sessionStart.persist
                 ? (sid: string) => {
                     TwoTierMemoryService.instance.saveAgentSdkSessionId(
                         sid,
@@ -2023,6 +2030,7 @@ export class AnthropicHandler {
                     useBuiltInTools: profile.useBuiltInTools === true,
                     thinkingBudgetTokens: profile.thinkingEnabled ? (profile.thinkingBudgetTokens ?? 8192) : undefined,
                     resumeSessionId,
+                    forkSession: sessionStart.fork,
                     onSessionIdCaptured,
                     retry: retryParam,
                     interactiveQuestions: interactiveQuestionsParam,
@@ -2054,7 +2062,7 @@ export class AnthropicHandler {
             // Safety-net save — the early callback usually fired already,
             // but if the stream somehow ended without ever carrying a
             // session_id this catches the result-message fallback.
-            if (useSdkManagedContinuity && result.sessionId) {
+            if (useSdkManagedContinuity && sessionStart.persist && result.sessionId) {
                 TwoTierMemoryService.instance.saveAgentSdkSessionId(
                     result.sessionId,
                     quest,

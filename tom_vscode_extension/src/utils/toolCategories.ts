@@ -160,6 +160,8 @@ export const CATEGORY_MAP: Record<string, string[]> = {
     // constants.ts::DELIBERATELY_UNSELECTABLE_TOOLS.
     'Queue & Timers (read)': [
         'tomAi_listQueue',
+        'tomAi_listSessions',
+        'tomAi_createSession',
         'tomAi_listTimedRequests',
     ],
     'Quests': [

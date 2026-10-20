@@ -128,6 +128,8 @@ export interface QueueItemSnapshot {
     transport?: QueueTransport;
     anthropicProfileId?: string;
     anthropicConfigId?: string;
+    /** The named Agent SDK session the item runs in (unset: the queue default). */
+    agentSdkSession?: string;
     answerText?: string;
     lastDispatched?: string;
     warning?: string;
@@ -155,6 +157,7 @@ export interface EnqueueInput {
     transport?: QueueTransport;
     anthropicProfileId?: string;
     anthropicConfigId?: string;
+    agentSdkSession?: string;
     prePrompts?: PrePromptSpec[];
     followUps?: FollowUpSpec[];
 }
@@ -197,6 +200,8 @@ export interface PromptQueueAccess {
         anthropicProfileId?: string;
         anthropicConfigId?: string;
     }): void;
+    /** Set an item's Agent SDK session ('' = the queue default); false when the item cannot change. */
+    updateItemSession?(id: string, session: string): boolean;
 
     addPrePrompt(id: string, text: string, template: string | undefined, opts?: {
         transport?: QueueTransport;
@@ -229,6 +234,11 @@ function ok<T extends object>(extra: T): string {
 function err(message: string, extra: Record<string, unknown> = {}): string {
     return JSON.stringify({ ok: false, error: message, ...extra });
 }
+
+/** What a queue item's `session` is. */
+const SESSION_DOC = 'The named Agent SDK session the item runs in: a `<name>.session.json` of the quest\'s history folder '
+    + '(tomAi_listSessions; create one with tomAi_createSession, e.g. a session re-created from a prepared base for every '
+    + 'prompt). Unset: the queue default, else the queue\'s own `default`. Applies to the Agent SDK transport.';
 
 /** How a repeat count is written, for every tool that takes one. */
 const REPEAT_COUNT_DOC = 'Literal number, chat-variable name, or `<prefix>*`: walk the quest\'s todos whose id starts with '
@@ -265,6 +275,7 @@ function compactItem(i: QueueItemSnapshot): Record<string, unknown> {
         transport: i.transport || 'copilot',
         anthropicProfileId: i.anthropicProfileId || null,
         anthropicConfigId: i.anthropicConfigId || null,
+        session: i.agentSdkSession || null,
         answerText: i.answerText || null,
     };
 }
@@ -302,6 +313,8 @@ export interface AddQueueItemInput {
     transport?: QueueTransport;
     anthropicProfileId?: string;
     anthropicConfigId?: string;
+    /** The named Agent SDK session the item runs in ('' = the queue default). */
+    session?: string;
 }
 
 export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueueItemInput): Promise<string> {
@@ -330,6 +343,7 @@ export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueu
             transport: input.transport,
             anthropicProfileId: input.anthropicProfileId,
             anthropicConfigId: input.anthropicConfigId,
+            ...(input.session ? { agentSdkSession: input.session } : {}),
             prePrompts: input.prePrompts ?? [],
             followUps: (input.followUps ?? []).map((f) => ({
                 originalText: f.text,
@@ -397,6 +411,7 @@ export const ADD_QUEUE_ITEM_TOOL: SharedToolDefinition<AddQueueItemInput> = {
             transport: { type: 'string', enum: ['copilot', 'anthropic'] },
             anthropicProfileId: { type: 'string' },
             anthropicConfigId: { type: 'string' },
+            session: { type: 'string', description: SESSION_DOC },
         },
     },
     execute: async () => '{"ok":false,"error":"execute() must be installed by tool-executors.ts"}',
@@ -669,6 +684,8 @@ export interface UpdateQueueItemInput {
     transport?: QueueTransport;
     anthropicProfileId?: string;
     anthropicConfigId?: string;
+    /** The named Agent SDK session the item runs in ('' = the queue default). */
+    session?: string;
 }
 
 export async function updateQueueItemImpl(access: PromptQueueAccess, input: UpdateQueueItemInput): Promise<string> {
@@ -715,6 +732,11 @@ export async function updateQueueItemImpl(access: PromptQueueAccess, input: Upda
                 anthropicProfileId: input.anthropicProfileId,
                 anthropicConfigId: input.anthropicConfigId,
             });
+        }
+        if (input.session !== undefined) {
+            if (!access.updateItemSession || !access.updateItemSession(input.queueItemId, input.session)) {
+                return err(`The session of queue item "${input.queueItemId}" cannot be changed (only staged or pending items).`);
+            }
         }
         const updated = access.getById(input.queueItemId);
         return ok({
@@ -768,6 +790,7 @@ export const UPDATE_QUEUE_ITEM_TOOL: SharedToolDefinition<UpdateQueueItemInput> 
             transport: { type: 'string', enum: ['copilot', 'anthropic'] },
             anthropicProfileId: { type: 'string' },
             anthropicConfigId: { type: 'string' },
+            session: { type: 'string', description: SESSION_DOC },
         },
     },
     execute: async () => '{"ok":false,"error":"execute() must be installed by tool-executors.ts"}',

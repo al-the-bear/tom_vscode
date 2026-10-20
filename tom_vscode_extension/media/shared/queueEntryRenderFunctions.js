@@ -360,6 +360,15 @@ function renderEntry(item, idx) {
           // manager rejects transport updates (isEditableStatus). Hide
           // the gear so users don't click a no-op.
           (isStaged ? '<span class="codicon codicon-settings" style="cursor:pointer;color:#000;" onclick="editItemTransport(\'' + safeId + '\')" title="Change transport (Copilot / Anthropic + profile + config)"></span>' : '') +
+          // Agent SDK session of an Anthropic item: the session's name (the
+          // queue default when unset); staged / pending items can change it.
+          ((item.transport || (typeof queueDefaultTransport !== 'undefined' ? queueDefaultTransport : 'copilot')) === 'anthropic'
+            ? '<span class="queue-session-chip" style="' + ((isStaged || isPending) ? 'cursor:pointer;' : '') + 'color:#000;display:inline-flex;align-items:center;gap:2px;"'
+              + ((isStaged || isPending) ? ' onclick="editItemSession(\'' + safeId + '\')"' : '')
+              + ' title="Agent SDK session' + (item.agentSdkSession ? '' : ' (queue default)') + ((isStaged || isPending) ? ' — click to change' : '') + '">'
+              + '<span class="codicon codicon-comment-discussion"></span><span style="font-size:0.85em;">'
+              + escapeHtml(item.agentSdkSession || (typeof queueDefaultSessionLabel !== 'undefined' ? queueDefaultSessionLabel : 'default')) + '</span></span>'
+            : '') +
           '<span class="codicon codicon-go-to-file" style="cursor:pointer;color:#000;" onclick="openEntryFile(\'' + safeId + '\')" title="Open YAML file"></span>' +
           '<span class="codicon codicon-trash" style="cursor:pointer;color:#000;" onclick="remove(\'' + safeId + '\')" title="Delete"></span>' +
           '</span>' +

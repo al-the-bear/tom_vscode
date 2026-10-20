@@ -233,6 +233,8 @@ export const AVAILABLE_LLM_TOOLS = [
     // Queue + timed requests — observation only; the mutators and the dispatch
     // entry points are in DELIBERATELY_UNSELECTABLE_TOOLS below.
     'tomAi_listQueue',
+    'tomAi_listSessions',
+    'tomAi_createSession',
     'tomAi_listTimedRequests',
     // Past tool calls + prompt history (read-only trail access)
     'tomAi_listPastToolCalls',

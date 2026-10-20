@@ -167,6 +167,8 @@ export interface QueuePromptYaml {
     transport?: 'copilot' | 'anthropic';
     'anthropic-profile-id'?: string;
     'anthropic-config-id'?: string;
+    /** The named Agent SDK session the item runs in. */
+    'agent-sdk-session'?: string;
     'answer-text'?: string;
 }
 
@@ -285,6 +287,8 @@ export interface QueueSettings {
     'default-transport'?: 'copilot' | 'anthropic';
     'default-anthropic-profile-id'?: string;
     'default-anthropic-config-id'?: string;
+    /** The queue-level default Agent SDK session. */
+    'default-agent-sdk-session'?: string;
     /**
      * Queue-level default message-wrapping template. Transport-scoped
      * semantics: copilot template name for copilot, userMessageTemplate

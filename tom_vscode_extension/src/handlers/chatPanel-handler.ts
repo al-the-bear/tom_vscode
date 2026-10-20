@@ -41,6 +41,7 @@ import { writeWindowState } from './windowStatusPanel-handler.js';
 import { AnthropicHandler, AnthropicProfile, AnthropicConfiguration, ANTHROPIC_CHAT_SESSION_KEY } from './anthropic-handler';
 import { QuestRefreshService } from '../services/quest-refresh-service';
 import { resolveProfileTools } from '../tools/tool-executors';
+import { chatSessionFor, pickAgentSdkSession, setChatSessionFor } from './sessionPicker';
 import { ACTIVE_ANTHROPIC_PROFILE_KEY } from '../tools/scripting-tools-bridge';
 import { tryBeginAnthropicSend, endAnthropicSend, setAnthropicSendCancel } from './sendToChatState';
 import { SharedToolDefinition } from '../tools/shared-tool-registry';
@@ -441,8 +442,22 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         await this._sendVsCodeLmModels();
                         break;
                     case 'clearAnthropicHistory':
-                        AnthropicHandler.instance.clearSession(ANTHROPIC_CHAT_SESSION_KEY);
+                        AnthropicHandler.instance.clearSession(this._chatSessionKey());
                         break;
+                    case 'pickAnthropicSession': {
+                        const quest = WsPaths.getWorkspaceQuestId();
+                        const picked = await pickAgentSdkSession({
+                            questId: quest,
+                            current: this._chatSessionKey(),
+                            title: 'Anthropic chat session',
+                            defaultLabel: `The panel's own session (${ANTHROPIC_CHAT_SESSION_KEY})`,
+                        });
+                        if (picked !== undefined) {
+                            await setChatSessionFor(this._context.workspaceState, quest, picked);
+                        }
+                        this._sendChatSession();
+                        break;
+                    }
                     case 'openAnthropicMemory':
                         await vscode.commands.executeCommand('tomAi.panel.memory');
                         break;
@@ -808,7 +823,17 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         ChatPanelViewProvider._claudeCliProbe = undefined;
     }
 
+    /** The session the panel sends in: the one chosen for the quest, else `chat`. */
+    private _chatSessionKey(): string {
+        return chatSessionFor(this._context.workspaceState, WsPaths.getWorkspaceQuestId(), ANTHROPIC_CHAT_SESSION_KEY);
+    }
+
+    private _sendChatSession(): void {
+        void this._view?.webview.postMessage({ type: 'anthropicSession', name: this._chatSessionKey() });
+    }
+
     private _sendProfiles(): void {
+        this._sendChatSession();
         const config = loadSendToChatConfig();
         const anthropicProfileEntries: Array<{ id: string; name: string; isDefault: boolean; configurationId: string }> = Array.isArray(config?.anthropic?.profiles)
             ? (config!.anthropic!.profiles! as Array<{ id: string; name?: string; isDefault?: boolean; configurationId?: string }>)
@@ -1876,7 +1901,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 // `chat.session.json`, separate from the prompt queue's
                 // `default.session.json`, so the two never resume each
                 // other's session.
-                sessionKey: ANTHROPIC_CHAT_SESSION_KEY,
+                sessionKey: this._chatSessionKey(),
                 skipQuestRefresh,
                 ...(userMessageTemplate ? { userMessageTemplate } : {}),
             });

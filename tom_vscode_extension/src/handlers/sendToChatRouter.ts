@@ -24,6 +24,8 @@
  *     busy guard (see `sendToChatState.ts`).
  */
 
+import { WsPaths } from '../utils/workspacePaths';
+import { chatSessionFor } from './sessionPicker';
 import * as vscode from 'vscode';
 import {
     loadSendToChatConfig,
@@ -142,7 +144,8 @@ export async function runAnthropicSend(
             profile,
             configuration,
             tools,
-            sessionKey: ANTHROPIC_CHAT_SESSION_KEY,
+            // The session the panel has selected for this quest (the panel's own `chat` unless another was picked).
+            sessionKey: chatSessionFor(context.workspaceState, WsPaths.getWorkspaceQuestId(), ANTHROPIC_CHAT_SESSION_KEY),
             cancellationToken,
             ...(userMessageTemplate ? { userMessageTemplate } : {}),
         });

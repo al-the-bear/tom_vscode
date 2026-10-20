@@ -13,6 +13,7 @@
  * use. Reads return `""` for absent files so callers don't have to check.
  */
 
+import { clearSessionId, saveSessionId } from './agentSdkSessionStore';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -745,31 +746,23 @@ export class TwoTierMemoryService {
      */
     saveAgentSdkSessionId(sessionId: string, questId?: string, model?: string, sessionKey: string = 'default'): void {
         try {
-            if (!sessionId || sessionId.length === 0) { return; }
-            const file = this.agentSdkSessionFile(questId, sessionKey);
-            // Idempotent short-circuit: if the file already holds this
-            // exact id, leave it alone. Reuses loadAgentSdkSessionId
-            // so stale empty files also get cleaned up correctly.
-            const existing = this.loadAgentSdkSessionId(questId, sessionKey);
-            if (existing === sessionId) { return; }
-            FsUtils.ensureDir(path.dirname(file));
-            const tmp = `${file}.tmp`;
-            fs.writeFileSync(
-                tmp,
-                JSON.stringify({ sessionId, updatedAt: new Date().toISOString(), model: model ?? '' }, null, 2),
-                'utf-8',
-            );
-            fs.renameSync(tmp, file);
+            // Through the session store: written atomically (tmp + rename) and
+            // merged, so a session's `basedOn` / `mode` survive every save.
+            saveSessionId(this.historyFolder(questId), sessionKey, sessionId, model);
         } catch {
             // best-effort
         }
     }
 
+    /** The folder holding the quest's `<name>.session.json` files. */
+    agentSdkSessionsFolder(questId?: string): string {
+        return this.historyFolder(questId);
+    }
+
     /** Remove the session-id file for `sessionKey` (used by clearSession). */
     clearAgentSdkSessionId(questId?: string, sessionKey: string = 'default'): void {
         try {
-            const file = this.agentSdkSessionFile(questId, sessionKey);
-            if (fs.existsSync(file)) { fs.unlinkSync(file); }
+            clearSessionId(this.historyFolder(questId), sessionKey);
         } catch {
             // best-effort
         }

@@ -23,6 +23,7 @@
  * our MCP server when the configuration enables them.
  */
 
+import { shouldForkAttempt } from '../utils/agentSdkSessions';
 import * as vscode from 'vscode';
 import { z } from 'zod';
 import { toRawShape } from '../utils/jsonSchemaToZod';
@@ -337,6 +338,14 @@ export interface AgentSdkSendParams {
      * a new session in that case.
      */
     resumeSessionId?: string;
+    /**
+     * Resume `resumeSessionId` as a fork (`forkSession`): the agent sees that
+     * conversation, the resumed session itself is left unchanged. Set for a
+     * named session started from its base (src/utils/agentSdkSessions.ts).
+     * Only the attempt that resumes the original id forks; a retry resuming
+     * the fork it produced continues it.
+     */
+    forkSession?: boolean;
     /**
      * Fires the instant the SDK's init `system` message arrives (or a
      * later stream message if the init was missed). The handler uses
@@ -956,6 +965,9 @@ async function runAgentSdkAttempt(
         // session so it sees the full turn history it produced earlier.
         if (attempt.resumeSessionId && attempt.resumeSessionId.length > 0) {
             queryOptions.resume = attempt.resumeSessionId;
+            if (shouldForkAttempt(params.forkSession, params.resumeSessionId, attempt.resumeSessionId)) {
+                (queryOptions as { forkSession?: boolean }).forkSession = true;
+            }
         }
 
         // Dump what we hand to the Agent SDK to the per-quest

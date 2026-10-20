@@ -239,6 +239,13 @@ export interface QueuedPrompt {
     transport?: QueuedTransport;
     anthropicProfileId?: string;
     anthropicConfigId?: string;
+    /**
+     * The named Agent SDK session the item's stages run in (a
+     * `<name>.session.json` of the quest's history folder; see
+     * src/utils/agentSdkSessions.ts). Unset: the queue default, else the
+     * queue's own `default` session.
+     */
+    agentSdkSession?: string;
     answerText?: string;
     /**
      * Snapshot of the last prompt actually dispatched for this item —
@@ -503,6 +510,8 @@ export class PromptQueueManager {
     private _defaultTransport: QueuedTransport = 'copilot';
     private _defaultAnthropicProfileId: string | undefined;
     private _defaultAnthropicConfigId: string | undefined;
+    /** The queue-level default Agent SDK session; unset = `default`. */
+    private _defaultAgentSdkSession: string | undefined;
     /**
      * Queue-level default message-wrapping template. Applies to:
      *   - queue-template dispatches: `queueFromTemplate` stamps this
@@ -1852,6 +1861,8 @@ export class PromptQueueManager {
         transport?: QueuedTransport;
         anthropicProfileId?: string;
         anthropicConfigId?: string;
+        /** The named Agent SDK session the item runs in. */
+        agentSdkSession?: string;
     }): Promise<QueuedPrompt> {
         for (const value of [opts.repeatCount, opts.templateRepeatCount, ...(opts.prePrompts ?? []).map((p) => p.repeatCount),
             ...(opts.followUps ?? []).map((f) => f.repeatCount)]) {
@@ -1943,6 +1954,7 @@ export class PromptQueueManager {
             transport: opts.transport,
             anthropicProfileId: opts.anthropicProfileId,
             anthropicConfigId: opts.anthropicConfigId,
+            ...(opts.agentSdkSession?.trim() ? { agentSdkSession: opts.agentSdkSession.trim() } : {}),
         };
 
         logQueue(`Item enqueued: id=${item.id}, type=${item.type}, status=${item.status}, text=${promptPreview(item.originalText)}`);
@@ -3315,7 +3327,7 @@ export class PromptQueueManager {
             const questId = await_import_ChatVariablesStore()?.quest || undefined;
             // eslint-disable-next-line @typescript-eslint/no-require-imports
             const { TwoTierMemoryService } = require('../services/memory-service');
-            TwoTierMemoryService.instance.clearAgentSdkSessionId(questId, 'default');
+            TwoTierMemoryService.instance.clearAgentSdkSessionId(questId, item.agentSdkSession ?? this._defaultAgentSdkSession ?? 'default');
             logQueue(`Item ${item.id} (${scope}): cleared Agent SDK session (previous_message_id 400) for quest '${questId ?? 'none'}' before retry`);
         } catch (e) {
             logQueue(`Item ${item.id} (${scope}): failed to clear Agent SDK session before retry: ${String(e)}`);
@@ -3570,9 +3582,11 @@ export class PromptQueueManager {
     private resolveStageTransport(
         item: QueuedPrompt,
         stage?: { transport?: QueuedTransport; anthropicProfileId?: string; anthropicConfigId?: string },
-    ): { transport: QueuedTransport; anthropicProfileId?: string; anthropicConfigId?: string } {
+    ): { transport: QueuedTransport; anthropicProfileId?: string; anthropicConfigId?: string; agentSdkSession?: string } {
+        const agentSdkSession = item.agentSdkSession ?? this._defaultAgentSdkSession;
         if (stage?.transport) {
             return {
+                agentSdkSession,
                 transport: stage.transport,
                 anthropicProfileId: stage.anthropicProfileId ?? item.anthropicProfileId ?? this._defaultAnthropicProfileId,
                 anthropicConfigId: stage.anthropicConfigId ?? item.anthropicConfigId ?? this._defaultAnthropicConfigId,
@@ -3580,12 +3594,14 @@ export class PromptQueueManager {
         }
         if (item.transport) {
             return {
+                agentSdkSession,
                 transport: item.transport,
                 anthropicProfileId: item.anthropicProfileId ?? this._defaultAnthropicProfileId,
                 anthropicConfigId: item.anthropicConfigId ?? this._defaultAnthropicConfigId,
             };
         }
         return {
+            agentSdkSession,
             transport: this._defaultTransport,
             anthropicProfileId: this._defaultAnthropicProfileId,
             anthropicConfigId: this._defaultAnthropicConfigId,
@@ -3662,6 +3678,8 @@ export class PromptQueueManager {
                 cancellationToken: cts.token,
                 skipQuestRefresh,
                 source: 'queue',
+                // The item's named session, else the queue default, else `default`.
+                ...(resolved.agentSdkSession ? { sessionKey: resolved.agentSdkSession } : {}),
             });
             if (stageForAnswer) {
                 stageForAnswer.answerText = result.text;
@@ -4237,6 +4255,7 @@ export class PromptQueueManager {
             'default-transport': this._defaultTransport,
             'default-anthropic-profile-id': this._defaultAnthropicProfileId,
             'default-anthropic-config-id': this._defaultAnthropicConfigId,
+            'default-agent-sdk-session': this._defaultAgentSdkSession,
             'default-message-template-id': this._defaultMessageTemplateId,
             'queue-start-at': this._queueStartAt,
         });
@@ -4273,6 +4292,9 @@ export class PromptQueueManager {
             if (typeof settings['default-anthropic-config-id'] === 'string') {
                 this._defaultAnthropicConfigId = settings['default-anthropic-config-id'] || undefined;
             }
+            if (typeof settings['default-agent-sdk-session'] === 'string') {
+                this._defaultAgentSdkSession = settings['default-agent-sdk-session'] || undefined;
+            }
             if (typeof settings['default-message-template-id'] === 'string') {
                 this._defaultMessageTemplateId = settings['default-message-template-id'] || undefined;
             }
@@ -4298,6 +4320,24 @@ export class PromptQueueManager {
     get defaultAnthropicProfileId(): string | undefined { return this._defaultAnthropicProfileId; }
     get defaultAnthropicConfigId(): string | undefined { return this._defaultAnthropicConfigId; }
     get defaultMessageTemplateId(): string | undefined { return this._defaultMessageTemplateId; }
+    get defaultAgentSdkSession(): string | undefined { return this._defaultAgentSdkSession; }
+
+    /** Set the queue-level default Agent SDK session; '' / undefined = the queue's own `default`. */
+    setDefaultAgentSdkSession(name: string | undefined): void {
+        this._defaultAgentSdkSession = name?.trim() || undefined;
+        this.persistSettings();
+        this._onDidChange.fire();
+    }
+
+    /** Set an item's Agent SDK session (staged or pending items); '' = inherit the queue default. */
+    updateItemSession(id: string, name: string | undefined): boolean {
+        const item = this._items.find(i => i.id === id);
+        if (!item || !this.isEditableStatus(item.status)) { return false; }
+        item.agentSdkSession = name?.trim() || undefined;
+        this.persist();
+        this._onDidChange.fire();
+        return true;
+    }
     setDefaultTransport(
         transport: QueuedTransport,
         anthropicProfileId?: string,
@@ -4552,6 +4592,7 @@ export class PromptQueueManager {
                 transport: main.transport === 'anthropic' ? 'anthropic' : (main.transport === 'copilot' ? 'copilot' : undefined),
                 anthropicProfileId: main['anthropic-profile-id'] || undefined,
                 anthropicConfigId: main['anthropic-config-id'] || undefined,
+                agentSdkSession: main['agent-sdk-session'] || undefined,
                 answerText: main['answer-text'] || undefined,
                 todoClaim: todoClaimFromYaml(main['todo-claim']),
             };
@@ -4686,6 +4727,7 @@ export class PromptQueueManager {
             ...(item.transport ? { transport: item.transport } : {}),
             ...(item.anthropicProfileId ? { 'anthropic-profile-id': item.anthropicProfileId } : {}),
             ...(item.anthropicConfigId ? { 'anthropic-config-id': item.anthropicConfigId } : {}),
+            ...(item.agentSdkSession ? { 'agent-sdk-session': item.agentSdkSession } : {}),
             ...(item.answerText ? { 'answer-text': item.answerText } : {}),
             ...(item.todoClaim ? { 'todo-claim': todoClaimToYaml(item.todoClaim) } : {}),
         };

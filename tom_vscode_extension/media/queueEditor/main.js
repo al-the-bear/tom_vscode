@@ -117,6 +117,8 @@ let anthropicProfiles = __INITIAL__.anthropicProfiles || [];
 let anthropicConfigs = __INITIAL__.anthropicConfigs || [];
 let anthropicUserMessageTemplates = __INITIAL__.anthropicUserMessageTemplates || [];
 let queueDefaultTransport = __INITIAL__.queueDefaultTransport || 'copilot';
+// The queue's default Agent SDK session, as shown on items without their own.
+let queueDefaultSessionLabel = __INITIAL__.queueDefaultSession || 'default';
 let queueDefaultAnthropicProfileId = __INITIAL__.queueDefaultAnthropicProfileId || '';
 let queueDefaultMessageTemplateId = __INITIAL__.queueDefaultMessageTemplateId || '';
 let currentContext = __INITIAL__.context || { quest: '', role: '', activeProjects: [] };
@@ -172,6 +174,10 @@ function showFatalError(context, err) {
 /* ---- Inject transport-picker fragments (rendered host-side, spec §4.15) ---- */
 var __qdSlot = document.getElementById('queueDefaultPickerSlot');
 if (__qdSlot && __INIT.queueDefaultPickerHtml) { __qdSlot.innerHTML = __INIT.queueDefaultPickerHtml; }
+var __qdsBtn = document.getElementById('queueDefaultSessionBtn');
+if (__qdsBtn) { __qdsBtn.addEventListener('click', function() { vscode.postMessage({ type: 'pickQueueDefaultSession' }); }); }
+var __qdsName = document.getElementById('queue-default-session-name');
+if (__qdsName) { __qdsName.textContent = queueDefaultSessionLabel; }
 var __afSlot = document.getElementById('addTransportRow');
 if (__afSlot && __INIT.addFormPickerHtml) { __afSlot.innerHTML = __INIT.addFormPickerHtml; }
 
@@ -206,6 +212,9 @@ window.addEventListener('message', e => {
       anthropicConfigs = msg.anthropicConfigs || [];
       anthropicUserMessageTemplates = msg.anthropicUserMessageTemplates || [];
       queueDefaultTransport = msg.queueDefaultTransport || 'copilot';
+      queueDefaultSessionLabel = msg.queueDefaultSession || 'default';
+      var defaultSessionEl = document.getElementById('queue-default-session-name');
+      if (defaultSessionEl) { defaultSessionEl.textContent = queueDefaultSessionLabel; }
       queueDefaultAnthropicProfileId = msg.queueDefaultAnthropicProfileId || '';
       queueDefaultMessageTemplateId = msg.queueDefaultMessageTemplateId || '';
       currentContext = msg.context || { quest: '', role: '', activeProjects: [] };

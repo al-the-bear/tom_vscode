@@ -291,5 +291,5 @@ Explorer sidebar view showing all open @Tom windows with per-subsystem status:
 | Raw trail | `_ai/trail/<subsystem>/<quest>/` | `TrailService` | `*_prompt_*.userprompt.md`, `*_payload_*.payload.md`, `*_answer_*.answer.json`, `*_toolrequest_*.json`, `*_toolanswer_*.json` |
 | Live trail | `_ai/quests/<quest>/live-trail.md` | `LiveTrailWriter` | Rolling window: last 5 prompt blocks. Stream thinking / tool_use / tool_result / assistant text |
 | Session history | `_ai/quests/<quest>/history/history.json` + `history.md` | `trim_and_summary` compaction | Direct transport only |
-| SDK session id | `_ai/quests/<quest>/history/default.session.json` | Agent SDK handler | SDK-managed mode only. Gitignored. Idempotent — only rewritten on change |
+| SDK sessions | `_ai/quests/<quest>/history/<name>.session.json` (`chat` panel, `default` queue, named sessions) | Agent SDK handler, session pickers, `tomAi_createSession` | SDK-managed mode only. Gitignored. Holds the session id and, for a named session, `basedOn` / `mode` (`continue` / `fork-from-base`) |
 | Tool trail | in-memory (`tool-trail.ts`) | `AnthropicHandler` | Ring buffer 40 entries; replay keys `t1`, `t2`, … queryable via `tomAi_*PastToolCall*` tools |

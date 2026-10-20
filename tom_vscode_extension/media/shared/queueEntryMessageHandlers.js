@@ -218,6 +218,11 @@ function editItemTransport(id) {
   // updateItemTransport when the user confirms.
   vscode.postMessage({ type: 'editItemTransport', id: id });
 }
+function editItemSession(id) {
+  // Pick the item's Agent SDK session in VS Code's picker (existing, new,
+  // based on another, or the queue default).
+  vscode.postMessage({ type: 'editItemSession', id: id });
+}
 function applyQueueDefaultTransport(id) {
   // Header-bar "adopt queue settings" button. Copies the queue-level
   // default transport + Anthropic profile (the dropdowns above the queue)
