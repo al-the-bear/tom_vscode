@@ -34,7 +34,9 @@ const NODE_TEST_TAIL = 'ℹ tests 12\nℹ suites 3\nℹ pass 11\nℹ fail 1\nℹ
 
 describe('run-test-stages', () => {
     test('RS-1: the stages come from package.json', () => {
-        const stages = runner.stagesOf({ 'lint:media': 'x', 'test:b': 'x', compile: 'x', 'test:a': 'x', 'audit:tools': 'x' });
+        // A scripts block as package.json has it: names with colons, in the order written.
+        const scripts = Object.fromEntries(['lint:media', 'test:b', 'compile', 'test:a', 'audit:tools'].map((name) => [name, 'x']));
+        const stages = runner.stagesOf(scripts);
         assert.deepEqual(stages, ['lint:media', 'test:b', 'test:a', 'audit:tools']);
         const real = runner.stagesOf(PKG.scripts);
         assert.equal(real[0], 'lint:media');
