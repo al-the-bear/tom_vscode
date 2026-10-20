@@ -79,6 +79,21 @@ Markdown by hand: the runtime keeps every byte outside the annotation as it was.
    shows the document as it reads once every mark is accepted and every comment
    and question removed; the file is not changed.
 
+**Write changes as marks.** When the reviewer is to see what you changed, pass
+`marked: true` to `tomAi_specSetContent` / `tomAi_specSetFormField` (or the
+batch's `setContent` / `setFormField`): the new text is written with its
+differences as inline marks, which the reviewer accepts or rejects. Editing a
+marked passage again updates its mark rather than nesting one. Only text takes
+marks; a typed or enum field is refused (`notText`).
+
+**Collect a round's answers.** `tomAi_specExtractAnswers` returns the
+`answers.md` of a round — answered questions and comments, per document, with
+their sections and lines (`includeOpen`, `includeMarks` add the rest) — and
+writes nothing; `tomAi_specWriteAnswers` writes it into the step folder
+(`output`). The annotations stay in the document. At the end of a round,
+`tomAi_specRemoveAllAnnotations` accepts every mark and removes every comment
+and question in one write — collect the answers first.
+
 Several of these in one write: `tomAi_specApplyEdits` takes them as ops of the
 same names, e.g.
 

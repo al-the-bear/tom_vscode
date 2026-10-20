@@ -233,6 +233,7 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_specValidate',
         'tomAi_specRender',
         'tomAi_specAnnotations',
+        'tomAi_specExtractAnswers',
     ],
     'TomSpecs (edit)': [
         'tomAi_specAddNode',
@@ -246,6 +247,7 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_specInsertComment',
         'tomAi_specInsertQuestion',
         'tomAi_specMoveListItem',
+        'tomAi_specRemoveAllAnnotations',
         'tomAi_specRemoveListItem',
         'tomAi_specResolveAnnotation',
         'tomAi_specSetAnswer',
@@ -254,6 +256,7 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_specSetFormField',
         'tomAi_specSetHeadline',
         'tomAi_specSetItemSectionId',
+        'tomAi_specWriteAnswers',
     ],
     'Todos (chat)': [
         'tomAi_manageTodo',

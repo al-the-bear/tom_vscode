@@ -198,6 +198,7 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_specValidate',
     'tomAi_specRender',
     'tomAi_specAnnotations',
+    'tomAi_specExtractAnswers',
     // CodeSpecs (Phase 4: spec → code-generation inputs)
     'tomAi_specCodeSpecsAreas',
     'tomAi_specCodeSpecsRouting',
@@ -239,6 +240,8 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_specAssignCommentIds',
     'tomAi_specResolveAnnotation',
     'tomAi_specDecideMarks',
+    'tomAi_specRemoveAllAnnotations',
+    'tomAi_specWriteAnswers',
     // Queue + timed requests — observation and sessions
     'tomAi_listQueue',
     'tomAi_listSessions',

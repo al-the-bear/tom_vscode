@@ -12,6 +12,7 @@
  *   tomAi_specAssignCommentIds   give every comment without an id the next one
  *   tomAi_specResolveAnnotation  remove one comment or question once it has been applied
  *   tomAi_specDecideMarks        accept / reject inline marks, by id or all under a path
+ *   tomAi_specRemoveAllAnnotations  every mark accepted, every comment and question removed
  *
  * The writers share the edit cycle of the other spec edit tools
  * (spec-edit-core.ts): revision check, read-only refusal, dry run with diff,
@@ -124,6 +125,8 @@ export interface SpecDecideMarksInput extends SpecEditOptions {
     path?: string;
     marksRevision?: string;
 }
+
+export type SpecRemoveAllAnnotationsInput = SpecEditOptions;
 
 // ---------------------------------------------------------------------------
 // Shared
@@ -339,6 +342,42 @@ function opDecideMarks(_deps: SpecToolDeps, ctx: EditContext, input: OpInput<Spe
     return { touched: touched.length ? touched : (input.path || ''), result: { ...report.toJson(), marksRevision: notes.revision(), counts: countsOf(notes) } };
 }
 
+/**
+ * Remove every annotation of the document (SpecReviewAnnotations.removeAllAnnotations):
+ * every inline mark accepted, every comment and question block removed. The
+ * runtime works on the whole document. Answers what was removed — the counts
+ * before — and the marks it accepted; malformed marks stay and are reported.
+ */
+function opRemoveAllAnnotations(_deps: SpecToolDeps, ctx: EditContext, _input: OpInput<SpecRemoveAllAnnotationsInput>): OpOutcome {
+    const notes = notesOf(ctx);
+    const before = notes.list();
+    const questions = before.filter((a) => a.kind === 'question');
+    const removed = {
+        comments: before.filter((a) => a.kind === 'comment').length,
+        questions: questions.length,
+        openQuestions: questions.filter((q) => q.open).length,
+        marks: before.filter((a) => a.kind === 'mark').length,
+    };
+    const report = notes.removeAllAnnotations();
+    const touched = [...new Set(before.map((a) => a.path))];
+    return { touched, result: { removed, ...report.toJson(), counts: countsOf(notes) } };
+}
+
+/**
+ * Write `text` at `path` / `field` as a marked change against the value there
+ * now (SpecReviewAnnotations.setMarked, SOM §11.9.3): a reviewer accepting
+ * every mark gets `text`, rejecting every mark the value as it was. A value
+ * that already holds marks is compared from its original, so editing a passage
+ * again updates its mark. Only text takes marks: the caller has checked the
+ * target is a text value. Answers whether the marks reproduce both versions
+ * exactly (false when a difference sits in fenced code or the text holds mark
+ * delimiters — the new value is then written unmarked).
+ */
+export function writeMarked(ctx: EditContext, path: string, field: string | null, text: string): { exact: boolean } {
+    const change = notesOf(ctx).setMarked({ path, field, text });
+    return { exact: change.exact };
+}
+
 /** The annotation operations tomAi_specApplyEdits runs, with the single tools' arguments. */
 export const ANNOTATION_BATCH_OPS: Record<string, (deps: SpecToolDeps, ctx: EditContext, input: never) => OpOutcome> = {
     insertComment: opInsertComment,
@@ -348,6 +387,7 @@ export const ANNOTATION_BATCH_OPS: Record<string, (deps: SpecToolDeps, ctx: Edit
     assignCommentIds: opAssignCommentIds,
     resolveAnnotation: opResolveAnnotation,
     decideMarks: opDecideMarks,
+    removeAllAnnotations: opRemoveAllAnnotations,
 };
 
 export async function specInsertCommentImpl(deps: SpecToolDeps, input: SpecInsertCommentInput): Promise<string> {
@@ -370,6 +410,9 @@ export async function specResolveAnnotationImpl(deps: SpecToolDeps, input: SpecR
 }
 export async function specDecideMarksImpl(deps: SpecToolDeps, input: SpecDecideMarksInput): Promise<string> {
     return runEdit(deps, input, (ctx) => opDecideMarks(deps, ctx, input));
+}
+export async function specRemoveAllAnnotationsImpl(deps: SpecToolDeps, input: SpecRemoveAllAnnotationsInput): Promise<string> {
+    return runEdit(deps, input, (ctx) => opRemoveAllAnnotations(deps, ctx, input));
 }
 
 // ---------------------------------------------------------------------------
@@ -538,6 +581,20 @@ export const SPEC_DECIDE_MARKS_TOOL = editTool<SpecDecideMarksInput>(
     specDecideMarksImpl,
 );
 
+export const SPEC_REMOVE_ALL_ANNOTATIONS_TOOL = editTool<SpecRemoveAllAnnotationsInput>(
+    { name: 'tomAi_specRemoveAllAnnotations', displayName: 'Spec: Remove All Annotations' },
+    'Remove every review annotation of the document and write it back (SpecReviewAnnotations.removeAllAnnotations): '
+    + 'every inline mark accepted, every comment and question block removed, answered or not — the document as it '
+    + 'reads once a review round is integrated (step 05, Result). The whole document; for part of it use '
+    + 'tomAi_specDecideMarks with `all` and tomAi_specResolveAnnotation. Answers `removed` (comments, questions, '
+    + 'openQuestions, marks, counted before), `applied` (each mark accepted) and `malformed` marks left as written. '
+    + 'Collect the answers first (tomAi_specWriteAnswers): what is removed here is gone from the document. '
+    + '`dryRun` shows the diff.' + FIRST_LOOK + RESULT_NOTE,
+    { ...EDIT_PARAMS },
+    ['file'],
+    specRemoveAllAnnotationsImpl,
+);
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const SPEC_ANNOTATION_TOOLS: SharedToolDefinition<any>[] = [
     SPEC_ANNOTATIONS_TOOL,
@@ -548,4 +605,5 @@ export const SPEC_ANNOTATION_TOOLS: SharedToolDefinition<any>[] = [
     SPEC_ASSIGN_COMMENT_IDS_TOOL,
     SPEC_RESOLVE_ANNOTATION_TOOL,
     SPEC_DECIDE_MARKS_TOOL,
+    SPEC_REMOVE_ALL_ANNOTATIONS_TOOL,
 ];

@@ -23,6 +23,17 @@
  *   SA-10 tomAi_specApplyEdits runs the annotation ops in one write
  *   SA-11 a Markdown document: the same tools, saved as Markdown
  *   SA-12 the reader is on the MCP read-only floor, every writer needs approval
+ *   SA-13 removeAllAnnotations (vscannot3): every mark accepted, every comment and question removed, the
+ *         counts before answered as `removed`; dryRun writes nothing; also a batch op
+ *   SA-14 a marked write (vscannot3): setContent / setFormField with `marked: true` write the new text as
+ *         marks against the old (accept all gives the new text, reject all the old); a second marked edit
+ *         updates the mark instead of nesting one; a typed or enum field is refused (`notText`); the batch
+ *         ops take `marked` too
+ *   SA-15 tomAi_specExtractAnswers (vscannot3): the answered questions and comments as answers.md, the
+ *         open questions and marks on request, counts per document and in total, a subtree by `path`, two
+ *         documents in the order given, labelled by file name; writes nothing; on the read-only floor
+ *   SA-16 tomAi_specWriteAnswers (vscannot3): writes answers.md (folders created), unchanged is not
+ *         rewritten, other text is refused without `overwrite`, dryRun returns the diff and writes nothing
  */
 
 import test, { before, describe } from 'node:test';
@@ -51,6 +62,9 @@ import {
     specSetAnswerImpl,
 } from '../spec-annotation-tools.js';
 import { specRenderImpl } from '../spec-validate-tools.js';
+import { specRemoveAllAnnotationsImpl } from '../spec-annotation-tools.js';
+import { SPEC_ANSWERS_TOOLS, answersLabel, specExtractAnswersImpl, specWriteAnswersImpl } from '../spec-answers-tools.js';
+import { specSetFormFieldImpl } from '../spec-edit-tools.js';
 import { READ_ONLY_TOOLS } from '../tool-executors.js';
 
 const SAMPLES = path.resolve(__dirname, '..', '..', '..', '..', '..', 'ai_build', 'tom_som_dart_v0', 'documents');
@@ -282,7 +296,8 @@ describe('TomSpecs annotation tools', () => {
         const names = SPEC_ANNOTATION_TOOLS.map((t) => t.name).sort();
         assert.deepEqual(names, [
             'tomAi_specAnnotations', 'tomAi_specAssignCommentIds', 'tomAi_specDecideMarks', 'tomAi_specEditComment',
-            'tomAi_specInsertComment', 'tomAi_specInsertQuestion', 'tomAi_specResolveAnnotation', 'tomAi_specSetAnswer',
+            'tomAi_specInsertComment', 'tomAi_specInsertQuestion', 'tomAi_specRemoveAllAnnotations', 'tomAi_specResolveAnnotation',
+            'tomAi_specSetAnswer',
         ]);
         for (const t of SPEC_ANNOTATION_TOOLS) {
             if (t.name === 'tomAi_specAnnotations') {
@@ -294,5 +309,166 @@ describe('TomSpecs annotation tools', () => {
                 assert.ok(!floor.has(t.name), `${t.name} writes`);
             }
         }
+    });
+
+    test('SA-13: removing every annotation', async () => {
+        const file = await annotated();
+        const before = read(file);
+        const dry = await run(specRemoveAllAnnotationsImpl, { file, dryRun: true });
+        assert.equal(dry.ok, true, JSON.stringify(dry));
+        assert.equal(dry.written, false);
+        assert.deepEqual(dry.removed, { comments: 2, questions: 1, openQuestions: 1, marks: 2 });
+        assert.match(dry.diff, /^-.*BQ-01/m);
+        assert.equal(read(file), before, 'a dry run writes nothing');
+
+        const r = JSON.parse(await withTiming('tomAi_specRemoveAllAnnotations:typical', () => specRemoveAllAnnotationsImpl(deps, { file })));
+        assert.equal(r.ok, true, JSON.stringify(r));
+        assert.equal(r.written, true);
+        assert.equal(r.applied.length, 2, 'both marks accepted');
+        assert.deepEqual(r.counts, { questions: 0, openQuestions: 0, answeredQuestions: 0, comments: 0, marks: 0 });
+        const value = (await run(specRenderImpl, { file, path: VALUE })).markdown as string;
+        assert.match(value, /Orders are always kept three years\./, 'the marks accepted');
+        assert.doesNotMatch(value, /C-3|BQ-01|Which finance system/, 'comments and questions gone');
+        assert.match(value, /Invoices go to finance\./, 'the text stays');
+
+        const batched = await annotated();
+        const b = await run(specApplyEditsImpl, { file: batched, edits: [{ op: 'removeAllAnnotations' }] });
+        assert.equal(b.ok, true, JSON.stringify(b));
+        assert.equal(b.results[0].removed.comments, 2);
+        assert.equal((await list(batched)).counts.marks, 0);
+    });
+
+    test('SA-14: a marked write', async () => {
+        const file = `m${++counter}.docspecs.yaml`;
+        fs.writeFileSync(path.join(ws, file), MERIDIAN_YAML);
+        assert.equal((await run(specSetContentImpl, { file, path: VALUE, text: 'Orders are kept two years.' })).ok, true);
+        const r = JSON.parse(await withTiming('tomAi_specSetContent:marked', () =>
+            specSetContentImpl(deps, { file, path: VALUE, text: 'Orders are kept three years.', marked: true })));
+        assert.equal(r.ok, true, JSON.stringify(r));
+        assert.deepEqual([r.marked, r.exact], [true, true]);
+        assert.match(r.value, /\{~~\s*two\s*~>\s*three\s*~~\}/, 'the change is a substitution mark');
+        const marks = (await list(file, { kinds: ['mark'] })).marks;
+        assert.deepEqual(marks.map((m: Json) => [m.markKind, m.oldText, m.newText]), [['substitution', 'two', 'three']]);
+
+        const again = await run(specSetContentImpl, { file, path: VALUE, text: 'Orders are kept four years.', marked: true });
+        assert.equal(again.ok, true, JSON.stringify(again));
+        const updated = (await list(file, { kinds: ['mark'] })).marks;
+        assert.deepEqual(updated.map((m: Json) => [m.oldText, m.newText]), [['two', 'four']], 'compared from the original: one mark, updated');
+
+        const accepted = await run(specDecideMarksImpl, { file, all: 'accept', dryRun: true });
+        assert.match(accepted.diff, /Orders are kept four years\./);
+        const rejected = await run(specDecideMarksImpl, { file, all: 'reject', dryRun: true });
+        assert.match(rejected.diff, /Orders are kept two years\./);
+
+        const FR1 = 'SBP/introductionAndScope/requirements/functionalRequirements/FRE-REQU-LST-1';
+        const desc = await run(specSetFormFieldImpl, { file, path: `${FR1}/FRED`, field: 'description', value: 'The system must keep orders.' });
+        assert.equal(desc.ok, true, JSON.stringify(desc));
+        const field = await run(specSetFormFieldImpl, { file, path: `${FR1}/FRED`, field: 'description', value: 'The system must archive orders.', marked: true });
+        assert.equal(field.ok, true, JSON.stringify(field));
+        assert.match(field.value, /\{~~\s*keep\s*~>\s*archive\s*~~\}/);
+        assert.equal((await list(file, { kinds: ['mark'], path: FR1 })).marks.length, 1, 'the form field\'s mark is listed');
+
+        const before = read(file);
+        const enumField = await run(specSetFormFieldImpl, { file, path: `${FR1}/FREP`, field: 'priority', value: 'could', marked: true });
+        assert.equal(enumField.code, 'notText');
+        const intField = await run(specSetFormFieldImpl, { file, path: 'SBP/introductionAndScope/summary/SYSCL', field: 'estimatedUserCount', value: '12', marked: true });
+        assert.equal(intField.code, 'notText');
+        assert.equal(intField.type, 'int');
+        assert.equal(read(file), before, 'refused: nothing written');
+
+        const batched = await run(specApplyEditsImpl, {
+            file,
+            edits: [
+                { op: 'setContent', path: VALUE, text: 'Orders are kept five years.', marked: true },
+                { op: 'setFormField', path: `${FR1}/FRED`, field: 'description', value: 'The system must delete orders.', marked: true },
+            ],
+        });
+        assert.equal(batched.ok, true, JSON.stringify(batched));
+        assert.deepEqual(batched.results.map((x: Json) => x.marked), [true, true]);
+        assert.deepEqual((await list(file, { kinds: ['mark'] })).marks.map((m: Json) => m.newText).sort(), ['delete', 'five']);
+    });
+
+    test('SA-15: extracting the answers', async () => {
+        const file = await annotated();
+        await run(specSetAnswerImpl, { file, questionId: 'BQ-01', answer: '(b) as recommended' });
+        const before = read(file);
+        const r = JSON.parse(await withTiming('tomAi_specExtractAnswers:typical', () => specExtractAnswersImpl(deps, { file })));
+        assert.equal(r.ok, true, JSON.stringify(r));
+        assert.deepEqual(r.counts, { answered: 1, open: 0, comments: 2, marks: 2 });
+        const label = answersLabel(file);
+        assert.deepEqual(r.documents.map((d: Json) => [d.label, d.root]), [[label, 'SBP']]);
+        assert.deepEqual(r.findings, []);
+        const md = r.markdown as string;
+        assert.match(md, /^# Answers$/m);
+        assert.match(md, new RegExp(`^## ${label.replace('.', '\\.')}$`, 'm'));
+        assert.match(md, /^### Answered questions$/m);
+        assert.match(md, /BQ-01/);
+        assert.match(md, /\(b\) as recommended/);
+        assert.match(md, /What about returns\?/);
+        assert.doesNotMatch(md, /^### Inline marks$/m, 'marks only on request');
+        assert.equal(read(file), before, 'nothing written');
+
+        const withMarks = await run(specExtractAnswersImpl, { file, includeMarks: true, includeOpen: true, title: 'Round 2' });
+        assert.match(withMarks.markdown, /^# Round 2$/m);
+        assert.match(withMarks.markdown, /^### Inline marks$/m);
+        assert.match(withMarks.markdown, /^### Open questions$/m);
+
+        const elsewhere = await run(specExtractAnswersImpl, { file, path: 'SBP/introductionAndScope' });
+        assert.deepEqual(elsewhere.counts, { answered: 0, open: 0, comments: 0, marks: 0 });
+        assert.equal((await run(specExtractAnswersImpl, { file, path: 'SBP/nope' })).code, 'unresolvedPath');
+
+        const cla = `cla${++counter}.docspecs.yaml`;
+        assert.equal((await run(specCreateDocumentImpl, { file: cla, root: 'CLA' })).ok, true);
+        const claSet = await run(specSetContentImpl, { file: cla, path: 'CLA/content', text: 'The landscape.\n\n> ⬆️ **C-1** (Eve): Which systems?' });
+        assert.equal(claSet.ok, true, JSON.stringify(claSet));
+        const two = await run(specExtractAnswersImpl, { files: [cla, file] });
+        assert.equal(two.ok, true, JSON.stringify(two));
+        assert.deepEqual(two.documents.map((d: Json) => [d.label, d.root, d.counts.comments]), [[answersLabel(cla), 'CLA', 1], [label, 'SBP', 2]], 'in the order given');
+        assert.equal(two.counts.comments, 3, 'the total over both');
+        assert.ok(two.markdown.indexOf(`## ${answersLabel(cla)}`) < two.markdown.indexOf(`## ${label}`));
+
+        const copy = await annotated();
+        assert.equal((await run(specExtractAnswersImpl, { files: [file, copy] })).code, 'overlap', 'two fragments of one root writing the same values');
+        assert.equal((await run(specExtractAnswersImpl, {})).code, 'invalidInput');
+        assert.equal((await run(specExtractAnswersImpl, { file, files: [file] })).code, 'invalidInput');
+        assert.equal(answersLabel('x/tom_uam.sbp.docspecs.yaml'), 'tom_uam.sbp');
+        assert.equal(answersLabel('tom_uam.sbp.md'), 'tom_uam.sbp');
+
+        const floor = new Set(READ_ONLY_TOOLS.map((t) => t.name));
+        const [extractTool, writeTool] = SPEC_ANSWERS_TOOLS;
+        assert.equal(extractTool.name, 'tomAi_specExtractAnswers');
+        assert.ok(extractTool.readOnly && floor.has(extractTool.name), 'the extraction is on the floor');
+        assert.equal(writeTool.name, 'tomAi_specWriteAnswers');
+        assert.ok(!writeTool.readOnly && writeTool.requiresApproval && !floor.has(writeTool.name), 'writing needs approval');
+    });
+
+    test('SA-16: writing answers.md', async () => {
+        const file = await annotated();
+        const output = 'step/02_Deepening/answers.md';
+        const dry = await run(specWriteAnswersImpl, { file, output, dryRun: true });
+        assert.equal(dry.ok, true, JSON.stringify(dry));
+        assert.deepEqual([dry.written, dry.status], [false, 'new']);
+        assert.match(dry.diff, /^\+# Answers$/m);
+        assert.equal(fs.existsSync(path.join(ws, output)), false, 'a dry run writes nothing');
+
+        const r = JSON.parse(await withTiming('tomAi_specWriteAnswers:typical', () => specWriteAnswersImpl(deps, { file, output })));
+        assert.equal(r.ok, true, JSON.stringify(r));
+        assert.deepEqual([r.written, r.status, r.file], [true, 'new', output]);
+        const text = read(output);
+        assert.equal(text, (await run(specExtractAnswersImpl, { file })).markdown, 'the text the extraction answers');
+
+        const same = await run(specWriteAnswersImpl, { file, output });
+        assert.deepEqual([same.written, same.status], [false, 'unchanged']);
+
+        await run(specSetAnswerImpl, { file, questionId: 'BQ-01', answer: '(a)' });
+        const refused = await run(specWriteAnswersImpl, { file, output });
+        assert.equal(refused.code, 'exists');
+        assert.equal(read(output), text, 'refused: unchanged');
+        const replaced = await run(specWriteAnswersImpl, { file, output, overwrite: true });
+        assert.deepEqual([replaced.written, replaced.status], [true, 'changed']);
+        assert.match(read(output), /\*\*Answer:\*\* \(a\)/);
+
+        assert.equal((await run(specWriteAnswersImpl, { file, output: '../outside.md' })).ok, false, 'outside the workspace');
+        assert.equal((await run(specWriteAnswersImpl, { file })).code, 'invalidInput');
     });
 });

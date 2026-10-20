@@ -67,7 +67,7 @@ import {
     type SpecEditOptions,
 } from './spec-edit-core';
 
-import { ANNOTATION_BATCH_OPS } from './spec-annotation-tools';
+import { ANNOTATION_BATCH_OPS, writeMarked } from './spec-annotation-tools';
 
 export { SpecEditRefusal, type SpecEditOptions, type OpInput } from './spec-edit-core';
 
@@ -82,11 +82,15 @@ export interface SpecCreateDocumentInput {
 export interface SpecSetContentInput extends SpecEditOptions {
     path: string;
     text: SomValue;
+    /** Write the new text as a marked change against the value there now. */
+    marked?: boolean;
 }
 export interface SpecSetFormFieldInput extends SpecEditOptions {
     path: string;
     field: string;
     value: SomValue;
+    /** Write the new text as a marked change against the field's value now (String fields only). */
+    marked?: boolean;
 }
 export interface SpecSetHeadlineInput extends SpecEditOptions {
     path: string;
@@ -158,9 +162,27 @@ export async function specCreateDocumentImpl(deps: SpecToolDeps, input: SpecCrea
     }
 }
 
+/** A marked write takes text: a String value, given as a string ('' / null mark the whole value deleted). */
+function markedText(value: SomValue, declaredType: string | null | undefined, enumValues: readonly string[], where: string): string {
+    if ((declaredType && declaredType !== 'String') || enumValues.length > 0) {
+        throw new SpecEditRefusal('notText', `${where} holds a ${declaredType ?? 'typed'} value; only text takes change marks. Write it without \`marked\`.`, { type: declaredType ?? null });
+    }
+    if (value !== null && typeof value !== 'string') {
+        throw new SpecEditRefusal('notText', `A marked write takes a string, not ${typeof value}.`);
+    }
+    return value ?? '';
+}
+
 function opSetContent(deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecSetContentInput>): OpOutcome {
     const res = ctx.inspector.resolve(input.path);
     requireKind(res, input.path, VALUE_LEAVES, 'a content or scalar value');
+    if (input.marked === true) {
+        const f = res.field;
+        const type = res.kind === SpecNodeKind.CONTENT ? null : (f ? (f.enumType ?? f.type ?? f.elementType ?? null) : null);
+        const text = markedText(input.text, type, f && res.kind !== SpecNodeKind.CONTENT ? f.enumValues : [], `'${input.path}'`);
+        const { exact } = writeMarked(ctx, input.path, null, text);
+        return { touched: input.path, result: { path: input.path, value: ctx.loaded.document.content(input.path) ?? null, marked: true, exact } };
+    }
     const text = input.text === '' ? null : input.text;
     setLeafValue(ctx.editor, input.path, text);
     return { touched: input.path, result: { path: input.path, value: ctx.editor.value(input.path) } };
@@ -173,6 +195,17 @@ export async function specSetContentImpl(deps: SpecToolDeps, input: SpecSetConte
 function opSetFormField(deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecSetFormFieldInput>): OpOutcome {
     const res = ctx.inspector.resolve(input.path);
     requireKind(res, input.path, [SpecNodeKind.FORM], 'a form');
+    if (input.marked === true) {
+        const spec = ctx.editor.formFields(input.path).find((f) => f.name === input.field);
+        if (!spec) {
+            throw new SpecEditRefusal('unknownField', `'${input.field}' is not a field of the form at ${input.path}.`, {
+                fields: ctx.editor.formFields(input.path).map((f) => f.name),
+            });
+        }
+        const text = markedText(input.value, spec.type, spec.enumValues, `Field '${input.field}' of ${input.path}`);
+        const { exact } = writeMarked(ctx, input.path, input.field, text);
+        return { touched: input.path, result: { path: input.path, field: input.field, value: ctx.loaded.document.formField(input.path, input.field) ?? null, marked: true, exact } };
+    }
     setFormField(ctx, input.path, input.field, input.value === '' ? null : input.value);
     return { touched: input.path, result: { path: input.path, field: input.field, value: ctx.editor.formValue(input.path, input.field) } };
 }
@@ -320,6 +353,17 @@ export async function specClearSectionImpl(deps: SpecToolDeps, input: SpecClearS
 // Tool definitions
 // ---------------------------------------------------------------------------
 
+const MARKED_NOTE =
+    ' With `marked: true` the new text is written as a change the reviewer can accept or reject (SOM §11.9.3, through '
+    + 'SpecReviewAnnotations.setMarked): its differences against the value there now become inline marks '
+    + '(`{++added++}`, `{--removed--}`, `{~~old~>new~~}`), so accepting every mark gives the new text and rejecting every '
+    + 'mark the old one. A value already holding marks is compared from its original, so a second edit of a passage '
+    + 'updates its mark instead of nesting one. Text only: a typed or enum value is refused (`notText`). Answers '
+    + '`marked: true` and `exact` (false when a difference could not be marked — inside fenced code, or text holding mark '
+    + 'delimiters — and the new text was written unmarked). Read and decide the marks with tomAi_specAnnotations and '
+    + 'tomAi_specDecideMarks.';
+const MARKED_PARAM = { type: 'boolean', description: 'Write the new text as a marked change against the value there now. Default false.' };
+
 export const SPEC_CREATE_DOCUMENT_TOOL = editTool<SpecCreateDocumentInput>(
     { name: 'tomAi_specCreateDocument', displayName: 'Spec: Create Document' },
     'Create a new, empty TomSpecs document for one model root, stamped with the current model version. The format follows '
@@ -339,8 +383,13 @@ export const SPEC_SET_CONTENT_TOOL = editTool<SpecSetContentInput>(
     + 'SpecEditor. `text` null or empty clears it. A typed leaf takes a number or boolean, or a string it can read; a '
     + 'value its type cannot read (an int leaf given "lots" or 2.5, an enum leaf a name outside its domain) is refused as '
     + '`code: "wrongValue"` with the leaf\'s `field` (name, type, enum domain), as tomAi_specSetFormField answers. For '
-    + 'form fields use tomAi_specSetFormField. Editor counterpart: doc_set_content.' + RESULT_NOTE,
-    { ...EDIT_PARAMS, path: { type: 'string', description: PATH_PARAM_HINT }, text: { ...VALUE_SCHEMA, description: 'The new value; null or "" clears it.' } },
+    + 'form fields use tomAi_specSetFormField. Editor counterpart: doc_set_content.' + MARKED_NOTE + RESULT_NOTE,
+    {
+        ...EDIT_PARAMS,
+        path: { type: 'string', description: PATH_PARAM_HINT },
+        text: { ...VALUE_SCHEMA, description: 'The new value; null or "" clears it (with `marked`: marks the whole value deleted).' },
+        marked: MARKED_PARAM,
+    },
     ['file', 'path', 'text'],
     specSetContentImpl,
 );
@@ -351,12 +400,13 @@ export const SPEC_SET_FORM_FIELD_TOOL = editTool<SpecSetFormFieldInput>(
     + 'a number, a `bool` true/false, an enum one of its names; a string is stored as written and must read back as the '
     + 'declared type. A wrong value returns `code: "wrongValue"` with the field\'s type and enum domain; an unknown field '
     + 'returns the form\'s fields. null or "" clears it. tomAi_specGetSection shows each form\'s fields. Editor '
-    + 'counterpart: doc_set_form_field.' + RESULT_NOTE,
+    + 'counterpart: doc_set_form_field.' + MARKED_NOTE + RESULT_NOTE,
     {
         ...EDIT_PARAMS,
         path: { type: 'string', description: `The form's path. ${PATH_PARAM_HINT}` },
         field: { type: 'string', description: 'The field name, e.g. `priority`.' },
         value: { ...VALUE_SCHEMA, description: 'The value, typed per the field (number, boolean, enum name or string).' },
+        marked: MARKED_PARAM,
     },
     ['file', 'path', 'field', 'value'],
     specSetFormFieldImpl,
@@ -621,13 +671,13 @@ export const SPEC_APPLY_EDITS_TOOL: SharedToolDefinition<SpecApplyEditsInput> = 
         'Apply several edits to one TomSpecs document as ONE change: one approval, one write, one undo step, all or '
         + 'nothing. The preferred way to make more than one change (add an item, then fill it). `edits` is an ordered list '
         + `of up to ${MAX_BATCH_EDITS} entries, each \`{op, …}\` with the same arguments as the single tool, minus \`file\`: `
-        + 'setContent {path, text}, setFormField {path, field, value}, setHeadline {path, headline}, setCodeSpec {path, '
+        + 'setContent {path, text, marked?}, setFormField {path, field, value, marked?}, setHeadline {path, headline}, setCodeSpec {path, '
         + 'codeSpec}, addNode {parentPath, childSegment, itemId?, month?, day?, content?, fields?, as?}, setItemSectionId '
         + '{itemPath, sectionId}, moveListItem {itemPath, toIndex, toList?}, removeListItem {itemPath}, clearSection {path}; '
         + 'and the review annotations: insertComment {path, field?, afterParagraph, text, author?, id?}, insertQuestion '
         + '{question, afterComment? | path + afterParagraph}, setAnswer {questionId, answer}, editComment {commentId, text}, '
         + 'assignCommentIds {floor?}, resolveAnnotation {id}, decideMarks {decisions + marksRevision? | all + path?} (mark ids '
-        + 'are those of the document as the entry finds it). '
+        + 'are those of the document as the entry finds it), removeAllAnnotations {}. '
         + 'addNode can bind its new path with `as: "req"`; later entries write `$req` or `$req/FRED` in path, parentPath, '
         + 'itemPath or toList, so an item can be added and filled without knowing its generated id. A move re-points '
         + 'bound names; a later entry that names a path a move changed is refused (`stalePath`) with the new path. '

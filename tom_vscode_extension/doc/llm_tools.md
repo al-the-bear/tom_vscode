@@ -407,6 +407,7 @@ document, a list item resolves only when the list holds it.
 | `tomAi_specValidate` | Is it valid now? The three tiers of tom_specs' `validate_spec` CLI (decode, DocSpecs schema, instance) in its report shape, each finding with the `path` to fix. `files` validates fragments of one document as one; `path` scopes the findings. | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_specRender` | The document, or one subtree, as the DocSpecs Markdown a reader sees; `withoutAnnotations` renders it as it reads once reviewed (every inline mark accepted, every comment and question removed). | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_specAnnotations` | The review annotations (SOM §11.9) of the document or a subtree: comments (id, author, text, the paragraph they follow), questions (topic, options, recommended, answer, open), inline marks (`M-<n>`, old / new text), with counts, the `marksRevision` and the runtime's annotation findings. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_specExtractAnswers` | A review round's `answers.md` (SOM §11.9.7) from one or more documents: the answered questions and the comments, each with its section-id chain and rendition line; the open questions (`includeOpen`) and inline marks (`includeMarks`) on request; counts per document and in total. The text tom_specs' `extract_answers` CLI writes; writes nothing. | ✅ | ✅ | ⚪ | ✅ | ✅ |
 
 **Validation.** `tomAi_specValidate` answers in the report shape of tom_specs'
 `validate_spec --json` (`spec-validation`/1): `{passed, summary, root {type,
@@ -432,8 +433,8 @@ nothing. Each call loads, edits and saves the file in its own format. It takes
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
 | --- | --- | :-: | :-: | :-: | :-: | :-: |
 | `tomAi_specCreateDocument` | A new, empty document for one model root, in the format its file name says. Refuses an existing file. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_specSetContent` | A content or scalar value; null or `""` clears it. A value a typed leaf cannot read is refused as `wrongValue` with the leaf's name, type and enum domain, as `tomAi_specSetFormField` answers (the batch's `setContent` and `addNode`'s `content` alike). | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_specSetFormField` | One form field, typed by its declaration: int, double, bool or enum name. A wrong value comes back with the field's type and domain. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_specSetContent` | A content or scalar value; null or `""` clears it. A value a typed leaf cannot read is refused as `wrongValue` with the leaf's name, type and enum domain, as `tomAi_specSetFormField` answers (the batch's `setContent` and `addNode`'s `content` alike). `marked: true` writes text as a change the reviewer accepts or rejects (see *Review annotations*). | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_specSetFormField` | One form field, typed by its declaration: int, double, bool or enum name. A wrong value comes back with the field's type and domain. `marked: true` on a String field writes the new text as a marked change. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_specSetHeadline` | A section's stored headline; null returns it to its default title. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_specSetCodeSpec` | The heading-level `codeSpec=` routing marker. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_specAddNode` | A child or a list item (id generated from the pattern, or given), optionally populated with `content` and form `fields`. A refusal lists the legal children. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
@@ -453,8 +454,18 @@ parsing the Markdown, in YAML and Markdown documents alike. The writers share th
 edit cycle above (revision, dry run with diff, validation) and are batch ops of
 `tomAi_specApplyEdits` under the same names (`insertComment`, `insertQuestion`,
 `setAnswer`, `editComment`, `assignCommentIds`, `resolveAnnotation`,
-`decideMarks`). Paragraphs are the blank-line separated blocks of a value,
-counted from 0 (-1: the start).
+`decideMarks`, `removeAllAnnotations`). Paragraphs are the blank-line separated
+blocks of a value, counted from 0 (-1: the start).
+
+**Marked writes.** `tomAi_specSetContent` and `tomAi_specSetFormField` (and the
+batch's `setContent` / `setFormField`) take `marked: true`: the new text is
+written with its differences against the value there now as inline marks
+(`SpecReviewAnnotations.setMarked`), so accepting every mark gives the new text
+and rejecting every mark the old one. A value that already holds marks is
+compared from its original, so editing a passage again updates its mark. Only
+text takes marks — a typed or enum value is refused as `notText`. The answer
+carries `exact`: false when a difference sat in fenced code or the text holds
+mark delimiters, and the new text was written unmarked.
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
 | --- | --- | :-: | :-: | :-: | :-: | :-: |
@@ -465,6 +476,8 @@ counted from 0 (-1: the start).
 | `tomAi_specAssignCommentIds` | Give every comment without an id the next free one; answers them as `assigned`. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_specResolveAnnotation` | Remove one comment or question by id once it has been applied (a qualified `SBP C-12` too). | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_specDecideMarks` | Accept / reject / leave marks by `M-<n>` id at a `marksRevision` (a stale one is refused), or `all` under a path. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_specRemoveAllAnnotations` | Every inline mark accepted, every comment and question removed, in the whole document — the document once a round is integrated. Answers what it `removed` (counted before). | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_specWriteAnswers` | Write `tomAi_specExtractAnswers`' text to a step folder's `answers.md` (`output`): `status` new / changed / unchanged; other text is refused without `overwrite`; annotations the runtime cannot read are refused (`annotationsMalformed`); `dryRun` returns the diff. Not a batch op. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 
 Every edit answers `{ok, written, revision, …, validation}`. `validation` compares
 the runtime's `validateDocument` before and after the edit across the whole

@@ -112,13 +112,13 @@ The read-only floor is the safe default: an unconfigured or unauthenticated serv
 
 ### The TomSpecs, DocSpecs and CodeSpecs tools
 
-Of the 46 spec tools, the floor serves the 23 that only read:
+Of the 49 spec tools, the floor serves the 24 that only read:
 
-- **TomSpecs:** `tomAi_specListDocuments`, `tomAi_specOutline`, `tomAi_specGetSection`, `tomAi_specReflect`, `tomAi_specSearch`, `tomAi_specSearchIterate`, `tomAi_specValidate`, `tomAi_specRender`, `tomAi_specAnnotations`.
+- **TomSpecs:** `tomAi_specListDocuments`, `tomAi_specOutline`, `tomAi_specGetSection`, `tomAi_specReflect`, `tomAi_specSearch`, `tomAi_specSearchIterate`, `tomAi_specValidate`, `tomAi_specRender`, `tomAi_specAnnotations`, `tomAi_specExtractAnswers`.
 - **DocSpecs Markdown:** `tomAi_docspecsValidate`, `tomAi_docspecsOutline`, `tomAi_docspecsGetSection`.
 - **CodeSpecs:** `tomAi_specCodeSpecsAreas`, `tomAi_specCodeSpecsRouting`, `tomAi_specCodeSpecsExtract`, `tomAi_specCodeSpecsGate`, `tomAi_specCodeSpecsVerdicts`, `tomAi_specCodeSpecsQueryExtracts`, `tomAi_specCodeSpecsTrace`, `tomAi_specCodeSpecsValidate`, `tomAi_specCodeSpecsStepContext`, `tomAi_specCodeSpecsStatus`, `tomAi_specCodeSpecsGuide`.
 
-The 23 that write are served only to an authenticated client (or with `allowWriteWithoutAuth`): the nine TomSpecs single-edit tools, the seven review-annotation writers (`tomAi_specInsertComment`, `tomAi_specInsertQuestion`, `tomAi_specSetAnswer`, `tomAi_specEditComment`, `tomAi_specAssignCommentIds`, `tomAi_specResolveAnnotation`, `tomAi_specDecideMarks`), `tomAi_specApplyEdits`, `tomAi_specCreateDocument`, `tomAi_specConvert`, `tomAi_docspecsReplaceSection`, `tomAi_specCodeSpecsWriteExtracts`, `tomAi_specCodeSpecsSetVerdict` and `tomAi_specCodeSpecsPlanTodos`. A test holds both halves (`spec-tools-surface.test.ts`), and another drives the workflow through a real MCP client with and without the key (`spec-tools-mcp.test.ts`). The workflow itself is in [tomspecs_agent_workflow.md](tomspecs_agent_workflow.md).
+The 25 that write are served only to an authenticated client (or with `allowWriteWithoutAuth`): the nine TomSpecs single-edit tools, the eight review-annotation writers (`tomAi_specInsertComment`, `tomAi_specInsertQuestion`, `tomAi_specSetAnswer`, `tomAi_specEditComment`, `tomAi_specAssignCommentIds`, `tomAi_specResolveAnnotation`, `tomAi_specDecideMarks`, `tomAi_specRemoveAllAnnotations`), `tomAi_specWriteAnswers`, `tomAi_specApplyEdits`, `tomAi_specCreateDocument`, `tomAi_specConvert`, `tomAi_docspecsReplaceSection`, `tomAi_specCodeSpecsWriteExtracts`, `tomAi_specCodeSpecsSetVerdict` and `tomAi_specCodeSpecsPlanTodos`. A test holds both halves (`spec-tools-surface.test.ts`), and another drives the workflow through a real MCP client with and without the key (`spec-tools-mcp.test.ts`). The workflow itself is in [tomspecs_agent_workflow.md](tomspecs_agent_workflow.md).
 
 ### Resources and prompts: the CodeSpecs guides
 

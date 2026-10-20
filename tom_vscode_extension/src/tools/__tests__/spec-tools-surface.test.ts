@@ -40,6 +40,7 @@ const WRITERS = [
     'tomAi_specInsertComment',
     'tomAi_specInsertQuestion',
     'tomAi_specMoveListItem',
+    'tomAi_specRemoveAllAnnotations',
     'tomAi_specRemoveListItem',
     'tomAi_specResolveAnnotation',
     'tomAi_specSetAnswer',
@@ -48,6 +49,7 @@ const WRITERS = [
     'tomAi_specSetFormField',
     'tomAi_specSetHeadline',
     'tomAi_specSetItemSectionId',
+    'tomAi_specWriteAnswers',
 ];
 
 /** The TomSpecs editor's tool each extension tool corresponds to (tom_specs_model/doc/llm_and_d4rt_tools.md §8). */
@@ -65,7 +67,7 @@ const COUNTERPARTS: Array<[string, string[]]> = [
 
 describe('the spec tools as a set', () => {
     test('SS-1: registered, selectable, grouped in the pickers', () => {
-        assert.equal(specTools.length, 46);
+        assert.equal(specTools.length, 49);
         const categories = ['TomSpecs', 'TomSpecs (edit)', 'DocSpecs', 'CodeSpecs'];
         for (const t of specTools) {
             assert.ok((AVAILABLE_LLM_TOOLS as readonly string[]).includes(t.name), `${t.name} is not selectable`);
@@ -103,8 +105,8 @@ describe('the spec tools as a set', () => {
                 assert.match(t.description, /tomAi_specOutline|tomAi_specReflect/, `${t.name}: does not say where to look first`);
             }
         }
-        const singleEdits = somTools.filter((t) => !t.readOnly && !['tomAi_specApplyEdits', 'tomAi_specCreateDocument', 'tomAi_specConvert'].includes(t.name));
-        assert.equal(singleEdits.length, 16);
+        const singleEdits = somTools.filter((t) => !t.readOnly && !['tomAi_specApplyEdits', 'tomAi_specCreateDocument', 'tomAi_specConvert', 'tomAi_specWriteAnswers'].includes(t.name));
+        assert.equal(singleEdits.length, 17);
         for (const t of singleEdits) {
             assert.match(t.description, /tomAi_specApplyEdits/, `${t.name}: does not point to the batch for more than one change`);
         }
