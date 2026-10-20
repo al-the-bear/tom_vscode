@@ -11,7 +11,10 @@
  *   MF-7  the indent toggle: headings by level, content one step deeper, spaces from the dropdown (default 2)
  *   MF-8  <details> blocks keep their content inside them (rendered as one group)
  *   MF-9  a large document renders in linear time, in batches that yield to the event loop; it is
- *         lexed in parts, and its blocks keep their file lines across the parts
+ *         lexed in parts, and its blocks keep their file lines across the parts. Linear time is measured
+ *         as a ratio, not a wall-clock limit (vscimpa16): twice the document may take at most 3x the time
+ *         (the sizes interleaved, each the faster of two runs), so a busy machine slows both sides alike
+ *         while a quadratic render (4x) still fails; MF-9b checks the rule on counted linear and quadratic work
  *   MF-10 blocks are grouped into sections of 150; only a large document lays sections out lazily
  */
 
@@ -58,6 +61,9 @@ const visible = (window: Win): string[] =>
 const heading = (window: Win, text: string): Win =>
     [...window.document.querySelectorAll('h1, h2, h3')].find((h: Win) => h.textContent.trim() === text);
 const toggle = (window: Win, text: string): void => heading(window, text).querySelector('.mdb-fold-btn').click();
+
+/** Twice the work in at most this many times the time: linear is about 2, quadratic about 4. */
+const LINEAR_RATIO = 3;
 
 describe('Markdown Browser folding', () => {
     test('MF-1: a triangle per heading; folding hides the section', () => {
@@ -161,20 +167,54 @@ describe('Markdown Browser folding', () => {
     });
 
     test('MF-9: a large document renders in linear time, in batches', async () => {
-        const w = setup();
-        const parts: string[] = [];
-        for (let i = 0; i < 12000; i++) { parts.push(`## Section ${i}`, '', `text ${i}`, ''); }
-        const area = w.document.getElementById('contentArea');
-        const started = Date.now();
-        show(w, parts.join('\n'));
-        assert.equal(area.getAttribute('aria-busy'), 'true', 'not done in one task: the window gets turns');
-        while (area.getAttribute('aria-busy') === 'true') { await new Promise((r) => setTimeout(r, 5)); }
-        const ms = Date.now() - started;
-        assert.equal(w.document.querySelectorAll('.mdb-fold-btn').length, 12000);
-        assert.equal(heading(w, 'Section 11999').dataset.foldKey, '2|Section 11999#1');
-        const last = heading(w, 'Section 11999').closest('.mdb-block');
-        assert.equal(last.__mdbBlock.startLine, 4 * 11999, 'file lines hold across the lexed parts');
-        assert.ok(ms < 10000, `rendering 24 000 blocks took ${ms} ms`);
+        const doc = (sections: number): string => {
+            const parts: string[] = [];
+            const filler = 'the quick brown fox jumps over the lazy dog and keeps on running past the fence';
+            for (let i = 0; i < sections; i++) { parts.push(`## Section ${i}`, '', `text ${i} ${filler}`, ''); }
+            return parts.join('\n');
+        };
+        /** Render a document in a fresh window; the time until it is done, and the window. */
+        const render = async (sections: number): Promise<{ ms: number; w: Win }> => {
+            const w = setup();
+            const text = doc(sections);
+            const area = w.document.getElementById('contentArea');
+            const started = performance.now();
+            show(w, text);
+            assert.equal(area.getAttribute('aria-busy'), 'true', 'not done in one task: the window gets turns');
+            while (area.getAttribute('aria-busy') === 'true') { await new Promise((r) => setTimeout(r, 5)); }
+            return { ms: performance.now() - started, w };
+        };
+        const N = 2000;
+        assert.ok(doc(N).length > 200000, 'both sizes are large documents: lexed in parts, laid out lazily');
+        // Interleaved (N, 2N, N, 2N) and the faster run of each size: a busy machine, or a move to another
+        // CPU core, then slows both sizes alike instead of one.
+        const runs = [await render(N), await render(2 * N), await render(N), await render(2 * N)];
+        const fastest = (a: { ms: number; w: Win }, b: { ms: number; w: Win }): { ms: number; w: Win } => (a.ms <= b.ms ? a : b);
+        const once = fastest(runs[0], runs[2]);
+        const twice = fastest(runs[1], runs[3]);
+
+        const w = twice.w;
+        assert.equal(w.document.querySelectorAll('.mdb-fold-btn').length, 2 * N);
+        const lastTitle = `Section ${2 * N - 1}`;
+        assert.equal(heading(w, lastTitle).dataset.foldKey, `2|${lastTitle}#1`);
+        const last = heading(w, lastTitle).closest('.mdb-block');
+        assert.equal(last.__mdbBlock.startLine, 4 * (2 * N - 1), 'file lines hold across the lexed parts');
+
+        const ratio = twice.ms / once.ms;
+        assert.ok(ratio < LINEAR_RATIO,
+            `twice the document took ${ratio.toFixed(2)}x the time (${once.ms.toFixed(0)} ms for ${N} sections, `
+            + `${twice.ms.toFixed(0)} ms for ${2 * N}); linear is about 2, quadratic about 4`);
+    });
+
+    test('MF-9b: the ratio rule tells linear from quadratic', () => {
+        // Counted work, not timed (a timed micro-benchmark measures the CPU's moods): a linear render does
+        // twice the work for twice the document, a quadratic one four times — the rule passes the first
+        // and fails the second whatever the machine.
+        const work = { linear: (n: number): number => 3 * n + 40, quadratic: (n: number): number => n * n / 2 + 3 * n };
+        for (const n of [2000, 4000, 12000]) {
+            assert.ok(work.linear(2 * n) / work.linear(n) < LINEAR_RATIO, `linear passes at ${n}`);
+            assert.ok(work.quadratic(2 * n) / work.quadratic(n) >= LINEAR_RATIO, `quadratic fails at ${n}`);
+        }
     });
 
     test('MF-10: sections', () => {
