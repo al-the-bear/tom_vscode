@@ -236,7 +236,7 @@ describe('CodeSpecs plan todos', () => {
         put('m/meridian.docspecs.yaml', store.render(loaded, { stamp: loaded.stamp }));
         const closed = await call({ file: 'm/meridian.docspecs.yaml', questId: 'q6', appName: 'meridian' });
         assert.equal(closed.code, 'gateClosed');
-        assert.deepEqual(closed.stageA.failing, ['A1']);
+        assert.ok(closed.stageA.failing.includes('A1'), 'the emptied required field fails A1 (other checks may report it too)');
         assert.equal(fs.existsSync(path.join(ws, '_ai', 'quests', 'q6')), false, 'on rejection no todo is created');
     });
 

@@ -120,10 +120,15 @@ describe('TomSpecs validate, render and convert', () => {
     });
 
     test('SV-3: path keeps only the findings under it', async () => {
+        // Compared with the unfiltered run, not with fixed counts: how many findings one broken value
+        // produces is the runtime's business (an emptied required field also became a value finding).
+        const all = await run(specValidateImpl, { file: 'broken.docspecs.yaml' });
+        const under = all.violations.filter((v: Json) => v.path.startsWith(FR));
         const r = await run(specValidateImpl, { file: 'broken.docspecs.yaml', path: FR });
-        assert.equal(r.violations.length, 2);
-        assert.ok(r.violations.every((v: Json) => v.path.startsWith(FR)));
-        assert.equal(r.outOfScope, 1, 'the stated count in SYSCL lies outside');
+        assert.ok(under.length >= 2, 'the enum and the emptied description lie under FR');
+        assert.deepEqual(r.violations, under, 'exactly the findings under FR');
+        assert.equal(r.outOfScope, all.violations.length - under.length);
+        assert.ok(all.violations.some((v: Json) => v.path === SYSCL && !v.path.startsWith(FR)), 'the stated count in SYSCL lies outside');
         assert.match(r.summary, new RegExp(`under ${FR}`));
     });
 
