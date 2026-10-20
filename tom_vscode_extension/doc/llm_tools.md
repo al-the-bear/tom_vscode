@@ -633,7 +633,12 @@ the authoring step's judgement, and the tools do not decide it.
 (`scripts/build-validate-codespecs.cjs`, which `install_extension.sh` /
 `.ps1` run; a from-source install fails without it). It needs a Dart SDK at
 build time only. When it is absent, validation answers `binaryMissing` and the
-trace with `codeDirs` answers `binaryMissing`, both naming that command.
+trace with `codeDirs` answers `binaryMissing`, both naming that command. The
+build writes `validate_codespecs.build.json` beside the binary — a hash of the
+tom_specs_clitool source it was built from (and of the siblings its
+`pubspec_overrides.yaml` resolves by path); `npm run codespecs:check` and the
+test CV-8 compare it with the source as it is now and name the rebuild when it
+moved on.
 
 **The todo tree.** The tree follows `codespecs_prompt.md` §7 and
 `codespecs_mapping.md` §1.1.3. All 31 `csgen` todos are created, even for a step

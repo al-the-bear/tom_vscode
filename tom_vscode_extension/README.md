@@ -295,6 +295,7 @@ Full model: [doc/multi_transport_prompt_queue_revised.md](doc/multi_transport_pr
 ```bash
 npm run som:pack     # first, on a fresh checkout or after the SOM packages changed; then npm install
 npm run codespecs:build  # compile validate_codespecs into bin/<platform>/ (needs a Dart SDK); the CodeSpecs tests run it
+npm run codespecs:check  # is that binary built from tom_specs_clitool's current source? (its build stamp)
 npm run compile      # tsc -p ./ + copy config json to out/config/
 npm run watch        # incremental rebuild
 npm test             # lint media + tools/services/utils test suites + tool-coverage audit

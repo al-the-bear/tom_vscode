@@ -3109,6 +3109,7 @@
     "check:bridges": "node scripts/check-bridge-fresh.cjs",
     "som:pack": "node scripts/build-som-packages.cjs",
     "codespecs:build": "node scripts/build-validate-codespecs.cjs",
+    "codespecs:check": "node scripts/codespecs-binary-stamp.cjs",
     "som:check": "node scripts/check-som-installed.cjs",
     "lint": "eslint src --ext ts",
     "lint:media": "eslint media --ext js --no-error-on-unmatched-pattern",

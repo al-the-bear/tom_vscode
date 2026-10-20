@@ -18,6 +18,10 @@
  * edits in tom_specs_clitool are listed before the build: the binary is built
  * from the working tree.
  *
+ * Beside the binary it writes validate_codespecs.build.json, a hash of the
+ * source it was built from; `npm run codespecs:check` and the CV-8 guard test
+ * compare it with the source as it is now (codespecs-binary-stamp.cjs).
+ *
  * The platform folder uses VS Code's naming (darwin-arm64, linux-x64,
  * win32-x64, …), the one src/utils/executableResolver.ts resolves against.
  *
@@ -28,6 +32,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const { writeStamp } = require('./codespecs-binary-stamp.cjs');
 
 const EXT_ROOT = path.resolve(__dirname, '..');
 const AI_BUILD_CHECKOUT = process.env.TOM_SOM_AI_BUILD
@@ -81,7 +86,9 @@ function main() {
         return 1;
     }
     if (process.platform !== 'win32') { fs.chmodSync(outFile, 0o755); }
-    console.log(`  ✔ ${path.relative(EXT_ROOT, outFile)}`);
+    // What it was built from, for the freshness guard (codespecs-binary-stamp.cjs).
+    const stamp = writeStamp({ extRoot: EXT_ROOT, aiBuild: AI_BUILD_CHECKOUT, platform: hostPlatform() });
+    console.log(`  ✔ ${path.relative(EXT_ROOT, outFile)} (source ${stamp.sourceHash.slice(0, 12)}, ${stamp.sourceFiles} files)`);
     return 0;
 }
 

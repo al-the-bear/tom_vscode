@@ -36,7 +36,10 @@ brings the checkout level. The install
 scripts also compile `validate_codespecs` (tom_specs_clitool) into
 `bin/<platform>/` (`npm run codespecs:build`): a from-source install fails
 without a Dart SDK, a prebuilt install warns and leaves the CodeSpecs validate
-tool reporting the binary missing. After packaging,
+tool reporting the binary missing. Beside the binary the build writes
+`validate_codespecs.build.json`, a hash of its source; `npm run codespecs:check`
+(and the test CV-8) say when tom_specs_clitool moved on since, so the binary
+needs `npm run codespecs:build` again. The stamp is not packaged. After packaging,
 `node scripts/check-vsix-contents.cjs` confirms that the VSIX carries the SOM
 packages as real files and the host's `validate_codespecs`.
 
