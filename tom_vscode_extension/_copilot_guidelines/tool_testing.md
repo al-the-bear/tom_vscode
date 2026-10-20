@@ -17,8 +17,8 @@ family records in its header comment:
 - **d) Timing** — a typical call is wrapped in `withTiming('<tool>:typical', …)`
   and stays under the 5 s ceiling.
 
-The tool inventory is not kept by hand: the audit (§ CI gate) derives it from
-the source tree and fails for a tool without a timing entry, and
+The tool inventory is not kept by hand: the audit (§ CI gate) reads the
+registry, `ALL_SHARED_TOOLS`, and fails for a tool without a timing entry, and
 `_ai/quests/vscode_extension/tool_timings.md` is the per-tool record it reads.
 
 ---
@@ -227,28 +227,35 @@ new folder needs its own script wired into `test` or it silently never runs.
 
 **What it checks** (each is an independent failure mode):
 
-1. **Coverage** — every `tomAi_*` name found in `src/tools/*.ts` source
-   files (excluding `__tests__/`) must have at least one timing entry
-   whose name starts with `<toolName>:`. That grep is the tool inventory;
-   no hand-kept list exists beside it to drift.
+1. **Coverage** — every tool in the registry, `ALL_SHARED_TOOLS`, must have
+   at least one timing entry whose name starts with `<toolName>:`. The
+   registry is read from the compiled extension (`out/tools/tool-executors.js`)
+   under the shared vscode test stub, as `tool-registry-parity.test.ts` reads
+   it — so a tool built by a factory, kept in a subfolder or named in double
+   quotes is counted like any other. (A grep of the source used to be the
+   inventory and missed such tools while reporting full coverage.)
 2. **Ceiling** — no entry's `ms` may exceed 5 000.
-3. **Orphan entries** (informational only — does **not** fail the build) —
-   timing rows for names no longer present in the source tree. Surfaced
-   so the next test author can delete the report and re-run cleanly.
+3. **Defined but not registered** — a `name: 'tomAi_…'` literal in
+   `src/tools/*.ts` that is not in the registry is a tool nobody can call, and
+   fails. A deliberate one is listed in `KNOWN_UNREGISTERED` in the script with
+   its reason; an entry there that no longer applies (registered now, or gone)
+   fails too.
+4. **Orphan entries** (informational only — does **not** fail the build) —
+   timing rows for names that are not registered. Surfaced so the next test
+   author can delete the report and re-run cleanly.
 
 **Exit codes**:
 
 | Code | Meaning |
 | --- | --- |
-| 0 | All tools covered, no entry over ceiling. |
-| 1 | Coverage and/or ceiling failure. |
-| 2 | Audit could not run (report file missing, source tree malformed). |
+| 0 | Every registered tool covered, no entry over ceiling, nothing defined but unregistered. |
+| 1 | Coverage, ceiling or registration failure. |
+| 2 | Audit could not run (report missing, no compiled extension — run `npm run compile` — or an empty registry). |
 
-The grep-the-source approach is deliberate: it avoids `require()`-ing
-`out/tools/tool-executors.js`, which would transitively pull in `vscode`
-and force the audit script to install the test stub. Keeping the audit
-free of test plumbing means it works in any CI environment that has
-Node and the source tree.
+The audit logic is `auditToolCoverage(...)`, exported by the script and
+tested in `src/tools/__tests__/audit-tool-coverage.test.ts` (AU-1 – AU-5),
+including a factory-defined tool. `npm test` compiles and runs the tests
+before it, so `out/` is current.
 
 ---
 
