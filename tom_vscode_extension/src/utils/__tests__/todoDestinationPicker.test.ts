@@ -9,17 +9,19 @@
  *   DP-6  a workspace-relative path tells its quest and file
  *   DP-7  the prefix of an id is the panel's group key: everything before the first digit
  *   DP-8  the prefix choices for a target quest: its groups (largest first) with their next free number,
- *         then "keep the ids"; a quest without groups offers only "keep", to be confirmed
+ *         then a prefix of your own, then "keep the ids"; a quest without groups offers those two
  *   DP-9  renaming: the moved todos get the chosen prefix and consecutive numbers after the group's
  *         highest, each keeping the tail after its number; an id without a number keeps itself as tail;
  *         a number the target already has is skipped; "keep" renames nothing
  *   DP-10 the id choice is asked only when a moved todo enters a quest it is not in
+ *   DP-11 a prefix of your own: not empty, no digit (the group key ends at the first digit), no
+ *         whitespace or path characters; the ids it gives, as a preview
  */
 
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { todoIdPrefix, todoMoveOptions, todoMovePickerTitle, todoOriginOfRelativePath, todoMoveNeedsIdChoice, todoPrefixChoices, todoRenames } from '../todoDestinationPicker.js';
+import { todoIdPrefix, todoMoveOptions, todoMovePickerTitle, todoOriginOfRelativePath, todoMoveNeedsIdChoice, todoPrefixChoices, todoPrefixPreview, todoRenames, validateTodoPrefix } from '../todoDestinationPicker.js';
 
 const kinds = (origins: Parameters<typeof todoMoveOptions>[0]): string[] =>
     todoMoveOptions(origins).map((o) => (o.choice.kind === 'quest' ? `quest:${o.choice.questId}` : o.choice.kind));
@@ -71,14 +73,13 @@ describe('todo destination picker', () => {
 
     test('DP-8: the prefix choices of a target quest', () => {
         const target = ['annot1_ajsq-a', 'annot7_ajtl-b', 'uamtc9_ajmv-c', 'annot4_ajtf-d', 'loose'];
-        const choices = todoPrefixChoices(target);
-        assert.deepEqual(choices.options.map((o) => [o.prefix, o.next, o.count]), [['annot', 8, 3], ['uamtc', 10, 1], [null, null, 0]]);
-        assert.equal(choices.options[2].label, 'Keep the ids as they are');
-        assert.equal(choices.confirmKeep, false);
-        const empty = todoPrefixChoices(['loose', 'other']);
-        assert.deepEqual(empty.options.map((o) => o.prefix), [null], 'no groups: only keep');
-        assert.equal(empty.confirmKeep, true, 'and it is to be confirmed');
-        assert.equal(todoPrefixChoices([]).confirmKeep, true);
+        const options = todoPrefixChoices(target);
+        assert.deepEqual(options.map((o) => [o.kind, o.prefix, o.next, o.count]), [
+            ['group', 'annot', 8, 3], ['group', 'uamtc', 10, 1], ['custom', null, null, 0], ['keep', null, null, 0]]);
+        assert.equal(options[2].label, 'Enter a prefix…');
+        assert.equal(options[3].label, 'Keep the ids as they are');
+        assert.deepEqual(todoPrefixChoices(['loose', 'other']).map((o) => o.kind), ['custom', 'keep'], 'no groups: your own prefix or keep');
+        assert.deepEqual(todoPrefixChoices([]).map((o) => o.kind), ['custom', 'keep']);
     });
 
     test('DP-9: renaming', () => {
@@ -103,5 +104,17 @@ describe('todo destination picker', () => {
         assert.equal(todoMoveNeedsIdChoice([fromA], { kind: 'quest', questId: 'qa' }), false, 'within its quest');
         assert.equal(todoMoveNeedsIdChoice([fromA, fromWs], { kind: 'quest', questId: 'qa' }), true, 'one of the group enters');
         assert.equal(todoMoveNeedsIdChoice([fromA], { kind: 'workspace' }), false, 'the workspace file has no groups to join');
+    });
+
+    test('DP-11: a prefix of your own', () => {
+        assert.equal(validateTodoPrefix('qrm'), undefined);
+        assert.equal(validateTodoPrefix('vsc_move-'), undefined, 'underscores and dashes are fine');
+        assert.match(validateTodoPrefix('') ?? '', /Enter/);
+        assert.match(validateTodoPrefix('   ') ?? '', /Enter/);
+        assert.match(validateTodoPrefix('q2r') ?? '', /digit/);
+        assert.match(validateTodoPrefix('q r') ?? '', /space/);
+        assert.match(validateTodoPrefix('q/r') ?? '', /character/);
+        assert.equal(todoPrefixPreview(['vscannot3_ajtf-tools', 'qrd2'], ['qrm4_x'], 'qrm'), 'vscannot3_ajtf-tools → qrm5_ajtf-tools, qrd2 → qrm6');
+        assert.equal(todoPrefixPreview(['a1', 'b2', 'c3', 'd4', 'e5'], [], 'z'), 'a1 → z1, b2 → z2, c3 → z3, … (5 todos)', 'three, then the count');
     });
 });

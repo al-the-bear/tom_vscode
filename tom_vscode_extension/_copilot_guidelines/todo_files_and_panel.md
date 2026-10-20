@@ -126,13 +126,14 @@ every open todo of the group (`qtGroupOpenTodos`).
 When `todoMoveNeedsIdChoice` says a todo enters a quest it is not in, the
 handler asks ONE id decision for all moved todos: `todoPrefixChoices` over the
 target's ids (`readAllTodos(quest, ALL_TODO_FILES)`, so archived and deleted
-ids count as taken) offers its groups, largest first with the next numbers,
-plus *Keep the ids*; with no groups `confirmKeep` turns the picker into a modal
-confirmation. `todoRenames` maps each moved id to `<prefix><n><tail>`
+ids count as taken) offers its groups (`kind: 'group'`), largest first with
+the next numbers, then *Enter a prefix…* (`custom`: an input box validated by
+`validateTodoPrefix`, its info line the `todoPrefixPreview` of the new ids),
+then *Keep the ids* (`keep`). `todoRenames` maps each moved id to `<prefix><n><tail>`
 (consecutive after the group's highest, taken numbers skipped, the tail after
 the id's first digit run kept, an id without digits becoming its tail), and
 `moveTodoToDestination(..., renames)` writes the new id, notes the old one and
-maps `blocked_by` / `dependencies` through the same map (DP-7 – DP-10, MD-5).
+maps `blocked_by` / `dependencies` through the same map (DP-7 – DP-11, MD-5).
 Detail requests thread the todo's `sourceFile` (`qtGetTodo` → `_sendTodoDetail`
 → `_resolveDeleteSourcePath`) so todos in secondary files resolve correctly.
 

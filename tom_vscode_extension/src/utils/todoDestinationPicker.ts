@@ -86,11 +86,13 @@ function numberIn(id: string, prefix: string): number | undefined {
 }
 
 export interface TodoPrefixOption {
+    /** A group of the target quest, a prefix the user enters, or the ids kept. */
+    kind: 'group' | 'custom' | 'keep';
     label: string;
     description: string;
-    /** The prefix to give the moved todos; null keeps their ids. */
+    /** A group's prefix; null for "custom" (asked for next) and "keep". */
     prefix: string | null;
-    /** The first number the moved todos get; null for "keep". */
+    /** The first number the moved todos get in a group; null otherwise. */
     next: number | null;
     /** How many todos of the target quest hold this prefix. */
     count: number;
@@ -99,10 +101,9 @@ export interface TodoPrefixOption {
 /**
  * What a move into a quest may rename the todos to: each prefix group of the
  * quest's todos (`targetIds`), largest first, starting after its highest
- * number — then "keep the ids". `confirmKeep` is true when the quest has no
- * group, so keeping the ids is the only choice and wants a confirmation.
+ * number — then a prefix the user enters, then "keep the ids".
  */
-export function todoPrefixChoices(targetIds: readonly string[]): { options: TodoPrefixOption[]; confirmKeep: boolean } {
+export function todoPrefixChoices(targetIds: readonly string[]): TodoPrefixOption[] {
     const groups = new Map<string, { count: number; high: number }>();
     for (const id of targetIds) {
         const prefix = todoIdPrefix(id);
@@ -115,14 +116,36 @@ export function todoPrefixChoices(targetIds: readonly string[]): { options: Todo
     const options: TodoPrefixOption[] = [...groups.entries()]
         .sort((a, b) => b[1].count - a[1].count || a[0].localeCompare(b[0]))
         .map(([prefix, g]) => ({
+            kind: 'group' as const,
             label: prefix,
             description: `${g.count} todo${g.count === 1 ? '' : 's'} — the moved ones become ${prefix}${g.high + 1}, ${prefix}${g.high + 2}, …`,
             prefix,
             next: g.high + 1,
             count: g.count,
         }));
-    options.push({ label: 'Keep the ids as they are', description: '', prefix: null, next: null, count: 0 });
-    return { options, confirmKeep: groups.size === 0 };
+    options.push({ kind: 'custom', label: 'Enter a prefix…', description: 'a new group, numbered from 1 (or after the highest of an existing one)', prefix: null, next: null, count: 0 });
+    options.push({ kind: 'keep', label: 'Keep the ids as they are', description: '', prefix: null, next: null, count: 0 });
+    return options;
+}
+
+/**
+ * Why `input` cannot be a todo prefix, or undefined when it can. The prefix is
+ * the group key — everything before an id's first digit — so it holds no
+ * digit; it is part of an id, so no whitespace or path characters either.
+ */
+export function validateTodoPrefix(input: string): string | undefined {
+    const prefix = input.trim();
+    if (!prefix) { return 'Enter a prefix, e.g. qrm.'; }
+    if (/[0-9]/.test(prefix)) { return 'A prefix holds no digit: the number follows it.'; }
+    if (/\s/.test(prefix)) { return 'A prefix holds no space.'; }
+    if (/[/\\:*?"<>|#]/.test(prefix)) { return 'A prefix holds no / \\ : * ? " < > | # character.'; }
+    return undefined;
+}
+
+/** The renames a prefix gives, for the prompt: the first three, then the count. */
+export function todoPrefixPreview(movingIds: readonly string[], targetIds: readonly string[], prefix: string): string {
+    const pairs = [...todoRenames(movingIds, targetIds, prefix)].map(([from, to]) => `${from} → ${to}`);
+    return pairs.length > 3 ? `${pairs.slice(0, 3).join(', ')}, … (${pairs.length} todos)` : pairs.join(', ');
 }
 
 /**

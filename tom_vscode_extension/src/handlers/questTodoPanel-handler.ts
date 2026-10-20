@@ -24,7 +24,7 @@ import { WsPaths } from '../utils/workspacePaths';
 import { questTrailFolder } from '../utils/questPaths.js';
 import { isSessionTodoFileName } from '../utils/sessionTodoNames';
 import { computeMoveTargetFiles } from '../utils/questTodoMoveTargets';
-import { todoMoveNeedsIdChoice, todoMoveOptions, todoMovePickerTitle, todoOriginOfRelativePath, todoPrefixChoices, todoRenames, type TodoMoveOrigin } from '../utils/todoDestinationPicker';
+import { todoMoveNeedsIdChoice, todoMoveOptions, todoMovePickerTitle, todoOriginOfRelativePath, todoPrefixChoices, todoPrefixPreview, todoRenames, validateTodoPrefix, type TodoMoveOrigin } from '../utils/todoDestinationPicker';
 import { getExternalApplicationForFile, openInExternalApplication, resolvePathVariables, applyDefaultTemplate, DEFAULT_ANSWER_FILE_TEMPLATE } from './handler_shared';
 import { expandTemplate } from './promptTemplate';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
@@ -1024,27 +1024,34 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 dest = picked.choice;
             }
             // Into another quest: one id decision for every moved todo —
-            // number them into one of the quest's groups, or keep the ids.
+            // number them into one of the quest's groups, under a prefix of
+            // your own, or keep the ids.
             let renames: Map<string, string> | undefined;
             if (dest.kind === 'quest' && todoMoveNeedsIdChoice(found.map(s => s.origin), dest)) {
                 const targetIds = questTodo.readAllTodos(dest.questId, questTodo.ALL_TODO_FILES).map(t => t.id);
-                const { options: idOptions, confirmKeep } = todoPrefixChoices(targetIds);
-                const what = found.length === 1 ? 'the todo keeps its id' : `the ${found.length} todos keep their ids`;
-                if (confirmKeep) {
-                    const keep = 'Move with the same ids';
-                    const ok = await vscode.window.showWarningMessage(
-                        `Quest ${dest.questId} has no todo groups to number into: ${what}. Move?`,
-                        { modal: true }, keep,
-                    );
-                    if (ok !== keep) { return true; }
-                } else {
-                    const idPick = await vscode.window.showQuickPick(
-                        idOptions.map(o => ({ label: `${o.prefix === null ? '$(circle-slash)' : '$(symbol-number)'} ${o.label}`, description: o.description, option: o })),
-                        { title: `Ids of the ${found.length === 1 ? 'moved todo' : `${found.length} moved todos`} in quest ${dest.questId}`, placeHolder: 'Number them into one of the quest\'s groups, or keep the ids' },
-                    );
-                    if (!idPick) { return true; }
-                    renames = todoRenames(found.map(s => s.todoId), targetIds, idPick.option.prefix);
+                const movingIds = found.map(s => s.todoId);
+                const icon = { group: '$(symbol-number)', custom: '$(edit)', keep: '$(circle-slash)' };
+                const idPick = await vscode.window.showQuickPick(
+                    todoPrefixChoices(targetIds).map(o => ({ label: `${icon[o.kind]} ${o.label}`, description: o.description, option: o })),
+                    { title: `Ids of the ${found.length === 1 ? 'moved todo' : `${found.length} moved todos`} in quest ${dest.questId}`, placeHolder: 'Number them into one of the quest\'s groups, under a prefix of your own, or keep the ids' },
+                );
+                if (!idPick) { return true; }
+                let prefix = idPick.option.prefix;
+                if (idPick.option.kind === 'custom') {
+                    const typed = await vscode.window.showInputBox({
+                        title: `Prefix for the ${found.length === 1 ? 'moved todo' : `${found.length} moved todos`} in quest ${dest.questId}`,
+                        prompt: 'Each todo gets the prefix and the next free number, keeping the rest of its id.',
+                        placeHolder: 'e.g. qrm',
+                        validateInput: (value) => {
+                            const error = validateTodoPrefix(value);
+                            if (error) { return error; }
+                            return { message: todoPrefixPreview(movingIds, targetIds, value.trim()), severity: vscode.InputBoxValidationSeverity.Info };
+                        },
+                    });
+                    if (typed === undefined) { return true; }
+                    prefix = typed.trim();
                 }
+                renames = todoRenames(movingIds, targetIds, prefix);
             }
             const moved: string[] = [];
             const failed: string[] = [];
