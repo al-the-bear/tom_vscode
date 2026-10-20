@@ -83,7 +83,7 @@ try {
 ```
 
 Covered surface: `workspace` (workspaceFolders, textDocuments, getConfiguration, fs,
-findFiles, applyEdit, onDidChangeConfiguration, createFileSystemWatcher), `window`
+findFiles — a real search with Node's glob under the pattern's base, exclude applied —, applyEdit, onDidChangeConfiguration, createFileSystemWatcher), `window`
 (showInformationMessage / WarningMessage / ErrorMessage, createOutputChannel,
 showInputBox, showQuickPick, activeTextEditor, visibleTextEditors,
 tabGroups, createWebviewPanel, registerWebviewViewProvider, withProgress),
@@ -217,7 +217,7 @@ Invoked via `npm run audit:tools` or as the second half of `npm test`.
 ```bash
 npm test              # = lint:media && every test:<area> && audit:tools
 npm run test:tools    # node --test out/tools/__tests__/*.test.js  (writes the report)
-npm run audit:tools   # node scripts/audit-tool-coverage.cjs       (reads the report, gates)
+npm run audit:tools   # node scripts/audit-tool-coverage.cjs       (reads the compiled registry + the report, gates)
 ```
 
 One `test:<area>` script per source folder that has a `__tests__/` sibling —
