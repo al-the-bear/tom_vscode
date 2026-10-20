@@ -3103,7 +3103,7 @@
     "test:utils": "node --test --test-concurrency=1 out/utils/__tests__/*.test.js",
     "test:managers": "node --test --test-concurrency=1 out/managers/__tests__/*.test.js",
     "test:handlers": "node --test --test-concurrency=1 out/handlers/__tests__/*.test.js",
-    "test": "npm run lint:media && npm run test:tools && npm run test:services && npm run test:utils && npm run test:managers && npm run test:handlers && npm run audit:tools",
+    "test": "node scripts/run-test-stages.cjs",
     "audit:tools": "node scripts/audit-tool-coverage.cjs",
     "check:todo-yaml": "node scripts/check-todo-yaml.cjs",
     "check:bridges": "node scripts/check-bridge-fresh.cjs",

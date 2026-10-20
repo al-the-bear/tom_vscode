@@ -221,10 +221,10 @@ needs more (network-bound, kernel start), the right move is to time a fast
 
 ## CI gate — `scripts/audit-tool-coverage.cjs`
 
-Invoked via `npm run audit:tools` or as the second half of `npm test`.
+Invoked via `npm run audit:tools` or as the last stage of `npm test`.
 
 ```bash
-npm test              # = lint:media && every test:<area> && audit:tools
+npm test              # = scripts/run-test-stages.cjs: lint:media, every test:<area>, audit:tools — all of them
 npm run test:tools    # node --test out/tools/__tests__/*.test.js  (writes the report)
 npm run audit:tools   # node scripts/audit-tool-coverage.cjs       (reads the compiled registry + the report, gates)
 ```
@@ -232,7 +232,17 @@ npm run audit:tools   # node scripts/audit-tool-coverage.cjs       (reads the co
 One `test:<area>` script per source folder that has a `__tests__/` sibling —
 `test:tools`, `test:services`, `test:utils`, `test:managers`, `test:handlers`.
 The globs are one level deep (`out/<area>/__tests__/*.test.js`), so a test in a
-new folder needs its own script wired into `test` or it silently never runs.
+new folder needs its own `test:<area>` script or it never runs. Adding the script
+is enough: `scripts/run-test-stages.cjs` runs every `test:*` script of
+`package.json` in the order it lists them, between `lint:media` and
+`audit:tools`.
+
+**Every stage runs.** The runner does not stop at a failing stage: the output
+of each streams as it runs, and a summary at the end lists every stage with
+`ok` / `FAILED`, its time and node:test's counts, then names the failed stages;
+the exit code is 1 if any failed. (A `&&` chain used to stop at the first
+failure, so a failing `test:tools` silently skipped everything after it.)
+`run-test-stages.test.ts` (RS-1 … RS-5) holds the runner to that.
 
 **What it checks** (each is an independent failure mode):
 

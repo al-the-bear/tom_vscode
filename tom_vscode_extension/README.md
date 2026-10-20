@@ -299,7 +299,7 @@ npm run codespecs:check  # is that binary built from tom_specs_clitool's current
 npm run check:tom-bs     # which bridge source the prebuilt tom_bs was built from, and whether the bridge changed since
 npm run compile      # tsc -p ./ + copy config json to out/config/
 npm run watch        # incremental rebuild
-npm test             # lint media + tools/services/utils test suites + tool-coverage audit
+npm test             # every stage: lint media, each test:<area> suite, tool-coverage audit; a summary per stage at the end
 ```
 
 `npm run som:pack` also removes the installed SOM packages and their lockfile
@@ -359,7 +359,7 @@ source tree; they are not part of this documentation.
 | Version | 0.1.0 |
 | VS Code engine | `^1.96.0` |
 | Node.js | ≥ 20 (targets v25) |
-| Tests | 88 test files (`npm test` runs the tools/services/utils suites + tool-coverage audit) |
+| Tests | 200 test files (`npm test` runs every stage — the tools, services, utils, managers and handlers suites and the tool-coverage audit — and summarizes each) |
 | License | BSD-3-Clause |
 
 ---
