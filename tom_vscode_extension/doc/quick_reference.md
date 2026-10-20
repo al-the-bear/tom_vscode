@@ -118,6 +118,8 @@
 | Context & Settings | `tomAi.contextSettingsEditor` | `tomAi.editor.contextSettings` |
 | Chat Variables | `tomAi.chatVariablesEditor` | `tomAi.editor.chatVariables` |
 | Process Editor | `tomAi.processEditor` | `tomAi.editor.process` |
+| Process Template Editor | `tomAi.processTemplateEditor` | `tomAi.editor.processTemplates`, or the snippet button of the PROCESS view's action bar |
+| Process Action Page | `tomAi.processAction` | A button of the PROCESS view's action bar (Next, Repeat, Gate passed, …) |
 | Quest TODO Pop-out | `tomAi.questTodoEditor` | Pop-out from sidebar |
 
 ## Bottom Panel Sub-sections
