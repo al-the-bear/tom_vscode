@@ -6,7 +6,8 @@
  * the process allows from here. Proceed (the only one that runs anything)
  * opens the action page (processAction-handler.ts), which queues the prompt of
  * the current position and then moves on — or, at a decision point, stays
- * marked as run; Finish …, Repeat …, Gate passed / failed, Finish process,
+ * marked as run. At a user action (a step the user does) Proceed instead asks
+ * the user to confirm it is done, and only moves the state; Finish …, Repeat …, Gate passed / failed, Finish process,
  * Skip and Back only move the state, at once. Usually the agent moves the state
  * (`tomAi_setProcessState`); the view lets the user see it at a glance and set
  * it by hand. Everything goes through ProcessStateStore, which keeps the
@@ -22,7 +23,7 @@ import { ProcessStateStore } from '../managers/processStateStore';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import type { ProcessChange, ProcessLevel, ProcessMoveKind } from '../utils/processDefinition';
-import { positionText } from '../utils/processActionPrompt';
+import { positionText, userActionConfirmation } from '../utils/processActionPrompt';
 import { openProcessAction } from './processAction-handler';
 import { confirmProcessAction } from '../services/processActionService';
 import { openProcessTemplateEditor } from './processTemplateEditor-handler';
@@ -107,6 +108,17 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
                 break;
             case 'action':
                 if (msg.kind === 'proceed') {
+                    // A user action runs no prompt: the user confirms it is done.
+                    const def = store.currentDefinition();
+                    const ask = def ? userActionConfirmation(def, store.state) : null;
+                    if (ask) {
+                        const answer = await vscode.window.showWarningMessage(ask.message, { modal: true, detail: ask.detail }, ask.confirm);
+                        if (answer === ask.confirm) {
+                            const result = await confirmProcessAction(msg.kind, msg.level ?? undefined, '');
+                            this.report(result.ok ? { ok: true } : result);
+                        }
+                        break;
+                    }
                     openProcessAction(this.context, msg.kind, msg.level ?? undefined);
                 } else if (msg.kind) {
                     const result = await confirmProcessAction(msg.kind, msg.level ?? undefined, '');

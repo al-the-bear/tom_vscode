@@ -32,6 +32,10 @@
  *         process variable and the context block
  *   PD-17 a session name may hold the iteration of its phase, step or sub-step (`${step-iteration}` …):
  *         resolved for the position, so every iteration gets its own session; other placeholders refused
+ *   PD-19 user actions: a step or sub-step flagged `userAction` is done by the user — accepted, written back,
+ *         found at the current position; refused on a gate, on a step with sub-steps (flag those), with a
+ *         prompt or a session (it runs nothing); Proceed reads "Confirm done" and is not offered again once
+ *         confirmed at a decision point; the context block tells the agent it is the user's
  *   PD-10 the JSON schema (src/config/process.schema.json) accepts what the validator accepts and
  *         rejects the shape errors it rejects
  */
@@ -61,6 +65,7 @@ import {
     stringifyProcessDefinition,
     roleAfterMove,
     availableMoves,
+    userActionAt,
     effectiveSession,
     parseProcessState,
     stringifyProcessState,
@@ -471,5 +476,71 @@ describe('process definitions', () => {
         assert.equal(bad('a-${quest}').length, 1, 'only the three iteration placeholders');
         assert.equal(bad({ name: 'a', basedOn: 'b-${step}' }).length, 1);
         assert.deepEqual(bad('${step-iteration}-a'), [], 'a placeholder may start the name');
+    });
+});
+
+describe('user actions', () => {
+    const USER_YAML = `
+id: review_flow
+phases:
+  - id: draft
+    steps:
+      - id: write
+        prompt: Write it.
+      - id: answer
+        name: Answer the questions
+        userAction: true
+        description: Answer every question in the document.
+      - id: rounds
+        repeatable: true
+        role: spec_author
+        substeps:
+          - id: ask
+            prompt: Ask.
+          - id: reply
+            name: Reply
+            userAction: true
+    gate:
+      id: gate
+`;
+    const userDef = (): ProcessDefinition => {
+        const parsed = parseProcessYaml(USER_YAML);
+        assert.deepEqual(parsed.errors, []);
+        return parsed.definition!;
+    };
+
+    test('PD-19: user actions', () => {
+        const def = userDef();
+        assert.equal(def.phases[0].steps[1].userAction, true);
+        assert.match(stringifyProcessDefinition(def), /userAction: true/, 'written back');
+
+        const start = selectProcess(def);
+        assert.equal(userActionAt(def, start), null, 'an agent step');
+        const answer = selectStep(start, def, 'answer');
+        assert.deepEqual((({ level, node }) => [level, node.id])(userActionAt(def, answer)!), ['step', 'answer']);
+        const reply = selectSubstep(selectStep(start, def, 'rounds'), def, 'reply');
+        assert.deepEqual((({ level, node }) => [level, node.id])(userActionAt(def, reply)!), ['substep', 'reply']);
+
+        const proceed = (st: typeof start) => availableMoves(def, st).find((m) => m.kind === 'proceed');
+        assert.equal(proceed(answer)!.label, 'Confirm done');
+        assert.equal(proceed(answer)!.target.step, 'rounds', 'confirmed: the process moves on');
+        assert.equal(proceed(reply)!.label, 'Confirm done', 'a decision point (repeatable step) too');
+        assert.equal(proceed(reply)!.target.ran, true);
+        assert.equal(proceed({ ...reply, ran: true }), undefined, 'confirmed already: decide how it goes on');
+
+        const block = processContextBlock(def, answer, '');
+        assert.match(block, /User action/);
+        assert.match(block, /done by the user, not by an agent/);
+        assert.doesNotMatch(processContextBlock(def, start, ''), /User action/);
+
+        const errors = (raw: unknown): string[] => validateProcessDefinition(raw).errors.map((e) => `${e.path}: ${e.message}`);
+        const phase = (over: Record<string, unknown>) => ({ id: 'x', phases: [{ id: 'a', steps: [{ id: 's', ...over }], gate: { id: 'g' } }] });
+        assert.ok(errors(phase({ userAction: 'yes' })).includes('phases[0].steps[0].userAction: true or false'));
+        assert.ok(errors(phase({ userAction: true, prompt: 'Do it.' })).some((e) => e.startsWith('phases[0].steps[0].prompt: a user action runs no prompt')));
+        assert.ok(errors(phase({ userAction: true, session: 'x' })).some((e) => e.startsWith('phases[0].steps[0].session: a user action runs no prompt')));
+        assert.ok(errors(phase({ userAction: true, substeps: [{ id: 'a' }] })).some((e) => e.startsWith('phases[0].steps[0].userAction: a step with sub-steps is a group')));
+        assert.ok(errors({ id: 'x', phases: [{ id: 'a', steps: [], gate: { id: 'g', userAction: true } }] })
+            .some((e) => e.startsWith('phases[0].gate.userAction: a gate is')));
+        assert.deepEqual(errors(phase({ userAction: true, description: 'Read it.' })), []);
     });
 });

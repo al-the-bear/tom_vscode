@@ -45,7 +45,32 @@
     }
 
     function label(node) {
-        return node.name ? node.name + ' (' + node.id + ')' : node.id;
+        return (node.userAction ? '👤 ' : '') + (node.name ? node.name + ' (' + node.id + ')' : node.id);
+    }
+
+    /** The user action at the current position (a flagged sub-step, or step without sub-steps), or null. */
+    function userActionHere(c) {
+        if (!c.definition || !c.state.process || c.state.completed) { return null; }
+        var phase = c.definition.phases.find(function (p) { return p.id === c.state.phase; });
+        var entry = phase && stepsOf(phase).find(function (e) { return e.step.id === c.state.step; });
+        var step = entry && entry.step;
+        if (!step) { return null; }
+        if (step.substeps && step.substeps.length) {
+            var sub = step.substeps.find(function (x) { return x.id === c.state.substep; });
+            return sub && sub.userAction ? { level: 'sub-step', node: sub } : null;
+        }
+        return step.userAction ? { level: 'step', node: step } : null;
+    }
+
+    function userActionBanner(action, confirmed) {
+        return '<div class="user-action">'
+            + '<div class="ua-head"><span class="codicon codicon-person"></span> Your turn — user action</div>'
+            + '<div class="ua-name">' + esc(action.node.name || action.node.id) + '</div>'
+            + (action.node.description ? '<div class="ua-desc">' + md(action.node.description) + '</div>' : '')
+            + '<div class="ua-hint">' + (confirmed
+                ? 'Confirmed as done — decide how the process goes on.'
+                : 'This ' + action.level + ' is done by you, not by an agent. Do it, then click Proceed to confirm it is done.') + '</div>'
+            + '</div>';
     }
 
     /** The steps of a phase in order: steps, gate, post-gate. */
@@ -70,11 +95,14 @@
     var LEVEL_SHORT = { phase: 'phase', step: 'step', substep: 'sub' };
 
     function actionBar(moves) {
+        var byUser = !!userActionHere(current);
         var buttons = (moves || []).map(function (m) {
+            var user = byUser && m.kind === 'proceed';
             var icon = m.kind === 'back' && m.label === 'Reopen' ? 'debug-reverse-continue'
-                : m.kind === 'proceed' && m.label === 'Run again' ? 'debug-rerun' : MOVE_ICON[m.kind] || 'circle';
+                : user ? 'person'
+                    : m.kind === 'proceed' && m.label === 'Run again' ? 'debug-rerun' : MOVE_ICON[m.kind] || 'circle';
             var text = m.level && (m.kind === 'repeat' || m.kind === 'finish') ? '<span class="lvl">' + LEVEL_SHORT[m.level] + '</span>' : '';
-            return '<button class="icon act act-' + m.kind + '" data-move="' + esc(m.kind) + '" data-level="' + esc(m.level || '') + '" title="'
+            return '<button class="icon act act-' + m.kind + (user ? ' act-user' : '') + '" data-move="' + esc(m.kind) + '" data-level="' + esc(m.level || '') + '" title="'
                 + esc(m.label + ' → ' + m.to) + '"><span class="codicon codicon-' + icon + '"></span>' + text + '</button>';
         }).join('');
         return '<div class="actions">' + (buttons || '<span class="muted">No move from here.</span>')
@@ -109,8 +137,10 @@
             return;
         }
         var html = c.state.process && c.definition ? actionBar(c.moves) : '';
+        var action = userActionHere(c);
+        if (action) { html += userActionBanner(action, !!c.state.ran); }
         if (c.state.completed) { html += '<div class="done"><span class="codicon codicon-check-all"></span> The process is finished.</div>'; }
-        else if (c.state.ran) { html += '<div class="ran"><span class="codicon codicon-debug-pause"></span> This position has been run — decide how the process goes on.</div>'; }
+        else if (c.state.ran && !action) { html += '<div class="ran"><span class="codicon codicon-debug-pause"></span> This position has been run — decide how the process goes on.</div>'; }
         var procOptions = [{ value: '', label: '— none —' }].concat(c.processes.map(function (p) {
             return { value: p.id, label: p.valid ? p.name + ' (' + p.id + ')' : p.id + ' (invalid)', disabled: !p.valid && p.id !== c.state.process };
         }));

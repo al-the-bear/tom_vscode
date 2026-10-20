@@ -65,3 +65,31 @@ code { font-family: var(--vscode-editor-font-family); }
 
 .ran { color: var(--vscode-notificationsInfoIcon-foreground, var(--vscode-foreground)); margin: 2px 0 4px; font-size: 0.92em; display: flex; align-items: center; gap: 4px; }
 .actions .act-proceed .codicon { color: var(--vscode-debugIcon-startForeground, var(--vscode-testing-iconPassed, inherit)); }
+
+/* A user action: the user's turn, impossible to miss. */
+.user-action {
+    margin: 2px 0 6px;
+    padding: 6px 8px;
+    border: 2px solid var(--vscode-editorWarning-foreground, #cca700);
+    border-left-width: 6px;
+    border-radius: 3px;
+    background: var(--vscode-inputValidation-warningBackground, rgba(204, 167, 0, 0.15));
+}
+.user-action .ua-head {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--vscode-editorWarning-foreground, #cca700);
+}
+.user-action .ua-name { font-weight: 600; margin: 2px 0; }
+.user-action .ua-desc { font-size: 0.92em; max-height: 30vh; overflow: auto; }
+.user-action .ua-desc p { margin: 3px 0; }
+.user-action .ua-hint { font-size: 0.9em; margin-top: 4px; font-style: italic; }
+.actions .act-user {
+    border: 1px solid var(--vscode-editorWarning-foreground, #cca700);
+    color: var(--vscode-editorWarning-foreground, #cca700);
+}
+.actions .act-user .codicon { color: var(--vscode-editorWarning-foreground, #cca700); }

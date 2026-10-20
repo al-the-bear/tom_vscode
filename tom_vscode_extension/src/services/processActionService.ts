@@ -3,7 +3,8 @@
  * bar. Proceed: the Proceed template (processActionPrompt.ts) is resolved for
  * the CURRENT position, the prompt is added to the prompt queue (which sends
  * it) carrying that position, and then the state moves on — or, at a decision
- * point, stays marked as run. Every other move only moves the state.
+ * point, stays marked as run. Every other move only moves the state, and so
+ * does Proceed at a user action (confirmed by the user in the PROCESS view).
  *
  * The preview on the action page and the queued text come from the same
  * {@link buildProcessActionPrompt}, so what the page shows is what is queued.
@@ -25,7 +26,7 @@ import {
     processActionValues,
     type ProcessActionTemplates,
 } from '../utils/processActionPrompt';
-import type { ProcessLevel, ProcessMove, ProcessMoveKind } from '../utils/processDefinition';
+import { userActionAt, type ProcessLevel, type ProcessMove, type ProcessMoveKind } from '../utils/processDefinition';
 
 const templatesChanged = new vscode.EventEmitter<void>();
 /** Fires after the templates were saved, so an open action page refreshes its preview. */
@@ -112,7 +113,8 @@ export async function confirmProcessAction(
     }
     const here = store.state;
     const session = actionSession(def, here, sessionOverride);
-    const text = buildProcessActionPrompt(store, move, customInstructions, undefined, sessionOverride);
+    // A user action is done by the user: confirming it queues nothing.
+    const text = userActionAt(def, here) ? '' : buildProcessActionPrompt(store, move, customInstructions, undefined, sessionOverride);
     if (text) {
         if (session.spec) {
             const error = ensureProcessSession(store.activeQuest, session.spec);

@@ -57,6 +57,12 @@ export interface ProcessSubstep {
     repeatable?: boolean;
     /** Upper bound on iterations; only for a repeatable sub-step. */
     maxIterations?: number;
+    /**
+     * Done by the user, not by an agent (reviewing, answering questions,
+     * approving): it runs no prompt, and Proceed asks the user to confirm it
+     * is done. Not on a gate, nor on a step with sub-steps (flag those).
+     */
+    userAction?: boolean;
 }
 
 /**
@@ -145,7 +151,7 @@ function isSessionName(v: string): boolean {
 
 const DEFINITION_KEYS = ['id', 'name', 'summary', 'phases'];
 const PHASE_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'repeatable', 'maxIterations', 'steps', 'gate', 'postGate'];
-const SUBSTEP_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'role', 'repeatable', 'maxIterations'];
+const SUBSTEP_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'role', 'repeatable', 'maxIterations', 'userAction'];
 const STEP_KEYS = [...SUBSTEP_KEYS, 'substeps'];
 const POST_GATE_KEYS = [...STEP_KEYS, 'todos', 'todoPrefix'];
 const TODO_KEYS = ['title', 'description'];
@@ -207,10 +213,19 @@ export function validateProcessDefinition(raw: unknown): ProcessValidation {
         for (const key of ['name', 'description', 'prompt', 'role']) { checkText(obj, key, path); }
         checkSession(obj, path);
         checkRepeat(obj, path, what);
+        if (obj.userAction !== undefined && typeof obj.userAction !== 'boolean') { err(`${path}.userAction`, 'true or false'); }
+        if (obj.userAction === true) {
+            for (const key of ['prompt', 'session']) {
+                if (obj[key] !== undefined) { err(`${path}.${key}`, 'a user action runs no prompt — say what the user does in its description'); }
+            }
+        }
         return id;
     };
     const checkStep = (obj: unknown, path: string, allowed: string[]): string => {
         const id = checkSubstep(obj, path, allowed, 'step');
+        if (isObject(obj) && obj.userAction === true && obj.substeps !== undefined) {
+            err(`${path}.userAction`, 'a step with sub-steps is a group — flag the sub-steps the user does');
+        }
         if (!isObject(obj) || obj.substeps === undefined) { return id; }
         if (!Array.isArray(obj.substeps)) { err(`${path}.substeps`, 'a list expected'); return id; }
         if (obj.substeps.length === 0) { err(`${path}.substeps`, 'a step with sub-steps has at least one'); }
@@ -265,6 +280,9 @@ export function validateProcessDefinition(raw: unknown): ProcessValidation {
                 err(`${path}.gate`, 'a phase ends with a quality gate step');
             } else {
                 noteStep(checkStep(phase.gate, `${path}.gate`, STEP_KEYS), `${path}.gate`);
+                if (isObject(phase.gate) && phase.gate.userAction !== undefined) {
+                    err(`${path}.gate.userAction`, 'a gate is the agents\' check; the user\'s approval is the Gate passed / failed decision');
+                }
             }
             if (phase.postGate !== undefined) {
                 const postPath = `${path}.postGate`;
@@ -478,6 +496,21 @@ export function currentRole(def: ProcessDefinition | null, state: ProcessState):
 
 /** The role a quest falls back to when it leaves its process. */
 export const DEFAULT_ROLE = 'default';
+
+/**
+ * The user action at `state`: the current sub-step, or the current step
+ * without sub-steps, when it is flagged `userAction`; null otherwise.
+ */
+export function userActionAt(def: ProcessDefinition | null, state: ProcessState): { level: 'step' | 'substep'; node: ProcessSubstep } | null {
+    if (!def || !state.process) { return null; }
+    const step = findStep(findPhase(def, state.phase), state.step);
+    if (!step) { return null; }
+    if (step.substeps && step.substeps.length) {
+        const sub = findSubstep(step, state.substep);
+        return sub && sub.userAction === true ? { level: 'substep', node: sub } : null;
+    }
+    return step.userAction === true ? { level: 'step', node: step } : null;
+}
 
 /**
  * The `role` chat variable after a move from `before` to `after`: the role
@@ -714,10 +747,14 @@ export function availableMoves(def: ProcessDefinition | null, state: ProcessStat
     const forward = forwardRaw ? notRun(forwardRaw) : null;
     const decision = !forward || (isGate && stepEnds) || repeats.length > 0;
     const moves: ProcessMove[] = [];
+    // A user action runs nothing: Proceed confirms it is done — once.
+    const byUser = userActionAt(def, state) !== null;
     if (decision) {
-        moves.push({ kind: 'proceed', label: state.ran ? 'Run again' : 'Proceed', target: { ...here, ran: true } });
+        if (!(byUser && state.ran)) {
+            moves.push({ kind: 'proceed', label: byUser ? 'Confirm done' : state.ran ? 'Run again' : 'Proceed', target: { ...here, ran: true } });
+        }
     } else {
-        moves.push({ kind: 'proceed', label: 'Proceed', target: forward! });
+        moves.push({ kind: 'proceed', label: byUser ? 'Confirm done' : 'Proceed', target: forward! });
     }
     if (!forward) {
         moves.push({ kind: 'finish-process', label: isGate ? 'Gate passed — finish process' : 'Finish process', target: { ...here, completed: true } });
@@ -867,6 +904,9 @@ export function processContextBlock(def: ProcessDefinition | null, state: Proces
             lines.push(...todoLines);
             if (post.todoPrefix) { lines.push(`- and the quest todos with the id prefix \`${post.todoPrefix}\``); }
         }
+    }
+    if (!state.completed && userActionAt(def, state)) {
+        lines.push('', '**User action** — this position is done by the user, not by an agent: do not do its work and do not move past it; the user confirms it with Proceed in the PROCESS view.');
     }
     if (state.completed) { lines.push('', 'The process is finished: its last step is done.'); }
     if (state.ran && !state.completed) { lines.push('', 'This position has been run; the user decides how the process goes on (finish, repeat, gate passed or failed).'); }

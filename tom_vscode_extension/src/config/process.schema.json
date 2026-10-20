@@ -69,6 +69,10 @@
         "maxIterations": {
           "type": "integer",
           "minimum": 1
+        },
+        "userAction": {
+          "type": "boolean",
+          "description": "Done by the user, not by an agent (reviewing, answering, approving): runs no prompt — no prompt or session allowed — and Proceed asks the user to confirm it is done. Not on a gate, nor on a step with sub-steps (flag the sub-steps); the validator enforces both."
         }
       }
     },
@@ -114,6 +118,10 @@
           "items": {
             "$ref": "#/$defs/substep"
           }
+        },
+        "userAction": {
+          "type": "boolean",
+          "description": "Done by the user, not by an agent (reviewing, answering, approving): runs no prompt — no prompt or session allowed — and Proceed asks the user to confirm it is done. Not on a gate, nor on a step with sub-steps (flag the sub-steps); the validator enforces both."
         }
       }
     },
@@ -181,6 +189,10 @@
         "todoPrefix": {
           "type": "string",
           "description": "Quest todos whose id starts with this prefix belong to the step too."
+        },
+        "userAction": {
+          "type": "boolean",
+          "description": "Done by the user, not by an agent (reviewing, answering, approving): runs no prompt — no prompt or session allowed — and Proceed asks the user to confirm it is done. Not on a gate, nor on a step with sub-steps (flag the sub-steps); the validator enforces both."
         }
       }
     },

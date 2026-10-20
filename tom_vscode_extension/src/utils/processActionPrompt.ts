@@ -27,6 +27,7 @@ import {
     findStep,
     findSubstep,
     phaseSteps,
+    userActionAt,
     type ProcessDefinition,
     type ProcessSession,
     type ProcessMove,
@@ -193,4 +194,38 @@ export function actionSession(def: ProcessDefinition, state: ProcessState, overr
     }
     const spec = effectiveSession(def, state);
     return spec ? { name: spec.name, source: 'process', spec } : { name: '', source: 'queue-default' };
+}
+
+/** What the user is asked before Proceed records a user action as done. */
+export interface UserActionConfirmation {
+    /** The dialog's message (its first line). */
+    message: string;
+    /** The dialog's detail: whose it is, where, what is to be done, what confirming means. */
+    detail: string;
+    /** The button that confirms. */
+    confirm: string;
+}
+
+/**
+ * The confirmation Proceed asks for at a user action — a step or sub-step
+ * the user does, not an agent; null at any other position. What is to be
+ * done is the action's description, else its name.
+ */
+export function userActionConfirmation(def: ProcessDefinition, state: ProcessState): UserActionConfirmation | null {
+    const action = userActionAt(def, state);
+    if (!action) { return null; }
+    const name = action.node.name || action.node.id;
+    const todo = action.node.description?.trim() || name;
+    return {
+        message: `User action: ${name}`,
+        detail: [
+            `This ${action.level === 'substep' ? 'sub-step' : 'step'} is done by you, not by an agent — Proceed runs no prompt.`,
+            `Position: ${positionText(def, state)}`,
+            '',
+            `To do: ${todo}`,
+            '',
+            'By confirming, I hereby confirm that I have done it; the process then moves on.',
+        ].join('\n'),
+        confirm: 'I confirm I have done it',
+    };
 }

@@ -14,6 +14,8 @@
  *   PA-6 the session: picked on the page, else the process's for the position being run, else the
  *        queue default
  *   PA-4 the default template names only variables an action provides
+ *   PA-7 confirming a user action: the dialog says it is a user action, names the position, gives what
+ *        is to be done (its description, else its name) and asks to confirm that it is done
  */
 
 import test, { describe } from 'node:test';
@@ -38,6 +40,7 @@ import {
     processActionValues,
     positionText,
     actionSession,
+    userActionConfirmation,
 } from '../processActionPrompt.js';
 
 const YAML = `
@@ -163,5 +166,37 @@ describe('process action prompts', () => {
         assert.deepEqual(actionSession(d, start, 'mine'), { name: 'mine', source: 'override' });
         assert.deepEqual(actionSession(d, start, ''), { name: '', source: 'queue-default' }, 'picked: the queue default');
         assert.deepEqual(actionSession(d, selectPhase(start, d, 'two')), { name: '', source: 'queue-default' }, 'phase two names none');
+    });
+
+    test('PA-7: confirming a user action', () => {
+        const parsed = parseProcessYaml(`
+id: flow
+phases:
+  - id: one
+    name: One
+    steps:
+      - id: write
+      - id: answer
+        name: Answer the questions
+        userAction: true
+        description: Answer every question in the Blueprint in the MD Browser.
+      - id: plain
+        userAction: true
+    gate:
+      id: g
+`);
+        assert.deepEqual(parsed.errors, []);
+        const d = parsed.definition!;
+        const start = selectProcess(d);
+        assert.equal(userActionConfirmation(d, start), null, 'an agent step needs no confirmation');
+        const c = userActionConfirmation(d, selectStep(start, d, 'answer'))!;
+        assert.match(c.message, /^User action: Answer the questions/);
+        assert.match(c.detail, /done by you, not by an agent/);
+        assert.match(c.detail, /Answer every question in the Blueprint in the MD Browser\./);
+        assert.match(c.detail, /One › Answer the questions/, 'the position');
+        assert.match(c.detail, /I hereby confirm that I have done it/);
+        assert.equal(c.confirm, 'I confirm I have done it');
+        const plain = userActionConfirmation(d, selectStep(start, d, 'plain'))!;
+        assert.match(plain.detail, /To do: plain/, 'no description: its name says what');
     });
 });

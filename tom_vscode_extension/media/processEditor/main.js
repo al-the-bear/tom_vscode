@@ -149,6 +149,9 @@
             + text(path + '.name', step.name, 'name', 'name')
             + roleSelect(path + '.role', step.role)
             + repeatFields(path, step, kind === 'substep' ? 'sub-step' : 'step')
+            + (kind !== 'gate' && !(step.substeps && step.substeps.length)
+                ? '<label class="check user-action-check" title="Done by the user, not by an agent: runs no prompt; Proceed asks to confirm it is done"><input type="checkbox" data-path="' + path + '.userAction" data-kind="bool"' + (step.userAction ? ' checked' : '') + '> user action</label>'
+                : '')
             + (kind === 'step' || kind === 'substep' ? moveButtons(path, index, count, true) : '')
             + (kind === 'post-gate' ? '<span class="card-ops"><button class="icon" data-op="remove-postgate" data-path="' + path + '" title="Remove the post-gate step"><span class="codicon codicon-trash"></span></button></span>' : '')
             + '</div>'

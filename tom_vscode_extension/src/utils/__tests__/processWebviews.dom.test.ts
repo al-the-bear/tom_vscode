@@ -18,6 +18,11 @@
  *   PW-8  editor: every phase, step and sub-step has a prompt field, edited into the model
  *   PW-11 editor: session fields on every node; a name alone is written as a string, a base or mode
  *         makes it an object, clearing every field removes it
+ *   PW-12 PROCESS view: at a user action a banner says it is the user's turn, what to do (the description)
+ *         and that Proceed confirms it; the Proceed button shows a person; user actions are marked 👤 in the
+ *         step and sub-step dropdowns
+ *   PW-13 editor: a "user action" checkbox on steps without sub-steps, sub-steps and the post-gate step, not
+ *         on a gate or a step with sub-steps
  *   PW-9  action page (Proceed): shows what runs, where the state goes and the session (Change… asks the
  *         host), previews as you type (custom instructions sent with it), confirms and cancels; an empty
  *         template moves without a prompt; a stale move says so
@@ -146,6 +151,34 @@ describe('PROCESS view', () => {
     });
 });
 
+describe('PROCESS view — user actions', () => {
+    test('PW-12: a user action', () => {
+        const { w } = setup('processPanel');
+        // The view loads marked itself (from node_modules); here it is evaluated directly.
+        w.eval(readFileSync(join(ROOT, 'node_modules', 'marked', 'lib', 'marked.umd.js'), 'utf-8'));
+        const def = JSON.parse(JSON.stringify(DEF));
+        def.phases[0].steps[1].substeps[1] = { id: 'note', name: 'Answer', userAction: true, description: 'Answer the **questions**.' };
+        def.phases[0].steps.splice(1, 0, { id: 'check', name: 'Check', userAction: true });
+        send(w, panelState({ definition: def }));
+        assert.equal(w.document.querySelector('.user-action'), null, 'an agent sub-step: no banner');
+        assert.deepEqual($(w, '#sel-step option').map((o) => o.textContent).slice(0, 3), ['1. Code (code)', '2. 👤 Check (check)', '3. Review (review)']);
+        assert.deepEqual($(w, '#sel-substep option').map((o) => o.textContent), ['1. Read (read)', '2. 👤 Answer (note)']);
+        assert.ok(w.document.querySelector('[data-move="proceed"] .codicon-play'));
+
+        send(w, panelState({ definition: def, state: { ...STATE, substep: 'note' }, moves: [{ kind: 'proceed', level: null, label: 'Confirm done', to: 'Build #2 › Gate #1' }] }));
+        const banner = w.document.querySelector('.user-action');
+        assert.ok(banner, 'a banner');
+        assert.match(banner.textContent, /Your turn/);
+        assert.match(banner.textContent, /Answer/);
+        assert.equal(banner.querySelector('strong')?.textContent, 'questions', 'the description, rendered');
+        assert.match(banner.textContent, /Proceed to confirm/);
+        assert.ok(w.document.querySelector('.actions').compareDocumentPosition(banner) & 4, 'below the action bar');
+        const proceed = w.document.querySelector('[data-move="proceed"]');
+        assert.ok(proceed.querySelector('.codicon-person'), 'Proceed shows a person');
+        assert.ok(proceed.classList.contains('act-user'));
+    });
+});
+
 describe('process editor', () => {
     const load = (w: Win): void => {
         send(w, { type: 'list', processes: [{ id: 'flow', name: 'Flow', valid: true, errorCount: 0 }, { id: 'other', name: 'Other', valid: true, errorCount: 0 }], roles: ['code_reviewer', 'senior_developer'], currentProcess: 'flow', selected: 'flow' });
@@ -211,6 +244,22 @@ describe('process editor', () => {
         w.document.querySelector('.item[data-id="other"]').click();
         const select = posted.filter((m) => m.type === 'select').pop() as Win;
         assert.deepEqual([select.id, select.dirty, select.definition.name], ['other', true, 'Flow 2']);
+    });
+
+    test('PW-13: the user-action checkbox', () => {
+        const { w, posted } = setup('processEditor');
+        load(w);
+        assert.ok(field(w, 'phases.0.steps.0.userAction'), 'a step without sub-steps');
+        assert.equal(field(w, 'phases.0.steps.1.userAction'), null, 'not a step with sub-steps');
+        assert.ok(field(w, 'phases.0.steps.1.substeps.0.userAction'), 'a sub-step');
+        assert.equal(field(w, 'phases.0.gate.userAction'), null, 'not a gate');
+        assert.ok(field(w, 'phases.0.postGate.userAction'), 'the post-gate step');
+        const box = field(w, 'phases.0.steps.1.substeps.1.userAction');
+        box.checked = true;
+        box.dispatchEvent(new w.Event('change', { bubbles: true }));
+        w.document.querySelector('[data-op="save"]').click();
+        const saved = [...posted].reverse().find((m) => m.type === 'save') as Record<string, Win>;
+        assert.equal(saved.definition.phases[0].steps[1].substeps[1].userAction, true);
     });
 
     test('PW-8: prompt fields', () => {
@@ -344,4 +393,5 @@ describe('process template editor', () => {
         assert.deepEqual(posted.filter((m) => m.type === 'save').pop(),
             { type: 'save', templates: { next: 'Next: ${step}', repeat: 'Again: ${custom-instructions}${step}', skip: '' } });
     });
+
 });
