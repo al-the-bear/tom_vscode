@@ -254,6 +254,11 @@ else
             && echo "  ✔ the committed bridges match the scripting API" \
             || echo "  ⚠️  The committed bridges of tom_vscode_bridge are stale or could not be checked (npm run check:bridges): tom_bs may lack scripting-API members. compile_and_install.sh rebuilds them."
     fi
+    # Which bridge source the host's prebuilt tom_bs was built from (the
+    # versioner stamp it prints on start), against the committed bridge sources:
+    # a warning when it is older; compile_and_install.sh builds a fresh one.
+    echo "📦 Checking which bridge source the prebuilt tom_bs was built from..."
+    ( cd "$SCRIPT_DIR" && node scripts/check-tom-bs-provenance.cjs ) | sed 's/^/  /' || true
 fi
 
 # ── Bundle validate_codespecs for THIS host ──────────────────────────────────

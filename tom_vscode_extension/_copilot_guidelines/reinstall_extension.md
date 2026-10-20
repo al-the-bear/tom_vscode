@@ -16,7 +16,13 @@ its time or build stamp and names the bridge files that really changed — commi
 those with the bridge; a build leaves nothing else modified. The prebuilt
 install runs `npm run check:bridges` (the bridge's
 BRIDGE-FRESH-01 test, ~6 s) and warns when the committed bridges lag behind the
-scripting API, since the prebuilt `tom_bs` was built from them.
+scripting API, since the prebuilt `tom_bs` was built from them. It then says which bridge source the
+host's prebuilt `tom_bs` itself was built from (`npm run check:tom-bs`,
+`scripts/check-tom-bs-provenance.cjs`): `tom_bs` prints its versioner stamp
+(`[BSTART] Version: 1.0.0+38.42e69c0 (…)`) when started with an empty stdin, and
+the bridge files whose content changed since that commit — the stamp and the
+generators' `// Generated:` lines ignored — are named in a warning. The install
+goes on; `compile_and_install` builds a fresh `tom_bs`.
 
 The install scripts (`install_extension.sh` / `.ps1`, `compile_and_install.*`)
 build the TomSpecs SOM packages from the sibling `tom_ai/ai_build/` checkout

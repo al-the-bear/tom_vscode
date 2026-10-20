@@ -3107,6 +3107,7 @@
     "audit:tools": "node scripts/audit-tool-coverage.cjs",
     "check:todo-yaml": "node scripts/check-todo-yaml.cjs",
     "check:bridges": "node scripts/check-bridge-fresh.cjs",
+    "check:tom-bs": "node scripts/check-tom-bs-provenance.cjs",
     "som:pack": "node scripts/build-som-packages.cjs",
     "codespecs:build": "node scripts/build-validate-codespecs.cjs",
     "codespecs:check": "node scripts/codespecs-binary-stamp.cjs",

@@ -335,6 +335,13 @@ if ($CodeCli) {
                     Write-Host "  Warning: the committed bridges of tom_vscode_bridge are stale or could not be checked (npm run check:bridges): tom_bs may lack scripting-API members. compile_and_install.ps1 rebuilds them."
                 }
             }
+            # Which bridge source the host's prebuilt tom_bs was built from (the
+            # versioner stamp it prints on start), against the committed bridge
+            # sources: a warning when it is older; compile_and_install.ps1
+            # builds a fresh one.
+            Write-Host "Checking which bridge source the prebuilt tom_bs was built from..."
+            $Provenance = Invoke-Native { node (Join-Path $PSScriptRoot 'scripts/check-tom-bs-provenance.cjs') }
+            foreach ($line in @($Provenance)) { Write-Host "  $line" }
         }
 
         # ── Bundle validate_codespecs for THIS host ──────────────────────────
