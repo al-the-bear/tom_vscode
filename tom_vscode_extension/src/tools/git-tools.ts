@@ -36,7 +36,7 @@
  *   - **Path traversal closed**: `cwd` (when provided) is normalised
  *     against the workspace root and rejected when it escapes.
  *   - **Repo discovery is documented as workspace-root-only** in the
- *     descriptions — the b-row's "multi-root" question gets an honest
+ *     descriptions — the "multi-root" ambiguity (checklist b) gets an honest
  *     answer: pick the workspace via `cwd` on the write/show tools;
  *     `gitRead` is locked to the first workspace folder.
  *   - **Detached HEAD + untracked files**: both tools just run git;

@@ -3,11 +3,11 @@
  * `tomAi_createFile`, `tomAi_editFile`, `tomAi_multiEditFile`,
  * `tomAi_deleteFile`, `tomAi_moveFile`.
  *
- * Test discipline (tool_test_coverage.md entry #2):
+ * Test discipline (the a–d checklist in _copilot_guidelines/tool_testing.md):
  *
  *   - **Typical happy-path** for each tool, wrapped in
  *     `withTiming('<toolName>:typical', …)` for audit coverage.
- *   - **All conflict cases** explicitly enumerated in the b-row:
+ *   - **All conflict cases** enumerated (checklist b):
  *     overwrite-vs-error, target exists, source missing, parent-dir
  *     auto-create, trailing newline handling, directory-vs-file,
  *     atomic vs. partial multiEdit on conflict, EXDEV (cross-fs)

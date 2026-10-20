@@ -18,7 +18,7 @@
  *   - a programmable panel-config (statuses, labels, scanWorkspace,
  *     additionalRepos, excludeRepos)
  *
- * The b-row's "fixture repo on disk. Mock the github layer." → the
+ * "A fixture repo on disk, the GitHub layer mocked" → the
  * provider IS the mock; the panel config IS the on-disk-config
  * substitute.  No real network calls.
  *
@@ -40,7 +40,7 @@
  *          `commentsFetched: false` + `commentsError` (was
  *          `commentsError` field on success payload — same data,
  *          clearer envelope).
- *   c) Tests + fake provider per the c-row's ask.
+ *   c) Tests + a fake provider.
  *   d) Timing — sub-ms per call.
  */
 

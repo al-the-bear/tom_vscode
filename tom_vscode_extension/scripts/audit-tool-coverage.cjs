@@ -2,7 +2,7 @@
 /**
  * audit-tool-coverage.cjs — CI / pre-push gate for the tool timing report.
  *
- * Contract (per `_ai/quests/vscode_extension/tool_test_coverage.md` §0.3):
+ * Contract (see _copilot_guidelines/tool_testing.md § CI gate):
  *
  *   - Every tool whose definition lives under `src/tools/` must have at least
  *     one entry in the timing report whose name starts with `<toolName>:`.
@@ -20,9 +20,8 @@
  *     extension host. Importing it in a Node script would require pulling in
  *     the test infrastructure's `_vscode-stub.js`, which would couple the
  *     audit gate to test plumbing.
- *   - The source-of-truth inventory in `tool_test_coverage.md` itself
- *     defines the canonical list with the same grep. Sharing the technique
- *     keeps the doc and the audit in lock-step — if one is wrong, both are.
+ *   - The grep IS the tool inventory: there is no hand-kept list beside it
+ *     that could drift from the source.
  *
  * Exit codes:
  *   0  audit passed
@@ -172,8 +171,7 @@ function findWorkspaceRoot(start) {
 
 /**
  * Extract every `name: 'tomAi_<...>'` literal from the source tree.
- * Mirrors the canonical command in `tool_test_coverage.md` so the doc
- * and the audit stay in lock-step.
+ * This is the tool inventory; no hand-kept list exists beside it.
  */
 function extractToolNames(srcDir) {
     const NAME_RE = /name:\s*'(tomAi_[A-Za-z0-9_]+)'/g;

@@ -29,7 +29,7 @@
  *          `/` to confirm they map to `_` (path traversal closed)
  *        - **empty conversationId / explicit undefined** falls
  *          back to "current"
- *   c) Round-trip tests per the c-row's explicit ask: write then
+ *   c) Round-trip tests: write then
  *      read; append then read; replace overwrites.
  *   d) Timing — sub-ms per call (small files).
  */
@@ -252,7 +252,7 @@ describe('writeConversationResultImpl', () => {
 });
 
 // ===========================================================================
-// Round-trip — the c-row's explicit ask
+// Round-trip
 // ===========================================================================
 
 describe('round-trip read/write/append', () => {

@@ -8,8 +8,7 @@
  *     and exercise the real http path against canned routes
  *     (`/ok`, `/redirect`, `/404`, `/slow`, `/large`). No mocks —
  *     this is the path the production tool actually uses, on a
- *     loopback socket. The c-row of the coverage doc explicitly
- *     asks for this.
+ *     loopback socket.
  *
  *   - **webSearch**: inject a fake `SearchProvider`. The DDG-Lite
  *     production provider hits the real network so it's not part of

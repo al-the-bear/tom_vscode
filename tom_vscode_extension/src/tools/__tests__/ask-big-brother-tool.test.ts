@@ -23,8 +23,8 @@
  *        - the substring fallback matches BOTH name OR id (case-insens.)
  *        - summarisation triggered only when length > threshold AND
  *          config.summarisation.enabled
- *   c) Tests use a fake `LanguageModelBridge` (the b-row asked for a
- *      stub of `vscode.lm`).
+ *   c) Tests use a fake `LanguageModelBridge` in place of a stub of
+ *      `vscode.lm`.
  *   d) Timing — sub-ms per call; no real model invoked.
  */
 

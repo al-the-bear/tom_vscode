@@ -8,8 +8,8 @@
  * Strategy: a real `ToolTrail` instance is populated with a handful
  * of entries, then a `ToolHistoryAccess` fake wraps it + an in-memory
  * disk store map so we can exercise the ring-buffer vs disk-store
- * layering end-to-end. The c-row's "populated ToolTrail + on-disk
- * store fixture" is satisfied by:
+ * layering end-to-end. A "populated ToolTrail + on-disk store
+ * fixture" is built from:
  *
  *   - using the actual `ToolTrail` class (not a fake) for the
  *     ring-buffer surface, including its `keepEntries` eviction
@@ -434,7 +434,7 @@ describe('readPastToolResultImpl', () => {
 // Integration: ring buffer eviction → disk fallback proves layering
 // ===========================================================================
 
-describe('layering: ring eviction + disk fallback (entry #32 c-row)', () => {
+describe('layering: ring eviction + disk fallback (checklist c)', () => {
 
     test('after ring eviction, key still resolves via disk', async () => {
         // Build a tiny ring (keepEntries: 2) so eviction is observable in

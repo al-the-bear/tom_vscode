@@ -26,7 +26,7 @@
  *
  * ## NO category enum
  *
- * The coverage doc's a-row asks about a "category enum" — there isn't
+ * Checklist a) (the description) raised a "category enum" — there isn't
  * one. Templates have name/id, body, and (copilot only) a `showInMenu`
  * boolean. The descriptions now explicitly deny the category concept
  * so the model doesn't try to filter by it.

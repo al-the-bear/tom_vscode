@@ -3,12 +3,12 @@
  * `tomAi_readFile`, `tomAi_listDirectory`, `tomAi_findFiles`,
  * `tomAi_findTextInFiles`.
  *
- * Test discipline (tool_test_coverage.md entry #1):
+ * Test discipline (the a–d checklist in _copilot_guidelines/tool_testing.md):
  *
  *   - **Description / typical call**: one happy-path test per tool wrapped
  *     in `withTiming('<toolName>:typical', …)` so the timing report records
  *     it and the audit script counts it as covered.
- *   - **Ambiguity cases** (b-row of the coverage doc): the mistaken-input
+ *   - **Ambiguity cases** (checklist b): the mistaken-input
  *     shapes we explicitly tolerate (directory passed to `readFile`,
  *     bare `*.ts` glob to `findFiles`, etc.). One test per case.
  *   - **Large-fixture stress** for `findFiles` and `findTextInFiles`:

@@ -15,8 +15,8 @@
  *      `os.tmpdir()` — exercise the wired-up `liveExecutor` via the
  *      Impl entry points so we can be confident the executor's
  *      stdout/stderr/exitCode plumbing matches what the unit tests
- *      assert on. The c-row of the coverage doc asks for this
- *      explicitly: "exercise read at various refs, show specific
+ *      assert on. The integration tests exist for exactly this:
+ *      "exercise read at various refs, show specific
  *      paths at specific revs, write a tiny commit."
  *
  * Coverage entry #27 four-row checklist:
@@ -33,7 +33,7 @@
  *        - --no-verify / --no-gpg-sign rejected per workspace policy.
  *        - Non-zero git exit surfaced as `{ok: false, exitCode,
  *          stdout, stderr}` (was conflated with spawn failure).
- *   c) Tests + integration fixture per the c-row's explicit ask.
+ *   c) Tests + an integration fixture (a real repository on disk).
  *   d) Timing — unit tests sub-ms; integration tests <2s total
  *      (`git init` + a small commit + a few reads).
  */

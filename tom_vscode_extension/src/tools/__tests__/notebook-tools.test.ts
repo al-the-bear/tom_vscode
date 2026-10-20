@@ -26,9 +26,9 @@
  *        - path traversal rejected
  *        - kernel selection: documented as out-of-scope
  *        - execution timeout: documented as absent (dispatch only)
- *   c) Stubbed `vscode.notebooks.*` via `NotebookHost`.  Per the
- *      coverage doc's c-row note: tests skip the live VS Code API
- *      path — only the impl's contract is exercised.
+ *   c) Stubbed `vscode.notebooks.*` via `NotebookHost`. The tests
+ *      skip the live VS Code API path — only the impl's contract is
+ *      exercised.
  *   d) Timing — sub-ms (no fs, no editor, no kernel).
  */
 

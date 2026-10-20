@@ -382,7 +382,7 @@ describe('addQueueItemImpl + listQueueImpl', () => {
 });
 
 // ===========================================================================
-// sendQueuedPrompt vs sendQueueItem vs resendQueueItem (b-row trap)
+// sendQueuedPrompt vs sendQueueItem vs resendQueueItem (checklist b)
 // ===========================================================================
 
 describe('send variants — the key distinction', () => {

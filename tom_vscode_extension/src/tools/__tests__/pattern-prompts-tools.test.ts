@@ -26,7 +26,7 @@
  *        - missing pattern_prompts folder distinguished from "folder
  *          present but prompt missing"
  *   c) On-disk fixture under `_copilot_guidelines/pattern_prompts/`
- *      AND `_copilot_tomai/pattern_prompts/` per the c-row's ask.
+ *      AND `_copilot_tomai/pattern_prompts/` (checklist c).
  *   d) Timing — sub-ms per call (small fixture).
  */
 

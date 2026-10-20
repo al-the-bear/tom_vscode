@@ -34,7 +34,7 @@
  *
  * ## sendQueueItem vs sendQueuedPrompt
  *
- * The b-row of the coverage doc flagged the name confusion:
+ * Checklist b) (_copilot_guidelines/tool_testing.md) flagged the name confusion:
  *
  *   - **`tomAi_sendQueueItem`** (the simpler one): fire one specific
  *     item immediately, bypassing the manager's auto-send loop. Used

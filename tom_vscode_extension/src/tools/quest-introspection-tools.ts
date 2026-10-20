@@ -23,7 +23,7 @@
  * in-memory fake.  The vscode-bound bridge stays in
  * `chat-enhancement-tools.ts`.
  *
- * ## Audit notes (b-row asks of the coverage doc)
+ * ## Audit notes (checklist b), _copilot_guidelines/tool_testing.md)
  *
  *   - Quest id format: free-form, must match the directory name under
  *     `_ai/quests/*`.  No regex enforced — whatever VS Code accepts as

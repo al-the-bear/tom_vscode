@@ -19,8 +19,8 @@
  *          flattened into the response string like the old impl)
  *        - clear() runs BEFORE open() so a stale file can't be read
  *        - waitForAnswer: false returns immediately with the path
- *   c) Tests via fake sink + fake opener (the b-row asked for
- *      `vscode.commands` + fs stubbing).
+ *   c) Tests via fake sink + fake opener, in place of stubbing
+ *      `vscode.commands` and fs.
  *   d) Timing — pinned clock avoids real polls; sub-ms per test.
  */
 

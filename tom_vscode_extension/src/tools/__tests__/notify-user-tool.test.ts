@@ -79,7 +79,7 @@ let channels: SpiedChannels;
 beforeEach(() => { channels = makeChannels(); });
 
 // ===========================================================================
-// Channel routing — c-row's "assert which one was called"
+// Channel routing — assert which one was called
 // ===========================================================================
 
 describe('notifyUserImpl — channel routing per urgency', () => {

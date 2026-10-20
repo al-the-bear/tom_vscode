@@ -8,7 +8,7 @@
  *   tomAi_readPastToolResult   — fetch one full result by key (ring
  *                                 buffer first, then disk store)
  *
- * ## Storage layering (the a-row's "ring-buffer + disk-store layering")
+ * ## Storage layering ("ring-buffer + disk-store layering")
  *
  *   - **Ring buffer** (`services/tool-trail.ts`): in-memory, session-
  *     scoped, default 40 entries, never survives a window reload.
@@ -22,7 +22,7 @@
  *     like `[Past tool call t14 — …]` printed by an older round still
  *     resolves.
  *
- * ## Key format (the a-row's "key format (`tNN`)")
+ * ## Key format ("key format (`tNN`)")
  *
  * Keys are `t<n>` strings (`t1`, `t2`, `t14`, …) assigned by the
  * `ToolTrail` in call order. The model frequently passes bare
@@ -41,7 +41,7 @@
  *     + `readToolResultAnySubsystem()` so unit tests can drive an
  *     in-memory `ToolTrail` + a stubbed disk lookup without touching
  *     the workspace.
- *   - **Bare-numeric key normalisation** closes the b-row trap.
+ *   - **Bare-numeric key normalisation** closes that ambiguity (checklist b).
  *   - **`sinceRound` is inclusive** (documented).
  *   - **Regex flags**: `gi` (case-insensitive) by default; `g` when
  *     `caseSensitive: true`. Invalid regex returns `{ok: false}`.

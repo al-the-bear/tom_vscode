@@ -19,7 +19,7 @@
  *     `.md` suffix; `name: "../../etc/passwd"` survived and was
  *     joined into a path that escaped the prompts dir. The new impl
  *     rejects any name containing a path separator OR `..` segment
- *     BEFORE filesystem access. This was the b-row's "same trap as
+ *     BEFORE filesystem access. This was the ambiguity (checklist b) "same trap as
  *     guidelines" — same flag, same fix.
  *   - **Envelopes unified**: both tools now use `{ok, ...}` /
  *     `{ok: false, error, ...}` consistently. Success still includes

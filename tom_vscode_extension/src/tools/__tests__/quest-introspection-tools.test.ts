@@ -8,7 +8,7 @@
  *   - tomAi_listDocuments
  *
  * Strategy: a real on-disk fixture under `os.tmpdir()` holding the
- * coverage doc's required shape — **2 quests + 3 projects** plus a
+ * smallest shape that tells the tools apart — **2 quests + 3 projects** plus a
  * realistic spread of category folders (prompts, answers, notes,
  * roles, guidelines) so `listDocuments` can be exercised against each
  * one. Real `fs` walks keep the test honest about path-traversal +

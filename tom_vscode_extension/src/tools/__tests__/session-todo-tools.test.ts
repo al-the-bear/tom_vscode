@@ -318,7 +318,7 @@ describe('deleteSessionTodoImpl', () => {
 });
 
 // ===========================================================================
-// Round-trip — add → list → update → delete (the c-row's requirement)
+// Round-trip — add → list → update → delete (checklist c)
 // ===========================================================================
 
 describe('session-todo — full round-trip', () => {

@@ -27,7 +27,7 @@
  *     `## Heading` entries").
  *
  *   - **Wildcard delete explicitly NOT supported.** `forgetMemory`
- *     takes one file at a time — documented + b-row close.
+ *     takes one file at a time — documented (checklist b).
  *
  *   - **saveMemory vs updateMemory relationship documented**. They
  *     overlap when `heading` is provided; the descriptions now point
