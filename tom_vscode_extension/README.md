@@ -41,7 +41,7 @@ clients drive the live window. This is the product of the Tom VS Code repo.
 
 | Software | Version | Notes |
 | --- | --- | --- |
-| Dart SDK | ≥ 3.10.4 (< 4.0) | Compiles the `tom_bs` bridge binary and runs the d4rt generator |
+| Dart SDK | ≥ 3.10.4 (< 4.0) | Compiles `validate_codespecs` and the `tom_bs` bridge binary, runs the d4rt generator. Need not be on `PATH`: the installer also finds Flutter's Dart, `DART_SDK`, `FLUTTER_ROOT` and the usual install folders (`scripts/find-dart.cjs`), and stops early naming where it looked |
 | Node.js | ≥ 20 (LTS) | Enforced by the installer; the extension targets Node v25 — install/switch with nvm |
 | nvm | latest | Recommended — lets the installer install/switch to a supported Node automatically |
 | VS Code | ≥ 1.96.0 | `engines.vscode` in `package.json` |

@@ -14,7 +14,7 @@ The tom_vscode_bridge d4rt bridges: a from-source install
 `scripts/bridge-generated-churn.cjs` puts back every file that changed only by
 its time or build stamp and names the bridge files that really changed — commit
 those with the bridge; a build leaves nothing else modified. The prebuilt
-install, with Dart on PATH, runs `npm run check:bridges` (the bridge's
+install runs `npm run check:bridges` (the bridge's
 BRIDGE-FRESH-01 test, ~6 s) and warns when the committed bridges lag behind the
 scripting API, since the prebuilt `tom_bs` was built from them.
 
@@ -34,9 +34,14 @@ Between installs, the CodeSpecs freshness test (CS-2b) fails once ai_build's
 model moves on; `npm run som:pack && npm install` (what every install does)
 brings the checkout level. The install
 scripts also compile `validate_codespecs` (tom_specs_clitool) into
-`bin/<platform>/` (`npm run codespecs:build`): a from-source install fails
-without a Dart SDK, a prebuilt install warns and leaves the CodeSpecs validate
-tool reporting the binary missing. Beside the binary the build writes
+`bin/<platform>/` (`npm run codespecs:build`), so every install needs the Dart
+SDK. Both install scripts look for it first (`scripts/find-dart.cjs`): `dart` on
+PATH, then `DART_SDK`, `FLUTTER_ROOT`, the folder of `flutter` on PATH, and
+known locations (`~/Desktop/development/flutter/bin`, `~/flutter/bin`,
+`/opt/homebrew/bin`, …; on Windows `~\flutter\bin`, `C:\src\flutter\bin`,
+`C:\tools\dart-sdk\bin`, …), and put the found folder on PATH for the rest of
+the install. When none holds `dart`, the install stops before building
+anything and names every place it looked. Beside the binary the build writes
 `validate_codespecs.build.json`, a hash of its source; `npm run codespecs:check`
 (and the test CV-8) say when tom_specs_clitool moved on since, so the binary
 needs `npm run codespecs:build` again. The stamp is not packaged. After packaging,

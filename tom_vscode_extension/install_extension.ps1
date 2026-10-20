@@ -97,6 +97,22 @@ $NpmVersion = Invoke-Native { npm --version }
 Write-Host "npm version: $NpmVersion"
 Write-Host ""
 
+# The Dart SDK: validate_codespecs (and, from source, tom_bs) are compiled
+# below, and the VSIX check refuses a package without validate_codespecs. Find
+# it now - also when `dart` is not on PATH (Flutter's Dart, DART_SDK,
+# FLUTTER_ROOT, known locations; scripts/find-dart.cjs) - so a missing SDK stops
+# the install before anything is built, naming where it looked.
+Write-Host "Looking for the Dart SDK..."
+$DartDir = Invoke-Native { node scripts/find-dart.cjs }
+if ($LASTEXITCODE -ne 0 -or -not $DartDir) {
+    Write-Error "Dart SDK not found (see the places listed above)"
+    exit 1
+}
+$DartDir = ($DartDir | Select-Object -Last 1).ToString().Trim()
+$env:Path = "$DartDir;$env:Path"
+Write-Host "Dart SDK: $DartDir"
+Write-Host ""
+
 # Build the TomSpecs SOM TypeScript pair (tom_ai/ai_build) into the two
 # tarballs package.json depends on. Must run before `npm install`: the VSIX has
 # to carry real copies of both packages, never a link into ai_build.
@@ -325,19 +341,11 @@ if ($CodeCli) {
         # The CodeSpecs tools run tom_specs_clitool's validate_codespecs as a
         # compiled binary from bin/<platform>/ - never via `dart run`. It is
         # compiled here from tom_ai/ai_build, like tom_bs in from-source mode.
-        # A from-source install requires it; otherwise a missing Dart SDK only
-        # leaves the CodeSpecs validate tool reporting the binary absent.
-        if (Get-Command dart -ErrorAction SilentlyContinue) {
-            Push-Location $ExtensionDir
-            Invoke-Native { node scripts/build-validate-codespecs.cjs }
-            if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "building validate_codespecs failed"; exit 1 }
-            Pop-Location
-        } elseif ($env:TOM_BRIDGE_FROM_SOURCE -eq '1') {
-            Write-Error "Dart SDK not found - cannot compile validate_codespecs"
-            exit 1
-        } else {
-            Write-Host "  Warning: Dart SDK not found - validate_codespecs not bundled (npm run codespecs:build adds it)"
-        }
+        # The Dart SDK was found at the start of this script.
+        Push-Location $ExtensionDir
+        Invoke-Native { node scripts/build-validate-codespecs.cjs }
+        if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "building validate_codespecs failed"; exit 1 }
+        Pop-Location
         Write-Host ""
 
         # ── Ensure Claude Agent SDK native CLI binary for THIS host ──────────

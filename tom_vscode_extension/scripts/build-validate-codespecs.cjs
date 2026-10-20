@@ -33,6 +33,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { writeStamp } = require('./codespecs-binary-stamp.cjs');
+const { findDart, notFoundMessage } = require('./find-dart.cjs');
 
 const EXT_ROOT = path.resolve(__dirname, '..');
 const AI_BUILD_CHECKOUT = process.env.TOM_SOM_AI_BUILD
@@ -51,8 +52,10 @@ function binaryName() {
 }
 
 function run(cmd, args, cwd) {
-    // `dart` is a .bat on Windows, which needs a shell to start.
-    execFileSync(cmd, args, { cwd, stdio: 'inherit', shell: process.platform === 'win32' });
+    // `dart` is a .bat on Windows, which needs a shell to start; quoted, since
+    // the found path may hold spaces.
+    const shell = process.platform === 'win32';
+    execFileSync(shell ? `"${cmd}"` : cmd, args, { cwd, stdio: 'inherit', shell });
 }
 
 function listDirtyEdits() {
@@ -72,17 +75,25 @@ function main() {
         console.error(`❌ ${path.join(CLITOOL_DIR, ENTRY)} not found. Check out tom_ai/ai_build beside tom_ai/vscode, or set TOM_SOM_AI_BUILD.`);
         return 1;
     }
+    // The Dart SDK, also when `dart` is not on PATH (find-dart.cjs).
+    const { found, looked } = findDart();
+    if (!found) {
+        console.error(`❌ ${notFoundMessage(looked)}`);
+        return 1;
+    }
+    const dart = found.dart;
+    if (found.via !== 'PATH') { console.log(`ℹ️  Dart SDK: ${dart} (${found.via})`); }
     listDirtyEdits();
     const outDir = path.join(EXT_ROOT, 'bin', hostPlatform());
     const outFile = path.join(outDir, binaryName());
     fs.mkdirSync(outDir, { recursive: true });
     try {
         console.log('📦 Resolving tom_specs_clitool dependencies...');
-        run('dart', ['pub', 'get'], CLITOOL_DIR);
+        run(dart, ['pub', 'get'], CLITOOL_DIR);
         console.log(`📦 Compiling validate_codespecs for ${hostPlatform()} ...`);
-        run('dart', ['compile', 'exe', ENTRY, '-o', outFile], CLITOOL_DIR);
+        run(dart, ['compile', 'exe', ENTRY, '-o', outFile], CLITOOL_DIR);
     } catch (e) {
-        console.error(`❌ Building validate_codespecs failed: ${e.message}. A Dart SDK on PATH is required to build it.`);
+        console.error(`❌ Building validate_codespecs failed: ${e.message}`);
         return 1;
     }
     if (process.platform !== 'win32') { fs.chmodSync(outFile, 0o755); }

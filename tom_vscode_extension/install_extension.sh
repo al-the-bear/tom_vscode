@@ -56,6 +56,17 @@ fi
 
 echo ""
 
+# The Dart SDK: validate_codespecs (and, from source, tom_bs) are compiled
+# below, and the VSIX check refuses a package without validate_codespecs. Find
+# it now — also when `dart` is not on PATH (Flutter's Dart, DART_SDK,
+# FLUTTER_ROOT, known locations; scripts/find-dart.cjs) — so a missing SDK stops
+# the install before anything is built, naming where it looked.
+echo "🔎 Looking for the Dart SDK..."
+DART_DIR="$(node scripts/find-dart.cjs)" || exit 1
+export PATH="$DART_DIR:$PATH"
+echo "✅ Dart SDK: $DART_DIR"
+echo ""
+
 # Build the TomSpecs SOM TypeScript pair (tom_ai/ai_build) into the two
 # tarballs package.json depends on. Must run before `npm install`: the VSIX has
 # to carry real copies of both packages, never a link into ai_build.
@@ -249,19 +260,11 @@ fi
 # The CodeSpecs tools (validate, trace over a trio) run tom_specs_clitool's
 # validate_codespecs as a compiled binary from bin/<platform>/ — never via
 # `dart run`. It is compiled here from tom_ai/ai_build, like tom_bs above in
-# from-source mode. A from-source install requires it; otherwise a missing
-# Dart SDK only leaves the CodeSpecs validate tool reporting the binary absent.
-if command -v dart &> /dev/null; then
-    ( cd "$SCRIPT_DIR" && node scripts/build-validate-codespecs.cjs ) || {
-        echo "❌ Error: building validate_codespecs failed"
-        exit 1
-    }
-elif [ "${TOM_BRIDGE_FROM_SOURCE:-0}" = "1" ]; then
-    echo "❌ Error: Dart SDK not found — cannot compile validate_codespecs"
+# from-source mode, with the Dart SDK found at the start of this script.
+( cd "$SCRIPT_DIR" && node scripts/build-validate-codespecs.cjs ) || {
+    echo "❌ Error: building validate_codespecs failed"
     exit 1
-else
-    echo "  ⚠️  Dart SDK not found — validate_codespecs not bundled (npm run codespecs:build adds it)"
-fi
+}
 
 # ── Ensure Claude Agent SDK native CLI binary for THIS host ──────────────────
 # Since SDK >=0.2.13x the Claude CLI ships as a platform-specific native binary
