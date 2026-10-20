@@ -865,6 +865,9 @@ export class AiConversationManager {
                         }, 500);
                     }
                 });
+                // A watcher failing after it started (EMFILE) must not become an
+                // uncaught exception; the 5 s poll below still finds the answer.
+                watcher.on('error', () => { watcher?.close(); watcher = undefined; });
             } catch {
                 // Fallback to polling only
             }

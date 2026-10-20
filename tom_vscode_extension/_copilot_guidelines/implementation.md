@@ -76,5 +76,6 @@ Any change to the config shape must update both `sendToChatConfig.ts` and the JS
 - Keep command IDs stable once published. Keybindings, queue entries, and external scripts reference them.
 - Prefer backward-compatible config changes; when breaking, provide migration on load.
 - Avoid hard dependency on optional external packages at activation. Use dynamic `import()` inside try/catch for optional features (e.g. `claude-agent-sdk`).
+- Every `fs.watch(...)` gets an `'error'` listener next to it. A watcher can fail after it started — macOS runs out of watch handles (EMFILE) when many windows watch files — and without a listener that failure is an uncaught exception in the extension host. The listener logs, closes the watcher and leaves the feature working without it (a poll, or the next open re-arms it). `fs-watch-error-listeners.test.ts` (FW-1) fails on a watcher without one.
 - Run `npx tsc --noEmit` before committing; zero warnings in the Problems pane.
 - Never skip git hooks, never `--amend` a commit after a hook failure.

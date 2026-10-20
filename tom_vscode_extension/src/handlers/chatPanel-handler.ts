@@ -113,10 +113,15 @@ interface Section {
     content: string;
 }
 
+/** How often the chat panel checks the answer file when its watcher failed. */
+const ANSWER_POLL_MS = 3000;
+
 class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
     private _context: vscode.ExtensionContext;
     private _answerFileWatcher?: fs.FSWatcher;
+    /** Checks the answer file when the watcher failed (see _setupAnswerFileWatcher). */
+    private _answerPollTimer?: ReturnType<typeof setInterval>;
     private _autoHideDelay: number = 0; // 0 = keep open, otherwise ms
     private _keepContentAfterSend: boolean = false;
     private _lastLoggedAnswerId: string = ''; // Track last logged answer to avoid duplicates
@@ -315,6 +320,17 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 this._notifyAnswerFileStatus();
             }
         });
+        // A watcher can fail after it started (EMFILE when the machine runs out
+        // of watch handles); unhandled, that is an uncaught exception. Drop it
+        // and look for the answer by polling instead.
+        this._answerFileWatcher.on('error', (err: NodeJS.ErrnoException) => {
+            debugLog(`[ChatPanel] answer-file watcher failed (${err.code ?? err.message}); polling every ${ANSWER_POLL_MS} ms`, 'WARN', 'extension');
+            this._answerFileWatcher?.close();
+            this._answerFileWatcher = undefined;
+            if (!this._answerPollTimer) {
+                this._answerPollTimer = setInterval(() => this._notifyAnswerFileStatus(), ANSWER_POLL_MS);
+            }
+        });
     }
 
     private _notifyAnswerFileStatus(): void {
@@ -367,6 +383,10 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     public dispose(): void {
         if (this._answerFileWatcher) {
             this._answerFileWatcher.close();
+        }
+        if (this._answerPollTimer) {
+            clearInterval(this._answerPollTimer);
+            this._answerPollTimer = undefined;
         }
     }
 

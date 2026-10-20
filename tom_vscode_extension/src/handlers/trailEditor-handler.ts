@@ -226,6 +226,13 @@ class TrailEditorProvider implements vscode.CustomTextEditorProvider {
             }
         });
 
+        // A watcher failing after it started (EMFILE) must not become an uncaught
+        // exception; the editor keeps what it shows, and reopening it reloads.
+        watcher.on('error', (err: NodeJS.ErrnoException) => {
+            debugLog(`[TrailEditor] watcher failed (${err.code ?? err.message}); reopen the editor to refresh`, 'WARN', 'trailEditor');
+            watcher.close();
+        });
+
         webviewPanel.onDidDispose(() => {
             watcher.close();
         });

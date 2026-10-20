@@ -771,6 +771,9 @@ function attachTrailFolderWatcher(folder: string): void {
                 currentPanel.webview.postMessage({ type: 'exchanges', exchanges });
             }, 250);
         });
+        // A watcher failing after it started (EMFILE) must not become an uncaught
+        // exception: drop it, so the next attach (reopening the panel) tries again.
+        currentWatcher.on('error', () => { detachTrailFolderWatcher(); });
         currentWatchedFolder = folder;
     } catch {
         // Ignore — watch is best-effort; users can reopen the panel to
