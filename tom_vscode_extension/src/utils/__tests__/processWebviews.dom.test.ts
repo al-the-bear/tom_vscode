@@ -173,7 +173,7 @@ describe('PROCESS view — user actions', () => {
         assert.equal(banner.querySelector('strong')?.textContent, 'questions', 'the description, rendered');
         assert.match(banner.textContent, /Proceed to confirm/);
         const desc = w.getComputedStyle(banner.querySelector('.ua-desc'));
-        assert.equal(desc.maxHeight, 'calc(30vh + 2.8em)', 'two lines more than before');
+        assert.match(desc.maxHeight, /^calc\((30vh \+ 2\.8em|2\.8em \+ 30vh)\)$/, 'two lines more than before (term order as the engine writes it)');
         assert.equal(desc.overflowY, 'auto', 'scrolls when longer');
         assert.ok(w.document.querySelector('.actions').compareDocumentPosition(banner) & 4, 'below the action bar');
         const proceed = w.document.querySelector('[data-move="proceed"]');
