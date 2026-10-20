@@ -31,6 +31,8 @@ export interface ProcessTodoItem {
  * The named Agent SDK session a phase, step or sub-step runs in
  * (src/utils/agentSdkSessions.ts): a name, or the name with the session it is
  * based on and how — so a missing session can be created from the definition.
+ * Names may hold `${phase-iteration}`, `${step-iteration}` and
+ * `${substep-iteration}`, filled in for the position (effectiveSession).
  */
 export type ProcessSessionSpec = string | { name: string; basedOn?: string; mode?: 'continue' | 'fork-from-base' };
 
@@ -130,6 +132,17 @@ export interface ProcessValidation {
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 const ID_MESSAGE = 'letters, digits, "_" and "-" only, starting with a letter or digit';
 
+/**
+ * The placeholders a session name may hold: the iteration of its phase, step
+ * or sub-step, so every iteration of a repeatable level runs in its own session.
+ */
+const SESSION_PLACEHOLDER = /\$\{(phase|step|substep)-iteration\}/g;
+const SESSION_MESSAGE = `${ID_MESSAGE}; \${phase-iteration}, \${step-iteration} and \${substep-iteration} are filled in`;
+
+function isSessionName(v: string): boolean {
+    return ID_PATTERN.test(v.replace(SESSION_PLACEHOLDER, '1'));
+}
+
 const DEFINITION_KEYS = ['id', 'name', 'summary', 'phases'];
 const PHASE_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'repeatable', 'maxIterations', 'steps', 'gate', 'postGate'];
 const SUBSTEP_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'role', 'repeatable', 'maxIterations'];
@@ -167,13 +180,13 @@ export function validateProcessDefinition(raw: unknown): ProcessValidation {
         if (v === undefined) { return; }
         const at = `${path}${path ? '.' : ''}session`;
         if (typeof v === 'string') {
-            if (!ID_PATTERN.test(v)) { err(at, ID_MESSAGE); }
+            if (!isSessionName(v)) { err(at, SESSION_MESSAGE); }
             return;
         }
         if (!isObject(v)) { err(at, 'a session name or {name, basedOn, mode}'); return; }
         unknownKeys(v, ['name', 'basedOn', 'mode'], at);
-        if (typeof v.name !== 'string' || v.name === '') { err(`${at}.name`, 'required'); } else if (!ID_PATTERN.test(v.name)) { err(`${at}.name`, ID_MESSAGE); }
-        if (v.basedOn !== undefined && (typeof v.basedOn !== 'string' || !ID_PATTERN.test(v.basedOn))) { err(`${at}.basedOn`, ID_MESSAGE); }
+        if (typeof v.name !== 'string' || v.name === '') { err(`${at}.name`, 'required'); } else if (!isSessionName(v.name)) { err(`${at}.name`, SESSION_MESSAGE); }
+        if (v.basedOn !== undefined && (typeof v.basedOn !== 'string' || !isSessionName(v.basedOn))) { err(`${at}.basedOn`, SESSION_MESSAGE); }
         if (v.mode !== undefined && v.mode !== 'continue' && v.mode !== 'fork-from-base') { err(`${at}.mode`, '"continue" or "fork-from-base"'); }
         if (v.mode === 'fork-from-base' && v.basedOn === undefined) { err(`${at}.basedOn`, 'a session re-created from its base for every prompt needs a base'); }
     };
@@ -743,13 +756,21 @@ export function sessionSpec(spec: ProcessSessionSpec | undefined): ProcessSessio
     return { name: spec.name, ...(spec.basedOn ? { basedOn: spec.basedOn } : {}), ...(spec.mode ? { mode: spec.mode } : {}) };
 }
 
-/** The session the position runs in: the sub-step's, else the step's, else the phase's; null when none names one. */
+/**
+ * The session the position runs in: the sub-step's, else the step's, else the
+ * phase's; null when none names one. The iteration placeholders of its names
+ * are filled in from `state`.
+ */
 export function effectiveSession(def: ProcessDefinition | null, state: ProcessState): ProcessSession | null {
     if (!def) { return null; }
     const phase = findPhase(def, state.phase);
     const step = findStep(phase, state.step);
     const sub = findSubstep(step, state.substep);
-    return sessionSpec(sub?.session) ?? sessionSpec(step?.session) ?? sessionSpec(phase?.session);
+    const spec = sessionSpec(sub?.session) ?? sessionSpec(step?.session) ?? sessionSpec(phase?.session);
+    if (!spec) { return null; }
+    const iteration: Record<string, number> = { phase: state.phaseIteration, step: state.stepIteration, substep: state.substepIteration };
+    const fill = (name: string): string => name.replace(SESSION_PLACEHOLDER, (_m, level: string) => String(iteration[level] || 1));
+    return { ...spec, name: fill(spec.name), ...(spec.basedOn ? { basedOn: fill(spec.basedOn) } : {}) };
 }
 
 function iterationText(node: { repeatable?: boolean; maxIterations?: number }, n: number): string {

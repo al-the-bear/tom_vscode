@@ -243,7 +243,9 @@ const SESSION_DOC = 'The named Agent SDK session the item runs in: a `<name>.ses
 /** How a repeat count is written, for every tool that takes one. */
 const REPEAT_COUNT_DOC = 'Literal number, chat-variable name, or `<prefix>*`: walk the quest\'s todos whose id starts with '
     + '<prefix>, lowest number first (the number is the first digit run after the prefix). The prefix may hold digits '
-    + '(`p2s2ss3-*`) but must not end in one (refused with code invalidTodoPrefix).';
+    + '(`p2s2ss3-*`) but must not end in one (refused with code invalidTodoPrefix). The text names the todo each dispatch '
+    + 'picked with `${repeatTodoId}` (its id), `${repeatTodoTitle}` and `${repeatNumber}`, filled in when it is sent; the '
+    + 'picked todo is set in-progress, and a todo the work creates with the next free number joins the walk.';
 
 /** The refusal of the first repeat count no queue item may carry (a todo prefix ending in a digit), or null. */
 function repeatCountRefusal(...values: unknown[]): string | null {

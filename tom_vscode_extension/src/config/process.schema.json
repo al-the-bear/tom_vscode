@@ -237,7 +237,7 @@
       "description": "The named Agent SDK session it runs in (a <name>.session.json of the quest's history folder); inherited from its step and phase when unset. A name, or the name with the session it is based on and how (so a missing session is created from the definition).",
       "oneOf": [
         {
-          "$ref": "#/$defs/id"
+          "$ref": "#/$defs/sessionName"
         },
         {
           "type": "object",
@@ -247,10 +247,10 @@
           ],
           "properties": {
             "name": {
-              "$ref": "#/$defs/id"
+              "$ref": "#/$defs/sessionName"
             },
             "basedOn": {
-              "$ref": "#/$defs/id"
+              "$ref": "#/$defs/sessionName"
             },
             "mode": {
               "enum": [
@@ -278,6 +278,11 @@
           }
         }
       ]
+    },
+    "sessionName": {
+      "type": "string",
+      "pattern": "^([A-Za-z0-9]|\\$\\{(phase|step|substep)-iteration\\})([A-Za-z0-9_-]|\\$\\{(phase|step|substep)-iteration\\})*$",
+      "description": "A session name: letters, digits, \"_\" and \"-\"; ${phase-iteration}, ${step-iteration} and ${substep-iteration} are filled in, so every iteration gets its own session."
     }
   }
 }

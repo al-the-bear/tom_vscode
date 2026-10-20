@@ -32,6 +32,7 @@ import assert from 'node:assert/strict';
 
 import { withTiming } from './_timing.js';
 import {
+    ADD_QUEUE_ITEM_TOOL,
     addQueueFollowUpImpl,
     addQueueItemImpl,
     addQueuePrePromptImpl,
@@ -317,6 +318,13 @@ describe('addQueueItemImpl + listQueueImpl', () => {
         assert.equal(good.ok, true);
         const upd = JSON.parse(await updateQueueItemImpl(access, { queueItemId: good.id, repeatCount: 'x9*' }));
         assert.equal(upd.code, 'invalidTodoPrefix');
+    });
+
+    test('an agent queuing a todo iteration learns how its text names the picked todo', () => {
+        const doc = (ADD_QUEUE_ITEM_TOOL.inputSchema.properties as Record<string, { description?: string }>).repeatCount.description ?? '';
+        for (const placeholder of ['${repeatTodoId}', '${repeatTodoTitle}', '${repeatNumber}']) {
+            assert.ok(doc.includes(placeholder), `repeatCount names ${placeholder}`);
+        }
     });
 
     test('an item names its Agent SDK session; updating it, and listing shows it', async () => {

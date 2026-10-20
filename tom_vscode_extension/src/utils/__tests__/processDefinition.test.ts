@@ -27,6 +27,8 @@
  *   PD-16 sessions: a phase, step or sub-step may name the Agent SDK session it runs in (a name, or
  *         name + basedOn + mode); the innermost one applies; validation, write-back, the `session`
  *         process variable and the context block
+ *   PD-17 a session name may hold the iteration of its phase, step or sub-step (`${step-iteration}` …):
+ *         resolved for the position, so every iteration gets its own session; other placeholders refused
  *   PD-10 the JSON schema (src/config/process.schema.json) accepts what the validator accepts and
  *         rejects the shape errors it rejects
  */
@@ -410,10 +412,35 @@ describe('process definitions', () => {
             'the schema too: fork-from-base needs a base');
         const bad = (session: unknown): string[] => validateProcessDefinition({ id: 'x', phases: [{ id: 'a', session, steps: [], gate: { id: 'g' } }] })
             .errors.map((e) => `${e.path}: ${e.message}`);
-        assert.deepEqual(bad('bad name'), ['phases[0].session: letters, digits, "_" and "-" only, starting with a letter or digit']);
+        assert.deepEqual(bad('bad name'), ['phases[0].session: letters, digits, "_" and "-" only, starting with a letter or digit; ${phase-iteration}, ${step-iteration} and ${substep-iteration} are filled in']);
         assert.deepEqual(bad({ basedOn: 'x' }), ['phases[0].session.name: required']);
         assert.deepEqual(bad({ name: 'a', mode: 'often' }), ['phases[0].session.mode: "continue" or "fork-from-base"']);
         assert.deepEqual(bad({ name: 'a', mode: 'fork-from-base' }), ['phases[0].session.basedOn: a session re-created from its base for every prompt needs a base']);
         assert.deepEqual(bad({ name: 'a', other: 1 }), ['phases[0].session.other: unknown key']);
+    });
+
+    test('PD-17: iteration placeholders in session names', () => {
+        const yaml = YAML
+            .replace("    prompt: Draft the document.\n", "    prompt: Draft the document.\n    session: draft-p${phase-iteration}\n")
+            .replace("            prompt: Comment on what you read.\n", "            prompt: Comment on what you read.\n            session:\n              name: comment-r${step-iteration}-${substep-iteration}\n              basedOn: prep-r${step-iteration}\n              mode: fork-from-base\n");
+        const parsed = parseProcessYaml(yaml);
+        assert.deepEqual(parsed.errors, []);
+        const def = parsed.definition!;
+        const start = selectProcess(def);
+        assert.deepEqual(effectiveSession(def, start), { name: 'draft-p1' });
+        const review = selectStep(start, def, 'review');
+        const comment = { ...selectSubstep(review, def, 'comment'), stepIteration: 3 };
+        assert.deepEqual(effectiveSession(def, comment), { name: 'comment-r3-1', basedOn: 'prep-r3', mode: 'fork-from-base' });
+        assert.equal(processVariableValues(def, comment, '').session, 'comment-r3-1');
+        assert.deepEqual(parseProcessYaml(stringifyProcessDefinition(def)).definition, def, 'written back unresolved');
+        const schema = JSON.parse(readFileSync(join(__dirname, '..', '..', '..', 'src', 'config', 'process.schema.json'), 'utf-8'));
+        const validate = new Ajv2020({ allErrors: true, strict: false }).compile(schema);
+        assert.equal(validate(parse(yaml)), true, JSON.stringify(validate.errors));
+        assert.equal(validate({ id: 'x', phases: [{ id: 'a', session: 'a-${quest}', steps: [], gate: { id: 'g' } }] }), false, 'the schema refuses other placeholders');
+        const bad = (session: unknown): string[] => validateProcessDefinition({ id: 'x', phases: [{ id: 'a', session, steps: [], gate: { id: 'g' } }] })
+            .errors.map((e) => `${e.path}: ${e.message}`);
+        assert.equal(bad('a-${quest}').length, 1, 'only the three iteration placeholders');
+        assert.equal(bad({ name: 'a', basedOn: 'b-${step}' }).length, 1);
+        assert.deepEqual(bad('${step-iteration}-a'), [], 'a placeholder may start the name');
     });
 });
