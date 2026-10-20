@@ -203,11 +203,18 @@ var MDB_RECOMMENDATION = /^\s*\*?Recommendation:\*?\s*\(([a-z])\)/;
  * `*Recommendation:*` line names. Null when no question header is found above
  * the answer (before the previous answer).
  *
+ * For a SOM document the host reads the questions with the TomSpecs runtime
+ * (som-review-comments.ts); `fromRuntime` maps a question id to that reading,
+ * whose options and recommended letter then replace the browser's own, so the
+ * browser and the agents' tools read a question the same way. `source` says
+ * which reading was used.
+ *
  * @param {string[]} lines
  * @param {number} answerLine
- * @returns {{id: string, line: number, options: Array<{letter: string, text: string, bold: boolean}>, recommended: (string|null)}|null}
+ * @param {Object<string, {options: Array<{letter: string, text: string, bold: boolean}>, recommended: (string|null)}>|null} [fromRuntime]
+ * @returns {{id: string, line: number, options: Array<{letter: string, text: string, bold: boolean}>, recommended: (string|null), source: string}|null}
  */
-function mdbQuestionAt(lines, answerLine) {
+function mdbQuestionAt(lines, answerLine, fromRuntime) {
     var head = -1;
     var id = '';
     for (var i = answerLine - (lines[answerLine].indexOf(MDB_ANSWER_MARKER) > 0 && MDB_QUESTION_HEAD.test(lines[answerLine]) ? 0 : 1); i >= 0 && i > answerLine - 400; i--) {
@@ -217,6 +224,10 @@ function mdbQuestionAt(lines, answerLine) {
         if (h) { head = i; id = h[1] || h[2]; break; }
     }
     if (head < 0) { return null; }
+    var known = fromRuntime && Object.prototype.hasOwnProperty.call(fromRuntime, id) ? fromRuntime[id] : null;
+    if (known) {
+        return { id: id, line: head, options: known.options.slice(), recommended: known.recommended, source: 'runtime' };
+    }
     /** @type {Array<{letter: string, text: string, bold: boolean}>} */
     var options = [];
     var fromLine = null;
@@ -242,7 +253,7 @@ function mdbQuestionAt(lines, answerLine) {
     for (var b = 0; b < options.length && recommended === null; b++) { if (options[b].bold) { recommended = options[b].letter; } }
     for (var t = 0; t < options.length && recommended === null; t++) { if (/\brecommended\b/i.test(options[t].text)) { recommended = options[t].letter; } }
     if (recommended === null && fromLine) { recommended = fromLine; }
-    return { id: id, line: head, options: options, recommended: recommended };
+    return { id: id, line: head, options: options, recommended: recommended, source: 'browser' };
 }
 
 /**

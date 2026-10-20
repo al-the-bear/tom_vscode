@@ -8,7 +8,10 @@
  *   agents never hand out different ids;
  * - the lines of every form's fields, where no comment may go: in a form's
  *   section a comment belongs in the preamble, above the first field
- *   (annot1, SOM §11.9 placement).
+ *   (annot1, SOM §11.9 placement);
+ * - every question's options and recommended letter as the runtime reads them
+ *   (annot7), so the answer prefill and the options popup offer what the agents'
+ *   tools read.
  *
  * The form lines come from the document's own rendition: `toMarkdownWithMap`
  * gives the document path behind every heading it renders. The file's headings
@@ -32,6 +35,31 @@ export interface SomCommentContext {
     nextCommentNumber: number;
     /** 0-based `[first, end)` line ranges holding form fields; no comment is offered there. */
     formFieldRanges: Array<[number, number]>;
+    /** Question id → its options and recommended letter; an id the document uses twice is left out. */
+    questions: Record<string, SomQuestionReading>;
+}
+
+/** A question as the runtime reads it (tom_specs annot7). */
+export interface SomQuestionReading {
+    options: Array<{ letter: string; text: string; bold: boolean }>;
+    /** The bold option, else the one saying "recommended", else a `*Recommendation:*` line's letter. */
+    recommended: string | null;
+}
+
+/** The questions of `notes`, keyed by id; an id used twice is ambiguous and left out. */
+function questionReadings(notes: SpecReviewAnnotations): Record<string, SomQuestionReading> {
+    const out: Record<string, SomQuestionReading> = {};
+    const seen = new Set<string>();
+    for (const a of notes.list()) {
+        if (a.kind !== 'question' || !a.id) { continue; }
+        if (seen.has(a.id)) { delete out[a.id]; continue; }
+        seen.add(a.id);
+        out[a.id] = {
+            options: a.options.map((o) => ({ letter: o.letter, text: o.text, bold: o.bold })),
+            recommended: a.recommended,
+        };
+    }
+    return out;
 }
 
 /** A form-field label line, as the SOM Markdown codec reads one. */
@@ -84,8 +112,9 @@ function headingPaths(fileLines: string[], rendition: { markdown: string; headin
 
 /** The context for `loaded`; a YAML document has no form-field lines. */
 export function somCommentContext(loaded: LoadedSomDocument, service: SomModelService): SomCommentContext {
-    const nextId = new SpecReviewAnnotations(loaded.document).nextCommentId();
-    const context: SomCommentContext = { nextCommentNumber: Number(nextId.slice(2)), formFieldRanges: [] };
+    const notes = new SpecReviewAnnotations(loaded.document);
+    const nextId = notes.nextCommentId();
+    const context: SomCommentContext = { nextCommentNumber: Number(nextId.slice(2)), formFieldRanges: [], questions: questionReadings(notes) };
     if (loaded.format !== 'markdown') { return context; }
     const tree = service.metaTree(loaded.root.type);
     const lines = loaded.text.split('\n');

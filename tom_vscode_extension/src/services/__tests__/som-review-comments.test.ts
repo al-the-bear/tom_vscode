@@ -11,6 +11,9 @@
  *        gets the ranges of the sections it understood, at the file's own lines; a YAML document has none
  *   MC-4 the worker client: the same answer off the extension host's thread; null for a file that is not SOM
  *        Markdown; a request overtaken by a newer one before it started answers null
+ *   MC-5 questions (vscannot4): every question's options and recommended letter as the runtime reads them
+ *        (tom_specs annot7: the bold option, else the one saying "recommended", else a `*Recommendation:*`
+ *        line), keyed by question id; an id used twice is left out, so the browser reads that one itself
  */
 
 import test, { describe } from 'node:test';
@@ -29,6 +32,8 @@ const EXT_ROOT = path.resolve(__dirname, '..', '..', '..');
 const SAMPLES = path.resolve(EXT_ROOT, '..', '..', 'ai_build', 'tom_som_dart_v0', 'documents');
 const MERIDIAN_MD = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.md'), 'utf8');
 const MERIDIAN_YAML = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.docspecs.yaml'), 'utf8');
+
+import { SpecQuestionDraft } from 'tom_som_typescript_runtime';
 
 const service = new SomModelService();
 const store = new SomDocumentStore(service, nodeSomDocumentIo);
@@ -106,5 +111,31 @@ describe('review comments in SOM Markdown', () => {
         } finally {
             await client.dispose();
         }
+    });
+
+    test('MC-5: questions', () => {
+        const loaded = store.load(write('mc5.md', MERIDIAN_MD));
+        assert.deepEqual(somCommentContext(loaded, service).questions, {}, 'none yet');
+        const notes = new SpecReviewAnnotations(loaded.document);
+        notes.insertQuestion({ path: 'SBP/content', afterParagraph: 0, question: new SpecQuestionDraft({
+            id: 'BQ-1', topic: 'scope', text: 'Which scope?', options: ['(a) narrow', '(b) wide'], recommended: 'b',
+        }) });
+        notes.insertQuestion({ path: 'SBP/content', afterParagraph: 0, question: new SpecQuestionDraft({
+            id: 'BQ-2', topic: 'size', text: 'How large?', options: ['(a) small', '(b) large'], recommendation: '(a) it fits',
+        }) });
+        notes.insertQuestion({ path: 'SBP/content', afterParagraph: 0, question: new SpecQuestionDraft({ id: 'BQ-3', topic: 'free', text: 'Anything else?' }) });
+        const again = store.load(write('mc5b.md', store.render(loaded, { stamp: loaded.stamp })));
+        const { questions } = somCommentContext(again, service);
+        assert.deepEqual(Object.keys(questions).sort(), ['BQ-1', 'BQ-2', 'BQ-3']);
+        assert.deepEqual(questions['BQ-1'], { options: [{ letter: 'a', text: 'narrow', bold: false }, { letter: 'b', text: 'wide', bold: true }], recommended: 'b' });
+        assert.equal(questions['BQ-2'].recommended, 'a', 'from the Recommendation line');
+        assert.deepEqual(questions['BQ-3'], { options: [], recommended: null });
+
+        // The same id twice: ambiguous, so not given.
+        const twice = new SpecReviewAnnotations(again.document);
+        twice.insertQuestion({ path: 'SBP/content', afterParagraph: 0, question: new SpecQuestionDraft({ id: 'BQ-1', topic: 'dup', text: 'Again?', options: ['(a) yes'] }) });
+        const dup = store.load(write('mc5c.md', store.render(again, { stamp: again.stamp })));
+        assert.equal(somCommentContext(dup, service).questions['BQ-1'], undefined);
+        assert.ok(somCommentContext(dup, service).questions['BQ-2']);
     });
 });

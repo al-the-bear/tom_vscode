@@ -1105,12 +1105,17 @@
         var commentAuthor = '';
         /**
          * For a SOM document, what the host read with the TomSpecs runtime
-         * (som-review-comments.ts): the number of the next free comment id, and
-         * the lines of the forms' fields, where no comment may go (it belongs in
-         * the form's preamble). Null for any other document, and until the host
+         * (som-review-comments.ts): the number of the next free comment id, the
+         * lines of the forms' fields, where no comment may go (it belongs in the
+         * form's preamble), and every question's options and recommended letter. Null for any other document, and until the host
          * has answered for the text shown.
          */
         var somComments = null;
+
+        /** The questions as the runtime read them (id → options, recommended), or null: the browser reads them itself. */
+        function runtimeQuestions() {
+            return somComments ? somComments.questions : null;
+        }
 
         /** The next comment id: the document's highest + 1, or the runtime's when higher. */
         function nextCommentId() {
@@ -1231,7 +1236,7 @@
             function where() {
                 var lines = shownLines();
                 var line = block.startLine + offset;
-                return { lines: lines, line: line, current: mdbAnswerAt(lines, line, column), question: mdbQuestionAt(lines, line) };
+                return { lines: lines, line: line, current: mdbAnswerAt(lines, line, column), question: mdbQuestionAt(lines, line, runtimeQuestions()) };
             }
             function editFor(w, value) {
                 return {
@@ -1418,7 +1423,7 @@
         /** What is shown above a target when going there: its question, the paragraph a comment is on. */
         function navContext(el) {
             if (el.__mdbLine) {
-                var q = mdbQuestionAt(shownLines(), el.__mdbLine());
+                var q = mdbQuestionAt(shownLines(), el.__mdbLine(), runtimeQuestions());
                 if (q) {
                     for (var i = 0; i < shownBlocks.length; i++) {
                         if (shownBlocks[i].startLine <= q.line && q.line < shownBlocks[i].endLine && shownWrappers[i]) { return shownWrappers[i]; }
@@ -2212,7 +2217,7 @@
             } else if (msg.type === 'somComments') {
                 // Only for the text shown: the host read exactly that text.
                 if (msg.filePath === currentFilePath && msg.contentLength === (shownText || '').length) {
-                    somComments = { nextCommentNumber: msg.nextCommentNumber, formFieldRanges: msg.formFieldRanges || [] };
+                    somComments = { nextCommentNumber: msg.nextCommentNumber, formFieldRanges: msg.formFieldRanges || [], questions: msg.questions || {} };
                     applySomComments();
                 }
             } else if (msg.type === 'actionDone') {

@@ -276,7 +276,7 @@ class MdBrowserPanel {
     /**
      * For a SOM Markdown document: what the TomSpecs runtime says about review
      * comments in it — the next free comment id and the lines of the forms'
-     * fields (som-review-comments.ts) — read in a worker thread and posted
+     * fields — and every question's options and recommended letter (som-review-comments.ts) — read in a worker thread and posted
      * after the content, so neither the extension host nor the rendering waits
      * for it. `contentLength` lets the webview check that it still shows the
      * text this was read from.

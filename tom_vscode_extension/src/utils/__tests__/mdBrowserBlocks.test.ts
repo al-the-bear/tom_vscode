@@ -29,6 +29,10 @@
  *         continuation lines, and the recommended one: the bold option, else the one whose text says
  *         "recommended", else the letter of a `*Recommendation:*` line; in a block of several questions,
  *         each answer finds its own; the answer an option writes
+ *   MB-21 questions of a SOM document (vscannot4): the options and the recommended letter the host read with
+ *         the runtime replace the browser's own reading for a question the host knows (`source: 'runtime'`),
+ *         the header line still found in the text; a question the host does not know, or no reading at all,
+ *         is read by the browser (`source: 'browser'`)
  *   MB-19 navigating from a position (after a save or a decision): next is the first target at or after
  *         it, previous the last one before it, wrapping around; targets without a position are passed over
  *   MB-20 revealing a target: its context (the question) at the top of the view, unless that would push
@@ -64,7 +68,7 @@ interface BlocksApi {
     mdbWriteComment(text: string, nextId: string, author?: string): string;
     mdbNavPick(keys: Array<{ line: number; ord: number } | null>, anchor: { line: number; ord: number }, delta: number): number;
     mdbRevealDelta(contextTop: number, keepBottom: number, viewHeight: number, pad: number): number;
-    mdbQuestionAt(lines: string[], answerLine: number): { id: string; line: number; options: Array<{ letter: string; text: string; bold: boolean }>; recommended: string | null } | null;
+    mdbQuestionAt(lines: string[], answerLine: number, fromRuntime?: Record<string, { options: Array<{ letter: string; text: string; bold: boolean }>; recommended: string | null }> | null): { id: string; line: number; options: Array<{ letter: string; text: string; bold: boolean }>; recommended: string | null; source: string } | null;
     mdbOptionAnswer(letter: string): string;
     mdbCriticMark(src: string): { raw: string; kind: string; text: string; oldText?: string; newText?: string; comment?: string } | null;
 }
@@ -352,6 +356,30 @@ describe('Markdown Browser source mapping', () => {
         assert.deepEqual([q10.id, q10.options.length, q10.recommended], ['BQ-10', 0, null]);
         assert.equal(api.mdbQuestionAt(['plain', '**Answer:**'], 1), null, 'no question above');
         assert.equal(api.mdbOptionAnswer('c'), '(c)');
+    });
+
+    test('MB-21: questions read by the runtime', () => {
+        const lines = [
+            '> **❓ BQ-01 — scope:** which scope?',   // 0
+            '> - (a) narrow',                        // 1
+            '> - (b) wide',                          // 2
+            '> **Answer:**',                         // 3
+            '',                                      // 4
+            '> **❓ BQ-02 — size:** how large?',     // 5
+            '> - **(a)** small',                     // 6
+            '> **Answer:**',                         // 7
+        ];
+        const runtime = Object.fromEntries([
+            ['BQ-01', { options: [{ letter: 'a', text: 'narrow', bold: false }, { letter: 'b', text: 'wide, as the runtime reads it', bold: true }], recommended: 'b' }],
+        ]);
+        const known = api.mdbQuestionAt(lines, 3, runtime)!;
+        assert.deepEqual([known.id, known.line, known.source, known.recommended], ['BQ-01', 0, 'runtime', 'b']);
+        assert.equal(known.options[1].text, 'wide, as the runtime reads it');
+        const own = api.mdbQuestionAt(lines, 3)!;
+        assert.deepEqual([own.source, own.recommended], ['browser', null], 'without the host\'s reading: the browser\'s');
+        const unknown = api.mdbQuestionAt(lines, 7, runtime)!;
+        assert.deepEqual([unknown.id, unknown.source, unknown.recommended], ['BQ-02', 'browser', 'a'], 'a question the host does not know');
+        assert.equal(api.mdbQuestionAt(['plain', '**Answer:**'], 1, runtime), null);
     });
 
     test('MB-19: navigating from a position', () => {
