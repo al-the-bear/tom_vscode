@@ -1007,13 +1007,13 @@ function resolvePass(
 
     // 1. Evaluate ${{javascript}} expressions
     if (options?.enableJsExpressions !== false) {
-        result = result.replace(/\$\{\{([\s\S]*?)\}\}/g, (_match, expr: string) => {
+        result = result.replace(/(?<!\$)\$\{\{([\s\S]*?)\}\}/g, (_match, expr: string) => {
             return evaluateJsExpression(expr.trim(), values);
         });
     }
 
-    // 2. Replace ${key} dollar-brace patterns
-    result = result.replace(/\$\{([^{}]+)\}/g, (match, rawKey: string) => {
+    // 2. Replace ${key} dollar-brace patterns (an escaped `$${key}` stays as written)
+    result = result.replace(/(?<!\$)\$\{([^{}]+)\}/g, (match, rawKey: string) => {
         const key = rawKey.trim();
 
         // Direct lookup (case-sensitive first, then case-insensitive)
@@ -1040,6 +1040,9 @@ function resolvePass(
 // ============================================================================
 // Public API
 // ============================================================================
+
+// A literal placeholder (`$${name}`): see placeholderEscape.ts.
+export { unescapePlaceholders } from './placeholderEscape';
 
 /**
  * Resolve all placeholders in a string (synchronous).

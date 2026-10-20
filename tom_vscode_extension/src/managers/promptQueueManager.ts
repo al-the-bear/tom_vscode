@@ -41,7 +41,7 @@ import { applyRetryScheduling, applyStopRetrying, clearRetryBookkeeping, compute
 import { parseResetClause } from '../utils/queueResetClause';
 import { questTodoUnblockPort } from '../utils/questTodoUnblockPort';
 import { claimTodo, reclaimForResend, releaseTodoClaim, todoClaimFromYaml, todoClaimToYaml, type TodoClaim, type TodoStatusPort } from '../utils/queueTodoClaim';
-import { resolveVariables } from '../utils/variableResolver.js';
+import { resolveVariables, unescapePlaceholders } from '../utils/variableResolver.js';
 import {
     buildAnswerFilePath,
     shouldWatchAnswerFile,
@@ -3653,7 +3653,7 @@ export class PromptQueueManager {
         propagateAnswer = true,
     ): Promise<{ mode: 'polled' } | { mode: 'direct'; answerText: string }> {
         if (resolved.transport === 'copilot') {
-            await vscode.commands.executeCommand('workbench.action.chat.open', { query: expandedText });
+            await vscode.commands.executeCommand('workbench.action.chat.open', { query: unescapePlaceholders(expandedText) });
             this._clearRetryOnDispatchSuccess();
             return { mode: 'polled' };
         }

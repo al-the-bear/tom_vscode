@@ -135,7 +135,8 @@ async function addAsyncValues(values: Record<string, string>): Promise<void> {
  */
 function resolvePass(text: string, values: Record<string, string>): string {
     // Delegate ${{js}} expressions first
-    let result = text.replace(/\$\{\{([\s\S]*?)\}\}/g, (_match, expr: string) => {
+    // An escaped `$${…}` / `$${{…}}` stays as written (variableResolver.ts, unescapePlaceholders).
+    let result = text.replace(/(?<!\$)\$\{\{([\s\S]*?)\}\}/g, (_match, expr: string) => {
         try {
             // eslint-disable-next-line no-new-func
             const fn = new Function(
@@ -157,7 +158,7 @@ function resolvePass(text: string, values: Record<string, string>): string {
     });
 
     // 1. Replace {{key}} mustache patterns (same variable map as ${key})
-    result = result.replace(/\{\{([^{}]+)\}\}/g, (_match, rawKey: string) => {
+    result = result.replace(/(?<!\$)\{\{([^{}]+)\}\}/g, (_match, rawKey: string) => {
         const key = rawKey.trim();
         // Direct lookup (case-sensitive)
         if (key in values) { return values[key]; }
@@ -170,7 +171,7 @@ function resolvePass(text: string, values: Record<string, string>): string {
     });
 
     // 2. Replace ${key} patterns (including dot paths, namespaces)
-    result = result.replace(/\$\{([^{}]+)\}/g, (match, rawKey: string) => {
+    result = result.replace(/(?<!\$)\$\{([^{}]+)\}/g, (match, rawKey: string) => {
         let key = rawKey.trim();
 
         // Direct lookup (case-sensitive)

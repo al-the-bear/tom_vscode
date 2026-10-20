@@ -26,6 +26,22 @@ Resolves a finding from the code review: the extension used to ship **five paral
 > The contributor guide `_copilot_guidelines/media_webview_migration.md` (§9.2)
 > in the extension source covers that path.
 
+### 1.1 A literal placeholder: `$${name}`
+
+`$${name}` (and `$${{expr}}`) is **left as written by every resolution pass** of
+the canonical and the template engine, however often a text is resolved on its
+way, and becomes `${name}` only where the text leaves for the model —
+`unescapePlaceholders()` in `variableResolver.ts`, applied to the Anthropic
+system prompt and user message (`anthropic-handler.ts` `buildSystemSegments` /
+`buildUserMessage`), the Copilot dispatch (`promptQueueManager.ts`) and
+`tomAi_getProcessState`'s `context`. Unescaping earlier would not survive: a
+Proceed prompt is resolved when it is queued, again by the queue's repeat pass,
+by `expandTemplate`, and once more by a profile's message template. Use it where
+a text must show a placeholder to the agent — the todo prompt a process step
+queues holds `$${repeatTodoId}`, so the agent reads `${repeatTodoId}` and writes
+it into the item, whose own dispatch resolves it. Tests: PE-1 – PE-4
+(`src/utils/__tests__/placeholderEscape.test.ts`).
+
 ## 2. Capability levels
 
 Every placeholder context falls into one of four levels. Adding a new context means **picking a level**, not writing a new resolver.

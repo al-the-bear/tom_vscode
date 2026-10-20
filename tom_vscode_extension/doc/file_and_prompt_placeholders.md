@@ -194,6 +194,14 @@ Runs every turn on the configured local LLM (controlled by the History Compactio
 
 Earlier iterations used `${compactionHistory}`, `${recentHistory}`, `${turnCount}`, `${tokenEstimate}`, `${compactionMode}`, `${turnsDropped}`, `${keptTurnCount}` — these no longer resolve. Any template still referencing them will see an empty string where they used to appear.
 
+## Writing a placeholder literally
+
+To show a placeholder instead of filling it — a process description or step
+prompt that tells the agent what to queue — write it with a second `$`:
+`$${repeatTodoId}` (or `$${{expr}}`). Every resolution leaves it alone, and the
+model reads `${repeatTodoId}`; the item the agent queues with that text then
+resolves it when it is sent. See placeholder_engine.md §1.1.
+
 ## Notes
 
 - Placeholder syntax and available fields are configuration-driven.

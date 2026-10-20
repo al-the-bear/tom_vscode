@@ -62,7 +62,7 @@ import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 import { runAgentSdkQuery, selectTransportRetryTemplateBody, DEFAULT_INTERACTIVE_QUESTIONS_TEMPLATE } from './agent-sdk-transport';
 import * as anthropicOutput from './anthropic-output-channels';
 import { WsPaths } from '../utils/workspacePaths';
-import { resolveVariables } from '../utils/variableResolver';
+import { resolveVariables, unescapePlaceholders } from '../utils/variableResolver';
 import { debugLog } from '../utils/debugLogger';
 import { extractTodoResponseValues } from '../utils/responseValues';
 import { logInfo as logHistoryInfo, logError as logHistoryError } from '../services/compaction-log';
@@ -3294,11 +3294,11 @@ export class AnthropicHandler {
             ? `${profile.systemPrompt ?? ''}\n\n## Memory\n\n\${memory}`
             : (profile.systemPrompt ?? '');
         const segments: string[] = [];
-        const base = resolveVariables(promptSource, {
+        const base = unescapePlaceholders(resolveVariables(promptSource, {
             values: {
                 toolHistory: extras?.toolHistory ?? '',
             },
-        });
+        }));
         if (base) { segments.push(base); }
         return segments;
     }
@@ -3426,9 +3426,9 @@ export class AnthropicHandler {
         const profile = options.profile as AnthropicProfile & { userPromptWrapper?: string };
         const wrapper = profile?.userPromptWrapper;
         if (!wrapper || !wrapper.includes('${wrappedPrompt}')) {
-            return wrappedPrompt;
+            return unescapePlaceholders(wrappedPrompt);
         }
-        return resolveVariables(wrapper, {
+        return unescapePlaceholders(resolveVariables(wrapper, {
             values: {
                 wrappedPrompt,
                 userMessage: options.userText,
@@ -3437,7 +3437,7 @@ export class AnthropicHandler {
                 rawTurnCount: String(rawTurns.length),
                 toolHistory,
             },
-        });
+        }));
     }
 
     /**

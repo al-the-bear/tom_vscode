@@ -23,6 +23,7 @@ import {
     type ProcessState,
 } from '../utils/processDefinition';
 import type { ChangeSource } from '../managers/chatVariablesStore';
+import { unescapePlaceholders } from '../utils/placeholderEscape';
 import { getCurrentToolContext } from '../services/tool-execution-context';
 
 /** What the tools need from the process store; faked in tests. */
@@ -142,7 +143,8 @@ export async function getProcessStateImpl(deps: ProcessToolDeps): Promise<string
         quest: deps.activeQuest(),
         state: deps.state(),
         role: deps.currentRole(),
-        context: deps.contextBlock(),
+        // What the system prompt shows: a literal `$${…}` in a description reads as `${…}`.
+        context: unescapePlaceholders(deps.contextBlock()),
     }, null, 2);
 }
 
