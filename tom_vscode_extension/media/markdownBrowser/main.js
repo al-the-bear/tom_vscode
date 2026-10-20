@@ -1209,7 +1209,7 @@
                 }, function(saved) {
                     // Nothing was saved: go on from behind this question all the same.
                     if (!saved) { setNavAnchor({ line: w.line + 1, ord: 0 }); }
-                    navigate(1, 'unanswered');
+                    navigate(1, ['unanswered']);
                 });
             };
             btn.addEventListener('click', function(e) {
@@ -1328,7 +1328,26 @@
             questions: '.mdb-answer-btn',
             unanswered: '.mdb-answer-btn[data-unanswered="1"]',
         };
-        var navModeSelect = document.getElementById('navModeSelect');
+        var navKindBtn = document.getElementById('navKindBtn');
+        var navKindPop = document.getElementById('navKindPop');
+        var navKindBoxes = navKindPop ? Array.prototype.slice.call(navKindPop.querySelectorAll('input[data-nav-kind]')) : [];
+        /** The kinds ticked in the popup, in its order. */
+        function navKinds() {
+            return navKindBoxes.filter(function(b) { return b.checked; }).map(function(b) { return b.dataset.navKind; });
+        }
+        /** One selector for every target of `kinds`: querySelectorAll gives them in document order. */
+        function navSelector(kinds) {
+            return kinds.map(function(k) { return NAV_TARGETS[k]; }).filter(Boolean).join(', ');
+        }
+        function updateNavKindLabel() {
+            if (!navKindBtn) { return; }
+            var ticked = navKindBoxes.filter(function(b) { return b.checked; });
+            var name = function(b) { return b.parentNode.textContent.trim(); };
+            navKindBtn.textContent = ticked.length === 0 ? 'Nothing'
+                : ticked.length === navKindBoxes.length ? 'All'
+                    : name(ticked[0]) + (ticked.length > 1 ? ' + ' + (ticked.length - 1) : '');
+            navKindBtn.title = 'What the arrows step through: ' + (ticked.length ? ticked.map(name).join(', ') : 'nothing') + ' — tick one kind or several';
+        }
         var navCurrent = null;
         // Where navigation goes on from after a save or a decision replaced
         // the element navigated to last: `{line, ord}` (mdbNavPick), or null.
@@ -1365,9 +1384,11 @@
             }
             return el.closest('.mdb-block') || el;
         }
-        function navigate(delta, forceMode) {
-            var mode = forceMode || (navModeSelect ? navModeSelect.value : 'changes');
-            var targets = Array.prototype.slice.call(docRoot.querySelectorAll(NAV_TARGETS[mode] || NAV_TARGETS.changes));
+        function navigate(delta, forceKinds) {
+            var kinds = forceKinds || navKinds();
+            var selector = navSelector(kinds);
+            if (!selector) { return; }
+            var targets = Array.prototype.slice.call(docRoot.querySelectorAll(selector));
             if (targets.length === 0) { return; }
             var index = navCurrent && navCurrent.isConnected ? targets.indexOf(navCurrent) : -1;
             if (index >= 0) {
@@ -1389,7 +1410,8 @@
             navCurrent = targets[index];
             navCurrent.classList.add('mdb-nav-current');
             // An unanswered question opens ready to answer, the recommended option filled in.
-            var editor = mode === 'unanswered' && navCurrent.__mdbOpenAnswer ? navCurrent.__mdbOpenAnswer() : null;
+            var editor = kinds.indexOf('unanswered') >= 0 && navCurrent.dataset.unanswered === '1' && navCurrent.__mdbOpenAnswer
+                ? navCurrent.__mdbOpenAnswer() : null;
             // The question (or the commented paragraph) at the top, the target — or its editor — in view.
             jumpWithinDocument(navCurrent, navContext(navCurrent), editor || navCurrent);
         }
@@ -1397,16 +1419,28 @@
         var navNextBtn = document.getElementById('navNextBtn');
         if (navPrevBtn) { navPrevBtn.addEventListener('click', function() { navigate(-1); }); }
         if (navNextBtn) { navNextBtn.addEventListener('click', function() { navigate(1); }); }
-        if (navModeSelect) {
-            navModeSelect.addEventListener('change', function() {
-                // Another kind of target: go on from where the last one was.
+        if (navKindPop) {
+            navKindPop.addEventListener('change', function() {
+                updateNavKindLabel();
+                // Other kinds go on from the current target: after it while it is
+                // still one of them, else from its place.
                 if (navCurrent && navCurrent.isConnected) {
-                    setNavAnchor(navKey(navCurrent));
+                    var selector = navSelector(navKinds());
+                    if (!selector || !navCurrent.matches(selector)) { setNavAnchor(navKey(navCurrent)); }
                 } else if (navCurrent) {
                     navCurrent.classList.remove('mdb-nav-current');
                     navCurrent = null;
                 }
             });
+            navKindPop.addEventListener('click', function(e) { e.stopPropagation(); });
+        }
+        if (navKindBtn && navKindPop) {
+            navKindBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                navKindPop.hidden = !navKindPop.hidden;
+            });
+            document.addEventListener('click', function() { navKindPop.hidden = true; });
+            updateNavKindLabel();
         }
 
         function escapeHtml(text) {

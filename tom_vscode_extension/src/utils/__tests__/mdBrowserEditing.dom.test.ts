@@ -31,11 +31,15 @@
  *         file line numbers (the host's line map); a block holding converted line breaks gets none
  *   MD-16 navigating after a save or a decision goes on from there: a saved answer is no longer
  *         unanswered and next goes to the question after it (also with every question as targets);
- *         after a mark is decided, next goes to the mark that followed it; another mode goes on from
- *         where the last target was
+ *         after a mark is decided, next goes to the mark that followed it; other kinds go on from the
+ *         current target (after it while it is still one of them, else from its place)
  *   MD-17 an answer editor's third button, Save and next, saves and opens the next unanswered question
  *         (without saving when nothing changed)
  *   MD-18 going to a question shows the question at the top of the view, its answer editor below it
+ *   MD-19 the navigation steps through several kinds at once: the kinds are ticked in a popup opened from
+ *         the action bar (its label names them: one, "Changes + 2", "All", "Nothing"); the targets of every
+ *         ticked kind in document order; an unanswered question opens its answer only while Unanswered is
+ *         ticked; with nothing ticked the arrows do nothing
  *   MD-12c a SOM document: the host's next comment number is used when higher; blocks in a form's
  *         fields offer no comment (comments go into the preamble); stale ranges (another text) are ignored
  */
@@ -85,6 +89,12 @@ function send(window: Win, msg: Record<string, unknown>): void {
 const content = (text: string, extra: Record<string, unknown> = {}): Record<string, unknown> =>
     ({ type: 'mdContent', content: text, filePath: '/ws/review.md', relativePath: 'review.md', crlf: false, ...extra });
 const $ = (window: Win, sel: string): Win[] => [...window.document.querySelectorAll(sel)];
+/** Tick exactly these kinds in the navigation's kind popup. */
+const pickKinds = (window: Win, kinds: string[]): void => {
+    const boxes = [...window.document.querySelectorAll('#navKindPop input[data-nav-kind]')] as Win[];
+    boxes.forEach((b) => { b.checked = kinds.includes(b.dataset.navKind); });
+    boxes[0].dispatchEvent(new window.Event('change', { bubbles: true }));
+};
 const lastEdit = (posted: Array<Record<string, unknown>>): Record<string, unknown> =>
     [...posted].reverse().find((m) => m.type === 'applyEdit')!;
 
@@ -375,11 +385,10 @@ describe('Markdown Browser editing', () => {
         assert.equal(last('reviewAllChanges').decision, 'reject');
 
         // Navigation: the mode picked in the action bar, then next / previous.
-        const mode = window.document.getElementById('navModeSelect');
         const next = window.document.getElementById('navNextBtn');
         const prev = window.document.getElementById('navPrevBtn');
         const current = (): Win => window.document.querySelector('.mdb-nav-current');
-        mode.value = 'changes'; mode.dispatchEvent(new window.Event('change'));
+        pickKinds(window, ['changes']);
         next.click();
         assert.equal(current(), adds[0]);
         next.click();
@@ -388,18 +397,18 @@ describe('Markdown Browser editing', () => {
         assert.equal(current(), adds[0]);
         prev.click();
         assert.equal(current(), adds[3], 'wraps around');
-        mode.value = 'comments'; mode.dispatchEvent(new window.Event('change'));
+        pickKinds(window, ['comments']);
         next.click();
         assert.ok(current().classList.contains('mdb-comment-block'));
-        mode.value = 'inline'; mode.dispatchEvent(new window.Event('change'));
+        pickKinds(window, ['inline']);
         next.click();
         assert.equal(current(), notes[0]);
-        mode.value = 'questions'; mode.dispatchEvent(new window.Event('change'));
+        pickKinds(window, ['questions']);
         next.click();
         next.click();
         assert.equal(current(), $(window, '.mdb-answer-btn')[1], 'every question, answered or not');
         assert.equal($(window, '.mdb-editor').length, 0, 'questions mode only goes there');
-        mode.value = 'unanswered'; mode.dispatchEvent(new window.Event('change'));
+        pickKinds(window, ['unanswered']);
         next.click();
         assert.equal(current(), $(window, '.mdb-answer-btn')[0]);
         assert.equal($(window, '.mdb-editor textarea')[0].value, '(b)', 'opened with the recommended option');
@@ -490,11 +499,7 @@ describe('Markdown Browser editing', () => {
         '> - **(c)** red',                         // 12
         '> **Answer:**',                           // 13
     ].join('\n');
-    const pickMode = (window: Win, value: string): void => {
-        const mode = window.document.getElementById('navModeSelect');
-        mode.value = value;
-        mode.dispatchEvent(new window.Event('change'));
-    };
+    const pickMode = (window: Win, value: string): void => pickKinds(window, [value]);
     const nextBtn = (window: Win): Win => window.document.getElementById('navNextBtn');
     const current = (window: Win): Win => window.document.querySelector('.mdb-nav-current');
     const answerIndex = (window: Win, el: Win): number => $(window, '.mdb-answer-btn').indexOf(el);
@@ -514,9 +519,7 @@ describe('Markdown Browser editing', () => {
 
         pickMode(window, 'questions');
         nextBtn(window).click();
-        assert.equal(answerIndex(window, current(window)), 1, 'another mode goes on from where the last target was');
-        nextBtn(window).click();
-        assert.equal(answerIndex(window, current(window)), 2);
+        assert.equal(answerIndex(window, current(window)), 2, 'other kinds go on from the current target');
         current(window).click();
         $(window, '.mdb-editor-btn')[0].click();
         send(window, { type: 'editResult', ok: true, editId: lastEdit(posted).editId });
@@ -577,5 +580,58 @@ describe('Markdown Browser editing', () => {
         nextBtn(window).click();
         assert.equal(answerIndex(window, current(window)), 1);
         assert.equal(area.scrollTop, 1492, 'the question at the top (8px pad), not its answer button');
+    });
+
+    test('MD-19: several kinds at once', () => {
+        const { window } = setup();
+        const doc = [
+            '# R',                                          // 0
+            '',                                             // 1
+            'Keep {++ two ++} copies.',                     // 2
+            '',                                             // 3
+            '> **❓ BQ-01 — scope:** which scope?',        // 4
+            '> - **(a)** narrow',                           // 5
+            '> **Answer:** (a)',                            // 6
+            '',                                             // 7
+            'Then {-- old --} text.',                       // 8
+            '',                                             // 9
+            '> **❓ BQ-02 — size:** which size?',          // 10
+            '> - **(b)** big',                              // 11
+            '> **Answer:**',                                // 12
+        ].join('\n');
+        send(window, content(doc));
+        const btn = window.document.getElementById('navKindBtn');
+        const pop = window.document.getElementById('navKindPop');
+        assert.equal(btn.textContent.trim(), 'Changes', 'changes by default');
+        assert.ok(pop.hidden, 'the popup is closed');
+        btn.click();
+        assert.equal(pop.hidden, false, 'the button opens it');
+        const label = (): string => btn.textContent.trim();
+
+        pickKinds(window, ['changes', 'questions']);
+        assert.equal(label(), 'Changes + 1');
+        const seen: string[] = [];
+        for (let i = 0; i < 5; i++) {
+            nextBtn(window).click();
+            const c = current(window);
+            seen.push(c.classList.contains('mdb-rm') ? c.dataset.raw : `Q${answerIndex(window, c) + 1}`);
+        }
+        assert.deepEqual(seen, ['{++ two ++}', 'Q1', '{-- old --}', 'Q2', '{++ two ++}'], 'both kinds, in document order');
+        assert.equal($(window, '.mdb-editor').length, 0, 'questions without Unanswered only go there');
+
+        pickKinds(window, ['changes', 'unanswered']);
+        nextBtn(window).click();
+        nextBtn(window).click();
+        assert.equal(answerIndex(window, current(window)), 1);
+        assert.equal($(window, '.mdb-editor').length, 1, 'with Unanswered ticked an unanswered question opens');
+        $(window, '.mdb-editor-btn')[1].click();
+
+        pickKinds(window, ['changes', 'comments', 'inline', 'questions', 'unanswered']);
+        assert.equal(label(), 'All');
+        pickKinds(window, []);
+        assert.equal(label(), 'Nothing');
+        const before = current(window);
+        nextBtn(window).click();
+        assert.equal(current(window), before, 'nothing ticked: the arrows do nothing');
     });
 });

@@ -81,17 +81,20 @@
                 <option value="8">8 sp</option>
             </select>
             <span style="width:1px; height:16px; background:var(--vscode-panel-border); margin:0 2px;"></span>
-            <button class="icon-btn" id="navPrevBtn" title="Previous (of the kind chosen beside)">
+            <button class="icon-btn" id="navPrevBtn" title="Previous (of the kinds chosen beside)">
                 <span class="codicon codicon-arrow-up"></span>
             </button>
-            <select id="navModeSelect" class="fold-level-select" title="What the arrows step through">
-                <option value="changes" selected>Changes</option>
-                <option value="comments">Comments</option>
-                <option value="inline">Inline comments</option>
-                <option value="questions">Questions</option>
-                <option value="unanswered">Unanswered</option>
-            </select>
-            <button class="icon-btn" id="navNextBtn" title="Next (of the kind chosen beside)">
+            <span class="nav-kind">
+                <button class="nav-kind-btn" id="navKindBtn" title="What the arrows step through — tick one kind or several">Changes</button>
+                <div class="nav-kind-pop" id="navKindPop" hidden>
+                    <label><input type="checkbox" data-nav-kind="changes" checked> Changes</label>
+                    <label><input type="checkbox" data-nav-kind="comments"> Comments</label>
+                    <label><input type="checkbox" data-nav-kind="inline"> Inline comments</label>
+                    <label><input type="checkbox" data-nav-kind="questions"> Questions</label>
+                    <label><input type="checkbox" data-nav-kind="unanswered"> Unanswered</label>
+                </div>
+            </span>
+            <button class="icon-btn" id="navNextBtn" title="Next (of the kinds chosen beside)">
                 <span class="codicon codicon-arrow-down"></span>
             </button>
             <button class="icon-btn" id="acceptAllBtn" title="Accept every change in the document">
