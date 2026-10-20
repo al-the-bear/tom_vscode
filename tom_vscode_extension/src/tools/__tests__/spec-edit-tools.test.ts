@@ -27,6 +27,7 @@ import * as path from 'path';
 
 import { installVscodeStub } from './_vscode-stub.js';
 import { withTiming } from './_timing.js';
+import { withStamp } from './_somSamples.js';
 installVscodeStub({});
 
 import { SomModelService } from '../../services/som-model-service.js';
@@ -306,7 +307,7 @@ describe('TomSpecs edit tools', () => {
         assert.match(r.error, /rewrite it/);
         assert.equal(read('meridian.md'), odd);
         // So is a document stamped with a newer model version.
-        fs.writeFileSync(path.join(ws, 'newer.docspecs.yaml'), MERIDIAN_YAML.replace('modelVersion: "1.3"', 'modelVersion: "1.99"'));
+        fs.writeFileSync(path.join(ws, 'newer.docspecs.yaml'), withStamp(MERIDIAN_YAML, '1.99'));
         assert.equal((await run(specSetContentImpl, { file: 'newer.docspecs.yaml', path: 'SBP/content', text: 'x' })).code, 'readOnly');
     });
 

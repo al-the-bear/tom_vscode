@@ -4,7 +4,8 @@
  *
  *   CS-1  the catalogue: areas, slices and steps; one area and one slice in detail
  *   CS-2  the packaged catalogue equals the one in tom_specs_model, byte for byte
- *   CS-2b the packaged model's modelHash equals ai_build's; same-version drift is named as a missing bump
+ *   CS-2b the packaged model's modelHash equals ai_build's committed HEAD (what `som:pack --from-head` packs);
+ *         same-version drift is named as a missing bump
  *   CS-3  routing of the sample: every class node routed, filters work
  *   CS-4  a crafted unrouted class is listed with its fix; extraction refuses it, writing nothing
  *   CS-5  an area's extract equals the conformance corpus' `.extract.md`; the summary covers every area
@@ -18,6 +19,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { execFileSync } from 'child_process';
 
 import { installVscodeStub } from './_vscode-stub.js';
 import { withTiming } from './_timing.js';
@@ -103,22 +105,26 @@ describe('CodeSpecs tools', () => {
         // model reports carriers missing that are there. The version cannot
         // tell: a model changes under an unchanged version until somebody bumps
         // it. The meta's content hash can.
+        // The source is ai_build's committed HEAD, not its working tree: the
+        // extension packs from HEAD (qrd2), and uncommitted model work in
+        // ai_build belongs to whoever is doing it, not to this suite.
         const facade = 'tom_som_typescript_v0';
-        const metaOf = (root: string) =>
-            JSON.parse(fs.readFileSync(path.join(root, facade, 'meta', 'spec_model.meta.json'), 'utf8'));
-        const versionOf = (root: string) =>
-            JSON.parse(fs.readFileSync(path.join(root, facade, 'package.json'), 'utf8')).version as string;
         const nodeModules = path.resolve(__dirname, '..', '..', '..', 'node_modules');
-        const packaged = metaOf(nodeModules);
-        const source = metaOf(AI_BUILD);
+        const readPackaged = (rel: string) => fs.readFileSync(path.join(nodeModules, facade, rel), 'utf8');
+        const readHead = (rel: string) =>
+            execFileSync('git', ['show', `HEAD:${facade}/${rel}`], { cwd: AI_BUILD, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+        const metaOf = (read: (rel: string) => string) => JSON.parse(read('meta/spec_model.meta.json'));
+        const versionOf = (read: (rel: string) => string) => JSON.parse(read('package.json')).version as string;
+        const packaged = metaOf(readPackaged);
+        const source = metaOf(readHead);
         assert.ok(source.modelHash, 'ai_build\'s meta carries no modelHash: regenerate it (generate_som)');
         if (packaged.modelHash !== source.modelHash) {
-            const pv = versionOf(nodeModules);
-            const sv = versionOf(AI_BUILD);
+            const pv = versionOf(readPackaged);
+            const sv = versionOf(readHead);
             assert.fail(pv === sv
                 ? `the packaged model differs from ai_build's under the same version ${pv}: ai_build changed the `
-                    + 'model without bumping tom_specs_model. Run npm run som:pack, and bump the model in ai_build.'
-                : `the packaged model is ${pv}, ai_build's is ${sv}: run npm run som:pack`);
+                    + 'model without bumping tom_specs_model. Run npm run som:pack -- --from-head, and bump the model in ai_build.'
+                : `the packaged model is ${pv}, ai_build's committed HEAD is ${sv}: run npm run som:pack -- --from-head`);
         }
     });
 

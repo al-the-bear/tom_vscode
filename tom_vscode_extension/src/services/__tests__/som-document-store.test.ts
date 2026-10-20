@@ -32,11 +32,14 @@ import * as path from 'path';
 import { SpecDocument, SpecEditor, SomEditability } from 'tom_som_typescript_runtime';
 import { SomModelService } from '../som-model-service.js';
 import { SomDocumentStore, SomDocumentError, nodeSomDocumentIo } from '../som-document-store.js';
+import { olderSameMajor, stampOf, withStamp } from '../../tools/__tests__/_somSamples.js';
 
 const EXT_ROOT = path.resolve(__dirname, '..', '..', '..');
 const SAMPLES = path.resolve(EXT_ROOT, '..', '..', 'ai_build', 'tom_som_dart_v0', 'documents');
 const MERIDIAN_YAML = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.docspecs.yaml'), 'utf8');
 const MERIDIAN_MD = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.md'), 'utf8');
+/** The stamp ai_build's sample carries today; it moves with the model. */
+const SAMPLE_STAMP = stampOf(MERIDIAN_YAML);
 
 const service = new SomModelService();
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'som-store-'));
@@ -67,7 +70,7 @@ describe('SomDocumentStore', () => {
         const doc = store().load(p);
         assert.equal(doc.format, 'yaml');
         assert.equal(doc.root.sectionId, 'SBP');
-        assert.equal(doc.stamp, '1.3');
+        assert.equal(doc.stamp, SAMPLE_STAMP);
         assert.equal(doc.editability, SomEditability.editable);
         assert.equal(doc.readOnlyReason, null);
         assert.match(doc.revision, /^[0-9a-f]{64}$/);
@@ -109,7 +112,7 @@ describe('SomDocumentStore', () => {
 
     test('SD-4: save writes, stamps the model version and returns the new revision', async () => {
         const s = store();
-        const p = write('sd4.docspecs.yaml', MERIDIAN_YAML);
+        const p = write('sd4.docspecs.yaml', withStamp(MERIDIAN_YAML, olderSameMajor(service.modelVersion)));
         const doc = s.load(p);
         SpecEditor.forModel(doc.document, service.model).setValue('SBP/content', 'Replaced summary.');
         const result = await s.save(doc);
@@ -140,14 +143,18 @@ describe('SomDocumentStore', () => {
 
     test('SD-6: dryRun writes nothing and returns the diff', async () => {
         const s = store();
-        const p = write('sd6.docspecs.yaml', MERIDIAN_YAML);
+        // An older stamp, so the diff also shows the upgrade a save would write.
+        const older = olderSameMajor(service.modelVersion);
+        const original = withStamp(MERIDIAN_YAML, older);
+        const p = write('sd6.docspecs.yaml', original);
         const doc = s.load(p);
         SpecEditor.forModel(doc.document, service.model).setValue('SBP/content', 'Dry run.');
         const result = await s.save(doc, { dryRun: true });
         assert.equal(result.written, false);
-        assert.equal(fs.readFileSync(p, 'utf8'), MERIDIAN_YAML);
+        assert.equal(fs.readFileSync(p, 'utf8'), original);
         assert.match(result.diff, /^\+ {6}Dry run\.$/m);
-        assert.match(result.diff, /^-modelVersion: "1\.3"$/m);
+        assert.ok(result.diff.includes(`-modelVersion: "${older}"`), 'the old stamp goes');
+        assert.ok(result.diff.includes(`+modelVersion: "${service.modelVersion}"`), 'the model version comes');
     });
 
     test('SD-7: a document dirty in an editor is refused', async () => {
@@ -159,13 +166,13 @@ describe('SomDocumentStore', () => {
 
     test('SD-8: newer same-major and cross-major stamps load read-only', async () => {
         const s = store();
-        const newer = s.load(write('sd8a.docspecs.yaml', MERIDIAN_YAML.replace('modelVersion: "1.3"', 'modelVersion: "1.99"')));
+        const newer = s.load(write('sd8a.docspecs.yaml', withStamp(MERIDIAN_YAML, '1.99')));
         assert.equal(newer.editability, SomEditability.rejectedNewerMinor);
         assert.match(newer.readOnlyReason ?? '', /1\.99.*1\.\d+/);
         const err = await refusal(s.save(newer));
         assert.equal(err.code, 'readOnly');
 
-        const cross = s.load(write('sd8b.docspecs.yaml', MERIDIAN_YAML.replace('modelVersion: "1.3"', 'modelVersion: "2.0"')));
+        const cross = s.load(write('sd8b.docspecs.yaml', withStamp(MERIDIAN_YAML, '2.0')));
         assert.equal(cross.editability, SomEditability.readOnlyCrossMajor);
         assert.ok(cross.readOnlyReason);
     });
@@ -232,10 +239,10 @@ describe('SomDocumentStore', () => {
         const s = store();
         const yaml = s.peek(write('sd14.docspecs.yaml', MERIDIAN_YAML));
         assert.deepEqual([yaml?.format, yaml?.root.sectionId, yaml?.stamp, yaml?.editability, yaml?.versionReason],
-            ['yaml', 'SBP', '1.3', SomEditability.editable, null]);
+            ['yaml', 'SBP', SAMPLE_STAMP, SomEditability.editable, null]);
         const md = s.peek(write('sd14.md', MERIDIAN_MD));
-        assert.deepEqual([md?.format, md?.root.sectionId, md?.stamp], ['markdown', 'SBP', '1.3']);
-        const newer = s.peek(write('sd14n.docspecs.yaml', MERIDIAN_YAML.replace('modelVersion: "1.3"', 'modelVersion: "1.99"')));
+        assert.deepEqual([md?.format, md?.root.sectionId, md?.stamp], ['markdown', 'SBP', stampOf(MERIDIAN_MD)]);
+        const newer = s.peek(write('sd14n.docspecs.yaml', withStamp(MERIDIAN_YAML, '1.99')));
         assert.equal(newer?.editability, SomEditability.rejectedNewerMinor);
         assert.match(newer?.versionReason ?? '', /1\.99/);
         assert.equal(s.peek(write('sd14-plain.md', '# Notes\n\ntext\n')), null);

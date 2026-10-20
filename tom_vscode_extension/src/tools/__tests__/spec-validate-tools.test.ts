@@ -22,6 +22,7 @@ import * as path from 'path';
 
 import { installVscodeStub } from './_vscode-stub.js';
 import { withTiming } from './_timing.js';
+import { stampOf } from './_somSamples.js';
 installVscodeStub({});
 
 import { SpecEditor, yamlEncode } from 'tom_som_typescript_runtime';
@@ -161,7 +162,7 @@ describe('TomSpecs validate, render and convert', () => {
         assert.equal(r.ok, true);
         assert.equal(r.markdown, MERIDIAN_MD, 'byte-identical to the shipped Markdown of the same document');
         const sub = await run(specRenderImpl, { file: 'meridian.docspecs.yaml', path: FR1 });
-        assert.match(sub.markdown, /^<!-- docspec: solution-blueprint\/1\.3 -->/);
+        assert.ok(sub.markdown.startsWith(`<!-- docspec: solution-blueprint/${stampOf(MERIDIAN_YAML)} -->`), 'under the document\'s own header');
         assert.match(sub.markdown, /<!--\[FRE-REQU-ORDER-CAPTURE\]/);
         assert.doesNotMatch(sub.markdown, /FRE-REQU-SYNC-PRICING/);
         assert.ok(sub.lines < r.lines / 10);

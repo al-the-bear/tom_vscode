@@ -27,6 +27,7 @@ import * as path from 'path';
 
 import { installVscodeStub } from './_vscode-stub.js';
 import { withTiming } from './_timing.js';
+import { stampOf, withStamp } from './_somSamples.js';
 installVscodeStub({});
 
 import { checkAddNode } from 'tom_som_typescript_runtime';
@@ -56,7 +57,7 @@ function put(rel: string, text: string): void {
 }
 put('specs/meridian.docspecs.yaml', MERIDIAN_YAML);
 put('specs/meridian.md', MERIDIAN_MD);
-put('specs/sub/newer.docspecs.yaml', MERIDIAN_YAML.replace('modelVersion: "1.3"', 'modelVersion: "1.99"'));
+put('specs/sub/newer.docspecs.yaml', withStamp(MERIDIAN_YAML, '1.99'));
 put('specs/notes.md', '# Notes\n\nNot a SOM document.\n');
 put('specs/config.yaml', 'key: value\n');
 put('node_modules/pkg/hidden.docspecs.yaml', MERIDIAN_YAML);
@@ -88,9 +89,9 @@ describe('TomSpecs read-only tools', () => {
             'specs/sub/newer.docspecs.yaml',
         ]);
         const [yaml, md, newer] = r.documents;
-        assert.deepEqual([yaml.format, yaml.root, yaml.stamp, yaml.editability], ['yaml', 'SBP', '1.3', 'editable']);
+        assert.deepEqual([yaml.format, yaml.root, yaml.stamp, yaml.editability], ['yaml', 'SBP', stampOf(MERIDIAN_YAML), 'editable']);
         assert.equal(yaml.readOnlyReason, undefined);
-        assert.deepEqual([md.format, md.root, md.stamp], ['markdown', 'SBP', '1.3']);
+        assert.deepEqual([md.format, md.root, md.stamp], ['markdown', 'SBP', stampOf(MERIDIAN_MD)]);
         assert.equal(newer.editability, 'rejectedNewerMinor');
         assert.match(newer.readOnlyReason, /1\.99/);
         assert.equal(r.truncated, undefined);

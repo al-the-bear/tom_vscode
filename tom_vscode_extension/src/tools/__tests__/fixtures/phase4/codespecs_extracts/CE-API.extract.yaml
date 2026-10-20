@@ -6,9 +6,9 @@ extract:
     code: "CE-API"
     canonicalId: "ServerApi"
     part: "CodeSpecPart.serverApi"
-    annotations: ["CsEndpoint"]
+    annotations: ["CsEndpoint", "CsOperationBinding"]
     builtOn: "`TomApi` / `TomApiEndpoint<R,Q>` / `TomRemoteApis` (`tom_core_kernel`) + `TomEndpoint` / `TomEndpointHandler` / `TomEndpointRouting` / `TomServer` (`tom_core_server`) (§5.6.1)"
-    attributeSurface: "§5.6, §5.6.1, §5.14"
+    attributeSurface: "§5.6, §5.6.1, §5.14, §5.30"
     slices: [2, 4]
     authoringSteps: [5, 18]
     projects: ["<app>_codespec_shared", "<app>_codespec_server"]

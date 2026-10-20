@@ -6,9 +6,9 @@ extract:
     code: "CE-SU"
     canonicalId: "ServiceUnit"
     part: "CodeSpecPart.serviceUnit"
-    annotations: ["CsServiceUnit"]
+    annotations: ["CsServiceUnit", "CsFeatureHook"]
     builtOn: "**no gap** — ordinary **(abstract) classes** clustering the server API into functional-group *closures*, carrying the `tom_core_server` server-API mapping annotations (`@tomService` / `TomApiImplementation`) (§5.1, §5.6.2)"
-    attributeSurface: "§5.1, §5.6, §5.6.2, §5.17"
+    attributeSurface: "§5.1, §5.6, §5.6.2, §5.17, §5.30"
     slices: [4]
     authoringSteps: [18]
     projects: ["<app>_codespec_server"]
