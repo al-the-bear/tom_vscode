@@ -40,6 +40,9 @@
  *   - `languages.{getDiagnostics, registerCodeActionsProvider}`
  *   - `lm.{selectChatModels, tools, invokeTool}`
  *   - `Uri.file(p)` returning `{ fsPath, path, scheme }`
+ *   - `workspace.findFiles(include, exclude, max, token)` — a real search with
+ *     Node's `fs.globSync` under the RelativePattern's base (or the first
+ *     workspace folder for a string), the exclude glob applied, files only
  *   - `RelativePattern` + `workspace.createFileSystemWatcher` — every watcher
  *     is recorded and can be fired by hand from a test via
  *     `stubFileWatchers()`. Nothing fires on its own, which is exactly what
@@ -59,6 +62,7 @@
  */
 
 import Module from 'node:module';
+import * as fs from 'fs';
 import * as path from 'path';
 
 // ---------------------------------------------------------------------------
@@ -483,6 +487,14 @@ function makeSpies(calls: SpyCall[]): VscodeStubSpies {
     };
 }
 
+/** Node 22+'s glob helpers (newer than the @types/node this package builds with). */
+const nodeGlob = {
+    globSync: (pattern: string, opts: { cwd: string }): string[] =>
+        (fs as unknown as { globSync(p: string, o: { cwd: string }): string[] }).globSync(pattern, opts),
+    matchesGlob: (p: string, glob: string): boolean =>
+        (path as unknown as { matchesGlob(p: string, g: string): boolean }).matchesGlob(p, glob),
+};
+
 function fakeUri(p: string): { fsPath: string; path: string; scheme: 'file'; toString(): string } {
     return {
         fsPath: p,
@@ -538,21 +550,23 @@ function buildDefaultStub(record: (method: string, args: unknown[]) => void, opt
 
     class CancellationTokenSource {
         private _cancelled = false;
-        private _emitter = new EventEmitter<void>();
-        token = {
-            get isCancellationRequested(): boolean { return src._cancelled; },
-            onCancellationRequested: (listener: () => void): { dispose: () => void } => src._emitter.event(listener),
-        };
-        cancel(): void { this._cancelled = true; this._emitter.fire(); }
+        private readonly _emitter = new EventEmitter<void>();
+        readonly token: { readonly isCancellationRequested: boolean; onCancellationRequested: (listener: () => void) => { dispose: () => void } };
+        constructor() {
+            // eslint-disable-next-line @typescript-eslint/no-this-alias
+            const self = this;
+            this.token = {
+                get isCancellationRequested(): boolean { return self._cancelled; },
+                onCancellationRequested: (listener: () => void): { dispose: () => void } => self._emitter.event(listener),
+            };
+        }
+        cancel(): void {
+            if (this._cancelled) { return; }
+            this._cancelled = true;
+            this._emitter.fire();
+        }
         dispose(): void { this._emitter.dispose(); }
-        // Workaround — class field references self via outer scope binding.
-        private _self = this;
     }
-    // Workaround: TypeScript class field can't reference `this` in inner
-    // object literal cleanly under target ES2015 — recapture below.
-    // (Manually re-bind via `src` inside `.token`.)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const src: any = CancellationTokenSource.prototype;
 
     const lmModels = options.lmModels ?? [];
 
@@ -604,8 +618,26 @@ function buildDefaultStub(record: (method: string, args: unknown[]) => void, opt
                 readFile: async (): Promise<Uint8Array> => new Uint8Array(),
                 writeFile: async (): Promise<void> => undefined,
             },
-            // Some tools call workspace.findFiles — best-effort empty result.
-            findFiles: async (): Promise<unknown[]> => [],
+            // A real search over the file system (Node's glob), so code that finds
+            // files through it is tested against what it would find, not an empty answer.
+            async findFiles(include: unknown, exclude?: unknown, maxResults?: number, token?: { isCancellationRequested: boolean }): Promise<unknown[]> {
+                record('workspace.findFiles', [include, exclude, maxResults]);
+                const rel = include as { base?: unknown; pattern?: string } | string;
+                const baseOf = (b: unknown): string | undefined => typeof b === 'string' ? b : (b as { fsPath?: string } | undefined)?.fsPath;
+                const folders = (stub.workspace as { workspaceFolders?: Array<{ uri: { fsPath: string } }> }).workspaceFolders;
+                const base = typeof rel === 'string' ? folders?.[0]?.uri.fsPath : baseOf(rel.base);
+                const pattern = typeof rel === 'string' ? rel : rel.pattern;
+                if (!base || !pattern || token?.isCancellationRequested) { return []; }
+                const out: unknown[] = [];
+                for (const relPath of nodeGlob.globSync(pattern, { cwd: base })) {
+                    if (typeof exclude === 'string' && nodeGlob.matchesGlob(relPath, exclude)) { continue; }
+                    const abs = path.join(base, relPath);
+                    try { if (!fs.statSync(abs).isFile()) { continue; } } catch { continue; }
+                    out.push(fakeUri(abs));
+                    if (maxResults !== undefined && out.length >= maxResults) { break; }
+                }
+                return out;
+            },
             textDocuments: options.textDocuments ?? [],
             // Applies a StubWorkspaceEdit to the open fake documents, unless refused.
             async applyEdit(edit: unknown): Promise<boolean> {

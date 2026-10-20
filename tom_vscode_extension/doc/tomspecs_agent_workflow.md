@@ -13,9 +13,11 @@ Take them from the outline; do not compose them.
 
 ## Edit a specification
 
-1. **Find the document.** `tomAi_specListDocuments` with `dir` set to the folder
-   you expect it in. Each document comes with its root, its model-version stamp
-   and whether it is editable.
+1. **Find the document.** `tomAi_specListDocuments`, with `dir` set to the folder
+   you expect it in or without it for the whole workspace. Each document comes
+   with its root, its model-version stamp and whether it is editable; when the
+   answer says `truncated`, `stoppedBy` tells why (raise `timeBudgetMs` or
+   `maxResults`, or narrow `dir`).
 2. **Look at it.** `tomAi_specOutline` on the file, from the root or from a
    path, `depth` 1–3. It shows every declared child, filled or not, so it also
    shows where content can go. Keep the `revision` it returns.

@@ -398,7 +398,7 @@ document, a list item resolves only when the list holds it.
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
 | --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_specListDocuments` | The model's document roots, and the SOM documents under a folder with their root, model-version stamp and editability. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| `tomAi_specListDocuments` | The model's document roots, and the SOM documents under a folder (default the workspace) with their root, model-version stamp and editability. Searched with VS Code's file search (`search: "findFiles"`, about a second for the whole workspace), else by walking the folders; `timeBudgetMs` (default 10 s, max 120 s) bounds it and `stoppedBy` says why a list is truncated. | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_specOutline` | The instance tree under a path: kind, section id, headline, codeSpec, filled, item counts; depth-limited and paged. | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_specGetSection` | One node with its values: a leaf's value, a form's typed fields with enum domains, a list's items, a section's values, forms and children. | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_specReflect` | The model at a path or class: kinds, types, form fields, annotations, doc comments; with a file, the children `checkAddNode` accepts there now. | ✅ | ✅ | ⚪ | ✅ | ✅ |

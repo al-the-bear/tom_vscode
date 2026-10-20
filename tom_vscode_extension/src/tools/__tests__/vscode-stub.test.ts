@@ -11,6 +11,7 @@
  *   VS-4  applyEdit: recorded as a spy and in appliedEdits(); applied to the open fake document (which
  *         becomes dirty); applyEditResult false refuses it and changes nothing
  *   VS-5  workspace.textDocuments: [] by default, set by the option and by setTextDocuments()
+ *   VS-6  CancellationTokenSource: each token reports its own source's cancellation and fires its listeners once
  */
 
 import test, { beforeEach, describe } from 'node:test';
@@ -98,5 +99,20 @@ describe('the vscode stub: documents and edits', () => {
         assert.deepEqual(vscode.workspace.textDocuments, [doc]);
         handle.setTextDocuments([]);
         assert.deepEqual(vscode.workspace.textDocuments, []);
+    });
+
+    test('VS-6: a cancellation token', () => {
+        const a = new vscode.CancellationTokenSource();
+        const b = new vscode.CancellationTokenSource();
+        let fired = 0;
+        a.token.onCancellationRequested(() => { fired++; });
+        assert.equal(a.token.isCancellationRequested, false);
+        a.cancel();
+        a.cancel();
+        assert.equal(a.token.isCancellationRequested, true);
+        assert.equal(fired, 1, 'listeners fire once');
+        assert.equal(b.token.isCancellationRequested, false, 'another source is not cancelled');
+        a.dispose();
+        b.dispose();
     });
 });

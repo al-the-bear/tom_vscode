@@ -20,13 +20,55 @@ export interface SpecToolDeps {
     wsRoot: string;
     store: SomDocumentStore;
     service: SomModelService;
-    /** specListDocuments' walk budget; default SPEC_LIST_TIME_BUDGET_MS (spec-tools.ts). */
+    /** specListDocuments' time budget when the input gives none; default SPEC_LIST_TIME_BUDGET_MS (spec-tools.ts). */
     listTimeBudgetMs?: number;
+    /**
+     * Finds specListDocuments' candidate files under a folder (absolute paths,
+     * any order). The live deps use vscode.workspace.findFiles
+     * ({@link vscodeSpecCandidates}); without it, or when it fails, the tool
+     * walks the folders itself.
+     */
+    findCandidates?: (startAbs: string, opts: { deadline: number; cap: number }) => Promise<SpecCandidateSearch>;
     /** Open search cursors; default the extension-wide set. */
     cursors?: SomSearchCursors;
 }
 
 export const json = (value: unknown): string => JSON.stringify(value);
+
+/** What a candidate finder found, and why it stopped early when it did. */
+export interface SpecCandidateSearch {
+    files: string[];
+    stoppedBy?: 'time' | 'candidates';
+}
+
+/** The files specListDocuments looks at: YAML specs and Markdown (SOM or not; the peek decides). */
+export const SPEC_CANDIDATE_GLOB = '**/*.{md,docspecs.yaml}';
+/** Never searched: dependencies, build output, scratch space and dot folders (VCS and tool state). */
+export const SPEC_CANDIDATE_EXCLUDE = '{**/node_modules/**,**/out/**,**/dist/**,**/build/**,**/ztmp/**,**/.*/**}';
+
+/**
+ * The candidate files under `startAbs` through vscode.workspace.findFiles
+ * (ripgrep, symlinked folders followed as VS Code's search does), cancelled at
+ * `deadline`. At most `cap`; reaching it is `stoppedBy: 'candidates'`, the
+ * deadline `stoppedBy: 'time'` (nothing found then is reported, as findFiles
+ * gives no partial answer).
+ */
+export async function vscodeSpecCandidates(startAbs: string, opts: { deadline: number; cap: number }): Promise<SpecCandidateSearch> {
+    const cts = new vscode.CancellationTokenSource();
+    const timer = setTimeout(() => cts.cancel(), Math.max(0, opts.deadline - Date.now()));
+    try {
+        const uris = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(vscode.Uri.file(startAbs), SPEC_CANDIDATE_GLOB), SPEC_CANDIDATE_EXCLUDE, opts.cap, cts.token);
+        if (cts.token.isCancellationRequested) { return { files: [], stoppedBy: 'time' }; }
+        return { files: uris.map((u) => u.fsPath), ...(uris.length >= opts.cap ? { stoppedBy: 'candidates' as const } : {}) };
+    } catch (e) {
+        if (cts.token.isCancellationRequested) { return { files: [], stoppedBy: 'time' }; }
+        throw e;
+    } finally {
+        clearTimeout(timer);
+        cts.dispose();
+    }
+}
 
 /** A failure answer: the message, plus the error code and recovery hint when there is one. */
 export function failure(e: unknown): string {
@@ -81,6 +123,7 @@ export function liveDeps(): SpecToolDeps {
         store: somDocumentStore(),
         service: SomModelService.instance,
         cursors: sharedCursors,
+        findCandidates: vscodeSpecCandidates,
     };
 }
 

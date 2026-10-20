@@ -6,6 +6,13 @@
  *   ST-1   listDocuments finds YAML and SOM Markdown, skips non-SOM files and
  *          skipped folders, reports stamp and editability
  *   ST-2   listDocuments stops at maxResults or its time budget and says which; refuses a dir outside
+ *   ST-14  listDocuments through a candidate finder (vscimpa5): the same documents as the walk, whatever order and
+ *          noise the finder returns (non-candidates, skipped and dot folders); `search` names the finder; its
+ *          `stoppedBy` is passed on; a finder that fails falls back to the walk; `timeBudgetMs` sets the budget
+ *          (clamped), default SPEC_LIST_TIME_BUDGET_MS
+ *   ST-15  the live finder over vscode.workspace.findFiles (stub): a RelativePattern on the start folder with the
+ *          candidate glob, the skipped-folder exclude, the cap and a cancellation token; a cancelled search is
+ *          `stoppedBy: 'time'`, a full one `candidates'
  *   ST-3   outline: root first, depth, paging continues where the page ended
  *   ST-4   outline: every node kind agrees with the runtime's resolution
  *   ST-5   outline: filledOnly leaves empty subtrees out; the full tree stays in budget
@@ -33,7 +40,11 @@ installVscodeStub({});
 import { checkAddNode } from 'tom_som_typescript_runtime';
 import { SomModelService } from '../../services/som-model-service.js';
 import { SomDocumentStore } from '../../services/som-document-store.js';
+import { installVscodeStub as stubHandle } from './_vscode-stub.js';
+import { SPEC_CANDIDATE_EXCLUDE, SPEC_CANDIDATE_GLOB, vscodeSpecCandidates } from '../spec-tool-common.js';
 import {
+    SPEC_LIST_MAX_BUDGET_MS,
+    SPEC_LIST_TIME_BUDGET_MS,
     SPEC_TOOLS,
     SpecToolDeps,
     specGetSectionImpl,
@@ -108,6 +119,74 @@ describe('TomSpecs read-only tools', () => {
         const outside = await call(specListDocumentsImpl, { dir: '..' });
         assert.equal(outside.ok, false);
         assert.match(outside.error, /outside the workspace/);
+    });
+
+    test('ST-14: listDocuments through a candidate finder', async () => {
+        const abs = (rel: string): string => path.join(ws, rel);
+        let asked: { start: string; budget: number } | undefined;
+        const finder: SpecToolDeps['findCandidates'] = async (start, opts) => {
+            asked = { start, budget: opts.deadline - Date.now() };
+            return { files: [abs('specs/sub/newer.docspecs.yaml'), abs('specs/notes.md'), abs('specs/config.yaml'),
+                abs('node_modules/pkg/hidden.docspecs.yaml'), abs('.hidden/hidden.docspecs.yaml'),
+                abs('specs/meridian.md'), abs('specs/meridian.docspecs.yaml')] };
+        };
+        const r = JSON.parse(await withTiming('tomAi_specListDocuments:findFiles', () => specListDocumentsImpl({ ...deps, findCandidates: finder }, {})));
+        assert.equal(r.ok, true, JSON.stringify(r));
+        assert.equal(r.search, 'findFiles');
+        assert.deepEqual(r.documents.map((d: { file: string }) => d.file),
+            ['specs/meridian.docspecs.yaml', 'specs/meridian.md', 'specs/sub/newer.docspecs.yaml'], 'as the walk finds them');
+        assert.equal(r.truncated, undefined);
+        assert.equal(asked!.start, ws);
+        assert.ok(Math.abs(asked!.budget - SPEC_LIST_TIME_BUDGET_MS) < 1000, 'the default budget');
+
+        await specListDocumentsImpl({ ...deps, findCandidates: finder }, { timeBudgetMs: 999_999 });
+        assert.ok(asked!.budget <= SPEC_LIST_MAX_BUDGET_MS && asked!.budget > SPEC_LIST_MAX_BUDGET_MS - 1000, 'clamped to the maximum');
+        await specListDocumentsImpl({ ...deps, findCandidates: finder }, { dir: 'specs', timeBudgetMs: 3000 });
+        assert.equal(asked!.start, path.join(ws, 'specs'));
+        assert.ok(asked!.budget <= 3000 && asked!.budget > 2000);
+
+        const partial = JSON.parse(await specListDocumentsImpl({ ...deps, findCandidates: async () => ({ files: [abs('specs/meridian.md')], stoppedBy: 'time' }) }, {}));
+        assert.deepEqual([partial.truncated, partial.stoppedBy, partial.documents.length], [true, 'time', 1], 'the finder\'s stop is passed on');
+        const capped = JSON.parse(await specListDocumentsImpl({ ...deps, findCandidates: finder }, { maxResults: 2 }));
+        assert.deepEqual([capped.documents.length, capped.stoppedBy], [2, 'maxResults']);
+
+        const failing = JSON.parse(await specListDocumentsImpl({ ...deps, findCandidates: async () => { throw new Error('no search provider'); } }, {}));
+        assert.equal(failing.search, 'walk', 'a failing finder falls back to the walk');
+        assert.equal(failing.documents.length, 3);
+        const walked = await call(specListDocumentsImpl, {});
+        assert.equal(walked.search, 'walk');
+    });
+
+    test('ST-15: the live finder over vscode.workspace.findFiles', async () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const vscode = stubHandle().stub as any;
+        const saved = vscode.workspace.findFiles;
+        try {
+            let call: { include: { base: { fsPath: string }; pattern: string }; exclude: string; max: number; token: { isCancellationRequested: boolean } } | undefined;
+            vscode.workspace.findFiles = async (include: never, exclude: string, max: number, token: never): Promise<unknown[]> => {
+                call = { include, exclude, max, token };
+                return [vscode.Uri.file('/ws/a.md'), vscode.Uri.file('/ws/b.docspecs.yaml')];
+            };
+            const r = await vscodeSpecCandidates('/ws', { deadline: Date.now() + 5000, cap: 10 });
+            assert.deepEqual(r, { files: ['/ws/a.md', '/ws/b.docspecs.yaml'] });
+            assert.equal(call!.include.base.fsPath, '/ws');
+            assert.equal(call!.include.pattern, SPEC_CANDIDATE_GLOB);
+            assert.equal(call!.exclude, SPEC_CANDIDATE_EXCLUDE);
+            assert.equal(call!.max, 10);
+            assert.equal(call!.token.isCancellationRequested, false);
+            assert.match(SPEC_CANDIDATE_EXCLUDE, /node_modules/);
+            assert.match(SPEC_CANDIDATE_EXCLUDE, /\*\*\/\.\*\/\*\*/, 'dot folders');
+
+            const full = await vscodeSpecCandidates('/ws', { deadline: Date.now() + 5000, cap: 2 });
+            assert.equal(full.stoppedBy, 'candidates');
+
+            vscode.workspace.findFiles = (_i: never, _e: never, _m: never, token: { onCancellationRequested(f: () => void): void }): Promise<unknown[]> =>
+                new Promise((_resolve, reject) => token.onCancellationRequested(() => reject(new Error('Canceled'))));
+            const late = await vscodeSpecCandidates('/ws', { deadline: Date.now() + 20, cap: 10 });
+            assert.deepEqual(late, { files: [], stoppedBy: 'time' });
+        } finally {
+            vscode.workspace.findFiles = saved;
+        }
     });
 
     test('ST-3: outline starts at the root, honours depth and pages', async () => {

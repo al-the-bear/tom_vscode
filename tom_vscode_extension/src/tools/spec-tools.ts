@@ -50,6 +50,8 @@ export type { SpecToolDeps } from './spec-tool-common';
 export interface SpecListDocumentsInput {
     dir?: string;
     maxResults?: number;
+    /** How long the search may take, in ms (default SPEC_LIST_TIME_BUDGET_MS, at most SPEC_LIST_MAX_BUDGET_MS). */
+    timeBudgetMs?: number;
 }
 
 export interface SpecOutlineInput {
@@ -80,63 +82,124 @@ export interface SpecReflectInput {
 /** Directories never searched: dependencies, VCS and tool state, build output, scratch space. */
 const SKIPPED_DIRS = new Set(['node_modules', 'out', 'dist', 'build', 'ztmp']);
 /**
- * The walk stops at whichever comes first and says which: a call must stay
- * well inside the 5 s tool budget, and a large workspace (measured: 17 600
- * directories, 3.1 s to walk on mbp) does not fit. Narrowing `dir` is the fix.
+ * The search stops at whichever comes first and says which. Candidates come
+ * from vscode.workspace.findFiles in the extension (ripgrep: measured on mbp,
+ * the whole workspace's 4 888 candidates in under 1 s, `_ai` symlink
+ * followed); the Node walk is the fallback, and it is slow on a large tree
+ * (17 600 directories, 3.1 s on mbp), which is why the budget is generous and
+ * can be raised per call.
  */
 export const SPEC_LIST_MAX_DIRS = 20000;
-export const SPEC_LIST_TIME_BUDGET_MS = 2500;
+export const SPEC_LIST_TIME_BUDGET_MS = 10000;
+export const SPEC_LIST_MAX_BUDGET_MS = 120000;
+/** At most this many candidate files from the finder. */
+export const SPEC_LIST_MAX_CANDIDATES = 50000;
 
 function isCandidate(name: string): boolean {
     return name.endsWith('.docspecs.yaml') || name.endsWith('.md');
+}
+
+/** Whether `abs`, under `start`, sits in a folder the search skips (a finder may not know the rule). */
+function inSkippedDir(start: string, abs: string): boolean {
+    const dirs = path.relative(start, abs).split(path.sep).slice(0, -1);
+    return dirs.some((d) => d.startsWith('.') || SKIPPED_DIRS.has(d)) || dirs[0] === '..';
+}
+
+type StoppedBy = 'maxResults' | 'directories' | 'candidates' | 'time';
+
+interface Collected {
+    documents: Record<string, unknown>[];
+    stoppedBy: StoppedBy | null;
+}
+
+function documentEntry(deps: SpecToolDeps, abs: string): Record<string, unknown> | null {
+    const summary = deps.store.peek(abs);
+    if (!summary) { return null; }
+    return {
+        file: toWorkspacePath(deps, abs),
+        format: summary.format,
+        root: summary.root.sectionId ?? summary.root.type,
+        stamp: summary.stamp,
+        editability: summary.editability,
+        ...(summary.versionReason ? { readOnlyReason: summary.versionReason } : {}),
+    };
+}
+
+/** The documents among the finder's candidates, in path order. */
+async function collectFound(deps: SpecToolDeps, start: string, deadline: number, maxResults: number): Promise<Collected> {
+    const found = await deps.findCandidates!(start, { deadline, cap: SPEC_LIST_MAX_CANDIDATES });
+    const files = found.files.filter((f) => isCandidate(path.basename(f)) && !inSkippedDir(start, f)).sort();
+    const documents: Record<string, unknown>[] = [];
+    let stoppedBy: StoppedBy | null = found.stoppedBy ?? null;
+    for (const abs of files) {
+        if (documents.length >= maxResults) { stoppedBy = 'maxResults'; break; }
+        if (Date.now() > deadline) { stoppedBy = 'time'; break; }
+        const entry = documentEntry(deps, abs);
+        if (entry) { documents.push(entry); }
+    }
+    return { documents, stoppedBy };
+}
+
+/** The documents under `start`, walking the folders with Node (no symlinks followed). */
+function collectWalked(deps: SpecToolDeps, start: string, deadline: number, maxResults: number): Collected {
+    const documents: Record<string, unknown>[] = [];
+    const stack = [start];
+    let dirs = 0;
+    let stoppedBy: StoppedBy | null = null;
+    while (stack.length > 0 && stoppedBy === null) {
+        if (documents.length >= maxResults) { stoppedBy = 'maxResults'; break; }
+        if (++dirs > SPEC_LIST_MAX_DIRS) { stoppedBy = 'directories'; break; }
+        if (Date.now() > deadline) { stoppedBy = 'time'; break; }
+        const dir = stack.pop() as string;
+        let entries: fs.Dirent[];
+        try {
+            entries = fs.readdirSync(dir, { withFileTypes: true });
+        } catch {
+            continue;
+        }
+        entries.sort((a, b) => b.name.localeCompare(a.name)); // popped in ascending order
+        for (const entry of entries) {
+            const abs = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+                if (!entry.name.startsWith('.') && !SKIPPED_DIRS.has(entry.name)) { stack.push(abs); }
+            } else if (entry.isFile() && isCandidate(entry.name)) {
+                const doc = documentEntry(deps, abs);
+                if (!doc) { continue; }
+                documents.push(doc);
+                if (documents.length >= maxResults) { stoppedBy = 'maxResults'; break; }
+            }
+        }
+    }
+    return { documents, stoppedBy };
 }
 
 export async function specListDocumentsImpl(deps: SpecToolDeps, input: SpecListDocumentsInput): Promise<string> {
     try {
         const start = input.dir ? resolveInput(deps, input.dir) : deps.wsRoot;
         const maxResults = Math.max(1, Math.min(input.maxResults ?? 200, 2000));
-        const documents: Record<string, unknown>[] = [];
-        const stack = [start];
-        const deadline = Date.now() + (deps.listTimeBudgetMs ?? SPEC_LIST_TIME_BUDGET_MS);
-        let dirs = 0;
-        let stoppedBy: 'maxResults' | 'directories' | 'time' | null = null;
-        while (stack.length > 0 && stoppedBy === null) {
-            if (documents.length >= maxResults) { stoppedBy = 'maxResults'; break; }
-            if (++dirs > SPEC_LIST_MAX_DIRS) { stoppedBy = 'directories'; break; }
-            if (Date.now() > deadline) { stoppedBy = 'time'; break; }
-            const dir = stack.pop() as string;
-            let entries: fs.Dirent[];
+        const budget = input.timeBudgetMs !== undefined
+            ? Math.max(1, Math.min(input.timeBudgetMs, SPEC_LIST_MAX_BUDGET_MS))
+            : (deps.listTimeBudgetMs ?? SPEC_LIST_TIME_BUDGET_MS);
+        const deadline = Date.now() + budget;
+        let search: 'findFiles' | 'walk' = 'walk';
+        let collected: Collected | null = null;
+        if (deps.findCandidates) {
             try {
-                entries = fs.readdirSync(dir, { withFileTypes: true });
+                collected = await collectFound(deps, start, deadline, maxResults);
+                search = 'findFiles';
             } catch {
-                continue;
-            }
-            entries.sort((a, b) => b.name.localeCompare(a.name)); // popped in ascending order
-            for (const entry of entries) {
-                const abs = path.join(dir, entry.name);
-                if (entry.isDirectory()) {
-                    if (!entry.name.startsWith('.') && !SKIPPED_DIRS.has(entry.name)) { stack.push(abs); }
-                } else if (entry.isFile() && isCandidate(entry.name)) {
-                    const summary = deps.store.peek(abs);
-                    if (!summary) { continue; }
-                    documents.push({
-                        file: toWorkspacePath(deps, abs),
-                        format: summary.format,
-                        root: summary.root.sectionId ?? summary.root.type,
-                        stamp: summary.stamp,
-                        editability: summary.editability,
-                        ...(summary.versionReason ? { readOnlyReason: summary.versionReason } : {}),
-                    });
-                    if (documents.length >= maxResults) { stoppedBy = 'maxResults'; break; }
-                }
+                collected = null; // no search provider (or it failed): walk instead
             }
         }
+        collected ??= collectWalked(deps, start, deadline, maxResults);
+        const { documents, stoppedBy } = collected;
         documents.sort((a, b) => String(a.file).localeCompare(String(b.file)));
         return json({
             ok: true,
             modelVersion: deps.service.modelVersion,
             roots: deps.service.model.roots.map((r) => ({ sectionId: r.sectionId, type: r.type, title: r.title })),
             searched: toWorkspacePath(deps, start) || '.',
+            search,
             documents,
             ...(stoppedBy ? { truncated: true, stoppedBy } : {}),
             note: 'editability here is the model-version rule only; tomAi_specOutline / tomAi_specGetSection report readOnlyReason after a full load, including Markdown that does not import faithfully.',
@@ -207,9 +270,11 @@ export const SPEC_LIST_DOCUMENTS_TOOL: SharedToolDefinition<SpecListDocumentsInp
         'List the TomSpecs (SOM) document roots the model defines (section id, type, title) and the SOM documents found under '
         + '`dir` (default: the workspace): `*.docspecs.yaml`, and `*.md` whose headings carry `<!--[SECTIONID]-->`. Each document '
         + 'comes with its root, model-version stamp and editability under the SOM §4.2 version rules. Skips dot-folders, '
-        + 'node_modules, out, dist, build and ztmp. Stops at `maxResults` (default 200), a directory cap or a 2.5 s walk '
-        + 'budget and then says `truncated: true` with `stoppedBy` — narrow `dir` in that case (a whole large workspace '
-        + 'may not fit). Next: tomAi_specOutline on a document for its paths and editability, tomAi_specReflect for what the '
+        + 'node_modules, out, dist, build and ztmp. Candidates come from VS Code\'s file search (`search: "findFiles"`, '
+        + 'symlinked folders followed; measured on mbp: the whole workspace in about a second), else from walking the '
+        + 'folders (`search: "walk"`, slower on a large tree). Stops at `maxResults` (default 200), the time budget '
+        + '(`timeBudgetMs`, default 10 s, at most 120 s) or a directory / candidate cap, and then says `truncated: true` '
+        + 'with `stoppedBy` (`maxResults`, `time`, `directories`, `candidates`) — raise `timeBudgetMs` or narrow `dir`. Next: tomAi_specOutline on a document for its paths and editability, tomAi_specReflect for what the '
         + 'model allows. Editor counterpart: model_list_documents.',
     tags: ['tomspecs', 'som', 'docspecs', 'tom-ai-chat'],
     readOnly: true,
@@ -218,6 +283,7 @@ export const SPEC_LIST_DOCUMENTS_TOOL: SharedToolDefinition<SpecListDocumentsInp
         properties: {
             dir: { type: 'string', description: 'Folder to search (workspace-relative or absolute). Default: the workspace root.' },
             maxResults: { type: 'number', description: 'Most documents to return. Default 200, max 2000.' },
+            timeBudgetMs: { type: 'number', description: 'How long the search may take, in ms. Default 10000, max 120000.' },
         },
     },
     execute: async (input) => specListDocumentsImpl(liveDeps(), input),
