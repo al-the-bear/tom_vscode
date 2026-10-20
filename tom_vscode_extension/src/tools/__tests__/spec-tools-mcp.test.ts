@@ -25,9 +25,8 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { installVscodeStub } from './_vscode-stub.js';
 
 const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'spec-mcp-'));
-const { stub } = installVscodeStub({ workspaceFolders: [ws] });
-// The editor-aware store asks which documents are open; none are.
-(stub.workspace as { textDocuments: unknown[] }).textDocuments = [];
+// The editor-aware store asks which documents are open; the stub's are none.
+installVscodeStub({ workspaceFolders: [ws] });
 
 import { SomModelService } from '../../services/som-model-service.js';
 import { buildToolMcpServer, NULL_MCP_TRAIL_SINK, resolveEffectiveMcpTools } from '../../handlers/mcpServer-handler.js';

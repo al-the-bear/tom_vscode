@@ -29,7 +29,7 @@
  *      overrides into the active stub. Returns a `spies` accessor + a
  *      `restore()` function that's safe to call multiple times.
  *
- * What this stub covers (per tool_test_coverage.md §0.1):
+ * What this stub covers:
  *
  *   - `workspace.workspaceFolders` (configurable URI list)
  *   - `workspace.getConfiguration(section)` returning a chainable get()
@@ -44,6 +44,12 @@
  *     is recorded and can be fired by hand from a test via
  *     `stubFileWatchers()`. Nothing fires on its own, which is exactly what
  *     makes the "native watcher never fires" case testable.
+ *   - `workspace.textDocuments` (fake open documents built with
+ *     `fakeTextDocument(fsPath, text, {isDirty, saveResult})`; `[]` by default),
+ *     `Position`, `Range` and `WorkspaceEdit` (recording replace / insert /
+ *     delete), and `workspace.applyEdit`, which applies an edit to the open fake
+ *     documents (they become dirty) unless `applyEditResult` is false; every call
+ *     is a spy, every applied edit is in `appliedEdits()`
  *   - `EventEmitter`
  *   - `CancellationTokenSource`
  *   - `ProgressLocation` enum
@@ -94,7 +100,136 @@ export interface StubFileWatcher {
     fireDelete(uri?: unknown): void;
 }
 
+// ---------------------------------------------------------------------------
+// Editor pieces: positions, ranges, workspace edits, open documents
+// ---------------------------------------------------------------------------
+
+/** `vscode.Position`: 0-based line and character. */
+export class StubPosition {
+    constructor(readonly line: number, readonly character: number) {}
+}
+
+/** `vscode.Range`, from two positions or from four numbers. */
+export class StubRange {
+    readonly start: StubPosition;
+    readonly end: StubPosition;
+    constructor(a: StubPosition | number, b: StubPosition | number, c?: number, d?: number) {
+        if (typeof a === 'number') {
+            this.start = new StubPosition(a, b as number);
+            this.end = new StubPosition(c ?? 0, d ?? 0);
+        } else {
+            this.start = a;
+            this.end = b as StubPosition;
+        }
+    }
+    get isEmpty(): boolean { return this.start.line === this.end.line && this.start.character === this.end.character; }
+}
+
+/** One operation a `StubWorkspaceEdit` recorded. A `delete` has no text; an `insert` has a position, no range. */
+export interface StubEditOp {
+    kind: 'replace' | 'insert' | 'delete';
+    uri: { fsPath: string };
+    range?: StubRange;
+    position?: StubPosition;
+    text?: string;
+}
+
+/** `vscode.WorkspaceEdit`: records its text operations in order. */
+export class StubWorkspaceEdit {
+    readonly ops: StubEditOp[] = [];
+    get size(): number { return this.ops.length; }
+    replace(uri: { fsPath: string }, range: StubRange, text: string): void { this.ops.push({ kind: 'replace', uri, range, text }); }
+    insert(uri: { fsPath: string }, position: StubPosition, text: string): void { this.ops.push({ kind: 'insert', uri, position, text }); }
+    delete(uri: { fsPath: string }, range: StubRange): void { this.ops.push({ kind: 'delete', uri, range }); }
+}
+
+/** A fake `vscode.TextDocument` open in an editor. */
+export interface FakeTextDocument {
+    readonly uri: { fsPath: string; path: string; scheme: 'file'; toString(): string };
+    readonly fileName: string;
+    isDirty: boolean;
+    /** How often `save()` was called. */
+    saved: number;
+    /** What `save()` answers. */
+    saveResult: boolean;
+    readonly lineCount: number;
+    getText(range?: StubRange): string;
+    positionAt(offset: number): StubPosition;
+    offsetAt(position: StubPosition): number;
+    /** Replaces the buffer (an applied edit uses this); marks it dirty. */
+    setText(text: string): void;
+    save(): Promise<boolean>;
+}
+
+/**
+ * A fake open document over `text`. Offsets and positions convert across
+ * lines as VS Code's do (an offset past the end is clamped); `save()` counts,
+ * clears `isDirty` when it succeeds and answers `saveResult` (default true).
+ * Put it into `workspace.textDocuments` with the `textDocuments` option or
+ * `setTextDocuments()`.
+ */
+export function fakeTextDocument(fsPath: string, text: string, opts: { isDirty?: boolean; saveResult?: boolean } = {}): FakeTextDocument {
+    let buffer = text;
+    const lineStarts = (): number[] => {
+        const starts = [0];
+        for (let i = 0; i < buffer.length; i++) { if (buffer[i] === '\n') { starts.push(i + 1); } }
+        return starts;
+    };
+    const doc: FakeTextDocument = {
+        uri: fakeUri(fsPath),
+        fileName: fsPath,
+        isDirty: opts.isDirty ?? false,
+        saved: 0,
+        saveResult: opts.saveResult ?? true,
+        get lineCount(): number { return lineStarts().length; },
+        getText(range?: StubRange): string {
+            return range ? buffer.slice(doc.offsetAt(range.start), doc.offsetAt(range.end)) : buffer;
+        },
+        positionAt(offset: number): StubPosition {
+            const at = Math.max(0, Math.min(offset, buffer.length));
+            const starts = lineStarts();
+            let line = 0;
+            while (line + 1 < starts.length && starts[line + 1] <= at) { line++; }
+            return new StubPosition(line, at - starts[line]);
+        },
+        offsetAt(position: StubPosition): number {
+            const starts = lineStarts();
+            if (position.line >= starts.length) { return buffer.length; }
+            const lineEnd = position.line + 1 < starts.length ? starts[position.line + 1] - 1 : buffer.length;
+            return Math.min(starts[position.line] + position.character, lineEnd);
+        },
+        setText(next: string): void { buffer = next; doc.isDirty = true; },
+        async save(): Promise<boolean> {
+            doc.saved++;
+            if (doc.saveResult) { doc.isDirty = false; }
+            return doc.saveResult;
+        },
+    };
+    return doc;
+}
+
+/** Apply `edit`'s operations to the open fake documents they name. */
+function applyToDocuments(edit: StubWorkspaceEdit, docs: FakeTextDocument[]): void {
+    for (const doc of docs) {
+        const ops = edit.ops.filter((o) => o.uri.fsPath === doc.uri.fsPath);
+        if (ops.length === 0) { continue; }
+        // From the end backwards, so earlier offsets stay valid.
+        const spans = ops.map((o) => {
+            const start = doc.offsetAt(o.range ? o.range.start : o.position!);
+            const end = o.range ? doc.offsetAt(o.range.end) : start;
+            return { start, end, text: o.kind === 'delete' ? '' : (o.text ?? '') };
+        }).sort((a, b) => b.start - a.start);
+        let text = doc.getText();
+        for (const s of spans) { text = text.slice(0, s.start) + s.text + text.slice(s.end); }
+        doc.setText(text);
+    }
+}
+
 export interface InstallOptions {
+    /** `workspace.textDocuments`: the documents open in an editor. Default `[]`. */
+    textDocuments?: FakeTextDocument[];
+    /** What `workspace.applyEdit` answers; false refuses every edit (nothing applied). Default true. */
+    applyEditResult?: boolean;
     /**
      * URI fsPath values for `workspace.workspaceFolders`. Pass an empty
      * array (or omit) for `undefined` (the unconfigured state).
@@ -168,6 +303,13 @@ export function installVscodeStub(options: InstallOptions = {}): {
     addModuleOverride(spec: string, exports: unknown): void;
     /** Update workspaceFolders after install. Useful between tests. */
     setWorkspaceFolders(absPaths: string[]): void;
+    /** Replace `workspace.textDocuments`. */
+    setTextDocuments(docs: FakeTextDocument[]): void;
+    /** What `workspace.applyEdit` answers from now on. */
+    setApplyEditResult(result: boolean): void;
+    /** The edits `workspace.applyEdit` applied (accepted), oldest first. */
+    appliedEdits(): StubWorkspaceEdit[];
+    clearAppliedEdits(): void;
     /** Restore the original Module._resolveFilename. Idempotent. */
     restore(): void;
 } {
@@ -226,7 +368,21 @@ function hookResolver(state: InstallState): void {
     }
 }
 
+/** The edit bookkeeping of a stub, kept beside it rather than on the vscode surface. */
+interface EditState {
+    applyEditResult: boolean;
+    appliedEdits: StubWorkspaceEdit[];
+}
+const editStates = new WeakMap<object, EditState>();
+const editStateOf = (stub: Record<string, unknown>): EditState => editStates.get(stub)!;
+
 function applyOptions(state: InstallState, options: InstallOptions): void {
+    if (options.textDocuments !== undefined) {
+        (state.stub.workspace as Record<string, unknown>).textDocuments = options.textDocuments;
+    }
+    if (options.applyEditResult !== undefined) {
+        editStateOf(state.stub).applyEditResult = options.applyEditResult;
+    }
     if (options.workspaceFolders !== undefined) {
         applyWorkspaceFolders(state.stub, options.workspaceFolders);
     }
@@ -271,6 +427,18 @@ function makeHandle(state: InstallState): ReturnType<typeof installVscodeStub> {
         },
         setWorkspaceFolders(absPaths: string[]): void {
             applyWorkspaceFolders(state.stub, absPaths);
+        },
+        setTextDocuments(docs: FakeTextDocument[]): void {
+            (state.stub.workspace as Record<string, unknown>).textDocuments = docs;
+        },
+        setApplyEditResult(result: boolean): void {
+            editStateOf(state.stub).applyEditResult = result;
+        },
+        appliedEdits(): StubWorkspaceEdit[] {
+            return editStateOf(state.stub).appliedEdits;
+        },
+        clearAppliedEdits(): void {
+            editStateOf(state.stub).appliedEdits.length = 0;
         },
         restore(): void {
             if (!installed) { return; }
@@ -438,8 +606,17 @@ function buildDefaultStub(record: (method: string, args: unknown[]) => void, opt
             },
             // Some tools call workspace.findFiles — best-effort empty result.
             findFiles: async (): Promise<unknown[]> => [],
-            // applyEdit is exercised by language-service / workspace-edit tools.
-            applyEdit: async (edit: unknown): Promise<boolean> => { record('workspace.applyEdit', [edit]); return true; },
+            textDocuments: options.textDocuments ?? [],
+            // Applies a StubWorkspaceEdit to the open fake documents, unless refused.
+            async applyEdit(edit: unknown): Promise<boolean> {
+                record('workspace.applyEdit', [edit]);
+                const edits = editStateOf(stub);
+                if (!edits.applyEditResult) { return false; }
+                const docs = (stub.workspace as { textDocuments: FakeTextDocument[] }).textDocuments;
+                if (edit instanceof StubWorkspaceEdit) { applyToDocuments(edit, docs); }
+                edits.appliedEdits.push(edit as StubWorkspaceEdit);
+                return true;
+            },
             onDidChangeConfiguration: new EventEmitter<unknown>().event,
         },
         window: {
@@ -515,6 +692,12 @@ function buildDefaultStub(record: (method: string, args: unknown[]) => void, opt
             parse: (s: string): ReturnType<typeof fakeUri> => fakeUri(s),
             joinPath: (base: ReturnType<typeof fakeUri>, ...parts: string[]): ReturnType<typeof fakeUri> => fakeUri(path.join(base.fsPath, ...parts)),
         },
+        // eslint-disable-next-line @typescript-eslint/naming-convention -- the vscode API's names
+        Position: StubPosition,
+        // eslint-disable-next-line @typescript-eslint/naming-convention -- the vscode API's names
+        Range: StubRange,
+        // eslint-disable-next-line @typescript-eslint/naming-convention -- the vscode API's names
+        WorkspaceEdit: StubWorkspaceEdit,
         RelativePattern: class {
             base: unknown;
             pattern: string;
@@ -550,6 +733,8 @@ function buildDefaultStub(record: (method: string, args: unknown[]) => void, opt
             uiKind: 1,
         },
     };
+
+    editStates.set(stub, { applyEditResult: options.applyEditResult ?? true, appliedEdits: [] });
 
     // Apply initial workspaceFolders + configuration shaping.
     if (options.workspaceFolders) { applyWorkspaceFolders(stub, options.workspaceFolders); }

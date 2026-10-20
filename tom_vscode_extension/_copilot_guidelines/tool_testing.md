@@ -70,7 +70,7 @@ try {
 }
 ```
 
-Covered surface: `workspace` (workspaceFolders, getConfiguration, fs,
+Covered surface: `workspace` (workspaceFolders, textDocuments, getConfiguration, fs,
 findFiles, applyEdit, onDidChangeConfiguration, createFileSystemWatcher), `window`
 (showInformationMessage / WarningMessage / ErrorMessage, createOutputChannel,
 showInputBox, showQuickPick, activeTextEditor, visibleTextEditors,
@@ -80,10 +80,23 @@ tabGroups, createWebviewPanel, registerWebviewViewProvider, withProgress),
 `lm` (selectChatModels, tools, invokeTool), `Uri.file/parse/joinPath`,
 `EventEmitter`, `CancellationTokenSource`, `ProgressLocation`,
 `LanguageModelTextPart` / `ToolCallPart` / `ToolResultPart`,
-`RelativePattern`, `Disposable`, `LanguageModelChatMessage.User/Assistant`.
+`RelativePattern`, `Disposable`, `LanguageModelChatMessage.User/Assistant`,
+`Position`, `Range`, `WorkspaceEdit`.
 
 Install is idempotent — re-calling it merges new overrides into the existing
 stub (lets a test file extend the family's default stub).
+
+**Open documents and edits.** Code that writes through an open editor is
+tested against fake documents instead of a local patch of the stub:
+`fakeTextDocument(fsPath, text, { isDirty, saveResult })` builds one (offsets
+and positions convert across lines, `getText(range)`, `save()` counts and
+clears `isDirty`), and the `textDocuments` option or `h.setTextDocuments([...])`
+opens it. `WorkspaceEdit` records `replace` / `insert` / `delete` as `ops`;
+`workspace.applyEdit` applies them to the open fake documents (which become
+dirty), records every call as a spy and every applied edit in
+`h.appliedEdits()`, and refuses everything after `h.setApplyEditResult(false)`
+(or the `applyEditResult` option). `som-document-io-vscode.test.ts` is the
+worked example; `vscode-stub.test.ts` holds the stub to it.
 
 **File watchers never fire on their own.** `createFileSystemWatcher` hands back
 a recorded watcher; `stubFileWatchers()` returns them in creation order (the
